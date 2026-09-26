@@ -29,6 +29,7 @@
  * DESCRIPTION: WaveFront-Alignment module for backtracing alignments
  */
 
+#include "utils/commons.h"
 #include "wavefront_backtrace.h"
 
 /*
@@ -67,8 +68,8 @@ int64_t wavefront_backtrace_misms(
   if (score < 0) return WAVEFRONT_OFFSET_NULL;
   wavefront_t* const mwavefront = wf_aligner->wf_components.mwavefronts[score];
   if (mwavefront != NULL &&
-      mwavefront->lo <= k &&
-      k <= mwavefront->hi) {
+      mwavefront->wf_elements_init_min <= k &&
+      k <= mwavefront->wf_elements_init_max) {
     return BACKTRACE_PIGGYBACK_SET(mwavefront->offsets[k]+1,backtrace_M);
   } else {
     return WAVEFRONT_OFFSET_NULL;
@@ -108,8 +109,8 @@ int64_t wavefront_backtrace_del1_open(
   if (score < 0) return WAVEFRONT_OFFSET_NULL;
   wavefront_t* const mwavefront = wf_aligner->wf_components.mwavefronts[score];
   if (mwavefront != NULL &&
-      mwavefront->lo <= k+1 &&
-      k+1 <= mwavefront->hi) {
+      mwavefront->wf_elements_init_min <= k+1 &&
+      k+1 <= mwavefront->wf_elements_init_max) {
     return BACKTRACE_PIGGYBACK_SET(mwavefront->offsets[k+1],backtrace_D1_open);
   } else {
     return WAVEFRONT_OFFSET_NULL;
@@ -122,8 +123,8 @@ int64_t wavefront_backtrace_del2_open(
   if (score < 0) return WAVEFRONT_OFFSET_NULL;
   wavefront_t* const mwavefront = wf_aligner->wf_components.mwavefronts[score];
   if (mwavefront != NULL &&
-      mwavefront->lo <= k+1 &&
-      k+1 <= mwavefront->hi) {
+      mwavefront->wf_elements_init_min <= k+1 &&
+      k+1 <= mwavefront->wf_elements_init_max) {
     return BACKTRACE_PIGGYBACK_SET(mwavefront->offsets[k+1],backtrace_D2_open);
   } else {
     return WAVEFRONT_OFFSET_NULL;
@@ -136,8 +137,8 @@ int64_t wavefront_backtrace_del1_ext(
   if (score < 0) return WAVEFRONT_OFFSET_NULL;
   wavefront_t* const d1wavefront = wf_aligner->wf_components.d1wavefronts[score];
   if (d1wavefront != NULL &&
-      d1wavefront->lo <= k+1 &&
-      k+1 <= d1wavefront->hi) {
+      d1wavefront->wf_elements_init_min <= k+1 &&
+      k+1 <= d1wavefront->wf_elements_init_max) {
     return BACKTRACE_PIGGYBACK_SET(d1wavefront->offsets[k+1],backtrace_D1_ext);
   } else {
     return WAVEFRONT_OFFSET_NULL;
@@ -150,8 +151,8 @@ int64_t wavefront_backtrace_del2_ext(
   if (score < 0) return WAVEFRONT_OFFSET_NULL;
   wavefront_t* const d2wavefront = wf_aligner->wf_components.d2wavefronts[score];
   if (d2wavefront != NULL &&
-      d2wavefront->lo <= k+1 &&
-      k+1 <= d2wavefront->hi) {
+      d2wavefront->wf_elements_init_min <= k+1 &&
+      k+1 <= d2wavefront->wf_elements_init_max) {
     return BACKTRACE_PIGGYBACK_SET(d2wavefront->offsets[k+1],backtrace_D2_ext);
   } else {
     return WAVEFRONT_OFFSET_NULL;
@@ -167,8 +168,8 @@ int64_t wavefront_backtrace_ins1_open(
   if (score < 0) return WAVEFRONT_OFFSET_NULL;
   wavefront_t* const mwavefront = wf_aligner->wf_components.mwavefronts[score];
   if (mwavefront != NULL &&
-      mwavefront->lo <= k-1 &&
-      k-1 <= mwavefront->hi) {
+      mwavefront->wf_elements_init_min <= k-1 &&
+      k-1 <= mwavefront->wf_elements_init_max) {
     return BACKTRACE_PIGGYBACK_SET(mwavefront->offsets[k-1]+1,backtrace_I1_open);
   } else {
     return WAVEFRONT_OFFSET_NULL;
@@ -181,8 +182,8 @@ int64_t wavefront_backtrace_ins2_open(
   if (score < 0) return WAVEFRONT_OFFSET_NULL;
   wavefront_t* const mwavefront = wf_aligner->wf_components.mwavefronts[score];
   if (mwavefront != NULL &&
-      mwavefront->lo <= k-1 &&
-      k-1 <= mwavefront->hi) {
+      mwavefront->wf_elements_init_min <= k-1 &&
+      k-1 <= mwavefront->wf_elements_init_max) {
     return BACKTRACE_PIGGYBACK_SET(mwavefront->offsets[k-1]+1,backtrace_I2_open);
   } else {
     return WAVEFRONT_OFFSET_NULL;
@@ -195,8 +196,8 @@ int64_t wavefront_backtrace_ins1_ext(
   if (score < 0) return WAVEFRONT_OFFSET_NULL;
   wavefront_t* const i1wavefront = wf_aligner->wf_components.i1wavefronts[score];
   if (i1wavefront != NULL &&
-      i1wavefront->lo <= k-1 &&
-      k-1 <= i1wavefront->hi) {
+      i1wavefront->wf_elements_init_min <= k-1 &&
+      k-1 <= i1wavefront->wf_elements_init_max) {
     return BACKTRACE_PIGGYBACK_SET(i1wavefront->offsets[k-1]+1,backtrace_I1_ext);
   } else {
     return WAVEFRONT_OFFSET_NULL;
@@ -209,8 +210,8 @@ int64_t wavefront_backtrace_ins2_ext(
   if (score < 0) return WAVEFRONT_OFFSET_NULL;
   wavefront_t* const i2wavefront = wf_aligner->wf_components.i2wavefronts[score];
   if (i2wavefront != NULL &&
-      i2wavefront->lo <= k-1 &&
-      k-1 <= i2wavefront->hi) {
+      i2wavefront->wf_elements_init_min <= k-1 &&
+      k-1 <= i2wavefront->wf_elements_init_max) {
     return BACKTRACE_PIGGYBACK_SET(i2wavefront->offsets[k-1]+1,backtrace_I2_ext);
   } else {
     return WAVEFRONT_OFFSET_NULL;
@@ -225,12 +226,14 @@ void wavefront_backtrace_linear(
     const int alignment_k,
     const wf_offset_t alignment_offset) {
   // Parameters
-  const int pattern_length = wf_aligner->pattern_length;
-  const int text_length = wf_aligner->text_length;
+  wavefront_sequences_t* const sequences = &wf_aligner->sequences;
+  const int pattern_length = sequences->pattern_length;
+  const int text_length = sequences->text_length;
   const wavefront_penalties_t* const penalties = &wf_aligner->penalties;
   const distance_metric_t distance_metric = penalties->distance_metric;
   // Prepare cigar
   cigar_t* const cigar = wf_aligner->cigar;
+  cigar_clear(cigar);
   cigar->end_offset = cigar->max_operations - 1;
   cigar->begin_offset = cigar->max_operations - 2;
   cigar->operations[cigar->end_offset] = '\0';
@@ -322,12 +325,14 @@ void wavefront_backtrace_affine(
     const int alignment_k,
     const wf_offset_t alignment_offset) {
   // Parameters
-  const int pattern_length = wf_aligner->pattern_length;
-  const int text_length = wf_aligner->text_length;
+  wavefront_sequences_t* const sequences = &wf_aligner->sequences;
+  const int pattern_length = sequences->pattern_length;
+  const int text_length = sequences->text_length;
   const wavefront_penalties_t* const penalties = &wf_aligner->penalties;
   const distance_metric_t distance_metric = penalties->distance_metric;
   // Prepare cigar
   cigar_t* const cigar = wf_aligner->cigar;
+  cigar_clear(cigar);
   cigar->end_offset = cigar->max_operations - 1;
   cigar->begin_offset = cigar->max_operations - 2;
   cigar->operations[cigar->end_offset] = '\0';
@@ -414,7 +419,7 @@ void wavefront_backtrace_affine(
     }
     // Check source score
     if (max_all < 0) break; // No source
-    // Traceback Matches
+    // Traceback matches
     if (matrix_type == affine2p_matrix_M) {
       const int max_offset = BACKTRACE_PIGGYBACK_GET_OFFSET(max_all);
       const int num_matches = offset - max_offset;
@@ -425,7 +430,7 @@ void wavefront_backtrace_affine(
       h = WAVEFRONT_H(k,offset);
       if (v <= 0 || h <= 0) break;
     }
-    // Traceback Operation
+    // Traceback operation
     const backtrace_type backtrace_type = BACKTRACE_PIGGYBACK_GET_TYPE(max_all);
     switch (backtrace_type) {
       case backtrace_M:
@@ -513,8 +518,8 @@ void wavefront_backtrace_affine(
     // DEBUG
     if (v != 0 || h != 0 || (score != 0 && penalties->match == 0)) {
       fprintf(stderr,"[WFA::Backtrace] I?/D?-Beginning backtrace error\n");
-      fprintf(stderr,">%.*s\n",pattern_length,wf_aligner->pattern);
-      fprintf(stderr,"<%.*s\n",text_length,wf_aligner->text);
+      fprintf(stderr,">%.*s\n",pattern_length,sequences->pattern);
+      fprintf(stderr,"<%.*s\n",text_length,sequences->text);
       exit(-1);
     }
   }
@@ -549,18 +554,12 @@ void wavefront_backtrace_pcigar(
   const int end_v = WAVEFRONT_V(alignment_k,alignment_offset);
   const int end_h = WAVEFRONT_H(alignment_k,alignment_offset);
   if (wf_aligner->penalties.distance_metric <= gap_linear) {
-    wf_backtrace_buffer_unpack_cigar_linear(bt_buffer,
-        wf_aligner->pattern,wf_aligner->pattern_length,
-        wf_aligner->text,wf_aligner->text_length,
-        wf_aligner->match_funct,
-        wf_aligner->match_funct_arguments,
+    wf_backtrace_buffer_unpack_cigar_linear(
+        bt_buffer,&wf_aligner->sequences,
         begin_v,begin_h,end_v,end_h,wf_aligner->cigar);
   } else {
-    wf_backtrace_buffer_unpack_cigar_affine(bt_buffer,
-        wf_aligner->pattern,wf_aligner->pattern_length,
-        wf_aligner->text,wf_aligner->text_length,
-        wf_aligner->match_funct,
-        wf_aligner->match_funct_arguments,
+    wf_backtrace_buffer_unpack_cigar_affine(
+        bt_buffer,&wf_aligner->sequences,
         begin_v,begin_h,end_v,end_h,wf_aligner->cigar);
   }
 }

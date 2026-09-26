@@ -191,7 +191,7 @@ target_include_directories(protal_lib_static PUBLIC ../lib/tsl)
 # Add-Subdirectory with ${CMAKE_CURRENT_SOURCE_DIR}/
 
 
-add_subdirectory(${PROJECT_SOURCE_DIR}/../lib/wfa2-lib wfa)
+include(${PROJECT_SOURCE_DIR}/../lib/wfa2-lib.cmake)
 add_subdirectory(${PROJECT_SOURCE_DIR}/../lib/gzstream gzstream)
 add_subdirectory(${PROJECT_SOURCE_DIR}/../lib/cPMML cPMML)
 

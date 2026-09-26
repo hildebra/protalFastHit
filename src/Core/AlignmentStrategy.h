@@ -521,9 +521,8 @@ namespace protal {
                 }
 
 
-                std::string orig_cigar = m_aligner.GetAligner().getAlignmentCigar();
                 auto& info = alignment.GetAlignmentInfo();
-                PostProcessAlignment(m_aligner.GetAligner().getAlignmentCigar(), info, read.length(),
+                PostProcessAlignment(m_aligner.Cigar(), info, read.length(),
                                      gene.Sequence().length(), m_alignment_orientation.reference_start, 0, abs_pos);
 
                 info.UpdateScore();
