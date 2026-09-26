@@ -18,6 +18,7 @@ SIMULATE        simulate_metagenomes binary (default: build/simulate_metagenomes
 import glob
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -80,9 +81,11 @@ def reference_genes():
     return genes
 
 
-def simulate_reads(prefix, pairs_per_gene, seed, random_r2=False):
+def simulate_reads(prefix, pairs_per_gene, seed, random_r2=False, pairs_per_kb=None):
     """Write <prefix>_R1.fq/_R2.fq in READS: 220-320 bp fragments, 100 bp reads, both orientations,
-    0.5% substitutions and a few '#' (Q2) bases. With random_r2 the second mate cannot align."""
+    0.5% substitutions and a few '#' (Q2) bases. With random_r2 the second mate cannot align.
+    With pairs_per_kb, genes get pairs in proportion to their length (even depth), shorter genes
+    included, instead of pairs_per_gene each."""
     rng = random.Random(seed)
 
     def mutate(seq):
@@ -97,10 +100,15 @@ def simulate_reads(prefix, pairs_per_gene, seed, random_r2=False):
     n = 0
     with open(os.path.join(READS, f"{prefix}_R1.fq"), "w") as r1, open(os.path.join(READS, f"{prefix}_R2.fq"), "w") as r2:
         for _, gene in reference_genes():
-            if len(gene) < 320:
-                continue
-            for _ in range(pairs_per_gene):
-                flen = rng.randint(220, 320)
+            if pairs_per_kb is None:
+                if len(gene) < 320:
+                    continue
+                pairs, shortest, longest = pairs_per_gene, 220, 320
+            else:
+                pairs = round(pairs_per_kb * len(gene) / 1000)
+                shortest, longest = min(220, len(gene)), min(320, len(gene))
+            for _ in range(pairs):
+                flen = rng.randint(shortest, longest)
                 start = rng.randint(0, len(gene) - flen)
                 frag = gene[start:start + flen]
                 if rng.random() < 0.5:
@@ -202,6 +210,208 @@ class CompleteRunTest(WorkDir):
             column = header.index("refs_retained")
             retained = sum(int(line.split("\t")[column]) for line in fh)
         self.assertGreater(retained, 0, "reference calls retained at variant positions")
+
+
+    def test_partitions_are_one_based_and_cover_the_msa(self):
+        for part in glob.glob(self.path("out", "strains", "*.raw.partition.txt")):
+            with open(part) as fh:
+                ranges = [tuple(int(x) for x in line.split("=")[1].split("-")) for line in fh if line.strip()]
+            with open(part.replace(".raw.partition.txt", ".raw.msa.fna")) as fh:
+                length = len([line for line in fh if not line.startswith(">")][0].strip())
+            self.assertEqual(ranges[0][0], 1, part)
+            self.assertEqual(ranges[-1][1], length, part)
+            for (_, end), (start, _) in zip(ranges, ranges[1:]):
+                self.assertEqual(start, end + 1, part)
+
+
+class StrainEdgeCaseTest(WorkDir):
+    def test_species_without_msa_genes(self):
+        # No gene reaches --snp_min_cov, so no species has MSA columns (this used to segfault).
+        # Two samples: MSAs are built only across samples.
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa",
+                      "--snp_min_cov", "100000", "--msa_min_hcov", "0")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("has enough coverage for an MSA", log)
+        self.assertEqual(glob.glob(self.path("out", "strains", "*.raw.msa.fna")), [])
+
+
+class LowCoverageAbundanceTest(WorkDir):
+    """The depth estimate, and so relative abundances, stays proportional at low coverage."""
+
+    @staticmethod
+    def taxon_depths(genes_log):
+        depths = {}
+        with open(genes_log) as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            taxid, vcov = header.index("TaxID"), header.index("TaxVCOV")
+            for line in fh:
+                fields = line.rstrip("\n").split("\t")
+                depths[fields[taxid]] = float(fields[vcov])
+        return depths
+
+    def test_subsampled_depths_scale_with_the_read_count(self):
+        # About 3x on every gene; the subsamples have about 0.12x and 0.36x.
+        simulate_reads("even", 0, seed=4, pairs_per_kb=15)
+        rng = random.Random(5)
+        with open(os.path.join(READS, "even_R1.fq")) as f1, open(os.path.join(READS, "even_R2.fq")) as f2:
+            r1, r2 = f1.readlines(), f2.readlines()
+        fractions = {"low": 0.04, "mid": 0.12}
+        for name, fraction in fractions.items():
+            keep = [i for i in range(len(r1) // 4) if rng.random() < fraction]
+            for lines, mate in ((r1, 1), (r2, 2)):
+                with open(self.path(f"{name}_R{mate}.fq"), "w") as fh:
+                    for i in keep:
+                        fh.writelines(lines[4 * i:4 * i + 4])
+            fractions[name] = len(keep) / (len(r1) // 4)
+        rc, log = run(self.work, "--db", DB,
+                      "-1", ",".join([os.path.join(READS, "even_R1.fq")] + [self.path(f"{n}_R1.fq") for n in fractions]),
+                      "-2", ",".join([os.path.join(READS, "even_R2.fq")] + [self.path(f"{n}_R2.fq") for n in fractions]),
+                      "--prefix", "full," + ",".join(fractions), "-o", "out", "-t", "3", "--no_strains")
+        self.assertEqual(rc, 0, log[-3000:])
+        full = self.taxon_depths(self.path("out", "full.profile.genes.log"))
+        self.assertTrue(full)
+        for name, fraction in fractions.items():
+            depths = self.taxon_depths(self.path("out", f"{name}.profile.genes.log"))
+            for taxid, depth in depths.items():
+                ratio = depth / (fraction * full[taxid])
+                self.assertLess(abs(ratio - 1), 0.3, f"{name} ({fraction:.3f} of the reads), taxon {taxid}: "
+                                                     f"depth {depth:.4f} vs {fraction * full[taxid]:.4f} expected")
+
+
+class ModelContractTest(WorkDir):
+    """The training dump holds the features the model is scored with, and --no_strains changes no profile."""
+
+    def test_truth_annotation_has_the_model_features(self):
+        truth = self.path("truth.tsv")
+        with open(truth, "w") as fh:
+            fh.write("1\n2\n3\n")
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out", "-t", "2", "--no_strains",
+                      "--profile_truth", truth)
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(self.path("out", "sa.profile.truth_annotated")) as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            rows = [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh]
+        with open(os.path.join(DB, "model.xml")) as fh:
+            fields = set(re.findall(r'<DataField name="([^"]+)"', fh.read())) - {"truth"}
+        self.assertEqual(sorted(fields - set(header)), [], "every model input is in the training dump")
+        self.assertTrue(rows)
+        for row in rows:
+            for prefix, counts in (("RAF", "AF"), ("RA", "A")):
+                total = sum(float(row[f"{counts}{i}"]) for i in range(5))
+                for i in range(5):
+                    expected = float(row[f"{counts}{i}"]) / total if total else 0
+                    self.assertAlmostEqual(float(row[f"{prefix}{i}"]), expected, places=9, msg=f"{prefix}{i}")
+            self.assertEqual(row["truth"], "1")
+
+    def test_no_strains_changes_no_profile(self):
+        outputs = {}
+        for name, extra in (("strains", []), ("no_strains", ["--no_strains"])):
+            rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", name, "-t", "2", "--no_qcmsa", *extra)
+            self.assertEqual(rc, 0, log[-3000:])
+            outputs[name] = {}
+            for f in glob.glob(self.path(name, "*.profile*")):
+                with open(f) as fh:
+                    outputs[name][os.path.basename(f)] = fh.read()
+        self.assertTrue(outputs["strains"])
+        self.assertEqual(outputs["strains"], outputs["no_strains"])
+
+
+class QcmsaContractTest(WorkDir):
+    """qcmsa counts only the samples that are in the MSA."""
+
+    META_HEADER = ("sample\tgene_id\tvertical_coverage\tcounts_vcov1\tcounts_vcov2\tmulti_allelic\tfiltered\t"
+                   "multi_rate_vcov1\tfiltered_rate_vcov1\tmulti_rate_vcov2\tfiltered_rate_vcov2\tmedian_vcov\t"
+                   "hcov\tgene_length\tmean_vcov_nonzero\tmedian_vcov_nonzero\n")
+
+    def test_samples_missing_from_the_msa_do_not_count(self):
+        with open(self.path("x.raw.msa.fna"), "w") as fh:
+            fh.write(">x_reference\nACGTACGTAC\n>s1\nACGTACGTAC\n>s2\nACGTACGTAC\n")
+        with open(self.path("x.raw.partition.txt"), "w") as fh:
+            fh.write("DNA, gene1 = 1-10\n")
+        with open(self.path("x.meta.tsv"), "w") as fh:
+            fh.write(self.META_HEADER)
+            for sample in ("s1", "s2", "s3", "s4"):  # s3 and s4 are not in the MSA
+                fh.write(f"{sample}\t1\t5\t10\t10\t0\t0\t0\t0\t0\t0\t5\t1\t10\t5\t5\n")
+        args = [QCMSA, self.path("x.raw.msa.fna"), self.path("x.raw.partition.txt"), self.path("x.meta.tsv")]
+
+        rc, log = run(self.work, *args, "--prefix", self.path("two"), "--gene-min-samples", "2", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertIn("Loaded meta: 2 samples", log)
+        self.assertFalse(os.path.exists(self.path("two.msa.fna")), "2 samples are not more than 2")
+
+        rc, log = run(self.work, *args, "--prefix", self.path("one"), "--gene-min-samples", "1", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertTrue(os.path.exists(self.path("one.msa.fna")), log)
+
+
+class MapUtilsTest(WorkDir):
+    """protal_map_utils resolves relative map paths as protal does."""
+
+    def test_relative_paths_resolve_like_protal(self):
+        os.makedirs(self.path("maps"))
+        os.makedirs(self.path("reads"))
+        maps = {}
+        for sample in ("sa", "sb"):
+            for mate in (1, 2):
+                shutil.copy(os.path.join(READS, f"{sample}_R{mate}.fq"), self.path("reads", f"{sample}_R{mate}.fq"))
+            maps[sample] = self.path("maps", f"{sample}.map")
+            with open(maps[sample], "w") as fh:
+                fh.write("#OUTPUT_DIR\tout\n#SAM_OUTPUT_DIR\taln\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tSAM\n")
+                fh.write(f"{sample}\t{sample}\treads/{sample}_R1.fq\treads/{sample}_R2.fq\t{sample}.sam\n")
+        sample_map = maps["sa"]
+        tool = os.path.join(ROOT, "scripts", "protal_map_utils")
+
+        # Read paths are relative to the directory protal runs in, not to the map's directory.
+        rc, log = run(self.work, "validate", "--map", sample_map, binary=tool)
+        self.assertEqual(rc, 0, log)
+
+        rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "2", "--no_qcmsa", "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertTrue(os.path.isfile(self.path("out", "aln", "sa.sam")), "protal found the reads and wrote OUTPUT_DIR/SAM_OUTPUT_DIR")
+
+        rc, merged = run(self.work, "merge", "--map", maps["sa"], maps["sb"], binary=tool)
+        self.assertEqual(rc, 0, merged)
+        lines = merged.splitlines()
+        variables = dict(line.split("\t", 1) for line in lines if line.startswith("#") and not line.startswith("#SAMPLEID"))
+        header = next(line for line in lines if line.startswith("#SAMPLEID")).split("\t")
+        rows = [dict(zip(header, line.split("\t"))) for line in lines if line and not line.startswith("#")]
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            first = os.path.join(variables.get("#INPUT_DIR", self.work), row["FIRST"])
+            self.assertEqual(os.path.realpath(first), os.path.realpath(self.path("reads", row["#SAMPLEID"] + "_R1.fq")))
+
+
+class LauncherTest(WorkDir):
+    """The protal launcher runs the binaries installed next to it before any on $PATH."""
+
+    def stub(self, directory, name, text):
+        os.makedirs(directory, exist_ok=True)
+        path = os.path.join(directory, name)
+        with open(path, "w") as fh:
+            fh.write(f'#!/bin/sh\necho {text} "$@"\n')
+        os.chmod(path, 0o755)
+        return path
+
+    def test_own_install_wins_over_path(self):
+        install, other = self.path("install"), self.path("other")
+        os.makedirs(install)
+        launcher = os.path.join(install, "protal")
+        shutil.copy(os.path.join(ROOT, "protal_launcher"), launcher)
+        os.chmod(launcher, 0o755)
+        self.stub(install, "protal_baseline", "own-baseline")
+        self.stub(other, "protal_avx2", "other-avx2")
+        self.stub(other, "protal_baseline", "other-baseline")
+        env = dict(os.environ, PATH=other + os.pathsep + os.environ["PATH"])
+        env.pop("PROTAL_NO_AVX2", None)
+
+        out = subprocess.run([launcher, "--x", "a b"], env=env, stdout=subprocess.PIPE, text=True)
+        self.assertEqual(out.stdout.strip(), "own-baseline --x a b")
+
+        # Without a binary of its own, it falls back to $PATH.
+        os.remove(os.path.join(install, "protal_baseline"))
+        env["PROTAL_NO_AVX2"] = "1"
+        out = subprocess.run([launcher, "--x"], env=env, stdout=subprocess.PIPE, text=True)
+        self.assertEqual(out.stdout.strip(), "other-baseline --x")
 
 
 class RerunTest(WorkDir):
@@ -381,6 +591,22 @@ class FailFastTest(WorkDir):
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("must name one file per sample: 1 given for 2 samples", log)
 
+    def test_map_row_without_a_profile_cell(self):
+        sample_map = self.path("samples.map")
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{self.path('out_map_rows')}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tPROFILE\n")
+            fh.write(f"sa\tsa\t{READS}/sa_R1.fq\t{READS}/sa_R2.fq\tsa.profile\n")
+            fh.write(f"sb\tsb\t{READS}/sb_R1.fq\t{READS}/sb_R2.fq\n")
+        rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "1", "--no_qcmsa")
+        self.assertEqual(rc, 9, log[-3000:])
+        self.assertIn("Line 4: no value in column 5 (PROFILE)", log)
+        self.assertFalse(glob.glob(self.path("out_map_rows", "**", "*.sam*"), recursive=True))
+
+    def test_benchmark_needs_reads_named_by_gene(self):
+        rc, log = self.query(DB, "out_bench", "--benchmark_alignment")
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("--benchmark_alignment needs reads named <taxid>_<gene id>", log)
+
     def test_build_rejects_a_reference_the_map_does_not_describe(self):
         db = self.path("build_db")
         os.mkdir(db)
@@ -400,8 +626,74 @@ class FailFastTest(WorkDir):
         self.assertFalse(os.path.exists(os.path.join(db, "index.prx.zst")))
 
 
+class SamInputTest(WorkDir):
+    """--profile_only reads SAM files as other tools may leave them."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        rc, log = run(cls.work, "--db", DB, *reads("sa"), "-o", "out", "-t", "2", "--no_qcmsa")
+        assert rc == 0, log[-3000:]
+        cls.sam = glob.glob(os.path.join(cls.work, "out", "sa*.sam"))[0]
+        with open(cls.sam) as fh:
+            lines = fh.read().splitlines()
+        cls.header = [line for line in lines if line.startswith("@")]
+        cls.records = [line for line in lines if not line.startswith("@")]
+        with open(os.path.join(cls.work, "out", "sa.profile")) as fh:
+            cls.profile_text = fh.read()
+        assert cls.profile_text.strip(), "the reference profile lists taxa"
+
+    def write_sam(self, name, lines, final_newline=True):
+        sam = self.path(f"{name}.sam")
+        with open(sam, "w", newline="") as fh:
+            fh.write("\n".join(lines) + ("\n" if final_newline else ""))
+        return sam
+
+    def profile_only(self, *sams):
+        return run(self.work, "--db", DB, "--profile_only", ",".join(sams), "-o", self.path("out_" + os.path.basename(sams[0])),
+                   "-t", "1", "--no_qcmsa")
+
+    def test_edited_sam_profiles_like_the_original(self):
+        half = len(self.records) // 2
+        unmapped = "x.1\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII"
+        foreign = "\t".join(["y.1", "0", "chr1"] + self.records[0].split("\t")[3:])
+        edited = (self.header + self.records[:half] + ["", unmapped, foreign] +
+                  [r + "\r" for r in self.records[half:half + 10]] + self.records[half + 10:])
+        sam = self.write_sam("edited", edited, final_newline=False)
+        rc, log = self.profile_only(sam)
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("skipped 1 record(s): unmapped", log)
+        self.assertIn("skipped 1 record(s): reference is not a protal gene", log)
+        with open(self.path("edited.profile")) as fh:
+            self.assertEqual(fh.read(), self.profile_text)
+
+    def test_header_only_sam_gets_an_empty_profile(self):
+        sam = self.write_sam("header_only", self.header)
+        rc, log = self.profile_only(sam)
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("contains no usable alignments", log)
+        self.assertTrue(os.path.isfile(self.path("header_only.profile")))
+
+    def test_unreadable_sam_fails_only_its_sample(self):
+        good = self.write_sam("good", self.header + self.records)
+        broken = self.write_sam("broken", self.header + self.records[:50] + ["sa.9\t0\t1_1"])
+        rc, log = self.profile_only(good, broken)
+        self.assertEqual(rc, 1, log[-3000:])
+        self.assertRegex(log, r"Cannot read the SAM file of sample \S+ \(.*broken\.sam\): line \d+: expected at least 11")
+        with open(self.path("good.profile")) as fh:
+            self.assertEqual(fh.read(), self.profile_text)
+
+
 class QcmsaTest(WorkDir):
     """The post-filter runs, and --qcmsa_args reaches it intact."""
+
+    def test_no_filtered_msa_is_reported(self):
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out_none", "-t", "4",
+                      "--qcmsa_script", QCMSA, "--qcmsa_args", "--gene-min-samples 100")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("qcmsa kept no gene or sample", log)
+        filtered = [f for f in glob.glob(self.path("out_none", "strains", "*.msa.fna")) if not f.endswith(".raw.msa.fna")]
+        self.assertEqual(filtered, [])
 
     def test_filtered_msa(self):
         # qcmsa keeps a gene only if MORE than --gene-min-samples samples pass (default 3), which

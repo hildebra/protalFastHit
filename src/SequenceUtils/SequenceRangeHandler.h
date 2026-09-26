@@ -67,13 +67,13 @@ public:
     static std::string CoverageVectorToString(CoverageVec const& cov, size_t max = 120) {
         std::string str;
         for (auto i = 0; i < cov.size(); i++) {
-            str += std::to_string(i) + " " + std::string(std::min(cov[i], static_cast<uint16_t>(max)), '#') + (cov[i] >= max ? " " + std::to_string(cov[i]) : "") + '\n';
+            str += std::to_string(i) + " " + std::string(std::min(cov[i], static_cast<uint32_t>(max)), '#') + (cov[i] >= max ? " " + std::to_string(cov[i]) : "") + '\n';
         }
         return str;
     }
 
     void SetCoverageVector(CoverageVec const& vector);
-    size_t CoveredPortion(uint16_t min_cov=1);
+    size_t CoveredPortion(uint32_t min_cov=1);
 };
 
 

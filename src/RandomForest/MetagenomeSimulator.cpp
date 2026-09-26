@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <iostream>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -574,10 +575,17 @@ void MetagenomeSimulator::render_sample(
                 throw std::runtime_error("Missing genome length for " + assignment.genome.name);
             }
             // Drawn even when reads are skipped, so that a --test design and the
-            // corresponding real run consume the RNG identically.
-            const auto drawn_seed = static_cast<unsigned int>(rng_());
+            // corresponding real run consume the RNG identically. ART reads -rs as a signed
+            // 32-bit number, so larger seeds would alias; the draw keeps 31 bits.
+            const auto drawn_seed = static_cast<unsigned int>(rng_() & 0x7fffffffu);
             if (auto forced_seed = art_.seed_override()) {
                 // An -rs in extra_art_args beats both the drawn seed and a replayed one.
+                static bool warned = false;
+                if (*forced_seed > 0x7fffffffu && !warned) {
+                    std::cerr << "Warning: -rs " << *forced_seed << " is above 2^31-1, which ART reads "
+                                 "as a different (signed 32-bit) seed" << std::endl;
+                    warned = true;
+                }
                 assignment.art_seed = *forced_seed;
             } else if (!assignment.art_seed) {
                 assignment.art_seed = drawn_seed;

@@ -440,6 +440,7 @@ namespace protal {
             auto const qname = PairQName(record1.id, record2.id);
 
             size_t output_counter = 0;
+            std::string read_records;
             for (auto& [ar1, ar2] :  alignment_results) {
                 bool both = ar1.IsSet() && ar2.IsSet();
                 // A mate without an alignment is valid; only an alignment inconsistent with its CIGAR is not.
@@ -537,20 +538,22 @@ namespace protal {
 
                 first = false;
                 alignments++;
-                // Both mates go into the buffer as one unit, so a flush cannot let another thread's
-                // records land between them: readers pair a read1 record with the line that follows.
-                std::string records = ar1.IsSet() ? m_sam1.ToString() : std::string{};
-                if (both) records += '\n';
-                if (ar2.IsSet()) records += m_sam2.ToString();
-                if (!m_sam_output.Write(std::move(records))) {
-#pragma omp critical(sam_output)
-                    m_sam_output.Write(m_sam_os);
-                }
+                if (!read_records.empty()) read_records += '\n';
+                if (ar1.IsSet()) read_records += m_sam1.ToString();
+                if (both) read_records += '\n';
+                if (ar2.IsSet()) read_records += m_sam2.ToString();
                 if (++output_counter == m_max_out) {
                     break;
                 }
             }
 
+            // All candidates of the read go into the buffer as one unit, so a flush cannot let another
+            // thread's records land between them: readers pair a read1 record with the line that
+            // follows, and take adjacent records with one name as one read's candidates.
+            if (!read_records.empty() && !m_sam_output.Write(std::move(read_records))) {
+#pragma omp critical(sam_output)
+                m_sam_output.Write(m_sam_os);
+            }
         }
     };
 }

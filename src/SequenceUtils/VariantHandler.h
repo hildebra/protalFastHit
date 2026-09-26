@@ -4,14 +4,17 @@
 
 #pragma once
 
+#include <algorithm>
 #include "SNPUtils.h"
 #include "Variant.h"
 #include "robin_map.h"
 #include "GenomeLoader.h"
+#include "SequenceRange.h"
 
 namespace protal {
     class VariantHandler {
         Variants m_variants;
+        tsl::robin_map<VariantPos, uint32_t> m_uncalled;  // reads with an N at a position
         const std::string& m_reference;
 
     public:
@@ -47,7 +50,6 @@ namespace protal {
                 }
             }
             variant_bin.emplace_back( Variant(pos, snp, ref) );
-            if (variant_bin.back().Observations() == 65536) exit(8);
             return variant_bin.back();
         }
 
@@ -79,10 +81,6 @@ namespace protal {
             auto& variant_bin = GetVariantBin(position);
             auto& variant = GetVariant(variant_bin, position, snp, ref);
             variant.AddObservation(quality, on_forward);
-            if (variant.Observations() == 65535) {
-                std::cout << variant.ToString()<< std::endl;
-                exit(3);
-            }
         }
 
         void AddINDEL(VariantType type, VariantPos position, Base ref, std::string&& structural, bool on_forward, Qual quality) {
@@ -91,92 +89,80 @@ namespace protal {
             variant.AddObservation(quality, on_forward);
         }
 
+        // Records the variants one alignment supports. SNPs come from X ops (protal writes M only for
+        // exact matches). A base that is N in the read or the reference supports no allele: it is
+        // counted as uncalled, so that it is not taken for reference support either. Insertions and
+        // deletions are called only between aligned bases: at either end of an alignment they are
+        // artefacts, and a trailing insertion would lie past the read's coverage. A deletion has no
+        // base of its own and gets the lower quality of its two flanking bases.
         bool ExtractVariants(SamEntry const& sam, size_t read_id = 0) {
-            int qpos = 0;
-            int rpos = sam.m_pos - 1;
-
-            int count = 0;
-            char op = ' ';
-
-            std::string query = "";
-            std::string ref = "";
-
-            std::string align = "";
-            std::string cigar = "";
-            int cpos = 0;
-            bool faulty = false;
-
-
-
-            SNP snp;
-            snp.readid = read_id;
-            snp.orientation = sam.IsReversed();
-            bool is_fwd = !sam.IsReversed();
-
-            bool output = false;
-//            bool output = sam.m_rname == "54758_110";
-
-            if (output) {
-                std::cout << sam.ToString() << std::endl;
-                PrintAlignment(sam, m_reference, std::cout);
+            std::vector<std::pair<int, char>> ops;
+            {
+                int cpos = 0, count = 0;
+                char op = ' ';
+                while (NextCompressedCigar(cpos, sam.m_cigar, count, op)) ops.emplace_back(count, op);
             }
+            auto is_aligned = [](std::pair<int, char> const& o) { return o.second == 'M' || o.second == 'X'; };
+            std::ptrdiff_t const first_aligned = std::find_if(ops.begin(), ops.end(), is_aligned) - ops.begin();
+            std::ptrdiff_t const last_aligned = static_cast<std::ptrdiff_t>(ops.size()) - 1 -
+                                                (std::find_if(ops.rbegin(), ops.rend(), is_aligned) - ops.rbegin());
+
+            bool const is_fwd = !sam.IsReversed();
+            size_t qpos = 0;
+            size_t rpos = sam.m_pos - 1;
 
             bm_next_compressed_cigar.Start();
-            while (NextCompressedCigar(cpos, sam.m_cigar, count, op)) {
+            for (std::ptrdiff_t k = 0; k < static_cast<std::ptrdiff_t>(ops.size()); k++) {
+                auto const [count, op] = ops[k];
+                bool const consumes_ref = !(op == 'I' || op == 'S');
+                bool const consumes_query = op != 'D';
+                if ((consumes_ref && rpos + count > m_reference.size()) || (consumes_query && qpos + count > sam.m_seq.size())) {
+                    bm_next_compressed_cigar.Stop();
+                    return false;
+                }
+                bool const between_aligned_bases = k > first_aligned && k < last_aligned;
+
                 if (op == 'M') {
                     for (auto i = 0; i < count; i++) {
-                        if (sam.m_seq[qpos + i] != m_reference[rpos+i] && sam.m_seq[qpos + i] != 'N' && m_reference[rpos+i] != 'N') {
-                            // std::cerr << sam.m_seq[qpos + i] << " " << m_reference[rpos+i] << std::endl;
-                            faulty = true;
+                        char const base = sam.m_seq[qpos + i];
+                        char const ref = m_reference[rpos + i];
+                        if (base == 'N' || ref == 'N') {
+                            m_uncalled[rpos + i]++;
+                        } else if (base != ref) {
+                            std::cerr << "Thread " << omp_get_thread_num() << " FAULTY ---------------------------------" << std::endl;
+                            PrintAlignment(sam, m_reference, std::cerr);
+                            std::cerr << sam.m_seq << std::endl;
+                            std::cerr << "Faulty sam: \n" << sam.ToString() << std::endl;
+                            bm_next_compressed_cigar.Stop();
+                            return false;
                         }
-                    }
-                    if (faulty) {
-                        std::cerr << "Thread " << omp_get_thread_num() << " FAULTY ---------------------------------" << std::endl;
-                        auto success = PrintAlignment(sam, m_reference, std::cerr);
-                        std::cerr << sam.m_seq << std::endl;
-                        std::cerr << "Faulty sam: \n" << sam.ToString() << std::endl;
-                        bm_next_compressed_cigar.Stop();
-                        return false;
-                    }
-                }
-
-                if (op == 'I') {
-                    // Mean over qualities in insertion
-                    auto qual_sum = 0;
-                    for (auto i = 0; i < count; i++) {
-                        qual_sum += PhredScore(sam.m_qual[qpos + i]);
-                    }
-                    AddINDEL(VariantType::INS, rpos, m_reference[rpos], sam.m_seq.substr(qpos, count), is_fwd, qual_sum/count);
-                    if (output) {
-                        std::cout << rpos << " Insertion of " << count << " (" << sam.m_seq.substr(qpos, count) << ") at " << qpos << ", " << rpos << std::endl;
-                    }
-                } else if (op == 'D') {
-                    // Deletion has  no quality because it is not present in read. (Maybe incorporate following bases)
-                    AddINDEL(VariantType::DEL, rpos, m_reference[rpos], m_reference.substr(rpos, count), is_fwd, 0);
-                    if (output) {
-                        std::cout << rpos << " Deletion of  " << count << " (" << m_reference.substr(rpos, count) << ") at "
-                                  << qpos << ", " << rpos << std::endl;
                     }
                 } else if (op == 'X') {
                     for (auto i = 0; i < count; i++) {
-                        AddSNP(rpos + i, sam.m_seq[qpos + i], m_reference[rpos + i], is_fwd, PhredScore(sam.m_qual[qpos + i]));
-                        if (output) {
-                            std::cout << rpos + i << " " << sam.m_seq[qpos + i] << " -> " << m_reference[rpos + i] << " (" << qpos+i << ", " << rpos+i
-                                      << ") Qual: " << static_cast<int>(sam.m_qual[qpos + i]-33) << std::endl;
+                        char const base = sam.m_seq[qpos + i];
+                        char const ref = m_reference[rpos + i];
+                        if (base == 'N' || ref == 'N') {
+                            m_uncalled[rpos + i]++;
+                        } else {
+                            AddSNP(rpos + i, base, ref, is_fwd, PhredScore(sam.m_qual[qpos + i]));
                         }
                     }
+                } else if (op == 'I' && between_aligned_bases) {
+                    size_t qual_sum = 0;
+                    for (auto i = 0; i < count; i++) {
+                        qual_sum += PhredScore(sam.m_qual[qpos + i]);
+                    }
+                    AddINDEL(VariantType::INS, rpos, m_reference[rpos], sam.m_seq.substr(qpos, count), is_fwd, qual_sum / count);
+                } else if (op == 'D' && between_aligned_bases) {
+                    Qual const flank = std::min(PhredScore(sam.m_qual[qpos - 1]), PhredScore(sam.m_qual[qpos]));
+                    AddINDEL(VariantType::DEL, rpos, m_reference[rpos], m_reference.substr(rpos, count), is_fwd, flank);
                 }
 
-                qpos += (op != 'D') * count;
-                rpos += (!(op == 'I' || op == 'S')) * count;
+                qpos += consumes_query * count;
+                rpos += consumes_ref * count;
             }
             bm_next_compressed_cigar.Stop();
-
-            if (output) {
-                std::cout << "Problemo: " << std::flush << std::endl;
-                Utils::Input();
-            }
-
+            (void)read_id;
             return true;
         }
 
@@ -198,7 +184,7 @@ namespace protal {
 
         bool FilterSNPs(Variant& var, size_t coverage, size_t min_observations, size_t min_observations_fwdrev, double min_frequency, size_t min_avg_quality, size_t min_phred_sum=0, bool require_strand=false) {
             auto observations = var.Observations();
-            auto frequency = static_cast<double>(observations) / coverage;
+            auto frequency = coverage == 0 ? 0.0 : static_cast<double>(observations) / coverage;
             auto mean_qual = var.MeanQuality();
 
             bool count_ok = (observations >= min_observations ||
@@ -258,11 +244,14 @@ namespace protal {
             FilterSNPs(bin, coverage, min_observations, min_observations_fwdrev, min_frequency, min_avg_quality, min_phred_sum, require_strand);
         }
 
-        void PostProcessSNPs(std::vector<uint16_t>& coverage, size_t min_observations=2, size_t min_observations_fwdrev=2, double min_frequency=0.2, size_t min_avg_quality=15, size_t min_phred_sum=0, bool require_strand=false) {
+        void PostProcessSNPs(CoverageVec const& coverage, size_t min_observations=2, size_t min_observations_fwdrev=2, double min_frequency=0.2, size_t min_avg_quality=15, size_t min_phred_sum=0, bool require_strand=false) {
             // Iterate all variant positions.
             for (auto& [variant_pos, variant_bin] : m_variants) {
                 auto& bin = m_variants.at(variant_pos);
-                auto cov = coverage[variant_pos];
+                size_t cov = variant_pos < coverage.size() ? coverage[variant_pos] : 0;
+                // Reads with an N here cover the position but support no allele.
+                auto uncalled = m_uncalled.find(variant_pos);
+                if (uncalled != m_uncalled.end()) cov = cov > uncalled->second ? cov - uncalled->second : 0;
 
                 PostProcessSNPBin(bin, cov, min_observations, min_observations_fwdrev, min_frequency, min_avg_quality, min_phred_sum, require_strand);
             }

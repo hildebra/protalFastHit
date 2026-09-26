@@ -232,3 +232,23 @@ TEST(KmerUtils, LowercaseBasesEncodeLikeUppercase) {
     }
     EXPECT_EQ(KmerUtils::BaseToInt('n'), 4u);
 }
+
+TEST(UniqueKmers, LoadsCountsAndRejectsMalformedLines) {
+    ScratchDir dir;
+    Reference ref;
+    auto fna = dir.Write("reference.fna", ref.fna);
+    auto map = dir.Write("reference.map", ref.map);
+    {
+        protal::GenomeLoader loader(fna, map);
+        loader.LoadUniqueKmers(dir.Write("u.tsv", "1\t1\t3\t0.3\t0\t0\t0\t0\t10\r\n\n1\t2\t0\t0\t0\t0\t0\t0\t8\n"));
+        EXPECT_TRUE(loader.GetGenome(1).IsGeneHittable(1));
+        EXPECT_FALSE(loader.GetGenome(1).IsGeneHittable(2));
+    }
+    auto load = [&](std::string const& content) {
+        protal::GenomeLoader loader(fna, map);
+        loader.LoadUniqueKmers(dir.Write("bad.tsv", content));
+    };
+    EXPECT_EXIT(load("1\t1\t3\n"), testing::ExitedWithCode(8), "line 1: expected 9 tab-separated columns, found 3");
+    EXPECT_EXIT(load("1\t1\tx\t0\t0\t0\t0\t0\t10\n"), testing::ExitedWithCode(8), "column 3 is not");
+    EXPECT_EXIT(load("7\t1\t3\t0.3\t0\t0\t0\t0\t10\n"), testing::ExitedWithCode(8), "gene 7_1 is not in reference.map");
+}

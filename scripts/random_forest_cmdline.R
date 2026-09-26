@@ -119,7 +119,8 @@ load_truth_data <- function(path) {
   df$prediction <- as.logical(df$prediction)
   df$truth <- as.factor(df$truth_raw)
   inf_cols <- c("lu_gene_rate", "lsu_gene_rate", "lu_gene_rate2", "lsu_gene_rate2", "lu_gene_rate3", "lsu_gene_rate3",
-                "lu_rate", "lsu_rate", "su_rate", "lsu_per_read", "lu_per_read")
+                "lu_rate", "lsu_rate", "su_rate", "su_rate_ref", "lu_rate_ref", "lsu_rate_ref",
+                "lsu_per_read", "lu_per_read")
   for (col in inf_cols) {
     bad <- is.infinite(df[[col]])
     if (any(bad)) df[[col]][bad] <- 0

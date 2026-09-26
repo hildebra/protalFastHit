@@ -43,8 +43,23 @@ strain-dbcounts:
         --strains {{strain_run}}/strains \
         --out {{strain_run}}/db_gene_counts.tsv
 
+# Simulated input in the layout strain-protal reads: simulate_metagenomes writes the reads to
+# strain_input/output/reads, protal aligns them into strain_input/protal/alignments, and the map
+# is kept as strain_input/protal_map.tsv. strain_genomes is a simulate_metagenomes --genome_table.
+strain_genomes := ""
+strain_sim_args := "-n 8 --total_read_pairs 40000 --species_per_sample 3 --seed 31"
+strain-input: baseline simulate
+    test -n "{{strain_genomes}}" || { echo "strain-input: set strain_genomes=<simulate_metagenomes --genome_table>" >&2; exit 2; }
+    {{build_dir}}/simulate_metagenomes --genome_table "{{strain_genomes}}" -o "{{strain_input}}/output" \
+        --protal_metafile "{{strain_input}}/protal" -t {{strain_threads}} {{strain_sim_args}}
+    PROTAL_DB_PATH="{{strain_db}}" {{protal}} --map "{{strain_input}}/output/protal.meta" -t {{strain_threads}} --no_profile
+    cp "{{strain_input}}/output/protal.meta" "{{strain_input}}/protal_map.tsv"
+
 # Build a map that reuses the existing alignments + reads and writes strain
 # results into the repo-local run dir, then run protal with the qcmsa post-filter (M5).
+# The input map's directory variables are dropped: an input #SAM_OUTPUT_DIR (as
+# protal_map_utils generate writes) would otherwise point protal into the run dir,
+# where it finds no SAM files and aligns every sample again.
 strain-protal:
     mkdir -p {{strain_run}}/strains {{strain_run}}/misc {{strain_run}}/profiles
     # Assemble the map: base OUTPUT_DIR + reuse existing SAMs/reads, local strain output.
@@ -55,7 +70,7 @@ strain-protal:
       printf '#PROFILE_OUTPUT_DIR\t%s\n'  "{{strain_run}}/profiles"; \
       printf '#STRAIN_OUTPUT_DIR\t%s\n'   "{{strain_run}}/strains"; \
       printf '#MISC_OUTPUT_DIR\t%s\n'     "{{strain_run}}/misc"; \
-      grep -vE '^#(INPUT_DIR|OUTPUT_DIR)' "{{strain_input}}/protal_map.tsv"; \
+      grep -vE '^#(INPUT|OUTPUT|SAM_OUTPUT|PROFILE_OUTPUT|STRAIN_OUTPUT|MISC_OUTPUT)_DIR[[:space:]]' "{{strain_input}}/protal_map.tsv"; \
     {{ '}' }} > {{strain_run}}/strain_test_map.tsv
     # Write the full log to a file (avoids a pipeline whose trailing grep can fail
     # the recipe under `set -o pipefail`, which lmod's BASH_ENV enables), show a

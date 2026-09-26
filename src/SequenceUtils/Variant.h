@@ -32,8 +32,8 @@ class Variant {
     Base reference = 'X';             // char
     Base variant = 'X';               // char
     SSize structural_size = 1;  // uint16_t
-    uint16_t observations_fwd = 0;
-    uint16_t observations_rev = 0;
+    uint32_t observations_fwd = 0;
+    uint32_t observations_rev = 0;
     bool is_valid = true;
     bool is_major = false;
     // Inserted/deleted bases of an INDEL; null for SNPs. Owned, and deep-copied with the Variant.
@@ -165,7 +165,6 @@ public:
     void AddObservation(Qual quality, bool from_forward) {
         observations_fwd += from_forward;
         observations_rev += !from_forward;
-        if (Observations() == 65535) exit(9);
         quals.emplace_back(quality);
     }
 

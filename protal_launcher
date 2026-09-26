@@ -1,7 +1,8 @@
 #!/bin/sh
 # protal launcher, installed as `protal`: runs the AVX2 build (protal_avx2, compiled for x86-64-v3)
 # when the CPU supports it, otherwise the baseline build (protal_baseline, or protal_plain as the
-# conda recipe used to name it). Binaries are looked up next to this script first, then on $PATH.
+# conda recipe used to name it). All candidates are looked up next to this script before any is
+# looked up on $PATH, so that another install on $PATH never wins over this one.
 # exec passes every argument through unchanged and returns protal's own exit status.
 
 here=$(dirname "$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")")
@@ -9,6 +10,8 @@ here=$(dirname "$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")")
 find_bin() {
     for name in "$@"; do
         if [ -x "$here/$name" ]; then printf '%s\n' "$here/$name"; return 0; fi
+    done
+    for name in "$@"; do
         if path=$(command -v "$name" 2>/dev/null); then printf '%s\n' "$path"; return 0; fi
     done
     return 1
@@ -23,10 +26,13 @@ has_x86_64_v3() {
     return 0
 }
 
-if [ -z "$PROTAL_NO_AVX2" ] && has_x86_64_v3 && bin=$(find_bin protal_avx2); then
-    exec "$bin" "$@"
+if [ -z "$PROTAL_NO_AVX2" ] && has_x86_64_v3; then
+    candidates="protal_avx2 protal_baseline protal_plain"
+else
+    candidates="protal_baseline protal_plain"
 fi
-if bin=$(find_bin protal_baseline protal_plain); then
+# shellcheck disable=SC2086 # the names are split on purpose
+if bin=$(find_bin $candidates); then
     exec "$bin" "$@"
 fi
 echo "protal: no protal binary found (looked for protal_avx2, protal_baseline and protal_plain in $here and on \$PATH)" >&2

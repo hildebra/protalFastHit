@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <iomanip>
+#include <regex>
 #include <ranges>
 #include <unistd.h>
 
@@ -520,7 +521,6 @@ namespace protal {
             Benchmark bm_profile{ "Profile sample" };
 
             profiler::Profiler profiler(genomes);
-            profiler.SetNoStrain(options.NoStrains());
 
             // New Profiler approach
             std::vector<AlignmentPair> unique_pairs;
@@ -538,12 +538,14 @@ namespace protal {
                 }
             }
 
+            std::string sam_error;
 #pragma omp critical(load_sam)
-            profiler.FromSam(sam);
+            sam_error = profiler.FromSam(sam);
 
-            if (!profiler.HasReads()) {
-                #pragma omp critical(print)
-                std::cerr << "Empty sam file: " << sam << std::endl;
+            // A SAM without alignments still gets its (empty) profile files, so that every sample
+            // has output; only an unreadable SAM is a failure.
+            if (!sam_error.empty()) {
+                RunStatus::Get().Fail("Cannot read the SAM file of sample " + options.GetSampleId(i) + " (" + sam + "): " + sam_error);
                 profile_slots[idx].emplace(genomes);
                 continue;
             }
@@ -1193,8 +1195,27 @@ namespace protal {
 
         os4.close();
 
+        // Long unique k-mers are unique k-mers in index blocks with flex keys, i.e. whose 15-mer core
+        // is shared with a relative. A species with relatives in the database has them in nearly
+        // every gene; a gene without any is one its relatives share unchanged or lack from their
+        // reference. A relative's reads of such a gene align here, and its MSA columns would show
+        // them as a second strain, so it is left out. A species without relatives has hardly any
+        // long unique k-mers at all (its k-mers are unique at the core already): all its genes stay.
+        auto& genome = loader.GetGenome(taxid);
+        auto const with_long_uniques = std::count_if(gene_ids.begin(), gene_ids.end(), [&genome](uint32_t gene_id) {
+            return genome.GetGene(gene_id).HasLongUniques();
+        });
+        if (static_cast<size_t>(with_long_uniques) * 2 < gene_ids.size()) return gene_ids;
 
-        return gene_ids;
+        std::vector<uint32_t> msa_gene_ids;
+        std::copy_if(gene_ids.begin(), gene_ids.end(), std::back_inserter(msa_gene_ids), [&genome](uint32_t gene_id) {
+            return genome.GetGene(gene_id).HasLongUniques();
+        });
+        if (msa_gene_ids.size() < gene_ids.size()) {
+            std::cout << name << ": " << gene_ids.size() - msa_gene_ids.size() << " of " << gene_ids.size()
+                      << " genes have no long unique k-mers and are left out of the MSA" << std::endl;
+        }
+        return msa_gene_ids;
     }
 
     // Shell-quote a path/argument for use in a std::system command line.
@@ -1319,10 +1340,19 @@ namespace protal {
         if (rc != 0) {
             RunStatus::Get().Fail("qcmsa exited with code " + std::to_string(rc) + " for " + name +
                                   " (post-filter skipped; the raw MSA is still in " + msa + ")");
+        } else if (!fs::exists(prefix + ".msa.fna")) {
+            // Not an error (qcmsa may filter everything out), but no filtered MSA is not a success either.
+            std::cerr << "[qcmsa] WARNING: " << name << ": qcmsa kept no gene or sample, so there is no "
+                      << prefix << ".msa.fna (see its output above; the raw MSA is " << msa << ")" << std::endl;
         }
     }
 
     static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilter> filter={}) {
+        // An earlier run's MSA must not survive a run that writes none (qcmsa would filter it).
+        for (auto const& stale : { options.GetMSAOutput(taxon_name), options.GetMSAPartitionOutput(taxon_name) }) {
+            std::error_code ec;
+            std::filesystem::remove(stale, ec);
+        }
         auto min_hcov = options.GetMSAMinHCOV();
         auto min_qual_sum = options.GetSNPMinPhredSum();
         auto min_cov = options.GetSNPMinCov();
@@ -1344,6 +1374,7 @@ namespace protal {
         auto& genome = loader.GetGenome(taxid);
         if (!genome.IsLoaded()) genome.LoadGenomeOMP();
         std::vector<std::string> names;
+        for (auto index : profile_indices) names.emplace_back(profiles[index].GetName());
         std::vector<std::string> partitions;
         size_t partition_start = 0;
         size_t previous_size = 0;
@@ -1379,7 +1410,6 @@ namespace protal {
                 auto& taxon_map = profile.GetTaxa();
                 if (!taxon_map.contains(taxid)) continue;
 
-                names.emplace_back(profile.GetName());
                 auto& genes = profile.GetTaxa().at(taxid).GetGenes();
 
                 if (!genes.contains(geneid)) {
@@ -1394,6 +1424,9 @@ namespace protal {
                     auto tmp_vec = region.CalculateCoverageVector2();
                     auto counts_vcov1 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 1);});
                     auto counts_vcov2 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 2);});
+                    // Multi-allelic positions as the MSA writes them (IUPAC codes), which qcmsa filters on.
+                    size_t const multi_allelic = MultiAllelicPositions(strain.GetVariantHandler().GetVariants(), tmp_vec, min_cov,
+                                                                       min_qual_sum, min_af, require_strand, min_mean_qual, snp_max_alleles);
 
                     double median_vcov = 0.0;
                     double mean_vcov_nonzero = 0.0;
@@ -1437,11 +1470,11 @@ namespace protal {
                             *os_meta << gene_obs.VerticalCoverage() << '\t';
                             *os_meta << counts_vcov1 << '\t';
                             *os_meta << counts_vcov2 << '\t';
-                            *os_meta << ac.Multi() << '\t';
+                            *os_meta << multi_allelic << '\t';
                             *os_meta << ac.Filtered() << '\t';
-                            *os_meta << (counts_vcov1 > 0 ? ac.Multi()/static_cast<double>(counts_vcov1) : 0) << '\t';
+                            *os_meta << (counts_vcov1 > 0 ? multi_allelic/static_cast<double>(counts_vcov1) : 0) << '\t';
                             *os_meta << (counts_vcov1 > 0 ? ac.Filtered()/static_cast<double>(counts_vcov1) : 0) << '\t';
-                            *os_meta << (counts_vcov2 > 0 ? ac.Multi()/static_cast<double>(counts_vcov2) : 0) << '\t';
+                            *os_meta << (counts_vcov2 > 0 ? multi_allelic/static_cast<double>(counts_vcov2) : 0) << '\t';
                             *os_meta << (counts_vcov2 > 0 ? ac.Filtered()/static_cast<double>(counts_vcov2) : 0) << '\t';
                             *os_meta << median_vcov << '\t';
                             *os_meta << hcov << '\t';
@@ -1456,21 +1489,6 @@ namespace protal {
             if (samples_with_gene > 0) {
                 previous_size = msa.front().size();
 
-                //
-                for (auto& opt : items)  {
-                    if (!opt.has_value()) continue;
-                    auto& [var, shr] = opt.value();
-                    if (std::any_of(var.begin(), var.end(), [](std::vector<Variant> const& vv) {
-                        return std::any_of(vv.begin(), vv.end(), [](Variant const&  v) {
-                            return v.Observations() == 65535;
-                        });
-                    })) {
-                        std::cout << "Wrong variant 2" << std::endl;
-                        exit(3);
-                    }
-                }
-
-
                 protal::MSAStats gene_stats(items.size());
                 bool result = protal::MSA(items, gene.Sequence(), msa, min_cov, min_qual_sum, min_af, require_strand, min_mean_qual, &gene_stats, &ref_msa_row, snp_max_alleles);
 
@@ -1479,18 +1497,24 @@ namespace protal {
                 for (size_t si = 0; si < gene_stats.size(); si++) {
                     sample_stats[si] += gene_stats[si];
                 }
+                // Partitions are 1-based and inclusive, as RAxML and IQ-TREE read them.
                 if (msa.front().size() > partition_start) {
                     if (partitions.size() > 0) {
-                        partitions.back() += std::to_string(previous_size-1);
+                        partitions.back() += std::to_string(previous_size);
                     }
 
                     std::string partition = "DNA, gene";
                     partition += std::to_string(geneid) + " = ";
-                    partition += std::to_string(partition_start) + '-';
+                    partition += std::to_string(partition_start + 1) + '-';
                     partitions.emplace_back(partition);
                     partition_start = msa.front().size();
                 }
             }
+        }
+
+        if (partitions.empty()) {
+            std::cout << "No gene of " << taxon_name << " has enough coverage for an MSA" << std::endl;
+            return;
         }
 
         // Prepend reference sequence as the first row so it is always present in both outputs.
@@ -1520,7 +1544,7 @@ namespace protal {
         if (os.fail()) RunStatus::Get().Fail("Writing the MSA of " + taxon_name + " failed: " + options.GetMSAOutput(taxon_name));
         // std::cout << " Saved MSA to " << options.GetMSAOutput(taxon_name);
 
-        partitions.back() += std::to_string(msa.front().size()-1);
+        partitions.back() += std::to_string(msa.front().size());
 
         std::ofstream os_part(options.GetMSAPartitionOutput(taxon_name), std::ios::out);
         for (auto i = 0; i < partitions.size(); i++) {
@@ -1787,6 +1811,20 @@ namespace protal {
                 profiler::TaxonFilterObj model_check(options.GetModelPath(), options.GetKnob());
             } catch (std::exception const& e) {
                 std::cerr << "Cannot load the model " << options.GetModelPath() << ": " << e.what() << std::endl;
+                exit(2);
+            }
+        }
+        if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {
+            // The benchmark takes each read's true gene from its name; without one it would stop
+            // at the first read, deep inside the alignment.
+            igzstream is{ options.GetFirstFile(options.GetRange().front()).c_str() };
+            SeqReader reader{ is };
+            FastxRecord record;
+            static const std::regex truth_name("^[0-9]+_[0-9]+([^0-9].*)?$");
+            if (reader(record) && !std::regex_match(record.id, truth_name)) {
+                std::cerr << "Error: --benchmark_alignment needs reads named <taxid>_<gene id>..., the gene each read "
+                             "was simulated from; '" << record.id << "' is not (reads from simulate_metagenomes carry "
+                             "no gene ids)." << std::endl;
                 exit(2);
             }
         }
