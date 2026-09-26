@@ -95,60 +95,50 @@ namespace protal {
     }
 
 
+    // Checks that every 'M' column of an alignment is a real match ('N' matches anything) and lies
+    // inside both the read and the gene. This runs for every alignment, so the check itself takes
+    // no lock; only the diagnostics printed when it fails (unless `silent`) are serialised.
     static bool IsAlignmentValid(AlignmentInfo const& info, std::string const& query, std::string const& reference, int offset = 0, bool silent=false) {
-//        snps.clear();
         int qpos = 0;
         int rpos = info.gene_alignment_start + offset;
 
         int count = 0;
         char op = ' ';
-
-
         int cpos = 0;
-        bool faulty = false;
+        std::string problem;
 
-#pragma omp critical (invalid_align)
-        {
-            while (NextCompressedCigar(cpos, info.compressed_cigar, count, op)) {
-
-                if (op == 'M') {
-                    for (auto i = 0; i < count; i++) {
-                        if (qpos + i < 0 || qpos + i >= query.size()) {
-                            std::cerr << "Access out of bounds in IsAlignmentValid: " << qpos + i << " read len: "
-                                      << query.size() << std::endl;
-                        }
-                        if (rpos + i < 0 || rpos + i >= reference.size()) {
-                            std::cerr << "Access out of bounds in IsAlignmentValid: " << rpos + i << " read len: "
-                                      << reference.size() << std::endl;
-                        }
-
-                        if (query[qpos + i] != 'N' && reference[rpos + i] != 'N' &&
-                            query[qpos + i] != reference[rpos + i]) {
-                            if (!silent) {
-                                std::cerr << query[qpos + i] << "-" << reference[rpos + i] << '\t' << qpos + i << "-"
-                                          << rpos + i << '\t' << query.size() << "-" << reference.size() << std::endl;
-
-                            }
-
-                            faulty = true;
-                        }
-                    }
-                    if (faulty) {
-                        auto ref_start = info.gene_alignment_start + offset;
-                        auto ref_end = std::min(ref_start + query.size(), reference.length());
-                        std::cout << " ---------- " << std::endl;
-                        std::cout << query << std::endl;
-                        std::cout << reference.substr(ref_start, ref_end - ref_start) << std::endl;
-                        std::cout << " ---------- " << std::endl;
+        while (problem.empty() && NextCompressedCigar(cpos, info.compressed_cigar, count, op)) {
+            if (op == 'M') {
+                if (qpos < 0 || rpos < 0 ||
+                    qpos + count > static_cast<int>(query.size()) || rpos + count > static_cast<int>(reference.size())) {
+                    problem = "M block of " + std::to_string(count) + " at read " + std::to_string(qpos) + " / gene " +
+                              std::to_string(rpos) + " leaves the read (" + std::to_string(query.size()) +
+                              ") or gene (" + std::to_string(reference.size()) + ")";
+                    break;
+                }
+                for (auto i = 0; i < count; i++) {
+                    char q = query[qpos + i];
+                    char r = reference[rpos + i];
+                    if (q != 'N' && r != 'N' && q != r) {
+                        problem = std::string("mismatch ") + q + "-" + r + " inside an M block at read " +
+                                  std::to_string(qpos + i) + " / gene " + std::to_string(rpos + i);
+                        break;
                     }
                 }
-
-                qpos += (op != 'D') * count;
-                rpos += (!(op == 'I' || op == 'S')) * count;
-
             }
+
+            qpos += (op != 'D') * count;
+            rpos += (!(op == 'I' || op == 'S')) * count;
         }
 
-        return !faulty;
+        if (problem.empty()) return true;
+        if (!silent) {
+            auto ref_start = std::min<size_t>(std::max(info.gene_alignment_start + offset, 0), reference.length());
+            auto ref_end = std::min(ref_start + query.size(), reference.length());
+#pragma omp critical (invalid_align)
+            std::cerr << "Invalid alignment (" << info.compressed_cigar << "): " << problem << '\n'
+                      << query << '\n' << reference.substr(ref_start, ref_end - ref_start) << std::endl;
+        }
+        return false;
     }
 }

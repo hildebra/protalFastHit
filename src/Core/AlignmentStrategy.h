@@ -529,20 +529,23 @@ namespace protal {
                 info.UpdateScore();
                 alignment.Set(anchor.taxid, anchor.geneid, info.gene_alignment_start, anchor.forward, anchor.unique, anchor.unique_best_two);
 
-                //TODO: remove or figure out whats going on
+                // Safety net: reject an alignment whose CIGAR does not fit the sequences. Lock-free
+                // on the common, valid path; the rare diagnostics below are serialised.
                 bool valid = IsAlignmentValid(info, read, gene.Sequence(), 0, true);
                 if (!valid) {
-                    std::cerr << "Info:" << info.ToString() << std::endl;
-                    std::cerr << "Record: " << id << std::endl;
-                    std::cerr << "Anchor: " << anchor.ToString() << std::endl;
+#pragma omp critical (invalid_align)
+                    {
+                        std::cerr << "Info:" << info.ToString() << std::endl;
+                        std::cerr << "Record: " << id << std::endl;
+                        std::cerr << "Anchor: " << anchor.ToString() << std::endl;
 
-                    auto readstart = info.read_start_offset;
-                    auto genestart = info.gene_alignment_start;
-                    std::cerr << read.substr(readstart, std::min(readstart + read.length(), read.length())) << std::endl;
-                    std::cerr << geneseq.substr(genestart, std::min(genestart + read.length(), geneseq.length())) << std::endl;
+                        auto readstart = info.read_start_offset;
+                        auto genestart = info.gene_alignment_start;
+                        std::cerr << read.substr(readstart, std::min(readstart + read.length(), read.length())) << std::endl;
+                        std::cerr << geneseq.substr(genestart, std::min(genestart + read.length(), geneseq.length())) << std::endl;
 
-
-                    std::cerr << "-----Invalid after alignment\t" << reference_str << " " << info.ToString() << std::endl;
+                        std::cerr << "-----Invalid after alignment\t" << reference_str << " " << info.ToString() << std::endl;
+                    }
                     return false;
                 }
 

@@ -144,3 +144,25 @@ TEST(SamFlags, Read2StrandComesFromItsOwnFlagBit) {
     EXPECT_FALSE(r2_forward_mate_reverse.IsReversed());
     EXPECT_TRUE(r1_reverse.IsReversed());
 }
+
+TEST(IsAlignmentValid, AcceptsMatchesAndRejectsMismatchesAndOverruns) {
+    std::string gene = "ACGTACGTACGTACGTACGT";
+    AlignmentInfo info;
+    info.gene_alignment_start = 4;
+    info.compressed_cigar = "8M";
+    EXPECT_TRUE(IsAlignmentValid(info, "ACGTACGT", gene, 0, true));
+    EXPECT_TRUE(IsAlignmentValid(info, "ACGNACGT", gene, 0, true));   // N matches anything
+    EXPECT_FALSE(IsAlignmentValid(info, "ACGTTCGT", gene, 0, true));  // mismatch inside M
+
+    // CIGARs running past the read or the gene are invalid, and must not be read out of bounds.
+    info.compressed_cigar = "12M";
+    EXPECT_FALSE(IsAlignmentValid(info, "ACGTACGT", gene, 0, true));
+    info.gene_alignment_start = 16;
+    info.compressed_cigar = "8M";
+    EXPECT_FALSE(IsAlignmentValid(info, "ACGTACGT", gene, 0, true));
+
+    // Soft clips and insertions consume read bases only.
+    info.gene_alignment_start = 4;
+    info.compressed_cigar = "2S4M1I3M";
+    EXPECT_TRUE(IsAlignmentValid(info, "TTACGTGACG", gene, 0, true));
+}
