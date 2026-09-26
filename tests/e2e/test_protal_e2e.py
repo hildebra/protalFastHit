@@ -252,6 +252,86 @@ class FailureTest(WorkDir):
         self.assertRegex(log, r"Invalid index .*truncated or corrupt")
 
 
+class FailFastTest(WorkDir):
+    """Problems with the database or the inputs stop protal before any read is aligned."""
+
+    def db_copy(self, name, replace=None, drop=()):
+        """A database of symlinks to DB, with the files in `replace` ({name: bytes}) written instead
+        and the files in `drop` left out."""
+        replace = replace or {}
+        db = self.path(name)
+        os.mkdir(db)
+        for f in glob.glob(os.path.join(DB, "*")):
+            base = os.path.basename(f)
+            if base not in replace and base not in drop:
+                os.symlink(f, os.path.join(db, base))
+        for base, content in replace.items():
+            with open(os.path.join(db, base), "wb") as fh:
+                fh.write(content)
+        return db
+
+    @staticmethod
+    def db_file(name):
+        with open(os.path.join(DB, name), "rb") as fh:
+            return fh.read()
+
+    def query(self, db, out, *extra, samples=("sa",)):
+        rc, log = run(self.work, "--db", db, *reads(*samples), "-o", out, "-t", "1", "--no_qcmsa", *extra)
+        self.assertFalse(glob.glob(self.path(out, "*.sam*")), "no read may be aligned")
+        return rc, log
+
+    def test_reference_changed_since_build(self):
+        db = self.db_copy("db_ref", {"reference.fna": self.db_file("reference.fna") + b">9_1\nACGT\n"})
+        rc, log = self.query(db, "out_ref")
+        if "no reference fingerprint" in log:
+            self.skipTest("the test database's index predates the reference fingerprint")
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertIn("index.prx was built against a different reference", log)
+
+    def test_malformed_map(self):
+        db = self.db_copy("db_map", {"reference.map": self.db_file("reference.map") + b"1\t999\t5\n"})
+        rc, log = self.query(db, "out_map")
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertRegex(log, r"Invalid reference map .*expected 4 tab-separated columns, found 3")
+
+    def test_missing_model_and_unique_kmers(self):
+        db = self.db_copy("db_files", drop=("model.xml", "unique_kmers.tsv"))
+        rc, log = self.query(db, "out_files")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("Model file does not exist", log)
+        self.assertIn("Unique k-mer file does not exist", log)
+
+    def test_corrupt_model(self):
+        db = self.db_copy("db_model", {"model.xml": b"<PMML>\n"})
+        rc, log = self.query(db, "out_model")
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("Cannot load the model", log)
+
+    def test_one_truth_file_per_sample(self):
+        truth = self.path("truth.tsv")
+        with open(truth, "w") as fh:
+            fh.write("s__Mockella alpha\n")
+        rc, log = self.query(DB, "out_truth", "--profile_truth", truth, samples=("sa", "sb"))
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("must name one file per sample: 1 given for 2 samples", log)
+
+    def test_build_rejects_a_reference_the_map_does_not_describe(self):
+        db = self.path("build_db")
+        os.mkdir(db)
+        for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp"):
+            shutil.copy(os.path.join(DB, f), db)
+        bad = self.path("bad_reference.fna")
+        with open(bad, "wb") as fh:
+            fh.write(self.db_file("reference.fna") + b">9_1\nACGTACGT\n>unnamed\nACGTACGT\n")
+        rc, log = run(self.work, "--build", "--no_profile", "-t", "1", "--db", db,
+                      "--reference", bad, "--full_reference", bad)
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertIn("--reference record >9_1: not in", log)
+        self.assertIn("--reference record >unnamed: header is not <taxid>_<gene id>", log)
+        self.assertRegex(log, r"2 of \d+ --reference records do not match")
+        self.assertFalse(os.path.exists(os.path.join(db, "index.prx")))
+
+
 class QcmsaTest(WorkDir):
     """The post-filter runs, and --qcmsa_args reaches it intact."""
 

@@ -14,6 +14,7 @@
 #include <fstream>
 #include "Utilities.h"
 #include "KmerUtils.h"
+#include "ReferenceFingerprint.h"
 #include "sparse_map.h"
 #include <bit>
 #include <bits/stdc++.h>
@@ -181,7 +182,9 @@ namespace protal {
         // Features of an index. A format 1 index has none of them.
         static constexpr uint32_t kFeatureFullSyncmerMask = 1u << 0;       // syncmers compare whole s-mers
         static constexpr uint32_t kFeatureCorrectUniqueTwoFlags = 1u << 1; // "unique at distance >= 2" per entry
-        static constexpr uint32_t kKnownFeatures = kFeatureFullSyncmerMask | kFeatureCorrectUniqueTwoFlags;
+        static constexpr uint32_t kFeatureReferenceFingerprint = 1u << 2;  // header carries a ReferenceFingerprint
+        static constexpr uint32_t kKnownFeatures = kFeatureFullSyncmerMask | kFeatureCorrectUniqueTwoFlags |
+                                                   kFeatureReferenceFingerprint;
         static constexpr uint32_t kIndexVersionMajor = protal_VERSION_MAJOR;
         static constexpr uint32_t kIndexVersionMinor = protal_VERSION_MINOR;
         static constexpr uint32_t kIndexVersionPatch = protal_VERSION_PATCH;
@@ -245,8 +248,10 @@ namespace protal {
         size_t values_size= 0;
         ValueEntry* m_map = nullptr;
 
-        // What this build writes; replaced by the index's own features on Load.
-        uint32_t m_features = kKnownFeatures;
+        // What this build writes (plus kFeatureReferenceFingerprint once SetReferenceFingerprint is
+        // called); replaced by the index's own features on Load.
+        uint32_t m_features = kFeatureFullSyncmerMask | kFeatureCorrectUniqueTwoFlags;
+        ReferenceFingerprint m_reference{};
 
         uint64_t m_found_counter = 0;
 
@@ -319,7 +324,21 @@ namespace protal {
             std::string description = (m_features & kFeatureFullSyncmerMask) ? "full s-mer syncmers" : "legacy 4-base syncmers";
             description += (m_features & kFeatureCorrectUniqueTwoFlags) ? ", per-entry unique-distance flags"
                                                                         : ", legacy unique-distance flags";
+            description += HasReferenceFingerprint() ? ", reference fingerprint" : ", no reference fingerprint";
             return description;
+        }
+
+        void SetReferenceFingerprint(ReferenceFingerprint const& fingerprint) {
+            m_reference = fingerprint;
+            m_features |= kFeatureReferenceFingerprint;
+        }
+
+        bool HasReferenceFingerprint() const {
+            return m_features & kFeatureReferenceFingerprint;
+        }
+
+        ReferenceFingerprint const& GetReferenceFingerprint() const {
+            return m_reference;
         }
 
         void SaveHeader(std::ostream& ofs) {
@@ -333,6 +352,10 @@ namespace protal {
             ofs.write((char *) &version_minor, sizeof(version_minor));
             ofs.write((char *) &version_patch, sizeof(version_patch));
             ofs.write((char *) &features, sizeof(features));
+            if (HasReferenceFingerprint()) {
+                ofs.write((char *) &m_reference.map_hash, sizeof(m_reference.map_hash));
+                ofs.write((char *) &m_reference.fna_size, sizeof(m_reference.fna_size));
+            }
         }
 
         void LoadHeader(std::istream& ifs) {
@@ -362,6 +385,14 @@ namespace protal {
                     std::cerr << "index.prx uses features this protal does not know (" << m_features
                               << "); it was built by a newer protal" << std::endl;
                     exit(8);
+                }
+                if (HasReferenceFingerprint()) {
+                    ifs.read((char *) &m_reference.map_hash, sizeof(m_reference.map_hash));
+                    ifs.read((char *) &m_reference.fna_size, sizeof(m_reference.fna_size));
+                    if (!ifs) {
+                        std::cerr << "Failed to read index header from index.prx" << std::endl;
+                        exit(8);
+                    }
                 }
             } else if (file_magic != kFileMagic) {
                 std::cerr << "Unsupported index.prx format: missing or invalid file header. "

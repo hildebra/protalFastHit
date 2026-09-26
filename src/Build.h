@@ -242,13 +242,8 @@ namespace protal::build {
         statistics.Join(thread_statistics);
     }
 
-        if (options.GetFullSequenceFilePath().empty()) {
-            std::ofstream index_ostream(options.GetIndexFile(), std::ios::binary);
-            putter.Save(index_ostream);
-            index_ostream.close();
-            return statistics;
-        }
-
+        // Options falls back to --reference when no --full_reference is given, so unique_kmers.tsv is
+        // always written: a database without it cannot detect anything.
         std::cout << "Check Uniqueness: " << options.GetFullSequenceFilePath() << std::endl;
 
         omp_set_num_threads(options.GetThreads());
@@ -327,6 +322,9 @@ namespace protal::build {
         putter.GetMap().CountUniqueKmers(os, true, true);
         os.close();
 
+        // Queries align against the database's reference.fna via reference.map: record which ones.
+        putter.GetMap().SetReferenceFingerprint(
+                ReferenceFingerprint::Of(options.GetSequenceMapFile(), options.GetSequenceFile()));
         std::ofstream index_ostream(options.GetIndexFile(), std::ios::binary);
         putter.Save(index_ostream);
         index_ostream.close();

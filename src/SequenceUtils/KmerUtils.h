@@ -125,13 +125,13 @@ namespace KmerUtils {
 
     static inline uint64_t BaseToInt(char const& base) {
         switch(base) {
-            case 'A':
+            case 'A': case 'a':
                 return (0);
-            case 'C':
+            case 'C': case 'c':
                 return (1);
-            case 'G':
+            case 'G': case 'g':
                 return (2);
-            case 'T':
+            case 'T': case 't':
                 return (3);
         }
         return(4);
@@ -139,13 +139,13 @@ namespace KmerUtils {
 
     static inline uint64_t BaseToIntC(char const& base) {
         switch(base) {
-            case 'A':
+            case 'A': case 'a':
                 return (3);
-            case 'C':
+            case 'C': case 'c':
                 return (2);
-            case 'G':
+            case 'G': case 'g':
                 return (1);
-            case 'T':
+            case 'T': case 't':
                 return (0);
         }
         return(4);
@@ -153,13 +153,13 @@ namespace KmerUtils {
 
     static inline uint64_t BaseToInt(char const &base, int replace_n) {
         switch(base) {
-            case 'A':
+            case 'A': case 'a':
                 return (0);
-            case 'C':
+            case 'C': case 'c':
                 return (1);
-            case 'G':
+            case 'G': case 'g':
                 return (2);
-            case 'T':
+            case 'T': case 't':
                 return (3);
         }
         return(replace_n);
@@ -167,13 +167,13 @@ namespace KmerUtils {
 
     static inline uint64_t BaseToIntC(char const& base, int replace_n) {
         switch(base) {
-            case 'A':
+            case 'A': case 'a':
                 return (3);
-            case 'C':
+            case 'C': case 'c':
                 return (2);
-            case 'G':
+            case 'G': case 'g':
                 return (1);
-            case 'T':
+            case 'T': case 't':
                 return (0);
         }
         return(replace_n);
