@@ -183,8 +183,9 @@ namespace protal {
         static constexpr uint32_t kFeatureFullSyncmerMask = 1u << 0;       // syncmers compare whole s-mers
         static constexpr uint32_t kFeatureCorrectUniqueTwoFlags = 1u << 1; // "unique at distance >= 2" per entry
         static constexpr uint32_t kFeatureReferenceFingerprint = 1u << 2;  // header carries a ReferenceFingerprint
+        static constexpr uint32_t kFeatureCheckedSingleEntries = 1u << 3;  // single-entry k-mers checked for uniqueness
         static constexpr uint32_t kKnownFeatures = kFeatureFullSyncmerMask | kFeatureCorrectUniqueTwoFlags |
-                                                   kFeatureReferenceFingerprint;
+                                                   kFeatureReferenceFingerprint | kFeatureCheckedSingleEntries;
         static constexpr uint32_t kIndexVersionMajor = protal_VERSION_MAJOR;
         static constexpr uint32_t kIndexVersionMinor = protal_VERSION_MINOR;
         static constexpr uint32_t kIndexVersionPatch = protal_VERSION_PATCH;
@@ -250,7 +251,7 @@ namespace protal {
 
         // What this build writes (plus kFeatureReferenceFingerprint once SetReferenceFingerprint is
         // called); replaced by the index's own features on Load.
-        uint32_t m_features = kFeatureFullSyncmerMask | kFeatureCorrectUniqueTwoFlags;
+        uint32_t m_features = kFeatureFullSyncmerMask | kFeatureCorrectUniqueTwoFlags | kFeatureCheckedSingleEntries;
         ReferenceFingerprint m_reference{};
 
         uint64_t m_found_counter = 0;
@@ -325,7 +326,15 @@ namespace protal {
             description += (m_features & kFeatureCorrectUniqueTwoFlags) ? ", per-entry unique-distance flags"
                                                                         : ", legacy unique-distance flags";
             description += HasReferenceFingerprint() ? ", reference fingerprint" : ", no reference fingerprint";
+            description += ChecksSingleEntryUniques() ? ", checked single-entry uniques"
+                                                      : ", unchecked single-entry uniques (rebuild for correct unique_kmers.tsv)";
             return description;
+        }
+
+        // Whether k-mer cores that occur once in the index were checked against the full reference
+        // (before, they all stayed unique, which made every gene hittable).
+        bool ChecksSingleEntryUniques() const {
+            return m_features & kFeatureCheckedSingleEntries;
         }
 
         void SetReferenceFingerprint(ReferenceFingerprint const& fingerprint) {

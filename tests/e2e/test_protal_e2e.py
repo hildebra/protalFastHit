@@ -301,6 +301,48 @@ class ModelContractTest(WorkDir):
         self.assertEqual(outputs["strains"], outputs["no_strains"])
 
 
+class BuildUniquenessTest(WorkDir):
+    """--build checks every k-mer against the full reference, also those whose core occurs once in the index."""
+
+    def test_a_gene_another_taxon_carries_is_not_unique(self):
+        rng = random.Random(8)
+        genes = {(1, 1): None, (1, 2): None, (2, 1): None}
+        for key in genes:
+            genes[key] = "".join(rng.choice("ACGT") for _ in range(900))
+        db = self.path("db")
+        os.mkdir(db)
+        with open(os.path.join(db, "reference.fna"), "w") as fna, open(os.path.join(db, "reference.map"), "w") as mp:
+            offset = 0
+            for (taxid, gene), seq in genes.items():
+                header = f">{taxid}_{gene}\n"
+                fna.write(header + seq + "\n")
+                mp.write(f"{taxid}\t{gene}\t{offset + len(header)}\t{offset + len(header) + len(seq)}\n")
+                offset += len(header) + len(seq) + 1
+        with open(os.path.join(db, "internal_taxonomy.dmp"), "w") as fh:
+            fh.write("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n"
+                     "3\t3\t0\troot\tno rank\t0\t\n"
+                     "1\t3\t0\ts__Alpha one\tspecies\t7\tGCF_1\n"
+                     "2\t3\t0\ts__Beta two\tspecies\t7\tGCF_2\n")
+        # Another genome of taxon 2 carries taxon 1's gene 2 unchanged.
+        full = self.path("full_reference.fna")
+        with open(os.path.join(db, "reference.fna")) as src, open(full, "w") as dst:
+            dst.write(src.read() + ">2_7\n" + genes[(1, 2)] + "\n")
+
+        rc, log = run(self.work, "--build", "--no_profile", "-t", "1", "--db", db,
+                      "--reference", os.path.join(db, "reference.fna"), "--full_reference", full)
+        self.assertEqual(rc, 0, log[-3000:])
+        uniques = {}
+        with open(os.path.join(db, "unique_kmers.tsv")) as fh:
+            for line in fh:
+                f = line.split("\t")
+                uniques[(int(f[0]), int(f[1]))] = (int(f[2]), int(f[4]), int(f[8]))
+        self.assertGreater(uniques[(1, 1)][0], 0, uniques)
+        self.assertGreater(uniques[(2, 1)][0], 0, uniques)
+        self.assertGreater(uniques[(1, 2)][2], 0, uniques)
+        self.assertEqual(uniques[(1, 2)][:2], (0, 0), "no k-mer of gene 1_2 is unique to taxon 1")
+        os.remove(os.path.join(db, "index.prx"))  # 3 GB
+
+
 class QcmsaContractTest(WorkDir):
     """qcmsa counts only the samples that are in the MSA."""
 

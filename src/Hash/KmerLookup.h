@@ -310,6 +310,14 @@ namespace protal {
             }
         }
 
+        // The entry of a k-mer core that occurs only once in the index, or nullptr. Such a block has
+        // no flex keys (see m_flex_threshold), so GetFlex returns nothing for it.
+        inline ValueEntry* GetSingleEntry(size_t &kmer) {
+            m_sm.Get(kmer, m_entry_begin, m_entry_end, m_flex_begin, m_flex_end);
+            if (m_entry_begin == nullptr || m_flex_begin != nullptr || m_entry_end - m_entry_begin != 1) return nullptr;
+            return m_entry_begin;
+        }
+
         inline void GetFlex(size_t &kmer, std::vector<ValueEntry*>& max_sim_entries, uint32_t& max_similarity) {
             m_sm.Get(kmer, m_entry_begin, m_entry_end, m_flex_begin, m_flex_end);
 
