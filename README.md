@@ -117,3 +117,21 @@ pass `--genome_table` so the genomes can be resolved by name, and the compositio
 per-genome depth are reproduced exactly while the reads themselves are fresh
 realizations. The replay's own manifest carries seeds, so it is exactly reproducible
 from then on.
+
+## Mini database for local testing
+
+`scripts/mini_db/` builds a small protal database from a synthetic, sparse GTDB
+release (3 species, 3 genomes each by default), so you can test without the full DB:
+
+```bash
+just mini-db          # or: PROTAL=build/protal bash scripts/mini_db/build_mini_db.sh data/mini_db
+protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
+```
+
+- `simulate_gtdb_release.py` writes a directory laid out like an extracted GTDB release
+  (taxonomy, metadata, `*_marker_genes_{reps,all}` per-marker FASTAs, representative
+  genomes) plus `simulation/genomes.tsv`, which you can pass to `simulate_metagenomes --genome_table`.
+- `gtdb_to_protal_db.py` turns such a release (synthetic or a real, extracted one) into
+  `reference.fna`, `reference.map`, `internal_taxonomy.dmp`, `full_reference.fna` and
+  `model.xml`. `build_mini_db.sh` then runs `protal --build` on them.
+- `index.prx` is about 3 GB even for a tiny reference, because the k-mer key map has a fixed size.

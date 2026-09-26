@@ -163,6 +163,17 @@ strain-report:
 strain-clean:
     rm -rf {{strain_run}}
 
+# ---- mini DB: sparse synthetic GTDB release (3 species) -> protal DB -----------
+# Writes {{mini_db_dir}}/gtdb_r226 (GTDB-layout release) and
+# {{mini_db_dir}}/protal_db (use with --db). index.prx is ~3 GB regardless of size.
+mini_db_dir := "data/mini_db"
+mini-db: baseline
+    PROTAL={{protal}} bash scripts/mini_db/build_mini_db.sh {{mini_db_dir}}
+
+# Unit checks of the mini DB generator/converter (no protal binary needed).
+mini-db-test:
+    python3 -m unittest scripts/mini_db/test_mini_db.py
+
 # The ISA flags are per-target (isa_baseline / isa_avx2 in CMakeLists.txt), so
 # baseline, avx2 and static binaries all come out of one tree -- no need for
 # separate cmake-build-* dirs.
