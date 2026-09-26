@@ -195,7 +195,7 @@ namespace protal {
             bm_build.Start();
             KmerPutterSM kmer_putter{};
             auto protal_stats = protal::build::Run<SimpleKmerHandler<ClosedSyncmer>, KmerPutterSM, DEBUG_NONE>(
-                    options, kmer_putter, iterator);
+                    options, kmer_putter, iterator, db.GetGenomes());
 
             std::cout << "Check" << std::endl;
             protal::build::Check<SimpleKmerHandler<ClosedSyncmer>, KmerPutterSM, DEBUG_NONE>(

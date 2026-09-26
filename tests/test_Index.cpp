@@ -98,6 +98,7 @@ TEST(IndexHeader, FeaturesRoundTripAndFormat1IsLegacy) {
     Seedmap loaded;
     loaded.LoadHeader(v2);
     EXPECT_TRUE(loaded.UsesFullSyncmerMask());
+    EXPECT_TRUE(loaded.ChecksSingleEntryUniques());
 
     std::stringstream v1;
     Put<uint64_t>(v1, Seedmap::kFileMagic);
@@ -107,5 +108,6 @@ TEST(IndexHeader, FeaturesRoundTripAndFormat1IsLegacy) {
     Seedmap legacy;
     legacy.LoadHeader(v1);
     EXPECT_FALSE(legacy.UsesFullSyncmerMask());
+    EXPECT_FALSE(legacy.ChecksSingleEntryUniques());
     EXPECT_NE(legacy.FeatureDescription().find("legacy"), std::string::npos);
 }

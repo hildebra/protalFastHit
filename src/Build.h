@@ -20,8 +20,27 @@
 #include "Benchmark.h"
 #include "Zstd.h"
 #include <filesystem>
+#include "SequenceUtils/GenomeLoader.h"
 
 namespace protal::build {
+    // The k-mer an index entry was built from, read back from its gene and encoded as the build's
+    // k-mer handler encodes it: the k-mer or its reverse complement, whichever has the smaller
+    // core. Entries store the position of their core, which starts flex_k/2 bases into the k-mer.
+    inline bool IndexedKmer(Seedmap& map, GenomeLoader& genomes, uint64_t taxid, uint64_t geneid, uint64_t genepos, uint64_t& key) {
+        size_t const k = map.m_exact_k + map.m_flex_k;
+        if (genepos < map.m_flex_k_half) return false;
+        auto const& sequence = genomes.GetGenome(taxid).GetGeneOMP(geneid).Sequence();
+        size_t const start = genepos - map.m_flex_k_half;
+        if (start + k > sequence.size()) return false;
+        uint64_t fwd = 0, rev = 0;
+        for (size_t i = 0; i < k; i++) {
+            fwd |= KmerUtils::BaseToInt(sequence[start + i], 0) << (2 * (k - 1 - i));
+            rev |= KmerUtils::BaseToIntC(sequence[start + i], 0) << (2 * i);
+        }
+        key = map.MainKey(fwd) < map.MainKey(rev) ? fwd : rev;
+        return true;
+    }
+
     // Opens a build input (--reference, --full_reference); a .zst file or sibling is fine too.
     inline std::unique_ptr<zstd::InputFile> OpenInput(std::string const& path) {
         auto input = std::make_unique<zstd::InputFile>(zstd::Resolve(path));
@@ -261,7 +280,7 @@ namespace protal::build {
     }
 
     template<typename KmerHandler, typename KmerPutter, DebugLevel debug>
-    static Statistics Run(protal::Options const& options, KmerPutter& putter, KmerHandler& kmer_handler_global) {
+    static Statistics Run(protal::Options const& options, KmerPutter& putter, KmerHandler& kmer_handler_global, GenomeLoader& genomes) {
 
         // Shared
         auto input = OpenInput(options.GetSequenceFilePath());
@@ -420,8 +439,10 @@ namespace protal::build {
         auto full_input = OpenInput(options.GetFullSequenceFilePath());
         std::istream& full_is = full_input->Stream();
         KmerLookupSM lookup_global(putter.GetMap());
+        // Genes are read back to check single-entry k-mers. They are preloaded unless
+        // --preload_genomes_off is given; then GetGeneOMP loads each genome on first use.
 
-#pragma omp parallel default(none) shared(std::cout, lookup_global, options, full_is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits)
+#pragma omp parallel default(none) shared(std::cout, lookup_global, options, full_is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, genomes)
     {
         // Private variables
         FastxRecord record;
@@ -463,7 +484,22 @@ namespace protal::build {
                 // std::cout << pair.first << ", " << pair.second << std::endl;
                 max_sim_entries.clear();
                 lookup.GetFlex(pair.first, max_sim_entries, max_sim);
-                if (max_sim_entries.empty()) continue;
+                if (max_sim_entries.empty()) {
+                    // A core that occurs once in the index has no flex keys, so GetFlex cannot compare
+                    // the whole k-mer; before, such entries were never checked and all stayed unique.
+                    // Compare with the k-mer the entry was built from, read back from its gene, under
+                    // the rule used for flex blocks: another taxon with the same k-mer makes it
+                    // non-unique.
+                    ValueEntry* single = lookup.GetSingleEntry(pair.first);
+                    if (single == nullptr) continue;
+                    single->Get(taxid, geneid, genepos);
+                    if (taxonomic_id == taxid) continue;
+                    uint64_t indexed_kmer = 0;
+                    if (!IndexedKmer(putter.GetMap(), genomes, taxid, geneid, genepos, indexed_kmer) || indexed_kmer != pair.first) continue;
+#pragma omp critical(SetNonUnique)
+                    single->SetFlagNonUnique();
+                    continue;
+                }
 
                 max_sim_entries.front()->Get(taxid, geneid, genepos);
 
