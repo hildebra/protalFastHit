@@ -14,9 +14,11 @@ requirements:
     - gxx_linux-64 >=14.2.0
     - libgomp >=14.2.0
     - zlib
+    - zstd    # compressed database files (index.prx.zst, reference.fna.zst)
   run:
     - python >=3
     - pigz
+    - zstd
 
 about:
   home: https://github.com/4less/protal

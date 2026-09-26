@@ -15,6 +15,7 @@
 #include <sparse_set.h>
 
 #include "Utilities.h"
+#include "Zstd.h"
 #include <sysexits.h>
 
 #include "Benchmark.h"
@@ -27,7 +28,7 @@ namespace protal {
         std::string m_sequence = "";
         size_t m_start_byte;
         size_t m_length = DEFAULT;
-        std::ifstream* m_is = nullptr;
+        std::ifstream* m_is = nullptr;  // nullptr: compressed reference, genes only come from preloading
 
         size_t m_short_unique = 0;
         size_t m_long_unique = 0;
@@ -40,6 +41,9 @@ namespace protal {
                 m_is->seekg(start_byte);
                 into.resize(length);
                 m_is->read(&into[0], length);
+            } else if (!m_is && length > 0 && length != DEFAULT) {
+                errx(EX_SOFTWARE, "Gene %zu cannot be loaded on its own from a compressed reference (reference.fna.zst); "
+                                  "the reference must be preloaded.", m_id);
             }
         };
 
@@ -52,6 +56,14 @@ namespace protal {
             m_start_byte = start_byte;
             m_length = length;
             m_is = is;
+        }
+
+        size_t GetStartByte() const {
+            return m_start_byte;
+        }
+
+        void SetSequence(std::string&& sequence) {
+            m_sequence = std::move(sequence);
         }
 
         bool IsSet() const {
@@ -232,6 +244,14 @@ namespace protal {
             return m_genes;
         }
 
+        GeneList& Genes() {
+            return m_genes;
+        }
+
+        void MarkLoaded() {
+            m_is_loaded = true;
+        }
+
         size_t GeneNum() const {
             return m_hittable_genes.empty() ? std::count_if(m_genes.begin(), m_genes.end(), [](Gene const& gene) {
                 return gene.IsSet();
@@ -279,6 +299,7 @@ namespace protal {
 
         std::string m_path;
         std::string m_genome_map;
+        bool m_compressed = false;  // reference.fna.zst: genes are only read by LoadAllGenomes
         std::ifstream m_is;
         GenomeMap m_genomes;
 
@@ -289,19 +310,30 @@ namespace protal {
             return m_genomes.at(key);
         }
 
+        void Open() {
+            m_compressed = zstd::IsCompressed(m_path);
+            if (!m_compressed) m_is.open(m_path, std::ios::in);
+        }
+
     public:
+        // genome_path: reference.fna or a zstd-compressed reference.fna.zst. The byte offsets in
+        // genome_map (reference.map) always refer to the uncompressed reference.
         GenomeLoader(std::string genome_path, std::string genome_map) :
                 m_path(genome_path),
-                m_genome_map(genome_map),
-                m_is(genome_path, std::ios::in) {
+                m_genome_map(genome_map) {
+            Open();
             LoadPositionMap(genome_map);
         };
 
         GenomeLoader(const GenomeLoader& other) :
                 m_path(other.m_path),
-                m_genome_map(other.m_genome_map),
-                m_is(other.m_path, std::ios::in) {
+                m_genome_map(other.m_genome_map) {
+            Open();
             LoadPositionMap(other.m_genome_map);
+        }
+
+        bool IsCompressed() const {
+            return m_compressed;
         }
 
         ~GenomeLoader() {
@@ -403,6 +435,9 @@ namespace protal {
             }
         }
 
+        // Reads every gene in one sequential pass over the reference (raw or compressed), in
+        // file order, skipping the header lines between them: large sequential reads instead of
+        // one seek per gene, which matters on network storage.
         void LoadAllGenomes() {
             std::vector<GenomeKey> keys;
             for (auto& pair : m_genomes) {
@@ -410,10 +445,41 @@ namespace protal {
             }
             std::sort(keys.begin(), keys.end());
 
+            std::vector<Gene*> genes;
             for (auto& key : keys) {
-                if (!m_genomes.at(key).IsLoaded()){
-                    m_genomes.at(key).LoadGenomeOMP();
+                auto& genome = m_genomes.at(key);
+                if (genome.IsLoaded()) continue;
+                for (auto& gene : genome.Genes()) {
+                    if (gene.IsSet() && !gene.IsLoaded() && gene.GetLength() > 0) genes.emplace_back(&gene);
                 }
+            }
+            std::sort(genes.begin(), genes.end(), [](Gene const* a, Gene const* b) {
+                return a->GetStartByte() < b->GetStartByte();
+            });
+
+            zstd::InputFile input(m_path);
+            if (!input.IsOpen()) {
+                errx(EX_NOINPUT, "Cannot open the reference %s", m_path.c_str());
+            }
+            std::istream& is = input.Stream();
+            size_t position = 0;
+            for (Gene* gene : genes) {
+                if (gene->GetStartByte() < position) {
+                    errx(EX_DATAERR, "%s lists overlapping sequences (gene %zu at byte %zu)", m_genome_map.c_str(),
+                         gene->GetId(), gene->GetStartByte());
+                }
+                is.ignore(static_cast<std::streamsize>(gene->GetStartByte() - position));
+                std::string sequence(gene->GetLength(), '\0');
+                is.read(sequence.data(), static_cast<std::streamsize>(sequence.size()));
+                if (!is) {
+                    errx(EX_DATAERR, "%s ends before gene %zu (bytes %zu-%zu in %s)", m_path.c_str(), gene->GetId(),
+                         gene->GetStartByte(), gene->GetStartByte() + gene->GetLength(), m_genome_map.c_str());
+                }
+                gene->SetSequence(std::move(sequence));
+                position = gene->GetStartByte() + gene->GetLength();
+            }
+            for (auto& key : keys) {
+                m_genomes.at(key).MarkLoaded();
             }
         }
 
@@ -455,7 +521,7 @@ namespace protal {
 
                 auto& genome = AddOrGetGenome(genome_id);
 
-                genome.AddGene(gene_key, gene_key, start, length, &m_is);
+                genome.AddGene(gene_key, gene_key, start, length, m_compressed ? nullptr : &m_is);
             }
             is.close();
         }

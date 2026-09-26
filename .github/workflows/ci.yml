@@ -13,7 +13,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev zlib1g-dev pigz python3
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev zlib1g-dev libzstd-dev zstd pigz python3
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON
@@ -27,7 +27,7 @@ jobs:
       - name: Mini database generator tests
         run: python3 -m unittest -v scripts/mini_db/test_mini_db.py
 
-      # index.prx is ~3 GB even for the mini database (fixed-size key map).
+      # Compressed by default: index.prx.zst is ~1 MB (index.prx would be ~3 GB, fixed-size key map).
       - name: Build mini database
         run: PROTAL=build/protal bash scripts/mini_db/build_mini_db.sh data/mini_db
 
@@ -44,7 +44,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev zlib1g-dev
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev zlib1g-dev libzstd-dev
 
       # Debug: asserts on. ASan + UBSan with leak checking.
       - name: Configure

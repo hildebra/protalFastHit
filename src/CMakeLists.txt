@@ -183,6 +183,16 @@ target_link_directories(protal_lib_static
 #set(ZLIB_USE_STATIC_LIBS "ON")
 find_package(ZLIB REQUIRED)
 
+# zstd: compressed database files (index.prx.zst, reference.fna.zst). Ubuntu: libzstd-dev,
+# conda: zstd. The static build links libzstd.a by name, like zlib.
+find_path(ZSTD_INCLUDE_DIR zstd.h REQUIRED)
+find_library(ZSTD_LIBRARY NAMES zstd REQUIRED)
+get_filename_component(ZSTD_LIBRARY_DIR ${ZSTD_LIBRARY} DIRECTORY)
+message(STATUS "zstd: ${ZSTD_LIBRARY} (${ZSTD_INCLUDE_DIR})")
+target_include_directories(protal_lib PUBLIC ${ZSTD_INCLUDE_DIR})
+target_include_directories(protal_lib_static PUBLIC ${ZSTD_INCLUDE_DIR})
+target_link_directories(protal_lib_static PUBLIC ${ZSTD_LIBRARY_DIR})
+
 target_include_directories(protal_lib PUBLIC ../lib/robin)
 target_include_directories(protal_lib PUBLIC ../lib/tsl)
 target_include_directories(protal_lib_static PUBLIC ../lib/robin)
@@ -247,6 +257,7 @@ target_link_libraries(protal_lib
         wfa_lib
         gzstream_lib
         ZLIB::ZLIB
+        ${ZSTD_LIBRARY}
 )
 
 target_link_libraries(protal_lib_static
@@ -256,6 +267,7 @@ target_link_libraries(protal_lib_static
         wfa_lib
         gzstream_lib_static
         z
+        zstd
 )
 
 message("CMAKE_CURRENT_SOURCE_DIR: ${CMAKE_CURRENT_SOURCE_DIR}")

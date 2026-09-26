@@ -13,6 +13,7 @@
 #include <tuple>
 #include <fstream>
 #include "Utilities.h"
+#include "Zstd.h"
 #include "KmerUtils.h"
 #include "sparse_map.h"
 #include <bit>
@@ -414,6 +415,12 @@ namespace protal {
             }
         }
 
+        // Bytes Save writes: file header, six layout fields, key map, values.
+        uint64_t SerializedSize() const {
+            return sizeof(uint64_t) + 4 * sizeof(uint32_t) + 6 * sizeof(size_t) +
+                   keymap_size_total * sizeof(KeyMap_t) + values_size * sizeof(ValueEntry);
+        }
+
         void Save(std::ostream& ofs) {
 //            SortForKeys();
 
@@ -495,13 +502,21 @@ namespace protal {
             delete[] m_map;
             m_map = new ValueEntry[values_size];
             ifs.read((char *) m_map, sizeof(*m_map) * (values_size));
-            if (!ifs) InvalidIndex(name, "the file ends before all index data was read");
+            if (ifs.bad()) InvalidIndex(name, "the file could not be read or decompressed (truncated or corrupt file?)");
+            if (!ifs) InvalidIndex(name, "the file ends before all index data was read (truncated or corrupt file?)");
+            // Streams whose size is unknown (zstd) are checked here. Reaching the end also makes
+            // zstd verify the frame's content checksum.
+            if (!std::char_traits<char>::eq_int_type(ifs.peek(), std::char_traits<char>::eof())) {
+                InvalidIndex(name, "unexpected data after the index (corrupt file?)");
+            }
+            if (ifs.bad()) InvalidIndex(name, "the file could not be read or decompressed (truncated or corrupt file?)");
         }
 
+        // Reads index.prx or a zstd-compressed index.prx.zst.
         void Load(std::string file) {
-            std::ifstream ifs(file, std::ios::binary);
-            if (!ifs) InvalidIndex(file, "cannot open the file");
-            Load(ifs, file);
+            zstd::InputFile in(file);
+            if (!in.IsOpen()) InvalidIndex(file, "cannot open the file");
+            Load(in.Stream(), file);
         }
 
 

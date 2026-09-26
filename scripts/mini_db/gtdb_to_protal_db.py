@@ -29,6 +29,7 @@ Writes to <outdir>:
 Then build the index with
   protal --build --no_profile --db <outdir> --reference <outdir>/reference.fna \\
          --full_reference <outdir>/full_reference.fna
+which writes index.prx.zst and replaces reference.fna by reference.fna.zst unless --no_compress.
 
 Intended for small/sparse releases: representative sequences are held in memory.
 

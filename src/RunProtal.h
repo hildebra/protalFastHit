@@ -146,6 +146,9 @@ namespace protal {
             protal::build::Check<SimpleKmerHandler<ClosedSyncmer>, KmerPutterSM, DEBUG_NONE>(
                     options, kmer_putter, iterator);
 
+            // Last, as the build reads reference.fna until here.
+            protal::build::CompressReference(options);
+
             bm_build.PrintResults();
             protal_stats.WriteStats(std::cout);
 
@@ -156,7 +159,9 @@ namespace protal {
             bm_load_index.Start();
             // Load Index
             Seedmap map;
-            map.Load(options.GetIndexFile());
+            std::string const index_file = options.ResolvedIndexFile();
+            std::cout << "Load index " << index_file << std::endl;
+            map.Load(index_file);
             std::cout << "Index features: " << map.FeatureDescription() << std::endl;
 
             // Seeds must be sampled exactly as when the index was built.
@@ -1683,9 +1688,10 @@ namespace protal {
         }
 
         // Load protal DB into RAM
+        // reference.fna or reference.fna.zst
         ProtalDB db = options.UniqueKmersFileExists() ?
-            ProtalDB(options.GetSequenceFile(), options.GetSequenceMapFile(), options.GetHittableGenesMap(), options.GetUniqueKmersFile()) :
-            ProtalDB(options.GetSequenceFile(), options.GetSequenceMapFile());
+            ProtalDB(options.ResolvedSequenceFile(), options.GetSequenceMapFile(), options.GetHittableGenesMap(), options.GetUniqueKmersFile()) :
+            ProtalDB(options.ResolvedSequenceFile(), options.GetSequenceMapFile());
 
         // Load fasta sequences of reference into RAM (advised)
         if (options.PreloadGenomes()) {

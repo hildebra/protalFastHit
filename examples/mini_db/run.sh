@@ -17,7 +17,9 @@
 # Environment: PROTAL  protal binary (default: build/protal, else protal on $PATH)
 #              PYTHON  python 3 interpreter (default: python3; standard library only)
 #              THREADS protal threads (default: 4)
-# Needs ~3.5 GB of disk in WORKDIR: index.prx has a fixed-size key map.
+#              PROTAL_BUILD_ARGS  extra protal --build options, e.g. --no_compress
+# The DB is zstd-compressed by default (~1 MB); with --no_compress, index.prx alone is
+# ~3.2 GB (fixed-size key map). checksums.md5 needs the zstd CLI for compressed files.
 # Exits 0 if all checks pass, 1 otherwise.
 set -euo pipefail
 
@@ -54,8 +56,10 @@ fail() { log "$1 failed, last lines of $2:"; tail -20 "$2" >&2; exit 1; }
 
 # ---- a) build the database ------------------------------------------------------------------
 stamp=$({ md5sum "$protal" "$tools"/{simulate_gtdb_release.py,gtdb_to_protal_db.py,markers_r226.tsv,build_mini_db.sh} \
-          | cut -d' ' -f1; echo "build_args=${BUILD_ARGS[*]}"; } | md5sum | cut -d' ' -f1)
-if [ "$rebuild" = 1 ] || [ ! -s "$db/index.prx" ] || [ "$(cat "$work/db.stamp" 2>/dev/null)" != "$stamp" ]; then
+          | cut -d' ' -f1; echo "build_args=${BUILD_ARGS[*]} protal_build_args=${PROTAL_BUILD_ARGS:-}"; } \
+        | md5sum | cut -d' ' -f1)
+if [ "$rebuild" = 1 ] || { [ ! -s "$db/index.prx" ] && [ ! -s "$db/index.prx.zst" ]; } \
+        || [ "$(cat "$work/db.stamp" 2>/dev/null)" != "$stamp" ]; then
     log "a) building the mini DB in $work"
     rm -f "$work/db.stamp"
     PROTAL="$protal" PYTHON="$python" bash "$tools/build_mini_db.sh" "$work" "${BUILD_ARGS[@]}" \
@@ -86,12 +90,25 @@ log "   profiling with $protal"
     echo "protal_md5	$(md5sum "$protal" | cut -d' ' -f1)"
     echo "python	$("$python" --version 2>&1)"
     echo "build_args	${BUILD_ARGS[*]}"
+    echo "protal_build_args	${PROTAL_BUILD_ARGS:-}"
     echo "reads_seed	$READS_SEED"
     echo "read_pairs	$READ_PAIRS"
     echo "threads	$threads"
 } > "$work/run_info.txt"
-(cd "$work" && md5sum protal_db/{reference.fna,reference.map,internal_taxonomy.dmp,full_reference.fna,unique_kmers.tsv} \
-    reads/{mini_R1.fq,mini_R2.fq,mini.truth.tsv}) > "$work/checksums.md5"
+# Checksums of the content, so that compressed and uncompressed databases compare equal.
+(
+    cd "$work"
+    for f in protal_db/{reference.fna,reference.map,internal_taxonomy.dmp,full_reference.fna,unique_kmers.tsv} \
+             reads/{mini_R1.fq,mini_R2.fq,mini.truth.tsv}; do
+        if [ -e "$f" ]; then
+            md5sum "$f"
+        elif [ -e "$f.zst" ] && command -v zstd > /dev/null; then
+            echo "$(zstd -dc "$f.zst" | md5sum | cut -d' ' -f1)  $f"
+        else
+            echo "-  $f (not found, or compressed and no zstd CLI)"
+        fi
+    done
+) > "$work/checksums.md5"
 
 log "   checking the results"
 "$python" "$here/check_results.py" --truth "$reads/mini.truth.tsv" --profile "$run/mini.profile" \

@@ -8,7 +8,9 @@ records, strain MSAs, reruns, and that failures are reported.
   PROTAL_TEST_DB=data/mini_db/protal_db python3 -m unittest -v tests/e2e/test_protal_e2e.py
   just e2e                                  # builds the mini DB first
 
-PROTAL_TEST_DB  protal database, e.g. from scripts/mini_db/build_mini_db.sh (required; only read)
+PROTAL_TEST_DB  protal database, e.g. from scripts/mini_db/build_mini_db.sh (required; only read).
+                Raw or zstd-compressed (index.prx.zst, reference.fna.zst); the zstd CLI is
+                needed for a compressed one.
 PROTAL          protal binary (default: build/protal)
 SIMULATE        simulate_metagenomes binary (default: build/simulate_metagenomes; optional)
 """
@@ -31,11 +33,19 @@ QCMSA = os.path.join(ROOT, "scripts", "qcmsa.py")
 READS = None  # directory with the simulated reads, set up once per module
 
 
+def db_file(name):
+    """Path of a database file as protal picks it: <name> if present, else <name>.zst."""
+    raw = os.path.join(DB, name)
+    return raw if os.path.exists(raw) or not os.path.exists(raw + ".zst") else raw + ".zst"
+
+
 def setUpModule():
     global READS
-    index = os.path.join(DB, "index.prx")
+    index = db_file("index.prx")
     if not DB or not os.path.isfile(index) or os.path.getsize(index) == 0:
         raise unittest.SkipTest("set PROTAL_TEST_DB to a protal database (just mini-db builds data/mini_db/protal_db)")
+    if db_file("reference.fna").endswith(".zst") and not shutil.which("zstd"):
+        raise unittest.SkipTest("the zstd CLI is needed to read reference.fna.zst")
     if not os.access(PROTAL, os.X_OK):
         raise unittest.SkipTest(f"protal binary not found at {PROTAL} (set PROTAL)")
     READS = tempfile.mkdtemp(prefix="protal_e2e_reads_")
@@ -55,13 +65,18 @@ def revcomp(seq):
 
 def reference_genes():
     genes, name = [], None
-    with open(os.path.join(DB, "reference.fna")) as fh:
-        for line in fh:
-            line = line.strip()
-            if line.startswith(">"):
-                name = line[1:].split()[0]
-            elif line:
-                genes.append((name, line.upper()))
+    path = db_file("reference.fna")
+    if path.endswith(".zst"):
+        lines = subprocess.run(["zstd", "-dc", path], check=True, stdout=subprocess.PIPE, text=True).stdout.splitlines()
+    else:
+        with open(path) as fh:
+            lines = fh.read().splitlines()
+    for line in lines:
+        line = line.strip()
+        if line.startswith(">"):
+            name = line[1:].split()[0]
+        elif line:
+            genes.append((name, line.upper()))
     return genes
 
 
@@ -242,14 +257,61 @@ class FailureTest(WorkDir):
     def test_truncated_index(self):
         bad_db = self.path("bad_db")
         os.mkdir(bad_db)
+        index = db_file("index.prx")
         for f in glob.glob(os.path.join(DB, "*")):
-            if os.path.basename(f) != "index.prx":
+            if not os.path.basename(f).startswith("index.prx"):
                 os.symlink(f, os.path.join(bad_db, os.path.basename(f)))
-        with open(os.path.join(DB, "index.prx"), "rb") as src, open(os.path.join(bad_db, "index.prx"), "wb") as dst:
-            dst.write(src.read(1 << 20))
+        with open(index, "rb") as src, open(os.path.join(bad_db, os.path.basename(index)), "wb") as dst:
+            dst.write(src.read(min(1 << 20, os.path.getsize(index) // 2)))
         rc, log = run(self.work, "--db", bad_db, *reads("sa"), "-o", "out_idx", "-t", "1", "--no_qcmsa")
         self.assertEqual(rc, 8)
         self.assertRegex(log, r"Invalid index .*truncated or corrupt")
+
+
+class CompressedDatabaseTest(WorkDir):
+    """A raw and a zstd-compressed copy of the database give byte-identical results."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        if not shutil.which("zstd"):
+            raise unittest.SkipTest("the zstd CLI is needed to make a raw and a compressed copy of the database")
+        cls.dbs = {"raw": os.path.join(cls.work, "raw_db"), "zst": os.path.join(cls.work, "zst_db")}
+        for d in cls.dbs.values():
+            os.mkdir(d)
+        big = ("index.prx", "reference.fna")
+        for f in glob.glob(os.path.join(DB, "*")):
+            name = os.path.basename(f)
+            if not name.startswith(big):
+                for d in cls.dbs.values():
+                    os.symlink(f, os.path.join(d, name))
+        for name in big:
+            path = db_file(name)
+            if path.endswith(".zst"):
+                os.symlink(path, os.path.join(cls.dbs["zst"], name + ".zst"))
+                subprocess.run(["zstd", "-q", "-d", path, "-o", os.path.join(cls.dbs["raw"], name)], check=True)
+            else:
+                os.symlink(path, os.path.join(cls.dbs["raw"], name))
+                subprocess.run(["zstd", "-q", "-3", "--long=27", path, "-o", os.path.join(cls.dbs["zst"], name + ".zst")],
+                               check=True)
+
+    def test_identical_results(self):
+        outputs = {}
+        for kind, db in self.dbs.items():
+            rc, log = run(self.work, "--db", db, *reads("sa"), "-o", f"out_{kind}", "-t", "1", "--no_qcmsa")
+            self.assertEqual(rc, 0, log[-3000:])
+            self.assertIn("index.prx.zst" if kind == "zst" else "index.prx", log)
+            with open(glob.glob(self.path(f"out_{kind}", "sa*.sam"))[0], "rb") as sam, \
+                 open(glob.glob(self.path(f"out_{kind}", "sa*.profile"))[0], "rb") as profile:
+                outputs[kind] = (sam.read(), profile.read())
+        self.assertEqual(outputs["raw"][0], outputs["zst"][0], "SAM differs between raw and compressed database")
+        self.assertEqual(outputs["raw"][1], outputs["zst"][1], "profile differs between raw and compressed database")
+
+    def test_no_preload_needs_a_raw_reference(self):
+        rc, log = run(self.work, "--db", self.dbs["zst"], *reads("sa"), "-o", "out_lazy", "-t", "1", "--no_qcmsa",
+                      "--preload_genomes_off")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("--preload_genomes_off needs an uncompressed reference", log)
 
 
 class QcmsaTest(WorkDir):

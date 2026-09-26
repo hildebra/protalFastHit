@@ -62,6 +62,36 @@ conda activate protal_env
 protal
 ```
 
+## Compressed databases
+
+protal reads its database files raw or compressed with [zstd](https://facebook.github.io/zstd/):
+for `index.prx` and `reference.fna` it uses the raw file if it exists, else `index.prx.zst` /
+`reference.fna.zst`. Compression roughly halves the bytes read (or more), which makes loading faster
+wherever storage is slower than decompression (~1 GB/s per core), e.g. on network file systems. On a
+fast local disk, a raw database loads faster.
+
+`protal --build` writes a compressed database by default: `index.prx.zst`, and `reference.fna` is
+replaced by `reference.fna.zst` (verified before `reference.fna` is removed). The build uses `-t`
+threads for compression.
+
+| Build option | Default | |
+|---|---|---|
+| `--no_compress` | off | write `index.prx` and keep `reference.fna` raw |
+| `--compress_level` | 19 | zstd level 1-22. Level 19 compresses ~3 MB/s per thread, level 12 ~40 MB/s; decompression speed barely depends on it |
+| `--compress_window_log` | 27 | long-distance matching window (2^27 = 128 MB), finds repeats between distant related sequences; 0 turns it off |
+
+Existing databases can be converted with the zstd CLI, which gives the same files:
+
+```bash
+zstd -19 --long=27 -T0 --rm index.prx       # -> index.prx.zst
+zstd -19 --long=27 -T0 --rm reference.fna   # -> reference.fna.zst
+zstd -d --long=31 index.prx.zst             # back to raw, e.g. for protal versions before zstd support
+```
+
+`--preload_genomes_off` (loading reference genes on demand) needs a raw `reference.fna`.
+`scripts/db_compression_benchmark.sh` measures ratio and speed per level on your database and
+compares protal's load times for a raw and a compressed copy.
+
 ## Metagenome simulation (C++)
 
 Build the simulator helper binary:
@@ -136,7 +166,10 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
   `model.xml`. `build_mini_db.sh` then runs `protal --build` on them.
 - `simulate_reads.py` draws paired reads from a mock community of those genomes (no ART needed)
   and writes the truth table next to them.
-- `index.prx` is about 3 GB even for a tiny reference, because the k-mer key map has a fixed size.
+- The build compresses the database (see [Compressed databases](#compressed-databases)):
+  `index.prx.zst` is about 1 MB here, while a raw `index.prx` is about 3 GB even for a tiny
+  reference, because the k-mer key map has a fixed size. `PROTAL_BUILD_ARGS=--no_compress`
+  builds a raw one.
 
 ## Testing
 

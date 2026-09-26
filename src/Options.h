@@ -13,10 +13,14 @@
 #include <cctype>
 #include <algorithm>
 #include "Utilities.h"
+#include "Zstd.h"
 
 
 namespace protal {
     static const size_t DEFAULT_THREADS = 1;
+    // --build writes a zstd-compressed database unless --no_compress.
+    static const int DEFAULT_COMPRESS_LEVEL = 19;
+    static const int DEFAULT_COMPRESS_WINDOW_LOG = 27;
     static const size_t DEFAULT_ALIGN_TOP = 3;
     static const double DEFAULT_MAX_SCORE_ANI = 0.9;
     static const size_t DEFAULT_MSA_MIN_HCOV = 1000;
@@ -101,10 +105,13 @@ namespace protal {
         options.add_options("DevOptions")
                 ("mapq_debug_output", "Output mapq debug info to stderr")
                 ("build", "Build index from reference file with header format ()")
+                ("no_compress", "With --build: write the database uncompressed. By default the index is written as index.prx.zst and reference.fna is replaced by reference.fna.zst (zstd; verified before the raw file is removed). protal reads either form.")
+                ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
+                ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB); finds repeats between distant related sequences. 0 turns it off. Reading needs this much memory.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("full_reference", "All marker genomes (not only representative ones) to check unique k-mers during build process", cxxopts::value<std::string>()->default_value(""))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "Newline-delimited gene ids (>=1) to include during build (subset of marker genes)", cxxopts::value<std::string>()->default_value(""))
-                ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory.")
+                ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory. Needs an uncompressed reference.fna (not reference.fna.zst).")
 
                 ("profile_truth", "Provide truth file and annotate profile taxa with TP/FP. Format is list of integers (internal ids)", cxxopts::value<std::string>()->default_value(""))
                 ("benchmark_alignment", "Benchmark alignment part of protal based on true taxonomic id and gene id supplied in the read header. Header must fulfill the formatting >taxid_geneid... with the regex: >[0-9]+_[0-9]+([^0-9]+.*)*")
@@ -143,6 +150,9 @@ namespace protal {
 
         // build
         std::vector<uint8_t> build_gene_mask;
+        bool compress = true;
+        int compress_level = DEFAULT_COMPRESS_LEVEL;
+        int compress_window_log = DEFAULT_COMPRESS_WINDOW_LOG;
 
         // paths
         std::string sequence_file;
@@ -216,6 +226,9 @@ namespace protal {
         size_t m_current_index = 0;
 
         std::vector<uint8_t> m_build_gene_mask;
+        bool m_compress = true;
+        int m_compress_level = DEFAULT_COMPRESS_LEVEL;
+        int m_compress_window_log = DEFAULT_COMPRESS_WINDOW_LOG;
 
         std::string m_sequence_file;
         std::string m_full_sequence_file;
@@ -315,6 +328,9 @@ namespace protal {
                 m_force(d.force),
                 m_verbose(d.verbose),
                 m_build_gene_mask(std::move(d.build_gene_mask)),
+                m_compress(d.compress),
+                m_compress_level(d.compress_level),
+                m_compress_window_log(d.compress_window_log),
                 m_sequence_file(std::move(d.sequence_file)),
                 m_full_sequence_file(std::move(d.full_sequence_file)),
                 m_database_path(std::move(d.database_path)),
@@ -379,6 +395,10 @@ namespace protal {
             std::ostringstream result_str;
             result_str << "------ General ------" << std::string(30, '-') << '\n';
             result_str << "build:               " << std::to_string(m_build) << '\n';
+            if (m_build) {
+                result_str << "compress database:   " << (m_compress ? "zstd level " + std::to_string(m_compress_level) +
+                        (m_compress_window_log ? ", window 2^" + std::to_string(m_compress_window_log) : "") : "no") << '\n';
+            }
             result_str << "no strains:          " << std::to_string(m_no_strains) << '\n';
             result_str << "threads:             " << std::to_string(m_threads) << '\n';
             result_str << "-------- I/O --------" << std::string(30, '-') << '\n';
@@ -502,8 +522,26 @@ namespace protal {
             return m_full_sequence_file;
         }
 
+        // The raw file names; the build writes the index as GetIndexFile() + ".zst" unless
+        // --no_compress. Readers use the Resolved* variants, which pick the file that exists.
         std::string GetIndexFile() const {
             return m_database_path + "/" + PROTAL_INDEX_FILE;
+        }
+
+        std::string ResolvedIndexFile() const {
+            return zstd::Resolve(GetIndexFile());
+        }
+
+        std::string ResolvedSequenceFile() const {
+            return zstd::Resolve(GetSequenceFile());
+        }
+
+        bool Compress() const {
+            return m_compress;
+        }
+
+        zstd::Params CompressionParams() const {
+            return { m_compress_level, m_compress_window_log, static_cast<int>(std::max<size_t>(m_threads, 1)) };
         }
 
         std::string GetInternalTaxonomyFile() const {
@@ -1134,8 +1172,13 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
             std::vector<std::string> error_log;
             std::vector<std::string> warning_log;
 
-            if (!std::filesystem::exists(GetSequenceFile())) {
-                error_log.emplace_back("Sequence file does not exist: " + GetSequenceFile());
+            if (!std::filesystem::exists(ResolvedSequenceFile())) {
+                error_log.emplace_back("Sequence file does not exist: " + GetSequenceFile() + " (nor " +
+                                       GetSequenceFile() + zstd::kExtension + ")");
+            } else if (!m_build && !m_preload_genomes && zstd::IsCompressed(ResolvedSequenceFile())) {
+                error_log.emplace_back("--preload_genomes_off needs an uncompressed reference, but " + ResolvedSequenceFile() +
+                                       " is compressed. Drop --preload_genomes_off, or decompress it with: zstd -d " +
+                                       ResolvedSequenceFile());
             }
             if (!std::filesystem::exists(GetSequenceMapFile())) {
                 error_log.emplace_back("Sequence map file does not exist: " + GetSequenceMapFile());
@@ -1143,8 +1186,20 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
             if (!std::filesystem::exists(GetInternalTaxonomyFile())) {
                 error_log.emplace_back("Taxonomy file does not exist: " + GetInternalTaxonomyFile());
             }
-            if (!m_build && !std::filesystem::exists(GetIndexFile())) {
-                error_log.emplace_back("Index file does not exist: " + GetIndexFile());
+            if (!m_build && !std::filesystem::exists(ResolvedIndexFile())) {
+                error_log.emplace_back("Index file does not exist: " + GetIndexFile() + " (nor " + GetIndexFile() +
+                                       zstd::kExtension + ")");
+            }
+            if (m_build && m_compress) {
+                if (m_compress_level < 1 || m_compress_level > ZSTD_maxCLevel()) {
+                    error_log.emplace_back("--compress_level must be between 1 and " + std::to_string(ZSTD_maxCLevel()));
+                }
+                auto const window = ZSTD_cParam_getBounds(ZSTD_c_windowLog);
+                if (m_compress_window_log != 0 &&
+                    (m_compress_window_log < window.lowerBound || m_compress_window_log > window.upperBound)) {
+                    error_log.emplace_back("--compress_window_log must be 0 or between " + std::to_string(window.lowerBound) +
+                                           " and " + std::to_string(window.upperBound));
+                }
             }
 
             // Length of files
@@ -1632,6 +1687,9 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
             d.verbose                  = verbose;
             d.range                    = std::move(range);
             d.build_gene_mask          = std::move(build_gene_mask);
+            d.compress                 = !result.count("no_compress");
+            d.compress_level           = result["compress_level"].as<int>();
+            d.compress_window_log      = result["compress_window_log"].as<int>();
             d.knob                     = result["knob"].as<double>();
             d.model                    = result["model"].as<std::string>();
 

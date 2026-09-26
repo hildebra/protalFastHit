@@ -9,19 +9,128 @@
 #include "SequenceUtils/KmerIterator.h"
 #include "Statistics.h"
 #include <iostream>
+#include <iomanip>
 #include <fstream>
+#include <memory>
 #include <omp.h>
 #include "Constants.h"
 #include "Hash/KmerPutter.h"
 #include "robin_map.h"
 #include "KmerUtils.h"
+#include "Benchmark.h"
+#include "Zstd.h"
+#include <filesystem>
 
 namespace protal::build {
+    // Opens a build input (--reference, --full_reference); a .zst file or sibling is fine too.
+    inline std::unique_ptr<zstd::InputFile> OpenInput(std::string const& path) {
+        auto input = std::make_unique<zstd::InputFile>(zstd::Resolve(path));
+        if (!input->IsOpen()) {
+            std::cerr << "Cannot open " << path << " (nor " << path << zstd::kExtension << ")" << std::endl;
+            exit(8);
+        }
+        return input;
+    }
+
+    inline std::string HumanBytes(uint64_t bytes) {
+        char buffer[32];
+        if (bytes >= (uint64_t{1} << 30)) std::snprintf(buffer, sizeof(buffer), "%.2f GB", bytes / double(uint64_t{1} << 30));
+        else if (bytes >= (uint64_t{1} << 20)) std::snprintf(buffer, sizeof(buffer), "%.2f MB", bytes / double(uint64_t{1} << 20));
+        else std::snprintf(buffer, sizeof(buffer), "%llu bytes", static_cast<unsigned long long>(bytes));
+        return buffer;
+    }
+
+    inline void CompressionHint(protal::Options const& options) {
+        if (options.CompressionParams().threads <= 1 && options.CompressionParams().level >= 16) {
+            std::cout << "Note: zstd level " << options.CompressionParams().level << " with one thread compresses about "
+                      << "3 MB/s; -t <threads> speeds it up almost linearly (or lower --compress_level)." << std::endl;
+        }
+    }
+
+    // Writes the index as index.prx.zst (index.prx with --no_compress) via a .partial file, then
+    // removes the other variant so that a stale index cannot be picked up later.
+    template<typename KmerPutter>
+    static void SaveIndex(protal::Options const& options, KmerPutter& putter) {
+        std::string const raw = options.GetIndexFile();
+        bool const compress = options.Compress();
+        std::string const target = compress ? raw + zstd::kExtension : raw;
+        std::string const stale = compress ? raw : raw + zstd::kExtension;
+        std::string const partial = target + ".partial";
+        uint64_t const size = putter.GetMap().SerializedSize();
+
+        Benchmark bm_save("Write index");
+        bm_save.Start();
+        bool ok = false;
+        uint64_t written = size;
+        if (compress) {
+            CompressionHint(options);
+            std::cout << "Write " << target << " (zstd level " << options.CompressionParams().level << ", "
+                      << options.CompressionParams().threads << " thread(s))" << std::endl;
+            zstd::OStream os(partial, options.CompressionParams(), size);
+            putter.Save(os);
+            ok = os.Close();
+            written = os.Buffer().BytesOut();
+        } else {
+            std::cout << "Write " << target << std::endl;
+            std::ofstream os(partial, std::ios::binary);
+            putter.Save(os);
+            os.close();
+            ok = !os.fail();
+        }
+        std::error_code ec;
+        if (ok) std::filesystem::rename(partial, target, ec);
+        if (!ok || ec) {
+            std::cerr << "Writing the index " << target << " failed" << (ec ? ": " + ec.message() : "") << std::endl;
+            std::filesystem::remove(partial, ec);
+            exit(8);
+        }
+        if (std::filesystem::remove(stale, ec)) std::cout << "Removed the previous " << stale << std::endl;
+        bm_save.Stop();
+        std::cout << "Index " << target << ": " << HumanBytes(written);
+        if (compress) std::cout << " (" << HumanBytes(size) << " uncompressed, " << std::fixed << std::setprecision(1)
+                                << size / double(std::max<uint64_t>(written, 1)) << "x)" << std::defaultfloat;
+        std::cout << std::endl;
+        bm_save.PrintResults();
+    }
+
+    // Unless --no_compress: replaces the database's reference.fna by reference.fna.zst, which is
+    // decompressed and compared with reference.fna before reference.fna is removed. With
+    // --no_compress, a reference.fna.zst next to reference.fna is stale and removed.
+    static void CompressReference(protal::Options const& options) {
+        std::string const raw = options.GetSequenceFile();
+        std::string const zst = raw + zstd::kExtension;
+        std::error_code ec;
+        if (!std::filesystem::exists(raw)) return;  // only reference.fna.zst: nothing to do
+        if (!options.Compress()) {
+            if (std::filesystem::remove(zst, ec)) std::cout << "Removed the previous " << zst << std::endl;
+            return;
+        }
+        Benchmark bm("Compress reference");
+        bm.Start();
+        CompressionHint(options);
+        std::cout << "Write " << zst << " (zstd level " << options.CompressionParams().level << ", verified)" << std::endl;
+        std::string error;
+        if (!zstd::CompressFile(raw, zst, options.CompressionParams(), true, error)) {
+            std::cerr << "Compressing the reference failed: " << error << std::endl;
+            exit(8);
+        }
+        uint64_t const before = std::filesystem::file_size(raw, ec);
+        uint64_t const after = std::filesystem::file_size(zst, ec);
+        std::filesystem::remove(raw, ec);
+        if (ec) std::cerr << "Warning: cannot remove " << raw << ": " << ec.message() << std::endl;
+        bm.Stop();
+        std::cout << "Reference " << zst << ": " << HumanBytes(after) << " (" << HumanBytes(before) << " uncompressed, "
+                  << std::fixed << std::setprecision(1) << before / double(std::max<uint64_t>(after, 1)) << "x); "
+                  << "removed " << raw << std::defaultfloat << std::endl;
+        bm.PrintResults();
+    }
+
     template<typename KmerHandler, typename KmerPutter, DebugLevel debug>
     static void Check(protal::Options const& options, KmerPutter& putter, KmerHandler& kmer_handler_global) {
 
         // Shared
-        std::ifstream is(options.GetSequenceFilePath(), std::ios::in);
+        auto input = OpenInput(options.GetSequenceFilePath());
+        std::istream& is = input->Stream();
         size_t dummy = 0;
         int read_count = 0;
 
@@ -35,7 +144,6 @@ namespace protal::build {
 
         Statistics statistics;
 
-        is = std::ifstream(options.GetSequenceFilePath(), std::ios::in);
         KmerLookupSM lookup_global(putter.GetMap());
 
 #pragma omp parallel default(none) shared(std::cout, lookup_global, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits)
@@ -97,7 +205,8 @@ namespace protal::build {
     static Statistics Run(protal::Options const& options, KmerPutter& putter, KmerHandler& kmer_handler_global) {
 
         // Shared
-        std::ifstream is(options.GetSequenceFilePath(), std::ios::in);
+        auto input = OpenInput(options.GetSequenceFilePath());
+        std::istream& is = input->Stream();
         size_t dummy = 0;
         int read_count = 0;
 
@@ -181,9 +290,11 @@ namespace protal::build {
 
         }
 
-        // Make sure input stream is reset to start
-        is.clear();                 // clear fail and eof bits
-        is.seekg(0, std::ios::beg); // back to the start!
+        // Back to the start of the reference for the second pass
+        if (!input->Rewind()) {
+            std::cerr << "Cannot re-read " << input->Path() << std::endl;
+            exit(8);
+        }
 
 #pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits)
     {
@@ -243,26 +354,25 @@ namespace protal::build {
     }
 
         if (options.GetFullSequenceFilePath().empty()) {
-            std::ofstream index_ostream(options.GetIndexFile(), std::ios::binary);
-            putter.Save(index_ostream);
-            index_ostream.close();
+            SaveIndex(options, putter);
             return statistics;
         }
 
         std::cout << "Check Uniqueness: " << options.GetFullSequenceFilePath() << std::endl;
 
         omp_set_num_threads(options.GetThreads());
-        is = std::ifstream(options.GetFullSequenceFilePath(), std::ios::in);
+        auto full_input = OpenInput(options.GetFullSequenceFilePath());
+        std::istream& full_is = full_input->Stream();
         KmerLookupSM lookup_global(putter.GetMap());
 
-#pragma omp parallel default(none) shared(std::cout, lookup_global, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits)
+#pragma omp parallel default(none) shared(std::cout, lookup_global, options, full_is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits)
     {
         // Private variables
         FastxRecord record;
 
         // Extract variables from kmi_global
         KmerHandler kmer_handler(kmer_handler_global);
-        SeqReader reader { is };
+        SeqReader reader { full_is };
         size_t kmer = 0;
         Statistics thread_statistics;
         thread_statistics.thread_num = omp_get_thread_num();
@@ -327,14 +437,7 @@ namespace protal::build {
         putter.GetMap().CountUniqueKmers(os, true, true);
         os.close();
 
-        std::ofstream index_ostream(options.GetIndexFile(), std::ios::binary);
-        putter.Save(index_ostream);
-        index_ostream.close();
-        if (index_ostream.fail()) {
-            std::cerr << "Writing the index " << options.GetIndexFile() << " failed" << std::endl;
-            exit(8);
-        }
-
+        SaveIndex(options, putter);
 
         return statistics;
     }
