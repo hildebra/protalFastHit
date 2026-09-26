@@ -6,6 +6,7 @@
 
 #include <Constants.h>
 #include <assert.h>
+#include <cstdlib>
 #include <string>
 #include <bitset>
 #include <iostream>
@@ -173,7 +174,14 @@ namespace protal {
 
     class Seedmap {
     public:
+        // Format 1 ("PRXSEEDM"): magic and version. Format 2 ("PRXSEED2") adds a feature word after
+        // the version; protal builds before format 2 reject it as an unknown header.
         static constexpr uint64_t kFileMagic = 0x505258534545444dllu;
+        static constexpr uint64_t kFileMagicV2 = 0x5052585345454432llu;
+        // Features of an index. A format 1 index has none of them.
+        static constexpr uint32_t kFeatureFullSyncmerMask = 1u << 0;       // syncmers compare whole s-mers
+        static constexpr uint32_t kFeatureCorrectUniqueTwoFlags = 1u << 1; // "unique at distance >= 2" per entry
+        static constexpr uint32_t kKnownFeatures = kFeatureFullSyncmerMask | kFeatureCorrectUniqueTwoFlags;
         static constexpr uint32_t kIndexVersionMajor = protal_VERSION_MAJOR;
         static constexpr uint32_t kIndexVersionMinor = protal_VERSION_MINOR;
         static constexpr uint32_t kIndexVersionPatch = protal_VERSION_PATCH;
@@ -237,6 +245,9 @@ namespace protal {
         size_t values_size= 0;
         ValueEntry* m_map = nullptr;
 
+        // What this build writes; replaced by the index's own features on Load.
+        uint32_t m_features = kKnownFeatures;
+
         uint64_t m_found_counter = 0;
 
         void Print() {
@@ -252,9 +263,27 @@ namespace protal {
         }
 
         Seedmap(Seedmap const& other) = delete;
+
+        // The key map is counted up in place while building, so it must start zeroed. calloc gives
+        // zeroed memory without touching it (large blocks are fresh zero pages), which keeps the
+        // default-constructed map of a query run, replaced by Load, cheap.
+        void AllocateKeymap(size_t cells) {
+            std::free(m_keymap);
+            m_keymap = static_cast<KeyMap_t*>(std::calloc(cells, sizeof(KeyMap_t)));
+            if (!m_keymap) {
+                std::cerr << "Cannot allocate the index key map (" << cells * sizeof(KeyMap_t) << " bytes)" << std::endl;
+                exit(8);
+            }
+        }
+
+        [[noreturn]] static void InvalidIndex(std::string const& name, std::string const& reason) {
+            std::cerr << "Invalid index " << name << ": " << reason << std::endl;
+            exit(8);
+        }
+
     public:
         Seedmap() {
-            m_keymap = new KeyMap_t[keymap_size_total];
+            AllocateKeymap(keymap_size_total);
         }
 
         Seedmap(std::string file) {
@@ -262,7 +291,7 @@ namespace protal {
         };
 
         ~Seedmap() {
-            delete[] m_keymap;
+            std::free(m_keymap);
             delete[] m_map;
         }
 
@@ -282,15 +311,28 @@ namespace protal {
             return (x & 1llu) ? (x >> 1) + 1 : (x >> 1);
         }
 
+        bool UsesFullSyncmerMask() const {
+            return m_features & kFeatureFullSyncmerMask;
+        }
+
+        std::string FeatureDescription() const {
+            std::string description = (m_features & kFeatureFullSyncmerMask) ? "full s-mer syncmers" : "legacy 4-base syncmers";
+            description += (m_features & kFeatureCorrectUniqueTwoFlags) ? ", per-entry unique-distance flags"
+                                                                        : ", legacy unique-distance flags";
+            return description;
+        }
+
         void SaveHeader(std::ostream& ofs) {
-            const uint64_t file_magic = kFileMagic;
+            const uint64_t file_magic = kFileMagicV2;
             const uint32_t version_major = kIndexVersionMajor;
             const uint32_t version_minor = kIndexVersionMinor;
             const uint32_t version_patch = kIndexVersionPatch;
+            const uint32_t features = m_features;
             ofs.write((char *) &file_magic, sizeof(file_magic));
             ofs.write((char *) &version_major, sizeof(version_major));
             ofs.write((char *) &version_minor, sizeof(version_minor));
             ofs.write((char *) &version_patch, sizeof(version_patch));
+            ofs.write((char *) &features, sizeof(features));
         }
 
         void LoadHeader(std::istream& ifs) {
@@ -309,7 +351,19 @@ namespace protal {
                 exit(8);
             }
 
-            if (file_magic != kFileMagic) {
+            m_features = 0;
+            if (file_magic == kFileMagicV2) {
+                ifs.read((char *) &m_features, sizeof(m_features));
+                if (!ifs) {
+                    std::cerr << "Failed to read index header from index.prx" << std::endl;
+                    exit(8);
+                }
+                if (m_features & ~kKnownFeatures) {
+                    std::cerr << "index.prx uses features this protal does not know (" << m_features
+                              << "); it was built by a newer protal" << std::endl;
+                    exit(8);
+                }
+            } else if (file_magic != kFileMagic) {
                 std::cerr << "Unsupported index.prx format: missing or invalid file header. "
                           << "This binary expects indices written by protal version "
                           << kOldestCompatibleIndexVersionMajor << "."
@@ -351,23 +405,13 @@ namespace protal {
         }
 
         void Save(std::string file) {
-
-//            SortForKeys();
-
             std::ofstream ofs(file, std::ios::binary);
-            SaveHeader(ofs);
-            ofs.write((char *) &keymap_size, sizeof(keymap_size));
-            ofs.write((char *) &keymap_size_total, sizeof(keymap_size_total));
-            ofs.write((char *) &ctrl_block_byte_size, sizeof(ctrl_block_byte_size));
-            ofs.write((char *) &m_keys_per_ctrl_block, sizeof(m_keys_per_ctrl_block));
-            ofs.write((char *) &ctrl_block_frequency_bitshift, sizeof(ctrl_block_frequency_bitshift));
-
-            ofs.write((char *) &values_size, sizeof(values_size));
-
-            ofs.write((char *) m_keymap, sizeof(*m_keymap) * keymap_size_total);
-            ofs.write((char *) m_map, sizeof(*m_map) * values_size);
-
+            Save(ofs);
             ofs.close();
+            if (ofs.fail()) {
+                std::cerr << "Writing the index " << file << " failed" << std::endl;
+                exit(8);
+            }
         }
 
         void Save(std::ostream& ofs) {
@@ -386,40 +430,78 @@ namespace protal {
             ofs.write((char *) m_map, sizeof(*m_map) * values_size);
         }
 
-        void Load(std::istream &ifs) {
+        // Reads an index written by Save. Every size in the file is checked against the layout this
+        // build uses and against the bytes the stream actually holds, so a truncated, corrupt or
+        // incompatible index stops here with a message instead of causing out-of-bounds reads later.
+        void Load(std::istream &ifs, std::string const& name = "index.prx") {
             LoadHeader(ifs);
-            ifs.read((char *) &keymap_size, sizeof(keymap_size));
-            ifs.read((char *) &keymap_size_total, sizeof(keymap_size_total));
-            ifs.read((char *) &ctrl_block_byte_size, sizeof(ctrl_block_byte_size));
-            ifs.read((char *) &m_keys_per_ctrl_block, sizeof(m_keys_per_ctrl_block));
-            ifs.read((char *) &ctrl_block_frequency_bitshift, sizeof(ctrl_block_frequency_bitshift));
-            ifs.read((char *) &values_size, sizeof(values_size));
+            size_t file_keymap_size = 0, file_keymap_size_total = 0, file_ctrl_block_byte_size = 0;
+            size_t file_keys_per_ctrl_block = 0, file_bitshift = 0, file_values_size = 0;
+            ifs.read((char *) &file_keymap_size, sizeof(file_keymap_size));
+            ifs.read((char *) &file_keymap_size_total, sizeof(file_keymap_size_total));
+            ifs.read((char *) &file_ctrl_block_byte_size, sizeof(file_ctrl_block_byte_size));
+            ifs.read((char *) &file_keys_per_ctrl_block, sizeof(file_keys_per_ctrl_block));
+            ifs.read((char *) &file_bitshift, sizeof(file_bitshift));
+            ifs.read((char *) &file_values_size, sizeof(file_values_size));
+            if (!ifs) InvalidIndex(name, "the file ends inside its header");
 
-            delete[] m_keymap;
-            m_keymap = new KeyMap_t[keymap_size_total];
+            size_t const expected_keymap_size = size_t{1} << m_main_bits;
+            if (file_keymap_size != expected_keymap_size) {
+                InvalidIndex(name, "key map of " + std::to_string(file_keymap_size) + " keys, this protal expects " +
+                                   std::to_string(expected_keymap_size) + " (k = " + std::to_string(m_exact_k) + ")");
+            }
+            if (file_keys_per_ctrl_block == 0 || file_bitshift >= 64 || (size_t{1} << file_bitshift) != file_keys_per_ctrl_block) {
+                InvalidIndex(name, "inconsistent control block layout (" + std::to_string(file_keys_per_ctrl_block) +
+                                   " keys per block, shift " + std::to_string(file_bitshift) + ")");
+            }
+            if (file_ctrl_block_byte_size != sizeof(uint64_t)) {
+                InvalidIndex(name, "control blocks of " + std::to_string(file_ctrl_block_byte_size) + " bytes, expected 8");
+            }
+            size_t const cell_size = file_ctrl_block_byte_size / sizeof(KeyMap_t);
+            size_t const expected_total = file_keymap_size + ((file_keymap_size / file_keys_per_ctrl_block) + 1) * cell_size;
+            if (file_keymap_size_total != expected_total) {
+                InvalidIndex(name, "key map of " + std::to_string(file_keymap_size_total) + " cells, the layout implies " +
+                                   std::to_string(expected_total));
+            }
+
+            // The rest of the file must hold exactly the key map and the values (when the size is known).
+            auto const data_start = ifs.tellg();
+            if (data_start != std::streampos(-1) && ifs.seekg(0, std::ios::end)) {
+                auto const file_end = ifs.tellg();
+                ifs.seekg(data_start);
+                auto const expected_bytes = file_keymap_size_total * sizeof(KeyMap_t) + file_values_size * sizeof(ValueEntry);
+                if (file_end != std::streampos(-1) && static_cast<size_t>(file_end - data_start) != expected_bytes) {
+                    InvalidIndex(name, std::to_string(static_cast<size_t>(file_end - data_start)) + " bytes of data, expected " +
+                                       std::to_string(expected_bytes) + " (truncated or corrupt file?)");
+                }
+            }
+            ifs.clear();
+
+            keymap_size = file_keymap_size;
+            keymap_size_total = file_keymap_size_total;
+            ctrl_block_byte_size = file_ctrl_block_byte_size;
+            m_keys_per_ctrl_block = file_keys_per_ctrl_block;
+            ctrl_block_frequency_bitshift = file_bitshift;
+            values_size = file_values_size;
+            // Fields derived from the ones above, recomputed so they match the loaded layout.
+            ctrl_block_key_mask = (uint64_t{1} << ctrl_block_frequency_bitshift) - 1;
+            ctrl_block_cell_size = cell_size;
+            ctrl_block_byte_size_shift = log2(ctrl_block_cell_size);
+            max_key_ubiquity = (1 << (sizeof(KeyMap_t)*8)) / m_keys_per_ctrl_block;
+
+            AllocateKeymap(keymap_size_total);
             ifs.read((char *) m_keymap, sizeof(*m_keymap) * (keymap_size_total));
 
+            delete[] m_map;
             m_map = new ValueEntry[values_size];
             ifs.read((char *) m_map, sizeof(*m_map) * (values_size));
+            if (!ifs) InvalidIndex(name, "the file ends before all index data was read");
         }
 
         void Load(std::string file) {
-
             std::ifstream ifs(file, std::ios::binary);
-
-            LoadHeader(ifs);
-            ifs.read((char *) &keymap_size, sizeof(keymap_size));
-            ifs.read((char *) &keymap_size_total, sizeof(keymap_size_total));
-            ifs.read((char *) &ctrl_block_byte_size, sizeof(ctrl_block_byte_size));
-            ifs.read((char *) &m_keys_per_ctrl_block, sizeof(m_keys_per_ctrl_block));
-            ifs.read((char *) &ctrl_block_frequency_bitshift, sizeof(ctrl_block_frequency_bitshift));
-            ifs.read((char *) &values_size, sizeof(values_size));
-
-            m_keymap = new KeyMap_t[keymap_size_total];
-            ifs.read((char *) m_keymap, sizeof(*m_keymap) * (keymap_size_total));
-
-            m_map = new ValueEntry[values_size];
-            ifs.read((char *) m_map, sizeof(*m_map) * (values_size));
+            if (!ifs) InvalidIndex(file, "cannot open the file");
+            Load(ifs, file);
         }
 
 
@@ -1031,9 +1113,9 @@ namespace protal {
                                 auto sim = Seedmap::Similarity(*flex_cell, *flex_cell_sim);
                                 max = sim > max && flex_cell != flex_cell_sim ? sim : max;
                             }
-                            // std::cout << "Place: " <<  max << " -> " << m_flex_k << " -> " << m_flex_k - max << std::endl;
-                            closest_flex[idx] = m_flex_k - max;
-                            // std::cout << idx++ << ": " << KmerUtils::ToString(((uint32_t*)flex_cell)[0], m_flex_k_bits) << " closest: " << (m_flex_k - max) << std::endl;
+                            // Flex cell i belongs to value entry i of this block. Before index format 2
+                            // idx was never advanced, so every entry got the last cell's distance.
+                            closest_flex[idx++] = m_flex_k - max;
                         }
                         // std::cout << "-------------";
 

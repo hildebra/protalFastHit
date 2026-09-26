@@ -66,7 +66,6 @@ namespace protal {
         inline bool IsMinimizer(uint64_t& key) {
             size_t min_index = 0;
             size_t min = UINT64_MAX;
-#pragma omp simd
             for (int i = 0; i < m_shift_size; i++) {
                 m_smers[i] = (key >> m_shifts[i]) & m_smask;
                 min_index = (m_smers[i] < min) * i + (m_smers[i] >= min) * min_index;
@@ -78,6 +77,10 @@ namespace protal {
 
 
     // Adheres to ContextFreeMinimalizer
+    // A k-mer is selected when its smallest s-mer window sits at position t or k-s-t. Indexes before
+    // format 2 compared only the last 4 bases of each window (the s-mer mask was stored in 8 bits);
+    // format 2 compares whole s-mers. Build and query must sample alike, so a query takes the choice
+    // from the index it loads (Seedmap::UsesFullSyncmerMask).
     class ClosedSyncmer {
     private:
         const uint8_t m_k;
@@ -87,24 +90,33 @@ namespace protal {
         const uint8_t m_t;
 
         const uint32_t m_shift_size;
-        const uint8_t m_smask;
+        const uint32_t m_smask;
 
         uint32_t m_smers[16] { 0, 0, 0, 0, 0, 0, 0, 0 };
         uint16_t m_shifts[16] { 0, 0, 0, 0, 0, 0, 0, 0 };
 
     public:
-        ClosedSyncmer(uint8_t k, uint8_t s, uint8_t t) :
-                m_k(k), m_kbits(k*2), m_s(s), m_sbits(s*2), m_smask((1u << (2*s)) - 1), m_shift_size(k - s + 1), m_t(t) {
-//            std::cout << "ClosedSyncmer" << std::endl;
+        static uint32_t SmerMask(uint8_t s, bool full_smer_mask) {
+            uint32_t mask = (1u << (2*s)) - 1;
+            return full_smer_mask ? mask : (mask & 0xFFu);
+        }
+
+        ClosedSyncmer(uint8_t k, uint8_t s, uint8_t t, bool full_smer_mask) :
+                m_k(k), m_kbits(k*2), m_s(s), m_sbits(s*2), m_t(t), m_shift_size(k - s + 1),
+                m_smask(SmerMask(s, full_smer_mask)) {
             for (int i = 0; i < m_shift_size; i++) {
                 m_shifts[i] = (m_shift_size*2) - ((i+1)*2);
             }
         }
 
+        bool UsesFullSmerMask() const {
+            return m_smask == (1u << m_sbits) - 1;
+        }
+
+        // Not "omp simd": the running minimum carries a dependency from one window to the next.
         inline bool operator () (uint64_t& key) {
             size_t min_index = 0;
             size_t min = UINT64_MAX;
-#pragma omp simd
             for (int i = 0; i < m_shift_size; i++) {
                 m_smers[i] = (key >> m_shifts[i]) & m_smask;
                 min_index = (m_smers[i] < min) * i + (m_smers[i] >= min) * min_index;

@@ -131,11 +131,12 @@ namespace protal {
         const size_t mmer_size = 15;
 //        const size_t kmer_size = 27;
         const size_t kmer_size = 31;
-        ClosedSyncmer minimizer{mmer_size, 7, 2};
-        SimpleKmerHandler iterator{kmer_size, mmer_size, minimizer};
-
 
         if (options.BuildMode()) {
+            // New indexes compare whole s-mers (index format 2, recorded in the index header).
+            ClosedSyncmer minimizer{mmer_size, 7, 2, true};
+            SimpleKmerHandler iterator{kmer_size, mmer_size, minimizer};
+
             Benchmark bm_build("Run build");
             bm_build.Start();
             KmerPutterSM kmer_putter{};
@@ -156,9 +157,12 @@ namespace protal {
             bm_load_index.Start();
             // Load Index
             Seedmap map;
-            std::ifstream idx_in(options.GetIndexFile(), std::ios::binary);
-            map.Load(idx_in);
-            idx_in.close();
+            map.Load(options.GetIndexFile());
+            std::cout << "Index features: " << map.FeatureDescription() << std::endl;
+
+            // Seeds must be sampled exactly as when the index was built.
+            ClosedSyncmer minimizer{mmer_size, 7, 2, map.UsesFullSyncmerMask()};
+            SimpleKmerHandler iterator{kmer_size, mmer_size, minimizer};
             bm_load_index.Stop();
             bm_load_index.PrintResults();
 

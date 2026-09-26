@@ -330,6 +330,10 @@ namespace protal::build {
         std::ofstream index_ostream(options.GetIndexFile(), std::ios::binary);
         putter.Save(index_ostream);
         index_ostream.close();
+        if (index_ostream.fail()) {
+            std::cerr << "Writing the index " << options.GetIndexFile() << " failed" << std::endl;
+            exit(8);
+        }
 
 
         return statistics;
