@@ -17,6 +17,7 @@
 #include "SNP.h"
 #include "AlignmentUtils.h"
 #include "SNPUtils.h"
+#include "GenomeLoader.h"
 
 namespace protal {
     static bool CorrectOrientation(AlignmentResult const& a1, AlignmentResult const& a2) {
@@ -99,8 +100,29 @@ namespace protal {
         return score_a < score_b;
     }
 
-    static void ArtoSAM(SamEntry &sam, AlignmentResult const& ar, AlignmentInfo &info, FastxRecord &record) {
-        sam.m_qname = record.id.substr(0, record.id.length()-2);
+    // SAM QNAME of a single read: its FASTQ id without a trailing "/1" or "/2" mate suffix.
+    static std::string ReadQName(std::string const& id) {
+        auto n = id.size();
+        if (n > 2 && id[n-2] == '/' && (id[n-1] == '1' || id[n-1] == '2')) return id.substr(0, n-2);
+        return id;
+    }
+
+    // SAM QNAME shared by both mates of a pair. Mate ids either match already (Casava 1.8+, SRA) or
+    // differ only in a final 1/2 after a separator ("x/1" "x/2", "x.1" "x.2", "x_1" "x_2"), which is
+    // dropped. Otherwise both mates take the first mate's id. The name is never truncated blindly:
+    // readers tell reads apart by comparing the names of neighbouring records.
+    static std::string PairQName(std::string const& id1, std::string const& id2) {
+        if (id1 == id2) return id1;
+        auto n = id1.size();
+        bool mate_suffix = n > 2 && n == id2.size() &&
+                           id1[n-1] == '1' && id2[n-1] == '2' &&
+                           (id1[n-2] == '/' || id1[n-2] == '.' || id1[n-2] == '_') &&
+                           id1.compare(0, n-1, id2, 0, n-1) == 0;
+        return mate_suffix ? id1.substr(0, n-2) : id1;
+    }
+
+    static void ArtoSAM(SamEntry &sam, AlignmentResult const& ar, AlignmentInfo &info, FastxRecord &record, std::string const& qname) {
+        sam.m_qname = qname;
         sam.m_flag = 0;
         sam.m_rname = std::to_string(ar.Taxid()) + "_" + std::to_string(ar.GeneId());
         sam.m_pos = info.gene_alignment_start + 1;
@@ -316,10 +338,11 @@ namespace protal {
              * Output alignments.
              */
             bool first = true;
+            auto const qname = ReadQName(record.id);
             for (auto& ar :  alignment_results) {
 
                 auto& info = ar.GetAlignmentInfo();
-                ArtoSAM(m_sam, ar, info, record);
+                ArtoSAM(m_sam, ar, info, record, qname);
                 Flag::SetPairedEnd(m_sam.m_flag, false, false, first_pair, !first_pair);
                 Flag::SetReadUnmapped(m_sam.m_flag, true);
                 Flag::SetReadReverseComplement(m_sam.m_flag, ar.Forward());
@@ -415,13 +438,14 @@ namespace protal {
 
 
             SNPList snps;
-
-            bool valid1 = false;
-            bool valid2 = false;
+            auto const qname = PairQName(record1.id, record2.id);
 
             size_t output_counter = 0;
             for (auto& [ar1, ar2] :  alignment_results) {
                 bool both = ar1.IsSet() && ar2.IsSet();
+                // A mate without an alignment is valid; only an alignment inconsistent with its CIGAR is not.
+                bool valid1 = true;
+                bool valid2 = true;
 
                 int alignment_length = 0;
                 int alignment_score = 0;
@@ -429,7 +453,7 @@ namespace protal {
 
                 if (ar1.IsSet()) {
                     auto& info = ar1.GetAlignmentInfo();
-                    ArtoSAM(m_sam1, ar1, info, record1);
+                    ArtoSAM(m_sam1, ar1, info, record1, qname);
                     Flag::SetPairedEnd(m_sam1.m_flag, true, both, true);
                     Flag::SetReadUnmapped(m_sam1.m_flag, false);
                     Flag::SetReadReverseComplement(m_sam1.m_flag, !ar1.Forward());
@@ -460,7 +484,7 @@ namespace protal {
                     }
 
                     auto& info = ar2.GetAlignmentInfo();
-                    ArtoSAM(m_sam2, ar2, info, record2);
+                    ArtoSAM(m_sam2, ar2, info, record2, qname);
                     Flag::SetPairedEnd(m_sam2.m_flag, true, both, false, true);
                     Flag::SetReadUnmapped(m_sam2.m_flag, false);
                     Flag::SetReadReverseComplement(m_sam2.m_flag, !ar2.Forward());
@@ -483,10 +507,14 @@ namespace protal {
                     Flag::SetMateUnmapped(m_sam2.m_flag, false);
                     Flag::SetPairBothAlign(m_sam1.m_flag, true);
                     Flag::SetPairBothAlign(m_sam2.m_flag, true);
+                } else {
+                    // Only one mate aligned: flag the other as unmapped so a reader does not expect,
+                    // and swallow, a mate record on the next line.
+                    Flag::SetMateUnmapped(ar1.IsSet() ? m_sam1.m_flag : m_sam2.m_flag, true);
                 }
 
-                if ((ar1.IsSet() && !valid1) || (ar1.IsSet() && !valid2)) {
-                    if (ar1.IsSet() && !valid1) {
+                if (!valid1 || !valid2) {
+                    if (!valid1) {
 #pragma omp critical(err_out)
                         {
                             std::cerr << record1.to_string() << std::endl;
@@ -495,7 +523,7 @@ namespace protal {
                             PrintAlignment(m_sam1, reference, std::cerr);
                         }
                     }
-                    if (ar2.IsSet() && !valid2) {
+                    if (!valid2) {
 #pragma omp critical(err_out)
                         {
                             std::cerr << record2.to_string() << std::endl;
@@ -504,16 +532,18 @@ namespace protal {
                             PrintAlignment(m_sam2, reference, std::cerr);
                         }
                     }
-                    return;
+                    // Skip only this inconsistent candidate; the read's other alignments are still written.
+                    continue;
                 }
 
                 first = false;
                 alignments++;
-                if (ar1.IsSet() && !m_sam_output.Write(m_sam1.ToString())) {
-#pragma omp critical(sam_output)
-                    m_sam_output.Write(m_sam_os);
-                }
-                if (ar2.IsSet() && !m_sam_output.Write(m_sam2.ToString())) {
+                // Both mates go into the buffer as one unit, so a flush cannot let another thread's
+                // records land between them: readers pair a read1 record with the line that follows.
+                std::string records = ar1.IsSet() ? m_sam1.ToString() : std::string{};
+                if (both) records += '\n';
+                if (ar2.IsSet()) records += m_sam2.ToString();
+                if (!m_sam_output.Write(std::move(records))) {
 #pragma omp critical(sam_output)
                     m_sam_output.Write(m_sam_os);
                 }

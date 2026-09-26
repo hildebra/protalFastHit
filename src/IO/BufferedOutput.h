@@ -117,9 +117,12 @@ public:
     inline void Write(std::ostream &os) {
         if (m_buffer_size != 0) {
             os.write(reinterpret_cast<char *>(m_buffer), m_buffer_size);
+            m_buffer_size = 0;
+        }
+        // A line that did not fit is parked here, also when the buffer was empty.
+        if (!m_line_buffer.empty()) {
             os.write(m_line_buffer.c_str(), m_line_buffer.length());
             m_line_buffer.clear();
-            m_buffer_size = 0;
         }
     }
 

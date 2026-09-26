@@ -231,7 +231,7 @@ namespace KmerUtils {
         return s;
     }
     
-    std::string ReverseComplement(std::string forward) {
+    inline std::string ReverseComplement(std::string forward) {
         std::string reverse = "";
         const char * seq = forward.c_str();
         for (int i = forward.length()-1; i >= 0; i--) {

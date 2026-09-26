@@ -12,6 +12,8 @@
 #include <tuple>
 #include <fstream>
 #include "Utilities.h"
+#include "KmerUtils.h"
+#include "sparse_map.h"
 #include <bit>
 #include <bits/stdc++.h>
 #include "protal_config.h"

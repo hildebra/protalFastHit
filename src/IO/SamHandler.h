@@ -232,36 +232,41 @@ namespace protal {
         return true;
     }
 
-    static bool GetSamPair(std::istream &file, std::string &line, std::vector<std::string> &tokens, SamEntry &sam1, SamEntry &sam2, bool &has_sam1, bool &has_sam2, bool line_loaded=false) {
+    // Reads the next alignment: a read1 record together with its mate when the mate record follows,
+    // or a single record. `line_loaded` is the read-ahead state shared across calls: true on entry
+    // means `line` already holds the next record; true on return means a record was read ahead
+    // (a paired read1's next line that turned out not to be its mate) and is kept for the next call.
+    static bool GetSamPair(std::istream &file, std::string &line, std::vector<std::string> &tokens, SamEntry &sam1, SamEntry &sam2, bool &has_sam1, bool &has_sam2, bool &line_loaded) {
         static std::string delim = "\t";
         has_sam1 = false;
         has_sam2 = false;
-        if (!line_loaded) {
-            if (!std::getline(file, line)) return false;
-        }
+        if (!line_loaded && !std::getline(file, line)) return false;
+        line_loaded = false;
 
         LineSplitter::Split(line, delim, tokens);
-        if (tokens.empty()) return false;
+        if (tokens.size() < 2) return false;
 
-        if (Flag::IsRead1(stoul(tokens[1]))) {
-            SamFromTokens(tokens, sam1);
-            has_sam1 = true;
+        if (!Flag::IsRead1(stoul(tokens[1]))) {
+            SamFromTokens(tokens, sam2);
+            has_sam2 = true;
+            return true;
+        }
+
+        SamFromTokens(tokens, sam1);
+        has_sam1 = true;
+
+        // The mate follows only when it aligned too. SAM files from older protal versions do not
+        // set 0x8 on an orphan read1, so the next line is also checked to be this read's read2.
+        if (!Flag::IsPaired(sam1.m_flag) || Flag::IsMateUnmapped(sam1.m_flag)) return true;
+        if (!std::getline(file, line)) return true;
+
+        LineSplitter::Split(line, delim, tokens);
+        if (tokens.size() >= 2 && Flag::IsRead2(stoul(tokens[1])) && tokens[0] == sam1.m_qname) {
+            SamFromTokens(tokens, sam2);
+            has_sam2 = true;
         } else {
-            SamFromTokens(tokens, sam2);
-            has_sam2 = true;
-            return true;
+            line_loaded = true;
         }
-
-        if (Flag::IsPaired(sam1.m_flag)) {
-            if (!std::getline(file, line)) return false;
-//            std::cout << "yes two" << std::endl;
-            LineSplitter::Split(line, delim, tokens);
-            SamFromTokens(tokens, sam2);
-            has_sam1 = true;
-            has_sam2 = true;
-            return true;
-        }
-
         return true;
     }
 

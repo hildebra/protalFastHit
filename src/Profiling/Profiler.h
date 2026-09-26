@@ -1522,14 +1522,10 @@ namespace protal {
                 return rid == rid2;
             }
 
+            // Both mates carry the same QNAME (PairQName), so the whole name identifies the read; the
+            // uniqueness test in FromSam compares whole names too.
             static bool SameRead(AlignmentPair& pair, AlignmentPair& other) {
-                std::string& qname1 = pair.Any().m_qname;
-                std::string& qname2 = other.Any().m_qname;
-
-                std::string_view pairless_header1(qname1.c_str(), qname1.length() - 1);
-                std::string_view pairless_header2(qname2.c_str(), qname2.length() - 1);
-
-                return pairless_header1 == pairless_header2;
+                return pair.Any().m_qname == other.Any().m_qname;
             }
 
 //            void Process(std::optional<InternalReadAlignment> const &ira,
@@ -1606,13 +1602,14 @@ namespace protal {
                     return;
                 }
 
-                GetSamPair(file, line, tokens, current, current_other, has_current1, has_current2, true);
+                bool line_loaded = true;  // `line` holds the first alignment record
+                GetSamPair(file, line, tokens, current, current_other, has_current1, has_current2, line_loaded);
 
                 std::vector<AlignmentPair> pair_list;
 
                 size_t read_id = 0;
                 size_t count_read_lines = 0;
-                while (GetSamPair(file, line, tokens, next, next_other, has_next1, has_next2)) {
+                while (GetSamPair(file, line, tokens, next, next_other, has_next1, has_next2, line_loaded)) {
                     current_qname = has_current1 ? current.m_qname : current_other.m_qname;
                     next_qname = has_next1 ? next.m_qname : next_other.m_qname;
                     bool unique = current_qname != last_qname && current_qname != next_qname;
@@ -1989,7 +1986,7 @@ namespace protal {
                     double score = m_score.Score(ap.First());
 
                     m_add_sam.Start();
-                    valid_sam &=profile.AddSam(tid, geneid, ap.First(), m_info1.Ani(), true, read_id);
+                    valid_sam &=profile.AddSam(tid, geneid, ap.First(), m_info1.Ani(), true, read_id, m_no_strain);
                     m_add_sam.Stop();
 
 
@@ -1999,7 +1996,7 @@ namespace protal {
                     double score = m_score.Score(ap.Second());
 
                     m_add_sam.Start();
-                    valid_sam &=profile.AddSam(tid, geneid, ap.Second(), m_info2.Ani(), true, read_id);
+                    valid_sam &=profile.AddSam(tid, geneid, ap.Second(), m_info2.Ani(), true, read_id, m_no_strain);
                     m_add_sam.Stop();
                 }
                 return valid_sam;
