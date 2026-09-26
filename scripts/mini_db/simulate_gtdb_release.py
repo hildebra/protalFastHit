@@ -35,7 +35,9 @@ Usage:
 """
 
 import argparse
+import contextlib
 import gzip
+import io
 import math
 import os
 import random
@@ -65,6 +67,15 @@ _AA = "FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG"
 CODON = {a + b + c: _AA[16 * i + 4 * j + k]
          for i, a in enumerate("TCAG") for j, b in enumerate("TCAG") for k, c in enumerate("TCAG")}
 SENSE_CODONS = [c for c in sorted(CODON) if c not in STOP]
+
+
+@contextlib.contextmanager
+def gzip_text(path):
+    """Text writer for a .gz file whose bytes depend only on the content
+    (gzip.open would stamp the current time into the header)."""
+    with open(path, "wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz, \
+         io.TextIOWrapper(gz, encoding="ascii", newline="\n") as fh:
+        yield fh
 
 
 def read_lineages(path):
@@ -254,7 +265,7 @@ def write_metadata(path, genomes):
     cols = ["accession", "ambiguous_bases", "checkm2_completeness", "checkm2_contamination",
             "contig_count", "gc_percentage", "genome_size", "gtdb_genome_representative",
             "gtdb_representative", "gtdb_taxonomy", "ncbi_organism_name"]
-    with gzip.open(path, "wt", newline="\n") as fh:
+    with gzip_text(path) as fh:
         fh.write("\t".join(cols) + "\n")
         for g in genomes:
             seq = "".join(g["contigs"])
@@ -283,7 +294,7 @@ def write_marker_files(directory, mset, markers, genomes):
 def write_genome(path, g):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     name, strain = g["species"]["name"], g["strain"]
-    with gzip.open(path, "wt", newline="\n") as fh:
+    with gzip_text(path) as fh:
         for i, seq in enumerate(g["contigs"], 1):
             fh.write(f">{g['accession']}_contig{i} {name} strain {strain}, synthetic contig {i}\n")
             for j in range(0, len(seq), 80):

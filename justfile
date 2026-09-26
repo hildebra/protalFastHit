@@ -185,6 +185,12 @@ e2e: mini-db simulate
     PROTAL_TEST_DB={{mini_db_dir}}/protal_db PROTAL={{protal}} SIMULATE={{build_dir}}/simulate_metagenomes \
         python3 -m unittest -v tests/e2e/test_protal_e2e.py
 
+# Profiling accuracy on the mini DB: build it (reused while unchanged), simulate reads
+# from a known mock community, profile them and check against the truth.
+# See examples/mini_db/README.md.
+example: baseline
+    PROTAL={{protal}} bash examples/mini_db/run.sh
+
 # The ISA flags are per-target (isa_baseline / isa_avx2 in CMakeLists.txt), so
 # baseline, avx2 and static binaries all come out of one tree -- no need for
 # separate cmake-build-* dirs.
