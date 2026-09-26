@@ -16,6 +16,7 @@ SIMULATE        simulate_metagenomes binary (default: build/simulate_metagenomes
 import glob
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -260,6 +261,44 @@ class LowCoverageAbundanceTest(WorkDir):
                 ratio = depth / (fraction * full[taxid])
                 self.assertLess(abs(ratio - 1), 0.3, f"{name} ({fraction:.3f} of the reads), taxon {taxid}: "
                                                      f"depth {depth:.4f} vs {fraction * full[taxid]:.4f} expected")
+
+
+class ModelContractTest(WorkDir):
+    """The training dump holds the features the model is scored with, and --no_strains changes no profile."""
+
+    def test_truth_annotation_has_the_model_features(self):
+        truth = self.path("truth.tsv")
+        with open(truth, "w") as fh:
+            fh.write("1\n2\n3\n")
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out", "-t", "2", "--no_strains",
+                      "--profile_truth", truth)
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(self.path("out", "sa.profile.truth_annotated")) as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            rows = [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh]
+        with open(os.path.join(DB, "model.xml")) as fh:
+            fields = set(re.findall(r'<DataField name="([^"]+)"', fh.read())) - {"truth"}
+        self.assertEqual(sorted(fields - set(header)), [], "every model input is in the training dump")
+        self.assertTrue(rows)
+        for row in rows:
+            for prefix, counts in (("RAF", "AF"), ("RA", "A")):
+                total = sum(float(row[f"{counts}{i}"]) for i in range(5))
+                for i in range(5):
+                    expected = float(row[f"{counts}{i}"]) / total if total else 0
+                    self.assertAlmostEqual(float(row[f"{prefix}{i}"]), expected, places=9, msg=f"{prefix}{i}")
+            self.assertEqual(row["truth"], "1")
+
+    def test_no_strains_changes_no_profile(self):
+        outputs = {}
+        for name, extra in (("strains", []), ("no_strains", ["--no_strains"])):
+            rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", name, "-t", "2", "--no_qcmsa", *extra)
+            self.assertEqual(rc, 0, log[-3000:])
+            outputs[name] = {}
+            for f in glob.glob(self.path(name, "*.profile*")):
+                with open(f) as fh:
+                    outputs[name][os.path.basename(f)] = fh.read()
+        self.assertTrue(outputs["strains"])
+        self.assertEqual(outputs["strains"], outputs["no_strains"])
 
 
 class RerunTest(WorkDir):

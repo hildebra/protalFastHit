@@ -43,6 +43,9 @@ INF_COLS = [
     "lu_rate",
     "lsu_rate",
     "su_rate",
+    "su_rate_ref",
+    "lu_rate_ref",
+    "lsu_rate_ref",
     "lsu_per_read",
     "lu_per_read",
 ]

@@ -515,7 +515,6 @@ namespace protal {
             Benchmark bm_profile{ "Profile sample" };
 
             profiler::Profiler profiler(genomes);
-            profiler.SetNoStrain(options.NoStrains());
 
             // New Profiler approach
             std::vector<AlignmentPair> unique_pairs;

@@ -7,6 +7,7 @@
 #include <fstream>
 #include <memory>
 #include <random>
+#include <set>
 #include <string>
 #include <vector>
 #include <unistd.h>
@@ -178,4 +179,19 @@ TEST(Abundance, BlendedDepthHasNoStep) {
     EXPECT_DOUBLE_EQ(at(0.5, 0.1), 0.4);   // low coverage: all expected genes
     EXPECT_DOUBLE_EQ(at(1.0, 0.7), 0.7);   // every gene hit: the median
     EXPECT_DOUBLE_EQ(at(0.5, 2.0), 2.0);   // high median depth: the median
+}
+
+TEST(ModelFeatures, NamesAreUniqueAndValuesKeepTheirPrecision) {
+    Genome no_genome(0);
+    auto features = profiler::TaxonFeatures(profiler::Taxon(no_genome));
+    std::set<std::string> names;
+    for (auto const& [name, _] : features) EXPECT_TRUE(names.insert(name).second) << name << " twice";
+    for (auto const* name : { "RAF0", "RA4", "su_rate_ref", "lu_rate_ref", "lsu_rate_ref", "mean_mapq", "lu_per_read" }) {
+        EXPECT_TRUE(names.contains(name)) << name;
+    }
+
+    EXPECT_EQ(profiler::FeatureString(0.5), "0.5");
+    EXPECT_EQ(profiler::FeatureString(3), "3");
+    EXPECT_EQ(std::stod(profiler::FeatureString(1.25e-7)), 1.25e-7);
+    EXPECT_EQ(std::stod(profiler::FeatureString(0.1 + 0.2)), 0.1 + 0.2);
 }
