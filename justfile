@@ -174,6 +174,17 @@ mini-db: baseline
 mini-db-test:
     python3 -m unittest scripts/mini_db/test_mini_db.py
 
+# C++ unit tests (GoogleTest; needs libgtest-dev).
+test:
+    cmake -S . -B {{build_dir}} -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON
+    cmake --build {{build_dir}} --target protal_tests -- -j$(nproc)
+    ctest --test-dir {{build_dir}} --output-on-failure
+
+# End-to-end tests of protal and simulate_metagenomes on a freshly built mini DB.
+e2e: mini-db simulate
+    PROTAL_TEST_DB={{mini_db_dir}}/protal_db PROTAL={{protal}} SIMULATE={{build_dir}}/simulate_metagenomes \
+        python3 -m unittest -v tests/e2e/test_protal_e2e.py
+
 # The ISA flags are per-target (isa_baseline / isa_avx2 in CMakeLists.txt), so
 # baseline, avx2 and static binaries all come out of one tree -- no need for
 # separate cmake-build-* dirs.

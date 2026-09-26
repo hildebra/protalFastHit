@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev zlib1g-dev pigz python3
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --target protal protal_avx2 simulate_metagenomes protal_tests
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Mini database generator tests
+        run: python3 -m unittest -v scripts/mini_db/test_mini_db.py
+
+      # index.prx is ~3 GB even for the mini database (fixed-size key map).
+      - name: Build mini database
+        run: PROTAL=build/protal bash scripts/mini_db/build_mini_db.sh data/mini_db
+
+      - name: End-to-end tests
+        run: |
+          PROTAL_TEST_DB=data/mini_db/protal_db PROTAL=build/protal SIMULATE=build/simulate_metagenomes \
+            python3 -m unittest -v tests/e2e/test_protal_e2e.py
+
+  sanitizers:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev zlib1g-dev
+
+      # Debug: asserts on. ASan + UBSan with leak checking.
+      - name: Configure
+        run: |
+          FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPROTAL_BUILD_TESTS=ON \
+            -DCMAKE_CXX_FLAGS="$FLAGS" -DCMAKE_C_FLAGS="$FLAGS" -DCMAKE_EXE_LINKER_FLAGS="$FLAGS"
+
+      - name: Build
+        run: cmake --build build-asan --target protal_tests
+
+      - name: Unit tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build-asan --output-on-failure

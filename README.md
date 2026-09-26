@@ -18,12 +18,12 @@ Protal is in the final steps of development and is also available via conda. In 
 
 ## 1. Install conda-build
 This is needed to build a conda project from local files.
-```{r bash}
+```bash
 conda install conda-build
 ```
 
 Alternatively, if you are using micromamba or mamba, you can also install conda-build with
-```{r bash}
+```bash
 micromamba install conda-build
 # or
 mamba install conda-build
@@ -31,13 +31,13 @@ mamba install conda-build
 
 ## 2. Clone this repository
 Clone this repository.
-```{r bash}
+```bash
 git clone git@github.com:4less/protal.git
 ```
 
 ## 3. build protal locally with conda-build
 Compiles protal from the source files with instructions supplied in conda-recipe/meta.yml and conda-recipe/build.sh.
-```{r bash}
+```bash
 cd protal
 mkdir conda-build
 conda build conda-recipe -c conda-forge --output-folder conda-build
@@ -48,7 +48,7 @@ conda-build/linux-64/protal-<CURRENT_VERSION>.tar.bz2
 
 ## 4. Install in conda 
 
-```{r bash}
+```bash
 # Current directory is your local clone of this repository
 conda create -n protal_env conda-build/linux-64/protal-<CURRENT_VERSION>.tar.bz2
 #or
@@ -57,7 +57,7 @@ micromamba create -n protal_env conda-build/linux-64/protal-<CURRENT_VERSION>.ta
 
 ## Test the installation
 
-```{r bash}
+```bash
 conda activate protal_env
 protal
 ```
@@ -135,3 +135,17 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
   `reference.fna`, `reference.map`, `internal_taxonomy.dmp`, `full_reference.fna` and
   `model.xml`. `build_mini_db.sh` then runs `protal --build` on them.
 - `index.prx` is about 3 GB even for a tiny reference, because the k-mer key map has a fixed size.
+
+## Testing
+
+```bash
+just test    # C++ unit tests (GoogleTest, needs libgtest-dev): cmake -DPROTAL_BUILD_TESTS=ON, then ctest
+just e2e     # builds the mini database, then runs tests/e2e/test_protal_e2e.py against it
+```
+
+The end-to-end tests simulate reads from the database's reference genes and run the real
+`protal` and `simulate_metagenomes` binaries: exit codes, output files, SAM records, strain
+MSAs, reruns and failure reporting. Point them at any database with
+`PROTAL_TEST_DB=<db> python3 -m unittest -v tests/e2e/test_protal_e2e.py` (`PROTAL` and
+`SIMULATE` select the binaries). CI (`.github/workflows/ci.yml`) runs both, plus the unit tests
+of a Debug build under AddressSanitizer and UndefinedBehaviorSanitizer.
