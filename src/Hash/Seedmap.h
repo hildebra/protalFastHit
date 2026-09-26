@@ -130,6 +130,38 @@ namespace protal {
     };
 
     using ValueEntry = Entry<SEEDMAP_TAXID_BITS, SEEDMAP_GENEID_BITS, SEEDMAP_GENE_POS_BITS>;
+    static_assert(std::is_trivially_copyable_v<ValueEntry>, "index values are read as raw bytes");
+
+    // Scatters an index file's bytes (from zstd::ParallelRead) into the key map and the values;
+    // the header before them has already been read. Bytes past the values are dropped (the
+    // caller compares the size read with the size expected).
+    class IndexSink : public zstd::Sink {
+    public:
+        IndexSink(uint64_t header_bytes, char* keymap, uint64_t keymap_bytes, char* values, uint64_t values_bytes)
+                : m_keymap_begin(header_bytes), m_values_begin(header_bytes + keymap_bytes),
+                  m_end(header_bytes + keymap_bytes + values_bytes), m_keymap(keymap), m_values(values) {}
+
+        char* Direct(uint64_t offset, size_t size) override {
+            if (offset >= m_keymap_begin && offset + size <= m_values_begin) return m_keymap + (offset - m_keymap_begin);
+            if (offset >= m_values_begin && offset + size <= m_end) return m_values + (offset - m_values_begin);
+            return nullptr;
+        }
+
+        void Copy(uint64_t offset, char const* data, size_t size) override {
+            CopyPart(offset, data, size, m_keymap_begin, m_values_begin, m_keymap);
+            CopyPart(offset, data, size, m_values_begin, m_end, m_values);
+        }
+
+    private:
+        static void CopyPart(uint64_t offset, char const* data, size_t size, uint64_t begin, uint64_t end, char* dst) {
+            uint64_t const from = std::max(offset, begin), to = std::min(offset + size, end);
+            if (from < to) std::memcpy(dst + (from - begin), data + (from - offset), static_cast<size_t>(to - from));
+        }
+
+        uint64_t m_keymap_begin, m_values_begin, m_end;
+        char* m_keymap;
+        char* m_values;
+    };
 
     class SeedmapUtils {
     public:
@@ -282,6 +314,19 @@ namespace protal {
             }
         }
 
+        // The value array is malloc'd (a loaded index overwrites it anyway; the build zeroes it with
+        // calloc), so that loading threads touch its pages first, in parallel. ValueEntry is
+        // trivially copyable, so the bytes read into it are its values.
+        void AllocateValues(size_t count, bool zero = false) {
+            std::free(m_map);
+            size_t const bytes = std::max<size_t>(count, 1) * sizeof(ValueEntry);
+            m_map = static_cast<ValueEntry*>(zero ? std::calloc(std::max<size_t>(count, 1), sizeof(ValueEntry)) : std::malloc(bytes));
+            if (!m_map) {
+                std::cerr << "Cannot allocate the index values (" << bytes << " bytes)" << std::endl;
+                exit(8);
+            }
+        }
+
         [[noreturn]] static void InvalidIndex(std::string const& name, std::string const& reason) {
             std::cerr << "Invalid index " << name << ": " << reason << std::endl;
             exit(8);
@@ -298,7 +343,7 @@ namespace protal {
 
         ~Seedmap() {
             std::free(m_keymap);
-            delete[] m_map;
+            std::free(m_map);
         }
 
         inline uint64_t KeymapIndex(uint64_t key) const {
@@ -453,26 +498,107 @@ namespace protal {
                    keymap_size_total * sizeof(KeyMap_t) + values_size * sizeof(ValueEntry);
         }
 
-        void Save(std::ostream& ofs) {
-//            SortForKeys();
-
+        // The bytes Save writes before the key map: file header and the six layout fields.
+        std::string HeaderBytes() {
+            std::ostringstream ofs(std::ios::binary);
             SaveHeader(ofs);
             ofs.write((char *) &keymap_size, sizeof(keymap_size));
             ofs.write((char *) &keymap_size_total, sizeof(keymap_size_total));
             ofs.write((char *) &ctrl_block_byte_size, sizeof(ctrl_block_byte_size));
             ofs.write((char *) &m_keys_per_ctrl_block, sizeof(m_keys_per_ctrl_block));
             ofs.write((char *) &ctrl_block_frequency_bitshift, sizeof(ctrl_block_frequency_bitshift));
-
             ofs.write((char *) &values_size, sizeof(values_size));
+            return ofs.str();
+        }
 
+        void Save(std::ostream& ofs) {
+//            SortForKeys();
+            std::string const header = HeaderBytes();
+            ofs.write(header.data(), static_cast<std::streamsize>(header.size()));
             ofs.write((char *) m_keymap, sizeof(*m_keymap) * keymap_size_total);
             ofs.write((char *) m_map, sizeof(*m_map) * values_size);
+        }
+
+        // Save's bytes as memory regions for zstd::CompressFrames; header_storage holds the header
+        // and must outlive the reader.
+        void SerializedParts(std::string& header_storage, zstd::MemoryReader& reader) {
+            header_storage = HeaderBytes();
+            reader.Add(header_storage.data(), header_storage.size());
+            reader.Add(reinterpret_cast<char const*>(m_keymap), sizeof(*m_keymap) * keymap_size_total);
+            reader.Add(reinterpret_cast<char const*>(m_map), sizeof(*m_map) * values_size);
         }
 
         // Reads an index written by Save. Every size in the file is checked against the layout this
         // build uses and against the bytes the stream actually holds, so a truncated, corrupt or
         // incompatible index stops here with a message instead of causing out-of-bounds reads later.
         void Load(std::istream &ifs, std::string const& name = "index.prx") {
+            uint64_t const expected_bytes = LoadLayout(ifs, name);
+
+            // The rest of the file must hold exactly the key map and the values (when the size is known).
+            auto const data_start = ifs.tellg();
+            if (data_start != std::streampos(-1) && ifs.seekg(0, std::ios::end)) {
+                auto const file_end = ifs.tellg();
+                ifs.seekg(data_start);
+                if (file_end != std::streampos(-1) && static_cast<size_t>(file_end - data_start) != expected_bytes) {
+                    InvalidIndex(name, std::to_string(static_cast<size_t>(file_end - data_start)) + " bytes of data, expected " +
+                                       std::to_string(expected_bytes) + " (truncated or corrupt file?)");
+                }
+            }
+            ifs.clear();
+
+            AllocateKeymap(keymap_size_total);
+            ifs.read((char *) m_keymap, sizeof(*m_keymap) * (keymap_size_total));
+            AllocateValues(values_size);
+            ifs.read((char *) m_map, sizeof(*m_map) * (values_size));
+            if (ifs.bad()) InvalidIndex(name, "the file could not be read or decompressed (truncated or corrupt file?)");
+            if (!ifs) InvalidIndex(name, "the file ends before all index data was read (truncated or corrupt file?)");
+            // Streams whose size is unknown (zstd) are checked here. Reaching the end also makes
+            // zstd verify the frame's content checksum.
+            if (!std::char_traits<char>::eq_int_type(ifs.peek(), std::char_traits<char>::eof())) {
+                InvalidIndex(name, "unexpected data after the index (corrupt file?)");
+            }
+            if (ifs.bad()) InvalidIndex(name, "the file could not be read or decompressed (truncated or corrupt file?)");
+        }
+
+        // Reads index.prx or index.prx.zst. A raw or seekable zstd file (as --build writes) is read by
+        // `threads` threads at once, straight into the key map and values; any other zstd file in
+        // one stream.
+        void Load(std::string file, int threads = 1) {
+            zstd::InputFile in(file);
+            if (!in.IsOpen()) InvalidIndex(file, "cannot open the file");
+            if (in.Compressed() && !zstd::IsSeekable(file)) {
+                Load(in.Stream(), file);
+                return;
+            }
+            uint64_t const data_bytes = LoadLayout(in.Stream(), file);
+            auto const position = in.Stream().tellg();
+            if (position == std::streampos(-1)) InvalidIndex(file, "cannot read the file");
+            uint64_t const header_bytes = static_cast<uint64_t>(position);
+            // Check the size first (raw: file size, seekable: its seek table), before allocating.
+            if (auto const total = zstd::UncompressedSize(file); total && *total != header_bytes + data_bytes) {
+                uint64_t const found = *total > header_bytes ? *total - header_bytes : 0;
+                InvalidIndex(file, std::to_string(found) + " bytes of data, expected " + std::to_string(data_bytes) +
+                                   " (truncated or corrupt file?)");
+            }
+            AllocateKeymap(keymap_size_total);
+            AllocateValues(values_size);
+            uint64_t const keymap_bytes = sizeof(*m_keymap) * keymap_size_total;
+            IndexSink sink(header_bytes, reinterpret_cast<char*>(m_keymap), keymap_bytes, reinterpret_cast<char*>(m_map),
+                           sizeof(*m_map) * values_size);
+            std::string error;
+            uint64_t const delivered = zstd::ParallelRead(file, threads, sink, error);
+            if (!error.empty()) InvalidIndex(file, error + " (truncated or corrupt file?)");
+            if (delivered != header_bytes + data_bytes) {
+                uint64_t const found = delivered > header_bytes ? delivered - header_bytes : 0;
+                InvalidIndex(file, std::to_string(found) + " bytes of data, expected " + std::to_string(data_bytes) +
+                                   " (truncated or corrupt file?)");
+            }
+        }
+
+        // Header and layout fields of an index written by Save; every size is checked against the
+        // layout this build uses. Sets up that layout and returns the number of data bytes (key map
+        // and values) that must follow.
+        uint64_t LoadLayout(std::istream &ifs, std::string const& name) {
             LoadHeader(ifs);
             size_t file_keymap_size = 0, file_keymap_size_total = 0, file_ctrl_block_byte_size = 0;
             size_t file_keys_per_ctrl_block = 0, file_bitshift = 0, file_values_size = 0;
@@ -502,19 +628,10 @@ namespace protal {
                 InvalidIndex(name, "key map of " + std::to_string(file_keymap_size_total) + " cells, the layout implies " +
                                    std::to_string(expected_total));
             }
-
-            // The rest of the file must hold exactly the key map and the values (when the size is known).
-            auto const data_start = ifs.tellg();
-            if (data_start != std::streampos(-1) && ifs.seekg(0, std::ios::end)) {
-                auto const file_end = ifs.tellg();
-                ifs.seekg(data_start);
-                auto const expected_bytes = file_keymap_size_total * sizeof(KeyMap_t) + file_values_size * sizeof(ValueEntry);
-                if (file_end != std::streampos(-1) && static_cast<size_t>(file_end - data_start) != expected_bytes) {
-                    InvalidIndex(name, std::to_string(static_cast<size_t>(file_end - data_start)) + " bytes of data, expected " +
-                                       std::to_string(expected_bytes) + " (truncated or corrupt file?)");
-                }
+            // More values than the 64-bit address space holds is a corrupt header, not an allocation to try.
+            if (file_values_size > (uint64_t{1} << 56) / sizeof(ValueEntry)) {
+                InvalidIndex(name, std::to_string(file_values_size) + " values (corrupt file?)");
             }
-            ifs.clear();
 
             keymap_size = file_keymap_size;
             keymap_size_total = file_keymap_size_total;
@@ -527,28 +644,7 @@ namespace protal {
             ctrl_block_cell_size = cell_size;
             ctrl_block_byte_size_shift = log2(ctrl_block_cell_size);
             max_key_ubiquity = (1 << (sizeof(KeyMap_t)*8)) / m_keys_per_ctrl_block;
-
-            AllocateKeymap(keymap_size_total);
-            ifs.read((char *) m_keymap, sizeof(*m_keymap) * (keymap_size_total));
-
-            delete[] m_map;
-            m_map = new ValueEntry[values_size];
-            ifs.read((char *) m_map, sizeof(*m_map) * (values_size));
-            if (ifs.bad()) InvalidIndex(name, "the file could not be read or decompressed (truncated or corrupt file?)");
-            if (!ifs) InvalidIndex(name, "the file ends before all index data was read (truncated or corrupt file?)");
-            // Streams whose size is unknown (zstd) are checked here. Reaching the end also makes
-            // zstd verify the frame's content checksum.
-            if (!std::char_traits<char>::eq_int_type(ifs.peek(), std::char_traits<char>::eof())) {
-                InvalidIndex(name, "unexpected data after the index (corrupt file?)");
-            }
-            if (ifs.bad()) InvalidIndex(name, "the file could not be read or decompressed (truncated or corrupt file?)");
-        }
-
-        // Reads index.prx or a zstd-compressed index.prx.zst.
-        void Load(std::string file) {
-            zstd::InputFile in(file);
-            if (!in.IsOpen()) InvalidIndex(file, "cannot open the file");
-            Load(in.Stream(), file);
+            return uint64_t{keymap_size_total} * sizeof(KeyMap_t) + uint64_t{values_size} * sizeof(ValueEntry);
         }
 
 
@@ -1268,7 +1364,7 @@ namespace protal {
             values_size = global_position;
             std::cout << "ctrl_block_cell_size: " << ctrl_block_cell_size << std::endl;
 
-            m_map = new ValueEntry[values_size];
+            AllocateValues(values_size, true);  // zeroed: an all-zero entry is empty
 
             constexpr bool verbose = true;
             if constexpr(verbose) {

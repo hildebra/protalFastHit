@@ -40,6 +40,10 @@ namespace protal::build {
         return buffer;
     }
 
+    inline std::string FrameDescription(zstd::Params const& params) {
+        return params.frame_size > 0 ? "seekable, " + HumanBytes(params.frame_size) + " frames" : "one frame";
+    }
+
     inline void CompressionHint(protal::Options const& options) {
         if (options.CompressionParams().threads <= 1 && options.CompressionParams().level >= 16) {
             std::cout << "Note: zstd level " << options.CompressionParams().level << " with one thread compresses about "
@@ -63,13 +67,26 @@ namespace protal::build {
         bool ok = false;
         uint64_t written = size;
         if (compress) {
+            auto const params = options.CompressionParams();
             CompressionHint(options);
-            std::cout << "Write " << target << " (zstd level " << options.CompressionParams().level << ", "
-                      << options.CompressionParams().threads << " thread(s))" << std::endl;
-            zstd::OStream os(partial, options.CompressionParams(), size);
-            putter.Save(os);
-            ok = os.Close();
-            written = os.Buffer().BytesOut();
+            std::cout << "Write " << target << " (zstd level " << params.level << ", " << FrameDescription(params) << ", "
+                      << params.threads << " thread(s))" << std::endl;
+            if (params.frame_size > 0) {
+                // Seekable: frames compressed in parallel straight from the index's memory.
+                zstd::MemoryReader reader;
+                std::string header;
+                putter.GetMap().SerializedParts(header, reader);
+                std::string error;
+                auto const bytes = zstd::CompressFrames(reader, partial, params, error);
+                ok = bytes.has_value();
+                if (ok) written = *bytes;
+                else std::cerr << "Error writing " << partial << ": " << error << std::endl;
+            } else {
+                zstd::OStream os(partial, params, size);
+                putter.Save(os);
+                ok = os.Close();
+                written = os.Buffer().BytesOut();
+            }
         } else {
             std::cout << "Write " << target << std::endl;
             std::ofstream os(partial, std::ios::binary);
@@ -108,7 +125,8 @@ namespace protal::build {
         Benchmark bm("Compress reference");
         bm.Start();
         CompressionHint(options);
-        std::cout << "Write " << zst << " (zstd level " << options.CompressionParams().level << ", verified)" << std::endl;
+        std::cout << "Write " << zst << " (zstd level " << options.CompressionParams().level << ", "
+                  << FrameDescription(options.CompressionParams()) << ", verified)" << std::endl;
         std::string error;
         if (!zstd::CompressFile(raw, zst, options.CompressionParams(), true, error)) {
             std::cerr << "Compressing the reference failed: " << error << std::endl;
@@ -123,6 +141,47 @@ namespace protal::build {
                   << std::fixed << std::setprecision(1) << before / double(std::max<uint64_t>(after, 1)) << "x); "
                   << "removed " << raw << std::defaultfloat << std::endl;
         bm.PrintResults();
+    }
+
+    // --compress_db: rewrites an existing database's index and reference as seekable zstd files
+    // (index.prx.zst, reference.fna.zst) without rebuilding it, e.g. a downloaded raw database or
+    // one compressed as a single frame. Each new file is decompressed and compared with the old one
+    // before the old one is replaced; the content (and the index format) stays byte-identical.
+    static void CompressDatabase(protal::Options const& options) {
+        auto const params = options.CompressionParams();
+        CompressionHint(options);
+        for (std::string const& raw : {options.GetIndexFile(), options.GetSequenceFile()}) {
+            std::string const source = zstd::Resolve(raw);
+            std::string const target = raw + zstd::kExtension;
+            if (!std::filesystem::exists(source)) {
+                std::cerr << "Cannot compress " << raw << ": neither it nor " << target << " exists" << std::endl;
+                exit(8);
+            }
+            if (source == target && params.frame_size > 0 && zstd::IsSeekable(source)) {
+                std::cout << target << " is already seekable; kept (decompress it first to recompress)" << std::endl;
+                continue;
+            }
+            Benchmark bm("Compress " + std::filesystem::path(raw).filename().string());
+            bm.Start();
+            std::cout << "Write " << target << " from " << source << " (zstd level " << params.level << ", "
+                      << FrameDescription(params) << ", " << params.threads << " thread(s), verified)" << std::endl;
+            std::error_code ec;
+            uint64_t const before = std::filesystem::file_size(source, ec);
+            std::string error;
+            if (!zstd::CompressFile(source, target, params, true, error)) {
+                std::cerr << "Compressing " << source << " failed: " << error << std::endl;
+                exit(8);
+            }
+            uint64_t const after = std::filesystem::file_size(target, ec);
+            if (source != target) {
+                std::filesystem::remove(source, ec);
+                if (ec) std::cerr << "Warning: cannot remove " << source << ": " << ec.message() << std::endl;
+            }
+            bm.Stop();
+            std::cout << target << ": " << HumanBytes(after) << " (was " << HumanBytes(before) << " as "
+                      << std::filesystem::path(source).filename().string() << ")" << std::endl;
+            bm.PrintResults();
+        }
     }
 
     template<typename KmerHandler, typename KmerPutter, DebugLevel debug>

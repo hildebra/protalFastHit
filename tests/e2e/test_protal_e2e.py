@@ -478,15 +478,23 @@ class FailureTest(WorkDir):
         self.assertRegex(log, r"Invalid index .*truncated or corrupt")
 
 
+def is_seekable(path):
+    """True if a zstd file ends with a seek table (zstd seekable format, as protal writes)."""
+    with open(path, "rb") as fh:
+        fh.seek(-4, os.SEEK_END)
+        return fh.read(4) == b"\xb1\xea\x92\x8f"
+
+
 class CompressedDatabaseTest(WorkDir):
-    """A raw and a zstd-compressed copy of the database give byte-identical results."""
+    """Raw, seekable (--compress_db, loaded in parallel) and single-frame (zstd CLI) copies of the
+    database give identical results, with one thread or several."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         if not shutil.which("zstd"):
-            raise unittest.SkipTest("the zstd CLI is needed to make a raw and a compressed copy of the database")
-        cls.dbs = {"raw": os.path.join(cls.work, "raw_db"), "zst": os.path.join(cls.work, "zst_db")}
+            raise unittest.SkipTest("the zstd CLI is needed to make raw and compressed copies of the database")
+        cls.dbs = {kind: os.path.join(cls.work, f"{kind}_db") for kind in ("raw", "seekable", "single")}
         for d in cls.dbs.values():
             os.mkdir(d)
         big = ("index.prx", "reference.fna")
@@ -496,29 +504,65 @@ class CompressedDatabaseTest(WorkDir):
                 for d in cls.dbs.values():
                     os.symlink(f, os.path.join(d, name))
         for name in big:
-            path = db_file(name)
+            path, raw = db_file(name), os.path.join(cls.dbs["raw"], name)
             if path.endswith(".zst"):
-                os.symlink(path, os.path.join(cls.dbs["zst"], name + ".zst"))
-                subprocess.run(["zstd", "-q", "-d", path, "-o", os.path.join(cls.dbs["raw"], name)], check=True)
+                subprocess.run(["zstd", "-q", "-d", "--long=31", path, "-o", raw], check=True)
             else:
-                os.symlink(path, os.path.join(cls.dbs["raw"], name))
-                subprocess.run(["zstd", "-q", "-3", "--long=27", path, "-o", os.path.join(cls.dbs["zst"], name + ".zst")],
-                               check=True)
+                os.symlink(path, raw)
+            # -f: raw may be a symlink, which the zstd CLI skips otherwise.
+            subprocess.run(["zstd", "-q", "-f", "-3", "--long=27", raw, "-o", os.path.join(cls.dbs["single"], name + ".zst")],
+                           check=True)
+            os.symlink(raw, os.path.join(cls.dbs["seekable"], name))
+        # --compress_db turns the symlinked raw files into seekable .zst files (removing the links).
+        cls.compress_rc, cls.compress_log = run(cls.work, "--compress_db", "--db", cls.dbs["seekable"], "-t", "4",
+                                                "--compress_level", "3", "--compress_frame_mb", "1")
+
+    def test_compress_db(self):
+        self.assertEqual(self.compress_rc, 0, self.compress_log[-3000:])
+        for name in ("index.prx", "reference.fna"):
+            self.assertFalse(os.path.lexists(os.path.join(self.dbs["seekable"], name)), f"{name} replaced")
+            self.assertTrue(is_seekable(os.path.join(self.dbs["seekable"], name + ".zst")), f"{name}.zst is seekable")
+            self.assertFalse(is_seekable(os.path.join(self.dbs["single"], name + ".zst")))
+            self.assertTrue(os.path.exists(os.path.join(self.dbs["raw"], name)), "the raw files stay")
+        rc, log = run(self.work, "--compress_db", "--db", self.dbs["seekable"], "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("already seekable; kept", log)
 
     def test_identical_results(self):
-        outputs = {}
-        for kind, db in self.dbs.items():
-            rc, log = run(self.work, "--db", db, *reads("sa"), "-o", f"out_{kind}", "-t", "1", "--no_qcmsa")
+        def result(kind, threads):
+            out = f"out_{kind}_{threads}"
+            rc, log = run(self.work, "--db", self.dbs[kind], *reads("sa"), "-o", out, "-t", str(threads), "--no_qcmsa")
             self.assertEqual(rc, 0, log[-3000:])
-            self.assertIn("index.prx.zst" if kind == "zst" else "index.prx", log)
-            with open(glob.glob(self.path(f"out_{kind}", "sa*.sam"))[0], "rb") as sam, \
-                 open(glob.glob(self.path(f"out_{kind}", "sa*.profile"))[0], "rb") as profile:
-                outputs[kind] = (sam.read(), profile.read())
-        self.assertEqual(outputs["raw"][0], outputs["zst"][0], "SAM differs between raw and compressed database")
-        self.assertEqual(outputs["raw"][1], outputs["zst"][1], "profile differs between raw and compressed database")
+            self.assertIn("index.prx" if kind == "raw" else "index.prx.zst", log)
+            with open(glob.glob(self.path(out, "sa*.sam"))[0]) as sam, open(glob.glob(self.path(out, "sa*.profile"))[0]) as prof:
+                return sorted(line for line in sam if not line.startswith("@")), prof.read()
+
+        expected = result("raw", 1)
+        for kind in ("raw", "seekable", "single"):
+            for threads in (1, 4):
+                if (kind, threads) == ("raw", 1):
+                    continue
+                sam, profile = result(kind, threads)
+                self.assertEqual(sam, expected[0], f"SAM differs: {kind} database, {threads} threads")
+                self.assertEqual(profile, expected[1], f"profile differs: {kind} database, {threads} threads")
+
+    def test_corrupt_seekable_index(self):
+        bad_db = self.path("bad_seekable_db")
+        os.mkdir(bad_db)
+        for f in glob.glob(os.path.join(self.dbs["seekable"], "*")):
+            if os.path.basename(f) != "index.prx.zst":
+                os.symlink(os.path.realpath(f), os.path.join(bad_db, os.path.basename(f)))
+        with open(os.path.join(self.dbs["seekable"], "index.prx.zst"), "rb") as fh:
+            data = bytearray(fh.read())
+        data[len(data) // 3] ^= 0x5A  # inside some frame; the seek table at the end is intact
+        with open(os.path.join(bad_db, "index.prx.zst"), "wb") as fh:
+            fh.write(data)
+        rc, log = run(self.work, "--db", bad_db, *reads("sa"), "-o", "out_bad", "-t", "4", "--no_qcmsa")
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertRegex(log, r"Invalid index .*frame \d+ of \d+.*truncated or corrupt")
 
     def test_no_preload_needs_a_raw_reference(self):
-        rc, log = run(self.work, "--db", self.dbs["zst"], *reads("sa"), "-o", "out_lazy", "-t", "1", "--no_qcmsa",
+        rc, log = run(self.work, "--db", self.dbs["seekable"], *reads("sa"), "-o", "out_lazy", "-t", "1", "--no_qcmsa",
                       "--preload_genomes_off")
         self.assertNotEqual(rc, 0)
         self.assertIn("--preload_genomes_off needs an uncompressed reference", log)

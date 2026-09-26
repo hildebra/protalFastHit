@@ -67,30 +67,36 @@ protal
 protal reads its database files raw or compressed with [zstd](https://facebook.github.io/zstd/):
 for `index.prx` and `reference.fna` it uses the raw file if it exists, else `index.prx.zst` /
 `reference.fna.zst`. Compression roughly halves the bytes read (or more), which makes loading faster
-wherever storage is slower than decompression (~1 GB/s per core), e.g. on network file systems. On a
-fast local disk, a raw database loads faster.
+wherever storage is slower than decompression, e.g. on network file systems.
+
+protal writes these files in zstd's *seekable* format: independent frames of 64 MB each (plus a
+seek table at the end), so that loading uses `-t` threads, each decompressing whole frames straight
+into memory (~1-1.5 GB/s per thread). Raw files are read with `-t` threads too. A `.zst` with a
+single frame (e.g. from the zstd CLI) still loads, but with one thread. Plain `zstd -d` reads the
+seekable files.
 
 `protal --build` writes a compressed database by default: `index.prx.zst`, and `reference.fna` is
-replaced by `reference.fna.zst` (verified before `reference.fna` is removed). The build uses `-t`
-threads for compression.
+replaced by `reference.fna.zst` (verified before `reference.fna` is removed). Frames are compressed
+in parallel with `-t` threads.
 
 | Build option | Default | |
 |---|---|---|
 | `--no_compress` | off | write `index.prx` and keep `reference.fna` raw |
 | `--compress_level` | 19 | zstd level 1-22. Level 19 compresses ~3 MB/s per thread, level 12 ~40 MB/s; decompression speed barely depends on it |
-| `--compress_window_log` | 27 | long-distance matching window (2^27 = 128 MB), finds repeats between distant related sequences; 0 turns it off |
+| `--compress_frame_mb` | 64 | frame size; 0 writes a single frame (one loading thread) |
+| `--compress_window_log` | 27 | long-distance matching window (2^27 = 128 MB, capped at the frame size); 0 turns it off |
 
-Existing databases can be converted with the zstd CLI, which gives the same files:
+An existing database (raw, e.g. a download, or compressed as a single frame) is converted in place,
+without rebuilding it; the content stays byte-identical and each file is verified first:
 
 ```bash
-zstd -19 --long=27 -T0 --rm index.prx       # -> index.prx.zst
-zstd -19 --long=27 -T0 --rm reference.fna   # -> reference.fna.zst
-zstd -d --long=31 index.prx.zst             # back to raw, e.g. for protal versions before zstd support
+protal --compress_db --db /path/to/protal-db -t 16      # -> index.prx.zst, reference.fna.zst
+zstd -d --long=31 index.prx.zst                         # back to raw, e.g. for protal versions before zstd support
 ```
 
 `--preload_genomes_off` (loading reference genes on demand) needs a raw `reference.fna`.
 `scripts/db_compression_benchmark.sh` measures ratio and speed per level on your database and
-compares protal's load times for a raw and a compressed copy.
+compares protal's load times for raw and compressed copies and several thread counts.
 
 ## Metagenome simulation (C++)
 

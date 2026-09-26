@@ -22,6 +22,7 @@ namespace protal {
     // --build writes a zstd-compressed database unless --no_compress.
     static const int DEFAULT_COMPRESS_LEVEL = 19;
     static const int DEFAULT_COMPRESS_WINDOW_LOG = 27;
+    static const int DEFAULT_COMPRESS_FRAME_MB = 64;  // independent frames: loading uses -t threads
     static const size_t DEFAULT_ALIGN_TOP = 3;
     static const double DEFAULT_MAX_SCORE_ANI = 0.9;
     static const size_t DEFAULT_MSA_MIN_HCOV = 1000;
@@ -108,7 +109,9 @@ namespace protal {
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database uncompressed. By default the index is written as index.prx.zst and reference.fna is replaced by reference.fna.zst (zstd; verified before the raw file is removed). protal reads either form.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
-                ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB); finds repeats between distant related sequences. 0 turns it off. Reading needs this much memory.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
+                ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
+                ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
+                ("compress_db", "Compress the database in --db in place, without rebuilding it: index.prx and reference.fna (raw, or zstd files with a single frame) are rewritten as index.prx.zst and reference.fna.zst in frames (see --compress_level, --compress_frame_mb, -t), each verified before the old file is removed.")
                 ("full_reference", "All marker genomes (not only representative ones) to check unique k-mers during build process", cxxopts::value<std::string>()->default_value(""))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "Newline-delimited gene ids (>=1) to include during build (subset of marker genes)", cxxopts::value<std::string>()->default_value(""))
@@ -152,8 +155,10 @@ namespace protal {
         // build
         std::vector<uint8_t> build_gene_mask;
         bool compress = true;
+        bool compress_db = false;
         int compress_level = DEFAULT_COMPRESS_LEVEL;
         int compress_window_log = DEFAULT_COMPRESS_WINDOW_LOG;
+        int compress_frame_mb = DEFAULT_COMPRESS_FRAME_MB;
 
         // paths
         std::string sequence_file;
@@ -228,8 +233,10 @@ namespace protal {
 
         std::vector<uint8_t> m_build_gene_mask;
         bool m_compress = true;
+        bool m_compress_db = false;
         int m_compress_level = DEFAULT_COMPRESS_LEVEL;
         int m_compress_window_log = DEFAULT_COMPRESS_WINDOW_LOG;
+        int m_compress_frame_mb = DEFAULT_COMPRESS_FRAME_MB;
 
         std::string m_sequence_file;
         std::string m_full_sequence_file;
@@ -330,8 +337,10 @@ namespace protal {
                 m_verbose(d.verbose),
                 m_build_gene_mask(std::move(d.build_gene_mask)),
                 m_compress(d.compress),
+                m_compress_db(d.compress_db),
                 m_compress_level(d.compress_level),
                 m_compress_window_log(d.compress_window_log),
+                m_compress_frame_mb(d.compress_frame_mb),
                 m_sequence_file(std::move(d.sequence_file)),
                 m_full_sequence_file(std::move(d.full_sequence_file)),
                 m_database_path(std::move(d.database_path)),
@@ -396,9 +405,10 @@ namespace protal {
             std::ostringstream result_str;
             result_str << "------ General ------" << std::string(30, '-') << '\n';
             result_str << "build:               " << std::to_string(m_build) << '\n';
-            if (m_build) {
-                result_str << "compress database:   " << (m_compress ? "zstd level " + std::to_string(m_compress_level) +
-                        (m_compress_window_log ? ", window 2^" + std::to_string(m_compress_window_log) : "") : "no") << '\n';
+            if (m_build || m_compress_db) {
+                result_str << "compress database:   " << (m_compress || m_compress_db ? "zstd level " + std::to_string(m_compress_level) +
+                        (m_compress_window_log ? ", window 2^" + std::to_string(m_compress_window_log) : "") +
+                        (m_compress_frame_mb ? ", " + std::to_string(m_compress_frame_mb) + " MB frames" : ", one frame") : "no") << '\n';
             }
             result_str << "no strains:          " << std::to_string(m_no_strains) << '\n';
             result_str << "threads:             " << std::to_string(m_threads) << '\n';
@@ -543,8 +553,13 @@ namespace protal {
             return m_compress;
         }
 
+        bool CompressDbMode() const {
+            return m_compress_db;
+        }
+
         zstd::Params CompressionParams() const {
-            return { m_compress_level, m_compress_window_log, static_cast<int>(std::max<size_t>(m_threads, 1)) };
+            return { m_compress_level, m_compress_window_log, static_cast<int>(std::max<size_t>(m_threads, 1)),
+                     static_cast<uint64_t>(std::max(m_compress_frame_mb, 0)) << 20 };
         }
 
         std::string GetInternalTaxonomyFile() const {
@@ -1198,7 +1213,7 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                 error_log.emplace_back("Index file does not exist: " + GetIndexFile() + " (nor " + GetIndexFile() +
                                        zstd::kExtension + ")");
             }
-            if (m_build && m_compress) {
+            if ((m_build && m_compress) || m_compress_db) {
                 if (m_compress_level < 1 || m_compress_level > ZSTD_maxCLevel()) {
                     error_log.emplace_back("--compress_level must be between 1 and " + std::to_string(ZSTD_maxCLevel()));
                 }
@@ -1208,8 +1223,16 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                     error_log.emplace_back("--compress_window_log must be 0 or between " + std::to_string(window.lowerBound) +
                                            " and " + std::to_string(window.upperBound));
                 }
+                if (m_compress_frame_mb < 0 || m_compress_frame_mb > 4095) {
+                    error_log.emplace_back("--compress_frame_mb must be between 0 and 4095");
+                }
             }
-            if (m_build) {
+            if (m_compress_db && m_build) {
+                error_log.emplace_back("--compress_db and --build cannot be combined (--build compresses unless --no_compress)");
+            }
+            if (m_compress_db) {
+                // Only the database files are needed.
+            } else if (m_build) {
                 // Either file may be zstd-compressed, or have a .zst sibling instead.
                 if (m_sequence_file.empty() || !std::filesystem::exists(zstd::Resolve(m_sequence_file))) {
                     error_log.emplace_back("--reference does not exist: '" + m_sequence_file + "'");
@@ -1561,7 +1584,8 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
             // Protal currently only supports paired-end reads. Catch single-end (or
             // otherwise mismatched) input here with a clear message, instead of running
             // into mismatched read lists further down.
-            if (!build && !profile_only) {
+            bool const compress_db = result.count("compress_db") > 0;  // works on the database only
+            if (!build && !profile_only && !compress_db) {
                 if (first_list.empty() && second_list.empty()) {
                     std::cerr << "No input reads given. Provide paired-end reads via -1/--first and "
                                  "-2/--second, or a map file via --map (see --map_help)." << std::endl;
@@ -1733,8 +1757,10 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
             d.range                    = std::move(range);
             d.build_gene_mask          = std::move(build_gene_mask);
             d.compress                 = !result.count("no_compress");
+            d.compress_db              = compress_db;
             d.compress_level           = result["compress_level"].as<int>();
             d.compress_window_log      = result["compress_window_log"].as<int>();
+            d.compress_frame_mb        = result["compress_frame_mb"].as<int>();
             d.knob                     = result["knob"].as<double>();
             d.model                    = result["model"].as<std::string>();
 

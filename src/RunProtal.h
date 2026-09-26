@@ -215,8 +215,11 @@ namespace protal {
             // Load Index
             Seedmap map;
             std::string const index_file = options.ResolvedIndexFile();
-            std::cout << "Load index " << index_file << std::endl;
-            map.Load(index_file);
+            int const load_threads = static_cast<int>(options.GetThreads());
+            std::cout << "Load index " << index_file << " (" << load_threads << " thread(s)"
+                      << (zstd::IsCompressed(index_file) && !zstd::IsSeekable(index_file) ? "; a single zstd frame is read with one" : "")
+                      << ")" << std::endl;
+            map.Load(index_file, load_threads);
             std::cout << "Index features: " << map.FeatureDescription() << std::endl;
             if (map.HasReferenceFingerprint() &&
                 !(map.GetReferenceFingerprint() == ReferenceFingerprint::Of(options.GetSequenceMapFile(), options.GetSequenceFile()))) {
@@ -242,7 +245,7 @@ namespace protal {
             if (options.PreloadGenomes() && !genomes.AllGenomesLoaded()) {
                 Benchmark bm_preload_genomes("Preload genomes");
                 bm_preload_genomes.Start();
-                genomes.LoadAllGenomes();
+                genomes.LoadAllGenomes(static_cast<int>(options.GetThreads()));
                 bm_preload_genomes.Stop();
                 bm_preload_genomes.PrintResults();
             }
@@ -1757,6 +1760,11 @@ namespace protal {
 
         std::cout << "Options:\n" << options.ToString() << std::endl;
 
+        if (options.CompressDbMode()) {
+            protal::build::CompressDatabase(options);  // exits 8 on failure
+            return RunStatus::Get().Finish();
+        }
+
         // Directories that outputs are written into without creating them first (per-species strain
         // files, misc statistics). Created here so that a run started with -1/-2/-o, not a map, has them.
         if (!options.BuildMode()) {
@@ -1783,7 +1791,7 @@ namespace protal {
             std::cout << "Preload genomes" << std::endl;
             Benchmark bm_preload_genomes("Preload genomes");
             bm_preload_genomes.Start();
-            db.GetGenomes().LoadAllGenomes();
+            db.GetGenomes().LoadAllGenomes(static_cast<int>(options.GetThreads()));
             bm_preload_genomes.Stop();
             bm_preload_genomes.PrintResults();
         }

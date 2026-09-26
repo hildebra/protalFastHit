@@ -83,6 +83,16 @@ namespace protal {
             m_sequence = std::move(sequence);
         }
 
+        // Sizes the sequence to the gene's length for filling in place.
+        char* PrepareSequence() {
+            m_sequence.assign(m_length, '\0');
+            return m_sequence.data();
+        }
+
+        char* SequenceData() {
+            return m_sequence.data();
+        }
+
         bool IsSet() const {
             return (m_id != 0 || m_length > 0) && m_length != DEFAULT;
         }
@@ -312,6 +322,35 @@ namespace protal {
     };
 
 
+    // Copies reference bytes from zstd::ParallelRead into the genes they belong to, uppercased.
+    // genes are sorted by start byte and do not overlap; starts[i] is genes[i]'s start byte.
+    class GeneSink : public zstd::Sink {
+    public:
+        GeneSink(std::vector<Gene*> const& genes, std::vector<uint64_t> const& starts) : m_genes(genes), m_starts(starts) {}
+
+        void Copy(uint64_t offset, char const* data, size_t size) override {
+            uint64_t const end = offset + size;
+            // The last gene starting at or before offset may reach into the range.
+            size_t i = static_cast<size_t>(std::upper_bound(m_starts.begin(), m_starts.end(), offset) - m_starts.begin());
+            if (i > 0) i--;
+            for (; i < m_genes.size() && m_starts[i] < end; i++) {
+                uint64_t const begin = m_starts[i], gene_end = begin + m_genes[i]->GetLength();
+                uint64_t const from = std::max(offset, begin), to = std::min(end, gene_end);
+                if (from >= to) continue;
+                char* dst = m_genes[i]->SequenceData() + (from - begin);
+                char const* src = data + (from - offset);
+                for (uint64_t k = 0; k < to - from; k++) {
+                    char const c = src[k];
+                    dst[k] = (c >= 'a' && c <= 'z') ? static_cast<char>(c - ('a' - 'A')) : c;
+                }
+            }
+        }
+
+    private:
+        std::vector<Gene*> const& m_genes;
+        std::vector<uint64_t> const& m_starts;
+    };
+
     class GenomeLoader {
         using GenomeKey = Genome::GenomeKey;
         using GenomeMap = tsl::sparse_map<GenomeKey, Genome>;
@@ -497,10 +536,11 @@ namespace protal {
             }
         }
 
-        // Reads every gene in one sequential pass over the reference (raw or compressed), in
-        // file order, skipping the header lines between them: large sequential reads instead of
-        // one seek per gene, which matters on network storage.
-        void LoadAllGenomes() {
+        // Reads every gene of the reference (raw or compressed) with up to `threads` threads:
+        // zstd::ParallelRead delivers the file's bytes (raw and seekable zstd files in parallel
+        // chunks, other zstd files in one stream), and each piece is copied, uppercased, into the
+        // genes it overlaps. Large reads instead of one seek per gene, which matters on network storage.
+        void LoadAllGenomes(int threads = 1) {
             std::vector<GenomeKey> keys;
             for (auto& pair : m_genomes) {
                 keys.emplace_back(pair.first);
@@ -519,31 +559,32 @@ namespace protal {
                 return a->GetStartByte() < b->GetStartByte();
             });
 
-            zstd::InputFile input(m_path);
-            if (!input.IsOpen()) {
-                std::cerr << "Cannot open the reference " << m_path << std::endl;
-                exit(8);
-            }
-            std::istream& is = input.Stream();
-            size_t position = 0;
+            // Size every sequence first: the threads then fill disjoint parts of them (a gene that
+            // spans two chunks gets its two parts from two threads).
+            std::vector<uint64_t> starts;
+            starts.reserve(genes.size());
+            uint64_t position = 0;
             for (Gene* gene : genes) {
                 if (gene->GetStartByte() < position) {
                     std::cerr << "Invalid reference map " << m_genome_map << ": gene " << gene->GetId() << " at byte "
                               << gene->GetStartByte() << " overlaps the previous gene" << std::endl;
                     exit(8);
                 }
-                is.ignore(static_cast<std::streamsize>(gene->GetStartByte() - position));
-                std::string sequence(gene->GetLength(), '\0');
-                is.read(sequence.data(), static_cast<std::streamsize>(sequence.size()));
-                if (!is) {
-                    std::cerr << "Cannot read gene " << gene->GetId() << " (bytes " << gene->GetStartByte() << "-"
-                              << gene->GetStartByte() + gene->GetLength() << ") from " << m_path
-                              << ": reference.map does not match the file" << std::endl;
-                    exit(8);
-                }
-                Gene::Uppercase(sequence);
-                gene->SetSequence(std::move(sequence));
                 position = gene->GetStartByte() + gene->GetLength();
+                gene->PrepareSequence();
+                starts.emplace_back(gene->GetStartByte());
+            }
+            GeneSink sink(genes, starts);
+            std::string error;
+            uint64_t const size = zstd::ParallelRead(m_path, threads, sink, error);
+            if (!error.empty()) {
+                std::cerr << "Cannot read the reference " << m_path << ": " << error << std::endl;
+                exit(8);
+            }
+            if (size < position) {
+                std::cerr << "Cannot read all genes from " << m_path << ": it holds " << size << " bytes, "
+                          << m_genome_map << " lists genes up to byte " << position << std::endl;
+                exit(8);
             }
             for (auto& key : keys) {
                 m_genomes.at(key).MarkLoaded();
