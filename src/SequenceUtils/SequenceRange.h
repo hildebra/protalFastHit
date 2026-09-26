@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <stdint.h>
 
-using CoverageVec = std::vector<uint16_t>;
+using CoverageVec = std::vector<uint32_t>;
 
 struct ReadInfo {
     size_t read_id;

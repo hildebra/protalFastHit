@@ -172,14 +172,6 @@ namespace protal {
 
             for (auto& [pos, varbin] : a.GetVariants()) {
                 var.emplace_back(varbin);
-
-                for (auto& var : varbin) {
-                    if (var.Observations() == 65535) {
-                        std::cout << var.ToString() << std::endl;
-                        std::cout << "Faulty Variant" << std::endl;
-                        exit(3);
-                    }
-                }
             }
 
             std::sort(var.begin(), var.end(), [](VariantBin const& var1, VariantBin const& var2) {
@@ -232,7 +224,7 @@ namespace protal {
 
     static bool VariantPass(Variant const& call, VariantBin const& bin,
                             size_t min_var_qual_sum=50, size_t min_var_cov=3,
-                            double min_frequency=0.0, uint16_t coverage=0,
+                            double min_frequency=0.0, uint32_t coverage=0,
                             bool require_strand=false, size_t min_mean_qual=0) {
         if (call.Observations() < min_var_cov) return false;
         // OR logic: passes if either quality gate holds
@@ -452,7 +444,7 @@ namespace protal {
 
     static bool MSA2(MSASequenceItems const& items, std::string const& reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, bool ignore_insertions) {
         // Get Coverages
-        CoverageVecs covs(items.size(), std::vector<uint16_t>());
+        CoverageVecs covs(items.size(), CoverageVec());
         for (auto i = 0; i < items.size(); i++) {
             auto& item = items[i];
             if (!item.has_value()) continue;
@@ -528,7 +520,7 @@ namespace protal {
                 continue;
             }
             for (const auto& var : item.value().first) {
-                has_variant[var.front().Position()] = true;
+                if (var.front().Position() < has_variant.size()) has_variant[var.front().Position()] = true;
             }
         }
         return has_variant;
@@ -581,16 +573,7 @@ namespace protal {
                     continue;
                 }
 
-                // Not part of program logic. Ensures that variants are valid.
                 const VariantVec& const_variants = items[i].value().first;
-                if (std::any_of(const_variants.begin(), const_variants.end(), [](std::vector<Variant> const& vv) {
-                    return std::any_of(vv.begin(), vv.end(), [](Variant const&  v) {
-                        return v.Observations() == 65535;
-                    });
-                })) {
-                    std::cout << "Wrong variant" << std::endl;
-                    exit(3);
-                }
                 VariantVec& variants = const_cast<VariantVec&>(const_variants);
 
 
@@ -607,7 +590,7 @@ namespace protal {
                     // Position has variant.
                     auto& variant = variants[indices[i]];
                     auto& call = GetConsensusCall(variant);
-                    uint16_t pos_cov = (rpos < cov.size()) ? cov[rpos] : 0;
+                    uint32_t pos_cov = (rpos < cov.size()) ? cov[rpos] : 0;
                     bool pass = VariantPass(call, variant, min_qual_sum, min_cov, min_frequency, pos_cov, require_strand, min_mean_qual);
 
                     outs[i] += std::to_string(pass);
@@ -708,7 +691,7 @@ namespace protal {
                             // Re-check each filter independently to attribute rejection reason(s).
                             if (stats) {
                                 auto& s = (*stats)[i];
-                                uint16_t pos_cov_for_af = (rpos < cov.size()) ? cov[rpos] : 0;
+                                uint32_t pos_cov_for_af = (rpos < cov.size()) ? cov[rpos] : 0;
                                 if (var->Observations() < min_cov) s.variants_filtered_obs_cov++;
                                 bool qual_fails = var->QualitySum() < min_qual_sum &&
                                                   !(min_mean_qual > 0 && var->MeanQuality() >= min_mean_qual);
@@ -729,7 +712,7 @@ namespace protal {
                             }
                             AddInsertionGap(msa_row, max_ins);
                             if (snp_max_alleles > 1 && column_bins[i] != nullptr) {
-                                uint16_t pos_cov_v = (rpos < cov.size()) ? cov[rpos] : 0;
+                                uint32_t pos_cov_v = (rpos < cov.size()) ? cov[rpos] : 0;
                                 // Collect all passing single-base alleles, the reference allele included, ranked
                                 // by observations descending: a REF/ALT mixture is the typical two-strain case.
                                 std::vector<std::pair<uint32_t,char>> candidates;

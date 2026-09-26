@@ -23,7 +23,8 @@ The filter has two passes:
 
 Inputs match protal's output contract:
   <msa>        FASTA (plain or .gz) -- protal's <species>.raw.msa.fna
-  <partition>  RAxML-style partition -- "DNA, gene<ID> = <start>-<end>" (0-based inclusive)
+  <partition>  RAxML-style partition -- "DNA, gene<ID> = <start>-<end>" (1-based inclusive;
+               the 0-based files of older protal versions are recognised too)
   <meta.tsv>   protal per-sample x per-gene metrics, WITH a header row
 
 Usage:
@@ -140,8 +141,8 @@ def parse_partition(path, base="auto"):
     each key back to the name as written, so the output partition is spelled the way
     the input was.
 
-    protal writes 0-based inclusive; RAxML -- and so most everything else, rg-msa
-    included -- writes 1-based inclusive. They are told apart by the lowest start:
+    protal and RAxML -- and so most everything else, rg-msa included -- write 1-based
+    inclusive; older protal versions wrote 0-based. They are told apart by the lowest start:
     a 1-based file cannot contain 0, and both tools' partitions begin at the start
     of the alignment.
     """
@@ -374,8 +375,8 @@ def build_argparser():
     p.add_argument("partition", help="RAxML-style partition file")
     p.add_argument("--partition-base", choices=["auto", "0", "1"], default="auto",
                    help="Coordinate base of the partition file. auto (default) "
-                        "detects it from the lowest start: protal writes 0-based, "
-                        "RAxML and rg-msa write 1-based.")
+                        "detects it from the lowest start: protal, RAxML and rg-msa "
+                        "write 1-based (older protal versions wrote 0-based).")
     p.add_argument("meta", help="protal .meta.tsv (with header)")
     p.add_argument("--prefix", default=None,
                    help="Output prefix (default: MSA path with .fna/.gz stripped)")

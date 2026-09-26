@@ -22,6 +22,7 @@
 #include "cPMML.h"
 #include "sparse_map.h"
 #include "Benchmark.h"
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <ranges>
@@ -185,7 +186,7 @@ namespace protal {
 
             size_t Coverage(size_t above=0) {
                 auto cov_vec = GetStrainLevel().GetSequenceRangeHandler().CalculateCoverageVector2();
-                auto cov = std::count_if(cov_vec.begin(), cov_vec.end(), [above](const uint16_t e){ return e > above; });
+                auto cov = std::count_if(cov_vec.begin(), cov_vec.end(), [above](const uint32_t e){ return e > above; });
                 return cov;
             }
 
@@ -611,17 +612,47 @@ namespace protal {
                     (v.at(mid_index - 1) + v.at(mid_index)) / 2;
             }
 
+            static double SmoothStep(double x) {
+                x = std::clamp(x, 0.0, 1.0);
+                return x * x * (3 - 2 * x);
+            }
+
+            // Depth estimate from two estimators that agree at high coverage. The median depth over
+            // genes with reads is robust to outlier genes but biased upwards at low coverage, because
+            // genes that drew no read are left out (by about 1/(1-e^-n) for n reads per gene). The
+            // aligned bases over the length of all expected (hittable) genes, zeros included, is
+            // unbiased at any coverage. The weight of the median rises smoothly with the fraction of
+            // expected genes hit (0.80 to 0.95) or with the median depth itself (0.5x to 1x),
+            // whichever is higher, so that the estimate changes continuously, without a step.
+            static double BlendedDepth(double median_depth, size_t mapped_bases, size_t expected_length,
+                                       size_t hit_genes, size_t expected_genes) {
+                if (expected_length == 0 || expected_genes == 0) return median_depth;
+                double const depth_all_genes = static_cast<double>(mapped_bases) / static_cast<double>(expected_length);
+                double const hit_fraction = std::min(1.0, static_cast<double>(hit_genes) / static_cast<double>(expected_genes));
+                double const weight = std::max(SmoothStep((hit_fraction - 0.80) / 0.15), SmoothStep((median_depth - 0.5) / 0.5));
+                return (1 - weight) * depth_all_genes + weight * median_depth;
+            }
+
             double VerticalCoverage(bool force=false) {
                 if (m_vcov == -1 || force) {
                     std::vector<double> vcovs;
+                    size_t mapped_bases = 0;
                     for (auto& [geneid, gene] : m_genes) {
                         vcovs.emplace_back(gene.VerticalCoverage());
+                        mapped_bases += gene.m_mapped_length;
                     }
                     std::sort(vcovs.begin(), vcovs.end());
 
                     if (vcovs.empty()) return 0.0;
 
-                    m_vcov = Median(vcovs);
+                    size_t expected_length = 0;
+                    size_t expected_genes = 0;
+                    for (auto gene_id : m_genome.GetHittableGenes()) {
+                        if (!m_genome.HasGene(gene_id)) continue;
+                        expected_length += m_genome.GetGene(gene_id).GetLength();
+                        expected_genes++;
+                    }
+                    m_vcov = BlendedDepth(Median(vcovs), mapped_bases, expected_length, m_genes.size(), expected_genes);
                 }
                 return m_vcov;
             }

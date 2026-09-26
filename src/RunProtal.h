@@ -1190,8 +1190,27 @@ namespace protal {
 
         os4.close();
 
+        // Long unique k-mers are unique k-mers in index blocks with flex keys, i.e. whose 15-mer core
+        // is shared with a relative. A species with relatives in the database has them in nearly
+        // every gene; a gene without any is one its relatives share unchanged or lack from their
+        // reference. A relative's reads of such a gene align here, and its MSA columns would show
+        // them as a second strain, so it is left out. A species without relatives has hardly any
+        // long unique k-mers at all (its k-mers are unique at the core already): all its genes stay.
+        auto& genome = loader.GetGenome(taxid);
+        auto const with_long_uniques = std::count_if(gene_ids.begin(), gene_ids.end(), [&genome](uint32_t gene_id) {
+            return genome.GetGene(gene_id).HasLongUniques();
+        });
+        if (static_cast<size_t>(with_long_uniques) * 2 < gene_ids.size()) return gene_ids;
 
-        return gene_ids;
+        std::vector<uint32_t> msa_gene_ids;
+        std::copy_if(gene_ids.begin(), gene_ids.end(), std::back_inserter(msa_gene_ids), [&genome](uint32_t gene_id) {
+            return genome.GetGene(gene_id).HasLongUniques();
+        });
+        if (msa_gene_ids.size() < gene_ids.size()) {
+            std::cout << name << ": " << gene_ids.size() - msa_gene_ids.size() << " of " << gene_ids.size()
+                      << " genes have no long unique k-mers and are left out of the MSA" << std::endl;
+        }
+        return msa_gene_ids;
     }
 
     // Shell-quote a path/argument for use in a std::system command line.
@@ -1320,6 +1339,11 @@ namespace protal {
     }
 
     static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilter> filter={}) {
+        // An earlier run's MSA must not survive a run that writes none (qcmsa would filter it).
+        for (auto const& stale : { options.GetMSAOutput(taxon_name), options.GetMSAPartitionOutput(taxon_name) }) {
+            std::error_code ec;
+            std::filesystem::remove(stale, ec);
+        }
         auto min_hcov = options.GetMSAMinHCOV();
         auto min_qual_sum = options.GetSNPMinPhredSum();
         auto min_cov = options.GetSNPMinCov();
@@ -1341,6 +1365,7 @@ namespace protal {
         auto& genome = loader.GetGenome(taxid);
         if (!genome.IsLoaded()) genome.LoadGenomeOMP();
         std::vector<std::string> names;
+        for (auto index : profile_indices) names.emplace_back(profiles[index].GetName());
         std::vector<std::string> partitions;
         size_t partition_start = 0;
         size_t previous_size = 0;
@@ -1376,7 +1401,6 @@ namespace protal {
                 auto& taxon_map = profile.GetTaxa();
                 if (!taxon_map.contains(taxid)) continue;
 
-                names.emplace_back(profile.GetName());
                 auto& genes = profile.GetTaxa().at(taxid).GetGenes();
 
                 if (!genes.contains(geneid)) {
@@ -1453,21 +1477,6 @@ namespace protal {
             if (samples_with_gene > 0) {
                 previous_size = msa.front().size();
 
-                //
-                for (auto& opt : items)  {
-                    if (!opt.has_value()) continue;
-                    auto& [var, shr] = opt.value();
-                    if (std::any_of(var.begin(), var.end(), [](std::vector<Variant> const& vv) {
-                        return std::any_of(vv.begin(), vv.end(), [](Variant const&  v) {
-                            return v.Observations() == 65535;
-                        });
-                    })) {
-                        std::cout << "Wrong variant 2" << std::endl;
-                        exit(3);
-                    }
-                }
-
-
                 protal::MSAStats gene_stats(items.size());
                 bool result = protal::MSA(items, gene.Sequence(), msa, min_cov, min_qual_sum, min_af, require_strand, min_mean_qual, &gene_stats, &ref_msa_row, snp_max_alleles);
 
@@ -1476,18 +1485,24 @@ namespace protal {
                 for (size_t si = 0; si < gene_stats.size(); si++) {
                     sample_stats[si] += gene_stats[si];
                 }
+                // Partitions are 1-based and inclusive, as RAxML and IQ-TREE read them.
                 if (msa.front().size() > partition_start) {
                     if (partitions.size() > 0) {
-                        partitions.back() += std::to_string(previous_size-1);
+                        partitions.back() += std::to_string(previous_size);
                     }
 
                     std::string partition = "DNA, gene";
                     partition += std::to_string(geneid) + " = ";
-                    partition += std::to_string(partition_start) + '-';
+                    partition += std::to_string(partition_start + 1) + '-';
                     partitions.emplace_back(partition);
                     partition_start = msa.front().size();
                 }
             }
+        }
+
+        if (partitions.empty()) {
+            std::cout << "No gene of " << taxon_name << " has enough coverage for an MSA" << std::endl;
+            return;
         }
 
         // Prepend reference sequence as the first row so it is always present in both outputs.
@@ -1517,7 +1532,7 @@ namespace protal {
         if (os.fail()) RunStatus::Get().Fail("Writing the MSA of " + taxon_name + " failed: " + options.GetMSAOutput(taxon_name));
         // std::cout << " Saved MSA to " << options.GetMSAOutput(taxon_name);
 
-        partitions.back() += std::to_string(msa.front().size()-1);
+        partitions.back() += std::to_string(msa.front().size());
 
         std::ofstream os_part(options.GetMSAPartitionOutput(taxon_name), std::ios::out);
         for (auto i = 0; i < partitions.size(); i++) {

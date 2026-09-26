@@ -65,9 +65,11 @@ def reference_genes():
     return genes
 
 
-def simulate_reads(prefix, pairs_per_gene, seed, random_r2=False):
+def simulate_reads(prefix, pairs_per_gene, seed, random_r2=False, pairs_per_kb=None):
     """Write <prefix>_R1.fq/_R2.fq in READS: 220-320 bp fragments, 100 bp reads, both orientations,
-    0.5% substitutions and a few '#' (Q2) bases. With random_r2 the second mate cannot align."""
+    0.5% substitutions and a few '#' (Q2) bases. With random_r2 the second mate cannot align.
+    With pairs_per_kb, genes get pairs in proportion to their length (even depth), shorter genes
+    included, instead of pairs_per_gene each."""
     rng = random.Random(seed)
 
     def mutate(seq):
@@ -82,10 +84,15 @@ def simulate_reads(prefix, pairs_per_gene, seed, random_r2=False):
     n = 0
     with open(os.path.join(READS, f"{prefix}_R1.fq"), "w") as r1, open(os.path.join(READS, f"{prefix}_R2.fq"), "w") as r2:
         for _, gene in reference_genes():
-            if len(gene) < 320:
-                continue
-            for _ in range(pairs_per_gene):
-                flen = rng.randint(220, 320)
+            if pairs_per_kb is None:
+                if len(gene) < 320:
+                    continue
+                pairs, shortest, longest = pairs_per_gene, 220, 320
+            else:
+                pairs = round(pairs_per_kb * len(gene) / 1000)
+                shortest, longest = min(220, len(gene)), min(320, len(gene))
+            for _ in range(pairs):
+                flen = rng.randint(shortest, longest)
                 start = rng.randint(0, len(gene) - flen)
                 frag = gene[start:start + flen]
                 if rng.random() < 0.5:
@@ -187,6 +194,72 @@ class CompleteRunTest(WorkDir):
             column = header.index("refs_retained")
             retained = sum(int(line.split("\t")[column]) for line in fh)
         self.assertGreater(retained, 0, "reference calls retained at variant positions")
+
+
+    def test_partitions_are_one_based_and_cover_the_msa(self):
+        for part in glob.glob(self.path("out", "strains", "*.raw.partition.txt")):
+            with open(part) as fh:
+                ranges = [tuple(int(x) for x in line.split("=")[1].split("-")) for line in fh if line.strip()]
+            with open(part.replace(".raw.partition.txt", ".raw.msa.fna")) as fh:
+                length = len([line for line in fh if not line.startswith(">")][0].strip())
+            self.assertEqual(ranges[0][0], 1, part)
+            self.assertEqual(ranges[-1][1], length, part)
+            for (_, end), (start, _) in zip(ranges, ranges[1:]):
+                self.assertEqual(start, end + 1, part)
+
+
+class StrainEdgeCaseTest(WorkDir):
+    def test_species_without_msa_genes(self):
+        # No gene reaches --snp_min_cov, so no species has MSA columns (this used to segfault).
+        # Two samples: MSAs are built only across samples.
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa",
+                      "--snp_min_cov", "100000", "--msa_min_hcov", "0")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("has enough coverage for an MSA", log)
+        self.assertEqual(glob.glob(self.path("out", "strains", "*.raw.msa.fna")), [])
+
+
+class LowCoverageAbundanceTest(WorkDir):
+    """The depth estimate, and so relative abundances, stays proportional at low coverage."""
+
+    @staticmethod
+    def taxon_depths(genes_log):
+        depths = {}
+        with open(genes_log) as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            taxid, vcov = header.index("TaxID"), header.index("TaxVCOV")
+            for line in fh:
+                fields = line.rstrip("\n").split("\t")
+                depths[fields[taxid]] = float(fields[vcov])
+        return depths
+
+    def test_subsampled_depths_scale_with_the_read_count(self):
+        # About 3x on every gene; the subsamples have about 0.12x and 0.36x.
+        simulate_reads("even", 0, seed=4, pairs_per_kb=15)
+        rng = random.Random(5)
+        with open(os.path.join(READS, "even_R1.fq")) as f1, open(os.path.join(READS, "even_R2.fq")) as f2:
+            r1, r2 = f1.readlines(), f2.readlines()
+        fractions = {"low": 0.04, "mid": 0.12}
+        for name, fraction in fractions.items():
+            keep = [i for i in range(len(r1) // 4) if rng.random() < fraction]
+            for lines, mate in ((r1, 1), (r2, 2)):
+                with open(self.path(f"{name}_R{mate}.fq"), "w") as fh:
+                    for i in keep:
+                        fh.writelines(lines[4 * i:4 * i + 4])
+            fractions[name] = len(keep) / (len(r1) // 4)
+        rc, log = run(self.work, "--db", DB,
+                      "-1", ",".join([os.path.join(READS, "even_R1.fq")] + [self.path(f"{n}_R1.fq") for n in fractions]),
+                      "-2", ",".join([os.path.join(READS, "even_R2.fq")] + [self.path(f"{n}_R2.fq") for n in fractions]),
+                      "--prefix", "full," + ",".join(fractions), "-o", "out", "-t", "3", "--no_strains")
+        self.assertEqual(rc, 0, log[-3000:])
+        full = self.taxon_depths(self.path("out", "full.profile.genes.log"))
+        self.assertTrue(full)
+        for name, fraction in fractions.items():
+            depths = self.taxon_depths(self.path("out", f"{name}.profile.genes.log"))
+            for taxid, depth in depths.items():
+                ratio = depth / (fraction * full[taxid])
+                self.assertLess(abs(ratio - 1), 0.3, f"{name} ({fraction:.3f} of the reads), taxon {taxid}: "
+                                                     f"depth {depth:.4f} vs {fraction * full[taxid]:.4f} expected")
 
 
 class RerunTest(WorkDir):
