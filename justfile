@@ -58,14 +58,16 @@ strain-protal:
       grep -vE '^#(INPUT_DIR|OUTPUT_DIR)' "{{strain_input}}/protal_map.tsv"; \
     {{ '}' }} > {{strain_run}}/strain_test_map.tsv
     # Write the full log to a file (avoids a pipeline whose trailing grep can fail
-    # the recipe under `set -o pipefail`, which lmod's BASH_ENV enables), then show
-    # a progress-bar-stripped tail.
+    # the recipe under `set -o pipefail`, which lmod's BASH_ENV enables), show a
+    # progress-bar-stripped tail, then exit with protal's own status so a failed run
+    # stops `just strain-test` instead of producing a report from stale outputs.
     PROTAL_DB_PATH="{{strain_db}}" {{protal}} profile \
         --map {{strain_run}}/strain_test_map.tsv \
         -t {{strain_threads}} \
         --qcmsa_args "--preset {{preset}}" {{strain_protal_filter_args}} \
-        > {{strain_run}}/protal_run.log 2>&1 || true
-    -tr '\r' '\n' < {{strain_run}}/protal_run.log | grep -vE '^\[=*>* *\] *[0-9]+ %' | tail -40
+        > {{strain_run}}/protal_run.log 2>&1; rc=$?; \
+    tr '\r' '\n' < {{strain_run}}/protal_run.log | grep -vE '^\[=*>* *\] *[0-9]+ %' | tail -40; \
+    exit $rc
 
 # Build a per-species ML tree from each strain MSA with IQ-TREE. strain_tree_input
 # selects the MSA: "filtered" = qcmsa output <sp>.msa.fna (default); "raw" = protal
@@ -198,7 +200,7 @@ install prefix="$HOME/.local": build-all
     cp {{build_dir}}/protal_avx2                    {{prefix}}/bin/protal_avx2
     cp {{build_dir}}/simulate_metagenomes           {{prefix}}/bin/simulate_metagenomes
     cp scripts/protal_map_utils                     {{prefix}}/bin/protal_map_utils
-    cp scripts/protal_launcher                      {{prefix}}/bin/protal
+    cp protal_launcher                              {{prefix}}/bin/protal
     cp scripts/qcmsa.py                             {{prefix}}/bin/qcmsa
     chmod +x {{prefix}}/bin/protal_baseline {{prefix}}/bin/protal_avx2 {{prefix}}/bin/simulate_metagenomes {{prefix}}/bin/protal_map_utils {{prefix}}/bin/protal {{prefix}}/bin/qcmsa
     @echo "Installed to {{prefix}}/bin: $({{prefix}}/bin/protal --version)"

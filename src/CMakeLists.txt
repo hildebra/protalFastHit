@@ -47,6 +47,7 @@ set(PROTAL_LIB_SOURCES
         Utilities/BinaryClassifierEvaluator.h
         Utilities/LineSplitter.h
         Utilities/Compressor.h
+        Utilities/RunStatus.h
         SequenceUtils/SeqReader.h
         SequenceUtils/KmerIterator.h
         SequenceUtils/KmerUtils.h

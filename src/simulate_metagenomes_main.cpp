@@ -9,6 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -433,8 +434,52 @@ static std::vector<protal::sim::SampleOutput> design_and_simulate(
         profile, cli.samples, cli.sample_prefix, cli.output_dir, cli.test_mode, cli.keep_tmp);
 }
 
+// The manifest records the community and the ART seeds but not the ART settings, which come from
+// this command line. Compare them with the run_params.tsv of the original run (next to manifest.tsv,
+// or one level up for manifests/<sample>.tsv) and warn about every difference: with other settings
+// the replayed reads differ.
+static void check_replay_art_settings(const CliOptions& cli) {
+    const fs::path dir = cli.from_manifest->parent_path();
+    fs::path params = dir / "run_params.tsv";
+    if (!fs::exists(params)) params = dir.parent_path() / "run_params.tsv";
+    if (!fs::exists(params)) {
+        std::cerr << "Note: no run_params.tsv next to the manifest, so the ART settings cannot be checked "
+                     "against the original run.\n";
+        return;
+    }
+
+    std::unordered_map<std::string, std::string> recorded;
+    std::ifstream in(params);
+    std::string line;
+    while (std::getline(in, line)) {
+        auto tab = line.find('\t');
+        if (tab != std::string::npos) recorded[line.substr(0, tab)] = line.substr(tab + 1);
+    }
+
+    std::string extra;
+    for (const auto& arg : cli.art.extra_args) {
+        extra += (extra.empty() ? "" : " ");
+        extra += arg;
+    }
+    const std::vector<std::pair<std::string, std::string>> current = {
+        {"read_length", std::to_string(cli.art.read_length)},
+        {"fragment_mean", std::to_string(cli.art.fragment_mean)},
+        {"fragment_stdev", std::to_string(cli.art.fragment_stdev)},
+        {"sequencer", cli.art.sequencer},
+        {"extra_art_args", extra},
+    };
+    for (const auto& [key, value] : current) {
+        auto it = recorded.find(key);
+        if (it != recorded.end() && it->second != value) {
+            std::cerr << "Warning: --" << key << " is '" << value << "' but was '" << it->second
+                      << "' in the original run (" << params.string() << "); replayed reads will differ.\n";
+        }
+    }
+}
+
 static std::vector<protal::sim::SampleOutput> replay_from_manifest(
     CliOptions& cli, const std::vector<protal::sim::GenomeRecord>& genomes) {
+    check_replay_art_settings(cli);
     auto design = protal::sim::read_manifest(*cli.from_manifest);
     protal::sim::resolve_manifest_fasta_paths(design, genomes);
 

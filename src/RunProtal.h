@@ -16,7 +16,9 @@
 #include "ProgressBar.h"
 #include "protal_config.h"
 #include "Compressor.h"
+#include "RunStatus.h"
 
+#include <atomic>
 #include <iomanip>
 #include <ranges>
 #include <unistd.h>
@@ -90,6 +92,38 @@ namespace protal {
             return m_taxonomy;
         }
     };
+
+    // Alignments are written under a temporary name ("<sam>.partial") and only get their final name
+    // once complete, so an interrupted run never leaves a truncated SAM that a rerun would skip and
+    // reuse. This moves a finished file into place, compressing it first when a .gz name was asked for;
+    // if compression fails, the alignments are kept uncompressed (and the run reports the failure).
+    static void FinishSamFile(Options& options, int index, std::string const& partial) {
+        namespace fs = std::filesystem;
+        auto [sam, gzipped] = options.SamFile(index);
+        auto [sam_nogzip, _] = options.SamFile(index, true);
+        auto const sample = options.GetSampleId(index);
+        std::error_code ec;
+
+        if (gzipped) {
+            try {
+                Compressor::compressInPlace(partial, options.GetThreads());
+                fs::rename(partial + ".gz", sam, ec);
+                if (ec) RunStatus::Get().Fail("Cannot move " + partial + ".gz to " + sam + ": " + ec.message());
+                return;
+            } catch (const std::exception& e) {
+                fs::remove(partial + ".gz", ec);
+                if (!fs::exists(partial)) {
+                    RunStatus::Get().Fail("Compressing the SAM file of sample " + sample + " failed: " + e.what());
+                    return;
+                }
+                RunStatus::Get().Fail("Compressing the SAM file of sample " + sample + " failed (" + e.what() +
+                                      "); kept it uncompressed as " + sam_nogzip);
+                options.SetSamFileGzip(index, false);
+            }
+        }
+        fs::rename(partial, sam_nogzip, ec);
+        if (ec) RunStatus::Get().Fail("Cannot move " + partial + " to " + sam_nogzip + ": " + ec.message());
+    }
 
     template<typename AlignmentBenchmark=NoBenchmark>
     static void RunWrapper(Options& options, ProtalDB& db, AlignmentBenchmark benchmark=NoBenchmark{}) {
@@ -181,6 +215,8 @@ namespace protal {
                     // Avoid aligning files that already exist.
                     if (!options.Force() && (std::filesystem::exists(sam) || std::filesystem::exists(sam_nogzip))) {
                         std::cout << "Skip " << sam << " continue" << std::endl;
+                        // Profile the file that is there: an earlier run may have left it uncompressed.
+                        if (gzipped && !std::filesystem::exists(sam)) options.SetSamFileGzip(index, false);
                         continue;
                     }
 
@@ -192,7 +228,12 @@ namespace protal {
 
 
                     options.SetCurrentIndex(index);
-                    std::ofstream sam_output(sam_nogzip, std::ios::out);
+                    std::string const sam_partial = sam_nogzip + ".partial";  // renamed by FinishSamFile
+                    std::ofstream sam_output(sam_partial, std::ios::out);
+                    if (!sam_output) {
+                        RunStatus::Get().Fail("Cannot write the SAM file of sample " + options.GetSampleId(index) + ": " + sam_partial);
+                        continue;
+                    }
                     genomes.WriteSamHeader(sam_output);
 
                     igzstream is1 { options.GetFirstFile(index).c_str() };
@@ -239,28 +280,19 @@ namespace protal {
                     is2.close();
                     sam_output.close();
 
-                    if (gzipped) {
-                        try {
-                            Compressor::compressInPlace(sam_nogzip, options.GetThreads());
-                            options.SetSamFileGzip(index, true);
-                        } catch (const std::exception& e) {
-                        std::cerr << "[WARNING] " << e.what() << std::endl;
-                        }
-                    }
-                    // if (options.IsSamFileGzipped(index)) {
-                    //     std::cerr << "[WARNING] SAM file " << sam << " is already gzipped according to internal record. Skipping compression." << std::endl;
-                    //     continue;
-                    // } else {
-                    // }
-
-                    // CleanUp
                     if (!reader.Success()) {
-                        std::cerr << "There was an error reading the fastq files with sample " << options.GetSampleId(index) << " (" << index << ")" << std::endl;
-                        std::cerr << options.GetFirstFile(index) << std::endl;
-                        std::cerr << options.GetSecondFile(index) << std::endl;
-                        std::cerr << "Remove sam file: " << sam << std::endl;
-                        std::filesystem::remove(sam);
+                        RunStatus::Get().Fail("Reading the FASTQ files of sample " + options.GetSampleId(index) + " failed (" +
+                                              options.GetFirstFile(index) + ", " + options.GetSecondFile(index) +
+                                              "); no SAM file was written");
+                        std::filesystem::remove(sam_partial);
+                        continue;
                     }
+                    if (sam_output.fail()) {
+                        RunStatus::Get().Fail("Writing the SAM file of sample " + options.GetSampleId(index) + " failed: " + sam_partial);
+                        std::filesystem::remove(sam_partial);
+                        continue;
+                    }
+                    FinishSamFile(options, index, sam_partial);
                 }
 
             } else {
@@ -410,8 +442,7 @@ namespace protal {
             auto sample_name = options.GetSampleId(i);
 
             if (!Utils::exists(sam)) {
-                #pragma omp critical(print)
-                std::cerr << "Sam file does not exist for sample " << options.GetSampleId(i) << " (" << i << "): " << sam << std::endl;
+                RunStatus::Get().Fail("No SAM file to profile for sample " + options.GetSampleId(i) + ": " + sam);
                 profile_slots[idx].emplace(genomes);
                 continue;
             }
@@ -537,6 +568,9 @@ namespace protal {
             os_total.close();
             os_dismissed.close();
             os_genes.close();
+            if (os.fail() || os_total.fail() || os_dismissed.fail() || os_genes.fail()) {
+                RunStatus::Get().Fail("Writing the profile of sample " + options.GetSampleId(i) + " failed: " + options.ProfileFile(i));
+            }
 
             profile.SetName(options.GetSampleId(i));
 
@@ -1166,15 +1200,19 @@ namespace protal {
         return "";
     }
 
-    // M5 step 4c: invoke the qcmsa post-filter on a species' MSA. Failures are
-    // non-fatal -- the strain outputs protal already wrote remain valid.
+    // M5 step 4c: invoke the qcmsa post-filter on a species' MSA. A failure does not stop the run --
+    // the raw strain outputs protal already wrote remain valid -- but it is reported and makes protal
+    // exit non-zero, because the filtered <name>.msa.fna the run was asked for is missing.
     static void RunQCMSA(Options& options, const std::string& name) {
         namespace fs = std::filesystem;
         std::string script = FindQCMSAScript(options);
         if (script.empty() || !fs::exists(script)) {
-            std::cerr << "[qcmsa] WARNING: qcmsa not found next to the protal binary or on $PATH "
-                         "(install it with 'just install', or point protal at it with --qcmsa_script / "
-                         "PROTAL_QCMSA_SCRIPT); skipping post-filter for " << name << std::endl;
+            static std::atomic<bool> reported{false};
+            if (!reported.exchange(true)) {
+                RunStatus::Get().Fail("qcmsa not found next to the protal binary or on $PATH, so no species got "
+                                      "its filtered .msa.fna (install it with 'just install', point protal at it "
+                                      "with --qcmsa_script / PROTAL_QCMSA_SCRIPT, or pass --no_qcmsa)");
+            }
             return;
         }
         // qcmsa is an executable with a python3 shebang. Only fall back to
@@ -1191,6 +1229,12 @@ namespace protal {
             return;
         }
         std::string prefix = options.GetStrainOutputDir() + '/' + name;
+        // Remove qcmsa outputs of an earlier run first: if qcmsa writes nothing this time (e.g. no
+        // sample passes its filters), a stale <name>.msa.fna must not be left behind as if it were new.
+        for (auto const* ext : { ".msa.fna", ".partition.txt", ".qcmsa_summary.tsv", ".qc.png" }) {
+            std::error_code ec;
+            fs::remove(prefix + ext, ec);
+        }
         std::ostringstream cmd;
         cmd << launcher << ShellQuote(script)
             << ' ' << ShellQuote(msa)
@@ -1204,8 +1248,8 @@ namespace protal {
         std::cerr << "[qcmsa] " << cmd.str() << std::endl;
         int rc = std::system(cmd.str().c_str());
         if (rc != 0) {
-            std::cerr << "[qcmsa] WARNING: qcmsa exited with code " << rc
-                      << " for " << name << " (post-filter skipped)" << std::endl;
+            RunStatus::Get().Fail("qcmsa exited with code " + std::to_string(rc) + " for " + name +
+                                  " (post-filter skipped; the raw MSA is still in " + msa + ")");
         }
     }
 
@@ -1404,6 +1448,7 @@ namespace protal {
             os << std::string(&row[0], std::distance(row.begin(), row.end())) << std::endl;
         }
         os.close();
+        if (os.fail()) RunStatus::Get().Fail("Writing the MSA of " + taxon_name + " failed: " + options.GetMSAOutput(taxon_name));
         // std::cout << " Saved MSA to " << options.GetMSAOutput(taxon_name);
 
         partitions.back() += std::to_string(msa.front().size()-1);
@@ -1413,6 +1458,7 @@ namespace protal {
             os_part << partitions[i] << std::endl;
         }
         os_part.close();
+        if (os_part.fail()) RunStatus::Get().Fail("Writing the MSA partitions of " + taxon_name + " failed: " + options.GetMSAPartitionOutput(taxon_name));
 
         // std::cout << " Saved Partitions " << std::endl;
 
@@ -1558,6 +1604,7 @@ namespace protal {
             os_meta << "sample\tgene_id\tvertical_coverage\tcounts_vcov1\tcounts_vcov2\tmulti_allelic\tfiltered\tmulti_rate_vcov1\tfiltered_rate_vcov1\tmulti_rate_vcov2\tfiltered_rate_vcov2\tmedian_vcov\thcov\tgene_length\tmean_vcov_nonzero\tmedian_vcov_nonzero\n";
             GetMSAForTaxon(taxid, name, loader, options, profiles, &os_meta);
             os_meta.close();
+            if (os_meta.fail()) RunStatus::Get().Fail("Writing the MSA metadata of " + name + " failed: " + options.GetSpeciesMetaOutput(name));
 
             if (options.GetRunQCMSA()) {
                 RunQCMSA(options, name);
@@ -1576,7 +1623,9 @@ namespace protal {
         return pages * page_size;
     }
 
-    static void Run(int argc, char *argv[]) {
+    // Runs protal and returns the process exit code: 0, or 1 if any sample or output failed (see
+    // RunStatus). Invalid input and fatal errors still exit directly with their own codes.
+    static int Run(int argc, char *argv[]) {
         auto options = protal::Options::OptionsFromArguments(argc, argv);
         if (options.ShowVersion()) {
             std::cout << "protal v" << 
@@ -1615,6 +1664,20 @@ namespace protal {
 
         std::cout << "Options:\n" << options.ToString() << std::endl;
 
+        // Directories that outputs are written into without creating them first (per-species strain
+        // files, misc statistics). Created here so that a run started with -1/-2/-o, not a map, has them.
+        if (!options.BuildMode()) {
+            std::vector<std::string> dirs = { options.GetMiscOutputDir() };
+            if (!options.NoStrains()) dirs.push_back(options.GetStrainOutputDir());
+            for (auto const& dir : dirs) {
+                std::error_code ec;
+                if (!dir.empty()) std::filesystem::create_directories(dir, ec);
+                if (ec) {
+                    std::cerr << "Cannot create output directory " << dir << ": " << ec.message() << std::endl;
+                    exit(2);
+                }
+            }
+        }
 
         // Load protal DB into RAM
         ProtalDB db = options.UniqueKmersFileExists() ?
@@ -1637,41 +1700,50 @@ namespace protal {
 
         bool skip_alignment = !options.BuildMode() && all_alignments_exist && !options.Force();
 
-        if (!options.BuildMode() && (options.ProfileOnly() || skip_alignment) && !sam_files.empty()) {
-            auto [sam, gzipped] = options.SamFile(0);
+        bool run_alignment = true;
+        if (!options.BuildMode() && (options.ProfileOnly() || skip_alignment) && !sam_files.empty() &&
+            !options.SamFile(0).first.empty()) {
+            std::cout << "All alignments are present." << std::endl;
+            run_alignment = false;
+        }
+        bool const run_profiling = !options.BuildMode() && !options.NoProfile();
 
-            if (!sam.empty()) {
-                std::cout << "All alignments are present." << std::endl;
-                goto Profile;
-            }
+        // Checks that would otherwise only fail after hours of alignment.
+        std::vector<uint32_t> msa_taxids;
+        if (run_profiling) {
+            db.LoadTaxonomy(options.GetInternalTaxonomyFile());
+            msa_taxids = ResolveMSASpecies(options, db.GetTaxonomy());
+        }
+        if (run_alignment && !options.BuildMode() && FindInPath("pigz").empty() &&
+            std::any_of(sam_files.begin(), sam_files.end(), [](std::string const& f) { return f.ends_with(".gz"); })) {
+            std::cerr << "Error: gzipped SAM output (.sam.gz) needs pigz, which is not on $PATH. "
+                         "Install pigz or request uncompressed .sam files." << std::endl;
+            exit(2);
         }
 
         /*
          *  READ ALIGNMENT SECTION
          */
         // Untangle Template options that need to be written out specifically.
-        if (options.BenchmarkAlignment()) {
-            AlignmentBenchmark alignment_benchmark{};
-            if (!options.GetBenchmarkAlignmentOutputFile().empty()) {
-                alignment_benchmark.SetOutput(options.GetBenchmarkAlignmentOutputFile());
+        if (run_alignment) {
+            if (options.BenchmarkAlignment()) {
+                AlignmentBenchmark alignment_benchmark{};
+                if (!options.GetBenchmarkAlignmentOutputFile().empty()) {
+                    alignment_benchmark.SetOutput(options.GetBenchmarkAlignmentOutputFile());
+                }
+                RunWrapper(options, db, alignment_benchmark);
+                if (!options.GetBenchmarkAlignmentOutputFile().empty()) {
+                    alignment_benchmark.DestroyOutput();
+                }
+            } else {
+                RunWrapper(options, db);
             }
-            RunWrapper(options, db, alignment_benchmark);
-            if (!options.GetBenchmarkAlignmentOutputFile().empty()) {
-                alignment_benchmark.DestroyOutput();
-            }
-        } else {
-            RunWrapper(options, db);
         }
 
         /*
          * PROFILER
          */
-        if (!options.NoProfile()) {
-            Profile:
-
-            db.LoadTaxonomy(options.GetInternalTaxonomyFile());
-            auto msa_taxids = ResolveMSASpecies(options, db.GetTaxonomy());
-
+        if (run_profiling) {
             Benchmark bm_profiling("Profiling");
             bm_profiling.Start();
             
@@ -1731,7 +1803,7 @@ namespace protal {
         bm_total.Stop();
         bm_total.PrintResults();
 
-//        std::cout << "Find the results under:" << std::endl;
-//        std::cout << options.GetOutputDir() << std::endl;
+        std::cout << std::flush;
+        return RunStatus::Get().Finish();
     }
 }

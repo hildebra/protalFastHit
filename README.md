@@ -82,7 +82,7 @@ Input TSV format (three columns): genome name, GTDB taxonomy string, path to gen
   --distribution power_law \
   --strains_per_species "0.4,0.2"
 ```
-Reads are simulated with `art_illumina`, concatenated per sample into `<sample>_R1.fq` and `<sample>_R2.fq`, and a `manifest.tsv` records the composition.
+Reads are simulated with `art_illumina`, concatenated per sample into `reads/<sample>_R1.fq.gz` and `reads/<sample>_R2.fq.gz` (compressed with `pigz`), and a `manifest.tsv` records the composition.
 
 ### Reproducing a simulated dataset
 
@@ -94,8 +94,8 @@ Every run writes its full provenance next to the reads:
 - `run_params.tsv` — the command line, the RNG seed (resolved and recorded even when
   `--seed` was not given), and the ART settings.
 
-A manifest is a complete, self-contained description of a dataset, so replaying one
-does not depend on reproducing the community-design RNG:
+A manifest fully describes a dataset's composition (genomes, read pairs, ART seeds), so
+replaying one does not depend on reproducing the community-design RNG:
 
 ```bash
 ./cmake-build-release/simulate_metagenomes \
@@ -103,10 +103,14 @@ does not depend on reproducing the community-design RNG:
   --output_dir sims_replay/
 ```
 
-The replay reproduces the reads byte for byte. All sampling options
-(`--distribution`, `--species_per_sample`, `--seed`, …) are ignored; only the ART
-settings still apply, and `--read_length` is checked against the depths the manifest
-implies. A per-sample manifest replays just that sample.
+The replay reproduces the reads byte for byte, provided it uses the same `art_illumina`
+build and the same ART settings. The manifest stores the ART seeds but not the settings,
+so `--read_length`, `--fragment_mean`, `--fragment_stdev`, `--sequencer` and
+`--extra_art_args` still come from the command line; the replay warns about each one that
+differs from the original run's `run_params.tsv`, and also checks `--read_length` against
+the depths the manifest implies. All sampling options (`--distribution`,
+`--species_per_sample`, `--seed`, …) are ignored. A per-sample manifest replays just that
+sample.
 
 Manifests written before the `fasta_path` and `art_seed` columns existed still replay:
 pass `--genome_table` so the genomes can be resolved by name, and the composition and

@@ -6,7 +6,5 @@ int main(int argc, char *argv[]) {
     std::cin.tie(NULL);
     std::cout.tie(NULL);
 
-    protal::Run(argc, argv);
-
-    return 0;
+    return protal::Run(argc, argv);
 }

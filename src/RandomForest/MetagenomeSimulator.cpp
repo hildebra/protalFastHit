@@ -13,6 +13,7 @@
 #include <zlib.h>
 
 #include "../Utilities/Benchmark.h"
+#include "../Utilities/Compressor.h"
 
 namespace fs = std::filesystem;
 
@@ -559,8 +560,9 @@ void MetagenomeSimulator::render_sample(
     std::ofstream r1_out;
     std::ofstream r2_out;
     if (!skip_reads) {
-        r1_out.open(r1_path, std::ios::binary | std::ios::app);
-        r2_out.open(r2_path, std::ios::binary | std::ios::app);
+        // Truncate: a leftover FASTQ from an interrupted run must not be extended with new reads.
+        r1_out.open(r1_path, std::ios::binary | std::ios::trunc);
+        r2_out.open(r2_path, std::ios::binary | std::ios::trunc);
         if (!r1_out || !r2_out) {
             throw std::runtime_error("Unable to create output FASTQ files for " + sample_name);
         }
@@ -597,18 +599,16 @@ void MetagenomeSimulator::render_sample(
     fs::path r1_gz = r1_path;
     fs::path r2_gz = r2_path;
     if (!skip_reads) {
-        // Compress reads with pigz
-        auto compress_with_pigz = [&](const fs::path& fq_path) {
-            std::stringstream cmd;
-            cmd << pigz_path_ << " -p " << std::max(1, art_.options().threads) << " -f \"" << fq_path.string() << "\"";
-            int rc = std::system(cmd.str().c_str());
-            if (rc != 0) {
-                throw std::runtime_error("pigz failed on " + fq_path.string() + " with code " + std::to_string(rc));
-            }
-        };
+        r1_out.close();
+        r2_out.close();
+        if (!r1_out || !r2_out) {
+            throw std::runtime_error("Unable to finish writing FASTQ files for " + sample_name);
+        }
 
-        compress_with_pigz(r1_path);
-        compress_with_pigz(r2_path);
+        // Compress reads with pigz (no shell; -n, so replays give byte-identical .gz files)
+        const int threads = std::max(1, art_.options().threads);
+        Compressor::compressInPlace(r1_path, threads, pigz_path_);
+        Compressor::compressInPlace(r2_path, threads, pigz_path_);
 
         if (!keep_tmp) {
             fs::remove_all(temp_dir);

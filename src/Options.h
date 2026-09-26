@@ -616,14 +616,11 @@ namespace protal {
             return gzipped;
         }
 
+        // Points sample `index` at the gzipped (".gz") or the plain name of its SAM file.
         void SetSamFileGzip(int index, bool gzip) {
             auto [sam, gzipped] = SamFile(index);
-
-            if (gzip && gzipped) {
-                // std::cerr << "SAM file " << sam << " is already gzipped." << std::endl;
-                return;
-            }
-            m_sam_list[index] = m_sam_list[index] + (gzip ? ".gz" : "");
+            if (gzip == gzipped) return;
+            m_sam_list[index] = gzip ? sam + ".gz" : sam.substr(0, sam.size() - 3);
         }
 
         std::vector<std::string> SamFiles() {

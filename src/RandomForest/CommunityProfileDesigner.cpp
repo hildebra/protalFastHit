@@ -15,6 +15,33 @@
 
 namespace protal::sim {
 
+// Nudges read counts (each already >= 1) up or down one at a time, at random entries, until they
+// sum to `target`. Every entry keeps at least one read pair, so a target smaller than the number of
+// entries cannot be met: that is reported instead of looping forever.
+template<typename RNG>
+static void adjust_counts_to_total(std::vector<std::uint64_t>& counts, std::uint64_t target, RNG& rng,
+                                   const std::string& what) {
+    if (counts.empty()) return;
+    if (target < counts.size()) {
+        throw std::invalid_argument(what + ": " + std::to_string(target) + " read pairs cannot give each of " +
+                                    std::to_string(counts.size()) + " entries at least one; increase --total_read_pairs");
+    }
+    std::int64_t diff = static_cast<std::int64_t>(target) -
+                        static_cast<std::int64_t>(std::accumulate(counts.begin(), counts.end(), std::uint64_t{0}));
+    if (diff == 0) return;
+    std::uniform_int_distribution<std::size_t> pick(0, counts.size() - 1);
+    while (diff != 0) {
+        std::size_t idx = pick(rng);
+        if (diff > 0) {
+            ++counts[idx];
+            --diff;
+        } else if (counts[idx] > 1) {
+            --counts[idx];
+            ++diff;
+        }
+    }
+}
+
 static std::vector<std::string> split_taxonomy(const std::string& taxonomy) {
     std::vector<std::string> tokens;
     std::string current;
@@ -534,21 +561,8 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
         auto c = static_cast<std::uint64_t>(std::llround(rel * static_cast<double>(options.total_read_pairs)));
         species_counts.push_back(c == 0 ? 1 : c);
     }
-    std::int64_t diff = static_cast<std::int64_t>(options.total_read_pairs) -
-                        static_cast<std::int64_t>(std::accumulate(species_counts.begin(), species_counts.end(), std::uint64_t{0}));
-    if (diff != 0 && !species_counts.empty()) {
-        std::uniform_int_distribution<std::size_t> pick(0, species_counts.size() - 1);
-        while (diff != 0) {
-            std::size_t idx = pick(rng);
-            if (diff > 0) {
-                ++species_counts[idx];
-                --diff;
-            } else if (species_counts[idx] > 1) {
-                --species_counts[idx];
-                ++diff;
-            }
-        }
-    }
+    adjust_counts_to_total(species_counts, options.total_read_pairs, rng,
+                           "Sample with " + std::to_string(species_counts.size()) + " species");
 
     // Distribute species counts across strains uniformly at random (Dirichlet via random weights).
     std::vector<GenomeAssignment> assignments;
@@ -568,21 +582,8 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
             strain_counts.push_back(c == 0 ? 1 : c);
         }
         // Adjust per-species counts to match species_counts[i]
-        std::int64_t diff_strain = static_cast<std::int64_t>(species_counts[i]) -
-                                   static_cast<std::int64_t>(std::accumulate(strain_counts.begin(), strain_counts.end(), std::uint64_t{0}));
-        if (diff_strain != 0) {
-            std::uniform_int_distribution<std::size_t> pick(0, n_strains - 1);
-            while (diff_strain != 0) {
-                std::size_t idx = pick(rng);
-                if (diff_strain > 0) {
-                    ++strain_counts[idx];
-                    --diff_strain;
-                } else if (strain_counts[idx] > 1) {
-                    --strain_counts[idx];
-                    ++diff_strain;
-                }
-            }
-        }
+        adjust_counts_to_total(strain_counts, species_counts[i], rng,
+                               "Species " + species + " with " + std::to_string(n_strains) + " strains");
         for (std::size_t j = 0; j < n_strains; ++j) {
             assignments.push_back(GenomeAssignment{strains[j], species, strain_counts[j], 0.0, 0});
         }
