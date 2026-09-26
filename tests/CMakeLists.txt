@@ -6,6 +6,7 @@ add_executable(protal_tests
         test_SamRoundTrip.cpp
         test_Operations.cpp
         test_Index.cpp
+        test_InputValidation.cpp
         test_Zstd.cpp)
 target_compile_options(protal_tests PRIVATE ${PROTAL_COMMON_COMPILE_OPTIONS})
 target_link_libraries(protal_tests PRIVATE protal_lib dl z isa_baseline GTest::gtest_main)

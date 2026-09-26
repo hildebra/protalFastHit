@@ -77,7 +77,7 @@ namespace protal {
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold: taxa with RF probability >= knob are reported as detected. Higher improves precision, lower improves sensitivity. Values between 0.4 and 0.6 should not affect F1-score by a large margin, but just slightly shift focus from sensitivity to precision.", cxxopts::value<double>()->default_value("0.5"))
-                ("model", "PMML model file. If no extension and not a path, searches for <name>.xml in the database directory. Default: model.xml in database directory.", cxxopts::value<std::string>()->default_value(""))
+                ("model", "PMML model file: an existing path is used as is, otherwise <db>/<name> (<db>/<name>.xml without an extension). Default: model.xml in the database directory.", cxxopts::value<std::string>()->default_value(""))
                 ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""));
 
         // Strain / SNP options
@@ -113,7 +113,7 @@ namespace protal {
                 ("build_gene_subset", "Newline-delimited gene ids (>=1) to include during build (subset of marker genes)", cxxopts::value<std::string>()->default_value(""))
                 ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory. Needs an uncompressed reference.fna (not reference.fna.zst).")
 
-                ("profile_truth", "Provide truth file and annotate profile taxa with TP/FP. Format is list of integers (internal ids)", cxxopts::value<std::string>()->default_value(""))
+                ("profile_truth", "Truth files, one per sample (comma-separated; a map's PROFILE_TRUTH column does the same). Each line names a species present, by GTDB lineage in any tab-separated field (d__...;s__Genus species, as simulate_metagenomes --protal_metafile writes) or by internal taxid in the first field. Profiles are annotated with TP/FP (<profile>.truth_annotated).", cxxopts::value<std::string>()->default_value(""))
                 ("benchmark_alignment", "Benchmark alignment part of protal based on true taxonomic id and gene id supplied in the read header. Header must fulfill the formatting >taxid_geneid... with the regex: >[0-9]+_[0-9]+([^0-9]+.*)*")
                 ("benchmark_alignment_output", "Benchmark alignment output. Output is appended to the file.", cxxopts::value<std::string>());
 
@@ -472,12 +472,14 @@ namespace protal {
                 }
                 return default_path;
             }
+            // An existing file (path or name) is used as is; otherwise a file name with an extension is
+            // looked up in the database folder, and a bare name means <db>/<name>.xml.
             std::filesystem::path p(m_model);
-            bool has_extension = !p.extension().empty();
-            bool exist = std::filesystem::exists(p);
-            bool is_path = p.is_absolute() || m_model.find('/') != std::string::npos || m_model.find('\\') != std::string::npos;
-            if ((has_extension || is_path) & exist) {
+            if (std::filesystem::exists(p)) {
                 return m_model;
+            }
+            if (!p.extension().empty()) {
+                return (std::filesystem::path(m_database_path) / p).string();
             }
             return m_database_path + "/" + m_model + ".xml";
         }
@@ -1201,6 +1203,40 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                                            " and " + std::to_string(window.upperBound));
                 }
             }
+            if (m_build) {
+                // Either file may be zstd-compressed, or have a .zst sibling instead.
+                if (m_sequence_file.empty() || !std::filesystem::exists(zstd::Resolve(m_sequence_file))) {
+                    error_log.emplace_back("--reference does not exist: '" + m_sequence_file + "'");
+                }
+                if (!m_full_sequence_file.empty() && !std::filesystem::exists(zstd::Resolve(m_full_sequence_file))) {
+                    error_log.emplace_back("--full_reference does not exist: " + m_full_sequence_file);
+                }
+                if (m_full_sequence_file.empty()) {
+                    // Without it no unique_kmers.tsv would be written, and a query could detect nothing.
+                    warning_log.emplace_back("no --full_reference: unique k-mers are checked against --reference only");
+                    m_full_sequence_file = m_sequence_file;
+                }
+            } else {
+                if (!m_no_profile && !UniqueKmersFileExists()) {
+                    error_log.emplace_back("Unique k-mer file does not exist: " + GetUniqueKmersFile() +
+                                           " (without it every taxon fails the model; rebuild the database with --build)");
+                }
+                if (!m_no_profile && !std::filesystem::exists(GetModelPath())) {
+                    error_log.emplace_back("Model file does not exist: " + GetModelPath());
+                }
+            }
+            if (!m_profile_truth_list.empty()) {
+                if (m_profile_truth_list.size() != m_profile_list.size()) {
+                    error_log.emplace_back("Truth files (--profile_truth or a PROFILE_TRUTH column) must name one file per sample: " +
+                                           std::to_string(m_profile_truth_list.size()) + " given for " +
+                                           std::to_string(m_profile_list.size()) + " samples");
+                }
+                for (auto const& truth : m_profile_truth_list) {
+                    if (!std::filesystem::exists(truth)) {
+                        error_log.emplace_back("Truth file does not exist: '" + truth + "'");
+                    }
+                }
+            }
 
             // Length of files
             bool valid_lengths1 =
@@ -1282,10 +1318,8 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                 }
             }
 
-            if (!warning_log.empty()) {
-                for (auto& line : error_log) {
-                    std::cerr << "Warning: " << line << std::endl;
-                }
+            for (auto& line : warning_log) {
+                std::cerr << "Warning: " << line << std::endl;
             }
 
             if (!error_log.empty()) {
@@ -1508,6 +1542,11 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
 
 
             auto profile_truth = result.count("profile_truth") ? result["profile_truth"].as<std::string>() : "";
+            // One truth file per sample, comma-separated; overrides a map's PROFILE_TRUTH column.
+            if (!profile_truth.empty()) {
+                profile_truth_list.clear();
+                LineSplitter::Split(profile_truth, ",", profile_truth_list);
+            }
             bool profile_only = result.count("profile_only");
             bool mapq_debug_output = result.count("mapq_debug_output");
             bool force = result.count("force");

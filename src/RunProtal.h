@@ -124,6 +124,58 @@ namespace protal {
         if (ec) RunStatus::Get().Fail("Cannot move " + partial + " to " + sam_nogzip + ": " + ec.message());
     }
 
+    // The index is built from --reference, but queries align reads against the database's reference.fna,
+    // found through reference.map. Every --reference record must therefore be a reference.map gene of
+    // the same length, with ids and length inside the index's 20-bit fields.
+    static void CheckReferenceAgainstMap(Options const& options, GenomeLoader& genomes) {
+        auto input = protal::build::OpenInput(options.GetSequenceFilePath());  // raw or .zst
+        SeqReader reader{ input->Stream() };
+        FastxRecord record;
+        size_t records = 0, problems = 0;
+        constexpr uint64_t max_id = (uint64_t{1} << SEEDMAP_TAXID_BITS) - 1;
+        constexpr uint64_t max_gene = (uint64_t{1} << SEEDMAP_GENEID_BITS) - 1;
+        constexpr uint64_t max_length = (uint64_t{1} << SEEDMAP_GENE_POS_BITS) - 1;
+        while (reader(record)) {
+            records++;
+            std::string problem;
+            size_t taxid = 0, geneid = 0;
+            try {
+                if (record.header.find('_') == std::string::npos) throw std::invalid_argument("no underscore");
+                std::tie(taxid, geneid) = KmerUtils::ExtractHeaderInformation(record.header);
+            } catch (std::exception const&) {
+                problem = "header is not <taxid>_<gene id>";
+            }
+            if (problem.empty()) {
+                if (taxid == 0 || taxid > max_id || geneid == 0 || geneid > max_gene) {
+                    problem = "taxid and gene id must be between 1 and " + std::to_string(max_id);
+                } else if (record.sequence.size() > max_length) {
+                    problem = "gene is longer than " + std::to_string(max_length) + " bases";
+                } else if (!genomes.HasGene(taxid, geneid)) {
+                    problem = "not in " + options.GetSequenceMapFile();
+                } else if (genomes.GeneLength(taxid, geneid) != record.sequence.size()) {
+                    problem = std::to_string(record.sequence.size()) + " bases, but " +
+                              std::to_string(genomes.GeneLength(taxid, geneid)) + " in reference.map";
+                }
+            }
+            if (!problem.empty() && ++problems <= 10) {
+                std::cerr << "--reference record " << record.header << ": " << problem << std::endl;
+            }
+        }
+        if (records == 0) {
+            std::cerr << "--reference " << options.GetSequenceFilePath() << " contains no sequences" << std::endl;
+            exit(8);
+        }
+        if (problems > 0) {
+            std::cerr << problems << " of " << records << " --reference records do not match the database's "
+                      << "reference.map; build the index from the database's own reference.fna" << std::endl;
+            exit(8);
+        }
+        if (records != genomes.GeneCount()) {
+            std::cerr << "Warning: --reference has " << records << " sequences, reference.map lists "
+                      << genomes.GeneCount() << " genes" << std::endl;
+        }
+    }
+
     template<typename AlignmentBenchmark=NoBenchmark>
     static void RunWrapper(Options& options, ProtalDB& db, AlignmentBenchmark benchmark=NoBenchmark{}) {
 
@@ -132,6 +184,8 @@ namespace protal {
         const size_t kmer_size = 31;
 
         if (options.BuildMode()) {
+            CheckReferenceAgainstMap(options, db.GetGenomes());
+
             // New indexes compare whole s-mers (index format 2, recorded in the index header).
             ClosedSyncmer minimizer{mmer_size, 7, 2, true};
             SimpleKmerHandler iterator{kmer_size, mmer_size, minimizer};
@@ -163,6 +217,13 @@ namespace protal {
             std::cout << "Load index " << index_file << std::endl;
             map.Load(index_file);
             std::cout << "Index features: " << map.FeatureDescription() << std::endl;
+            if (map.HasReferenceFingerprint() &&
+                !(map.GetReferenceFingerprint() == ReferenceFingerprint::Of(options.GetSequenceMapFile(), options.GetSequenceFile()))) {
+                std::cerr << "index.prx was built against a different reference: " << options.GetSequenceMapFile()
+                          << " or " << options.GetSequenceFile() << " changed since the index was built. Rebuild the "
+                          << "index (--build) or restore the reference files it was built with." << std::endl;
+                exit(8);
+            }
 
             // Seeds must be sampled exactly as when the index was built.
             ClosedSyncmer minimizer{mmer_size, 7, 2, map.UsesFullSyncmerMask()};
@@ -1722,6 +1783,12 @@ namespace protal {
         if (run_profiling) {
             db.LoadTaxonomy(options.GetInternalTaxonomyFile());
             msa_taxids = ResolveMSASpecies(options, db.GetTaxonomy());
+            try {
+                profiler::TaxonFilterObj model_check(options.GetModelPath(), options.GetKnob());
+            } catch (std::exception const& e) {
+                std::cerr << "Cannot load the model " << options.GetModelPath() << ": " << e.what() << std::endl;
+                exit(2);
+            }
         }
         if (run_alignment && !options.BuildMode() && FindInPath("pigz").empty() &&
             std::any_of(sam_files.begin(), sam_files.end(), [](std::string const& f) { return f.ends_with(".gz"); })) {

@@ -40,12 +40,16 @@ namespace protal::zstd {
         int threads = 1;      // compression workers
     };
 
-    // True if the file starts with the zstd frame magic number (bytes 28 b5 2f fd).
+    // True if the file starts with a zstd frame (magic bytes 28 b5 2f fd) or a skippable frame
+    // (50..5f 2a 4d 18, e.g. written by pzstd).
     inline bool IsCompressed(std::string const& path) {
         std::ifstream is(path, std::ios::binary);
         unsigned char magic[4] = {0, 0, 0, 0};
         is.read(reinterpret_cast<char*>(magic), 4);
-        return is.gcount() == 4 && magic[0] == 0x28 && magic[1] == 0xb5 && magic[2] == 0x2f && magic[3] == 0xfd;
+        if (is.gcount() != 4) return false;
+        bool const frame = magic[0] == 0x28 && magic[1] == 0xb5 && magic[2] == 0x2f && magic[3] == 0xfd;
+        bool const skippable = (magic[0] & 0xf0) == 0x50 && magic[1] == 0x2a && magic[2] == 0x4d && magic[3] == 0x18;
+        return frame || skippable;
     }
 
     // The file to read for a database file: the raw file if it exists, else its .zst sibling if
@@ -523,6 +527,33 @@ namespace protal::zstd {
         std::unique_ptr<std::istream> m_zin;
         std::istream* m_stream = nullptr;
     };
+
+    // Size of the file's content: the file size for a raw file; for a zstd file the content size
+    // from the frame header (protal and the zstd CLI write it, and a single frame), else counted by
+    // decompressing. nullopt if the file cannot be read.
+    inline std::optional<uint64_t> UncompressedSize(std::string const& path) {
+        std::error_code ec;
+        if (!IsCompressed(path)) {
+            uint64_t const size = std::filesystem::file_size(path, ec);
+            return ec ? std::nullopt : std::optional<uint64_t>(size);
+        }
+        {
+            char header[18];  // the largest zstd frame header
+            std::ifstream is(path, std::ios::binary);
+            is.read(header, sizeof(header));
+            unsigned long long const size = ZSTD_getFrameContentSize(header, static_cast<size_t>(is.gcount()));
+            if (size != ZSTD_CONTENTSIZE_UNKNOWN && size != ZSTD_CONTENTSIZE_ERROR) return size;
+        }
+        InputFile in(path);
+        if (!in.IsOpen()) return std::nullopt;
+        std::vector<char> buffer(size_t{8} << 20);
+        uint64_t total = 0;
+        while (in.Stream().read(buffer.data(), static_cast<std::streamsize>(buffer.size())) || in.Stream().gcount() > 0) {
+            total += static_cast<uint64_t>(in.Stream().gcount());
+            if (!in.Stream()) break;
+        }
+        return in.Stream().bad() ? std::nullopt : std::optional<uint64_t>(total);
+    }
 
     // Compresses src into dst (via dst.partial, renamed at the end). With verify, the new file is
     // decompressed and compared with src before the rename. Returns false with a message in error.

@@ -32,48 +32,58 @@ namespace protal {
     }
 
     using TruthSet = tsl::robin_set<uint32_t>;
-    TruthSet GetTruth(std::string const& file_path, taxonomy::IntTaxonomy& taxonomy) {
+
+    // Reads the true species of a sample. Each line names one species either by a GTDB-style lineage
+    // in any tab-separated field ("d__...;...;s__Genus species", as simulate_metagenomes writes it) or
+    // by an internal taxid in the first field. A header line, blank lines and '#' comments are skipped;
+    // lineages without a species (e.g. unclassified genomes) are reported and skipped.
+    inline TruthSet GetTruth(std::string const& file_path, taxonomy::IntTaxonomy& taxonomy) {
         std::ifstream is(file_path, std::ios::in);
+        if (!is) {
+            std::cerr << "Cannot read truth file " << file_path << std::endl;
+            exit(8);
+        }
         TruthSet truths;
         std::vector<std::string> tokens;
+        std::vector<std::string> ranks;
         std::string delim = "\t";
-        int lineage_column = -1;
-
+        auto is_lineage = [](std::string const& s) {
+            return s.rfind("d__", 0) == 0 || s.rfind("k__", 0) == 0 || s.rfind("s__", 0) == 0 || s.find(";s__") != std::string::npos;
+        };
+        auto is_integer = [](std::string const& s) {
+            return !s.empty() && std::all_of(s.begin(), s.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
+        };
 
         std::string line;
+        size_t line_no = 0;
         while (std::getline(is, line)) {
+            line_no++;
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty() || line[0] == '#') continue;
             LineSplitter::Split(line, delim, tokens);
-            if (lineage_column == -1) {
-                for (auto i = 0; i < tokens.size(); i++) {
-                    if ((tokens[i].size() >= 3 && tokens[i].compare(0, 3, "d__") == 0) ||
-                        (tokens[i].size() >= 3 && tokens[i].compare(0, 3, "s__") == 0)) {
-                        lineage_column = i;
-                        break;
+
+            auto lineage = std::find_if(tokens.begin(), tokens.end(), is_lineage);
+            if (lineage == tokens.end()) {
+                if (is_integer(tokens.front())) {
+                    auto taxid = std::stoul(tokens.front());
+                    if (!taxonomy.map.contains(taxid)) {
+                        std::cerr << "Truth file " << file_path << ", line " << line_no << ": taxid " << taxid << " is not in the taxonomy" << std::endl;
+                        continue;
                     }
+                    truths.insert(taxid);
+                } else if (line_no > 1) {
+                    std::cerr << "Truth file " << file_path << ", line " << line_no << ": no lineage or taxid, ignored" << std::endl;
                 }
-            }
-
-
-            auto lineage_str = tokens[lineage_column];
-
-            if (lineage_str == "Unclassified") {
-                std::cerr << "No Species classification in Gold Profile: " << line << std::endl;
                 continue;
             }
 
-            LineSplitter::Split(lineage_str, ";", tokens);
-            std::string species = "";
-            for (auto& e : tokens) {
-                if (e.size() >= 3 && e.compare(0, 3, "s__") == 0) {
-                    species = e;
-                }
-
-//                if (e.starts_with("s__")) {
-//                    species = e;
-//                }
+            LineSplitter::Split(*lineage, ";", ranks);
+            std::string species;
+            for (auto& e : ranks) {
+                if (e.rfind("s__", 0) == 0 && e.size() > 3) species = e;
             }
-            if (species == "s__") {
-                std::cerr << "No Species classification in Gold Profile: " << line << std::endl;
+            if (species.empty()) {
+                std::cerr << "No species classification in truth file " << file_path << ", line " << line_no << std::endl;
                 continue;
             }
             if (!taxonomy.string_to_id.contains(species)) {

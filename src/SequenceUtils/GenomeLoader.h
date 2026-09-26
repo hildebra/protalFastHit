@@ -5,6 +5,9 @@
 #pragma once
 
 #include <Constants.h>
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
 #include <sparse_map.h>
 #include <string>
 #include <fstream>
@@ -35,12 +38,22 @@ namespace protal {
         size_t m_long_super_unique = 0;
         size_t m_total_kmers = 0;
 
+        // Reads the gene's bytes from reference.fna at the offsets reference.map gives. A failed read
+        // stops protal: the stream is shared by all genes, and leaving it failed would silently turn
+        // every gene read after it into NUL bytes. Sequences are uppercased (the k-mer and alignment
+        // code only knows A, C, G, T).
         void Load(std::string& into, size_t start_byte, size_t length) {
             if(m_is && m_is->is_open())
             {
                 m_is->seekg(start_byte);
                 into.resize(length);
                 m_is->read(&into[0], length);
+                if (!*m_is || static_cast<size_t>(m_is->gcount()) != length) {
+                    std::cerr << "Cannot read gene " << m_id << " (bytes " << start_byte << "-" << start_byte + length
+                              << ") from reference.fna: reference.map does not match the file" << std::endl;
+                    exit(8);
+                }
+                Uppercase(into);
             } else if (!m_is && length > 0 && length != DEFAULT) {
                 errx(EX_SOFTWARE, "Gene %zu cannot be loaded on its own from a compressed reference (reference.fna.zst); "
                                   "the reference must be preloaded.", m_id);
@@ -48,6 +61,10 @@ namespace protal {
         };
 
     public:
+        // The k-mer and alignment code only knows A, C, G, T: lowercase bases would encode as A.
+        static void Uppercase(std::string& sequence) {
+            std::transform(sequence.begin(), sequence.end(), sequence.begin(), [](unsigned char c) { return std::toupper(c); });
+        }
 
         Gene(){};
 
@@ -236,6 +253,10 @@ namespace protal {
             return GeneKeyToIndex(key) < m_genes.size();
         }
 
+        bool HasGene(GeneKey key) const {
+            return key > 0 && GeneKeyToIndex(key) < m_genes.size() && m_genes[GeneKeyToIndex(key)].IsSet();
+        }
+
         Gene& GetGene(GeneKey key) {
             return m_genes.at(GeneKeyToIndex(key));
         }
@@ -418,6 +439,24 @@ namespace protal {
             return m_genomes.at(key);
         }
 
+        bool HasGene(GenomeKey taxid, GeneKey gene) const {
+            auto it = m_genomes.find(taxid);
+            return it != m_genomes.end() && it->second.HasGene(gene);
+        }
+
+        // Length of a gene as reference.map gives it (0 if the gene is not in the map).
+        size_t GeneLength(GenomeKey taxid, GeneKey gene) {
+            return HasGene(taxid, gene) ? m_genomes.at(taxid).GetGene(gene).GetLength() : 0;
+        }
+
+        size_t GeneCount() const {
+            size_t n = 0;
+            for (auto const& [key, genome] : m_genomes) {
+                for (auto const& gene : genome.GetGeneList()) n += gene.IsSet();
+            }
+            return n;
+        }
+
         GenomeMap& GetGenomeMap() {
             return m_genomes;
         }
@@ -459,22 +498,27 @@ namespace protal {
 
             zstd::InputFile input(m_path);
             if (!input.IsOpen()) {
-                errx(EX_NOINPUT, "Cannot open the reference %s", m_path.c_str());
+                std::cerr << "Cannot open the reference " << m_path << std::endl;
+                exit(8);
             }
             std::istream& is = input.Stream();
             size_t position = 0;
             for (Gene* gene : genes) {
                 if (gene->GetStartByte() < position) {
-                    errx(EX_DATAERR, "%s lists overlapping sequences (gene %zu at byte %zu)", m_genome_map.c_str(),
-                         gene->GetId(), gene->GetStartByte());
+                    std::cerr << "Invalid reference map " << m_genome_map << ": gene " << gene->GetId() << " at byte "
+                              << gene->GetStartByte() << " overlaps the previous gene" << std::endl;
+                    exit(8);
                 }
                 is.ignore(static_cast<std::streamsize>(gene->GetStartByte() - position));
                 std::string sequence(gene->GetLength(), '\0');
                 is.read(sequence.data(), static_cast<std::streamsize>(sequence.size()));
                 if (!is) {
-                    errx(EX_DATAERR, "%s ends before gene %zu (bytes %zu-%zu in %s)", m_path.c_str(), gene->GetId(),
-                         gene->GetStartByte(), gene->GetStartByte() + gene->GetLength(), m_genome_map.c_str());
+                    std::cerr << "Cannot read gene " << gene->GetId() << " (bytes " << gene->GetStartByte() << "-"
+                              << gene->GetStartByte() + gene->GetLength() << ") from " << m_path
+                              << ": reference.map does not match the file" << std::endl;
+                    exit(8);
                 }
+                Gene::Uppercase(sequence);
                 gene->SetSequence(std::move(sequence));
                 position = gene->GetStartByte() + gene->GetLength();
             }
@@ -502,28 +546,63 @@ namespace protal {
         }
 
 
+        // reference.map: taxid, gene id, start byte, end byte of the gene's sequence in reference.fna.
+        // Every line is checked, so a bad map stops protal here instead of corrupting genes silently.
         void LoadPositionMap(std::string file_path) {
             std::ifstream is(file_path, std::ios::in);
-            std::string line;
+            if (!is) InvalidMap(file_path, 0, "cannot open the file");
+            // Offsets refer to the uncompressed reference, also for reference.fna.zst.
+            auto const size = zstd::UncompressedSize(m_path);
+            if (!size) InvalidMap(file_path, 0, "cannot read the size of " + m_path);
+            uint64_t const fna_size = *size;
+            constexpr uint64_t max_id = (uint64_t{1} << SEEDMAP_TAXID_BITS) - 1;
+            constexpr uint64_t max_gene = (uint64_t{1} << SEEDMAP_GENEID_BITS) - 1;
+            constexpr uint64_t max_length = (uint64_t{1} << SEEDMAP_GENE_POS_BITS) - 1;
 
+            std::string line;
+            size_t line_no = 0;
             while (std::getline(is, line)) {
+                line_no++;
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                if (line.empty()) continue;
                 auto tokens = Utils::split(line, "\t");
 
-
                 if (tokens.size() != 4) {
-                    errx(EX_DATAERR, "Position map file needs to have exactly 4 columns (%s line has %zul).", line.c_str(), tokens.size());
+                    InvalidMap(file_path, line_no, "expected 4 tab-separated columns, found " + std::to_string(tokens.size()));
                 }
+                uint64_t values[4];
+                for (int i = 0; i < 4; i++) {
+                    auto const& t = tokens[i];
+                    if (t.empty() || !std::all_of(t.begin(), t.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); })) {
+                        InvalidMap(file_path, line_no, "column " + std::to_string(i + 1) + " is not a non-negative integer");
+                    }
+                    values[i] = std::stoull(t);
+                }
+                GenomeKey genome_id = values[0];
+                GeneKey gene_key = values[1];
+                size_t start = values[2];
+                size_t end = values[3];
 
-                GenomeKey genome_id = std::stoull(tokens[0]);
-                GeneKey gene_key = std::stoull(tokens[1]);
-                size_t start = std::stoull(tokens[2]);
-                size_t length = std::stoull(tokens[3]) - start;
+                // taxid 0 marks empty index entries and gene ids are 1-based; both are packed into 20 bits.
+                if (genome_id == 0 || genome_id > max_id) InvalidMap(file_path, line_no, "taxid must be between 1 and " + std::to_string(max_id));
+                if (gene_key == 0 || gene_key > max_gene) InvalidMap(file_path, line_no, "gene id must be between 1 and " + std::to_string(max_gene));
+                if (end <= start) InvalidMap(file_path, line_no, "end byte must be after start byte");
+                if (end > fna_size) InvalidMap(file_path, line_no, "end byte " + std::to_string(end) + " is past the end of " + m_path + " (" + std::to_string(fna_size) + " bytes)");
+                if (end - start > max_length) InvalidMap(file_path, line_no, "gene is longer than " + std::to_string(max_length) + " bases");
 
                 auto& genome = AddOrGetGenome(genome_id);
+                if (genome.HasGene(gene_key)) InvalidMap(file_path, line_no, "gene " + std::to_string(genome_id) + "_" + std::to_string(gene_key) + " is listed twice");
 
-                genome.AddGene(gene_key, gene_key, start, length, m_compressed ? nullptr : &m_is);
+                genome.AddGene(gene_key, gene_key, start, end - start, m_compressed ? nullptr : &m_is);
             }
             is.close();
+        }
+
+        [[noreturn]] static void InvalidMap(std::string const& path, size_t line_no, std::string const& reason) {
+            std::cerr << "Invalid reference map " << path;
+            if (line_no > 0) std::cerr << ", line " << line_no;
+            std::cerr << ": " << reason << std::endl;
+            exit(8);
         }
     };
 }

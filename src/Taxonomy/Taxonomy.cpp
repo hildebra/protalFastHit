@@ -4,6 +4,8 @@
 //
 #include "Taxonomy.h"
 #include "Utilities.h"
+#include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <fstream>
 #include <unordered_set>
@@ -515,19 +517,42 @@ void protal::taxonomy::StdTaxonomy::Add(std::string path) {
 
 
 
+// A malformed internal_taxonomy.dmp stops protal here, at start-up, instead of failing (or waiting on
+// stdin) when the first lineage is printed after the alignments are done.
+[[noreturn]] static void InvalidTaxonomy(std::string const& path, size_t line_no, std::string const& reason) {
+    std::cerr << "Invalid taxonomy " << path;
+    if (line_no > 0) std::cerr << ", line " << line_no;
+    std::cerr << ": " << reason << std::endl;
+    exit(8);
+}
+
+static bool IsInteger(std::string const& s) {
+    return !s.empty() && std::all_of(s.begin() + (s[0] == '-' ? 1 : 0), s.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
+}
+
 void protal::taxonomy::IntTaxonomy::Load(std::string path) {
     std::ifstream is(path.c_str(), std::ios::in);
+    if (!is) InvalidTaxonomy(path, 0, "cannot open the file");
 
-    bool header = true;
     std::string line;
     std::vector<std::string> tokens;
+    std::unordered_set<int> defined;
+    size_t line_no = 0;
 
     while (std::getline(is, line)) {
+        line_no++;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty()) continue;
         Utils::split(tokens, line, "\t");
 
-        if (header) {
-            header = false;
-            continue;
+        // Columns: id, parent_id, external_id, name, rank, level[, rep_genome]. The first line is a
+        // header unless it starts with a number.
+        if (line_no == 1 && !IsInteger(tokens.at(0))) continue;
+        if (tokens.size() < 6) {
+            InvalidTaxonomy(path, line_no, "expected at least 6 tab-separated columns, found " + std::to_string(tokens.size()));
+        }
+        if (!IsInteger(tokens[0]) || !IsInteger(tokens[1]) || !IsInteger(tokens[2]) || !IsInteger(tokens[5])) {
+            InvalidTaxonomy(path, line_no, "id, parent_id, external_id and level must be integers");
         }
 
         int id = stoi(tokens.at(0));
@@ -536,11 +561,12 @@ void protal::taxonomy::IntTaxonomy::Load(std::string path) {
         int external_id = stoi(tokens.at(2));
         std::string name = tokens.at(3);
 
+        if (!defined.insert(id).second) InvalidTaxonomy(path, line_no, "id " + std::to_string(id) + " is defined twice");
         string_to_id[name] = id;
 
         std::string rank = tokens.at(4);
         int level = stoi(tokens.at(5));
-        std::string rep_genome = tokens.at(6);
+        std::string rep_genome = tokens.size() > 6 ? tokens.at(6) : "";
 
         if (map.find(id) == map.end())
             map.insert( { id, IntNode() } );
@@ -564,6 +590,13 @@ void protal::taxonomy::IntTaxonomy::Load(std::string path) {
             std::cout << "?: " << id << " " << parent_id << " " << name << " " << rank << std::endl;
         }
         map.at(parent_id).children.emplace_back(id);
+    }
+
+    if (defined.empty()) InvalidTaxonomy(path, 0, "no taxa");
+    for (auto const& [id, node] : map) {
+        if (!defined.contains(id)) {
+            InvalidTaxonomy(path, 0, "parent id " + std::to_string(id) + " is used but never defined");
+        }
     }
 }
 
@@ -688,8 +721,9 @@ std::string protal::taxonomy::IntTaxonomy::LineageStr(int t, const std::vector<s
         }
         nid = pid;
         if (!map.contains(nid)) {
-            std::cout << "Map does not contain " << nid << std::endl;
-            Utils::Input();
+            // Load() rejects dangling parents, so this is a bug; never wait on stdin here.
+            std::cerr << "Taxonomy does not contain id " << nid << " (lineage of " << t << ")" << std::endl;
+            exit(8);
         }
         pid = map.at(nid).parent_id;
     }
