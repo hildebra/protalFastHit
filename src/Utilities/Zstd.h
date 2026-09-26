@@ -538,11 +538,14 @@ namespace protal::zstd {
             return ec ? std::nullopt : std::optional<uint64_t>(size);
         }
         {
-            char header[18];  // the largest zstd frame header
+            unsigned char header[18];  // the largest zstd frame header
             std::ifstream is(path, std::ios::binary);
-            is.read(header, sizeof(header));
+            is.read(reinterpret_cast<char*>(header), sizeof(header));
+            // Only a regular first frame tells the size (a skippable one reports 0).
+            bool const regular = is.gcount() >= 4 && header[0] == 0x28 && header[1] == 0xb5 && header[2] == 0x2f &&
+                                 header[3] == 0xfd;
             unsigned long long const size = ZSTD_getFrameContentSize(header, static_cast<size_t>(is.gcount()));
-            if (size != ZSTD_CONTENTSIZE_UNKNOWN && size != ZSTD_CONTENTSIZE_ERROR) return size;
+            if (regular && size != ZSTD_CONTENTSIZE_UNKNOWN && size != ZSTD_CONTENTSIZE_ERROR) return size;
         }
         InputFile in(path);
         if (!in.IsOpen()) return std::nullopt;

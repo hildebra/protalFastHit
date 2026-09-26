@@ -139,6 +139,26 @@ TEST(Zstd, ConcatenatedFramesAreOneStream) {
     EXPECT_EQ(ReadAll(in, 7), "first part|second part");
 }
 
+// The content size comes from the frame header, or is counted when the file starts with a
+// skippable frame (as pzstd writes them) or the header does not record it.
+TEST(Zstd, UncompressedSize) {
+    TempDir tmp;
+    std::string const data = TestData(300000);
+    Spit(tmp / "raw", data);
+    WriteCompressed(tmp / "pledged.zst", data);
+    WriteCompressed(tmp / "unpledged.zst", data, {3, 0, 1}, false);
+    std::string skippable = "\x50\x2a\x4d\x18";
+    skippable += std::string("\x05\x00\x00\x00", 4) + "hello";
+    Spit(tmp / "skippable.zst", skippable + Slurp(tmp / "pledged.zst"));
+    for (auto name : {"raw", "pledged.zst", "unpledged.zst", "skippable.zst"}) {
+        EXPECT_EQ(zstd::UncompressedSize(tmp / name), std::optional<uint64_t>(data.size())) << name;
+    }
+    EXPECT_TRUE(zstd::IsCompressed(tmp / "skippable.zst"));
+    zstd::InputFile in(tmp / "skippable.zst");
+    EXPECT_EQ(ReadAll(in, 1 << 16), data);
+    EXPECT_EQ(zstd::UncompressedSize(tmp / "missing"), std::nullopt);
+}
+
 TEST(Zstd, TruncatedCorruptAndTrailingDataFail) {
     TempDir tmp;
     std::string const data = TestData(size_t{2} << 20);
