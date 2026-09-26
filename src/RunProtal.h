@@ -5,7 +5,6 @@
 #include "Benchmark.h"
 #include "Options.h"
 #include "Build.h"
-#include "Alignment/WFA2Wrapper.h"
 #include "Alignment/WFA2Wrapper2.h"
 #include "Classify.h"
 #include "ChainAnchorFinder.h"
@@ -960,7 +959,7 @@ namespace protal {
     }
 
     static std::vector<size_t> GetProfilesWithTaxon(uint32_t taxid, Profiles& profiles, Options& options, std::optional<profiler::TaxonFilter>& filter) {
-        std:vector<size_t> indices;
+        std::vector<size_t> indices;
 
         for (auto i = 0; i < profiles.size(); i++) {
             auto& profile = profiles[i];

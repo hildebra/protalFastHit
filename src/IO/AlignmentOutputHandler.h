@@ -5,7 +5,6 @@
 #pragma once
 
 
-#include "WFA2Wrapper.h"
 #include <string>
 #include <vector>
 #include "Constants.h"

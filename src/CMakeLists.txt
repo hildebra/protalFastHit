@@ -1,11 +1,5 @@
 project(protal_lib)
-set(CMAKE_CXX_STANDARD 20)
-
-# -lcPMML
-# set(CMAKE_EXE_LINKER_FLAGS " -lwfa -flto") #these flags are not needed because set somewhere else
-# set(CMAKE_CXX_FLAGS_DEBUG " -pthread -ggdb -g -std=c++2a -fopenmp -Wall")
-set(CMAKE_CXX_FLAGS_RELEASE "-std=c++2a -DNDEBUG -pthread -O3 -fopenmp -Werror=unknown-pragmas")
-set(CMAKE_CXX_FLAGS_DEBUG "-std=c++2a -DNDEBUG -pthread -O3 -fopenmp -Werror=unknown-pragmas")
+# C++ standard, OpenMP and the per-build-type flags (optimisation, NDEBUG) come from the top level.
 
 # CHECK DEBUG
 if(DEFINED ENV{GCC} AND NOT "$ENV{GCC}" STREQUAL "")
@@ -27,8 +21,7 @@ SET(CMAKE_C_ARCHIVE_FINISH   true)
 # Prefer shared libraries (avoid forcing static)
 # set(CMAKE_FIND_LIBRARY_SUFFIXES ".a;.so")
 
-message(${CMAKE_CXX_FLAGS_DEBUG})
-message("CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
+message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
 
 
 
@@ -52,22 +45,14 @@ set(PROTAL_LIB_SOURCES
         SequenceUtils/KmerIterator.h
         SequenceUtils/KmerUtils.h
         SequenceUtils/Minimizer.h
-        Hash/compact_map.h
-        Hash/compact_map.cpp
-        Hash/compact_map_utils.h
         Hash/Seedmap.h
-        Hash/SeedmapFlex.h
         Hash/KmerPutter.h
         Hash/KmerLookup.h
         Profiling/Profiler.h
         Profiling/Strain.h
-        Profiling/Coverage.h
-        Profiling/Coverage.cpp
-        Profiling/Coverage.h
         Profiling/ProfilerDefinitions.h
         SequenceUtils/GenomeLoader.h
         IO/AlignmentOutputHandler.h
-        Alignment/WFA2Wrapper.h
         Alignment/FastAlignment.h
         Alignment/InternalReadAlignment.h
         Alignment/ScoreAlignments.h
@@ -80,7 +65,6 @@ set(PROTAL_LIB_SOURCES
         IO/BufferedOutput.cpp
         Core/SeedingStrategy.h
         Core/ChainingStrategy.h
-        Core/AnchorFinder.h
         Core/ChainAnchorFinder.h
         Core/AlignmentStrategy.h
         VarkitInterface/VarkitInterface.h
@@ -90,18 +74,14 @@ set(PROTAL_LIB_SOURCES
         Constants.h
         SNPs/SNP.h
         SNPs/SNPUtils.h
-        # Test.h
         SequenceUtils/SequenceRange.h
         SequenceUtils/SequenceRange.cpp
         SequenceUtils/SequenceRangeHandler.h
         SequenceUtils/SequenceRangeHandler.cpp
         SequenceUtils/Variant.h
         SequenceUtils/VariantHandler.h
-        Strains/Distances.h
         IO/TaxonStatisticsOutput.h
         Utilities/Matrix.h
-        Strains/MSA.h
-        Profiling/TreeFilter.h
         Alignment/WFA2Wrapper2.h
         RandomForest/MetagenomeSimulator.h
         RandomForest/MetagenomeSimulator.cpp

@@ -224,7 +224,6 @@ namespace protal {
         SimpleKmerHandler(SimpleKmerHandler const& other) :
                 m_k(other.m_k), m_m(other.m_m), m_mshift((other.m_k-other.m_m)), m_mmask((1llu << (other.m_m*2)) -1), m_mask((1llu << (other.m_k*2)) -1), m_minimizer(other.m_minimizer) {
         }
-        Syncmer minimizer{15, 7, 2};
 
 
         int64_t GetPos() const {

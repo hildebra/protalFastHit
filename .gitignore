@@ -17,3 +17,9 @@
 
 # strain test harness outputs (M5)
 strain_test_out/
+
+# build trees (just configure uses build/) and the version header older builds generated into src/
+/build/
+/build-*/
+/src/protal_config.h
+__pycache__/
