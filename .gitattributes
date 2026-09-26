@@ -1,0 +1,3 @@
+# Protal is built and run on Linux: keep every text file LF in the repository and in
+# every checkout, regardless of a machine's core.autocrlf setting.
+* text=auto eol=lf
