@@ -533,12 +533,14 @@ namespace protal {
                 }
             }
 
+            std::string sam_error;
 #pragma omp critical(load_sam)
-            profiler.FromSam(sam);
+            sam_error = profiler.FromSam(sam);
 
-            if (!profiler.HasReads()) {
-                #pragma omp critical(print)
-                std::cerr << "Empty sam file: " << sam << std::endl;
+            // A SAM without alignments still gets its (empty) profile files, so that every sample
+            // has output; only an unreadable SAM is a failure.
+            if (!sam_error.empty()) {
+                RunStatus::Get().Fail("Cannot read the SAM file of sample " + options.GetSampleId(i) + " (" + sam + "): " + sam_error);
                 profile_slots[idx].emplace(genomes);
                 continue;
             }

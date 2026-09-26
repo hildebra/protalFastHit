@@ -1,5 +1,5 @@
 // Unit tests for the SAM round-trip: read names written for a pair, and reading pairs, orphan
-// mates and legacy files back with GetSamPair.
+// mates and legacy files back with SamReader.
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
@@ -78,14 +78,12 @@ namespace {
 
     struct Reader {
         std::istringstream in;
-        std::string line;
-        std::vector<std::string> tokens;
-        bool line_loaded = false;
+        SamReader reader{ in };
         SamEntry sam1, sam2;
         bool has1 = false, has2 = false;
 
         explicit Reader(std::string text) : in(std::move(text)) {}
-        bool Next() { return GetSamPair(in, line, tokens, sam1, sam2, has1, has2, line_loaded); }
+        bool Next() { return reader.Next(sam1, sam2, has1, has2); }
     };
 }
 
@@ -107,7 +105,7 @@ TEST(ReadQName, StripsSlashMateSuffixOnly) {
     EXPECT_EQ(ReadQName("x"), "x");
 }
 
-TEST(GetSamPair, ReadsMatesTogether) {
+TEST(SamReader, ReadsMatesTogether) {
     Reader r(SamLine("a", PAIRED | BOTH_ALIGN | READ1) + SamLine("a", PAIRED | BOTH_ALIGN | READ2));
     ASSERT_TRUE(r.Next());
     EXPECT_TRUE(r.has1);
@@ -117,7 +115,7 @@ TEST(GetSamPair, ReadsMatesTogether) {
     EXPECT_FALSE(r.Next());
 }
 
-TEST(GetSamPair, FlaggedOrphanRead1DoesNotSwallowNextRead) {
+TEST(SamReader, FlaggedOrphanRead1DoesNotSwallowNextRead) {
     Reader r(SamLine("orphan", PAIRED | READ1 | MATE_UNMAPPED) +
              SamLine("b", PAIRED | BOTH_ALIGN | READ1) + SamLine("b", PAIRED | BOTH_ALIGN | READ2));
     ASSERT_TRUE(r.Next());
@@ -132,7 +130,7 @@ TEST(GetSamPair, FlaggedOrphanRead1DoesNotSwallowNextRead) {
     EXPECT_FALSE(r.Next());
 }
 
-TEST(GetSamPair, LegacyUnflaggedOrphanKeepsTheLookAheadRecord) {
+TEST(SamReader, LegacyUnflaggedOrphanKeepsTheLookAheadRecord) {
     // Older protal versions wrote an orphan read1 with 0x1 but without 0x8.
     Reader r(SamLine("legacy", PAIRED | READ1) +
              SamLine("c", PAIRED | BOTH_ALIGN | READ1) + SamLine("c", PAIRED | BOTH_ALIGN | READ2));
@@ -140,7 +138,6 @@ TEST(GetSamPair, LegacyUnflaggedOrphanKeepsTheLookAheadRecord) {
     EXPECT_TRUE(r.has1);
     EXPECT_FALSE(r.has2);
     EXPECT_EQ(r.sam1.m_qname, "legacy");
-    EXPECT_TRUE(r.line_loaded);
 
     ASSERT_TRUE(r.Next());
     EXPECT_TRUE(r.has1 && r.has2);
@@ -148,7 +145,7 @@ TEST(GetSamPair, LegacyUnflaggedOrphanKeepsTheLookAheadRecord) {
     EXPECT_FALSE(r.Next());
 }
 
-TEST(GetSamPair, Read2OnlyAndTrailingOrphan) {
+TEST(SamReader, Read2OnlyAndTrailingOrphan) {
     Reader r(SamLine("d", PAIRED | READ2 | MATE_UNMAPPED) + SamLine("e", PAIRED | READ1));
     ASSERT_TRUE(r.Next());
     EXPECT_FALSE(r.has1);

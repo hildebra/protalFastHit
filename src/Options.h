@@ -12,6 +12,7 @@
 #include <regex>
 #include <cctype>
 #include <algorithm>
+#include <numeric>
 #include "Utilities.h"
 
 
@@ -869,6 +870,8 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
             bool header = true;
             size_t line_num = 0;
             for (std::string line; std::getline(is, line);) {
+                line_num++;
+                if (!line.empty() && line.back() == '\r') line.pop_back();
                 if (line.empty()) continue;
                 splitter.Split(line);
                 auto& tokens = splitter.Tokens();
@@ -1037,14 +1040,19 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                         return false;
                     }
 
-                    splitter.Split(line);
-                    if (tokens.size() <= static_cast<size_t>(std::max({ prefix_column, first_column, second_column }))) {
-                        std::cerr << "Line " << line_num << ": row has " << tokens.size()
-                                  << " column(s) but the header declares " << MAP_PREFIX << ", "
-                                  << MAP_FIRST_READ << " and " << MAP_SECOND_READ
-                                  << " up to column " << std::max({ prefix_column, first_column, second_column }) + 1
-                                  << ". Columns must be tab separated." << std::endl;
-                        return false;
+                    // Every column the header declares needs a value in every row: a missing cell would
+                    // otherwise shift the per-sample lists and give one sample another's output files.
+                    std::pair<int, std::string const*> const columns[] = {
+                            { prefix_column, &MAP_PREFIX }, { first_column, &MAP_FIRST_READ }, { second_column, &MAP_SECOND_READ },
+                            { sam_column, &MAP_SAM }, { profile_column, &MAP_PROFILE }, { profile_truth_column, &MAP_PROFILE_TRUTH } };
+                    for (auto const& [column, name] : columns) {
+                        if (column == -1) continue;
+                        if (static_cast<size_t>(column) >= tokens.size() || tokens[column].empty()) {
+                            std::cerr << "Line " << line_num << ": no value in column " << column + 1 << " (" << *name
+                                      << "); every row needs a value for each column of the header. "
+                                         "Columns must be tab separated." << std::endl;
+                            return false;
+                        }
                     }
                     auto sample_id = tokens[prefix_column];
                     auto prefix_path = path(global_output_dir).append(tokens[prefix_column]);
@@ -1073,8 +1081,6 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                         profile_truth_list.emplace_back(profile_truth_path);
                     }
                 }
-
-                line_num++;
             }
 
 

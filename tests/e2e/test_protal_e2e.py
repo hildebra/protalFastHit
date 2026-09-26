@@ -315,6 +315,17 @@ class FailFastTest(WorkDir):
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("must name one file per sample: 1 given for 2 samples", log)
 
+    def test_map_row_without_a_profile_cell(self):
+        sample_map = self.path("samples.map")
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{self.path('out_map_rows')}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tPROFILE\n")
+            fh.write(f"sa\tsa\t{READS}/sa_R1.fq\t{READS}/sa_R2.fq\tsa.profile\n")
+            fh.write(f"sb\tsb\t{READS}/sb_R1.fq\t{READS}/sb_R2.fq\n")
+        rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "1", "--no_qcmsa")
+        self.assertEqual(rc, 9, log[-3000:])
+        self.assertIn("Line 4: no value in column 5 (PROFILE)", log)
+        self.assertFalse(glob.glob(self.path("out_map_rows", "**", "*.sam*"), recursive=True))
+
     def test_build_rejects_a_reference_the_map_does_not_describe(self):
         db = self.path("build_db")
         os.mkdir(db)
@@ -330,6 +341,64 @@ class FailFastTest(WorkDir):
         self.assertIn("--reference record >unnamed: header is not <taxid>_<gene id>", log)
         self.assertRegex(log, r"2 of \d+ --reference records do not match")
         self.assertFalse(os.path.exists(os.path.join(db, "index.prx")))
+
+
+class SamInputTest(WorkDir):
+    """--profile_only reads SAM files as other tools may leave them."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        rc, log = run(cls.work, "--db", DB, *reads("sa"), "-o", "out", "-t", "2", "--no_qcmsa")
+        assert rc == 0, log[-3000:]
+        cls.sam = glob.glob(os.path.join(cls.work, "out", "sa*.sam"))[0]
+        with open(cls.sam) as fh:
+            lines = fh.read().splitlines()
+        cls.header = [line for line in lines if line.startswith("@")]
+        cls.records = [line for line in lines if not line.startswith("@")]
+        with open(os.path.join(cls.work, "out", "sa.profile")) as fh:
+            cls.profile_text = fh.read()
+        assert cls.profile_text.strip(), "the reference profile lists taxa"
+
+    def write_sam(self, name, lines, final_newline=True):
+        sam = self.path(f"{name}.sam")
+        with open(sam, "w", newline="") as fh:
+            fh.write("\n".join(lines) + ("\n" if final_newline else ""))
+        return sam
+
+    def profile_only(self, *sams):
+        return run(self.work, "--db", DB, "--profile_only", ",".join(sams), "-o", self.path("out_" + os.path.basename(sams[0])),
+                   "-t", "1", "--no_qcmsa")
+
+    def test_edited_sam_profiles_like_the_original(self):
+        half = len(self.records) // 2
+        unmapped = "x.1\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tIIII"
+        foreign = "\t".join(["y.1", "0", "chr1"] + self.records[0].split("\t")[3:])
+        edited = (self.header + self.records[:half] + ["", unmapped, foreign] +
+                  [r + "\r" for r in self.records[half:half + 10]] + self.records[half + 10:])
+        sam = self.write_sam("edited", edited, final_newline=False)
+        rc, log = self.profile_only(sam)
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("skipped 1 record(s): unmapped", log)
+        self.assertIn("skipped 1 record(s): reference is not a protal gene", log)
+        with open(self.path("edited.profile")) as fh:
+            self.assertEqual(fh.read(), self.profile_text)
+
+    def test_header_only_sam_gets_an_empty_profile(self):
+        sam = self.write_sam("header_only", self.header)
+        rc, log = self.profile_only(sam)
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("contains no usable alignments", log)
+        self.assertTrue(os.path.isfile(self.path("header_only.profile")))
+
+    def test_unreadable_sam_fails_only_its_sample(self):
+        good = self.write_sam("good", self.header + self.records)
+        broken = self.write_sam("broken", self.header + self.records[:50] + ["sa.9\t0\t1_1"])
+        rc, log = self.profile_only(good, broken)
+        self.assertEqual(rc, 1, log[-3000:])
+        self.assertRegex(log, r"Cannot read the SAM file of sample \S+ \(.*broken\.sam\): line \d+: expected at least 11")
+        with open(self.path("good.profile")) as fh:
+            self.assertEqual(fh.read(), self.profile_text)
 
 
 class QcmsaTest(WorkDir):

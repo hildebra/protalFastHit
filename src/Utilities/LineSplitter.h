@@ -14,56 +14,27 @@ namespace protal {
         std::string m_delimiter = "\t";
 
     public:
-        static bool IsDelim(std::string &str, std::string& delim, int pos) {
-            for (int i = 0; i < delim.length() && pos+i < str.length(); i++) {
-                if (str[pos+i] != delim[i]) return false;
-            }
-            return true;
-        }
-
-        static void Split(std::string& line, std::string& delimiter, std::vector<std::string> &tokens) {
+        // Splits line at every occurrence of delimiter. Empty fields are kept ("a\t\tb" gives "a", "", "b"
+        // and "a\t" gives "a", ""), so columns keep their positions; an empty line gives no tokens.
+        static void Split(std::string const& line, std::string const& delimiter, std::vector<std::string> &tokens) {
             tokens.clear();
             if (line.empty()) return;
-
-            size_t delim_size = delimiter.length();
-
-            size_t start = 0;
-
-            for (int i = 0; i <= line.length() - delim_size; i++) {
-                if (IsDelim(line, delimiter, i)) {
-                    tokens.emplace_back(std::string(line.c_str() + start, i  - start));
-                    i += delim_size;
-                    start = i;
-                }
+            if (delimiter.empty()) {
+                tokens.emplace_back(line);
+                return;
             }
-            tokens.emplace_back(std::string(line.c_str() + start, line.length() - start));
+            size_t start = 0;
+            for (size_t pos; (pos = line.find(delimiter, start)) != std::string::npos; start = pos + delimiter.size()) {
+                tokens.emplace_back(line, start, pos - start);
+            }
+            tokens.emplace_back(line, start);
         }
 
         std::vector<std::string>& Tokens() {
             return m_tokens;
         }
 
-        static void Split(std::string& line, std::string&& delimiter, std::vector<std::string> &tokens) {
-            tokens.clear();
-
-            size_t delim_size = delimiter.length();
-
-            size_t start = 0;
-
-            if (line.length() < delimiter.length()) return;
-
-            for (int i = 0; i <= line.length() - delim_size; i++) {
-                if (IsDelim(line, delimiter, i)) {
-                    tokens.emplace_back(std::string(line.c_str() + start, i  - start));
-                    i += delim_size;
-                    start = i;
-                }
-            }
-            tokens.emplace_back(std::string(line.c_str() + start, line.length() - start));
-        }
-
-
-        void Split(std::string line) {
+        void Split(std::string const& line) {
             Split(line, m_delimiter, m_tokens);
         }
 

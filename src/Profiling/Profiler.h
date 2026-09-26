@@ -22,12 +22,13 @@
 #include "cPMML.h"
 #include "sparse_map.h"
 #include "Benchmark.h"
+#include <filesystem>
 #include <string>
 #include <ranges>
 #include <cmath>
 
 namespace protal {
-    bool IsDigit(std::string &test) {
+    inline bool IsDigit(std::string &test) {
         return false;
     }
 
@@ -447,17 +448,20 @@ namespace protal {
             }
 
             bool AddSam(GeneId geneid, SamEntry const& sam, double score, bool unique, size_t read_id, bool no_strain=true) {
-                if (!m_genes.contains(geneid)) {
+                bool const new_gene = !m_genes.contains(geneid);
+                if (new_gene) {
                     auto& g = m_genome.GetGene(geneid);
                     g.LoadOMP();
                     m_genes.insert( { geneid, profiler::Gene(g) } );
                     m_genes.at(geneid).SetLength(m_genome.GetGene(geneid).Sequence().length());
                 }
 
-
-
                 bool success = m_genes.at(geneid).AddSam(sam, read_id, score, true, no_strain);
-                if (!success) return false;
+                if (!success) {
+                    // A gene is present only with at least one read.
+                    if (new_gene) m_genes.erase(geneid);
+                    return false;
+                }
 
                 m_unique_mers += sam.m_uniques;
                 m_unique_mer_reads += sam.m_uniques > 0;
@@ -515,15 +519,16 @@ namespace protal {
             }
 
             double Uniqueness() const {
-                return static_cast<double>(m_unique_hits)/static_cast<double>(m_total_hits);
+                return m_total_hits == 0 ? 0 : static_cast<double>(m_unique_hits)/static_cast<double>(m_total_hits);
             }
 
             double GetMeanANI() const {
-                return m_ani_sum/m_total_hits;
+                return m_total_hits == 0 ? 0 : m_ani_sum/m_total_hits;
             }
 
             double GetMeanMAPQ() const {
-                return m_mapq_sum/m_total_hits;
+                // Integer division, as the model was trained with.
+                return m_total_hits == 0 ? 0 : m_mapq_sum/m_total_hits;
             }
 
             size_t TotalHits() const {
@@ -995,6 +1000,12 @@ namespace protal {
             }
 
             bool AddSam(int taxid, int geneid, SamEntry const& sam, double score, bool unique=true, int read_id=0, bool no_strain=true) {
+                // A record on a gene this database does not have, or reaching past the gene's end (a
+                // SAM aligned against another database), is rejected rather than read out of bounds.
+                if (!m_genome_loader.HasGene(taxid, geneid) ||
+                    sam.m_pos - 1 + AlignmentLengthRef(sam.m_cigar) > m_genome_loader.GeneLength(taxid, geneid)) {
+                    return false;
+                }
                 if (!m_genome_loader.GetGenome(taxid).IsGeneHittable(geneid)) {
                     return false;
                 }
@@ -1017,6 +1028,8 @@ namespace protal {
                 bm_add_sam.Start();
                 bool success = taxon.AddSam(geneid, sam, score, unique, read_id, no_strain);
                 bm_add_sam.Stop();
+                // A taxon exists only with at least one read (its means divide by the read count).
+                if (!success && taxon.TotalHits() == 0) m_taxa.erase(taxid);
                 return success;
             }
 
@@ -1283,7 +1296,7 @@ namespace protal {
             }
 
             void WriteGeneProfile(taxonomy::IntTaxonomy& taxonomy, TaxonFilterObj const& filter, std::ostream* os) {
-                *os << "Truth\tPredicted\tProbability\tTaxID\tLineage\tTaxVCOV\tTaxaxAbundance\tGeneID\tGeneRefLength\t"
+                *os << "Predicted\tProbability\tTaxID\tLineage\tTaxVCOV\tTaxAbundance\tGeneID\tGeneRefLength\t"
                     << "TotalReads\tTotalMappedLength\tMAPQ\tUniqueMers\tUniqueTwoMers\tUniqueTwoMersReads\tUniqueTwoMerReads\tANI\t"
                     << "VCov\tVCovExp\tHCovExp\tHCovObs\tHCovObsRel\tConsistency\n";
 
@@ -1576,107 +1589,70 @@ namespace protal {
                 return !(m_pairs_unique.empty() && m_pairs_nonunique.empty() && m_pairs_nonunique_best.empty());
             }
 
-            void FromSam(std::string file_path, bool truth_in_header=false) {
+            // Loads the alignments of a SAM file (plain or gzipped). Adjacent records with one QNAME are
+            // the candidate alignments of one read: a read with one candidate is unique, otherwise
+            // its primary alignment (no 0x100; protal writes it first) is taken as the best one.
+            // Returns an error message if the file cannot be read; a SAM without alignments is not
+            // an error and gives an empty profile.
+            std::string FromSam(std::string file_path, bool truth_in_header=false) {
                 m_pairs_unique.clear();
                 m_pairs_nonunique.clear();
                 m_pairs_nonunique_best.clear();
-//                std::ifstream file(file_path, std::ios::in);
+
+                if (std::filesystem::exists(file_path) && std::filesystem::file_size(file_path) == 0) {
+                    return "the file is empty (not even a SAM header)";
+                }
                 igzstream file{ file_path.c_str() };
+                if (!file.good()) return "cannot open the file";
+                SamReader reader(file);
 
-                std::string delim = "\t";
-                std::string line;
-                std::vector<std::string> tokens;
-                SamEntry current;
-                SamEntry current_other;
-                SamEntry next;
-                SamEntry next_other;
+                SamEntry sam1;
+                SamEntry sam2;
+                bool has_sam1 = false, has_sam2 = false;
+                std::vector<AlignmentPair> group;
 
-                bool has_current1 = false, has_current2 = false, has_next1 = false, has_next2 = false;
-
-                std::string current_qname = "__";
-                std::string next_qname = "__";
-                std::string last_qname = "__";
-
-                if (!std::getline(file, line)) {
-                    std::cerr << "sam file is empty " << file_path << std::endl;
-                    exit(9);
-                }
-
-                auto count = 0;
-                while (line[0] == '@' && !file.eof()) {
-                    std::getline(file, line);
-                }
-
-                if (file.eof()) {
-                    std::cerr << "sam file contains no sequences (header only)\n\t" << file_path << std::endl;
-                    return;
-                }
-
-                bool line_loaded = true;  // `line` holds the first alignment record
-                GetSamPair(file, line, tokens, current, current_other, has_current1, has_current2, line_loaded);
-
-                std::vector<AlignmentPair> pair_list;
-
-                size_t read_id = 0;
-                size_t count_read_lines = 0;
-                while (GetSamPair(file, line, tokens, next, next_other, has_next1, has_next2, line_loaded)) {
-                    current_qname = has_current1 ? current.m_qname : current_other.m_qname;
-                    next_qname = has_next1 ? next.m_qname : next_other.m_qname;
-                    bool unique = current_qname != last_qname && current_qname != next_qname;
-                    last_qname = current_qname;
-
-                    AlignmentPair new_pair = AlignmentPair(
-                        has_current1 ? std::optional<SamEntry>{current} : std::optional<SamEntry>{},
-                        has_current2 ? std::optional<SamEntry>{current_other} : std::optional<SamEntry>{}
-                    );
-
-                    if (unique) {
-                        m_pairs_unique.emplace_back(std::move(new_pair));
+                auto flush = [&]() {
+                    if (group.empty()) return;
+                    if (group.size() == 1) {
+                        m_pairs_unique.emplace_back(std::move(group.front()));
                     } else {
-                        if (!pair_list.empty() && !SameRead(new_pair, pair_list.front())) {
-                            m_pairs_nonunique_best.emplace_back(pair_list.front());
-                            m_pairs_nonunique.emplace_back(std::move(pair_list));
-                            pair_list.clear();
-                        }
-                        pair_list.emplace_back(new_pair);
+                        auto best = std::find_if(group.begin(), group.end(), [](AlignmentPair& pair) {
+                            return !Flag::IsNotPrimaryAlignment(pair.Any().m_flag);
+                        });
+                        m_pairs_nonunique_best.emplace_back(best == group.end() ? group.front() : *best);
+                        m_pairs_nonunique.emplace_back(std::move(group));
                     }
+                    group.clear();
+                };
 
-                    std::swap(current, next);
-                    std::swap(current_other, next_other);
-                    has_current1 = has_next1;
-                    has_current2 = has_next2;
-                    count_read_lines++;
-                }
-                if (count_read_lines == 0) {
-                    std::cerr << "File: " << file_path << " does not contain any alignments." << std::endl;
-                }
-
-
-                AlignmentPair new_pair = AlignmentPair(
-                        has_current1 ? std::optional<SamEntry>{current} : std::optional<SamEntry>{},
-                        has_current2 ? std::optional<SamEntry>{current_other} : std::optional<SamEntry>{}
-                );
-                current_qname = has_current1 ? current.m_qname : current_other.m_qname;
-
-                bool unique = current_qname != last_qname;
-                if (unique) {
-                    m_pairs_unique.emplace_back(std::move(new_pair));
-                } else {
-                    if (!pair_list.empty() && !SameRead(new_pair, pair_list.front())) {
-                        m_pairs_nonunique_best.emplace_back(pair_list.front());
-                        m_pairs_nonunique.emplace_back(std::move(pair_list));
-                        pair_list.clear();
+                try {
+                    while (reader.Next(sam1, sam2, has_sam1, has_sam2)) {
+                        AlignmentPair pair(
+                                has_sam1 ? std::optional<SamEntry>{ sam1 } : std::optional<SamEntry>{},
+                                has_sam2 ? std::optional<SamEntry>{ sam2 } : std::optional<SamEntry>{});
+                        if (!group.empty() && !SameRead(pair, group.front())) flush();
+                        group.emplace_back(std::move(pair));
                     }
-                    pair_list.emplace_back(new_pair);
+                } catch (SamFormatError const& e) {
+                    return e.what();
                 }
+                flush();
 
-//                std::cout << "Uniques:          " << m_pairs_unique.size() << std::endl;
-//                std::cout << "Non-Uniques:      " << m_pairs_nonunique.size() << std::endl;
-//                std::cout << "Non-Uniques best: " << m_pairs_nonunique_best.size() << std::endl;
+                for (auto const& [reason, count] : reader.Skipped()) {
+                    std::cerr << file_path << ": skipped " << count << " record(s): " << reason << std::endl;
+                }
+                if (reader.Records() == 0) {
+                    std::cerr << file_path << " contains no usable alignments" << std::endl;
+                } else if (reader.RecordsWithoutTags() > 0) {
+                    std::cerr << "Warning: " << reader.RecordsWithoutTags() << " of " << reader.Records() << " records in "
+                              << file_path << " have no ZU tag (protal's unique k-mer count). A SAM file not "
+                              << "written by protal lacks it, and the model then rejects most taxa." << std::endl;
+                }
 
                 if (truth_in_header) {
                     OutputErrorData(m_pairs_unique, m_pairs_nonunique);
                 }
+                return {};
             }
 
 
@@ -1692,7 +1668,7 @@ namespace protal {
                 line += std::to_string(possibly_true) + '\t';
                 line += std::to_string(same_gene) + '\t';
                 line += std::to_string(distance) + '\t';
-                line += std::to_string(paired) = '\t';
+                line += std::to_string(paired) + '\t';
                 line += std::to_string(ref_length);
                 return line;
             }
