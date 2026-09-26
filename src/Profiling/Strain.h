@@ -106,7 +106,7 @@ namespace protal {
             rinfo.read_id = read_id;
             rinfo.length = length;
             rinfo.start = start;
-            rinfo.forward = !Flag::IsRead1ReverseComplement(sam.m_flag);
+            rinfo.forward = !Flag::IsReverseComplement(sam.m_flag);
             query_range.AddReadInfo(rinfo);
             auto range_it = m_sequence_range_handler.FindSequenceRange(start, end);
 
@@ -243,7 +243,7 @@ namespace protal {
             double freq = static_cast<double>(call.Observations()) / coverage;
             if (freq < min_frequency) return false;
         }
-        if (require_strand && !call.HasFwdAndRev()) return false;
+        if (require_strand && !call.PassesStrandFilter()) return false;
         return true;
     }
 
@@ -277,6 +277,7 @@ namespace protal {
     struct MSASampleStats {
         // Variant outcomes at positions where a variant was called
         size_t snps_retained = 0;              ///< Variant passed all filters and is a SNP
+        size_t refs_retained = 0;              ///< Consensus is the reference allele and passed all filters
         size_t insertions_retained = 0;        ///< Variant passed all filters and is an insertion
         size_t deletions_retained = 0;         ///< Variant passed all filters and is a deletion
         size_t variants_filtered_qual_sum = 0; ///< Variant failed quality gate (phred_sum < min AND mean_qual < min)
@@ -292,7 +293,7 @@ namespace protal {
         // Filled externally after ProcessMSA (vertical coverage filter)
 
         size_t TotalPass() const {
-            return snps_retained + insertions_retained + deletions_retained;
+            return snps_retained + refs_retained + insertions_retained + deletions_retained;
         }
 
         size_t TotalFiltered() const {
@@ -346,6 +347,11 @@ namespace protal {
             return d > 0 ? 100.0 * snps_retained / d : 0.0;
         }
 
+        double PctRefsRetained() const {
+            auto d = TotalVariantPositions();
+            return d > 0 ? 100.0 * refs_retained / d : 0.0;
+        }
+
         double PctInsertionsRetained() const {
             auto d = TotalVariantPositions();
             return d > 0 ? 100.0 * insertions_retained / d : 0.0;
@@ -373,6 +379,7 @@ namespace protal {
 
         MSASampleStats& operator+=(MSASampleStats const& o) {
             snps_retained              += o.snps_retained;
+            refs_retained              += o.refs_retained;
             insertions_retained        += o.insertions_retained;
             deletions_retained         += o.deletions_retained;
             variants_filtered_qual_sum += o.variants_filtered_qual_sum;
@@ -709,21 +716,25 @@ namespace protal {
                                 if (min_frequency > 0.0 && pos_cov_for_af > 0 &&
                                     static_cast<double>(var->Observations()) / pos_cov_for_af < min_frequency)
                                     s.variants_filtered_af++;
-                                if (require_strand && !var->HasFwdAndRev()) s.variants_filtered_strand++;
+                                if (require_strand && !var->PassesStrandFilter()) s.variants_filtered_strand++;
                             }
                             AddInsertionGap(msa_row, max_ins);
                             msa_row.emplace_back(VARIANT_NO_PASS);
                         } else if (var->IsSNP()) {
                             // PASS: SNP -------------------------------------------------------------------------------
                             outs[i] += "F";
-                            if (stats) (*stats)[i].snps_retained++;
+                            if (stats) {
+                                if (var->IsReference()) (*stats)[i].refs_retained++;
+                                else (*stats)[i].snps_retained++;
+                            }
                             AddInsertionGap(msa_row, max_ins);
                             if (snp_max_alleles > 1 && column_bins[i] != nullptr) {
                                 uint16_t pos_cov_v = (rpos < cov.size()) ? cov[rpos] : 0;
-                                // Collect all passing SNP alleles ranked by observations descending
+                                // Collect all passing single-base alleles, the reference allele included, ranked
+                                // by observations descending: a REF/ALT mixture is the typical two-strain case.
                                 std::vector<std::pair<uint32_t,char>> candidates;
                                 for (auto const& v : *column_bins[i]) {
-                                    if (v.IsSNP() && !v.IsReference() &&
+                                    if (v.IsSNP() &&
                                         VariantPass(v, *column_bins[i], min_qual_sum, min_cov, min_frequency, pos_cov_v, require_strand, min_mean_qual)) {
                                         candidates.emplace_back(v.Observations(), v.GetVariant());
                                     }
@@ -781,9 +792,6 @@ namespace protal {
                     std::cout << "BAD IN " << i << std::endl;
                     bad = true;
                 }
-
-                auto row_str = "";
-                for (auto& c : msa_row) row_str += c;
             }
 
             constexpr bool debug = false;

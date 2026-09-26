@@ -8,7 +8,6 @@
 /lib/htslib-1.16
 .cache
 .fleet
-/tests
 *.C.o
 *.csv
 *.zip

@@ -122,4 +122,10 @@ target_link_libraries(simulate_metagenomes PRIVATE protal_lib dl z isa_baseline)
 target_link_libraries(simulate_metagenomes_static PRIVATE protal_lib_static dl z isa_baseline)
 
 add_subdirectory(src/)
-#add_subdirectory(tests/)
+
+# Unit tests (GoogleTest): cmake -DPROTAL_BUILD_TESTS=ON ..., then ctest --test-dir <build dir>
+option(PROTAL_BUILD_TESTS "Build the GoogleTest unit tests" OFF)
+if (PROTAL_BUILD_TESTS)
+	enable_testing()
+	add_subdirectory(tests/)
+endif()

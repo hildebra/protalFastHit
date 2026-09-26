@@ -1444,6 +1444,8 @@ namespace protal {
                      << "\tpositions_ref\tpositions_ref_pct"
                      << "\tpositions_below_min_cov\tpositions_below_min_cov_pct"
                      << "\tpositions_no_coverage\tpositions_no_coverage_pct"
+                     // --- appended last so readers that index columns by position keep working ---
+                     << "\trefs_retained\trefs_retained_pct"
                      << '\n';
 
             os_stats << std::fixed << std::setprecision(2);
@@ -1465,6 +1467,7 @@ namespace protal {
                          << '\t' << s.positions_ref              << '\t' << s.PctPositionsRef()
                          << '\t' << s.positions_below_min_cov    << '\t' << s.PctPositionsBelowMinCov()
                          << '\t' << s.positions_no_coverage      << '\t' << s.PctPositionsNoCoverage()
+                         << '\t' << s.refs_retained              << '\t' << s.PctRefsRetained()
                          << '\n';
             }
             os_stats.close();

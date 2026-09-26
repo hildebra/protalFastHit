@@ -11,7 +11,6 @@
 
 namespace protal {
     class VariantHandler {
-        uint16_t m_quality_version_offset = 36;
         Variants m_variants;
         const std::string& m_reference;
 
@@ -19,6 +18,13 @@ namespace protal {
         Benchmark bm_next_compressed_cigar{"Next compressed cigar"};
 
         VariantHandler(const std::string& reference) : m_reference(reference) {};
+
+        // Phred score of a Sanger/Illumina 1.8+ (Phred+33) quality character. Characters below the
+        // offset clamp to 0 instead of wrapping around in the unsigned Qual type.
+        static Qual PhredScore(char quality_char) {
+            constexpr int phred_offset = 33;
+            return quality_char > phred_offset ? static_cast<Qual>(quality_char - phred_offset) : 0;
+        }
 
         bool HasVariantBin(VariantPos position) {
             return m_variants.contains(position);
@@ -138,7 +144,7 @@ namespace protal {
                     // Mean over qualities in insertion
                     auto qual_sum = 0;
                     for (auto i = 0; i < count; i++) {
-                        qual_sum += sam.m_qual[qpos + i] - m_quality_version_offset;
+                        qual_sum += PhredScore(sam.m_qual[qpos + i]);
                     }
                     AddINDEL(VariantType::INS, rpos, m_reference[rpos], sam.m_seq.substr(qpos, count), is_fwd, qual_sum/count);
                     if (output) {
@@ -153,9 +159,7 @@ namespace protal {
                     }
                 } else if (op == 'X') {
                     for (auto i = 0; i < count; i++) {
-//                        std::cout << "SNP: " << sam.m_seq[qpos + i] << " " << static_cast<uint16_t>(sam.m_qual[qpos + i] - m_quality_version_offset) << std::endl;
-
-                        AddSNP(rpos + i, sam.m_seq[qpos + i], m_reference[rpos + i], is_fwd, sam.m_qual[qpos + i] - m_quality_version_offset);
+                        AddSNP(rpos + i, sam.m_seq[qpos + i], m_reference[rpos + i], is_fwd, PhredScore(sam.m_qual[qpos + i]));
                         if (output) {
                             std::cout << rpos + i << " " << sam.m_seq[qpos + i] << " -> " << m_reference[rpos + i] << " (" << qpos+i << ", " << rpos+i
                                       << ") Qual: " << static_cast<int>(sam.m_qual[qpos + i]-33) << std::endl;
@@ -202,7 +206,7 @@ namespace protal {
             bool freq_ok = frequency >= min_frequency;
             // OR logic: passes if either quality gate holds
             bool quality_ok = mean_qual >= min_avg_quality || var.QualitySum() >= min_phred_sum;
-            bool strand_ok = !require_strand || var.HasFwdAndRev();
+            bool strand_ok = !require_strand || var.PassesStrandFilter();
 
             return count_ok && freq_ok && quality_ok && strand_ok;
         }
@@ -243,19 +247,13 @@ namespace protal {
 //                Utils::Input();
 //            }
 
-            // No reads carrying reference allele (all variants)
-            if (coverage <= var_observations) {
-                return;
+            // Reference allele (also stored in insertions, deleteions), unless every read carries a variant
+            if (coverage > var_observations) {
+                char ref = bin.front().Reference();
+
+                auto& variant = GetVariant(bin, var_pos, ref, ref);
+                variant.SetObservations(coverage - var_observations);
             }
-
-
-
-            // Reference allele (also stored in insertions, deleteions)
-            char ref = bin.front().Reference();
-
-            auto& variant = GetVariant(bin, var_pos, ref, ref);
-            variant.SetObservations(coverage - var_observations);
-
 
             FilterSNPs(bin, coverage, min_observations, min_observations_fwdrev, min_frequency, min_avg_quality, min_phred_sum, require_strand);
         }

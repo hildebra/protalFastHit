@@ -6,6 +6,7 @@
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include <cstddef>
+#include <string>
 
 namespace protal {
     class SNP {
@@ -31,14 +32,8 @@ namespace protal {
         ReadId readid = 0;                    //64bit //128
         TaxId taxid = 0;                      //32bit
         GeneId geneid = 0;                    //32bit //192
-        std::string* structural = nullptr;
+        std::string structural;               // inserted/deleted bases of an INDEL
         SNPPos snp_pos = 0;                   //32bit
-
-        ~SNP() {
-            if (!structural) {
-                delete[] structural;
-            }
-        }
 
 
         std::string ToString() const {
@@ -61,7 +56,7 @@ namespace protal {
                 str += std::string(1, variant) + " (Ref: " + std::string(1, reference) + ")\t";
                 str += std::to_string(quality) + '\t';
             } else if (type == 2 || type == 4) {
-                str += *structural + '\t';
+                str += structural + '\t';
                 str += std::to_string(structural_size);
             }
             str += '}';
@@ -79,11 +74,11 @@ namespace protal {
 
         void SetStructural(std::string&& structural_string) {
             structural_size = structural_string.length();
-            structural = new std::string(structural_string);
+            structural = std::move(structural_string);
         }
         void SetStructural(std::string& structural_string) {
             structural_size = structural_string.length();
-            structural = new std::string(structural_string);
+            structural = structural_string;
         }
 
         SNP() {}

@@ -4,6 +4,7 @@
 
 #pragma once
 #include "Constants.h"
+#include <memory>
 #include <string>
 #include <vector>
 #include <numeric>
@@ -35,16 +36,33 @@ class Variant {
     uint16_t observations_rev = 0;
     bool is_valid = true;
     bool is_major = false;
-    std::string* structural = nullptr;
+    // Inserted/deleted bases of an INDEL; null for SNPs. Owned, and deep-copied with the Variant.
+    std::unique_ptr<std::string> structural;
     QualList quals;
 
 public:
     Variant(VariantPos pos, Base snp, Base ref) :
-            variant_type(VariantType::SNP), position(pos), variant(snp), reference(ref) {};
+            variant_type(VariantType::SNP), position(pos), reference(ref), variant(snp) {};
 
     Variant(VariantType type, VariantPos pos, Base ref, std::string& structural) :
-            variant_type(type), position(pos), reference(ref), structural(new std::string(structural)),
-            structural_size(structural.length()) {};
+            variant_type(type), position(pos), reference(ref), structural_size(structural.length()),
+            structural(std::make_unique<std::string>(structural)) {};
+
+    Variant(Variant const& other) :
+            variant_id(other.variant_id), variant_type(other.variant_type), position(other.position),
+            reference(other.reference), variant(other.variant), structural_size(other.structural_size),
+            observations_fwd(other.observations_fwd), observations_rev(other.observations_rev),
+            is_valid(other.is_valid), is_major(other.is_major),
+            structural(other.structural ? std::make_unique<std::string>(*other.structural) : nullptr),
+            quals(other.quals) {};
+
+    Variant& operator=(Variant const& other) {
+        if (this != &other) *this = Variant(other);
+        return *this;
+    }
+
+    Variant(Variant&&) noexcept = default;
+    Variant& operator=(Variant&&) noexcept = default;
 
     size_t Observations() const {
         return observations_fwd + observations_rev;
@@ -66,12 +84,14 @@ public:
             exit(12);
         }
         if (IsReference()) return Observations() * 40;
-        return std::accumulate(quals.begin(), quals.end(), 0, [](size_t acc, const uint16_t q) {
+        return std::accumulate(quals.begin(), quals.end(), size_t{0}, [](size_t acc, const uint16_t q) {
             return acc + q;
         });
     }
     size_t MeanQuality() const {
-        return static_cast<size_t>(static_cast<double>(QualitySum())/Observations());
+        auto observations = Observations();
+        if (observations == 0) return 0;
+        return static_cast<size_t>(static_cast<double>(QualitySum())/observations);
     }
 
 
@@ -90,13 +110,6 @@ public:
     bool IsMajorAllele() const {
         return is_major;
     }
-
-    ~Variant() {
-        if (!structural) {
-            delete[] structural;
-        }
-    }
-
 
     std::string ToString() const {
         std::string str;
@@ -176,6 +189,14 @@ public:
         return observations_fwd > 0 && observations_rev > 0;
     }
 
+    // Strand-bias filter: a non-reference allele must be seen on both strands. The reference allele
+    // is exempt, because its count is inferred from coverage (SetObservations) and has no strand.
+    bool PassesStrandFilter() const {
+        return IsReference() || HasFwdAndRev();
+    }
+
+    // Sets an inferred observation count (the reference allele: coverage minus variant observations).
+    // It is stored as forward observations because the strand is unknown; see PassesStrandFilter.
     void SetObservations(size_t obs) {
         observations_fwd = obs;
     }
@@ -217,17 +238,17 @@ public:
     bool Match(Variant const& other) const {
         return variant_type == other.variant_type &&
                position == other.position &&
-                (variant_type == VariantType::SNP && variant == other.variant ||
-                 variant_type == VariantType::INS && *structural == *other.structural);
+                ((variant_type == VariantType::SNP && variant == other.variant) ||
+                 (IsINDEL() && *structural == *other.structural));
     };
 
     void SetStructural(std::string&& structural_string) {
         structural_size = structural_string.length();
-        structural = new std::string(structural_string);
+        structural = std::make_unique<std::string>(std::move(structural_string));
     }
     void SetStructural(std::string& structural_string) {
         structural_size = structural_string.length();
-        structural = new std::string(structural_string);
+        structural = std::make_unique<std::string>(structural_string);
     }
 
     Variant() {}

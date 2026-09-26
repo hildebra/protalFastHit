@@ -78,19 +78,19 @@ namespace protal {
             return flag & (1 << 1);
         }
 
-        static bool IsRead1Unmapped(FLAG_t flag) {
+        static bool IsUnmapped(FLAG_t flag) {
             return flag & (1 << 2);
         }
 
-        static bool IsRead2Unmapped(FLAG_t flag) {
+        static bool IsMateUnmapped(FLAG_t flag) {
             return flag & (1 << 3);
         }
 
-        static bool IsRead1ReverseComplement(FLAG_t flag) {
+        static bool IsReverseComplement(FLAG_t flag) {
             return flag & (1 << 4);
         }
 
-        static bool IsRead2ReverseComplement(FLAG_t flag) {
+        static bool IsMateReverseComplement(FLAG_t flag) {
             return flag & (1 << 5);
         }
 
@@ -146,8 +146,9 @@ namespace protal {
                     + m_qual;
         }
 
+        // Strand of THIS record (0x10), for read1 and read2 alike; 0x20 is the mate's strand.
         bool IsReversed() const {
-            return Flag::IsRead1(m_flag) ? Flag::IsRead1ReverseComplement(m_flag) : Flag::IsRead2ReverseComplement(m_flag);
+            return Flag::IsReverseComplement(m_flag);
         }
 
     };
@@ -183,8 +184,9 @@ namespace protal {
                     + "ZT:i:" + std::to_string(m_uniques_two);
         }
 
+        // Strand of THIS record (0x10), for read1 and read2 alike; 0x20 is the mate's strand.
         bool IsReversed() const {
-            return Flag::IsRead1(m_flag) ? Flag::IsRead1ReverseComplement(m_flag) : Flag::IsRead2ReverseComplement(m_flag);
+            return Flag::IsReverseComplement(m_flag);
         }
     };
 
