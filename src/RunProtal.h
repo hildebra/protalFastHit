@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <iomanip>
+#include <regex>
 #include <ranges>
 #include <unistd.h>
 
@@ -1334,6 +1335,10 @@ namespace protal {
         if (rc != 0) {
             RunStatus::Get().Fail("qcmsa exited with code " + std::to_string(rc) + " for " + name +
                                   " (post-filter skipped; the raw MSA is still in " + msa + ")");
+        } else if (!fs::exists(prefix + ".msa.fna")) {
+            // Not an error (qcmsa may filter everything out), but no filtered MSA is not a success either.
+            std::cerr << "[qcmsa] WARNING: " << name << ": qcmsa kept no gene or sample, so there is no "
+                      << prefix << ".msa.fna (see its output above; the raw MSA is " << msa << ")" << std::endl;
         }
     }
 
@@ -1414,6 +1419,9 @@ namespace protal {
                     auto tmp_vec = region.CalculateCoverageVector2();
                     auto counts_vcov1 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 1);});
                     auto counts_vcov2 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 2);});
+                    // Multi-allelic positions as the MSA writes them (IUPAC codes), which qcmsa filters on.
+                    size_t const multi_allelic = MultiAllelicPositions(strain.GetVariantHandler().GetVariants(), tmp_vec, min_cov,
+                                                                       min_qual_sum, min_af, require_strand, min_mean_qual, snp_max_alleles);
 
                     double median_vcov = 0.0;
                     double mean_vcov_nonzero = 0.0;
@@ -1457,11 +1465,11 @@ namespace protal {
                             *os_meta << gene_obs.VerticalCoverage() << '\t';
                             *os_meta << counts_vcov1 << '\t';
                             *os_meta << counts_vcov2 << '\t';
-                            *os_meta << ac.Multi() << '\t';
+                            *os_meta << multi_allelic << '\t';
                             *os_meta << ac.Filtered() << '\t';
-                            *os_meta << (counts_vcov1 > 0 ? ac.Multi()/static_cast<double>(counts_vcov1) : 0) << '\t';
+                            *os_meta << (counts_vcov1 > 0 ? multi_allelic/static_cast<double>(counts_vcov1) : 0) << '\t';
                             *os_meta << (counts_vcov1 > 0 ? ac.Filtered()/static_cast<double>(counts_vcov1) : 0) << '\t';
-                            *os_meta << (counts_vcov2 > 0 ? ac.Multi()/static_cast<double>(counts_vcov2) : 0) << '\t';
+                            *os_meta << (counts_vcov2 > 0 ? multi_allelic/static_cast<double>(counts_vcov2) : 0) << '\t';
                             *os_meta << (counts_vcov2 > 0 ? ac.Filtered()/static_cast<double>(counts_vcov2) : 0) << '\t';
                             *os_meta << median_vcov << '\t';
                             *os_meta << hcov << '\t';
@@ -1797,6 +1805,20 @@ namespace protal {
                 profiler::TaxonFilterObj model_check(options.GetModelPath(), options.GetKnob());
             } catch (std::exception const& e) {
                 std::cerr << "Cannot load the model " << options.GetModelPath() << ": " << e.what() << std::endl;
+                exit(2);
+            }
+        }
+        if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {
+            // The benchmark takes each read's true gene from its name; without one it would stop
+            // at the first read, deep inside the alignment.
+            igzstream is{ options.GetFirstFile(options.GetRange().front()).c_str() };
+            SeqReader reader{ is };
+            FastxRecord record;
+            static const std::regex truth_name("^[0-9]+_[0-9]+([^0-9].*)?$");
+            if (reader(record) && !std::regex_match(record.id, truth_name)) {
+                std::cerr << "Error: --benchmark_alignment needs reads named <taxid>_<gene id>..., the gene each read "
+                             "was simulated from; '" << record.id << "' is not (reads from simulate_metagenomes carry "
+                             "no gene ids)." << std::endl;
                 exit(2);
             }
         }

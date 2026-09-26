@@ -239,6 +239,34 @@ namespace protal {
         return true;
     }
 
+    // Positions that MSA() writes as an IUPAC code, with the same rule and parameters: the consensus
+    // call (highest quality sum) is a single-base allele that passes, and at least one other base
+    // passes too. The .meta.tsv reports this count, so that qcmsa filters on what the MSA holds.
+    static size_t MultiAllelicPositions(Variants const& variants, CoverageVec const& coverage, uint32_t min_cov,
+                                        uint32_t min_qual_sum, double min_frequency, bool require_strand,
+                                        size_t min_mean_qual, size_t snp_max_alleles) {
+        if (snp_max_alleles < 2) return 0;
+        size_t multi = 0;
+        for (auto const& [pos, bin] : variants) {
+            if (bin.empty()) continue;
+            uint32_t const cov = pos < coverage.size() ? coverage[pos] : 0;
+            if (cov < min_cov) continue;
+            auto const& consensus = *std::max_element(bin.begin(), bin.end(), [](Variant const& a, Variant const& b) {
+                return a.QualitySum() < b.QualitySum();
+            });
+            if (!consensus.IsSNP() || !VariantPass(consensus, bin, min_qual_sum, min_cov, min_frequency, cov, require_strand, min_mean_qual)) continue;
+            std::vector<char> bases;
+            for (auto const& v : bin) {
+                if (v.IsSNP() && VariantPass(v, bin, min_qual_sum, min_cov, min_frequency, cov, require_strand, min_mean_qual) &&
+                    std::find(bases.begin(), bases.end(), v.GetVariant()) == bases.end()) {
+                    bases.push_back(v.GetVariant());
+                }
+            }
+            multi += bases.size() > 1;
+        }
+        return multi;
+    }
+
     using MSAVector = std::vector<std::vector<char>>;
     using MSARow = std::vector<char>;
     static void AddInsertionGap(MSARow& msa_row, size_t ins_count) {

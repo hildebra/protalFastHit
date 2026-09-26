@@ -193,8 +193,10 @@ META_HCOV_COL = "hcov"               # fraction of gene covered (M3 --gene_min_h
 META_DEPTH_COL = "mean_vcov_nonzero"  # mean depth over covered positions (M3 --gene_min_mean_depth)
 
 
-def load_meta(path, gene_whitelist):
-    """Load per-(sample,gene) meta restricted to genes in gene_whitelist.
+def load_meta(path, gene_whitelist, sample_whitelist=None):
+    """Load per-(sample,gene) meta restricted to genes in gene_whitelist and, if given, to
+    samples in sample_whitelist (the samples in the MSA: protal lists every sample with reads
+    on a gene in the meta, also those whose MSA row it dropped).
 
     Returns (rows, samples_in_order, genes_sorted, cov) where
       rows = list of (sample:str, gene:int, mrate2:float)
@@ -224,6 +226,8 @@ def load_meta(path, gene_whitelist):
             if gene not in gene_whitelist:
                 continue
             sample = f[si]
+            if sample_whitelist is not None and sample not in sample_whitelist:
+                continue
             rows.append((sample, gene, float(f[mi])))
             if hi is not None and di is not None:
                 try:
@@ -339,6 +343,23 @@ def mrate2_filter(rows, all_genes, all_samples, min_bad, iqr_mult,
         abs_samples = ({s for s, c in sample_counts.items() if c >= sample_abs}
                        if sample_abs > 0 else set())
         bad_samples = tukey_samples | abs_samples
+
+        # The Tukey fences need >= 4 items with signal: with 1-3 multi-allelic samples (always
+        # so with fewer than 4 samples) or genes, the filter cannot remove any of them unless an
+        # absolute cutoff is set.
+        if it == 1:
+            n_samples_signal = sum(1 for c in sample_counts.values() if c > 0)
+            n_genes_signal = sum(1 for c in gene_counts.values() if c > 0)
+            if sample_fence is None and sample_abs <= 0 and n_samples_signal > 0:
+                sys.stderr.write(
+                    f"qcmsa.py: WARNING: {n_samples_signal} of {len(kept_samples)} samples have "
+                    "multi-allelic genes, too few for the sample filter (needs 4); set "
+                    "--sample-abs-min-bad to filter them.\n")
+            if gene_fence is None and gene_abs <= 0 and n_genes_signal > 0:
+                sys.stderr.write(
+                    f"qcmsa.py: WARNING: {n_genes_signal} of {len(kept_genes)} genes are "
+                    "multi-allelic, too few for the gene filter (needs 4); set "
+                    "--gene-abs-min-bad to filter them.\n")
 
         sys.stderr.write(
             f"  iter {it}: {len(bad_genes)} gene(s) flagged "
@@ -483,7 +504,14 @@ def main(argv=None):
     gene_whitelist = {g for g, _, _ in partition}
     sys.stderr.write(f"Partition: {len(partition)} genes\n")
 
-    rows, all_samples, all_genes, cov = load_meta(args.meta, gene_whitelist)
+    # --- read MSA: only its samples count (e.g. towards --gene-min-samples) ---
+    names, seqs = read_fasta(args.msa)
+    if not names:
+        raise SystemExit(f"qcmsa.py: empty MSA '{args.msa}'")
+    seq_of = dict(zip(names, seqs))
+    sys.stderr.write(f"MSA loaded: {len(names)} sequences, {len(seqs[0])} bp\n")
+
+    rows, all_samples, all_genes, cov = load_meta(args.meta, gene_whitelist, set(names))
     all_samples = sorted(all_samples)
     sys.stderr.write(
         f"Loaded meta: {len(all_samples)} samples x {len(all_genes)} genes (in MSA)\n"
@@ -548,13 +576,6 @@ def main(argv=None):
     sys.stderr.write(
         f"Cell fence (MRate2): {cell_fence:.5f} -> {len(outlier_cells)} outlier cell(s)\n"
     )
-
-    # --- read MSA ---
-    names, seqs = read_fasta(args.msa)
-    if not names:
-        raise SystemExit(f"qcmsa.py: empty MSA '{args.msa}'")
-    seq_of = dict(zip(names, seqs))
-    sys.stderr.write(f"MSA loaded: {len(names)} sequences, {len(seqs[0])} bp\n")
 
     sample_set = set(all_samples)
     # Keep references (names not in meta) always; drop filtered samples.

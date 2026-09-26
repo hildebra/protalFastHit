@@ -301,6 +301,104 @@ class ModelContractTest(WorkDir):
         self.assertEqual(outputs["strains"], outputs["no_strains"])
 
 
+class QcmsaContractTest(WorkDir):
+    """qcmsa counts only the samples that are in the MSA."""
+
+    META_HEADER = ("sample\tgene_id\tvertical_coverage\tcounts_vcov1\tcounts_vcov2\tmulti_allelic\tfiltered\t"
+                   "multi_rate_vcov1\tfiltered_rate_vcov1\tmulti_rate_vcov2\tfiltered_rate_vcov2\tmedian_vcov\t"
+                   "hcov\tgene_length\tmean_vcov_nonzero\tmedian_vcov_nonzero\n")
+
+    def test_samples_missing_from_the_msa_do_not_count(self):
+        with open(self.path("x.raw.msa.fna"), "w") as fh:
+            fh.write(">x_reference\nACGTACGTAC\n>s1\nACGTACGTAC\n>s2\nACGTACGTAC\n")
+        with open(self.path("x.raw.partition.txt"), "w") as fh:
+            fh.write("DNA, gene1 = 1-10\n")
+        with open(self.path("x.meta.tsv"), "w") as fh:
+            fh.write(self.META_HEADER)
+            for sample in ("s1", "s2", "s3", "s4"):  # s3 and s4 are not in the MSA
+                fh.write(f"{sample}\t1\t5\t10\t10\t0\t0\t0\t0\t0\t0\t5\t1\t10\t5\t5\n")
+        args = [QCMSA, self.path("x.raw.msa.fna"), self.path("x.raw.partition.txt"), self.path("x.meta.tsv")]
+
+        rc, log = run(self.work, *args, "--prefix", self.path("two"), "--gene-min-samples", "2", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertIn("Loaded meta: 2 samples", log)
+        self.assertFalse(os.path.exists(self.path("two.msa.fna")), "2 samples are not more than 2")
+
+        rc, log = run(self.work, *args, "--prefix", self.path("one"), "--gene-min-samples", "1", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertTrue(os.path.exists(self.path("one.msa.fna")), log)
+
+
+class MapUtilsTest(WorkDir):
+    """protal_map_utils resolves relative map paths as protal does."""
+
+    def test_relative_paths_resolve_like_protal(self):
+        os.makedirs(self.path("maps"))
+        os.makedirs(self.path("reads"))
+        maps = {}
+        for sample in ("sa", "sb"):
+            for mate in (1, 2):
+                shutil.copy(os.path.join(READS, f"{sample}_R{mate}.fq"), self.path("reads", f"{sample}_R{mate}.fq"))
+            maps[sample] = self.path("maps", f"{sample}.map")
+            with open(maps[sample], "w") as fh:
+                fh.write("#OUTPUT_DIR\tout\n#SAM_OUTPUT_DIR\taln\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tSAM\n")
+                fh.write(f"{sample}\t{sample}\treads/{sample}_R1.fq\treads/{sample}_R2.fq\t{sample}.sam\n")
+        sample_map = maps["sa"]
+        tool = os.path.join(ROOT, "scripts", "protal_map_utils")
+
+        # Read paths are relative to the directory protal runs in, not to the map's directory.
+        rc, log = run(self.work, "validate", "--map", sample_map, binary=tool)
+        self.assertEqual(rc, 0, log)
+
+        rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "2", "--no_qcmsa", "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertTrue(os.path.isfile(self.path("out", "aln", "sa.sam")), "protal found the reads and wrote OUTPUT_DIR/SAM_OUTPUT_DIR")
+
+        rc, merged = run(self.work, "merge", "--map", maps["sa"], maps["sb"], binary=tool)
+        self.assertEqual(rc, 0, merged)
+        lines = merged.splitlines()
+        variables = dict(line.split("\t", 1) for line in lines if line.startswith("#") and not line.startswith("#SAMPLEID"))
+        header = next(line for line in lines if line.startswith("#SAMPLEID")).split("\t")
+        rows = [dict(zip(header, line.split("\t"))) for line in lines if line and not line.startswith("#")]
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            first = os.path.join(variables.get("#INPUT_DIR", self.work), row["FIRST"])
+            self.assertEqual(os.path.realpath(first), os.path.realpath(self.path("reads", row["#SAMPLEID"] + "_R1.fq")))
+
+
+class LauncherTest(WorkDir):
+    """The protal launcher runs the binaries installed next to it before any on $PATH."""
+
+    def stub(self, directory, name, text):
+        os.makedirs(directory, exist_ok=True)
+        path = os.path.join(directory, name)
+        with open(path, "w") as fh:
+            fh.write(f'#!/bin/sh\necho {text} "$@"\n')
+        os.chmod(path, 0o755)
+        return path
+
+    def test_own_install_wins_over_path(self):
+        install, other = self.path("install"), self.path("other")
+        os.makedirs(install)
+        launcher = os.path.join(install, "protal")
+        shutil.copy(os.path.join(ROOT, "protal_launcher"), launcher)
+        os.chmod(launcher, 0o755)
+        self.stub(install, "protal_baseline", "own-baseline")
+        self.stub(other, "protal_avx2", "other-avx2")
+        self.stub(other, "protal_baseline", "other-baseline")
+        env = dict(os.environ, PATH=other + os.pathsep + os.environ["PATH"])
+        env.pop("PROTAL_NO_AVX2", None)
+
+        out = subprocess.run([launcher, "--x", "a b"], env=env, stdout=subprocess.PIPE, text=True)
+        self.assertEqual(out.stdout.strip(), "own-baseline --x a b")
+
+        # Without a binary of its own, it falls back to $PATH.
+        os.remove(os.path.join(install, "protal_baseline"))
+        env["PROTAL_NO_AVX2"] = "1"
+        out = subprocess.run([launcher, "--x"], env=env, stdout=subprocess.PIPE, text=True)
+        self.assertEqual(out.stdout.strip(), "other-baseline --x")
+
+
 class RerunTest(WorkDir):
     """Existing SAM files are reused, and --no_profile is honoured when all of them exist."""
 
@@ -438,6 +536,11 @@ class FailFastTest(WorkDir):
         self.assertIn("Line 4: no value in column 5 (PROFILE)", log)
         self.assertFalse(glob.glob(self.path("out_map_rows", "**", "*.sam*"), recursive=True))
 
+    def test_benchmark_needs_reads_named_by_gene(self):
+        rc, log = self.query(DB, "out_bench", "--benchmark_alignment")
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("--benchmark_alignment needs reads named <taxid>_<gene id>", log)
+
     def test_build_rejects_a_reference_the_map_does_not_describe(self):
         db = self.path("build_db")
         os.mkdir(db)
@@ -515,6 +618,14 @@ class SamInputTest(WorkDir):
 
 class QcmsaTest(WorkDir):
     """The post-filter runs, and --qcmsa_args reaches it intact."""
+
+    def test_no_filtered_msa_is_reported(self):
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out_none", "-t", "4",
+                      "--qcmsa_script", QCMSA, "--qcmsa_args", "--gene-min-samples 100")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("qcmsa kept no gene or sample", log)
+        filtered = [f for f in glob.glob(self.path("out_none", "strains", "*.msa.fna")) if not f.endswith(".raw.msa.fna")]
+        self.assertEqual(filtered, [])
 
     def test_filtered_msa(self):
         # qcmsa keeps a gene only if MORE than --gene-min-samples samples pass (default 3), which

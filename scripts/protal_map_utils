@@ -88,36 +88,34 @@ def find_col(header_cols: List[str], name: str) -> Optional[int]:
         return None
 
 
-def map_dir(path: str) -> str:
-    return os.path.dirname(os.path.abspath(path))
-
-
+# Paths are resolved as protal resolves them (Options::LoadFromMap), so that a map checked or merged
+# here names the files protal will use: relative read paths lie in #INPUT_DIR, which, like
+# #OUTPUT_DIR, is relative to the directory protal runs in (not to the map's directory), and a
+# relative #SAM_OUTPUT_DIR or #PROFILE_OUTPUT_DIR (or its default) lies inside #OUTPUT_DIR.
 def input_base(map_file: MapFile) -> str:
-    return map_file.vars.get(MAP_VAR_INPUT_DIR, map_dir(map_file.path))
+    return map_file.vars.get(MAP_VAR_INPUT_DIR) or os.getcwd()
 
 
 def output_base(map_file: MapFile) -> Optional[str]:
     return map_file.vars.get(MAP_VAR_OUTPUT_DIR)
 
 
-def sam_output_base(map_file: MapFile) -> Optional[str]:
-    base = map_file.vars.get(MAP_VAR_SAM_OUTPUT_DIR)
-    if base:
+def output_subdir(map_file: MapFile, key: str, default: str) -> Optional[str]:
+    base = map_file.vars.get(key)
+    if base and os.path.isabs(base):
         return base
     out_dir = output_base(map_file)
     if out_dir:
-        return os.path.join(out_dir, MAP_VAR_DEFAULT_SAM_OUTPUT_DIR)
-    return None
+        return os.path.join(out_dir, base or default)
+    return base or None
+
+
+def sam_output_base(map_file: MapFile) -> Optional[str]:
+    return output_subdir(map_file, MAP_VAR_SAM_OUTPUT_DIR, MAP_VAR_DEFAULT_SAM_OUTPUT_DIR)
 
 
 def profile_output_base(map_file: MapFile) -> Optional[str]:
-    base = map_file.vars.get(MAP_VAR_PROFILE_OUTPUT_DIR)
-    if base:
-        return base
-    out_dir = output_base(map_file)
-    if out_dir:
-        return os.path.join(out_dir, MAP_VAR_DEFAULT_PROFILE_OUTPUT_DIR)
-    return None
+    return output_subdir(map_file, MAP_VAR_PROFILE_OUTPUT_DIR, MAP_VAR_DEFAULT_PROFILE_OUTPUT_DIR)
 
 
 def resolve_path(base: Optional[str], value: str, fallback_base: str) -> str:
@@ -152,7 +150,7 @@ def validate_map(path: str) -> int:
             continue
         for col_idx in (first_idx, second_idx):
             value = row[col_idx]
-            resolved = resolve_path(base_dir, value, map_dir(map_file.path))
+            resolved = resolve_path(base_dir, value, os.getcwd())
             if not os.path.exists(resolved):
                 missing.append(f"row {row_idx}: {resolved}")
 
@@ -176,9 +174,9 @@ def flatten_map(path: str, output_dir_override: Optional[str]) -> None:
     base_dir = input_base(map_file)
     for row in map_file.rows:
         if first_idx < len(row):
-            row[first_idx] = resolve_path(base_dir, row[first_idx], map_dir(map_file.path))
+            row[first_idx] = resolve_path(base_dir, row[first_idx], os.getcwd())
         if second_idx < len(row):
-            row[second_idx] = resolve_path(base_dir, row[second_idx], map_dir(map_file.path))
+            row[second_idx] = resolve_path(base_dir, row[second_idx], os.getcwd())
 
     map_file.var_lines = [
         (k, v) for (k, v) in map_file.var_lines if k != MAP_VAR_INPUT_DIR
@@ -463,7 +461,7 @@ def merge_maps(
         out_dir = output_base(mp)
         sam_base = sam_output_base(mp)
         profile_base = profile_output_base(mp)
-        fallback_base = map_dir(mp.path)
+        fallback_base = os.getcwd()
 
         col_index = {name: idx for idx, name in enumerate(mp.header_cols)}
         for row in mp.rows:

@@ -337,25 +337,48 @@ namespace protal {
             }
         }
 
+        // unique_kmers.tsv (written by --build): taxid, gene id, then counts and rates of short,
+        // long and long-super unique k-mers, and the gene's k-mer total. Every line must name a
+        // gene of reference.map.
         void LoadUniqueKmers(std::string const& file) {
             std::ifstream is(file, std::ios::in);
+            if (!is) InvalidUniqueKmers(file, 0, "cannot open the file");
 
             std::vector<std::string> tokens;
             std::string line;
+            size_t line_no = 0;
             while (std::getline(is, line)) {
+                line_no++;
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                if (line.empty()) continue;
                 Utils::split(tokens, line, "\t");
+                if (tokens.size() < 9) {
+                    InvalidUniqueKmers(file, line_no, "expected 9 tab-separated columns, found " + std::to_string(tokens.size()));
+                }
+                uint64_t counts[5];
+                size_t const count_columns[5] = { 0, 1, 2, 4, 6 };
+                for (int i = 0; i < 5; i++) {
+                    auto const& t = tokens[count_columns[i]];
+                    if (t.empty() || !std::all_of(t.begin(), t.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); })) {
+                        InvalidUniqueKmers(file, line_no, "column " + std::to_string(count_columns[i] + 1) + " is not a non-negative integer");
+                    }
+                    counts[i] = std::stoull(t);
+                }
+                auto const& total_str = tokens[8];
+                if (total_str.empty() || !std::all_of(total_str.begin(), total_str.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); })) {
+                    InvalidUniqueKmers(file, line_no, "column 9 is not a non-negative integer");
+                }
 
-
-                auto taxid = std::stoull(tokens[0]);
-                auto geneid = std::stoull(tokens[1]);
-
-                auto short_unique = std::stoull(tokens[2]);
-                auto short_unique_rate = std::stod(tokens[3]);
-                auto long_unique = std::stoull(tokens[4]);
-                auto long_unique_rate = std::stod(tokens[5]);
-                auto long_super_unique = std::stoull(tokens[6]);
-                auto long_super_unique_rate = std::stod(tokens[7]);
-                auto total_kmers = std::stoull(tokens[8]);
+                auto taxid = counts[0];
+                auto geneid = counts[1];
+                auto short_unique = counts[2];
+                auto long_unique = counts[3];
+                auto long_super_unique = counts[4];
+                auto total_kmers = std::stoull(total_str);
+                if (!HasGene(taxid, geneid)) {
+                    InvalidUniqueKmers(file, line_no, "gene " + std::to_string(taxid) + "_" + std::to_string(geneid) +
+                                                      " is not in reference.map (rebuild the database with --build)");
+                }
 
                 auto& taxon = m_genomes.at(taxid);
                 if (short_unique + long_unique > 0) {
@@ -520,6 +543,13 @@ namespace protal {
                 genome.AddGene(gene_key, gene_key, start, end - start, &m_is);
             }
             is.close();
+        }
+
+        [[noreturn]] static void InvalidUniqueKmers(std::string const& path, size_t line_no, std::string const& reason) {
+            std::cerr << "Invalid unique k-mer file " << path;
+            if (line_no > 0) std::cerr << ", line " << line_no;
+            std::cerr << ": " << reason << std::endl;
+            exit(8);
         }
 
         [[noreturn]] static void InvalidMap(std::string const& path, size_t line_no, std::string const& reason) {
