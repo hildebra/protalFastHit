@@ -88,18 +88,16 @@ namespace protal::build {
         if (compress) {
             auto const params = options.CompressionParams();
             CompressionHint(options);
-            std::cout << "Write " << target << " (zstd level " << params.level << ", " << FrameDescription(params) << ", "
-                      << params.threads << " thread(s))" << std::endl;
+            std::cout << "Write " << target << " (zstd level " << params.level << ", "
+                      << (params.frame_size > 0 ? "columns in " + HumanBytes(params.frame_size) + " chunks, verified" : "one frame")
+                      << ", " << params.threads << " thread(s))" << std::endl;
             if (params.frame_size > 0) {
-                // Seekable: frames compressed in parallel straight from the index's memory.
-                zstd::MemoryReader reader;
-                std::string header;
-                putter.GetMap().SerializedParts(header, reader);
-                std::string error;
-                auto const bytes = zstd::CompressFrames(reader, partial, params, error);
-                ok = bytes.has_value();
-                if (ok) written = *bytes;
-                else std::cerr << "Error writing " << partial << ": " << error << std::endl;
+                // Column format (IndexCodec.h), chunks compressed in parallel, read back and compared.
+                size_t raw_chunks = 0;
+                std::string const error = putter.GetMap().SaveCompressed(partial, params, written, raw_chunks);
+                ok = error.empty();
+                if (!ok) std::cerr << "Error writing " << partial << ": " << error << std::endl;
+                else if (raw_chunks > 0) std::cout << raw_chunks << " index chunk(s) kept as raw cells" << std::endl;
             } else {
                 zstd::OStream os(partial, params, size);
                 putter.Save(os);
@@ -162,14 +160,69 @@ namespace protal::build {
         bm.PrintResults();
     }
 
-    // --compress_db: rewrites an existing database's index and reference as seekable zstd files
-    // (index.prx.zst, reference.fna.zst) without rebuilding it, e.g. a downloaded raw database or
-    // one compressed as a single frame. Each new file is decompressed and compared with the old one
-    // before the old one is replaced; the content (and the index format) stays byte-identical.
+    // Replaces source by target (written as target.partial): renames, removes source if it differs.
+    static void ReplaceFile(std::string const& partial, std::string const& target, std::string const& source) {
+        std::error_code ec;
+        std::filesystem::rename(partial, target, ec);
+        if (ec) {
+            std::cerr << "Cannot rename " << partial << " to " << target << ": " << ec.message() << std::endl;
+            exit(8);
+        }
+        if (source != target) {
+            std::filesystem::remove(source, ec);
+            if (ec) std::cerr << "Warning: cannot remove " << source << ": " << ec.message() << std::endl;
+        }
+    }
+
+    // --compress_db for the index: loaded in any form, written in the column format (IndexCodec.h),
+    // read back and compared. Needs the index in memory.
+    static void CompressIndexFile(protal::Options const& options, zstd::Params const& params) {
+        std::string const raw = options.GetIndexFile();
+        std::string const source = zstd::Resolve(raw);
+        std::string const target = raw + zstd::kExtension;
+        if (!std::filesystem::exists(source)) {
+            std::cerr << "Cannot compress " << raw << ": neither it nor " << target << " exists" << std::endl;
+            exit(8);
+        }
+        if (source == target && index_codec::IsSplitIndex(source)) {
+            std::cout << target << " is already in the column format; kept" << std::endl;
+            return;
+        }
+        Benchmark bm("Compress index.prx");
+        bm.Start();
+        std::cout << "Write " << target << " from " << source << " (zstd level " << params.level << ", columns in "
+                  << HumanBytes(params.frame_size) << " chunks, " << params.threads << " thread(s), verified)" << std::endl;
+        std::error_code ec;
+        uint64_t const before = std::filesystem::file_size(source, ec);
+        Seedmap map;
+        map.Load(source, params.threads);
+        uint64_t written = 0;
+        size_t raw_chunks = 0;
+        std::string const partial = target + ".partial";
+        std::string const error = map.SaveCompressed(partial, params, written, raw_chunks);
+        if (!error.empty()) {
+            std::cerr << "Compressing " << source << " failed: " << error << std::endl;
+            std::filesystem::remove(partial, ec);
+            exit(8);
+        }
+        ReplaceFile(partial, target, source);
+        bm.Stop();
+        std::cout << target << ": " << HumanBytes(written) << " (was " << HumanBytes(before) << " as "
+                  << std::filesystem::path(source).filename().string() << ")"
+                  << (raw_chunks ? "; " + std::to_string(raw_chunks) + " chunk(s) kept as raw cells" : "") << std::endl;
+        bm.PrintResults();
+    }
+
+    // --compress_db: rewrites an existing database's index and reference compressed, without
+    // rebuilding it, e.g. a downloaded raw database or one compressed as a single frame: the index
+    // in the column format (IndexCodec.h), reference.fna as a seekable zstd file. Each new file is
+    // read back and compared with the old content before the old file is removed.
     static void CompressDatabase(protal::Options const& options) {
         auto const params = options.CompressionParams();
         CompressionHint(options);
-        for (std::string const& raw : {options.GetIndexFile(), options.GetSequenceFile()}) {
+        if (params.frame_size > 0) CompressIndexFile(options, params);
+        for (std::string const& raw : params.frame_size > 0 ? std::vector<std::string>{options.GetSequenceFile()}
+                                                            : std::vector<std::string>{options.GetIndexFile(), options.GetSequenceFile()}) {
             std::string const source = zstd::Resolve(raw);
             std::string const target = raw + zstd::kExtension;
             if (!std::filesystem::exists(source)) {
@@ -200,6 +253,53 @@ namespace protal::build {
             std::cout << target << ": " << HumanBytes(after) << " (was " << HumanBytes(before) << " as "
                       << std::filesystem::path(source).filename().string() << ")" << std::endl;
             bm.PrintResults();
+        }
+    }
+
+    // --decompress_db: writes the database's index.prx and reference.fna raw again (e.g. for
+    // --preload_genomes_off or protal versions without zstd support) and removes the .zst files.
+    static void DecompressDatabase(protal::Options const& options) {
+        int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        {
+            std::string const raw = options.GetIndexFile(), source = zstd::Resolve(raw), partial = raw + ".partial";
+            if (source == raw) {
+                std::cout << raw << " is not compressed; kept" << std::endl;
+            } else {
+                std::cout << "Write " << raw << " from " << source << std::endl;
+                Seedmap map;
+                map.Load(source, threads);
+                std::ofstream os(partial, std::ios::binary);
+                map.Save(os);
+                os.close();
+                if (os.fail()) {
+                    std::cerr << "Writing " << partial << " failed" << std::endl;
+                    exit(8);
+                }
+                ReplaceFile(partial, raw, source);
+            }
+        }
+        {
+            std::string const raw = options.GetSequenceFile(), source = zstd::Resolve(raw), partial = raw + ".partial";
+            if (source == raw) {
+                std::cout << raw << " is not compressed; kept" << std::endl;
+            } else {
+                std::cout << "Write " << raw << " from " << source << std::endl;
+                zstd::InputFile in(source);
+                std::ofstream out(partial, std::ios::binary);
+                std::vector<char> buffer(size_t{8} << 20);
+                while (in.Stream()) {
+                    in.Stream().read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+                    out.write(buffer.data(), in.Stream().gcount());
+                }
+                out.close();
+                if (!in.IsOpen() || in.Stream().bad() || out.fail()) {
+                    std::cerr << "Decompressing " << source << " failed" << std::endl;
+                    std::error_code ec;
+                    std::filesystem::remove(partial, ec);
+                    exit(8);
+                }
+                ReplaceFile(partial, raw, source);
+            }
         }
     }
 

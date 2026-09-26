@@ -15,6 +15,7 @@ PROTAL          protal binary (default: build/protal)
 SIMULATE        simulate_metagenomes binary (default: build/simulate_metagenomes; optional)
 """
 
+import filecmp
 import glob
 import os
 import random
@@ -547,19 +548,31 @@ class CompressedDatabaseTest(WorkDir):
             if not name.startswith(big):
                 for d in cls.dbs.values():
                     os.symlink(f, os.path.join(d, name))
+        # A raw copy: --decompress_db on symlinks to the database's files (a compressed index is in
+        # protal's column format, which zstd -d does not turn back into index.prx).
         for name in big:
-            path, raw = db_file(name), os.path.join(cls.dbs["raw"], name)
-            if path.endswith(".zst"):
-                subprocess.run(["zstd", "-q", "-d", "--long=31", path, "-o", raw], check=True)
-            else:
-                os.symlink(path, raw)
+            path = db_file(name)
+            os.symlink(path, os.path.join(cls.dbs["raw"], os.path.basename(path)))
+        cls.decompress_rc, cls.decompress_log = run(cls.work, "--decompress_db", "--db", cls.dbs["raw"], "-t", "4")
+        for name in big:
+            raw = os.path.join(cls.dbs["raw"], name)
             # -f: raw may be a symlink, which the zstd CLI skips otherwise.
             subprocess.run(["zstd", "-q", "-f", "-3", "--long=27", raw, "-o", os.path.join(cls.dbs["single"], name + ".zst")],
                            check=True)
             os.symlink(raw, os.path.join(cls.dbs["seekable"], name))
-        # --compress_db turns the symlinked raw files into seekable .zst files (removing the links).
+        # --compress_db turns the symlinked raw files into .zst files (removing the links): the
+        # index in the column format, the reference seekable.
         cls.compress_rc, cls.compress_log = run(cls.work, "--compress_db", "--db", cls.dbs["seekable"], "-t", "4",
                                                 "--compress_level", "3", "--compress_frame_mb", "1")
+
+    def test_decompress_db(self):
+        self.assertEqual(self.decompress_rc, 0, self.decompress_log[-3000:])
+        for name in ("index.prx", "reference.fna"):
+            self.assertTrue(os.path.isfile(os.path.join(self.dbs["raw"], name)), f"raw {name}")
+            self.assertFalse(os.path.lexists(os.path.join(self.dbs["raw"], name + ".zst")))
+        with open(os.path.join(self.dbs["raw"], "reference.map"), "rb") as fh:
+            ends = [int(line.split()[3]) for line in fh]
+        self.assertGreaterEqual(os.path.getsize(os.path.join(self.dbs["raw"], "reference.fna")), max(ends))
 
     def test_compress_db(self):
         self.assertEqual(self.compress_rc, 0, self.compress_log[-3000:])
@@ -568,9 +581,24 @@ class CompressedDatabaseTest(WorkDir):
             self.assertTrue(is_seekable(os.path.join(self.dbs["seekable"], name + ".zst")), f"{name}.zst is seekable")
             self.assertFalse(is_seekable(os.path.join(self.dbs["single"], name + ".zst")))
             self.assertTrue(os.path.exists(os.path.join(self.dbs["raw"], name)), "the raw files stay")
+        head = subprocess.run(["zstd", "-dc", os.path.join(self.dbs["seekable"], "index.prx.zst")],
+                              stdout=subprocess.PIPE).stdout[:8]
+        self.assertEqual(head, b"PRXSPLT1", "the index is in the column format")
         rc, log = run(self.work, "--compress_db", "--db", self.dbs["seekable"], "-t", "2")
         self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("already in the column format; kept", log)
         self.assertIn("already seekable; kept", log)
+
+    def test_round_trip_is_byte_identical(self):
+        """--decompress_db of the column-format index gives exactly the raw index."""
+        db = self.path("round_trip_db")
+        os.mkdir(db)
+        for f in glob.glob(os.path.join(self.dbs["seekable"], "*")):
+            os.symlink(os.path.realpath(f), os.path.join(db, os.path.basename(f)))
+        rc, log = run(self.work, "--decompress_db", "--db", db, "-t", "4")
+        self.assertEqual(rc, 0, log[-3000:])
+        for name in ("index.prx", "reference.fna"):
+            self.assertTrue(filecmp.cmp(os.path.join(db, name), os.path.join(self.dbs["raw"], name), shallow=False), name)
 
     def test_identical_results(self):
         def result(kind, threads):
@@ -603,7 +631,7 @@ class CompressedDatabaseTest(WorkDir):
             fh.write(data)
         rc, log = run(self.work, "--db", bad_db, *reads("sa"), "-o", "out_bad", "-t", "4", "--no_qcmsa")
         self.assertEqual(rc, 8, log[-3000:])
-        self.assertRegex(log, r"Invalid index .*frame \d+ of \d+.*truncated or corrupt")
+        self.assertRegex(log, r"Invalid index .*(frame|chunk) \d+ of \d+.*truncated or corrupt")
 
     def test_no_preload_needs_a_raw_reference(self):
         rc, log = run(self.work, "--db", self.dbs["seekable"], *reads("sa"), "-o", "out_lazy", "-t", "1", "--no_qcmsa",

@@ -272,12 +272,14 @@ namespace protal::zstd {
             throw std::runtime_error(m_path + ": " + what);
         }
 
-        // Decompresses up to capacity bytes into dst; 0 only at the clean end of the data.
+        // Decompresses up to capacity bytes into dst; 0 only at the clean end of the data. Bytes
+        // decoded before an error are returned first; the error is thrown by the next call.
         size_t Decompress(char* dst, size_t capacity) {
             if (!IsOpen()) return 0;
             if (!m_error.empty()) Fail(m_error);
             ZSTD_outBuffer out{dst, capacity, 0};
-            while (out.pos < out.size) {
+            std::string error;
+            while (out.pos < out.size && error.empty()) {
                 if (m_in.pos == m_in.size && !m_input_done) {
                     ReadAhead::Chunk* chunk = m_reader->Next();
                     if (chunk) {
@@ -286,20 +288,31 @@ namespace protal::zstd {
                     } else {
                         m_input_done = true;
                         m_in = {nullptr, 0, 0};
-                        std::string const error = m_reader->Error();
-                        if (!error.empty()) Fail("read error: " + error);
-                        if (!m_seen_input) Fail("the file is empty");
+                        std::string const read_error = m_reader->Error();
+                        if (!read_error.empty()) error = "read error: " + read_error;
+                        else if (!m_seen_input) error = "the file is empty";
+                        if (!error.empty()) break;
                     }
                 }
                 size_t const out_before = out.pos, in_before = m_in.pos;
                 size_t const ret = ZSTD_decompressStream(m_dctx, &out, &m_in);
-                if (ZSTD_isError(ret)) Fail(std::string(ZSTD_getErrorName(ret)) + " (corrupt or not a zstd file?)");
+                if (ZSTD_isError(ret)) {
+                    error = std::string(ZSTD_getErrorName(ret)) + " (corrupt or not a zstd file?)";
+                    break;
+                }
                 bool const progress = out.pos != out_before || m_in.pos != in_before;
                 // Without progress, ret only hints at the header of a possible next frame.
                 if (progress) m_frame_bytes_left = ret;
                 if (m_input_done && m_in.pos == m_in.size && !progress) {
-                    if (m_frame_bytes_left != 0) Fail("the file ends inside a zstd frame (truncated or corrupt file?)");
+                    if (m_frame_bytes_left != 0) error = "the file ends inside a zstd frame (truncated or corrupt file?)";
                     break;
+                }
+            }
+            if (!error.empty()) {
+                if (out.pos == 0) Fail(error);
+                if (m_error.empty()) {
+                    m_error = error;
+                    std::cerr << "Error reading " << m_path << ": " << error << std::endl;
                 }
             }
             m_delivered += out.pos;
@@ -770,6 +783,134 @@ namespace protal::zstd {
             return 0;
         }
         return total;
+    }
+
+    // Decompresses frame `index` of a seekable file (opened as fd) into out.
+    inline std::string ReadFrame(int fd, SeekTable const& table, size_t index, std::vector<char>& input,
+                                 std::vector<char>& out, ZSTD_DCtx* dctx) {
+        auto const& frame = table.frames[index];
+        std::string const where = "frame " + std::to_string(index + 1) + " of " + std::to_string(table.frames.size());
+        input.resize(frame.compressed_size);
+        if (!PreadAll(fd, input.data(), frame.compressed_size, frame.compressed_offset)) return where + ": read error";
+        unsigned long long const content = ZSTD_getFrameContentSize(input.data(), input.size());
+        if (content == ZSTD_CONTENTSIZE_ERROR) return where + ": not a zstd frame";
+        if (content != ZSTD_CONTENTSIZE_UNKNOWN && content != frame.decompressed_size) {
+            return where + ": holds " + std::to_string(content) + " bytes, the seek table says " +
+                   std::to_string(frame.decompressed_size);
+        }
+        out.resize(frame.decompressed_size);
+        size_t const got = ZSTD_decompressDCtx(dctx, out.data(), out.size(), input.data(), input.size());
+        if (ZSTD_isError(got)) return where + ": " + ZSTD_getErrorName(got);
+        if (got != out.size()) return where + ": " + std::to_string(got) + " bytes, the seek table says " + std::to_string(out.size());
+        return "";
+    }
+
+    // Calls handle(index, data, size, worker) for each frame of a seekable file from `first` on,
+    // decompressed, on up to `threads` threads. handle returns an error message, empty on success.
+    template<typename Handle>
+    std::string ForEachFrame(std::string const& path, SeekTable const& table, size_t first, int threads, Handle&& handle) {
+        int const fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+        if (fd < 0) return std::string("cannot open the file: ") + std::strerror(errno);
+        size_t const units = table.frames.size() > first ? table.frames.size() - first : 0;
+        struct State {
+            ZSTD_DCtx* dctx = nullptr;
+            std::vector<char> input, output;
+            State() = default;
+            State(State const&) = delete;
+            ~State() { if (dctx) ZSTD_freeDCtx(dctx); }
+        };
+        std::vector<State> states(WorkerCount(units, threads));
+        int const window_max = ZSTD_dParam_getBounds(ZSTD_d_windowLogMax).upperBound;
+        std::string const error = ParallelFor(units, threads, [&](size_t i, size_t worker) -> std::string {
+            State& s = states[worker];
+            if (!s.dctx) {
+                s.dctx = ZSTD_createDCtx();
+                if (!s.dctx) return "cannot allocate a zstd decompression context";
+                ZSTD_DCtx_setParameter(s.dctx, ZSTD_d_windowLogMax, window_max);
+            }
+            std::string e = ReadFrame(fd, table, first + i, s.input, s.output, s.dctx);
+            if (!e.empty()) return e;
+            return handle(first + i, s.output.data(), s.output.size(), worker);
+        });
+        ::close(fd);
+        return error;
+    }
+
+    // Writes `count` frames to path in the seekable format: make(index, out) fills frame index's
+    // content (an error message, empty on success); up to params.threads frames are made and
+    // compressed at once, and written in order, followed by the seek table. Returns the bytes
+    // written, or nullopt with a message in error.
+    template<typename Make>
+    std::optional<uint64_t> WriteSeekable(std::string const& path, size_t count, Params const& params, Make&& make,
+                                          std::string& error) {
+        int const threads = std::max(1, params.threads);
+        struct Slot {
+            ZSTD_CCtx* cctx = nullptr;
+            std::vector<char> in, out;
+            size_t out_size = 0;
+            Slot() = default;
+            Slot(Slot const&) = delete;
+            ~Slot() { if (cctx) ZSTD_freeCCtx(cctx); }
+        };
+        std::vector<Slot> slots(static_cast<size_t>(threads));
+        for (auto& slot : slots) {
+            slot.cctx = ZSTD_createCCtx();
+            bool ok = slot.cctx && !ZSTD_isError(ZSTD_CCtx_setParameter(slot.cctx, ZSTD_c_compressionLevel, params.level)) &&
+                      !ZSTD_isError(ZSTD_CCtx_setParameter(slot.cctx, ZSTD_c_checksumFlag, 1));
+            if (ok && params.window_log > 0) {
+                ok = !ZSTD_isError(ZSTD_CCtx_setParameter(slot.cctx, ZSTD_c_enableLongDistanceMatching, 1)) &&
+                     !ZSTD_isError(ZSTD_CCtx_setParameter(slot.cctx, ZSTD_c_windowLog, params.window_log));
+            }
+            if (!ok) {
+                error = "cannot set up zstd compression (level " + std::to_string(params.level) + ", window log " +
+                        std::to_string(params.window_log) + ")";
+                return std::nullopt;
+            }
+        }
+        std::FILE* out = std::fopen(path.c_str(), "wb");
+        if (!out) {
+            error = std::string("cannot open for writing: ") + std::strerror(errno);
+            return std::nullopt;
+        }
+        std::string table;
+        uint64_t written = 0;
+        for (size_t batch_start = 0; batch_start < count && error.empty(); batch_start += slots.size()) {
+            size_t const batch = std::min(slots.size(), count - batch_start);
+            error = ParallelFor(batch, threads, [&](size_t b, size_t) -> std::string {
+                Slot& slot = slots[b];
+                slot.in.clear();
+                std::string e = make(batch_start + b, slot.in);
+                if (!e.empty()) return e;
+                if (slot.in.size() > 0xffffffffu) return "frame " + std::to_string(batch_start + b) + " is larger than 4 GB";
+                slot.out.resize(ZSTD_compressBound(slot.in.size()));
+                size_t const r = ZSTD_compress2(slot.cctx, slot.out.data(), slot.out.size(), slot.in.data(), slot.in.size());
+                if (ZSTD_isError(r)) return ZSTD_getErrorName(r);
+                slot.out_size = r;
+                return "";
+            });
+            for (size_t b = 0; b < batch && error.empty(); b++) {
+                if (std::fwrite(slots[b].out.data(), 1, slots[b].out_size, out) != slots[b].out_size) {
+                    error = std::string("write failed: ") + std::strerror(errno);
+                }
+                PutLE32(table, static_cast<uint32_t>(slots[b].out_size));
+                PutLE32(table, static_cast<uint32_t>(slots[b].in.size()));
+                written += slots[b].out_size;
+            }
+        }
+        if (error.empty()) {
+            std::string seek;
+            PutLE32(seek, kSeekTableFrameMagic);
+            PutLE32(seek, static_cast<uint32_t>(table.size() + 9));
+            seek += table;
+            PutLE32(seek, static_cast<uint32_t>(count));
+            seek.push_back('\0');
+            PutLE32(seek, kSeekTableMagic);
+            if (std::fwrite(seek.data(), 1, seek.size(), out) != seek.size()) error = std::string("write failed: ") + std::strerror(errno);
+            written += seek.size();
+        }
+        if (std::fclose(out) != 0 && error.empty()) error = std::string("closing failed: ") + std::strerror(errno);
+        if (!error.empty()) return std::nullopt;
+        return written;
     }
 
     // A source of data to compress, read in order.

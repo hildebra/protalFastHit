@@ -111,7 +111,8 @@ namespace protal {
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
-                ("compress_db", "Compress the database in --db in place, without rebuilding it: index.prx and reference.fna (raw, or zstd files with a single frame) are rewritten as index.prx.zst and reference.fna.zst in frames (see --compress_level, --compress_frame_mb, -t), each verified before the old file is removed.")
+                ("compress_db", "Compress the database in --db in place, without rebuilding it: index.prx (raw or compressed in an older way) is rewritten as index.prx.zst in protal's column format, reference.fna as a seekable reference.fna.zst (see --compress_level, --compress_frame_mb, -t); each is read back and compared before the old file is removed. Needs the index in memory.")
+                ("decompress_db", "Write the database in --db raw again (index.prx, reference.fna) and remove index.prx.zst and reference.fna.zst, e.g. for --preload_genomes_off or older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
                 ("full_reference", "All marker genomes (not only representative ones) to check unique k-mers during build process", cxxopts::value<std::string>()->default_value(""))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "Newline-delimited gene ids (>=1) to include during build (subset of marker genes)", cxxopts::value<std::string>()->default_value(""))
@@ -156,6 +157,7 @@ namespace protal {
         std::vector<uint8_t> build_gene_mask;
         bool compress = true;
         bool compress_db = false;
+        bool decompress_db = false;
         int compress_level = DEFAULT_COMPRESS_LEVEL;
         int compress_window_log = DEFAULT_COMPRESS_WINDOW_LOG;
         int compress_frame_mb = DEFAULT_COMPRESS_FRAME_MB;
@@ -234,6 +236,7 @@ namespace protal {
         std::vector<uint8_t> m_build_gene_mask;
         bool m_compress = true;
         bool m_compress_db = false;
+        bool m_decompress_db = false;
         int m_compress_level = DEFAULT_COMPRESS_LEVEL;
         int m_compress_window_log = DEFAULT_COMPRESS_WINDOW_LOG;
         int m_compress_frame_mb = DEFAULT_COMPRESS_FRAME_MB;
@@ -338,6 +341,7 @@ namespace protal {
                 m_build_gene_mask(std::move(d.build_gene_mask)),
                 m_compress(d.compress),
                 m_compress_db(d.compress_db),
+                m_decompress_db(d.decompress_db),
                 m_compress_level(d.compress_level),
                 m_compress_window_log(d.compress_window_log),
                 m_compress_frame_mb(d.compress_frame_mb),
@@ -555,6 +559,10 @@ namespace protal {
 
         bool CompressDbMode() const {
             return m_compress_db;
+        }
+
+        bool DecompressDbMode() const {
+            return m_decompress_db;
         }
 
         zstd::Params CompressionParams() const {
@@ -1227,10 +1235,10 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                     error_log.emplace_back("--compress_frame_mb must be between 0 and 4095");
                 }
             }
-            if (m_compress_db && m_build) {
-                error_log.emplace_back("--compress_db and --build cannot be combined (--build compresses unless --no_compress)");
+            if (int(m_compress_db) + int(m_decompress_db) + int(m_build) > 1) {
+                error_log.emplace_back("--build, --compress_db and --decompress_db cannot be combined (--build compresses unless --no_compress)");
             }
-            if (m_compress_db) {
+            if (m_compress_db || m_decompress_db) {
                 // Only the database files are needed.
             } else if (m_build) {
                 // Either file may be zstd-compressed, or have a .zst sibling instead.
@@ -1584,8 +1592,10 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
             // Protal currently only supports paired-end reads. Catch single-end (or
             // otherwise mismatched) input here with a clear message, instead of running
             // into mismatched read lists further down.
-            bool const compress_db = result.count("compress_db") > 0;  // works on the database only
-            if (!build && !profile_only && !compress_db) {
+            // These work on the database only.
+            bool const compress_db = result.count("compress_db") > 0;
+            bool const decompress_db = result.count("decompress_db") > 0;
+            if (!build && !profile_only && !compress_db && !decompress_db) {
                 if (first_list.empty() && second_list.empty()) {
                     std::cerr << "No input reads given. Provide paired-end reads via -1/--first and "
                                  "-2/--second, or a map file via --map (see --map_help)." << std::endl;
@@ -1758,6 +1768,7 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
             d.build_gene_mask          = std::move(build_gene_mask);
             d.compress                 = !result.count("no_compress");
             d.compress_db              = compress_db;
+            d.decompress_db            = decompress_db;
             d.compress_level           = result["compress_level"].as<int>();
             d.compress_window_log      = result["compress_window_log"].as<int>();
             d.compress_frame_mb        = result["compress_frame_mb"].as<int>();

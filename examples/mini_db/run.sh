@@ -18,7 +18,7 @@
 #              PYTHON  python 3 interpreter (default: python3; standard library only)
 #              THREADS protal threads (default: 4)
 #              PROTAL_BUILD_ARGS  extra protal --build options, e.g. --no_compress
-# The DB is zstd-compressed by default (~1 MB); with --no_compress, index.prx alone is
+# The DB is zstd-compressed by default (index.prx.zst ~0.5 MB); with --no_compress, index.prx alone is
 # ~3.2 GB (fixed-size key map). checksums.md5 needs the zstd CLI for compressed files.
 # Exits 0 if all checks pass, 1 otherwise.
 set -euo pipefail

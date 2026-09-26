@@ -72,12 +72,20 @@ wherever storage is slower than decompression, e.g. on network file systems.
 protal writes these files in zstd's *seekable* format: independent frames of 64 MB each (plus a
 seek table at the end), so that loading uses `-t` threads, each decompressing whole frames straight
 into memory (~1-1.5 GB/s per thread). Raw files are read with `-t` threads too. A `.zst` with a
-single frame (e.g. from the zstd CLI) still loads, but with one thread. Plain `zstd -d` reads the
-seekable files.
+single frame (e.g. from the zstd CLI) still loads, but with one thread.
+
+`index.prx.zst` holds the index in columns rather than as the raw bytes of `index.prx`: each
+frame is a chunk of about 64 MB of the index, stored as the number of values per k-mer, then each
+field of the values (taxon, gene, position, flags) in its own byte planes, only as wide as the
+chunk needs; empty key blocks cost one bit. In tests this was 25-55% smaller than the raw bytes
+compressed alike, and loaded about as fast (within ~10% on a synthetic index with 680 MB of values,
+faster on sparse ones), since chunks decode in parallel. The writer decodes every chunk it writes and keeps the raw cells of any
+that would not round-trip exactly. Because of the columns, plain `zstd -d` does not give an
+`index.prx`; use `protal --decompress_db` (below). `reference.fna.zst` is plain seekable zstd.
 
 `protal --build` writes a compressed database by default: `index.prx.zst`, and `reference.fna` is
-replaced by `reference.fna.zst` (verified before `reference.fna` is removed). Frames are compressed
-in parallel with `-t` threads.
+replaced by `reference.fna.zst` (both verified; `reference.fna` is removed only afterwards).
+Frames are compressed in parallel with `-t` threads.
 
 | Build option | Default | |
 |---|---|---|
@@ -91,8 +99,17 @@ without rebuilding it; the content stays byte-identical and each file is verifie
 
 ```bash
 protal --compress_db --db /path/to/protal-db -t 16      # -> index.prx.zst, reference.fna.zst
-zstd -d --long=31 index.prx.zst                         # back to raw, e.g. for protal versions before zstd support
+protal --decompress_db --db /path/to/protal-db -t 16    # back to raw, e.g. for protal versions before zstd support
 ```
+
+`--decompress_db` writes `index.prx` and `reference.fna` and removes the `.zst` files; the index
+is byte-identical to one built with `--no_compress`.
+
+The order of the genes in `reference.fna` matters for its size: related species' copies of a
+marker gene are similar, so a file ordered by gene (then by taxon, in taxonomic order) compresses
+about 2x better than one ordered genome by genome, if related genomes lie further apart in the
+file than zstd's window. protal finds genes through `reference.map`, so any order works;
+`scripts/mini_db/gtdb_to_protal_db.py` writes gene order by default.
 
 `--preload_genomes_off` (loading reference genes on demand) needs a raw `reference.fna`.
 `scripts/db_compression_benchmark.sh` measures ratio and speed per level on your database and
@@ -173,7 +190,7 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
 - `simulate_reads.py` draws paired reads from a mock community of those genomes (no ART needed)
   and writes the truth table next to them.
 - The build compresses the database (see [Compressed databases](#compressed-databases)):
-  `index.prx.zst` is about 1 MB here, while a raw `index.prx` is about 3 GB even for a tiny
+  `index.prx.zst` is about 0.5 MB here, while a raw `index.prx` is about 3 GB even for a tiny
   reference, because the k-mer key map has a fixed size. `PROTAL_BUILD_ARGS=--no_compress`
   builds a raw one.
 

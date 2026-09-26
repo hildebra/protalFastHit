@@ -1760,8 +1760,9 @@ namespace protal {
 
         std::cout << "Options:\n" << options.ToString() << std::endl;
 
-        if (options.CompressDbMode()) {
-            protal::build::CompressDatabase(options);  // exits 8 on failure
+        if (options.CompressDbMode() || options.DecompressDbMode()) {
+            if (options.CompressDbMode()) protal::build::CompressDatabase(options);  // exits 8 on failure
+            else protal::build::DecompressDatabase(options);
             return RunStatus::Get().Finish();
         }
 

@@ -23,7 +23,7 @@ script exits 0 if every check passes and 1 otherwise, so it can be used in CI.
    *Mockella alpha* and *M. beta* share a genus (~92% identical marker genes); *Fakibacter
    gamma* is in another phylum.
 2. `gtdb_to_protal_db.py` converts it into `WORKDIR/protal_db/`.
-3. `protal --build` writes `index.prx.zst` (~1 MB) and `unique_kmers.tsv`, and replaces
+3. `protal --build` writes `index.prx.zst` (~0.5 MB) and `unique_kmers.tsv`, and replaces
    `reference.fna` by `reference.fna.zst`. With `PROTAL_BUILD_ARGS=--no_compress` the database
    stays raw, and `index.prx` takes ~3 GB whatever the reference size. Both give identical results.
 

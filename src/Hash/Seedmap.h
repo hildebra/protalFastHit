@@ -14,6 +14,7 @@
 #include <fstream>
 #include "Utilities.h"
 #include "Zstd.h"
+#include "IndexCodec.h"
 #include "KmerUtils.h"
 #include "ReferenceFingerprint.h"
 #include "sparse_map.h"
@@ -528,6 +529,23 @@ namespace protal {
             ofs.write((char *) m_map, sizeof(*m_map) * values_size);
         }
 
+        index_codec::Layout CodecLayout() const {
+            return { keymap_size / m_keys_per_ctrl_block, m_keys_per_ctrl_block, ctrl_block_cell_size, values_size };
+        }
+
+        // Writes the index compressed in columns (IndexCodec.h), then reads the file back chunk by
+        // chunk and compares it with the index. Returns an error message, empty on success.
+        std::string SaveCompressed(std::string const& path, zstd::Params const& params, uint64_t& written, size_t& raw_chunks) {
+            std::string error;
+            std::string const header = HeaderBytes();
+            auto const* values = reinterpret_cast<uint64_t const*>(m_map);
+            auto const bytes = index_codec::Write(path, header, CodecLayout(), m_keymap, values, params, error, &raw_chunks);
+            if (!bytes) return error;
+            written = *bytes;
+            error = index_codec::Verify(path, header, CodecLayout(), m_keymap, values, params.threads);
+            return error.empty() ? error : "reading it back: " + error;
+        }
+
         // Save's bytes as memory regions for zstd::CompressFrames; header_storage holds the header
         // and must outlive the reader.
         void SerializedParts(std::string& header_storage, zstd::MemoryReader& reader) {
@@ -569,15 +587,29 @@ namespace protal {
             if (ifs.bad()) InvalidIndex(name, "the file could not be read or decompressed (truncated or corrupt file?)");
         }
 
-        // Reads index.prx or index.prx.zst. A raw or seekable zstd file (as --build writes) is read by
-        // `threads` threads at once, straight into the key map and values; any other zstd file in
-        // one stream.
+        // Reads index.prx or index.prx.zst with `threads` threads: the column format --build writes
+        // (IndexCodec.h) chunk by chunk, a raw file or a seekable zstd file of the raw bytes straight
+        // into the key map and values, any other zstd file in one stream.
         void Load(std::string file, int threads = 1) {
             zstd::InputFile in(file);
             if (!in.IsOpen()) InvalidIndex(file, "cannot open the file");
-            if (in.Compressed() && !zstd::IsSeekable(file)) {
-                Load(in.Stream(), file);
-                return;
+            if (in.Compressed()) {
+                std::string error;
+                auto const table = zstd::ReadSeekTable(file, error);
+                if (!error.empty()) InvalidIndex(file, error + " (truncated or corrupt file?)");
+                if (!table) {
+                    if (index_codec::StartsWithMagic(file)) {
+                        InvalidIndex(file, "the seek table at its end is missing (truncated or corrupt file?)");
+                    }
+                    Load(in.Stream(), file);
+                    return;
+                }
+                auto const container = index_codec::ReadContainer(file, *table, error);
+                if (!error.empty()) InvalidIndex(file, error + " (truncated or corrupt file?)");
+                if (container) {
+                    LoadColumns(file, *table, *container, threads);
+                    return;
+                }
             }
             uint64_t const data_bytes = LoadLayout(in.Stream(), file);
             auto const position = in.Stream().tellg();
@@ -602,6 +634,24 @@ namespace protal {
                 InvalidIndex(file, std::to_string(found) + " bytes of data, expected " + std::to_string(data_bytes) +
                                    " (truncated or corrupt file?)");
             }
+        }
+
+        // The column format (IndexCodec.h): the raw header from the container, then the chunks, decoded
+        // in parallel into the key map and values.
+        void LoadColumns(std::string const& file, zstd::SeekTable const& table, index_codec::Container const& container,
+                         int threads) {
+            std::istringstream header(container.index_header);
+            LoadLayout(header, file);
+            auto const expected = CodecLayout();
+            auto const& l = container.layout;
+            if (l.blocks != expected.blocks || l.keys_per_block != expected.keys_per_block ||
+                l.ctrl_cells != expected.ctrl_cells || l.values != expected.values) {
+                InvalidIndex(file, "the layout of the compressed index does not match its header (corrupt file?)");
+            }
+            AllocateKeymap(keymap_size_total);
+            AllocateValues(values_size);
+            std::string const error = index_codec::Decode(file, table, container, m_keymap, reinterpret_cast<uint64_t*>(m_map), threads);
+            if (!error.empty()) InvalidIndex(file, error + " (truncated or corrupt file?)");
         }
 
         // Header and layout fields of an index written by Save; every size is checked against the
