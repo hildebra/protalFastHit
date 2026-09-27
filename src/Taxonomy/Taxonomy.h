@@ -6,6 +6,7 @@
 
 #include "sparse_map.h"
 #include "sparse_set.h"
+#include <istream>
 
 namespace protal::taxonomy {
     struct Node;
@@ -194,6 +195,7 @@ namespace protal::taxonomy {
 
     class IntTaxonomy {
         void Load(std::string path);
+        void Load(std::istream& is, std::string const& name);
 
     public:
         StringIdMap string_to_id;
@@ -201,6 +203,8 @@ namespace protal::taxonomy {
         TaxId root_id = 0;
 
         IntTaxonomy(std::string path);
+        // From internal_taxonomy.dmp's content in `is`; name is used in messages.
+        IntTaxonomy(std::istream& is, std::string const& name);
         int LCA(int t1, int t2);
         IntNode &Get(int t1);
         IntNode &Get(int t1, std::string rank);

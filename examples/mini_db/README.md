@@ -23,7 +23,11 @@ script exits 0 if every check passes and 1 otherwise, so it can be used in CI.
    *Mockella alpha* and *M. beta* share a genus (~92% identical marker genes); *Fakibacter
    gamma* is in another phylum.
 2. `gtdb_to_protal_db.py` converts it into `WORKDIR/protal_db/`.
-3. `protal --build` writes `index.prx` (~3 GB, whatever the reference size) and `unique_kmers.tsv`.
+3. `protal --build` indexes it and packs the database into `WORKDIR/protal_db/database.protal`
+   (~1 MB). With `PROTAL_BUILD_ARGS=--no_bundle` the database stays separate compressed files
+   (`index.prx.zst`, `reference.fna.zst`, ...), with `--no_compress` separate raw files, where
+   `index.prx` takes ~3 GB whatever the reference size. All give identical results. The checks
+   read the database's files from `WORKDIR/db_files/`, which `protal --unpack_db` writes.
 
 The DB is reused on later runs as long as the protal binary and the generator scripts are
 unchanged (`WORKDIR/db.stamp`). `--rebuild` forces a new build.
@@ -59,7 +63,9 @@ congeneric species share.
 
 Both simulators are seeded and write byte-identical files for the same settings (also the
 `.gz` files: no timestamps in the headers). `WORKDIR/checksums.md5` lists the generated DB
-inputs and reads, so you can compare two runs or two machines. `WORKDIR/run_info.txt`
+inputs and reads, so you can compare two runs or two machines; for compressed files it lists the
+checksum of the decompressed content (needs the `zstd` CLI), so compressed and raw databases
+compare equal. `WORKDIR/run_info.txt`
 records the git commit, the protal binary and its md5, the Python version and the settings.
 protal's own output may differ slightly with `THREADS`.
 

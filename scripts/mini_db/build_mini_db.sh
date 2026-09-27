@@ -7,8 +7,12 @@
 #   gtdb_r226/   the synthetic GTDB release (see simulate_gtdb_release.py)
 #   protal_db/   the protal database; use it with --db or $PROTAL_DB_PATH
 #   build.log    protal --build output
-# The protal binary is $PROTAL (default: build/protal). Note that index.prx is
-# ~3 GB whatever the reference size: the k-mer key map is a fixed 2^30 slots.
+# The protal binary is $PROTAL (default: build/protal); $PROTAL_BUILD_ARGS adds options
+# to protal --build (e.g. --no_bundle, --no_compress). By default the build packs the
+# database into protal_db/database.protal (~1 MB here; full_reference.fna, gene2geneid.tsv
+# and genome2tiid.tsv stay next to it); --no_bundle keeps separate compressed files
+# (index.prx.zst, reference.fna.zst, ...). Uncompressed, index.prx is ~3 GB whatever the
+# reference size (the k-mer key map is a fixed 2^30 slots).
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -27,14 +31,18 @@ rm -rf "$gtdb" "$db"
 "$python" "$here/gtdb_to_protal_db.py" --gtdb "$gtdb" --outdir "$db"
 
 # --no_profile: without it, build mode falls through to profiling an empty sample list.
-"$protal" --build --no_profile -t 1 \
+# shellcheck disable=SC2086
+"$protal" --build --no_profile -t 1 ${PROTAL_BUILD_ARGS:-} \
     --db "$db" \
     --reference "$db/reference.fna" \
     --full_reference "$db/full_reference.fna" \
     > "$out/build.log" 2>&1 || { tail -30 "$out/build.log" >&2; exit 1; }
 
-for f in index.prx unique_kmers.tsv; do
-    [ -s "$db/$f" ] || { echo "protal --build did not write $db/$f (see $out/build.log)" >&2; exit 1; }
-done
+if [ ! -s "$db/database.protal" ]; then  # --no_bundle or --no_compress: separate files
+    for f in index.prx reference.fna unique_kmers.tsv; do
+        [ -s "$db/$f" ] || [ -s "$db/$f.zst" ] || {
+            echo "protal --build wrote neither $db/database.protal nor $db/$f (see $out/build.log)" >&2; exit 1; }
+    done
+fi
 echo "Mini protal DB ready: $db"
 ls -la "$db"

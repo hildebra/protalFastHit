@@ -180,7 +180,9 @@ strain-clean:
 
 # ---- mini DB: sparse synthetic GTDB release (3 species) -> protal DB -----------
 # Writes {{mini_db_dir}}/gtdb_r226 (GTDB-layout release) and
-# {{mini_db_dir}}/protal_db (use with --db). index.prx is ~3 GB regardless of size.
+# {{mini_db_dir}}/protal_db (use with --db), holding the single-file database.protal
+# (~1 MB; raw, index.prx would be ~3 GB regardless of size). PROTAL_BUILD_ARGS=--no_bundle
+# keeps separate compressed files, --no_compress builds it raw.
 mini_db_dir := "data/mini_db"
 mini-db: baseline
     PROTAL={{protal}} bash scripts/mini_db/build_mini_db.sh {{mini_db_dir}}

@@ -76,6 +76,18 @@ class MiniDbTest(unittest.TestCase):
             self.assertEqual(data[end:end + 1], b"\n")
             self.assertRegex(data[start:end].decode(), r"^[ACGT]+$")
 
+    def test_reference_order(self):
+        def map_rows(db):
+            with open(os.path.join(db, "reference.map")) as fh:
+                return [tuple(map(int, l.split("\t")[:2])) for l in fh]
+        rows = map_rows(self.db)  # default: by gene, then taxid
+        self.assertEqual(rows, sorted(rows, key=lambda r: (r[1], r[0])))
+        genome_db = os.path.join(self.tmp.name, "db_genome_order")
+        run(CONVERT, "--gtdb", self.gtdb, "--outdir", genome_db, "--order", "genome")
+        genome_rows = map_rows(genome_db)
+        self.assertEqual(genome_rows, sorted(genome_rows))
+        self.assertEqual(sorted(rows), sorted(genome_rows), "the same genes, only the order differs")
+
     def test_taxonomy_tree(self):
         tax = self.taxonomy()
         roots = [i for i, r in tax.items() if int(r[1]) == i]

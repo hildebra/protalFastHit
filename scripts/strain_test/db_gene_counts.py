@@ -53,6 +53,9 @@ def main():
 
     # one streaming pass over the big unique_kmers.tsv, counting rows per wanted id
     uk = os.path.join(args.db, "unique_kmers.tsv")
+    if not os.path.exists(uk) and os.path.exists(os.path.join(args.db, "database.protal")):
+        sys.exit(f"{uk} is packed into {args.db}/database.protal; write it out first with: "
+                 f"protal --unpack_db --db {args.db}/database.protal")
     per_id = {gid: 0 for gid in id_to_sp}
     with open(uk, errors="ignore") as fh:
         for line in fh:

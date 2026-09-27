@@ -56,20 +56,24 @@ namespace protal {
         std::optional<taxonomy::IntTaxonomy> m_taxonomy;
 
     public:
-        ProtalDB(std::string sequence_file, std::string map_file) :
-                m_genomes(sequence_file, map_file),
+        ProtalDB(db::DbFile sequence_file, db::DbFile map_file) :
+                m_genomes(std::move(sequence_file), std::move(map_file)),
                 m_taxonomy() {
         }
 
-        ProtalDB(std::string sequence_file, std::string map_file, std::string hittable_genes_file, std::string unique_kmers_file) :
-                m_genomes(sequence_file, map_file),
+        ProtalDB(db::DbFile sequence_file, db::DbFile map_file, db::DbFile const& unique_kmers_file) :
+                m_genomes(std::move(sequence_file), std::move(map_file)),
                 m_taxonomy() {
-            // m_genomes.LoadHittableGenes(hittable_genes_file);
             m_genomes.LoadUniqueKmers(unique_kmers_file);
         }
 
-        void LoadTaxonomy(std::string file) {
-            m_taxonomy = taxonomy::IntTaxonomy(file);
+        void LoadTaxonomy(db::DbFile const& file) {
+            auto input = file.Open();
+            if (!file.Exists() || !input->IsOpen()) {
+                std::cerr << "Invalid taxonomy " << file.Name() << ": cannot open the file" << std::endl;
+                exit(8);
+            }
+            m_taxonomy = taxonomy::IntTaxonomy(input->Stream(), file.Name());
         }
 
         bool IsTaxonomyLoaded() const {
@@ -129,8 +133,8 @@ namespace protal {
     // found through reference.map. Every --reference record must therefore be a reference.map gene of
     // the same length, with ids and length inside the index's 20-bit fields.
     static void CheckReferenceAgainstMap(Options const& options, GenomeLoader& genomes) {
-        std::ifstream is(options.GetSequenceFilePath(), std::ios::in);
-        SeqReader reader{ is };
+        auto input = protal::build::OpenInput(options.GetSequenceFilePath());  // raw or .zst
+        SeqReader reader{ input->Stream() };
         FastxRecord record;
         size_t records = 0, problems = 0;
         constexpr uint64_t max_id = (uint64_t{1} << SEEDMAP_TAXID_BITS) - 1;
@@ -201,6 +205,15 @@ namespace protal {
             protal::build::Check<SimpleKmerHandler<ClosedSyncmer>, KmerPutterSM, DEBUG_NONE>(
                     options, kmer_putter, iterator);
 
+            // Last, as the build reads reference.fna until here: the single file (which compresses
+            // reference.fna itself), or separate files.
+            if (options.WriteBundle()) {
+                protal::build::BundleDatabase(options);
+            } else {
+                protal::build::CompressReference(options);
+                protal::build::RemoveStaleBundle(options);
+            }
+
             bm_build.PrintResults();
             protal_stats.WriteStats(std::cout);
 
@@ -211,13 +224,18 @@ namespace protal {
             bm_load_index.Start();
             // Load Index
             Seedmap map;
-            map.Load(options.GetIndexFile());
+            auto const index_file = options.IndexDbFile();
+            int const load_threads = static_cast<int>(options.GetThreads());
+            bool const single_frame = !index_file.InBundle() && zstd::IsCompressed(index_file.Path()) && !zstd::IsSeekable(index_file.Path());
+            std::cout << "Load index " << index_file.Name() << " (" << load_threads << " thread(s)"
+                      << (single_frame ? "; a single zstd frame is read with one" : "") << ")" << std::endl;
+            map.Load(index_file, load_threads);
             std::cout << "Index features: " << map.FeatureDescription() << std::endl;
-            if (map.HasReferenceFingerprint() &&
-                !(map.GetReferenceFingerprint() == ReferenceFingerprint::Of(options.GetSequenceMapFile(), options.GetSequenceFile()))) {
-                std::cerr << "index.prx was built against a different reference: " << options.GetSequenceMapFile()
-                          << " or " << options.GetSequenceFile() << " changed since the index was built. Rebuild the "
-                          << "index (--build) or restore the reference files it was built with." << std::endl;
+            auto const map_file = options.SequenceMapDbFile(), fna_file = options.SequenceDbFile();
+            if (map.HasReferenceFingerprint() && !(map.GetReferenceFingerprint() == ReferenceFingerprint::Of(map_file, fna_file))) {
+                std::cerr << "index.prx was built against a different reference: " << map_file.Name() << " or "
+                          << fna_file.Name() << " changed since the index was built. Rebuild the index (--build) or "
+                          << "restore the reference files it was built with." << std::endl;
                 exit(8);
             }
 
@@ -237,7 +255,7 @@ namespace protal {
             if (options.PreloadGenomes() && !genomes.AllGenomesLoaded()) {
                 Benchmark bm_preload_genomes("Preload genomes");
                 bm_preload_genomes.Start();
-                genomes.LoadAllGenomes();
+                genomes.LoadAllGenomes(static_cast<int>(options.GetThreads()));
                 bm_preload_genomes.Stop();
                 bm_preload_genomes.PrintResults();
             }
@@ -447,7 +465,7 @@ namespace protal {
 //         std::cout << "ProfileWrapper2" << std::endl;
 //         GenomeLoader& genomes = db.GetGenomes();
 //
-//         if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.GetInternalTaxonomyFile());
+//         if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
 //         auto& taxonomy = db.GetTaxonomy();
 //
 // //        omp_set_num_threads(6);
@@ -477,7 +495,7 @@ namespace protal {
     Profiles ProfileWrapper(Options& options, ProtalDB& db, profiler::TaxonFilterObj const& model) {
         GenomeLoader& genomes = db.GetGenomes();
 
-        if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.GetInternalTaxonomyFile());
+        if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
         auto& taxonomy = db.GetTaxonomy();
 
         // Each thread scores with its own copy (firstprivate): scoring reuses a buffer. Copies share
@@ -1743,6 +1761,14 @@ namespace protal {
 
         std::cout << "Options:\n" << options.ToString() << std::endl;
 
+        if (options.CompressDbMode() || options.DecompressDbMode() || options.UnpackDbMode()) {
+            // Each exits 8 on failure.
+            if (options.CompressDbMode()) protal::build::CompressDatabase(options);
+            else if (options.DecompressDbMode()) protal::build::DecompressDatabase(options);
+            else protal::build::UnpackDatabase(options);
+            return RunStatus::Get().Finish();
+        }
+
         // Directories that outputs are written into without creating them first (per-species strain
         // files, misc statistics). Created here so that a run started with -1/-2/-o, not a map, has them.
         if (!options.BuildMode()) {
@@ -1758,17 +1784,19 @@ namespace protal {
             }
         }
 
-        // Load protal DB into RAM
-        ProtalDB db = options.UniqueKmersFileExists() ?
-            ProtalDB(options.GetSequenceFile(), options.GetSequenceMapFile(), options.GetHittableGenesMap(), options.GetUniqueKmersFile()) :
-            ProtalDB(options.GetSequenceFile(), options.GetSequenceMapFile());
+        // Load protal DB into RAM: reference.fna, reference.fna.zst, or the single-file database's
+        // (--build always reads the folder's files).
+        auto const unique_kmers_file = options.UniqueKmersDbFile();
+        ProtalDB db = unique_kmers_file.Exists() ?
+            ProtalDB(options.SequenceDbFile(), options.SequenceMapDbFile(), unique_kmers_file) :
+            ProtalDB(options.SequenceDbFile(), options.SequenceMapDbFile());
 
         // Load fasta sequences of reference into RAM (advised)
         if (options.PreloadGenomes()) {
             std::cout << "Preload genomes" << std::endl;
             Benchmark bm_preload_genomes("Preload genomes");
             bm_preload_genomes.Start();
-            db.GetGenomes().LoadAllGenomes();
+            db.GetGenomes().LoadAllGenomes(static_cast<int>(options.GetThreads()));
             bm_preload_genomes.Stop();
             bm_preload_genomes.PrintResults();
         }
@@ -1791,16 +1819,23 @@ namespace protal {
         std::vector<uint32_t> msa_taxids;
         std::optional<profiler::TaxonFilterObj> model;  // loaded once, for all samples
         if (run_profiling) {
-            db.LoadTaxonomy(options.GetInternalTaxonomyFile());
+            db.LoadTaxonomy(options.TaxonomyDbFile());
             msa_taxids = ResolveMSASpecies(options, db.GetTaxonomy());
-            try {
-                model.emplace(options.GetModelPath(), options.GetKnob());
-            } catch (std::exception const& e) {
-                std::cerr << "Cannot load the model " << options.GetModelPath() << ": " << e.what() << std::endl;
+            auto const model_file = options.ModelDbFile();
+            std::string read_error;
+            auto const xml = model_file.ReadAll(read_error);
+            if (!xml) {
+                std::cerr << "Cannot load the model " << model_file.Name() << ": " << read_error << std::endl;
                 exit(2);
             }
-            if (auto problem = profiler::ModelContractProblem(model.value(), options.GetModelPath()); !problem.empty()) {
-                std::cerr << "Cannot use the model " << options.GetModelPath() << ": " << problem << std::endl;
+            try {
+                model.emplace(cpmml::Model::from_string(*xml), options.GetKnob());
+            } catch (std::exception const& e) {
+                std::cerr << "Cannot load the model " << model_file.Name() << ": " << e.what() << std::endl;
+                exit(2);
+            }
+            if (auto problem = profiler::ModelContractProblemInXml(model.value(), *xml); !problem.empty()) {
+                std::cerr << "Cannot use the model " << model_file.Name() << ": " << problem << std::endl;
                 exit(2);
             }
         }

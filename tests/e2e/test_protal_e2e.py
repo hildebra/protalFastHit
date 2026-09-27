@@ -8,16 +8,22 @@ records, strain MSAs, reruns, and that failures are reported.
   PROTAL_TEST_DB=data/mini_db/protal_db python3 -m unittest -v tests/e2e/test_protal_e2e.py
   just e2e                                  # builds the mini DB first
 
-PROTAL_TEST_DB  protal database, e.g. from scripts/mini_db/build_mini_db.sh (required; only read)
+PROTAL_TEST_DB  protal database, e.g. from scripts/mini_db/build_mini_db.sh (required; only read):
+                the single file database.protal (or its folder), or separate raw or zstd-compressed
+                files (index.prx.zst, reference.fna.zst). Tests that read the database's files
+                get them unpacked (protal --unpack_db) into a temporary folder. The zstd CLI is
+                needed for a compressed database.
 PROTAL          protal binary (default: build/protal)
 SIMULATE        simulate_metagenomes binary (default: build/simulate_metagenomes; optional)
 """
 
+import filecmp
 import glob
 import gzip
 import os
 import random
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -31,15 +37,43 @@ PROTAL = os.path.abspath(os.environ.get("PROTAL", os.path.join(ROOT, "build", "p
 SIMULATE = os.path.abspath(os.environ.get("SIMULATE", os.path.join(ROOT, "build", "simulate_metagenomes")))
 QCMSA = os.path.join(ROOT, "scripts", "qcmsa.py")
 READS = None  # directory with the simulated reads, set up once per module
+FILES = DB     # the database's separate files: DB, or DB unpacked if it is a single file
+UNPACKED = None
+
+
+def single_file(db):
+    """The single-file database db is or holds (protal's precedence: separate files first), else None."""
+    if os.path.isfile(db):
+        return db
+    bundle = os.path.join(db, "database.protal")
+    has_index = any(os.path.exists(os.path.join(db, f)) for f in ("index.prx", "index.prx.zst"))
+    return bundle if os.path.exists(bundle) and not has_index else None
+
+
+def db_file(name):
+    """Path of a database file as protal picks it: <name> if present, else <name>.zst."""
+    raw = os.path.join(FILES, name)
+    return raw if os.path.exists(raw) or not os.path.exists(raw + ".zst") else raw + ".zst"
 
 
 def setUpModule():
-    global READS
-    index = os.path.join(DB, "index.prx")
-    if not DB or not os.path.isfile(index) or os.path.getsize(index) == 0:
+    global READS, FILES, UNPACKED
+    if not DB or not os.path.exists(DB):
         raise unittest.SkipTest("set PROTAL_TEST_DB to a protal database (just mini-db builds data/mini_db/protal_db)")
     if not os.access(PROTAL, os.X_OK):
         raise unittest.SkipTest(f"protal binary not found at {PROTAL} (set PROTAL)")
+    bundle = single_file(DB)
+    if bundle:
+        UNPACKED = tempfile.mkdtemp(prefix="protal_e2e_db_")
+        rc, log = run(UNPACKED, "--unpack_db", "--db", bundle, "--unpack_dir", UNPACKED, "-t", "4")
+        if rc != 0:
+            raise RuntimeError("protal --unpack_db failed:\n" + log[-3000:])
+        FILES = UNPACKED
+    index = db_file("index.prx")
+    if not os.path.isfile(index) or os.path.getsize(index) == 0:
+        raise unittest.SkipTest("set PROTAL_TEST_DB to a protal database (just mini-db builds data/mini_db/protal_db)")
+    if db_file("reference.fna").endswith(".zst") and not shutil.which("zstd"):
+        raise unittest.SkipTest("the zstd CLI is needed to read reference.fna.zst")
     READS = tempfile.mkdtemp(prefix="protal_e2e_reads_")
     simulate_reads("sa", pairs_per_gene=12, seed=1)
     simulate_reads("sb", pairs_per_gene=12, seed=2)
@@ -47,8 +81,9 @@ def setUpModule():
 
 
 def tearDownModule():
-    if READS:
-        shutil.rmtree(READS, ignore_errors=True)
+    for d in (READS, UNPACKED):
+        if d:
+            shutil.rmtree(d, ignore_errors=True)
 
 
 def revcomp(seq):
@@ -57,13 +92,18 @@ def revcomp(seq):
 
 def reference_genes():
     genes, name = [], None
-    with open(os.path.join(DB, "reference.fna")) as fh:
-        for line in fh:
-            line = line.strip()
-            if line.startswith(">"):
-                name = line[1:].split()[0]
-            elif line:
-                genes.append((name, line.upper()))
+    path = db_file("reference.fna")
+    if path.endswith(".zst"):
+        lines = subprocess.run(["zstd", "-dc", path], check=True, stdout=subprocess.PIPE, text=True).stdout.splitlines()
+    else:
+        with open(path) as fh:
+            lines = fh.read().splitlines()
+    for line in lines:
+        line = line.strip()
+        if line.startswith(">"):
+            name = line[1:].split()[0]
+        elif line:
+            genes.append((name, line.upper()))
     return genes
 
 
@@ -337,7 +377,7 @@ class MsaSampleSelectionTest(WorkDir):
     def test_rejected_samples_are_left_out(self):
         # A sample with three read pairs of Mockella alpha, too few to call it.
         taxid = None
-        with open(os.path.join(DB, "internal_taxonomy.dmp")) as fh:
+        with open(db_file("internal_taxonomy.dmp")) as fh:
             for line in fh:
                 f = line.split("\t")
                 if f[3] == "s__Mockella alpha":
@@ -428,7 +468,7 @@ class ModelContractTest(WorkDir):
         with open(self.path("out", "sa.profile.truth_annotated")) as fh:
             header = fh.readline().rstrip("\n").split("\t")
             rows = [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh]
-        with open(os.path.join(DB, "model.xml")) as fh:
+        with open(db_file("model.xml")) as fh:
             fields = set(re.findall(r'<DataField name="([^"]+)"', fh.read())) - {"truth"}
         self.assertEqual(sorted(fields - set(header)), [], "every model input is in the training dump")
         self.assertTrue(rows)
@@ -480,7 +520,8 @@ class BuildUniquenessTest(WorkDir):
         with open(os.path.join(db, "reference.fna")) as src, open(full, "w") as dst:
             dst.write(src.read() + ">2_7\n" + genes[(1, 2)] + "\n")
 
-        rc, log = run(self.work, "--build", "--no_profile", "-t", "1", "--db", db,
+        # --no_bundle: unique_kmers.tsv stays a file of its own.
+        rc, log = run(self.work, "--build", "--no_bundle", "--no_profile", "-t", "1", "--db", db,
                       "--reference", os.path.join(db, "reference.fna"), "--full_reference", full)
         self.assertEqual(rc, 0, log[-3000:])
         uniques = {}
@@ -492,7 +533,9 @@ class BuildUniquenessTest(WorkDir):
         self.assertGreater(uniques[(2, 1)][0], 0, uniques)
         self.assertGreater(uniques[(1, 2)][2], 0, uniques)
         self.assertEqual(uniques[(1, 2)][:2], (0, 0), "no k-mer of gene 1_2 is unique to taxon 1")
-        os.remove(os.path.join(db, "index.prx"))  # 3 GB
+        for index in ("index.prx", "index.prx.zst"):  # 3 GB raw; --build compresses by default
+            if os.path.exists(os.path.join(db, index)):
+                os.remove(os.path.join(db, index))
 
 
 class QcmsaContractTest(WorkDir):
@@ -646,15 +689,223 @@ class FailureTest(WorkDir):
     def test_truncated_index(self):
         bad_db = self.path("bad_db")
         os.mkdir(bad_db)
-        for f in glob.glob(os.path.join(DB, "*")):
-            if os.path.basename(f) != "index.prx":
+        index = db_file("index.prx")
+        for f in glob.glob(os.path.join(FILES, "*")):
+            if not os.path.basename(f).startswith(("index.prx", "database.protal")):
                 os.symlink(f, os.path.join(bad_db, os.path.basename(f)))
-        with open(os.path.join(DB, "index.prx"), "rb") as src, open(os.path.join(bad_db, "index.prx"), "wb") as dst:
-            dst.write(src.read(1 << 20))
+        with open(index, "rb") as src, open(os.path.join(bad_db, os.path.basename(index)), "wb") as dst:
+            dst.write(src.read(min(1 << 20, os.path.getsize(index) // 2)))
         rc, log = run(self.work, "--db", bad_db, *reads("sa"), "-o", "out_idx", "-t", "1", "--no_qcmsa")
         self.assertEqual(rc, 8)
         self.assertRegex(log, r"Invalid index .*truncated or corrupt")
 
+
+def is_seekable(path):
+    """True if a zstd file ends with a seek table (zstd seekable format, as protal writes)."""
+    with open(path, "rb") as fh:
+        fh.seek(-4, os.SEEK_END)
+        return fh.read(4) == b"\xb1\xea\x92\x8f"
+
+
+class CompressedDatabaseTest(WorkDir):
+    """Raw, seekable (--compress_db --no_bundle, loaded in parallel), single-frame (zstd CLI) and
+    single-file (--compress_db: database.protal) copies of the database give identical results,
+    with one thread or several."""
+
+    KINDS = ("raw", "seekable", "single", "bundle")
+    FILES = ("index.prx", "reference.fna", "reference.map", "internal_taxonomy.dmp", "unique_kmers.tsv", "model.xml")
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        if not shutil.which("zstd"):
+            raise unittest.SkipTest("the zstd CLI is needed to make raw and compressed copies of the database")
+        cls.dbs = {kind: os.path.join(cls.work, f"{kind}_db") for kind in cls.KINDS}
+        for d in cls.dbs.values():
+            os.mkdir(d)
+        big = ("index.prx", "reference.fna")
+        for f in glob.glob(os.path.join(FILES, "*")):
+            name = os.path.basename(f)
+            if not name.startswith(big) and name != "database.protal":
+                for d in cls.dbs.values():
+                    os.symlink(f, os.path.join(d, name))
+        # A raw copy: --decompress_db on symlinks to the database's files (a compressed index is in
+        # protal's column format, which zstd -d does not turn back into index.prx).
+        for name in big:
+            path = db_file(name)
+            os.symlink(path, os.path.join(cls.dbs["raw"], os.path.basename(path)))
+        cls.decompress_rc, cls.decompress_log = run(cls.work, "--decompress_db", "--db", cls.dbs["raw"], "-t", "4")
+        for name in big:
+            raw = os.path.join(cls.dbs["raw"], name)
+            # -f: raw may be a symlink, which the zstd CLI skips otherwise.
+            subprocess.run(["zstd", "-q", "-f", "-3", "--long=27", raw, "-o", os.path.join(cls.dbs["single"], name + ".zst")],
+                           check=True)
+            os.symlink(raw, os.path.join(cls.dbs["seekable"], name))
+            os.symlink(raw, os.path.join(cls.dbs["bundle"], name))
+        # --compress_db --no_bundle turns the symlinked raw files into .zst files (removing the
+        # links): the index in the column format, the reference seekable. Without --no_bundle, it
+        # packs all database files into database.protal.
+        small = ("--compress_level", "3", "--compress_frame_mb", "1")
+        cls.compress_rc, cls.compress_log = run(cls.work, "--compress_db", "--no_bundle", "--db", cls.dbs["seekable"],
+                                                "-t", "4", *small)
+        cls.bundle_rc, cls.bundle_log = run(cls.work, "--compress_db", "--db", cls.dbs["bundle"], "-t", "4", *small)
+        cls.bundle = os.path.join(cls.dbs["bundle"], "database.protal")
+
+    def result(self, db, out, threads, *extra):
+        """Sorted SAM records and profile of sample sa on db."""
+        rc, log = run(self.work, "--db", db, *reads("sa"), "-o", out, "-t", str(threads), "--no_qcmsa", *extra)
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(glob.glob(self.path(out, "sa*.sam"))[0]) as sam, open(glob.glob(self.path(out, "sa*.profile"))[0]) as prof:
+            return sorted(line for line in sam if not line.startswith("@")), prof.read(), log
+
+    def test_decompress_db(self):
+        self.assertEqual(self.decompress_rc, 0, self.decompress_log[-3000:])
+        for name in ("index.prx", "reference.fna"):
+            self.assertTrue(os.path.isfile(os.path.join(self.dbs["raw"], name)), f"raw {name}")
+            self.assertFalse(os.path.lexists(os.path.join(self.dbs["raw"], name + ".zst")))
+        with open(os.path.join(self.dbs["raw"], "reference.map"), "rb") as fh:
+            ends = [int(line.split()[3]) for line in fh]
+        self.assertGreaterEqual(os.path.getsize(os.path.join(self.dbs["raw"], "reference.fna")), max(ends))
+
+    def test_compress_db(self):
+        self.assertEqual(self.compress_rc, 0, self.compress_log[-3000:])
+        for name in ("index.prx", "reference.fna"):
+            self.assertFalse(os.path.lexists(os.path.join(self.dbs["seekable"], name)), f"{name} replaced")
+            self.assertTrue(is_seekable(os.path.join(self.dbs["seekable"], name + ".zst")), f"{name}.zst is seekable")
+            self.assertFalse(is_seekable(os.path.join(self.dbs["single"], name + ".zst")))
+            self.assertTrue(os.path.exists(os.path.join(self.dbs["raw"], name)), "the raw files stay")
+        self.assertFalse(os.path.exists(os.path.join(self.dbs["seekable"], "database.protal")))
+        head = subprocess.run(["zstd", "-dc", os.path.join(self.dbs["seekable"], "index.prx.zst")],
+                              stdout=subprocess.PIPE).stdout[:8]
+        self.assertEqual(head, b"PRXSPLT1", "the index is in the column format")
+        rc, log = run(self.work, "--compress_db", "--no_bundle", "--db", self.dbs["seekable"], "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("already in the column format; kept", log)
+        self.assertIn("already seekable; kept", log)
+
+    def test_single_file_db(self):
+        """--compress_db packs the files into database.protal and removes them."""
+        self.assertEqual(self.bundle_rc, 0, self.bundle_log[-3000:])
+        self.assertTrue(is_seekable(self.bundle))
+        for name in self.FILES:
+            for variant in (name, name + ".zst"):
+                self.assertFalse(os.path.lexists(os.path.join(self.dbs["bundle"], variant)), f"{variant} is packed")
+        head = subprocess.run(["zstd", "-dc", self.bundle], stdout=subprocess.PIPE).stdout[:8]
+        self.assertEqual(head, b"PROTALDB", "the file starts with its directory")
+        rc, log = run(self.work, "--compress_db", "--db", self.dbs["bundle"], "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("already a single-file database; kept", log)
+        rc, log = run(self.work, "--unpack_db", "--db", self.dbs["seekable"])
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("--unpack_db needs a single-file database", log)
+
+    def test_round_trip_is_byte_identical(self):
+        """--decompress_db of the column-format index, and of the single file, gives exactly the raw files."""
+        for kind in ("seekable", "bundle"):
+            db = self.path(f"round_trip_{kind}_db")
+            os.mkdir(db)
+            for f in glob.glob(os.path.join(self.dbs[kind], "*")):
+                os.symlink(os.path.realpath(f), os.path.join(db, os.path.basename(f)))
+            rc, log = run(self.work, "--decompress_db", "--db", db, "-t", "4")
+            self.assertEqual(rc, 0, log[-3000:])
+            self.assertFalse(os.path.lexists(os.path.join(db, "database.protal")))
+            for name in self.FILES:
+                self.assertTrue(filecmp.cmp(os.path.join(db, name), os.path.join(self.dbs["raw"], name), shallow=False),
+                                f"{kind}: {name}")
+            shutil.rmtree(db)  # a raw index.prx takes ~3 GB
+
+    def test_unpack_db(self):
+        """--unpack_db writes the files (index.prx.zst, reference.fna raw) and keeps database.protal."""
+        out = self.path("unpacked")
+        rc, log = run(self.work, "--unpack_db", "--db", self.bundle, "--unpack_dir", out, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertTrue(os.path.exists(self.bundle))
+        for name in self.FILES:
+            path = os.path.join(out, name + ".zst" if name == "index.prx" else name)
+            self.assertTrue(os.path.isfile(path), path)
+            if name != "index.prx":
+                self.assertTrue(filecmp.cmp(path, os.path.join(self.dbs["raw"], name), shallow=False), name)
+        self.assertTrue(is_seekable(os.path.join(out, "index.prx.zst")))
+
+    def test_identical_results(self):
+        expected = self.result(self.dbs["raw"], "out_raw_1", 1)
+        for kind in self.KINDS:
+            for threads in (1, 4):
+                if (kind, threads) == ("raw", 1):
+                    continue
+                sam, profile, log = self.result(self.dbs[kind], f"out_{kind}_{threads}", threads)
+                where = f"index.prx in {self.bundle}" if kind == "bundle" else os.path.join(self.dbs[kind], "index.prx")
+                self.assertIn("Load index " + where, log)
+                self.assertEqual(sam, expected[0], f"SAM differs: {kind} database, {threads} threads")
+                self.assertEqual(profile, expected[1], f"profile differs: {kind} database, {threads} threads")
+        # The single file named directly.
+        sam, profile, log = self.result(self.bundle, "out_bundle_file", 4)
+        self.assertEqual((sam, profile), expected[:2])
+
+    def test_corrupt_seekable_index(self):
+        bad_db = self.path("bad_seekable_db")
+        os.mkdir(bad_db)
+        for f in glob.glob(os.path.join(self.dbs["seekable"], "*")):
+            if os.path.basename(f) != "index.prx.zst":
+                os.symlink(os.path.realpath(f), os.path.join(bad_db, os.path.basename(f)))
+        with open(os.path.join(self.dbs["seekable"], "index.prx.zst"), "rb") as fh:
+            data = bytearray(fh.read())
+        data[len(data) // 3] ^= 0x5A  # inside some frame; the seek table at the end is intact
+        with open(os.path.join(bad_db, "index.prx.zst"), "wb") as fh:
+            fh.write(data)
+        rc, log = run(self.work, "--db", bad_db, *reads("sa"), "-o", "out_bad", "-t", "4", "--no_qcmsa")
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertRegex(log, r"Invalid index .*(frame|chunk) \d+ of \d+.*truncated or corrupt")
+
+    def test_corrupt_single_file(self):
+        with open(self.bundle, "rb") as fh:
+            data = bytearray(fh.read())
+        cut = self.path("cut.protal")
+        with open(cut, "wb") as fh:
+            fh.write(data[:-20])
+        rc, log = run(self.work, "--db", cut, *reads("sa"), "-o", "out_cut", "-t", "4", "--no_qcmsa")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("seek table at its end is missing", log)
+        self.assertNotIn("does not exist", log)
+        data[len(data) // 3] ^= 0x5A  # inside the index's frames
+        bad = self.path("bad.protal")
+        with open(bad, "wb") as fh:
+            fh.write(data)
+        rc, log = run(self.work, "--db", bad, *reads("sa"), "-o", "out_bad_file", "-t", "4", "--no_qcmsa")
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertRegex(log, r"Invalid index index.prx in .*bad.protal: (frame|chunk) \d+ of \d+")
+
+    def test_no_preload_needs_a_raw_reference(self):
+        rc, log = run(self.work, "--db", self.dbs["seekable"], *reads("sa"), "-o", "out_lazy", "-t", "1", "--no_qcmsa",
+                      "--preload_genomes_off")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("--preload_genomes_off needs an uncompressed reference", log)
+
+    def test_no_preload_on_a_single_file_says_how_to_unpack(self):
+        """The message gives the commands that unpack the database and rerun protal; both work as given."""
+        db = self.path("lazy_db")
+        os.mkdir(db)
+        os.symlink(os.path.realpath(self.bundle), os.path.join(db, "database.protal"))
+        args = ["--db", db, *reads("sa"), "-o", "out_lazy_file", "-t", "2", "--no_qcmsa", "--preload_genomes_off"]
+        rc, log = run(self.work, *args)
+        self.assertEqual(rc, 30, log[-3000:])
+        lines = log.splitlines()
+        start = next(i for i, line in enumerate(lines) if "--preload_genomes_off reads genes one by one" in line)
+        self.assertIn("is a single-file database", lines[start])
+        unpack, rerun = lines[start + 1].strip(), lines[start + 3].strip()
+        self.assertEqual(shlex.split(unpack), [PROTAL, "--unpack_db", "--db", os.path.join(db, "database.protal"), "-t", "2"])
+        self.assertEqual(shlex.split(rerun), [PROTAL, *args])
+        for command in (unpack, rerun):
+            proc = subprocess.run(shlex.split(command), cwd=self.work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  text=True, errors="replace")
+            self.assertEqual(proc.returncode, 0, proc.stdout[-3000:])
+        self.assertIn(f"separate files in {db}", proc.stdout)
+        self.assertNotIn("Preload genomes took", proc.stdout)
+        expected = self.result(self.dbs["raw"], "out_lazy_expected", 2)
+        with open(glob.glob(self.path("out_lazy_file", "sa*.sam"))[0]) as sam:
+            self.assertEqual(sorted(line for line in sam if not line.startswith("@")), expected[0])
+        with open(glob.glob(self.path("out_lazy_file", "sa*.profile"))[0]) as prof:
+            self.assertEqual(prof.read(), expected[1])
 
 class FailFastTest(WorkDir):
     """Problems with the database or the inputs stop protal before any read is aligned."""
@@ -665,9 +916,9 @@ class FailFastTest(WorkDir):
         replace = replace or {}
         db = self.path(name)
         os.mkdir(db)
-        for f in glob.glob(os.path.join(DB, "*")):
+        for f in glob.glob(os.path.join(FILES, "*")):
             base = os.path.basename(f)
-            if base not in replace and base not in drop:
+            if base not in replace and base not in drop and base != "database.protal":
                 os.symlink(f, os.path.join(db, base))
         for base, content in replace.items():
             with open(os.path.join(db, base), "wb") as fh:
@@ -676,7 +927,11 @@ class FailFastTest(WorkDir):
 
     @staticmethod
     def db_file(name):
-        with open(os.path.join(DB, name), "rb") as fh:
+        """Content of a database file (decompressed if the database holds <name>.zst)."""
+        path = db_file(name)
+        if path.endswith(".zst"):
+            return subprocess.run(["zstd", "-dc", path], check=True, stdout=subprocess.PIPE).stdout
+        with open(path, "rb") as fh:
             return fh.read()
 
     def query(self, db, out, *extra, samples=("sa",)):
@@ -759,7 +1014,8 @@ class FailFastTest(WorkDir):
         db = self.path("build_db")
         os.mkdir(db)
         for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp"):
-            shutil.copy(os.path.join(DB, f), db)
+            with open(os.path.join(db, f), "wb") as fh:
+                fh.write(self.db_file(f))
         bad = self.path("bad_reference.fna")
         with open(bad, "wb") as fh:
             fh.write(self.db_file("reference.fna") + b">9_1\nACGTACGT\n>unnamed\nACGTACGT\n")
@@ -769,7 +1025,8 @@ class FailFastTest(WorkDir):
         self.assertIn("--reference record >9_1: not in", log)
         self.assertIn("--reference record >unnamed: header is not <taxid>_<gene id>", log)
         self.assertRegex(log, r"2 of \d+ --reference records do not match")
-        self.assertFalse(os.path.exists(os.path.join(db, "index.prx")))
+        for written in ("index.prx", "index.prx.zst", "database.protal"):
+            self.assertFalse(os.path.exists(os.path.join(db, written)), written)
 
 
 class SamInputTest(WorkDir):

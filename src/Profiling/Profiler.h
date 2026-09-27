@@ -1171,6 +1171,9 @@ namespace protal {
 
             TaxonFilterForest(const std::string& path, double knob = 0.5) : m_model(path), m_knob(knob) {}
 
+            // A model already parsed, e.g. with cpmml::Model::from_string from a single-file database.
+            TaxonFilterForest(cpmml::Model model, double knob) : m_model(std::move(model)), m_knob(knob) {}
+
             TaxonFilterForest(const TaxonFilterForest& other) :
                     m_model(other.m_model), m_knob(other.m_knob), m_sample() {
             }
@@ -1210,15 +1213,11 @@ namespace protal {
             double GetKnob() const { return m_knob; }
         };
 
-        // Why protal cannot use the PMML model at `path`, or an empty string. The model must take its
-        // inputs from TaxonFeatures (a missing one would stop the run after the alignment), predict
-        // the label TRUE (its probability is the taxon's score; another label scores every taxon 0),
-        // and score a taxon.
-        inline std::string ModelContractProblem(TaxonFilterForest const& model, std::string const& path) {
-            std::ifstream is(path);
-            if (!is) return "cannot read " + path;
-            std::string const xml((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
-
+        // Why protal cannot use the PMML model `model` parsed from `xml`, or an empty string. The
+        // model must take its inputs from TaxonFeatures (a missing one would stop the run after the
+        // alignment), predict the label TRUE (its probability is the taxon's score; another label
+        // scores every taxon 0), and score a taxon.
+        inline std::string ModelContractProblemInXml(TaxonFilterForest const& model, std::string const& xml) {
             auto attribute = [](std::string_view tag, std::string const& name) -> std::string {
                 auto const key = " " + name + "=\"";
                 auto start = tag.find(key);
@@ -1273,6 +1272,14 @@ namespace protal {
                 return std::string("scoring a taxon fails: ") + e.what();
             }
             return {};
+        }
+
+        // ModelContractProblemInXml for the model file at `path`.
+        inline std::string ModelContractProblem(TaxonFilterForest const& model, std::string const& path) {
+            std::ifstream is(path);
+            if (!is) return "cannot read " + path;
+            std::string const xml((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
+            return ModelContractProblemInXml(model, xml);
         }
 
         class MicrobialProfile {

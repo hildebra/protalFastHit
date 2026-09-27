@@ -533,7 +533,10 @@ static bool IsInteger(std::string const& s) {
 void protal::taxonomy::IntTaxonomy::Load(std::string path) {
     std::ifstream is(path.c_str(), std::ios::in);
     if (!is) InvalidTaxonomy(path, 0, "cannot open the file");
+    Load(is, path);
+}
 
+void protal::taxonomy::IntTaxonomy::Load(std::istream& is, std::string const& path) {
     std::string line;
     std::vector<std::string> tokens;
     std::unordered_set<int> defined;
@@ -592,6 +595,7 @@ void protal::taxonomy::IntTaxonomy::Load(std::string path) {
         map.at(parent_id).children.emplace_back(id);
     }
 
+    if (is.bad()) InvalidTaxonomy(path, 0, "the file cannot be read or decompressed (truncated or corrupt file?)");
     if (defined.empty()) InvalidTaxonomy(path, 0, "no taxa");
     for (auto const& [id, node] : map) {
         if (!defined.contains(id)) {
@@ -602,6 +606,10 @@ void protal::taxonomy::IntTaxonomy::Load(std::string path) {
 
 protal::taxonomy::IntTaxonomy::IntTaxonomy(std::string path) {
     Load(path);
+}
+
+protal::taxonomy::IntTaxonomy::IntTaxonomy(std::istream& is, std::string const& name) {
+    Load(is, name);
 }
 
 int protal::taxonomy::IntTaxonomy::LCA(int t1, int t2) {
