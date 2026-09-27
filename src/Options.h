@@ -16,6 +16,7 @@
 #include <numeric>
 #include "Utilities.h"
 #include "Zstd.h"
+#include "Database.h"
 
 
 namespace protal {
@@ -56,7 +57,7 @@ namespace protal {
 
         // I/O related options
         options.add_options("I/O")
-                ("db", "Path to protal database folder. If not given, the folder is taken from the environment variable $" + PROTAL_DB_ENV_VARIABLE + ".", cxxopts::value<std::string>())
+                ("db", "Path to the protal database: a single-file database (database.protal, as --build writes it), or a folder holding one or the database's separate files. If not given, it is taken from the environment variable $" + PROTAL_DB_ENV_VARIABLE + ".", cxxopts::value<std::string>())
                 ("1,first", "Comma separated list of first-in-pair read files. The matching second-in-pair files must be given via -2/--second.", cxxopts::value<std::string>()->default_value(""))
                 ("2,second", "Comma separated list of second-in-pair read files, one per file given via -1/--first. Protal currently supports paired-end reads only, so this is mandatory -- single-end reads are not supported yet.", cxxopts::value<std::string>()->default_value(""))
                 ("prefix", "Comma separated list of output prefixes (optional). If not specified, output file prefixes are generated from the input file names by taking their longest common prefix. Only works when both pairs of the read file are in the same folder.", cxxopts::value<std::string>()->default_value(""))
@@ -81,7 +82,7 @@ namespace protal {
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
-                ("model", "PMML model file: an existing path is used as is, otherwise <db>/<name> (<db>/<name>.xml without an extension). Default: model.xml in the database directory.", cxxopts::value<std::string>()->default_value(""))
+                ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""));
 
         // Strain / SNP options
@@ -109,16 +110,19 @@ namespace protal {
         options.add_options("DevOptions")
                 ("mapq_debug_output", "Output mapq debug info to stderr")
                 ("build", "Build index from reference file with header format ()")
-                ("no_compress", "With --build: write the database uncompressed. By default the index is written as index.prx.zst and reference.fna is replaced by reference.fna.zst (zstd; verified before the raw file is removed). protal reads either form.")
+                ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, model.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
-                ("compress_db", "Compress the database in --db in place, without rebuilding it: index.prx (raw or compressed in an older way) is rewritten as index.prx.zst in protal's column format, reference.fna as a seekable reference.fna.zst (see --compress_level, --compress_frame_mb, -t); each is read back and compared before the old file is removed. Needs the index in memory.")
-                ("decompress_db", "Write the database in --db raw again (index.prx, reference.fna) and remove index.prx.zst and reference.fna.zst, e.g. for --preload_genomes_off or older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
+                ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory.")
+                ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv and model.xml. database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "All marker genomes (not only representative ones) to check unique k-mers during build process", cxxopts::value<std::string>()->default_value(""))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "Newline-delimited gene ids (>=1) to include during build (subset of marker genes)", cxxopts::value<std::string>()->default_value(""))
-                ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory. Needs an uncompressed reference.fna (not reference.fna.zst).")
+                ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory. Needs the database as separate files with an uncompressed reference.fna (not reference.fna.zst or database.protal; see --unpack_db).")
 
                 ("profile_truth", "Truth files, one per sample (comma-separated; a map's PROFILE_TRUTH column does the same). Each line names a species present, by GTDB lineage in any tab-separated field (d__...;s__Genus species, as simulate_metagenomes --protal_metafile writes) or by internal taxid in the first field. Profiles are annotated with TP/FP (<profile>.truth_annotated).", cxxopts::value<std::string>()->default_value(""))
                 ("benchmark_alignment", "Benchmark alignment part of protal based on true taxonomic id and gene id supplied in the read header. Header must fulfill the formatting >taxid_geneid... with the regex: >[0-9]+_[0-9]+([^0-9]+.*)*")
@@ -158,11 +162,17 @@ namespace protal {
         // build
         std::vector<uint8_t> build_gene_mask;
         bool compress = true;
+        bool bundle = true;
         bool compress_db = false;
         bool decompress_db = false;
+        bool unpack_db = false;
         int compress_level = DEFAULT_COMPRESS_LEVEL;
         int compress_window_log = DEFAULT_COMPRESS_WINDOW_LOG;
         int compress_frame_mb = DEFAULT_COMPRESS_FRAME_MB;
+        std::string unpack_dir;
+
+        // the command line, for messages that show how to rerun protal
+        std::vector<std::string> command_line;
 
         // paths
         std::string sequence_file;
@@ -238,15 +248,23 @@ namespace protal {
 
         std::vector<uint8_t> m_build_gene_mask;
         bool m_compress = true;
+        bool m_bundle_db = true;
         bool m_compress_db = false;
         bool m_decompress_db = false;
+        bool m_unpack_db = false;
         int m_compress_level = DEFAULT_COMPRESS_LEVEL;
         int m_compress_window_log = DEFAULT_COMPRESS_WINDOW_LOG;
         int m_compress_frame_mb = DEFAULT_COMPRESS_FRAME_MB;
+        std::string m_unpack_dir;
+        std::vector<std::string> m_command_line;
 
         std::string m_sequence_file;
         std::string m_full_sequence_file;
         std::string m_database_path;
+        // Where m_database_path points (Database.h); set by PrepareAndCheckValidity. m_bundle is the
+        // opened single-file database, if it is one.
+        db::Location m_location;
+        std::shared_ptr<db::Bundle const> m_bundle;
         std::string m_output_dir;
         std::string m_strain_output_dir;
         std::string m_misc_output_dir;
@@ -344,11 +362,15 @@ namespace protal {
                 m_verbose(d.verbose),
                 m_build_gene_mask(std::move(d.build_gene_mask)),
                 m_compress(d.compress),
+                m_bundle_db(d.bundle),
                 m_compress_db(d.compress_db),
                 m_decompress_db(d.decompress_db),
+                m_unpack_db(d.unpack_db),
                 m_compress_level(d.compress_level),
                 m_compress_window_log(d.compress_window_log),
                 m_compress_frame_mb(d.compress_frame_mb),
+                m_unpack_dir(std::move(d.unpack_dir)),
+                m_command_line(std::move(d.command_line)),
                 m_sequence_file(std::move(d.sequence_file)),
                 m_full_sequence_file(std::move(d.full_sequence_file)),
                 m_database_path(std::move(d.database_path)),
@@ -420,7 +442,8 @@ namespace protal {
             if (m_build || m_compress_db) {
                 result_str << "compress database:   " << (m_compress || m_compress_db ? "zstd level " + std::to_string(m_compress_level) +
                         (m_compress_window_log ? ", window 2^" + std::to_string(m_compress_window_log) : "") +
-                        (m_compress_frame_mb ? ", " + std::to_string(m_compress_frame_mb) + " MB frames" : ", one frame") : "no") << '\n';
+                        (m_compress_frame_mb ? ", " + std::to_string(m_compress_frame_mb) + " MB frames" : ", one frame") +
+                        (WriteBundle() ? ", single file " + db::kFileName : ", separate files") : "no") << '\n';
             }
             result_str << "no strains:          " << std::to_string(m_no_strains) << '\n';
             result_str << "threads:             " << std::to_string(m_threads) << '\n';
@@ -428,6 +451,10 @@ namespace protal {
             result_str << "first:               " << (first_list_str.length() > 50 ? std::to_string(m_first_list.size()) + " files" : first_list_str) << '\n';
             result_str << "second:              " << (second_list_str.length() > 50 ? std::to_string(m_second_list.size()) + " files" : second_list_str) << '\n';
             result_str << "db path:             " << m_database_path << '\n';
+            if (!m_build) {
+                result_str << "database:            " << (m_bundle ? "single file " + m_bundle->Path() : "separate files in " + m_location.dir)
+                           << (m_location.unused_bundle.empty() ? "" : " (not " + m_location.unused_bundle + ")") << '\n';
+            }
             result_str << "sequence file:       " << m_sequence_file << '\n';
             result_str << "sam file:            " << (sam_list_str.length() > 50 ? std::to_string(m_sam_list.size()) + " files" : sam_list_str) << '\n';
             result_str << "profile file:        " << (profile_list_str.length() > 50 ? std::to_string(m_profile_list.size()) + " files" : profile_list_str) << '\n';
@@ -607,7 +634,117 @@ namespace protal {
         }
 
         bool UniqueKmersFileExists() const {
-            return Utils::exists(GetUniqueKmersFile());
+            return UniqueKmersDbFile().Exists();
+        }
+
+        // ---- The database as protal reads it (Database.h): a member of the single-file database, or
+        // the file in the database directory (the Get*File names above, .zst siblings resolved).
+
+        bool IsBundle() const {
+            return m_bundle != nullptr;
+        }
+
+        std::shared_ptr<db::Bundle const> const& GetBundle() const {
+            return m_bundle;
+        }
+
+        db::Location const& GetLocation() const {
+            return m_location;
+        }
+
+        db::DbFile DbFileNamed(std::string const& name, std::string const& path_in_dir) const {
+            return m_bundle ? db::DbFile::InBundle(*m_bundle, name) : db::DbFile::OnDisk(path_in_dir);
+        }
+
+        db::DbFile IndexDbFile() const {
+            return DbFileNamed(PROTAL_INDEX_FILE, ResolvedIndexFile());
+        }
+
+        db::DbFile SequenceDbFile() const {
+            return DbFileNamed(PROTAL_SEQUENCE_FILE, ResolvedSequenceFile());
+        }
+
+        db::DbFile SequenceMapDbFile() const {
+            return DbFileNamed(PROTAL_SEQUENCE_MAP_FILE, GetSequenceMapFile());
+        }
+
+        db::DbFile TaxonomyDbFile() const {
+            return DbFileNamed(PROTAL_TAXONOMY_FILE, GetInternalTaxonomyFile());
+        }
+
+        db::DbFile UniqueKmersDbFile() const {
+            return DbFileNamed(PROTAL_UNIQUE_KMER_FILE, GetUniqueKmersFile());
+        }
+
+        // The PMML model: --model if it names an existing file, else from the database (see
+        // GetModelPath for a directory; in a single-file database the member --model names, <name>.xml
+        // without an extension, by default model.xml or else random_forest.xml).
+        db::DbFile ModelDbFile() const {
+            if (!m_model.empty() && std::filesystem::exists(m_model)) return db::DbFile::OnDisk(m_model);
+            if (!m_bundle) return db::DbFile::OnDisk(GetModelPath());
+            if (!m_model.empty()) {
+                bool const bare = std::filesystem::path(m_model).extension().empty();
+                return db::DbFile::InBundle(*m_bundle, bare ? m_model + ".xml" : m_model);
+            }
+            auto model = db::DbFile::InBundle(*m_bundle, "model.xml");
+            if (!model.Exists()) {
+                auto fallback = db::DbFile::InBundle(*m_bundle, "random_forest.xml");
+                if (fallback.Exists()) return fallback;
+            }
+            return model;
+        }
+
+        bool WriteBundle() const {
+            return m_bundle_db && m_compress;
+        }
+
+        bool UnpackDbMode() const {
+            return m_unpack_db;
+        }
+
+        // Where --unpack_db writes the files: --unpack_dir, or the folder database.protal is in.
+        std::string UnpackDir() const {
+            return m_unpack_dir.empty() ? m_location.dir : m_unpack_dir;
+        }
+
+        // The name to show for protal in commands: the launcher's name for its binaries.
+        std::string ProgramName() const {
+            if (m_command_line.empty()) return "protal";
+            auto const name = std::filesystem::path(m_command_line.front()).filename().string();
+            if (name == "protal_avx2" || name == "protal_baseline" || name == "protal_plain") return "protal";
+            return m_command_line.front();
+        }
+
+        // A word as a POSIX shell reads it back.
+        static std::string ShellWord(std::string const& word) {
+            bool const plain = !word.empty() && std::all_of(word.begin(), word.end(), [](unsigned char c) {
+                return std::isalnum(c) || std::strchr("_-./:=,+@%", c) != nullptr;
+            });
+            if (plain) return word;
+            std::string quoted = "'";
+            for (char c : word) quoted += c == '\'' ? std::string("'\\''") : std::string(1, c);
+            return quoted + "'";
+        }
+
+        // This run's command line with --db set to db (added if the database came from $PROTAL_DB_PATH).
+        std::string CommandWithDb(std::string const& db) const {
+            std::string command = ShellWord(ProgramName());
+            bool replaced = false;
+            for (size_t i = 1; i < m_command_line.size(); i++) {
+                std::string const& arg = m_command_line[i];
+                if (arg == "--db" && i + 1 < m_command_line.size()) {
+                    command += " --db " + ShellWord(db);
+                    replaced = true;
+                    i++;
+                } else if (arg.rfind("--db=", 0) == 0) {
+                    command += " --db=" + ShellWord(db);
+                    replaced = true;
+                } else {
+                    command += " " + ShellWord(arg);
+                }
+            }
+            if (!replaced) command += " --db " + ShellWord(db);
+            return command;
         }
 
         void SetCurrentIndex(size_t i) {
@@ -1212,27 +1349,93 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             return true;
         }
 
+        // Finds the database --db names (db::Locate) and opens it if it is a single file. --build always
+        // writes into a folder.
+        void ResolveDatabase(std::vector<std::string>& error_log) {
+            m_location = db::Locate(m_database_path);
+            m_bundle.reset();
+            if (m_build) {
+                if (m_location.bundle == m_database_path && !m_database_path.empty()) {
+                    error_log.emplace_back("--build writes a database into a folder: give --db the folder with reference.fna, "
+                                           "reference.map and internal_taxonomy.dmp, not the file " + m_database_path);
+                }
+                return;
+            }
+            if (m_location.bundle.empty()) return;
+            std::string error;
+            auto bundle = db::Bundle::Open(m_location.bundle, error);
+            if (!bundle) {
+                error_log.emplace_back(error.empty() ? "--db " + m_database_path + " is neither a folder nor a single-file protal database (" +
+                                                       db::kFileName + ")"
+                                                     : "Cannot read the database " + m_location.bundle + ": " + error);
+                return;
+            }
+            m_bundle = std::make_shared<db::Bundle const>(std::move(*bundle));
+        }
+
+        // Why --preload_genomes_off cannot use a single-file database, with the commands that unpack it
+        // and rerun this protal command on the unpacked files.
+        std::string PreloadOffNeedsFilesMessage() const {
+            std::string const threads = m_threads > 1 ? " -t " + std::to_string(m_threads) : "";
+            return "--preload_genomes_off reads genes one by one from an uncompressed reference.fna, so it needs the database "
+                   "as separate files, but " + m_bundle->Path() + " is a single-file database. Unpack it into " + m_location.dir +
+                   " (protal then uses the separate files there; " + m_bundle->Path() + " is kept, and can be removed once the "
+                   "files are unpacked):\n"
+                   "    " + ShellWord(ProgramName()) + " --unpack_db --db " + ShellWord(m_bundle->Path()) + threads + "\n"
+                   "and then rerun protal on the unpacked database:\n"
+                   "    " + CommandWithDb(m_location.dir);
+        }
+
         bool PrepareAndCheckValidity(bool force_read_check=false) {
             std::vector<std::string> error_log;
             std::vector<std::string> warning_log;
 
-            if (!std::filesystem::exists(ResolvedSequenceFile())) {
-                error_log.emplace_back("Sequence file does not exist: " + GetSequenceFile() + " (nor " +
-                                       GetSequenceFile() + zstd::kExtension + ")");
-            } else if (!m_build && !m_preload_genomes && zstd::IsCompressed(ResolvedSequenceFile())) {
-                error_log.emplace_back("--preload_genomes_off needs an uncompressed reference, but " + ResolvedSequenceFile() +
-                                       " is compressed. Drop --preload_genomes_off, or decompress it with: zstd -d " +
-                                       ResolvedSequenceFile());
+            ResolveDatabase(error_log);
+            bool const db_mode = m_compress_db || m_decompress_db || m_unpack_db;
+            if (int(m_compress_db) + int(m_decompress_db) + int(m_unpack_db) + int(m_build) > 1) {
+                error_log.emplace_back("--build, --compress_db, --decompress_db and --unpack_db cannot be combined "
+                                       "(--build compresses unless --no_compress)");
             }
-            if (!std::filesystem::exists(GetSequenceMapFile())) {
-                error_log.emplace_back("Sequence map file does not exist: " + GetSequenceMapFile());
+            if (m_unpack_db && !m_bundle && error_log.empty()) {
+                error_log.emplace_back("--unpack_db needs a single-file database, but " + m_database_path + " holds separate files" +
+                                       (m_location.unused_bundle.empty() ? "" : "; to unpack " + m_location.unused_bundle + ", give it as --db"));
             }
-            if (!std::filesystem::exists(GetInternalTaxonomyFile())) {
-                error_log.emplace_back("Taxonomy file does not exist: " + GetInternalTaxonomyFile());
+            if (m_bundle) {
+                std::pair<std::string, std::string> const required[] = {
+                        {PROTAL_INDEX_FILE, "index"}, {PROTAL_SEQUENCE_FILE, "reference"},
+                        {PROTAL_SEQUENCE_MAP_FILE, "sequence map"}, {PROTAL_TAXONOMY_FILE, "taxonomy"}};
+                for (auto const& [name, what] : required) {
+                    if (!m_bundle->Find(name)) error_log.emplace_back("The " + what + " " + name + " is not in " + m_bundle->Path());
+                }
+                if (!m_preload_genomes && !db_mode) error_log.emplace_back(PreloadOffNeedsFilesMessage());
+            } else if (!m_unpack_db && (m_build || m_location.bundle.empty())) {  // not a single file that failed to open
+                size_t const before = error_log.size();
+                if (!std::filesystem::exists(ResolvedSequenceFile())) {
+                    error_log.emplace_back("Sequence file does not exist: " + GetSequenceFile() + " (nor " +
+                                           GetSequenceFile() + zstd::kExtension + ")");
+                } else if (!m_build && !m_preload_genomes && !db_mode && zstd::IsCompressed(ResolvedSequenceFile())) {
+                    error_log.emplace_back("--preload_genomes_off needs an uncompressed reference, but " + ResolvedSequenceFile() +
+                                           " is compressed. Drop --preload_genomes_off, or decompress it with: zstd -d " +
+                                           ResolvedSequenceFile());
+                }
+                if (!std::filesystem::exists(GetSequenceMapFile())) {
+                    error_log.emplace_back("Sequence map file does not exist: " + GetSequenceMapFile());
+                }
+                if (!std::filesystem::exists(GetInternalTaxonomyFile())) {
+                    error_log.emplace_back("Taxonomy file does not exist: " + GetInternalTaxonomyFile());
+                }
+                if (!m_build && !std::filesystem::exists(ResolvedIndexFile())) {
+                    error_log.emplace_back("Index file does not exist: " + GetIndexFile() + " (nor " + GetIndexFile() +
+                                           zstd::kExtension + ")");
+                }
+                std::string const packed = !m_location.bundle.empty() ? m_location.bundle : m_location.unused_bundle;
+                if (m_build && error_log.size() > before && !packed.empty()) {
+                    error_log.emplace_back(packed + " holds a built database; to rebuild it, first unpack its files with: " +
+                                           ShellWord(ProgramName()) + " --unpack_db --db " + ShellWord(packed));
+                }
             }
-            if (!m_build && !std::filesystem::exists(ResolvedIndexFile())) {
-                error_log.emplace_back("Index file does not exist: " + GetIndexFile() + " (nor " + GetIndexFile() +
-                                       zstd::kExtension + ")");
+            if (((m_build && WriteBundle()) || (m_compress_db && m_bundle_db)) && m_compress_frame_mb == 0) {
+                error_log.emplace_back("--compress_frame_mb 0 (one frame) needs --no_bundle: a single-file database is made of frames");
             }
             if ((m_build && m_compress) || m_compress_db) {
                 if (m_compress_level < 1 || m_compress_level > ZSTD_maxCLevel()) {
@@ -1248,10 +1451,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     error_log.emplace_back("--compress_frame_mb must be between 0 and 4095");
                 }
             }
-            if (int(m_compress_db) + int(m_decompress_db) + int(m_build) > 1) {
-                error_log.emplace_back("--build, --compress_db and --decompress_db cannot be combined (--build compresses unless --no_compress)");
-            }
-            if (m_compress_db || m_decompress_db) {
+            if (db_mode) {
                 // Only the database files are needed.
             } else if (m_build) {
                 // Either file may be zstd-compressed, or have a .zst sibling instead.
@@ -1266,13 +1466,13 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     warning_log.emplace_back("no --full_reference: unique k-mers are checked against --reference only");
                     m_full_sequence_file = m_sequence_file;
                 }
-            } else {
+            } else if (m_bundle || m_location.bundle.empty()) {  // not a single file that failed to open
                 if (!m_no_profile && !UniqueKmersFileExists()) {
-                    error_log.emplace_back("Unique k-mer file does not exist: " + GetUniqueKmersFile() +
+                    error_log.emplace_back("Unique k-mer file does not exist: " + UniqueKmersDbFile().Name() +
                                            " (without it every taxon fails the model; rebuild the database with --build)");
                 }
-                if (!m_no_profile && !std::filesystem::exists(GetModelPath())) {
-                    error_log.emplace_back("Model file does not exist: " + GetModelPath());
+                if (!m_no_profile && !ModelDbFile().Exists()) {
+                    error_log.emplace_back("Model file does not exist: " + ModelDbFile().Name() + " (give one with --model)");
                 }
             }
             if (!(m_depth_identity_margin >= 0)) {
@@ -1632,7 +1832,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             // These work on the database only.
             bool const compress_db = result.count("compress_db") > 0;
             bool const decompress_db = result.count("decompress_db") > 0;
-            if (!build && !profile_only && !compress_db && !decompress_db) {
+            bool const unpack_db = result.count("unpack_db") > 0;
+            if (!build && !profile_only && !compress_db && !decompress_db && !unpack_db) {
                 if (first_list.empty() && second_list.empty()) {
                     std::cerr << "No input reads given. Provide paired-end reads via -1/--first and "
                                  "-2/--second, or a map file via --map (see --map_help)." << std::endl;
@@ -1807,8 +2008,12 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.range                    = std::move(range);
             d.build_gene_mask          = std::move(build_gene_mask);
             d.compress                 = !result.count("no_compress");
+            d.bundle                   = !result.count("no_bundle");
             d.compress_db              = compress_db;
             d.decompress_db            = decompress_db;
+            d.unpack_db                = unpack_db;
+            d.unpack_dir               = result["unpack_dir"].as<std::string>();
+            d.command_line.assign(argv, argv + argc);
             d.compress_level           = result["compress_level"].as<int>();
             d.compress_window_log      = result["compress_window_log"].as<int>();
             d.compress_frame_mb        = result["compress_frame_mb"].as<int>();

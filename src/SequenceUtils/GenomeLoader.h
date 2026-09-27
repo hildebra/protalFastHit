@@ -19,6 +19,7 @@
 
 #include "Utilities.h"
 #include "Zstd.h"
+#include "Database.h"
 #include <sysexits.h>
 
 #include "Benchmark.h"
@@ -55,8 +56,8 @@ namespace protal {
                 }
                 Uppercase(into);
             } else if (!m_is && length > 0 && length != DEFAULT) {
-                errx(EX_SOFTWARE, "Gene %zu cannot be loaded on its own from a compressed reference (reference.fna.zst); "
-                                  "the reference must be preloaded.", m_id);
+                errx(EX_SOFTWARE, "Gene %zu cannot be loaded on its own from a compressed reference (reference.fna.zst "
+                                  "or a single-file database); the reference must be preloaded.", m_id);
             }
         };
 
@@ -365,9 +366,9 @@ namespace protal {
         using GeneKey = Genome::GeneKey;
 
 
-        std::string m_path;
-        std::string m_genome_map;
-        bool m_compressed = false;  // reference.fna.zst: genes are only read by LoadAllGenomes
+        db::DbFile m_reference;
+        db::DbFile m_map;
+        bool m_compressed = false;  // reference.fna.zst or in database.protal: genes are only read by LoadAllGenomes
         std::ifstream m_is;
         GenomeMap m_genomes;
 
@@ -379,25 +380,28 @@ namespace protal {
         }
 
         void Open() {
-            m_compressed = zstd::IsCompressed(m_path);
-            if (!m_compressed) m_is.open(m_path, std::ios::in);
+            m_compressed = m_reference.Compressed();
+            if (!m_compressed) m_is.open(m_reference.Path(), std::ios::in);
         }
 
     public:
-        // genome_path: reference.fna or a zstd-compressed reference.fna.zst. The byte offsets in
-        // genome_map (reference.map) always refer to the uncompressed reference.
-        GenomeLoader(std::string genome_path, std::string genome_map) :
-                m_path(genome_path),
-                m_genome_map(genome_map) {
+        // reference: reference.fna, a zstd-compressed reference.fna.zst, or the member of a single-file
+        // database. The byte offsets in map (reference.map) always refer to the uncompressed reference.
+        GenomeLoader(db::DbFile reference, db::DbFile map) :
+                m_reference(std::move(reference)),
+                m_map(std::move(map)) {
             Open();
-            LoadPositionMap(genome_map);
+            LoadPositionMap(m_map);
         };
 
+        GenomeLoader(std::string genome_path, std::string genome_map) :
+                GenomeLoader(db::DbFile::OnDisk(std::move(genome_path)), db::DbFile::OnDisk(std::move(genome_map))) {}
+
         GenomeLoader(const GenomeLoader& other) :
-                m_path(other.m_path),
-                m_genome_map(other.m_genome_map) {
+                m_reference(other.m_reference),
+                m_map(other.m_map) {
             Open();
-            LoadPositionMap(other.m_genome_map);
+            LoadPositionMap(m_map);
         }
 
         bool IsCompressed() const {
@@ -424,8 +428,14 @@ namespace protal {
         // long and long-super unique k-mers, and the gene's k-mer total. Every line must name a
         // gene of reference.map.
         void LoadUniqueKmers(std::string const& file) {
-            std::ifstream is(file, std::ios::in);
-            if (!is) InvalidUniqueKmers(file, 0, "cannot open the file");
+            LoadUniqueKmers(db::DbFile::OnDisk(file));
+        }
+
+        void LoadUniqueKmers(db::DbFile const& unique_kmers) {
+            std::string const& file = unique_kmers.Name();
+            auto input = unique_kmers.Open();
+            if (!unique_kmers.Exists() || !input->IsOpen()) InvalidUniqueKmers(file, 0, "cannot open the file");
+            std::istream& is = input->Stream();
 
             std::vector<std::string> tokens;
             std::string line;
@@ -470,7 +480,7 @@ namespace protal {
                 auto& gene = taxon.GetGene(geneid);
                 gene.SetUniqueValues(short_unique, long_unique, long_super_unique, total_kmers);
             }
-            is.close();
+            if (is.bad()) InvalidUniqueKmers(file, 0, "the file cannot be read or decompressed (truncated or corrupt file?)");
 
 
             for (auto& tid : m_genomes) {
@@ -576,7 +586,7 @@ namespace protal {
             uint64_t position = 0;
             for (Gene* gene : genes) {
                 if (gene->GetStartByte() < position) {
-                    std::cerr << "Invalid reference map " << m_genome_map << ": gene " << gene->GetId() << " at byte "
+                    std::cerr << "Invalid reference map " << m_map.Name() << ": gene " << gene->GetId() << " at byte "
                               << gene->GetStartByte() << " overlaps the previous gene" << std::endl;
                     exit(8);
                 }
@@ -586,14 +596,14 @@ namespace protal {
             }
             GeneSink sink(genes, starts);
             std::string error;
-            uint64_t const size = zstd::ParallelRead(m_path, threads, sink, error);
+            uint64_t const size = m_reference.ParallelRead(threads, sink, error);
             if (!error.empty()) {
-                std::cerr << "Cannot read the reference " << m_path << ": " << error << std::endl;
+                std::cerr << "Cannot read the reference " << m_reference.Name() << ": " << error << std::endl;
                 exit(8);
             }
             if (size < position) {
-                std::cerr << "Cannot read all genes from " << m_path << ": it holds " << size << " bytes, "
-                          << m_genome_map << " lists genes up to byte " << position << std::endl;
+                std::cerr << "Cannot read all genes from " << m_reference.Name() << ": it holds " << size << " bytes, "
+                          << m_map.Name() << " lists genes up to byte " << position << std::endl;
                 exit(8);
             }
             for (auto& key : keys) {
@@ -622,12 +632,14 @@ namespace protal {
 
         // reference.map: taxid, gene id, start byte, end byte of the gene's sequence in reference.fna.
         // Every line is checked, so a bad map stops protal here instead of corrupting genes silently.
-        void LoadPositionMap(std::string file_path) {
-            std::ifstream is(file_path, std::ios::in);
-            if (!is) InvalidMap(file_path, 0, "cannot open the file");
+        void LoadPositionMap(db::DbFile const& map) {
+            std::string const& file_path = map.Name();
+            auto input = map.Open();
+            if (!map.Exists() || !input->IsOpen()) InvalidMap(file_path, 0, "cannot open the file");
+            std::istream& is = input->Stream();
             // Offsets refer to the uncompressed reference, also for reference.fna.zst.
-            auto const size = zstd::UncompressedSize(m_path);
-            if (!size) InvalidMap(file_path, 0, "cannot read the size of " + m_path);
+            auto const size = m_reference.Size();
+            if (!size) InvalidMap(file_path, 0, "cannot read the size of " + m_reference.Name());
             uint64_t const fna_size = *size;
             constexpr uint64_t max_id = (uint64_t{1} << SEEDMAP_TAXID_BITS) - 1;
             constexpr uint64_t max_gene = (uint64_t{1} << SEEDMAP_GENEID_BITS) - 1;
@@ -661,7 +673,7 @@ namespace protal {
                 if (genome_id == 0 || genome_id > max_id) InvalidMap(file_path, line_no, "taxid must be between 1 and " + std::to_string(max_id));
                 if (gene_key == 0 || gene_key > max_gene) InvalidMap(file_path, line_no, "gene id must be between 1 and " + std::to_string(max_gene));
                 if (end <= start) InvalidMap(file_path, line_no, "end byte must be after start byte");
-                if (end > fna_size) InvalidMap(file_path, line_no, "end byte " + std::to_string(end) + " is past the end of " + m_path + " (" + std::to_string(fna_size) + " bytes)");
+                if (end > fna_size) InvalidMap(file_path, line_no, "end byte " + std::to_string(end) + " is past the end of " + m_reference.Name() + " (" + std::to_string(fna_size) + " bytes)");
                 if (end - start > max_length) InvalidMap(file_path, line_no, "gene is longer than " + std::to_string(max_length) + " bases");
 
                 auto& genome = AddOrGetGenome(genome_id);
@@ -669,7 +681,7 @@ namespace protal {
 
                 genome.AddGene(gene_key, gene_key, start, end - start, m_compressed ? nullptr : &m_is);
             }
-            is.close();
+            if (is.bad()) InvalidMap(file_path, 0, "the file cannot be read or decompressed (truncated or corrupt file?)");
         }
 
         [[noreturn]] static void InvalidUniqueKmers(std::string const& path, size_t line_no, std::string const& reason) {

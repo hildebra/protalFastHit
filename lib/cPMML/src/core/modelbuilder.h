@@ -28,7 +28,11 @@
 class ModelBuilder {
  public:
   inline static std::unique_ptr<InternalEvaluator> build(const std::string &filename, const bool zipped) {
-    std::vector<char> file_data = read_file(filename, zipped);
+    return build(read_file(filename, zipped));
+  }
+
+  // protal: from PMML text in memory, terminated by '\0' (parsed in place).
+  inline static std::unique_ptr<InternalEvaluator> build(std::vector<char> file_data) {
     rapidxml::xml_document<> document;
     document.parse<0>(file_data.data());
     XmlNode xmlNode(document.first_node("PMML"));

@@ -23,9 +23,11 @@ script exits 0 if every check passes and 1 otherwise, so it can be used in CI.
    *Mockella alpha* and *M. beta* share a genus (~92% identical marker genes); *Fakibacter
    gamma* is in another phylum.
 2. `gtdb_to_protal_db.py` converts it into `WORKDIR/protal_db/`.
-3. `protal --build` writes `index.prx.zst` (~0.5 MB) and `unique_kmers.tsv`, and replaces
-   `reference.fna` by `reference.fna.zst`. With `PROTAL_BUILD_ARGS=--no_compress` the database
-   stays raw, and `index.prx` takes ~3 GB whatever the reference size. Both give identical results.
+3. `protal --build` indexes it and packs the database into `WORKDIR/protal_db/database.protal`
+   (~1 MB). With `PROTAL_BUILD_ARGS=--no_bundle` the database stays separate compressed files
+   (`index.prx.zst`, `reference.fna.zst`, ...), with `--no_compress` separate raw files, where
+   `index.prx` takes ~3 GB whatever the reference size. All give identical results. The checks
+   read the database's files from `WORKDIR/db_files/`, which `protal --unpack_db` writes.
 
 The DB is reused on later runs as long as the protal binary and the generator scripts are
 unchanged (`WORKDIR/db.stamp`). `--rebuild` forces a new build.

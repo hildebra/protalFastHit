@@ -269,6 +269,14 @@ class Model {
   Model(const std::string &model_filepath, const bool zipped);
 
   /**
+   * @brief (protal) Constructs a cpmml::Model from PMML text in memory, e.g. a
+   * model read from a single-file protal database.
+   *
+   * @throws cpmml::ParsingException
+   */
+  static Model from_string(const std::string &pmml);
+
+  /**
    * @brief Validates user input in *sample* against the constraints defined in
    * the <a href="http://dmg.org/pmml/v4-4/DataDictionary.html">PMML
    * DataDictionary</a>.

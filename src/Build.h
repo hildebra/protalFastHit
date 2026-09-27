@@ -213,14 +213,223 @@ namespace protal::build {
         bm.PrintResults();
     }
 
+    // The files of a database folder that go into database.protal (Database.h), in member order: the
+    // index (index.prx.zst in the column format, frames copied as they are), the reference (a
+    // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
+    // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv and the
+    // model (model.xml, else random_forest.xml).
+    static std::vector<db::Source> BundleSources(protal::Options const& options) {
+        namespace fs = std::filesystem;
+        std::vector<db::Source> sources = {
+                {Options::PROTAL_INDEX_FILE, options.ResolvedIndexFile()},
+                {Options::PROTAL_SEQUENCE_FILE, options.ResolvedSequenceFile()},
+                {Options::PROTAL_SEQUENCE_MAP_FILE, options.GetSequenceMapFile()},
+                {Options::PROTAL_TAXONOMY_FILE, options.GetInternalTaxonomyFile()}};
+        if (fs::exists(options.GetUniqueKmersFile())) sources.push_back({Options::PROTAL_UNIQUE_KMER_FILE, options.GetUniqueKmersFile()});
+        for (std::string const model : {"model.xml", "random_forest.xml"}) {
+            std::string const path = (fs::path(options.GetLocation().dir) / model).string();
+            if (fs::exists(path)) {
+                sources.push_back({model, path});
+                break;
+            }
+        }
+        return sources;
+    }
+
+    // Packs the database folder into database.protal, checks it (db::Write), and removes the files
+    // it now holds; --unpack_db writes them back. The index must be in the column format, as --build
+    // and --compress_db write it.
+    static void BundleDatabase(protal::Options const& options) {
+        namespace fs = std::filesystem;
+        std::string const target = (fs::path(options.GetLocation().dir) / db::kFileName).string();
+        auto const sources = BundleSources(options);
+        if (!index_codec::IsSplitIndex(sources.front().path)) {
+            std::cerr << "Cannot write " << target << ": the index " << sources.front().path << " is not in protal's column "
+                      << "format (protal --compress_db --no_bundle converts it)" << std::endl;
+            exit(8);
+        }
+        if (std::none_of(sources.begin(), sources.end(), [](db::Source const& s) { return s.name.ends_with(".xml"); })) {
+            std::cerr << "Warning: no model.xml in " << options.GetLocation().dir << "; profiling with " << target
+                      << " then needs --model" << std::endl;
+        }
+        auto const params = options.CompressionParams();
+        Benchmark bm("Write " + db::kFileName);
+        bm.Start();
+        std::error_code ec;
+        uint64_t before = 0;
+        std::string names;
+        for (auto const& source : sources) {
+            before += fs::file_size(source.path, ec);
+            names += (names.empty() ? "" : ", ") + fs::path(source.path).filename().string();
+        }
+        bool const replaces = fs::exists(target, ec);
+        std::cout << "Write " << target << " from " << names << " (seekable zstd files' frames as they are, the others "
+                  << "compressed at zstd level " << params.level << ", " << HumanBytes(params.frame_size) << " frames; verified)" << std::endl;
+        std::string error;
+        auto const written = db::Write(target, sources, params, error);
+        if (!written) {
+            std::cerr << "Writing " << target << " failed: " << error << std::endl;
+            exit(8);
+        }
+        for (auto const& source : sources) {
+            fs::remove(source.path, ec);
+            if (ec) std::cerr << "Warning: cannot remove " << source.path << ": " << ec.message() << std::endl;
+        }
+        // An index left beside it would take precedence over the single file.
+        for (std::string const& raw : {options.GetIndexFile(), options.GetSequenceFile()}) {
+            for (std::string const& path : {raw, raw + zstd::kExtension}) {
+                if (fs::remove(path, ec)) std::cout << "Removed the previous " << path << std::endl;
+            }
+        }
+        bm.Stop();
+        std::cout << target << ": " << HumanBytes(*written) << " (" << HumanBytes(before) << " as separate files"
+                  << (replaces ? "; replaced the previous one" : "") << "). Removed the separate files; "
+                  << options.ProgramName() << " --unpack_db --db " << Options::ShellWord(target) << " writes them back." << std::endl;
+        bm.PrintResults();
+    }
+
+    // After writing a database as separate files: a database.protal next to them is stale.
+    static void RemoveStaleBundle(protal::Options const& options) {
+        std::string const path = (std::filesystem::path(options.GetLocation().dir) / db::kFileName).string();
+        std::error_code ec;
+        if (std::filesystem::remove(path, ec)) std::cout << "Removed the previous " << path << std::endl;
+    }
+
+    // Writes what zstd::ParallelRead delivers into a file, at the same offsets.
+    class FileSink : public zstd::Sink {
+    public:
+        explicit FileSink(int fd) : m_fd(fd) {}
+
+        void Copy(uint64_t offset, char const* data, size_t size) override {
+            while (size > 0 && !m_failed) {
+                ssize_t const n = ::pwrite(m_fd, data, size, static_cast<off_t>(offset));
+                if (n < 0 && errno == EINTR) continue;
+                if (n <= 0) {
+                    m_failed = true;
+                    break;
+                }
+                data += n;
+                size -= static_cast<size_t>(n);
+                offset += static_cast<uint64_t>(n);
+            }
+        }
+
+        bool Failed() const { return m_failed; }
+
+    private:
+        int m_fd;
+        std::atomic<bool> m_failed{false};
+    };
+
+    // Writes the frames `frames` lists in the file at path as a seekable zstd file at target.
+    inline std::string CopyFrames(std::string const& path, zstd::SeekTable const& frames, std::string const& target) {
+        int const fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+        if (fd < 0) return "cannot open " + path + ": " + std::strerror(errno);
+        zstd::FrameWriter out(target);
+        std::vector<char> buffer;
+        for (auto const& frame : frames.frames) {
+            buffer.resize(frame.compressed_size);
+            if (!zstd::PreadAll(fd, buffer.data(), frame.compressed_size, frame.compressed_offset)) {
+                ::close(fd);
+                return "read error in " + path;
+            }
+            if (!out.Add(buffer.data(), buffer.size(), frame.decompressed_size)) break;
+        }
+        ::close(fd);
+        out.Finish();
+        return out.Error();
+    }
+
+    // Writes the members of the single-file database as files into dir: the index as index.prx.zst
+    // (its frames as they are) or, with raw_index, as a raw index.prx; every other member
+    // uncompressed (reference.fna as --preload_genomes_off needs it). The other variant of the index
+    // and the reference there (which would shadow the new file or be stale) is removed.
+    static void UnpackBundle(protal::Options const& options, std::string const& dir, bool raw_index) {
+        namespace fs = std::filesystem;
+        auto const& bundle = *options.GetBundle();
+        int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        if (ec) {
+            std::cerr << "Cannot create " << dir << ": " << ec.message() << std::endl;
+            exit(8);
+        }
+        Benchmark bm("Unpack " + db::kFileName);
+        bm.Start();
+        for (auto const& member : bundle.Members()) {
+            bool const index = member.name == Options::PROTAL_INDEX_FILE;
+            bool const copy = index && !raw_index;
+            std::string const target = (fs::path(dir) / (copy ? member.name + zstd::kExtension : member.name)).string();
+            std::string const partial = target + ".partial";
+            auto fail = [&](std::string const& what) {
+                std::cerr << "Writing " << target << " from " << bundle.Path() << " failed: " << what << std::endl;
+                fs::remove(partial, ec);
+                exit(8);
+            };
+            std::cout << "Write " << target << std::endl;
+            if (copy) {
+                std::string error = CopyFrames(bundle.Path(), member.frames, partial);
+                if (!error.empty()) fail(error);
+                auto const table = zstd::ReadSeekTable(partial, error);
+                if (!table || table->frames.size() != member.frames.frames.size() || table->DecompressedSize() != member.Size()) {
+                    fail("it does not read back as written");
+                }
+            } else if (index) {
+                Seedmap map;
+                map.Load(db::DbFile::InBundle(bundle, member.name), threads);
+                std::ofstream os(partial, std::ios::binary);
+                map.Save(os);
+                os.close();
+                if (os.fail()) fail("write error");
+            } else {
+                int const fd = ::open(partial.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+                if (fd < 0) fail(std::strerror(errno));
+                FileSink sink(fd);
+                std::string error;
+                db::DbFile::InBundle(bundle, member.name).ParallelRead(threads, sink, error);
+                bool const closed = ::close(fd) == 0;
+                if (!error.empty()) fail(error);
+                if (sink.Failed() || !closed) fail("write error");
+                if (fs::file_size(partial, ec) != member.Size()) fail("it has the wrong size");
+            }
+            fs::rename(partial, target, ec);
+            if (ec) fail("cannot rename " + partial + ": " + ec.message());
+            if (index || member.name == Options::PROTAL_SEQUENCE_FILE) {
+                std::string const other = copy ? (fs::path(dir) / member.name).string() : target + zstd::kExtension;
+                if (fs::remove(other, ec)) std::cout << "Removed the previous " << other << std::endl;
+            }
+        }
+        bm.Stop();
+        bm.PrintResults();
+    }
+
+    // --unpack_db: the single-file database's files into --unpack_dir (default: its folder); the
+    // single file is kept.
+    static void UnpackDatabase(protal::Options const& options) {
+        std::string const dir = options.UnpackDir();
+        std::cout << "Unpack " << options.GetBundle()->Path() << " into " << dir << std::endl;
+        UnpackBundle(options, dir, false);
+        std::cout << "Unpacked " << options.GetBundle()->Path() << " into " << dir << "; protal --db " << Options::ShellWord(dir)
+                  << " uses these files (" << options.GetBundle()->Path() << " can be removed)" << std::endl;
+    }
+
     // --compress_db: rewrites an existing database's index and reference compressed, without
     // rebuilding it, e.g. a downloaded raw database or one compressed as a single frame: the index
-    // in the column format (IndexCodec.h), reference.fna as a seekable zstd file. Each new file is
-    // read back and compared with the old content before the old file is removed.
+    // in the column format (IndexCodec.h), reference.fna as seekable zstd, all packed into
+    // database.protal unless --no_bundle. Each new file is read back and compared with the old
+    // content before the old file is removed.
     static void CompressDatabase(protal::Options const& options) {
+        if (options.IsBundle()) {
+            std::cout << options.GetBundle()->Path() << " is already a single-file database; kept" << std::endl;
+            return;
+        }
         auto const params = options.CompressionParams();
         CompressionHint(options);
         if (params.frame_size > 0) CompressIndexFile(options, params);
+        if (options.WriteBundle()) {
+            BundleDatabase(options);  // compresses reference.fna itself
+            return;
+        }
         for (std::string const& raw : params.frame_size > 0 ? std::vector<std::string>{options.GetSequenceFile()}
                                                             : std::vector<std::string>{options.GetIndexFile(), options.GetSequenceFile()}) {
             std::string const source = zstd::Resolve(raw);
@@ -257,9 +466,19 @@ namespace protal::build {
     }
 
     // --decompress_db: writes the database's index.prx and reference.fna raw again (e.g. for
-    // --preload_genomes_off or protal versions without zstd support) and removes the .zst files.
+    // --preload_genomes_off or protal versions without zstd support) and removes the .zst files, or
+    // database.protal after writing all its files raw next to it.
     static void DecompressDatabase(protal::Options const& options) {
         int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        if (options.IsBundle()) {
+            std::string const bundle = options.GetBundle()->Path();
+            UnpackBundle(options, options.GetLocation().dir, true);
+            std::error_code ec;
+            std::filesystem::remove(bundle, ec);
+            if (ec) std::cerr << "Warning: cannot remove " << bundle << ": " << ec.message() << std::endl;
+            else std::cout << "Removed " << bundle << std::endl;
+            return;
+        }
         {
             std::string const raw = options.GetIndexFile(), source = zstd::Resolve(raw), partial = raw + ".partial";
             if (source == raw) {

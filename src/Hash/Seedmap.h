@@ -607,7 +607,7 @@ namespace protal {
                 auto const container = index_codec::ReadContainer(file, *table, error);
                 if (!error.empty()) InvalidIndex(file, error + " (truncated or corrupt file?)");
                 if (container) {
-                    LoadColumns(file, *table, *container, threads);
+                    LoadColumns(file, file, *table, *container, threads);
                     return;
                 }
             }
@@ -636,22 +636,38 @@ namespace protal {
             }
         }
 
-        // The column format (IndexCodec.h): the raw header from the container, then the chunks, decoded
-        // in parallel into the key map and values.
-        void LoadColumns(std::string const& file, zstd::SeekTable const& table, index_codec::Container const& container,
-                         int threads) {
+        // The index as a database file: a file on disk (Load(file, threads) above), or the member of a
+        // single-file database (Database.h), which holds the index's frames in the column format.
+        void Load(db::DbFile const& file, int threads = 1) {
+            if (!file.InBundle()) {
+                Load(file.Path(), threads);
+                return;
+            }
+            if (!file.Exists()) InvalidIndex(file.Name(), "the database has no index");
+            std::string error;
+            auto const container = index_codec::ReadContainer(file.Path(), file.Frames(), error);
+            if (!error.empty()) InvalidIndex(file.Name(), error + " (truncated or corrupt file?)");
+            if (!container) InvalidIndex(file.Name(), "not an index in protal's column format (corrupt file?)");
+            LoadColumns(file.Path(), file.Name(), file.Frames(), *container, threads);
+        }
+
+        // The column format (IndexCodec.h) in the frames `table` lists in the file at path: the raw
+        // header from the container, then the chunks, decoded in parallel into the key map and
+        // values. name is used in messages.
+        void LoadColumns(std::string const& path, std::string const& name, zstd::SeekTable const& table,
+                         index_codec::Container const& container, int threads) {
             std::istringstream header(container.index_header);
-            LoadLayout(header, file);
+            LoadLayout(header, name);
             auto const expected = CodecLayout();
             auto const& l = container.layout;
             if (l.blocks != expected.blocks || l.keys_per_block != expected.keys_per_block ||
                 l.ctrl_cells != expected.ctrl_cells || l.values != expected.values) {
-                InvalidIndex(file, "the layout of the compressed index does not match its header (corrupt file?)");
+                InvalidIndex(name, "the layout of the compressed index does not match its header (corrupt file?)");
             }
             AllocateKeymap(keymap_size_total);
             AllocateValues(values_size);
-            std::string const error = index_codec::Decode(file, table, container, m_keymap, reinterpret_cast<uint64_t*>(m_map), threads);
-            if (!error.empty()) InvalidIndex(file, error + " (truncated or corrupt file?)");
+            std::string const error = index_codec::Decode(path, table, container, m_keymap, reinterpret_cast<uint64_t*>(m_map), threads);
+            if (!error.empty()) InvalidIndex(name, error + " (truncated or corrupt file?)");
         }
 
         // Header and layout fields of an index written by Save; every size is checked against the
