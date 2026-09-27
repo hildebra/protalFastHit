@@ -56,6 +56,25 @@ namespace protal {
         return del + mismatch + match;
     }
 
+    // Identity of an alignment: matches over aligned columns (M, X, I and D; protal writes M only
+    // for exact matches), and the reference length it covers (M, X and D).
+    static std::pair<double, size_t> AlignmentIdentity(const std::string& cigar) {
+        size_t matches = 0, differences = 0, ref_length = 0;
+        size_t count = 0;
+        for (char c : cigar) {
+            if (std::isdigit(static_cast<unsigned char>(c))) {
+                count = count * 10 + (c - '0');
+                continue;
+            }
+            if (c == 'M') matches += count;
+            if (c == 'X' || c == 'I' || c == 'D') differences += count;
+            if (c == 'M' || c == 'X' || c == 'D') ref_length += count;
+            count = 0;
+        }
+        double const columns = static_cast<double>(matches + differences);
+        return { columns > 0 ? matches / columns : 0.0, ref_length };
+    }
+
     class StrainLevelContainer {
         friend SharedAlignmentRegion;
         // Needs two things, variant handler which stores and handles SNPs and INDELS

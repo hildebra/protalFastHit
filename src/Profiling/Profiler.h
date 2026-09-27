@@ -172,6 +172,17 @@ namespace protal {
             size_t m_gene_length = 0;
             std::vector<SamEntry*> m_sams;
             StrainLevelContainer m_strain_level;
+            // Identity and aligned reference length of every read, for depth from a taxon's own reads.
+            std::vector<std::pair<float, uint32_t>> m_read_identities;
+
+            // Aligned reference bases of the reads with at least `min_identity`.
+            size_t MappedLength(double min_identity) const {
+                size_t bases = 0;
+                for (auto const& [identity, length] : m_read_identities) {
+                    if (identity >= min_identity) bases += length;
+                }
+                return bases;
+            }
 
 
             GeneRef* m_gene_ref = nullptr;
@@ -294,7 +305,8 @@ namespace protal {
                 //     ExtractSNPs(sam, m_gene_ref->Sequence(), m_snps, 0, 0, read_id);
                 // }
 
-                size_t length = AlignmentLengthRef(sam.m_cigar);
+                auto const [identity, length] = AlignmentIdentity(sam.m_cigar);
+                m_read_identities.emplace_back(static_cast<float>(identity), static_cast<uint32_t>(length));
 
                 m_mapped_reads++;
                 m_mapped_length += length;
@@ -405,6 +417,8 @@ namespace protal {
             double m_ani_sum = 0;
             size_t m_mapq_sum = 0;
             double m_vcov = -1;
+            double m_low_identity_share = 0;
+            double m_depth_identity_margin = 1;  // every read counts towards depth unless set
             GeneMap m_genes;
 
             Genome m_genome;
@@ -631,18 +645,61 @@ namespace protal {
                 if (expected_length == 0 || expected_genes == 0) return median_depth;
                 double const depth_all_genes = static_cast<double>(mapped_bases) / static_cast<double>(expected_length);
                 double const hit_fraction = std::min(1.0, static_cast<double>(hit_genes) / static_cast<double>(expected_genes));
-                double const weight = std::max(SmoothStep((hit_fraction - 0.80) / 0.15), SmoothStep((median_depth - 0.5) / 0.5));
+                // A high median depth is trusted only once enough genes are hit: two reads on one
+                // short gene give a high median depth, too.
+                double const weight = std::max(SmoothStep((hit_fraction - 0.80) / 0.15),
+                                               SmoothStep((median_depth - 0.5) / 0.5) * SmoothStep((hit_fraction - 0.25) / 0.25));
                 return (1 - weight) * depth_all_genes + weight * median_depth;
             }
 
+            void SetDepthIdentityMargin(double margin) {
+                m_depth_identity_margin = margin;
+                m_vcov = -1;
+            }
+
+            // The lowest identity of a read that counts towards the taxon's depth: `margin` below the
+            // identity of its best-matching reads (the 98th percentile, by aligned bases). A present
+            // species' own reads form this top cluster; reads of relatives (absent from the database,
+            // or much more abundant) align at lower identity and would inflate its depth. They still
+            // count for detection: the model's features use every read.
+            double OwnIdentityThreshold() const {
+                if (m_depth_identity_margin >= 1) return 0;
+                std::vector<std::pair<float, uint32_t>> reads;
+                size_t total = 0;
+                for (auto const& [id, gene] : m_genes) {
+                    for (auto const& read : gene.m_read_identities) {
+                        reads.push_back(read);
+                        total += read.second;
+                    }
+                }
+                if (reads.empty()) return 0;
+                std::sort(reads.begin(), reads.end());
+                size_t cumulative = 0;
+                double top = reads.back().first;
+                for (auto const& [identity, length] : reads) {
+                    cumulative += length;
+                    if (cumulative >= 0.98 * static_cast<double>(total)) {
+                        top = identity;
+                        break;
+                    }
+                }
+                return top - m_depth_identity_margin;
+            }
+
+            // Depth of the taxon from its own reads (see OwnIdentityThreshold), estimated by BlendedDepth.
             double VerticalCoverage(bool force=false) {
                 if (m_vcov == -1 || force) {
+                    double const min_identity = OwnIdentityThreshold();
                     std::vector<double> vcovs;
-                    size_t mapped_bases = 0;
+                    size_t own_bases = 0, all_bases = 0;
                     for (auto& [geneid, gene] : m_genes) {
-                        vcovs.emplace_back(gene.VerticalCoverage());
-                        mapped_bases += gene.m_mapped_length;
+                        size_t const bases = gene.MappedLength(min_identity);
+                        all_bases += gene.m_mapped_length;
+                        if (bases == 0 || gene.m_gene_length == 0) continue;
+                        vcovs.emplace_back(static_cast<double>(bases) / static_cast<double>(gene.m_gene_length));
+                        own_bases += bases;
                     }
+                    m_low_identity_share = all_bases == 0 ? 0 : 1 - static_cast<double>(own_bases) / static_cast<double>(all_bases);
                     std::sort(vcovs.begin(), vcovs.end());
 
                     if (vcovs.empty()) return 0.0;
@@ -654,9 +711,15 @@ namespace protal {
                         expected_length += m_genome.GetGene(gene_id).GetLength();
                         expected_genes++;
                     }
-                    m_vcov = BlendedDepth(Median(vcovs), mapped_bases, expected_length, m_genes.size(), expected_genes);
+                    m_vcov = BlendedDepth(Median(vcovs), own_bases, expected_length, vcovs.size(), expected_genes);
                 }
                 return m_vcov;
+            }
+
+            // Share of the taxon's aligned bases below OwnIdentityThreshold: reads of relatives, e.g. of
+            // a species the database lacks. Valid after VerticalCoverage().
+            double LowIdentityShare() const {
+                return m_low_identity_share;
             }
 
             double VerticalCoverage() const {
@@ -1006,6 +1069,12 @@ namespace protal {
             Benchmark bm_add_sam{"Add Sam profile"};
             MicrobialProfile(GenomeLoader& genome_loader) : m_genome_loader(genome_loader) {}
 
+            // See Taxon::OwnIdentityThreshold; 1 or more lets every read count towards depth.
+            void SetDepthIdentityMargin(double margin) {
+                m_depth_identity_margin = margin;
+                for (auto& [id, _] : m_taxa) m_taxa.at(id).SetDepthIdentityMargin(margin);
+            }
+
             void AddRead(InternalReadAlignment const& ira, bool unique=true) {
                 if (!m_taxa.contains(ira.taxid)) {
                     auto& genome = m_genome_loader.GetGenome(ira.taxid);
@@ -1032,6 +1101,7 @@ namespace protal {
 
                     m_taxa.insert( { taxid, Taxon(genome) } );
                     m_taxa.at(taxid).SetId(taxid);
+                    m_taxa.at(taxid).SetDepthIdentityMargin(m_depth_identity_margin);
                     m_taxa.at(taxid).SetName(std::to_string(taxid));
                 }
 
@@ -1307,7 +1377,7 @@ namespace protal {
                         *os_total << '\t' << taxon.GetGeneVariance();
                         *os_total << '\t' << taxon.GetGeneVariance(5);
                         *os_total << '\t' << taxon.ToString(taxonomy);
-                        *os_total << '\t' << taxon.VerticalCoverage();
+                        *os_total << '\t' << taxon.VerticalCoverage() << '\t' << taxon.LowIdentityShare();
                         *os_total << '\t' << mean_gene_covs << '\t' << mean_gene_cov_ratios << '\t' << gene_covs_str;
                         *os_total << '\t' << gene_cov_ratios_str << std::endl;
                     }
@@ -1324,6 +1394,7 @@ namespace protal {
             std::string m_name;
             mutable TaxonMap m_taxa;
             GenomeLoader &m_genome_loader;
+            double m_depth_identity_margin = 1;
         };
 
 
@@ -1353,6 +1424,7 @@ namespace protal {
 
             size_t m_min_alignment_length = 50;
             size_t m_min_mapq = 4;
+            double m_depth_identity_margin = 1;
 
             // Variants are recorded with or without --no_strains: the model's allele features come
             // from them, so a profile must not depend on whether strain MSAs are written.
@@ -1365,6 +1437,11 @@ namespace protal {
             SamPairList m_pairs_nonunique;
             SamPairs m_pairs_nonunique_best;
             Benchmark m_post_process_bm{"Post-processing"};
+
+            // See Taxon::OwnIdentityThreshold.
+            void SetDepthIdentityMargin(double margin) {
+                m_depth_identity_margin = margin;
+            }
 
             static std::pair<double, int> ScorePairedAlignment(OptIRA const& a, OptIRA const& b, double divide_penalty=2.2, double alone_penalty=2) {
                 int score = 0;
@@ -1886,6 +1963,7 @@ namespace protal {
             using OptionalRefOstream = std::optional<std::reference_wrapper<std::ostream>>;
             MicrobialProfile Profile(std::string sample_name, OptionalRefOstream erroneous_sam_out={}, size_t snp_min_cov=2, size_t snp_min_obs_fwdrev=2, double snp_min_af=0.0, size_t snp_min_mean_qual=15, size_t snp_min_phred_sum=0, bool snp_require_strand=false) {
                 MicrobialProfile profile(m_genome_loader);
+                profile.SetDepthIdentityMargin(m_depth_identity_margin);
                 profile.SetName(sample_name);
 
                 size_t read_id = 0;

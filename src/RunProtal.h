@@ -516,6 +516,7 @@ namespace protal {
             Benchmark bm_profile{ "Profile sample" };
 
             profiler::Profiler profiler(genomes);
+            profiler.SetDepthIdentityMargin(options.GetDepthIdentityMargin());
 
             // New Profiler approach
             std::vector<AlignmentPair> unique_pairs;
@@ -1021,7 +1022,7 @@ namespace protal {
         }
     }
 
-    static std::vector<size_t> GetProfilesWithTaxon(uint32_t taxid, Profiles& profiles, Options& options, std::optional<profiler::TaxonFilter>& filter) {
+    static std::vector<size_t> GetProfilesWithTaxon(uint32_t taxid, Profiles& profiles, Options& options, std::optional<profiler::TaxonFilterObj> const& filter) {
         std::vector<size_t> indices;
 
         for (auto i = 0; i < profiles.size(); i++) {
@@ -1342,7 +1343,7 @@ namespace protal {
         }
     }
 
-    static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilter> filter={}) {
+    static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilterObj> const& filter={}) {
         // An earlier run's MSA must not survive a run that writes none (qcmsa would filter it).
         for (auto const& stale : { options.GetMSAOutput(taxon_name), options.GetMSAPartitionOutput(taxon_name) }) {
             std::error_code ec;
@@ -1690,7 +1691,7 @@ namespace protal {
 
             std::ofstream os_meta(options.GetSpeciesMetaOutput(name));
             os_meta << "sample\tgene_id\tvertical_coverage\tcounts_vcov1\tcounts_vcov2\tmulti_allelic\tfiltered\tmulti_rate_vcov1\tfiltered_rate_vcov1\tmulti_rate_vcov2\tfiltered_rate_vcov2\tmedian_vcov\thcov\tgene_length\tmean_vcov_nonzero\tmedian_vcov_nonzero\n";
-            GetMSAForTaxon(taxid, name, loader, options, profiles, &os_meta);
+            GetMSAForTaxon(taxid, name, loader, options, profiles, &os_meta, filter);
             os_meta.close();
             if (os_meta.fail()) RunStatus::Get().Fail("Writing the MSA metadata of " + name + " failed: " + options.GetSpeciesMetaOutput(name));
 

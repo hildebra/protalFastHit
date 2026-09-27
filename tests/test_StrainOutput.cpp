@@ -176,9 +176,33 @@ TEST(Abundance, BlendedDepthHasNoStep) {
     for (double m : { 0.5, 1.0 }) {
         EXPECT_NEAR(at(0.5, m - 1e-5), at(0.5, m + 1e-5), 1e-4) << "median " << m;
     }
+    for (double f : { 0.25, 0.5 }) {
+        EXPECT_NEAR(at(f - 1e-5, 2.0), at(f + 1e-5, 2.0), 1e-3) << "hit fraction " << f << " at a high median";
+    }
     EXPECT_DOUBLE_EQ(at(0.5, 0.1), 0.4);   // low coverage: all expected genes
     EXPECT_DOUBLE_EQ(at(1.0, 0.7), 0.7);   // every gene hit: the median
     EXPECT_DOUBLE_EQ(at(0.5, 2.0), 2.0);   // high median depth: the median
+    EXPECT_DOUBLE_EQ(at(0.02, 2.0), 0.4);  // ...but not from a couple of reads on a short gene
+}
+
+TEST(Abundance, DepthCountsOnlyTheTaxonsOwnReads) {
+    TinyReference ref;
+    std::string reference = ref.loader->GetGenome(1).GetGeneOMP(1).Sequence();
+    profiler::MicrobialProfile profile(*ref.loader);
+    profile.SetDepthIdentityMargin(0.04);
+    auto own = MakeSam(reference.substr(0, 20), "20M", 1);
+    auto relative = MakeSam(reference.substr(20, 20), "15M5X", 21);  // identity 0.75
+    for (auto const* sam : { &own, &own, &relative, &relative }) {
+        ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0));
+    }
+    auto& taxon = profile.GetTaxa().at(1);
+    // One 50 bp gene, every gene hit: the depth is the median gene depth of the own reads.
+    EXPECT_NEAR(taxon.VerticalCoverage(true), 40.0 / 50, 1e-9);
+    EXPECT_NEAR(taxon.LowIdentityShare(), 0.5, 1e-9);
+
+    profile.SetDepthIdentityMargin(1);  // every read counts
+    EXPECT_NEAR(taxon.VerticalCoverage(), 80.0 / 50, 1e-9);
+    EXPECT_NEAR(taxon.LowIdentityShare(), 0.0, 1e-9);
 }
 
 TEST(ModelFeatures, NamesAreUniqueAndValuesKeepTheirPrecision) {

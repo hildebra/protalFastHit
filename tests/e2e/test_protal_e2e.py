@@ -259,6 +259,36 @@ class MateAssignmentTest(WorkDir):
         self.assertGreater(good, 0.9 * len(pairs), f"{good} of {len(pairs)} fragments written with both mates")
 
 
+class MsaSampleSelectionTest(WorkDir):
+    """A species' MSA takes only the samples in which the model accepts the species."""
+
+    def test_rejected_samples_are_left_out(self):
+        # A sample with three read pairs of Mockella alpha, too few to call it.
+        taxid = None
+        with open(os.path.join(DB, "internal_taxonomy.dmp")) as fh:
+            for line in fh:
+                f = line.split("\t")
+                if f[3] == "s__Mockella alpha":
+                    taxid = f[0]
+        genes = [seq for name, seq in reference_genes() if name.split("_")[0] == taxid and len(seq) >= 300][:3]
+        with open(self.path("few_R1.fq"), "w") as r1, open(self.path("few_R2.fq"), "w") as r2:
+            for i, gene in enumerate(genes, 1):
+                r1.write(f"@few.{i}/1\n{gene[:100]}\n+\n{'I' * 100}\n")
+                r2.write(f"@few.{i}/2\n{revcomp(gene[200:300])}\n+\n{'I' * 100}\n")
+        first = ",".join([os.path.join(READS, "sa_R1.fq"), os.path.join(READS, "sb_R1.fq"), self.path("few_R1.fq")])
+        second = ",".join([os.path.join(READS, "sa_R2.fq"), os.path.join(READS, "sb_R2.fq"), self.path("few_R2.fq")])
+        rc, log = run(self.work, "--db", DB, "-1", first, "-2", second, "--prefix", "sa,sb,few", "-o", "out",
+                      "-t", "2", "--no_qcmsa", "--msa_min_hcov", "0")
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(self.path("out", "few.profile")) as fh:
+            self.assertNotIn("Mockella alpha", fh.read(), "the three pairs do not call the species")
+        with open(self.path("out", "strains", "s__Mockella_alpha.raw.msa.fna")) as fh:
+            names = [line[1:].strip() for line in fh if line.startswith(">")]
+        self.assertIn("sa", names)
+        self.assertIn("sb", names)
+        self.assertNotIn("few", names)
+
+
 class StrainEdgeCaseTest(WorkDir):
     def test_species_without_msa_genes(self):
         # No gene reaches --snp_min_cov, so no species has MSA columns (this used to segfault).

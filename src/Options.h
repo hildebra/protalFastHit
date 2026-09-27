@@ -74,6 +74,7 @@ namespace protal {
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold: taxa with RF probability >= knob are reported as detected. Higher improves precision, lower improves sensitivity. Values between 0.4 and 0.6 should not affect F1-score by a large margin, but just slightly shift focus from sensitivity to precision.", cxxopts::value<double>()->default_value("0.5"))
+                ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <db>/<name> (<db>/<name>.xml without an extension). Default: model.xml in the database directory.", cxxopts::value<std::string>()->default_value(""))
                 ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""));
 
@@ -169,6 +170,7 @@ namespace protal {
         std::string profile_truth;
         std::string model;
         double knob = 0.5;
+        double depth_identity_margin = 0.04;
 
         // alignment
         size_t threads = DEFAULT_THREADS;
@@ -238,6 +240,7 @@ namespace protal {
         std::string m_profile_truth;
         std::string m_model;
         double m_knob = 0.5;
+        double m_depth_identity_margin = 0.04;
 
         size_t m_threads = DEFAULT_THREADS;
 
@@ -332,6 +335,7 @@ namespace protal {
                 m_profile_truth(std::move(d.profile_truth)),
                 m_model(std::move(d.model)),
                 m_knob(d.knob),
+                m_depth_identity_margin(d.depth_identity_margin),
                 m_threads(d.threads),
                 m_align_top(d.align_top),
                 m_max_score_ani(d.max_score_ani),
@@ -439,6 +443,10 @@ namespace protal {
 
         double GetKnob() const {
             return m_knob;
+        }
+
+        double GetDepthIdentityMargin() const {
+            return m_depth_identity_margin;
         }
 
         std::string GetModelPath() const {
@@ -1175,6 +1183,9 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                     error_log.emplace_back("Model file does not exist: " + GetModelPath());
                 }
             }
+            if (!(m_depth_identity_margin >= 0)) {
+                error_log.emplace_back("--depth_identity_margin must be 0 or more");
+            }
             if (!m_profile_truth_list.empty()) {
                 if (m_profile_truth_list.size() != m_profile_list.size()) {
                     error_log.emplace_back("Truth files (--profile_truth or a PROFILE_TRUTH column) must name one file per sample: " +
@@ -1677,6 +1688,7 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
             d.range                    = std::move(range);
             d.build_gene_mask          = std::move(build_gene_mask);
             d.knob                     = result["knob"].as<double>();
+            d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
             d.model                    = result["model"].as<std::string>();
 
             auto options = Options(std::move(d));
