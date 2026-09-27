@@ -711,6 +711,26 @@ class FailFastTest(WorkDir):
         self.assertEqual(rc, 2, log[-3000:])
         self.assertIn("Cannot load the model", log)
 
+    def test_model_protal_cannot_feed(self):
+        model = self.db_file("model.xml").decode()
+        # An input protal does not compute, and a model predicting other labels than TRUE/FALSE.
+        unknown = model.replace("<MiningSchema>", '<MiningSchema>\n<MiningField name="moon_phase"/>', 1)
+        unknown = re.sub(r"(<DataDictionary[^>]*>)", r'\1\n<DataField name="moon_phase" optype="continuous" dataType="double"/>',
+                         unknown, count=1)
+        labels = model.replace('value="TRUE"', 'value="present"').replace('score="TRUE"', 'score="present"')
+        for name, text, message in (("db_unknown", unknown, "input(s) protal does not compute: moon_phase"),
+                                    ("db_labels", labels, "has no value TRUE")):
+            db = self.db_copy(name, {"model.xml": text.encode()})
+            rc, log = self.query(db, "out_" + name)
+            self.assertEqual(rc, 2, log[-3000:])
+            self.assertIn("Cannot use the model", log)
+            self.assertIn(message, log)
+
+    def test_knob_is_a_probability(self):
+        rc, log = self.query(DB, "out_knob", "--knob", "1.5")
+        self.assertNotEqual(rc, 0, log[-3000:])
+        self.assertIn("--knob must be between 0 and 1", log)
+
     def test_one_truth_file_per_sample(self):
         truth = self.path("truth.tsv")
         with open(truth, "w") as fh:

@@ -263,12 +263,52 @@ TEST(Abundance, ReleasingReadDataKeepsWhatLaterStagesRead) {
     }
 }
 
+TEST(ModelFeatures, TheModelMustFitProtal) {
+    auto dir = std::filesystem::temp_directory_path() / ("protal model test " + std::to_string(::getpid()));
+    std::filesystem::create_directories(dir);
+    // A one-split tree on `field`, predicting `yes` or `no`.
+    auto model = [&](std::string const& name, std::string const& field, std::string const& yes, std::string const& no) {
+        auto path = (dir / name).string();
+        std::ofstream(path) << R"(<?xml version="1.0" encoding="UTF-8"?>
+<PMML version="4.4">
+ <Header/>
+ <DataDictionary>
+  <DataField name="truth" optype="categorical" dataType="string"><Value value=")" << no << R"("/><Value value=")" << yes << R"("/></DataField>
+  <DataField name=")" << field << R"(" optype="continuous" dataType="double"/>
+ </DataDictionary>
+ <TreeModel functionName="classification" splitCharacteristic="binarySplit">
+  <MiningSchema>
+   <MiningField name="truth" usageType="predicted"/>
+   <MiningField name=")" << field << R"("/>
+  </MiningSchema>
+  <Node score=")" << no << R"(">
+   <True/>
+   <Node score=")" << yes << R"("><SimplePredicate field=")" << field << R"(" operator="greaterThan" value="10"/><ScoreDistribution value=")" << no << R"(" recordCount="1"/><ScoreDistribution value=")" << yes << R"(" recordCount="9"/></Node>
+   <Node score=")" << no << R"("><True/><ScoreDistribution value=")" << no << R"(" recordCount="9"/><ScoreDistribution value=")" << yes << R"(" recordCount="1"/></Node>
+  </Node>
+ </TreeModel>
+</PMML>
+)";
+        return path;
+    };
+    auto problem = [](std::string const& path) {
+        return profiler::ModelContractProblem(profiler::TaxonFilterForest(path), path);
+    };
+    EXPECT_EQ(problem(model("good.xml", "present_genes", "TRUE", "FALSE")), "");
+    EXPECT_EQ(problem(model("normalized.xml", "gene_presence_ratio", "TRUE", "FALSE")), "");
+    EXPECT_EQ(problem(model("unknown.xml", "coverage_of_moon", "TRUE", "FALSE")),
+              "it needs 1 input(s) protal does not compute: coverage_of_moon");
+    EXPECT_NE(problem(model("labels.xml", "present_genes", "yes", "no")).find("has no value TRUE"), std::string::npos);
+    std::filesystem::remove_all(dir);
+}
+
 TEST(ModelFeatures, NamesAreUniqueAndValuesKeepTheirPrecision) {
     Genome no_genome(0);
     auto features = profiler::TaxonFeatures(profiler::Taxon(no_genome));
     std::set<std::string> names;
     for (auto const& [name, _] : features) EXPECT_TRUE(names.insert(name).second) << name << " twice";
-    for (auto const* name : { "RAF0", "RA4", "su_rate_ref", "lu_rate_ref", "lsu_rate_ref", "mean_mapq", "lu_per_read" }) {
+    for (auto const* name : { "RAF0", "RA4", "su_rate_ref", "lu_rate_ref", "lsu_rate_ref", "mean_mapq", "lu_per_read",
+                              "fragments", "gene_presence_ratio", "identity", "variant_sites_per_kb" }) {
         EXPECT_TRUE(names.contains(name)) << name;
     }
 

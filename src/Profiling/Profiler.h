@@ -26,6 +26,10 @@
 #include <algorithm>
 #include <charconv>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <set>
+#include <string_view>
 #include <string>
 #include <ranges>
 #include <cmath>
@@ -172,6 +176,9 @@ namespace protal {
             StrainLevelContainer m_strain_level;
             // Identity and aligned reference length of every read, for depth from a taxon's own reads.
             std::vector<std::pair<float, uint32_t>> m_read_identities;
+            double m_identity_bases = 0;  // aligned reference bases times their read's identity
+            size_t m_fragments = 0;       // reads, a pair counting once
+            size_t m_last_read = SIZE_MAX;
 
             // Aligned reference bases of the reads with at least `min_identity`.
             size_t MappedLength(double min_identity) const {
@@ -292,6 +299,11 @@ namespace protal {
 
                 auto const [identity, length] = AlignmentIdentity(sam.m_cigar);
                 m_read_identities.emplace_back(static_cast<float>(identity), static_cast<uint32_t>(length));
+                m_identity_bases += identity * static_cast<double>(length);
+                if (read_id != m_last_read) {
+                    m_fragments++;
+                    m_last_read = read_id;
+                }
 
                 m_mapped_reads++;
                 m_mapped_length += length;
@@ -384,10 +396,13 @@ namespace protal {
             size_t m_unique_hits = 0;
             double m_ani_sum = 0;
             size_t m_mapq_sum = 0;
-            double m_vcov = -1;
-            double m_low_identity_share = 0;
+            mutable double m_vcov = -1;  // cached by VerticalCoverage
+            mutable double m_low_identity_share = 0;
             double m_depth_identity_margin = 1;  // every read counts towards depth unless set
             mutable std::optional<double> m_model_score;  // cached by TaxonFilterForest::Score
+            mutable std::optional<double> m_top_identity;  // cached by TopIdentity
+            size_t m_fragments = 0;  // reads with an accepted alignment, a pair counting once
+            size_t m_last_read = SIZE_MAX;
             GeneMap m_genes;
 
             Genome* m_genome;  // the database's genome, shared by all samples
@@ -397,8 +412,15 @@ namespace protal {
 
             Taxon(Genome& genome) : m_genome(&genome), m_genome_gene_count(genome.GeneNum()) {}
 
-            void AddHit(GeneId geneid, GenePos genepos, double ani, bool unique) {
+            // Drops what is computed from the reads, when a read is added.
+            void Changed() {
                 m_model_score.reset();
+                m_top_identity.reset();
+                m_vcov = -1;
+            }
+
+            void AddHit(GeneId geneid, GenePos genepos, double ani, bool unique) {
+                Changed();
                 if (!m_genes.contains(geneid)) {
                     auto& g = m_genome->GetGene(geneid);
                     g.LoadOMP();
@@ -439,7 +461,7 @@ namespace protal {
             }
 
             bool AddSam(GeneId geneid, SamEntry const& sam, double score, bool unique, size_t read_id, bool no_strain=true) {
-                m_model_score.reset();
+                Changed();
                 bool const new_gene = !m_genes.contains(geneid);
                 if (new_gene) {
                     auto& g = m_genome->GetGene(geneid);
@@ -458,6 +480,10 @@ namespace protal {
                 m_unique_mers += sam.m_uniques;
                 m_unique_mer_reads += sam.m_uniques > 0;
                 m_total_hits++;
+                if (read_id != m_last_read) {
+                    m_fragments++;
+                    m_last_read = read_id;
+                }
                 m_total_kmers += (sam.m_seq.length() - 30) * 0.2; //TODO: store that info in sam
                 m_ani_sum += score;
                 m_mapq_sum += sam.m_mapq;
@@ -630,6 +656,7 @@ namespace protal {
             void SetDepthIdentityMargin(double margin) {
                 m_depth_identity_margin = margin;
                 m_vcov = -1;
+                m_model_score.reset();  // the depth is a feature
             }
 
             // The model score is computed once per taxon (it is asked for by every writer) and dropped
@@ -651,13 +678,10 @@ namespace protal {
                 }
             }
 
-            // The lowest identity of a read that counts towards the taxon's depth: `margin` below the
-            // identity of its best-matching reads (the 98th percentile, by aligned bases). A present
-            // species' own reads form this top cluster; reads of relatives (absent from the database,
-            // or much more abundant) align at lower identity and would inflate its depth. They still
-            // count for detection: the model's features use every read.
-            double OwnIdentityThreshold() const {
-                if (m_depth_identity_margin >= 1) return 0;
+            // The identity of the taxon's best-matching reads: the 98th percentile, by aligned bases,
+            // of its reads' identities (indels count as differences). 0 without reads.
+            double TopIdentity() const {
+                if (m_top_identity) return *m_top_identity;
                 std::vector<std::pair<float, uint32_t>> reads;
                 size_t total = 0;
                 for (auto const& [id, gene] : m_genes) {
@@ -666,22 +690,122 @@ namespace protal {
                         total += read.second;
                     }
                 }
-                if (reads.empty()) return 0;
-                std::sort(reads.begin(), reads.end());
-                size_t cumulative = 0;
-                double top = reads.back().first;
-                for (auto const& [identity, length] : reads) {
-                    cumulative += length;
-                    if (cumulative >= 0.98 * static_cast<double>(total)) {
-                        top = identity;
-                        break;
+                double top = 0;
+                if (!reads.empty()) {
+                    std::sort(reads.begin(), reads.end());
+                    size_t cumulative = 0;
+                    top = reads.back().first;
+                    for (auto const& [identity, length] : reads) {
+                        cumulative += length;
+                        if (cumulative >= 0.98 * static_cast<double>(total)) {
+                            top = identity;
+                            break;
+                        }
                     }
                 }
-                return top - m_depth_identity_margin;
+                m_top_identity = top;
+                return top;
+            }
+
+            // The lowest identity of a read that counts towards the taxon's depth: `margin` below
+            // TopIdentity. A present species' own reads form this top cluster; reads of relatives
+            // (absent from the database, or much more abundant) align at lower identity and would
+            // inflate its depth. They still count for detection: the model's features use every read.
+            double OwnIdentityThreshold() const {
+                if (m_depth_identity_margin >= 1 || PresentGenes() == 0) return 0;
+                return TopIdentity() - m_depth_identity_margin;
+            }
+
+            // Fragments with an accepted alignment: a read pair counts once, as it is one draw from the
+            // genome (TotalHits counts mates).
+            size_t Fragments() const {
+                return m_fragments;
+            }
+
+            // Aligned bases weighted by their read's identity, over all aligned bases: identity with
+            // indels as differences (GetMeanANI counts them as matches).
+            double BaseIdentity() const {
+                double weighted = 0;
+                size_t bases = 0;
+                for (auto const& [id, gene] : m_genes) {
+                    weighted += gene.m_identity_bases;
+                    bases += gene.m_mapped_length;
+                }
+                return bases == 0 ? 0 : weighted / static_cast<double>(bases);
+            }
+
+            // `count` per 1000 aligned bases.
+            double PerAlignedKb(double count) const {
+                size_t const bases = TotalLength();
+                return bases == 0 ? 0 : count * 1000.0 / static_cast<double>(bases);
+            }
+
+            // Reference bases covered by at least one read.
+            size_t CoveredBases() const {
+                size_t covered = 0;
+                for (auto const& [id, gene] : m_genes) covered += gene.GetStrainLevel().GetSequenceRangeHandler().CoveredPortion();
+                return covered;
+            }
+
+            // Genes with reads, as a fraction of the hittable genes.
+            double HitGeneFraction() const {
+                size_t const hittable = m_genome->GeneNum();
+                return hittable == 0 ? 0 : static_cast<double>(PresentGenes()) / static_cast<double>(hittable);
+            }
+
+            // Genes with reads over the number expected if the fragments fell on the hittable genes in
+            // proportion to their length: about 1 for a species that is present, less when the reads
+            // gather on a few genes (those shared with a relative, say). It does not depend on depth
+            // or the size of the genome.
+            double GenePresenceRatio() const {
+                auto [lengths, total] = HittableGeneLengths();
+                if (total == 0 || m_fragments == 0) return 0;
+                double expected = 0;
+                for (auto const& [id, length] : lengths) {
+                    expected += 1 - std::pow(1 - static_cast<double>(length) / total, static_cast<double>(m_fragments));
+                }
+                return expected > 0 ? static_cast<double>(PresentGenes()) / expected : 0;
+            }
+
+            // Pearson chi-square per degree of freedom of the fragments per hittable gene against their
+            // share of its length: about 1 when the reads spread over the genome at random, whatever the
+            // depth; large when they gather on some genes.
+            double GeneDispersion() const {
+                auto [lengths, total] = HittableGeneLengths();
+                if (lengths.size() < 2 || total == 0 || m_fragments == 0) return 0;
+                double chi_square = 0;
+                for (auto const& [id, length] : lengths) {
+                    double const expected = static_cast<double>(m_fragments) * static_cast<double>(length) / total;
+                    double const observed = m_genes.contains(id) ? static_cast<double>(m_genes.at(id).m_fragments) : 0;
+                    chi_square += (observed - expected) * (observed - expected) / expected;
+                }
+                return chi_square / static_cast<double>(lengths.size() - 1);
+            }
+
+            // Coefficient of variation of the depth of the genes with reads (VCovStdDev over their mean).
+            double DepthCV() const {
+                auto v = VerticalCoverageVector();
+                if (v.empty()) return 0;
+                double const mean = std::accumulate(v.begin(), v.end(), 0.0) / static_cast<double>(v.size());
+                return mean > 0 ? VCovStdDev() / mean : 0;
+            }
+
+            // The hittable genes of the genome with their lengths, and the lengths' sum.
+            std::pair<std::vector<std::pair<uint32_t, size_t>>, double> HittableGeneLengths() const {
+                std::vector<std::pair<uint32_t, size_t>> lengths;
+                double total = 0;
+                for (auto id : m_genome->GetHittableGenes()) {
+                    if (!m_genome->HasGene(id)) continue;
+                    size_t const length = m_genome->GetGene(id).GetLength();
+                    if (length == 0) continue;
+                    lengths.emplace_back(id, length);
+                    total += static_cast<double>(length);
+                }
+                return { lengths, total };
             }
 
             // Depth of the taxon from its own reads (see OwnIdentityThreshold), estimated by BlendedDepth.
-            double VerticalCoverage(bool force=false) {
+            double VerticalCoverage(bool force=false) const {
                 if (m_vcov == -1 || force) {
                     double const min_identity = OwnIdentityThreshold();
                     std::vector<double> vcovs;
@@ -714,13 +838,10 @@ namespace protal {
             }
 
             // Share of the taxon's aligned bases below OwnIdentityThreshold: reads of relatives, e.g. of
-            // a species the database lacks. Valid after VerticalCoverage().
+            // a species the database lacks.
             double LowIdentityShare() const {
+                VerticalCoverage();
                 return m_low_identity_share;
-            }
-
-            double VerticalCoverage() const {
-                return m_vcov;
             }
 
             Gene& GetGene(int geneid) {
@@ -966,7 +1087,7 @@ namespace protal {
             auto [su, lu, lsu, all] = taxon.GetGenome().GetUniqueKmerCounts();
 
             TaxonFeatureList f;
-            f.reserve(60);
+            f.reserve(80);
             f.emplace_back("present_genes", taxon.PresentGenes());
             f.emplace_back("total_hits", taxon.TotalHits());
             f.emplace_back("unique_hits", taxon.UniqueHits());
@@ -1007,6 +1128,27 @@ namespace protal {
             f.emplace_back("lsu_gene_rate3", taxon.GetLongSuperUniqueGeneRate(5));
             f.emplace_back("lsu_per_read", rate(taxon.LongSuperUniques(), taxon.TotalHits()));
             f.emplace_back("lu_per_read", rate(taxon.LongUniques(), taxon.TotalHits()));
+
+            // Features for a model that holds across databases, depths and libraries: fractions and
+            // ratios instead of counts of genes and k-mers (archaea have fewer marker genes and
+            // k-mers than bacteria), rates per aligned kb instead of per read (reads differ in length),
+            // fragments instead of mates, and identity with indels as differences. The model shipped
+            // with protal does not use them; they are in the training dump for the next one.
+            size_t const covered = taxon.CoveredBases();
+            auto per_covered_kb = [covered](double count) { return covered == 0 ? 0.0 : count * 1000.0 / static_cast<double>(covered); };
+            f.emplace_back("fragments", taxon.Fragments());
+            f.emplace_back("depth", taxon.VerticalCoverage());
+            f.emplace_back("hit_gene_fraction", taxon.HitGeneFraction());
+            f.emplace_back("gene_presence_ratio", taxon.GenePresenceRatio());
+            f.emplace_back("gene_dispersion", taxon.GeneDispersion());
+            f.emplace_back("depth_cv", taxon.DepthCV());
+            f.emplace_back("identity", taxon.BaseIdentity());
+            f.emplace_back("top_identity", taxon.TopIdentity());
+            f.emplace_back("low_identity_share", taxon.LowIdentityShare());
+            f.emplace_back("lu_per_kb", taxon.PerAlignedKb(taxon.LongUniques()));
+            f.emplace_back("lsu_per_kb", taxon.PerAlignedKb(taxon.LongSuperUniques()));
+            f.emplace_back("variant_sites_per_kb", per_covered_kb(af[1] + af[2] + af[3] + af[4]));
+            f.emplace_back("multiallelic_sites_per_kb", per_covered_kb(af[2] + af[3] + af[4]));
             return f;
         }
 
@@ -1067,6 +1209,71 @@ namespace protal {
 
             double GetKnob() const { return m_knob; }
         };
+
+        // Why protal cannot use the PMML model at `path`, or an empty string. The model must take its
+        // inputs from TaxonFeatures (a missing one would stop the run after the alignment), predict
+        // the label TRUE (its probability is the taxon's score; another label scores every taxon 0),
+        // and score a taxon.
+        inline std::string ModelContractProblem(TaxonFilterForest const& model, std::string const& path) {
+            std::ifstream is(path);
+            if (!is) return "cannot read " + path;
+            std::string const xml((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
+
+            auto attribute = [](std::string_view tag, std::string const& name) -> std::string {
+                auto const key = " " + name + "=\"";
+                auto start = tag.find(key);
+                if (start == std::string_view::npos) return {};
+                start += key.size();
+                auto end = tag.find('"', start);
+                return end == std::string_view::npos ? std::string{} : std::string(tag.substr(start, end - start));
+            };
+            auto tags = [&xml](std::string const& element, size_t from = 0, size_t to = std::string::npos) {
+                std::vector<std::string_view> found;
+                std::string const open = "<" + element + " ";
+                for (size_t pos = xml.find(open, from); pos != std::string::npos && pos < to; pos = xml.find(open, pos + 1)) {
+                    auto end = xml.find('>', pos);
+                    if (end == std::string::npos) break;
+                    found.emplace_back(std::string_view(xml).substr(pos, end - pos + 1));
+                }
+                return found;
+            };
+
+            Genome no_genome(0);
+            std::set<std::string> provided;
+            for (auto const& [name, _] : TaxonFeatures(Taxon(no_genome))) provided.insert(name);
+
+            std::string target;
+            std::vector<std::string> missing;
+            for (auto tag : tags("MiningField")) {
+                auto const name = attribute(tag, "name");
+                auto usage = attribute(tag, "usageType");
+                if (usage.empty()) usage = "active";
+                if (usage == "predicted" || usage == "target") target = name;
+                else if (usage == "active" && !provided.contains(name)) missing.push_back(name);
+            }
+            if (!missing.empty()) {
+                std::string list;
+                for (auto const& name : missing) list += (list.empty() ? "" : ", ") + name;
+                return "it needs " + std::to_string(missing.size()) + " input(s) protal does not compute: " + list;
+            }
+            if (target.empty()) return "it names no predicted field";
+
+            auto const data_field = xml.find("<DataField name=\"" + target + "\"");
+            auto const data_end = data_field == std::string::npos ? std::string::npos : xml.find("</DataField>", data_field);
+            bool has_true = false;
+            if (data_end != std::string::npos) {
+                for (auto tag : tags("Value", data_field, data_end)) has_true |= attribute(tag, "value") == "TRUE";
+            }
+            if (!has_true) return "its predicted field '" + target + "' has no value TRUE (protal reports the probability of TRUE)";
+
+            try {
+                double const score = model.ScoreFeatures(Taxon(no_genome));
+                if (!std::isfinite(score)) return "it gives a taxon a score that is not a number";
+            } catch (std::exception const& e) {
+                return std::string("scoring a taxon fails: ") + e.what();
+            }
+            return {};
+        }
 
         class MicrobialProfile {
         public:
@@ -1221,7 +1428,8 @@ namespace protal {
                 for (auto const& [name, _] : TaxonFeatures(Taxon(no_genome))) os << '\t' << name;
                 os << '\n';
 
-                for (auto& [key, taxon] : m_taxa) {
+                for (auto key : SortedTaxa()) {
+                    auto const& taxon = m_taxa.at(key);
                     double probability = filter.Score(taxon);
                     os << set.contains(key) << '\t'
                        << (probability >= filter.GetKnob()) << '\t'

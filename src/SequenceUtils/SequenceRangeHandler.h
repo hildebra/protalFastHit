@@ -77,7 +77,7 @@ public:
     }
 
     void SetCoverageVector(CoverageVec const& vector);
-    size_t CoveredPortion(uint32_t min_cov=1);
+    size_t CoveredPortion(uint32_t min_cov=1) const;
 };
 
 

@@ -74,7 +74,7 @@ namespace protal {
         // Profiling options
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
-                ("knob", "Prediction threshold: taxa with RF probability >= knob are reported as detected. Higher improves precision, lower improves sensitivity. Values between 0.4 and 0.6 should not affect F1-score by a large margin, but just slightly shift focus from sensitivity to precision.", cxxopts::value<double>()->default_value("0.5"))
+                ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <db>/<name> (<db>/<name>.xml without an extension). Default: model.xml in the database directory.", cxxopts::value<std::string>()->default_value(""))
                 ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""));
@@ -1190,6 +1190,9 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             }
             if (!(m_depth_identity_margin >= 0)) {
                 error_log.emplace_back("--depth_identity_margin must be 0 or more");
+            }
+            if (!(m_knob >= 0 && m_knob <= 1)) {
+                error_log.emplace_back("--knob must be between 0 and 1 (a probability)");
             }
             if (!m_profile_truth_list.empty()) {
                 if (m_profile_truth_list.size() != m_profile_list.size()) {

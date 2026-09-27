@@ -1799,6 +1799,10 @@ namespace protal {
                 std::cerr << "Cannot load the model " << options.GetModelPath() << ": " << e.what() << std::endl;
                 exit(2);
             }
+            if (auto problem = profiler::ModelContractProblem(model.value(), options.GetModelPath()); !problem.empty()) {
+                std::cerr << "Cannot use the model " << options.GetModelPath() << ": " << problem << std::endl;
+                exit(2);
+            }
         }
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {
             // The benchmark takes each read's true gene from its name; without one it would stop

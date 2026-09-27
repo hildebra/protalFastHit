@@ -245,7 +245,7 @@ bool SequenceRangeHandler::AreRangesValid(size_t const& reference_length) const 
     return true;
 }
 
-size_t SequenceRangeHandler::CoveredPortion(uint32_t min_cov) {
+size_t SequenceRangeHandler::CoveredPortion(uint32_t min_cov) const {
     size_t count = 0;
     for (auto &range : m_ranges) {
         auto cov = range.CoverageVector();
