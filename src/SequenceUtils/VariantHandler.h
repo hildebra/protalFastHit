@@ -22,6 +22,12 @@ namespace protal {
 
         VariantHandler(const std::string& reference) : m_reference(reference) {};
 
+        // Drops all variants and frees their memory.
+        void Clear() {
+            Variants{}.swap(m_variants);
+            tsl::robin_map<VariantPos, uint32_t>{}.swap(m_uncalled);
+        }
+
         // Phred score of a Sanger/Illumina 1.8+ (Phred+33) quality character. Characters below the
         // offset clamp to 0 instead of wrapping around in the unsigned Qual type.
         static Qual PhredScore(char quality_char) {

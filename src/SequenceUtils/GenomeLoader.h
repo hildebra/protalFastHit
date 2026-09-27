@@ -245,7 +245,7 @@ namespace protal {
             return m_genes.at(GeneKeyToIndex(key));
         }
 
-        const GeneList GetGeneList() const {
+        const GeneList& GetGeneList() const {
             return m_genes;
         }
 

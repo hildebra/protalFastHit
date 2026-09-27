@@ -129,6 +129,11 @@ size_t SequenceRangeHandler::SequenceLength() const {
     return std::accumulate(m_ranges.begin(), m_ranges.end(), 0, [](int a, SequenceRange const& range){ return range.Length(); });
 }
 
+void SequenceRangeHandler::Clear() {
+    SequenceRangeList{}.swap(m_ranges);
+    CoverageVec{}.swap(m_cov);
+}
+
 size_t SequenceRangeHandler::Size() const {
     return m_ranges.size();
 }

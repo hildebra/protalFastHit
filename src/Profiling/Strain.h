@@ -102,6 +102,13 @@ namespace protal {
             return m_variant_handler;
         }
 
+        // Drops the gene's variants and read ranges and frees their memory.
+        void Clear() {
+            m_variant_handler.Clear();
+            m_sequence_range_handler.Clear();
+            std::vector<SNP>{}.swap(m_snp_tmp);
+        }
+
         const SequenceRangeHandler& GetSequenceRangeHandler() const {
             return m_sequence_range_handler;
         }
@@ -603,7 +610,6 @@ namespace protal {
             char ref = reference[rpos];
             auto max_ins = 0;
 
-            std::vector<std::string> outs(items.size(),"");
 
             // Iterate All ITems
             for (auto i = 0; i < items.size(); i++) {
@@ -612,10 +618,7 @@ namespace protal {
                     std::cerr << "Coverage values are faulty: " << cov.size() << " > " << reference.size() << std::endl;
                 }
 
-                outs[i] += std::to_string(i) + '\t' + std::to_string(rpos < cov.size() ? cov[rpos] : -1) + '\t';
-                outs[i] += std::to_string(rpos) + '\t' + std::to_string(indices[i]) + '\t';
                 if (!items[i].has_value() || (rpos < cov.size() && cov[rpos] == 0)) {
-                    outs[i] += "A\t";
                     column[i] = OptionalVariant();
                     continue;
                 }
@@ -631,7 +634,6 @@ namespace protal {
 //                std::cout << (indices[i] == variants.size() || variants[indices[i]].front().Position() != rpos) << std::endl;
                 if (indices[i] == variants.size() || variants[indices[i]].front().Position() != rpos) {
                     // Position has not variant.
-                    outs[i] += "B(" + std::to_string(variants.size()) + ", " + std::to_string(indices[i] < variants.size() ? variants[indices[i]].front().Position() : -1) + ")\t";
                     column[i] = OptionalVariant();
                 } else {
                     // Position has variant.
@@ -640,8 +642,6 @@ namespace protal {
                     uint32_t pos_cov = (rpos < cov.size()) ? cov[rpos] : 0;
                     bool pass = VariantPass(call, variant, min_qual_sum, min_cov, min_frequency, pos_cov, require_strand, min_mean_qual);
 
-                    outs[i] += std::to_string(pass);
-                    outs[i] += "\t";
 
                     column_pass[i] = pass;
                     column[i] = call;
@@ -662,7 +662,6 @@ namespace protal {
             bool bad = false;
             size_t before = 0;
 
-            bool stop = false;
 
 
             // Iterate column
@@ -712,15 +711,12 @@ namespace protal {
                     }
                     for (auto j = max_ins; j > 0; j--) msa_row.emplace_back(LACKING_COVERAGE); // changed from '-'
                     msa_row.emplace_back(LACKING_COVERAGE);
-                    outs[i] += "A";
                 } else if (cov[rpos] > 0) {
                     auto coverage = cov[rpos];
                     bool coverage_pass = coverage >= min_cov;
 
-                    outs[i] += "B";
                     if (!var.has_value()) {
                         // NO VARIANT: ---------------------------------------------------------------------------------
-                        outs[i] += "C";
                         if (stats) (*stats)[i].positions_ref++;
                         for (auto j = max_ins; j > 0; j--) msa_row.emplace_back('-');
                         // Is it really appropriate to incorporate the reference position here?
@@ -729,10 +725,8 @@ namespace protal {
                         msa_row.emplace_back(coverage_pass ? ref : REFERENCE_NO_PASS); // Triple check but this should be the solution here
                     } else {
                         // VARIANT: ------------------------------------------------------------------------------------
-                        outs[i] += "D";
 //                        std::cout << var->ToString() << " pass: " << var_pass << std::endl;
                         if (!var_pass) {
-                            outs[i] += "E";
                             // NO PASS: IGNORE COLUMN ------------------------------------------------------------------
                             // Variant does not pass - add 'N' for ambiguous base.
                             // Re-check each filter independently to attribute rejection reason(s).
@@ -752,7 +746,6 @@ namespace protal {
                             msa_row.emplace_back(VARIANT_NO_PASS);
                         } else if (var->IsSNP()) {
                             // PASS: SNP -------------------------------------------------------------------------------
-                            outs[i] += "F";
                             if (stats) {
                                 if (var->IsReference()) (*stats)[i].refs_retained++;
                                 else (*stats)[i].snps_retained++;
@@ -783,7 +776,6 @@ namespace protal {
                             }
                         } else if (var->IsINS()) {
                             // PASS: INSERTION -------------------------------------------------------------------------
-                            outs[i] += "G";
                             if (stats) (*stats)[i].insertions_retained++;
                             // Variant passes and is Insertion
                             had_indel = true;
@@ -793,7 +785,6 @@ namespace protal {
                             msa_row.emplace_back(ref);
                         } else {
                             // PASS: DELETION --------------------------------------------------------------------------
-                            outs[i] += "H";
                             if (stats) (*stats)[i].deletions_retained++;
                             // Variant passes and is Deletion
                             had_indel = true;
@@ -823,59 +814,6 @@ namespace protal {
                     bad = true;
                 }
             }
-
-            constexpr bool debug = false;
-            stop = true;
-            if constexpr (debug) {
-                auto unequal_index = FindUnequalIndex(column, column_pass);
-                if (unequal_index != -1) {
-
-                    auto& item = items[unequal_index].value();
-                    auto& [var_handler, range_handler] = item;
-
-                    std::cout << range_handler.get().GetRange(rpos).ToVerboseString() << std::endl;
-                    for (auto& var : var_handler) {
-                        std::cout << "Bin- " << var.size() << std::endl;
-                        std::cout << VariantHandler::VariantBinToString(var) << std::endl;
-                    }
-
-                    std::cout << "Rpos: " << rpos << " " << column[unequal_index]->Position() << std::endl;
-                    for (auto i = 0; i < items.size(); i++) {
-                        outs[i] += '\t' + std::to_string((rpos < covs[i].size() ? covs[i][rpos] : -1)) + '\t';
-                        outs[i] += (column[i].has_value() ? column[i]->ToString() : "NULL") + '\t';
-                        outs[i] += std::to_string(column_pass[i]) + '\t';
-                    }
-                    stop = true;
-
-                    char first = 'X';
-                    for (auto i = 0; i < items.size(); i++) {
-                        if (msa[i].back() == 'N' || msa[i].back() == '-') continue;
-                        if (first == 'X') first = msa[i].back();
-                        else if (first != msa[i].back()) stop = true;
-                    }
-                }
-
-                if (stop) {
-                    std::unordered_set<char> obs;
-                    for (auto i = 0; i < msa.size(); i++) {
-                        char last = msa[i].back();
-                        if (last != 'N' && last != '-') obs.insert(last);
-                        outs[i] += '\t';
-                        outs[i] += last;
-//                        std::cout << outs[i] << std::endl;
-                    }
-                    if (obs.size() > 1) {
-                        std::cout << "---" << std::endl;
-                        for (auto i = 0; i < msa.size(); i++) {
-                            std::cout << column_pass[i] << "\t" << outs[i] << std::endl;
-                        }
-                        for (auto& e : obs) std::cout << e << std::endl;
-                        Utils::Input();
-
-                    }
-                }
-            }
-
 
             if (bad) {
                 std::cout << "MSA" << std::endl;

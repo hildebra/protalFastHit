@@ -9,6 +9,7 @@
 #include <random>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <vector>
 #include <unistd.h>
 #include "Profiling/Profiler.h"
@@ -203,6 +204,39 @@ TEST(Abundance, DepthCountsOnlyTheTaxonsOwnReads) {
     profile.SetDepthIdentityMargin(1);  // every read counts
     EXPECT_NEAR(taxon.VerticalCoverage(), 80.0 / 50, 1e-9);
     EXPECT_NEAR(taxon.LowIdentityShare(), 0.0, 1e-9);
+}
+
+// tsl::sparse_map copies the values of a bucket on every insert into it unless they move without
+// throwing.
+static_assert(std::is_nothrow_move_constructible_v<profiler::Gene>);
+static_assert(std::is_nothrow_move_constructible_v<profiler::Taxon>);
+
+TEST(Abundance, ReleasingReadDataKeepsWhatLaterStagesRead) {
+    // Once a sample's outputs are written, its reads' identities are freed, and its variants and
+    // read ranges unless the strain stage needs them; depth and counters stay.
+    TinyReference ref;
+    std::string reference = ref.loader->GetGenome(1).GetGeneOMP(1).Sequence();
+    for (bool keep_strain_data : { true, false }) {
+        profiler::MicrobialProfile profile(*ref.loader);
+        profile.SetDepthIdentityMargin(0.04);
+        auto first = MakeSam(reference.substr(0, 20), "20M", 1);
+        auto second = MakeSam(reference.substr(20, 20), "20M", 21);
+        for (auto const* sam : { &first, &first, &second }) {
+            ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0, true, 0, false));
+        }
+        auto& taxon = profile.GetTaxa().at(1);
+        double const depth = taxon.VerticalCoverage();
+        size_t const length = taxon.TotalLength();
+        ASSERT_GT(taxon.GetGenes().at(1).GetStrainLevel().GetSequenceRangeHandler().Size(), 0u);
+
+        taxon.ReleaseReadData(keep_strain_data);
+        auto const& gene = taxon.GetGenes().at(1);
+        EXPECT_TRUE(gene.m_read_identities.empty());
+        EXPECT_EQ(gene.GetStrainLevel().GetSequenceRangeHandler().Size() > 0, keep_strain_data);
+        EXPECT_EQ(taxon.VerticalCoverage(), depth);
+        EXPECT_EQ(taxon.TotalLength(), length);
+        EXPECT_EQ(taxon.TotalHits(), 3u);
+    }
 }
 
 TEST(ModelFeatures, NamesAreUniqueAndValuesKeepTheirPrecision) {

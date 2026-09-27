@@ -39,6 +39,8 @@ public:
     bool HasRange(size_t pos) const;
 
     size_t Size() const;
+    // Drops all ranges and frees their memory.
+    void Clear();
     size_t SequenceLength() const;
     void Add(size_t start, size_t end);
     void Add(SequenceRange& range);

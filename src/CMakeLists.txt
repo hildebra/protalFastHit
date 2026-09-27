@@ -194,6 +194,9 @@ target_include_directories(protal_lib_static PUBLIC ../lib/tsl)
 
 include(${PROJECT_SOURCE_DIR}/../lib/wfa2-lib.cmake)
 add_subdirectory(${PROJECT_SOURCE_DIR}/../lib/gzstream gzstream)
+# protal scores taxa within its own threads (one per sample); cPMML's default of 4 threads per
+# score would oversubscribe the cores and ignore -t.
+set(THREADS 1)
 add_subdirectory(${PROJECT_SOURCE_DIR}/../lib/cPMML cPMML)
 
 target_link_libraries(protal_lib PRIVATE isa_baseline)

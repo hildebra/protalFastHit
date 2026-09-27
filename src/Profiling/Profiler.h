@@ -170,7 +170,6 @@ namespace protal {
             double m_ani_sum = 0;
 
             size_t m_gene_length = 0;
-            std::vector<SamEntry*> m_sams;
             StrainLevelContainer m_strain_level;
             // Identity and aligned reference length of every read, for depth from a taxon's own reads.
             std::vector<std::pair<float, uint32_t>> m_read_identities;
@@ -191,11 +190,6 @@ namespace protal {
                     m_gene_ref(&gene_ref),
                     m_strain_level(gene_ref) {
             };
-
-            Gene& operator=(const Gene& other) {
-                m_gene_ref = other.m_gene_ref;
-                return *this;
-            }
 
             size_t Coverage(size_t above=0) {
                 auto cov_vec = GetStrainLevel().GetSequenceRangeHandler().CalculateCoverageVector2();
@@ -220,10 +214,6 @@ namespace protal {
 
             void AddRead(GenePos pos) {
                 m_mapped_reads++;
-            }
-
-            void ClearSams() {
-                m_sams.clear();
             }
 
             void GetAlleles(std::vector<size_t>& allele_counts, uint32_t min_cov=0, uint32_t min_qual_sum=0) const {
@@ -288,16 +278,12 @@ namespace protal {
 
 
 
-            bool AddSam(SamEntry const& sam, size_t read_id, double ani=0.0, bool store_sam=true, bool no_strain=true) {
+            bool AddSam(SamEntry const& sam, size_t read_id, double ani=0.0, bool no_strain=true) {
                 if (!no_strain) {
                     auto successful = m_strain_level.AddSam(sam, read_id, true);
                     if (!successful) {
                         return false;;
                     }
-                }
-
-                if (store_sam) {
-                    m_sams.emplace_back(const_cast<SamEntry*>(&sam));
                 }
 
 
@@ -357,23 +343,6 @@ namespace protal {
 
 
             double VerticalCoverage() const {
-
-
-                if (m_mapped_length/10 < m_sams.size()) {
-
-
-                    std::cout << "VerticalCoverage()" << std::endl;
-                    std::cout << static_cast<double>(m_mapped_length) << "/" << static_cast<double>(m_gene_length) << std::endl;
-                    std::cout << "Read num: " << m_sams.size() << std::endl;
-                    std::cout << "Mapped reads: " << m_mapped_reads << std::endl;
-                    std::cout << "Gene length: " << m_gene_ref->Sequence().length() << std::endl;
-
-                    for (auto sam : m_sams) {
-                        std::cout << sam->ToString() << std::endl;
-                    }
-
-                    Utils::Input();
-                }
                 return static_cast<double>(m_mapped_length)/static_cast<double>(m_gene_length);
             }
 
@@ -419,21 +388,23 @@ namespace protal {
             double m_vcov = -1;
             double m_low_identity_share = 0;
             double m_depth_identity_margin = 1;  // every read counts towards depth unless set
+            mutable std::optional<double> m_model_score;  // cached by TaxonFilterForest::Score
             GeneMap m_genes;
 
-            Genome m_genome;
+            Genome* m_genome;  // the database's genome, shared by all samples
             size_t m_genome_gene_count = 0;
 
         public:
 
-            Taxon(Genome& genome) : m_genome(genome), m_genome_gene_count(genome.GeneNum()) {}
+            Taxon(Genome& genome) : m_genome(&genome), m_genome_gene_count(genome.GeneNum()) {}
 
             void AddHit(GeneId geneid, GenePos genepos, double ani, bool unique) {
+                m_model_score.reset();
                 if (!m_genes.contains(geneid)) {
-                    auto& g = m_genome.GetGene(geneid);
+                    auto& g = m_genome->GetGene(geneid);
                     g.LoadOMP();
                     m_genes.insert( { geneid, profiler::Gene(g) } );
-                    m_genes.at(geneid).SetLength(m_genome.GetGene(geneid).Sequence().length());
+                    m_genes.at(geneid).SetLength(m_genome->GetGene(geneid).Sequence().length());
                 }
 
                 m_genes.at(geneid).AddRead(genepos);
@@ -460,20 +431,17 @@ namespace protal {
                 return m_genes;
             }
 
-            void ClearSams() {
-                for (auto& [id, _] : m_genes) m_genes.at(id).ClearSams();
-            }
-
             bool AddSam(GeneId geneid, SamEntry const& sam, double score, bool unique, size_t read_id, bool no_strain=true) {
+                m_model_score.reset();
                 bool const new_gene = !m_genes.contains(geneid);
                 if (new_gene) {
-                    auto& g = m_genome.GetGene(geneid);
+                    auto& g = m_genome->GetGene(geneid);
                     g.LoadOMP();
                     m_genes.insert( { geneid, profiler::Gene(g) } );
-                    m_genes.at(geneid).SetLength(m_genome.GetGene(geneid).Sequence().length());
+                    m_genes.at(geneid).SetLength(m_genome->GetGene(geneid).Sequence().length());
                 }
 
-                bool success = m_genes.at(geneid).AddSam(sam, read_id, score, true, no_strain);
+                bool success = m_genes.at(geneid).AddSam(sam, read_id, score, no_strain);
                 if (!success) {
                     // A gene is present only with at least one read.
                     if (new_gene) m_genes.erase(geneid);
@@ -492,15 +460,15 @@ namespace protal {
 
 
             size_t GetGenomeGeneNumber() const {
-                return m_genome.GeneNum();
+                return m_genome->GeneNum();
             }
 
             const Genome& GetGenome() const {
-                return m_genome;
+                return *m_genome;
             }
 
             Genome& GetGenome() {
-                return m_genome;
+                return *m_genome;
             }
 
             size_t LongUniques() const {
@@ -521,13 +489,13 @@ namespace protal {
 
             double GetLongUniqueGeneRate(const size_t threshold=0) const {
                 auto lu_genes = GenesWithLongUniques(threshold);
-                auto lu_genes_ref = m_genome.GenesWithLongUniques(threshold);
+                auto lu_genes_ref = m_genome->GenesWithLongUniques(threshold);
                 return lu_genes == 0 || lu_genes_ref == 0 ? 0 : lu_genes/static_cast<double>(lu_genes_ref);
             }
 
             double GetLongSuperUniqueGeneRate(const size_t threshold=0) const {
                 auto lsu_genes = GenesWithLongSuperUniques(threshold);
-                auto lsu_genes_ref = m_genome.GenesWithLongSuperUniques(threshold);
+                auto lsu_genes_ref = m_genome->GenesWithLongSuperUniques(threshold);
                 return lsu_genes == 0 || lsu_genes_ref == 0 ? 0 : lsu_genes/static_cast<double>(lsu_genes_ref);
             }
 
@@ -657,6 +625,25 @@ namespace protal {
                 m_vcov = -1;
             }
 
+            // The model score is computed once per taxon (it is asked for by every writer) and dropped
+            // whenever the taxon changes.
+            std::optional<double> ModelScore() const { return m_model_score; }
+            void SetModelScore(double score) const { m_model_score = score; }
+            void InvalidateModelScore() { m_model_score.reset(); }
+
+            // Frees the per-read data once the taxon's outputs are computed: every read's identity
+            // (after the depth is cached) and, unless `keep_strain_data`, the genes' variants and read
+            // ranges. Depth, counters and a cached model score stay valid; features do not, so the
+            // taxon must be scored first (see MicrobialProfile::ReleaseReadData).
+            void ReleaseReadData(bool keep_strain_data) {
+                VerticalCoverage();
+                for (auto it = m_genes.begin(); it != m_genes.end(); ++it) {
+                    auto& gene = it.value();
+                    std::vector<std::pair<float, uint32_t>>{}.swap(gene.m_read_identities);
+                    if (!keep_strain_data) gene.GetStrainLevel().Clear();
+                }
+            }
+
             // The lowest identity of a read that counts towards the taxon's depth: `margin` below the
             // identity of its best-matching reads (the 98th percentile, by aligned bases). A present
             // species' own reads form this top cluster; reads of relatives (absent from the database,
@@ -706,9 +693,9 @@ namespace protal {
 
                     size_t expected_length = 0;
                     size_t expected_genes = 0;
-                    for (auto gene_id : m_genome.GetHittableGenes()) {
-                        if (!m_genome.HasGene(gene_id)) continue;
-                        expected_length += m_genome.GetGene(gene_id).GetLength();
+                    for (auto gene_id : m_genome->GetHittableGenes()) {
+                        if (!m_genome->HasGene(gene_id)) continue;
+                        expected_length += m_genome->GetGene(gene_id).GetLength();
                         expected_genes++;
                     }
                     m_vcov = BlendedDepth(Median(vcovs), own_bases, expected_length, vcovs.size(), expected_genes);
@@ -761,7 +748,7 @@ namespace protal {
                 str += "Genes: " + std::to_string(m_genes.size()) + ", ";
                 str += "Total Hits: " + std::to_string(m_total_hits) + ", ";
                 str += "MeanMAPQ: " + std::to_string(GetMeanMAPQ()) + ", ";
-                str += "VCOV: " + std::to_string(VerticalCoverage(true)) + ", ";
+                str += "VCOV: " + std::to_string(VerticalCoverage()) + ", ";
                 str += " }";
 
                 return str;
@@ -777,7 +764,7 @@ namespace protal {
 
             std::string ToString(taxonomy::IntTaxonomy& taxonomy) const {
                 std::string str;
-                auto& genes = m_genome.GetGeneList();
+                auto& genes = m_genome->GetGeneList();
                 auto total_gene_length = std::accumulate(genes.begin(), genes.end(), 0, [](size_t acc, protal::Gene const& gene){
                     return acc + (gene.IsSet() ? gene.GetLength() : 0);
                 });
@@ -786,7 +773,7 @@ namespace protal {
                 str += "\t" + std::to_string(m_id) + "\t";
                 str += "{ ";
                 str += "Genes: " + std::to_string(m_genes.size()) + ", ";
-                str += "HittableGenes: " + std::to_string(m_genome.GeneNum()) + ", ";
+                str += "HittableGenes: " + std::to_string(m_genome->GeneNum()) + ", ";
                 str += "Total Hits: " + std::to_string(m_total_hits) + ", ";
                 str += "Total MGenome: " + std::to_string(total_gene_length) + ", ";
                 str += "MeanANI: " + std::to_string(m_ani_sum/(double)m_total_hits) + ", ";
@@ -830,7 +817,7 @@ namespace protal {
 
             static double ExpectedGenesUniqueWeighted(Taxon const& taxon) {
                 auto const& genome = taxon.GetGenome();
-                auto genes = genome.GetGeneList();
+                auto const& genes = genome.GetGeneList();
 
                 std::vector<double> weights;
                 weights.reserve(genes.size());
@@ -1044,6 +1031,13 @@ namespace protal {
 
             // Returns the model's probability for TRUE (0–1).
             double Score(Taxon const& taxon) const {
+                if (auto cached = taxon.ModelScore()) return *cached;
+                double const score = ScoreFeatures(taxon);
+                taxon.SetModelScore(score);
+                return score;
+            }
+
+            double ScoreFeatures(Taxon const& taxon) const {
                 m_sample.clear();
                 for (auto const& [name, value] : TaxonFeatures(taxon)) m_sample[name] = FeatureString(value);
 
@@ -1073,6 +1067,18 @@ namespace protal {
             void SetDepthIdentityMargin(double margin) {
                 m_depth_identity_margin = margin;
                 for (auto& [id, _] : m_taxa) m_taxa.at(id).SetDepthIdentityMargin(margin);
+            }
+
+            // Frees the per-read data of every taxon once the profile's outputs are written (see
+            // Taxon::ReleaseReadData), after scoring it. The strain stage reads the variants and read
+            // ranges of taxa that pass `filter` only, so only theirs are kept, and only if
+            // `keep_strain_data`.
+            void ReleaseReadData(TaxonFilterObj const& filter, bool keep_strain_data) {
+                for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) {
+                    auto& taxon = it.value();
+                    bool const pass = filter.Pass(taxon);  // caches the score
+                    taxon.ReleaseReadData(keep_strain_data && pass);
+                }
             }
 
             void AddRead(InternalReadAlignment const& ira, bool unique=true) {
@@ -1140,6 +1146,7 @@ namespace protal {
                         auto& strain_handler = gene.GetStrainLevel();
                         strain_handler.PostProcess(min_observations, min_observations_fwdrev, min_frequency, min_avg_quality, min_phred_sum, require_strand);
                     }
+                    taxon.InvalidateModelScore();
                 }
             }
 
@@ -1161,10 +1168,10 @@ namespace protal {
                     str += " (Filtered)";
                 }
                 str += '\n';
-                for (auto [id, _] : m_taxa) {
+                for (auto const& [id, _] : m_taxa) {
                     auto& taxon = m_taxa.at(id);
                     if (filter.has_value() && !filter->Pass(taxon)) continue;
-                    taxon.VerticalCoverage(true);
+                    taxon.VerticalCoverage();
                     str += taxon.ToString(taxonomy) + '\n';
                 }
 
@@ -1178,8 +1185,8 @@ namespace protal {
 
                 str += m_name + '\t';
                 str += std::to_string(m_taxa.size());
-                for (auto [id, taxon] : m_taxa) {
-                    str += taxon.ToString() + '\n';
+                for (auto const& [id, _] : m_taxa) {
+                    str += m_taxa.at(id).ToString() + '\n';
                 }
 
                 return str;
@@ -1191,10 +1198,6 @@ namespace protal {
 
             const TaxonMap& GetTaxa() const {
                 return m_taxa;
-            }
-
-            void ClearSams() {
-                for (auto& [id, _] : m_taxa) m_taxa.at(id).ClearSams();
             }
 
             // Writes the training data for the random forest: per taxon the truth, the model's call,
@@ -1521,16 +1524,11 @@ namespace protal {
                 return !(m_pairs_unique.empty() && m_pairs_nonunique.empty() && m_pairs_nonunique_best.empty());
             }
 
-            // Loads the alignments of a SAM file (plain or gzipped). Adjacent records with one QNAME are
-            // the candidate alignments of one read: a read with one candidate is unique, otherwise
-            // its primary alignment (no 0x100; protal writes it first) is taken as the best one.
-            // Returns an error message if the file cannot be read; a SAM without alignments is not
-            // an error and gives an empty profile.
-            std::string FromSam(std::string file_path, bool truth_in_header=false) {
-                m_pairs_unique.clear();
-                m_pairs_nonunique.clear();
-                m_pairs_nonunique_best.clear();
-
+            // Reads a SAM file (plain or gzipped) and hands each read's group of candidate alignments to
+            // `on_group`: adjacent records with one QNAME are one read's candidates. Returns an error
+            // message if the file cannot be read; a SAM without alignments is not an error.
+            template<typename OnGroup>
+            std::string ReadSamGroups(std::string const& file_path, OnGroup&& on_group) {
                 if (std::filesystem::exists(file_path) && std::filesystem::file_size(file_path) == 0) {
                     return "the file is empty (not even a SAM header)";
                 }
@@ -1543,32 +1541,21 @@ namespace protal {
                 bool has_sam1 = false, has_sam2 = false;
                 std::vector<AlignmentPair> group;
 
-                auto flush = [&]() {
-                    if (group.empty()) return;
-                    if (group.size() == 1) {
-                        m_pairs_unique.emplace_back(std::move(group.front()));
-                    } else {
-                        auto best = std::find_if(group.begin(), group.end(), [](AlignmentPair& pair) {
-                            return !Flag::IsNotPrimaryAlignment(pair.Any().m_flag);
-                        });
-                        m_pairs_nonunique_best.emplace_back(best == group.end() ? group.front() : *best);
-                        m_pairs_nonunique.emplace_back(std::move(group));
-                    }
-                    group.clear();
-                };
-
                 try {
                     while (reader.Next(sam1, sam2, has_sam1, has_sam2)) {
                         AlignmentPair pair(
                                 has_sam1 ? std::optional<SamEntry>{ sam1 } : std::optional<SamEntry>{},
                                 has_sam2 ? std::optional<SamEntry>{ sam2 } : std::optional<SamEntry>{});
-                        if (!group.empty() && !SameRead(pair, group.front())) flush();
+                        if (!group.empty() && !SameRead(pair, group.front())) {
+                            on_group(group);
+                            group.clear();
+                        }
                         group.emplace_back(std::move(pair));
                     }
                 } catch (SamFormatError const& e) {
                     return e.what();
                 }
-                flush();
+                if (!group.empty()) on_group(group);
 
                 for (auto const& [reason, count] : reader.Skipped()) {
                     std::cerr << file_path << ": skipped " << count << " record(s): " << reason << std::endl;
@@ -1580,6 +1567,33 @@ namespace protal {
                               << file_path << " have no ZU tag (protal's unique k-mer count). A SAM file not "
                               << "written by protal lacks it, and the model then rejects most taxa." << std::endl;
                 }
+                return {};
+            }
+
+            // The best alignment of a multi-mapped read: its primary one (no 0x100; protal writes it first).
+            static AlignmentPair& BestOfGroup(std::vector<AlignmentPair>& group) {
+                auto best = std::find_if(group.begin(), group.end(), [](AlignmentPair& pair) {
+                    return !Flag::IsNotPrimaryAlignment(pair.Any().m_flag);
+                });
+                return best == group.end() ? group.front() : *best;
+            }
+
+            // Loads the alignments of a SAM file into m_pairs_unique (reads with one candidate),
+            // m_pairs_nonunique and m_pairs_nonunique_best (see BestOfGroup). ProfileSam profiles a file
+            // without holding it; this keeps it, for inspection. Returns an error message as ReadSamGroups.
+            std::string FromSam(std::string file_path, bool truth_in_header=false) {
+                m_pairs_unique.clear();
+                m_pairs_nonunique.clear();
+                m_pairs_nonunique_best.clear();
+                auto error = ReadSamGroups(file_path, [this](std::vector<AlignmentPair>& group) {
+                    if (group.size() == 1) {
+                        m_pairs_unique.emplace_back(std::move(group.front()));
+                    } else {
+                        m_pairs_nonunique_best.emplace_back(BestOfGroup(group));
+                        m_pairs_nonunique.emplace_back(std::move(group));
+                    }
+                });
+                if (!error.empty()) return error;
 
                 if (truth_in_header) {
                     OutputErrorData(m_pairs_unique, m_pairs_nonunique);
@@ -1887,11 +1901,6 @@ namespace protal {
                     auto [tid1, geneid1] = ExtractTaxidGeneid(ap.First().m_rname);
                     auto [tid2, geneid2] = ExtractTaxidGeneid(ap.Second().m_rname);
 
-                    double score = m_score.Score(ap.First(), ap.Second());
-                    double score1 = m_score.Score(ap.First());
-                    double score2 = m_score.Score(ap.Second());
-                    double score_diff = std::abs(score1 - score2);
-
                     m_add_sam.Start();
                     valid_sam &= profile.AddSam(tid1, geneid1, ap.First(), m_info1.Ani(), true, read_id, kNoStrain);
                     valid_sam &= profile.AddSam(tid2, geneid2, ap.Second(), m_info2.Ani(), true, read_id, kNoStrain);
@@ -1899,7 +1908,6 @@ namespace protal {
 
                 } else if (take_first) {
                     auto [tid, geneid] = ExtractTaxidGeneid(ap.First().m_rname);
-                    double score = m_score.Score(ap.First());
 
                     m_add_sam.Start();
                     valid_sam &=profile.AddSam(tid, geneid, ap.First(), m_info1.Ani(), true, read_id, kNoStrain);
@@ -1909,7 +1917,6 @@ namespace protal {
 
                 } else if (take_second) {
                     auto [tid, geneid] = ExtractTaxidGeneid(ap.Second().m_rname);
-                    double score = m_score.Score(ap.Second());
 
                     m_add_sam.Start();
                     valid_sam &=profile.AddSam(tid, geneid, ap.Second(), m_info2.Ani(), true, read_id, kNoStrain);
@@ -1961,51 +1968,28 @@ namespace protal {
             }
 
             using OptionalRefOstream = std::optional<std::reference_wrapper<std::ostream>>;
-            MicrobialProfile Profile(std::string sample_name, OptionalRefOstream erroneous_sam_out={}, size_t snp_min_cov=2, size_t snp_min_obs_fwdrev=2, double snp_min_af=0.0, size_t snp_min_mean_qual=15, size_t snp_min_phred_sum=0, bool snp_require_strand=false) {
-                MicrobialProfile profile(m_genome_loader);
+            // Profiles a SAM file one read at a time, without holding the file in memory: a read with
+            // one candidate alignment, or the best of a multi-mapped read's (BestOfGroup), is added to
+            // `profile`. Records the profile rejects (genes outside the database, alignments that do
+            // not match their gene) go to `erroneous_sam_out`. Returns an error message as ReadSamGroups.
+            std::string ProfileSam(std::string const& file_path, MicrobialProfile& profile, OptionalRefOstream erroneous_sam_out={}, size_t snp_min_cov=2, size_t snp_min_obs_fwdrev=2, double snp_min_af=0.0, size_t snp_min_mean_qual=15, size_t snp_min_phred_sum=0, bool snp_require_strand=false) {
                 profile.SetDepthIdentityMargin(m_depth_identity_margin);
-                profile.SetName(sample_name);
-
                 size_t read_id = 0;
-
-                Benchmark bm_process{"Process sams"};
-                bm_process.Start();
-                for (auto& sam_pair : m_pairs_unique) {
-                    bool valid = ProcessMAPQ(profile, sam_pair, read_id++);
-
-                    if (!valid & erroneous_sam_out.has_value()) {
+                auto error = ReadSamGroups(file_path, [&](std::vector<AlignmentPair>& group) {
+                    auto& pair = group.size() == 1 ? group.front() : BestOfGroup(group);
+                    bool const valid = ProcessMAPQ(profile, pair, read_id++);
+                    if (!valid && erroneous_sam_out.has_value()) {
                         auto& os = erroneous_sam_out.value().get();
-#pragma omp critical (err_sam)
-                        {
-                            if (sam_pair.first.has_value()) {
-                                os << sam_pair.first.value().ToString() << std::endl;
-                            }
-                            if (sam_pair.second.has_value()) {
-                                os << sam_pair.second.value().ToString() << std::endl;
-                            }
-                        }
+                        if (pair.first.has_value()) os << pair.first.value().ToString() << '\n';
+                        if (pair.second.has_value()) os << pair.second.value().ToString() << '\n';
                     }
-                }
-                bm_process.Stop();
-                bm_process.PrintResults();
-
-                // m_add_sam.PrintResults();
-                // m_cigar_info.PrintResults();
-                // std::cout << "Processed all sams" << std::endl;
-
-                for (auto sam_pair : m_pairs_nonunique_best) {
-                    ProcessMAPQ(profile, sam_pair, read_id++);
-                }
+                });
+                if (!error.empty()) return error;
 
                 m_post_process_bm.Start();
                 profile.PostProcessSNPs(snp_min_cov, snp_min_obs_fwdrev, snp_min_af, snp_min_mean_qual, snp_min_phred_sum, snp_require_strand);
                 m_post_process_bm.Stop();
-
-
-                profile.ClearSams();
-
-
-                return profile;
+                return {};
             }
         };
     }
