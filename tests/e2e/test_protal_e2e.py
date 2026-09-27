@@ -209,6 +209,56 @@ class CompleteRunTest(WorkDir):
                 self.assertEqual(start, end + 1, part)
 
 
+class MateAssignmentTest(WorkDir):
+    """Fragments whose best alignment is mate 2's alone, and fragments over two genes, reach the SAM."""
+
+    def align(self, name, pairs):
+        with open(self.path(f"{name}_R1.fq"), "w") as r1, open(self.path(f"{name}_R2.fq"), "w") as r2:
+            for i, (s1, s2) in enumerate(pairs, 1):
+                r1.write(f"@{name}.{i}/1\n{s1}\n+\n{'I' * len(s1)}\n")
+                r2.write(f"@{name}.{i}/2\n{s2}\n+\n{'I' * len(s2)}\n")
+        rc, log = run(self.work, "--db", DB, "-1", self.path(f"{name}_R1.fq"), "-2", self.path(f"{name}_R2.fq"),
+                      "--prefix", name, "-o", "out", "-t", "2", "--no_qcmsa", "--no_strains")
+        self.assertEqual(rc, 0, log[-3000:])
+        records = sam_records(glob.glob(self.path("out", f"{name}*.sam"))[0])
+        return [r for r in records if not int(r[1]) & 0x100]
+
+    def test_pairs_where_only_mate2_aligns(self):
+        rng = random.Random(21)
+        pairs = []
+        for _, gene in reference_genes():
+            if len(gene) >= 320:
+                start = rng.randint(0, len(gene) - 100)
+                pairs.append(("".join(rng.choice("ACGT") for _ in range(100)), revcomp(gene[start:start + 100])))
+        records = self.align("mate2", pairs)
+        read2_only = [r for r in records if int(r[1]) & 0x80 and int(r[1]) & 0x8]
+        self.assertGreater(len(read2_only), 0.9 * len(pairs), f"{len(read2_only)} of {len(pairs)} written")
+
+    def test_pairs_over_two_genes(self):
+        genes = {}
+        for name, seq in reference_genes():
+            taxid, gene = (int(x) for x in name.split("_")[:2])
+            genes[(taxid, gene)] = seq
+        pairs, expected = [], []
+        for (taxid, gene), seq in sorted(genes.items()):
+            nxt = genes.get((taxid, gene + 1))
+            if nxt is not None and len(seq) >= 100 and len(nxt) >= 100:
+                pairs.append((seq[-100:], revcomp(nxt[:100])))
+                expected.append((f"{taxid}_{gene}", f"{taxid}_{gene + 1}"))
+        records = self.align("junction", pairs)
+        by_read = {}
+        for r in records:
+            by_read.setdefault(r[0], []).append(r)
+        good = 0
+        for i, (gene_a, gene_b) in enumerate(expected, 1):
+            recs = by_read.get(f"junction.{i}", [])
+            mates = {("1" if int(r[1]) & 0x40 else "2"): r for r in recs}
+            if (len(recs) == 2 and mates.get("1", [None, None, None])[2] == gene_a and
+                    mates.get("2", [None, None, None])[2] == gene_b and all(int(r[4]) >= 4 for r in recs)):
+                good += 1
+        self.assertGreater(good, 0.9 * len(pairs), f"{good} of {len(pairs)} fragments written with both mates")
+
+
 class StrainEdgeCaseTest(WorkDir):
     def test_species_without_msa_genes(self):
         # No gene reaches --snp_min_cov, so no species has MSA columns (this used to segfault).

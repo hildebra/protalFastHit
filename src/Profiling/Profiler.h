@@ -1795,14 +1795,12 @@ namespace protal {
                 if (ap.HasSecond()) CompressedCigarInfo(ap.Second().m_cigar, m_info2);
                 m_cigar_info.Stop();
 
-                if ((ap.HasFirst() && ap.First().m_mapq < m_min_mapq) || (ap.HasSecond() && ap.Second().m_mapq < m_min_mapq)) {
-                    return true;
-                }
-
-                if (ap.HasFirst() && m_info1.clipped_alignment_length > m_min_alignment_length) {
+                // MAPQ is judged per mate: the mates of a pair aligned together share one MAPQ, those
+                // of a fragment split over two genes each have their own.
+                if (ap.HasFirst() && ap.First().m_mapq >= m_min_mapq && m_info1.clipped_alignment_length > m_min_alignment_length) {
                     take_first = true;
                 }
-                if (ap.HasSecond() && m_info2.clipped_alignment_length > m_min_alignment_length) {
+                if (ap.HasSecond() && ap.Second().m_mapq >= m_min_mapq && m_info2.clipped_alignment_length > m_min_alignment_length) {
                     take_second = true;
                 }
                 if (!take_first && !take_second) return true;

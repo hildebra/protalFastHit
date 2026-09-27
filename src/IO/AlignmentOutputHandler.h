@@ -5,7 +5,10 @@
 #pragma once
 
 
+#include <algorithm>
+#include <cstdint>
 #include <string>
+#include <tuple>
 #include <vector>
 #include "Constants.h"
 #include "BufferedOutput.h"
@@ -168,8 +171,8 @@ namespace protal {
 
             auto &best = alignment_results.front();
 
-
-            if (CigarANI(best.first.Cigar()) < m_min_cigar_ani) {
+            // Mate 1, or mate 2 when only mate 2 aligned (see ProtalPairedOutputHandler).
+            if (CigarANI((best.first.IsSet() ? best.first : best.second).Cigar()) < m_min_cigar_ani) {
                 return;
             }
 
@@ -399,12 +402,91 @@ namespace protal {
         }
 
 
+        // A mate's best alignment among a fragment's candidates: the index of a candidate holding it,
+        // and the mate's MAPQ against its own alternatives. An alignment that appears in several
+        // candidates (paired with different alignments of the other mate) counts once.
+        struct MateBest {
+            size_t index = SIZE_MAX;
+            int mapq = 0;
+        };
+
+        static MateBest BestOfMate(PairedAlignmentResultList const& results, bool mate1) {
+            std::vector<std::pair<int, size_t>> scored;  // (score, candidate index), one per distinct alignment
+            std::vector<std::tuple<uint32_t, uint32_t, int, bool>> seen;
+            for (size_t i = 0; i < results.size(); i++) {
+                auto const& ar = mate1 ? results[i].first : results[i].second;
+                if (!ar.IsSet()) continue;
+                auto key = std::make_tuple(ar.Taxid(), ar.GeneId(), ar.GetAlignmentInfo().gene_alignment_start, ar.Forward());
+                if (std::find(seen.begin(), seen.end(), key) != seen.end()) continue;
+                seen.push_back(key);
+                scored.emplace_back(ar.GetAlignmentInfo().Score(2, 3, 1, 2), i);
+            }
+            if (scored.empty()) return {};
+            std::stable_sort(scored.begin(), scored.end(), [](auto const& a, auto const& b) { return a.first > b.first; });
+            int const best = scored[0].first;
+            int const second = scored.size() > 1 ? scored[1].first : 0;
+            return { scored[0].second, best > 0 ? MAPQv2(best, second) : 0 };
+        }
+
+        // Writes both mates of a fragment whose mates align only separately: to two genes (e.g.
+        // neighbouring genes of an operon; candidates pair mates only within one gene) or to one gene
+        // in the wrong orientation. Each mate is written at its own best alignment with its own MAPQ,
+        // flagged paired but not properly paired. Ranking the two single-mate candidates against each
+        // other instead gave MAPQ ~0 and lost the fragment. Returns false, writing nothing, when only
+        // one mate aligned or an alignment is unusable; the caller then writes the candidates as usual.
+        // Only these two primary records are written, also with -m > 1.
+        bool WriteSplitMates(PairedAlignmentResultList& results, FastxRecord& record1, FastxRecord& record2, std::string const& qname) {
+            auto const best1 = BestOfMate(results, true);
+            auto const best2 = BestOfMate(results, false);
+            if (best1.index == SIZE_MAX || best2.index == SIZE_MAX) return false;
+            auto& ar1 = results[best1.index].first;
+            auto& ar2 = results[best2.index].second;
+            if (CigarANI(ar1.Cigar()) < m_min_cigar_ani || CigarANI(ar2.Cigar()) < m_min_cigar_ani) return false;
+
+            ArtoSAM(m_sam1, ar1, ar1.GetAlignmentInfo(), record1, qname);
+            ArtoSAM(m_sam2, ar2, ar2.GetAlignmentInfo(), record2, qname);
+            SNPList snps;
+            if (!ExtractSNPs(m_sam1, m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()).Sequence(), snps, ar1.Taxid(), ar1.GeneId(), 0) ||
+                !ExtractSNPs(m_sam2, m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()).Sequence(), snps, ar2.Taxid(), ar2.GeneId(), 0)) {
+                return false;
+            }
+            for (auto [sam, ar, other, mapq, is_read1] : { std::make_tuple(&m_sam1, &ar1, &ar2, best1.mapq, true),
+                                                            std::make_tuple(&m_sam2, &ar2, &ar1, best2.mapq, false) }) {
+                Flag::SetPairedEnd(sam->m_flag, true, false, is_read1, !is_read1);
+                Flag::SetReadReverseComplement(sam->m_flag, !ar->Forward());
+                Flag::SetMateReverseComplement(sam->m_flag, !other->Forward());
+                sam->m_mapq = mapq;
+                sam->m_tlen = 0;  // the mates do not span one template on one reference
+            }
+            m_sam1.m_rnext = m_sam1.m_rname == m_sam2.m_rname ? "=" : m_sam2.m_rname;
+            m_sam2.m_rnext = m_sam2.m_rname == m_sam1.m_rname ? "=" : m_sam1.m_rname;
+            m_sam1.m_pnext = m_sam2.m_pos;
+            m_sam2.m_pnext = m_sam1.m_pos;
+
+            alignments++;
+            std::string records = m_sam1.ToString() + '\n' + m_sam2.ToString();
+            if (!m_sam_output.Write(std::move(records))) {
+#pragma omp critical(sam_output)
+                m_sam_output.Write(m_sam_os);
+            }
+            return true;
+        }
+
         void operator () (PairedAlignmentResultList& alignment_results, FastxRecord& record1, FastxRecord& record2, size_t read_id=0, bool first_pair=true) {
             if (alignment_results.empty()) return;
 
             auto& best = alignment_results.front();
 
-            if (CigarANI(best.first.Cigar()) < m_min_cigar_ani) {
+            // Identity of the mate the best candidate starts from: mate 1, or mate 2 when mate 1 did
+            // not align. (Testing mate 1 alone dropped every fragment whose best alignment is mate 2's:
+            // an empty CIGAR has identity 0.)
+            auto const& anchor = best.first.IsSet() ? best.first : best.second;
+            if (CigarANI(anchor.Cigar()) < m_min_cigar_ani) {
+                return;
+            }
+
+            auto const qname = PairQName(record1.id, record2.id);
+            if (!(best.first.IsSet() && best.second.IsSet()) && WriteSplitMates(alignment_results, record1, record2, qname)) {
                 return;
             }
 
@@ -437,7 +519,6 @@ namespace protal {
 
 
             SNPList snps;
-            auto const qname = PairQName(record1.id, record2.id);
 
             size_t output_counter = 0;
             std::string read_records;

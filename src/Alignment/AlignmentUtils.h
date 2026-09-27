@@ -200,7 +200,7 @@ namespace protal {
                 m_genepos(genepos),
                 m_forward(forward),
                 m_uniques(uniques),
-                m_uniques_two(uniques) {};
+                m_uniques_two(uniques_two) {};
 
         AlignmentResult() {};
 
