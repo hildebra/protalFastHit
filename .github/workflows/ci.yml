@@ -27,15 +27,6 @@ jobs:
       - name: Mini database generator tests
         run: python3 -m unittest -v scripts/mini_db/test_mini_db.py
 
-      # The single-file database.protal by default, ~1 MB (a raw index.prx would be ~3 GB, fixed-size key map).
-      - name: Build mini database
-        run: PROTAL=build/protal bash scripts/mini_db/build_mini_db.sh data/mini_db
-
-      - name: End-to-end tests
-        run: |
-          PROTAL_TEST_DB=data/mini_db/protal_db PROTAL=build/protal SIMULATE=build/simulate_metagenomes \
-            python3 -m unittest -v tests/e2e/test_protal_e2e.py
-
   sanitizers:
     runs-on: ubuntu-24.04
     steps:

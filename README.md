@@ -216,6 +216,25 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
   k-mer key map has a fixed size. `PROTAL_BUILD_ARGS=--no_bundle` builds separate compressed
   files, `PROTAL_BUILD_ARGS=--no_compress` a raw database.
 
+## Building a trained database from GTDB
+
+`scripts/build_gtdb_database.py` runs the release converter, builds and packages the index,
+simulates training data from whole genomes, trains a normalized-feature random forest, then
+repackages the database with the new `model.xml`:
+
+```bash
+python3 scripts/build_gtdb_database.py --gtdb /data/gtdb_r226 --outdir /data/protal_r226 \
+  --protal build/protal --simulator build/simulate_metagenomes -t 16
+```
+
+The GTDB release must be extracted, including marker gene FASTAs and whole genome FASTAs under
+`genomic_files_all/gtdb_genomes_all_r<R>` or `genomic_files_reps/gtdb_genomes_reps_r<R>`. If the
+genomes are stored elsewhere, provide `--genome-table` in the simulator's three-column format
+(accession, GTDB taxonomy, FASTA path). The build writes the ready-to-use database to
+`OUTDIR/protal_db/database.protal`; logs, training data and model artifacts remain under `OUTDIR`.
+Training can take substantial compute and disk space. Defaults can be adjusted with `--samples`,
+`--read-pairs`, `--read-setups`, `--species-per-sample`, and `--archaea`.
+
 ## Testing
 
 ```bash
