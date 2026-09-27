@@ -134,23 +134,7 @@ namespace protal {
             rinfo.start = start;
             rinfo.forward = !Flag::IsReverseComplement(sam.m_flag);
             query_range.AddReadInfo(rinfo);
-            auto range_it = m_sequence_range_handler.FindSequenceRange(start, end);
-
-            auto& ranges = m_sequence_range_handler.GetRanges();
-            if (range_it == ranges.end() || *range_it != query_range) {
-                // Range has no overlap with existing range and thus add as new
-                ranges.insert(range_it, query_range);
-
-            } else if (*range_it == query_range) {
-                // Range has overlap with existing range, include in existing
-                range_it->Union(query_range);
-                // If updated range now overlaps with next range merge.
-                if (range_it+1 != ranges.end() && *(range_it+1) == *range_it) {
-                    auto del_it = range_it + 1;
-                    range_it->Union(*del_it);
-                    ranges.erase(del_it);
-                }
-            }
+            m_sequence_range_handler.Merge(std::move(query_range));
         }
 
         bool AddSam(SamEntry const& sam, size_t read_id, bool read_variants=false) {
@@ -542,9 +526,9 @@ namespace protal {
                               optional_item.value().second.get().CalculateCoverageVector2() :
                               CoverageVec());
 
-            if (covs.size() > reference.size()) {
-                std:: cerr << "ITEM " << i << " " << covs.size() << " > " << reference.size() << std::endl;
-                for (auto c : covs[i]) {
+            if (covs.back().size() > reference.size()) {
+                std::cerr << "ITEM " << i << " " << covs.back().size() << " > " << reference.size() << std::endl;
+                for (auto c : covs.back()) {
                     std::cerr << std::to_string(c);
                 }
                 std::cerr << std::endl;
@@ -595,6 +579,10 @@ namespace protal {
         if (valid_bases == 0) return false;
 
         std::vector<bool> has_variant = HasVariantVector(items, reference);
+        // Where this gene's columns begin, to take them back should the rows get out of step.
+        std::vector<size_t> row_starts;
+        for (auto const& row : msa) row_starts.push_back(row.size());
+        size_t const ref_row_start = ref_row ? ref_row->size() : 0;
 
 
         std::vector<size_t> indices(items.size(), 0);
@@ -816,16 +804,11 @@ namespace protal {
             }
 
             if (bad) {
-                std::cout << "MSA" << std::endl;
-                size_t first_len = msa.front().size();
-                size_t show = 200;
-                size_t start = first_len < show ? 0 : first_len - show;
-                auto index = 0;
-//                for (auto& row : msa) {
-//                    std::cout << index++ << " " << row.size() << std::string_view(row.begin() + start, row.end()) << std::endl;
-//                }
-                std::cout << "CURRENT INDEL" << std::endl;
-                Utils::Input();
+                std::cerr << "Error: the MSA rows differ in length at reference position " << rpos
+                          << "; the gene is left out of the MSA" << std::endl;
+                for (size_t i = 0; i < msa.size(); i++) msa[i].resize(row_starts[i]);
+                if (ref_row) ref_row->resize(ref_row_start);
+                return false;
             }
         }
 

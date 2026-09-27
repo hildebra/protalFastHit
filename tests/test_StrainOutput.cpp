@@ -120,6 +120,30 @@ namespace {
     };
 }
 
+TEST(Coverage, AReadOverSeveralGapsMergesAllTheirRanges) {
+    // Reads at 0-10, 20-30 and 40-50, then one from 5 to 45 that bridges both gaps.
+    SequenceRangeHandler ranges;
+    auto read = [&](size_t start, size_t end) {
+        SequenceRange range(start, end);
+        range.AddReadInfo(ReadInfo{ 0, static_cast<uint32_t>(start), static_cast<uint32_t>(end - start), true });
+        ranges.Merge(std::move(range));
+    };
+    read(0, 10);
+    read(20, 30);
+    read(40, 50);
+    ASSERT_EQ(ranges.Size(), 3u);
+    read(5, 45);
+    ASSERT_EQ(ranges.Size(), 1u);
+
+    auto cov = ranges.CalculateCoverageVector2();
+    ASSERT_EQ(cov.size(), 50u);
+    std::vector<std::pair<size_t, uint32_t>> expected = { { 0, 1 }, { 5, 2 }, { 15, 1 }, { 25, 2 }, { 35, 1 }, { 44, 2 }, { 45, 1 }, { 49, 1 } };
+    for (auto [pos, depth] : expected) EXPECT_EQ(cov[pos], depth) << "position " << pos;
+
+    ranges.CalculateCoverageVector();
+    EXPECT_EQ(ranges.CalculateCoverageVector(), cov);  // recomputed, not appended to
+}
+
 TEST(MSA, DeletionsBecomeGaps) {
     TinyReference ref;
     auto& gene = ref.loader->GetGenome(1).GetGeneOMP(1);

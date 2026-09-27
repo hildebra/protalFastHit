@@ -341,10 +341,19 @@ namespace protal {
                     bm_classify_sample.Stop();
                     bm_classify_sample.PrintResults();
 
+                    // zlib reads a truncated or corrupt gzip file as one that ends early.
+                    bool const truncated = is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed();
                     is1.close();
                     is2.close();
                     sam_output.close();
 
+                    if (truncated) {
+                        RunStatus::Get().Fail("The FASTQ files of sample " + options.GetSampleId(index) + " are truncated or corrupt (" +
+                                              options.GetFirstFile(index) + ", " + options.GetSecondFile(index) +
+                                              "); no SAM file was written");
+                        std::filesystem::remove(sam_partial);
+                        continue;
+                    }
                     if (!reader.Success()) {
                         RunStatus::Get().Fail("Reading the FASTQ files of sample " + options.GetSampleId(index) + " failed (" +
                                               options.GetFirstFile(index) + ", " + options.GetSecondFile(index) +
@@ -509,10 +518,6 @@ namespace protal {
             profiler::Profiler profiler(genomes);
             profiler.SetDepthIdentityMargin(options.GetDepthIdentityMargin());
 
-            // New Profiler approach
-            std::vector<AlignmentPair> unique_pairs;
-            std::vector<std::vector<AlignmentPair>> pairs;
-
 
             if (options.Verbose()) {
                 #pragma omp critical(print)
@@ -546,6 +551,13 @@ namespace protal {
                 profile_slots[idx].emplace(genomes);
                 continue;
             }
+            if (profiler.RejectedReads() > 0) {
+                #pragma omp critical(print)
+                std::cerr << "Warning: sample " << sample_name << ": " << profiler.RejectedReads() << " of " << profiler.Reads()
+                          << " reads have an alignment that does not fit the database (a gene it lacks, a position past "
+                             "a gene's end, or bases that differ from the gene); they are left out and listed in "
+                          << sam << ".err" << std::endl;
+            }
             
 
             if (options.Verbose()) {
@@ -564,32 +576,24 @@ namespace protal {
                                             std::optional<TruthSet>{ protal::GetTruth(options.ProfileTruthFile(i), taxonomy) } :
                                             std::optional<TruthSet>{};
 
-            if (options.BenchmarkAlignment()) {
-                profiler.TestSNPUtils(pairs);
-                profiler.OutputErrorData(pairs);
-            } else if (truth.has_value()) {
-                profiler.OutputErrorData(unique_pairs, pairs, &truth.value());
-            }
-
-
             if (truth.has_value()) {
                 std::string truth_output = options.ProfileFile(i) + ".truth_annotated";
                 profile.AnnotateWithTruth(truth.value(), filter, truth_output, taxonomy);
                 std::cout << "Write truth to: " << truth_output << std::endl;
 
-                auto filtered = profile.GetTaxa() | std::views::filter([&filter](auto const& a) { return filter.Pass(a.second); });
-            
-                // std::filter(profile.GetTaxa().begin(), profile.GetTaxa().end(), )
-
-                auto tp = std::count_if(
-                    filtered.begin(),
-                    filtered.end(),
-                    [&truth] (auto const& x) { return truth.value().contains(x.first); }
-                );
-                auto fp = std::ranges::distance(filtered) - tp;
-                auto fn = truth.value().size() - tp;
-
-                std::cout << "TP: " << tp << " FP: " << fp << " FN: " << fn << std::endl;
+                // A true species the database lacks cannot be found: it is counted apart from the misses.
+                size_t tp = 0, fp = 0, fn = 0, not_in_db = 0;
+                for (auto const& [taxid, _] : profile.GetTaxa()) {
+                    if (!filter.Pass(profile.GetTaxa().at(taxid))) continue;
+                    (truth.value().contains(taxid) ? tp : fp)++;
+                }
+                for (auto taxid : truth.value()) {
+                    if (!genomes.GetGenomeMap().contains(taxid)) not_in_db++;
+                    else if (!profile.GetTaxa().contains(taxid) || !filter.Pass(profile.GetTaxa().at(taxid))) fn++;
+                }
+                #pragma omp critical(print)
+                std::cout << "Sample " << sample_name << ": TP " << tp << ", FP " << fp << ", FN " << fn
+                          << " (and " << not_in_db << " true species not in the database)" << std::endl;
 
             }
             if (options.Verbose()) {
@@ -673,7 +677,7 @@ namespace protal {
 
     static bool IsSNP(VariantBin& bin, size_t min_obs, double min_frequency) {
         for (auto& var : bin) {
-            size_t total_obs = std::accumulate(bin.begin(), bin.end(), 0, [](size_t acc, Variant const& var) { return acc + var.Observations(); });
+            size_t total_obs = std::accumulate(bin.begin(), bin.end(), size_t{0}, [](size_t acc, Variant const& var) { return acc + var.Observations(); });
             auto obs = var.Observations();
             double freq = static_cast<double>(obs) / total_obs;
             if (!var.IsReference() && freq >= min_frequency && (obs >= min_obs || var.HasFwdAndRev())) {
@@ -853,7 +857,8 @@ namespace protal {
     using OptionalFilter = optional<std::reference_wrapper<const profiler::TaxonFilter>>;
     using SimilarityMatrix = DoubleMatrix;
 
-    TaxidList ExtractTaxa(Profiles const& profiles, std::optional<profiler::TaxonFilterObj> filter= {}) {
+    // Taxa in at least `min_samples` profiles (passing `filter`, if given), the most frequent first.
+    TaxidList ExtractTaxa(Profiles const& profiles, std::optional<profiler::TaxonFilterObj> filter= {}, size_t min_samples = 2) {
         TaxidCounts taxid_counts;
         TaxidSet taxa;
         TaxidList taxid_list;
@@ -869,7 +874,7 @@ namespace protal {
         }
 
         for (auto& [t, c] : taxid_counts) {
-            if (c > 1) {
+            if (c >= min_samples) {
                 taxid_list.emplace_back(t);
             }
         }
@@ -1402,7 +1407,6 @@ namespace protal {
                     auto& region = strain.GetSequenceRangeHandler();
 
                     auto ac = gene_obs.AlleleSNPCounts(min_cov, min_qual_sum);
-                    region.CalculateCoverageVector();
                     auto tmp_vec = region.CalculateCoverageVector2();
                     auto counts_vcov1 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 1);});
                     auto counts_vcov2 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 2);});
@@ -1848,9 +1852,9 @@ namespace protal {
             bm_profiling.Stop();
             bm_profiling.PrintResults();
 
-            // If there is more than one profile, get per taxon output
-            if (profiles.size() > 1) {
-                auto taxids = ExtractTaxa(profiles);
+            // Per taxon: its statistics in every sample it has reads in.
+            {
+                auto taxids = ExtractTaxa(profiles, {}, 1);
                 auto& taxonomy = db.GetTaxonomy();
 
                 for (auto taxid : taxids) {
@@ -1872,6 +1876,7 @@ namespace protal {
                         stats.PrintLine(os, profile.GetName(), taxon.VerticalCoverage(), taxon.TotalHits(), taxon.TotalLength(), taxon.GetMeanANI(), taxon.GetMeanMAPQ(), accepted);
                     }
                     os.close();
+                    if (os.fail()) RunStatus::Get().Fail("Writing the statistics of " + name + " failed: " + options.GetMiscOutputDir() + '/' + name + ".statistics.tsv");
                 }
             }
 

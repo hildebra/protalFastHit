@@ -16,20 +16,24 @@ bool SequenceRange::Overlap(size_t start, size_t end) const {
 
 
 void SequenceRangeHandler::Add(size_t start, size_t end) {
-    SequenceRange query_range(start, end);
-    auto range_it = FindSequenceRange(start, end);
+    Merge(SequenceRange(start, end));
+}
 
-    if (range_it == m_ranges.end() || *range_it != query_range) {
-        m_ranges.insert(range_it, query_range);
-
-    } else if (*range_it == query_range) {
-        range_it->Union(query_range);
-        if (range_it+1 != m_ranges.end() && *(range_it+1) == *range_it) {
-            auto del_it = range_it + 1;
-            range_it->Union(*del_it);
-            m_ranges.erase(del_it);
-        }
+void SequenceRangeHandler::Merge(SequenceRange range) {
+    auto range_it = FindSequenceRange(range.m_start, range.m_end);
+    if (range_it == m_ranges.end() || *range_it != range) {
+        m_ranges.insert(range_it, std::move(range));
+        return;
     }
+    // The range may bridge the gaps to several of the following ranges: merge all of them.
+    range_it->Union(range);
+    auto const next = range_it + 1;
+    auto last = next;
+    while (last != m_ranges.end() && *last == *range_it) {
+        range_it->Union(*last);
+        ++last;
+    }
+    m_ranges.erase(next, last);
 }
 
 SequenceRangeHandler SequenceRangeHandler::Unify(const SequenceRangeHandler &handler) const {
@@ -126,7 +130,7 @@ std::string SequenceRangeHandler::ToVerboseString() const {
 
 
 size_t SequenceRangeHandler::SequenceLength() const {
-    return std::accumulate(m_ranges.begin(), m_ranges.end(), 0, [](int a, SequenceRange const& range){ return range.Length(); });
+    return std::accumulate(m_ranges.begin(), m_ranges.end(), size_t{0}, [](size_t sum, SequenceRange const& range){ return sum + range.Length(); });
 }
 
 void SequenceRangeHandler::Clear() {
@@ -158,16 +162,10 @@ SequenceRangeHandler::GetOrAddSequenceRangeIterator(const size_t start, const si
     }
     if (range_it == m_ranges.end() || *range_it != query_range) {
         // Insert new range at end
-        m_ranges.insert(range_it, query_range);
-    } else if (*range_it == query_range) {
-        range_it->Union(query_range);
-        if (range_it+1 != m_ranges.end() && *(range_it+1) == *range_it) {
-            auto del_it = range_it + 1;
-            range_it->Union(*del_it);
-            m_ranges.erase(del_it);
-        }
+        return m_ranges.insert(range_it, query_range);
     }
-    return range_it;
+    Merge(query_range);
+    return FindSequenceRange(start, end);
 }
 
 SequenceRangeHandler::SRIterator
@@ -217,31 +215,18 @@ void SequenceRangeHandler::Add(SequenceRange &&range) {
 }
 
 CoverageVec SequenceRangeHandler::CalculateCoverageVector() {
-    for (auto &range : m_ranges) {
-        if (range.m_start > m_cov.size()) {
-            m_cov.resize(range.m_start, 0);
-        }
-        auto rcov = range.CoverageVector();
-        m_cov.insert(m_cov.end(), rcov.begin(), rcov.end());
-    }
+    m_cov = CalculateCoverageVector2();
     return m_cov;
 }
 
 
 CoverageVec SequenceRangeHandler::CalculateCoverageVector2() const {
+    // Each range's coverage is added at its own position, so it stays correct should ranges overlap.
     CoverageVec cov;
     for (auto &range : m_ranges) {
-        if (range.m_start > cov.size()) {
-            cov.resize(range.m_start, 0);
-        } else if (range.m_start > cov.size()) {
-            std::cerr << "Ranges should not overlap" << std::endl;
-
-            for (auto &range : m_ranges) {
-                std::cerr << range.ToVerboseString() << std::endl;
-            }
-        }
+        if (range.m_end > cov.size()) cov.resize(range.m_end, 0);
         auto rcov = range.CoverageVector();
-        cov.insert(cov.end(), rcov.begin(), rcov.end());
+        for (size_t i = 0; i < rcov.size(); i++) cov[range.m_start + i] += rcov[i];
     }
     return cov;
 }

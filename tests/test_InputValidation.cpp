@@ -252,3 +252,22 @@ TEST(UniqueKmers, LoadsCountsAndRejectsMalformedLines) {
     EXPECT_EXIT(load("1\t1\tx\t0\t0\t0\t0\t0\t10\n"), testing::ExitedWithCode(8), "column 3 is not");
     EXPECT_EXIT(load("7\t1\t3\t0.3\t0\t0\t0\t0\t10\n"), testing::ExitedWithCode(8), "gene 7_1 is not in reference.map");
 }
+
+TEST(UniqueKmers, AGenomeWithoutUniqueKmersHasNoHittableGene) {
+    ScratchDir dir;
+    Reference ref;
+    auto fna = dir.Write("reference.fna", ref.fna);
+    auto map = dir.Write("reference.map", ref.map);
+
+    protal::GenomeLoader without(fna, map);  // no unique_kmers.tsv: every gene counts
+    EXPECT_TRUE(without.GetGenome(2).IsGeneHittable(1));
+    EXPECT_EQ(without.GetGenome(2).GeneNum(), 1u);
+
+    // Genome 2's gene has no unique k-mers, and genome 1 has one with and one without.
+    protal::GenomeLoader loader(fna, map);
+    loader.LoadUniqueKmers(dir.Write("u.tsv", "1\t1\t3\t0.3\t0\t0\t0\t0\t10\n1\t2\t0\t0\t0\t0\t0\t0\t8\n2\t1\t0\t0\t0\t0\t0\t0\t8\n"));
+    EXPECT_EQ(loader.GetGenome(1).GetHittableGenes(), std::vector<uint32_t>{ 1 });
+    EXPECT_FALSE(loader.GetGenome(2).IsGeneHittable(1));
+    EXPECT_TRUE(loader.GetGenome(2).GetHittableGenes().empty());
+    EXPECT_EQ(loader.GetGenome(2).GeneNum(), 0u);
+}

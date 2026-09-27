@@ -42,6 +42,8 @@ public:
     // Drops all ranges and frees their memory.
     void Clear();
     size_t SequenceLength() const;
+    // Adds a range, merged with every range it overlaps or touches, so that ranges never overlap.
+    void Merge(SequenceRange range);
     void Add(size_t start, size_t end);
     void Add(SequenceRange& range);
     void Add(SequenceRange&& range);

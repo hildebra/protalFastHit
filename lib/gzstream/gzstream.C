@@ -89,8 +89,14 @@ int gzstreambuf::underflow() { // used for input buffer only
     memmove( buffer + (4 - n_putback), gptr() - n_putback, n_putback);
 
     int num = gzread( file, buffer+4, bufferSize-4);
-    if (num <= 0) // ERROR or EOF
+    if (num <= 0) { // ERROR or EOF
+        // A gzip file that ends early reads as a normal end of file, but leaves Z_BUF_ERROR.
+        int errnum = Z_OK;
+        const char* message = gzerror( file, &errnum);
+        if ((num < 0 || errnum != Z_OK) && read_error.empty())
+            read_error = (message && *message) ? message : "read error";
         return EOF;
+    }
 
     // reset buffer pointers
     setg( buffer + (4 - n_putback),   // beginning of putback area

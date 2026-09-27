@@ -10,6 +10,7 @@
 #include <cctype>
 #include <charconv>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -336,6 +337,7 @@ namespace protal {
         size_t m_records = 0;
         size_t m_without_tags = 0;
         std::map<std::string, size_t> m_skipped;
+        std::function<void(std::string const&)> m_on_header;  // sees every header line
 
         // Reads up to and including the next usable record.
         bool Advance(SamEntry& sam) {
@@ -343,7 +345,11 @@ namespace protal {
             while (std::getline(m_is, m_line)) {
                 m_line_no++;
                 if (!m_line.empty() && m_line.back() == '\r') m_line.pop_back();
-                if (m_line.empty() || m_line[0] == '@') continue;
+                if (m_line.empty()) continue;
+                if (m_line[0] == '@') {
+                    if (m_on_header) m_on_header(m_line);
+                    continue;
+                }
                 LineSplitter::Split(m_line, delim, m_tokens);
                 try {
                     SamFromTokens(m_tokens, sam);
@@ -363,7 +369,9 @@ namespace protal {
         }
 
     public:
-        explicit SamReader(std::istream& is) : m_is(is) {}
+        // `on_header`, if given, is called with each header line and may throw SamFormatError to stop.
+        explicit SamReader(std::istream& is, std::function<void(std::string const&)> on_header = {}) :
+                m_is(is), m_on_header(std::move(on_header)) {}
 
         bool Next(SamEntry &sam1, SamEntry &sam2, bool &has_sam1, bool &has_sam2) {
             has_sam1 = false;

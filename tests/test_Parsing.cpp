@@ -257,6 +257,41 @@ TEST(FromSam, EmptyHeaderOnlyAndBrokenFiles) {
     EXPECT_NE(broken.find("line 3"), std::string::npos) << broken;
 }
 
+TEST(FromSam, RejectsASamAlignedAgainstAnotherDatabase) {
+    TinyReference ref;
+    profiler::Profiler profiler(*ref.loader);
+    auto record = Record("a", 0, "1_1", "20M", ref.gene.substr(0, 20));
+    auto with_header = [&](std::string const& sq) {
+        return profiler.FromSam(ref.dir.Write("other.sam", "@HD\tVN:1.6\n" + sq + record));
+    };
+    EXPECT_EQ(with_header("@SQ\tSN:1_1\tLN:50\n"), "");
+    EXPECT_EQ(with_header(""), "");  // no header to check against
+    EXPECT_EQ(with_header("@SQ\tSN:chr1\tLN:1000\n"), "");  // not a protal gene: its records are skipped
+
+    auto length = with_header("@SQ\tSN:1_1\tLN:60\n");
+    EXPECT_NE(length.find("gene 1_1 is 60 bp in the SAM header (@SQ) but 50 bp in the database"), std::string::npos) << length;
+    auto missing = with_header("@SQ\tSN:1_1\tLN:50\n@SQ\tSN:7_3\tLN:50\n");
+    EXPECT_NE(missing.find("gene 7_3 of the SAM header (@SQ) is not in the database"), std::string::npos) << missing;
+}
+
+TEST(FromSam, ATruncatedGzipFileIsAnError) {
+    TinyReference ref;
+    std::string sam = "@HD\tVN:1.6\n@SQ\tSN:1_1\tLN:50\n";
+    for (int i = 0; i < 20000; i++) sam += Record("r" + std::to_string(i), 0, "1_1", "20M", ref.gene.substr(i % 30, 20), "\tZU:i:1", 1 + i % 30);
+    auto path = (std::filesystem::path(ref.dir.path) / "sample.sam.gz").string();
+    {
+        ogzstream os(path.c_str());
+        os << sam;
+    }
+    profiler::Profiler profiler(*ref.loader);
+    EXPECT_EQ(profiler.FromSam(path), "");
+    EXPECT_EQ(profiler.m_pairs_unique.size(), 20000u);
+
+    std::filesystem::resize_file(path, std::filesystem::file_size(path) / 2);
+    auto error = profiler.FromSam(path);
+    EXPECT_NE(error.find("the file is truncated or corrupt"), std::string::npos) << error;
+}
+
 TEST(MicrobialProfile, RejectsRecordsOutsideTheDatabase) {
     TinyReference ref;
     profiler::MicrobialProfile profile(*ref.loader);
