@@ -1,0 +1,10 @@
+# Mock community for run.sh: relative cell abundances of genomes of the mini GTDB
+# release (accessions from work/gtdb_r226/simulation/genomes.tsv). Two of the three
+# species are sampled from a strain that is NOT their reference genome (~1% divergent).
+#   GCA_999001002.1  s__Mockella alpha    strain SIM-2 (reference: GCF_999001001.1)
+#   GCF_999002001.1  s__Mockella beta     the reference genome itself
+#   GCA_999003003.1  s__Fakibacter gamma  strain SIM-3 (reference: GCF_999003001.1)
+accession	relative_abundance
+GCA_999001002.1	0.5
+GCF_999002001.1	0.3
+GCA_999003003.1	0.2

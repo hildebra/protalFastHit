@@ -134,6 +134,8 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
 - `gtdb_to_protal_db.py` turns such a release (synthetic or a real, extracted one) into
   `reference.fna`, `reference.map`, `internal_taxonomy.dmp`, `full_reference.fna` and
   `model.xml`. `build_mini_db.sh` then runs `protal --build` on them.
+- `simulate_reads.py` draws paired reads from a mock community of those genomes (no ART needed)
+  and writes the truth table next to them.
 - `index.prx` is about 3 GB even for a tiny reference, because the k-mer key map has a fixed size.
 
 ## Testing
@@ -141,7 +143,13 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
 ```bash
 just test    # C++ unit tests (GoogleTest, needs libgtest-dev): cmake -DPROTAL_BUILD_TESTS=ON, then ctest
 just e2e     # builds the mini database, then runs tests/e2e/test_protal_e2e.py against it
+just example # mini database + reads from a known mock community: is the profile right?
 ```
+
+`just example` runs [`examples/mini_db/run.sh`](examples/mini_db/README.md): a seeded, fully
+reproducible build of the mini database, 30,000 simulated read pairs from three genomes (two of
+them strains that differ from the reference), a protal run, and a check that every species is
+detected with the right abundance (±0.05) and that aligned reads hit their own species.
 
 The end-to-end tests simulate reads from the database's reference genes and run the real
 `protal` and `simulate_metagenomes` binaries: exit codes, output files, SAM records, strain

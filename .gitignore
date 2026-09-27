@@ -14,6 +14,7 @@
 *.html
 *.doctree
 *.css
+.claude
 
 # strain test harness outputs (M5)
 strain_test_out/

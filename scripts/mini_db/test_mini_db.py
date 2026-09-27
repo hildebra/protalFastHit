@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""test_mini_db.py - checks for simulate_gtdb_release.py + gtdb_to_protal_db.py.
+"""test_mini_db.py - checks for simulate_gtdb_release.py, gtdb_to_protal_db.py
+and simulate_reads.py.
 
-Runs both scripts into a temporary directory and checks the invariants protal
+Runs the scripts into a temporary directory and checks the invariants protal
 relies on: reference.map byte offsets, a well-formed internal taxonomy whose
-leaves are the reference taxids, determinism, and that sequence similarity
-follows the taxonomy. Does not need a protal binary.
+leaves are the reference taxids, byte-identical output for a fixed seed, that
+sequence similarity follows the taxonomy, and that simulated reads come from
+the right genomes in the right proportions. Does not need a protal binary.
 
   python3 -m unittest scripts/mini_db/test_mini_db.py
 """
@@ -19,6 +21,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIMULATE = os.path.join(HERE, "simulate_gtdb_release.py")
 CONVERT = os.path.join(HERE, "gtdb_to_protal_db.py")
+SIMULATE_READS = os.path.join(HERE, "simulate_reads.py")
 
 
 def run(*args):
@@ -104,9 +107,58 @@ class MiniDbTest(unittest.TestCase):
     def test_deterministic(self):
         other = os.path.join(self.tmp.name, "gtdb_again")
         run(SIMULATE, "--outdir", other, "--genome_length", "20000")
-        marker = os.path.join("genomic_files_all", "bac120_marker_genes_all_r226", "fna", "bac120_TIGR02013.fna")
-        with open(os.path.join(self.gtdb, marker)) as a, open(os.path.join(other, marker)) as b:
-            self.assertEqual(a.read(), b.read())
+        genome = os.path.join("genomic_files_reps", "gtdb_genomes_reps_r226", "database", "GCF", "999",
+                              "001", "001", "GCF_999001001.1_genomic.fna.gz")
+        for f in (os.path.join("genomic_files_all", "bac120_marker_genes_all_r226", "fna", "bac120_TIGR02013.fna"),
+                  "bac120_metadata_r226.tsv.gz", genome):
+            with open(os.path.join(self.gtdb, f), "rb") as a, open(os.path.join(other, f), "rb") as b:
+                self.assertEqual(a.read(), b.read(), f"{f} differs between runs with the same seed")
+
+    def simulate_reads(self, prefix, community, pairs=400, error_rate="0"):
+        path = os.path.join(self.tmp.name, "community.tsv")
+        with open(path, "w") as fh:
+            fh.write("# comment\naccession\trelative_abundance\n")
+            fh.writelines(f"{acc}\t{ab}\n" for acc, ab in community.items())
+        out = os.path.join(self.tmp.name, prefix)
+        run(SIMULATE_READS, "--genomes", os.path.join(self.gtdb, "simulation", "genomes.tsv"),
+            "--community", path, "--out_prefix", out, "--pairs", str(pairs), "--error_rate", error_rate)
+        return out
+
+    def test_reads(self):
+        community = {"GCA_999001002.1": 0.75, "GCA_999003003.1": 0.25}
+        out = self.simulate_reads("reads", community)
+        with open(out + ".truth.tsv") as fh:
+            next(fh)
+            truth = {f[0]: f for f in (l.rstrip("\n").split("\t") for l in fh)}
+        self.assertEqual(set(truth), set(community))
+        self.assertEqual(truth["GCA_999003003.1"][1], "s__Fakibacter gamma")
+        pairs = {acc: int(f[5]) for acc, f in truth.items()}
+        self.assertEqual(sum(pairs.values()), 400)
+        # Read pairs follow abundance x genome length.
+        weight = {acc: community[acc] * int(f[4]) for acc, f in truth.items()}
+        for acc in community:
+            self.assertAlmostEqual(pairs[acc], 400 * weight[acc] / sum(weight.values()), delta=1)
+
+        with open(out + "_R1.fq") as f1, open(out + "_R2.fq") as f2:
+            r1, r2 = f1.read().split("\n"), f2.read().split("\n")
+        self.assertEqual(r1[0::4], r2[0::4], "mates share a read name")
+        genomes = {}
+        for acc in community:
+            fasta = os.path.join(self.gtdb, "simulation", "genomes_nonreps", f"{acc}_genomic.fna.gz")
+            genomes[acc] = "|".join(read_fasta(fasta).values())
+        comp = str.maketrans("ACGT", "TGCA")
+        for name, s1, s2 in zip(r1[0::4], r1[1::4], r2[1::4]):
+            acc = name[1:].rsplit("-", 1)[0]
+            self.assertIn(acc, community)
+            # Error-free: both mates are genome substrings in FR orientation.
+            g = genomes[acc]
+            self.assertTrue(s1 in g or s1.translate(comp)[::-1] in g, name)
+            self.assertTrue(s2 in g or s2.translate(comp)[::-1] in g, name)
+
+        again = self.simulate_reads("reads_again", community)
+        for suffix in ("_R1.fq", "_R2.fq", ".truth.tsv"):
+            with open(out + suffix, "rb") as a, open(again + suffix, "rb") as b:
+                self.assertEqual(a.read(), b.read(), f"{suffix} differs between runs with the same seed")
 
     def test_similarity_follows_taxonomy(self):
         seqs = read_fasta(os.path.join(self.gtdb, "genomic_files_all", "bac120_marker_genes_all_r226",
