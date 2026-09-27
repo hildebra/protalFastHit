@@ -5,6 +5,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include "SNPUtils.h"
 #include "Variant.h"
 #include "robin_map.h"
@@ -21,6 +22,12 @@ namespace protal {
         Benchmark bm_next_compressed_cigar{"Next compressed cigar"};
 
         VariantHandler(const std::string& reference) : m_reference(reference) {};
+
+        // Drops all variants and frees their memory.
+        void Clear() {
+            Variants{}.swap(m_variants);
+            tsl::robin_map<VariantPos, uint32_t>{}.swap(m_uncalled);
+        }
 
         // Phred score of a Sanger/Illumina 1.8+ (Phred+33) quality character. Characters below the
         // offset clamp to 0 instead of wrapping around in the unsigned Qual type.
@@ -129,10 +136,19 @@ namespace protal {
                         if (base == 'N' || ref == 'N') {
                             m_uncalled[rpos + i]++;
                         } else if (base != ref) {
-                            std::cerr << "Thread " << omp_get_thread_num() << " FAULTY ---------------------------------" << std::endl;
-                            PrintAlignment(sam, m_reference, std::cerr);
-                            std::cerr << sam.m_seq << std::endl;
-                            std::cerr << "Faulty sam: \n" << sam.ToString() << std::endl;
+                            // The record goes to the sample's .err file; the first few are shown.
+                            static std::atomic<size_t> shown{0};
+                            constexpr size_t kShown = 3;
+                            size_t const n = shown++;
+                            if (n < kShown) {
+                                #pragma omp critical(print)
+                                {
+                                    std::cerr << "Alignment does not match its gene (M at a mismatch; a SAM aligned against "
+                                                 "another database?):\n" << sam.ToString() << std::endl;
+                                    PrintAlignment(sam, m_reference, std::cerr);
+                                    if (n + 1 == kShown) std::cerr << "Further such alignments are not shown." << std::endl;
+                                }
+                            }
                             bm_next_compressed_cigar.Stop();
                             return false;
                         }
@@ -208,7 +224,7 @@ namespace protal {
             auto var_pos = bin.front().Position();
 
             // Total variant var_observations
-            auto var_observations = std::accumulate(bin.begin(), bin.end(), 0, [](size_t acc, Variant const & a) {
+            auto var_observations = std::accumulate(bin.begin(), bin.end(), size_t{0}, [](size_t acc, Variant const & a) {
                 return acc + a.Observations();
             });
 
@@ -218,7 +234,7 @@ namespace protal {
             });
 
             // Average quality for bin.
-            auto qual = std::accumulate(bin.begin(), bin.end(), 0, [](size_t acc, Variant const & a) {
+            auto qual = std::accumulate(bin.begin(), bin.end(), size_t{0}, [](size_t acc, Variant const & a) {
                 return acc + a.MeanQuality();
             });
             qual /= bin.size();

@@ -167,6 +167,9 @@ namespace protal {
         GeneList m_genes;
         GenomeKey m_key;
         tsl::sparse_set<GeneID> m_hittable_genes;
+        // Set once the database has said which genes are hittable (unique_kmers.tsv). Until then every
+        // gene counts as hittable; after, only the listed ones, none if none are.
+        bool m_hittable_known = false;
         bool m_is_loaded = false;
 
         size_t m_short_unique = 0;
@@ -211,11 +214,16 @@ namespace protal {
         }
 
         void AddHittableGene(GeneID geneid) {
+            m_hittable_known = true;
             m_hittable_genes.insert(geneid);
         }
 
+        void SetHittableGenesKnown() {
+            m_hittable_known = true;
+        }
+
         bool IsGeneHittable(GeneID geneid) const {
-            return m_hittable_genes.empty() ? true : m_hittable_genes.contains(geneid);
+            return !m_hittable_known || m_hittable_genes.contains(geneid);
         }
 
         size_t GenesWithShortUniques(size_t threshold = 0) {
@@ -238,7 +246,7 @@ namespace protal {
 
         std::vector<uint32_t> GetHittableGenes() {
             std::vector<uint32_t> genes;
-            if (m_hittable_genes.empty()) {
+            if (!m_hittable_known) {
                 genes.reserve(m_genes.size());
                 for (auto const& gene : m_genes) {
                     if (gene.IsSet()) {
@@ -271,7 +279,7 @@ namespace protal {
             return m_genes.at(GeneKeyToIndex(key));
         }
 
-        const GeneList GetGeneList() const {
+        const GeneList& GetGeneList() const {
             return m_genes;
         }
 
@@ -284,7 +292,7 @@ namespace protal {
         }
 
         size_t GeneNum() const {
-            return m_hittable_genes.empty() ? std::count_if(m_genes.begin(), m_genes.end(), [](Gene const& gene) {
+            return !m_hittable_known ? std::count_if(m_genes.begin(), m_genes.end(), [](Gene const& gene) {
                 return gene.IsSet();
             }) : m_hittable_genes.size();
         }
@@ -466,6 +474,7 @@ namespace protal {
 
 
             for (auto& tid : m_genomes) {
+                m_genomes.at(tid.first).SetHittableGenesKnown();
                 m_genomes.at(tid.first).SetUniqueValues();
             }
 
@@ -491,6 +500,7 @@ namespace protal {
                 }
             }
             is.close();
+            for (auto& [key, _] : m_genomes) m_genomes.at(key).SetHittableGenesKnown();
         }
 
         size_t GetLoadedGenomeCount() const {

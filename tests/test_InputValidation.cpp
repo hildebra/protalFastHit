@@ -1,6 +1,7 @@
 // Unit tests for the database and input files protal reads: malformed files must stop with a clear
 // message (exit 8) instead of being half-read, and the index must know which reference it was built for.
 #include <gtest/gtest.h>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -251,4 +252,62 @@ TEST(UniqueKmers, LoadsCountsAndRejectsMalformedLines) {
     EXPECT_EXIT(load("1\t1\t3\n"), testing::ExitedWithCode(8), "line 1: expected 9 tab-separated columns, found 3");
     EXPECT_EXIT(load("1\t1\tx\t0\t0\t0\t0\t0\t10\n"), testing::ExitedWithCode(8), "column 3 is not");
     EXPECT_EXIT(load("7\t1\t3\t0.3\t0\t0\t0\t0\t10\n"), testing::ExitedWithCode(8), "gene 7_1 is not in reference.map");
+}
+
+TEST(ModelFeatures, NormalizedFeaturesOfATaxon) {
+    // Genome 1 has two hittable genes of 10 and 8 bp. Three mates of two fragments land on gene 1_1,
+    // one with an insertion.
+    ScratchDir dir;
+    Reference ref;
+    protal::GenomeLoader loader(dir.Write("reference.fna", ref.fna), dir.Write("reference.map", ref.map));
+    loader.LoadAllGenomes();
+    protal::profiler::MicrobialProfile profile(loader);
+    auto sam = [](std::string seq, std::string cigar) {
+        protal::SamEntry s;
+        s.m_qname = "r";
+        s.m_rname = "1_1";
+        s.m_pos = 1;
+        s.m_mapq = 60;
+        s.m_qual = std::string(seq.size(), 'I');
+        s.m_seq = std::move(seq);
+        s.m_cigar = std::move(cigar);
+        return s;
+    };
+    auto exact = sam("ACGTACGTAA", "10M");
+    auto insertion = sam("ACGTAGCGTAA", "5M1I5M");  // identity 10/11
+    ASSERT_TRUE(profile.AddSam(1, 1, exact, 1.0, true, 0));
+    ASSERT_TRUE(profile.AddSam(1, 1, exact, 1.0, true, 0));  // its mate: the same fragment
+    ASSERT_TRUE(profile.AddSam(1, 1, insertion, 1.0, true, 1));
+    auto const& taxon = profile.GetTaxa().at(1);
+
+    EXPECT_EQ(taxon.TotalHits(), 3u);
+    EXPECT_EQ(taxon.Fragments(), 2u);
+    EXPECT_NEAR(taxon.BaseIdentity(), (10 + 10 + 10 * 10.0 / 11) / 30, 1e-9);
+    EXPECT_NEAR(taxon.TopIdentity(), 1.0, 1e-6);
+    EXPECT_NEAR(taxon.HitGeneFraction(), 0.5, 1e-12);
+    // Two fragments over genes of 10 and 8 bp: 1 - (8/18)^2 + 1 - (10/18)^2 genes expected, 1 hit.
+    double const expected_genes = 2 - std::pow(8.0 / 18, 2) - std::pow(10.0 / 18, 2);
+    EXPECT_NEAR(taxon.GenePresenceRatio(), 1 / expected_genes, 1e-9);
+    // Fragments per gene 2 and 0 against 2 * 10/18 and 2 * 8/18.
+    double const e1 = 2 * 10.0 / 18, e2 = 2 * 8.0 / 18;
+    EXPECT_NEAR(taxon.GeneDispersion(), (2 - e1) * (2 - e1) / e1 + e2, 1e-9);
+}
+
+TEST(UniqueKmers, AGenomeWithoutUniqueKmersHasNoHittableGene) {
+    ScratchDir dir;
+    Reference ref;
+    auto fna = dir.Write("reference.fna", ref.fna);
+    auto map = dir.Write("reference.map", ref.map);
+
+    protal::GenomeLoader without(fna, map);  // no unique_kmers.tsv: every gene counts
+    EXPECT_TRUE(without.GetGenome(2).IsGeneHittable(1));
+    EXPECT_EQ(without.GetGenome(2).GeneNum(), 1u);
+
+    // Genome 2's gene has no unique k-mers, and genome 1 has one with and one without.
+    protal::GenomeLoader loader(fna, map);
+    loader.LoadUniqueKmers(dir.Write("u.tsv", "1\t1\t3\t0.3\t0\t0\t0\t0\t10\n1\t2\t0\t0\t0\t0\t0\t0\t8\n2\t1\t0\t0\t0\t0\t0\t0\t8\n"));
+    EXPECT_EQ(loader.GetGenome(1).GetHittableGenes(), std::vector<uint32_t>{ 1 });
+    EXPECT_FALSE(loader.GetGenome(2).IsGeneHittable(1));
+    EXPECT_TRUE(loader.GetGenome(2).GetHittableGenes().empty());
+    EXPECT_EQ(loader.GetGenome(2).GeneNum(), 0u);
 }

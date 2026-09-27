@@ -349,10 +349,19 @@ namespace protal {
                     bm_classify_sample.Stop();
                     bm_classify_sample.PrintResults();
 
+                    // zlib reads a truncated or corrupt gzip file as one that ends early.
+                    bool const truncated = is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed();
                     is1.close();
                     is2.close();
                     sam_output.close();
 
+                    if (truncated) {
+                        RunStatus::Get().Fail("The FASTQ files of sample " + options.GetSampleId(index) + " are truncated or corrupt (" +
+                                              options.GetFirstFile(index) + ", " + options.GetSecondFile(index) +
+                                              "); no SAM file was written");
+                        std::filesystem::remove(sam_partial);
+                        continue;
+                    }
                     if (!reader.Success()) {
                         RunStatus::Get().Fail("Reading the FASTQ files of sample " + options.GetSampleId(index) + " failed (" +
                                               options.GetFirstFile(index) + ", " + options.GetSecondFile(index) +
@@ -473,24 +482,15 @@ namespace protal {
 //         }
 //     }
 
-    Profiles ProfileWrapper(Options& options, ProtalDB& db) {
+    Profiles ProfileWrapper(Options& options, ProtalDB& db, profiler::TaxonFilterObj const& model) {
         GenomeLoader& genomes = db.GetGenomes();
 
         if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.GetInternalTaxonomyFile());
         auto& taxonomy = db.GetTaxonomy();
 
-        // These values do not matter anymore when a RandomForest is applied
-        double min_ani = 0.95;
-        double min_gene_presence = 0.50; //previously 0.5
-        size_t min_total_hits = 60; //previously 70
-        size_t min_mean_mapq = 10;
-
-
-        using TaxonFilterObj = profiler::TaxonFilterObj;
-//        TaxonFilterObj filter(min_ani, min_gene_presence, min_total_hits, min_mean_mapq);
-
-        std::string model_path = options.GetModelPath();
-        TaxonFilterObj filter(model_path, options.GetKnob());
+        // Each thread scores with its own copy (firstprivate): scoring reuses a buffer. Copies share
+        // the loaded model.
+        profiler::TaxonFilterObj filter = model;
 
         auto range = options.GetRange();
 
@@ -524,10 +524,7 @@ namespace protal {
             Benchmark bm_profile{ "Profile sample" };
 
             profiler::Profiler profiler(genomes);
-
-            // New Profiler approach
-            std::vector<AlignmentPair> unique_pairs;
-            std::vector<std::vector<AlignmentPair>> pairs;
+            profiler.SetDepthIdentityMargin(options.GetDepthIdentityMargin());
 
 
             if (options.Verbose()) {
@@ -541,9 +538,19 @@ namespace protal {
                 }
             }
 
-            std::string sam_error;
-#pragma omp critical(load_sam)
-            sam_error = profiler.FromSam(sam);
+            std::ofstream erro(sam + ".err", std::ios::out);
+            bm_profile.Start();
+
+            // Samples are read in parallel: a SAM is streamed, not held in memory, so only the
+            // profiles themselves take memory.
+            profiler::MicrobialProfile profile(genomes);
+            profile.SetName(sample_name);
+            std::string sam_error = profiler.ProfileSam(sam, profile, std::optional<std::reference_wrapper<std::ostream>>{erro},
+                                                        options.GetSNPMinCov(), options.GetSNPMinCov(),
+                                                        options.GetSNPMinAF(), options.GetSNPMinMeanQual(),
+                                                        options.GetSNPMinPhredSum(), options.GetSNPRequireStrand());
+            erro.close();
+            bm_profile.Stop();
 
             // A SAM without alignments still gets its (empty) profile files, so that every sample
             // has output; only an unreadable SAM is a failure.
@@ -552,25 +559,13 @@ namespace protal {
                 profile_slots[idx].emplace(genomes);
                 continue;
             }
-
-
-            std::ofstream erro(sam + ".err", std::ios::out);
-
-            // profiler.PrintStats();
-            bm_profile.Start();
-
-
-            if (options.Verbose()) {
+            if (profiler.RejectedReads() > 0) {
                 #pragma omp critical(print)
-                std::cout << "Thread " << omp_get_thread_num() << " run profile" << std::endl;
+                std::cerr << "Warning: sample " << sample_name << ": " << profiler.RejectedReads() << " of " << profiler.Reads()
+                          << " reads have an alignment that does not fit the database (a gene it lacks, a position past "
+                             "a gene's end, or bases that differ from the gene); they are left out and listed in "
+                          << sam << ".err" << std::endl;
             }
-
-            auto profile = profiler.Profile(sample_name, std::optional<std::reference_wrapper<std::ostream>>{erro},
-                                            options.GetSNPMinCov(), options.GetSNPMinCov(),
-                                            options.GetSNPMinAF(), options.GetSNPMinMeanQual(),
-                                            options.GetSNPMinPhredSum(), options.GetSNPRequireStrand());
-            erro.close();
-            bm_profile.Stop();
             
 
             if (options.Verbose()) {
@@ -589,32 +584,24 @@ namespace protal {
                                             std::optional<TruthSet>{ protal::GetTruth(options.ProfileTruthFile(i), taxonomy) } :
                                             std::optional<TruthSet>{};
 
-            if (options.BenchmarkAlignment()) {
-                profiler.TestSNPUtils(pairs);
-                profiler.OutputErrorData(pairs);
-            } else if (truth.has_value()) {
-                profiler.OutputErrorData(unique_pairs, pairs, &truth.value());
-            }
-
-
             if (truth.has_value()) {
                 std::string truth_output = options.ProfileFile(i) + ".truth_annotated";
                 profile.AnnotateWithTruth(truth.value(), filter, truth_output, taxonomy);
                 std::cout << "Write truth to: " << truth_output << std::endl;
 
-                auto filtered = profile.GetTaxa() | std::views::filter([&filter](auto a) { return filter.Pass(a.second); });
-            
-                // std::filter(profile.GetTaxa().begin(), profile.GetTaxa().end(), )
-
-                auto tp = std::count_if(
-                    filtered.begin(),
-                    filtered.end(),
-                    [&truth] (auto x) { return truth.value().contains(x.first); }
-                );
-                auto fp = std::ranges::distance(filtered) - tp;
-                auto fn = truth.value().size() - tp;
-
-                std::cout << "TP: " << tp << " FP: " << fp << " FN: " << fn << std::endl;
+                // A true species the database lacks cannot be found: it is counted apart from the misses.
+                size_t tp = 0, fp = 0, fn = 0, not_in_db = 0;
+                for (auto const& [taxid, _] : profile.GetTaxa()) {
+                    if (!filter.Pass(profile.GetTaxa().at(taxid))) continue;
+                    (truth.value().contains(taxid) ? tp : fp)++;
+                }
+                for (auto taxid : truth.value()) {
+                    if (!genomes.GetGenomeMap().contains(taxid)) not_in_db++;
+                    else if (!profile.GetTaxa().contains(taxid) || !filter.Pass(profile.GetTaxa().at(taxid))) fn++;
+                }
+                #pragma omp critical(print)
+                std::cout << "Sample " << sample_name << ": TP " << tp << ", FP " << fp << ", FN " << fn
+                          << " (and " << not_in_db << " true species not in the database)" << std::endl;
 
             }
             if (options.Verbose()) {
@@ -647,6 +634,10 @@ namespace protal {
             }
 
             profile.SetName(options.GetSampleId(i));
+
+            // The sample's outputs are written: only the strain stage reads its profile again, and only
+            // the variants and read ranges of taxa that pass the model.
+            profile.ReleaseReadData(filter, !options.NoStrains());
 
             // Each thread writes to its own pre-allocated slot — no lock needed.
             profile_slots[idx].emplace(std::move(profile));
@@ -694,7 +685,7 @@ namespace protal {
 
     static bool IsSNP(VariantBin& bin, size_t min_obs, double min_frequency) {
         for (auto& var : bin) {
-            size_t total_obs = std::accumulate(bin.begin(), bin.end(), 0, [](size_t acc, Variant const& var) { return acc + var.Observations(); });
+            size_t total_obs = std::accumulate(bin.begin(), bin.end(), size_t{0}, [](size_t acc, Variant const& var) { return acc + var.Observations(); });
             auto obs = var.Observations();
             double freq = static_cast<double>(obs) / total_obs;
             if (!var.IsReference() && freq >= min_frequency && (obs >= min_obs || var.HasFwdAndRev())) {
@@ -874,7 +865,8 @@ namespace protal {
     using OptionalFilter = optional<std::reference_wrapper<const profiler::TaxonFilter>>;
     using SimilarityMatrix = DoubleMatrix;
 
-    TaxidList ExtractTaxa(Profiles const& profiles, std::optional<profiler::TaxonFilterObj> filter= {}) {
+    // Taxa in at least `min_samples` profiles (passing `filter`, if given), the most frequent first.
+    TaxidList ExtractTaxa(Profiles const& profiles, std::optional<profiler::TaxonFilterObj> filter= {}, size_t min_samples = 2) {
         TaxidCounts taxid_counts;
         TaxidSet taxa;
         TaxidList taxid_list;
@@ -890,7 +882,7 @@ namespace protal {
         }
 
         for (auto& [t, c] : taxid_counts) {
-            if (c > 1) {
+            if (c >= min_samples) {
                 taxid_list.emplace_back(t);
             }
         }
@@ -1029,7 +1021,7 @@ namespace protal {
         }
     }
 
-    static std::vector<size_t> GetProfilesWithTaxon(uint32_t taxid, Profiles& profiles, Options& options, std::optional<profiler::TaxonFilter>& filter) {
+    static std::vector<size_t> GetProfilesWithTaxon(uint32_t taxid, Profiles& profiles, Options& options, std::optional<profiler::TaxonFilterObj> const& filter) {
         std::vector<size_t> indices;
 
         for (auto i = 0; i < profiles.size(); i++) {
@@ -1350,7 +1342,7 @@ namespace protal {
         }
     }
 
-    static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilter> filter={}) {
+    static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilterObj> const& filter={}) {
         // An earlier run's MSA must not survive a run that writes none (qcmsa would filter it).
         for (auto const& stale : { options.GetMSAOutput(taxon_name), options.GetMSAPartitionOutput(taxon_name) }) {
             std::error_code ec;
@@ -1423,7 +1415,6 @@ namespace protal {
                     auto& region = strain.GetSequenceRangeHandler();
 
                     auto ac = gene_obs.AlleleSNPCounts(min_cov, min_qual_sum);
-                    region.CalculateCoverageVector();
                     auto tmp_vec = region.CalculateCoverageVector2();
                     auto counts_vcov1 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 1);});
                     auto counts_vcov2 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 2);});
@@ -1698,7 +1689,7 @@ namespace protal {
 
             std::ofstream os_meta(options.GetSpeciesMetaOutput(name));
             os_meta << "sample\tgene_id\tvertical_coverage\tcounts_vcov1\tcounts_vcov2\tmulti_allelic\tfiltered\tmulti_rate_vcov1\tfiltered_rate_vcov1\tmulti_rate_vcov2\tfiltered_rate_vcov2\tmedian_vcov\thcov\tgene_length\tmean_vcov_nonzero\tmedian_vcov_nonzero\n";
-            GetMSAForTaxon(taxid, name, loader, options, profiles, &os_meta);
+            GetMSAForTaxon(taxid, name, loader, options, profiles, &os_meta, filter);
             os_meta.close();
             if (os_meta.fail()) RunStatus::Get().Fail("Writing the MSA metadata of " + name + " failed: " + options.GetSpeciesMetaOutput(name));
 
@@ -1813,13 +1804,18 @@ namespace protal {
 
         // Checks that would otherwise only fail after hours of alignment.
         std::vector<uint32_t> msa_taxids;
+        std::optional<profiler::TaxonFilterObj> model;  // loaded once, for all samples
         if (run_profiling) {
             db.LoadTaxonomy(options.GetInternalTaxonomyFile());
             msa_taxids = ResolveMSASpecies(options, db.GetTaxonomy());
             try {
-                profiler::TaxonFilterObj model_check(options.GetModelPath(), options.GetKnob());
+                model.emplace(options.GetModelPath(), options.GetKnob());
             } catch (std::exception const& e) {
                 std::cerr << "Cannot load the model " << options.GetModelPath() << ": " << e.what() << std::endl;
+                exit(2);
+            }
+            if (auto problem = profiler::ModelContractProblem(model.value(), options.GetModelPath()); !problem.empty()) {
+                std::cerr << "Cannot use the model " << options.GetModelPath() << ": " << problem << std::endl;
                 exit(2);
             }
         }
@@ -1870,27 +1866,14 @@ namespace protal {
             Benchmark bm_profiling("Profiling");
             bm_profiling.Start();
             
-            auto profiles = ProfileWrapper(options, db);
+            auto& filter = model.value();
+            auto profiles = ProfileWrapper(options, db, filter);
             bm_profiling.Stop();
             bm_profiling.PrintResults();
 
-
-            // Remove later - keep option
-            double min_ani = 0.95;
-            double min_gene_presence = 0.5; //previously 0.5
-            size_t min_total_hits = 60; //previously 70
-            size_t min_mean_mapq = 10;
-
-//            profiler::TaxonFilter filter(min_ani, min_gene_presence, min_total_hits, min_mean_mapq);
-
-            std::string model = options.GetModelPath();
-            // std::cout << "Model: " << model << std::endl;
-
-            profiler::TaxonFilterObj filter(model, options.GetKnob());
-
-            // If there is more than one profile, get per taxon output
-            if (profiles.size() > 1) {
-                auto taxids = ExtractTaxa(profiles);
+            // Per taxon: its statistics in every sample it has reads in.
+            {
+                auto taxids = ExtractTaxa(profiles, {}, 1);
                 auto& taxonomy = db.GetTaxonomy();
 
                 for (auto taxid : taxids) {
@@ -1912,6 +1895,7 @@ namespace protal {
                         stats.PrintLine(os, profile.GetName(), taxon.VerticalCoverage(), taxon.TotalHits(), taxon.TotalLength(), taxon.GetMeanANI(), taxon.GetMeanMAPQ(), accepted);
                     }
                     os.close();
+                    if (os.fail()) RunStatus::Get().Fail("Writing the statistics of " + name + " failed: " + options.GetMiscOutputDir() + '/' + name + ".statistics.tsv");
                 }
             }
 

@@ -30,6 +30,8 @@ import sys
 from typing import Iterable, Optional, Tuple
 import xml.etree.ElementTree as ET
 
+from model_features import feature_columns
+
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -70,21 +72,22 @@ def _as_bool_series(values: pd.Series) -> pd.Series:
 
 
 def sensitivity(cm: np.ndarray) -> float:
+    # sklearn's confusion matrix has the true labels in rows: [[TN, FP], [FN, TP]].
     tp = cm[1, 1]
-    fn = cm[0, 1]
+    fn = cm[1, 0]
     return tp / (tp + fn) if (tp + fn) > 0 else 0.0
 
 
 def precision(cm: np.ndarray) -> float:
     tp = cm[1, 1]
-    fp = cm[1, 0]
+    fp = cm[0, 1]
     return tp / (tp + fp) if (tp + fp) > 0 else 0.0
 
 
 def f1(cm: np.ndarray) -> float:
     tp = cm[1, 1]
-    fp = cm[1, 0]
-    fn = cm[0, 1]
+    fp = cm[0, 1]
+    fn = cm[1, 0]
     denom = 2 * tp + fp + fn
     return (2 * tp) / denom if denom > 0 else 0.0
 
@@ -124,6 +127,9 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         description="Train a HistGradientBoosting classifier and export to PMML."
     )
     parser.add_argument("--truth-file", required=True)
+    parser.add_argument("--features", choices=["all", "normalized"], default="all",
+                        help="Feature columns to train on: all of the training dump, or those that do not "
+                             "depend on the database, depth and read length (see model_features.py).")
     parser.add_argument("--output-prefix", required=True)
     parser.add_argument("--max-iter", type=int, default=500,
                         help="Number of boosting iterations.")
@@ -330,12 +336,7 @@ def main() -> int:
                 + ", ".join(missing)
             )
     else:
-        feature_cols = [
-            col
-            for col in data.columns
-            if col not in {"total_hits", "truth", "truth_raw", "taxon", "taxon_name",
-                           "prediction", "probability", "dataset"}
-        ]
+        feature_cols = feature_columns(data.columns, opts.features)
 
     if not feature_cols:
         raise RuntimeError("No feature columns available for training.")

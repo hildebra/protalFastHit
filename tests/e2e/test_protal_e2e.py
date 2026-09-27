@@ -17,6 +17,7 @@ SIMULATE        simulate_metagenomes binary (default: build/simulate_metagenomes
 
 import filecmp
 import glob
+import gzip
 import os
 import random
 import re
@@ -223,6 +224,157 @@ class CompleteRunTest(WorkDir):
             self.assertEqual(ranges[-1][1], length, part)
             for (_, end), (start, _) in zip(ranges, ranges[1:]):
                 self.assertEqual(start, end + 1, part)
+
+
+def read_table(path):
+    """A tab-separated file with a header line, as (header, rows)."""
+    with open(path) as fh:
+        header = fh.readline().rstrip("\n").split("\t")
+        return header, [line.rstrip("\n").split("\t") for line in fh]
+
+
+class OutputFilesTest(WorkDir):
+    """One sample from a map, with a truth file: what the profile's companion files hold."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        truth = os.path.join(cls.work, "truth.tsv")
+        with open(truth, "w") as fh:
+            fh.write("1\n2\n3\n14\n")  # 14 is a genus: in the taxonomy, not in the database
+        sample_map = os.path.join(cls.work, "samples.map")
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{os.path.join(cls.work, 'out')}\n#INPUT_DIR\t{READS}\n")
+            fh.write("#SAMPLEID\tPREFIX\tFIRST\tSECOND\tPROFILE_TRUTH\n")
+            fh.write(f"sample_a\tpa\tsa_R1.fq\tsa_R2.fq\t{truth}\n")
+        cls.rc, cls.log = run(cls.work, "--db", DB, "--map", sample_map, "-t", "2", "--no_qcmsa")
+
+    def test_exit_code(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+
+    def test_the_sample_id_names_the_sample(self):
+        header, rows = read_table(self.path("out", "pa.profile.gene.log"))
+        self.assertEqual(header[0], "Sample")
+        self.assertTrue(rows)
+        self.assertEqual({row[0] for row in rows}, {"sample_a"})
+        self.assertGreater(max(int(row[header.index("CoverageSum")]) for row in rows), 0)
+
+    def test_truth_counts_name_the_sample(self):
+        self.assertRegex(self.log, r"Sample sample_a: TP \d+, FP \d+, FN \d+ \(and 1 true species not in the database\)")
+        self.assertNotIn("Truth: 0", self.log)
+
+    def test_statistics_for_a_single_sample(self):
+        stats = glob.glob(self.path("out", "misc", "*.statistics.tsv"))
+        self.assertTrue(stats, "written with one sample, too")
+        _, rows = read_table(stats[0])
+        self.assertEqual([row[0] for row in rows], ["sample_a"])
+
+    def test_profile_log_columns(self):
+        header, rows = read_table(self.path("out", "pa.profile.log"))
+        self.assertEqual(header[:2], ["Predicted", "Probability"])
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertEqual(len(row), len(header))
+            self.assertGreaterEqual(float(row[header.index("VCov")]), 0)
+            self.assertNotIn("VCOV: -1", row[header.index("Summary")])
+            if row[0] == "0":
+                self.assertEqual(float(row[header.index("Abundance")]), 0)
+
+    def test_genes_log_abundances(self):
+        header, rows = read_table(self.path("out", "pa.profile.genes.log"))
+        self.assertTrue(rows)
+        called = abundance = 0
+        for row in rows:
+            value = float(row[header.index("TaxAbundance")])
+            self.assertTrue(0 <= value <= 1, row)
+            if row[0] == "0":
+                self.assertEqual(value, 0, "a rejected taxon has no abundance")
+            else:
+                called += 1
+        self.assertGreater(called, 0)
+        self.assertTrue(any(int(row[header.index("UniqueMerReads")]) > 0 for row in rows))
+        self.assertGreater(max(int(row[header.index("TotalReads")]) for row in rows), 10)
+        self.assertTrue(all(float(row[header.index("MAPQ")]) <= 255 for row in rows), "MAPQ is a mean, not a sum")
+
+
+class MateAssignmentTest(WorkDir):
+    """Fragments whose best alignment is mate 2's alone, and fragments over two genes, reach the SAM."""
+
+    def align(self, name, pairs):
+        with open(self.path(f"{name}_R1.fq"), "w") as r1, open(self.path(f"{name}_R2.fq"), "w") as r2:
+            for i, (s1, s2) in enumerate(pairs, 1):
+                r1.write(f"@{name}.{i}/1\n{s1}\n+\n{'I' * len(s1)}\n")
+                r2.write(f"@{name}.{i}/2\n{s2}\n+\n{'I' * len(s2)}\n")
+        rc, log = run(self.work, "--db", DB, "-1", self.path(f"{name}_R1.fq"), "-2", self.path(f"{name}_R2.fq"),
+                      "--prefix", name, "-o", "out", "-t", "2", "--no_qcmsa", "--no_strains")
+        self.assertEqual(rc, 0, log[-3000:])
+        records = sam_records(glob.glob(self.path("out", f"{name}*.sam"))[0])
+        return [r for r in records if not int(r[1]) & 0x100]
+
+    def test_pairs_where_only_mate2_aligns(self):
+        rng = random.Random(21)
+        pairs = []
+        for _, gene in reference_genes():
+            if len(gene) >= 320:
+                start = rng.randint(0, len(gene) - 100)
+                pairs.append(("".join(rng.choice("ACGT") for _ in range(100)), revcomp(gene[start:start + 100])))
+        records = self.align("mate2", pairs)
+        read2_only = [r for r in records if int(r[1]) & 0x80 and int(r[1]) & 0x8]
+        self.assertGreater(len(read2_only), 0.9 * len(pairs), f"{len(read2_only)} of {len(pairs)} written")
+
+    def test_pairs_over_two_genes(self):
+        genes = {}
+        for name, seq in reference_genes():
+            taxid, gene = (int(x) for x in name.split("_")[:2])
+            genes[(taxid, gene)] = seq
+        pairs, expected = [], []
+        for (taxid, gene), seq in sorted(genes.items()):
+            nxt = genes.get((taxid, gene + 1))
+            if nxt is not None and len(seq) >= 100 and len(nxt) >= 100:
+                pairs.append((seq[-100:], revcomp(nxt[:100])))
+                expected.append((f"{taxid}_{gene}", f"{taxid}_{gene + 1}"))
+        records = self.align("junction", pairs)
+        by_read = {}
+        for r in records:
+            by_read.setdefault(r[0], []).append(r)
+        good = 0
+        for i, (gene_a, gene_b) in enumerate(expected, 1):
+            recs = by_read.get(f"junction.{i}", [])
+            mates = {("1" if int(r[1]) & 0x40 else "2"): r for r in recs}
+            if (len(recs) == 2 and mates.get("1", [None, None, None])[2] == gene_a and
+                    mates.get("2", [None, None, None])[2] == gene_b and all(int(r[4]) >= 4 for r in recs)):
+                good += 1
+        self.assertGreater(good, 0.9 * len(pairs), f"{good} of {len(pairs)} fragments written with both mates")
+
+
+class MsaSampleSelectionTest(WorkDir):
+    """A species' MSA takes only the samples in which the model accepts the species."""
+
+    def test_rejected_samples_are_left_out(self):
+        # A sample with three read pairs of Mockella alpha, too few to call it.
+        taxid = None
+        with open(os.path.join(DB, "internal_taxonomy.dmp")) as fh:
+            for line in fh:
+                f = line.split("\t")
+                if f[3] == "s__Mockella alpha":
+                    taxid = f[0]
+        genes = [seq for name, seq in reference_genes() if name.split("_")[0] == taxid and len(seq) >= 300][:3]
+        with open(self.path("few_R1.fq"), "w") as r1, open(self.path("few_R2.fq"), "w") as r2:
+            for i, gene in enumerate(genes, 1):
+                r1.write(f"@few.{i}/1\n{gene[:100]}\n+\n{'I' * 100}\n")
+                r2.write(f"@few.{i}/2\n{revcomp(gene[200:300])}\n+\n{'I' * 100}\n")
+        first = ",".join([os.path.join(READS, "sa_R1.fq"), os.path.join(READS, "sb_R1.fq"), self.path("few_R1.fq")])
+        second = ",".join([os.path.join(READS, "sa_R2.fq"), os.path.join(READS, "sb_R2.fq"), self.path("few_R2.fq")])
+        rc, log = run(self.work, "--db", DB, "-1", first, "-2", second, "--prefix", "sa,sb,few", "-o", "out",
+                      "-t", "2", "--no_qcmsa", "--msa_min_hcov", "0")
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(self.path("out", "few.profile")) as fh:
+            self.assertNotIn("Mockella alpha", fh.read(), "the three pairs do not call the species")
+        with open(self.path("out", "strains", "s__Mockella_alpha.raw.msa.fna")) as fh:
+            names = [line[1:].strip() for line in fh if line.startswith(">")]
+        self.assertIn("sa", names)
+        self.assertIn("sb", names)
+        self.assertNotIn("few", names)
 
 
 class StrainEdgeCaseTest(WorkDir):
@@ -699,6 +851,26 @@ class FailFastTest(WorkDir):
         self.assertEqual(rc, 2, log[-3000:])
         self.assertIn("Cannot load the model", log)
 
+    def test_model_protal_cannot_feed(self):
+        model = self.db_file("model.xml").decode()
+        # An input protal does not compute, and a model predicting other labels than TRUE/FALSE.
+        unknown = model.replace("<MiningSchema>", '<MiningSchema>\n<MiningField name="moon_phase"/>', 1)
+        unknown = re.sub(r"(<DataDictionary[^>]*>)", r'\1\n<DataField name="moon_phase" optype="continuous" dataType="double"/>',
+                         unknown, count=1)
+        labels = model.replace('value="TRUE"', 'value="present"').replace('score="TRUE"', 'score="present"')
+        for name, text, message in (("db_unknown", unknown, "input(s) protal does not compute: moon_phase"),
+                                    ("db_labels", labels, "has no value TRUE")):
+            db = self.db_copy(name, {"model.xml": text.encode()})
+            rc, log = self.query(db, "out_" + name)
+            self.assertEqual(rc, 2, log[-3000:])
+            self.assertIn("Cannot use the model", log)
+            self.assertIn(message, log)
+
+    def test_knob_is_a_probability(self):
+        rc, log = self.query(DB, "out_knob", "--knob", "1.5")
+        self.assertNotEqual(rc, 0, log[-3000:])
+        self.assertIn("--knob must be between 0 and 1", log)
+
     def test_one_truth_file_per_sample(self):
         truth = self.path("truth.tsv")
         with open(truth, "w") as fh:
@@ -780,7 +952,7 @@ class SamInputTest(WorkDir):
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("skipped 1 record(s): unmapped", log)
         self.assertIn("skipped 1 record(s): reference is not a protal gene", log)
-        with open(self.path("edited.profile")) as fh:
+        with open(self.path("out_edited.sam", "edited.profile")) as fh:
             self.assertEqual(fh.read(), self.profile_text)
 
     def test_header_only_sam_gets_an_empty_profile(self):
@@ -788,7 +960,7 @@ class SamInputTest(WorkDir):
         rc, log = self.profile_only(sam)
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("contains no usable alignments", log)
-        self.assertTrue(os.path.isfile(self.path("header_only.profile")))
+        self.assertTrue(os.path.isfile(self.path("out_header_only.sam", "header_only.profile")))
 
     def test_unreadable_sam_fails_only_its_sample(self):
         good = self.write_sam("good", self.header + self.records)
@@ -796,8 +968,37 @@ class SamInputTest(WorkDir):
         rc, log = self.profile_only(good, broken)
         self.assertEqual(rc, 1, log[-3000:])
         self.assertRegex(log, r"Cannot read the SAM file of sample \S+ \(.*broken\.sam\): line \d+: expected at least 11")
-        with open(self.path("good.profile")) as fh:
+        with open(self.path("out_good.sam", "good.profile")) as fh:
             self.assertEqual(fh.read(), self.profile_text)
+
+    def test_truncated_gzip_sam_fails_its_sample(self):
+        sam = self.write_sam("cut", self.header + self.records)
+        with open(sam, "rb") as fh, gzip.open(sam + ".gz", "wb") as gz:
+            gz.write(fh.read())
+        os.remove(sam)
+        size = os.path.getsize(sam + ".gz")
+        with open(sam + ".gz", "r+b") as fh:
+            fh.truncate(size // 2)
+        rc, log = self.profile_only(sam + ".gz")
+        self.assertEqual(rc, 1, log[-3000:])
+        self.assertRegex(log, r"Cannot read the SAM file of sample cut \(.*cut\.sam\.gz\): the file is truncated or corrupt")
+
+    def test_sam_of_another_database_fails_its_sample(self):
+        sq = next(i for i, line in enumerate(self.header) if line.startswith("@SQ"))
+        name, length = re.match(r"@SQ\tSN:(\S+)\tLN:(\d+)", self.header[sq]).groups()
+        header = list(self.header)
+        header[sq] = f"@SQ\tSN:{name}\tLN:{int(length) + 7}"
+        sam = self.write_sam("other_db", header + self.records)
+        rc, log = self.profile_only(sam)
+        self.assertEqual(rc, 1, log[-3000:])
+        self.assertIn(f"gene {name} is {int(length) + 7} bp in the SAM header (@SQ) but {length} bp in the database", log)
+
+    def test_samples_cannot_share_an_output_file(self):
+        sam = self.write_sam("twice", self.header + self.records)
+        rc, log = self.profile_only(sam, sam)
+        self.assertNotEqual(rc, 0, log[-3000:])
+        self.assertIn("samples 1 and 2 would both use the SAM file", log)
+        self.assertFalse(glob.glob(self.path("out_twice.sam", "*.profile")))
 
 
 class QcmsaTest(WorkDir):

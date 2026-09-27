@@ -13,27 +13,35 @@
 using namespace protal;
 
 namespace {
-    // A one-gene reference (taxid 1, gene 1) written to a temporary directory and loaded.
+    // A two-gene reference (taxid 1, genes 1 and 2) written to a temporary directory and loaded.
     struct TinyReference {
-        std::string gene = "ACGTTGCAAGGCTTACCGATGACTGAAACCGGTTTACGATCGGTAGCATG";  // 50 bp
+        std::string gene = "ACGTTGCAAGGCTTACCGATGACTGAAACCGGTTTACGATCGGTAGCATG";   // 50 bp, gene 1
+        std::string gene2 = "TTGACCAGTCAGGATCCATTGCAGGTACTTGACCGTAAGCTGCATTGACA";  // 50 bp, gene 2
         std::filesystem::path dir;
         std::unique_ptr<GenomeLoader> loader;
 
         TinyReference() {
             dir = std::filesystem::temp_directory_path() / ("protal_samtest_" + std::to_string(::getpid()));
             std::filesystem::create_directories(dir);
-            std::string header = ">1_1\n";
-            { std::ofstream fna(dir / "reference.fna"); fna << header << gene << '\n'; }
-            { std::ofstream map(dir / "reference.map"); map << "1\t1\t" << header.size() << '\t' << header.size() + gene.size() << '\n'; }
+            std::ofstream fna(dir / "reference.fna"), map(dir / "reference.map");
+            size_t offset = 0;
+            for (auto const& [id, seq] : { std::pair{ 1, gene }, std::pair{ 2, gene2 } }) {
+                std::string header = ">1_" + std::to_string(id) + "\n";
+                fna << header << seq << '\n';
+                map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
+                offset += header.size() + seq.size() + 1;
+            }
+            fna.close();
+            map.close();
             loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
             loader->LoadAllGenomes();
         }
         ~TinyReference() { std::filesystem::remove_all(dir); }
     };
 
-    // An ungapped alignment of `length` bases starting at gene position `start`.
-    AlignmentResult Aligned(size_t start, size_t length, bool forward) {
-        AlignmentResult ar(0, 1, 1, static_cast<int32_t>(start), forward);
+    // An ungapped alignment of `length` bases starting at position `start` of gene `geneid`.
+    AlignmentResult Aligned(size_t start, size_t length, bool forward, uint32_t geneid = 1) {
+        AlignmentResult ar(0, 1, geneid, static_cast<int32_t>(start), forward);
         auto& info = ar.GetAlignmentInfo();
         info.cigar = std::string(length, 'M');
         info.compressed_cigar = std::to_string(length) + "M";
@@ -172,6 +180,74 @@ TEST(PairedOutputHandler, WritesPairsWhereOnlyRead1Aligned) {
     EXPECT_TRUE(Flag::IsRead1(flag));
     EXPECT_TRUE(Flag::IsMateUnmapped(flag));
     EXPECT_FALSE(Flag::IsPairBothAlign(flag));
+}
+
+TEST(PairedOutputHandler, WritesPairsWhereOnlyRead2Aligned) {
+    TinyReference ref;
+    auto r1 = Record("frag/1", "NNNNNNNNNNNNNNNNNNNN");
+    auto r2 = Record("frag/2", KmerUtils::ReverseComplement(ref.gene.substr(10, 20)));
+    auto records = WritePairs(ref, { { AlignmentResult(), Aligned(10, 20, false) } }, r1, r2);
+
+    ASSERT_EQ(records.size(), 1u);
+    FLAG_t flag = std::stoul(records[0][1]);
+    EXPECT_TRUE(Flag::IsRead2(flag));
+    EXPECT_TRUE(Flag::IsMateUnmapped(flag));
+    EXPECT_EQ(records[0][3], "11");
+    EXPECT_GT(std::stoi(records[0][4]), 4);
+}
+
+TEST(PairedOutputHandler, WritesMatesOnTwoGenesWithTheirOwnMapq) {
+    // The fragment spans the end of gene 1 and the start of gene 2: candidates pair mates only
+    // within one gene, so each mate is a candidate of its own.
+    TinyReference ref;
+    auto r1 = Record("frag/1", ref.gene.substr(30, 20));
+    auto r2 = Record("frag/2", KmerUtils::ReverseComplement(ref.gene2.substr(0, 20)));
+    auto records = WritePairs(ref, { { Aligned(30, 20, true), AlignmentResult() },
+                                     { AlignmentResult(), Aligned(0, 20, false, 2) } }, r1, r2);
+
+    ASSERT_EQ(records.size(), 2u);
+    FLAG_t flag1 = std::stoul(records[0][1]);
+    FLAG_t flag2 = std::stoul(records[1][1]);
+    EXPECT_TRUE(Flag::IsRead1(flag1) && Flag::IsRead2(flag2));
+    for (FLAG_t flag : { flag1, flag2 }) {
+        EXPECT_TRUE(Flag::IsPaired(flag));
+        EXPECT_FALSE(Flag::IsPairBothAlign(flag));
+        EXPECT_FALSE(Flag::IsMateUnmapped(flag));
+        EXPECT_FALSE(Flag::IsNotPrimaryAlignment(flag));
+    }
+    EXPECT_EQ(records[0][2], "1_1");
+    EXPECT_EQ(records[1][2], "1_2");
+    EXPECT_EQ(records[0][6], "1_2");  // RNEXT
+    EXPECT_EQ(records[1][6], "1_1");
+    EXPECT_GT(std::stoi(records[0][4]), 4);  // each mate is unambiguous on its own
+    EXPECT_GT(std::stoi(records[1][4]), 4);
+
+    // Read back, they are one fragment with a mate on each gene.
+    std::string text;
+    for (auto const& record : records) {
+        for (size_t i = 0; i < record.size(); i++) text += (i ? "\t" : "") + record[i];
+        text += '\n';
+    }
+    std::istringstream in(text);
+    SamReader reader(in);
+    SamEntry sam1, sam2;
+    bool has1 = false, has2 = false;
+    ASSERT_TRUE(reader.Next(sam1, sam2, has1, has2));
+    EXPECT_TRUE(has1 && has2);
+    EXPECT_FALSE(reader.Next(sam1, sam2, has1, has2));
+}
+
+TEST(PairedOutputHandler, SplitMatesOnOneGeneKeepTheirPositions) {
+    // Both mates on gene 1 but in an orientation that does not form a pair.
+    TinyReference ref;
+    auto r1 = Record("frag/1", ref.gene.substr(0, 20));
+    auto r2 = Record("frag/2", ref.gene.substr(25, 20));
+    auto records = WritePairs(ref, { { Aligned(0, 20, true), AlignmentResult() },
+                                     { AlignmentResult(), Aligned(25, 20, true) } }, r1, r2);
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0][6], "=");
+    EXPECT_EQ(records[0][7], "26");  // PNEXT
+    EXPECT_EQ(records[1][7], "1");
 }
 
 TEST(PairedOutputHandler, WritesBothMatesAdjacentWithOneName) {

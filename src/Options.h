@@ -6,6 +6,7 @@
 
 #include <cxxopts.hpp>
 #include <filesystem>
+#include <map>
 #include <utility>
 #include "LineSplitter.h"
 #include <fstream>
@@ -63,7 +64,7 @@ namespace protal {
                 
                 ("map", "For larger datasets you can define parameters -1, -2, --prefix and -o in a tsv-file.", cxxopts::value<std::string>()->default_value(""))
                 ("map_range", "If you specified a map file with --map you can also pass a range to protal to run protal only on a subset. The first entry is 1, the end is inclusive. e.g.: 1-10. If the end open or larger than the number of entries in the map file, the last entry in the map file is selected as end.", cxxopts::value<std::string>()->default_value(""))
-                ("profile_only", "Comma separated list of existing sam files to profile without re-running the alignment. Read files given via -1/-2 are ignored. Output prefixes are either given via --prefix (one per sam file) or derived from the sam file names.", cxxopts::value<std::string>()->default_value(""));
+                ("profile_only", "Comma separated list of existing sam files to profile without re-running the alignment. Read files given via -1/-2 are ignored. Output prefixes are either given via --prefix (one per sam file) or derived from the sam file names; the outputs then go to -o if it is given, else next to each sam file.", cxxopts::value<std::string>()->default_value(""));
 
         // Alignment / algorithm options
         options.add_options("Alignment")
@@ -78,7 +79,8 @@ namespace protal {
         // Profiling options
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
-                ("knob", "Prediction threshold: taxa with RF probability >= knob are reported as detected. Higher improves precision, lower improves sensitivity. Values between 0.4 and 0.6 should not affect F1-score by a large margin, but just slightly shift focus from sensitivity to precision.", cxxopts::value<double>()->default_value("0.5"))
+                ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
+                ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <db>/<name> (<db>/<name>.xml without an extension). Default: model.xml in the database directory.", cxxopts::value<std::string>()->default_value(""))
                 ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""));
 
@@ -186,6 +188,7 @@ namespace protal {
         std::string profile_truth;
         std::string model;
         double knob = 0.5;
+        double depth_identity_margin = 0.04;
 
         // alignment
         size_t threads = DEFAULT_THREADS;
@@ -261,6 +264,7 @@ namespace protal {
         std::string m_profile_truth;
         std::string m_model;
         double m_knob = 0.5;
+        double m_depth_identity_margin = 0.04;
 
         size_t m_threads = DEFAULT_THREADS;
 
@@ -361,6 +365,7 @@ namespace protal {
                 m_profile_truth(std::move(d.profile_truth)),
                 m_model(std::move(d.model)),
                 m_knob(d.knob),
+                m_depth_identity_margin(d.depth_identity_margin),
                 m_threads(d.threads),
                 m_align_top(d.align_top),
                 m_max_score_ani(d.max_score_ani),
@@ -381,7 +386,10 @@ namespace protal {
                 m_qcmsa_script(std::move(d.qcmsa_script)),
                 m_qcmsa_args(std::move(d.qcmsa_args)) {
             if (d.samplename_list.empty()) {
-                m_sampleid_list = m_prefix_list;
+                // A sample is named after its prefix's file name, not its path.
+                for (auto const& prefix : m_prefix_list) {
+                    m_sampleid_list.emplace_back(std::filesystem::path(prefix).filename().string());
+                }
             } else {
                 m_sampleid_list = std::move(d.samplename_list);
             }
@@ -473,6 +481,10 @@ namespace protal {
 
         double GetKnob() const {
             return m_knob;
+        }
+
+        double GetDepthIdentityMargin() const {
+            return m_depth_identity_margin;
         }
 
         std::string GetModelPath() const {
@@ -869,8 +881,9 @@ SAMPLE3	sample3/reads_1.fq	sample3/reads_2.fq	3.sam	AIR3	3.profile
 SAMPLE4	sample4/reads_1.fq	sample4/reads_2.fq	4.sam	AIR4	4.profile
 
 FIRST, SECOND and PREFIX are mandatory (protal currently supports paired-end reads only).
-SAM and PROFILE are optional and default to <PREFIX>.sam and <PREFIX>.profile. Give every
-sample its own SAM/PROFILE name, otherwise the samples overwrite each other's output.)" << std::endl;
+The first column, #SAMPLEID, names the sample in the outputs (MSA rows, logs, statistics).
+SAM and PROFILE are optional and default to <PREFIX>.sam and <PREFIX>.profile. Every sample
+needs its own SAM and PROFILE file; protal stops if two samples share one.)" << std::endl;
         }
 
 
@@ -1104,7 +1117,7 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                     // Every column the header declares needs a value in every row: a missing cell would
                     // otherwise shift the per-sample lists and give one sample another's output files.
                     std::pair<int, std::string const*> const columns[] = {
-                            { prefix_column, &MAP_PREFIX }, { first_column, &MAP_FIRST_READ }, { second_column, &MAP_SECOND_READ },
+                            { 0, &MAP_SAMPLEID }, { prefix_column, &MAP_PREFIX }, { first_column, &MAP_FIRST_READ }, { second_column, &MAP_SECOND_READ },
                             { sam_column, &MAP_SAM }, { profile_column, &MAP_PROFILE }, { profile_truth_column, &MAP_PROFILE_TRUTH } };
                     for (auto const& [column, name] : columns) {
                         if (column == -1) continue;
@@ -1115,7 +1128,7 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                             return false;
                         }
                     }
-                    auto sample_id = tokens[prefix_column];
+                    auto sample_id = tokens[0];  // #SAMPLEID
                     auto prefix_path = path(global_output_dir).append(tokens[prefix_column]);
                     auto first_path = path(input_dir).append(tokens[first_column]);
                     auto second_path = path(input_dir).append(tokens[second_column]);
@@ -1262,6 +1275,12 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                     error_log.emplace_back("Model file does not exist: " + GetModelPath());
                 }
             }
+            if (!(m_depth_identity_margin >= 0)) {
+                error_log.emplace_back("--depth_identity_margin must be 0 or more");
+            }
+            if (!(m_knob >= 0 && m_knob <= 1)) {
+                error_log.emplace_back("--knob must be between 0 and 1 (a probability)");
+            }
             if (!m_profile_truth_list.empty()) {
                 if (m_profile_truth_list.size() != m_profile_list.size()) {
                     error_log.emplace_back("Truth files (--profile_truth or a PROFILE_TRUTH column) must name one file per sample: " +
@@ -1320,6 +1339,24 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                     }
                 }
             }
+
+            // Samples sharing an output file would overwrite, or corrupt, each other's output.
+            auto no_shared_files = [&error_log](std::vector<std::string> const& paths, std::string const& what) {
+                std::map<std::string, size_t> seen;
+                for (size_t i = 0; i < paths.size(); i++) {
+                    std::error_code ec;
+                    auto canonical = std::filesystem::weakly_canonical(paths[i], ec);
+                    auto key = ec ? std::filesystem::path(paths[i]).lexically_normal().string() : canonical.string();
+                    auto [it, fresh] = seen.emplace(key, i);
+                    if (!fresh) {
+                        error_log.emplace_back("samples " + std::to_string(it->second + 1) + " and " + std::to_string(i + 1) +
+                                               " would both use the " + what + " file " + paths[i] +
+                                               "; give each sample its own prefix (--prefix, or PREFIX in a map)");
+                    }
+                }
+            };
+            no_shared_files(m_sam_list, "SAM");
+            no_shared_files(m_profile_list, "profile");
 
             // Check files
             for (auto i = 0; i < m_first_list.size(); i++) {
@@ -1630,14 +1667,17 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
                     for (auto i = 0; i < sam_list.size(); i++) {
                         auto& sam_file = sam_list[i];
 
+                        std::string stem;
                         if (sam_file.size() >= 4 && sam_file.compare(sam_file.size() - 4, 4, ".sam") == 0) {
-                            prefix_list[i] = sam_file.substr(0, sam_file.size() - 4);
+                            stem = sam_file.substr(0, sam_file.size() - 4);
                         } else if (sam_file.size() >= 7 && sam_file.compare(sam_file.size() - 7, 7, ".sam.gz") == 0) {
-                            prefix_list[i] = sam_file.substr(0, sam_file.size() - 7);
+                            stem = sam_file.substr(0, sam_file.size() - 7);
                         } else {
                             std::cerr << sam_file << " does not end with .sam" << std::endl;
                             exit(35);
                         }
+                        // The outputs go to -o if it is given (the name is joined with it below), else next to the SAM.
+                        prefix_list[i] = output_dir.empty() ? stem : std::filesystem::path(stem).filename().string();
                     }
                 }
             } else {
@@ -1773,6 +1813,7 @@ sample its own SAM/PROFILE name, otherwise the samples overwrite each other's ou
             d.compress_window_log      = result["compress_window_log"].as<int>();
             d.compress_frame_mb        = result["compress_frame_mb"].as<int>();
             d.knob                     = result["knob"].as<double>();
+            d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
             d.model                    = result["model"].as<std::string>();
 
             auto options = Options(std::move(d));

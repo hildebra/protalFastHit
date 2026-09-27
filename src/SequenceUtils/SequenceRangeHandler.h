@@ -39,7 +39,11 @@ public:
     bool HasRange(size_t pos) const;
 
     size_t Size() const;
+    // Drops all ranges and frees their memory.
+    void Clear();
     size_t SequenceLength() const;
+    // Adds a range, merged with every range it overlaps or touches, so that ranges never overlap.
+    void Merge(SequenceRange range);
     void Add(size_t start, size_t end);
     void Add(SequenceRange& range);
     void Add(SequenceRange&& range);
@@ -73,7 +77,7 @@ public:
     }
 
     void SetCoverageVector(CoverageVec const& vector);
-    size_t CoveredPortion(uint32_t min_cov=1);
+    size_t CoveredPortion(uint32_t min_cov=1) const;
 };
 
 

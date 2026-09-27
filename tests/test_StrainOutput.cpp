@@ -9,6 +9,7 @@
 #include <random>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <vector>
 #include <unistd.h>
 #include "Profiling/Profiler.h"
@@ -119,6 +120,30 @@ namespace {
     };
 }
 
+TEST(Coverage, AReadOverSeveralGapsMergesAllTheirRanges) {
+    // Reads at 0-10, 20-30 and 40-50, then one from 5 to 45 that bridges both gaps.
+    SequenceRangeHandler ranges;
+    auto read = [&](size_t start, size_t end) {
+        SequenceRange range(start, end);
+        range.AddReadInfo(ReadInfo{ 0, static_cast<uint32_t>(start), static_cast<uint32_t>(end - start), true });
+        ranges.Merge(std::move(range));
+    };
+    read(0, 10);
+    read(20, 30);
+    read(40, 50);
+    ASSERT_EQ(ranges.Size(), 3u);
+    read(5, 45);
+    ASSERT_EQ(ranges.Size(), 1u);
+
+    auto cov = ranges.CalculateCoverageVector2();
+    ASSERT_EQ(cov.size(), 50u);
+    std::vector<std::pair<size_t, uint32_t>> expected = { { 0, 1 }, { 5, 2 }, { 15, 1 }, { 25, 2 }, { 35, 1 }, { 44, 2 }, { 45, 1 }, { 49, 1 } };
+    for (auto [pos, depth] : expected) EXPECT_EQ(cov[pos], depth) << "position " << pos;
+
+    ranges.CalculateCoverageVector();
+    EXPECT_EQ(ranges.CalculateCoverageVector(), cov);  // recomputed, not appended to
+}
+
 TEST(MSA, DeletionsBecomeGaps) {
     TinyReference ref;
     auto& gene = ref.loader->GetGenome(1).GetGeneOMP(1);
@@ -176,9 +201,105 @@ TEST(Abundance, BlendedDepthHasNoStep) {
     for (double m : { 0.5, 1.0 }) {
         EXPECT_NEAR(at(0.5, m - 1e-5), at(0.5, m + 1e-5), 1e-4) << "median " << m;
     }
+    for (double f : { 0.25, 0.5 }) {
+        EXPECT_NEAR(at(f - 1e-5, 2.0), at(f + 1e-5, 2.0), 1e-3) << "hit fraction " << f << " at a high median";
+    }
     EXPECT_DOUBLE_EQ(at(0.5, 0.1), 0.4);   // low coverage: all expected genes
     EXPECT_DOUBLE_EQ(at(1.0, 0.7), 0.7);   // every gene hit: the median
     EXPECT_DOUBLE_EQ(at(0.5, 2.0), 2.0);   // high median depth: the median
+    EXPECT_DOUBLE_EQ(at(0.02, 2.0), 0.4);  // ...but not from a couple of reads on a short gene
+}
+
+TEST(Abundance, DepthCountsOnlyTheTaxonsOwnReads) {
+    TinyReference ref;
+    std::string reference = ref.loader->GetGenome(1).GetGeneOMP(1).Sequence();
+    profiler::MicrobialProfile profile(*ref.loader);
+    profile.SetDepthIdentityMargin(0.04);
+    auto own = MakeSam(reference.substr(0, 20), "20M", 1);
+    auto relative = MakeSam(reference.substr(20, 20), "15M5X", 21);  // identity 0.75
+    for (auto const* sam : { &own, &own, &relative, &relative }) {
+        ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0));
+    }
+    auto& taxon = profile.GetTaxa().at(1);
+    // One 50 bp gene, every gene hit: the depth is the median gene depth of the own reads.
+    EXPECT_NEAR(taxon.VerticalCoverage(true), 40.0 / 50, 1e-9);
+    EXPECT_NEAR(taxon.LowIdentityShare(), 0.5, 1e-9);
+
+    profile.SetDepthIdentityMargin(1);  // every read counts
+    EXPECT_NEAR(taxon.VerticalCoverage(), 80.0 / 50, 1e-9);
+    EXPECT_NEAR(taxon.LowIdentityShare(), 0.0, 1e-9);
+}
+
+// tsl::sparse_map copies the values of a bucket on every insert into it unless they move without
+// throwing.
+static_assert(std::is_nothrow_move_constructible_v<profiler::Gene>);
+static_assert(std::is_nothrow_move_constructible_v<profiler::Taxon>);
+
+TEST(Abundance, ReleasingReadDataKeepsWhatLaterStagesRead) {
+    // Once a sample's outputs are written, its reads' identities are freed, and its variants and
+    // read ranges unless the strain stage needs them; depth and counters stay.
+    TinyReference ref;
+    std::string reference = ref.loader->GetGenome(1).GetGeneOMP(1).Sequence();
+    for (bool keep_strain_data : { true, false }) {
+        profiler::MicrobialProfile profile(*ref.loader);
+        profile.SetDepthIdentityMargin(0.04);
+        auto first = MakeSam(reference.substr(0, 20), "20M", 1);
+        auto second = MakeSam(reference.substr(20, 20), "20M", 21);
+        for (auto const* sam : { &first, &first, &second }) {
+            ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0, true, 0, false));
+        }
+        auto& taxon = profile.GetTaxa().at(1);
+        double const depth = taxon.VerticalCoverage();
+        size_t const length = taxon.TotalLength();
+        ASSERT_GT(taxon.GetGenes().at(1).GetStrainLevel().GetSequenceRangeHandler().Size(), 0u);
+
+        taxon.ReleaseReadData(keep_strain_data);
+        auto const& gene = taxon.GetGenes().at(1);
+        EXPECT_TRUE(gene.m_read_identities.empty());
+        EXPECT_EQ(gene.GetStrainLevel().GetSequenceRangeHandler().Size() > 0, keep_strain_data);
+        EXPECT_EQ(taxon.VerticalCoverage(), depth);
+        EXPECT_EQ(taxon.TotalLength(), length);
+        EXPECT_EQ(taxon.TotalHits(), 3u);
+    }
+}
+
+TEST(ModelFeatures, TheModelMustFitProtal) {
+    auto dir = std::filesystem::temp_directory_path() / ("protal model test " + std::to_string(::getpid()));
+    std::filesystem::create_directories(dir);
+    // A one-split tree on `field`, predicting `yes` or `no`.
+    auto model = [&](std::string const& name, std::string const& field, std::string const& yes, std::string const& no) {
+        auto path = (dir / name).string();
+        std::ofstream(path) << R"(<?xml version="1.0" encoding="UTF-8"?>
+<PMML version="4.4">
+ <Header/>
+ <DataDictionary>
+  <DataField name="truth" optype="categorical" dataType="string"><Value value=")" << no << R"("/><Value value=")" << yes << R"("/></DataField>
+  <DataField name=")" << field << R"(" optype="continuous" dataType="double"/>
+ </DataDictionary>
+ <TreeModel functionName="classification" splitCharacteristic="binarySplit">
+  <MiningSchema>
+   <MiningField name="truth" usageType="predicted"/>
+   <MiningField name=")" << field << R"("/>
+  </MiningSchema>
+  <Node score=")" << no << R"(">
+   <True/>
+   <Node score=")" << yes << R"("><SimplePredicate field=")" << field << R"(" operator="greaterThan" value="10"/><ScoreDistribution value=")" << no << R"(" recordCount="1"/><ScoreDistribution value=")" << yes << R"(" recordCount="9"/></Node>
+   <Node score=")" << no << R"("><True/><ScoreDistribution value=")" << no << R"(" recordCount="9"/><ScoreDistribution value=")" << yes << R"(" recordCount="1"/></Node>
+  </Node>
+ </TreeModel>
+</PMML>
+)";
+        return path;
+    };
+    auto problem = [](std::string const& path) {
+        return profiler::ModelContractProblem(profiler::TaxonFilterForest(path), path);
+    };
+    EXPECT_EQ(problem(model("good.xml", "present_genes", "TRUE", "FALSE")), "");
+    EXPECT_EQ(problem(model("normalized.xml", "gene_presence_ratio", "TRUE", "FALSE")), "");
+    EXPECT_EQ(problem(model("unknown.xml", "coverage_of_moon", "TRUE", "FALSE")),
+              "it needs 1 input(s) protal does not compute: coverage_of_moon");
+    EXPECT_NE(problem(model("labels.xml", "present_genes", "yes", "no")).find("has no value TRUE"), std::string::npos);
+    std::filesystem::remove_all(dir);
 }
 
 TEST(ModelFeatures, NamesAreUniqueAndValuesKeepTheirPrecision) {
@@ -186,7 +307,8 @@ TEST(ModelFeatures, NamesAreUniqueAndValuesKeepTheirPrecision) {
     auto features = profiler::TaxonFeatures(profiler::Taxon(no_genome));
     std::set<std::string> names;
     for (auto const& [name, _] : features) EXPECT_TRUE(names.insert(name).second) << name << " twice";
-    for (auto const* name : { "RAF0", "RA4", "su_rate_ref", "lu_rate_ref", "lsu_rate_ref", "mean_mapq", "lu_per_read" }) {
+    for (auto const* name : { "RAF0", "RA4", "su_rate_ref", "lu_rate_ref", "lsu_rate_ref", "mean_mapq", "lu_per_read",
+                              "fragments", "gene_presence_ratio", "identity", "variant_sites_per_kb" }) {
         EXPECT_TRUE(names.contains(name)) << name;
     }
 
