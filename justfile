@@ -250,7 +250,8 @@ install prefix="$HOME/.local": build-all
     cp {{build_dir}}/protal_avx2                    {{prefix}}/bin/protal_avx2
     cp {{build_dir}}/simulate_metagenomes           {{prefix}}/bin/simulate_metagenomes
     cp scripts/protal_map_utils                     {{prefix}}/bin/protal_map_utils
+    cp scripts/protal_profile_utils                 {{prefix}}/bin/protal_profile_utils
     cp protal_launcher                              {{prefix}}/bin/protal
     cp scripts/qcmsa.py                             {{prefix}}/bin/qcmsa
-    chmod +x {{prefix}}/bin/protal_baseline {{prefix}}/bin/protal_avx2 {{prefix}}/bin/simulate_metagenomes {{prefix}}/bin/protal_map_utils {{prefix}}/bin/protal {{prefix}}/bin/qcmsa
+    chmod +x {{prefix}}/bin/protal_baseline {{prefix}}/bin/protal_avx2 {{prefix}}/bin/simulate_metagenomes {{prefix}}/bin/protal_map_utils {{prefix}}/bin/protal_profile_utils {{prefix}}/bin/protal {{prefix}}/bin/qcmsa
     @echo "Installed to {{prefix}}/bin: $({{prefix}}/bin/protal --version)"

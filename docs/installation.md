@@ -82,11 +82,11 @@ This rebuilds first and installs the same layout as the conda package:
 | `simulate_metagenomes` | the simulator |
 | `qcmsa` | `scripts/qcmsa.py`, the strain MSA post-filter |
 | `protal_map_utils` | `scripts/protal_map_utils`: `generate` a map from read folders, `merge` or `flatten` maps, `validate` one |
+| `protal_profile_utils` | `scripts/protal_profile_utils`: merge profiles into one abundance table (see the [website](https://protal.earlham.ac.uk/main.php?site=documentation#species-profiles)) |
 
-`scripts/protal_profile_utils` (merging profiles into one abundance table, see the
-[website](https://protal.earlham.ac.uk/main.php?site=documentation#species-profiles)) is not
-installed by `just install` or the conda recipe in this repository; copy it next to the other
-binaries if you need it.
+The conda package also installs the database build and training scripts under
+`share/protal/scripts/` (the layout of `scripts/`); their Python requirements are not part of the
+package, see [Tools to build a database](#tools-to-build-a-database).
 
 The launcher looks for the binaries next to itself before it looks on `$PATH`, so a second
 install on `$PATH` does not interfere. Set `PROTAL_NO_AVX2=1` to force the baseline build. It
@@ -106,6 +106,23 @@ conda install conda-build
 conda build conda-recipe -c conda-forge -c bioconda --output-folder conda-build
 conda create -n protal_local -c "file://$PWD/conda-build" -c conda-forge -c bioconda protal
 ```
+
+## Tools to build a database
+
+Building and training a database ([building-a-database.md](building-a-database.md)) needs more than
+profiling: compilers for protal from the checkout, ART and pigz for the simulations, Python with
+numpy, pandas, scikit-learn and joblib for the training, and NCBI's `datasets` for strain genomes.
+`envs/protal-db-build.yaml` is a conda environment with all of them:
+
+```bash
+conda env create -f envs/protal-db-build.yaml      # or: micromamba create -f envs/protal-db-build.yaml
+conda activate protal-db-build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX"
+cmake --build build --target protal simulate_metagenomes -j 16
+```
+
+protal is built from the checkout because bioconda's protal 0.6.0a predates the single-file
+database, `--add_model` and the read types the workflow uses.
 
 ## Windows (WSL2)
 

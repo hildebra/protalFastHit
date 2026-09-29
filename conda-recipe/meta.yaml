@@ -1,24 +1,47 @@
+{% set version = "0.6.0" %}  # keep in sync with project(... VERSION) in CMakeLists.txt
+
 package:
   name: protal
-  version: "0.6.0"  # keep in sync with project(... VERSION) in CMakeLists.txt
+  version: {{ version }}
 
 source:
   # The local checkout, as the README's build instructions describe.
   path: ..
 
+build:
+  number: 0
+  skip: true  # [not linux]
+
 requirements:
   build:
-    - cmake
+    - {{ compiler('c') }}
+    - {{ compiler('cxx') }}   # C++20 with OpenMP; GCC 13 and 14 are tested
+    - {{ stdlib('c') }}
+    - cmake >=3.22
     - make
-    - gcc_linux-64 >=14.2.0
-    - gxx_linux-64 >=14.2.0
-    - libgomp >=14.2.0
+  host:
     - zlib
-    - zstd    # compressed database files (index.prx.zst, reference.fna.zst)
+    - zstd                    # database.protal and its compressed parts
+    - libgomp                 # OpenMP
   run:
-    - python >=3
-    - pigz
-    - zstd
+    - python >=3.8            # qcmsa (standard library only), protal_map_utils, protal_profile_utils
+    - pigz                    # gzipped SAM output; simulate_metagenomes compresses its reads
+    - art                     # art_illumina, which simulate_metagenomes runs
+    - libgomp
+    - matplotlib-base         # only for qcmsa --plot
+    # zlib and zstd come with their run_exports. Building and training a database needs more
+    # (numpy, pandas, scikit-learn, NCBI datasets): see envs/protal-db-build.yaml.
+
+test:
+  commands:
+    - protal --version
+    - protal_baseline --version
+    - test -x $PREFIX/bin/protal_avx2
+    - simulate_metagenomes --help
+    - qcmsa --help
+    - protal_map_utils --help
+    - protal_profile_utils --help
+    - test -f $PREFIX/share/protal/scripts/build_gtdb_database.py
 
 about:
   home: https://github.com/4less/protal
@@ -26,6 +49,7 @@ about:
   license_file: LICENSE
   summary: Reference-based taxonomic and strain-level profiler for shotgun metagenomes (GTDB marker genes).
 
-channels:
-  - conda-forge    # High priority channel
-  - bioconda
+extra:
+  channels:
+    - conda-forge    # high priority
+    - bioconda
