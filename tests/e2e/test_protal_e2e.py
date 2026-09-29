@@ -1226,6 +1226,19 @@ class SingleEndTest(WorkDir):
         self.assertTrue(single and not any(int(r[1]) & 0x1 for r in single))
         self.assertTrue(os.path.exists(self.path("out_mixed", "se.profile")))
 
+    def test_fasta_reads_get_q30(self):
+        fasta = self.path("sa.fa")
+        with open(fasta, "w") as fh:
+            for name, seq in self.reads_by_name("sa").items():
+                fh.write(f">{name}\n{seq}\n")
+        rc, log = run(self.work, "--db", self.db, "-1", fasta, "--prefix", "safa", "-o", "out_fasta", "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        records = sam_records(self.path("out_fasta", "safa.sam"))
+        self.assertTrue(records)
+        self.assertEqual({q for r in records for q in r[10]}, {"?"}, "Q30 for every base")
+        _, rows = read_table(self.path("out_fasta", "safa.profile.log"))
+        self.assertTrue(rows, "the profiler takes the records")
+
     def test_the_prefix_comes_from_the_read_file(self):
         rc, log = run(self.work, "--db", self.db, "-1", os.path.join(READS, "sa_R1.fq"), "-o", "out_prefix", "-t", "1",
                       "--no_profile")
@@ -1361,6 +1374,7 @@ class PacBioTest(WorkDir):
         self.assertIn("Align the PacBio reads of sample la", self.log)
         self.assertIn("Model of PacBio reads: " + os.path.join(self.db, "model_PB.xml"), self.log)
         self.assertIn("1 read(s) longer than 65000 bp were seeded in chunks", self.log)
+        self.assertRegex(self.log, r"\d+ of \d+ gene hits that fit several taxa \(MAPQ < 4\) were settled by their read's other genes")
         with open(self.path("out", "la.sam")) as fh:
             self.assertIn("@CO\tprotal read type: pb\n", fh.read())
 
@@ -1426,6 +1440,21 @@ class PacBioTest(WorkDir):
         rc, log = run(self.work, "--db", self.db, "-1", self.reads["lb"], "-o", "out_short", "-t", "1", "--no_qcmsa")
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("too long for short reads: give --read_type pb", log)
+
+    def test_fasta_reads_get_q30(self):
+        seqs, names = self.read_seqs("lb")
+        fasta = self.path("lb.fa")
+        with open(fasta, "w") as fh:
+            for name, seq in zip(names, seqs):
+                fh.write(f">{name}\n{seq}\n")
+        rc, log = run(self.work, "--db", self.db, "-1", fasta, "--read_type", "pb", "--prefix", "lbfa", "-o", "out_fasta",
+                      "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        records = sam_records(self.path("out_fasta", "lbfa.sam"))
+        self.assertTrue(records)
+        self.assertEqual({q for r in records for q in r[10]}, {"?"}, "Q30 for every base")
+        _, rows = read_table(self.path("out_fasta", "lbfa.profile.log"))
+        self.assertTrue(rows, "the profiler takes the records")
 
     def test_a_map_names_the_read_type(self):
         sample_map = self.path("typed.map")

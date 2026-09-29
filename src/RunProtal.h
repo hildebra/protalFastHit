@@ -327,7 +327,7 @@ namespace protal {
                                                options.GetFirstFile(index) + ", " + options.GetSecondFile(index);
                 if (read_type == ReadType::PacBio) {
                     igzstream is { options.GetFirstFile(index).c_str() };
-                    SeqReaderSE reader{ is };
+                    SeqReaderSE reader{ is, FastaQualityChar(read_type) };
                     LongReadAligner<SimpleKmerHandler<ClosedSyncmer>, AnchorFinder> long_read_aligner(
                             iterator, anchor_finder, alignment_handler, genomes, options.GetAlignTop(), options.GetMaxScoreAni());
                     ProtalLongReadOutputHandler output_handler(sam_output, options.GetMaxOut(), 1024*1024*16, genomes, 0.8);
@@ -341,7 +341,7 @@ namespace protal {
                     is.close();
                 } else if (read_type == ReadType::Single) {
                     igzstream is { options.GetFirstFile(index).c_str() };
-                    SeqReaderSE reader{ is };
+                    SeqReaderSE reader{ is, FastaQualityChar(read_type) };
                     auto align = [&](auto output_handler) {
                         return protal::classify::RunSingleEnd<
                                 SimpleKmerHandler<ClosedSyncmer>,
@@ -365,7 +365,7 @@ namespace protal {
                 } else {
                     igzstream is1 { options.GetFirstFile(index).c_str() };
                     igzstream is2 { options.GetSecondFile(index).c_str() };
-                    SeqReaderPE reader{is1, is2};
+                    SeqReaderPE reader{ is1, is2, FastaQualityChar(read_type) };
 
                     if (options.GetMAPQDebugOut()) {
                         using OutputHandler = ProtalPairedOutputHandler<true>;

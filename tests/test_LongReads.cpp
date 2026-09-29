@@ -12,6 +12,8 @@
 #include <unistd.h>
 #include "LongReads.h"
 #include "Profiling/Profiler.h"
+#include "ReadType.h"
+#include "SequenceUtils/SeqReader.h"
 
 using namespace protal;
 
@@ -239,4 +241,91 @@ TEST(LongReadOutputHandler, SkipsOnlyTheInconsistentHit) {
     ASSERT_EQ(records.size(), 1u);
     EXPECT_EQ(records[0][3], "1");
     EXPECT_EQ(std::stoul(records[0][1]), 0u);
+}
+
+namespace {
+    // A segment whose best hit is on taxon `taxid` with MAPQ `mapq`.
+    LongReadSegment Voting(uint32_t taxid, int mapq) {
+        LongReadSegment segment;
+        segment.hits = { Hit(taxid, 1, 0, std::string(100, 'A'), true) };
+        segment.mapq = mapq;
+        return segment;
+    }
+}
+
+TEST(ReadConsensus, TheReadsTaxonNeedsTwoThirdsOfTheConfidentVotes) {
+    auto const taxon = TaxonOfRead({ Voting(1, 40), Voting(1, 30), Voting(2, 10), Voting(2, 0) });
+    ASSERT_TRUE(taxon.has_value());
+    EXPECT_EQ(taxon->taxid, 1u);  // 2 of 3 confident segments
+    EXPECT_EQ(taxon->mapq, 30);   // the weaker of its two segments
+    EXPECT_FALSE(TaxonOfRead({ Voting(1, 30), Voting(2, 30) }).has_value());
+    // A gene the read's species lacks aligns to a relative with a high MAPQ; it has one vote.
+    auto const outvoted = TaxonOfRead({ Voting(1, 8), Voting(1, 6), Voting(1, 9), Voting(2, 140) });
+    ASSERT_TRUE(outvoted.has_value());
+    EXPECT_EQ(outvoted->taxid, 1u);
+    EXPECT_FALSE(TaxonOfRead({ Voting(1, 3), Voting(1, 0) }).has_value()) << "no confident segment";
+    EXPECT_FALSE(TaxonOfRead({}).has_value());
+}
+
+TEST(ReadConsensus, AnAmbiguousGeneTakesTheReadsTaxon) {
+    ReadTaxon const taxon{ 1, 30 };
+    // The gene fits taxon 2 about as well as taxon 1 (1000 vs 998 matches): settled for taxon 1.
+    LongReadSegment ambiguous;
+    ambiguous.hits = { Hit(2, 7, 0, std::string(1000, 'A'), true), Hit(1, 7, 0, std::string(1000, 'A'), true, 2) };
+    RankLongReadSegment(ambiguous);
+    ASSERT_LT(ambiguous.mapq, kConfidentMapq);
+    EXPECT_TRUE(SettleByRead(ambiguous, taxon));
+    EXPECT_EQ(ambiguous.hits.front().alignment.Taxid(), 1u);
+    EXPECT_EQ(ambiguous.mapq, 30);
+    EXPECT_TRUE(ambiguous.by_read);
+
+    // A gene that clearly is taxon 2's stays so; a confident one is not touched; a gene without a
+    // hit of the taxon cannot be settled.
+    LongReadSegment other;
+    other.hits = { Hit(2, 7, 0, std::string(1000, 'A'), true), Hit(1, 7, 0, std::string(1000, 'A'), true, 100) };
+    other.mapq = 0;
+    EXPECT_FALSE(SettleByRead(other, taxon));
+    EXPECT_EQ(other.hits.front().alignment.Taxid(), 2u);
+    auto confident = Voting(2, 20);
+    EXPECT_FALSE(SettleByRead(confident, taxon));
+    auto alone = Voting(2, 0);
+    EXPECT_FALSE(SettleByRead(alone, taxon));
+    EXPECT_FALSE(alone.by_read);
+}
+
+TEST(LongReadOutputHandler, TagsGenesSettledByTheirRead) {
+    TinyReference ref;
+    std::string const read(20, 'N');
+    LongReadSegment settled;
+    settled.hits = { Hit(1, 1, 5, read, true), Hit(1, 2, 3, read, true) };
+    settled.mapq = 30;
+    settled.by_read = true;
+    auto const records = Records(Write(ref, { settled }, Read("r", read)));
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].back(), "ZR:i:1");
+    EXPECT_NE(records[1].back(), "ZR:i:1") << "only the best hit";
+}
+
+TEST(SeqReader, ReadsWithoutQualitiesGetTheReadTypesQuality) {
+    std::istringstream fasta(">r1\nACGT\n>r2\nAC\nGT\n");
+    SeqReaderSE reader(fasta, FastaQualityChar(ReadType::PacBio));
+    FastxRecord record;
+    ASSERT_TRUE(reader(record));
+    EXPECT_EQ(record.quality, "????");  // Q30
+    ASSERT_TRUE(reader(record));
+    EXPECT_EQ(record.sequence, "ACGT");
+    EXPECT_EQ(record.quality, "????");
+    EXPECT_FALSE(reader(record));
+
+    std::istringstream fastq("@r1\nACGT\n+\nIII#\n");
+    SeqReaderSE keeps(fastq, FastaQualityChar(ReadType::PacBio));
+    ASSERT_TRUE(keeps(record));
+    EXPECT_EQ(record.quality, "III#") << "FASTQ keeps its qualities";
+
+    std::istringstream mate1(">p/1\nAAAA\n"), mate2(">p/2\nCCC\n");
+    SeqReaderPE pairs(mate1, mate2, FastaQualityChar(ReadType::Paired));
+    FastxRecord record2;
+    ASSERT_TRUE(pairs(record, record2));
+    EXPECT_EQ(record.quality, "????");
+    EXPECT_EQ(record2.quality, "???");
 }

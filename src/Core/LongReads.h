@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -93,10 +94,13 @@ namespace protal {
     };
 
     // The hits of one place of a read: a gene and its homologs in other taxa, best first, each
-    // alignment once, and the MAPQ of the best against the next.
+    // alignment once, and the MAPQ of the best against the next; or, if the gene alone could not
+    // tell them apart but the read's other genes could (SettleByRead), the best is the hit of the
+    // read's taxon and by_read is set.
     struct LongReadSegment {
         std::vector<LongReadHit> hits;
         int mapq = 0;
+        bool by_read = false;
     };
 
     using LongReadSegments = std::vector<LongReadSegment>;
@@ -129,6 +133,62 @@ namespace protal {
         int const best = hits.empty() ? 0 : LongReadBitscore(hits.front());
         int const second = hits.size() > 1 ? LongReadBitscore(hits[1]) : 0;
         segment.mapq = best > 0 ? MAPQv2(best, second) : 0;
+    }
+
+    // A segment is confident with a MAPQ of at least this (the profiler's minimum).
+    inline constexpr int kConfidentMapq = 4;
+    // The share of its confident segments that one taxon needs to be a read's taxon.
+    inline constexpr double kReadTaxonShare = 2.0 / 3.0;
+
+    // The taxon of a read, from its confident segments: each votes for the taxon of its best hit, and
+    // a taxon with at least kReadTaxonShare of the votes is the read's. Votes count equally: a gene
+    // that the read's species lacks in the database aligns to a relative with a high MAPQ (it has no
+    // competitor), and weighting by MAPQ let one such gene outvote several of the species' own.
+    // Returns the taxon with the lowest MAPQ of the segments that voted for it (the weakest evidence
+    // it rests on); nullopt without one.
+    struct ReadTaxon {
+        uint32_t taxid = 0;
+        int mapq = 0;
+    };
+
+    inline std::optional<ReadTaxon> TaxonOfRead(LongReadSegments const& segments) {
+        std::vector<std::pair<uint32_t, int>> votes;  // taxon, confident segments
+        int total = 0;
+        for (auto const& segment : segments) {
+            if (segment.mapq < kConfidentMapq || segment.by_read || segment.hits.empty()) continue;
+            auto const taxid = segment.hits.front().alignment.Taxid();
+            auto it = std::find_if(votes.begin(), votes.end(), [taxid](auto const& v) { return v.first == taxid; });
+            if (it == votes.end()) votes.emplace_back(taxid, 1);
+            else it->second++;
+            total++;
+        }
+        if (votes.empty()) return std::nullopt;
+        auto const best = std::max_element(votes.begin(), votes.end(), [](auto const& a, auto const& b) { return a.second < b.second; });
+        if (best->second < kReadTaxonShare * total) return std::nullopt;
+        ReadTaxon taxon{ best->first, std::numeric_limits<int>::max() };
+        for (auto const& segment : segments) {
+            if (segment.mapq >= kConfidentMapq && !segment.by_read && !segment.hits.empty() &&
+                segment.hits.front().alignment.Taxid() == taxon.taxid) {
+                taxon.mapq = std::min(taxon.mapq, segment.mapq);
+            }
+        }
+        return taxon;
+    }
+
+    // Settles an ambiguous segment (MAPQ below kConfidentMapq) by its read's taxon: if the segment
+    // has a hit of the taxon that its best cannot be told apart from (the best's MAPQ against it is
+    // below kConfidentMapq), that hit becomes the best, with the taxon's MAPQ. Returns whether it did.
+    inline bool SettleByRead(LongReadSegment& segment, ReadTaxon const& taxon) {
+        if (segment.mapq >= kConfidentMapq || segment.hits.empty()) return false;
+        auto& hits = segment.hits;
+        auto it = std::find_if(hits.begin(), hits.end(), [&taxon](LongReadHit const& h) { return h.alignment.Taxid() == taxon.taxid; });
+        if (it == hits.end()) return false;
+        int const best = LongReadBitscore(hits.front()), own = LongReadBitscore(*it);
+        if (it != hits.begin() && own < best && MAPQv2(best, own) >= kConfidentMapq) return false;  // clearly another taxon's gene
+        std::rotate(hits.begin(), it, it + 1);
+        segment.mapq = taxon.mapq;
+        segment.by_read = true;
+        return true;
     }
 
     // Groups candidates into segments: the genes of one segment cover at least half of the shorter
@@ -174,6 +234,11 @@ namespace protal {
         size_t m_last_seeds = 0;
         size_t m_last_anchors = 0;
         size_t m_chunked_reads = 0;
+        size_t m_ambiguous = 0;  // segments the gene alone could not assign (MAPQ below kConfidentMapq)
+        size_t m_settled = 0;    // of these, those settled by their read's other genes
+
+        std::vector<bool> m_aligned;                        // per candidate of the read
+        std::vector<std::vector<size_t>> m_segment_members; // per segment of the read, its candidates
 
         // Bases aligned beyond a gene's place on the read at each end, for indels between the seeds.
         static int64_t Margin(int64_t gene_length) {
@@ -289,6 +354,10 @@ namespace protal {
         size_t LastSeeds() const { return m_last_seeds; }
         size_t LastAnchors() const { return m_last_anchors; }
         size_t ChunkedReads() const { return m_chunked_reads; }
+        // Segments of all reads so far that their gene alone could not assign, and those of them the
+        // read's other genes settled.
+        size_t AmbiguousSegments() const { return m_ambiguous; }
+        size_t SettledSegments() const { return m_settled; }
 
         // The segments of `record`: for each place of the read where genes were found, the up to
         // align_top longest anchors (and those as long as the last) are aligned.
@@ -318,7 +387,9 @@ namespace protal {
             std::stable_sort(m_candidates.begin(), m_candidates.end(), [](LongReadCandidate const& a, LongReadCandidate const& b) {
                 return a.anchor.total_length > b.anchor.total_length;
             });
-            for (auto const& members : LongReadSegmentsOf(m_candidates, read_length)) {
+            m_aligned.assign(m_candidates.size(), false);
+            m_segment_members.clear();
+            for (auto& members : LongReadSegmentsOf(m_candidates, read_length)) {
                 LongReadSegment segment;
                 int take_top = static_cast<int>(m_align_top);
                 Anchor const* last = nullptr;
@@ -326,11 +397,36 @@ namespace protal {
                     auto const& candidate = m_candidates[i];
                     if (--take_top < 0 && last && last->total_length != candidate.anchor.total_length) break;
                     last = &candidate.anchor;
+                    m_aligned[i] = true;
                     if (auto hit = Align(candidate, record)) segment.hits.push_back(std::move(*hit));
                 }
                 if (segment.hits.empty()) continue;
                 RankLongReadSegment(segment);
                 segments.push_back(std::move(segment));
+                m_segment_members.push_back(std::move(members));
+            }
+
+            // Genes that alone fit several taxa are settled by the read's other genes: their hit of
+            // the read's taxon (aligned now if its anchor was not among the longest) becomes the best.
+            for (auto const& segment : segments) m_ambiguous += segment.mapq < kConfidentMapq;
+            auto const taxon = TaxonOfRead(segments);
+            if (!taxon) return;
+            for (size_t s = 0; s < segments.size(); s++) {
+                auto& segment = segments[s];
+                if (segment.mapq >= kConfidentMapq) continue;
+                auto const& hits = segment.hits;
+                if (std::none_of(hits.begin(), hits.end(), [&taxon](LongReadHit const& h) { return h.alignment.Taxid() == taxon->taxid; })) {
+                    for (auto i : m_segment_members[s]) {  // longest anchor first
+                        if (m_candidates[i].anchor.taxid != taxon->taxid || m_aligned[i]) continue;
+                        m_aligned[i] = true;
+                        if (auto hit = Align(m_candidates[i], record)) {
+                            segment.hits.push_back(std::move(*hit));
+                            RankLongReadSegment(segment);
+                        }
+                        break;
+                    }
+                }
+                m_settled += SettleByRead(segment, *taxon);
             }
         }
     };
@@ -364,9 +460,10 @@ namespace protal {
     /*
      * Output of long reads: per segment its best hit, the others (up to -m) as secondary alignments
      * (0x100, MAPQ 0). The best segment's best hit is the read's primary alignment, those of the
-     * other segments are supplementary (0x800), each with its segment's MAPQ. Records hold only the
-     * aligned bases (hard clips); readers take each primary or supplementary record and the
-     * secondary ones after it as one read's candidates.
+     * other segments are supplementary (0x800), each with its segment's MAPQ; a segment settled by
+     * its read's other genes (SettleByRead) is tagged ZR:i:1. Records hold only the aligned bases
+     * (hard clips); readers take each primary or supplementary record and the secondary ones after
+     * it as one read's candidates.
      */
     class ProtalLongReadOutputHandler {
     private:
@@ -434,11 +531,13 @@ namespace protal {
                     Flag::SetSupplementaryAlignment(sam.m_flag, first && primary_written);
                     sam.m_mapq = first ? segment.mapq : 0;
                     sam.m_cigar = LongReadCigar(hit);
+                    if (!read_records.empty()) read_records += '\n';
+                    read_records += sam.ToString();
+                    // ZR:i:1: the best hit is the read's taxon's, which the gene alone could not tell.
+                    if (first && segment.by_read) read_records += "\tZR:i:1";
                     primary_written = true;
                     first = false;
                     alignments++;
-                    if (!read_records.empty()) read_records += '\n';
-                    read_records += sam.ToString();
                     if (++written == m_max_out) break;
                 }
             }

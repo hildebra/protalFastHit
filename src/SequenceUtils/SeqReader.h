@@ -49,8 +49,13 @@ namespace protal {
         }
     };
 
+    // A read without qualities (FASTA) gets `quality` (Phred+33) for each base; 0 leaves it without.
+    inline void FillMissingQuality(FastxRecord& record, char quality) {
+        if (quality != 0 && record.quality.empty()) record.quality.assign(record.sequence.size(), quality);
+    }
+
     // Single-end reads, shared by threads as SeqReaderPE: each copy takes batches of records from
-    // the stream.
+    // the stream. Reads without qualities get fasta_quality for each base (FillMissingQuality).
     class SeqReaderSE {
     private:
         const size_t m_record_count = 32;
@@ -58,13 +63,20 @@ namespace protal {
         bool m_valid_block = true;
         std::istream& m_is;
         bool m_success = true;
+        char m_fasta_quality = 0;
+
+        bool Next(FastxRecord& record) {
+            if (!m_reader.NextSequence(record)) return false;
+            FillMissingQuality(record, m_fasta_quality);
+            return true;
+        }
 
     public:
-        SeqReaderSE(std::istream& is) :
-                m_is(is) {};
+        explicit SeqReaderSE(std::istream& is, char fasta_quality = 0) :
+                m_is(is), m_fasta_quality(fasta_quality) {};
 
         SeqReaderSE(SeqReaderSE const& other) :
-                m_is(other.m_is) {};
+                m_is(other.m_is), m_fasta_quality(other.m_fasta_quality) {};
 
         bool Success() const {
             return m_success;
@@ -75,7 +87,7 @@ namespace protal {
         }
 
         bool operator() (FastxRecord &record) {
-            if (m_reader.NextSequence(record)) return true;
+            if (Next(record)) return true;
             if (m_reader.Error()) {
                 m_success = false;
                 return false;
@@ -84,7 +96,7 @@ namespace protal {
             {
                 m_valid_block = m_reader.LoadBatch(m_is, m_record_count);
             }
-            if (m_valid_block && m_reader.NextSequence(record)) return true;
+            if (m_valid_block && Next(record)) return true;
             m_success &= !m_reader.Error();
             return false;
         }
@@ -112,15 +124,18 @@ namespace protal {
 
         SeqReaderPEError m_error_code = NO_ERROR;
         bool m_success = true;
+        char m_fasta_quality = 0;  // for reads without qualities, see FillMissingQuality
 
     public:
-        SeqReaderPE(std::istream& is1, std::istream& is2) :
+        SeqReaderPE(std::istream& is1, std::istream& is2, char fasta_quality = 0) :
                 m_is1(is1),
-                m_is2(is2) {};
+                m_is2(is2),
+                m_fasta_quality(fasta_quality) {};
 
         SeqReaderPE(SeqReaderPE const& other) :
                 m_is1(other.m_is1),
-                m_is2(other.m_is2) {};
+                m_is2(other.m_is2),
+                m_fasta_quality(other.m_fasta_quality) {};
 
 
         auto& GetFirstStream() {
@@ -156,6 +171,13 @@ namespace protal {
         }
 
         bool operator() (FastxRecord &record1, FastxRecord &record2) {
+            if (!Next(record1, record2)) return false;
+            FillMissingQuality(record1, m_fasta_quality);
+            FillMissingQuality(record2, m_fasta_quality);
+            return true;
+        }
+
+        bool Next(FastxRecord &record1, FastxRecord &record2) {
             m_valid_fragment_1 = m_reader_1.NextSequence(record1);
             m_valid_fragment_2 = m_reader_2.NextSequence(record2);
 

@@ -19,13 +19,14 @@ namespace protal {
         std::string name;          // in messages
         std::string model_file;    // the database's model of these reads
         std::string model_option;  // the option naming another model for them
+        int fasta_quality;         // the Phred quality of every base of a read without qualities (FASTA)
     };
 
     inline constexpr size_t kReadTypeCount = 3;
     inline const std::array<ReadTypeInfo, kReadTypeCount> kReadTypes = {{
-            { ReadType::Paired, "pe", "paired-end", "model_pe.xml", "--model" },
-            { ReadType::Single, "se", "single-end", "model_se.xml", "--model_se" },
-            { ReadType::PacBio, "pb", "PacBio", "model_PB.xml", "--model_pb" } }};
+            { ReadType::Paired, "pe", "paired-end", "model_pe.xml", "--model", 30 },
+            { ReadType::Single, "se", "single-end", "model_se.xml", "--model_se", 30 },
+            { ReadType::PacBio, "pb", "PacBio", "model_PB.xml", "--model_pb", 30 } }};
 
     // Databases from before read types hold one model, for paired-end reads.
     inline const std::vector<std::string> kLegacyModelFiles = { "model.xml", "random_forest.xml" };
@@ -36,6 +37,11 @@ namespace protal {
 
     inline std::string const& ReadTypeName(ReadType type) {
         return Info(type).name;
+    }
+
+    // The quality character (Phred+33) given to every base of a read of `type` without qualities.
+    inline char FastaQualityChar(ReadType type) {
+        return static_cast<char>(33 + Info(type).fasta_quality);
     }
 
     inline std::optional<ReadType> ReadTypeFromToken(std::string const& token) {

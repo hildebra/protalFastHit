@@ -156,6 +156,41 @@ with a second read file and `se` without), `model_pe.xml` (or `model.xml` of old
 `model_se.xml` and `model_PB.xml` (instead of `model_pacbio.xml`), `--model_pb` (instead of
 `--model_pacbio`), and the SAM header line `@CO<tab>protal read type: pb`. Behaviour is unchanged.
 
+## Follow-up: genes of a read vote; FASTA qualities
+
+**Read-level consensus** (`TaxonOfRead`, `SettleByRead` in `src/Core/LongReads.h`), as proposed
+under "Next". After a read's segments are aligned, each confident segment (MAPQ >= 4) votes for the
+taxon of its best hit; a taxon with at least two thirds of the votes is the read's taxon. An
+ambiguous segment (MAPQ < 4) takes the hit of that taxon as its best if its best cannot be told
+apart from it (the best's MAPQ against it is below 4); if the taxon's anchor at that place was not
+among the `--align_top` aligned, it is aligned first. The settled segment gets the lowest MAPQ of
+the segments that voted for the taxon, and its record is tagged `ZR:i:1`. protal reports how many
+ambiguous gene hits were settled.
+
+Votes count equally. The first version weighted them by MAPQ, which settled 7.6% of the settled
+bases wrongly (`settled.py`): a marker gene that the read's species lacks in the database (the mini
+GTDB's `--marker_loss`) aligns to a relative with no competitor and MAPQ ~140, and outvoted five of
+the species' own genes of MAPQ 5-15. With equal votes, none of 1.75 Mb settled was wrong.
+
+The native rows of table 2 (close relatives) with the consensus; table 1 is unchanged (no
+ambiguous genes there):
+
+| native | recovered | misassigned | MAPQ < 4 (bp) | abundance error | alpha / beta / gamma |
+|---|---|---|---|---|---|
+| without consensus | 0.784 | 2.9% | 1.77 M | 0.028 | 0.472 / 0.327 / 0.201 |
+| votes weighted by MAPQ | 0.947 | 3.8% | 0.10 M | 0.020 | 0.491 / 0.320 / 0.189 |
+| **equal votes** | **0.969** | **2.4%** | 0.02 M | **0.015** | 0.507 / 0.307 / 0.185 |
+
+2,249 of 2,280 ambiguous gene hits were settled. The misassigned bases (222 kb) are those without
+consensus: genes the species lacks in the database, which no read-level rule can move.
+
+**FASTA input** now gets a constant quality per read type: Q30 (`?`) for paired-end, single-end and
+PacBio reads, filled in by the readers (`FillMissingQuality`), so that the profiler takes their
+records; before, it skipped every record without qualities, in every mode.
+
+Tests: unit 122 of 122 (consensus votes and settling, the `ZR` tag, FASTA qualities of single-end
+and paired readers); end-to-end 75 of 75 (FASTA input of single-end and PacBio reads, the log line).
+
 ## Documentation to add with the branch
 
 `docs/running.md`, a section after "Single-end reads":
@@ -168,9 +203,11 @@ with a second read file and `se` without), `model_pe.xml` (or `model.xml` of old
 > on that gene, and each gene hit gets its own MAPQ against the homologs of other taxa at the same
 > place. A read's hits are written as one primary and supplementary (0x800) records, hard-clipped
 > to the aligned bases; the profiler counts each as a read. Reads longer than 65,000 bp are seeded
-> in overlapping chunks (protal says how many). PacBio samples are profiled with the database's
-> `model_PB.xml`, or `--model_pb`. Reads of more than 1,000 bp given as short reads stop the run
-> with a hint to `--read_type pb`.
+> in overlapping chunks (protal says how many). A gene hit that fits several taxa equally is
+> settled by the read's other genes: if two thirds of the read's confident genes name one taxon,
+> the gene takes that taxon's hit (tagged `ZR:i:1`). PacBio samples are profiled with the
+> database's `model_PB.xml`, or `--model_pb`. Reads of more than 1,000 bp given as short reads stop
+> the run with a hint to `--read_type pb`. Reads without qualities (FASTA) are taken as Q30.
 
 In `docs/running.md`'s options table: `--read_type` (default: `pe` with `-2`, else `se`) and
 `--model_pb` (default `--model`, else `model_PB.xml`). `docs/database-files.md`: `model_pe.xml`,

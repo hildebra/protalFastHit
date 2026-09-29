@@ -227,14 +227,14 @@ namespace protal::classify {
         Benchmark bm_output_global{"Output handler", 0};
         Benchmark bm_reader_global{"Sequence reader"};
         Benchmark bm_omp_block{"OMP Loop handler"};
-        size_t chunked_reads = 0;
+        size_t chunked_reads = 0, ambiguous_segments = 0, settled_segments = 0;
 
         Utils::Histogram seed_sizes_global;
         Utils::Histogram anchor_sizes_global;
 
         std::cout << "Start parallel execution with " << options.GetThreads() << " threads" << std::endl;
         bm_omp_block.Start();
-#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_alignment_global, bm_output_global, seed_sizes_global, anchor_sizes_global, reader_global, options, statistics, aligner_global, output_handler_global, chunked_reads)
+#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_alignment_global, bm_output_global, seed_sizes_global, anchor_sizes_global, reader_global, options, statistics, aligner_global, output_handler_global, chunked_reads, ambiguous_segments, settled_segments)
         {
             FastxRecord record;
             LongReadSegments segments;
@@ -285,6 +285,8 @@ namespace protal::classify {
                 anchor_finder_global.m_bm_sorting_anchors.Join(anchor_finder.m_bm_sorting_anchors);
                 anchor_finder_global.m_bm_extend_anchors.Join(anchor_finder.m_bm_extend_anchors);
                 chunked_reads += aligner.ChunkedReads();
+                ambiguous_segments += aligner.AmbiguousSegments();
+                settled_segments += aligner.SettledSegments();
 
                 reader_global.UpdateSuccess(reader);
                 bm_reader_global.Join(bm_reader);
@@ -303,6 +305,8 @@ namespace protal::classify {
             std::cout << chunked_reads << " read(s) longer than " << kMaxLongReadChunk << " bp were seeded in chunks overlapping by "
                       << aligner_global.ChunkOverlap() << " bp" << std::endl;
         }
+        std::cout << settled_segments << " of " << ambiguous_segments << " gene hits that fit several taxa (MAPQ < " << kConfidentMapq
+                  << ") were settled by their read's other genes" << std::endl;
         if (options.Verbose()) {
             std::cout << "---------------Speed benchmarks---------------------" << std::endl;
             bm_omp_block.PrintResults();
