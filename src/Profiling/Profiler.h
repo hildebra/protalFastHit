@@ -1213,6 +1213,15 @@ namespace protal {
             double GetKnob() const { return m_knob; }
         };
 
+        // A placeholder model (scripts/placeholder_models.py) fills a read type's slot in the database
+        // until a trained model replaces it: it scores every taxon 0, and protal warns when it loads one.
+        inline constexpr std::string_view kPlaceholderModelMarker = "<Annotation>protal:placeholder</Annotation>";
+
+        inline bool IsPlaceholderModel(std::string const& xml) {
+            auto const header_end = xml.find("</Header>");
+            return header_end != std::string::npos && xml.rfind(kPlaceholderModelMarker, header_end) != std::string::npos;
+        }
+
         // Why protal cannot use the PMML model `model` parsed from `xml`, or an empty string. The
         // model must take its inputs from TaxonFeatures (a missing one would stop the run after the
         // alignment), predict the label TRUE (its probability is the taxon's score; another label

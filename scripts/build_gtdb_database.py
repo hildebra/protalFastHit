@@ -45,6 +45,7 @@ PARITY = os.path.join(HERE, "check_model_parity.py")
 ACCESSION = re.compile(r"(?:RS_|GB_)?(GC[AF]_\d{9}\.\d+)")
 sys.path.insert(0, os.path.join(HERE, "mini_db"))
 from gtdb_to_protal_db import normalize_accession, read_representatives  # noqa: E402
+from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 
 
 def run(command, log):
@@ -190,6 +191,10 @@ def main():
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--ntree", type=int, default=64)
     p.add_argument("--maxnodes", type=int, default=128)
+    p.add_argument("--no-placeholder-models", action="store_true",
+                   help="leave the se, pb and ont models out of the database (a run with such reads then stops "
+                        "with an error) instead of placeholders that report no species until trained ones replace "
+                        "them (placeholder_models.py)")
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
     args = p.parse_args()
@@ -232,6 +237,11 @@ def main():
     # representative genomes). The training database has the same taxonomy.
     taxonomy = os.path.join(args.outdir, "internal_taxonomy.dmp")
     shutil.copyfile(os.path.join(db, "internal_taxonomy.dmp"), taxonomy)
+    # One model per read type; only paired-end reads can be simulated and aligned here, so the others get
+    # placeholders (protal warns when it loads one), packed by --build like model_pe.xml.
+    if not args.no_placeholder_models:
+        for read_type in ("se", "pb", "ont"):
+            write_placeholder(os.path.join(db, MODEL_FILES[read_type]), read_type)
 
     # The training database leaves some species out: the model then sees reads of species the database
     # lacks, which land on relatives. It is made from the converted files before --build packs them.

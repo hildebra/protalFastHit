@@ -22,6 +22,38 @@ import numpy as np
 
 LABELS = ("FALSE", "TRUE")
 
+# protal warns when it loads a model with this annotation (profiler::kPlaceholderModelMarker).
+PLACEHOLDER_MARKER = "protal:placeholder"
+# Database member of each read type's model (db::kReadTypeModels in src/Utilities/Database.h).
+MODEL_FILES = {"pe": "model_pe.xml", "se": "model_se.xml", "pb": "model_PB.xml", "ont": "model_ONT.xml"}
+
+
+def write_placeholder(path, read_type):
+    """An untrained model for `read_type`: it scores every taxon 0, so protal reports no species (with
+    --knob 0, every taxon with reads). protal warns when it loads it."""
+    field = "fragments"
+    schema = (f'<MiningSchema><MiningField name="truth" usageType="predicted"/><MiningField name="{field}"/>'
+              '</MiningSchema>')
+    text = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n<PMML version="4.4">\n'
+        f' <Header description="protal placeholder model for read type {read_type}: untrained, scores every taxon 0">\n'
+        '  <Application name="protal scripts/placeholder_models.py"/>\n'
+        f'  <Annotation>{PLACEHOLDER_MARKER}</Annotation>\n'
+        f'  <Annotation>replace with a trained model: protal --add_model MODEL --read_type {read_type} --db DB</Annotation>\n'
+        ' </Header>\n'
+        ' <DataDictionary numberOfFields="2">\n'
+        f'  <DataField name="truth" optype="categorical" dataType="string"><Value value="{LABELS[0]}"/>'
+        f'<Value value="{LABELS[1]}"/></DataField>\n'
+        f'  <DataField name="{field}" optype="continuous" dataType="double"/>\n'
+        ' </DataDictionary>\n'
+        f' <MiningModel functionName="classification">\n  {schema}\n  <Segmentation multipleModelMethod="average">\n'
+        f'   <Segment id="1"><True/><TreeModel functionName="classification" splitCharacteristic="binarySplit">{schema}\n'
+        f'<Node score="{LABELS[0]}" recordCount="1.0"><True/><ScoreDistribution value="{LABELS[0]}" recordCount="1.0"/>'
+        f'<ScoreDistribution value="{LABELS[1]}" recordCount="0.0"/></Node>'
+        '</TreeModel></Segment>\n  </Segmentation>\n </MiningModel>\n</PMML>\n')
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+
 
 def float32_split(threshold):
     """The largest double x with float32(x) <= threshold: `x <= float32_split(t)` is sklearn's

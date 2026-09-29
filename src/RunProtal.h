@@ -1740,6 +1740,11 @@ namespace protal {
             std::cerr << "Cannot use the model " << file.Name() << ": " << problem << std::endl;
             exit(2);
         }
+        if (profiler::IsPlaceholderModel(*xml)) {
+            std::cerr << "WARNING: " << file.Name() << " is a placeholder, not a trained model: it scores every taxon 0, so "
+                      << "no species is reported (--knob 0 lists every taxon with reads). Train a model for this read type "
+                      << "and store it with protal --add_model FILE --read_type TYPE --db DB." << std::endl;
+        }
         return *model;
     }
 

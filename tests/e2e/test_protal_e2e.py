@@ -951,6 +951,32 @@ class ReadTypeModelTest(WorkDir):
         self.assertEqual(rc, 0, log[-3000:])
         self.assertTrue(filecmp.cmp(self.path("unpacked", "model_se.xml"), db_file("model_pe.xml"), shallow=False))
 
+    def test_placeholder_model(self):
+        # scripts/placeholder_models.py fills a read type's slot until a trained model replaces it: it reports
+        # no species (--knob 0: every taxon with reads), and protal warns whenever it loads it.
+        subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "placeholder_models.py"), "-o",
+                        self.path("placeholders"), "--read_types", "ont"], check=True, capture_output=True)
+        placeholder = self.path("placeholders", "model_ONT.xml")
+        warning = "is a placeholder, not a trained model"
+        rc, log = run(self.work, "--add_model", placeholder, "--read_type", "ont", "--db", self.db, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn(warning, log)
+        self.assertRegex(log, r"Models for read types: [^\n]*\bont\b")
+        rc, log = self.profile_only("out_ont", "--read_type", "ont")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Model: model_ONT.xml in " + self.bundle, log)
+        self.assertIn(warning, log)
+        with open(glob.glob(self.path("out_ont", "sa*.profile"))[0]) as fh:
+            self.assertNotIn("s__", fh.read(), "a placeholder reports no species")
+        rc, log = self.profile_only("out_ont_all", "--read_type", "ont", "--knob", "0")
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(glob.glob(self.path("out_ont_all", "sa*.profile"))[0]) as all_taxa, \
+                open(glob.glob(self.path("out_pe", "sa*.profile"))[0]) as pe:
+            reported = {line.split("\t")[1] for line in all_taxa if "s__" in line}
+            self.assertTrue({line.split("\t")[1] for line in pe if "s__" in line} <= reported)
+        rc, log = self.profile_only("out_pe_again")
+        self.assertNotIn("placeholder", log, "the paired-end model is not one")
+
     def test_an_unusable_model_is_not_added(self):
         with open(self.bundle, "rb") as fh:
             before = fh.read()
