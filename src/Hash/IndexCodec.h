@@ -283,7 +283,8 @@ namespace protal::index_codec {
                 std::vector<uint64_t> vals_check(c.values);
                 if (DecodeChunk(out.data(), out.size(), l, c, km_check.data(), vals_check.data()).empty() &&
                     std::memcmp(km_check.data(), km + c.first_block * cpb, km_check.size() * 2) == 0 &&
-                    std::memcmp(vals_check.data(), vals + c.first_value, vals_check.size() * 8) == 0) {
+                    (vals_check.empty() ||
+                     std::memcmp(vals_check.data(), vals + c.first_value, vals_check.size() * 8) == 0)) {
                     return true;
                 }
             }
@@ -291,8 +292,10 @@ namespace protal::index_codec {
             out[0] = static_cast<char>(kModeRaw);
             auto const* km_bytes = reinterpret_cast<char const*>(km + c.first_block * cpb);
             out.insert(out.end(), km_bytes, km_bytes + 2 * c.blocks * cpb);
-            auto const* val_bytes = reinterpret_cast<char const*>(vals + c.first_value);
-            out.insert(out.end(), val_bytes, val_bytes + 8 * c.values);
+            if (c.values != 0) {
+                auto const* val_bytes = reinterpret_cast<char const*>(vals + c.first_value);
+                out.insert(out.end(), val_bytes, val_bytes + 8 * c.values);
+            }
             return false;
         }
 
