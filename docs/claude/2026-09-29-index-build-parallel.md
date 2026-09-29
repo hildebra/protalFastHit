@@ -1,7 +1,8 @@
 # Parallelising `protal --build`: where the time goes, and what a parallel index build would gain
 
 - **Date**: 2026-09-29.
-- **Code**: branch `audit-fixes` at `7c6b2f8` (no C++ changed for this report).
+- **Code**: branch `audit-fixes` at `7c6b2f8` (no C++ changed for this report; the follow-up on
+  the uniqueness check changes `SeqReader.h`, `Seedmap.h` and `Build.h`).
 - **Machine**: WSL Ubuntu 24.04, Intel Core Ultra 7 258V, 8 threads, 15 GB.
 - **Data**: the 765-species release of the GTDB-like tuning world
   ([model-training tuning](2026-09-29-model-training-tuning/README.md)), converted by
@@ -85,11 +86,46 @@ Two steps are cheaper and worth trying first:
    8 threads. Its reader takes 1 KB per critical section, about one gene record, so threads queue
    on the lock; a block of a few MB (one constant in `SeqReader.h`) may give most of the missing
    scaling. Measure before and after; with 1.6x now and ~6x possible, ~20-30 min per build.
+   (Done; the lock on the unique flag, not the block size, was what held it back: see the
+   follow-up below.)
 2. **Parallel extraction with one applying thread** (producer-consumer, in record order): same
    index, a small change, but it gains only the extraction's share of the two passes (≤2x).
 
 Not worth it: keeping pass 1's minimizers for pass 2 (4 G minimizers x 12 bytes at GTDB scale), or
 atomics with a final sort of each key's values (changes the value order and so, possibly, results).
+
+## Follow-up: the uniqueness check (done)
+
+Tried step 1 above. The block size alone helped little: 1 MB instead of 1 KB took 8 threads from
+9.6 s to 7.1 s and still left them slower than 4. The lock that mattered was the other one: each
+k-mer found in another taxon clears its entry's unique flag inside `#pragma omp critical
+(SetNonUnique)`, one global lock taken millions of times. `Entry::SetFlagNonUnique` now clears
+the bit with an atomic `fetch_and` (the lock is gone from `Build.h`); clearing a bit commutes, so
+the result does not depend on the order. The readers of `value` were already unlocked and read
+bits that nothing changes during the check.
+
+Uniqueness check, median of 3 repetitions on the same input (the laptop's times vary by ~10%):
+
+| reader block | flag | `-t 4` | `-t 8` |
+|---|---|---|---|
+| 1 KB | lock (before) | 7.3 s | 9.6 s |
+| 1 MB | lock | 5.4 s | 7.1 s |
+| 1 KB | atomic | 5.1 s | 3.9 s |
+| 1 MB | atomic (now) | 4.1 s | 2.9 s |
+
+A final run, the commit before (`18783ac`) and a clean copy of it with the change, built the same
+way and run back to back on `--build --no_profile --no_compress`:
+
+| | `-t 1` | `-t 4` | `-t 8` |
+|---|---|---|---|
+| before | 10.3 s | 4.3 s | 9.2 s |
+| after | 10.2 s | 3.0 s | 1.9 s |
+
+On 8 threads the check is 5.3x faster than on one (before: slower on 8 threads than on 4). One
+thread is unchanged. `unique_kmers.tsv` and `index.prx` are identical in every run (block sizes
+1 KB-8 MB, both flag variants, 1-8 threads). With the change: 126 C++ tests, the mini-database
+tests and the 85 end-to-end tests pass. The check's ~35-50 min at GTDB scale should become
+~10-15 min per build on 16 threads.
 
 ## Already done at the script level (no C++)
 

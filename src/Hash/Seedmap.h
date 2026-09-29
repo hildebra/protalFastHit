@@ -18,6 +18,7 @@
 #include "KmerUtils.h"
 #include "ReferenceFingerprint.h"
 #include "sparse_map.h"
+#include <atomic>
 #include <bit>
 #include <bits/stdc++.h>
 #include "protal_config.h"
@@ -60,8 +61,12 @@ namespace protal {
             unique_min_distance_two = IsFlagUniqueDistanceMinTwo();
         }
 
+        // Atomic: --build's uniqueness check clears flags from all its threads (with a lock around
+        // each, 8 threads were slower than 4). Clearing a bit commutes, so the result does not depend on
+        // the order.
         void SetFlagNonUnique() {
-            value &= ~(1llu << (taxid_bits + geneid_bits + genepos_bits));
+            std::atomic_ref<uint64_t>(value).fetch_and(~(1llu << (taxid_bits + geneid_bits + genepos_bits)),
+                                                       std::memory_order_relaxed);
         }
 
         void SetFlagUniqueDistanceMinTwo() {

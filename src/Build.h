@@ -887,8 +887,7 @@ namespace protal::build {
                     if (taxonomic_id == taxid) continue;
                     uint64_t indexed_kmer = 0;
                     if (!IndexedKmer(putter.GetMap(), genomes, taxid, geneid, genepos, indexed_kmer) || indexed_kmer != pair.first) continue;
-#pragma omp critical(SetNonUnique)
-                    single->SetFlagNonUnique();
+                    single->SetFlagNonUnique();  // atomic
                     continue;
                 }
 
@@ -903,8 +902,7 @@ namespace protal::build {
 
                 for (auto& entry : max_sim_entries) {
                     // std::cout << "SetNonUnique " << taxonomic_id << " != " << taxid << " entries: " << max_sim_entries.size() << " Isunique? " << entry->IsFlagUnique();
-#pragma omp critical(SetNonUnique)
-                    entry->SetFlagNonUnique();
+                    entry->SetFlagNonUnique();  // atomic
                     // std::cout << " -> " << entry->IsFlagUnique() << std::endl;
                 }
             }
