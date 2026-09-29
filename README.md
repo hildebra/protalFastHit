@@ -65,18 +65,43 @@ protal
 ## Database files
 
 A protal database is `index.prx`, `reference.fna`, `reference.map`, `internal_taxonomy.dmp`,
-`unique_kmers.tsv` and `model.xml`. `protal --build` packs them into one file, `database.protal`,
-compressed with [zstd](https://facebook.github.io/zstd/); one file to copy, download, checksum or
-version, whose parts cannot get out of step. `--db` takes that file, or a folder that holds it, or a
-folder with the separate files (raw, or `index.prx.zst` / `reference.fna.zst`). A folder with both
-uses the separate files.
+`unique_kmers.tsv` and the presence models (below). `protal --build` packs them into one file,
+`database.protal`, compressed with [zstd](https://facebook.github.io/zstd/); one file to copy,
+download, checksum or version, whose parts cannot get out of step. `--db` takes that file, or a
+folder that holds it, or a folder with the separate files (raw, or `index.prx.zst` /
+`reference.fna.zst`). A folder with both uses the separate files.
+
+### Presence models per read type
+
+A database holds one presence model (random forest, PMML) per read type, and `--read_type` picks
+the one a run uses:
+
+| `--read_type` | Reads | Model file |
+|---|---|---|
+| `pe` (default) | paired-end | `model_pe.xml` (older databases: `model.xml`, `random_forest.xml`) |
+| `se` | single-end, < 500 bp | `model_se.xml` |
+| `pb` | PacBio | `model_PB.xml` |
+| `ont` | Oxford Nanopore | `model_ONT.xml` |
+
+protal aligns paired-end reads only so far; the other read types apply to `--profile_only`.
+`--build` packs every model file in the `--db` folder. A model is stored in, or replaced in, an
+existing database with
+
+```bash
+protal --add_model trained_se.xml --read_type se --db /path/to/protal-db -t 16
+```
+
+which checks the model first (the inputs protal computes, a `TRUE` class, a score; see
+`scripts/model_training.md`) and rewrites `database.protal` with its other parts copied as they
+are, so it takes seconds also for a full database. `--model FILE` overrides the database's model
+for a run.
 
 ### Compression
 
 Compression saves disk space and makes loading faster wherever storage is slower than
 decompression, e.g. on network file systems. The mini database takes 1.0 MB as `database.protal`
 and 3.2 GB raw (the index's k-mer key map has a fixed size); in `database.protal` the text files
-and the model are compressed too (`model.xml` about 20x).
+and the models are compressed too (`model_pe.xml` about 20x).
 
 protal writes zstd's *seekable* format: independent frames of 64 MB each (plus a seek table at the
 end), so that loading uses `-t` threads, each decompressing whole frames straight into memory
@@ -208,7 +233,7 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
   genomes) plus `simulation/genomes.tsv`, which you can pass to `simulate_metagenomes --genome_table`.
 - `gtdb_to_protal_db.py` turns such a release (synthetic or a real, extracted one) into
   `reference.fna`, `reference.map`, `internal_taxonomy.dmp`, `full_reference.fna` and
-  `model.xml`. `build_mini_db.sh` then runs `protal --build` on them.
+  `model_pe.xml`. `build_mini_db.sh` then runs `protal --build` on them.
 - `simulate_reads.py` draws paired reads from a mock community of those genomes (no ART needed)
   and writes the truth table next to them.
 - The build packs the database into `protal_db/database.protal` (see [Database files](#database-files)),
@@ -220,7 +245,7 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
 
 `scripts/build_gtdb_database.py` runs the release converter, builds and packages the index,
 simulates training data from whole genomes, trains a normalized-feature random forest, then
-repackages the database with the new `model.xml`:
+stores the new model as `model_pe.xml` in the database (`protal --add_model`):
 
 ```bash
 python3 scripts/build_gtdb_database.py --gtdb /data/gtdb_r226 --outdir /data/protal_r226 \

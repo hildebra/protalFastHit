@@ -1,8 +1,18 @@
 # Training protal's presence model
 
-protal decides whether a species is present with a random forest (PMML, `model.xml` in the
-database directory). It scores every species with reads, and reports those whose probability of
-`TRUE` is at least `--knob` (0 to 1, default 0.5).
+protal decides whether a species is present with a random forest (PMML) from the database. It
+scores every species with reads, and reports those whose probability of `TRUE` is at least
+`--knob` (0 to 1, default 0.5).
+
+A database holds one model per read type, and `--read_type` picks it: `model_pe.xml` (paired-end,
+the default; older databases: `model.xml`), `model_se.xml` (single-end reads < 500 bp),
+`model_PB.xml` (PacBio), `model_ONT.xml` (Oxford Nanopore). Train each on simulated reads of its
+type, and store it in the database with
+
+    protal --add_model training/model.xml --read_type se --db DB -t 8
+
+which checks the model as below and replaces the one stored for that read type. Before `--build`,
+the same names in the database folder go into `database.protal` too.
 
 ## What protal expects of a model
 

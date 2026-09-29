@@ -1,6 +1,7 @@
 // Database.h - where protal finds its database files: a directory of files (index.prx(.zst),
-// reference.fna(.zst), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, model.xml), or the
-// single-file database database.protal, which holds all of them as members.
+// reference.fna(.zst), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, one presence model per
+// read type: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml), or the single-file database
+// database.protal, which holds all of them as members.
 //
 // database.protal is a seekable zstd file (Zstd.h):
 //   frame 0       directory: "PROTALDB", version, member count, then per member its name, first
@@ -33,6 +34,41 @@ namespace protal::db {
         zstd::SeekTable frames;  // offsets in the database file; content offsets from the member's start
         uint64_t Size() const { return frames.DecompressedSize(); }
     };
+
+    // The presence models a database holds, one per read type (--read_type).
+    struct ReadTypeModel {
+        std::string read_type, file, reads;
+    };
+    inline const std::vector<ReadTypeModel> kReadTypeModels = {
+            {"pe", "model_pe.xml", "paired-end reads"},
+            {"se", "model_se.xml", "single-end reads < 500 bp"},
+            {"pb", "model_PB.xml", "PacBio reads"},
+            {"ont", "model_ONT.xml", "Oxford Nanopore reads"}};
+    // Databases from before read types hold one model, for paired-end reads.
+    inline const std::vector<std::string> kLegacyModelFiles = {"model.xml", "random_forest.xml"};
+
+    inline ReadTypeModel const* FindReadType(std::string const& read_type) {
+        for (auto const& model : kReadTypeModels) {
+            if (model.read_type == read_type) return &model;
+        }
+        return nullptr;
+    }
+
+    // The model files that serve read_type, in order of precedence.
+    inline std::vector<std::string> ModelCandidates(std::string const& read_type) {
+        std::vector<std::string> names;
+        if (auto const* model = FindReadType(read_type)) names.push_back(model->file);
+        if (read_type == "pe") names.insert(names.end(), kLegacyModelFiles.begin(), kLegacyModelFiles.end());
+        return names;
+    }
+
+    // Every model file a database may hold.
+    inline std::vector<std::string> AllModelFiles() {
+        std::vector<std::string> names;
+        for (auto const& model : kReadTypeModels) names.push_back(model.file);
+        names.insert(names.end(), kLegacyModelFiles.begin(), kLegacyModelFiles.end());
+        return names;
+    }
 
     // Member names are plain file names (--unpack_db writes each member as <dir>/<name>).
     inline bool IsFileName(std::string const& name) {
@@ -288,10 +324,12 @@ namespace protal::db {
     }
 
     // A member to write, from the file at path: a seekable zstd file's frames are copied as they are,
-    // any other file (raw, or zstd without a seek table) is compressed into frames.
+    // any other file (raw, or zstd without a seek table) is compressed into frames. With frames, only
+    // those frames of path are copied (a member of another single-file database).
     struct Source {
         std::string name;
         std::string path;
+        std::optional<zstd::SeekTable> frames = std::nullopt;
     };
 
     namespace detail {
@@ -391,7 +429,9 @@ namespace protal::db {
                 error = source.path + " does not exist";
                 return std::nullopt;
             }
-            if (zstd::IsCompressed(source.path)) {
+            if (source.frames) {
+                p.table = source.frames;
+            } else if (zstd::IsCompressed(source.path)) {
                 p.table = zstd::ReadSeekTable(source.path, error);
                 if (!error.empty()) {
                     error = source.path + ": " + error;

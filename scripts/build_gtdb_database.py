@@ -11,7 +11,6 @@ import argparse
 import glob
 import os
 import re
-import shutil
 import subprocess
 import sys
 
@@ -123,11 +122,9 @@ def main():
          "--output-prefix", prefix, "--features", "normalized", "--ntree", str(args.ntree),
          "--maxnodes", str(args.maxnodes), "--seed", str(args.seed), "--threads", str(args.threads)],
         os.path.join(args.outdir, "classifier_training.log"))
-    # --build packs/removes the component files, so unpack before replacing model.xml.
-    run([args.protal, "--unpack_db", "--db", db, "-t", str(args.threads)],
-        os.path.join(args.outdir, "unpack.log"))
-    shutil.copyfile(prefix + ".xml", os.path.join(db, "model.xml"))
-    run([args.protal, "--compress_db", "--db", db, "-t", str(args.threads)],
+    # The trained model replaces the shipped one as the paired-end model (model_pe.xml) in
+    # database.protal; --add_model checks it and copies the other parts as they are.
+    run([args.protal, "--add_model", prefix + ".xml", "--read_type", "pe", "--db", db, "-t", str(args.threads)],
         os.path.join(args.outdir, "final_package.log"))
     with open(os.path.join(db, "build_metadata.tsv"), "w") as fh:
         fh.write(f"gtdb_release\tr{release}\nclassifier_features\tnormalized\n")

@@ -28,7 +28,8 @@ Writes to <outdir>:
                          genome's species (only if genomic_files_all is present)
   gene2geneid.tsv        marker id -> geneid
   genome2tiid.tsv        accession, species taxid, species rep accession, lineage
-  model.xml              copy of --model (the profiler's random forest)
+  model_pe.xml           copy of --model (the profiler's random forest for paired-end reads;
+                         models for other read types: protal --add_model, see README)
 
 Then build the index with
   protal --build --no_profile --db <outdir> --reference <outdir>/reference.fna \\
@@ -190,7 +191,7 @@ def main():
     ap.add_argument("--outdir", required=True, help="protal database directory to write")
     ap.add_argument("--release", help="release number, e.g. 226 (default: detected)")
     ap.add_argument("--model", default=os.path.join(SCRIPT_DIR, "..", "random_forest.xml"),
-                    help="random forest PMML copied to <outdir>/model.xml")
+                    help="random forest PMML for paired-end reads, copied to <outdir>/model_pe.xml")
     ap.add_argument("--order", choices=("gene", "genome"), default="gene",
                     help="reference.fna record order: by gene, then taxid (compresses better), or by taxid, then gene")
     args = ap.parse_args()
@@ -287,9 +288,9 @@ def main():
                     n_full += 1
 
     if os.path.exists(args.model):
-        shutil.copyfile(args.model, out("model.xml"))
+        shutil.copyfile(args.model, out("model_pe.xml"))
     else:
-        sys.stderr.write(f"Warning: model {args.model} not found; add model.xml before profiling\n")
+        sys.stderr.write(f"Warning: model {args.model} not found; add model_pe.xml before profiling\n")
 
     sys.stderr.write(
         f"GTDB r{rel} -> {args.outdir}\n"

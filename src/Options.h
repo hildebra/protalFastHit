@@ -82,7 +82,8 @@ namespace protal {
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
-                ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model.xml.", cxxopts::value<std::string>()->default_value(""))
+                ("read_type", "Type of the reads, which picks the database's presence model: pe (paired-end reads, model_pe.xml), se (single-end reads < 500 bp, model_se.xml), pb (PacBio reads, model_PB.xml), ont (Oxford Nanopore reads, model_ONT.xml). protal aligns paired-end reads only so far; the other types apply to --profile_only.", cxxopts::value<std::string>()->default_value("pe"))
+                ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model for --read_type.", cxxopts::value<std::string>()->default_value(""))
                 ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""));
 
         // Strain / SNP options
@@ -111,14 +112,15 @@ namespace protal {
                 ("mapq_debug_output", "Output mapq debug info to stderr")
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
-                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, model.xml) instead of packing them into database.protal.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, the models model_*.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
                 ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
-                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv and model.xml. database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv and the models (model_pe.xml, ...). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
+                ("add_model", "Store the PMML model FILE in the database --db as the model for --read_type (model_pe.xml by default; see --read_type), replacing the one there. The model is checked first. database.protal is rewritten with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "All marker genomes (not only representative ones) to check unique k-mers during build process", cxxopts::value<std::string>()->default_value(""))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "Newline-delimited gene ids (>=1) to include during build (subset of marker genes)", cxxopts::value<std::string>()->default_value(""))
@@ -197,6 +199,8 @@ namespace protal {
         // profiling
         std::string profile_truth;
         std::string model;
+        std::string read_type = "pe";
+        std::string add_model;
         double knob = 0.5;
         double depth_identity_margin = 0.04;
 
@@ -281,6 +285,8 @@ namespace protal {
 
         std::string m_profile_truth;
         std::string m_model;
+        std::string m_read_type = "pe";
+        std::string m_add_model;  // --add_model
         double m_knob = 0.5;
         double m_depth_identity_margin = 0.04;
 
@@ -386,6 +392,8 @@ namespace protal {
                 m_range(std::move(d.range)),
                 m_profile_truth(std::move(d.profile_truth)),
                 m_model(std::move(d.model)),
+                m_read_type(std::move(d.read_type)),
+                m_add_model(std::move(d.add_model)),
                 m_knob(d.knob),
                 m_depth_identity_margin(d.depth_identity_margin),
                 m_threads(d.threads),
@@ -447,6 +455,7 @@ namespace protal {
             }
             result_str << "no strains:          " << std::to_string(m_no_strains) << '\n';
             result_str << "threads:             " << std::to_string(m_threads) << '\n';
+            result_str << "read type:           " << m_read_type << '\n';
             result_str << "-------- I/O --------" << std::string(30, '-') << '\n';
             result_str << "first:               " << (first_list_str.length() > 50 ? std::to_string(m_first_list.size()) + " files" : first_list_str) << '\n';
             result_str << "second:              " << (second_list_str.length() > 50 ? std::to_string(m_second_list.size()) + " files" : second_list_str) << '\n';
@@ -514,28 +523,13 @@ namespace protal {
             return m_depth_identity_margin;
         }
 
-        std::string GetModelPath() const {
-            if (m_model.empty()) {
-                std::string default_path = m_database_path + "/model.xml";
-                if (!std::filesystem::exists(default_path)) {
-                    std::string fallback_path = m_database_path + "/random_forest.xml";
-                    if (std::filesystem::exists(fallback_path)) {
-                        std::cerr << "model.xml not found, falling back to random_forest.xml" << std::endl;
-                        return fallback_path;
-                    }
-                }
-                return default_path;
-            }
-            // An existing file (path or name) is used as is; otherwise a file name with an extension is
-            // looked up in the database folder, and a bare name means <db>/<name>.xml.
-            std::filesystem::path p(m_model);
-            if (std::filesystem::exists(p)) {
-                return m_model;
-            }
-            if (!p.extension().empty()) {
-                return (std::filesystem::path(m_database_path) / p).string();
-            }
-            return m_database_path + "/" + m_model + ".xml";
+        std::string const& GetReadType() const {
+            return m_read_type;
+        }
+
+        // --add_model: the PMML file to store in the database as the model for --read_type.
+        std::string const& GetAddModel() const {
+            return m_add_model;
         }
 
         bool PreloadGenomes() const {
@@ -676,22 +670,20 @@ namespace protal {
             return DbFileNamed(PROTAL_UNIQUE_KMER_FILE, GetUniqueKmersFile());
         }
 
-        // The PMML model: --model if it names an existing file, else from the database (see
-        // GetModelPath for a directory; in a single-file database the member --model names, <name>.xml
-        // without an extension, by default model.xml or else random_forest.xml).
+        // The PMML model: --model if it names an existing file, else from the database: the file (or
+        // member) --model names (<name>.xml without an extension), by default the model for
+        // --read_type (db::ModelCandidates: model_pe.xml, or model.xml / random_forest.xml of older
+        // databases, for paired-end reads). Exists() is false if the database has none.
         db::DbFile ModelDbFile() const {
             if (!m_model.empty() && std::filesystem::exists(m_model)) return db::DbFile::OnDisk(m_model);
-            if (!m_bundle) return db::DbFile::OnDisk(GetModelPath());
-            if (!m_model.empty()) {
-                bool const bare = std::filesystem::path(m_model).extension().empty();
-                return db::DbFile::InBundle(*m_bundle, bare ? m_model + ".xml" : m_model);
+            std::vector<std::string> names = db::ModelCandidates(m_read_type);
+            if (!m_model.empty()) names = {std::filesystem::path(m_model).extension().empty() ? m_model + ".xml" : m_model};
+            if (names.empty()) names = {"model_" + m_read_type + ".xml"};
+            for (auto const& name : names) {
+                auto file = DbFileNamed(name, m_database_path + "/" + name);
+                if (file.Exists()) return file;
             }
-            auto model = db::DbFile::InBundle(*m_bundle, "model.xml");
-            if (!model.Exists()) {
-                auto fallback = db::DbFile::InBundle(*m_bundle, "random_forest.xml");
-                if (fallback.Exists()) return fallback;
-            }
-            return model;
+            return DbFileNamed(names.front(), m_database_path + "/" + names.front());
         }
 
         bool WriteBundle() const {
@@ -1391,10 +1383,22 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             std::vector<std::string> warning_log;
 
             ResolveDatabase(error_log);
-            bool const db_mode = m_compress_db || m_decompress_db || m_unpack_db;
-            if (int(m_compress_db) + int(m_decompress_db) + int(m_unpack_db) + int(m_build) > 1) {
-                error_log.emplace_back("--build, --compress_db, --decompress_db and --unpack_db cannot be combined "
+            bool const add_model = !m_add_model.empty();
+            bool const db_mode = m_compress_db || m_decompress_db || m_unpack_db || add_model;
+            if (int(m_compress_db) + int(m_decompress_db) + int(m_unpack_db) + int(add_model) + int(m_build) > 1) {
+                error_log.emplace_back("--build, --compress_db, --decompress_db, --unpack_db and --add_model cannot be combined "
                                        "(--build compresses unless --no_compress)");
+            }
+            if (!db::FindReadType(m_read_type)) {
+                std::string types;
+                for (auto const& model : db::kReadTypeModels) types += (types.empty() ? "" : ", ") + model.read_type;
+                error_log.emplace_back("--read_type must be one of " + types + ", not '" + m_read_type + "'");
+            } else if (m_read_type != "pe" && !m_profile_only && !m_build && !db_mode) {
+                error_log.emplace_back("protal aligns paired-end reads only so far (--read_type pe); --read_type " + m_read_type +
+                                       " picks the model for profiling SAM files with --profile_only");
+            }
+            if (add_model && !std::filesystem::is_regular_file(m_add_model)) {
+                error_log.emplace_back("--add_model: " + m_add_model + " is not a file");
             }
             if (m_unpack_db && !m_bundle && error_log.empty()) {
                 error_log.emplace_back("--unpack_db needs a single-file database, but " + m_database_path + " holds separate files" +
@@ -1472,7 +1476,14 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                                            " (without it every taxon fails the model; rebuild the database with --build)");
                 }
                 if (!m_no_profile && !ModelDbFile().Exists()) {
-                    error_log.emplace_back("Model file does not exist: " + ModelDbFile().Name() + " (give one with --model)");
+                    auto const* type = db::FindReadType(m_read_type);
+                    std::string const db = m_bundle ? m_bundle->Path() : m_database_path;
+                    error_log.emplace_back(!m_model.empty() || !type
+                            ? "Model file does not exist: " + ModelDbFile().Name()
+                            : "The database has no model for --read_type " + m_read_type + " (" + type->reads + "): " +
+                              ModelDbFile().Name() + " does not exist" + (m_read_type == "pe" ? " (nor model.xml)" : "") +
+                              ". Give one with --model, or store one in the database with: " + ShellWord(ProgramName()) +
+                              " --add_model MODEL.xml --read_type " + m_read_type + " --db " + ShellWord(db));
                 }
             }
             if (!(m_depth_identity_margin >= 0)) {
@@ -1833,7 +1844,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             bool const compress_db = result.count("compress_db") > 0;
             bool const decompress_db = result.count("decompress_db") > 0;
             bool const unpack_db = result.count("unpack_db") > 0;
-            if (!build && !profile_only && !compress_db && !decompress_db && !unpack_db) {
+            bool const add_model = !result["add_model"].as<std::string>().empty();
+            if (!build && !profile_only && !compress_db && !decompress_db && !unpack_db && !add_model) {
                 if (first_list.empty() && second_list.empty()) {
                     std::cerr << "No input reads given. Provide paired-end reads via -1/--first and "
                                  "-2/--second, or a map file via --map (see --map_help)." << std::endl;
@@ -2020,6 +2032,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.knob                     = result["knob"].as<double>();
             d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
             d.model                    = result["model"].as<std::string>();
+            d.read_type                = result["read_type"].as<std::string>();
+            d.add_model                = result["add_model"].as<std::string>();
 
             auto options = Options(std::move(d));
 
