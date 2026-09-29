@@ -1,515 +1,676 @@
 #!/usr/bin/env python3
-# Random forest trainer modeled after scripts/random_forest_cmdline.R (caret + retrain)
-# Usage:
-#   python3 scripts/random_forest_cmdline.py \
-#     --truth-file /path/to/all.truth_annotated \
-#     --output-prefix /path/to/output/random_forest_caret \
-#     --ntree 512 \
-#     --maxnodes 0 \
-#     --test-fraction 0.2
-# Optional: --seed 1234 --threads 4
+"""Train protal's presence model and report how well it does on samples and species it has not seen.
+
+The model is a random forest that gives each taxon with reads the probability that it is present;
+protal reports taxa whose probability is at least --knob. Training needs no Java: the forest is
+written as PMML by model_pmml.py, and protal scores exactly what scikit-learn scores (checked here on
+every training row).
+
+    python3 scripts/random_forest_cmdline.py --truth-file training/training_data.tsv \\
+        --output-prefix training/model
+
+The training table comes from collect_training_data.py: protal's training dumps
+(<profile>.truth_annotated, one row per taxon with reads) joined, with meta_* columns naming the
+sample (meta_sample) and, if known, the taxon's domain (meta_domain).
+
+Evaluation. Rows of one sample share its reads, and rows of one species share its reference, so a
+random split of rows scores a model on samples and species it was trained on. Here each row is
+scored by forests that saw neither its sample ("by sample") nor its species ("by species"). By
+species is what matters for a large database: of GTDB's ~130,000 species, a training set holds a few
+thousand, so most species protal meets in real samples were never in training. The out-of-bag
+estimate (each tree scores the rows it was not grown on) comes free with the fit.
+
+Written to PREFIX.*:
+  xml                 the model (protal --model FILE, or model.xml of a database)
+  report.txt          the evaluation (also printed); metrics.json has its numbers
+  predictions.tsv.gz  each taxon's probabilities out of fold, with its main features
+  thresholds.tsv      precision and sensitivity by threshold, from species held out
+  varimp.tsv          feature importances
+  joblib              the fitted scikit-learn forest
+
+--evaluation full adds studies that tell whether the training set and the settings suffice: other
+feature sets, the procedure this script used before (grid search over max_features, then only the
+top features, 512 trees), forest sizes and tree counts, and fewer training samples.
+"""
 
 from __future__ import annotations
 
 import argparse
-import math
+import datetime
+import json
+import os
+import platform
 import sys
-from typing import Iterable, Optional, Tuple
-import xml.etree.ElementTree as ET
-
-from model_features import feature_columns
+import time
 
 import joblib
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import sklearn
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import confusion_matrix, precision_recall_curve, average_precision_score
-from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import average_precision_score, brier_score_loss, log_loss, precision_recall_curve, roc_auc_score
+from sklearn.model_selection import GridSearchCV, GroupKFold, StratifiedKFold
 
-TRUE_LABEL = "TRUE"
-FALSE_LABEL = "FALSE"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from model_features import feature_columns  # noqa: E402
+from model_pmml import PmmlForest, write_forest  # noqa: E402
 
-INF_COLS = [
-    "lu_gene_rate",
-    "lsu_gene_rate",
-    "lu_gene_rate2",
-    "lsu_gene_rate2",
-    "lu_gene_rate3",
-    "lsu_gene_rate3",
-    "lu_rate",
-    "lsu_rate",
-    "su_rate",
-    "su_rate_ref",
-    "lu_rate_ref",
-    "lsu_rate_ref",
-    "lsu_per_read",
-    "lu_per_read",
-]
+# Main features written next to the predictions, when the table has them.
+DIAGNOSTIC_FEATURES = ["fragments", "depth", "hit_gene_fraction", "gene_presence_ratio", "identity", "top_identity",
+                       "low_identity_share", "lsu_per_kb", "lu_per_kb", "uniqueness"]
+FRAGMENT_BINS = [0, 10, 100, 1000, np.inf]
 
 
-def _as_bool_series(values: pd.Series) -> pd.Series:
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    p.add_argument("--truth-file", required=True, help="training table (collect_training_data.py) or one training dump")
+    p.add_argument("--output-prefix", required=True)
+    p.add_argument("--features", choices=["normalized", "all"], default="normalized",
+                   help="normalized: the features that do not depend on database, domain, depth and read length "
+                        "(model_features.py; default); all: every feature column of the table")
+    p.add_argument("--reference-pmml", help="train on the inputs of this PMML model instead of --features")
+    p.add_argument("--ntree", type=int, default=64, help="trees (default 64)")
+    p.add_argument("--maxnodes", type=int, default=128, help="leaves per tree at most, 0 for no limit (default 128)")
+    p.add_argument("--min-samples-leaf", type=int, default=1)
+    p.add_argument("--max-features", default="sqrt", help="features tried per split: sqrt, log2, a count or a fraction")
+    p.add_argument("--knob", type=float, default=0.5, help="the threshold protal will use (its --knob, default 0.5)")
+    p.add_argument("--folds", type=int, default=5)
+    p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
+                   help="full: also the studies (see above); basic: out of bag, by sample and by species; "
+                        "none: fit and export only")
+    p.add_argument("--taxonomy", help="internal_taxonomy.dmp of the database, for the taxa's domains when the "
+                                      "table has no meta_domain column")
+    p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--threads", type=int, default=4)
+    return p.parse_args(argv)
+
+
+def max_features_value(text):
+    if text in ("sqrt", "log2"):
+        return text
+    value = float(text)
+    return int(value) if value >= 1 and value.is_integer() else value
+
+
+# ---- data -------------------------------------------------------------------------------------------------
+
+def as_truth(values):
     if values.dtype == bool:
-        return values
+        return values.astype(int)
     if np.issubdtype(values.dtype, np.number):
-        return values.fillna(0).astype(float) > 0
-    lowered = values.fillna("").astype(str).str.lower()
-    truthy = {"true", "t", "1", "yes", "y"}
-    return lowered.isin(truthy)
+        return (values.fillna(0) > 0).astype(int)
+    return values.fillna("").astype(str).str.lower().isin({"true", "t", "1", "yes", "y"}).astype(int)
 
 
-def sensitivity(cm: np.ndarray) -> float:
-    # sklearn's confusion matrix has the true labels in rows: [[TN, FP], [FN, TP]].
-    tp = cm[1, 1]
-    fn = cm[1, 0]
-    return tp / (tp + fn) if (tp + fn) > 0 else 0.0
+def domains_from_taxonomy(path, taxa):
+    tax = pd.read_csv(path, sep="\t", dtype=str)
+    parent = dict(zip(tax["id"], tax["parent_id"]))
+    name = dict(zip(tax["id"], tax["name"]))
+
+    def domain(taxon):
+        node = str(taxon)
+        for _ in range(64):
+            if str(name.get(node, "")).startswith("d__"):
+                return name[node][3:]
+            if node not in parent or parent[node] == node:
+                break
+            node = parent[node]
+        return "unknown"
+
+    return taxa.map({t: domain(t) for t in taxa.unique()})
 
 
-def precision(cm: np.ndarray) -> float:
-    tp = cm[1, 1]
-    fp = cm[0, 1]
-    return tp / (tp + fp) if (tp + fp) > 0 else 0.0
-
-
-def f1(cm: np.ndarray) -> float:
-    tp = cm[1, 1]
-    fp = cm[0, 1]
-    fn = cm[1, 0]
-    denom = (2 * tp + fp + fn)
-    return (2 * tp) / denom if denom > 0 else 0.0
-
-
-def evaluate_split(
-    model: RandomForestClassifier,
-    test_data: pd.DataFrame,
-    train_data: pd.DataFrame,
-    label_col: str = "truth",
-) -> Tuple[dict, dict]:
-    pred_test = model.predict(test_data.drop(columns=[label_col]))
-    pred_train = model.predict(train_data.drop(columns=[label_col]))
-    ct_test = confusion_matrix(
-        test_data[label_col], pred_test, labels=[FALSE_LABEL, TRUE_LABEL]
-    )
-    ct_train = confusion_matrix(
-        train_data[label_col], pred_train, labels=[FALSE_LABEL, TRUE_LABEL]
-    )
-    return (
-        {
-            "ct": ct_test,
-            "sensitivity": sensitivity(ct_test),
-            "precision": precision(ct_test),
-            "f1": f1(ct_test),
-        },
-        {
-            "ct": ct_train,
-            "sensitivity": sensitivity(ct_train),
-            "precision": precision(ct_train),
-            "f1": f1(ct_train),
-        },
-    )
-
-
-def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--truth-file", required=True)
-    parser.add_argument("--features", choices=["all", "normalized"], default="all",
-                        help="Feature columns to train on: all of the training dump, or those that do not "
-                             "depend on the database, depth and read length (see model_features.py).")
-    parser.add_argument("--output-prefix", required=True)
-    parser.add_argument("--ntree", type=int, default=256)
-    parser.add_argument("--maxnodes", type=int, default=128)
-    parser.add_argument("--test-fraction", type=float, default=0.2)
-    parser.add_argument("--seed", type=int)
-    parser.add_argument("--threads", type=int, default=4)
-    parser.add_argument("--reference-pmml")
-    parser.add_argument(
-        "--probability",
-        action="store_true",
-        help="Output prediction probabilities (0–1) instead of TRUE/FALSE labels, "
-             "and save a precision-recall curve plot.",
-    )
-    return parser.parse_args(argv)
-
-
-def load_truth_data(path: str) -> pd.DataFrame:
-    try:
-        df = pd.read_csv(path, sep="\t", dtype=str)
-    except Exception as exc:
-        raise RuntimeError(f"Failed to read truth file: {exc}") from exc
-    for col in df.columns:
-        # Allow numeric columns to become numeric when possible.
-        try:
-            df[col] = pd.to_numeric(df[col])
-        except (ValueError, TypeError):
-            pass
-    df["dataset"] = "dataset"
-    df["truth_raw"] = _as_bool_series(df["truth"])
-    if "prediction" in df.columns:
-        df["prediction"] = _as_bool_series(df["prediction"])
-    df["truth"] = df["truth_raw"].map({True: TRUE_LABEL, False: FALSE_LABEL})
-    for col in INF_COLS:
-        if col in df.columns:
-            values = pd.to_numeric(df[col], errors="coerce")
-            values = values.replace([np.inf, -np.inf], 0).fillna(values)
-            df[col] = values
+def load_table(path, taxonomy=None):
+    # round_trip: read each value back as the double protal gave the model (the default parser can be off by an ulp).
+    df = pd.read_csv(path, sep="\t", float_precision="round_trip", low_memory=False)
+    if "truth" not in df.columns:
+        sys.exit(f"{path} has no truth column: is it a training dump (<profile>.truth_annotated)?")
+    df["truth"] = as_truth(df["truth"])
+    df["domain"] = df["meta_domain"].fillna("unknown").astype(str) if "meta_domain" in df.columns else "unknown"
+    if taxonomy:
+        unknown = df["domain"] == "unknown"
+        df.loc[unknown, "domain"] = domains_from_taxonomy(taxonomy, df.loc[unknown, "taxon"])
     return df
 
 
-def load_reference_feature_cols(path: str) -> list[str]:
-    tree = ET.parse(path)
-    root = tree.getroot()
-    fields = []
-    for elem in root.iter():
-        if elem.tag.endswith("MiningField"):
-            usage = elem.attrib.get("usageType", "active")
-            name = elem.attrib.get("name")
-            if not name:
-                continue
-            if usage.lower() in {"target", "predicted"}:
-                continue
-            fields.append(name)
-    # Preserve order but deduplicate.
-    seen = set()
-    ordered = []
-    for name in fields:
-        if name not in seen:
-            ordered.append(name)
-            seen.add(name)
-    return ordered
+def check_features(df, cols):
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        sys.exit("the training table lacks features: " + ", ".join(missing))
+    text = [c for c in cols if not np.issubdtype(df[c].dtype, np.number)]
+    if text:
+        sys.exit("features that are not numbers: " + ", ".join(text))
+    bad = {c: int((~np.isfinite(df[c])).sum()) for c in cols if (~np.isfinite(df[c])).any()}
+    if bad:
+        # protal gives the model the values as they are in the dump, so a model trained on replaced values
+        # would see other values in protal than in training.
+        sys.exit("features with values that are not finite numbers (the dump's values are what protal gives the "
+                 "model, so they cannot be replaced for training): " + ", ".join(f"{c} ({n} rows)" for c, n in bad.items()))
 
 
-def load_reference_data_fields(path: str) -> list[str]:
-    tree = ET.parse(path)
-    root = tree.getroot()
-    fields = []
-    for elem in root.iter():
-        if elem.tag.endswith("DataField"):
-            name = elem.attrib.get("name")
-            if not name or name == "truth":
-                continue
-            fields.append(name)
-    return fields
+# ---- models and folds -------------------------------------------------------------------------------------
+
+def forest_params(opts, **overrides):
+    params = dict(n_estimators=opts.ntree, max_leaf_nodes=opts.maxnodes or None, min_samples_leaf=opts.min_samples_leaf,
+                  max_features=max_features_value(opts.max_features), class_weight="balanced",
+                  random_state=opts.seed, n_jobs=opts.threads)
+    params.update(overrides)
+    return params
 
 
-def save_pmml(
-    model: RandomForestClassifier,
-    train_data: pd.DataFrame,
-    label_col: str,
-    pmml_path: str,
-) -> bool:
-    import traceback
-    try:
-        from sklearn2pmml import PMMLPipeline, sklearn2pmml
-    except Exception as exc:
-        print(f"sklearn2pmml import failed: {exc}")
-        traceback.print_exc()
-        return False
-
-    pipeline = PMMLPipeline([("classifier", model)])
-    pipeline.fit(train_data.drop(columns=[label_col]), train_data[label_col])
-    try:
-        sklearn2pmml(pipeline, pmml_path, with_repr=True)
-    except Exception as exc:
-        print(f"PMML export failed: {exc}")
-        traceback.print_exc()
-        return False
-    if not normalize_pmml_double_casts(pmml_path):
-        print("PMML cleanup skipped (no double() casts detected).")
-    return True
+def folds(df, y, scheme, opts):
+    """(train, test) index pairs; None if the table cannot be split that way."""
+    if scheme == "rows":
+        n = min(opts.folds, int(np.bincount(y).min()))
+        return list(StratifiedKFold(n, shuffle=True, random_state=opts.seed).split(df, y)) if n >= 2 else None
+    column = {"samples": "meta_sample", "species": "taxon"}[scheme]
+    if column not in df.columns:
+        return None
+    groups = df[column].astype(str).to_numpy()
+    n = min(opts.folds, len(np.unique(groups)))
+    if n < 2:
+        return None
+    return list(GroupKFold(n).split(df, y, groups))
 
 
-def normalize_pmml_double_casts(pmml_path: str) -> bool:
-    tree = ET.parse(pmml_path)
-    root = tree.getroot()
-    strip_pmml_namespaces(root)
-    mapping = {}
-
-    for parent in root.iter():
-        for child in list(parent):
-            if not child.tag.endswith("DerivedField"):
-                continue
-            name = child.attrib.get("name", "")
-            if name.startswith("double(") and name.endswith(")"):
-                base = name[len("double(") : -1]
-                mapping[name] = base
-                parent.remove(child)
-
-    if not mapping:
-        return False
-
-    for elem in root.iter():
-        for attr in ("name", "field"):
-            if attr in elem.attrib and elem.attrib[attr] in mapping:
-                elem.attrib[attr] = mapping[elem.attrib[attr]]
-
-    tree.write(pmml_path, encoding="utf-8", xml_declaration=True)
-    return True
+def predict_out_of_fold(X, y, splits, params, fit_rows=None, leaves=None):
+    """Each row's probability from the forest that did not see its fold. fit_rows(train) may thin a fold's
+    training rows; leaves, a list, gets each fold forest's mean leaves per tree."""
+    p = np.full(len(y), np.nan)
+    for train, test in splits:
+        if fit_rows is not None:
+            train = fit_rows(train)
+        if len(np.unique(y[train])) < 2:
+            continue
+        rf = RandomForestClassifier(**params).fit(X[train], y[train])
+        p[test] = rf.predict_proba(X[test])[:, 1]
+        if leaves is not None:
+            leaves.append(np.mean([e.tree_.n_leaves for e in rf.estimators_]))
+    return p
 
 
-def strip_pmml_namespaces(root: ET.Element) -> None:
-    # cPMML expects unqualified element names like "PMML".
-    for elem in root.iter():
-        if "}" in elem.tag:
-            elem.tag = elem.tag.split("}", 1)[1]
-    # Remove namespace declarations left on the root, if any.
-    for attr in list(root.attrib):
-        if attr.startswith("xmlns"):
-            del root.attrib[attr]
+# ---- metrics ----------------------------------------------------------------------------------------------
+
+def metrics(y, p, df, knob):
+    ok = ~np.isnan(p)
+    y, p = y[ok], p[ok]
+    sub = df[ok]
+    call = p >= knob
+    tp, fp = int((call & (y == 1)).sum()), int((call & (y == 0)).sum())
+    fn = int((~call & (y == 1)).sum())
+    both = len(np.unique(y)) == 2
+    m = {
+        "taxa": int(len(y)), "present": int(y.sum()),
+        "AUC": float(roc_auc_score(y, p)) if both else None,
+        "AP": float(average_precision_score(y, p)) if both else None,
+        "log_loss": float(log_loss(y, np.clip(p, 1e-6, 1 - 1e-6), labels=[0, 1])),
+        "brier": float(brier_score_loss(y, p)),
+        "sensitivity": tp / (tp + fn) if tp + fn else None,
+        "precision": tp / (tp + fp) if tp + fp else None,
+        "F1": 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None,
+        "FP": fp, "FN": fn,
+    }
+    if "meta_sample" in sub.columns:
+        m["FP_per_sample"] = fp / max(1, sub["meta_sample"].nunique())
+    for domain in sorted(sub["domain"].unique()):
+        present = (sub["domain"].to_numpy() == domain) & (y == 1)
+        if present.any():
+            m[f"sensitivity_{domain}"] = float(call[present].mean())
+    return m
 
 
-def find_best_threshold(
-    model: RandomForestClassifier,
-    test_data: pd.DataFrame,
-    label_col: str,
-) -> Tuple[float, float, float, float]:
-    """Return (threshold, precision, recall, f1) that maximises F1 on test_data."""
-    true_idx = list(model.classes_).index(TRUE_LABEL)
-    scores = model.predict_proba(test_data.drop(columns=[label_col]))[:, true_idx]
-    y_true = (test_data[label_col] == TRUE_LABEL).astype(int)
-    prec, rec, thresholds = precision_recall_curve(y_true, scores)
-    # precision_recall_curve appends a final point at recall=0 with no matching threshold.
-    prec_t, rec_t = prec[:-1], rec[:-1]
-    denom = prec_t + rec_t
-    f1_scores = np.where(denom > 0, 2 * prec_t * rec_t / denom, 0.0)
-    best_idx = int(np.argmax(f1_scores))
-    return (
-        float(thresholds[best_idx]),
-        float(prec_t[best_idx]),
-        float(rec_t[best_idx]),
-        float(f1_scores[best_idx]),
-    )
+def best_threshold(y, p):
+    ok = ~np.isnan(p)
+    precision, recall, thresholds = precision_recall_curve(y[ok], p[ok])
+    precision, recall = precision[:-1], recall[:-1]
+    f1 = np.where(precision + recall > 0, 2 * precision * recall / np.maximum(precision + recall, 1e-300), 0)
+    i = int(np.argmax(f1))
+    return float(thresholds[i]), float(precision[i]), float(recall[i]), float(f1[i])
 
 
-def plot_pr_curve(
-    model: RandomForestClassifier,
-    test_data: pd.DataFrame,
-    label_col: str,
-    output_path: str,
-    best_threshold: Optional[float] = None,
-) -> None:
-    true_idx = list(model.classes_).index(TRUE_LABEL)
-    scores = model.predict_proba(test_data.drop(columns=[label_col]))[:, true_idx]
-    y_true = (test_data[label_col] == TRUE_LABEL).astype(int)
-    prec, rec, thresholds = precision_recall_curve(y_true, scores)
-    ap = average_precision_score(y_true, scores)
-
-    # Identify the plot point corresponding to best_threshold (if provided).
-    best_prec = best_rec = None
-    if best_threshold is not None:
-        prec_t, rec_t = prec[:-1], rec[:-1]
-        diffs = np.abs(thresholds - best_threshold)
-        bi = int(np.argmin(diffs))
-        best_prec, best_rec = float(prec_t[bi]), float(rec_t[bi])
-
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-
-    # Left: precision-recall curve
-    axes[0].plot(rec, prec, lw=2, label=f"AP = {ap:.3f}")
-    if best_prec is not None:
-        axes[0].scatter(
-            [best_rec], [best_prec], s=80, zorder=5,
-            label=f"best t={best_threshold:.3f}",
-        )
-    axes[0].set_xlabel("Recall")
-    axes[0].set_ylabel("Precision")
-    axes[0].set_title("Precision-Recall Curve")
-    axes[0].set_xlim([0, 1])
-    axes[0].set_ylim([0, 1])
-    axes[0].legend()
-
-    # Right: precision and recall vs threshold
-    axes[1].plot(thresholds, prec[:-1], lw=2, label="Precision")
-    axes[1].plot(thresholds, rec[:-1], lw=2, label="Recall")
-    if best_threshold is not None:
-        axes[1].axvline(best_threshold, color="grey", linestyle="--", lw=1.5,
-                        label=f"best t={best_threshold:.3f}")
-    axes[1].set_xlabel("Decision threshold")
-    axes[1].set_ylabel("Score")
-    axes[1].set_title("Precision / Recall vs Threshold")
-    axes[1].set_xlim([0, 1])
-    axes[1].set_ylim([0, 1])
-    axes[1].legend()
-
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=150)
-    plt.close(fig)
+def threshold_table(y, p):
+    ok = ~np.isnan(p)
+    y, p = y[ok], p[ok]
+    rows = []
+    for t in np.round(np.arange(0.0, 1.0001, 0.01), 2):
+        call = p >= t
+        tp, fp, fn = int((call & (y == 1)).sum()), int((call & (y == 0)).sum()), int((~call & (y == 1)).sum())
+        rows.append({"threshold": t, "precision": tp / (tp + fp) if tp + fp else 1.0,
+                     "sensitivity": tp / (tp + fn) if tp + fn else 0.0,
+                     "F1": 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else 0.0, "FP": fp, "FN": fn})
+    return pd.DataFrame(rows)
 
 
-def main() -> int:
-    opts = parse_args()
-    rng = np.random.RandomState(opts.seed) if opts.seed is not None else np.random
+# ---- report -----------------------------------------------------------------------------------------------
 
-    print("Load data")
-    data = load_truth_data(opts.truth_file)
+class Report:
+    def __init__(self):
+        self.lines, self.data = [], {}
 
-    if opts.reference_pmml:
-        feature_cols = load_reference_data_fields(opts.reference_pmml)
-        missing = sorted(set(feature_cols) - set(data.columns))
-        if missing:
-            raise RuntimeError(
-                "Reference PMML fields missing from truth data: "
-                + ", ".join(missing)
-            )
-    else:
-        feature_cols = feature_columns(data.columns, opts.features)
+    def section(self, title):
+        self.add("")
+        self.add("## " + title)
 
-    print("train caret on columns")
-    print(feature_cols)
+    def add(self, text=""):
+        self.lines.append(text)
+        print(text, flush=True)
 
-    max_features_end = min(25, len(feature_cols))
-    if max_features_end < 1:
-        raise RuntimeError("No feature columns available for training.")
-    max_features_start = 1 if max_features_end < 6 else 6
-    if opts.reference_pmml:
-        chosen_cols = feature_cols
-        chosen_mtry = len(chosen_cols)
-        print(f"Reference PMML features: {chosen_mtry}")
-    else:
-        grid = {"max_features": list(range(max_features_start, max_features_end + 1))}
-        base_model = RandomForestClassifier(
-            n_estimators=opts.ntree,
-            n_jobs=1,  # 1 here avoids nested parallelism; GridSearchCV handles outer parallelism
-            random_state=opts.seed,
-            max_leaf_nodes=opts.maxnodes if opts.maxnodes > 0 else None,
-            class_weight="balanced_subsample",
-        )
-        grid_search = GridSearchCV(
-            estimator=base_model,
-            param_grid=grid,
-            cv=5,
-            n_jobs=opts.threads,
-        )
-        grid_search.fit(data[feature_cols], data["truth"])
-        chosen_mtry = int(grid_search.best_params_["max_features"])
-        print(f"Mtry: {chosen_mtry}")
+    def table(self, frame):
+        self.add(frame.to_string(index=False, float_format=lambda v: f"{v:.4f}", na_rep="-"))
 
-        importances = grid_search.best_estimator_.feature_importances_
-        vi_df = pd.DataFrame(
-            {"feature": feature_cols, "importance": importances}
-        ).sort_values("importance", ascending=False)
-        chosen_cols = vi_df["feature"].head(chosen_mtry).tolist()
+    def write(self, prefix):
+        with open(prefix + ".report.txt", "w") as fh:
+            fh.write("\n".join(self.lines) + "\n")
+        with open(prefix + ".metrics.json", "w") as fh:
+            json.dump(self.data, fh, indent=1, default=_json_value)
 
-    train_df = data[["truth"] + chosen_cols]
-    n = len(train_df)
-    test_size = int(math.floor(opts.test_fraction * n))
-    if test_size > 0:
-        idx = rng.choice(n, size=test_size, replace=False)
-        test_data = train_df.iloc[idx]
-        train_data = train_df.drop(train_df.index[idx])
-    else:
-        test_data = train_df
-        train_data = train_df
 
-    print("Train forest")
-    rf = RandomForestClassifier(
-        n_estimators=opts.ntree,
-        n_jobs=opts.threads,
-        random_state=opts.seed,
-        max_leaf_nodes=opts.maxnodes if opts.maxnodes > 0 else None,
-        class_weight="balanced",
-    )
-    rf.fit(train_data.drop(columns=["truth"]), train_data["truth"])
+def _json_value(value):
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        return None if np.isnan(value) else float(value)
+    return str(value)
 
-    prefix = opts.output_prefix
-    pmml_path = f"{prefix}.xml"
-    varimp_path = f"{prefix}.varimp.tsv"
-    rds_path = f"{prefix}.rds"
-    varimp_png = f"{prefix}.varimp.png"
-    pr_curve_png = f"{prefix}.pr_curve.png"
 
-    pmml_saved = save_pmml(rf, train_data, "truth", pmml_path)
+def metrics_table(rows):
+    """rows: list of (label dict, metrics dict) -> DataFrame with the usual columns."""
+    keep = ["taxa", "present", "AUC", "AP", "log_loss", "F1", "sensitivity", "precision", "FP", "FN", "FP_per_sample"]
+    out = []
+    for label, m in rows:
+        row = dict(label)
+        row.update({k: m.get(k) for k in keep if k in m})
+        row.update({k: v for k, v in m.items() if k.startswith("sensitivity_")})
+        out.append(row)
+    frame = pd.DataFrame(out)
+    return frame.rename(columns={c: "sens_" + c[len("sensitivity_"):] for c in frame.columns if c.startswith("sensitivity_")})
 
-    vi_df = pd.DataFrame(
-        {"feature": chosen_cols, "importance": rf.feature_importances_}
-    ).sort_values("importance", ascending=False)
-    vi_df.to_csv(varimp_path, sep="\t", index=False)
 
-    plt.figure(figsize=(12, 8))
-    plt.bar(vi_df["feature"], vi_df["importance"])
-    plt.title("Variable Importance")
-    plt.xticks(rotation=90, fontsize=8)
-    plt.tight_layout()
-    plt.savefig(varimp_png, dpi=150)
-    plt.close()
+def fmt(value, digits=3):
+    return "-" if value is None or (isinstance(value, float) and np.isnan(value)) else f"{value:.{digits}f}"
 
-    joblib.dump(rf, rds_path)
 
-    eval_test, eval_train = evaluate_split(rf, test_data, train_data)
-    if test_size > 0:
-        print(
-            f"Split: train={len(train_data)} test={len(test_data)} "
-            f"(test fraction={opts.test_fraction:.3f})"
-        )
-        print(
-            f"Train   sens={eval_train['sensitivity']:.4f} "
-            f"prec={eval_train['precision']:.4f} "
-            f"f1={eval_train['f1']:.4f}"
-        )
-        print(
-            f"Test    sens={eval_test['sensitivity']:.4f} "
-            f"prec={eval_test['precision']:.4f} "
-            f"f1={eval_test['f1']:.4f}"
-        )
-    else:
-        print(f"Split: train={len(train_data)} test=0 (no hold-out; metrics evaluated on training data)")
-        print(
-            f"Train   sens={eval_train['sensitivity']:.4f} "
-            f"prec={eval_train['precision']:.4f} "
-            f"f1={eval_train['f1']:.4f}"
-        )
-    if opts.reference_pmml:
-        print(f"Chosen features (reference PMML): {chosen_mtry}")
-    else:
-        print(f"Chosen mtry (grid search): {chosen_mtry}")
-    if not pmml_saved:
-        raise RuntimeError("PMML export failed; XML output is required.")
-    print(f"Saved PMML: {pmml_path}")
-    print(f"Saved varimp: {varimp_path}")
-    print(f"Saved varimp plot: {varimp_png}")
-    print(f"Saved model (joblib): {rds_path}")
+# ---- the studies ------------------------------------------------------------------------------------------
 
-    if opts.probability:
-        eval_label = "training data" if test_size == 0 else "test set"
-        best_t, best_p, best_r, best_f = find_best_threshold(rf, test_data, "truth")
-        print(
-            f"Best threshold (max F1 on {eval_label}): {best_t:.4f}  "
-            f"prec={best_p:.4f}  recall={best_r:.4f}  f1={best_f:.4f}"
-        )
+def study_data(report, df, y, cols):
+    report.section("Training data")
+    samples = df["meta_sample"].nunique() if "meta_sample" in df.columns else 1
+    present, absent = df[y == 1], df[y == 0]
+    report.add(f"{len(df)} taxa in {samples} samples: {len(present)} present, {len(absent)} absent "
+               f"({len(absent) / max(1, len(present)):.1f} absent per present); "
+               f"{df['taxon'].nunique()} species ({present['taxon'].nunique()} ever present, "
+               f"{absent['taxon'].nunique()} ever absent)")
+    absent_count = ("truth", lambda s: int((s == 0).sum()))
+    by_domain = df.groupby("domain").agg(present=("truth", "sum"), absent=absent_count, species=("taxon", "nunique"))
+    report.table(by_domain.reset_index())
+    if "meta_read_pairs" in df.columns and "meta_sample" in df.columns:
+        by_depth = df.groupby("meta_read_pairs").agg(samples=("meta_sample", "nunique"), present=("truth", "sum"),
+                                                     absent=absent_count)
+        if "fragments" in df.columns:
+            by_depth["median_fragments_present"] = present.groupby("meta_read_pairs")["fragments"].median()
+            by_depth["median_fragments_absent"] = absent.groupby("meta_read_pairs")["fragments"].median()
+        report.table(by_depth.reset_index())
+    report.data["data"] = {"taxa": len(df), "samples": samples, "present": len(present), "absent": len(absent),
+                           "species": int(df["taxon"].nunique()), "by_domain": by_domain.to_dict("index")}
 
-        best_thresh_path = f"{prefix}.best_threshold.tsv"
-        pd.DataFrame([{
-            "threshold": best_t,
-            "precision": best_p,
-            "recall": best_r,
-            "f1": best_f,
-        }]).to_csv(best_thresh_path, sep="\t", index=False, float_format="%.6f")
-        print(f"Saved best threshold: {best_thresh_path}")
+    # Present taxa whose reads all match their reference closely: strains simulated from the database's own
+    # genomes. Real strains differ from the representative by up to ~5%.
+    quantiles = {}
+    for c in ("identity", "top_identity"):
+        if c in df.columns:
+            q = [0.01, 0.05, 0.25, 0.5]
+            quantiles[c] = {"present": present[c].quantile(q).tolist(), "absent": absent[c].quantile(q).tolist()}
+            report.add(f"{c} quantiles 1/5/25/50%: present " + " ".join(fmt(v, 4) for v in quantiles[c]["present"])
+                       + " | absent " + " ".join(fmt(v, 4) for v in quantiles[c]["absent"]))
+    report.data["data"]["identity_quantiles"] = quantiles
+    warnings = []
+    # identity also counts relatives' reads, so it is lowered even where the strains are the references; a best
+    # read identical to the reference in (nearly) every present taxon is what simulating the references gives.
+    if "top_identity" in quantiles and quantiles["top_identity"]["present"][0] >= 0.999:
+        warnings.append("99% of the present taxa have a read identical to their reference: the simulated genomes are "
+                        "the references themselves (only representative genomes?). Real strains differ by up to a few "
+                        "%, and the model may call them absent. Simulate from non-representative genomes as well "
+                        "(for GTDB: from NCBI, by the accessions in GTDB's metadata).")
+    per_species = [c for c in cols if df.groupby("taxon")[c].nunique().max() == 1]
+    if per_species:
+        report.add(f"features constant within every species ({len(per_species)}): {', '.join(per_species)}. "
+                   "Together they can name a species, and the model can learn which species tend to be present.")
+    report.data["data"]["features_constant_per_species"] = per_species
+    if (df["domain"] == "unknown").all():
+        report.add("no domains known (no meta_domain column, no --taxonomy): no sensitivity by domain")
+    elif "Archaea" in df["domain"].values and (present["domain"] == "Archaea").sum() < 50:
+        warnings.append(f"only {(present['domain'] == 'Archaea').sum()} present archaeal taxa: too few to judge archaea")
+    return warnings
 
-        plot_pr_curve(rf, test_data, "truth", pr_curve_png, best_threshold=best_t)
-        print(f"Saved PR curve ({eval_label}): {pr_curve_png}")
-        print("Probability mode: use model.predict_proba(X)[:, 1] for float scores (0–1).")
 
-        threshold_path = f"{prefix}.thresholds.tsv"
-        true_idx = list(rf.classes_).index(TRUE_LABEL)
-        scores = rf.predict_proba(test_data.drop(columns=["truth"]))[:, true_idx]
-        y_true = (test_data["truth"] == TRUE_LABEL).astype(int).to_numpy()
-        thresholds = np.arange(0.0, 1.001, 0.001)
+def study_evaluation(report, df, X, y, opts, oob):
+    """Out of fold by rows, samples and species; returns the probabilities by scheme."""
+    report.section(f"How well the model does on data it was not trained on (knob {opts.knob})")
+    report.add("rows: random rows held out (the samples and species of the held-out rows are in training); "
+               "samples: whole samples held out; species: whole species held out (as most GTDB species are when "
+               "profiling real samples). out of bag: each row scored by the trees not grown on it.")
+    params = forest_params(opts)
+    p = {"out of bag": oob}
+    for scheme in ("rows", "samples", "species"):
+        splits = folds(df, y, scheme, opts)
+        if splits is not None:
+            p[scheme] = predict_out_of_fold(X, y, splits, params)
+    rows = [({"held out": k}, metrics(y, v, df, opts.knob)) for k, v in p.items()]
+    if "probability" in df.columns:
+        p["collection model"] = df["probability"].to_numpy(dtype=float)
+        rows.append(({"held out": "collection model"}, metrics(y, p["collection model"], df, opts.knob)))
+    report.table(metrics_table(rows))
+    report.add("collection model: the model that profiled the training samples (their dumps' probability), "
+               "e.g. the model shipped with protal.")
+    report.data["evaluation"] = {label["held out"]: m for label, m in rows}
+    return p
+
+
+def study_breakdown(report, df, y, p, opts):
+    report.section("Where the errors are (species held out; collection model for comparison)")
+    new = p.get("species", p["out of bag"])
+    old = p.get("collection model")
+    call_new = new >= opts.knob
+    call_old = old >= opts.knob if old is not None else None
+    frame = df.assign(call_new=call_new, call_old=call_old if call_old is not None else np.nan)
+    keys = ["domain"] + (["meta_read_pairs"] if "meta_read_pairs" in df.columns else [])
+    rows = []
+    for key, g in frame.groupby(keys):
+        key = key if isinstance(key, tuple) else (key,)
+        pr, ab = g[g.truth == 1], g[g.truth == 0]
+        row = dict(zip(keys, key))
+        row.update({"present": len(pr), "found": int(pr.call_new.sum()), "absent": len(ab), "FP": int(ab.call_new.sum())})
+        if old is not None:
+            row.update({"found_collection": int(pr.call_old.sum()), "FP_collection": int(ab.call_old.sum())})
+        rows.append(row)
+    report.table(pd.DataFrame(rows))
+    if "fragments" in df.columns:
+        report.add("by the taxon's fragments (read pairs) in the sample:")
+        bins = pd.cut(df["fragments"], FRAGMENT_BINS, right=False, labels=["<10", "10-99", "100-999", ">=1000"])
         rows = []
-        for t in thresholds:
-            pred = (scores >= t).astype(int)
-            tp = int(((pred == 1) & (y_true == 1)).sum())
-            fp = int(((pred == 1) & (y_true == 0)).sum())
-            fn = int(((pred == 0) & (y_true == 1)).sum())
-            prec_t = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-            sens_t = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-            denom = 2 * tp + fp + fn
-            f1_t = (2 * tp) / denom if denom > 0 else 0.0
-            rows.append({"threshold": round(t, 3), "precision": prec_t, "sensitivity": sens_t, "f1": f1_t})
-        thresh_df = pd.DataFrame(rows)
-        thresh_df.to_csv(threshold_path, sep="\t", index=False, float_format="%.6f")
-        print(f"Saved threshold table: {threshold_path}")
+        for b, g in frame.groupby(bins, observed=True):
+            pr, ab = g[g.truth == 1], g[g.truth == 0]
+            row = {"fragments": b, "present": len(pr), "found": int(pr.call_new.sum()), "absent": len(ab), "FP": int(ab.call_new.sum())}
+            if old is not None:
+                row.update({"found_collection": int(pr.call_old.sum()), "FP_collection": int(ab.call_old.sum())})
+            rows.append(row)
+        report.table(pd.DataFrame(rows))
+    shown = [c for c in ["meta_sample", "taxon_name", "domain", "fragments", "identity", "top_identity",
+                         "hit_gene_fraction", "low_identity_share", "lsu_per_kb"] if c in df.columns]
+    hard = df.assign(p=new)
+    report.add("absent taxa scored highest:")
+    report.table(hard[hard.truth == 0].nlargest(12, "p")[shown + ["p"]])
+    report.add("present taxa scored lowest:")
+    report.table(hard[hard.truth == 1].nsmallest(12, "p")[shown + ["p"]])
 
-    return 0
+
+def study_threshold(report, y, p, opts, prefix):
+    report.section("Threshold (species held out)")
+    scores = p.get("species", p["out of bag"])
+    t, prec, rec, f1 = best_threshold(y, scores)
+    table = threshold_table(y, scores)
+    table.to_csv(prefix + ".thresholds.tsv", sep="\t", index=False, float_format="%.6f")
+    at = table.iloc[(table.threshold - opts.knob).abs().argmin()]
+    report.add(f"at knob {opts.knob}: precision {at.precision:.4f}, sensitivity {at.sensitivity:.4f}, F1 {at.F1:.4f}")
+    report.add(f"highest F1 at {t:.3f}: precision {prec:.4f}, sensitivity {rec:.4f}, F1 {f1:.4f}")
+    report.add(f"table: {prefix}.thresholds.tsv")
+    report.data["threshold"] = {"knob": opts.knob, "at_knob": at.to_dict(), "best_F1": {"threshold": t, "precision": prec,
+                                                                                     "sensitivity": rec, "F1": f1}}
+
+
+def study_features(report, df, y, opts, cols):
+    report.section("Feature sets (held out by rows and by species)")
+    report.add("A feature set that does much better on rows than on species has learned the training species.")
+    sets = {"normalized": feature_columns(df.columns, "normalized"), "all": feature_columns(df.columns, "all")}
+    sets = {k: [c for c in v if c not in ("domain",)] for k, v in sets.items()}
+    rows = []
+    for name, set_cols in sets.items():
+        check_features(df, set_cols)
+        X = df[set_cols].to_numpy(dtype=np.float64)
+        for scheme in ("rows", "species"):
+            splits = folds(df, y, scheme, opts)
+            if splits is not None:
+                rows.append(({"features": f"{name} ({len(set_cols)})", "held out": scheme},
+                             metrics(y, predict_out_of_fold(X, y, splits, forest_params(opts)), df, opts.knob)))
+    report.table(metrics_table(rows))
+    report.data["feature_sets"] = [dict(**label, **m) for label, m in rows]
+
+
+def study_old_procedure(report, df, y, opts, cols):
+    """The procedure of this script before: a grid search over max_features on all rows, then a forest of 512
+    trees on the top max_features features by importance, judged on a random 20% of the rows."""
+    report.section("The previous procedure (grid search, top features only, 512 trees) against this one")
+    X = df[cols].to_numpy(dtype=np.float64)
+    t0 = time.time()
+    end = min(25, len(cols))
+    start = 1 if end < 6 else 6
+    grid = GridSearchCV(RandomForestClassifier(**forest_params(opts, n_estimators=128, n_jobs=1,
+                                                               class_weight="balanced_subsample")),
+                        {"max_features": list(range(start, end + 1))}, cv=5, n_jobs=opts.threads)
+    grid.fit(X, y)
+    mtry = int(grid.best_params_["max_features"])
+    importance = pd.Series(grid.best_estimator_.feature_importances_, index=cols).sort_values(ascending=False)
+    top = importance.index[:mtry].tolist()
+    grid_s = time.time() - t0
+    Xt = df[top].to_numpy(dtype=np.float64)
+    old = forest_params(opts, n_estimators=512, max_features="sqrt", max_leaf_nodes=128, min_samples_leaf=1)
+
+    # Its own estimate: a random 20% of the rows.
+    rng = np.random.RandomState(opts.seed)
+    test = rng.choice(len(df), size=len(df) // 5, replace=False)
+    train = np.setdiff1d(np.arange(len(df)), test)
+    t0 = time.time()
+    rf = RandomForestClassifier(**old).fit(Xt[train], y[train])
+    fit_s = time.time() - t0
+    p_own = np.full(len(df), np.nan)
+    p_own[test] = rf.predict_proba(Xt[test])[:, 1]
+    own_t = best_threshold(y[test], p_own[test])[0]
+    nodes = sum(e.tree_.node_count for e in rf.estimators_)
+
+    rows = [({"procedure": "previous", "judged on": "random 20% of rows (its report)"}, metrics(y, p_own, df, opts.knob))]
+    splits = folds(df, y, "species", opts)
+    if splits is not None:
+        p_old = predict_out_of_fold(Xt, y, splits, old)
+        rows.append(({"procedure": "previous", "judged on": "species held out"}, metrics(y, p_old, df, opts.knob)))
+        rows.append(({"procedure": f"previous, its knob {own_t:.3f}", "judged on": "species held out"},
+                     metrics(y, p_old, df, own_t)))
+        p_new = predict_out_of_fold(X, y, splits, forest_params(opts))
+        rows.append(({"procedure": "this one", "judged on": "species held out"}, metrics(y, p_new, df, opts.knob)))
+    report.add(f"grid search: {end - start + 1} values of max_features x 5 folds in {grid_s:.1f} s (128 trees each); "
+               f"chose {mtry}, so the forest used only these {mtry} of {len(cols)} features: {', '.join(top)}")
+    report.add(f"its forest: {nodes} nodes, fitted in {fit_s:.1f} s")
+    report.table(metrics_table(rows))
+    report.data["previous_procedure"] = {"grid_seconds": grid_s, "mtry": mtry, "features": top, "nodes": nodes,
+                                         "knob_from_its_test_rows": own_t,
+                                         "results": [dict(**label, **m) for label, m in rows]}
+
+
+def study_capacity(report, df, X, y, opts):
+    report.section("Forest size (species held out)")
+    report.add("leaves_per_tree below max_leaves: the limit does not bind. A lower log loss with more leaves: "
+               "the data support larger trees (raise --maxnodes).")
+    splits = folds(df, y, "species", opts) or folds(df, y, "rows", opts)
+    rows = []
+    for leaves, min_leaf in ((32, 1), (128, 1), (512, 1), (0, 1), (0, 5)):
+        params = forest_params(opts, max_leaf_nodes=leaves or None, min_samples_leaf=min_leaf)
+        t0 = time.time()
+        grown = []
+        p = predict_out_of_fold(X, y, splits, params, leaves=grown)
+        m = metrics(y, p, df, opts.knob)
+        rows.append(({"max_leaves": leaves or "none", "min_leaf": min_leaf, "leaves_per_tree": float(np.mean(grown)),
+                      "fit_s": round((time.time() - t0) / len(splits), 2)}, m))
+    report.table(metrics_table(rows)[["max_leaves", "min_leaf", "leaves_per_tree", "fit_s", "AP", "log_loss", "F1",
+                                      "sensitivity", "precision", "FP"]])
+    # Trees: grow 256 per fold once and score with the first k.
+    ks = [k for k in (8, 16, 32, 64, 128, 256)]
+    sums = {k: np.full(len(y), np.nan) for k in ks}
+    for train, test in splits:
+        rf = RandomForestClassifier(**forest_params(opts, n_estimators=max(ks))).fit(X[train], y[train])
+        total = np.zeros(len(test))
+        for i, tree in enumerate(rf.estimators_, 1):
+            total += tree.predict_proba(X[test])[:, 1]
+            if i in sums:
+                sums[i][test] = total / i
+    trows = [({"trees": k}, metrics(y, sums[k], df, opts.knob)) for k in ks]
+    report.table(metrics_table(trows)[["trees", "AP", "log_loss", "F1", "sensitivity", "precision", "FP"]])
+    report.data["capacity"] = {"leaves": [dict(**l, **m) for l, m in rows], "trees": [dict(**l, **m) for l, m in trows]}
+
+
+def study_learning_curve(report, df, X, y, opts):
+    report.section("More training samples? (species held out, training samples thinned)")
+    splits = folds(df, y, "species", opts)
+    if splits is None or "meta_sample" not in df.columns:
+        report.add("needs meta_sample and several species")
+        return
+    samples = df["meta_sample"].astype(str).to_numpy()
+    rows = []
+    for fraction in (0.25, 0.5, 1.0):
+        rng = np.random.RandomState(opts.seed)
+        keep = set(rng.choice(np.unique(samples), size=max(2, int(round(fraction * len(np.unique(samples))))), replace=False))
+        thin = (lambda train: train[np.isin(samples[train], list(keep))]) if fraction < 1 else None
+        p = predict_out_of_fold(X, y, splits, forest_params(opts), fit_rows=thin)
+        rows.append(({"samples": len(keep), "fraction": fraction}, metrics(y, p, df, opts.knob)))
+    report.table(metrics_table(rows)[["samples", "fraction", "AP", "log_loss", "F1", "sensitivity", "precision", "FP"]
+                                     + [c for c in metrics_table(rows).columns if c.startswith("sens_")]])
+    report.data["learning_curve"] = [dict(**l, **m) for l, m in rows]
+    first, last = rows[1][1]["log_loss"], rows[2][1]["log_loss"]
+    report.add(f"log loss with half the samples {first:.4f}, with all {last:.4f}: "
+               + ("still falling, more samples should help" if last < 0.9 * first else "little change, more of the same samples will not help much"))
+
+
+# ---- main -------------------------------------------------------------------------------------------------
+
+def main(argv=None):
+    opts = parse_args(argv)
+    prefix = opts.output_prefix
+    os.makedirs(os.path.dirname(os.path.abspath(prefix)), exist_ok=True)
+    report = Report()
+    started = time.time()
+    timing = {}
+
+    report.add(f"# protal presence model: {os.path.basename(prefix)}")
+    report.add(f"{datetime.datetime.now().isoformat(timespec='seconds')}  python {platform.python_version()}, "
+               f"scikit-learn {sklearn.__version__}, numpy {np.__version__}, pandas {pd.__version__}, "
+               f"{os.cpu_count()} CPUs")
+    report.add("command: " + " ".join(sys.argv))
+    report.data["run"] = {"args": vars(opts), "sklearn": sklearn.__version__, "python": platform.python_version()}
+
+    t0 = time.time()
+    df = load_table(opts.truth_file, opts.taxonomy)
+    if opts.reference_pmml:
+        cols = PmmlForest(opts.reference_pmml).features
+        source = f"the inputs of {opts.reference_pmml}"
+    else:
+        cols = feature_columns(df.columns, opts.features)
+        source = f"--features {opts.features}"
+    cols = [c for c in cols if c != "domain"]
+    check_features(df, cols)
+    if df["truth"].nunique() < 2:
+        sys.exit("the training table has only present or only absent taxa")
+    X = df[cols].to_numpy(dtype=np.float64)
+    y = df["truth"].to_numpy()
+    timing["load"] = time.time() - t0
+    report.add(f"{len(cols)} features ({source}): {', '.join(cols)}")
+
+    warnings = study_data(report, df, y, cols) if opts.evaluation != "none" else []
+
+    t0 = time.time()
+    rf = RandomForestClassifier(oob_score=opts.evaluation != "none", **forest_params(opts)).fit(X, y)
+    timing["fit"] = time.time() - t0
+    nodes = sum(e.tree_.node_count for e in rf.estimators_)
+    report.add("")
+    report.add(f"forest: {opts.ntree} trees, max {opts.maxnodes or 'unlimited'} leaves, {nodes} nodes, "
+               f"fitted in {timing['fit']:.2f} s")
+
+    p = {}
+    if opts.evaluation != "none":
+        oob = rf.oob_decision_function_[:, 1] if hasattr(rf, "oob_decision_function_") else np.full(len(y), np.nan)
+        t0 = time.time()
+        p = study_evaluation(report, df, X, y, opts, oob)
+        study_threshold(report, y, p, opts, prefix)
+        study_breakdown(report, df, y, p, opts)
+        timing["evaluation"] = time.time() - t0
+    if opts.evaluation == "full":
+        for name, study in (("feature_sets", lambda: study_features(report, df, y, opts, cols)),
+                            ("previous_procedure", lambda: study_old_procedure(report, df, y, opts, cols)),
+                            ("capacity", lambda: study_capacity(report, df, X, y, opts)),
+                            ("learning_curve", lambda: study_learning_curve(report, df, X, y, opts))):
+            t0 = time.time()
+            study()
+            timing[name] = time.time() - t0
+
+    # Export, and check that the file scores as the forest does.
+    report.section("Model file")
+    t0 = time.time()
+    notes = [f"trained {datetime.date.today().isoformat()} on {os.path.abspath(opts.truth_file)}",
+             f"{len(df)} taxa, {int(y.sum())} present, {df['meta_sample'].nunique() if 'meta_sample' in df else 1} samples",
+             f"{opts.ntree} trees, max leaves {opts.maxnodes or 'unlimited'}, min leaf {opts.min_samples_leaf}, "
+             f"max features {opts.max_features}, seed {opts.seed}, scikit-learn {sklearn.__version__}"]
+    species = report.data.get("evaluation", {}).get("species")
+    if species:
+        notes.append(f"species held out: AP {fmt(species['AP'])}, F1 {fmt(species['F1'])} at knob {opts.knob}")
+    write_forest(rf, cols, prefix + ".xml", notes)
+    timing["export"] = time.time() - t0
+    rf.n_jobs = 1  # sum the trees in file order, as protal does
+    sk = rf.predict_proba(X)[:, 1]
+    pmml = PmmlForest(prefix + ".xml").predict(X)
+    diff = float(np.abs(sk - pmml).max())
+    flips = int(((sk >= opts.knob) != (pmml >= opts.knob)).sum())
+    size = os.path.getsize(prefix + ".xml")
+    report.add(f"{prefix}.xml: {size / 1e6:.2f} MB, {nodes} nodes; written in {timing['export']:.2f} s")
+    report.add(f"PMML scored as protal scores it vs scikit-learn, {len(X)} rows: max difference {diff:.3g}, "
+               f"{flips} calls differ at knob {opts.knob}")
+    report.data["model"] = {"bytes": size, "nodes": nodes, "trees": opts.ntree, "features": cols,
+                            "pmml_vs_sklearn_max_diff": diff, "pmml_vs_sklearn_call_differences": flips}
+    rf.n_jobs = opts.threads
+    joblib.dump(rf, prefix + ".joblib")
+    pd.DataFrame({"feature": cols, "importance": rf.feature_importances_}).sort_values(
+        "importance", ascending=False).to_csv(prefix + ".varimp.tsv", sep="\t", index=False, float_format="%.6f")
+    top = pd.Series(rf.feature_importances_, index=cols).sort_values(ascending=False).head(8)
+    report.add("importance: " + ", ".join(f"{k} {v:.3f}" for k, v in top.items()))
+
+    if p:
+        keep = [c for c in df.columns if c.startswith("meta_")] + [c for c in ("taxon", "taxon_name", "domain", "truth") if c in df]
+        out = df[keep].copy()
+        for k, v in p.items():
+            out["p_" + k.replace(" ", "_")] = v
+        out = pd.concat([out, df[[c for c in DIAGNOSTIC_FEATURES if c in df.columns]]], axis=1)
+        out.to_csv(prefix + ".predictions.tsv.gz", sep="\t", index=False, float_format="%.6g")
+
+    report.section("Summary")
+    if species:
+        report.add(f"species held out: AP {fmt(species['AP'])}, F1 {fmt(species['F1'])}, sensitivity "
+                   f"{fmt(species['sensitivity'])}, precision {fmt(species['precision'])}, "
+                   f"{fmt(species.get('FP_per_sample'), 2)} false positives per sample at knob {opts.knob}; "
+                   + ", ".join(f"{k[len('sensitivity_'):]} sensitivity {fmt(v)}" for k, v in species.items() if k.startswith("sensitivity_")))
+        collection = report.data["evaluation"].get("collection model")
+        if collection:
+            report.add(f"collection model: AP {fmt(collection['AP'])}, F1 {fmt(collection['F1'])}, sensitivity "
+                       f"{fmt(collection['sensitivity'])}, precision {fmt(collection['precision'])}; "
+                       + ", ".join(f"{k[len('sensitivity_'):]} sensitivity {fmt(v)}" for k, v in collection.items() if k.startswith("sensitivity_")))
+        rows = report.data["evaluation"].get("rows")
+        if rows and rows.get("F1") is not None and species.get("F1") is not None:
+            report.add(f"optimism of random row splits: F1 {fmt(rows['F1'])} on rows vs {fmt(species['F1'])} on species held out")
+        previous = {r["judged on"]: r for r in report.data.get("previous_procedure", {}).get("results", [])
+                    if r["procedure"] == "previous"}
+        if "species held out" in previous:
+            own, held = previous.get("random 20% of rows (its report)", {}), previous["species held out"]
+            report.add(f"previous procedure: it reported F1 {fmt(own.get('F1'))}; on species held out F1 "
+                       f"{fmt(held['F1'])}, AP {fmt(held['AP'])}, log loss {fmt(held['log_loss'], 4)} (this one: F1 "
+                       f"{fmt(species['F1'])}, AP {fmt(species['AP'])}, log loss {fmt(species['log_loss'], 4)}); "
+                       f"{report.data['previous_procedure']['nodes']} nodes vs {nodes}")
+        if species.get("F1") is not None and species["F1"] < 0.9:
+            warnings.append(f"F1 on species held out is {species['F1']:.3f}")
+    if diff > 0 or flips:
+        warnings.append(f"the PMML file does not score as scikit-learn does (max difference {diff:.3g}): do not use it")
+    for w in warnings:
+        report.add("WARNING: " + w)
+    timing["total"] = time.time() - started
+    report.add("time: " + ", ".join(f"{k} {v:.1f} s" for k, v in timing.items()))
+    report.data["timing_seconds"] = timing
+    report.data["warnings"] = warnings
+    report.write(prefix)
+    return 1 if diff > 0 or flips else 0
 
 
 if __name__ == "__main__":

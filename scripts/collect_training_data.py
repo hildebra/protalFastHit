@@ -5,10 +5,10 @@ For every design point, a read setup (length, ART profile, fragment size) and a 
 simulate_metagenomes draws random communities from a genome table and protal profiles them
 against a database, knowing the true species. The training dumps of all samples
 (<profile>.truth_annotated: every taxon protal saw, its features and whether it was present) are
-joined into one table, with meta_* columns saying where each row comes from. Train on it with
+joined into one table, with meta_* columns saying where each row comes from (meta_domain from
+the genome table's lineages). Train on it with
 
-    python3 scripts/random_forest_cmdline.py --truth-file OUT/training_data.tsv \\
-        --output-prefix OUT/model --features normalized
+    python3 scripts/random_forest_cmdline.py --truth-file OUT/training_data.tsv --output-prefix OUT/model
 
 A genome table with species the database lacks gives the negatives that matter most: a relative
 the database has picks up their reads. Archaea (--archaea) have fewer marker genes than bacteria
@@ -43,6 +43,19 @@ def parse_args(argv=None):
     p.add_argument("-t", "--threads", type=int, default=4)
     p.add_argument("--seed", type=int, default=1)
     return p.parse_args(argv)
+
+
+def species_domains(genome_table):
+    """GTDB species name (s__Genus species, as protal names taxa) -> domain, from the lineages in the table."""
+    domains = {}
+    with open(genome_table) as fh:
+        for line in fh:
+            for field in line.rstrip("\n").split("\t"):
+                if field.startswith("d__") and ";s__" in field:
+                    ranks = field.split(";")
+                    domains[ranks[-1].strip()] = ranks[0][3:]
+                    break
+    return domains
 
 
 def run(command, log):
@@ -90,11 +103,13 @@ def simulate_and_profile(point, index, opts):
 def main(argv=None):
     opts = parse_args(argv)
     os.makedirs(opts.out, exist_ok=True)
+    domains = species_domains(opts.genome_table)
     header, rows = None, 0
     table = os.path.join(opts.out, "training_data.tsv")
     with open(table + ".partial", "w", newline="") as out:
         writer = csv.writer(out, delimiter="\t", lineterminator="\n")
         for index, point in enumerate(design_points(opts)):
+            present = absent = 0
             for dump in simulate_and_profile(point, index, opts):
                 sample = os.path.basename(dump).split(".profile")[0]
                 with open(dump, newline="") as fh:
@@ -102,13 +117,19 @@ def main(argv=None):
                     dump_header = next(reader)
                     if header is None:
                         header = dump_header
-                        writer.writerow(["meta_design", "meta_sample", "meta_read_length", "meta_read_pairs"] + header)
+                        writer.writerow(["meta_design", "meta_sample", "meta_read_length", "meta_read_pairs",
+                                         "meta_domain"] + header)
                     elif dump_header != header:
                         sys.exit(f"{dump} has other columns than the dumps before it (another protal version?)")
+                    name, truth = header.index("taxon_name"), header.index("truth")
                     for row in reader:
-                        writer.writerow([point["name"], sample, point["read_length"], point["read_pairs"]] + row)
+                        writer.writerow([point["name"], sample, point["read_length"], point["read_pairs"],
+                                         domains.get(row[name], "unknown")] + row)
                         rows += 1
-            print(f"{point['name']}: done", flush=True)
+                        is_present = row[truth].lower() in ("1", "true")
+                        present += is_present
+                        absent += not is_present
+            print(f"{point['name']}: {present} present and {absent} absent taxa in {opts.samples} samples", flush=True)
     os.replace(table + ".partial", table)
     print(f"{rows} taxa in {table}")
 

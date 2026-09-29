@@ -191,6 +191,11 @@ mini-db: baseline
 mini-db-test:
     python3 -m unittest scripts/mini_db/test_mini_db.py
 
+# Checks that the presence model's PMML export scores as scikit-learn does (needs numpy, pandas,
+# scikit-learn; no Java).
+model-test:
+    python3 -m unittest -v scripts/test_model_pmml.py
+
 # C++ unit tests (GoogleTest; needs libgtest-dev).
 test:
     cmake -S . -B {{build_dir}} -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON
