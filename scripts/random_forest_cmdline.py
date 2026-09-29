@@ -331,7 +331,8 @@ def study_data(report, df, y, cols):
                         "the references themselves (only representative genomes?). Real strains differ by up to a few "
                         "%, and the model may call them absent. Simulate from non-representative genomes as well "
                         "(for GTDB: from NCBI, by the accessions in GTDB's metadata).")
-    per_species = [c for c in cols if df.groupby("taxon")[c].nunique().max() == 1]
+    # Features that differ between species but not within one (a feature constant everywhere names nothing).
+    per_species = [c for c in cols if df[c].nunique() > 1 and df.groupby("taxon")[c].nunique().max() == 1]
     if per_species:
         report.add(f"features constant within every species ({len(per_species)}): {', '.join(per_species)}. "
                    "Together they can name a species, and the model can learn which species tend to be present.")
@@ -395,6 +396,29 @@ def study_breakdown(report, df, y, p, opts):
                 row.update({"found_collection": int(pr.call_old.sum()), "FP_collection": int(ab.call_old.sum())})
             rows.append(row)
         report.table(pd.DataFrame(rows))
+    # The two things a harder simulation adds (collect_training_data.py --taxonomy, --novel_species): present
+    # species simulated from other strains than the reference, and absent taxa that a species the database
+    # lacks passes its reads to.
+    groups = {}
+    if "meta_rep_genome" in df.columns and df.loc[df.truth == 1, "meta_rep_genome"].notna().any():
+        rep = df["meta_rep_genome"]
+        groups["present, simulated from"] = [("the representative", (df.truth == 1) & (rep == 1)),
+                                             ("another genome", (df.truth == 1) & (rep == 0))]
+    if "meta_novel_congener" in df.columns and (df.loc[df.truth == 0, "meta_novel_congener"] == 1).any():
+        congener = df["meta_novel_congener"] == 1
+        groups["absent taxa"] = [("congeners of a species the database lacks", (df.truth == 0) & congener),
+                                 ("others", (df.truth == 0) & ~congener)]
+    for title, parts in groups.items():
+        rows = []
+        for label, mask in parts:
+            g = frame[mask.to_numpy()]
+            row = {title: label, "taxa": len(g), "called": int(g.call_new.sum())}
+            if old is not None:
+                row["called_collection"] = int(g.call_old.sum())
+            rows.append(row)
+        report.add(f"{title}:")
+        report.table(pd.DataFrame(rows))
+        report.data.setdefault("breakdown", {})[title] = rows
     shown = [c for c in ["meta_sample", "taxon_name", "domain", "fragments", "identity", "top_identity",
                          "hit_gene_fraction", "low_identity_share", "lsu_per_kb"] if c in df.columns]
     hard = df.assign(p=new)
