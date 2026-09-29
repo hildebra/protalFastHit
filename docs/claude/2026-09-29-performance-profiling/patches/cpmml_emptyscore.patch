@@ -1,0 +1,48 @@
+--- a/lib/cPMML/src/core/internal_score.h
++++ b/lib/cPMML/src/core/internal_score.h
+@@ -7,6 +7,8 @@
+ #ifndef CPMML_SCORE_H
+ #define CPMML_SCORE_H
+ 
++#include <cerrno>
++#include <cstdlib>
+ #include <string>
+ #include "core/value.h"
+ #include "utils/utils.h"
+@@ -33,25 +35,23 @@
+ 
+   explicit InternalScore(const double &score) : empty(false), score(std::to_string(score)), double_score(score) {}
+ 
+-  explicit InternalScore(const std::string &score) : empty(false), score(score) {
+-    try {
+-      double_score = ::to_double(score);
+-    } catch (const cpmml::ParsingException &exception) {
+-      double_score = double_min();
+-    }
++  explicit InternalScore(const std::string &score) : empty(false), score(score), double_score(parse_score(score)) {}
++
++  // ::to_double (std::stod) without exceptions, same values: internal tree nodes have no score and
++  // leaves hold class labels ("TRUE"), so stod threw, and to_double threw again, for every node.
++  static double parse_score(const std::string &score) {
++    errno = 0;
++    char *end = nullptr;
++    double const value = std::strtod(score.c_str(), &end);
++    if (end == score.c_str() || errno == ERANGE) return double_min();
++    return value;
+   }
+ 
+   InternalScore(const double &score, const std::unordered_map<std::string, double> &probabilities)
+       : empty(false), score(std::to_string(score)), double_score(score), probabilities(probabilities) {}
+ 
+   InternalScore(const std::string &score, const std::unordered_map<std::string, double> &probabilities)
+-      : empty(false), score(score), probabilities(probabilities) {
+-    try {
+-      double_score = ::to_double(score);
+-    } catch (const cpmml::ParsingException &exception) {
+-      double_score = double_min();
+-    }
+-  }
++      : empty(false), score(score), double_score(parse_score(score)), probabilities(probabilities) {}
+ 
+   InternalScore(const InternalScore &) = default;
+ 

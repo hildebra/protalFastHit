@@ -15,6 +15,9 @@
 *.doctree
 *.css
 .claude
+.idea
+.vscode
+uml
 
 # strain test harness outputs (M5)
 strain_test_out/

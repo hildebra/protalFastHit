@@ -1,0 +1,134 @@
+# Testing and development
+
+```bash
+just test        # C++ unit tests (GoogleTest): cmake -DPROTAL_BUILD_TESTS=ON, then ctest
+just e2e         # builds the mini database, then runs tests/e2e/test_protal_e2e.py against it
+just example     # mini database + reads from a known mock community: is the profile right?
+just mini-db-test  # unit tests of the mini database generator and converter (no protal binary needed)
+just model-test    # the presence model's PMML export scores as scikit-learn does (needs scikit-learn)
+```
+
+The unit tests need GoogleTest (`libgtest-dev` on Ubuntu); the Python tests use the standard
+library only, except `model-test`, which needs numpy, pandas and scikit-learn, as training does. Build requirements are in [installation.md](installation.md#building-from-source).
+
+## Unit tests
+
+`tests/test_*.cpp` cover SNP calling, the SAM round trip, index building and lookup, the index
+column codec, zstd and the single-file database, input validation, parsing, and strain output.
+They build as one binary:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON
+cmake --build build --target protal_tests
+ctest --test-dir build --output-on-failure
+```
+
+Under AddressSanitizer and UndefinedBehaviorSanitizer, as CI runs them (a Debug build, so
+`assert()` is on):
+
+```bash
+FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPROTAL_BUILD_TESTS=ON \
+  -DCMAKE_CXX_FLAGS="$FLAGS" -DCMAKE_C_FLAGS="$FLAGS" -DCMAKE_EXE_LINKER_FLAGS="$FLAGS"
+cmake --build build-asan --target protal_tests
+ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ctest --test-dir build-asan --output-on-failure
+```
+
+UBSan reports of misaligned loads inside `lib/wfa2-lib` are known and harmless.
+
+## End-to-end tests
+
+`tests/e2e/test_protal_e2e.py` simulates reads from a database's reference genes (sequencing
+errors only, fixed seed) and runs the real `protal` and `simulate_metagenomes` binaries: exit
+codes, output files, SAM records, strain MSAs, reruns and failure reporting, for paired-end and
+single-end reads (`SingleEndTest` stands in the database's own model for `model_se.xml`). Point
+them at any database:
+
+```bash
+PROTAL_TEST_DB=data/mini_db/protal_db PROTAL=build/protal SIMULATE=build/simulate_metagenomes \
+    python3 -m unittest -v tests/e2e/test_protal_e2e.py
+```
+
+`PROTAL_TEST_DB` may be a `database.protal`, its folder, or separate raw or compressed files
+(the `zstd` CLI is needed for compressed ones). `just e2e` builds the mini database first.
+
+## Mini database
+
+`scripts/mini_db/` builds a small protal database from a synthetic, sparse GTDB release (3
+species, 3 genomes each by default), so you can test without the full database:
+
+```bash
+just mini-db          # or: PROTAL=build/protal bash scripts/mini_db/build_mini_db.sh data/mini_db
+protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
+```
+
+- `simulate_gtdb_release.py` writes a directory laid out like an extracted GTDB release
+  (taxonomy, metadata, `*_marker_genes_{reps,all}` per-marker FASTAs, representative genomes)
+  plus `simulation/genomes.tsv`, which you can pass to `simulate_metagenomes --genome_table`.
+  Options: `--seed`, `--lineages FILE` (one GTDB lineage per line), `--genomes_per_species`,
+  `--genome_length`, `--contigs`, `--marker_loss`, `--strain_divergence`, `--species_divergence`
+  (the last two take a rate or a range `LOW-HIGH` drawn per genome or species, written to
+  `simulation/divergence.tsv`).
+- `gtdb_like_lineages.py` writes lineages shaped like GTDB's for `--lineages`: up to 999 species,
+  most genera with one species and a few with many, unique names, a share of archaea. It makes the
+  world the presence model's training was tuned on ([model-training.md](model-training.md)).
+- `gtdb_to_protal_db.py` turns such a release (synthetic or a real, extracted one) into the input
+  files of a database (`--exclude_species` leaves species out of a training database, keeping their
+  taxids), and `build_mini_db.sh` runs `protal --build` on them
+  ([building-a-database.md](building-a-database.md)).
+- `simulate_reads.py` draws paired reads from a mock community of those genomes (no ART needed)
+  and writes the truth table next to them.
+- The build packs the database into `protal_db/database.protal` (see
+  [database-files.md](database-files.md)), about 1 MB here, while a raw `index.prx` is about 3 GB
+  even for a tiny reference, because the k-mer key map has a fixed size.
+  `PROTAL_BUILD_ARGS=--no_bundle` builds separate compressed files, `PROTAL_BUILD_ARGS=--no_compress`
+  a raw database.
+
+`just example` runs [`examples/mini_db/run.sh`](../examples/mini_db/README.md): a seeded, fully
+reproducible build of the mini database, 30,000 simulated read pairs from three genomes (two of
+them strains that differ from the reference), a protal run, and a check that every species is
+detected with the right abundance (within 0.05) and that aligned reads hit their own species.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request, on Ubuntu 24.04:
+
+- a Release build of `protal`, `protal_avx2`, `simulate_metagenomes` and the unit tests, the unit
+  tests, and the mini database generator tests;
+- the unit tests of a Debug build under AddressSanitizer and UndefinedBehaviorSanitizer.
+
+The end-to-end tests and `just example` are not part of CI; run them before a merge.
+
+## Strain test harness
+
+The `strain-*` recipes of the [justfile](../justfile) run the strain pipeline on a simulated
+dataset and build a self-contained HTML QC report. Set the database (`PROTAL_DB_PATH` or
+`strain_db=...`) and the dataset (`strain_input=...`) on the command line; the defaults are paths
+on the developers' cluster.
+
+| Recipe | |
+|---|---|
+| `just strain-input strain_genomes=genomes.tsv` | simulate a dataset (`strain_sim_args`) and align it, in the layout the other recipes read |
+| `just strain-test` | profile the existing alignments with the qcmsa post-filter, count each species' markers in the database, write `strain_test_out/<variant>/report/report.html` |
+| `just strain-test-raw` | the same with `--msa_min_hcov 0` into variant `test2`: only the SNP filters, all gene and sample filtering left to qcmsa |
+| `just strain-refilter` | re-run qcmsa on a run's raw MSAs with other thresholds ([qcmsa.md](qcmsa.md)) |
+| `just strain-trees` | IQ-TREE trees from each MSA (`strain_tree_input=raw` for the raw MSAs) |
+| `just strain-report`, `just strain-clean` | rebuild the report, remove the outputs |
+
+The report comes from `scripts/strain_test/strain_report.py` (standard library only), the marker
+counts from `scripts/strain_test/db_gene_counts.py`.
+
+## Other scripts
+
+| Script | |
+|---|---|
+| `scripts/db_compression_benchmark.sh` | compression ratio and speed per zstd level on a database, and protal's load times ([database-files.md](database-files.md#measuring)) |
+| `scripts/protal_profile_utils merge` | merge profiles into one abundance table |
+| `scripts/protal_map_utils` | `generate`, `merge`, `flatten` and `validate` map files |
+| `scripts/plot_abundances.R` | abundance bar plots for `simulate_metagenomes --plot_png` |
+
+## Conventions
+
+- Helper scripts and tests in this repository are Python 3 (argparse, a module docstring saying
+  what the script does and how to call it), or plain shell for glue.
+- Audits, benchmarks and reviews written with Claude Code go to [`docs/claude/`](claude/README.md).

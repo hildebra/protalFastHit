@@ -1,0 +1,13 @@
+--- a/lib/cPMML/src/core/xmlnode.h
++++ b/lib/cPMML/src/core/xmlnode.h
+@@ -49,6 +49,10 @@
+   double get_double_attribute(const std::string &attribute_name) const {
+     double result;
+
++    // A missing attribute (e.g. recordCount, which protal's PMML export does not write) gave
++    // stod("null"), one thrown and caught exception per tree node; same value, no exception.
++    if (!exists_attribute(attribute_name)) return std::numeric_limits<double>::min();
++
+     try {
+       result = std::stod(get_attribute(attribute_name));
+     } catch (const std::invalid_argument &exception) {

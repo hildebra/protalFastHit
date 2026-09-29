@@ -1,0 +1,169 @@
+# Training protal's presence model
+
+protal decides whether a species is present with a random forest (PMML, `model.xml` in the
+database). It scores every species with reads, and reports those whose probability of `TRUE` is at
+least `--knob` (0 to 1, default 0.5).
+
+The model's features come from the reads and the database, so a model belongs to the kind of
+database it was trained on. [building-a-database.md](building-a-database.md#build-and-train-in-one-command)
+runs the whole pipeline below in one command; this page describes its parts.
+
+Features are counted per read, and a pair of reads counts twice, so a model also belongs to the
+kind of reads it was trained on. Single-end samples are profiled with `model_se.xml` of the
+database (or `--model_se`; [running.md](running.md#single-end-reads)), a model trained the same way
+on single-end samples. The pipeline below simulates paired-end reads, so it trains `model.xml` only.
+
+## What protal expects of a model
+
+At start, before any alignment, protal checks that the model
+- takes only inputs protal computes: the features of `TaxonFeatures` in
+  `src/Profiling/Profiler.h`, the columns of the training dump below;
+- predicts a field with the value `TRUE`, whose probability is the species' score;
+- scores a species.
+
+A model that fails one of these stops the run with exit code 2, naming the problem.
+
+## Training data
+
+With a truth file (`--profile_truth`, one per sample, comma-separated, or a `PROFILE_TRUTH` column
+in the map), protal writes `<profile>.truth_annotated`. This file has one row per species with
+reads: whether the species was present (`truth`), the current model's call and probability, and
+every feature. The features are written exactly as the model is given them.
+
+A truth file names one species present per line: by GTDB lineage in any tab-separated field
+(`d__...;s__Genus species`) or by internal taxid in the first field. `simulate_metagenomes
+--protal_metafile` writes such files and a map that uses them ([simulation.md](simulation.md)).
+
+`collect_training_data.py` produces such data at scale. It simulates metagenomes with
+`simulate_metagenomes` over a grid of read setups (length, ART profile, fragment size) and depths,
+profiles them against a database, and joins all dumps into `training_data.tsv`:
+
+    python3 scripts/collect_training_data.py --db DB --genome_table genomes.tsv -o training \
+        --archaea 2 --species_per_sample 10-40 -t 8
+
+| Option | Default | |
+|---|---|---|
+| `--db`, `--genome_table`, `-o` | required | database, simulator genome table (accession, GTDB taxonomy, FASTA path), output directory |
+| `--protal`, `--simulator` | on `$PATH` | the binaries |
+| `--samples` | 4 | samples per design point |
+| `--read_pairs` | `5000,20000,100000,500000` | depths, one design point each |
+| `--read_setups` | `100:HS20:300:40,150:HS25:350:50,250:MSv3:550:50` | length : ART profile : fragment mean : fragment SD, one design point each |
+| `--species_per_sample` | `5-30` | N or MIN-MAX |
+| `--archaea` | 0 | archaeal species per sample |
+| `--congeners` | 0 | species of one genus in every sample of a design point (the genus drawn per point): relatives share real samples, but hardly ever uniform draws from many genera |
+| `--novel_species` | | species the database lacks (e.g. those a training database leaves out), for `meta_novel_*` |
+| `--taxonomy` | | the database's `internal_taxonomy.dmp`, for `meta_rep_genome` |
+| `-t`, `--seed` | 4, 1 | |
+
+Design points already done are skipped, so a run can be resumed. Columns it adds start with
+`meta_` and say where each row comes from: design point, sample, read length, depth, the taxon's
+domain (`meta_domain`, from the genome table's lineages; `unknown` for species the table lacks),
+how many species of `--novel_species` the sample holds (`meta_novel_species`), whether the taxon
+shares a genus with one of them (`meta_novel_congener`: the taxa their reads land on), and whether a
+present species was simulated from its representative, the database's reference, or another
+genome (`meta_rep_genome` 1 or 0). The training report breaks its errors down by the last two.
+
+The genome table should include species that the database lacks. Their reads land on relatives
+the database has, and those species are the false positives the model must learn to reject: build
+the training database with some species left out (`gtdb_to_protal_db.py --exclude_species`, which
+keeps their taxids, so the model applies to the full database) and simulate from all of them.
+`build_gtdb_database.py --holdout` does this. Include archaea,
+too (`--archaea`), since they have fewer marker genes than bacteria. Include genomes other than the
+database's references (other strains of its species): real strains differ from the reference by up
+to a few percent, and a model that has only seen reads of the reference itself may call them
+absent. `scripts/mini_db/simulate_gtdb_release.py --strain_divergence 0.002-0.015
+--species_divergence 0.015-0.04` makes a small world with such strains and close relatives.
+
+## Features
+
+The shipped model was trained on absolute counts: genes, k-mers and mates. These depend on the
+database, on the domain (archaea have 52 marker genes, bacteria 119), on depth and on read length.
+On simulated data it finds about a third of the archaea present, with probabilities pinned near 0.5.
+
+`model_features.py` lists `NORMALIZED_FEATURES`, which do not depend on these:
+- fractions of the hittable genes (`hit_gene_fraction`, `gene_presence_ratio`: genes hit against
+  the number expected from the number of fragments);
+- rates per aligned or covered kb (`lu_per_kb`, `lsu_per_kb`, `variant_sites_per_kb`,
+  `multiallelic_sites_per_kb`);
+- read identity with indels counted as differences (`identity`, `top_identity`);
+- the share of low-identity reads, i.e. reads of relatives (`low_identity_share`);
+- the depth's coefficient of variation across genes (`depth_cv`), uniqueness and allele frequency
+  classes (`uniqueness`, `RAF0`-`RAF4`, the `*_gene_rate*` columns);
+- `fragments` and `depth`, which say how much evidence there is.
+
+## Training
+
+    python3 scripts/random_forest_cmdline.py --truth-file training/training_data.tsv \
+        --output-prefix training/model
+
+The trainer needs Python 3 with numpy, pandas, joblib and scikit-learn; no Java. `model_pmml.py`
+writes the forest as PMML itself, so that protal's probabilities equal scikit-learn's bit for bit:
+scikit-learn compares a feature as float32 with its thresholds and cPMML as a double, so each
+threshold is written as the largest double that rounds to a float32 at or below it; leaf counts are
+written so that cPMML's count over total is scikit-learn's leaf probability; and the trees are
+averaged in file order, as protal does. The trainer checks this on every training row and fails if
+one differs.
+
+| Option | Default | |
+|---|---|---|
+| `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
+| `--features` | `normalized` | `normalized`: only `NORMALIZED_FEATURES`; `all`: every feature column of the dump |
+| `--reference-pmml` | | train on the input fields of an existing model instead |
+| `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 128, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves) |
+| `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |
+| `--folds` | 5 | folds of the held-out evaluations |
+| `--evaluation` | `full` | `basic`: the held-out evaluations only; `none`: fit and export only |
+| `--taxonomy` | | the database's `internal_taxonomy.dmp`, for domains the table's `meta_domain` lacks |
+| `--seed`, `--threads` | 1, 4 | |
+
+Rows of one sample share its reads, and rows of one species share its reference, so a random split
+of rows scores a model on samples and species it was trained on. The trainer scores each row with
+forests that saw neither its sample ("by sample") nor its species ("by species"), and out of bag.
+By species is the estimate that matters for a large database: of GTDB's ~130,000 species a
+training set holds a few thousand, so most species protal meets in real samples were never in
+training. The report also compares with the model that profiled the training samples (the dump's
+`probability`, e.g. the shipped model), and `--evaluation full` adds studies of whether the data
+and settings suffice: the other feature set; the procedure this trainer used before (a grid search
+over `max_features`, then a 512-tree forest on only the top features, judged on random rows); the
+number of leaves and of trees; and a learning curve with fewer training samples.
+
+| Output | |
+|---|---|
+| `<prefix>.xml` | the model |
+| `<prefix>.report.txt` | the evaluation (also printed): data summary with warnings, held-out results by domain, depth and evidence, the hardest taxa, the threshold, the studies |
+| `<prefix>.metrics.json` | the report's numbers |
+| `<prefix>.predictions.tsv.gz` | every taxon's probability out of bag, by sample, by species and by rows, with its main features |
+| `<prefix>.thresholds.tsv` | precision, sensitivity and F1 by threshold, species held out |
+| `<prefix>.varimp.tsv` | feature importances |
+| `<prefix>.joblib` | the fitted scikit-learn forest |
+
+On simulated worlds, 64 trees scored as well as 256 or 512 (the forest is 8 times smaller and
+loads faster in protal), the leaf limit did not bind, and the grid search, which took most of the
+old trainer's time, chose a few top features and did no better on species held out.
+
+`check_model_parity.py` re-profiles saved training samples (`--profile_only` on the SAMs a
+`collect_training_data.py` folder keeps) with a model and checks that protal's probabilities are
+the model file's, and that protal computes the features as it did when the training data was
+collected (another protal version may not):
+
+    python3 scripts/check_model_parity.py --db DB --model training/model.xml --training training
+
+`gradient_boosted_cmdline.py` and `hist_gradient_boosted_cmdline.py` train gradient-boosted trees
+with the same inputs; they still export with sklearn2pmml, which needs Java. The histogram variant
+is faster, but its PMML is not guaranteed to load in cPMML: check its scores before you use it. The
+R scripts (`random_forest_cmdline.R`, `random_forest.Rmd`) are the older caret pipeline the Python
+trainer was modelled on.
+
+## Using a new model
+
+Try it first without changing the database:
+
+    protal --db DB --model training/model.xml --map test.map -t 16
+
+or, cheaper, on existing alignments with `--profile_only`. To make it the database's default,
+replace `model.xml` (or, for single-end reads, `model_se.xml`) inside the database
+([database-files.md](database-files.md#converting-a-database)).
+
+Train the production model on simulations from the database's own genomes (for example GTDB), with
+held-out species as negatives. Choose `--knob` on held-out samples like the ones it will profile;
+`<prefix>.thresholds.tsv` is a start.

@@ -1,0 +1,221 @@
+# Performance profiling on simulated paired reads
+
+2026-09-29. Branch `performance` at `995c4f1` (identical to `audit-fixes` at that commit; the
+uncommitted work in the main checkout is not included). Binary: `protal_avx2`, Release (`-O3`,
+`-march=x86-64-v3`); instruction profiles use the same flags plus `-g -fno-omit-frame-pointer`.
+
+**Machine:** WSL2 Ubuntu 24.04 on an Intel Core Ultra 7 258V (4 performance and 4 low-power cores,
+one thread each, 12 MB L3), 15 GB RAM, gcc 13, valgrind 3.22; no `perf` (no hardware counters).
+Other sessions ran simulations and builds on the same machine throughout (load average 7–14 on 8
+cores). Wall-clock times are therefore inflated and noisy; the comparisons below were run back to
+back or alternated, and the instruction counts (callgrind) do not depend on load.
+
+## Data
+
+| Name | What | Size |
+|---|---|---|
+| `db64` | protal database of the 64-species synthetic GTDB world `~/audit4/gtdb64` (192 genomes) | 1.7M index values, `database.protal` 8.6 MB, built in 31 s |
+| `db900` | protal database of the 900-species world `~/tune/world` (GTDB-like genus sizes from `gtdb_like_lineages.py`, 2700 genomes, 101,081 representative genes) | 26.9M index values, `database.protal` 125 MB, built in 391 s at 8 threads |
+| `s64` | 1M pairs, ART HS25 2×150, fragment 350±50, 20 species of the 64-world with strains (`--strains_per_species 0.3,0.1`, seed 11) | 197 MB `.fq.gz` |
+| `w900` | the same for 60 species of the 900-world; 53% of pairs align (genomes are ~270 kb, ~40% marker genes) | 197 MB |
+| `mix` | every 20th `w900` pair interleaved with 950k ART pairs from 40 Mb of random sequence: 5% of pairs from database species, as in a real metagenome whose marker genes are a few % of each genome | 201 MB |
+
+The synthetic genomes are mostly marker genes, so `s64` and `w900` stress alignment; `mix` has the
+share of database reads of a real sample and is the realistic case.
+
+## Summary
+
+For the realistic `mix`, 8 threads align 1M pairs in 21 s with gzipped input and in 8.5 s with the
+same reads uncompressed: the FASTQ reader inflates gzip inside `omp critical(reader)`, which caps
+protal at about 200k pairs/s whatever the thread count. That is the largest gap found. After it
+come syncmer extraction (40% of the per-read instructions on `mix`), WFA alignment (53% on
+marker-rich reads, and on `mix` about 70% of it spent on reads that cannot align), TLB misses
+in the 3 GB key map (huge pages cut seeding by 30–38% without a code change), and fixed start-up
+costs: 3 GB and 2–3 s single-threaded for the key map of any database, and 229k C++ exceptions
+while parsing the model. Nothing here was measured on the real GTDB database, where lookups and
+alignments per read will be larger (see [Gaps](#gaps)).
+
+| # | Finding | Evidence | Opportunity | Changes results? |
+|---|---|---|---|---|
+| 1 | gzip is inflated inside the reader's critical section | `mix`, 8 threads: 21.1 s `.gz` vs 8.5 s plain; `w900`: 23.0 vs 15.0 s. `zcat` of one input file takes 2.0–2.5 s | Inflate outside the lock (a reader thread per mate, or libdeflate/ISA-L), larger batches, a block reader instead of gzstream | no |
+| 2 | Syncmer test recomputed from scratch for every window | 63k instructions per pair, ~260 per 31-mer window (~180 of them in the syncmer test), independent of the data: 40% of the loop on `mix`, 16–20% on `w900`/`s64` | Precompute the read's s-mers once per strand and slide the minimum; est. 2–3× on this part | no (must give the same syncmers; unit-testable) |
+| 3 | WFA dominates marker-rich reads; alignments of hopeless anchors | 53% of the loop on `w900`, 73k instructions per call, 1.46 calls per read, ~39% of calls fail; on `mix` about 70% of the WFA work is for background reads | Ungapped fast path (≤1 mismatch is provably optimal), a pre-filter for anchors that cannot reach 90% identity, a cheaper WF-adaptive schedule | fast path: no; the rest: to validate |
+| 4 | The 3 GB key map is accessed at random through 4 KB pages | `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` (3.5 GB in huge pages): seeding 5.9→3.7 s and 4.4→3.1 s | `madvise(MADV_HUGEPAGE)` in `AllocateKeymap`/`AllocateValues`; document the tunable meanwhile | no |
+| 5 | Fixed start-up costs | Key map: 3.1 GB RSS and 3.7 G instructions to decode for any database (2.2–2.7 s at 1 thread on `db64`). Model: 4.6 G instructions, 3.35 G of them in 229k exceptions | Two cPMML patches (below): −38% instructions for a 1000-pair run, profiles identical | no |
+| 6 | Profiling runs one thread per sample | `w900`: 3.8 s after 19 s of 8-thread alignment; SAM text parsing is 72% of its instructions | Profile sample *i* while aligning sample *i+1*, or hand alignments over in memory | no |
+| 7 | The built-in stage timers mislead | The k-mer extraction timer is measured but never printed; every interval is floored to whole µs; `<sample>_runtime.tsv` is in whole seconds and "Anchor recovery" is always 0 | Report k-mer extraction; accumulate in ns | no |
+| 8 | Waiting threads spin | `mix`, 8 threads: 71.9 s user CPU with `.gz`, 35.3 s plain | Follows from 1; `OMP_WAIT_POLICY=passive` may reduce the burn on shared nodes (not tested) | no |
+
+## Where the instructions go
+
+callgrind, 50k pairs of each set, 1 thread (`scripts/callgrind.sh`, `scripts/cg_stage.sh`). The
+alignment loop is `RunPairedEnd`; percentages are of that loop.
+
+| Stage (instructions per pair) | `s64` / `db64` | `w900` / `db900` | `mix` / `db900` |
+|---|---:|---:|---:|
+| **alignment loop** | **310k** | **405k** | **156k** |
+| FASTQ reader (gzip inflate 70% of it) | 26k (8.5%) | 26k (6.5%) | 26k (16.6%) |
+| syncmer extraction | 63k (20.4%) | 63k (15.6%) | 63k (40.4%) |
+| seeds and anchors | 32k (10.4%) | 40k (9.9%) | 18k (11.4%) |
+| alignment handler | 168k (54.1%) | 255k (62.9%) | 47k (30.1%) |
+| · of which WFA | 113k (36.4%) | 214k (52.9%) | 35k (22.1%) |
+| · of which WF-adaptive cut-offs | 20k (6.5%) | 41k (10.2%) | 7k (4.3%) |
+| SAM output | 16k (5.0%) | 16k (3.9%) | 1k (0.5%) |
+| profiling, after alignment | 32k | 35k | 4k |
+| WFA calls per read | 1.30 | 1.46 | 0.16 |
+| index lookups (`Seedmap::Get`) per read | 22.9 | 22.9 | 22.9 |
+| lookups turned into seeds per read | 9.3 | 10.3 | 2.9 |
+
+Fixed costs per run, in instructions: index load 4.0 G (`db64`) and 11.0 G (`db900`), that is
+~3.7 G for the key map plus ~280 per index value (zstd and column decoding); model parsing 4.6 G;
+genomes, reference map, unique k-mers and SAM header 0.14 G (`db64`) to 2.4 G (`db900`).
+
+In `mix`, its 2,500 database pairs would cost ~0.6 G in the alignment handler at `w900`'s rate; it
+spends 2.35 G. Of its 16,012 WFA calls, about 7,300 are for the database reads (1.46 per read) and
+8,700 for the random background reads; those take ~140k instructions each, 1.2 of the 1.7 G spent
+in WFA, because they run to the score limit and fail.
+
+Output SAM records of `w900` (`scripts/sam_stats.sh`, 894,815 records): 27% exact, 17% one
+mismatch, 15% two, 29% three to five, 8% more, 4% with indels.
+
+## Wall clock
+
+1M pairs, `db900`, alignment stage only (`--no_profile`), "Aligning reads" time
+(`scripts/scaling.sh`). The reader time is the mean per thread, including waiting for the lock.
+
+| | `mix` | `w900` |
+|---|---:|---:|
+| 1 thread, `.fq.gz` | 35.8 s (reader 5.8 s) | 61.0 s (reader 5.0 s) |
+| 8 threads, `.fq.gz` | 21.1 s (reader 11.7 s), 1.7× | 23.0 s (reader 7.0 s), 2.7× |
+| 8 threads, plain `.fq` | 8.5 s (reader 1.7 s), 4.2× | 15.0 s (reader 1.7 s), 4.1× |
+| user CPU, 8 threads `.gz` / plain | 71.9 / 35.3 s | 91.0 / 77.3 s |
+
+Load average 11–14 during these runs, so the 8-thread speedups are lower than on a dedicated
+node. The bound from the reader holds anywhere: inflating one pair takes ~4.5 µs on one core
+(`zcat` alone: 2.0 s for R1, 2.3–2.5 s for R2), so gzipped input cannot go faster than ~200k
+pairs/s, and 16- or 32-thread cluster jobs will not scale beyond it. Decompressing in separate
+`zcat` processes (`-1 <(zcat R1)`) did not help: gzstream reads through a 303-byte buffer, and a
+pipe costs a system call per buffer (reader time 17 s).
+
+Full run of `w900` at 8 threads (`--verbose`): load index 1.2 s, alignment 19.2 s, profiling
+4.7 s (3.8 s for the one sample, single-threaded), total 27 s, peak RSS 3.8 GB; the SAM is 350 MB.
+
+### Huge pages
+
+`mix` plain, 1 thread, `--no_profile`, alternated (`scripts/thp_test.sh`); THP is in `madvise`
+mode on this system, so only the tunable puts the index in huge pages (AnonHugePages 0 vs 3.5 GB).
+
+| Run | Seeding off → on | Alignment stage off → on |
+|---|---:|---:|
+| 1 | 5.94 → 3.67 s | 29.1 → 23.9 s |
+| 2 | 4.39 → 3.08 s | 21.6 → 20.2 s |
+
+Seeding is 30–38% faster; the load changed during the runs, so the effect on the whole stage
+(6–18%) is less certain. The key map is the same size for every database, and a larger value
+array adds TLB misses, so the gain on GTDB is likely at least as large.
+
+## Memory
+
+50k pairs of `s64`, `db64`, 8 threads (`scripts/mem_trace.sh`): 95 MB after loading the genomes, 3.14 GB during
+the index load, 3.18 GB during alignment, 0.61 GB during profiling (the index is freed first).
+With `db900`: peak 3.5 GB (1 thread) to 3.8 GB (8 threads). The key map is direct-indexed by the
+15-mer core (4^15 slots), so it takes ~3 GB for any database; the values add 8 bytes each.
+
+## Start-up: model parsing
+
+cPMML throws and catches three exceptions per tree node (65k nodes in 256 trees): `Node` reads
+`recordCount` with `std::stod("null")` (our PMML export does not write it), and `InternalScore`
+converts every node's score with `stod` (internal nodes have none, leaves hold "TRUE"/"FALSE") and
+throws again from the handler. [`patches/`](patches/) returns the same values without exceptions. 1000 pairs,
+`db64`, 1 thread, three alternated runs each (`scripts/model_test.sh`):
+
+| | as is | patched |
+|---|---:|---:|
+| instructions | 9.28 G | 5.73 G |
+| in `__cxa_throw` | 3.35 G | 0.44 G |
+| user CPU (mean) | 1.66 s | 1.40 s |
+
+The profiles are byte-identical. The remaining 0.44 G are 24,674 `out_of_range` exceptions from
+`MiningField`, `OutlierTreatmentMethod` and `OpType` parsing. The run takes 3.0–3.5 s, of which
+2.2–2.7 s load the key map.
+
+## Opportunities, in order
+
+1. **Read input without serialising on gzip.** Inflate R1 and R2 in their own threads into blocks
+   that workers parse, or use a faster inflater (libdeflate, ISA-L) with large reads instead of
+   gzstream's `getline` into a `stringstream` and back. Gain on this machine up to the plain-input
+   times: 2.5× for `mix` and 1.5× for `w900` at 8 threads, more at higher thread counts.
+2. **Huge pages for the index:** `madvise(ptr, bytes, MADV_HUGEPAGE)` after the `calloc`/`malloc`
+   in `Seedmap::AllocateKeymap` and `AllocateValues`. Until then, `GLIBC_TUNABLES=glibc.malloc.hugetlb=1`
+   does it for users (glibc ≥ 2.35).
+3. **Syncmer extraction** (`SimpleKmerHandler::operator()` with `ClosedSyncmer`): the 9 s-mer
+   minimum of the canonical 15-mer core is recomputed for each of the ~120 windows of a read.
+   Precomputing the read's 7-mer values once per strand and sliding the minimum should cut the
+   ~180 instructions per window to well under 100. A unit test can check it returns exactly the
+   current syncmers, which the index was built with.
+4. **Fewer and cheaper WFA calls.**
+   - An anchor chain on one diagonal that spans the read with at most one mismatch is optimal as
+     an ungapped alignment: score 4 against at least 8 for any gap (mismatch 4, gap 6+2). 44% of
+     the output records are such; they are the cheapest WFA calls, so the saving is well below
+     that share (not measured). Reads that overhang a gene end still need WFA.
+   - Background reads and relatives' anchors run WFA to the score limit and fail. A cheap bound
+     before WFA (e.g. mismatches on the anchor diagonal, anchor coverage) could skip most of them;
+     it must be checked against sensitivity, and the tie rule in `SimpleAlignmentHandler::operator()`
+     (all anchors tied with the last of the top `-c`) should be watched on GTDB, where relatives tie.
+   - WFA runs with its default WF-adaptive heuristic, cutting off after every step (10% of the
+     loop on `w900`). `--x_drop` is parsed and stored in `WFA2Wrapper2` but never passed to WFA.
+5. **Apply the cPMML patches** (−3.5 G instructions per run, same results) and, for small or custom
+   databases, consider a key map that does not cost 3 GB and 2–3 s regardless of size.
+6. **Profiling in parallel with alignment** for the next sample, or from alignments in memory
+   instead of re-parsing the SAM (72% of profiling).
+7. **Per-read allocations** (malloc and free are ~4.5% of the loop): `KmerUtils::ReverseComplement`
+   takes its input by value and appends character by character; `SimpleAlignmentHandler::operator()`
+   copies the read and computes the reverse complement the anchor finder already has;
+   `AlignAnchor` takes `rev` by value and copies the reference window with `substr` for every call.
+8. **Timers**: print "Retrieve k-mers", accumulate in nanoseconds, fix `_runtime.tsv`.
+
+Smaller things seen on the way: `SimpleAlignmentHandler::ExtendSeed(ChainLink&, ...)` loops while
+`qpos < qpos + s.length`, which is always true, and reads past the read; it is only reached from
+`ExtendAllAnchors`, which nothing calls, so it is dead code to remove. `-t` defaults to 1.
+
+## Gaps
+
+- **GTDB scale was not profiled**, and it will change the balance. `db900` has 0.025 values per
+  slot of the 4^15-slot key map. If the r226 database holds ~120 marker genes of ~1 kb for each
+  of ~143k species (~15 Gbp), it has about 70 times `db900`'s values: nearly every lookup, also of off-target reads,
+  returns a block whose flex keys are scanned, reads get more seeds and anchors, and conserved
+  genes give ties among relatives, hence more WFA calls. Index load then scales with the values
+  (~280 instructions each here). Run `scripts/` on the cluster with the real database: callgrind on
+  50k pairs of a realistic mix, and the 1/8/32-thread runs with `.gz` and plain input.
+- A quiet machine: absolute times, thread-scaling curves and the whole-stage THP gain need a
+  dedicated node; this CPU also mixes fast and slow cores.
+- No hardware counters (no `perf`): cache and TLB misses are inferred from the huge-page test.
+- Real reads (quality trimming, adapters, host DNA, low complexity), other read lengths, and
+  multi-sample maps (index loaded once, samples profiled in parallel) were not run; nor the strain
+  MSA stage (it needs two or more samples) or the SAM compression step of map runs.
+- The gains for syncmers and WFA are estimates from instruction counts, not prototypes.
+
+## Reproducing
+
+The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, default
+`~/protal-perf`, on a Linux file system). Generated data stays in `PERF_DIR`, not in git.
+
+```bash
+export PERF_DIR=~/protal-perf
+bash scripts/build.sh
+bash scripts/prep_db.sh db64 ~/audit4/gtdb64
+bash scripts/prep_db.sh db900 ~/tune/world          # the 900-species world, see below
+bash scripts/prep_reads.sh s64 ~/audit4/gtdb64/simulation/genomes.tsv 20
+bash scripts/prep_reads.sh w900 ~/tune/world/simulation/genomes.tsv 60
+bash scripts/prep_reads.sh --mix mix w900
+bash scripts/callgrind.sh w900 $PERF_DIR/db900 $PERF_DIR/reads/w900/reads 50000
+bash scripts/scaling.sh $PERF_DIR/db900 $PERF_DIR/reads/mix mix 8
+bash scripts/thp_test.sh $PERF_DIR/db900 $PERF_DIR/reads/mix_plain mix 1 2
+bash scripts/mem_trace.sh mem_s64 $PERF_DIR/db64 $PERF_DIR/reads/s64/reads 8
+bash scripts/model_test.sh $PERF_DIR/db64 $PERF_DIR/reads/s64/reads
+```
+
+The worlds: `~/audit4/gtdb64` is a 64-species `simulate_gtdb_release.py` release with 3 genomes
+per species; `~/tune/world` was made with `gtdb_like_lineages.py --species 900` (then untracked in
+the main checkout) and `simulate_gtdb_release.py --lineages`, with strain and species divergence
+ranges.
