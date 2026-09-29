@@ -44,12 +44,15 @@ python3 scripts/mini_db/gtdb_to_protal_db.py --gtdb /data/gtdb_r226 --outdir /da
 | `--release` | detected from the taxonomy file names | e.g. `226` |
 | `--model` | `scripts/random_forest.xml` | PMML model copied to `model.xml` |
 | `--order` | `gene` | order of `reference.fna`: by gene, then taxon (compresses about 2x better), or `genome` |
+| `-t, --threads` | 1 | marker files read in parallel; the output is the same for any number |
+| `--exclude_species` | | file of species whose marker genes are left out; the taxonomy keeps them with their taxids (a training database) |
+| `--from_db` | | instead of `--gtdb`: copy a folder this script wrote, without the species of `--exclude_species` |
 
 It writes `reference.fna`, `reference.map`, `internal_taxonomy.dmp`, `full_reference.fna` (only if
 `genomic_files_all` is there), `model.xml`, and two tables for your own use: `gene2geneid.tsv`
 (marker id to protal's gene id) and `genome2tiid.tsv` (accession, species taxid, representative,
-lineage). The converter keeps the representatives' marker genes in memory, so a full release needs
-a machine with plenty of it.
+lineage). The converter spools each marker's genes to a temporary folder in the output, so it
+holds one gene's sequences per worker in memory, not the whole release.
 
 The default `model.xml` is the model shipped with protal. It was trained on older databases and
 does not call archaea reliably ([model-training.md](model-training.md)); for a database you will
@@ -104,21 +107,50 @@ the reduced database, or check its calls on simulated samples first.
 
 `scripts/build_gtdb_database.py` runs the converter, builds and packs the index, simulates training
 data from whole genomes, trains a random forest on the normalised features, and packs the database
-again with the new `model.xml`:
+again with the new `model.xml`. Its inputs come from `scripts/download_gtdb.py`, the one step that
+needs the internet, so it can run on a download node:
 
 ```bash
-python3 scripts/build_gtdb_database.py --gtdb /data/gtdb_r226 --outdir /data/protal_r226 \
+python3 scripts/download_gtdb.py -o /shared/protal_inputs/gtdb_r226          # on a node with internet
+python3 scripts/build_gtdb_database.py --inputs /shared/protal_inputs/gtdb_r226 --outdir /data/protal_r226 \
     --protal build/protal --simulator build/simulate_metagenomes -t 16
 ```
 
-It needs, besides a built `protal` and `simulate_metagenomes`: `art_illumina` and `pigz` on
-`$PATH` (for the simulations), and Python 3 with numpy, pandas, joblib and scikit-learn for the
-training (no Java: the trainer writes the PMML itself).
+`download_gtdb.py` fetches GTDB r226 (`--release 220`, or another release from 207 on, for older
+ones; the newest point release unless one is named, e.g. `214.1`): taxonomy, metadata and the
+marker genes of the representatives and of all genomes (17.7 GB for r226), checked against the
+release's `MD5SUM.txt` and extracted. Then it downloads the genomes to simulate from with NCBI's
+`datasets` CLI (below). The folder serves every later build of that release; a rerun downloads
+only what is missing, and `--dry_run` lists what it would fetch.
 
-Whole genomes are looked up under `genomic_files_all/gtdb_genomes_all_r<R>` or
-`genomic_files_reps/gtdb_genomes_reps_r<R>` (GTDB publishes only the representatives' genomes). If
-they are elsewhere, pass `--genome-table` in the simulator's three-column format (accession, GTDB
-taxonomy, FASTA path).
+| `download_gtdb.py` writes | |
+|---|---|
+| `release/` | GTDB's files as `--gtdb` reads them (archives removed once extracted; `--keep_archives`) |
+| `genomes/` | `<accession>.fna.gz` from NCBI: other strains, and the representatives of the species to simulate |
+| `genomes.tsv`, `missing.txt` | the genomes there (species, role, lineage, CheckM2 values), and those NCBI did not deliver |
+| `simulation_species.txt` | the species to simulate from |
+| `download.json` | the release, the options, the counts, the checksums |
+
+| Option | Default | |
+|---|---|---|
+| `-o` | required | the folder |
+| `--release` | 226 | GTDB release (207 or later) or point release |
+| `--rep_genomes` | `ncbi` | representatives' genomes of the simulated species from NCBI, or `gtdb`: GTDB's archive of all of them (137 GB for r226) |
+| `--species`, `--per_species`, `--rep_only_species` | 4000, 2, 1000 | species with strains, strains each, species simulated from their representative only |
+| `--min_completeness`, `--max_contamination` | 90, 5 | CheckM2 filters for strains |
+| `--no_genomes`, `--dry_run` | | GTDB's files only; list the files and their sizes |
+| `--mirror`, `--datasets`, `--batch`, `-t` | | GTDB server, NCBI CLI, genomes per NCBI request (500), parallel downloads and compression (8) |
+
+It needs, besides a built `protal` and `simulate_metagenomes`: `art_illumina` and `pigz` on
+`$PATH` (for the simulations), Python 3 with numpy, pandas, joblib and scikit-learn for the
+training (no Java: the trainer writes the PMML itself), and NCBI's `datasets` for strain genomes.
+The conda environment [`envs/protal-db-build.yaml`](../envs/protal-db-build.yaml) has them all,
+with the compilers to build protal ([installation.md](installation.md#tools-to-build-a-database)).
+
+With `--gtdb` instead of `--inputs`, whole genomes are looked up under
+`genomic_files_all/gtdb_genomes_all_r<R>` or `genomic_files_reps/gtdb_genomes_reps_r<R>` (GTDB
+publishes only the representatives' genomes) and in `--extra-genomes`. If they are elsewhere, pass
+`--genome-table` in the simulator's three-column format (accession, GTDB taxonomy, FASTA path).
 
 ### Training data like real samples
 
@@ -128,17 +160,14 @@ a quarter of the relatives of species the database lacks present and misjudged i
 with only one of them it either kept 2 false positives per sample or missed a fifth of the strains.
 
 - **Other strains.** With the representatives alone, every simulated species is the database's
-  own reference, whose reads match it more closely than those of real strains. Pick and download
-  other genomes of GTDB species with
-
-      python3 scripts/gtdb_strain_genomes.py --gtdb /data/gtdb_r226 -o strains --download
-
-  (the NCBI `datasets` CLI; 4,000 species with up to 2 strains, about 8,000 genomes) and pass
-  `--extra-genomes strains/genomes --simulate-species strains/simulation_species.txt`. The pool
+  own reference, whose reads match it more closely than those of real strains. `download_gtdb.py`
+  picks, per domain in GTDB's proportions, 4,000 species with non-representative genomes and up to
+  2 of those each, plus 1,000 species simulated from their representative only (about 13,000
+  genomes, ~50 GB as `.fna.gz`), and `--inputs` simulates from exactly these species. The pool
   matters: the simulator draws species uniformly, and among all GTDB species the few with strains
-  would hardly be drawn. `genome_table.txt` says how often a simulated species is not its
-  representative, and the training report warns when nearly every present taxon has reads
-  identical to its reference.
+  would hardly be drawn; with it, a simulated species is another strain than its representative
+  about 53% of the time. `genome_table.txt` says how often, and the training report warns when
+  nearly every present taxon has reads identical to its reference.
 - **Species the database lacks.** The samples are profiled against a training database
   (`training_db/`) that leaves `--holdout` of the species out; their reads land on relatives, as
   those of species GTDB lacks do in real samples. The finished database has all species, and the
@@ -146,12 +175,14 @@ with only one of them it either kept 2 false positives per sample or missed a fi
 
 | Option | Default | |
 |---|---|---|
-| `--gtdb`, `--outdir` | required | the extracted release; the output root |
+| `--inputs` or `--gtdb` | required | a folder of `download_gtdb.py`, or an extracted release |
+| `--outdir` | required | the output root |
 | `--release` | detected | GTDB release number |
 | `--genome-table` | built from the release | genomes to simulate from |
 | `--extra-genomes` | | folder of more genomes of GTDB species (by accession in the file names); repeatable |
 | `--simulate-species` | all | file of the species to simulate from |
 | `--holdout`, `--holdout-species` | 0.1 | share of species left out of the training database, or a file naming them; 0 trains on the database itself |
+| `--training-db-level` | 3 | zstd level of the training database (only read while training; level 19 would take about half its build) |
 | `--protal`, `--simulator` | `protal`, `simulate_metagenomes` | the binaries |
 | `-t, --threads` | 8 | |
 | `--samples` | 8 | samples per design point |

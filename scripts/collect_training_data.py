@@ -14,17 +14,21 @@ the database's reference). Train on it with
 
 A genome table with species the database lacks gives the negatives that matter most: a relative
 the database has picks up their reads. Archaea (--archaea) have fewer marker genes than bacteria
-and need to be in the training data, too. Points already done are skipped, so a run can be resumed.
+and need to be in the training data, too. Design points are simulated in parallel (--jobs; ART
+simulates one genome at a time), then all their samples are profiled in one protal run, which
+loads the database once. Points already simulated or profiled are skipped, so a run can be resumed.
 
 usage: collect_training_data.py --db DB --genome_table genomes.tsv -o OUT [options]
 """
 
 import argparse
 import collections
+import concurrent.futures
 import csv
 import glob
 import os
 import random
+import shutil
 import subprocess
 import sys
 
@@ -48,7 +52,9 @@ def parse_args(argv=None):
                    help="species of one genus in every sample of a design point, the genus drawn per point among "
                         "those with that many species (default: 0). Species are otherwise drawn uniformly, so among "
                         "many genera relatives hardly ever share a sample, while in real samples they often do")
-    p.add_argument("-t", "--threads", type=int, default=4)
+    p.add_argument("-t", "--threads", type=int, default=4, help="threads of the protal run (default 4)")
+    p.add_argument("--jobs", type=int, default=0,
+                   help="design points simulated at a time (default: --threads; ART is single-threaded)")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--novel_species",
                    help="species the database lacks, one per line (e.g. those a training database leaves out): "
@@ -137,36 +143,87 @@ def design_points(opts):
     return points
 
 
-def simulate_and_profile(point, index, opts):
+def point_dirs(point, opts):
     base = os.path.join(opts.out, "points", point["name"])
-    sim, profiles = os.path.join(base, "sim"), os.path.join(base, "protal")
-    meta = os.path.join(sim, "protal.meta")
-    if not os.path.isfile(meta):
-        command = [opts.simulator, "--genome_table", opts.genome_table, "-o", sim, "-n", str(opts.samples),
-                   "--sample_prefix", point["name"] + "_s", "--total_read_pairs", point["read_pairs"],
-                   "--species_per_sample", opts.species_per_sample, "--read_length", point["read_length"],
-                   "--sequencer", point["sequencer"], "--fragment_mean", point["fragment_mean"],
-                   "--fragment_stdev", point["fragment_sd"], "--seed", str(opts.seed + index),
-                   "-t", str(opts.threads), "--protal_metafile", profiles]
-        if opts.archaea > 0:
-            command += ["--taxon", f"d__Archaea:{opts.archaea}"]
-        if opts.congeners > 0:
-            genera = large_genera(opts.genome_table, opts.congeners)
-            if not genera:
-                sys.exit(f"no genus in {opts.genome_table} has {opts.congeners} species (--congeners)")
-            command += ["--genus", "g__" + random.Random(opts.seed * 1000 + index).choice(genera) + f":{opts.congeners}"]
-        if opts.archaea > 0 or opts.congeners > 0:
-            command += ["--pick_random_demand_if_fail"]
-        os.makedirs(sim, exist_ok=True)
-        run(command, os.path.join(base, "simulate.log"))
-    dumps = sorted(glob.glob(os.path.join(profiles, "**", "*.truth_annotated"), recursive=True))
-    if len(dumps) < opts.samples:
-        run([opts.protal, "--db", opts.db, "--map", meta, "-t", str(opts.threads), "--no_strains", "--no_qcmsa"],
-            os.path.join(base, "protal.log"))
-        dumps = sorted(glob.glob(os.path.join(profiles, "**", "*.truth_annotated"), recursive=True))
-    if len(dumps) != opts.samples:
-        sys.exit(f"{point['name']}: expected {opts.samples} training dumps in {profiles}, found {len(dumps)}")
-    return dumps
+    return base, os.path.join(base, "sim"), os.path.join(base, "protal")
+
+
+def dumps_of(point, opts):
+    return sorted(glob.glob(os.path.join(point_dirs(point, opts)[2], "**", "*.truth_annotated"), recursive=True))
+
+
+def simulate(point, index, opts, threads):
+    """Simulates the samples of a design point; None, or why it failed."""
+    base, sim, profiles = point_dirs(point, opts)
+    command = [opts.simulator, "--genome_table", opts.genome_table, "-o", sim, "-n", str(opts.samples),
+               "--sample_prefix", point["name"] + "_s", "--total_read_pairs", point["read_pairs"],
+               "--species_per_sample", opts.species_per_sample, "--read_length", point["read_length"],
+               "--sequencer", point["sequencer"], "--fragment_mean", point["fragment_mean"],
+               "--fragment_stdev", point["fragment_sd"], "--seed", str(opts.seed + index),
+               "-t", str(threads), "--protal_metafile", profiles]
+    if opts.archaea > 0:
+        command += ["--taxon", f"d__Archaea:{opts.archaea}"]
+    if opts.congeners > 0:
+        genera = large_genera(opts.genome_table, opts.congeners)
+        if not genera:
+            return f"no genus in {opts.genome_table} has {opts.congeners} species (--congeners)"
+        command += ["--genus", "g__" + random.Random(opts.seed * 1000 + index).choice(genera) + f":{opts.congeners}"]
+    if opts.archaea > 0 or opts.congeners > 0:
+        command += ["--pick_random_demand_if_fail"]
+    os.makedirs(sim, exist_ok=True)
+    log = os.path.join(base, "simulate.log")
+    with open(log, "w") as fh:
+        rc = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
+    if rc != 0:
+        shutil.rmtree(sim, ignore_errors=True)  # no protal.meta: simulated again on a rerun
+        return f"{point['name']}: {opts.simulator} failed with exit code {rc}; see {log}"
+    return None
+
+
+def map_rows(meta):
+    """The samples of a simulator map (protal.meta) with every path made absolute, as protal resolves them."""
+    dirs, header, rows = {}, None, []
+    with open(meta) as fh:
+        for line in fh:
+            fields = line.rstrip("\n").split("\t")
+            if fields[0] == "#SAMPLEID":
+                header = [f.lstrip("#") for f in fields]
+            elif fields[0].startswith("#") and len(fields) > 1:
+                dirs[fields[0]] = fields[1]
+            elif line.strip() and header:
+                rows.append(dict(zip(header, fields)))
+    out = dirs["#OUTPUT_DIR"]
+    where = {"FIRST": dirs.get("#INPUT_DIR", ""), "SECOND": dirs.get("#INPUT_DIR", ""), "PREFIX": out,
+             "SAM": os.path.join(out, dirs.get("#SAM_OUTPUT_DIR", "alignments")),
+             "PROFILE": os.path.join(out, dirs.get("#PROFILE_OUTPUT_DIR", "profiles"))}
+    for row in rows:
+        for column, folder in where.items():
+            if column in row and row[column] not in ("", "-"):
+                row[column] = os.path.join(folder, row[column])
+    return header, rows, [where["SAM"], where["PROFILE"]]
+
+
+def profile(points, opts):
+    """Profiles the samples of all points in one protal run: the database is loaded once."""
+    folder = os.path.join(opts.out, "profile_all")
+    os.makedirs(folder, exist_ok=True)
+    header, rows = None, []
+    for point in points:
+        point_header, point_rows, dirs = map_rows(os.path.join(point_dirs(point, opts)[1], "protal.meta"))
+        if header is None:
+            header = point_header
+        elif point_header != header:
+            sys.exit(f"{point['name']}: its protal.meta has other columns than the others")
+        for d in dirs:
+            os.makedirs(d, exist_ok=True)
+        rows += point_rows
+    combined = os.path.join(folder, "samples.map")
+    with open(combined, "w") as fh:
+        fh.write(f"#OUTPUT_DIR\t{folder}\n#" + "\t".join(header) + "\n")
+        fh.writelines("\t".join(row[c] for c in header) + "\n" for row in rows)
+    print(f"profiling {len(rows)} samples of {len(points)} design points in one protal run", flush=True)
+    run([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains", "--no_qcmsa"],
+        os.path.join(folder, "protal.log"))
 
 
 def main(argv=None):
@@ -175,13 +232,34 @@ def main(argv=None):
     domains = species_domains(opts.genome_table)
     novel = read_list(opts.novel_species) if opts.novel_species else set()
     reps = representatives(opts.taxonomy) if opts.taxonomy else {}
+    points = design_points(opts)
+
+    # Simulation: ART simulates one genome at a time, so design points run in parallel.
+    pending = [(i, p) for i, p in enumerate(points) if not os.path.isfile(os.path.join(point_dirs(p, opts)[1], "protal.meta"))]
+    if pending:
+        jobs = max(1, min(opts.jobs or opts.threads, len(pending)))
+        threads = max(1, opts.threads // jobs)
+        print(f"simulating {len(pending)} design points, {jobs} at a time", flush=True)
+        with concurrent.futures.ThreadPoolExecutor(jobs) as executor:
+            failures = [f for f in executor.map(lambda ip: simulate(ip[1], ip[0], opts, threads), pending) if f]
+        if failures:
+            sys.exit("\n".join(failures))
+    # Profiling: every point not yet profiled, in one protal run.
+    unprofiled = [p for p in points if len(dumps_of(p, opts)) < opts.samples]
+    if unprofiled:
+        profile(unprofiled, opts)
+    for point in points:
+        if len(dumps_of(point, opts)) != opts.samples:
+            sys.exit(f"{point['name']}: expected {opts.samples} training dumps in {point_dirs(point, opts)[2]}, "
+                     f"found {len(dumps_of(point, opts))}")
+
     header, rows = None, 0
     table = os.path.join(opts.out, "training_data.tsv")
     with open(table + ".partial", "w", newline="") as out:
         writer = csv.writer(out, delimiter="\t", lineterminator="\n")
-        for index, point in enumerate(design_points(opts)):
+        for point in points:
             present = absent = strains = congeners = 0
-            dumps = simulate_and_profile(point, index, opts)
+            dumps = dumps_of(point, opts)
             genomes = simulated_genomes(os.path.join(opts.out, "points", point["name"]))
             for dump in dumps:
                 sample = os.path.basename(dump).split(".profile")[0]

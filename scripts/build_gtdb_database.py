@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """Build and train a complete protal database from an extracted GTDB release.
 
-Usage: python3 scripts/build_gtdb_database.py --gtdb GTDB_DIR --outdir OUT_DIR
+Usage: python3 scripts/build_gtdb_database.py --inputs INPUTS_DIR --outdir OUT_DIR
+       python3 scripts/build_gtdb_database.py --gtdb GTDB_DIR --outdir OUT_DIR
 
-The GTDB release must include taxonomy, marker gene FASTAs and extracted whole
-genome FASTAs. A genome table can be supplied explicitly when the release uses
-an unusual layout.
+--inputs is a folder of scripts/download_gtdb.py (run on a node with internet): the
+release, the genomes to simulate from and the species pool, in one place that
+serves every build of that release. It stands for --gtdb INPUTS/release
+--extra-genomes INPUTS/genomes --simulate-species INPUTS/simulation_species.txt.
+With --gtdb, the release must include taxonomy, marker gene FASTAs and extracted
+whole genome FASTAs; a genome table can be supplied explicitly when the release
+uses an unusual layout.
 
 The presence model is trained on metagenomes simulated from these genomes, made
 harder in two ways than simulating the database's own references:
 - Strains. GTDB distributes whole genomes of the representatives only
   (genomic_files_reps), and with only those every simulated species is the
-  database's own reference, closer to it than real strains are. Add other
-  genomes of the species (scripts/gtdb_strain_genomes.py picks them from GTDB's
-  metadata and downloads them from NCBI) with --extra-genomes, so that species
-  are simulated from other strains, too. OUT_DIR/genome_table.txt says how often.
+  database's own reference, closer to it than real strains are.
+  scripts/download_gtdb.py picks other genomes of the species from GTDB's
+  metadata and downloads them from NCBI, so that species are simulated from
+  other strains, too. OUT_DIR/genome_table.txt says how often.
 - Species the database lacks. The samples are profiled against a training
   database (OUT_DIR/training_db) that leaves --holdout of the species out
   (OUT_DIR/heldout_species.txt): their reads land on relatives, as those of
@@ -30,6 +35,7 @@ threshold table, the parity check with protal and the genome table summary.
 import argparse
 import collections
 import glob
+import json
 import os
 import random
 import re
@@ -122,8 +128,8 @@ def summarize_genome_table(path, reps):
         lines.append(f"  {rep_genomes} of the genomes are species representatives (the database's references)")
     if other_strain < 0.2:
         lines.append("  WARNING: nearly all simulated species will be the database's own reference genome, closer to it "
-                     "than real strains are. Add non-representative genomes (NCBI accessions from GTDB's metadata) "
-                     "to train on real strain divergence.")
+                     "than real strains are. Add non-representative genomes (scripts/download_gtdb.py, then "
+                     "--inputs) to train on real strain divergence.")
     return lines
 
 
@@ -148,31 +154,34 @@ def choose_holdout(genome_table, taxonomy, fraction, seed):
     return sorted(chosen)
 
 
-def build(protal, db, threads, log):
+def build(protal, db, threads, log, *extra):
     command = [protal, "--build", "--no_profile", "-t", str(threads), "--db", db,
-               "--reference", os.path.join(db, "reference.fna")]
+               "--reference", os.path.join(db, "reference.fna"), *extra]
     if os.path.isfile(os.path.join(db, "full_reference.fna")):
         command += ["--full_reference", os.path.join(db, "full_reference.fna")]
     run(command, log)
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--gtdb", required=True, help="extracted GTDB release directory")
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--inputs", help="folder of scripts/download_gtdb.py: the release, the genomes to simulate from "
+                                    "and the species pool (instead of --gtdb, --extra-genomes, --simulate-species)")
+    p.add_argument("--gtdb", help="extracted GTDB release directory")
     p.add_argument("--outdir", required=True, help="output root; database is written to OUTDIR/protal_db")
     p.add_argument("--release", help="GTDB release number; detected from taxonomy filenames by default")
     p.add_argument("--genome-table", help="optional simulator table: accession, taxonomy, whole genome FASTA path")
     p.add_argument("--extra-genomes", action="append", default=[],
                    help="folder of more whole genomes of GTDB species, found by the accession in their file names "
-                        "(e.g. NCBI downloads of the non-representative genomes gtdb_strain_genomes.py picks); "
-                        "repeatable")
+                        "(e.g. the NCBI genomes of download_gtdb.py); repeatable")
     p.add_argument("--holdout", type=float, default=0.1,
                    help="fraction of the species left out of a separate training database (default 0.1): their "
                         "reads land on relatives, as those of species GTDB lacks do in real samples. 0 trains on "
                         "the database itself")
     p.add_argument("--holdout-species", help="file of the species to leave out, instead of a random --holdout fraction")
+    p.add_argument("--training-db-level", type=int, default=3,
+                   help="zstd level of the training database (default 3; the finished database uses protal's default)")
     p.add_argument("--simulate-species",
-                   help="file of the species to simulate from (e.g. simulation_species.txt of gtdb_strain_genomes.py: "
+                   help="file of the species to simulate from (e.g. simulation_species.txt of download_gtdb.py: "
                         "species with other strains, and some without): the simulator draws species uniformly, so "
                         "among all ~130,000 GTDB species the few with downloaded strains would hardly be drawn")
     p.add_argument("--protal", default="protal", help="protal executable")
@@ -198,6 +207,22 @@ def main():
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
     args = p.parse_args()
+    if args.inputs:
+        if args.gtdb:
+            p.error("give --inputs or --gtdb, not both")
+        state_file = os.path.join(args.inputs, "download.json")
+        if not os.path.isfile(state_file):
+            p.error(f"{args.inputs} has no download.json: is it a folder of download_gtdb.py?")
+        with open(state_file) as fh:
+            state = json.load(fh)
+        args.gtdb = os.path.join(args.inputs, "release")
+        args.release = args.release or state["release"]["number"]
+        if os.path.isdir(os.path.join(args.inputs, "genomes")):
+            args.extra_genomes.append(os.path.join(args.inputs, "genomes"))
+        if not args.simulate_species and os.path.isfile(os.path.join(args.inputs, "simulation_species.txt")):
+            args.simulate_species = os.path.join(args.inputs, "simulation_species.txt")
+    elif not args.gtdb:
+        p.error("give --inputs (a folder of download_gtdb.py) or --gtdb")
     os.makedirs(args.outdir, exist_ok=True)
     db = os.path.join(args.outdir, "protal_db")
     os.makedirs(db, exist_ok=True)
@@ -231,7 +256,7 @@ def main():
         fh.write("\n".join(summary) + "\n")
     print("\n".join(summary), flush=True)
 
-    run([sys.executable, CONVERTER, "--gtdb", args.gtdb, "--outdir", db, "--release", release],
+    run([sys.executable, CONVERTER, "--gtdb", args.gtdb, "--outdir", db, "--release", release, "-t", str(args.threads)],
         os.path.join(args.outdir, "convert.log"))
     # --build packs the taxonomy into database.protal; the collector and the trainer read it (domains,
     # representative genomes). The training database has the same taxonomy.
@@ -265,7 +290,10 @@ def main():
         n_heldout = 0
     build(args.protal, db, args.threads, os.path.join(args.outdir, "index_and_package.log"))
     if training_db != db:
-        build(args.protal, training_db, args.threads, os.path.join(args.outdir, "training_db_index.log"))
+        # Read only for the training samples and the parity check: zstd level 3 packs it in a fraction of the
+        # time of level 19 (which half of a build spent on), and loads as fast.
+        build(args.protal, training_db, args.threads, os.path.join(args.outdir, "training_db_index.log"),
+              "--compress_level", str(args.training_db_level))
 
     training = os.path.join(args.outdir, "training")
     collect = [sys.executable, COLLECTOR, "--db", training_db, "--genome_table", genome_table, "-o", training,

@@ -53,9 +53,12 @@ profiles them against a database, and joins all dumps into `training_data.tsv`:
 | `--congeners` | 0 | species of one genus in every sample of a design point (the genus drawn per point): relatives share real samples, but hardly ever uniform draws from many genera |
 | `--novel_species` | | species the database lacks (e.g. those a training database leaves out), for `meta_novel_*` |
 | `--taxonomy` | | the database's `internal_taxonomy.dmp`, for `meta_rep_genome` |
-| `-t`, `--seed` | 4, 1 | |
+| `-t`, `--seed` | 4, 1 | threads of the protal run; seed |
+| `--jobs` | `-t` | design points simulated at a time (ART simulates one genome at a time) |
 
-Design points already done are skipped, so a run can be resumed. Columns it adds start with
+The design points are simulated in parallel, then all their samples are profiled in one protal run,
+which loads the database once. Design points already simulated or profiled are skipped, so a run
+can be resumed. Columns it adds start with
 `meta_` and say where each row comes from: design point, sample, read length, depth, the taxon's
 domain (`meta_domain`, from the genome table's lineages; `unknown` for species the table lacks),
 how many species of `--novel_species` the sample holds (`meta_novel_species`), whether the taxon

@@ -36,7 +36,9 @@ Then build the index with
          --full_reference <outdir>/full_reference.fna
 which writes index.prx.zst and replaces reference.fna by reference.fna.zst unless --no_compress.
 
-Intended for small/sparse releases: representative sequences are held in memory.
+Each marker's genes are spooled to <outdir>/.convert_tmp and sorted one gene at a time, so memory
+stays at about one gene's sequences per worker; -t reads the marker files in parallel (the output is
+the same for any -t).
 
 Usage:
   gtdb_to_protal_db.py --gtdb <release dir> --outdir <db dir> [--release 226] [--model FILE]
@@ -52,6 +54,8 @@ wrote, before protal --build packs it, without reading the release again.
 import argparse
 import glob
 import gzip
+import heapq
+import multiprocessing
 import os
 import re
 import shutil
@@ -169,6 +173,89 @@ def read_fasta(path):
         yield header, "".join(chunks)
 
 
+_WORK = {}  # lineage, reps, tmp, gene_ids, taxid, drop: set before workers fork (_parallel)
+
+
+def _parallel(threads, function, items):
+    """function over items, in threads forked workers (which see _WORK as it is now), in order."""
+    if threads <= 1:
+        return list(map(function, items))
+    with multiprocessing.get_context("fork").Pool(threads) as pool:
+        return pool.map(function, items, chunksize=1)
+
+
+def _spool_representatives(item):
+    """One marker: the representatives' records of all its files (a genome's first copy), spooled
+    to rep_<gene id>.tsv; -> (marker, their accessions, skipped counts)."""
+    marker, paths = item
+    lineage, reps = _WORK["lineage"], _WORK["reps"]
+    counts = {"not in taxonomy": 0, "not a representative": 0, "duplicate": 0}
+    kept, accessions = set(), []
+    with open(os.path.join(_WORK["tmp"], f"rep_{_WORK['gene_ids'][marker]}.tsv"), "w", newline="\n") as out:
+        for path in paths:
+            for header, seq in read_fasta(path):
+                acc = normalize_accession(header)
+                if acc not in lineage:
+                    counts["not in taxonomy"] += 1
+                elif reps is not None and acc not in reps:
+                    counts["not a representative"] += 1
+                elif acc in kept:
+                    counts["duplicate"] += 1
+                else:
+                    kept.add(acc)
+                    accessions.append(acc)
+                    out.write(f"{acc}\t{seq.upper()}\n")
+    return marker, accessions, counts
+
+
+def _write_gene(marker):
+    """One gene: its records with their species' taxids (without the species left out), sorted by
+    taxid, as gene_<gene id>.fna; -> [(taxid, sequence length)]."""
+    gid = _WORK["gene_ids"][marker]
+    lineage, taxid, drop = _WORK["lineage"], _WORK["taxid"], _WORK["drop"]
+    records = []
+    with open(os.path.join(_WORK["tmp"], f"rep_{gid}.tsv")) as fh:
+        for line in fh:
+            acc, seq = line.rstrip("\n").split("\t")
+            tid = taxid[lineage[acc].split(";")[-1]]
+            if tid not in drop:
+                records.append((tid, seq))
+    records.sort(key=lambda r: r[0])
+    with open(os.path.join(_WORK["tmp"], f"gene_{gid}.fna"), "wb") as out:
+        for tid, seq in records:
+            out.write(f">{tid}_{gid}\n{seq}\n".encode())
+    return [(tid, len(seq)) for tid, seq in records]
+
+
+def _gene_records(path, gid):
+    """(taxid, gene id, sequence) of a gene_<gene id>.fna, in its order (by taxid)."""
+    with open(path, "rb") as fh:
+        for header in fh:
+            yield int(header[1:].split(b"_", 1)[0]), gid, fh.readline().rstrip(b"\n")
+
+
+def _write_full_reference(item):
+    """One marker's files of all genomes: records of the database's species (not those left out), a
+    genome's first copy, one chunk per file; -> {file index: (chunk, records)}."""
+    marker, files = item
+    gid = _WORK["gene_ids"][marker]
+    lineage, taxid, drop = _WORK["lineage"], _WORK["taxid"], _WORK["drop"]
+    seen, result = set(), {}
+    for index, path in files:
+        chunk, n = os.path.join(_WORK["tmp"], f"full_{index}.fna"), 0
+        with open(chunk, "w", newline="\n") as fh:
+            for header, seq in read_fasta(path):
+                acc = normalize_accession(header)
+                sp = lineage.get(acc, "").split(";")[-1]
+                if sp not in taxid or taxid[sp] in drop or acc in seen:
+                    continue
+                seen.add(acc)
+                fh.write(f">{taxid[sp]}_{gid}\n{seq.upper()}\n")
+                n += 1
+        result[index] = (chunk, n)
+    return result
+
+
 def read_species_list(path):
     """Species names, one per line (first tab-separated field; 's__' optional; '#' comments)."""
     names = set()
@@ -273,6 +360,8 @@ def main():
                     help="random forest PMML for paired-end reads, copied to <outdir>/model_pe.xml")
     ap.add_argument("--order", choices=("gene", "genome"), default="gene",
                     help="reference.fna record order: by gene, then taxid (compresses better), or by taxid, then gene")
+    ap.add_argument("-t", "--threads", type=int, default=1,
+                    help="marker files read in parallel (default 1); the output does not depend on it")
     ap.add_argument("--exclude_species", help="file of species (s__Genus species, one per line) whose marker genes "
                                               "are left out; the taxonomy keeps them, with the taxids they have "
                                               "with all species (a training database with species held out)")
@@ -300,27 +389,27 @@ def main():
     for marker, _ in rep_files + all_files:
         gene_ids.setdefault(marker, len(gene_ids) + 1)
 
-    # --- representative marker genes -------------------------------------------------
-    rep_seqs = {}          # (accession, marker) -> sequence
-    skipped = {"not in taxonomy": 0, "not a representative": 0, "duplicate": 0}
-    for marker, path in rep_files:
-        for header, seq in read_fasta(path):
-            acc = normalize_accession(header)
-            if acc not in lineage:
-                skipped["not in taxonomy"] += 1
-            elif reps is not None and acc not in reps:
-                skipped["not a representative"] += 1
-            elif (acc, marker) in rep_seqs:
-                skipped["duplicate"] += 1
-            else:
-                rep_seqs[(acc, marker)] = seq.upper()
+    # The marker files are read in parallel (--threads), one marker at a time per worker, and spooled
+    # to a temporary folder: the representatives' genes are never all in memory.
+    tmp = os.path.join(args.outdir, ".convert_tmp")
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp)
+    _WORK.update(lineage=lineage, reps=reps, tmp=tmp, gene_ids=gene_ids)
 
+    # --- representative marker genes -------------------------------------------------
+    skipped = {"not in taxonomy": 0, "not a representative": 0, "duplicate": 0}
+    by_marker = {}
+    for marker, path in rep_files:
+        by_marker.setdefault(marker, []).append(path)
     species_rep = {}       # species name -> rep accession
-    for acc, _marker in rep_seqs:
-        species = lineage[acc].split(";")[-1]
-        other = species_rep.setdefault(species, acc)
-        if other != acc:
-            sys.exit(f"Species {species} has two representatives with marker genes: {other}, {acc}")
+    for marker, accessions, counts in _parallel(args.threads, _spool_representatives, list(by_marker.items())):
+        for key, n in counts.items():
+            skipped[key] += n
+        for acc in accessions:
+            species = lineage[acc].split(";")[-1]
+            other = species_rep.setdefault(species, acc)
+            if other != acc:
+                sys.exit(f"Species {species} has two representatives with marker genes: {other}, {acc}")
 
     species_lineage = {sp: lineage[acc] for sp, acc in species_rep.items()}
     for sp, lin in species_lineage.items():
@@ -342,18 +431,32 @@ def main():
         for row in rows:
             fh.write("\t".join(map(str, row)) + "\n")
 
-    records = sorted(((taxid[lineage[acc].split(";")[-1]], gene_ids[marker], seq)
-                      for (acc, marker), seq in rep_seqs.items()
-                      if taxid[lineage[acc].split(";")[-1]] not in drop),
-                     key=(lambda r: (r[1], r[0])) if args.order == "gene" else (lambda r: (r[0], r[1])))
+    # Each gene's records, sorted by taxid, then all genes in gene id order (--order gene), or merged
+    # by taxid, then gene (--order genome).
+    _WORK.update(taxid=taxid, drop=drop)
+    markers = sorted(by_marker, key=lambda m: gene_ids[m])
+    lengths = dict(zip(markers, _parallel(args.threads, _write_gene, markers)))
+    n_records = sum(len(v) for v in lengths.values())
     with open(out("reference.fna"), "wb") as fna, open(out("reference.map"), "w", newline="\n") as fmap:
         offset = 0
-        for tid, gid, seq in records:
-            header = f">{tid}_{gid}\n".encode()
-            offset += len(header)
-            fna.write(header + seq.encode() + b"\n")
-            fmap.write(f"{tid}\t{gid}\t{offset}\t{offset + len(seq)}\n")
-            offset += len(seq) + 1
+
+        def put(tid, gid, seq_length):
+            nonlocal offset
+            offset += len(f">{tid}_{gid}\n")
+            fmap.write(f"{tid}\t{gid}\t{offset}\t{offset + seq_length}\n")
+            offset += seq_length + 1
+
+        if args.order == "gene":
+            for marker in markers:
+                with open(os.path.join(tmp, f"gene_{gene_ids[marker]}.fna"), "rb") as chunk:
+                    shutil.copyfileobj(chunk, fna, 1 << 22)
+                for tid, seq_length in lengths[marker]:
+                    put(tid, gene_ids[marker], seq_length)
+        else:
+            streams = [_gene_records(os.path.join(tmp, f"gene_{gene_ids[m]}.fna"), gene_ids[m]) for m in markers]
+            for tid, gid, seq in heapq.merge(*streams):
+                fna.write(f">{tid}_{gid}\n".encode() + seq + b"\n")
+                put(tid, gid, len(seq))
 
     with open(out("gene2geneid.tsv"), "w", newline="\n") as fh:
         for marker, gid in gene_ids.items():
@@ -368,17 +471,21 @@ def main():
     # --- all genomes, for the unique k-mer check -----------------------------------------
     n_full = 0
     if all_files:
-        seen = set()
-        with open(out("full_reference.fna"), "w", newline="\n") as fh:
-            for marker, path in all_files:
-                for header, seq in read_fasta(path):
-                    acc = normalize_accession(header)
-                    sp = lineage.get(acc, "").split(";")[-1]
-                    if sp not in taxid or taxid[sp] in drop or (acc, marker) in seen:
-                        continue
-                    seen.add((acc, marker))
-                    fh.write(f">{taxid[sp]}_{gene_ids[marker]}\n{seq.upper()}\n")
-                    n_full += 1
+        # One worker per marker (duplicates are per genome and marker), one chunk per file, joined in
+        # file order.
+        all_by_marker = {}
+        for index, (marker, path) in enumerate(all_files):
+            all_by_marker.setdefault(marker, []).append((index, path))
+        written = {}
+        for chunks in _parallel(args.threads, _write_full_reference, list(all_by_marker.items())):
+            written.update(chunks)
+        with open(out("full_reference.fna"), "wb") as fh:
+            for index in range(len(all_files)):
+                chunk, count = written[index]
+                with open(chunk, "rb") as part:
+                    shutil.copyfileobj(part, fh, 1 << 22)
+                n_full += count
+    shutil.rmtree(tmp, ignore_errors=True)
 
     if os.path.exists(args.model):
         shutil.copyfile(args.model, out("model_pe.xml"))
@@ -389,7 +496,7 @@ def main():
         f"GTDB r{rel} -> {args.outdir}\n"
         f"  species:            {len(taxid)} (taxids 1..{len(taxid)}, root {root_id})"
         + (f", {len(drop)} without marker genes (--exclude_species)" if drop else "") + "\n"
-        f"  marker genes:       {len(gene_ids)} ids, {len(records)} representative sequences\n"
+        f"  marker genes:       {len(gene_ids)} ids, {n_records} representative sequences\n"
         f"  full reference:     {n_full} sequences" + ("" if all_files else " (no genomic_files_all)") + "\n"
         f"  skipped rep records: " + ", ".join(f"{k}: {v}" for k, v in skipped.items()) + "\n")
 

@@ -11,11 +11,17 @@ the right genomes in the right proportions. Does not need a protal binary.
   python3 -m unittest scripts/mini_db/test_mini_db.py
 """
 
+import functools
 import gzip
+import hashlib
+import http.server
+import json
 import os
 import subprocess
 import sys
+import tarfile
 import tempfile
+import threading
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -23,7 +29,54 @@ SIMULATE = os.path.join(HERE, "simulate_gtdb_release.py")
 CONVERT = os.path.join(HERE, "gtdb_to_protal_db.py")
 SIMULATE_READS = os.path.join(HERE, "simulate_reads.py")
 LINEAGES = os.path.join(HERE, "gtdb_like_lineages.py")
-STRAINS = os.path.join(HERE, "..", "gtdb_strain_genomes.py")
+DOWNLOAD = os.path.join(HERE, "..", "download_gtdb.py")
+
+# A stand-in for NCBI's `datasets`: `download genome accession` writes the list into the zip,
+# `rehydrate` copies the synthetic release's genomes; accessions in $FAKE_SUPPRESSED fail a request.
+FAKE_DATASETS = r'''#!/usr/bin/env python3
+import csv, gzip, os, shutil, sys, zipfile
+args = sys.argv[1:]
+if args[:3] == ["download", "genome", "accession"]:
+    accessions = open(args[args.index("--inputfile") + 1]).read().split()
+    if set(accessions) & set(os.environ.get("FAKE_SUPPRESSED", "").split(",")):
+        sys.exit("Error: some accessions are not valid")
+    with zipfile.ZipFile(args[args.index("--filename") + 1], "w") as z:
+        z.writestr("ncbi_dataset/fetch.txt", "\n".join(accessions))
+elif args[0] == "rehydrate":
+    folder = args[args.index("--directory") + 1]
+    paths = {r["accession"]: r["fasta_path"] for r in csv.DictReader(open(os.environ["FAKE_TABLE"]), delimiter="\t")}
+    for a in open(os.path.join(folder, "ncbi_dataset", "fetch.txt")).read().split():
+        os.makedirs(os.path.join(folder, "ncbi_dataset", "data", a), exist_ok=True)
+        with gzip.open(paths[a]) as fin, open(os.path.join(folder, "ncbi_dataset", "data", a, a + "_ASM1v1_genomic.fna"), "wb") as fout:
+            shutil.copyfileobj(fin, fout)
+'''
+
+
+def gtdb_mirror(release, root):
+    """release, a synthetic GTDB release, laid out as GTDB's server has it under root/release226/226.0."""
+    base = os.path.join(root, "release226", "226.0")
+    os.makedirs(os.path.join(base, "genomic_files_reps"))
+    os.makedirs(os.path.join(base, "genomic_files_all"))
+    for mset in ("bac120", "ar53"):
+        with open(os.path.join(release, f"{mset}_taxonomy_r226.tsv"), "rb") as fin, \
+                gzip.open(os.path.join(base, f"{mset}_taxonomy_r226.tsv.gz"), "wb") as fout:
+            fout.write(fin.read())
+        with open(os.path.join(release, f"{mset}_metadata_r226.tsv.gz"), "rb") as fin, \
+                open(os.path.join(base, f"{mset}_metadata_r226.tsv.gz"), "wb") as fout:
+            fout.write(fin.read())
+        for kind in ("reps", "all"):
+            name = f"{mset}_marker_genes_{kind}_r226"
+            with tarfile.open(os.path.join(base, f"genomic_files_{kind}", name + ".tar.gz"), "w:gz") as tar:
+                tar.add(os.path.join(release, f"genomic_files_{kind}", name), arcname=name)
+    with open(os.path.join(base, "VERSION.txt"), "w") as fh:
+        fh.write("v226.0\n")
+    with open(os.path.join(base, "MD5SUM.txt"), "w") as fh:
+        for folder, _dirs, names in os.walk(base):
+            for name in sorted(names):
+                if name != "MD5SUM.txt":
+                    path = os.path.join(folder, name)
+                    with open(path, "rb") as f:
+                        fh.write(f"{hashlib.md5(f.read()).hexdigest()}  ./{os.path.relpath(path, base)}\n")
 
 
 def run(*args):
@@ -128,6 +181,17 @@ class MiniDbTest(unittest.TestCase):
             with open(os.path.join(self.gtdb, f), "rb") as a, open(os.path.join(other, f), "rb") as b:
                 self.assertEqual(a.read(), b.read(), f"{f} differs between runs with the same seed")
 
+    def test_parallel_conversion(self):
+        # The marker files are read by -t workers; the database must not depend on how many.
+        for order in ("gene", "genome"):
+            one, four = (os.path.join(self.tmp.name, f"db_{order}_t{t}") for t in (1, 4))
+            run(CONVERT, "--gtdb", self.gtdb, "--outdir", one, "--order", order, "-t", "1")
+            run(CONVERT, "--gtdb", self.gtdb, "--outdir", four, "--order", order, "-t", "4")
+            for f in ("reference.fna", "reference.map", "full_reference.fna", "internal_taxonomy.dmp"):
+                with open(os.path.join(one, f), "rb") as a, open(os.path.join(four, f), "rb") as b:
+                    self.assertEqual(a.read(), b.read(), f"{order} order, {f}")
+            self.assertFalse(os.path.exists(os.path.join(four, ".convert_tmp")))
+
     def test_exclude_species(self):
         excluded = os.path.join(self.tmp.name, "excluded.txt")
         with open(excluded, "w") as fh:
@@ -159,17 +223,64 @@ class MiniDbTest(unittest.TestCase):
                 fh.write("s__Nonexistent species\n")
             run(CONVERT, "--from_db", self.db, "--exclude_species", excluded, "--outdir", os.path.join(self.tmp.name, "x"))
 
-    def test_strain_genomes(self):
-        out = os.path.join(self.tmp.name, "strains")
-        run(STRAINS, "--gtdb", self.gtdb, "-o", out, "--species", "2", "--per_species", "1", "--rep_only_species", "1")
-        with open(os.path.join(out, "strain_accessions.txt")) as fh:
-            accessions = fh.read().split()
+    def test_download_gtdb(self):
+        mirror = os.path.join(self.tmp.name, "mirror")
+        gtdb_mirror(self.gtdb, mirror)
+        class Quiet(http.server.SimpleHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=mirror))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        datasets = os.path.join(self.tmp.name, "datasets")
+        with open(datasets, "w") as fh:
+            fh.write(FAKE_DATASETS)
+        os.chmod(datasets, 0o755)
+        env = dict(os.environ, FAKE_TABLE=os.path.join(self.gtdb, "simulation", "genomes.tsv"),
+                   FAKE_SUPPRESSED="GCA_999002003.1")  # the strain of Mockella beta picked, which NCBI no longer has
+        out = os.path.join(self.tmp.name, "inputs")
+        command = [sys.executable, DOWNLOAD, "-o", out, "--mirror", f"http://127.0.0.1:{server.server_port}",
+                   "--datasets", datasets, "--species", "3", "--per_species", "1", "--rep_only_species", "0",
+                   "--batch", "4", "-t", "2"]
+        first = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+
+        release = os.path.join(out, "release")
+        for path in ("bac120_taxonomy_r226.tsv.gz", "bac120_metadata_r226.tsv.gz", "VERSION.txt",
+                     "genomic_files_reps/bac120_marker_genes_reps_r226", "genomic_files_all/bac120_marker_genes_all_r226"):
+            self.assertTrue(os.path.exists(os.path.join(release, path)), path)
+        self.assertFalse(os.path.exists(os.path.join(release, "genomic_files_reps", "bac120_marker_genes_reps_r226.tar.gz")),
+                         "archives are removed once extracted")
+        genomes = sorted(os.listdir(os.path.join(out, "genomes")))
+        # 3 species with a strain each and their 3 representatives, less the suppressed strain
+        self.assertEqual(len(genomes), 5, genomes)
+        self.assertEqual(sum(g.startswith("GCF_") for g in genomes), 3)
+        with gzip.open(os.path.join(out, "genomes", genomes[0]), "rt") as fh:
+            self.assertTrue(fh.readline().startswith(">"))
+        with open(os.path.join(out, "missing.txt")) as fh:
+            self.assertEqual(fh.read().split(), ["GCA_999002003.1"])
         with open(os.path.join(out, "simulation_species.txt")) as fh:
-            pool = fh.read().splitlines()
-        self.assertEqual(len(accessions), 2)
-        self.assertTrue(all(a.startswith("GCA_999") for a in accessions), "non-representatives, without RS_/GB_")
-        self.assertEqual(len(pool), 3)
-        self.assertTrue(all(s.startswith("s__") for s in pool))
+            self.assertEqual(len(fh.read().split("\n")) - 1, 3)
+        with open(os.path.join(out, "download.json")) as fh:
+            state = json.load(fh)
+        self.assertEqual(state["release"]["version"], "226.0")
+        self.assertEqual((state["genomes"]["delivered"], state["genomes"]["missing"]), (5, 1))
+
+        # A rerun downloads nothing it has, and the release converts as downloaded.
+        again = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertIn("marker_genes_reps_r226.tar.gz: already there", again.stdout)
+        self.assertIn("5 already there, 1 to download", again.stdout)
+        run(CONVERT, "--gtdb", release, "--outdir", os.path.join(self.tmp.name, "db_downloaded"))
+        with open(os.path.join(self.db, "reference.fna"), "rb") as a, \
+                open(os.path.join(self.tmp.name, "db_downloaded", "reference.fna"), "rb") as b:
+            self.assertEqual(a.read(), b.read())
+
+        missing = subprocess.run([sys.executable, DOWNLOAD, "-o", out + "_x", "--release", "999", "--mirror",
+                                  f"http://127.0.0.1:{server.server_port}", "--no_genomes"], capture_output=True, text=True)
+        self.assertNotEqual(missing.returncode, 0)
 
     def test_gtdb_like_lineages(self):
         text = subprocess.run([sys.executable, LINEAGES, "--species", "300", "--archaea", "0.1", "--seed", "3"],
