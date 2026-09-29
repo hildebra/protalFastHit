@@ -1155,6 +1155,36 @@ class SimulatorTest(WorkDir):
         self.assertEqual(rc, 1, log)
         self.assertIn("increase --total_read_pairs", log)
 
+    def test_taxon_quota_counts(self):
+        # --taxon d__A:2 asks for two species of d__A per sample, the rest drawn from all species. It used
+        # to fill every sample with d__A species (the quota's copy was never counted down).
+        if not os.access(SIMULATE, os.X_OK):
+            self.skipTest(f"simulate_metagenomes not found at {SIMULATE}")
+        with open(self.path("genomes.tsv"), "w") as table:
+            for domain, count in (("A", 6), ("B", 30)):
+                for sp in range(count):
+                    fasta = self.path(f"{domain}{sp}.fa")
+                    with open(fasta, "w") as fh:
+                        fh.write(">c1\n" + "".join("ACGT"[(i * 7 + sp) % 4] for i in range(3000)) + "\n")
+                    table.write(f"{domain}{sp}\td__{domain};p__P{domain};c__C{domain};o__O{domain};f__F{domain};"
+                                f"g__G{domain};s__G{domain} sp{sp}\t{fasta}\n")
+        rc, log = run(self.work, "--genome_table", "genomes.tsv", "--test", "--seed", "1", "--samples", "8",
+                      "--total_read_pairs", "1000", "--species_per_sample", "6", "--taxon", "d__A:2",
+                      "--output_dir", "sim", binary=SIMULATE, timeout=60)
+        self.assertEqual(rc, 0, log)
+        domains = {}
+        with open(self.path("sim", "manifest.tsv")) as fh:
+            header = next(fh).rstrip("\n").split("\t")
+            for line in fh:
+                row = dict(zip(header, line.rstrip("\n").split("\t")))
+                domains.setdefault(row["sample"], []).append(row["taxonomy"].split(";")[0])
+        self.assertEqual(len(domains), 8)
+        for sample, found in domains.items():
+            self.assertEqual(len(found), 6, sample)
+            self.assertGreaterEqual(found.count("d__A"), 2, sample)
+        # The four species drawn at random are d__A 4 times in 34, so about 2.5 d__A per sample, not 6.
+        self.assertLess(sum(f.count("d__A") for f in domains.values()) / len(domains), 3.5)
+
 
 if __name__ == "__main__":
     sys.exit(unittest.main())

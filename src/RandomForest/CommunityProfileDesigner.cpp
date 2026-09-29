@@ -439,10 +439,16 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
         }
     }
 
+    // The requests are visited in random order; their quotas are the counts in genus_remaining and
+    // taxon_remaining, which reduce_requested_quotas counts down for every species picked (a species
+    // can fill a genus and a taxon quota at once). A copy of a quota would never reach 0 and fill the
+    // sample with that taxon.
     std::vector<std::pair<std::string, std::size_t>> genus_requests(
         genus_remaining.begin(), genus_remaining.end());
     std::shuffle(genus_requests.begin(), genus_requests.end(), rng);
-    for (auto& [genus, remaining] : genus_requests) {
+    for (auto const& request : genus_requests) {
+        auto const& genus = request.first;
+        auto const& remaining = genus_remaining.at(genus);
         if (remaining == 0 || selected_species.size() >= options.species_per_sample) {
             continue;
         }
@@ -468,7 +474,9 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
     std::vector<std::pair<std::string, std::size_t>> taxon_requests(
         taxon_remaining.begin(), taxon_remaining.end());
     std::shuffle(taxon_requests.begin(), taxon_requests.end(), rng);
-    for (auto& [taxon, remaining] : taxon_requests) {
+    for (auto const& request : taxon_requests) {
+        auto const& taxon = request.first;
+        auto const& remaining = taxon_remaining.at(taxon);
         if (remaining == 0 || selected_species.size() >= options.species_per_sample) {
             continue;
         }
