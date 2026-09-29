@@ -92,6 +92,56 @@ TEST(SampleMap, RejectsRowsWithMissingOrEmptyCells) {
     EXPECT_NE(log.find("Line 3: no value in column 3 (FIRST)"), std::string::npos) << log;
 }
 
+TEST(SampleMap, SingleEndSamplesHaveNoSecondFile) {
+    ScratchDir dir;
+    auto const out = dir.path / "out";
+    // '-' in SECOND marks a single-end sample among paired-end ones.
+    MapLists mixed;
+    ASSERT_TRUE(mixed.Load(dir.Write("mixed.map", "#OUTPUT_DIR\t" + out.string() + "\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\n"
+                                                  "p\tp\tp_1.fq\tp_2.fq\ns\ts\ts.fq\t-\n")));
+    ASSERT_EQ(mixed.seconds.size(), 2u);
+    EXPECT_TRUE(mixed.seconds[0].ends_with("p_2.fq"));
+    EXPECT_EQ(mixed.seconds[1], "");
+    EXPECT_TRUE(mixed.firsts[1].ends_with("s.fq"));
+
+    // Without a SECOND column, all samples are single-end.
+    MapLists single;
+    ASSERT_TRUE(single.Load(dir.Write("single.map", "#OUTPUT_DIR\t" + out.string() + "\n#SAMPLEID\tPREFIX\tFIRST\n"
+                                                    "a\ta\ta.fq.gz\nb\tb\tb.fq.gz\n")));
+    EXPECT_EQ(single.seconds, (Tokens{ "", "" }));
+    EXPECT_EQ(single.firsts.size(), 2u);
+    EXPECT_EQ(single.sams.size(), 2u);
+}
+
+TEST(ReadFileStem, DropsReadAndCompressionExtensions) {
+    EXPECT_EQ(Utils::ReadFileStem("sample1.fq.gz"), "sample1");
+    EXPECT_EQ(Utils::ReadFileStem("sample1_R1.fastq"), "sample1_R1");
+    EXPECT_EQ(Utils::ReadFileStem("reads.fa.zst"), "reads");
+    EXPECT_EQ(Utils::ReadFileStem("reads.gz"), "reads");
+    EXPECT_EQ(Utils::ReadFileStem("reads.txt"), "reads.txt");
+    EXPECT_EQ(Utils::ReadFileStem(".fq"), ".fq");
+}
+
+TEST(Options, EachReadTypeHasItsModel) {
+    ScratchDir dir;
+    auto model = [&](std::string const& paired, std::string const& single, bool single_end) {
+        OptionsData d;
+        d.database_path = dir.path.string();
+        d.model = paired;
+        d.model_se = single;
+        return fs::path(Options(d).ModelDbFile(single_end).Path()).filename().string();
+    };
+    EXPECT_EQ(model("", "", false), "model.xml");
+    EXPECT_EQ(model("", "", true), "model_se.xml");
+    // --model replaces both, unless --model_se is given for single-end reads.
+    EXPECT_EQ(model("other", "", false), "other.xml");
+    EXPECT_EQ(model("other", "", true), "other.xml");
+    EXPECT_EQ(model("other", "se2.xml", true), "se2.xml");
+    EXPECT_EQ(model("other", "se2.xml", false), "other.xml");
+    auto const existing = dir.Write("elsewhere.xml", "");
+    EXPECT_EQ(model("", existing, true), "elsewhere.xml");
+}
+
 namespace {
     std::string Record(std::string const& qname, int flag, std::string const& rname, std::string const& cigar,
                        std::string const& seq, std::string const& tags = "\tZU:i:1\tZT:i:0", int pos = 1, int mapq = 60) {
@@ -290,6 +340,40 @@ TEST(FromSam, ATruncatedGzipFileIsAnError) {
     std::filesystem::resize_file(path, std::filesystem::file_size(path) / 2);
     auto error = profiler.FromSam(path);
     EXPECT_NE(error.find("the file is truncated or corrupt"), std::string::npos) << error;
+}
+
+TEST(Options, ReadTypesOfSamples) {
+    ScratchDir dir;
+    // From the read files: no second file means single-end reads.
+    OptionsData reads;
+    reads.first_list = { "p_1.fq", "s.fq" };
+    reads.second_list = { "p_2.fq", "" };
+    reads.prefix_list = { "p", "s" };
+    reads.range = { 0, 1 };
+    Options from_reads(reads);
+    from_reads.ResolveReadTypes();
+    EXPECT_FALSE(from_reads.IsSingleEnd(0));
+    EXPECT_TRUE(from_reads.IsSingleEnd(1));
+    EXPECT_TRUE(from_reads.AnySample(true) && from_reads.AnySample(false));
+
+    // With --profile_only, from the SAM: unpaired records are single-end reads; a SAM without
+    // alignments counts as paired-end.
+    auto seq = std::string("ACGTACGTACGTACGTACGT");
+    OptionsData sams;
+    sams.profile_only = true;
+    sams.sam_list = { dir.Write("pe.sam", "@HD\tVN:1.6\n" + Record("a", kPaired | kBothAlign | kRead1, "1_1", "20M", seq) +
+                                          Record("a", kPaired | kBothAlign | kRead2, "1_1", "20M", seq)),
+                      dir.Write("se.sam", "@HD\tVN:1.6\n" + Record("b", 16, "1_1", "20M", seq)),
+                      dir.Write("empty.sam", "@HD\tVN:1.6\n") };
+    sams.prefix_list = { "pe", "se", "empty" };
+    sams.range = { 1 };
+    Options from_sams(sams);
+    from_sams.ResolveReadTypes();
+    EXPECT_FALSE(from_sams.IsSingleEnd(0));
+    EXPECT_TRUE(from_sams.IsSingleEnd(1));
+    EXPECT_FALSE(from_sams.IsSingleEnd(2));
+    EXPECT_TRUE(from_sams.AnySample(true));
+    EXPECT_FALSE(from_sams.AnySample(false));  // only the single-end sample is in the range
 }
 
 TEST(MicrobialProfile, RejectsRecordsOutsideTheDatabase) {

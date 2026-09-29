@@ -17,6 +17,8 @@
 #include "Utilities.h"
 #include "Zstd.h"
 #include "Database.h"
+#include "SamHandler.h"
+#include "gzstream/gzstream.h"
 
 
 namespace protal {
@@ -58,9 +60,9 @@ namespace protal {
         // I/O related options
         options.add_options("I/O")
                 ("db", "Path to the protal database: a single-file database (database.protal, as --build writes it), or a folder holding one or the database's separate files. If not given, it is taken from the environment variable $" + PROTAL_DB_ENV_VARIABLE + ".", cxxopts::value<std::string>())
-                ("1,first", "Comma separated list of first-in-pair read files. The matching second-in-pair files must be given via -2/--second.", cxxopts::value<std::string>()->default_value(""))
-                ("2,second", "Comma separated list of second-in-pair read files, one per file given via -1/--first. Protal currently supports paired-end reads only, so this is mandatory -- single-end reads are not supported yet.", cxxopts::value<std::string>()->default_value(""))
-                ("prefix", "Comma separated list of output prefixes (optional). If not specified, output file prefixes are generated from the input file names by taking their longest common prefix. Only works when both pairs of the read file are in the same folder.", cxxopts::value<std::string>()->default_value(""))
+                ("1,first", "Comma separated list of read files: the first-in-pair files of paired-end reads (the second-in-pair files go to -2/--second), or single-end reads when -2/--second is not given.", cxxopts::value<std::string>()->default_value(""))
+                ("2,second", "Comma separated list of second-in-pair read files, one per file given via -1/--first. Leave it out for single-end reads.", cxxopts::value<std::string>()->default_value(""))
+                ("prefix", "Comma separated list of output prefixes (optional). If not specified, output file prefixes are generated from the input file names: the longest common prefix of the two files of paired-end reads (which must then be in the same folder), the file name without its FASTQ/FASTA and compression extensions for single-end reads.", cxxopts::value<std::string>()->default_value(""))
                 ("o,outdir", "Overwrites #OUTPUT_DIR in map and needs to be defined if #OUTPUT_DIR is not defined in the map. If not otherwise specified in the map file, sam files, profiles, msas, and other miscellaneous files will be stored in the subfolders to this directory 'alignments', 'profiles', 'strains', and 'misc'.", cxxopts::value<std::string>())
                 
                 ("map", "For larger datasets you can define parameters -1, -2, --prefix and -o in a tsv-file.", cxxopts::value<std::string>()->default_value(""))
@@ -82,7 +84,8 @@ namespace protal {
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
-                ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model.xml.", cxxopts::value<std::string>()->default_value(""))
+                ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model.xml for paired-end samples and model_se.xml for single-end samples; --model replaces both unless --model_se is given.", cxxopts::value<std::string>()->default_value(""))
+                ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""));
 
         // Strain / SNP options
@@ -111,13 +114,13 @@ namespace protal {
                 ("mapq_debug_output", "Output mapq debug info to stderr")
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
-                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, model.xml) instead of packing them into database.protal.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, model.xml, model_se.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
                 ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
-                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv and model.xml. database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, model.xml and model_se.xml (if it has them). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "All marker genomes (not only representative ones) to check unique k-mers during build process", cxxopts::value<std::string>()->default_value(""))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
@@ -197,6 +200,7 @@ namespace protal {
         // profiling
         std::string profile_truth;
         std::string model;
+        std::string model_se;
         double knob = 0.5;
         double depth_identity_margin = 0.04;
 
@@ -276,11 +280,14 @@ namespace protal {
         std::vector<std::string> m_profile_list;
         std::vector<std::string> m_sampleid_list;
         std::vector<std::string> m_profile_truth_list;
+        // Per sample: single-end reads (see ResolveReadTypes).
+        std::vector<bool> m_single_end;
 
         std::vector<size_t> m_range;
 
         std::string m_profile_truth;
         std::string m_model;
+        std::string m_model_se;
         double m_knob = 0.5;
         double m_depth_identity_margin = 0.04;
 
@@ -315,10 +322,14 @@ namespace protal {
         static inline const std::string PROTAL_HITTABLE_GENES_FILE = "species_gene_mask.tsv";
         static inline const std::string PROTAL_UNIQUE_KMER_FILE = "unique_kmers.tsv";
         static inline const std::string PROTAL_TAXONOMY_FILE = "internal_taxonomy.dmp";
+        // The presence models of paired-end and of single-end reads.
+        static inline const std::string PROTAL_MODEL_FILE = "model.xml";
+        static inline const std::string PROTAL_MODEL_SE_FILE = "model_se.xml";
 
         static inline const std::string MAP_SAMPLEID = "#SAMPLEID";
         static inline const std::string MAP_FIRST_READ = "FIRST";
         static inline const std::string MAP_SECOND_READ = "SECOND";
+        static inline const std::string MAP_NO_SECOND_READ = "-";  // SECOND of a single-end sample
         static inline const std::string MAP_SAM = "SAM";
         static inline const std::string MAP_PROFILE = "PROFILE";
         static inline const std::string MAP_PROFILE_TRUTH = "PROFILE_TRUTH";
@@ -386,6 +397,7 @@ namespace protal {
                 m_range(std::move(d.range)),
                 m_profile_truth(std::move(d.profile_truth)),
                 m_model(std::move(d.model)),
+                m_model_se(std::move(d.model_se)),
                 m_knob(d.knob),
                 m_depth_identity_margin(d.depth_identity_margin),
                 m_threads(d.threads),
@@ -450,6 +462,10 @@ namespace protal {
             result_str << "-------- I/O --------" << std::string(30, '-') << '\n';
             result_str << "first:               " << (first_list_str.length() > 50 ? std::to_string(m_first_list.size()) + " files" : first_list_str) << '\n';
             result_str << "second:              " << (second_list_str.length() > 50 ? std::to_string(m_second_list.size()) + " files" : second_list_str) << '\n';
+            if (!m_build && !m_single_end.empty()) {
+                auto const single = std::count(m_single_end.begin(), m_single_end.end(), true);
+                result_str << "read types:          " << m_single_end.size() - single << " paired-end, " << single << " single-end sample(s)" << '\n';
+            }
             result_str << "db path:             " << m_database_path << '\n';
             if (!m_build) {
                 result_str << "database:            " << (m_bundle ? "single file " + m_bundle->Path() : "separate files in " + m_location.dir)
@@ -514,9 +530,11 @@ namespace protal {
             return m_depth_identity_margin;
         }
 
-        std::string GetModelPath() const {
-            if (m_model.empty()) {
-                std::string default_path = m_database_path + "/model.xml";
+        // The model file `model` (--model, --model_se) names in a database folder; empty: the default
+        // model of paired-end reads.
+        std::string GetModelPath(std::string const& model) const {
+            if (model.empty()) {
+                std::string default_path = m_database_path + "/" + PROTAL_MODEL_FILE;
                 if (!std::filesystem::exists(default_path)) {
                     std::string fallback_path = m_database_path + "/random_forest.xml";
                     if (std::filesystem::exists(fallback_path)) {
@@ -528,14 +546,14 @@ namespace protal {
             }
             // An existing file (path or name) is used as is; otherwise a file name with an extension is
             // looked up in the database folder, and a bare name means <db>/<name>.xml.
-            std::filesystem::path p(m_model);
+            std::filesystem::path p(model);
             if (std::filesystem::exists(p)) {
-                return m_model;
+                return model;
             }
             if (!p.extension().empty()) {
                 return (std::filesystem::path(m_database_path) / p).string();
             }
-            return m_database_path + "/" + m_model + ".xml";
+            return m_database_path + "/" + model + ".xml";
         }
 
         bool PreloadGenomes() const {
@@ -676,22 +694,37 @@ namespace protal {
             return DbFileNamed(PROTAL_UNIQUE_KMER_FILE, GetUniqueKmersFile());
         }
 
-        // The PMML model: --model if it names an existing file, else from the database (see
-        // GetModelPath for a directory; in a single-file database the member --model names, <name>.xml
-        // without an extension, by default model.xml or else random_forest.xml).
-        db::DbFile ModelDbFile() const {
-            if (!m_model.empty() && std::filesystem::exists(m_model)) return db::DbFile::OnDisk(m_model);
-            if (!m_bundle) return db::DbFile::OnDisk(GetModelPath());
-            if (!m_model.empty()) {
-                bool const bare = std::filesystem::path(m_model).extension().empty();
-                return db::DbFile::InBundle(*m_bundle, bare ? m_model + ".xml" : m_model);
+        // The PMML model of paired-end or of single-end samples: --model_se (single-end) or --model if
+        // it names an existing file, else from the database (see GetModelPath for a directory; in a
+        // single-file database the member it names, <name>.xml without an extension). By default
+        // model.xml, or else random_forest.xml, for paired-end and model_se.xml for single-end reads.
+        db::DbFile ModelDbFile(bool single_end = false) const {
+            std::string const& name = single_end && !m_model_se.empty() ? m_model_se : m_model;
+            if (!name.empty() && std::filesystem::exists(name)) return db::DbFile::OnDisk(name);
+            if (single_end && name.empty()) {
+                return DbFileNamed(PROTAL_MODEL_SE_FILE, (std::filesystem::path(m_database_path) / PROTAL_MODEL_SE_FILE).string());
             }
-            auto model = db::DbFile::InBundle(*m_bundle, "model.xml");
+            if (!m_bundle) return db::DbFile::OnDisk(GetModelPath(name));
+            if (!name.empty()) {
+                bool const bare = std::filesystem::path(name).extension().empty();
+                return db::DbFile::InBundle(*m_bundle, bare ? name + ".xml" : name);
+            }
+            auto model = db::DbFile::InBundle(*m_bundle, PROTAL_MODEL_FILE);
             if (!model.Exists()) {
                 auto fallback = db::DbFile::InBundle(*m_bundle, "random_forest.xml");
                 if (fallback.Exists()) return fallback;
             }
             return model;
+        }
+
+        // Whether sample `index` has single-end reads (see ResolveReadTypes).
+        bool IsSingleEnd(size_t index) const {
+            return index < m_single_end.size() && m_single_end[index];
+        }
+
+        // Whether any sample in the range has single-end (single_end) or paired-end reads.
+        bool AnySample(bool single_end) const {
+            return std::any_of(m_range.begin(), m_range.end(), [&](size_t i) { return IsSingleEnd(i) == single_end; });
         }
 
         bool WriteBundle() const {
@@ -914,10 +947,6 @@ namespace protal {
             return m_benchmark_alignment_output;
         }
 
-        bool PairedMode() const {
-            return !m_first_list.empty() && !m_second_list.empty();
-        }
-
         bool Force() const {
             return m_force;
         }
@@ -1015,9 +1044,12 @@ of writing out compressed internally.
 SAMPLE1	sample1/reads_1.fq	sample1/reads_2.fq	1.sam	AIR1	1.profile
 SAMPLE2	sample2/reads_1.fq	sample2/reads_2.fq	2.sam	AIR2	2.profile
 SAMPLE3	sample3/reads_1.fq	sample3/reads_2.fq	3.sam	AIR3	3.profile
-SAMPLE4	sample4/reads_1.fq	sample4/reads_2.fq	4.sam	AIR4	4.profile
+SAMPLE4	sample4/reads.fq	-	4.sam	AIR4	4.profile
 
-FIRST, SECOND and PREFIX are mandatory (protal currently supports paired-end reads only).
+FIRST and PREFIX are mandatory. SECOND holds the second-in-pair files of paired-end reads; a
+sample with single-end reads (in FIRST) has '-' there, as SAMPLE4 above. Without a SECOND
+column, all samples are single-end. Single-end samples are profiled with the database's
+single-end model (model_se.xml, or --model_se).
 The first column, #SAMPLEID, names the sample in the outputs (MSA rows, logs, statistics).
 SAM and PROFILE are optional and default to <PREFIX>.sam and <PREFIX>.profile. Every sample
 needs its own SAM and PROFILE file; protal stops if two samples share one.)" << std::endl;
@@ -1232,17 +1264,10 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
 
                 } else {
 
-                    // Mapping file content
+                    // Mapping file content. Without a SECOND column, all samples are single-end.
                     if (prefix_column == -1 || first_column == -1) {
-                        std::cerr << "The columns must be specified: " << MAP_PREFIX << ", " << MAP_FIRST_READ << ", " << MAP_SECOND_READ << std::endl;
-                        return false;
-                    }
-                    // Protal currently supports paired-end reads only, so a map
-                    // without a SECOND column cannot be processed.
-                    if (second_column == -1) {
-                        std::cerr << "Column '" << MAP_SECOND_READ << "' is missing in " << map_path
-                                  << ". Protal currently supports paired-end reads only, single-end reads are "
-                                     "not supported yet (see --map_help)." << std::endl;
+                        std::cerr << "The columns must be specified: " << MAP_PREFIX << ", " << MAP_FIRST_READ
+                                  << " (and " << MAP_SECOND_READ << " for paired-end reads)" << std::endl;
                         return false;
                     }
 
@@ -1268,7 +1293,9 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     auto sample_id = tokens[0];  // #SAMPLEID
                     auto prefix_path = path(global_output_dir).append(tokens[prefix_column]);
                     auto first_path = path(input_dir).append(tokens[first_column]);
-                    auto second_path = path(input_dir).append(tokens[second_column]);
+                    // No second file ('-', or no SECOND column): single-end reads.
+                    bool const single_end = second_column == -1 || tokens[second_column] == MAP_NO_SECOND_READ;
+                    auto second_path = single_end ? path() : path(input_dir).append(tokens[second_column]);
 
                     // mandatory
                     samplenames_list.emplace_back(sample_id);
@@ -1386,12 +1413,32 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                    "    " + CommandWithDb(m_location.dir);
         }
 
+        // Whether each sample has single-end reads: it has no second read file, or, with --profile_only,
+        // its SAM holds unpaired alignments (no 0x1). A SAM without usable alignments, or that cannot
+        // be read (reported when it is profiled), counts as paired-end.
+        void ResolveReadTypes() {
+            m_single_end.assign(m_prefix_list.size(), false);
+            for (size_t i = 0; i < m_single_end.size(); i++) {
+                if (!m_profile_only) {
+                    m_single_end[i] = i < m_second_list.size() && m_second_list[i].empty();
+                    continue;
+                }
+                if (i >= m_sam_list.size() || !std::filesystem::exists(m_sam_list[i])) continue;
+                igzstream is(m_sam_list[i].c_str());
+                try {
+                    auto const paired = HoldsPairedReads(is);
+                    m_single_end[i] = paired.has_value() && !*paired;
+                } catch (SamFormatError const&) {}
+            }
+        }
+
         bool PrepareAndCheckValidity(bool force_read_check=false) {
             std::vector<std::string> error_log;
             std::vector<std::string> warning_log;
 
             ResolveDatabase(error_log);
             bool const db_mode = m_compress_db || m_decompress_db || m_unpack_db;
+            if (!m_build && !db_mode) ResolveReadTypes();
             if (int(m_compress_db) + int(m_decompress_db) + int(m_unpack_db) + int(m_build) > 1) {
                 error_log.emplace_back("--build, --compress_db, --decompress_db and --unpack_db cannot be combined "
                                        "(--build compresses unless --no_compress)");
@@ -1471,8 +1518,15 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     error_log.emplace_back("Unique k-mer file does not exist: " + UniqueKmersDbFile().Name() +
                                            " (without it every taxon fails the model; rebuild the database with --build)");
                 }
-                if (!m_no_profile && !ModelDbFile().Exists()) {
+                // The model of each read type the samples have (of paired-end reads without samples).
+                bool const single_end = AnySample(true);
+                if (!m_no_profile && (AnySample(false) || !single_end) && !ModelDbFile().Exists()) {
                     error_log.emplace_back("Model file does not exist: " + ModelDbFile().Name() + " (give one with --model)");
+                }
+                if (!m_no_profile && single_end && !ModelDbFile(true).Exists()) {
+                    error_log.emplace_back("The model of single-end reads does not exist: " + ModelDbFile(true).Name() +
+                                           " (give one trained on single-end reads with --model_se; the model of "
+                                           "paired-end reads does not fit single-end reads)");
                 }
             }
             if (!(m_depth_identity_margin >= 0)) {
@@ -1505,7 +1559,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
 
             if (!valid_lengths1 && !m_first_list.empty()) {
                 std::string error =
-                        "You must provide equal amounts of items in options -1, -2 and --prefix. "
+                        "You must provide equal amounts of items in options -1, -2 (unless all reads are single-end) and --prefix. "
                         "Provided are -1 (" +
                         std::to_string(m_first_list.size()) +
                         "), -2 (" +
@@ -1566,7 +1620,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                 auto sam = m_sam_list[i];
 
                 auto first_exists = std::filesystem::exists(first);
-                auto second_exists = std::filesystem::exists(second);
+                auto second_exists = second.empty() || std::filesystem::exists(second);  // none: single-end
                 auto sam_exists = std::filesystem::exists(sam);
 
                 if (!first_exists || !second_exists) {
@@ -1803,6 +1857,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             } else {
                 LineSplitter::Split(first, ",", first_list);
                 LineSplitter::Split(second, ",", second_list);
+                // Without -2, the reads are single-end: no sample has a second file.
+                if (second.empty()) second_list.assign(first_list.size(), "");
                 LineSplitter::Split(universal_prefix, ",", prefix_list);
                 LineSplitter::Split(sam_in, ",", sam_list);
 
@@ -1826,24 +1882,24 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             bool force = result.count("force");
 
 
-            // Protal currently only supports paired-end reads. Catch single-end (or
-            // otherwise mismatched) input here with a clear message, instead of running
-            // into mismatched read lists further down.
+            // Catch mismatched read lists here with a clear message, instead of running into them
+            // further down. A sample has one read file (single-end reads; its second file is empty)
+            // or two (paired-end reads).
             // These work on the database only.
             bool const compress_db = result.count("compress_db") > 0;
             bool const decompress_db = result.count("decompress_db") > 0;
             bool const unpack_db = result.count("unpack_db") > 0;
             if (!build && !profile_only && !compress_db && !decompress_db && !unpack_db) {
-                if (first_list.empty() && second_list.empty()) {
-                    std::cerr << "No input reads given. Provide paired-end reads via -1/--first and "
-                                 "-2/--second, or a map file via --map (see --map_help)." << std::endl;
+                if (first_list.empty()) {
+                    std::cerr << "No input reads given. Provide reads via -1/--first (and -2/--second for paired-end "
+                                 "reads), or a map file via --map (see --map_help)." << std::endl;
                     exit(31);
                 }
                 if (first_list.size() != second_list.size()) {
-                    std::cerr << "Protal currently supports paired-end reads only, single-end reads are not supported yet." << std::endl;
+                    std::cerr << "-1/--first and -2/--second must name the same number of files (paired-end reads), "
+                                 "or -2/--second none (single-end reads)." << std::endl;
                     std::cerr << "  -1/--first:  " << first_list.size() << " file(s)" << std::endl;
                     std::cerr << "  -2/--second: " << second_list.size() << " file(s)" << std::endl;
-                    std::cerr << "Please provide the same number of comma-separated files for -1/--first and -2/--second." << std::endl;
                     exit(31);
                 }
             }
@@ -1852,7 +1908,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                 if (!first_list.empty()) {
                     std::cerr << "Warning: profile only selected but first list is not empty. List is cleared" << std::endl;
                 }
-                if (!second_list.empty()) {
+                if (std::any_of(second_list.begin(), second_list.end(), [](std::string const& s) { return !s.empty(); })) {
                     std::cerr << "Warning: profile only selected but second list is not empty. List is cleared" << std::endl;
                 }
                 first_list.clear();
@@ -1885,6 +1941,10 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                 if (prefix_list.empty()) {
                     for (int i = 0; i < first_list.size(); i++) {
                         auto first = std::filesystem::path(first_list[i]);
+                        if (second_list[i].empty()) {
+                            prefix_list.emplace_back(Utils::ReadFileStem(first.filename().string()));
+                            continue;
+                        }
                         auto second = std::filesystem::path(second_list[i]);
 
                         if (first.parent_path() != second.parent_path()) {
@@ -2020,6 +2080,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.knob                     = result["knob"].as<double>();
             d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
             d.model                    = result["model"].as<std::string>();
+            d.model_se                 = result["model_se"].as<std::string>();
 
             auto options = Options(std::move(d));
 

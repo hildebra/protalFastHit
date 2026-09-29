@@ -22,160 +22,194 @@
 
 namespace protal::classify {
 
+    // The seeding and alignment diagnostics of the current sample in the misc folder: seconds per
+    // stage (<sample>_runtime.tsv), and histograms of seeds and anchors per read.
+    template<typename AnchorFinder>
+    static void WriteAlignmentDiagnostics(protal::Options const& options, AnchorFinder& anchor_finder_global,
+                                          std::vector<Benchmark*> const& stages,
+                                          Utils::Histogram& seed_sizes, Utils::Histogram& anchor_sizes) {
+        auto const misc_dir = std::filesystem::path(options.GetMiscOutputDir());
+        auto const sample = options.GetSampleId(options.GetCurrentIndex());
+
+        std::ofstream time_os(misc_dir / (sample + "_runtime.tsv"), std::ios::out);
+        for (Benchmark* bm : { &anchor_finder_global.m_bm_seeding, &anchor_finder_global.m_bm_processing,
+                               &anchor_finder_global.m_bm_pairing, &anchor_finder_global.m_bm_sorting_anchors,
+                               &anchor_finder_global.m_bm_extend_anchors }) {
+            time_os << bm->GetName() << '\t' << bm->GetDuration(Time::seconds) << '\n';
+        }
+        for (Benchmark* bm : stages) {
+            time_os << bm->GetName() << '\t' << bm->GetDuration(Time::seconds) << '\n';
+        }
+        time_os.close();
+
+        seed_sizes.ToTSV((misc_dir / (sample + "_seedsizes_histogram.tsv")).string());
+        anchor_sizes.ToTSV((misc_dir / (sample + "_anchorsizes_histogram.tsv")).string());
+    }
+
+    // Aligns single-end reads: each read on its own, as RunPairedEnd aligns a mate, but without a
+    // mate to recover anchors from or to pair alignments with.
     template<typename KmerHandler, typename AnchorFinder, typename AlignmentHandler, typename OutputHandler, DebugLevel debug, typename AlignmentBenchmark=NoBenchmark>
-//    requires KmerHandlerConcept<KmerHandler> && AnchorFinderConcept<AnchorFinder>  && AlignmentHandlerConcept<AlignmentHandler>
-    static Statistics
-    Run(SeqReader& reader_global, protal::Options const& options, AnchorFinder& anchor_finder_global, AlignmentHandler& alignment_handler_global, OutputHandler& output_handler_global, KmerHandler& kmer_handler_global, AlignmentBenchmark benchmark_global={}) {
+    static Statistics RunSingleEnd(SeqReaderSE& reader_global, protal::Options const& options, AnchorFinder& anchor_finder_global, AlignmentHandler& alignment_handler_global, OutputHandler& output_handler_global, KmerHandler& kmer_handler_global, AlignmentBenchmark benchmark_global={}) {
         constexpr bool benchmark_active = !std::is_same<AlignmentBenchmark, NoBenchmark>();
 
-        // Shared
-        size_t dummy = 0;
-
-        // Set Thread Num
         omp_set_num_threads(options.GetThreads());
 
         Statistics statistics{};
+        Benchmark bm_anchor_finder_global{"Seed- and Anchor-finding", 0};
+        Benchmark bm_anchor_recovery_global{"Anchor recovery", 0};  // paired-end only; kept for the runtime table
+        Benchmark bm_alignment_global{"Alignment handler", 0};
+        Benchmark bm_alignment_join_sort_global{"Joining alignment pairs and sorting", 0};  // paired-end only
+        Benchmark bm_output_global{"Output handler", 0};
         Benchmark bm_reader_global{"Sequence reader"};
-        Benchmark bm_alignment_global{"Alignment handler"};
         Benchmark bm_omp_block{"OMP Loop handler"};
-        Benchmark bm_omp_before_loop_global{ "OMP before loop" };
 
+        Utils::Histogram seed_sizes_global;
+        Utils::Histogram anchor_sizes_global;
+
+        std::cout << "Start parallel execution with " << options.GetThreads() << " threads" << std::endl;
         bm_omp_block.Start();
-#pragma omp parallel default(none) shared(std::cout, bm_alignment_global, bm_reader_global, bm_omp_before_loop_global, benchmark_global, options, dummy, kmer_handler_global, statistics, anchor_finder_global, alignment_handler_global, output_handler_global, reader_global)//, loader, map)
+#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_anchor_finder_global, bm_alignment_global, bm_output_global, seed_sizes_global, anchor_sizes_global, benchmark_global, reader_global, options, kmer_handler_global, statistics, anchor_finder_global, alignment_handler_global, output_handler_global)
         {
-            bm_omp_before_loop_global.Start();
-            // Private variables
             FastxRecord record;
 
             OutputHandler output_handler(output_handler_global);
-
-            // Extract variables from kmi_global
             KmerHandler kmer_handler(kmer_handler_global);
             AnchorFinder anchor_finder(anchor_finder_global);
             AlignmentHandler alignment_handler(alignment_handler_global);
 
-            // IO
-            SeqReader reader{ reader_global };
-
+            SeqReaderSE reader{ reader_global };
             Statistics thread_statistics;
             thread_statistics.thread_num = omp_get_thread_num();
             AlignmentBenchmark thread_core_benchmark{ benchmark_global };
 
-            // Intermediate storage objects
             KmerList kmers;
             SeedList seeds;
             AlignmentAnchorList anchors;
             AlignmentResultList alignment_results;
 
+            Benchmark bm_reader{"Sequence reader"};
+            Benchmark bm_anchor_finder{"Seed- and Anchor-finding"};
             Benchmark bm_alignment{"Alignment handler"};
-            Benchmark bm_reader{"Reader"};
+            Benchmark bm_output{"Output handler"};
 
-            size_t record_id = omp_get_thread_num();
+            Utils::Histogram seed_sizes;
+            Utils::Histogram anchor_sizes;
 
-            bm_omp_before_loop_global.Stop();
             bm_reader.Start();
             while (reader(record)) {
                 bm_reader.Stop();
-
-                // Implement logger
                 thread_statistics.reads++;
 
-                // Clear intermediate storage objects
                 kmers.clear();
                 seeds.clear();
                 anchors.clear();
                 alignment_results.clear();
 
-                // Retrieve kmers
                 kmer_handler(std::string_view(record.sequence), kmers);
+                if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                    thread_statistics.kmers_total += kmer_handler.TotalKmers();
+                }
+                if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                    thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
+                }
 
-//                if constexpr(KmerStatisticsConcept<KmerHandler>) {
-//                    thread_statistics.kmers_total += kmer_handler.TotalKmers();
-//                }
-//                if constexpr(KmerStatisticsConcept<KmerHandler>) {
-//                    thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
-//                }
-                thread_statistics.kmers_total += kmer_handler.TotalKmers();
-                thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
-
-
-                // Calculate Anchors
-//                std::cout << record.id << std::endl;
+                bm_anchor_finder.Start();
                 anchor_finder(kmers, seeds, anchors, record.sequence);
+                bm_anchor_finder.Stop();
+
+                thread_statistics.successful_lookups += anchor_finder.m_successful_lookups;
+                thread_statistics.at_least_one_lookup += (anchor_finder.m_successful_lookups > 0);
+                thread_statistics.total_seeds += seeds.size();
+                if (!anchor_finder.Success()) {
+                    thread_statistics.errors_anchor_finding++;
+                }
+
+                seed_sizes.AddObservation(seeds.size());
+                anchor_sizes.AddObservation(anchors.size());
                 thread_statistics.total_anchors += anchors.size();
+                if (!anchors.empty()) {
+                    thread_statistics.at_least_one_anchor += 1;
+                    thread_statistics.best_anchor_seed_count += anchors.front().chain.size();
+                }
 
-//                std::cout << "Anchor length: " << anchors.size() << std::endl;
-//                for (auto& anchor : anchors) {
-//                    std::cout << anchor.ToString() << std::endl;
-//                }
-
-                // Do Alignment
                 bm_alignment.Start();
                 alignment_handler(anchors, alignment_results, record.sequence, options.GetAlignTop(), record.id);
                 bm_alignment.Stop();
-
-//                Utils::Input();
-//                continue;
-
                 thread_statistics.total_alignments += alignment_results.size();
 
-                // Output alignments
+                bm_output.Start();
                 output_handler(alignment_results, record);
+                bm_output.Stop();
 
                 if constexpr (benchmark_active) {
                     thread_core_benchmark(seeds, anchors, alignment_results, record.id);
                 }
 
-                record_id += options.GetThreads();
                 bm_reader.Start();
             }
             bm_reader.Stop();
 
-
 #pragma omp critical(statistics)
             {
                 anchor_finder_global.m_bm_seeding.Join(anchor_finder.m_bm_seeding);
+                anchor_finder_global.m_bm_reverse_complement.Join(anchor_finder.m_bm_reverse_complement);
+                anchor_finder_global.m_bm_operator.Join(anchor_finder.m_bm_operator);
                 anchor_finder_global.m_bm_processing.Join(anchor_finder.m_bm_processing);
                 anchor_finder_global.m_bm_pairing.Join(anchor_finder.m_bm_pairing);
                 anchor_finder_global.m_bm_sorting_anchors.Join(anchor_finder.m_bm_sorting_anchors);
+                anchor_finder_global.m_bm_extend_anchors.Join(anchor_finder.m_bm_extend_anchors);
 
+                reader_global.UpdateSuccess(reader);
+
+                bm_reader_global.Join(bm_reader);
+                bm_anchor_finder_global.Join(bm_anchor_finder);
                 bm_alignment_global.Join(bm_alignment);
+                bm_output_global.Join(bm_output);
                 alignment_handler_global.bm_alignment.Join(alignment_handler.bm_alignment);
-                alignment_handler_global.bm_seedext.Join(alignment_handler.bm_seedext);
-                alignment_handler_global.dummy += alignment_handler.dummy;
+                alignment_handler_global.m_bm_alignment.Join(alignment_handler.m_bm_alignment);
 
                 thread_statistics.output_alignments = output_handler.alignments;
                 statistics.Join(thread_statistics);
 
+                seed_sizes_global.Join(seed_sizes);
+                anchor_sizes_global.Join(anchor_sizes);
+
                 if constexpr (benchmark_active) {
                     benchmark_global.Join(thread_core_benchmark);
                 }
-
-                std::cout << "Tail: " << alignment_handler.total_tail_alignments << std::endl;
-                std::cout << "TLen: " << alignment_handler.total_tail_length << std::endl;
-                std::cout << "rate: " << (static_cast<double>(alignment_handler.total_tail_length)/static_cast<double>(alignment_handler.total_tail_alignments)) << std::endl;
             }
         }
         bm_omp_block.Stop();
 
         if constexpr (benchmark_active) {
-            std::cout << "\n------------Alignment benchmarks------------------" << std::endl;
-            benchmark_global.WriteRowStats();
+            if (options.Verbose()) {
+                std::cout << "\n------------Alignment benchmarks------------------" << std::endl;
+                benchmark_global.WriteRowStats();
+                std::cout << "----------------------------------------------------\n" << std::endl;
+            }
+            benchmark_global.WriteRowStatsToFile(options.GetPrefix(options.GetCurrentIndex()) + "_benchmark.tsv");
+        }
+
+        if (options.Verbose()) {
+            std::cout << "---------------Speed benchmarks---------------------" << std::endl;
+            bm_omp_block.PrintResults();
+            bm_reader_global.PrintResults();
+            bm_anchor_finder_global.PrintResults();
+            std::cout << "\t";
+            anchor_finder_global.m_bm_operator.PrintResults();
+            std::cout << "\t\t";
+            anchor_finder_global.m_bm_seeding.PrintResults();
+            std::cout << "\t\t";
+            anchor_finder_global.m_bm_extend_anchors.PrintResults();
+            bm_alignment_global.PrintResults();
+            bm_output_global.PrintResults();
             std::cout << "----------------------------------------------------\n" << std::endl;
         }
 
-        std::cout << "---------------Speed benchmarks---------------------" << std::endl;
-        anchor_finder_global.m_bm_seeding.PrintResults();
-        anchor_finder_global.m_bm_processing.PrintResults();
-        anchor_finder_global.m_bm_pairing.PrintResults();
-        anchor_finder_global.m_bm_sorting_anchors.PrintResults();
-        bm_alignment_global.PrintResults();
-        alignment_handler_global.bm_alignment.PrintResults();
-        alignment_handler_global.bm_seedext.PrintResults();
-        std::cout << alignment_handler_global.dummy << std::endl;
-        std::cout << "----------------------------------------------------\n" << std::endl;
-
-
+        WriteAlignmentDiagnostics(options, anchor_finder_global,
+                                  { &bm_anchor_finder_global, &bm_anchor_recovery_global, &bm_alignment_global,
+                                    &bm_alignment_join_sort_global, &bm_output_global },
+                                  seed_sizes_global, anchor_sizes_global);
         return statistics;
     }
 
@@ -549,30 +583,10 @@ namespace protal::classify {
         }
 
 
-        auto runtime_output = std::filesystem::path(options.GetMiscOutputDir())
-                      / (options.GetSampleId(options.GetCurrentIndex()) + "_runtime.tsv");
-
-        std::ofstream time_os(runtime_output, std::ios::out);
-        time_os << anchor_finder_global.m_bm_seeding.GetName() << '\t' << anchor_finder_global.m_bm_seeding.GetDuration(Time::seconds) << '\n';
-        time_os << anchor_finder_global.m_bm_processing.GetName() << '\t' << anchor_finder_global.m_bm_processing.GetDuration(Time::seconds) << '\n';
-        time_os << anchor_finder_global.m_bm_pairing.GetName() << '\t' << anchor_finder_global.m_bm_pairing.GetDuration(Time::seconds) << '\n';
-        time_os << anchor_finder_global.m_bm_sorting_anchors.GetName() << '\t' << anchor_finder_global.m_bm_sorting_anchors.GetDuration(Time::seconds) << '\n';
-        time_os << anchor_finder_global.m_bm_extend_anchors.GetName() << '\t' << anchor_finder_global.m_bm_extend_anchors.GetDuration(Time::seconds) << '\n';
-        time_os << bm_anchor_finder_global.GetName() << '\t' << bm_anchor_finder_global.GetDuration(Time::seconds) << '\n';
-        time_os << bm_anchor_recovery_global.GetName() << '\t' << bm_anchor_recovery_global.GetDuration(Time::seconds) << '\n';
-        time_os << bm_alignment_global.GetName() << '\t' << bm_alignment_global.GetDuration(Time::seconds) << '\n';
-        time_os << bm_alignment_join_sort_global.GetName() << '\t' << bm_alignment_join_sort_global.GetDuration(Time::seconds) << '\n';
-        time_os << bm_output_global.GetName() << '\t' << bm_output_global.GetDuration(Time::seconds) << '\n';
-        time_os.close();
-
-        
-        auto misc_dir = std::filesystem::path(options.GetMiscOutputDir());
-        auto anchorsizes_histogram_path = (misc_dir / (options.GetSampleId(options.GetCurrentIndex()) + "_anchorsizes_histogram.tsv")).string();
-        auto seedsizes_histogram_path   = (misc_dir / (options.GetSampleId(options.GetCurrentIndex()) + "_seedsizes_histogram.tsv")).string();
-
-        seed_sizes_global.ToTSV(seedsizes_histogram_path);
-        anchor_sizes_global.ToTSV(anchorsizes_histogram_path);
-
+        WriteAlignmentDiagnostics(options, anchor_finder_global,
+                                  { &bm_anchor_finder_global, &bm_anchor_recovery_global, &bm_alignment_global,
+                                    &bm_alignment_join_sort_global, &bm_output_global },
+                                  seed_sizes_global, anchor_sizes_global);
         return statistics;
     }
 

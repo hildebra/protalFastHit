@@ -377,6 +377,22 @@ namespace Utils {
 
 
 
+    // A read file's name without its compression (.gz, .bz2, .xz, .zst) and FASTQ/FASTA extension:
+    // "sample1.fq.gz" is "sample1".
+    static std::string ReadFileStem(std::string name) {
+        auto strip = [&name](std::initializer_list<char const*> extensions) {
+            for (std::string const extension : extensions) {
+                if (name.size() > extension.size() && name.ends_with(extension)) {
+                    name.resize(name.size() - extension.size());
+                    return;
+                }
+            }
+        };
+        strip({ ".gz", ".bz2", ".xz", ".zst" });
+        strip({ ".fastq", ".fq", ".fasta", ".fa", ".fna", ".fas" });
+        return name;
+    }
+
     static std::string LongestCommonPrefixTrimmed(const std::string& a, const std::string& b) {
         size_t minLen = std::min(a.size(), b.size());
         size_t i = 0;

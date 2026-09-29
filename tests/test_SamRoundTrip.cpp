@@ -279,3 +279,126 @@ TEST(PairedOutputHandler, SkipsOnlyTheInconsistentCandidate) {
     EXPECT_EQ(records[0][3], "1");  // POS of the correct candidate (1-based)
     EXPECT_FALSE(Flag::IsNotPrimaryAlignment(std::stoul(records[0][1])));
 }
+
+TEST(SamReader, SingleEndReadsAreFirstReads) {
+    Reader r(SamLine("fwd", 0) + SamLine("rev", 0x10) + SamLine("rev", 0x10 | 0x100));
+    for (std::string const name : { "fwd", "rev", "rev" }) {
+        ASSERT_TRUE(r.Next());
+        EXPECT_TRUE(r.has1);
+        EXPECT_FALSE(r.has2);
+        EXPECT_EQ(r.sam1.m_qname, name);
+    }
+    EXPECT_FALSE(r.Next());
+    EXPECT_EQ(r.reader.Records(), 3u);
+    EXPECT_EQ(r.reader.PairedRecords(), 0u);
+}
+
+TEST(SamReader, TellsPairedFromSingleEndReads) {
+    auto paired = [](std::string text) {
+        std::istringstream in(std::move(text));
+        return HoldsPairedReads(in);
+    };
+    EXPECT_EQ(paired("@HD\tVN:1.6\n" + SamLine("a", PAIRED | BOTH_ALIGN | READ1) + SamLine("a", PAIRED | BOTH_ALIGN | READ2)), true);
+    EXPECT_EQ(paired(SamLine("orphan", PAIRED | READ2 | MATE_UNMAPPED)), true);
+    EXPECT_EQ(paired("@HD\tVN:1.6\n" + SamLine("a", 0x10) + SamLine("b", 0)), false);
+    EXPECT_EQ(paired("@HD\tVN:1.6\n@SQ\tSN:1_1\tLN:50\n"), std::nullopt);
+}
+
+namespace {
+    std::vector<std::vector<std::string>> WriteSingle(TinyReference& ref, AlignmentResultList results, FastxRecord record,
+                                                      size_t max_out = 5) {
+        std::ostringstream os;
+        {
+            ProtalSingleOutputHandler<false> handler(os, max_out, 0, 1 << 16, *ref.loader);
+            handler(results, record);
+        }  // the destructor flushes the buffer
+        std::vector<std::vector<std::string>> records;
+        std::istringstream in(os.str());
+        std::string line;
+        std::vector<std::string> tokens;
+        while (std::getline(in, line)) {
+            LineSplitter::Split(line, "\t", tokens);
+            records.push_back(tokens);
+        }
+        return records;
+    }
+
+    // An alignment of `length` bases with `mismatches` of them counted as mismatches (for the score
+    // only; the CIGAR stays all M).
+    AlignmentResult Weaker(size_t start, size_t length, size_t mismatches, uint32_t geneid) {
+        auto ar = Aligned(start, length, true, geneid);
+        ar.GetAlignmentInfo().matches = length - mismatches;
+        ar.GetAlignmentInfo().mismatches = mismatches;
+        return ar;
+    }
+}
+
+TEST(SingleOutputHandler, WritesUnpairedRecordsInReferenceOrientation) {
+    TinyReference ref;
+    auto fwd = WriteSingle(ref, { Aligned(5, 20, true) }, Record("read1/1", ref.gene.substr(5, 20)));
+    ASSERT_EQ(fwd.size(), 1u);
+    EXPECT_EQ(fwd[0][0], "read1");  // QNAME without a /1 suffix
+    EXPECT_EQ(std::stoul(fwd[0][1]), 0u);  // not paired, forward, primary
+    EXPECT_EQ(fwd[0][2], "1_1");
+    EXPECT_EQ(fwd[0][3], "6");
+    EXPECT_GT(std::stoi(fwd[0][4]), 4);  // the only candidate: unambiguous
+    EXPECT_EQ(fwd[0][6], "*");
+    EXPECT_EQ(fwd[0][7], "0");
+    EXPECT_EQ(fwd[0][8], "0");  // TLEN
+
+    auto rev = WriteSingle(ref, { Aligned(10, 20, false) }, Record("read2", KmerUtils::ReverseComplement(ref.gene.substr(10, 20))));
+    ASSERT_EQ(rev.size(), 1u);
+    FLAG_t flag = std::stoul(rev[0][1]);
+    EXPECT_TRUE(Flag::IsReverseComplement(flag));
+    EXPECT_FALSE(Flag::IsPaired(flag) || Flag::IsRead1(flag) || Flag::IsRead2(flag) || Flag::IsUnmapped(flag));
+    EXPECT_EQ(rev[0][9], ref.gene.substr(10, 20));  // SEQ is stored in reference orientation
+
+    // Read back, each record is a single read in the first slot.
+    std::string text;
+    for (auto const& record : { fwd[0], rev[0] }) {
+        for (size_t i = 0; i < record.size(); i++) text += (i ? "\t" : "") + record[i];
+        text += '\n';
+    }
+    Reader r(text);
+    ASSERT_TRUE(r.Next());
+    EXPECT_TRUE(r.has1 && !r.has2);
+    EXPECT_EQ(r.sam1.m_qname, "read1");
+    ASSERT_TRUE(r.Next());
+    EXPECT_TRUE(r.has1 && !r.has2);
+    EXPECT_TRUE(r.sam1.IsReversed());
+    EXPECT_FALSE(r.Next());
+}
+
+TEST(SingleOutputHandler, RanksCandidatesAndWritesTheOthersAsSecondary) {
+    TinyReference ref;
+    // A read of Ns matches any gene position, so both candidates are consistent.
+    auto records = WriteSingle(ref, { Weaker(3, 20, 5, 2), Aligned(0, 20, true) }, Record("r", std::string(20, 'N')));
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0][2], "1_1");  // the better candidate first
+    EXPECT_FALSE(Flag::IsNotPrimaryAlignment(std::stoul(records[0][1])));
+    EXPECT_EQ(std::stoi(records[0][4]), MAPQv2(40, 15));  // bitscores 20*2 and 15*2-5*3
+    EXPECT_EQ(records[1][2], "1_2");
+    EXPECT_TRUE(Flag::IsNotPrimaryAlignment(std::stoul(records[1][1])));
+    EXPECT_EQ(records[1][4], "0");
+    EXPECT_EQ(records[0][0], records[1][0]);
+
+    auto first_only = WriteSingle(ref, { Weaker(3, 20, 5, 2), Aligned(0, 20, true) }, Record("r", std::string(20, 'N')), 1);
+    ASSERT_EQ(first_only.size(), 1u);
+    EXPECT_EQ(first_only[0][2], "1_1");
+}
+
+TEST(SingleOutputHandler, TheSameAlignmentTwiceIsOneCandidate) {
+    // Two anchors of one read on one gene can give the same alignment; that is no second hit.
+    TinyReference ref;
+    auto records = WriteSingle(ref, { Aligned(0, 20, true), Aligned(0, 20, true) }, Record("r", ref.gene.substr(0, 20)));
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(std::stoi(records[0][4]), MAPQv2(40, 0));
+}
+
+TEST(SingleOutputHandler, SkipsOnlyTheInconsistentCandidate) {
+    TinyReference ref;
+    auto records = WriteSingle(ref, { Aligned(3, 20, true), Aligned(0, 20, true) }, Record("r", ref.gene.substr(0, 20)));
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0][3], "1");
+    EXPECT_FALSE(Flag::IsNotPrimaryAlignment(std::stoul(records[0][1])));
+}

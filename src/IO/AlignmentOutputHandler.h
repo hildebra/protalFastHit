@@ -290,72 +290,125 @@ namespace protal {
      };
 
     /*
-     * Protal Output Handler
+     * Output of single-end reads: a read's candidate alignments as unpaired records (no 0x1), the
+     * best first with the read's MAPQ, the others as secondary alignments (0x100) with MAPQ 0.
      */
-    class ProtalOutputHandler {
+    template<bool DEBUG=false>
+    class ProtalSingleOutputHandler {
     private:
         std::ostream& m_sam_os;
         BufferedStringOutput m_sam_output;
         SamEntry m_sam;
 
-        AlignmentInfo m_info;
         GenomeLoader& m_genomes;
 
+        size_t m_max_out = 1;
         double m_min_cigar_ani = 0;
     public:
         size_t alignments = 0;
 
-        ProtalOutputHandler(std::ostream& sam_os, size_t varkit_buffer_capacity, size_t sam_buffer_capacity, GenomeLoader& genomes, double min_cigar_ani=0.0f) :
+        ProtalSingleOutputHandler(std::ostream& sam_os, size_t max_out, size_t varkit_buffer_capacity, size_t sam_buffer_capacity, GenomeLoader& genomes, double min_cigar_ani=0.0f) :
                 m_sam_os(sam_os),
                 m_sam_output(sam_buffer_capacity),
-                m_min_cigar_ani(min_cigar_ani),
-                m_genomes(genomes) {}
+                m_genomes(genomes),
+                m_max_out(max_out),
+                m_min_cigar_ani(min_cigar_ani) {}
 
-        ProtalOutputHandler(ProtalOutputHandler const& other) :
+        ProtalSingleOutputHandler(ProtalSingleOutputHandler const& other) :
                 m_sam_os(other.m_sam_os),
                 m_sam_output(other.m_sam_output.Capacity()),
-                m_min_cigar_ani(other.m_min_cigar_ani),
-                m_genomes(other.m_genomes) {}
+                m_genomes(other.m_genomes),
+                m_max_out(other.m_max_out),
+                m_min_cigar_ani(other.m_min_cigar_ani) {}
 
-        ~ProtalOutputHandler() {
+        ~ProtalSingleOutputHandler() {
 #pragma omp critical(sam_output)
             m_sam_output.Write(m_sam_os);
         }
 
+        // The score candidates are ranked and MAPQ is computed with, as for pairs (Bitscore).
+        static int Bitscore(AlignmentResult const& ar) {
+            return ar.GetAlignmentInfo().Score(2, 3, 1, 2);
+        }
 
-        void operator () (AlignmentResultList& alignment_results, FastxRecord& record, size_t read_id=0, bool first_pair=true) {
+        // A read's candidates best first, each alignment once: anchors that lead to the same
+        // alignment would otherwise count as a second, equally good hit and give the read MAPQ 0.
+        static void RankCandidates(AlignmentResultList& results) {
+            std::stable_sort(results.begin(), results.end(), [](AlignmentResult const& a, AlignmentResult const& b) {
+                return Bitscore(a) > Bitscore(b);
+            });
+            auto same = [](AlignmentResult const& a, AlignmentResult const& b) {
+                return a.Taxid() == b.Taxid() && a.GeneId() == b.GeneId() && a.Forward() == b.Forward() &&
+                       a.GetAlignmentInfo().gene_alignment_start == b.GetAlignmentInfo().gene_alignment_start;
+            };
+            AlignmentResultList distinct;
+            for (auto& ar : results) {
+                if (std::none_of(distinct.begin(), distinct.end(), [&](AlignmentResult const& d) { return same(d, ar); })) {
+                    distinct.emplace_back(std::move(ar));
+                }
+            }
+            results = std::move(distinct);
+        }
+
+        void operator () (AlignmentResultList& alignment_results, FastxRecord& record) {
             if (alignment_results.empty()) return;
-//            bool multiple_best = alignment_results.size() > 1 && alignment_results[0].AlignmentScore() == alignment_results[1].AlignmentScore();
-//
-//            if (multiple_best) {
-//                return;
-//            }
+            RankCandidates(alignment_results);
 
             auto& best = alignment_results.front();
-            if (protal::CigarANI(best.Cigar()) < m_min_cigar_ani) {
+            if (CigarANI(best.Cigar()) < m_min_cigar_ani) {
                 return;
             }
 
-            /* ##############################################################
-             * Output alignments.
-             */
-            bool first = true;
+            int const best_score = Bitscore(best);
+            int const second_score = alignment_results.size() > 1 ? Bitscore(alignment_results[1]) : 0;
+            int const mapq = best_score > 0 ? MAPQv2(best_score, second_score) : 0;
+
+            if constexpr (DEBUG) {
+                std::vector<std::string> tokens;
+                LineSplitter::Split(record.id, "-", tokens);
+                auto ref = std::to_string(best.Taxid()) + "_" + std::to_string(best.GeneId());
+                bool is_correct = !tokens.empty() && ref == tokens[0];
+#pragma omp critical(errout)
+                std::cerr << int(is_correct) << '\t' << mapq << '\t' << best_score << '\t' << second_score << '\t' << record.id << std::endl;
+            }
+
             auto const qname = ReadQName(record.id);
-            for (auto& ar :  alignment_results) {
-
-                auto& info = ar.GetAlignmentInfo();
-                ArtoSAM(m_sam, ar, info, record, qname);
-                Flag::SetPairedEnd(m_sam.m_flag, false, false, first_pair, !first_pair);
-                Flag::SetReadUnmapped(m_sam.m_flag, true);
-                Flag::SetReadReverseComplement(m_sam.m_flag, ar.Forward());
+            SNPList snps;
+            bool first = true;
+            size_t output_counter = 0;
+            std::string read_records;
+            for (auto& ar : alignment_results) {
+                ArtoSAM(m_sam, ar, ar.GetAlignmentInfo(), record, qname);
+                Flag::SetReadReverseComplement(m_sam.m_flag, !ar.Forward());
                 Flag::SetNotPrimaryAlignment(m_sam.m_flag, !first);
+                m_sam.m_mapq = first ? mapq : 0;
+                m_sam.m_tlen = 0;
 
-                alignments++;
-                if (!m_sam_output.Write(m_sam.ToString())) {
-#pragma omp critical(sam_output)
-                    m_sam_output.Write(m_sam_os);
+                auto const& reference = m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()).Sequence();
+                if (!ExtractSNPs(m_sam, reference, snps, ar.Taxid(), ar.GeneId(), 0)) {
+#pragma omp critical(err_out)
+                    {
+                        std::cerr << record.to_string() << std::endl;
+                        std::cerr << m_sam.ToString() << std::endl;
+                        PrintAlignment(m_sam, reference, std::cerr);
+                    }
+                    // Skip only this inconsistent candidate; the read's other alignments are still written.
+                    continue;
                 }
+
                 first = false;
+                alignments++;
+                if (!read_records.empty()) read_records += '\n';
+                read_records += m_sam.ToString();
+                if (++output_counter == m_max_out) break;
+            }
+
+            // All candidates of the read go into the buffer as one unit, so a flush cannot let another
+            // thread's records land between them: readers take adjacent records with one name as one
+            // read's candidates.
+            if (!read_records.empty() && !m_sam_output.Write(std::move(read_records))) {
+#pragma omp critical(sam_output)
+                m_sam_output.Write(m_sam_os);
             }
         }
     };

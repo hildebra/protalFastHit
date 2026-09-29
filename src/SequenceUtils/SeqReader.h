@@ -49,6 +49,47 @@ namespace protal {
         }
     };
 
+    // Single-end reads, shared by threads as SeqReaderPE: each copy takes batches of records from
+    // the stream.
+    class SeqReaderSE {
+    private:
+        const size_t m_record_count = 32;
+        BufferedFastxReader m_reader;
+        bool m_valid_block = true;
+        std::istream& m_is;
+        bool m_success = true;
+
+    public:
+        SeqReaderSE(std::istream& is) :
+                m_is(is) {};
+
+        SeqReaderSE(SeqReaderSE const& other) :
+                m_is(other.m_is) {};
+
+        bool Success() const {
+            return m_success;
+        }
+
+        void UpdateSuccess(SeqReaderSE const& other) {
+            m_success &= other.m_success;
+        }
+
+        bool operator() (FastxRecord &record) {
+            if (m_reader.NextSequence(record)) return true;
+            if (m_reader.Error()) {
+                m_success = false;
+                return false;
+            }
+#pragma omp critical(reader)
+            {
+                m_valid_block = m_reader.LoadBatch(m_is, m_record_count);
+            }
+            if (m_valid_block && m_reader.NextSequence(record)) return true;
+            m_success &= !m_reader.Error();
+            return false;
+        }
+    };
+
     class SeqReaderPE {
         enum SeqReaderPEError {
             NO_ERROR,DIFF_LENGTH_SEQUENCE, DIFFERENT_LENGTH_BLOCK

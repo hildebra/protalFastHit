@@ -266,65 +266,89 @@ namespace protal {
             using AnchorFinder = ChainAnchorFinder<KmerLookupSM>;
 //            using AnchorFinder = NaiveAnchorFinder<KmerLookupSM>;
 
-            using OutputHandler = ProtalOutputHandler;
-
-
-
 
             Benchmark bm_classify("Processing all samples");
             bm_classify.Start();
 
-            if (options.PairedMode()) {
-                for (auto index : options.GetRange()) {
-                //for (auto index = 0; index < options.GetFileCount(); index++) {
+            for (auto index : options.GetRange()) {
+                bool const single_end = options.IsSingleEnd(index);
 
-                    Benchmark bm_classify_sample("Aligning reads");
-                    bm_classify_sample.Start();
+                Benchmark bm_classify_sample("Aligning reads");
+                bm_classify_sample.Start();
 
-                    // TODO implement logger in protal
-                    auto [sam, gzipped] = options.SamFile(index);
-                    auto [sam_nogzip, _] = options.SamFile(index, true);
+                // TODO implement logger in protal
+                auto [sam, gzipped] = options.SamFile(index);
+                auto [sam_nogzip, _] = options.SamFile(index, true);
 
-                    auto dir = std::filesystem::path(sam).parent_path();
-                    
-                    if (!std::filesystem::create_directories(dir.string()) && !std::filesystem::exists(dir)) {
-                        std::cout << "Cannot create directories for this path " << sam << std::endl;
-                        exit(32);
+                auto dir = std::filesystem::path(sam).parent_path();
+
+                if (!std::filesystem::create_directories(dir.string()) && !std::filesystem::exists(dir)) {
+                    std::cout << "Cannot create directories for this path " << sam << std::endl;
+                    exit(32);
+                };
+
+
+                // std::cout << index << " Process sample " << options.GetSampleId(index) << (std::filesystem::exists(sam) ? " (sam exists)" : " (sam does not exist)") << std::endl;
+
+                // Avoid aligning files that already exist.
+                if (!options.Force() && (std::filesystem::exists(sam) || std::filesystem::exists(sam_nogzip))) {
+                    std::cout << "Skip " << sam << " continue" << std::endl;
+                    // Profile the file that is there: an earlier run may have left it uncompressed.
+                    if (gzipped && !std::filesystem::exists(sam)) options.SetSamFileGzip(index, false);
+                    continue;
+                }
+
+                // AnchorFinder
+                AnchorFinder anchor_finder(kmer_lookup, mmer_size, options.GetMinSuccessfulLookups(), options.GetMaxSeedSize(), genomes);
+                // AlignmentHandler approach
+                SimpleAlignmentHandler alignment_handler(genomes, aligner, kmer_size, options.GetAlignTop(), options.GetMaxScoreAni(), options.FastAlign());
+
+
+
+                options.SetCurrentIndex(index);
+                std::string const sam_partial = sam_nogzip + ".partial";  // renamed by FinishSamFile
+                std::ofstream sam_output(sam_partial, std::ios::out);
+                if (!sam_output) {
+                    RunStatus::Get().Fail("Cannot write the SAM file of sample " + options.GetSampleId(index) + ": " + sam_partial);
+                    continue;
+                }
+                genomes.WriteSamHeader(sam_output);
+                std::cout << "Align the " << (single_end ? "single-end" : "paired-end") << " reads of sample "
+                          << options.GetSampleId(index) << std::endl;
+
+                // Main Run Call. This is where the reads are read and alignment happens
+                bool truncated = false;
+                bool read_success = true;
+                std::string const read_files = single_end ? options.GetFirstFile(index) :
+                                               options.GetFirstFile(index) + ", " + options.GetSecondFile(index);
+                if (single_end) {
+                    igzstream is { options.GetFirstFile(index).c_str() };
+                    SeqReaderSE reader{ is };
+                    auto align = [&](auto output_handler) {
+                        return protal::classify::RunSingleEnd<
+                                SimpleKmerHandler<ClosedSyncmer>,
+                                AnchorFinder,
+                                SimpleAlignmentHandler,
+                                decltype(output_handler),
+                                DEBUG_NONE,
+                                AlignmentBenchmark>(
+                                reader, options, anchor_finder, alignment_handler, output_handler, iterator, benchmark);
                     };
-
-
-                    // std::cout << index << " Process sample " << options.GetSampleId(index) << (std::filesystem::exists(sam) ? " (sam exists)" : " (sam does not exist)") << std::endl;
-
-                    // Avoid aligning files that already exist.
-                    if (!options.Force() && (std::filesystem::exists(sam) || std::filesystem::exists(sam_nogzip))) {
-                        std::cout << "Skip " << sam << " continue" << std::endl;
-                        // Profile the file that is there: an earlier run may have left it uncompressed.
-                        if (gzipped && !std::filesystem::exists(sam)) options.SetSamFileGzip(index, false);
-                        continue;
+                    auto protal_stats = options.GetMAPQDebugOut() ?
+                            align(ProtalSingleOutputHandler<true>(sam_output, options.GetMaxOut(), 1024*512, 1024*1024*16, genomes, 0.8)) :
+                            align(ProtalSingleOutputHandler<false>(sam_output, options.GetMaxOut(), 1024*512, 1024*1024*16, genomes, 0.8));
+                    if (options.Verbose()) {
+                        protal_stats.WriteStats();
                     }
-
-                    // AnchorFinder
-                    AnchorFinder anchor_finder(kmer_lookup, mmer_size, options.GetMinSuccessfulLookups(), options.GetMaxSeedSize(), genomes);
-                    // AlignmentHandler approach
-                    SimpleAlignmentHandler alignment_handler(genomes, aligner, kmer_size, options.GetAlignTop(), options.GetMaxScoreAni(), options.FastAlign());
-
-
-
-                    options.SetCurrentIndex(index);
-                    std::string const sam_partial = sam_nogzip + ".partial";  // renamed by FinishSamFile
-                    std::ofstream sam_output(sam_partial, std::ios::out);
-                    if (!sam_output) {
-                        RunStatus::Get().Fail("Cannot write the SAM file of sample " + options.GetSampleId(index) + ": " + sam_partial);
-                        continue;
-                    }
-                    genomes.WriteSamHeader(sam_output);
-
+                    // zlib reads a truncated or corrupt gzip file as one that ends early.
+                    truncated = is.rdbuf()->read_failed();
+                    read_success = reader.Success();
+                    is.close();
+                } else {
                     igzstream is1 { options.GetFirstFile(index).c_str() };
                     igzstream is2 { options.GetSecondFile(index).c_str() };
                     SeqReaderPE reader{is1, is2};
 
-
-                    // Main Run Call. This is where the reads are read and alignment happens
                     if (options.GetMAPQDebugOut()) {
                         using OutputHandler = ProtalPairedOutputHandler<true>;
 
@@ -356,102 +380,34 @@ namespace protal {
                             protal_stats.WriteStats();
                         }
                     }
-                    bm_classify_sample.Stop();
-                    bm_classify_sample.PrintResults();
-
                     // zlib reads a truncated or corrupt gzip file as one that ends early.
-                    bool const truncated = is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed();
+                    truncated = is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed();
+                    read_success = reader.Success();
                     is1.close();
                     is2.close();
-                    sam_output.close();
-
-                    if (truncated) {
-                        RunStatus::Get().Fail("The FASTQ files of sample " + options.GetSampleId(index) + " are truncated or corrupt (" +
-                                              options.GetFirstFile(index) + ", " + options.GetSecondFile(index) +
-                                              "); no SAM file was written");
-                        std::filesystem::remove(sam_partial);
-                        continue;
-                    }
-                    if (!reader.Success()) {
-                        RunStatus::Get().Fail("Reading the FASTQ files of sample " + options.GetSampleId(index) + " failed (" +
-                                              options.GetFirstFile(index) + ", " + options.GetSecondFile(index) +
-                                              "); no SAM file was written");
-                        std::filesystem::remove(sam_partial);
-                        continue;
-                    }
-                    if (sam_output.fail()) {
-                        RunStatus::Get().Fail("Writing the SAM file of sample " + options.GetSampleId(index) + " failed: " + sam_partial);
-                        std::filesystem::remove(sam_partial);
-                        continue;
-                    }
-                    FinishSamFile(options, index, sam_partial);
                 }
+                bm_classify_sample.Stop();
+                bm_classify_sample.PrintResults();
+                sam_output.close();
 
-            } else {
-                std::cout << "Single-end mode is not working currently. This will be fixed with the next version" << std::endl;
-                exit(8);
-                // AnchorFinder
-                AnchorFinder anchor_finder(kmer_lookup, mmer_size, 4, options.GetMaxSeedSize(), genomes);
-                // AlignmentHandler approach
-                SimpleAlignmentHandler alignment_handler(genomes, aligner, kmer_size, options.GetAlignTop(), options.GetMaxScoreAni(), options.FastAlign());
-
-                for (auto index : options.GetRange()) {
-                    auto [sam, gzipped] = options.SamFile(index);
-                    auto dir = std::filesystem::path(sam).parent_path();
-                    
-                    if (!std::filesystem::create_directories(dir.string()) && !std::filesystem::exists(dir)) {
-                        std::cout << "Cannot create directories for this path " << sam << std::endl;
-                        exit(32);
-                    }
-
-                    // Avoid aligning files that already exist.
-                    if (!options.Force() && std::filesystem::exists(sam)) {
-                        std::cout << "Skip " << sam << " continue" << std::endl;
-                        continue;
-                    }
-
-                    std::ofstream sam_output(sam, std::ios::out);
-                    genomes.WriteSamHeader(sam_output);
-                    using OutputHandler = ProtalOutputHandler;
-                    OutputHandler output_handler(sam_output, 1024*512, 1024*1024*16, genomes, 0.8);
-                    igzstream is { options.GetFirstFile(index).c_str() };
-                    SeqReader reader{ is };
-
-                    auto protal_stats = protal::classify::Run<
-                            SimpleKmerHandler<ClosedSyncmer>,
-                            AnchorFinder,
-                            SimpleAlignmentHandler,
-                            OutputHandler,
-                            DEBUG_NONE,
-                            AlignmentBenchmark>(
-                            reader, options, anchor_finder, alignment_handler, output_handler, iterator, benchmark);
-
-                    if (options.Verbose()) {
-                        protal_stats.WriteStats();
-                    }
-                    
-                    // Close output streams
-                    sam_output.close();
-                    is.close();
-
-                    // Handle gzip compression if needed
-                    if (!options.IsSamFileGzipped(index)) {
-                        try {
-                            Compressor::compressInPlace(sam, options.GetThreads());
-                            options.SetSamFileGzip(index, true);
-                        } catch (const std::exception& e) {
-                            std::cerr << "[WARNING] " << e.what() << std::endl;
-                        }
-                    }
-
-                    // Clean up on read error
-                    if (!reader.Success()) {
-                        std::cerr << "There was an error reading the fastq file with sample " << options.GetSampleId(index) << " (" << index << ")" << std::endl;
-                        std::cerr << options.GetFirstFile(index) << std::endl;
-                        std::cerr << "Remove sam file: " << sam << std::endl;
-                        std::filesystem::remove(sam);
-                    }
+                if (truncated) {
+                    RunStatus::Get().Fail("The FASTQ files of sample " + options.GetSampleId(index) + " are truncated or corrupt (" +
+                                          read_files + "); no SAM file was written");
+                    std::filesystem::remove(sam_partial);
+                    continue;
                 }
+                if (!read_success) {
+                    RunStatus::Get().Fail("Reading the FASTQ files of sample " + options.GetSampleId(index) + " failed (" +
+                                          read_files + "); no SAM file was written");
+                    std::filesystem::remove(sam_partial);
+                    continue;
+                }
+                if (sam_output.fail()) {
+                    RunStatus::Get().Fail("Writing the SAM file of sample " + options.GetSampleId(index) + " failed: " + sam_partial);
+                    std::filesystem::remove(sam_partial);
+                    continue;
+                }
+                FinishSamFile(options, index, sam_partial);
             }
             bm_classify.Stop();
             bm_classify.PrintResults();
@@ -492,7 +448,12 @@ namespace protal {
 //         }
 //     }
 
-    Profiles ProfileWrapper(Options& options, ProtalDB& db, profiler::TaxonFilterObj const& model) {
+    // Profiles the samples, each with the model of its read type: `model` for paired-end and
+    // `model_se` for single-end reads (loaded if the samples have reads of that type). Every taxon's
+    // score is then cached (profile.ReleaseReadData scores all), so that later stages may use either
+    // model to tell which taxa pass: they get the score of the sample's own model.
+    Profiles ProfileWrapper(Options& options, ProtalDB& db, std::optional<profiler::TaxonFilterObj> const& model,
+                            std::optional<profiler::TaxonFilterObj> const& model_se) {
         GenomeLoader& genomes = db.GetGenomes();
 
         if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
@@ -500,7 +461,8 @@ namespace protal {
 
         // Each thread scores with its own copy (firstprivate): scoring reuses a buffer. Copies share
         // the loaded model.
-        profiler::TaxonFilterObj filter = model;
+        std::optional<profiler::TaxonFilterObj> paired_filter = model;
+        std::optional<profiler::TaxonFilterObj> single_filter = model_se;
 
         auto range = options.GetRange();
 
@@ -511,9 +473,18 @@ namespace protal {
 
         omp_set_num_threads(options.GetThreads());
 
-        #pragma omp parallel for firstprivate(filter) shared(options, cout, taxonomy, profile_slots, genomes, std::cerr)//, bm_read_alignments, bm_profile)
+        #pragma omp parallel for firstprivate(paired_filter, single_filter) shared(options, cout, taxonomy, profile_slots, genomes, std::cerr)//, bm_read_alignments, bm_profile)
         for (int idx = 0; idx < static_cast<int>(range.size()); idx++) {
             auto i = range[idx];
+
+            auto& sample_filter = options.IsSingleEnd(i) ? single_filter : paired_filter;
+            if (!sample_filter) {  // loaded up front for every read type the samples have
+                RunStatus::Get().Fail("No model loaded for the " + std::string(options.IsSingleEnd(i) ? "single" : "paired") +
+                                      "-end reads of sample " + options.GetSampleId(i));
+                profile_slots[idx].emplace(genomes);
+                continue;
+            }
+            auto& filter = *sample_filter;
 
             if (options.Verbose()) {
                 auto [sam, gzipped] = options.SamFile(i);
@@ -1817,27 +1788,34 @@ namespace protal {
 
         // Checks that would otherwise only fail after hours of alignment.
         std::vector<uint32_t> msa_taxids;
-        std::optional<profiler::TaxonFilterObj> model;  // loaded once, for all samples
+        // Loaded once, for all samples: the model of paired-end reads, and of single-end reads.
+        std::optional<profiler::TaxonFilterObj> model, model_se;
         if (run_profiling) {
             db.LoadTaxonomy(options.TaxonomyDbFile());
             msa_taxids = ResolveMSASpecies(options, db.GetTaxonomy());
-            auto const model_file = options.ModelDbFile();
-            std::string read_error;
-            auto const xml = model_file.ReadAll(read_error);
-            if (!xml) {
-                std::cerr << "Cannot load the model " << model_file.Name() << ": " << read_error << std::endl;
-                exit(2);
-            }
-            try {
-                model.emplace(cpmml::Model::from_string(*xml), options.GetKnob());
-            } catch (std::exception const& e) {
-                std::cerr << "Cannot load the model " << model_file.Name() << ": " << e.what() << std::endl;
-                exit(2);
-            }
-            if (auto problem = profiler::ModelContractProblemInXml(model.value(), *xml); !problem.empty()) {
-                std::cerr << "Cannot use the model " << model_file.Name() << ": " << problem << std::endl;
-                exit(2);
-            }
+            auto load_model = [&options](std::optional<profiler::TaxonFilterObj>& target, bool single_end) {
+                auto const model_file = options.ModelDbFile(single_end);
+                std::string read_error;
+                auto const xml = model_file.ReadAll(read_error);
+                if (!xml) {
+                    std::cerr << "Cannot load the model " << model_file.Name() << ": " << read_error << std::endl;
+                    exit(2);
+                }
+                try {
+                    target.emplace(cpmml::Model::from_string(*xml), options.GetKnob());
+                } catch (std::exception const& e) {
+                    std::cerr << "Cannot load the model " << model_file.Name() << ": " << e.what() << std::endl;
+                    exit(2);
+                }
+                if (auto problem = profiler::ModelContractProblemInXml(target.value(), *xml); !problem.empty()) {
+                    std::cerr << "Cannot use the model " << model_file.Name() << ": " << problem << std::endl;
+                    exit(2);
+                }
+                std::cout << "Model of " << (single_end ? "single" : "paired") << "-end reads: " << model_file.Name() << std::endl;
+            };
+            bool const single_end = options.AnySample(true);
+            if (options.AnySample(false) || !single_end) load_model(model, false);
+            if (single_end) load_model(model_se, true);
         }
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {
             // The benchmark takes each read's true gene from its name; without one it would stop
@@ -1886,8 +1864,10 @@ namespace protal {
             Benchmark bm_profiling("Profiling");
             bm_profiling.Start();
             
-            auto& filter = model.value();
-            auto profiles = ProfileWrapper(options, db, filter);
+            auto profiles = ProfileWrapper(options, db, model, model_se);
+            // Which taxa pass, for the statistics and strains: the scores ProfileWrapper cached, each
+            // from its sample's model (either model reads them).
+            auto& filter = model ? *model : *model_se;
             bm_profiling.Stop();
             bm_profiling.PrintResults();
 

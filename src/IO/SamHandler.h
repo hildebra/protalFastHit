@@ -325,8 +325,9 @@ namespace protal {
 
     // Reads the alignment records of a SAM stream. Header lines and blank lines are skipped, and so
     // are records the profiler cannot use (counted by reason in Skipped()). Next() returns a read1
-    // record together with its mate when the mate's record follows, or a single record. A line that
-    // cannot be parsed throws SamFormatError naming the line.
+    // record together with its mate when the mate's record follows, or a single record: a read2
+    // without its read1 in sam2, any other one (an orphan read1, a single-end read) in sam1. A line
+    // that cannot be parsed throws SamFormatError naming the line.
     class SamReader {
         std::istream& m_is;
         std::string m_line;
@@ -335,6 +336,7 @@ namespace protal {
         bool m_has_next = false;  // m_next holds a record read ahead
         size_t m_line_no = 0;
         size_t m_records = 0;
+        size_t m_paired_records = 0;
         size_t m_without_tags = 0;
         std::map<std::string, size_t> m_skipped;
         std::function<void(std::string const&)> m_on_header;  // sees every header line
@@ -361,6 +363,7 @@ namespace protal {
                     continue;
                 }
                 m_records++;
+                m_paired_records += Flag::IsPaired(sam.m_flag);
                 m_without_tags += !sam_detail::IntTag(m_tokens, "ZU").has_value();
                 return true;
             }
@@ -379,7 +382,7 @@ namespace protal {
             if (!m_has_next && !Advance(m_next)) return false;
             m_has_next = false;
 
-            if (!Flag::IsRead1(m_next.m_flag)) {
+            if (Flag::IsPaired(m_next.m_flag) && !Flag::IsRead1(m_next.m_flag)) {
                 std::swap(sam2, m_next);
                 has_sam2 = true;
                 return true;
@@ -401,10 +404,23 @@ namespace protal {
         }
 
         size_t Records() const { return m_records; }
+        // Records of paired reads (0x1); single-end reads have none.
+        size_t PairedRecords() const { return m_paired_records; }
         size_t Lines() const { return m_line_no; }
         size_t RecordsWithoutTags() const { return m_without_tags; }
         std::map<std::string, size_t> const& Skipped() const { return m_skipped; }
     };
+
+    // Whether a SAM stream holds paired reads (0x1), judged by its first usable record; nullopt if it
+    // has none. protal writes a sample's reads either paired or single-end, never both. Throws
+    // SamFormatError as SamReader.
+    inline std::optional<bool> HoldsPairedReads(std::istream& is) {
+        SamReader reader(is);
+        SamEntry sam1, sam2;
+        bool has_sam1 = false, has_sam2 = false;
+        if (!reader.Next(sam1, sam2, has_sam1, has_sam2)) return std::nullopt;
+        return reader.PairedRecords() > 0;
+    }
 
 
     class SamHandler {

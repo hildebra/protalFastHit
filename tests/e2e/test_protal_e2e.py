@@ -163,6 +163,11 @@ def reads(*prefixes):
             "--prefix", ",".join(prefixes)]
 
 
+def single_reads(*prefixes):
+    """-1/--prefix arguments: the first mates of the given simulated samples, as single-end reads."""
+    return ["-1", ",".join(os.path.join(READS, f"{p}_R1.fq") for p in prefixes), "--prefix", ",".join(prefixes)]
+
+
 def sam_records(path):
     with open(path) as fh:
         return [line.rstrip("\n").split("\t") for line in fh if not line.startswith("@")]
@@ -1135,6 +1140,114 @@ class QcmsaTest(WorkDir):
         self.assertEqual(rc, 0, log[-3000:])
         filtered = [f for f in glob.glob(self.path("out", "strains", "*.msa.fna")) if not f.endswith(".raw.msa.fna")]
         self.assertTrue(filtered, "qcmsa wrote filtered MSAs")
+
+
+class SingleEndTest(WorkDir):
+    """Single-end reads (the first mates of the simulated samples), profiled with the single-end model.
+    The test database has none, so a copy of it gets its paired-end model as model_se.xml: the
+    profiles then test the plumbing, not the model."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.db = os.path.join(cls.work, "se_db")
+        os.mkdir(cls.db)
+        for f in glob.glob(os.path.join(FILES, "*")):
+            if os.path.basename(f) != "database.protal":
+                os.symlink(f, os.path.join(cls.db, os.path.basename(f)))
+        cls.model = os.path.join(FILES, "model.xml")
+        os.symlink(cls.model, os.path.join(cls.db, "model_se.xml"))
+        cls.rc, cls.log = run(cls.work, "--db", cls.db, *single_reads("sa", "sb"), "-o", "out", "-t", "4", "--no_qcmsa")
+
+    def reads_by_name(self, prefix):
+        with open(os.path.join(READS, f"{prefix}_R1.fq")) as fh:
+            lines = fh.read().splitlines()
+        return {lines[i][1:].rsplit("/", 1)[0]: lines[i + 1] for i in range(0, len(lines), 4)}
+
+    def test_exit_code_and_model(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        self.assertIn("Align the single-end reads of sample sa", self.log)
+        self.assertIn("Model of single-end reads: " + os.path.join(self.db, "model_se.xml"), self.log)
+        self.assertNotIn("Model of paired-end reads", self.log)
+
+    def test_records_are_unpaired_reads(self):
+        records = sam_records(self.path("out", "sa.sam"))
+        self.assertTrue(records)
+        self.assertEqual([r[1] for r in records if int(r[1]) & 0xCD], [], "no pair, mate or unmapped flags")
+        self.assertEqual(len({r[0] for r in records}), len(records), "one record per read (-m 1)")
+        reads = self.reads_by_name("sa")
+        for r in records:
+            read = reads[r[0]]  # QNAME is the read id without its /1
+            self.assertEqual(r[9], revcomp(read) if int(r[1]) & 0x10 else read, "SEQ in reference orientation")
+            self.assertEqual((r[6], r[7], r[8]), ("*", "0", "0"))
+        self.assertTrue(any(int(r[1]) & 0x10 for r in records) and any(not int(r[1]) & 0x10 for r in records))
+        self.assertTrue(any(int(r[4]) >= 4 for r in records), "reads with a MAPQ the profiler takes")
+
+    def test_profiles_and_strains(self):
+        header, rows = read_table(self.path("out", "sa.profile.log"))
+        self.assertTrue(rows)
+        self.assertTrue(any(row[0] == "1" for row in rows), "a species passes the model")
+        self.assertTrue(glob.glob(self.path("out", "strains", "*.raw.msa.fna")), "species in both samples get MSAs")
+        self.assertTrue(os.path.exists(self.path("out", "misc", "sa_runtime.tsv")))
+
+    def test_profile_only_takes_the_model_of_the_sams_reads(self):
+        sam = self.path("out", "sa.sam")
+        # The test database has no model_se.xml: the SAM's unpaired records ask for one.
+        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "-o", self.path("po_missing"), "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("The model of single-end reads does not exist", log)
+        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "--model_se", self.model, "-o", self.path("po"),
+                      "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Model of single-end reads: " + self.model, log)
+        with open(self.path("po", "sa.profile")) as again, open(self.path("out", "sa.profile")) as first:
+            self.assertEqual(again.read(), first.read())
+
+    def test_a_missing_single_end_model_stops_before_aligning(self):
+        rc, log = run(self.work, "--db", DB, *single_reads("sa"), "-o", "out_nomodel", "-t", "1", "--no_qcmsa")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("The model of single-end reads does not exist", log)
+        self.assertIn("--model_se", log)
+        self.assertFalse(glob.glob(self.path("out_nomodel", "*.sam*")))
+
+    def test_a_map_mixes_paired_and_single_end_samples(self):
+        sample_map = self.path("mixed.map")
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{self.path('out_mixed')}\n#INPUT_DIR\t{READS}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\n")
+            fh.write("pe\tpe\tsa_R1.fq\tsa_R2.fq\nse\tse\tsb_R1.fq\t-\n")
+        rc, log = run(self.work, "--db", self.db, "--map", sample_map, "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Model of paired-end reads: ", log)
+        self.assertIn("Model of single-end reads: ", log)
+        self.assertIn("1 paired-end, 1 single-end sample(s)", log)
+        paired = sam_records(self.path("out_mixed", "pe.sam"))
+        single = sam_records(self.path("out_mixed", "se.sam"))
+        self.assertTrue(paired and all(int(r[1]) & 0x1 for r in paired))
+        self.assertTrue(single and not any(int(r[1]) & 0x1 for r in single))
+        self.assertTrue(os.path.exists(self.path("out_mixed", "se.profile")))
+
+    def test_the_prefix_comes_from_the_read_file(self):
+        rc, log = run(self.work, "--db", self.db, "-1", os.path.join(READS, "sa_R1.fq"), "-o", "out_prefix", "-t", "1",
+                      "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertTrue(os.path.exists(self.path("out_prefix", "sa_R1.sam")))
+
+    def test_a_single_file_database_holds_model_se(self):
+        if not os.path.exists(os.path.join(FILES, "index.prx.zst")):
+            self.skipTest("packing a raw index into database.protal takes long")
+        db = self.path("se_bundle")
+        os.mkdir(db)
+        for f in glob.glob(os.path.join(self.db, "*")):
+            os.symlink(os.path.realpath(f), os.path.join(db, os.path.basename(f)))
+        rc, log = run(self.work, "--compress_db", "--db", db, "-t", "2", "--compress_level", "3")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertFalse(os.path.lexists(os.path.join(db, "model_se.xml")), "model_se.xml is packed")
+        bundle = os.path.join(db, "database.protal")
+        rc, log = run(self.work, "--db", bundle, *single_reads("sa"), "-o", "out_bundle", "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn(f"Model of single-end reads: model_se.xml in {bundle}", log)
+        with open(self.path("out_bundle", "sa.profile")) as packed, open(self.path("out", "sa.profile")) as files:
+            self.assertEqual(packed.read(), files.read())
 
 
 class SimulatorTest(WorkDir):
