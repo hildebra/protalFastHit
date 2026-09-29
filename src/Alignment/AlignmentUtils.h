@@ -194,7 +194,7 @@ namespace protal {
         AlignmentInfo m_info;
 
     public:
-        AlignmentResult(int alignment_score, uint32_t taxid, uint32_t geneid, int32_t genepos, bool forward, uint8_t uniques = 0, uint8_t uniques_two = 0) :
+        AlignmentResult(int alignment_score, uint32_t taxid, uint32_t geneid, int32_t genepos, bool forward, uint16_t uniques = 0, uint16_t uniques_two = 0) :
                 m_taxid(taxid),
                 m_geneid(geneid),
                 m_genepos(genepos),
@@ -248,7 +248,7 @@ namespace protal {
             return m_info;
         }
 
-        void Set(size_t taxid, size_t geneid, int32_t abs_pos, bool forward, uint8_t uniques = 0, uint8_t uniques_two = 0) {
+        void Set(size_t taxid, size_t geneid, int32_t abs_pos, bool forward, uint16_t uniques = 0, uint16_t uniques_two = 0) {
             m_taxid = taxid;
             m_geneid = geneid;
             m_genepos = abs_pos;

@@ -271,7 +271,8 @@ namespace protal {
             bm_classify.Start();
 
             for (auto index : options.GetRange()) {
-                bool const single_end = options.IsSingleEnd(index);
+                auto const read_type = options.GetReadType(index);
+                bool const single_file = read_type != ReadType::Paired;
 
                 Benchmark bm_classify_sample("Aligning reads");
                 bm_classify_sample.Start();
@@ -298,8 +299,10 @@ namespace protal {
                     continue;
                 }
 
-                // AnchorFinder
-                AnchorFinder anchor_finder(kmer_lookup, mmer_size, options.GetMinSuccessfulLookups(), options.GetMaxSeedSize(), genomes);
+                // AnchorFinder. A long read is seeded from all its k-mers: stopping at -s seeds, as for a
+                // short read, would leave most of it unseeded.
+                AnchorFinder anchor_finder(kmer_lookup, mmer_size, options.GetMinSuccessfulLookups(),
+                                           read_type == ReadType::PacBio ? SIZE_MAX : options.GetMaxSeedSize(), genomes);
                 // AlignmentHandler approach
                 SimpleAlignmentHandler alignment_handler(genomes, aligner, kmer_size, options.GetAlignTop(), options.GetMaxScoreAni(), options.FastAlign());
 
@@ -313,15 +316,30 @@ namespace protal {
                     continue;
                 }
                 genomes.WriteSamHeader(sam_output);
-                std::cout << "Align the " << (single_end ? "single-end" : "paired-end") << " reads of sample "
+                sam_output << kSamReadsComment << ReadTypeName(read_type) << '\n';
+                std::cout << "Align the " << ReadTypeName(read_type) << " reads of sample "
                           << options.GetSampleId(index) << std::endl;
 
                 // Main Run Call. This is where the reads are read and alignment happens
                 bool truncated = false;
                 bool read_success = true;
-                std::string const read_files = single_end ? options.GetFirstFile(index) :
+                std::string const read_files = single_file ? options.GetFirstFile(index) :
                                                options.GetFirstFile(index) + ", " + options.GetSecondFile(index);
-                if (single_end) {
+                if (read_type == ReadType::PacBio) {
+                    igzstream is { options.GetFirstFile(index).c_str() };
+                    SeqReaderSE reader{ is };
+                    LongReadAligner<SimpleKmerHandler<ClosedSyncmer>, AnchorFinder> long_read_aligner(
+                            iterator, anchor_finder, alignment_handler, genomes, options.GetAlignTop(), options.GetMaxScoreAni());
+                    ProtalLongReadOutputHandler output_handler(sam_output, options.GetMaxOut(), 1024*1024*16, genomes, 0.8);
+                    auto protal_stats = protal::classify::RunLongReads(reader, options, long_read_aligner, output_handler);
+                    if (options.Verbose()) {
+                        protal_stats.WriteStats();
+                    }
+                    // zlib reads a truncated or corrupt gzip file as one that ends early.
+                    truncated = is.rdbuf()->read_failed();
+                    read_success = reader.Success();
+                    is.close();
+                } else if (read_type == ReadType::Single) {
                     igzstream is { options.GetFirstFile(index).c_str() };
                     SeqReaderSE reader{ is };
                     auto align = [&](auto output_handler) {
@@ -448,12 +466,13 @@ namespace protal {
 //         }
 //     }
 
-    // Profiles the samples, each with the model of its read type: `model` for paired-end and
-    // `model_se` for single-end reads (loaded if the samples have reads of that type). Every taxon's
-    // score is then cached (profile.ReleaseReadData scores all), so that later stages may use either
-    // model to tell which taxa pass: they get the score of the sample's own model.
-    Profiles ProfileWrapper(Options& options, ProtalDB& db, std::optional<profiler::TaxonFilterObj> const& model,
-                            std::optional<profiler::TaxonFilterObj> const& model_se) {
+    // The model of each kind of reads (ReadType), loaded if the samples have such reads.
+    using ReadTypeModels = std::array<std::optional<profiler::TaxonFilterObj>, kReadTypes.size()>;
+
+    // Profiles the samples, each with the model of its kind of reads. Every taxon's score is then
+    // cached (profile.ReleaseReadData scores all), so that later stages may use any model to tell
+    // which taxa pass: they get the score of the sample's own model.
+    Profiles ProfileWrapper(Options& options, ProtalDB& db, ReadTypeModels const& models) {
         GenomeLoader& genomes = db.GetGenomes();
 
         if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
@@ -461,8 +480,7 @@ namespace protal {
 
         // Each thread scores with its own copy (firstprivate): scoring reuses a buffer. Copies share
         // the loaded model.
-        std::optional<profiler::TaxonFilterObj> paired_filter = model;
-        std::optional<profiler::TaxonFilterObj> single_filter = model_se;
+        ReadTypeModels filters = models;
 
         auto range = options.GetRange();
 
@@ -473,14 +491,14 @@ namespace protal {
 
         omp_set_num_threads(options.GetThreads());
 
-        #pragma omp parallel for firstprivate(paired_filter, single_filter) shared(options, cout, taxonomy, profile_slots, genomes, std::cerr)//, bm_read_alignments, bm_profile)
+        #pragma omp parallel for firstprivate(filters) shared(options, cout, taxonomy, profile_slots, genomes, std::cerr)//, bm_read_alignments, bm_profile)
         for (int idx = 0; idx < static_cast<int>(range.size()); idx++) {
             auto i = range[idx];
 
-            auto& sample_filter = options.IsSingleEnd(i) ? single_filter : paired_filter;
-            if (!sample_filter) {  // loaded up front for every read type the samples have
-                RunStatus::Get().Fail("No model loaded for the " + std::string(options.IsSingleEnd(i) ? "single" : "paired") +
-                                      "-end reads of sample " + options.GetSampleId(i));
+            auto const read_type = options.GetReadType(i);
+            auto& sample_filter = filters[static_cast<size_t>(read_type)];
+            if (!sample_filter) {  // loaded up front for every kind of reads the samples have
+                RunStatus::Get().Fail("No model loaded for the " + ReadTypeName(read_type) + " reads of sample " + options.GetSampleId(i));
                 profile_slots[idx].emplace(genomes);
                 continue;
             }
@@ -1788,13 +1806,13 @@ namespace protal {
 
         // Checks that would otherwise only fail after hours of alignment.
         std::vector<uint32_t> msa_taxids;
-        // Loaded once, for all samples: the model of paired-end reads, and of single-end reads.
-        std::optional<profiler::TaxonFilterObj> model, model_se;
+        // Loaded once, for all samples: the model of each kind of reads the samples have.
+        ReadTypeModels models;
         if (run_profiling) {
             db.LoadTaxonomy(options.TaxonomyDbFile());
             msa_taxids = ResolveMSASpecies(options, db.GetTaxonomy());
-            auto load_model = [&options](std::optional<profiler::TaxonFilterObj>& target, bool single_end) {
-                auto const model_file = options.ModelDbFile(single_end);
+            auto load_model = [&options](std::optional<profiler::TaxonFilterObj>& target, ReadType type) {
+                auto const model_file = options.ModelDbFile(type);
                 std::string read_error;
                 auto const xml = model_file.ReadAll(read_error);
                 if (!xml) {
@@ -1811,11 +1829,12 @@ namespace protal {
                     std::cerr << "Cannot use the model " << model_file.Name() << ": " << problem << std::endl;
                     exit(2);
                 }
-                std::cout << "Model of " << (single_end ? "single" : "paired") << "-end reads: " << model_file.Name() << std::endl;
+                std::cout << "Model of " << ReadTypeName(type) << " reads: " << model_file.Name() << std::endl;
             };
-            bool const single_end = options.AnySample(true);
-            if (options.AnySample(false) || !single_end) load_model(model, false);
-            if (single_end) load_model(model_se, true);
+            bool const any_sample = std::any_of(kReadTypes.begin(), kReadTypes.end(), [&options](ReadType t) { return options.AnySample(t); });
+            for (auto type : kReadTypes) {
+                if (options.AnySample(type) || (type == ReadType::Paired && !any_sample)) load_model(models[static_cast<size_t>(type)], type);
+            }
         }
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {
             // The benchmark takes each read's true gene from its name; without one it would stop
@@ -1864,10 +1883,11 @@ namespace protal {
             Benchmark bm_profiling("Profiling");
             bm_profiling.Start();
             
-            auto profiles = ProfileWrapper(options, db, model, model_se);
+            auto profiles = ProfileWrapper(options, db, models);
             // Which taxa pass, for the statistics and strains: the scores ProfileWrapper cached, each
-            // from its sample's model (either model reads them).
-            auto& filter = model ? *model : *model_se;
+            // from its sample's model (any model reads them).
+            auto const loaded = std::find_if(models.begin(), models.end(), [](auto const& m) { return m.has_value(); });
+            auto& filter = loaded->value();
             bm_profiling.Stop();
             bm_profiling.PrintResults();
 

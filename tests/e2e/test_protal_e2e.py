@@ -1219,7 +1219,7 @@ class SingleEndTest(WorkDir):
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("Model of paired-end reads: ", log)
         self.assertIn("Model of single-end reads: ", log)
-        self.assertIn("1 paired-end, 1 single-end sample(s)", log)
+        self.assertIn("1 paired-end, 1 single-end, 0 PacBio sample(s)", log)
         paired = sam_records(self.path("out_mixed", "pe.sam"))
         single = sam_records(self.path("out_mixed", "se.sam"))
         self.assertTrue(paired and all(int(r[1]) & 0x1 for r in paired))
@@ -1248,6 +1248,197 @@ class SingleEndTest(WorkDir):
         self.assertIn(f"Model of single-end reads: model_se.xml in {bundle}", log)
         with open(self.path("out_bundle", "sa.profile")) as packed, open(self.path("out", "sa.profile")) as files:
             self.assertEqual(packed.read(), files.read())
+
+
+def simulate_long_reads(path, reads, seed, genes_per_read=(3, 8), long_read=0):
+    """Write PacBio-like reads to path: reference genes (either strand) between random stretches of
+    0.5-3 kb, with 0.1% errors (substitutions and 1 bp indels), 3-8 genes per read; half of the reads
+    start inside a gene and half end inside one (30-70% of it on the read). With long_read, one more
+    read of that length with a gene every 5 kb. Returns per read its genes as (name, start, end) on
+    the read."""
+    rng = random.Random(seed)
+    genes = [(name, seq) for name, seq in reference_genes() if len(seq) >= 300]
+
+    def mutate(seq):
+        out = []
+        for b in seq:
+            r = rng.random()
+            if r < 0.0004:
+                out.append(rng.choice([c for c in "ACGT" if c != b]))
+            elif r < 0.0007:
+                out.append(b + rng.choice("ACGT"))
+            elif r >= 0.001:
+                out.append(b)
+        return "".join(out)
+
+    def spacer(n):
+        return "".join(rng.choice("ACGT") for _ in range(n))
+
+    def read_of(pieces):
+        seq, placed = "", []
+        for kind, name, piece in pieces:
+            piece = mutate(piece)
+            if kind == "gene":
+                placed.append((name, len(seq), len(seq) + len(piece)))
+            seq += piece
+        return seq, placed
+
+    truth = []
+    with open(path, "w") as fh:
+        layouts = []
+        def oriented_gene():
+            name, seq = rng.choice(genes)
+            return name, seq if rng.random() < 0.5 else revcomp(seq)
+
+        for _ in range(reads):
+            pieces = [("spacer", None, spacer(rng.randint(500, 3000)))]
+            for _ in range(rng.randint(*genes_per_read)):
+                pieces.append(("gene", *oriented_gene()))
+                pieces.append(("spacer", None, spacer(rng.randint(500, 3000))))
+            if rng.random() < 0.5:  # the read starts inside a gene
+                name, seq = oriented_gene()
+                pieces[0] = ("gene", name, seq[-int(len(seq) * rng.uniform(0.3, 0.7)):])
+            if rng.random() < 0.5:  # ... and ends inside one
+                name, seq = oriented_gene()
+                pieces[-1] = ("gene", name, seq[:int(len(seq) * rng.uniform(0.3, 0.7))])
+            layouts.append(pieces)
+        if long_read:
+            pieces, length = [], 0
+            while length < long_read:
+                name, seq = rng.choice(genes)
+                gap = max(0, 5000 - len(seq))
+                pieces += [("spacer", None, spacer(gap)), ("gene", name, seq if rng.random() < 0.5 else revcomp(seq))]
+                length += gap + len(seq)
+            layouts.append(pieces)
+        for i, pieces in enumerate(layouts, 1):
+            seq, placed = read_of(pieces)
+            truth.append(placed)
+            fh.write(f"@m64001_000000/{i}/ccs\n{seq}\n+\n{'I' * len(seq)}\n")
+    return truth
+
+
+def representative_records(records):
+    """Per read name, its records that are not secondary (the primary and the supplementary ones)."""
+    by_read = {}
+    for r in records:
+        if not int(r[1]) & 0x100:
+            by_read.setdefault(r[0], []).append(r)
+    return by_read
+
+
+def cigar_ops(cigar):
+    return [(int(n), op) for n, op in re.findall(r"(\d+)([MIDNSHPX=])", cigar)]
+
+
+class PacBioTest(WorkDir):
+    """PacBio-like long reads of several genes each, profiled with the PacBio model. The test database
+    has none, so a copy of it gets its paired-end model as model_pacbio.xml: the profiles test the
+    plumbing, not the model."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.db = os.path.join(cls.work, "pacbio_db")
+        os.mkdir(cls.db)
+        for f in glob.glob(os.path.join(FILES, "*")):
+            if os.path.basename(f) != "database.protal":
+                os.symlink(f, os.path.join(cls.db, os.path.basename(f)))
+        cls.model = os.path.join(FILES, "model.xml")
+        os.symlink(cls.model, os.path.join(cls.db, "model_pacbio.xml"))
+        cls.reads = {p: os.path.join(cls.work, f"{p}.fq") for p in ("la", "lb")}
+        cls.truth = {"la": simulate_long_reads(cls.reads["la"], 40, seed=11, long_read=150000),
+                     "lb": simulate_long_reads(cls.reads["lb"], 40, seed=12)}
+        cls.rc, cls.log = run(cls.work, "--db", cls.db, "-1", ",".join(cls.reads.values()), "--prefix", "la,lb",
+                              "--read_type", "pacbio", "-o", "out", "-t", "4", "--no_qcmsa")
+
+    def read_seqs(self, prefix):
+        with open(self.reads[prefix]) as fh:
+            lines = fh.read().splitlines()
+        return [lines[i + 1] for i in range(0, len(lines), 4)], [lines[i][1:] for i in range(0, len(lines), 4)]
+
+    def test_exit_code_and_model(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        self.assertIn("Align the PacBio reads of sample la", self.log)
+        self.assertIn("Model of PacBio reads: " + os.path.join(self.db, "model_pacbio.xml"), self.log)
+        self.assertIn("1 read(s) longer than 65000 bp were seeded in chunks", self.log)
+        with open(self.path("out", "la.sam")) as fh:
+            self.assertIn("@CO\tprotal reads: PacBio\n", fh.read())
+
+    def test_records_hold_their_aligned_bases(self):
+        seqs, names = self.read_seqs("la")
+        read_of = dict(zip(names, seqs))
+        records = sam_records(self.path("out", "la.sam"))
+        self.assertTrue(records)
+        for r in records:
+            flag, ops, read = int(r[1]), cigar_ops(r[5]), read_of[r[0]]
+            clip_left = ops[0][0] if ops[0][1] == "H" else 0
+            clip_right = ops[-1][0] if ops[-1][1] == "H" else 0
+            self.assertEqual(clip_left + len(r[9]) + clip_right, len(read), r[:6])
+            oriented = revcomp(read) if flag & 0x10 else read
+            self.assertEqual(r[9], oriented[clip_left:clip_left + len(r[9])], r[:6])
+            self.assertEqual((r[6], r[7], r[8]), ("*", "0", "0"))
+            self.assertFalse(flag & 0xCD, "no pair, mate or unmapped flags")
+        for name, reps in representative_records(records).items():
+            primaries = [r for r in reps if not int(r[1]) & 0x800]
+            self.assertEqual(len(primaries), 1, f"one primary record per read: {name}")
+
+    def test_every_gene_is_found_once(self):
+        for prefix in ("la", "lb"):
+            _, names = self.read_seqs(prefix)
+            by_read = representative_records(sam_records(self.path("out", f"{prefix}.sam")))
+            found = missed = twice = 0
+            for name, placed in zip(names, self.truth[prefix]):
+                reps = by_read.get(name, [])
+                for gene, start, end in placed:
+                    hits = [r for r in reps if r[2] == gene and sum(n for n, op in cigar_ops(r[5]) if op in "MX=D") >= 0.95 * (end - start)]
+                    found += len(hits) >= 1
+                    missed += not hits
+                    twice += len(hits) > sum(1 for g, _, _ in placed if g == gene)
+            self.assertEqual(twice, 0, f"{prefix}: no gene counted twice")
+            self.assertGreaterEqual(found / (found + missed), 0.95, f"{prefix}: {found} genes found, {missed} missed")
+
+    def test_genes_across_chunk_boundaries(self):
+        _, names = self.read_seqs("la")
+        long_name, placed = names[-1], self.truth["la"][-1]
+        reps = representative_records(sam_records(self.path("out", "la.sam"))).get(long_name, [])
+        found = [g for g, _, _ in placed if any(r[2] == g for r in reps)]
+        self.assertGreaterEqual(len(found), 0.95 * len(placed))
+        self.assertLessEqual(len(reps), len(placed), "each gene of the 150 kb read at most once")
+
+    def test_profiles(self):
+        header, rows = read_table(self.path("out", "la.profile.log"))
+        self.assertTrue(rows)
+        self.assertTrue(os.path.exists(self.path("out", "misc", "la_runtime.tsv")))
+
+    def test_profile_only_takes_the_pacbio_model(self):
+        sam = self.path("out", "la.sam")
+        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "-o", self.path("po_missing"), "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("The model of PacBio reads does not exist", log)
+        self.assertIn("--model_pacbio", log)
+        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "--model_pacbio", self.model, "-o", self.path("po"),
+                      "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(self.path("po", "la.profile")) as again, open(self.path("out", "la.profile")) as first:
+            self.assertEqual(again.read(), first.read())
+
+    def test_long_reads_given_as_short_ones_stop(self):
+        rc, log = run(self.work, "--db", self.db, "-1", self.reads["lb"], "-o", "out_short", "-t", "1", "--no_qcmsa")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("too long for short reads: give --read_type pacbio", log)
+
+    def test_a_map_names_the_read_type(self):
+        sample_map = self.path("typed.map")
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{self.path('out_map')}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n")
+            fh.write(f"pe\tpe\t{READS}/sa_R1.fq\t{READS}/sa_R2.fq\tshort\n")
+            fh.write(f"lb\tlb\t{self.reads['lb']}\t-\tPacBio\n")
+        rc, log = run(self.work, "--db", self.db, "--map", sample_map, "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("1 paired-end, 0 single-end, 1 PacBio sample(s)", log)
+        self.assertTrue(all(int(r[1]) & 0x1 for r in sam_records(self.path("out_map", "pe.sam"))))
+        with open(self.path("out_map", "lb.sam")) as fh:
+            self.assertIn("@CO\tprotal reads: PacBio\n", fh.read())
 
 
 class SimulatorTest(WorkDir):

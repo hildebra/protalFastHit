@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include "LineSplitter.h"
+#include "ReadType.h"
 #include <iostream>
 #include <omp.h>
 
@@ -411,15 +412,30 @@ namespace protal {
         std::map<std::string, size_t> const& Skipped() const { return m_skipped; }
     };
 
-    // Whether a SAM stream holds paired reads (0x1), judged by its first usable record; nullopt if it
-    // has none. protal writes a sample's reads either paired or single-end, never both. Throws
-    // SamFormatError as SamReader.
-    inline std::optional<bool> HoldsPairedReads(std::istream& is) {
-        SamReader reader(is);
+    // The reads a SAM stream holds: the kind its header names (kSamReadsComment, as protal writes it),
+    // and whether its first usable record is of paired reads (0x1). protal writes a sample's reads
+    // of one kind only. Throws SamFormatError as SamReader.
+    struct SamReads {
+        std::optional<ReadType> declared;
+        std::optional<bool> paired;  // nullopt: no usable record
+    };
+
+    inline SamReads ReadsOfSam(std::istream& is) {
+        SamReads reads;
+        SamReader reader(is, [&reads](std::string const& line) {
+            if (line.compare(0, kSamReadsComment.size(), kSamReadsComment) == 0) {
+                reads.declared = ReadTypeFromName(line.substr(kSamReadsComment.size()));
+            }
+        });
         SamEntry sam1, sam2;
         bool has_sam1 = false, has_sam2 = false;
-        if (!reader.Next(sam1, sam2, has_sam1, has_sam2)) return std::nullopt;
-        return reader.PairedRecords() > 0;
+        if (reader.Next(sam1, sam2, has_sam1, has_sam2)) reads.paired = reader.PairedRecords() > 0;
+        return reads;
+    }
+
+    // Whether a SAM stream holds paired reads, judged by its first usable record (see ReadsOfSam).
+    inline std::optional<bool> HoldsPairedReads(std::istream& is) {
+        return ReadsOfSam(is).paired;
     }
 
 

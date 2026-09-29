@@ -217,7 +217,8 @@ namespace protal::build {
     // index (index.prx.zst in the column format, frames copied as they are), the reference (a
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
     // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv, the
-    // model (model.xml, else random_forest.xml) and the model of single-end reads (model_se.xml).
+    // model (model.xml, else random_forest.xml) and those of single-end and PacBio reads (model_se.xml,
+    // model_pacbio.xml).
     static std::vector<db::Source> BundleSources(protal::Options const& options) {
         namespace fs = std::filesystem;
         std::vector<db::Source> sources = {
@@ -233,8 +234,10 @@ namespace protal::build {
                 break;
             }
         }
-        std::string const model_se = (fs::path(options.GetLocation().dir) / Options::PROTAL_MODEL_SE_FILE).string();
-        if (fs::exists(model_se)) sources.push_back({Options::PROTAL_MODEL_SE_FILE, model_se});
+        for (std::string const& model : {Options::PROTAL_MODEL_SE_FILE, Options::PROTAL_MODEL_PACBIO_FILE}) {
+            std::string const path = (fs::path(options.GetLocation().dir) / model).string();
+            if (fs::exists(path)) sources.push_back({model, path});
+        }
         return sources;
     }
 

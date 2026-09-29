@@ -17,6 +17,7 @@
 #include "AlignmentOutputHandler.h"
 #include "CoreBenchmark.h"
 #include "ChainAnchorFinder.h"
+#include "LongReads.h"
 #include "ScoreAlignments.h"
 #include "ProgressBar.h"
 
@@ -207,6 +208,111 @@ namespace protal::classify {
         }
 
         WriteAlignmentDiagnostics(options, anchor_finder_global,
+                                  { &bm_anchor_finder_global, &bm_anchor_recovery_global, &bm_alignment_global,
+                                    &bm_alignment_join_sort_global, &bm_output_global },
+                                  seed_sizes_global, anchor_sizes_global);
+        return statistics;
+    }
+
+    // Aligns long reads (PacBio): each read into its segments, one per gene it hits (LongReads.h).
+    template<typename LongReadAligner, typename OutputHandler>
+    static Statistics RunLongReads(SeqReaderSE& reader_global, protal::Options const& options, LongReadAligner& aligner_global, OutputHandler& output_handler_global) {
+        omp_set_num_threads(options.GetThreads());
+
+        Statistics statistics{};
+        Benchmark bm_anchor_finder_global{"Seed- and Anchor-finding", 0};  // with the alignment, per read
+        Benchmark bm_anchor_recovery_global{"Anchor recovery", 0};  // paired-end only; kept for the runtime table
+        Benchmark bm_alignment_global{"Alignment handler", 0};
+        Benchmark bm_alignment_join_sort_global{"Joining alignment pairs and sorting", 0};  // paired-end only
+        Benchmark bm_output_global{"Output handler", 0};
+        Benchmark bm_reader_global{"Sequence reader"};
+        Benchmark bm_omp_block{"OMP Loop handler"};
+        size_t chunked_reads = 0;
+
+        Utils::Histogram seed_sizes_global;
+        Utils::Histogram anchor_sizes_global;
+
+        std::cout << "Start parallel execution with " << options.GetThreads() << " threads" << std::endl;
+        bm_omp_block.Start();
+#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_alignment_global, bm_output_global, seed_sizes_global, anchor_sizes_global, reader_global, options, statistics, aligner_global, output_handler_global, chunked_reads)
+        {
+            FastxRecord record;
+            LongReadSegments segments;
+
+            OutputHandler output_handler(output_handler_global);
+            LongReadAligner aligner(aligner_global);
+            SeqReaderSE reader{ reader_global };
+            Statistics thread_statistics;
+            thread_statistics.thread_num = omp_get_thread_num();
+
+            Benchmark bm_reader{"Sequence reader"};
+            Benchmark bm_alignment{"Alignment handler"};
+            Benchmark bm_output{"Output handler"};
+            Utils::Histogram seed_sizes;
+            Utils::Histogram anchor_sizes;
+
+            bm_reader.Start();
+            while (reader(record)) {
+                bm_reader.Stop();
+                thread_statistics.reads++;
+
+                bm_alignment.Start();
+                aligner(record, segments);
+                bm_alignment.Stop();
+
+                thread_statistics.total_seeds += aligner.LastSeeds();
+                thread_statistics.total_anchors += aligner.LastAnchors();
+                thread_statistics.at_least_one_anchor += aligner.LastAnchors() > 0;
+                seed_sizes.AddObservation(aligner.LastSeeds());
+                anchor_sizes.AddObservation(aligner.LastAnchors());
+                for (auto const& segment : segments) thread_statistics.total_alignments += segment.hits.size();
+
+                bm_output.Start();
+                output_handler(segments, record);
+                bm_output.Stop();
+
+                bm_reader.Start();
+            }
+            bm_reader.Stop();
+
+#pragma omp critical(statistics)
+            {
+                auto& anchor_finder_global = aligner_global.GetAnchorFinder();
+                auto& anchor_finder = aligner.GetAnchorFinder();
+                anchor_finder_global.m_bm_seeding.Join(anchor_finder.m_bm_seeding);
+                anchor_finder_global.m_bm_processing.Join(anchor_finder.m_bm_processing);
+                anchor_finder_global.m_bm_pairing.Join(anchor_finder.m_bm_pairing);
+                anchor_finder_global.m_bm_sorting_anchors.Join(anchor_finder.m_bm_sorting_anchors);
+                anchor_finder_global.m_bm_extend_anchors.Join(anchor_finder.m_bm_extend_anchors);
+                chunked_reads += aligner.ChunkedReads();
+
+                reader_global.UpdateSuccess(reader);
+                bm_reader_global.Join(bm_reader);
+                bm_alignment_global.Join(bm_alignment);
+                bm_output_global.Join(bm_output);
+
+                thread_statistics.output_alignments = output_handler.alignments;
+                statistics.Join(thread_statistics);
+                seed_sizes_global.Join(seed_sizes);
+                anchor_sizes_global.Join(anchor_sizes);
+            }
+        }
+        bm_omp_block.Stop();
+
+        if (chunked_reads > 0) {
+            std::cout << chunked_reads << " read(s) longer than " << kMaxLongReadChunk << " bp were seeded in chunks overlapping by "
+                      << aligner_global.ChunkOverlap() << " bp" << std::endl;
+        }
+        if (options.Verbose()) {
+            std::cout << "---------------Speed benchmarks---------------------" << std::endl;
+            bm_omp_block.PrintResults();
+            bm_reader_global.PrintResults();
+            bm_alignment_global.PrintResults();
+            bm_output_global.PrintResults();
+            std::cout << "----------------------------------------------------\n" << std::endl;
+        }
+
+        WriteAlignmentDiagnostics(options, aligner_global.GetAnchorFinder(),
                                   { &bm_anchor_finder_global, &bm_anchor_recovery_global, &bm_alignment_global,
                                     &bm_alignment_join_sort_global, &bm_output_global },
                                   seed_sizes_global, anchor_sizes_global);

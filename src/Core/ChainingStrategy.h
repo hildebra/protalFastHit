@@ -77,7 +77,7 @@ namespace protal {
         bool forward = true;
         ChainList chain;
 
-        ChainAlignmentAnchor(uint32_t taxid, uint32_t geneid, bool forward, uint8_t unique = 0, uint8_t unique_best_two = 0) :
+        ChainAlignmentAnchor(uint32_t taxid, uint32_t geneid, bool forward, uint16_t unique = 0, uint16_t unique_best_two = 0) :
                 taxid(taxid),
                 geneid(geneid),
                 forward(forward),

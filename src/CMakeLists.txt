@@ -68,11 +68,13 @@ set(PROTAL_LIB_SOURCES
         Core/ChainingStrategy.h
         Core/ChainAnchorFinder.h
         Core/AlignmentStrategy.h
+        Core/LongReads.h
         VarkitInterface/VarkitInterface.h
         Taxonomy/Taxonomy.h
         Taxonomy/Taxonomy.cpp
         Statistics.h
         Constants.h
+        ReadType.h
         SNPs/SNP.h
         SNPs/SNPUtils.h
         SequenceUtils/SequenceRange.h

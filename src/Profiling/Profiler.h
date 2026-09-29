@@ -1798,7 +1798,8 @@ namespace protal {
             }
 
             // Reads a SAM file (plain or gzipped) and hands each read's group of candidate alignments to
-            // `on_group`: adjacent records with one QNAME are one read's candidates. Returns an error
+            // `on_group`: adjacent records with one QNAME are one read's candidates, and a supplementary record
+            // (0x800) starts a group of its own, one part of a long read. Returns an error
             // message if the file cannot be read, is truncated or was aligned against another database
             // (CheckReference); a SAM without alignments is not an error.
             template<typename OnGroup>
@@ -1824,7 +1825,9 @@ namespace protal {
                         AlignmentPair pair(
                                 has_sam1 ? std::optional<SamEntry>{ sam1 } : std::optional<SamEntry>{},
                                 has_sam2 ? std::optional<SamEntry>{ sam2 } : std::optional<SamEntry>{});
-                        if (!group.empty() && !SameRead(pair, group.front())) {
+                        // A supplementary record (0x800) starts another part of the read (a long read's
+                        // other gene), with candidates of its own.
+                        if (!group.empty() && (!SameRead(pair, group.front()) || Flag::IsSupplementaryAlignment(pair.Any().m_flag))) {
                             on_group(group);
                             group.clear();
                         }

@@ -56,10 +56,10 @@ namespace {
 
     struct MapLists {
         std::string output_dir, strain_dir, misc_dir;
-        std::vector<std::string> prefixes, firsts, seconds, sams, profiles, names, truths;
+        std::vector<std::string> prefixes, firsts, seconds, sams, profiles, names, truths, read_types;
 
         bool Load(std::string const& path) {
-            return Options::LoadFromMap(path, output_dir, strain_dir, misc_dir, prefixes, firsts, seconds, sams, profiles, names, truths);
+            return Options::LoadFromMap(path, output_dir, strain_dir, misc_dir, prefixes, firsts, seconds, sams, profiles, names, truths, read_types);
         }
     };
 
@@ -111,6 +111,14 @@ TEST(SampleMap, SingleEndSamplesHaveNoSecondFile) {
     EXPECT_EQ(single.seconds, (Tokens{ "", "" }));
     EXPECT_EQ(single.firsts.size(), 2u);
     EXPECT_EQ(single.sams.size(), 2u);
+    EXPECT_TRUE(single.read_types.empty());  // --read_type applies
+
+    // READ_TYPE names each sample's reads.
+    MapLists typed;
+    ASSERT_TRUE(typed.Load(dir.Write("typed.map", "#OUTPUT_DIR\t" + out.string() + "\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n"
+                                                  "p\tp\tp_1.fq\tp_2.fq\tshort\nl\tl\tl.fq.gz\t-\tpacbio\n")));
+    EXPECT_EQ(typed.read_types, (Tokens{ "short", "pacbio" }));
+    EXPECT_EQ(typed.seconds[1], "");
 }
 
 TEST(ReadFileStem, DropsReadAndCompressionExtensions) {
@@ -124,22 +132,25 @@ TEST(ReadFileStem, DropsReadAndCompressionExtensions) {
 
 TEST(Options, EachReadTypeHasItsModel) {
     ScratchDir dir;
-    auto model = [&](std::string const& paired, std::string const& single, bool single_end) {
+    auto model = [&](std::string const& paired, std::string const& own, ReadType type) {
         OptionsData d;
         d.database_path = dir.path.string();
         d.model = paired;
-        d.model_se = single;
-        return fs::path(Options(d).ModelDbFile(single_end).Path()).filename().string();
+        (type == ReadType::PacBio ? d.model_pacbio : d.model_se) = own;
+        return fs::path(Options(d).ModelDbFile(type).Path()).filename().string();
     };
-    EXPECT_EQ(model("", "", false), "model.xml");
-    EXPECT_EQ(model("", "", true), "model_se.xml");
-    // --model replaces both, unless --model_se is given for single-end reads.
-    EXPECT_EQ(model("other", "", false), "other.xml");
-    EXPECT_EQ(model("other", "", true), "other.xml");
-    EXPECT_EQ(model("other", "se2.xml", true), "se2.xml");
-    EXPECT_EQ(model("other", "se2.xml", false), "other.xml");
+    EXPECT_EQ(model("", "", ReadType::Paired), "model.xml");
+    EXPECT_EQ(model("", "", ReadType::Single), "model_se.xml");
+    EXPECT_EQ(model("", "", ReadType::PacBio), "model_pacbio.xml");
+    // --model replaces all, unless --model_se or --model_pacbio is given for their reads.
+    EXPECT_EQ(model("other", "", ReadType::Paired), "other.xml");
+    EXPECT_EQ(model("other", "", ReadType::Single), "other.xml");
+    EXPECT_EQ(model("other", "", ReadType::PacBio), "other.xml");
+    EXPECT_EQ(model("other", "se2.xml", ReadType::Single), "se2.xml");
+    EXPECT_EQ(model("other", "se2.xml", ReadType::Paired), "other.xml");
+    EXPECT_EQ(model("other", "hifi", ReadType::PacBio), "hifi.xml");
     auto const existing = dir.Write("elsewhere.xml", "");
-    EXPECT_EQ(model("", existing, true), "elsewhere.xml");
+    EXPECT_EQ(model("", existing, ReadType::Single), "elsewhere.xml");
 }
 
 namespace {
@@ -346,34 +357,40 @@ TEST(Options, ReadTypesOfSamples) {
     ScratchDir dir;
     // From the read files: no second file means single-end reads.
     OptionsData reads;
-    reads.first_list = { "p_1.fq", "s.fq" };
-    reads.second_list = { "p_2.fq", "" };
-    reads.prefix_list = { "p", "s" };
+    // PacBio reads come as READ_TYPE (or --read_type) pacbio.
+    reads.first_list = { "p_1.fq", "s.fq", "l.fq" };
+    reads.second_list = { "p_2.fq", "", "" };
+    reads.prefix_list = { "p", "s", "l" };
+    reads.read_type_list = { READ_TYPE_SHORT, READ_TYPE_SHORT, READ_TYPE_PACBIO };
     reads.range = { 0, 1 };
     Options from_reads(reads);
     from_reads.ResolveReadTypes();
-    EXPECT_FALSE(from_reads.IsSingleEnd(0));
-    EXPECT_TRUE(from_reads.IsSingleEnd(1));
-    EXPECT_TRUE(from_reads.AnySample(true) && from_reads.AnySample(false));
+    EXPECT_EQ(from_reads.GetReadType(0), ReadType::Paired);
+    EXPECT_EQ(from_reads.GetReadType(1), ReadType::Single);
+    EXPECT_TRUE(from_reads.AnySample(ReadType::Single) && from_reads.AnySample(ReadType::Paired));
+    EXPECT_EQ(from_reads.GetReadType(2), ReadType::PacBio);
+    EXPECT_FALSE(from_reads.AnySample(ReadType::PacBio));  // not in the range
 
-    // With --profile_only, from the SAM: unpaired records are single-end reads; a SAM without
-    // alignments counts as paired-end.
+    // With --profile_only, from the SAM: the kind its header names, else unpaired records are
+    // single-end reads; a SAM without alignments counts as paired-end.
     auto seq = std::string("ACGTACGTACGTACGTACGT");
     OptionsData sams;
     sams.profile_only = true;
     sams.sam_list = { dir.Write("pe.sam", "@HD\tVN:1.6\n" + Record("a", kPaired | kBothAlign | kRead1, "1_1", "20M", seq) +
                                           Record("a", kPaired | kBothAlign | kRead2, "1_1", "20M", seq)),
                       dir.Write("se.sam", "@HD\tVN:1.6\n" + Record("b", 16, "1_1", "20M", seq)),
-                      dir.Write("empty.sam", "@HD\tVN:1.6\n") };
-    sams.prefix_list = { "pe", "se", "empty" };
+                      dir.Write("empty.sam", "@HD\tVN:1.6\n"),
+                      dir.Write("long.sam", "@HD\tVN:1.6\n" + kSamReadsComment + "PacBio\n" + Record("c", 0x800, "1_1", "5H20M", seq)) };
+    sams.prefix_list = { "pe", "se", "empty", "long" };
     sams.range = { 1 };
     Options from_sams(sams);
     from_sams.ResolveReadTypes();
-    EXPECT_FALSE(from_sams.IsSingleEnd(0));
-    EXPECT_TRUE(from_sams.IsSingleEnd(1));
-    EXPECT_FALSE(from_sams.IsSingleEnd(2));
-    EXPECT_TRUE(from_sams.AnySample(true));
-    EXPECT_FALSE(from_sams.AnySample(false));  // only the single-end sample is in the range
+    EXPECT_EQ(from_sams.GetReadType(0), ReadType::Paired);
+    EXPECT_EQ(from_sams.GetReadType(1), ReadType::Single);
+    EXPECT_EQ(from_sams.GetReadType(2), ReadType::Paired);
+    EXPECT_EQ(from_sams.GetReadType(3), ReadType::PacBio);
+    EXPECT_TRUE(from_sams.AnySample(ReadType::Single));
+    EXPECT_FALSE(from_sams.AnySample(ReadType::Paired));  // only the single-end sample is in the range
 }
 
 TEST(MicrobialProfile, RejectsRecordsOutsideTheDatabase) {

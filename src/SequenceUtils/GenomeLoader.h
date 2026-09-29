@@ -539,6 +539,17 @@ namespace protal {
             return n;
         }
 
+        // Length of the longest gene of the reference.
+        size_t MaxGeneLength() const {
+            size_t longest = 0;
+            for (auto const& [key, genome] : m_genomes) {
+                for (auto const& gene : genome.GetGeneList()) {
+                    if (gene.IsSet()) longest = std::max(longest, gene.GetLength());
+                }
+            }
+            return longest;
+        }
+
         GenomeMap& GetGenomeMap() {
             return m_genomes;
         }
