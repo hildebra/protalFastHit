@@ -67,7 +67,7 @@ namespace protal {
                 ("db", "Path to the protal database: a single-file database (database.protal, as --build writes it), or a folder holding one or the database's separate files. If not given, it is taken from the environment variable $" + PROTAL_DB_ENV_VARIABLE + ".", cxxopts::value<std::string>())
                 ("1,first", "Comma separated list of read files: the first-in-pair files of paired-end reads (the second-in-pair files go to -2/--second), or single-end reads when -2/--second is not given.", cxxopts::value<std::string>()->default_value(""))
                 ("2,second", "Comma separated list of second-in-pair read files, one per file given via -1/--first. Leave it out for single-end reads.", cxxopts::value<std::string>()->default_value(""))
-                ("read_type", "The reads of -1/--first: pe (paired-end reads, with -2/--second), se (single-end reads), pb (PacBio long reads, e.g. HiFi). Without it, pe with -2/--second and se without. A map gives it per sample in a READ_TYPE column.", cxxopts::value<std::string>()->default_value(""))
+                ("read_type", "The reads of -1/--first: pe (paired-end reads, with -2/--second), se (single-end reads), pb (PacBio long reads, e.g. HiFi), ont (Oxford Nanopore long reads). Without it, pe with -2/--second and se without. A map gives it per sample in a READ_TYPE column.", cxxopts::value<std::string>()->default_value(""))
                 ("prefix", "Comma separated list of output prefixes (optional). If not specified, output file prefixes are generated from the input file names: the longest common prefix of the two files of paired-end reads (which must then be in the same folder), the file name without its FASTQ/FASTA and compression extensions for single-end reads.", cxxopts::value<std::string>()->default_value(""))
                 ("o,outdir", "Overwrites #OUTPUT_DIR in map and needs to be defined if #OUTPUT_DIR is not defined in the map. If not otherwise specified in the map file, sam files, profiles, msas, and other miscellaneous files will be stored in the subfolders to this directory 'alignments', 'profiles', 'strains', and 'misc'.", cxxopts::value<std::string>())
                 
@@ -82,7 +82,7 @@ namespace protal {
                 ("u,max_key_ubiquity", "Max key ubiquity. Best matching Flexkey count for seed must be lower or equal", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_KEY_UBIQUITY)))
                 ("s,max_seed_size", "Max seed size after which seeding is stopped.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_SEED_SIZE)))
                 ("w,min_successful_lookups", "If the number of seeds is >=max_seed_size and the number of successful core-mer lookups is >= min_successful_lookups, stop looking for further seeds.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SUCCESSFUL_LOOKUPS)))
-                ("a,max_score_ani", "A max score makes an alignment stop if the alignment diverges too much. This parameter estimates the score for a given ani and is a tradeoff between speed/accuracy.", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MAX_SCORE_ANI)))
+                ("a,max_score_ani", "A max score makes an alignment stop if the alignment diverges too much. This parameter estimates the score for a given ani and is a tradeoff between speed/accuracy. Given, it applies to all read types; else ONT reads take 0.85 (their indels count twice).", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MAX_SCORE_ANI)))
                 ("x,x_drop", "Value determines when to cut of branches in the aligment process that are unpromising.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)));
 
         // Profiling options
@@ -90,9 +90,10 @@ namespace protal {
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
-                ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end and model_PB.xml for PacBio samples; --model replaces all of them unless --model_se or --model_pb is given.", cxxopts::value<std::string>()->default_value(""))
+                ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
                 ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_pb", "PMML model file for PacBio samples, given as --model. Default: --model if given, else the database's model_PB.xml.", cxxopts::value<std::string>()->default_value(""))
+                ("model_ont", "PMML model file for ONT samples, given as --model. Default: --model if given, else the database's model_ONT.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("profile_dir", "Override profile output directory. Takes precedence over the directory specified in the map file.", cxxopts::value<std::string>()->default_value(""));
 
         // Strain / SNP options
@@ -101,7 +102,7 @@ namespace protal {
                 ("snp_min_cov", "Minimum number of reads supporting a variant to call a SNP.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_COV)))
                 ("snp_min_phred_sum", "Minimum cumulative phred score (sum of base qualities) across all supporting reads. Combined with --snp_min_mean_qual via OR: a variant passes quality if phred_sum >= snp_min_phred_sum OR mean_qual >= snp_min_mean_qual.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_PHRED_SUM)))
                 ("snp_min_mean_qual", "Minimum mean base quality across supporting reads. Combined with --snp_min_phred_sum via OR: a variant passes quality if mean_qual >= snp_min_mean_qual OR phred_sum >= snp_min_phred_sum. Note: at low coverage, --snp_min_cov is the binding constraint regardless.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_MEAN_QUAL)))
-                ("snp_min_af", "Minimum allele frequency for a variant (variant observations / position coverage). Interacts with --snp_min_cov: below coverage = snp_min_cov/snp_min_af, the count filter is stricter.", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MIN_SNP_AF)))
+                ("snp_min_af", "Minimum allele frequency for a variant (variant observations / position coverage). Interacts with --snp_min_cov: below coverage = snp_min_cov/snp_min_af, the count filter is stricter. Given, it applies to all read types; else ONT reads take 0.2 (their errors put low-frequency alleles at many positions).", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MIN_SNP_AF)))
                 ("snp_no_strand", "Disable strand-bias filter. By default protal requires at least one supporting read from each strand (forward and reverse); pass this flag to allow variants supported by a single strand.")
                 ("msa_min_hcov", "Minimum non-N/non-'-' bases required per sequence to keep it in the MSA.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MSA_MIN_HCOV)))
                 ("msa_species", "Restrict MSAs to a single species (s__Genus_species) or a comma-separated list.", cxxopts::value<std::string>()->default_value(""))
@@ -210,6 +211,7 @@ namespace protal {
         std::string model;
         std::string model_se;
         std::string model_pb;
+        std::string model_ont;
         double knob = 0.5;
         double depth_identity_margin = 0.04;
 
@@ -217,6 +219,7 @@ namespace protal {
         size_t threads = DEFAULT_THREADS;
         size_t align_top = DEFAULT_ALIGN_TOP;
         double max_score_ani = DEFAULT_MAX_SCORE_ANI;
+        bool max_score_ani_given = false;  // -a given: it applies to all read types
         size_t x_drop = DEFAULT_X_DROP;
         size_t max_key_ubiquity = DEFAULT_MAX_KEY_UBIQUITY;
         size_t max_seed_size = DEFAULT_MAX_SEED_SIZE;
@@ -229,6 +232,7 @@ namespace protal {
         size_t snp_min_cov = DEFAULT_MIN_SNP_COV;
         size_t snp_min_phred_sum = DEFAULT_MIN_SNP_PHRED_SUM;
         double snp_min_af = DEFAULT_MIN_SNP_AF;
+        bool snp_min_af_given = false;  // --snp_min_af given: it applies to all read types
         size_t snp_min_mean_qual = DEFAULT_MIN_SNP_MEAN_QUAL;
         bool   snp_require_strand = DEFAULT_SNP_REQUIRE_STRAND;
         size_t snp_max_alleles = DEFAULT_SNP_MAX_ALLELES;
@@ -300,6 +304,7 @@ namespace protal {
         std::string m_model;
         std::string m_model_se;
         std::string m_model_pb;
+        std::string m_model_ont;
         double m_knob = 0.5;
         double m_depth_identity_margin = 0.04;
 
@@ -309,6 +314,7 @@ namespace protal {
 
         size_t m_align_top = DEFAULT_ALIGN_TOP;
         double m_max_score_ani = DEFAULT_MAX_SCORE_ANI;
+        bool m_max_score_ani_given = false;
         size_t m_x_drop = DEFAULT_X_DROP;
         size_t m_max_key_ubiquity = DEFAULT_MAX_KEY_UBIQUITY;
         size_t m_max_seed_size = DEFAULT_MAX_SEED_SIZE;
@@ -320,6 +326,7 @@ namespace protal {
         size_t m_snp_min_cov = DEFAULT_MIN_SNP_COV;
         size_t m_snp_min_phred_sum = DEFAULT_MIN_SNP_PHRED_SUM;
         double m_snp_min_af = DEFAULT_MIN_SNP_AF;
+        bool m_snp_min_af_given = false;
         size_t m_snp_min_mean_qual = DEFAULT_MIN_SNP_MEAN_QUAL;
         bool   m_snp_require_strand = DEFAULT_SNP_REQUIRE_STRAND;
         size_t m_snp_max_alleles = DEFAULT_SNP_MAX_ALLELES;
@@ -411,11 +418,13 @@ namespace protal {
                 m_model(std::move(d.model)),
                 m_model_se(std::move(d.model_se)),
                 m_model_pb(std::move(d.model_pb)),
+                m_model_ont(std::move(d.model_ont)),
                 m_knob(d.knob),
                 m_depth_identity_margin(d.depth_identity_margin),
                 m_threads(d.threads),
                 m_align_top(d.align_top),
                 m_max_score_ani(d.max_score_ani),
+                m_max_score_ani_given(d.max_score_ani_given),
                 m_x_drop(d.x_drop),
                 m_max_key_ubiquity(d.max_key_ubiquity),
                 m_max_seed_size(d.max_seed_size),
@@ -426,6 +435,7 @@ namespace protal {
                 m_snp_min_cov(d.snp_min_cov),
                 m_snp_min_phred_sum(d.snp_min_phred_sum),
                 m_snp_min_af(d.snp_min_af),
+                m_snp_min_af_given(d.snp_min_af_given),
                 m_snp_min_mean_qual(d.snp_min_mean_qual),
                 m_snp_require_strand(d.snp_require_strand),
                 m_snp_max_alleles(d.snp_max_alleles),
@@ -694,11 +704,12 @@ namespace protal {
         }
 
         // The PMML model of samples with reads of `type`: the model named by the type's option
-        // (--model_se, --model_pb) or else by --model, as an existing file or else as <name> in the
+        // (--model_se, --model_pb, --model_ont) or else by --model, as an existing file or else as <name> in the
         // database (<name>.xml without an extension); by default the first ModelCandidates file the
         // database has.
         db::DbFile ModelDbFile(ReadType type = ReadType::Paired) const {
-            std::string const& own = type == ReadType::Single ? m_model_se : type == ReadType::PacBio ? m_model_pb : m_model;
+            std::string const& own = type == ReadType::Single ? m_model_se : type == ReadType::PacBio ? m_model_pb :
+                                     type == ReadType::ONT ? m_model_ont : m_model;
             std::string const& name = own.empty() ? m_model : own;
             if (!name.empty()) {
                 if (std::filesystem::exists(name)) return db::DbFile::OnDisk(name);
@@ -973,6 +984,10 @@ namespace protal {
         auto GetSNPMinCov() const { return m_snp_min_cov; }
         auto GetSNPMinPhredSum() const { return m_snp_min_phred_sum; }
         auto GetSNPMinAF() const { return m_snp_min_af; }
+        // --snp_min_af for reads of `type`: the read type's default unless it is given (ReadTypeInfo).
+        double GetSNPMinAF(ReadType type) const {
+            return !m_snp_min_af_given && Info(type).snp_min_af ? *Info(type).snp_min_af : m_snp_min_af;
+        }
         auto GetSNPMinMeanQual() const { return m_snp_min_mean_qual; }
         auto GetSNPRequireStrand() const { return m_snp_require_strand; }
         auto GetSNPMaxAlleles() const { return m_snp_max_alleles; }
@@ -1006,6 +1021,11 @@ namespace protal {
 
         double GetMaxScoreAni() const {
             return m_max_score_ani;
+        }
+
+        // -a for reads of `type`: the read type's default unless it is given (ReadTypeInfo).
+        double GetMaxScoreAni(ReadType type) const {
+            return !m_max_score_ani_given && Info(type).max_score_ani ? *Info(type).max_score_ani : m_max_score_ani;
         }
 
         void PrintHelp(bool show_dev=false) {
@@ -1046,10 +1066,11 @@ FIRST and PREFIX are mandatory. SECOND holds the second-in-pair files of paired-
 sample with single-end reads (in FIRST) has '-' there, as SAMPLE4 above. Without a SECOND
 column, all samples are single-end. Single-end samples are profiled with the database's
 single-end model (model_se.xml, or --model_se).
-An optional READ_TYPE column names each sample's reads: pe (paired-end), se (single-end) or pb
-(PacBio long reads, with '-' as SECOND), each profiled with its model (model_pe.xml,
-model_se.xml, model_PB.xml). Without the column, --read_type applies to all samples; without
-either, or with '-' as READ_TYPE, a sample is pe with a SECOND file and se without.
+An optional READ_TYPE column names each sample's reads: pe (paired-end), se (single-end), pb
+(PacBio) or ont (Oxford Nanopore long reads; pb and ont with '-' as SECOND), each profiled with
+its model (model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml). Without the column,
+--read_type applies to all samples; without either, or with '-' as READ_TYPE, a sample is pe
+with a SECOND file and se without.
 The first column, #SAMPLEID, names the sample in the outputs (MSA rows, logs, statistics).
 SAM and PROFILE are optional and default to <PREFIX>.sam and <PREFIX>.profile. Every sample
 needs its own SAM and PROFILE file; protal stops if two samples share one.)" << std::endl;
@@ -1708,7 +1729,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     if (longest > MAX_SHORT_READ_LENGTH) {
                         error_log.emplace_back("Sample " + GetSampleId(i) + " has reads of up to " + std::to_string(longest) +
                                                " bp (first 100 of " + m_first_list[i] + "), too long for short reads: give "
-                                               "--read_type pb (or pb in the map's READ_TYPE column) for PacBio reads");
+                                               "--read_type pb or ont (or in the map's READ_TYPE column) for PacBio or ONT reads");
                     }
                 }
             }
@@ -2121,11 +2142,13 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.align_top                = align_top;
             d.max_out                  = max_out;
             d.max_score_ani            = max_score_ani;
+            d.max_score_ani_given      = result.count("max_score_ani") > 0;
             d.msa_min_hcov             = msa_min_hcov;
             d.msa_species              = std::move(msa_species);
             d.snp_min_phred_sum        = snp_min_phred_sum;
             d.snp_min_cov              = snp_min_cov;
             d.snp_min_af               = snp_min_af;
+            d.snp_min_af_given         = result.count("snp_min_af") > 0;
             d.snp_min_mean_qual        = snp_min_mean_qual;
             d.snp_require_strand       = snp_require_strand;
             d.run_qcmsa                = run_qcmsa;
@@ -2161,6 +2184,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.model                    = result["model"].as<std::string>();
             d.model_se                 = result["model_se"].as<std::string>();
             d.model_pb                 = result["model_pb"].as<std::string>();
+            d.model_ont                = result["model_ont"].as<std::string>();
 
             auto options = Options(std::move(d));
 

@@ -11,7 +11,7 @@
 #include <vector>
 
 namespace protal {
-    enum class ReadType { Paired, Single, PacBio };
+    enum class ReadType { Paired, Single, PacBio, ONT };
 
     struct ReadTypeInfo {
         ReadType type;
@@ -20,13 +20,24 @@ namespace protal {
         std::string model_file;    // the database's model of these reads
         std::string model_option;  // the option naming another model for them
         int fasta_quality;         // the Phred quality of every base of a read without qualities (FASTA)
+        // Defaults of these reads unless -a / --snp_min_af are given (none: the options' defaults).
+        // ONT errors are mostly indels, which the alignment identity counts twice (see
+        // AlignmentInfo::GetProxyANI), and they put a low-frequency second allele at many positions.
+        std::optional<double> max_score_ani;
+        std::optional<double> snp_min_af;
     };
 
-    inline constexpr size_t kReadTypeCount = 3;
+    inline constexpr size_t kReadTypeCount = 4;
     inline const std::array<ReadTypeInfo, kReadTypeCount> kReadTypes = {{
-            { ReadType::Paired, "pe", "paired-end", "model_pe.xml", "--model", 30 },
-            { ReadType::Single, "se", "single-end", "model_se.xml", "--model_se", 30 },
-            { ReadType::PacBio, "pb", "PacBio", "model_PB.xml", "--model_pb", 30 } }};
+            { ReadType::Paired, "pe", "paired-end", "model_pe.xml", "--model", 30, std::nullopt, std::nullopt },
+            { ReadType::Single, "se", "single-end", "model_se.xml", "--model_se", 30, std::nullopt, std::nullopt },
+            { ReadType::PacBio, "pb", "PacBio", "model_PB.xml", "--model_pb", 30, std::nullopt, std::nullopt },
+            { ReadType::ONT, "ont", "ONT", "model_ONT.xml", "--model_ont", 18, 0.85, 0.2 } }};
+
+    // Long reads, aligned per gene (LongReads.h).
+    inline bool IsLongReadType(ReadType type) {
+        return type == ReadType::PacBio || type == ReadType::ONT;
+    }
 
     // Databases from before read types hold one model, for paired-end reads.
     inline const std::vector<std::string> kLegacyModelFiles = { "model.xml", "random_forest.xml" };

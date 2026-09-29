@@ -2,11 +2,13 @@
 
 - **Date**: 2026-09-29.
 - **Code**: branch `pacbio-long-reads` (worktree `.claude/worktrees/pacbio-long-reads`), based on
-  `audit-fixes` at `995c4f1` plus the single-end support described in
+  `audit-fixes` at `995c4f1`: the single-end support described in
   [2026-09-29-single-end-and-long-reads.md](../2026-09-29-single-end-and-long-reads.md) (in the
-  main checkout's `docs/claude/`); nothing committed yet. `docs/` is not in git on `995c4f1`, so
-  this branch carries only this report; the user documentation for PacBio reads is at its end, to
-  go into `docs/` with the branch, and the report's line in `docs/claude/README.md` too.
+  main checkout's `docs/claude/`) is `5631d6d`, the PacBio sections below `c47f0ff`, the renaming
+  `26f73db`, the read-level consensus and FASTA qualities `3beb5e7`; the ONT section is on top of
+  `3beb5e7`. `docs/` is not in git on `995c4f1`, so this branch carries only this report; the user
+  documentation for long reads is at its end, to go into `docs/` with the branch, and the report's
+  line in `docs/claude/README.md` too.
 - **Machine**: WSL Ubuntu 24.04 (gcc 13), 8 threads.
 - **Data**: mini databases of `scripts/mini_db/build_mini_db.sh` (3 species, 3 genomes each; the
   first genome of a species is the reference, the others strains), with the default divergences
@@ -191,6 +193,123 @@ records; before, it skipped every record without qualities, in every mode.
 Tests: unit 122 of 122 (consensus votes and settling, the `ZR` tag, FASTA qualities of single-end
 and paired readers); end-to-end 75 of 75 (FASTA input of single-end and PacBio reads, the log line).
 
+## Follow-up: ONT reads
+
+**Mode.** `--read_type ont` (or `ont` in a map's `READ_TYPE` column) takes the PacBio path as it
+is: the whole read seeded, chunks above 65 kb, windowed alignment per gene, segments, the
+read-level consensus, supplementary records. What differs is set per read type in `kReadTypes`
+(`src/ReadType.h`):
+
+- the model: `model_ONT.xml` of the database, or `--model_ont`, else `--model`. The SAM header says
+  `@CO<tab>protal read type: ont`, which `--profile_only` reads.
+- FASTA reads are taken as Q18 (`3`), not Q30.
+- `-a` defaults to 0.85 instead of 0.9, and `--snp_min_af` to 0.2 instead of 0. Either option,
+  given, applies to all read types (`Options::GetMaxScoreAni(type)`, `GetSNPMinAF(type)`). The log
+  line "Align the ONT reads of sample S (-a 0.85)" shows the value used.
+- The strain MSA applies each sample's own allele-frequency floor: `MicrobialProfile` carries its
+  read type, and `MSA` (`src/Profiling/Strain.h`) takes one floor per sample. A run of paired-end
+  and ONT samples thus keeps the paired-end samples' SNPs at the default 0 and filters the ONT ones
+  at 0.2.
+
+Why these two defaults: `-a` sets the alignment's score cut at 4 x (1 - a) x the length, as if
+every difference were a mismatch (4), and the identity an alignment must reach after it
+(`GetProxyANI`: 1 + score / (4 x length)). A 1 bp gap costs 6 + 2 = 8 in both, twice a mismatch,
+and ONT errors are mostly 1 bp indels. At
+0.9, genes with about 5% differences run out of score (table 4). ONT errors also put a
+low-frequency second allele at many positions, which the MSA writes as an IUPAC code (table 5).
+Chaining (anchors within 6 bp of the first seed's diagonal) and seeding were left as they were:
+the numbers below give no reason to change them.
+
+**Evaluation.** `run_ont.sh` simulates 20 Mb of ONT-like reads of the same community
+(`simulate_long_reads.py --platform ont`):
+
+- lengths log-normal, median 20 kb and sigma 0.6, within 2-150 kb: 868 reads, mean 22.9 kb, 20 of
+  them longer than 65 kb;
+- 1.6% errors (30% substitutions, 25% 1 bp insertions, 45% 1 bp deletions), plus one base lost in
+  15% of homopolymers of 4 or more;
+- Q17 qualities.
+
+It profiles them natively and, cut into 1 kb pieces, as single-end reads, evaluated as for HiFi
+(`evaluate.py`, `model.xml` standing in for the models). `ont_sweep.sh` repeats the native run on
+the close-relatives database at 3% and 5% errors with `-a 0.9` and `0.85`. `ont_snp.sh` profiles
+two samples each of 10 Mb HiFi and ONT reads with strains, and `msa_noise.py` counts ambiguity
+codes in the raw MSAs.
+
+    B=$HOME/protal-lr-build SPLIT=1 bash run_ont.sh              # table 3, default mini DB
+    SPLIT=1 MINI=$B/mini_db_close bash run_ont.sh                # table 3, close relatives
+    bash ont_sweep.sh                                            # table 4
+    bash ont_snp.sh                                              # table 5
+
+**Table 3: ONT reads, native vs 1 kb pieces** (native with the defaults above):
+
+| database | approach | recovered | misassigned | MAPQ < 4 (bp) | abundance error | alpha / beta / gamma (truth 0.5 / 0.3 / 0.2) |
+|---|---|---|---|---|---|---|
+| default | native | **0.981** | 1.43% | 0 | **0.003** | 0.499 / 0.303 / 0.198 |
+| default | split 1000 bp | 0.975 | 0.38% | 28,763 | 0.004 | 0.504 / 0.296 / 0.200 |
+| close | native | **0.967** | **2.53%** | 34,406 | **0.023** | 0.477 / 0.314 / 0.209 |
+| close | split 1000 bp | 0.665 | 3.67% | 2.89 M | 0.187 | 0.313 / 0.372 / 0.315 |
+
+The picture of HiFi (tables 1 and 2, with the consensus) holds for ONT. Native alignment is as good
+as pieces when species are distant. With close relatives it is far better: recovery 0.967 vs 0.665,
+abundance error 0.023 vs 0.187. ONT's errors cost little against HiFi's 0.969 and 0.015. The
+consensus settled 15 of 15 ambiguous gene hits (default database) and 2,106 of 2,147 (close).
+
+In the default database, the pieces misassign fewer bases (35 kb vs 135 kb). As single-end reads
+they run at `-a 0.9`, which rejects most alignments to a relative 3.5% away when 2% errors are
+added. Native alignment at 0.85 keeps those of marker genes the species lacks in the database
+(`--marker_loss`), which HiFi reads align to the relative too (table 1).
+
+**Table 4: errors and `-a`** (close relatives; the first row is table 3's):
+
+| simulated errors | differences per aligned base | recovered (-a 0.9 / 0.85) | misassigned (0.9 / 0.85) | abundance error (0.9 / 0.85) |
+|---|---|---|---|---|
+| 1.6% + homopolymers | 2.1% | 0.967 / 0.967 | 2.5% / 2.5% | 0.023 / 0.023 |
+| 3% | 3.5% | 0.964 / 0.964 | 2.7% / 2.7% | 0.029 / 0.029 |
+| 5% | 5.4% | 0.875 / **0.963** | 1.1% / 2.7% | 0.033 / 0.040 |
+
+"Differences" are the records' X, I and D per aligned base: errors plus the strains' divergence
+from their reference. Up to 3.5% differences, `-a` 0.9 and 0.85 give the same numbers. At 5.4%,
+0.9 recovers 0.875 of the marker bases and 0.85 recovers 0.963. The bases 0.9 loses are spread
+over the species, so abundances hold. At 0.85 the misassigned share is back to that of lower error
+rates. For abundances, the default makes no
+difference in this range. It matters for coverage-based features and strain calls, and for noisier
+runs (older chemistries).
+
+**Table 5: SNP noise.** A share of the called MSA bases are ambiguity codes, although each species
+has a single strain, so every code is noise:
+
+| reads | `--snp_min_af` | called bases (sample a / b) | ambiguous (a / b) |
+|---|---|---|---|
+| HiFi | 0 (default) | 357,335 / 353,251 | 0 / 0 |
+| ONT | 0 | 358,141 / 362,634 | 0.078% / 0.069% |
+| ONT | **0.2 (ONT default)** | 358,141 / 362,634 | 0.009% / 0.007% |
+| ONT | 0.3 | 358,141 / 362,634 | 0.002% / 0.002% |
+
+The floor writes the majority base where the minor allele fails it, so no base is lost. At 0.2 it
+removes 89% of the noise and keeps a minor strain's alleles from 20% on. 0.3 would remove a little
+more but lose minor strains between 20% and 30%.
+
+**Open points.**
+
+- `model_ONT.xml` is to be trained (the planned training step). Until then, ONT samples need
+  `--model_ont`.
+- The simulated errors are independent between reads. Real ONT errors are partly systematic: the
+  same error in the same context on many reads. An allele-frequency floor does not remove those, so
+  strain calls from ONT reads should be checked on a real mock community sequenced on R10.4.1.
+- Consensus votes assume one taxon per read. A chimeric read can give an ambiguous gene of its
+  minority taxon to the majority taxon, where the two cannot be told apart. Confident genes are
+  never moved.
+
+**Tests.**
+
+- Unit: 124 of 124. New: the ONT defaults of `-a` and `--snp_min_af` and that given options replace
+  them, `model_ONT.xml` and `--model_ont`, Q18 for FASTA, and the MSA with a floor per sample
+  (`MSA.EachSampleTakesItsOwnMinimumAlleleFrequency`).
+- End-to-end: 80 of 80. New, in `OntTest`: reads with 2% errors (70% of them 1 bp indels) and Q17,
+  one of 150 kb; every gene found once; the model and `-a 0.85` in the log; `--profile_only`
+  choosing the ONT model from the header; FASTA as Q18 with a given `-a`; a map of a paired-end and
+  an ONT sample, each aligned at its own `-a`.
+
 ## Documentation to add with the branch
 
 `docs/running.md`, a section after "Single-end reads":
@@ -207,11 +326,20 @@ and paired readers); end-to-end 75 of 75 (FASTA input of single-end and PacBio r
 > settled by the read's other genes: if two thirds of the read's confident genes name one taxon,
 > the gene takes that taxon's hit (tagged `ZR:i:1`). PacBio samples are profiled with the
 > database's `model_PB.xml`, or `--model_pb`. Reads of more than 1,000 bp given as short reads stop
-> the run with a hint to `--read_type pb`. Reads without qualities (FASTA) are taken as Q30.
+> the run with a hint to `--read_type pb or ont`. Reads without qualities (FASTA) are taken as Q30.
+>
+> ## ONT long reads
+>
+> `--read_type ont` (in a map, `ont`) aligns Oxford Nanopore reads as PacBio reads, with the
+> database's `model_ONT.xml`, or `--model_ont`. As their errors are mostly small indels, ONT samples
+> take `-a 0.85` and `--snp_min_af 0.2` unless these options are given (given, they apply to all
+> samples); in a strain MSA, each sample keeps the `--snp_min_af` of its read type. Reads without
+> qualities (FASTA) are taken as Q18.
 
-In `docs/running.md`'s options table: `--read_type` (default: `pe` with `-2`, else `se`) and
-`--model_pb` (default `--model`, else `model_PB.xml`). `docs/database-files.md`: `model_pe.xml`,
-`model_se.xml` and `model_PB.xml`, `model.xml` for older databases. `docs/model-training.md`: the
-PacBio model is trained on long-read samples, as `model_se.xml` on single-end ones. The website is
-out of date for single-end and PacBio reads. `docs/claude/README.md`: this report's line in the
-table.
+In `docs/running.md`'s options table: `--read_type` (`pe`, `se`, `pb` or `ont`; default: `pe`
+with `-2`, else `se`), `--model_pb` and `--model_ont` (default `--model`, else `model_PB.xml` or
+`model_ONT.xml`), and the ONT defaults of `-a` and `--snp_min_af`. `docs/database-files.md`:
+`model_pe.xml`, `model_se.xml`, `model_PB.xml` and `model_ONT.xml`, `model.xml` for older
+databases. `docs/model-training.md`: the PacBio and ONT models are trained on long-read samples
+of their platform, as `model_se.xml` on single-end ones. The website is out of date for single-end,
+PacBio and ONT reads. `docs/claude/README.md`: this report's line in the table.

@@ -302,9 +302,10 @@ namespace protal {
                 // AnchorFinder. A long read is seeded from all its k-mers: stopping at -s seeds, as for a
                 // short read, would leave most of it unseeded.
                 AnchorFinder anchor_finder(kmer_lookup, mmer_size, options.GetMinSuccessfulLookups(),
-                                           read_type == ReadType::PacBio ? SIZE_MAX : options.GetMaxSeedSize(), genomes);
+                                           IsLongReadType(read_type) ? SIZE_MAX : options.GetMaxSeedSize(), genomes);
                 // AlignmentHandler approach
-                SimpleAlignmentHandler alignment_handler(genomes, aligner, kmer_size, options.GetAlignTop(), options.GetMaxScoreAni(), options.FastAlign());
+                double const max_score_ani = options.GetMaxScoreAni(read_type);
+                SimpleAlignmentHandler alignment_handler(genomes, aligner, kmer_size, options.GetAlignTop(), max_score_ani, options.FastAlign());
 
 
 
@@ -318,18 +319,18 @@ namespace protal {
                 genomes.WriteSamHeader(sam_output);
                 sam_output << kSamReadTypeComment << Info(read_type).token << '\n';
                 std::cout << "Align the " << ReadTypeName(read_type) << " reads of sample "
-                          << options.GetSampleId(index) << std::endl;
+                          << options.GetSampleId(index) << " (-a " << max_score_ani << ")" << std::endl;
 
                 // Main Run Call. This is where the reads are read and alignment happens
                 bool truncated = false;
                 bool read_success = true;
                 std::string const read_files = single_file ? options.GetFirstFile(index) :
                                                options.GetFirstFile(index) + ", " + options.GetSecondFile(index);
-                if (read_type == ReadType::PacBio) {
+                if (IsLongReadType(read_type)) {
                     igzstream is { options.GetFirstFile(index).c_str() };
                     SeqReaderSE reader{ is, FastaQualityChar(read_type) };
                     LongReadAligner<SimpleKmerHandler<ClosedSyncmer>, AnchorFinder> long_read_aligner(
-                            iterator, anchor_finder, alignment_handler, genomes, options.GetAlignTop(), options.GetMaxScoreAni());
+                            iterator, anchor_finder, alignment_handler, genomes, options.GetAlignTop(), max_score_ani);
                     ProtalLongReadOutputHandler output_handler(sam_output, options.GetMaxOut(), 1024*1024*16, genomes, 0.8);
                     auto protal_stats = protal::classify::RunLongReads(reader, options, long_read_aligner, output_handler);
                     if (options.Verbose()) {
@@ -544,9 +545,10 @@ namespace protal {
             // profiles themselves take memory.
             profiler::MicrobialProfile profile(genomes);
             profile.SetName(sample_name);
+            profile.SetReadType(read_type);
             std::string sam_error = profiler.ProfileSam(sam, profile, std::optional<std::reference_wrapper<std::ostream>>{erro},
                                                         options.GetSNPMinCov(), options.GetSNPMinCov(),
-                                                        options.GetSNPMinAF(), options.GetSNPMinMeanQual(),
+                                                        options.GetSNPMinAF(read_type), options.GetSNPMinMeanQual(),
                                                         options.GetSNPMinPhredSum(), options.GetSNPRequireStrand());
             erro.close();
             bm_profile.Stop();
@@ -1350,7 +1352,6 @@ namespace protal {
         auto min_hcov = options.GetMSAMinHCOV();
         auto min_qual_sum = options.GetSNPMinPhredSum();
         auto min_cov = options.GetSNPMinCov();
-        auto min_af = options.GetSNPMinAF();
         auto require_strand = options.GetSNPRequireStrand();
         auto min_mean_qual = options.GetSNPMinMeanQual();
         auto snp_max_alleles = options.GetSNPMaxAlleles();
@@ -1358,6 +1359,10 @@ namespace protal {
         std::vector<size_t> profile_indices = GetProfilesWithTaxon(taxid, profiles, options, filter);
 
         if (profile_indices.empty()) return;
+
+        // Each sample's rows take the minimum allele frequency of its reads' kind.
+        std::vector<double> min_afs;
+        for (auto index : profile_indices) min_afs.push_back(options.GetSNPMinAF(profiles[index].GetReadType()));
 
         MSAVector msa{ profile_indices.size(), std::vector<char>() };
         protal::MSARow ref_msa_row;
@@ -1419,7 +1424,8 @@ namespace protal {
                     auto counts_vcov2 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 2);});
                     // Multi-allelic positions as the MSA writes them (IUPAC codes), which qcmsa filters on.
                     size_t const multi_allelic = MultiAllelicPositions(strain.GetVariantHandler().GetVariants(), tmp_vec, min_cov,
-                                                                       min_qual_sum, min_af, require_strand, min_mean_qual, snp_max_alleles);
+                                                                       min_qual_sum, options.GetSNPMinAF(profile.GetReadType()), require_strand,
+                                                                       min_mean_qual, snp_max_alleles);
 
                     double median_vcov = 0.0;
                     double mean_vcov_nonzero = 0.0;
@@ -1483,7 +1489,7 @@ namespace protal {
                 previous_size = msa.front().size();
 
                 protal::MSAStats gene_stats(items.size());
-                bool result = protal::MSA(items, gene.Sequence(), msa, min_cov, min_qual_sum, min_af, require_strand, min_mean_qual, &gene_stats, &ref_msa_row, snp_max_alleles);
+                bool result = protal::MSA(items, gene.Sequence(), msa, min_cov, min_qual_sum, min_afs, require_strand, min_mean_qual, &gene_stats, &ref_msa_row, snp_max_alleles);
 
                 if (!result) continue;
 

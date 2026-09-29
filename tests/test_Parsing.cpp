@@ -136,7 +136,7 @@ TEST(Options, EachReadTypeHasItsModel) {
         OptionsData d;
         d.database_path = dir.path.string();
         d.model = paired;
-        (type == ReadType::PacBio ? d.model_pb : d.model_se) = own;
+        (type == ReadType::PacBio ? d.model_pb : type == ReadType::ONT ? d.model_ont : d.model_se) = own;
         return fs::path(Options(d).ModelDbFile(type).Path()).filename().string();
     };
     EXPECT_EQ(model("", "", ReadType::Paired), "model_pe.xml");
@@ -155,6 +155,28 @@ TEST(Options, EachReadTypeHasItsModel) {
     EXPECT_EQ(model("other", "hifi", ReadType::PacBio), "hifi.xml");
     auto const existing = dir.Write("elsewhere.xml", "");
     EXPECT_EQ(model("", existing, ReadType::Single), "elsewhere.xml");
+    EXPECT_EQ(model("", "", ReadType::ONT), "model_ONT.xml");
+    EXPECT_EQ(model("other", "", ReadType::ONT), "other.xml");
+    EXPECT_EQ(model("other", "r10", ReadType::ONT), "r10.xml");
+}
+
+TEST(Options, OntReadsHaveTheirOwnDefaults) {
+    OptionsData d;
+    Options defaults(d);
+    EXPECT_DOUBLE_EQ(defaults.GetMaxScoreAni(ReadType::ONT), 0.85);
+    EXPECT_DOUBLE_EQ(defaults.GetSNPMinAF(ReadType::ONT), 0.2);
+    EXPECT_DOUBLE_EQ(defaults.GetMaxScoreAni(ReadType::PacBio), DEFAULT_MAX_SCORE_ANI);
+    EXPECT_DOUBLE_EQ(defaults.GetSNPMinAF(ReadType::Paired), DEFAULT_MIN_SNP_AF);
+    EXPECT_EQ(FastaQualityChar(ReadType::ONT), '3');  // Q18
+    EXPECT_EQ(FastaQualityChar(ReadType::Single), '?');  // Q30
+    // Given, the options apply to all read types.
+    d.max_score_ani = 0.95;
+    d.max_score_ani_given = true;
+    d.snp_min_af = 0.1;
+    d.snp_min_af_given = true;
+    Options given(d);
+    EXPECT_DOUBLE_EQ(given.GetMaxScoreAni(ReadType::ONT), 0.95);
+    EXPECT_DOUBLE_EQ(given.GetSNPMinAF(ReadType::ONT), 0.1);
 }
 
 namespace {

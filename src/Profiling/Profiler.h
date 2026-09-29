@@ -23,6 +23,7 @@
 #include "sparse_map.h"
 #include "Benchmark.h"
 #include "RunStatus.h"
+#include "ReadType.h"
 #include <algorithm>
 #include <charconv>
 #include <filesystem>
@@ -1355,6 +1356,15 @@ namespace protal {
                 m_name = name;
             }
 
+            // The kind of the sample's reads, whose SNP filters its strain MSA rows take.
+            void SetReadType(ReadType type) {
+                m_read_type = type;
+            }
+
+            ReadType GetReadType() const {
+                return m_read_type;
+            }
+
             const std::string& GetName() const {
                 return m_name;
             }
@@ -1628,6 +1638,7 @@ namespace protal {
 
         private:
             std::string m_name;
+            ReadType m_read_type = ReadType::Paired;
             mutable TaxonMap m_taxa;
             GenomeLoader &m_genome_loader;
             double m_depth_identity_margin = 1;

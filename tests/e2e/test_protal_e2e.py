@@ -1219,7 +1219,7 @@ class SingleEndTest(WorkDir):
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("Model of paired-end reads: ", log)
         self.assertIn("Model of single-end reads: ", log)
-        self.assertIn("1 paired-end, 1 single-end, 0 PacBio sample(s)", log)
+        self.assertIn("1 paired-end, 1 single-end, 0 PacBio, 0 ONT sample(s)", log)
         paired = sam_records(self.path("out_mixed", "pe.sam"))
         single = sam_records(self.path("out_mixed", "se.sam"))
         self.assertTrue(paired and all(int(r[1]) & 0x1 for r in paired))
@@ -1263,24 +1263,26 @@ class SingleEndTest(WorkDir):
             self.assertEqual(packed.read(), files.read())
 
 
-def simulate_long_reads(path, reads, seed, genes_per_read=(3, 8), long_read=0):
+def simulate_long_reads(path, reads, seed, genes_per_read=(3, 8), long_read=0, error=0.001, indels=0.6,
+                        read_name="m64001_000000/{}/ccs", quality="I"):
     """Write PacBio-like reads to path: reference genes (either strand) between random stretches of
-    0.5-3 kb, with 0.1% errors (substitutions and 1 bp indels), 3-8 genes per read; half of the reads
-    start inside a gene and half end inside one (30-70% of it on the read). With long_read, one more
-    read of that length with a gene every 5 kb. Returns per read its genes as (name, start, end) on
-    the read."""
+    0.5-3 kb, with 0.1% errors (substitutions and 1 bp indels, indels 60% of them), 3-8 genes per
+    read; half of the reads start inside a gene and half end inside one (30-70% of it on the read).
+    With long_read, one more read of that length with a gene every 5 kb. error, indels, read_name and
+    quality make ONT-like reads. Returns per read its genes as (name, start, end) on the read."""
     rng = random.Random(seed)
     genes = [(name, seq) for name, seq in reference_genes() if len(seq) >= 300]
+    substitution, insertion = error * (1 - indels), error * (1 - indels / 2)
 
     def mutate(seq):
         out = []
         for b in seq:
             r = rng.random()
-            if r < 0.0004:
+            if r < substitution:
                 out.append(rng.choice([c for c in "ACGT" if c != b]))
-            elif r < 0.0007:
+            elif r < insertion:
                 out.append(b + rng.choice("ACGT"))
-            elif r >= 0.001:
+            elif r >= error:
                 out.append(b)
         return "".join(out)
 
@@ -1326,7 +1328,7 @@ def simulate_long_reads(path, reads, seed, genes_per_read=(3, 8), long_read=0):
         for i, pieces in enumerate(layouts, 1):
             seq, placed = read_of(pieces)
             truth.append(placed)
-            fh.write(f"@m64001_000000/{i}/ccs\n{seq}\n+\n{'I' * len(seq)}\n")
+            fh.write(f"@{read_name.format(i)}\n{seq}\n+\n{quality * len(seq)}\n")
     return truth
 
 
@@ -1464,10 +1466,99 @@ class PacBioTest(WorkDir):
             fh.write(f"lb\tlb\t{self.reads['lb']}\t-\tPB\n")
         rc, log = run(self.work, "--db", self.db, "--map", sample_map, "-t", "2", "--no_qcmsa")
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("1 paired-end, 0 single-end, 1 PacBio sample(s)", log)
+        self.assertIn("1 paired-end, 0 single-end, 1 PacBio, 0 ONT sample(s)", log)
         self.assertTrue(all(int(r[1]) & 0x1 for r in sam_records(self.path("out_map", "pe.sam"))))
         with open(self.path("out_map", "lb.sam")) as fh:
             self.assertIn("@CO\tprotal read type: pb\n", fh.read())
+
+
+class OntTest(WorkDir):
+    """ONT-like long reads (2% errors, most of them 1 bp indels, Q17) profiled with the ONT model, as
+    in PacBioTest a stand-in: the test database's paired-end model as model_ONT.xml."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.db = os.path.join(cls.work, "ont_db")
+        os.mkdir(cls.db)
+        for f in glob.glob(os.path.join(FILES, "*")):
+            if os.path.basename(f) != "database.protal":
+                os.symlink(f, os.path.join(cls.db, os.path.basename(f)))
+        cls.model = os.path.join(FILES, "model.xml")
+        os.symlink(cls.model, os.path.join(cls.db, "model_ONT.xml"))
+        cls.reads = {p: os.path.join(cls.work, f"{p}.fq") for p in ("oa", "ob")}
+        ont = dict(error=0.02, indels=0.7, read_name="ont_read_{}", quality="2")
+        cls.truth = {"oa": simulate_long_reads(cls.reads["oa"], 40, seed=21, long_read=150000, **ont),
+                     "ob": simulate_long_reads(cls.reads["ob"], 40, seed=22, **ont)}
+        cls.rc, cls.log = run(cls.work, "--db", cls.db, "-1", ",".join(cls.reads.values()), "--prefix", "oa,ob",
+                              "--read_type", "ont", "-o", "out", "-t", "4", "--no_qcmsa")
+
+    def read_names(self, prefix):
+        with open(self.reads[prefix]) as fh:
+            return [line[1:] for i, line in enumerate(fh.read().splitlines()) if i % 4 == 0]
+
+    def test_exit_code_and_model(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        self.assertIn("Align the ONT reads of sample oa (-a 0.85)", self.log)
+        self.assertIn("Model of ONT reads: " + os.path.join(self.db, "model_ONT.xml"), self.log)
+        self.assertIn("1 read(s) longer than 65000 bp were seeded in chunks", self.log)
+        with open(self.path("out", "oa.sam")) as fh:
+            self.assertIn("@CO\tprotal read type: ont\n", fh.read())
+
+    def test_every_gene_is_found_once(self):
+        for prefix in ("oa", "ob"):
+            by_read = representative_records(sam_records(self.path("out", f"{prefix}.sam")))
+            found = missed = twice = 0
+            for name, placed in zip(self.read_names(prefix), self.truth[prefix]):
+                reps = by_read.get(name, [])
+                for gene, start, end in placed:
+                    hits = [r for r in reps if r[2] == gene and sum(n for n, op in cigar_ops(r[5]) if op in "MX=D") >= 0.9 * (end - start)]
+                    found += len(hits) >= 1
+                    missed += not hits
+                    twice += len(hits) > sum(1 for g, _, _ in placed if g == gene)
+            self.assertEqual(twice, 0, f"{prefix}: no gene counted twice")
+            self.assertGreaterEqual(found / (found + missed), 0.9, f"{prefix}: {found} genes found, {missed} missed")
+
+    def test_profile_only_takes_the_ont_model(self):
+        sam = self.path("out", "oa.sam")
+        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "-o", self.path("po_missing"), "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("The model of ONT reads does not exist", log)
+        self.assertIn("--model_ont", log)
+        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "--model_ont", self.model, "-o", self.path("po"),
+                      "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(self.path("po", "oa.profile")) as again, open(self.path("out", "oa.profile")) as first:
+            self.assertEqual(again.read(), first.read())
+
+    def test_fasta_reads_get_q18_and_a_given_identity(self):
+        fasta = self.path("ob.fa")
+        with open(self.reads["ob"]) as fq, open(fasta, "w") as fh:
+            lines = fq.read().splitlines()
+            for i in range(0, len(lines), 4):
+                fh.write(f">{lines[i][1:]}\n{lines[i + 1]}\n")
+        rc, log = run(self.work, "--db", self.db, "-1", fasta, "--read_type", "ont", "-a", "0.8", "--prefix", "obfa",
+                      "-o", "out_fasta", "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Align the ONT reads of sample obfa (-a 0.8)", log)
+        records = sam_records(self.path("out_fasta", "obfa.sam"))
+        self.assertTrue(records)
+        self.assertEqual({q for r in records for q in r[10]}, {"3"}, "Q18 for every base")
+
+    def test_a_map_mixes_paired_end_and_ont_samples(self):
+        sample_map = self.path("typed.map")
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{self.path('out_map')}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n")
+            fh.write(f"pe\tpe\t{READS}/sa_R1.fq\t{READS}/sa_R2.fq\t-\n")
+            fh.write(f"ob\tob\t{self.reads['ob']}\t-\tont\n")
+        rc, log = run(self.work, "--db", self.db, "--map", sample_map, "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("1 paired-end, 0 single-end, 0 PacBio, 1 ONT sample(s)", log)
+        self.assertIn("Align the paired-end reads of sample pe (-a 0.9)", log)
+        self.assertIn("Align the ONT reads of sample ob (-a 0.85)", log)
+        self.assertNotIn("minimum allele frequencies for", log)
+        with open(self.path("out_map", "ob.sam")) as fh:
+            self.assertIn("@CO\tprotal read type: ont\n", fh.read())
 
 
 class SimulatorTest(WorkDir):

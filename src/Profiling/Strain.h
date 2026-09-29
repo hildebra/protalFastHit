@@ -564,7 +564,13 @@ namespace protal {
         return has_variant;
     }
 
-    static bool MSA(MSASequenceItems const& items, std::string const& reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, double min_frequency=0.0, bool require_strand=false, size_t min_mean_qual=0, MSAStats* stats = nullptr, MSARow* ref_row = nullptr, size_t snp_max_alleles = 1) {
+    // The MSA of a gene over samples (items), each with its own minimum allele frequency
+    // (min_frequencies, one per item: the SNP filter of its reads' kind).
+    static bool MSA(MSASequenceItems const& items, std::string const& reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, std::vector<double> const& min_frequencies, bool require_strand=false, size_t min_mean_qual=0, MSAStats* stats = nullptr, MSARow* ref_row = nullptr, size_t snp_max_alleles = 1) {
+        if (min_frequencies.size() != items.size()) {
+            std::cerr << "MSA: " << min_frequencies.size() << " minimum allele frequencies for " << items.size() << " samples" << std::endl;
+            return false;
+        }
         if (msa.size() != items.size()) {
             std::cerr << msa.size() << " != " << items.size() << " <- items" << std::endl;
             std::cerr << "Msa object must be of the same length as items" << std::endl;
@@ -628,7 +634,7 @@ namespace protal {
                     auto& variant = variants[indices[i]];
                     auto& call = GetConsensusCall(variant);
                     uint32_t pos_cov = (rpos < cov.size()) ? cov[rpos] : 0;
-                    bool pass = VariantPass(call, variant, min_qual_sum, min_cov, min_frequency, pos_cov, require_strand, min_mean_qual);
+                    bool pass = VariantPass(call, variant, min_qual_sum, min_cov, min_frequencies[i], pos_cov, require_strand, min_mean_qual);
 
 
                     column_pass[i] = pass;
@@ -725,8 +731,8 @@ namespace protal {
                                 bool qual_fails = var->QualitySum() < min_qual_sum &&
                                                   !(min_mean_qual > 0 && var->MeanQuality() >= min_mean_qual);
                                 if (qual_fails) s.variants_filtered_qual_sum++;
-                                if (min_frequency > 0.0 && pos_cov_for_af > 0 &&
-                                    static_cast<double>(var->Observations()) / pos_cov_for_af < min_frequency)
+                                if (min_frequencies[i] > 0.0 && pos_cov_for_af > 0 &&
+                                    static_cast<double>(var->Observations()) / pos_cov_for_af < min_frequencies[i])
                                     s.variants_filtered_af++;
                                 if (require_strand && !var->PassesStrandFilter()) s.variants_filtered_strand++;
                             }
@@ -746,7 +752,7 @@ namespace protal {
                                 std::vector<std::pair<uint32_t,char>> candidates;
                                 for (auto const& v : *column_bins[i]) {
                                     if (v.IsSNP() &&
-                                        VariantPass(v, *column_bins[i], min_qual_sum, min_cov, min_frequency, pos_cov_v, require_strand, min_mean_qual)) {
+                                        VariantPass(v, *column_bins[i], min_qual_sum, min_cov, min_frequencies[i], pos_cov_v, require_strand, min_mean_qual)) {
                                         candidates.emplace_back(v.Observations(), v.GetVariant());
                                     }
                                 }
@@ -822,5 +828,11 @@ namespace protal {
 //            }
 //            Utils::Input();
 //        }
+    }
+
+    // The MSA with one minimum allele frequency for all samples.
+    static bool MSA(MSASequenceItems const& items, std::string const& reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, double min_frequency=0.0, bool require_strand=false, size_t min_mean_qual=0, MSAStats* stats = nullptr, MSARow* ref_row = nullptr, size_t snp_max_alleles = 1) {
+        return MSA(items, reference, msa, min_cov, min_qual_sum, std::vector<double>(items.size(), min_frequency), require_strand,
+                   min_mean_qual, stats, ref_row, snp_max_alleles);
     }
 }

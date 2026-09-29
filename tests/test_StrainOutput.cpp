@@ -163,6 +163,36 @@ TEST(MSA, DeletionsBecomeGaps) {
     EXPECT_EQ(row, reference.substr(0, 20) + "--" + reference.substr(22));
 }
 
+TEST(MSA, EachSampleTakesItsOwnMinimumAlleleFrequency) {
+    // Two samples with the same reads: 3 of 10 carry a SNP at position 10. With no minimum allele
+    // frequency, the SNP and the reference base are written as an IUPAC code; with 0.5 (the other
+    // sample, as for a noisier read type), the SNP does not pass.
+    TinyReference ref;
+    auto& gene = ref.loader->GetGenome(1).GetGeneOMP(1);
+    std::string const reference = gene.Sequence();
+    std::string snp_read = reference;
+    snp_read[10] = reference[10] == 'A' ? 'C' : 'A';
+    std::vector<std::unique_ptr<StrainLevelContainer>> strains;
+    MSASequenceItems items;
+    for (int sample = 0; sample < 2; sample++) {
+        strains.push_back(std::make_unique<StrainLevelContainer>(gene));
+        auto& strain = *strains.back();
+        for (size_t i = 0; i < 10; i++) {
+            bool const snp = i < 3;
+            ASSERT_TRUE(strain.AddSam(MakeSam(snp ? snp_read : reference, snp ? "10M1X39M" : "50M", 1, i % 2 ? 0x10 : 0), i, true));
+        }
+        strain.PostProcess(2, 2, 0.0, 0, 0, false);
+        items.emplace_back(OptionalMSASequenceItem{ { SharedAlignmentRegion::GetSNPs(strain.GetVariantHandler()), strain.GetSequenceRangeHandler() } });
+    }
+    MSAVector msa(2);
+    ASSERT_TRUE(MSA(items, reference, msa, 2, 0, std::vector<double>{ 0.0, 0.5 }, false, 0, nullptr, nullptr, 2));
+    std::string const loose(msa[0].begin(), msa[0].end()), strict(msa[1].begin(), msa[1].end());
+    ASSERT_EQ(loose.size(), reference.size());
+    EXPECT_EQ(std::string("ACGTN-").find(loose[10]), std::string::npos) << "an IUPAC code of two alleles: " << loose[10];
+    EXPECT_NE(std::string("ACGTN-").find(strict[10]), std::string::npos) << "no second allele: " << strict[10];
+    EXPECT_EQ(loose.substr(11), strict.substr(11));
+}
+
 TEST(Abundance, BlendedDepthIsUnbiasedAtLowCoverage) {
     // 200 genes of 1 kb, 100 bp reads: the number of reads per gene is Poisson(10 x depth).
     std::mt19937 rng(7);
