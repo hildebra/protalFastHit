@@ -390,7 +390,8 @@ TEST(Options, ReadTypesOfSamples) {
     reads.read_type_list = { "", "", "pb" };
     reads.range = { 0, 1 };
     Options from_reads(reads);
-    from_reads.ResolveReadTypes();
+    std::vector<std::string> warnings;
+    from_reads.ResolveReadTypes(warnings);
     EXPECT_EQ(from_reads.GetReadType(0), ReadType::Paired);
     EXPECT_EQ(from_reads.GetReadType(1), ReadType::Single);
     EXPECT_TRUE(from_reads.AnySample(ReadType::Single) && from_reads.AnySample(ReadType::Paired));
@@ -410,13 +411,25 @@ TEST(Options, ReadTypesOfSamples) {
     sams.prefix_list = { "pe", "se", "empty", "long" };
     sams.range = { 1 };
     Options from_sams(sams);
-    from_sams.ResolveReadTypes();
+    from_sams.ResolveReadTypes(warnings);
     EXPECT_EQ(from_sams.GetReadType(0), ReadType::Paired);
     EXPECT_EQ(from_sams.GetReadType(1), ReadType::Single);
     EXPECT_EQ(from_sams.GetReadType(2), ReadType::Paired);
     EXPECT_EQ(from_sams.GetReadType(3), ReadType::PacBio);
     EXPECT_TRUE(from_sams.AnySample(ReadType::Single));
     EXPECT_FALSE(from_sams.AnySample(ReadType::Paired));  // only the single-end sample is in the range
+    EXPECT_TRUE(warnings.empty());
+
+    // A read type given for a SAM wins over its own, with a warning where they differ.
+    sams.read_type_list = { "se", "se", "", "pb" };
+    Options given(sams);
+    given.ResolveReadTypes(warnings);
+    EXPECT_EQ(given.GetReadType(0), ReadType::Single);
+    EXPECT_EQ(given.GetReadType(1), ReadType::Single);
+    EXPECT_EQ(given.GetReadType(2), ReadType::Paired);
+    EXPECT_EQ(given.GetReadType(3), ReadType::PacBio);
+    ASSERT_EQ(warnings.size(), 1u);
+    EXPECT_NE(warnings[0].find("pe.sam holds paired-end reads; profiled as single-end reads"), std::string::npos) << warnings[0];
 }
 
 TEST(MicrobialProfile, RejectsRecordsOutsideTheDatabase) {

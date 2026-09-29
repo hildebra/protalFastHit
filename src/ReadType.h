@@ -1,8 +1,7 @@
 // ReadType.h - the kinds of reads protal profiles: short reads, paired-end or single-end, and PacBio
-// long reads. Each kind is aligned in its own way and has its own presence model (the model's
-// features are counted per read), and a SAM names the kind of its reads in a header comment.
-// Tokens and model files are those of the database build (branch zstd-compression's
-// db::kReadTypeModels).
+// and ONT long reads. Each kind is aligned in its own way and has its own presence model (the
+// model's features are counted per read), which a database holds as model_<...>.xml (--build packs
+// them, --add_model stores one), and a SAM names the kind of its reads in a header comment.
 #pragma once
 
 #include <array>
@@ -60,6 +59,29 @@ namespace protal {
             if (info.token == token) return info.type;
         }
         return std::nullopt;
+    }
+
+    // "pe, se, pb, ont", for messages.
+    inline std::string ReadTypeTokens() {
+        std::string tokens;
+        for (auto const& info : kReadTypes) tokens += (tokens.empty() ? "" : ", ") + info.token;
+        return tokens;
+    }
+
+    // The model files a database may hold for reads of `type`, in order of precedence: the type's
+    // (Info(type).model_file), and for paired-end reads those of databases from before read types.
+    inline std::vector<std::string> ModelCandidates(ReadType type) {
+        std::vector<std::string> names = { Info(type).model_file };
+        if (type == ReadType::Paired) names.insert(names.end(), kLegacyModelFiles.begin(), kLegacyModelFiles.end());
+        return names;
+    }
+
+    // Every model file a database may hold.
+    inline std::vector<std::string> AllModelFiles() {
+        std::vector<std::string> names;
+        for (auto const& info : kReadTypes) names.push_back(info.model_file);
+        names.insert(names.end(), kLegacyModelFiles.begin(), kLegacyModelFiles.end());
+        return names;
     }
 
     // The SAM header line naming the reads of the SAM: kSamReadTypeComment + the type's token.

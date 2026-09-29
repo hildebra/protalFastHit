@@ -80,4 +80,4 @@ protal's own output may differ slightly with `THREADS`.
   are part of the DB stamp, so the next run rebuilds the DB; use `--rebuild` after editing a
   lineages file.
 
-Profiling uses the shipped random forest (`scripts/random_forest.xml`, copied to `model.xml`).
+Profiling uses the shipped random forest (`scripts/random_forest.xml`, copied to `model_pe.xml`).

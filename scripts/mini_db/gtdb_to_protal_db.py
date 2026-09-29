@@ -28,7 +28,8 @@ Writes to <outdir>:
                          genome's species (only if genomic_files_all is present)
   gene2geneid.tsv        marker id -> geneid
   genome2tiid.tsv        accession, species taxid, species rep accession, lineage
-  model.xml              copy of --model (the profiler's random forest)
+  model_pe.xml           copy of --model (the profiler's random forest for paired-end reads;
+                         models for other read types: protal --add_model, see README)
 
 Then build the index with
   protal --build --no_profile --db <outdir> --reference <outdir>/reference.fna \\
@@ -39,6 +40,13 @@ Intended for small/sparse releases: representative sequences are held in memory.
 
 Usage:
   gtdb_to_protal_db.py --gtdb <release dir> --outdir <db dir> [--release 226] [--model FILE]
+      [--exclude_species FILE]
+  gtdb_to_protal_db.py --from_db <db dir> --exclude_species FILE --outdir <training db dir>
+
+--exclude_species leaves the marker genes of those species out and keeps them in the taxonomy
+with their taxids, for a training database: reads of the species left out land on relatives, as
+those of species GTDB lacks do in real samples. --from_db makes such a copy of a folder this script
+wrote, before protal --build packs it, without reading the release again.
 """
 
 import argparse
@@ -161,6 +169,76 @@ def read_fasta(path):
         yield header, "".join(chunks)
 
 
+def read_species_list(path):
+    """Species names, one per line (first tab-separated field; 's__' optional; '#' comments)."""
+    names = set()
+    with open(path) as fh:
+        for line in fh:
+            name = line.rstrip("\n").split("\t")[0].strip()
+            if name and not name.startswith("#"):
+                names.add(name if name.startswith("s__") else "s__" + name)
+    return names
+
+
+def species_taxids(taxonomy_rows, names, what):
+    """Taxids of the species named in `names` among (taxid, name, rank) rows; exits naming any not found."""
+    found = {name: tid for tid, name, rank in taxonomy_rows if rank == "species" and name in names}
+    missing = sorted(names - set(found))
+    if missing:
+        sys.exit(f"{len(missing)} species of {what} are not in the taxonomy: " + ", ".join(missing[:10])
+                 + (" ..." if len(missing) > 10 else ""))
+    return set(found.values())
+
+
+def exclude_from_db(src, dst, names):
+    """Copy the converted database folder src (before protal --build) to dst, leaving out the marker genes
+    of the species `names` from reference.fna, reference.map and full_reference.fna. The taxonomy keeps
+    them with the same taxids: truth files still name them, and a model trained on dst applies to src."""
+    fna = os.path.join(src, "reference.fna")
+    if not os.path.isfile(fna):
+        sys.exit(f"{src} has no reference.fna: exclude species before protal --build packs the database")
+    with open(os.path.join(src, "internal_taxonomy.dmp")) as fh:
+        next(fh)
+        rows = [(f[0], f[3], f[4]) for f in (line.rstrip("\n").split("\t") for line in fh)]
+    drop = species_taxids(rows, names, "--exclude_species")
+    os.makedirs(dst, exist_ok=True)
+    for name in os.listdir(src):
+        if name not in ("reference.fna", "reference.map", "full_reference.fna") and os.path.isfile(os.path.join(src, name)):
+            shutil.copyfile(os.path.join(src, name), os.path.join(dst, name))
+
+    def records(path):
+        with open(path) as fh:
+            for header in fh:
+                seq = fh.readline()
+                if not header.startswith(">") or not seq:
+                    sys.exit(f"{path}: expected a header and one sequence line per record")
+                yield header, seq, header[1:].split("_", 1)[0]
+
+    kept = dropped = offset = 0
+    with open(os.path.join(dst, "reference.fna"), "w", newline="\n") as out, \
+            open(os.path.join(dst, "reference.map"), "w", newline="\n") as fmap:
+        for header, seq, tid in records(fna):
+            if tid in drop:
+                dropped += 1
+                continue
+            gid = header[1:].rstrip("\n").split("_", 1)[1]
+            out.write(header + seq)
+            start = offset + len(header)
+            fmap.write(f"{tid}\t{gid}\t{start}\t{start + len(seq) - 1}\n")
+            offset = start + len(seq)
+            kept += 1
+    full = os.path.join(src, "full_reference.fna")
+    full_kept = 0
+    if os.path.isfile(full):
+        with open(os.path.join(dst, "full_reference.fna"), "w", newline="\n") as out:
+            for header, seq, tid in records(full):
+                if tid not in drop:
+                    out.write(header + seq)
+                    full_kept += 1
+    sys.stderr.write(f"{src} -> {dst} without {len(drop)} species: {kept} representative sequences kept, "
+                     f"{dropped} left out; full reference {full_kept} sequences\n")
+
+
 def build_taxonomy(species_lineages):
     """Species (sorted by lineage) get ids 1..S, then root, then higher ranks.
     -> (rows for internal_taxonomy.dmp, {species name: taxid})"""
@@ -186,14 +264,27 @@ def build_taxonomy(species_lineages):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--gtdb", required=True, help="extracted GTDB release directory")
+    ap.add_argument("--gtdb", help="extracted GTDB release directory")
+    ap.add_argument("--from_db", help="instead of --gtdb: a folder this script wrote (before protal --build), "
+                                      "copied without the species of --exclude_species")
     ap.add_argument("--outdir", required=True, help="protal database directory to write")
     ap.add_argument("--release", help="release number, e.g. 226 (default: detected)")
     ap.add_argument("--model", default=os.path.join(SCRIPT_DIR, "..", "random_forest.xml"),
-                    help="random forest PMML copied to <outdir>/model.xml")
+                    help="random forest PMML for paired-end reads, copied to <outdir>/model_pe.xml")
     ap.add_argument("--order", choices=("gene", "genome"), default="gene",
                     help="reference.fna record order: by gene, then taxid (compresses better), or by taxid, then gene")
+    ap.add_argument("--exclude_species", help="file of species (s__Genus species, one per line) whose marker genes "
+                                              "are left out; the taxonomy keeps them, with the taxids they have "
+                                              "with all species (a training database with species held out)")
     args = ap.parse_args()
+    if bool(args.gtdb) == bool(args.from_db):
+        ap.error("give --gtdb or --from_db")
+    exclude = read_species_list(args.exclude_species) if args.exclude_species else set()
+    if args.from_db:
+        if not exclude:
+            ap.error("--from_db needs --exclude_species")
+        exclude_from_db(args.from_db, args.outdir, exclude)
+        return
 
     rel = args.release or detect_release(args.gtdb)
     lineage = read_taxonomy(args.gtdb, rel)
@@ -240,6 +331,8 @@ def main():
         parent = prefix_id[";".join(lin.split(";")[:-1])]
         rows.append((taxid[sp], parent, 0, sp, "species", len(RANKS), species_rep[sp]))
     rows.sort()
+    drop = species_taxids([(str(taxid[sp]), sp, "species") for sp in taxid], exclude, "--exclude_species")
+    drop = {int(t) for t in drop}
 
     os.makedirs(args.outdir, exist_ok=True)
     out = lambda name: os.path.join(args.outdir, name)
@@ -250,7 +343,8 @@ def main():
             fh.write("\t".join(map(str, row)) + "\n")
 
     records = sorted(((taxid[lineage[acc].split(";")[-1]], gene_ids[marker], seq)
-                      for (acc, marker), seq in rep_seqs.items()),
+                      for (acc, marker), seq in rep_seqs.items()
+                      if taxid[lineage[acc].split(";")[-1]] not in drop),
                      key=(lambda r: (r[1], r[0])) if args.order == "gene" else (lambda r: (r[0], r[1])))
     with open(out("reference.fna"), "wb") as fna, open(out("reference.map"), "w", newline="\n") as fmap:
         offset = 0
@@ -280,20 +374,21 @@ def main():
                 for header, seq in read_fasta(path):
                     acc = normalize_accession(header)
                     sp = lineage.get(acc, "").split(";")[-1]
-                    if sp not in taxid or (acc, marker) in seen:
+                    if sp not in taxid or taxid[sp] in drop or (acc, marker) in seen:
                         continue
                     seen.add((acc, marker))
                     fh.write(f">{taxid[sp]}_{gene_ids[marker]}\n{seq.upper()}\n")
                     n_full += 1
 
     if os.path.exists(args.model):
-        shutil.copyfile(args.model, out("model.xml"))
+        shutil.copyfile(args.model, out("model_pe.xml"))
     else:
-        sys.stderr.write(f"Warning: model {args.model} not found; add model.xml before profiling\n")
+        sys.stderr.write(f"Warning: model {args.model} not found; add model_pe.xml before profiling\n")
 
     sys.stderr.write(
         f"GTDB r{rel} -> {args.outdir}\n"
-        f"  species:            {len(taxid)} (taxids 1..{len(taxid)}, root {root_id})\n"
+        f"  species:            {len(taxid)} (taxids 1..{len(taxid)}, root {root_id})"
+        + (f", {len(drop)} without marker genes (--exclude_species)" if drop else "") + "\n"
         f"  marker genes:       {len(gene_ids)} ids, {len(records)} representative sequences\n"
         f"  full reference:     {n_full} sequences" + ("" if all_files else " (no genomic_files_all)") + "\n"
         f"  skipped rep records: " + ", ".join(f"{k}: {v}" for k, v in skipped.items()) + "\n")

@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <unistd.h>
+#include "ReadType.h"
 #include "Utilities/Database.h"
 #include "Utilities/ReferenceFingerprint.h"
 #include "Hash/IndexCodec.h"
@@ -180,6 +181,51 @@ TEST(Database, TruncatedAndCorruptFilesFail) {
     error.clear();
     file.ParallelRead(2, sink, error);
     EXPECT_FALSE(error.empty());
+}
+
+// A database rewritten from its own members' frames with one member replaced (as --add_model does):
+// the others are byte-identical frames, the new one reads back.
+TEST(Database, RewriteWithOneMemberReplaced) {
+    TempDir tmp;
+    std::string error;
+    std::string const big = TestData(40000, 3), model = "<PMML>old</PMML>", replaced = "<PMML>new model</PMML>";
+    Spit(tmp / "big.txt", big);
+    Spit(tmp / "model.xml", model);
+    Spit(tmp / "new.xml", replaced);
+    ASSERT_TRUE(db::Write(tmp / "database.protal", {{"big.txt", tmp / "big.txt"}, {"model_pe.xml", tmp / "model.xml"}},
+                          SmallFrames(4096), error)) << error;
+    auto const old = db::Bundle::Open(tmp / "database.protal", error);
+    ASSERT_TRUE(old) << error;
+    std::string const old_bytes = Slurp(tmp / "database.protal");
+    auto const& old_big = old->Members()[0].frames.frames;
+
+    std::vector<db::Source> sources = {{"big.txt", old->Path(), old->Members()[0].frames},
+                                       {"model_pe.xml", tmp / "new.xml"},
+                                       {"model_se.xml", old->Path(), old->Members()[1].frames}};
+    ASSERT_TRUE(db::Write(tmp / "database.protal", sources, SmallFrames(4096), error)) << error;
+    auto const rewritten = db::Bundle::Open(tmp / "database.protal", error);
+    ASSERT_TRUE(rewritten) << error;
+    ASSERT_EQ(rewritten->Members().size(), 3u);
+    EXPECT_EQ(Content(db::DbFile::InBundle(*rewritten, "big.txt")), big);
+    EXPECT_EQ(Content(db::DbFile::InBundle(*rewritten, "model_pe.xml")), replaced);
+    EXPECT_EQ(Content(db::DbFile::InBundle(*rewritten, "model_se.xml")), model);
+    std::string const new_bytes = Slurp(tmp / "database.protal");
+    auto const& new_big = rewritten->Members()[0].frames.frames;
+    ASSERT_EQ(new_big.size(), old_big.size());
+    for (size_t f = 0; f < new_big.size(); f++) {
+        EXPECT_EQ(new_bytes.substr(new_big[f].compressed_offset, new_big[f].compressed_size),
+                  old_bytes.substr(old_big[f].compressed_offset, old_big[f].compressed_size)) << "frame " << f;
+    }
+}
+
+TEST(Database, ModelsPerReadType) {
+    EXPECT_EQ(ModelCandidates(ReadType::Paired), (std::vector<std::string>{"model_pe.xml", "model.xml", "random_forest.xml"}));
+    EXPECT_EQ(ModelCandidates(ReadType::Single), std::vector<std::string>{"model_se.xml"});
+    EXPECT_EQ(ModelCandidates(ReadType::PacBio), std::vector<std::string>{"model_PB.xml"});
+    EXPECT_EQ(ModelCandidates(ReadType::ONT), std::vector<std::string>{"model_ONT.xml"});
+    EXPECT_EQ(ReadTypeFromToken("illumina"), std::nullopt);
+    EXPECT_EQ(ReadTypeTokens(), "pe, se, pb, ont");
+    EXPECT_EQ(AllModelFiles().size(), 6u);
 }
 
 TEST(Database, WriteRejectsBadMembers) {

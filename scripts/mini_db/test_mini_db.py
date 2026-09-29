@@ -22,6 +22,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SIMULATE = os.path.join(HERE, "simulate_gtdb_release.py")
 CONVERT = os.path.join(HERE, "gtdb_to_protal_db.py")
 SIMULATE_READS = os.path.join(HERE, "simulate_reads.py")
+LINEAGES = os.path.join(HERE, "gtdb_like_lineages.py")
+STRAINS = os.path.join(HERE, "..", "gtdb_strain_genomes.py")
 
 
 def run(*args):
@@ -125,6 +127,72 @@ class MiniDbTest(unittest.TestCase):
                   "bac120_metadata_r226.tsv.gz", genome):
             with open(os.path.join(self.gtdb, f), "rb") as a, open(os.path.join(other, f), "rb") as b:
                 self.assertEqual(a.read(), b.read(), f"{f} differs between runs with the same seed")
+
+    def test_exclude_species(self):
+        excluded = os.path.join(self.tmp.name, "excluded.txt")
+        with open(excluded, "w") as fh:
+            fh.write("# held out\nMockella beta\n")
+        direct, copied = os.path.join(self.tmp.name, "db_direct"), os.path.join(self.tmp.name, "db_copied")
+        run(CONVERT, "--gtdb", self.gtdb, "--outdir", direct, "--exclude_species", excluded)
+        run(CONVERT, "--from_db", self.db, "--exclude_species", excluded, "--outdir", copied)
+        taxids = {r[3]: r[0] for r in self.taxonomy().values() if r[4] == "species"}
+        for f in ("reference.fna", "reference.map", "full_reference.fna", "internal_taxonomy.dmp"):
+            with open(os.path.join(direct, f), "rb") as a, open(os.path.join(copied, f), "rb") as b:
+                self.assertEqual(a.read(), b.read(), f"{f}: --from_db and --gtdb differ")
+        with open(os.path.join(self.db, "internal_taxonomy.dmp"), "rb") as a, \
+                open(os.path.join(direct, "internal_taxonomy.dmp"), "rb") as b:
+            self.assertEqual(a.read(), b.read(), "the taxonomy must keep the species left out")
+        with open(os.path.join(direct, "reference.fna")) as fh:
+            kept = {line[1:].split("_")[0] for line in fh if line.startswith(">")}
+        self.assertNotIn(taxids["s__Mockella beta"], kept)
+        self.assertEqual(len(kept), len(taxids) - 1)
+        # reference.map still points at each sequence line
+        with open(os.path.join(direct, "reference.fna"), "rb") as fna, open(os.path.join(direct, "reference.map")) as fmap:
+            data = fna.read()
+            for line in fmap:
+                tid, gid, start, end = line.split()
+                header_end = int(start)
+                self.assertEqual(data[data.rfind(b">", 0, header_end):header_end], f">{tid}_{gid}\n".encode())
+                self.assertEqual(data[int(end):int(end) + 1], b"\n")
+        with self.assertRaises(subprocess.CalledProcessError):
+            with open(excluded, "w") as fh:
+                fh.write("s__Nonexistent species\n")
+            run(CONVERT, "--from_db", self.db, "--exclude_species", excluded, "--outdir", os.path.join(self.tmp.name, "x"))
+
+    def test_strain_genomes(self):
+        out = os.path.join(self.tmp.name, "strains")
+        run(STRAINS, "--gtdb", self.gtdb, "-o", out, "--species", "2", "--per_species", "1", "--rep_only_species", "1")
+        with open(os.path.join(out, "strain_accessions.txt")) as fh:
+            accessions = fh.read().split()
+        with open(os.path.join(out, "simulation_species.txt")) as fh:
+            pool = fh.read().splitlines()
+        self.assertEqual(len(accessions), 2)
+        self.assertTrue(all(a.startswith("GCA_999") for a in accessions), "non-representatives, without RS_/GB_")
+        self.assertEqual(len(pool), 3)
+        self.assertTrue(all(s.startswith("s__") for s in pool))
+
+    def test_gtdb_like_lineages(self):
+        text = subprocess.run([sys.executable, LINEAGES, "--species", "300", "--archaea", "0.1", "--seed", "3"],
+                              check=True, capture_output=True, text=True).stdout
+        lineages = [l.split(";") for l in text.splitlines()]
+        self.assertEqual(len(lineages), 300)
+        self.assertTrue(all([r[:3] for r in l] == ["d__", "p__", "c__", "o__", "f__", "g__", "s__"] for l in lineages))
+        self.assertEqual(sum(l[0] == "d__Archaea" for l in lineages), 30)
+        self.assertEqual(len({l[6] for l in lineages}), 300)
+        parent = {}
+        for l in lineages:  # every name has one parent: names are unique across the tree
+            for rank in range(1, 7):
+                self.assertEqual(parent.setdefault(l[rank], l[rank - 1]), l[rank - 1], l[rank])
+        genera = {}
+        for l in lineages:
+            genera[l[5]] = genera.get(l[5], 0) + 1
+        self.assertGreater(sum(1 for n in genera.values() if n == 1), len(genera) / 3, "most genera have one species")
+        self.assertGreater(max(genera.values()), 5)
+        path = os.path.join(self.tmp.name, "lineages.txt")
+        with open(path, "w") as fh:
+            fh.write("\n".join(";".join(l) for l in lineages[:20]) + "\n")
+        run(SIMULATE, "--outdir", os.path.join(self.tmp.name, "gtdb_like"), "--lineages", path,
+            "--genome_length", "5000", "--genomes_per_species", "1")
 
     def test_divergence_ranges(self):
         def divergence(root):

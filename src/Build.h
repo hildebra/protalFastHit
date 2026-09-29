@@ -216,8 +216,9 @@ namespace protal::build {
     // The files of a database folder that go into database.protal (Database.h), in member order: the
     // index (index.prx.zst in the column format, frames copied as they are), the reference (a
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
-    // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv and the
-    // models, the first of Options::ModelCandidates for each read type the folder has.
+    // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv and every
+    // presence model there is (AllModelFiles in ReadType.h: model_pe.xml, model_se.xml, model_PB.xml,
+    // model_ONT.xml, and model.xml / random_forest.xml of older databases).
     static std::vector<db::Source> BundleSources(protal::Options const& options) {
         namespace fs = std::filesystem;
         std::vector<db::Source> sources = {
@@ -226,16 +227,29 @@ namespace protal::build {
                 {Options::PROTAL_SEQUENCE_MAP_FILE, options.GetSequenceMapFile()},
                 {Options::PROTAL_TAXONOMY_FILE, options.GetInternalTaxonomyFile()}};
         if (fs::exists(options.GetUniqueKmersFile())) sources.push_back({Options::PROTAL_UNIQUE_KMER_FILE, options.GetUniqueKmersFile()});
-        for (auto const& info : kReadTypes) {
-            for (auto const& model : Options::ModelCandidates(info.type)) {
-                std::string const path = (fs::path(options.GetLocation().dir) / model).string();
-                if (fs::exists(path)) {
-                    sources.push_back({model, path});
-                    break;
-                }
-            }
+        for (auto const& model : AllModelFiles()) {
+            std::string const path = (fs::path(options.GetLocation().dir) / model).string();
+            if (fs::exists(path)) sources.push_back({model, path});
         }
         return sources;
+    }
+
+    // Whether names hold a model of reads of `type` (one of its ModelCandidates).
+    inline bool HasModel(std::vector<std::string> const& names, ReadType type) {
+        auto const candidates = ModelCandidates(type);
+        return std::any_of(candidates.begin(), candidates.end(), [&](std::string const& c) {
+            return std::find(names.begin(), names.end(), c) != names.end();
+        });
+    }
+
+    // The read types (their tokens) whose model is among names, and those whose is not.
+    inline std::pair<std::string, std::string> ModelCoverage(std::vector<std::string> const& names) {
+        std::string with, without;
+        for (auto const& info : kReadTypes) {
+            std::string& list = HasModel(names, info.type) ? with : without;
+            list += (list.empty() ? "" : ", ") + info.token;
+        }
+        return {with, without};
     }
 
     // Packs the database folder into database.protal, checks it (db::Write), and removes the files
@@ -250,11 +264,17 @@ namespace protal::build {
                       << "format (protal --compress_db --no_bundle converts it)" << std::endl;
             exit(8);
         }
-        auto const paired = Options::ModelCandidates(ReadType::Paired);
-        if (std::none_of(sources.begin(), sources.end(), [&paired](db::Source const& s) {
-                return std::find(paired.begin(), paired.end(), s.name) != paired.end(); })) {
-            std::cerr << "Warning: no model of paired-end reads (" << paired.front() << " or model.xml) in " << options.GetLocation().dir
-                      << "; profiling with " << target << " then needs --model" << std::endl;
+        {
+            std::vector<std::string> names;
+            for (auto const& source : sources) names.push_back(source.name);
+            auto const [with, without] = ModelCoverage(names);
+            std::cout << "Models for read types: " << (with.empty() ? "none" : with)
+                      << (without.empty() ? "" : "; none for " + without + " (protal --add_model FILE --read_type TYPE --db " +
+                                                 Options::ShellWord(target) + " adds one)") << std::endl;
+            if (!HasModel(names, ReadType::Paired)) {
+                std::cerr << "Warning: no model for paired-end reads (model_pe.xml) in " << options.GetLocation().dir
+                          << "; profiling with " << target << " then needs --model" << std::endl;
+            }
         }
         auto const params = options.CompressionParams();
         Benchmark bm("Write " + db::kFileName);
@@ -415,6 +435,54 @@ namespace protal::build {
         UnpackBundle(options, dir, false);
         std::cout << "Unpacked " << options.GetBundle()->Path() << " into " << dir << "; protal --db " << Options::ShellWord(dir)
                   << " uses these files (" << options.GetBundle()->Path() << " can be removed)" << std::endl;
+    }
+
+    // --add_model (the model checked already): stores the PMML file model as member or file `name` of
+    // the database, replacing the one there. database.protal is rewritten via database.protal.partial
+    // with its other members' frames copied as they are (db::Write checks it); in a folder of separate
+    // files the model is copied next to them.
+    static void AddModel(protal::Options const& options, std::string const& model, std::string const& name) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        if (!options.IsBundle()) {
+            std::string const target = (fs::path(options.GetLocation().dir) / name).string();
+            bool const replaces = fs::exists(target, ec);
+            std::string const partial = target + ".partial";
+            fs::copy_file(model, partial, fs::copy_options::overwrite_existing, ec);
+            std::ifstream a(model, std::ios::binary), b(partial, std::ios::binary);
+            bool const same = !ec && std::equal(std::istreambuf_iterator<char>(a), std::istreambuf_iterator<char>(),
+                                                std::istreambuf_iterator<char>(b), std::istreambuf_iterator<char>());
+            if (same) fs::rename(partial, target, ec);
+            if (!same || ec) {
+                std::cerr << "Writing " << target << " failed" << (ec ? ": " + ec.message() : "") << std::endl;
+                fs::remove(partial, ec);
+                exit(8);
+            }
+            std::cout << "Stored " << model << " as " << target << (replaces ? " (replaced the previous one)" : "") << std::endl;
+            return;
+        }
+        auto const& bundle = *options.GetBundle();
+        std::vector<db::Source> sources;
+        bool replaces = false;
+        for (auto const& member : bundle.Members()) {
+            if (member.name == name) {
+                sources.push_back({name, model});
+                replaces = true;
+            } else {
+                sources.push_back({member.name, bundle.Path(), member.frames});
+            }
+        }
+        if (!replaces) sources.push_back({name, model});
+        std::string error;
+        auto const written = db::Write(bundle.Path(), sources, options.CompressionParams(), error);
+        if (!written) {
+            std::cerr << "Writing " << bundle.Path() << " failed: " << error << " (the database is unchanged)" << std::endl;
+            exit(8);
+        }
+        std::vector<std::string> names;
+        for (auto const& source : sources) names.push_back(source.name);
+        std::cout << "Stored " << model << " as " << name << " in " << bundle.Path() << (replaces ? " (replaced the previous one)" : "")
+                  << "; " << HumanBytes(*written) << ". Models for read types: " << ModelCoverage(names).first << std::endl;
     }
 
     // --compress_db: rewrites an existing database's index and reference compressed, without

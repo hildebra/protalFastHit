@@ -1,5 +1,6 @@
 // Database.h - where protal finds its database files: a directory of files (index.prx(.zst),
-// reference.fna(.zst), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, model.xml), or the
+// reference.fna(.zst), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, one presence model per
+// read type: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml, see ReadType.h), or the
 // single-file database database.protal, which holds all of them as members.
 //
 // database.protal is a seekable zstd file (Zstd.h):
@@ -288,10 +289,12 @@ namespace protal::db {
     }
 
     // A member to write, from the file at path: a seekable zstd file's frames are copied as they are,
-    // any other file (raw, or zstd without a seek table) is compressed into frames.
+    // any other file (raw, or zstd without a seek table) is compressed into frames. With frames, only
+    // those frames of path are copied (a member of another single-file database).
     struct Source {
         std::string name;
         std::string path;
+        std::optional<zstd::SeekTable> frames = std::nullopt;
     };
 
     namespace detail {
@@ -391,7 +394,9 @@ namespace protal::db {
                 error = source.path + " does not exist";
                 return std::nullopt;
             }
-            if (zstd::IsCompressed(source.path)) {
+            if (source.frames) {
+                p.table = source.frames;
+            } else if (zstd::IsCompressed(source.path)) {
                 p.table = zstd::ReadSeekTable(source.path, error);
                 if (!error.empty()) {
                     error = source.path + ": " + error;

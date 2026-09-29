@@ -1715,6 +1715,34 @@ namespace protal {
         return pages * page_size;
     }
 
+    // Loads the PMML presence model and checks that protal can use it (ModelContractProblemInXml);
+    // exits 2 if not.
+    static profiler::TaxonFilterObj LoadModel(db::DbFile const& file, double knob) {
+        std::string read_error;
+        auto const xml = file.ReadAll(read_error);
+        if (!xml) {
+            std::cerr << "Cannot load the model " << file.Name() << ": " << read_error << std::endl;
+            exit(2);
+        }
+        std::optional<profiler::TaxonFilterObj> model;
+        try {
+            model.emplace(cpmml::Model::from_string(*xml), knob);
+        } catch (std::exception const& e) {
+            std::cerr << "Cannot load the model " << file.Name() << ": " << e.what() << std::endl;
+            exit(2);
+        }
+        if (auto problem = profiler::ModelContractProblemInXml(model.value(), *xml); !problem.empty()) {
+            std::cerr << "Cannot use the model " << file.Name() << ": " << problem << std::endl;
+            exit(2);
+        }
+        if (profiler::IsPlaceholderModel(*xml)) {
+            std::cerr << "WARNING: " << file.Name() << " is a placeholder, not a trained model: it scores every taxon 0, so "
+                      << "no species is reported (--knob 0 lists every taxon with reads). Train a model for this read type "
+                      << "and store it with protal --add_model FILE --read_type TYPE --db DB." << std::endl;
+        }
+        return *model;
+    }
+
     // Runs protal and returns the process exit code: 0, or 1 if any sample or output failed (see
     // RunStatus). Invalid input and fatal errors still exit directly with their own codes.
     static int Run(int argc, char *argv[]) {
@@ -1756,11 +1784,15 @@ namespace protal {
 
         std::cout << "Options:\n" << options.ToString() << std::endl;
 
-        if (options.CompressDbMode() || options.DecompressDbMode() || options.UnpackDbMode()) {
+        if (options.CompressDbMode() || options.DecompressDbMode() || options.UnpackDbMode() || !options.GetAddModel().empty()) {
             // Each exits 8 on failure.
             if (options.CompressDbMode()) protal::build::CompressDatabase(options);
             else if (options.DecompressDbMode()) protal::build::DecompressDatabase(options);
-            else protal::build::UnpackDatabase(options);
+            else if (options.UnpackDbMode()) protal::build::UnpackDatabase(options);
+            else {
+                LoadModel(db::DbFile::OnDisk(options.GetAddModel()), options.GetKnob());  // exits 2 if unusable
+                protal::build::AddModel(options, options.GetAddModel(), Info(options.AddModelReadType()).model_file);
+            }
             return RunStatus::Get().Finish();
         }
 
@@ -1817,30 +1849,12 @@ namespace protal {
         if (run_profiling) {
             db.LoadTaxonomy(options.TaxonomyDbFile());
             msa_taxids = ResolveMSASpecies(options, db.GetTaxonomy());
-            auto load_model = [&options](std::optional<profiler::TaxonFilterObj>& target, ReadType type) {
-                auto const model_file = options.ModelDbFile(type);
-                std::string read_error;
-                auto const xml = model_file.ReadAll(read_error);
-                if (!xml) {
-                    std::cerr << "Cannot load the model " << model_file.Name() << ": " << read_error << std::endl;
-                    exit(2);
-                }
-                try {
-                    target.emplace(cpmml::Model::from_string(*xml), options.GetKnob());
-                } catch (std::exception const& e) {
-                    std::cerr << "Cannot load the model " << model_file.Name() << ": " << e.what() << std::endl;
-                    exit(2);
-                }
-                if (auto problem = profiler::ModelContractProblemInXml(target.value(), *xml); !problem.empty()) {
-                    std::cerr << "Cannot use the model " << model_file.Name() << ": " << problem << std::endl;
-                    exit(2);
-                }
-                std::cout << "Model of " << ReadTypeName(type) << " reads: " << model_file.Name() << std::endl;
-            };
             bool const any_sample = std::any_of(kReadTypes.begin(), kReadTypes.end(), [&options](ReadTypeInfo const& t) { return options.AnySample(t.type); });
             for (auto const& info : kReadTypes) {
                 if (options.AnySample(info.type) || (info.type == ReadType::Paired && !any_sample)) {
-                    load_model(models[static_cast<size_t>(info.type)], info.type);
+                    auto const model_file = options.ModelDbFile(info.type);
+                    std::cout << "Model of " << info.name << " reads: " << model_file.Name() << std::endl;
+                    models[static_cast<size_t>(info.type)].emplace(LoadModel(model_file, options.GetKnob()));
                 }
             }
         }
