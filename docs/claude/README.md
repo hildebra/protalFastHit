@@ -7,6 +7,7 @@ and on [protal.earlham.ac.uk](https://protal.earlham.ac.uk/main.php?site=documen
 
 | Date | Report | Scope |
 |---|---|---|
+| 2026-09-29 | [Performance profiling](2026-09-29-performance-profiling/README.md) | where time and instructions go on simulated paired reads (64- and 900-species worlds, realistic 5% mix): gzip reader lock, syncmers, WFA, huge pages, start-up; cPMML exception patches, a threaded gzip reader, huge pages and fixed stage timers, implemented and measured |
 | 2026-09-29 | [Training the presence model](2026-09-29-model-training-tuning/README.md) | the Java-free trainer against the old procedure; what simulated training data need (strains, species held out) on a GTDB-like world, and the settings for GTDB r226; placeholder models; plan for se/PacBio/ONT training data |
 | 2026-09-29 | [Single-end and long reads](2026-09-29-single-end-and-long-reads.md) | what single-end, HiFi and ONT reads need (evaluation), and single-end support as implemented and tested |
 | 2026-09-29 | [Website documentation review](2026-09-29-website-review.md) | protal.earlham.ac.uk against branch `audit-fixes`: what to update |

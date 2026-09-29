@@ -61,6 +61,7 @@ set(PROTAL_LIB_SOURCES
         Core/CoreBenchmark.h
         IO/FastxReader.h
         IO/FastxReader.cpp
+        IO/ThreadedGzStream.h
         IO/SamHandler.h
         IO/BufferedOutput.h
         IO/BufferedOutput.cpp

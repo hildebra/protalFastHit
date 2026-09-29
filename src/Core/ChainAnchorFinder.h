@@ -412,6 +412,7 @@ namespace protal {
                     m_anchors.insert(m_anchors.end(), own_anchors.begin(), own_anchors.end());
                     std::swap(m_anchors, own_anchors);
                 }
+                m_bm_recovering_anchors.Stop();
                 return recovered;
             }
             recovered_count++;

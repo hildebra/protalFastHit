@@ -10,6 +10,7 @@
 #include "ChainAnchorFinder.h"
 #include "Taxonomy.h"
 #include "gzstream.h"
+#include "ThreadedGzStream.h"
 #include "AlignmentStrategy.h"
 #include "TaxonStatisticsOutput.h"
 #include "ProgressBar.h"
@@ -327,7 +328,7 @@ namespace protal {
                 std::string const read_files = single_file ? options.GetFirstFile(index) :
                                                options.GetFirstFile(index) + ", " + options.GetSecondFile(index);
                 if (IsLongReadType(read_type)) {
-                    igzstream is { options.GetFirstFile(index).c_str() };
+                    ThreadedGzIstream is { options.GetFirstFile(index).c_str() };
                     SeqReaderSE reader{ is, FastaQualityChar(read_type) };
                     LongReadAligner<SimpleKmerHandler<ClosedSyncmer>, AnchorFinder> long_read_aligner(
                             iterator, anchor_finder, alignment_handler, genomes, options.GetAlignTop(), max_score_ani);
@@ -341,7 +342,7 @@ namespace protal {
                     read_success = reader.Success();
                     is.close();
                 } else if (read_type == ReadType::Single) {
-                    igzstream is { options.GetFirstFile(index).c_str() };
+                    ThreadedGzIstream is { options.GetFirstFile(index).c_str() };
                     SeqReaderSE reader{ is, FastaQualityChar(read_type) };
                     auto align = [&](auto output_handler) {
                         return protal::classify::RunSingleEnd<
@@ -364,8 +365,9 @@ namespace protal {
                     read_success = reader.Success();
                     is.close();
                 } else {
-                    igzstream is1 { options.GetFirstFile(index).c_str() };
-                    igzstream is2 { options.GetSecondFile(index).c_str() };
+                    // Each file inflates in a thread of its own (ThreadedGzStream.h), outside the reader lock.
+                    ThreadedGzIstream is1 { options.GetFirstFile(index).c_str() };
+                    ThreadedGzIstream is2 { options.GetSecondFile(index).c_str() };
                     SeqReaderPE reader{ is1, is2, FastaQualityChar(read_type) };
 
                     if (options.GetMAPQDebugOut()) {

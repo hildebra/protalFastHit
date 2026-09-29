@@ -9,6 +9,7 @@
 #include "SequenceUtils/KmerIterator.h"
 #include "Statistics.h"
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <omp.h>
 #include "Constants.h"
@@ -23,8 +24,10 @@
 
 namespace protal::classify {
 
-    // The seeding and alignment diagnostics of the current sample in the misc folder: seconds per
-    // stage (<sample>_runtime.tsv), and histograms of seeds and anchors per read.
+    // The seeding and alignment diagnostics of the current sample in the misc folder: the time of
+    // each stage (<sample>_runtime.tsv), and histograms of seeds and anchors per read. A stage's
+    // seconds are summed over the threads that ran it; per thread is that divided by threads, as
+    // --verbose prints it.
     template<typename AnchorFinder>
     static void WriteAlignmentDiagnostics(protal::Options const& options, AnchorFinder& anchor_finder_global,
                                           std::vector<Benchmark*> const& stages,
@@ -33,13 +36,17 @@ namespace protal::classify {
         auto const sample = options.GetSampleId(options.GetCurrentIndex());
 
         std::ofstream time_os(misc_dir / (sample + "_runtime.tsv"), std::ios::out);
+        time_os << "stage\tseconds\tthreads\tseconds_per_thread\n" << std::fixed << std::setprecision(6);
+        auto row = [&time_os](Benchmark const& bm) {
+            time_os << bm.GetName() << '\t' << bm.Seconds() << '\t' << bm.Threads() << '\t' << bm.MeanSeconds() << '\n';
+        };
         for (Benchmark* bm : { &anchor_finder_global.m_bm_seeding, &anchor_finder_global.m_bm_processing,
                                &anchor_finder_global.m_bm_pairing, &anchor_finder_global.m_bm_sorting_anchors,
                                &anchor_finder_global.m_bm_extend_anchors }) {
-            time_os << bm->GetName() << '\t' << bm->GetDuration(Time::seconds) << '\n';
+            row(*bm);
         }
         for (Benchmark* bm : stages) {
-            time_os << bm->GetName() << '\t' << bm->GetDuration(Time::seconds) << '\n';
+            row(*bm);
         }
         time_os.close();
 
@@ -56,6 +63,7 @@ namespace protal::classify {
         omp_set_num_threads(options.GetThreads());
 
         Statistics statistics{};
+        Benchmark bm_kmer_extracter_global{"Retrieve k-mers", 0};
         Benchmark bm_anchor_finder_global{"Seed- and Anchor-finding", 0};
         Benchmark bm_anchor_recovery_global{"Anchor recovery", 0};  // paired-end only; kept for the runtime table
         Benchmark bm_alignment_global{"Alignment handler", 0};
@@ -69,7 +77,7 @@ namespace protal::classify {
 
         std::cout << "Start parallel execution with " << options.GetThreads() << " threads" << std::endl;
         bm_omp_block.Start();
-#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_anchor_finder_global, bm_alignment_global, bm_output_global, seed_sizes_global, anchor_sizes_global, benchmark_global, reader_global, options, kmer_handler_global, statistics, anchor_finder_global, alignment_handler_global, output_handler_global)
+#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_kmer_extracter_global, bm_anchor_finder_global, bm_alignment_global, bm_output_global, seed_sizes_global, anchor_sizes_global, benchmark_global, reader_global, options, kmer_handler_global, statistics, anchor_finder_global, alignment_handler_global, output_handler_global)
         {
             FastxRecord record;
 
@@ -89,6 +97,7 @@ namespace protal::classify {
             AlignmentResultList alignment_results;
 
             Benchmark bm_reader{"Sequence reader"};
+            Benchmark bm_kmer_extracter{"Retrieve k-mers"};
             Benchmark bm_anchor_finder{"Seed- and Anchor-finding"};
             Benchmark bm_alignment{"Alignment handler"};
             Benchmark bm_output{"Output handler"};
@@ -106,7 +115,9 @@ namespace protal::classify {
                 anchors.clear();
                 alignment_results.clear();
 
+                bm_kmer_extracter.Start();
                 kmer_handler(std::string_view(record.sequence), kmers);
+                bm_kmer_extracter.Stop();
                 if constexpr(KmerStatisticsConcept<KmerHandler>) {
                     thread_statistics.kmers_total += kmer_handler.TotalKmers();
                 }
@@ -163,6 +174,7 @@ namespace protal::classify {
                 reader_global.UpdateSuccess(reader);
 
                 bm_reader_global.Join(bm_reader);
+                bm_kmer_extracter_global.Join(bm_kmer_extracter);
                 bm_anchor_finder_global.Join(bm_anchor_finder);
                 bm_alignment_global.Join(bm_alignment);
                 bm_output_global.Join(bm_output);
@@ -195,6 +207,7 @@ namespace protal::classify {
             std::cout << "---------------Speed benchmarks---------------------" << std::endl;
             bm_omp_block.PrintResults();
             bm_reader_global.PrintResults();
+            bm_kmer_extracter_global.PrintResults();
             bm_anchor_finder_global.PrintResults();
             std::cout << "\t";
             anchor_finder_global.m_bm_operator.PrintResults();
@@ -208,7 +221,8 @@ namespace protal::classify {
         }
 
         WriteAlignmentDiagnostics(options, anchor_finder_global,
-                                  { &bm_anchor_finder_global, &bm_anchor_recovery_global, &bm_alignment_global,
+                                  { &bm_reader_global, &bm_kmer_extracter_global, &bm_anchor_finder_global,
+                                    &bm_anchor_recovery_global, &bm_alignment_global,
                                     &bm_alignment_join_sort_global, &bm_output_global },
                                   seed_sizes_global, anchor_sizes_global);
         return statistics;
@@ -317,7 +331,7 @@ namespace protal::classify {
         }
 
         WriteAlignmentDiagnostics(options, aligner_global.GetAnchorFinder(),
-                                  { &bm_anchor_finder_global, &bm_anchor_recovery_global, &bm_alignment_global,
+                                  { &bm_reader_global, &bm_anchor_finder_global, &bm_anchor_recovery_global, &bm_alignment_global,
                                     &bm_alignment_join_sort_global, &bm_output_global },
                                   seed_sizes_global, anchor_sizes_global);
         return statistics;
@@ -394,6 +408,7 @@ namespace protal::classify {
         omp_set_num_threads(options.GetThreads());
 
         Statistics statistics{};
+        Benchmark bm_kmer_extracter_global{"Retrieve k-mers", 0};
         Benchmark bm_anchor_finder_global{"Seed- and Anchor-finding", 0};
         Benchmark bm_anchor_recovery_global{"Anchor recovery", 0};
         Benchmark bm_alignment_global{"Alignment handler", 0};
@@ -410,7 +425,7 @@ namespace protal::classify {
 
         std::cout << "Start parallel execution with " << options.GetThreads() << " threads" << std::endl;
         bm_omp_block.Start();
-#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_omp_before_loop_global, bm_alignment_join_sort_global, bm_anchor_recovery_global, bm_anchor_finder_global, /*adoh_global,*/ genome_loader, seed_sizes_global, anchor_sizes_global, bm_alignment_global, bm_output_global, benchmark_global, reader_global, options, dummy, kmer_handler_global, statistics, anchor_finder_global, alignment_handler_global, output_handler_global)
+#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_kmer_extracter_global, bm_omp_before_loop_global, bm_alignment_join_sort_global, bm_anchor_recovery_global, bm_anchor_finder_global, /*adoh_global,*/ genome_loader, seed_sizes_global, anchor_sizes_global, bm_alignment_global, bm_output_global, benchmark_global, reader_global, options, dummy, kmer_handler_global, statistics, anchor_finder_global, alignment_handler_global, output_handler_global)
         {
             bm_omp_before_loop_global.Start();
             // Private variables
@@ -620,8 +635,9 @@ namespace protal::classify {
 
                 bm_reader_global.Join(bm_reader);
 
+                bm_kmer_extracter_global.Join(bm_kmer_extracter);
                 bm_anchor_finder_global.Join(bm_anchor_finder);
-                // bm_anchor_recovery_global.Join(bm_anchor_recovery);
+                bm_anchor_recovery_global.Join(bm_anchor_recovery);
                 bm_alignment_global.Join(bm_alignment);
                 bm_alignment_join_sort_global.Join(bm_alignment_join_sort);
                 bm_output_global.Join(bm_output);
@@ -661,6 +677,7 @@ namespace protal::classify {
             bm_omp_before_loop_global.PrintResults();
             std::cout << "-----" << std::endl;
             bm_reader_global.PrintResults();
+            bm_kmer_extracter_global.PrintResults();
             bm_anchor_finder_global.PrintResults();
             std::cout << "\t";
             anchor_finder_global.m_bm_operator.PrintResults();
@@ -679,7 +696,7 @@ namespace protal::classify {
             anchor_finder_global.m_bm_sorting_anchors.PrintResults();
             std::cout << "\t\t";
             anchor_finder_global.m_bm_recovering_anchors.PrintResults();
-            // bm_anchor_recovery_global.PrintResults();
+            bm_anchor_recovery_global.PrintResults();
             bm_alignment_global.PrintResults();
             bm_alignment_join_sort_global.PrintResults();
             bm_output_global.PrintResults();
@@ -694,7 +711,8 @@ namespace protal::classify {
 
 
         WriteAlignmentDiagnostics(options, anchor_finder_global,
-                                  { &bm_anchor_finder_global, &bm_anchor_recovery_global, &bm_alignment_global,
+                                  { &bm_reader_global, &bm_kmer_extracter_global, &bm_anchor_finder_global,
+                                    &bm_anchor_recovery_global, &bm_alignment_global,
                                     &bm_alignment_join_sort_global, &bm_output_global },
                                   seed_sizes_global, anchor_sizes_global);
         return statistics;

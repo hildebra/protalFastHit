@@ -487,7 +487,6 @@ namespace protal {
 //                score = scoret;
 //                cigar_ani = CigarANI(cigart);
             } else {
-                Benchmark bm_local{"alignment"};
                 if (true) {//max_dove_size > 0 && (dove_left_required || dove_right_required)) {
                     m_bm_alignment.Start();
                     m_aligner.Alignment(read, reference_str,
@@ -512,8 +511,6 @@ namespace protal {
 //                        std::cout << m_aligner.GetAlignmentCigar() << std::endl;
 //                    }
 //                }
-
-                bm_local.Stop();
 
                 if (!m_aligner.Success()) {
                     bm_alignment.Stop();

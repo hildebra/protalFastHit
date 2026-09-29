@@ -195,6 +195,105 @@ Smaller things seen on the way: `SimpleAlignmentHandler::ExtendSeed(ChainLink&, 
   MSA stage (it needs two or more samples) or the SAM compression step of map runs.
 - The gains for syncmers and WFA are estimates from instruction counts, not prototypes.
 
+## Follow-up: cPMML upstream, and the patches on `7c6b2f8`
+
+Same day, after `performance` was fast-forwarded to `audit-fixes` at `7c6b2f8`.
+
+**No newer cPMML.** [AmadeusITGroup/cPMML](https://github.com/AmadeusITGroup/cPMML) has no releases
+or tags. Its `master` still ends at `2cd19f9` (2021-01-29), the commit protal imported (version
+0.1); its only other branches are dependabot updates of the documentation's Python requirements.
+The vendored copy differs from upstream only by protal's `Model::from_string` and its CMake
+changes, so there is nothing to update to.
+
+**The patches still apply, and still help.** The models now come in two kinds. The shipped
+`scripts/random_forest.xml` (SoftwareAG PMML Generator, 65,280 nodes; also in databases built with
+it) has no `recordCount`, so it needs both patches. Models written by `scripts/model_pmml.py`
+(`random_forest_cmdline.py`, a few hundred to ~7,000 nodes) carry `recordCount` and a class label as
+`score` on every node: the `recordCount` patch does nothing for them, and the score patch removes
+their throws. 1000 pairs, `db64`, 1 thread, `--model` pointing at each model
+(`patch_check` in the session scratchpad; the same measurement as `scripts/model_test.sh`):
+
+| Model | Model parse, instructions | Exceptions |
+|---|---:|---:|
+| shipped, as is → patched | 4.71 G → 1.16 G | 229,000 → 24,674 |
+| `~/tune/D/trained_model.xml` (6,818 nodes), as is → patched | 746 M → 249 M | 35,530 → 6,437 |
+
+Profiles and their companion files are byte-identical with and without the patches for both
+models. Both patches are now applied to `lib/cPMML` on `performance`. The exceptions left come
+from `MiningField`, `OutlierTreatmentMethod` and `OpType` looking up absent attributes with
+`.at()`.
+
+## Follow-up: the reader, huge pages and the timers, implemented
+
+Same day, on `performance` (`7c6b2f8` plus these changes and the cPMML patches), same machine and
+data. The machine was quieter than in the first round (load 2–8, most of it these runs), but the
+alternated runs still vary by up to 2×; the reader benchmark is the clean measurement.
+
+**What changed**
+
+- `src/IO/ThreadedGzStream.h`: an input stream that inflates the file with zlib in a thread of its
+  own, into four 1 MB blocks ahead of the reader. The FASTQ inputs of paired, single-end and long
+  reads use it instead of `igzstream` (`RunProtal.h`), so the reader lock only copies inflated
+  bytes, and R1 and R2 inflate in parallel. Truncated or corrupt files are still reported
+  (`read_failed()`, as gzstream). No new dependency: libdeflate or ISA-L would inflate faster
+  still, but neither is on this machine or in the conda recipe.
+- `Seedmap::AllocateKeymap`/`AllocateValues`: `madvise(MADV_HUGEPAGE)` on blocks of 64 MB or more,
+  before they are touched. Without THP support it does nothing.
+- `Benchmark`: sums nanoseconds on `steady_clock` (each interval was floored to whole
+  microseconds on `high_resolution_clock`); printing no longer divides the stored sum by the
+  threads, so `_runtime.tsv` no longer depended on `--verbose`. "Retrieve k-mers" is timed (also
+  for single-end reads), joined, printed and written; "Anchor recovery" is joined (it was always 0);
+  `RecoverAnchors` stops its timer on the early return; an unused timer per alignment in
+  `AlignAnchor` is gone. `_runtime.tsv` has a header, `stage seconds threads seconds_per_thread`,
+  with seconds to the microsecond instead of whole seconds.
+
+**Reader alone**, 1M pairs of `mix` (`.gz`), threads that only take pairs
+(`scripts/bench_reader.sh`), three runs each:
+
+| | 1 thread | 8 threads |
+|---|---:|---:|
+| `igzstream` | 2.4–2.7 s (~400k pairs/s) | 3.1–3.5 s (~300k pairs/s) |
+| `ThreadedGzIstream` | 0.82–0.95 s (~1.15M pairs/s) | 1.15–1.26 s (~830k pairs/s) |
+
+The ceiling rises 2.7–2.9×. With 8 threads the new reader is slower than with one: the lock
+changes hands every 32 records. Batches of 128 or 512 records made no consistent difference in
+this benchmark (runs of one setting varied 2×), so the batch size is unchanged.
+
+**Alignment stage**, 1M pairs, `db900`, `--no_profile`, alternated (`scripts/ab_alignment.sh`);
+median of the runs, "old" is `7c6b2f8` as committed, "old + THP" the same with
+`GLIBC_TUNABLES=glibc.malloc.hugetlb=1`:
+
+| | old | old + THP | new |
+|---|---:|---:|---:|
+| `mix` `.gz`, 8 threads (5 runs) | 6.64 s | 6.27 s | 4.50 s |
+| `w900` `.gz`, 8 threads (4 runs) | 10.2 s | 9.4 s | 8.1 s |
+| `mix` `.gz`, 4 threads (3 runs) | 5.90 s | 5.75 s | 4.52 s |
+| `mix` plain, 8 threads (3 runs) | 4.28 s | 3.27 s | 3.07 s |
+
+With gzipped input the new build is 20–32% faster at 8 threads; most of it is the reader, as the
+plain-input row (no inflating at all) shows. The gain depends on load: in the first round, on a
+machine with load 11–14, the same old run took 21 s, because a thread preempted while holding the
+reader lock stalls all others. The new build gets huge pages without the tunable (AnonHugePages
+3.35 of 3.58 GB resident). Single-threaded runs varied too much (12.7–19.9 s) to show the huge-page
+gain on the whole stage; the seeding gain measured before (30–38%) is the better number.
+
+The old stage timers lost most of short intervals: in the same conditions the old build printed
+0.47 s for seeding and the new one 0.81 s, and k-mer extraction, now printed, is the largest
+stage on `mix` (0.73 of 1.82 s per thread at 4 threads). Stage times from the first round are
+low for the short stages.
+
+**Same results.** 200k pairs of `w900` and of `mix`, old against new: at 1 thread the SAM and
+every output file are byte-identical; at 8 threads (and single-end at 4) the profiles, logs and
+statistics are identical and the SAM holds the same records in another order. Unit tests 134/134
+(8 new in `tests/test_ReaderAndTimers.cpp`), also under ASan/UBSan; the new stream's tests are
+clean under TSan (5 repeats; the OpenMP test is left out, libgomp is not instrumented; TSan needs
+`setarch -R` on this kernel); e2e 85/85; `examples/mini_db` passes.
+
+**Also from the docs:** `docs/running.md` puts the full r226 database at about 59 GB in memory.
+Even if half of that were reference sequence, the index would hold over 100 times `db900`'s
+26.9M values (8 bytes each), more than the ~70 times estimated under [Gaps](#gaps); seeding and
+huge pages matter more there than this small database shows.
+
 ## Reproducing
 
 The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, default
@@ -213,6 +312,9 @@ bash scripts/scaling.sh $PERF_DIR/db900 $PERF_DIR/reads/mix mix 8
 bash scripts/thp_test.sh $PERF_DIR/db900 $PERF_DIR/reads/mix_plain mix 1 2
 bash scripts/mem_trace.sh mem_s64 $PERF_DIR/db64 $PERF_DIR/reads/s64/reads 8
 bash scripts/model_test.sh $PERF_DIR/db64 $PERF_DIR/reads/s64/reads
+# follow-ups: the reader alone, and two builds' alignment stage alternated
+bash scripts/bench_reader.sh $PERF_DIR/reads/mix/mix_R1.fq.gz $PERF_DIR/reads/mix/mix_R2.fq.gz 3
+bash scripts/ab_alignment.sh OLD/protal_avx2 NEW/protal_avx2 $PERF_DIR/db900 $PERF_DIR/reads/mix 8 5
 ```
 
 The worlds: `~/audit4/gtdb64` is a 64-species `simulate_gtdb_release.py` release with 3 genomes

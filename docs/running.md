@@ -28,7 +28,9 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   position past a gene's end, bases that differ from the gene). They are left out of the
   profile, and protal warns with their number.
 - `misc/` also receives `P_seedsizes_histogram.tsv`, `P_anchorsizes_histogram.tsv` and
-  `P_runtime.tsv`, diagnostics of the seeding and alignment stages.
+  `P_runtime.tsv`, diagnostics of the seeding and alignment stages. `P_runtime.tsv` has one row
+  per stage (reading, k-mers, seeding and its steps, alignment, output): the seconds spent in it
+  summed over threads, the number of threads, and the seconds per thread that `--verbose` prints.
 
 Strain MSAs are written for the species that pass the model in at least two samples, each with a
 row for every sample in which the species passes. A run of one sample therefore writes no MSAs.
@@ -81,7 +83,7 @@ alignment. Workflow managers can rely on a non-zero status.
 
 | Option | Default | |
 |---|---|---|
-| `-t, --threads` | 1 | threads for alignment, database loading, profiling and pigz. Set it: the default is one thread |
+| `-t, --threads` | 1 | threads for alignment, database loading, profiling and pigz. Set it: the default is one thread. While aligning, each read file is also decompressed by a thread of its own (two for paired reads) |
 | `--knob` | 0.5 | detection threshold, 0 to 1 (checked). Choose it on data like yours; see [model-training.md](model-training.md) |
 | `--depth_identity_margin` | 0.04 | a read counts towards a species' abundance only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth. 1 lets every read count |
 | `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [model-training.md](model-training.md) |
@@ -132,6 +134,9 @@ the database conversions `--compress_db`, `--unpack_db`, `--decompress_db`
 
 protal keeps the index and the reference genes in memory: about 59 GB for the full r226 database
 and 12 GB for the reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads)).
-It prints the machine's total memory at start. The profiling stage streams each SAM and, once a
+It prints the machine's total memory at start. The index is read at random, one lookup per k-mer,
+so protal asks Linux for transparent huge pages for it; the usual setting (`madvise` in
+`/sys/kernel/mm/transparent_hugepage/enabled`) grants them, and seeding is about a third faster.
+With THP set to `never` protal uses normal pages. The profiling stage streams each SAM and, once a
 sample's outputs are written, keeps only what the strain MSAs need: the variants and read ranges
 of the species that pass the model (nothing with `--no_strains`).
