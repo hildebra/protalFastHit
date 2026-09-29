@@ -216,9 +216,8 @@ namespace protal::build {
     // The files of a database folder that go into database.protal (Database.h), in member order: the
     // index (index.prx.zst in the column format, frames copied as they are), the reference (a
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
-    // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv, the
-    // model (model.xml, else random_forest.xml) and those of single-end and PacBio reads (model_se.xml,
-    // model_pacbio.xml).
+    // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv and the
+    // models, the first of Options::ModelCandidates for each read type the folder has.
     static std::vector<db::Source> BundleSources(protal::Options const& options) {
         namespace fs = std::filesystem;
         std::vector<db::Source> sources = {
@@ -227,16 +226,14 @@ namespace protal::build {
                 {Options::PROTAL_SEQUENCE_MAP_FILE, options.GetSequenceMapFile()},
                 {Options::PROTAL_TAXONOMY_FILE, options.GetInternalTaxonomyFile()}};
         if (fs::exists(options.GetUniqueKmersFile())) sources.push_back({Options::PROTAL_UNIQUE_KMER_FILE, options.GetUniqueKmersFile()});
-        for (std::string const model : {Options::PROTAL_MODEL_FILE, std::string("random_forest.xml")}) {
-            std::string const path = (fs::path(options.GetLocation().dir) / model).string();
-            if (fs::exists(path)) {
-                sources.push_back({model, path});
-                break;
+        for (auto const& info : kReadTypes) {
+            for (auto const& model : Options::ModelCandidates(info.type)) {
+                std::string const path = (fs::path(options.GetLocation().dir) / model).string();
+                if (fs::exists(path)) {
+                    sources.push_back({model, path});
+                    break;
+                }
             }
-        }
-        for (std::string const& model : {Options::PROTAL_MODEL_SE_FILE, Options::PROTAL_MODEL_PACBIO_FILE}) {
-            std::string const path = (fs::path(options.GetLocation().dir) / model).string();
-            if (fs::exists(path)) sources.push_back({model, path});
         }
         return sources;
     }
@@ -253,10 +250,11 @@ namespace protal::build {
                       << "format (protal --compress_db --no_bundle converts it)" << std::endl;
             exit(8);
         }
-        if (std::none_of(sources.begin(), sources.end(), [](db::Source const& s) {
-                return s.name == Options::PROTAL_MODEL_FILE || s.name == "random_forest.xml"; })) {
-            std::cerr << "Warning: no model.xml in " << options.GetLocation().dir << "; profiling with " << target
-                      << " then needs --model" << std::endl;
+        auto const paired = Options::ModelCandidates(ReadType::Paired);
+        if (std::none_of(sources.begin(), sources.end(), [&paired](db::Source const& s) {
+                return std::find(paired.begin(), paired.end(), s.name) != paired.end(); })) {
+            std::cerr << "Warning: no model of paired-end reads (" << paired.front() << " or model.xml) in " << options.GetLocation().dir
+                      << "; profiling with " << target << " then needs --model" << std::endl;
         }
         auto const params = options.CompressionParams();
         Benchmark bm("Write " + db::kFileName);

@@ -116,8 +116,8 @@ TEST(SampleMap, SingleEndSamplesHaveNoSecondFile) {
     // READ_TYPE names each sample's reads.
     MapLists typed;
     ASSERT_TRUE(typed.Load(dir.Write("typed.map", "#OUTPUT_DIR\t" + out.string() + "\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n"
-                                                  "p\tp\tp_1.fq\tp_2.fq\tshort\nl\tl\tl.fq.gz\t-\tpacbio\n")));
-    EXPECT_EQ(typed.read_types, (Tokens{ "short", "pacbio" }));
+                                                  "p\tp\tp_1.fq\tp_2.fq\tpe\nl\tl\tl.fq.gz\t-\tpb\n")));
+    EXPECT_EQ(typed.read_types, (Tokens{ "pe", "pb" }));
     EXPECT_EQ(typed.seconds[1], "");
 }
 
@@ -136,13 +136,17 @@ TEST(Options, EachReadTypeHasItsModel) {
         OptionsData d;
         d.database_path = dir.path.string();
         d.model = paired;
-        (type == ReadType::PacBio ? d.model_pacbio : d.model_se) = own;
+        (type == ReadType::PacBio ? d.model_pb : d.model_se) = own;
         return fs::path(Options(d).ModelDbFile(type).Path()).filename().string();
     };
+    EXPECT_EQ(model("", "", ReadType::Paired), "model_pe.xml");
+    dir.Write("model.xml", "");  // a database from before read types
     EXPECT_EQ(model("", "", ReadType::Paired), "model.xml");
+    dir.Write("model_pe.xml", "");
+    EXPECT_EQ(model("", "", ReadType::Paired), "model_pe.xml");
     EXPECT_EQ(model("", "", ReadType::Single), "model_se.xml");
-    EXPECT_EQ(model("", "", ReadType::PacBio), "model_pacbio.xml");
-    // --model replaces all, unless --model_se or --model_pacbio is given for their reads.
+    EXPECT_EQ(model("", "", ReadType::PacBio), "model_PB.xml");
+    // --model replaces all, unless --model_se or --model_pb is given for their reads.
     EXPECT_EQ(model("other", "", ReadType::Paired), "other.xml");
     EXPECT_EQ(model("other", "", ReadType::Single), "other.xml");
     EXPECT_EQ(model("other", "", ReadType::PacBio), "other.xml");
@@ -357,11 +361,11 @@ TEST(Options, ReadTypesOfSamples) {
     ScratchDir dir;
     // From the read files: no second file means single-end reads.
     OptionsData reads;
-    // PacBio reads come as READ_TYPE (or --read_type) pacbio.
+    // PacBio reads come as READ_TYPE (or --read_type) pb.
     reads.first_list = { "p_1.fq", "s.fq", "l.fq" };
     reads.second_list = { "p_2.fq", "", "" };
     reads.prefix_list = { "p", "s", "l" };
-    reads.read_type_list = { READ_TYPE_SHORT, READ_TYPE_SHORT, READ_TYPE_PACBIO };
+    reads.read_type_list = { "", "", "pb" };
     reads.range = { 0, 1 };
     Options from_reads(reads);
     from_reads.ResolveReadTypes();
@@ -380,7 +384,7 @@ TEST(Options, ReadTypesOfSamples) {
                                           Record("a", kPaired | kBothAlign | kRead2, "1_1", "20M", seq)),
                       dir.Write("se.sam", "@HD\tVN:1.6\n" + Record("b", 16, "1_1", "20M", seq)),
                       dir.Write("empty.sam", "@HD\tVN:1.6\n"),
-                      dir.Write("long.sam", "@HD\tVN:1.6\n" + kSamReadsComment + "PacBio\n" + Record("c", 0x800, "1_1", "5H20M", seq)) };
+                      dir.Write("long.sam", "@HD\tVN:1.6\n" + kSamReadTypeComment + "pb\n" + Record("c", 0x800, "1_1", "5H20M", seq)) };
     sams.prefix_list = { "pe", "se", "empty", "long" };
     sams.range = { 1 };
     Options from_sams(sams);

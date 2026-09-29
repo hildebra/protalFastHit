@@ -412,7 +412,7 @@ namespace protal {
         std::map<std::string, size_t> const& Skipped() const { return m_skipped; }
     };
 
-    // The reads a SAM stream holds: the kind its header names (kSamReadsComment, as protal writes it),
+    // The reads a SAM stream holds: the kind its header names (kSamReadTypeComment, as protal writes it),
     // and whether its first usable record is of paired reads (0x1). protal writes a sample's reads
     // of one kind only. Throws SamFormatError as SamReader.
     struct SamReads {
@@ -423,8 +423,8 @@ namespace protal {
     inline SamReads ReadsOfSam(std::istream& is) {
         SamReads reads;
         SamReader reader(is, [&reads](std::string const& line) {
-            if (line.compare(0, kSamReadsComment.size(), kSamReadsComment) == 0) {
-                reads.declared = ReadTypeFromName(line.substr(kSamReadsComment.size()));
+            if (line.compare(0, kSamReadTypeComment.size(), kSamReadTypeComment) == 0) {
+                reads.declared = ReadTypeFromToken(line.substr(kSamReadTypeComment.size()));
             }
         });
         SamEntry sam1, sam2;

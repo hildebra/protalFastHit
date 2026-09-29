@@ -148,23 +148,33 @@ covered by unit and e2e tests).
 - **ONT**: the chunking handles the length; chaining (within 6 bp of the first seed's diagonal),
   scoring and the SNP filters still assume few indels (see the single-end report's evaluation).
 
+## Follow-up: read-type names as in the database build
+
+The read types and model files above were renamed to those of branch `zstd-compression`, whose
+database build writes them: `--read_type pe|se|pb` (instead of `short|pacbio`; without it, `pe`
+with a second read file and `se` without), `model_pe.xml` (or `model.xml` of older databases),
+`model_se.xml` and `model_PB.xml` (instead of `model_pacbio.xml`), `--model_pb` (instead of
+`--model_pacbio`), and the SAM header line `@CO<tab>protal read type: pb`. Behaviour is unchanged.
+
 ## Documentation to add with the branch
 
 `docs/running.md`, a section after "Single-end reads":
 
 > ## PacBio long reads
 >
-> `--read_type pacbio -1 reads.fq.gz` aligns PacBio long reads (HiFi); in a map, `pacbio` in a
-> `READ_TYPE` column (`short` otherwise), with `-` as `SECOND`. Each read is seeded whole, each
-> marker gene it spans is aligned over the read's window on that gene, and each gene hit gets its
-> own MAPQ against the homologs of other taxa at the same place. A read's hits are written as one
-> primary and supplementary (0x800) records, hard-clipped to the aligned bases; the profiler counts
-> each as a read. Reads longer than 65,000 bp are seeded in overlapping chunks (protal says how
-> many). PacBio samples are profiled with the database's `model_pacbio.xml`, or `--model_pacbio`.
-> Reads of more than 1,000 bp given as short reads stop the run with a hint to `--read_type pacbio`.
+> `--read_type pb -1 reads.fq.gz` aligns PacBio long reads (HiFi); in a map, `pb` in a
+> `READ_TYPE` column (`pe`, `se`, or `-` for pe or se by the `SECOND` column), with `-` as
+> `SECOND`. Each read is seeded whole, each marker gene it spans is aligned over the read's window
+> on that gene, and each gene hit gets its own MAPQ against the homologs of other taxa at the same
+> place. A read's hits are written as one primary and supplementary (0x800) records, hard-clipped
+> to the aligned bases; the profiler counts each as a read. Reads longer than 65,000 bp are seeded
+> in overlapping chunks (protal says how many). PacBio samples are profiled with the database's
+> `model_PB.xml`, or `--model_pb`. Reads of more than 1,000 bp given as short reads stop the run
+> with a hint to `--read_type pb`.
 
-In `docs/running.md`'s options table: `--read_type` (default `short`) and `--model_pacbio` (default
-`--model`, else `model_pacbio.xml`). `docs/database-files.md`: `model_pacbio.xml`, optional, as
-`model_se.xml`. `docs/model-training.md`: the PacBio model is trained on long-read samples, as
-`model_se.xml` on single-end ones. The website is out of date for single-end and PacBio reads.
-`docs/claude/README.md`: this report's line in the table.
+In `docs/running.md`'s options table: `--read_type` (default: `pe` with `-2`, else `se`) and
+`--model_pb` (default `--model`, else `model_PB.xml`). `docs/database-files.md`: `model_pe.xml`,
+`model_se.xml` and `model_PB.xml`, `model.xml` for older databases. `docs/model-training.md`: the
+PacBio model is trained on long-read samples, as `model_se.xml` on single-end ones. The website is
+out of date for single-end and PacBio reads. `docs/claude/README.md`: this report's line in the
+table.

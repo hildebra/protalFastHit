@@ -316,7 +316,7 @@ namespace protal {
                     continue;
                 }
                 genomes.WriteSamHeader(sam_output);
-                sam_output << kSamReadsComment << ReadTypeName(read_type) << '\n';
+                sam_output << kSamReadTypeComment << Info(read_type).token << '\n';
                 std::cout << "Align the " << ReadTypeName(read_type) << " reads of sample "
                           << options.GetSampleId(index) << std::endl;
 
@@ -467,7 +467,7 @@ namespace protal {
 //     }
 
     // The model of each kind of reads (ReadType), loaded if the samples have such reads.
-    using ReadTypeModels = std::array<std::optional<profiler::TaxonFilterObj>, kReadTypes.size()>;
+    using ReadTypeModels = std::array<std::optional<profiler::TaxonFilterObj>, kReadTypeCount>;
 
     // Profiles the samples, each with the model of its kind of reads. Every taxon's score is then
     // cached (profile.ReleaseReadData scores all), so that later stages may use any model to tell
@@ -1831,9 +1831,11 @@ namespace protal {
                 }
                 std::cout << "Model of " << ReadTypeName(type) << " reads: " << model_file.Name() << std::endl;
             };
-            bool const any_sample = std::any_of(kReadTypes.begin(), kReadTypes.end(), [&options](ReadType t) { return options.AnySample(t); });
-            for (auto type : kReadTypes) {
-                if (options.AnySample(type) || (type == ReadType::Paired && !any_sample)) load_model(models[static_cast<size_t>(type)], type);
+            bool const any_sample = std::any_of(kReadTypes.begin(), kReadTypes.end(), [&options](ReadTypeInfo const& t) { return options.AnySample(t.type); });
+            for (auto const& info : kReadTypes) {
+                if (options.AnySample(info.type) || (info.type == ReadType::Paired && !any_sample)) {
+                    load_model(models[static_cast<size_t>(info.type)], info.type);
+                }
             }
         }
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {

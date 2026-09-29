@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Native long reads vs reads split into short pieces: simulated HiFi reads from the mini database's
-# mock community (examples/mini_db/community.tsv), profiled with protal --read_type pacbio and, cut
+# mock community (examples/mini_db/community.tsv), profiled with protal --read_type pb and, cut
 # into 150, 250 and 1000 bp pieces, as single-end reads. The database's model.xml stands in for
-# model_pacbio.xml and model_se.xml. Usage: run.sh [bases] [seed]
+# model_PB.xml and model_se.xml. Usage: run.sh [bases] [seed]
 set -euo pipefail
 B=${B:-$HOME/protal-lr-build}  # holds src/ (a checkout), build/protal, mini_db/
 P=$B/build/protal
@@ -20,7 +20,7 @@ cd "$W"
 db=$W/db
 "$P" --unpack_db --db "$MINI/protal_db/database.protal" --unpack_dir "$db" -t 8 > unpack.log 2>&1
 cp "$db/model.xml" "$db/model_se.xml"
-cp "$db/model.xml" "$db/model_pacbio.xml"
+cp "$db/model.xml" "$db/model_PB.xml"
 
 python3 "$E/simulate_hifi.py" --genomes "$G/genomes.tsv" --community "$COMMUNITY" --out hifi --bases "$BASES" --seed "$SEED"
 
@@ -30,7 +30,7 @@ evaluate() {
         --community "$COMMUNITY" --label "$1" --log "$1.log" ${2:-}
 }
 
-"$P" --db "$db" -1 hifi.fq --read_type pacbio --prefix native -o out -t 8 --no_qcmsa --no_strains > native.log 2>&1
+"$P" --db "$db" -1 hifi.fq --read_type pb --prefix native -o out -t 8 --no_qcmsa --no_strains > native.log 2>&1
 evaluate native --header > results.tsv
 for length in 150 250 1000; do
     python3 "$E/split_reads.py" --fastq hifi.fq --out "split$length.fq" --length "$length" > /dev/null

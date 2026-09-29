@@ -201,7 +201,7 @@ TEST(LongReadOutputHandler, OnePrimaryAndSupplementaryRecordsHardClipped) {
 
     // Read back, each segment is a read of its own.
     auto const path = (ref.dir / "long.sam").string();
-    std::ofstream(path) << "@HD\tVN:1.6\n" << kSamReadsComment << "PacBio\n" << sam;
+    std::ofstream(path) << "@HD\tVN:1.6\n" << kSamReadTypeComment << "pb\n" << sam;
     profiler::Profiler profiler(*ref.loader);
     EXPECT_EQ(profiler.FromSam(path), "");
     ASSERT_EQ(profiler.m_pairs_unique.size(), 2u);

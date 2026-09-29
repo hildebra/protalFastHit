@@ -1332,7 +1332,7 @@ def cigar_ops(cigar):
 
 class PacBioTest(WorkDir):
     """PacBio-like long reads of several genes each, profiled with the PacBio model. The test database
-    has none, so a copy of it gets its paired-end model as model_pacbio.xml: the profiles test the
+    has none, so a copy of it gets its paired-end model as model_PB.xml: the profiles test the
     plumbing, not the model."""
 
     @classmethod
@@ -1344,12 +1344,12 @@ class PacBioTest(WorkDir):
             if os.path.basename(f) != "database.protal":
                 os.symlink(f, os.path.join(cls.db, os.path.basename(f)))
         cls.model = os.path.join(FILES, "model.xml")
-        os.symlink(cls.model, os.path.join(cls.db, "model_pacbio.xml"))
+        os.symlink(cls.model, os.path.join(cls.db, "model_PB.xml"))
         cls.reads = {p: os.path.join(cls.work, f"{p}.fq") for p in ("la", "lb")}
         cls.truth = {"la": simulate_long_reads(cls.reads["la"], 40, seed=11, long_read=150000),
                      "lb": simulate_long_reads(cls.reads["lb"], 40, seed=12)}
         cls.rc, cls.log = run(cls.work, "--db", cls.db, "-1", ",".join(cls.reads.values()), "--prefix", "la,lb",
-                              "--read_type", "pacbio", "-o", "out", "-t", "4", "--no_qcmsa")
+                              "--read_type", "pb", "-o", "out", "-t", "4", "--no_qcmsa")
 
     def read_seqs(self, prefix):
         with open(self.reads[prefix]) as fh:
@@ -1359,10 +1359,10 @@ class PacBioTest(WorkDir):
     def test_exit_code_and_model(self):
         self.assertEqual(self.rc, 0, self.log[-3000:])
         self.assertIn("Align the PacBio reads of sample la", self.log)
-        self.assertIn("Model of PacBio reads: " + os.path.join(self.db, "model_pacbio.xml"), self.log)
+        self.assertIn("Model of PacBio reads: " + os.path.join(self.db, "model_PB.xml"), self.log)
         self.assertIn("1 read(s) longer than 65000 bp were seeded in chunks", self.log)
         with open(self.path("out", "la.sam")) as fh:
-            self.assertIn("@CO\tprotal reads: PacBio\n", fh.read())
+            self.assertIn("@CO\tprotal read type: pb\n", fh.read())
 
     def test_records_hold_their_aligned_bases(self):
         seqs, names = self.read_seqs("la")
@@ -1415,8 +1415,8 @@ class PacBioTest(WorkDir):
         rc, log = run(self.work, "--db", DB, "--profile_only", sam, "-o", self.path("po_missing"), "-t", "2", "--no_qcmsa")
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("The model of PacBio reads does not exist", log)
-        self.assertIn("--model_pacbio", log)
-        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "--model_pacbio", self.model, "-o", self.path("po"),
+        self.assertIn("--model_pb", log)
+        rc, log = run(self.work, "--db", DB, "--profile_only", sam, "--model_pb", self.model, "-o", self.path("po"),
                       "-t", "2", "--no_qcmsa")
         self.assertEqual(rc, 0, log[-3000:])
         with open(self.path("po", "la.profile")) as again, open(self.path("out", "la.profile")) as first:
@@ -1425,20 +1425,20 @@ class PacBioTest(WorkDir):
     def test_long_reads_given_as_short_ones_stop(self):
         rc, log = run(self.work, "--db", self.db, "-1", self.reads["lb"], "-o", "out_short", "-t", "1", "--no_qcmsa")
         self.assertEqual(rc, 30, log[-3000:])
-        self.assertIn("too long for short reads: give --read_type pacbio", log)
+        self.assertIn("too long for short reads: give --read_type pb", log)
 
     def test_a_map_names_the_read_type(self):
         sample_map = self.path("typed.map")
         with open(sample_map, "w") as fh:
             fh.write(f"#OUTPUT_DIR\t{self.path('out_map')}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tREAD_TYPE\n")
-            fh.write(f"pe\tpe\t{READS}/sa_R1.fq\t{READS}/sa_R2.fq\tshort\n")
-            fh.write(f"lb\tlb\t{self.reads['lb']}\t-\tPacBio\n")
+            fh.write(f"pe\tpe\t{READS}/sa_R1.fq\t{READS}/sa_R2.fq\t-\n")
+            fh.write(f"lb\tlb\t{self.reads['lb']}\t-\tPB\n")
         rc, log = run(self.work, "--db", self.db, "--map", sample_map, "-t", "2", "--no_qcmsa")
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("1 paired-end, 0 single-end, 1 PacBio sample(s)", log)
         self.assertTrue(all(int(r[1]) & 0x1 for r in sam_records(self.path("out_map", "pe.sam"))))
         with open(self.path("out_map", "lb.sam")) as fh:
-            self.assertIn("@CO\tprotal reads: PacBio\n", fh.read())
+            self.assertIn("@CO\tprotal read type: pb\n", fh.read())
 
 
 class SimulatorTest(WorkDir):
