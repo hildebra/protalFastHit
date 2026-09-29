@@ -16,6 +16,7 @@ the taxonomy, so related species share diverged copies of the same marker genes:
     simulation/              (not part of GTDB: truth data for tests)
       genomes.tsv            genome table for simulate_metagenomes (all genomes)
       marker_positions.tsv   where every marker gene sits in its genome
+      divergence.tsv         each genome's species and strain divergence
       genomes_nonreps/       FASTA of the non-representative genomes
 
 Every species gets one representative genome (RS_GCF_999SSS001.1) plus
@@ -30,8 +31,14 @@ Usage:
   simulate_gtdb_release.py --outdir DIR [--release 226] [--seed 42]
       [--lineages FILE] [--genomes_per_species 3] [--genome_length 150000]
       [--contigs 3] [--marker_loss 0.02] [--strain_divergence 0.005]
+      [--species_divergence 0.035]
 
 --lineages: one GTDB lineage per line (d__...;s__...); '#' lines are comments.
+--strain_divergence and --species_divergence take a rate or a range LOW-HIGH,
+drawn uniformly per genome or per species (written to simulation/divergence.tsv).
+Ranges make training data for the presence model harder: strains that differ
+from the representative by up to a few %, and congeneric species close enough
+that a missing one's reads land on the one the database has.
 """
 
 import argparse
@@ -46,9 +53,9 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Per-site substitution probability on the branch leading INTO a node of the
-# given rank. Two congeneric species differ at ~8% of marker sites, two strains
-# of one species at ~1% (2 x --strain_divergence), different phyla are
-# essentially unrelated.
+# given rank. Two congeneric species differ at ~8% of marker sites (2 x
+# --species_divergence, which replaces "s"), two strains of one species at ~1%
+# (2 x --strain_divergence), different phyla are essentially unrelated.
 BRANCH = {"d": 0.15, "p": 0.10, "c": 0.04, "o": 0.03, "f": 0.03, "g": 0.03, "s": 0.035}
 # Fraction of a branch's mutation events that are codon indels (rest: substitutions).
 INDEL_FRACTION = 0.02
@@ -76,6 +83,19 @@ def gzip_text(path):
     with open(path, "wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz, \
          io.TextIOWrapper(gz, encoding="ascii", newline="\n") as fh:
         yield fh
+
+
+def parse_rate(text):
+    """A rate, or an inclusive range LOW-HIGH, as (low, high)."""
+    low, _, high = text.partition("-")
+    try:
+        low = float(low)
+        high = float(high) if high else low
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a rate or a range LOW-HIGH: {text!r}")
+    if not 0 <= low <= high < 1:
+        raise argparse.ArgumentTypeError(f"rates must satisfy 0 <= LOW <= HIGH < 1: {text!r}")
+    return low, high
 
 
 def read_lineages(path):
@@ -171,6 +191,12 @@ class Simulator:
         self.species = [self._make_species(i + 1, l) for i, l in enumerate(lineages)]
         self.genomes = [g for sp in self.species for g in self._make_genomes(sp)]
 
+    def _draw(self, rate):
+        """A rate from (low, high); a single rate draws no random number, so that runs without
+        ranges give the same release as before ranges existed."""
+        low, high = rate
+        return low if low == high else self.rng.uniform(low, high)
+
     def _make_species(self, index, lineage):
         ranks = lineage.split(";")
         if len(ranks) != 7 or [r[:3] for r in ranks] != ["d__", "p__", "c__", "o__", "f__", "g__", "s__"]:
@@ -179,23 +205,26 @@ class Simulator:
         markers = self.markers_by_set[mset]
         if not markers:
             sys.exit(f"No {mset} markers in the marker table for {lineage}")
+        divergence = self._draw(self.args.species_divergence)
         return {
             "index": index,
             "lineage": lineage,
             "name": ranks[6][3:],
             "set": mset,
             "markers": markers,
-            "seqs": {m: self._evolve(ranks, m) for m in markers},
+            "divergence": divergence,
+            "seqs": {m: self._evolve(ranks, m, divergence) for m in markers},
             "gc": 0.38 + self.rng.random() * 0.26,
         }
 
-    def _evolve(self, ranks, marker):
+    def _evolve(self, ranks, marker, species_divergence):
         """Marker sequence at the species node, evolving (and caching) every ancestor."""
         seq = self.root_seq[marker]
         for depth, rank in enumerate(ranks):
             key = (";".join(ranks[:depth + 1]), marker)
             if key not in self.node_seq:
-                self.node_seq[key] = mutate(self.rng, seq, BRANCH[rank[0]])
+                rate = species_divergence if rank[0] == "s" else BRANCH[rank[0]]
+                self.node_seq[key] = mutate(self.rng, seq, rate)
             seq = self.node_seq[key]
         return seq
 
@@ -210,11 +239,12 @@ class Simulator:
         for g in range(1, a.genomes_per_species + 1):
             is_rep = g == 1
             acc = f"GCF_999{sp['index']:03d}001.1" if is_rep else f"GCA_999{sp['index']:03d}{g:03d}.1"
+            divergence = self._draw(a.strain_divergence)
             genes = {}
             for m in order:
                 if self.rng.random() >= a.marker_loss:
-                    genes[m] = mutate(self.rng, sp["seqs"][m], a.strain_divergence)
-            bg = [mutate(self.rng, s, a.strain_divergence, coding=False) for s in background]
+                    genes[m] = mutate(self.rng, sp["seqs"][m], divergence)
+            bg = [mutate(self.rng, s, divergence, coding=False) for s in background]
             contigs, positions = self._assemble(acc, order, genes, strand, bg)
             yield {
                 "accession": acc,
@@ -222,6 +252,7 @@ class Simulator:
                 "rep_gtdb_acc": f"RS_GCF_999{sp['index']:03d}001.1",
                 "species": sp,
                 "is_rep": is_rep,
+                "divergence": divergence,
                 "strain": f"SIM-{g}",
                 "genes": genes,
                 "contigs": contigs,
@@ -316,8 +347,12 @@ def main():
     ap.add_argument("--contigs", type=int, default=3)
     ap.add_argument("--marker_loss", type=float, default=0.02,
                     help="probability that a genome lacks a given marker")
-    ap.add_argument("--strain_divergence", type=float, default=0.005,
-                    help="per-site substitution rate of each genome relative to its species")
+    ap.add_argument("--strain_divergence", type=parse_rate, default=(0.005, 0.005),
+                    help="per-site substitution rate of each genome relative to its species, "
+                         "or a range LOW-HIGH drawn per genome (default 0.005)")
+    ap.add_argument("--species_divergence", type=parse_rate, default=(BRANCH["s"], BRANCH["s"]),
+                    help="per-site substitution rate of each species relative to its genus, "
+                         f"or a range LOW-HIGH drawn per species (default {BRANCH['s']})")
     args = ap.parse_args()
 
     if not 1 <= args.genomes_per_species <= 999:
@@ -348,10 +383,13 @@ def main():
     os.makedirs(sim_dir, exist_ok=True)
     reps_db = os.path.join(out, "genomic_files_reps", f"gtdb_genomes_reps_{rel}", "database")
     with open(os.path.join(sim_dir, "genomes.tsv"), "w", newline="\n") as gt, \
-         open(os.path.join(sim_dir, "marker_positions.tsv"), "w", newline="\n") as mp:
+         open(os.path.join(sim_dir, "marker_positions.tsv"), "w", newline="\n") as mp, \
+         open(os.path.join(sim_dir, "divergence.tsv"), "w", newline="\n") as dv:
         gt.write("accession\tgtdb_taxonomy\tfasta_path\tgenome_length\tgtdb_representative\n")
         mp.write("accession\tmarker\tcontig\tstart\tend\tstrand\n")
+        dv.write("accession\tspecies\tspecies_divergence\tstrain_divergence\n")
         for g in sim.genomes:
+            dv.write(f"{g['accession']}\t{g['species']['name']}\t{g['species']['divergence']:.4f}\t{g['divergence']:.4f}\n")
             fasta = (genome_path(reps_db, g["accession"]) if g["is_rep"] else
                      os.path.join(sim_dir, "genomes_nonreps", f"{g['accession']}_genomic.fna.gz"))
             length = write_genome(fasta, g)

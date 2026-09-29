@@ -126,6 +126,21 @@ class MiniDbTest(unittest.TestCase):
             with open(os.path.join(self.gtdb, f), "rb") as a, open(os.path.join(other, f), "rb") as b:
                 self.assertEqual(a.read(), b.read(), f"{f} differs between runs with the same seed")
 
+    def test_divergence_ranges(self):
+        def divergence(root):
+            with open(os.path.join(root, "simulation", "divergence.tsv")) as fh:
+                next(fh)
+                return [(float(r[2]), float(r[3])) for r in (l.rstrip("\n").split("\t") for l in fh)]
+
+        self.assertEqual(set(divergence(self.gtdb)), {(0.035, 0.005)})
+        other = os.path.join(self.tmp.name, "gtdb_ranges")
+        run(SIMULATE, "--outdir", other, "--genome_length", "20000",
+            "--strain_divergence", "0.002-0.02", "--species_divergence", "0.01-0.04")
+        rates = divergence(other)
+        self.assertTrue(all(0.01 <= s <= 0.04 and 0.002 <= g <= 0.02 for s, g in rates))
+        self.assertGreater(len({s for s, _ in rates}), 1)
+        self.assertEqual(len({g for _, g in rates}), len(rates))
+
     def simulate_reads(self, prefix, community, pairs=400, error_rate="0"):
         path = os.path.join(self.tmp.name, "community.tsv")
         with open(path, "w") as fh:
