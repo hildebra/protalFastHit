@@ -468,7 +468,7 @@ class ModelContractTest(WorkDir):
         with open(self.path("out", "sa.profile.truth_annotated")) as fh:
             header = fh.readline().rstrip("\n").split("\t")
             rows = [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh]
-        with open(db_file("model.xml")) as fh:
+        with open(db_file("model_pe.xml")) as fh:
             fields = set(re.findall(r'<DataField name="([^"]+)"', fh.read())) - {"truth"}
         self.assertEqual(sorted(fields - set(header)), [], "every model input is in the training dump")
         self.assertTrue(rows)
@@ -713,7 +713,7 @@ class CompressedDatabaseTest(WorkDir):
     with one thread or several."""
 
     KINDS = ("raw", "seekable", "single", "bundle")
-    FILES = ("index.prx", "reference.fna", "reference.map", "internal_taxonomy.dmp", "unique_kmers.tsv", "model.xml")
+    FILES = ("index.prx", "reference.fna", "reference.map", "internal_taxonomy.dmp", "unique_kmers.tsv", "model_pe.xml")
 
     @classmethod
     def setUpClass(cls):
@@ -907,6 +907,85 @@ class CompressedDatabaseTest(WorkDir):
         with open(glob.glob(self.path("out_lazy_file", "sa*.profile"))[0]) as prof:
             self.assertEqual(prof.read(), expected[1])
 
+class ReadTypeModelTest(WorkDir):
+    """A database holds one presence model per read type (--read_type); --add_model stores one."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # A single-file database of our own, which --add_model may rewrite.
+        cls.db = os.path.join(cls.work, "db")
+        os.mkdir(cls.db)
+        for f in glob.glob(os.path.join(FILES, "*")):
+            if os.path.basename(f) != "database.protal":
+                os.symlink(f, os.path.join(cls.db, os.path.basename(f)))
+        cls.pack_rc, cls.pack_log = run(cls.work, "--compress_db", "--db", cls.db, "-t", "4", "--compress_level", "3")
+        cls.bundle = os.path.join(cls.db, "database.protal")
+        cls.pe_rc, cls.pe_log = run(cls.work, "--db", cls.db, *reads("sa"), "-o", "out_pe", "-t", "2", "--no_qcmsa")
+
+    def profile_only(self, out, *extra):
+        sam = glob.glob(self.path("out_pe", "sa*.sam"))[0]
+        return run(self.work, "--db", self.db, "--profile_only", sam, "--prefix", "sa", "-o", out, "-t", "2",
+                   "--no_qcmsa", *extra)
+
+    def test_add_model_for_a_read_type(self):
+        self.assertEqual(self.pack_rc, 0, self.pack_log[-3000:])
+        self.assertEqual(self.pe_rc, 0, self.pe_log[-3000:])
+        self.assertIn("Model: model_pe.xml in " + self.bundle, self.pe_log)
+        rc, log = self.profile_only("out_pb", "--read_type", "pb")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("no model for --read_type pb (PacBio reads): model_PB.xml in", log)
+        self.assertIn("--add_model MODEL.xml --read_type pb --db " + self.bundle, log)
+
+        # The paired-end model stored as the single-end one: the same profile.
+        rc, log = run(self.work, "--add_model", db_file("model_pe.xml"), "--read_type", "se", "--db", self.db, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Stored", log)
+        self.assertRegex(log, r"Models for read types: pe, se\b")
+        rc, log = self.profile_only("out_se", "--read_type", "se")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Model: model_se.xml in " + self.bundle, log)
+        with open(glob.glob(self.path("out_pe", "sa*.profile"))[0]) as a, open(glob.glob(self.path("out_se", "sa*.profile"))[0]) as b:
+            self.assertEqual(a.read(), b.read())
+        rc, log = run(self.work, "--unpack_db", "--db", self.bundle, "--unpack_dir", self.path("unpacked"))
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertTrue(filecmp.cmp(self.path("unpacked", "model_se.xml"), db_file("model_pe.xml"), shallow=False))
+
+    def test_an_unusable_model_is_not_added(self):
+        with open(self.bundle, "rb") as fh:
+            before = fh.read()
+        bad = self.path("bad.xml")
+        with open(bad, "w") as fh:
+            fh.write("<PMML>\n")
+        rc, log = run(self.work, "--add_model", bad, "--read_type", "ont", "--db", self.db)
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("Cannot load the model", log)
+        with open(self.bundle, "rb") as fh:
+            self.assertEqual(fh.read(), before, "the database is unchanged")
+
+    def test_read_type_checks(self):
+        rc, log = run(self.work, "--db", self.db, *reads("sa"), "-o", "out_x", "--read_type", "nanopore")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("--read_type must be one of pe, se, pb, ont", log)
+        rc, log = run(self.work, "--db", self.db, *reads("sa"), "-o", "out_y", "--read_type", "se")
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn("aligns paired-end reads only so far", log)
+
+    def test_older_database_with_model_xml(self):
+        """model.xml of a database from before read types serves paired-end reads."""
+        db = self.path("old_db")
+        os.mkdir(db)
+        for f in glob.glob(os.path.join(FILES, "*")):
+            name = os.path.basename(f)
+            if name.startswith("model_") or name == "database.protal":
+                continue
+            os.symlink(f, os.path.join(db, name))
+        os.symlink(db_file("model_pe.xml"), os.path.join(db, "model.xml"))
+        rc, log = run(self.work, "--db", db, *reads("sa"), "-o", "out_old", "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Model: " + os.path.join(db, "model.xml"), log)
+
+
 class FailFastTest(WorkDir):
     """Problems with the database or the inputs stop protal before any read is aligned."""
 
@@ -954,20 +1033,20 @@ class FailFastTest(WorkDir):
         self.assertRegex(log, r"Invalid reference map .*expected 4 tab-separated columns, found 3")
 
     def test_missing_model_and_unique_kmers(self):
-        db = self.db_copy("db_files", drop=("model.xml", "unique_kmers.tsv"))
+        db = self.db_copy("db_files", drop=("model_pe.xml", "unique_kmers.tsv"))
         rc, log = self.query(db, "out_files")
         self.assertEqual(rc, 30, log[-3000:])
-        self.assertIn("Model file does not exist", log)
+        self.assertIn("The database has no model for --read_type pe", log)
         self.assertIn("Unique k-mer file does not exist", log)
 
     def test_corrupt_model(self):
-        db = self.db_copy("db_model", {"model.xml": b"<PMML>\n"})
+        db = self.db_copy("db_model", {"model_pe.xml": b"<PMML>\n"})
         rc, log = self.query(db, "out_model")
         self.assertEqual(rc, 2, log[-3000:])
         self.assertIn("Cannot load the model", log)
 
     def test_model_protal_cannot_feed(self):
-        model = self.db_file("model.xml").decode()
+        model = self.db_file("model_pe.xml").decode()
         # An input protal does not compute, and a model predicting other labels than TRUE/FALSE.
         unknown = model.replace("<MiningSchema>", '<MiningSchema>\n<MiningField name="moon_phase"/>', 1)
         unknown = re.sub(r"(<DataDictionary[^>]*>)", r'\1\n<DataField name="moon_phase" optype="continuous" dataType="double"/>',
@@ -975,7 +1054,7 @@ class FailFastTest(WorkDir):
         labels = model.replace('value="TRUE"', 'value="present"').replace('score="TRUE"', 'score="present"')
         for name, text, message in (("db_unknown", unknown, "input(s) protal does not compute: moon_phase"),
                                     ("db_labels", labels, "has no value TRUE")):
-            db = self.db_copy(name, {"model.xml": text.encode()})
+            db = self.db_copy(name, {"model_pe.xml": text.encode()})
             rc, log = self.query(db, "out_" + name)
             self.assertEqual(rc, 2, log[-3000:])
             self.assertIn("Cannot use the model", log)
