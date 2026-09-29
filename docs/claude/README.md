@@ -7,6 +7,7 @@ and on [protal.earlham.ac.uk](https://protal.earlham.ac.uk/main.php?site=documen
 
 | Date | Report | Scope |
 |---|---|---|
+| 2026-09-29 | [Parallelising the index build](2026-09-29-index-build-parallel.md) | where `protal --build` spends its time (measured, and extrapolated to GTDB r226), why the index build is serial, and a parallel design that keeps the index byte-identical |
 | 2026-09-29 | [Training the presence model](2026-09-29-model-training-tuning/README.md) | the Java-free trainer against the old procedure; what simulated training data need (strains, species held out) on a GTDB-like world, and the settings for GTDB r226; placeholder models; plan for se/PacBio/ONT training data |
 | 2026-09-29 | [Single-end and long reads](2026-09-29-single-end-and-long-reads.md) | what single-end, HiFi and ONT reads need (evaluation), and single-end support as implemented and tested |
 | 2026-09-29 | [Website documentation review](2026-09-29-website-review.md) | protal.earlham.ac.uk against branch `audit-fixes`: what to update |
