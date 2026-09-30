@@ -7,9 +7,13 @@
 #include <Constants.h>
 #include <algorithm>
 #include <cctype>
+#include <charconv>
+#include <cstring>
 #include <filesystem>
+#include <optional>
 #include <sparse_map.h>
 #include <string>
+#include <string_view>
 #include <fstream>
 #include <err.h>
 #include <KmerUtils.h>
@@ -25,6 +29,147 @@
 #include "Benchmark.h"
 
 namespace protal {
+    // The database's gene tables (reference.map, unique_kmers.tsv), one line per gene (16.6M at GTDB
+    // r226 size), parsed fast: the file is read in pieces of whole lines (~64 MB, reusing the
+    // buffers: holding a whole table and its rows cost more in page faults than it saved), each
+    // piece is cut into chunks that are parsed in parallel with std::from_chars, and the rows are
+    // then added to the genomes in file order. Each chunk stops at its first problem, and a chunk's
+    // problem is reported after its rows are added, so the first problem in the file is the one
+    // reported, with its line number, as when the file was read line by line.
+    namespace gene_table {
+        inline constexpr size_t kPieceBytes = size_t{64} << 20;
+
+        // A line's tab-separated fields, as Utils::split gives them (n tabs, n + 1 fields); the
+        // first `max` of them in f.
+        template<size_t max>
+        struct Fields {
+            std::string_view f[max];
+            size_t n = 0;
+            explicit Fields(std::string_view line) {
+                size_t start = 0;
+                for (;;) {
+                    size_t const tab = line.find('\t', start);
+                    std::string_view const field = line.substr(start, tab == std::string_view::npos ? std::string_view::npos : tab - start);
+                    if (n < max) f[n] = field;
+                    n++;
+                    if (tab == std::string_view::npos) break;
+                    start = tab + 1;
+                }
+            }
+        };
+
+        enum class NumberProblem { None, NotANumber, TooLarge };
+
+        // A non-negative integer field: digits only (no sign or spaces).
+        inline NumberProblem Number(std::string_view s, uint64_t& value) {
+            if (s.empty() || !std::all_of(s.begin(), s.end(), [](char c) { return c >= '0' && c <= '9'; })) return NumberProblem::NotANumber;
+            auto const [end, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
+            return ec == std::errc() && end == s.data() + s.size() ? NumberProblem::None : NumberProblem::TooLarge;
+        }
+
+        // Why column `column` (1-based) is not a number, as the tables' messages say it.
+        inline std::string ColumnProblem(size_t column, NumberProblem problem) {
+            return "column " + std::to_string(column) + (problem == NumberProblem::TooLarge ? " is too large" : " is not a non-negative integer");
+        }
+
+        // The rows of one chunk: parsed up to its first problem (line within the chunk, message).
+        template<typename Row>
+        struct Chunk {
+            std::vector<Row> rows;       // with their line within the chunk (1-based)
+            size_t lines = 0;            // lines in the chunk
+            size_t problem_line = 0;     // 0: none
+            std::string problem;
+        };
+
+        // Parses piece (whole lines) in chunks with `threads` threads, into chunks (resized; their
+        // buffers are reused). parse(line, row, problem) gets a line without its newline and a
+        // trailing '\r' (never an empty one), and returns whether it filled row; a non-empty problem
+        // stops the chunk.
+        template<typename Row, typename Parse>
+        void ParsePiece(std::string_view piece, int threads, Parse& parse, std::vector<Chunk<Row>>& chunks) {
+            size_t const parts = piece.size() < (size_t{1} << 20) ? 1 : static_cast<size_t>(std::max(threads, 1)) * 4;
+            std::vector<size_t> bounds{ 0 };
+            for (size_t i = 1; i < parts; i++) {
+                size_t at = std::max(bounds.back(), piece.size() * i / parts);
+                size_t const newline = piece.find('\n', at);
+                at = newline == std::string_view::npos ? piece.size() : newline + 1;
+                if (at > bounds.back() && at < piece.size()) bounds.push_back(at);
+            }
+            bounds.push_back(piece.size());
+            chunks.resize(bounds.size() - 1);
+            zstd::ParallelFor(chunks.size(), threads, [&](size_t c, size_t) -> std::string {
+                auto& chunk = chunks[c];
+                chunk.rows.clear();
+                chunk.lines = 0;
+                chunk.problem_line = 0;
+                chunk.problem.clear();
+                std::string_view rest = piece.substr(bounds[c], bounds[c + 1] - bounds[c]);
+                Row row{};
+                while (!rest.empty()) {
+                    size_t const newline = rest.find('\n');
+                    std::string_view line = rest.substr(0, newline);
+                    rest = newline == std::string_view::npos ? std::string_view{} : rest.substr(newline + 1);
+                    chunk.lines++;
+                    if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+                    if (line.empty()) continue;
+                    if (parse(line, row, chunk.problem)) {
+                        row.line = chunk.lines;
+                        chunk.rows.push_back(row);
+                    }
+                    if (!chunk.problem.empty()) {
+                        chunk.problem_line = chunk.lines;
+                        break;
+                    }
+                }
+                return {};
+            });
+        }
+
+        // Reads a gene table in pieces, parses each in parallel (ParsePiece) and hands its chunks, in
+        // file order, to add(chunk, lines before the chunk). Returns an error message if the file
+        // cannot be read or decompressed, else empty.
+        template<typename Row, typename Parse, typename Add>
+        std::string ForEachChunk(db::DbFile const& file, int threads, Parse&& parse, Add&& add) {
+            auto input = file.Open();
+            if (!file.Exists() || !input->IsOpen()) return "cannot open the file";
+            std::istream& is = input->Stream();
+            std::string buffer;
+            std::vector<Chunk<Row>> chunks;
+            size_t kept = 0;         // bytes of an unfinished last line carried over to the next piece
+            size_t line_base = 0;    // lines before this piece
+            size_t piece = kPieceBytes;
+            bool end = false;
+            while (!end) {
+                buffer.resize(kept + piece);
+                is.read(buffer.data() + kept, static_cast<std::streamsize>(piece));
+                size_t const got = static_cast<size_t>(is.gcount());
+                if (is.bad()) return "the file cannot be read or decompressed (truncated or corrupt file?)";
+                end = got < piece;
+                size_t const size = kept + got;
+                // Whole lines only, but for the end of the file.
+                size_t cut = size;
+                if (!end) {
+                    size_t const newline = std::string_view(buffer.data(), size).rfind('\n');
+                    if (newline == std::string_view::npos || newline < kept) {
+                        kept = size;  // no line ends in this piece: read more
+                        piece *= 2;
+                        continue;
+                    }
+                    cut = newline + 1;
+                }
+                ParsePiece<Row>(std::string_view(buffer.data(), cut), threads, parse, chunks);
+                for (auto const& chunk : chunks) {
+                    add(chunk, line_base);
+                    line_base += chunk.lines;
+                }
+                std::memmove(buffer.data(), buffer.data() + cut, size - cut);
+                kept = size - cut;
+                piece = kPieceBytes;
+            }
+            return {};
+        }
+    }
+
     class Gene {
         static const size_t DEFAULT = UINT64_MAX;
     private:
@@ -372,11 +517,12 @@ namespace protal {
         std::ifstream m_is;
         GenomeMap m_genomes;
 
+        int m_threads = 1;  // for reading reference.map
+
         Genome& AddOrGetGenome(GenomeKey const& key) {
-            if (!m_genomes.contains(key)) {
-                m_genomes.insert( { key, Genome(key) } );
-            }
-            return m_genomes.at(key);
+            auto it = m_genomes.find(key);
+            if (it == m_genomes.end()) it = m_genomes.insert({ key, Genome(key) }).first;
+            return it.value();
         }
 
         void Open() {
@@ -387,11 +533,13 @@ namespace protal {
     public:
         // reference: reference.fna, a zstd-compressed reference.fna.zst, or the member of a single-file
         // database. The byte offsets in map (reference.map) always refer to the uncompressed reference.
-        GenomeLoader(db::DbFile reference, db::DbFile map) :
+        // map is read with `threads` threads.
+        GenomeLoader(db::DbFile reference, db::DbFile map, int threads = 1) :
                 m_reference(std::move(reference)),
-                m_map(std::move(map)) {
+                m_map(std::move(map)),
+                m_threads(threads) {
             Open();
-            LoadPositionMap(m_map);
+            LoadPositionMap(m_map, m_threads);
         };
 
         GenomeLoader(std::string genome_path, std::string genome_map) :
@@ -399,9 +547,10 @@ namespace protal {
 
         GenomeLoader(const GenomeLoader& other) :
                 m_reference(other.m_reference),
-                m_map(other.m_map) {
+                m_map(other.m_map),
+                m_threads(other.m_threads) {
             Open();
-            LoadPositionMap(m_map);
+            LoadPositionMap(m_map, m_threads);
         }
 
         bool IsCompressed() const {
@@ -426,66 +575,54 @@ namespace protal {
 
         // unique_kmers.tsv (written by --build): taxid, gene id, then counts and rates of short,
         // long and long-super unique k-mers, and the gene's k-mer total. Every line must name a
-        // gene of reference.map.
-        void LoadUniqueKmers(std::string const& file) {
-            LoadUniqueKmers(db::DbFile::OnDisk(file));
+        // gene of reference.map. Parsed with `threads` threads (gene_table).
+        void LoadUniqueKmers(std::string const& file, int threads = 1) {
+            LoadUniqueKmers(db::DbFile::OnDisk(file), threads);
         }
 
-        void LoadUniqueKmers(db::DbFile const& unique_kmers) {
+        void LoadUniqueKmers(db::DbFile const& unique_kmers, int threads = 1) {
             std::string const& file = unique_kmers.Name();
-            auto input = unique_kmers.Open();
-            if (!unique_kmers.Exists() || !input->IsOpen()) InvalidUniqueKmers(file, 0, "cannot open the file");
-            std::istream& is = input->Stream();
-
-            std::vector<std::string> tokens;
-            std::string line;
-            size_t line_no = 0;
-            while (std::getline(is, line)) {
-                line_no++;
-                if (!line.empty() && line.back() == '\r') line.pop_back();
-                if (line.empty()) continue;
-                Utils::split(tokens, line, "\t");
-                if (tokens.size() < 9) {
-                    InvalidUniqueKmers(file, line_no, "expected 9 tab-separated columns, found " + std::to_string(tokens.size()));
+            struct Row {
+                uint64_t taxid, geneid, short_unique, long_unique, long_super_unique, total;
+                size_t line;
+            };
+            auto parse = [](std::string_view line, Row& row, std::string& problem) {
+                gene_table::Fields<9> const fields(line);
+                if (fields.n < 9) {
+                    problem = "expected 9 tab-separated columns, found " + std::to_string(fields.n);
+                    return false;
                 }
-                uint64_t counts[5];
-                size_t const count_columns[5] = { 0, 1, 2, 4, 6 };
-                for (int i = 0; i < 5; i++) {
-                    auto const& t = tokens[count_columns[i]];
-                    if (t.empty() || !std::all_of(t.begin(), t.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); })) {
-                        InvalidUniqueKmers(file, line_no, "column " + std::to_string(count_columns[i] + 1) + " is not a non-negative integer");
+                uint64_t counts[6];
+                size_t const columns[6] = { 0, 1, 2, 4, 6, 8 };  // taxid, gene, short, long, long-super, total
+                for (int i = 0; i < 6; i++) {
+                    auto const number = gene_table::Number(fields.f[columns[i]], counts[i]);
+                    if (number != gene_table::NumberProblem::None) {
+                        problem = gene_table::ColumnProblem(columns[i] + 1, number);
+                        return false;
                     }
-                    counts[i] = std::stoull(t);
                 }
-                auto const& total_str = tokens[8];
-                if (total_str.empty() || !std::all_of(total_str.begin(), total_str.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); })) {
-                    InvalidUniqueKmers(file, line_no, "column 9 is not a non-negative integer");
+                row = { counts[0], counts[1], counts[2], counts[3], counts[4], counts[5], 0 };
+                return true;
+            };
+            auto add = [&](gene_table::Chunk<Row> const& chunk, size_t line_base) {
+                for (auto const& row : chunk.rows) {
+                    auto it = m_genomes.find(row.taxid);
+                    if (it == m_genomes.end() || !it->second.HasGene(row.geneid)) {
+                        InvalidUniqueKmers(file, line_base + row.line, "gene " + std::to_string(row.taxid) + "_" + std::to_string(row.geneid) +
+                                                                       " is not in reference.map (rebuild the database with --build)");
+                    }
+                    auto& taxon = it.value();
+                    if (row.short_unique + row.long_unique > 0) taxon.AddHittableGene(row.geneid);
+                    taxon.GetGene(row.geneid).SetUniqueValues(row.short_unique, row.long_unique, row.long_super_unique, row.total);
                 }
+                if (!chunk.problem.empty()) InvalidUniqueKmers(file, line_base + chunk.problem_line, chunk.problem);
+            };
+            std::string const error = gene_table::ForEachChunk<Row>(unique_kmers, threads, parse, add);
+            if (!error.empty()) InvalidUniqueKmers(file, 0, error);
 
-                auto taxid = counts[0];
-                auto geneid = counts[1];
-                auto short_unique = counts[2];
-                auto long_unique = counts[3];
-                auto long_super_unique = counts[4];
-                auto total_kmers = std::stoull(total_str);
-                if (!HasGene(taxid, geneid)) {
-                    InvalidUniqueKmers(file, line_no, "gene " + std::to_string(taxid) + "_" + std::to_string(geneid) +
-                                                      " is not in reference.map (rebuild the database with --build)");
-                }
-
-                auto& taxon = m_genomes.at(taxid);
-                if (short_unique + long_unique > 0) {
-                    taxon.AddHittableGene(geneid);
-                }
-                auto& gene = taxon.GetGene(geneid);
-                gene.SetUniqueValues(short_unique, long_unique, long_super_unique, total_kmers);
-            }
-            if (is.bad()) InvalidUniqueKmers(file, 0, "the file cannot be read or decompressed (truncated or corrupt file?)");
-
-
-            for (auto& tid : m_genomes) {
-                m_genomes.at(tid.first).SetHittableGenesKnown();
-                m_genomes.at(tid.first).SetUniqueValues();
+            for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) {
+                it.value().SetHittableGenesKnown();
+                it.value().SetUniqueValues();
             }
 
             // PrintHittableGenes();
@@ -663,56 +800,59 @@ namespace protal {
 
         // reference.map: taxid, gene id, start byte, end byte of the gene's sequence in reference.fna.
         // Every line is checked, so a bad map stops protal here instead of corrupting genes silently.
-        void LoadPositionMap(db::DbFile const& map) {
+        // Parsed with `threads` threads (gene_table).
+        void LoadPositionMap(db::DbFile const& map, int threads = 1) {
             std::string const& file_path = map.Name();
-            auto input = map.Open();
-            if (!map.Exists() || !input->IsOpen()) InvalidMap(file_path, 0, "cannot open the file");
-            std::istream& is = input->Stream();
+            if (!map.Exists()) InvalidMap(file_path, 0, "cannot open the file");
             // Offsets refer to the uncompressed reference, also for reference.fna.zst.
             auto const size = m_reference.Size();
             if (!size) InvalidMap(file_path, 0, "cannot read the size of " + m_reference.Name());
             uint64_t const fna_size = *size;
-            constexpr uint64_t max_id = (uint64_t{1} << SEEDMAP_TAXID_BITS) - 1;
-            constexpr uint64_t max_gene = (uint64_t{1} << SEEDMAP_GENEID_BITS) - 1;
-            constexpr uint64_t max_length = (uint64_t{1} << SEEDMAP_GENE_POS_BITS) - 1;
-
-            std::string line;
-            size_t line_no = 0;
-            while (std::getline(is, line)) {
-                line_no++;
-                if (!line.empty() && line.back() == '\r') line.pop_back();
-                if (line.empty()) continue;
-                auto tokens = Utils::split(line, "\t");
-
-                if (tokens.size() != 4) {
-                    InvalidMap(file_path, line_no, "expected 4 tab-separated columns, found " + std::to_string(tokens.size()));
+            struct Row {
+                uint64_t taxid, geneid, start, end;
+                size_t line;
+            };
+            std::string const& reference_name = m_reference.Name();
+            auto parse = [&](std::string_view line, Row& row, std::string& problem) {
+                constexpr uint64_t max_id = (uint64_t{1} << SEEDMAP_TAXID_BITS) - 1;
+                constexpr uint64_t max_gene = (uint64_t{1} << SEEDMAP_GENEID_BITS) - 1;
+                constexpr uint64_t max_length = (uint64_t{1} << SEEDMAP_GENE_POS_BITS) - 1;
+                gene_table::Fields<4> const fields(line);
+                if (fields.n != 4) {
+                    problem = "expected 4 tab-separated columns, found " + std::to_string(fields.n);
+                    return false;
                 }
                 uint64_t values[4];
                 for (int i = 0; i < 4; i++) {
-                    auto const& t = tokens[i];
-                    if (t.empty() || !std::all_of(t.begin(), t.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); })) {
-                        InvalidMap(file_path, line_no, "column " + std::to_string(i + 1) + " is not a non-negative integer");
+                    auto const number = gene_table::Number(fields.f[i], values[i]);
+                    if (number != gene_table::NumberProblem::None) {
+                        problem = gene_table::ColumnProblem(i + 1, number);
+                        return false;
                     }
-                    values[i] = std::stoull(t);
                 }
-                GenomeKey genome_id = values[0];
-                GeneKey gene_key = values[1];
-                size_t start = values[2];
-                size_t end = values[3];
-
+                uint64_t const genome_id = values[0], gene_key = values[1], start = values[2], end = values[3];
                 // taxid 0 marks empty index entries and gene ids are 1-based; both are packed into 20 bits.
-                if (genome_id == 0 || genome_id > max_id) InvalidMap(file_path, line_no, "taxid must be between 1 and " + std::to_string(max_id));
-                if (gene_key == 0 || gene_key > max_gene) InvalidMap(file_path, line_no, "gene id must be between 1 and " + std::to_string(max_gene));
-                if (end <= start) InvalidMap(file_path, line_no, "end byte must be after start byte");
-                if (end > fna_size) InvalidMap(file_path, line_no, "end byte " + std::to_string(end) + " is past the end of " + m_reference.Name() + " (" + std::to_string(fna_size) + " bytes)");
-                if (end - start > max_length) InvalidMap(file_path, line_no, "gene is longer than " + std::to_string(max_length) + " bases");
-
-                auto& genome = AddOrGetGenome(genome_id);
-                if (genome.HasGene(gene_key)) InvalidMap(file_path, line_no, "gene " + std::to_string(genome_id) + "_" + std::to_string(gene_key) + " is listed twice");
-
-                genome.AddGene(gene_key, gene_key, start, end - start, m_compressed ? nullptr : &m_is);
-            }
-            if (is.bad()) InvalidMap(file_path, 0, "the file cannot be read or decompressed (truncated or corrupt file?)");
+                if (genome_id == 0 || genome_id > max_id) problem = "taxid must be between 1 and " + std::to_string(max_id);
+                else if (gene_key == 0 || gene_key > max_gene) problem = "gene id must be between 1 and " + std::to_string(max_gene);
+                else if (end <= start) problem = "end byte must be after start byte";
+                else if (end > fna_size) problem = "end byte " + std::to_string(end) + " is past the end of " + reference_name + " (" + std::to_string(fna_size) + " bytes)";
+                else if (end - start > max_length) problem = "gene is longer than " + std::to_string(max_length) + " bases";
+                if (!problem.empty()) return false;
+                row = { genome_id, gene_key, start, end, 0 };
+                return true;
+            };
+            auto add = [&](gene_table::Chunk<Row> const& chunk, size_t line_base) {
+                for (auto const& row : chunk.rows) {
+                    auto& genome = AddOrGetGenome(row.taxid);
+                    if (genome.HasGene(row.geneid)) {
+                        InvalidMap(file_path, line_base + row.line, "gene " + std::to_string(row.taxid) + "_" + std::to_string(row.geneid) + " is listed twice");
+                    }
+                    genome.AddGene(row.geneid, row.geneid, row.start, row.end - row.start, m_compressed ? nullptr : &m_is);
+                }
+                if (!chunk.problem.empty()) InvalidMap(file_path, line_base + chunk.problem_line, chunk.problem);
+            };
+            std::string const error = gene_table::ForEachChunk<Row>(map, threads, parse, add);
+            if (!error.empty()) InvalidMap(file_path, 0, error);
         }
 
         [[noreturn]] static void InvalidUniqueKmers(std::string const& path, size_t line_no, std::string const& reason) {

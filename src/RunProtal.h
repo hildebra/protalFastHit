@@ -57,15 +57,16 @@ namespace protal {
         std::optional<taxonomy::IntTaxonomy> m_taxonomy;
 
     public:
-        ProtalDB(db::DbFile sequence_file, db::DbFile map_file) :
-                m_genomes(std::move(sequence_file), std::move(map_file)),
+        // The gene tables (reference.map, unique_kmers.tsv) are read with `threads` threads.
+        ProtalDB(db::DbFile sequence_file, db::DbFile map_file, int threads = 1) :
+                m_genomes(std::move(sequence_file), std::move(map_file), threads),
                 m_taxonomy() {
         }
 
-        ProtalDB(db::DbFile sequence_file, db::DbFile map_file, db::DbFile const& unique_kmers_file) :
-                m_genomes(std::move(sequence_file), std::move(map_file)),
+        ProtalDB(db::DbFile sequence_file, db::DbFile map_file, db::DbFile const& unique_kmers_file, int threads = 1) :
+                m_genomes(std::move(sequence_file), std::move(map_file), threads),
                 m_taxonomy() {
-            m_genomes.LoadUniqueKmers(unique_kmers_file);
+            m_genomes.LoadUniqueKmers(unique_kmers_file, threads);
         }
 
         void LoadTaxonomy(db::DbFile const& file) {
@@ -1816,9 +1817,10 @@ namespace protal {
         // Load protal DB into RAM: reference.fna, reference.fna.zst, or the single-file database's
         // (--build always reads the folder's files).
         auto const unique_kmers_file = options.UniqueKmersDbFile();
+        int const db_threads = static_cast<int>(options.GetThreads());
         ProtalDB db = unique_kmers_file.Exists() ?
-            ProtalDB(options.SequenceDbFile(), options.SequenceMapDbFile(), unique_kmers_file) :
-            ProtalDB(options.SequenceDbFile(), options.SequenceMapDbFile());
+            ProtalDB(options.SequenceDbFile(), options.SequenceMapDbFile(), unique_kmers_file, db_threads) :
+            ProtalDB(options.SequenceDbFile(), options.SequenceMapDbFile(), db_threads);
 
         // Load fasta sequences of reference into RAM (advised)
         if (options.PreloadGenomes()) {

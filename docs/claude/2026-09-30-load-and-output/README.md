@@ -353,6 +353,33 @@ be `.raw.msa.fna.zst` (with qcmsa reading it through `compression.zstd` or `zstd
 200 species × 120 kb are ~24 GB of raw MSAs, ~6–8 GB as gzip, and likely a small fraction of that
 as zstd (the ratio at 1,000 rows was not measured).
 
+## Follow-up: #3–#5 implemented
+
+2026-09-30, on `performance` after `401694b`.
+
+**#3, the gene tables.** `reference.map` and `unique_kmers.tsv` are read in pieces of ~64 MB of
+whole lines; each piece is cut into chunks parsed in parallel (`std::from_chars`, no `getline` or
+strings per field), and the rows are added to the genomes in file order, so the first problem in
+the file is still the one reported, with its line (tested with problems in late chunks, and a
+duplicate gene against a malformed line in either order). `-t` threads (`ProtalDB`). A number too
+large for 64 bits is now an error message instead of an uncaught exception. A first version read
+each table whole and kept all rows: 2.5× less user CPU, but the 1.7 GB of short-lived buffers cost
+4 s more in page faults (WSL2); pieces with reused buffers avoid that.
+
+At GTDB size (`bench_gene_tables.cpp`, 16.6M synthetic genes, both tables; load 9–15 on battery,
+so wall times are inflated):
+
+| | wall | user + system CPU | peak RSS |
+|---|---:|---:|---:|
+| before (map, unique k-mers; the SAM header, ~2–3 s, also written) | 23–25 s | ~13 s without the header | 1.8 GB |
+| after, 1 thread | 7.8–8.9 s | 6.2–7.4 s | 1.95 GB |
+| after, 8 threads | 4.0–6.3 s | 7.2–7.5 s | 1.97 GB |
+
+callgrind at 100k genes: 1.1k instructions per gene for `reference.map` (was 4.2k) and 1.5k for
+`unique_kmers.tsv` (was 5.0k). What remains is the serial, memory-bound part: adding 16.6M genes
+to 143k genomes (the gene objects alone are 1.6 GB). The report's estimate of "under a second" was
+too optimistic for it.
+
 ## Reproducing
 
 The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, `BIN`, `PROTAL_SRC`,

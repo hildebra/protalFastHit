@@ -39,6 +39,13 @@ for name in db900like gtdb; do
     echo "  $name rep $rep: $(tail -1 $G/time.txt); SAM header $(stat -c %s $G/$name.header.sam) bytes"
   done
 done
+# Follow-up (#3): the parallel gene-table parser, 1 and 8 threads (needs a protal checkout after 401694b).
+if grep -q "namespace gene_table" $PROTAL_SRC/src/SequenceUtils/GenomeLoader.h; then
+  g++ -std=c++20 -O3 -march=x86-64-v3 -DNDEBUG $inc ${gen_dir:+-I$gen_dir} $here/bench_gene_tables.cpp -o $OUT/bench_gene_tables -lzstd -lz -ldeflate -fopenmp -pthread &&
+  for t in 1 8; do
+    /usr/bin/time -f "  %e s wall, %U s user, %S s sys, %M kB max RSS" $OUT/bench_gene_tables $G/gtdb.fna $G/gtdb.map $G/gtdb.uk $t 2>&1
+  done
+fi
 rm -f $G/gtdb.header.sam $G/gtdb.fna
 
 echo "== sizing gene sequences, 4M genes"
