@@ -37,9 +37,11 @@ recover true SNPs at low depth that 0.6 lost (SNP recall at covered true SNPs at
 
 One regression: 0.7's abundances are further from the truth than 0.6's (Bray-Curtis 0.061 against
 0.035 on the deep sample). The cause is `--depth_identity_margin 0.04`, which leaves out a species'
-reads that are more than 0.04 below its best reads' identity: those of a strain that differs from the
-reference by 1–1.5%, which with sequencing errors fall below it, so species simulated from other
-strains are underestimated by 10–15% and reference-genome species overestimated. With 0.08, 0.7's
+reads whose identity is more than 0.04 below that of its best reads (about 1.0): a 150 bp read with more
+than 6 differences. Strains of this world differ from the reference by 0.4–4% at the markers, and single
+reads scatter around that, so 0.04 drops 6–26% of the bases of strains 1–4.5% away (2x150; more for
+100 and 250 bp reads). Species simulated from other strains are underestimated, and reference-genome
+species overestimated in relative terms. With 0.08, 0.7's
 abundances are the best of all, with every species in the database (0.016 on the deep sample) and
 with whole clades and 20% of species missing from it; 0.08 still resists relatives' reads slightly
 better than no margin. Recommendation: make 0.08 the default (checked on the round-3 world first).
@@ -111,6 +113,45 @@ representative genome alone (0.180), 0.6 reports 0.183 and 0.7 0.222; of species
 and another strain (0.329), 0.326 and 0.291. On 2x100 the species simulated from another strain alone
 (0.369) get 0.366 and 0.316.
 
+### What the margin keeps, by where the reads come from
+
+The margin is in read identity as `AlignmentIdentity` (`Strain.h`) computes it: M / (M + X + I + D)
+over the read's CIGAR, soft clips left out, so an indel's bases count as differences. The threshold is
+the 98th percentile of the taxon's read identities, weighted by aligned bases (`TopIdentity`), minus the
+margin; the 98th percentile is about 1.0 wherever some of a species' reads match the reference exactly.
+0.04 therefore drops a 100 bp read with more than 4 differences, a 150 bp read with more than 6, and a
+250 bp read with more than 10.
+
+In `simulate_gtdb_release.py` every genome of a species, the representative included, is mutated from
+the species' ancestral sequence with its own divergence (substitutions, a share of them codon indels),
+drawn per genome from 0.002–0.02 for this world (`~/tune/world/simulation/divergence.tsv`). A strain
+therefore differs from the representative, the database's reference, by the sum of two draws: 0.4–4%,
+about 1 − ANI at the markers (in the simulation the markers diverge as fast as the rest of the genome).
+A read's differences are roughly Poisson around its length times that divergence plus the sequencing
+error rate: at 3.5% on 150 bp, 5.25 expected differences, and P(more than 6) = 0.28.
+
+`scripts/identity_margin.py` applies protal's rule to 0.7's SAMs of the 500k-pair samples (sample 1,
+primary alignments), and tells a taxon's reads apart by the genome in their simulated names. Share of
+aligned bases kept, full database:
+
+| Reads of | 2x100 at 0.04 / 0.08 | 2x150 at 0.04 / 0.08 | 2x250 at 0.04 / 0.08 |
+|---|---|---|---|
+| the reference genome itself | 0.995 / 1.000 | 1.000 / 1.000 | 0.959 / 0.999 |
+| a strain 0–1% from the reference | 0.963 / 1.000 | 0.990 / 1.000 | 0.882 / 0.998 |
+| a strain 1–2% | 0.879 / 0.998 | 0.935 / 1.000 | 0.785 / 0.998 |
+| a strain 2–3% | 0.768 / 0.994 | 0.856 / 0.999 | 0.647 / 0.994 |
+| a strain 3–4.5% | 0.636 / 0.981 | 0.744 / 0.995 | 0.598 / 0.992 |
+| other species, on this taxon | 0.474 / 0.908 | 0.371 / 0.864 | 0.370 / 0.884 |
+
+With species missing from the database, the other species' share of the taxa's aligned bases grows
+from 1–4% to 5–20%, and 0.04 keeps 33–50% of them, 0.08 keeps 85–89%; the own-read shares are as above.
+At 0.15 every read is kept. So the margin separates a species' strains from its relatives poorly at any
+value in this world, whose congeneric species are 3–12% apart at the markers; 0.08 wins because a
+species' own reads far outnumber its relatives'. 250 bp reads lose more at 0.04 than 150 bp reads,
+even from the reference itself: ART's 250 bp profile (MSv3) has more errors towards the reads' ends.
+Real strains of a species can differ from its representative by up to ~5% genome-wide (the 95% ANI
+species boundary), so 0.04 would undercount them too.
+
 ## New read types (0.7 only)
 
 0.6.0a profiles paired-end reads only. The same communities as single-end, PacBio and Nanopore reads:
@@ -175,5 +216,5 @@ converted files; the conversion took 2.0 s at 6 threads, `--add_model` 0.7–1.5
 
 Real (non-simulated) samples, a GTDB-scale database, and the time of long-read alignment on reads
 over 65 kb. The samples come from one synthetic world whose strains differ from the references by
-0.2–1.5%; how the margin behaves on real strain divergences is the thing to check before changing
-the default.
+0.4–4% at the markers; how the margin behaves on real strain divergences at the GTDB markers is the
+thing to check before changing the default.
