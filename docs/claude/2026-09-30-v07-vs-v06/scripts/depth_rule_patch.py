@@ -12,6 +12,9 @@ with 3 or more reads of each gene's median read identity):
                      median aligned length of the taxon's reads: Z binomial standard deviations of a read's
                      identity at the divergence the gene median shows
   scaled:M0:K        98th percentile - (M0 + K * (1 - gene median))
+  geneq:Q:M          the median over genes of each gene's Q-quantile read identity - M (Q = 0.5: genemed)
+  floor:M:F          min(gene median - M, 98th percentile - F): the gene median's threshold, never closer to
+                     the top than F (a minor, more distant strain beside a dominant close one)
 """
 import sys
 
@@ -22,15 +25,16 @@ anchor = """            double OwnIdentityThreshold() const {
                 return TopIdentity() - m_depth_identity_margin;
             }"""
 assert src.count(anchor) == 1, "OwnIdentityThreshold is not as expected"
-replacement = """            // [experiment] the median over genes (3+ reads) of each gene's median read identity.
-            double GeneMedianIdentity() const {
+replacement = """            // [experiment] the median over genes (3+ reads) of each gene's `quantile` read identity.
+            double GeneMedianIdentity(double quantile = 0.5) const {
                 std::vector<double> medians;
                 for (auto const& [id, gene] : m_genes) {
                     if (gene.m_read_identities.size() < 3) continue;
                     std::vector<float> ids;
                     for (auto const& read : gene.m_read_identities) ids.push_back(read.first);
-                    std::nth_element(ids.begin(), ids.begin() + ids.size() / 2, ids.end());
-                    medians.push_back(ids.at(ids.size() / 2));
+                    size_t const at = std::min(ids.size() - 1, static_cast<size_t>(quantile * static_cast<double>(ids.size())));
+                    std::nth_element(ids.begin(), ids.begin() + at, ids.end());
+                    medians.push_back(ids.at(at));
                 }
                 if (medians.empty()) return TopIdentity();
                 std::nth_element(medians.begin(), medians.begin() + medians.size() / 2, medians.end());
@@ -61,6 +65,8 @@ replacement = """            // [experiment] the median over genes (3+ reads) of
                     return med - field(1) * std::sqrt(p * (1 - p) / MedianReadLength());
                 }
                 if (rule.rfind("genemed:", 0) == 0) return GeneMedianIdentity() - field(1);
+                if (rule.rfind("geneq:", 0) == 0) return GeneMedianIdentity(field(1)) - field(2);
+                if (rule.rfind("floor:", 0) == 0) return std::min(GeneMedianIdentity() - field(1), TopIdentity() - field(2));
                 if (rule.rfind("scaled:", 0) == 0) return TopIdentity() - (field(1) + field(2) * (1 - GeneMedianIdentity()));
                 if (rule.rfind("top:", 0) == 0) return TopIdentity() - field(1);
                 return TopIdentity() - m_depth_identity_margin;

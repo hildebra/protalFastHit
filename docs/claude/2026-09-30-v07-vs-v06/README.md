@@ -186,7 +186,9 @@ near the species boundary (~5% from the representative, where 0.08 below the top
 reads) and close strains beside relatives (where the gene median sits higher and cuts closer). That
 0.08 and no margin at all score nearly alike with species missing (0.037 and 0.040 on 2x100) shows the
 other reason: protal's depth is already a median over genes, which relatives' reads on a few conserved
-genes hardly move.
+genes hardly move. A stress world that reaches both ends is in
+[2026-09-30-depth-margin-stress](../2026-09-30-depth-margin-stress/README.md): there the gene median loses
+to a fixed 0.08 where an abundant relative of a missing species is in the sample.
 
 ## New read types (0.7 only)
 
