@@ -280,7 +280,9 @@ namespace protal {
                     window.end - static_cast<int64_t>(candidate.chunk.offset + candidate.chunk.length);
             for (auto& link : anchor.chain) {
                 int64_t const position = static_cast<int64_t>(link.readpos) + shift;
-                if (position < 0 || position + link.length > static_cast<int64_t>(window_length)) return std::nullopt;
+                // Anchors hold read positions in 16 bits: a window over 64 kb (a gene of ~59 kb) is not aligned.
+                if (position < 0 || position + link.length > static_cast<int64_t>(window_length) ||
+                    position + link.length > std::numeric_limits<uint16_t>::max()) return std::nullopt;
                 link.readpos = static_cast<uint16_t>(position);
             }
 
@@ -345,6 +347,9 @@ namespace protal {
 
         // The overlap of the chunks of a read longer than max_chunk: the longest gene and its margins.
         size_t ChunkOverlap() const { return m_overlap; }
+        // Whether every gene lies wholly in the chunk that owns it: ChunkRead caps the overlap at
+        // half a chunk, which a gene of ~29 kb and its margins exceed (none of GTDB's markers).
+        bool ChunksHoldEveryGene() const { return m_overlap <= m_max_chunk / 2; }
 
         AnchorFinder& GetAnchorFinder() { return m_anchor_finder; }
         KmerHandler& GetKmerHandler() { return m_kmer_handler; }

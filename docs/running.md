@@ -102,8 +102,10 @@ MSAs are joint.
 ## Reruns and profiling existing alignments
 
 protal skips the alignment of a sample whose SAM file already exists and profiles that SAM;
-`--force` aligns again. SAMs are written under a temporary `.partial` name and renamed when
-complete, so an interrupted run never leaves a truncated SAM that a rerun would reuse. A truncated
+`--force` aligns again. Its reads are profiled as the kind the SAM's header names (protal writes
+it there), not as the read files suggest; a kind given with `--read_type` or `READ_TYPE` wins.
+protal warns when the two differ. SAMs are written under a temporary `.partial` name and renamed
+when complete, so an interrupted run never leaves a truncated SAM that a rerun would reuse. A truncated
 `.sam.gz` or `.sam.zst`, or a SAM aligned against another database (its `@SQ` genes missing or of
 another length), stops with an error.
 
@@ -162,7 +164,7 @@ calibrated with; change them for experiments, not for production profiles.
 | `-s, --max_seed_size` | 128 | seeding stops at this many seeds, if `-w` lookups have succeeded |
 | `-w, --min_successful_lookups` | 4 | successful core k-mer lookups needed before `-s` stops seeding |
 | `-a, --max_score_ani` | 0.9 | give up an alignment once it diverges below about this identity |
-| `-x, --x_drop` | 1000 | X-drop of the alignment (WFA2), added to its adaptive pruning; 0 turns it off. The default prunes nothing in practice (outputs identical to `-x 0`); `-x 50` loses a few alignments and changes MAPQs |
+| `-x, --x_drop` | 1000 | X-drop of the alignment of short reads (WFA2), added to its adaptive pruning; 0 turns it off. The default changes no short-read alignment in tests (outputs identical to `-x 0`); `-x 50` loses a few alignments and changes MAPQs. Long reads (`pb`, `ont`) are aligned without X-drop: over their gene-long windows even 1000 lost the own species' alignment of genes an ONT read ends in |
 
 ### Developer options
 

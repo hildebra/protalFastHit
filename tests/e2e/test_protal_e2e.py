@@ -2030,6 +2030,24 @@ class PacBioTest(WorkDir):
         with open(self.path("po", "la.profile")) as again, open(self.path("out", "la.profile")) as first:
             self.assertEqual(again.read(), first.read())
 
+    def test_a_rerun_takes_the_read_type_of_the_sam_it_reuses(self):
+        os.makedirs(self.path("rerun"))
+        sam = sam_path(self.path("out", "la.sam"))
+        shutil.copy(sam, self.path("rerun", os.path.basename(sam)))
+        rc, log = run(self.work, "--db", self.db, "-1", self.reads["la"], "--prefix", "la", "-o", "rerun", "-t", "2",
+                      "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("holds PacBio reads (its header says), so they are profiled as such, not as single-end reads", log)
+        self.assertIn("Model of PacBio reads: " + os.path.join(self.db, "model_PB.xml"), log)
+        with open(self.path("rerun", "la.profile")) as again, open(self.path("out", "la.profile")) as first:
+            self.assertEqual(again.read(), first.read())
+        # A read type given wins, as with --profile_only.
+        rc, log = run(self.work, "--db", self.db, "-1", self.reads["la"], "--prefix", "la", "-o", "rerun", "-t", "2",
+                      "--no_qcmsa", "--read_type", "ont", "--model_ont", self.model)
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("holds PacBio reads; profiled as ONT reads (ont, --read_type or READ_TYPE; --force aligns them again)", log)
+        self.assertIn("Model of ONT reads: " + self.model, log)
+
     def test_long_reads_given_as_short_ones_stop(self):
         rc, log = run(self.work, "--db", self.db, "-1", self.reads["lb"], "-o", "out_short", "-t", "1", "--no_qcmsa")
         self.assertEqual(rc, 30, log[-3000:])
@@ -2096,6 +2114,17 @@ class OntTest(WorkDir):
         self.assertIn("1 read(s) longer than 65000 bp were seeded in chunks", self.log)
         with open_sam(self.path("out", "oa.sam")) as fh:
             self.assertIn("@CO\tprotal read type: ont\n", fh.read())
+        # The options summary shows the values the ONT reads get.
+        self.assertIn("max score ani:       0.900000 (ONT reads: 0.850000)\n", self.log)
+        self.assertIn("snp min af:          0.150000 (ONT reads: 0.200000)\n", self.log)
+        self.assertIn("x-drop:              1000 (short reads; long reads: none)\n", self.log)
+
+    def test_long_reads_are_aligned_without_x_drop(self):
+        # --x_drop is for short reads: over the gene-long windows of long reads it lost alignments.
+        rc, log = run(self.work, "--db", self.db, "-1", self.reads["oa"], "--prefix", "oa", "--read_type", "ont",
+                      "-o", "out_xdrop", "-t", "4", "--no_qcmsa", "--x_drop", "50")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertEqual(sorted(sam_records(self.path("out_xdrop", "oa.sam"))), sorted(sam_records(self.path("out", "oa.sam"))))
 
     def test_every_gene_is_found_once(self):
         for prefix in ("oa", "ob"):

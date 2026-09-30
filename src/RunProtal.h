@@ -229,6 +229,9 @@ namespace protal {
             GenomeLoader& genomes = db.GetGenomes();
 
             WFA2Wrapper2 aligner(4, 6, 2, options.GetXDrop());
+            // Long reads are aligned without X-drop: over their gene-long windows it loses the own
+            // species' alignment of genes the read ends in, and leaves a relative's weaker one unique.
+            WFA2Wrapper2 long_read_wfa(4, 6, 2, 0);
 
             if (options.PreloadGenomes() && !genomes.AllGenomesLoaded()) {
                 Benchmark bm_preload_genomes("Preload genomes");
@@ -247,6 +250,7 @@ namespace protal {
 
             Benchmark bm_classify("Processing all samples");
             bm_classify.Start();
+            bool long_genes_told = false;  // the warning of LongReadAligner::ChunksHoldEveryGene, once
 
             for (auto index : options.GetRange()) {
                 auto const read_type = options.GetReadType(index);
@@ -283,7 +287,8 @@ namespace protal {
                                            IsLongReadType(read_type) ? SIZE_MAX : options.GetMaxSeedSize(), genomes);
                 // AlignmentHandler approach
                 double const max_score_ani = options.GetMaxScoreAni(read_type);
-                SimpleAlignmentHandler alignment_handler(genomes, aligner, kmer_size, options.GetAlignTop(), max_score_ani, options.FastAlign());
+                SimpleAlignmentHandler alignment_handler(genomes, IsLongReadType(read_type) ? long_read_wfa : aligner, kmer_size,
+                                                         options.GetAlignTop(), max_score_ani, options.FastAlign());
                 // Short reads from their anchors' exact matches (AnchoredAligner); long reads, whose
                 // anchors and windows span whole genes, as a whole, as before.
                 alignment_handler.SetAnchoredAlignment(!IsLongReadType(read_type) && !options.WholeReadAlignment());
@@ -336,6 +341,12 @@ namespace protal {
                     SeqReaderSE reader{ is, FastaQualityChar(read_type) };
                     LongReadAligner<SimpleKmerHandler<ClosedSyncmer>, AnchorFinder> long_read_aligner(
                             iterator, anchor_finder, alignment_handler, genomes, options.GetAlignTop(), max_score_ani);
+                    if (!long_read_aligner.ChunksHoldEveryGene() && !long_genes_told) {
+                        long_genes_told = true;
+                        std::cerr << "Warning: the database's longest gene has " << genomes.MaxGeneLength() << " bp; with its margins it "
+                                  << "exceeds half of the " << kMaxLongReadChunk << " bp chunks reads longer than that are seeded in, "
+                                  << "so genes that long may be missed in such reads" << std::endl;
+                    }
                     ProtalLongReadOutputHandler output_handler(sam_output, options.GetMaxOut(), 1024*1024*16, genomes, 0.8);
                     auto protal_stats = protal::classify::RunLongReads(reader, options, long_read_aligner, output_handler);
                     if (options.Verbose()) {

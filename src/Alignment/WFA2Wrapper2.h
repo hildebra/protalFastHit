@@ -25,7 +25,9 @@ namespace protal {
     // step counter, so X-drop prunes only at steps where wf-adaptive did not (short wavefronts).
     // With protal's scores (a match costs 0), X-drop alone stops good long alignments (a 2 kb read
     // at 2% divergence with 50); added to wf-adaptive, 50-1000 changed no 150 bp alignment in tests,
-    // and 200 or less gave an 8 kb one a worse score. The default, 1000, prunes nothing in practice.
+    // and 200 or less gave an 8 kb one a worse score. The default, 1000, is for short reads: over the
+    // gene-long windows of long reads it lost the own species' alignment of genes an ONT read ends
+    // in, so RunProtal aligns long reads without X-drop.
     class WFA2Wrapper2 {
         WFAlignerGapAffine m_aligner;
 

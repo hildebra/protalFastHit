@@ -93,7 +93,7 @@ namespace protal {
                 ("s,max_seed_size", "Max seed size after which seeding is stopped.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_SEED_SIZE)))
                 ("w,min_successful_lookups", "If the number of seeds is >=max_seed_size and the number of successful core-mer lookups is >= min_successful_lookups, stop looking for further seeds.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SUCCESSFUL_LOOKUPS)))
                 ("a,max_score_ani", "A max score makes an alignment stop if the alignment diverges too much. This parameter estimates the score for a given ani and is a tradeoff between speed/accuracy. Given, it applies to all read types; else ONT reads take 0.85 (their indels count twice).", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MAX_SCORE_ANI)))
-                ("x,x_drop", "X-drop of the alignment (WFA2), on top of its adaptive pruning: alignment branches whose score falls this far behind are cut. 0 turns it off. The default prunes nothing in practice; small values (50) lose alignments and change MAPQs.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)));
+                ("x,x_drop", "X-drop of the alignment of short reads (WFA2), on top of its adaptive pruning: alignment branches whose score falls this far behind are cut. 0 turns it off. The default changes no 150 bp alignment in tests; small values (50) lose alignments and change MAPQs. Long reads (pb, ont) are aligned without it: over their gene-long windows even 1000 lost alignments.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)));
 
         // Profiling options
         options.add_options("Profiling")
@@ -511,6 +511,17 @@ namespace protal {
             for (auto i = 1; i < m_prefix_list.size(); i++) prefix_list_str += ", " + m_prefix_list[i];
             std::string profile_list_str = m_profile_list.empty() ? "" : m_profile_list.front();
             for (auto i = 1; i < m_profile_list.size(); i++) profile_list_str += ", " + m_profile_list[i];
+            // A value that reads of some kinds have their own of (ReadTypeInfo): the option's, then
+            // the own one of each kind in the run that differs, as it is used (ONT: -a 0.85).
+            auto per_read_type = [this](double value, auto const& of) {
+                std::string own;
+                for (auto const& info : kReadTypes) {
+                    if (std::find(m_read_types.begin(), m_read_types.end(), info.type) == m_read_types.end()) continue;
+                    if (of(info.type) != value) own += (own.empty() ? "" : ", ") + info.name + " reads: " + std::to_string(of(info.type));
+                }
+                return std::to_string(value) + (own.empty() ? "" : " (" + own + ")");
+            };
+            bool const long_reads = std::any_of(m_read_types.begin(), m_read_types.end(), IsLongReadType);
 
             std::ostringstream result_str;
             result_str << "------ General ------" << std::string(30, '-') << '\n';
@@ -549,8 +560,8 @@ namespace protal {
             result_str << "align top:           " << std::to_string(m_align_top) << '\n';
             result_str << "max key ubiquity:    " << std::to_string(m_max_key_ubiquity) << '\n';
             result_str << "max seed size:       " << std::to_string(m_max_seed_size) << '\n';
-            result_str << "max score ani:       " << std::to_string(m_max_score_ani) << '\n';
-            result_str << "x-drop:              " << std::to_string(m_x_drop) << '\n';
+            result_str << "max score ani:       " << per_read_type(m_max_score_ani, [this](ReadType type) { return GetMaxScoreAni(type); }) << '\n';
+            result_str << "x-drop:              " << std::to_string(m_x_drop) << (long_reads ? " (short reads; long reads: none)" : "") << '\n';
             result_str << "short reads aligned: " << (m_whole_read_alignment ? "as a whole" : "from their anchors") << '\n';
             result_str << "SAM header lists:    " << (m_full_sam_header ? "every gene" : "the genes aligned to") << '\n';
             result_str << "fastalign:           " << std::to_string(m_fastalign) << '\n';
@@ -559,7 +570,7 @@ namespace protal {
             result_str << "snp min cov:         " << std::to_string(m_snp_min_cov) << '\n';
             result_str << "snp min phred sum:   " << std::to_string(m_snp_min_phred_sum) << '\n';
             result_str << "snp min mean qual:   " << std::to_string(m_snp_min_mean_qual) << '\n';
-            result_str << "snp min af:          " << std::to_string(m_snp_min_af) << '\n';
+            result_str << "snp min af:          " << per_read_type(m_snp_min_af, [this](ReadType type) { return GetSNPMinAF(type); }) << '\n';
             result_str << "snp require strand:  " << (m_snp_require_strand ? "yes" : "no (--snp_no_strand)") << '\n';
             result_str << "snp max alleles:     " << std::to_string(m_snp_max_alleles) << '\n';
             result_str << "run qcmsa:           " << (m_run_qcmsa ? "yes" : "no") << '\n';
@@ -1550,7 +1561,9 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
         // the SAM: the kind its header names (protal writes it), else single-end if its alignments
         // are unpaired (no 0x1); a SAM without usable alignments, or that cannot be read (reported
         // when it is profiled), counts as paired-end. A kind given for a SAM wins over its own, e.g. to
-        // profile it with another read type's model, with a warning if they differ.
+        // profile it with another read type's model, with a warning if they differ. A rerun that
+        // profiles the SAM an earlier run wrote (it exists, no --force) takes the kind its header
+        // names in the same way.
         void ResolveReadTypes(std::vector<std::string>& warning_log) {
             m_read_types.assign(m_prefix_list.size(), ReadType::Paired);
             for (size_t i = 0; i < m_read_types.size(); i++) {
@@ -1558,6 +1571,27 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                 if (!m_profile_only) {
                     bool const single = i < m_second_list.size() && m_second_list[i].empty();
                     m_read_types[i] = given ? *given : single ? ReadType::Single : ReadType::Paired;
+                    if (m_force || i >= m_sam_list.size()) continue;
+                    // As RunProtal picks the SAM it skips the alignment for.
+                    std::string sam = m_sam_list[i];
+                    if (!std::filesystem::exists(sam)) sam = UncompressedSamName(sam);
+                    if (!std::filesystem::exists(sam)) continue;
+                    std::optional<ReadType> own;
+                    try {
+                        SamInput input(sam);
+                        own = ReadsOfSam(input.Stream()).declared;
+                    } catch (SamFormatError const&) {}
+                    if (!own || *own == m_read_types[i]) continue;
+                    if (given) {
+                        warning_log.emplace_back(sam + " holds " + ReadTypeName(*own) + " reads; profiled as " +
+                                                 ReadTypeName(*given) + " reads (" + Info(*given).token +
+                                                 ", --read_type or READ_TYPE; --force aligns them again)");
+                    } else {
+                        warning_log.emplace_back(sam + " holds " + ReadTypeName(*own) + " reads (its header says), so they are "
+                                                 "profiled as such, not as " + ReadTypeName(m_read_types[i]) +
+                                                 " reads; --force aligns them again");
+                        m_read_types[i] = *own;
+                    }
                     continue;
                 }
                 std::optional<ReadType> own;  // the SAM's, if it tells
