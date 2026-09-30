@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <iostream>
 #include "FastxReader.h"
 #include "omp.h"
 

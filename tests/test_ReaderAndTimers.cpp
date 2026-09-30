@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -217,6 +218,83 @@ TEST(ThreadedGzStream, ThreadsTakeEveryPairOnceInStep) {
     EXPECT_EQ(ids.size(), n);
     EXPECT_EQ(std::set<std::string>(ids.begin(), ids.end()).size(), n);
     EXPECT_FALSE(is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed());
+}
+
+TEST(ThreadedGzStream, TakeLinesCutsWholeLinesAcrossBlocks) {
+    ScratchDir dir;
+    // Short, empty and CRLF lines, one longer than a block, and a last line without its '\n'.
+    std::string content;
+    for (int i = 0; i < 30000; i++) content += (i % 5 == 0 ? std::string() : std::string(i % 97, 'a' + i % 26)) + (i % 7 ? "\n" : "\r\n");
+    content += std::string(ThreadedGzStreambuf::kBlockSize + 12345, 'L') + "\n" + Fastq(20000, "t") + "last";
+    std::stringstream reference(content);
+    auto const lines = Lines(reference);
+    for (auto const& path : { dir.Gzip("lines.gz", content), dir.Plain("lines.txt", content) }) {
+        SCOPED_TRACE(path);
+        ThreadedGzIstream is(path.c_str());
+        std::string taken;
+        size_t count = 0, n = 0;
+        while ((n = is.rdbuf()->TakeLines(7, taken)) > 0) {
+            count += n;
+            ASSERT_EQ(taken.back(), '\n');
+            if (n < 7) break;
+        }
+        EXPECT_EQ(is.rdbuf()->TakeLines(7, taken), 0u);
+        EXPECT_EQ(count, lines.size());
+        EXPECT_EQ(taken, content + "\n");
+    }
+}
+
+namespace {
+    std::vector<std::string> Records(std::function<bool(FastxRecord&)> const& next) {
+        std::vector<std::string> records;
+        FastxRecord record;
+        while (next(record)) records.push_back(record.header + "|" + record.id + "|" + record.sequence + "|" + record.quality);
+        return records;
+    }
+}
+
+// SeqReaderSE parses FASTQ batches outside the reader lock (BufferedFastxReader::NextFastq), taken
+// from protal's input stream with TakeLines or from any other stream line by line; SeqReader still
+// parses them as before (ReadNextSequence).
+TEST(SeqReader, FastqRecordsAreTheSameFromAnyStream) {
+    ScratchDir dir;
+    std::string content = "@r1 some description\nACGT\n+\nIIII\n@r2\tx\r\nACGTT\r\n+r2\r\nIIIII\r\n";
+    content += Fastq(100, "b");  // several batches of 32
+    std::string const long_read(ThreadedGzStreambuf::kBlockSize * 3 / 2, 'C');
+    content += "@long\n" + long_read + "\n+\n" + std::string(long_read.size(), '5') + "\n@end/1\nAC\n+\nII";
+
+    std::istringstream oracle_stream(content);
+    SeqReader oracle(oracle_stream);
+    auto const expected = Records([&](FastxRecord& r) { return oracle(r); });
+    ASSERT_EQ(expected.size(), 104u);
+    EXPECT_EQ(expected[0], "@r1 some description|r1|ACGT|IIII");
+    EXPECT_EQ(expected[1], "@r2\tx|r2|ACGTT|IIIII");
+    EXPECT_EQ(expected.back(), "@end/1|end/1|AC|II");
+
+    std::istringstream plain_stream(content);
+    ThreadedGzIstream plain(dir.Plain("reads.fq", content).c_str()), gz(dir.Gzip("reads.fq.gz", content).c_str());
+    for (std::istream* is : std::initializer_list<std::istream*>{ &plain_stream, &plain, &gz }) {
+        SeqReaderSE reader(*is);
+        EXPECT_EQ(Records([&](FastxRecord& r) { return reader(r); }), expected);
+        EXPECT_TRUE(reader.Success());
+    }
+}
+
+TEST(SeqReader, AMalformedFastqRecordIsAnError) {
+    ScratchDir dir;
+    std::string const content = "@r1\nACGT\n+\nIIII\nr2\nACGT\n+\nIIII\n";
+    std::istringstream plain_stream(content);
+    ThreadedGzIstream gz(dir.Gzip("bad.fq.gz", content).c_str());
+    for (std::istream* is : std::initializer_list<std::istream*>{ &plain_stream, &gz }) {
+        SeqReaderSE reader(*is);
+        FastxRecord record;
+        testing::internal::CaptureStderr();
+        ASSERT_TRUE(reader(record));
+        EXPECT_EQ(record.id, "r1");
+        EXPECT_FALSE(reader(record));
+        EXPECT_NE(testing::internal::GetCapturedStderr().find("malformed FASTQ file (exp. '@', saw r2)"), std::string::npos);
+        EXPECT_FALSE(reader.Success());
+    }
 }
 
 TEST(Benchmark, SumsIntervalsShorterThanAMicrosecond) {

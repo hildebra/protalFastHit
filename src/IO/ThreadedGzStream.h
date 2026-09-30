@@ -102,6 +102,38 @@ namespace protal {
             return m_error;
         }
 
+        // Appends up to `lines` whole lines to out, each with its '\n' (a last line without one gets
+        // it, as getline reads such a line too), and returns how many. The lines are found with
+        // memchr in the inflated block and copied at once, so the reader lock is held for little
+        // more than a copy (BufferedFastxReader::LoadBatch).
+        size_t TakeLines(size_t lines, std::string& out) {
+            size_t taken = 0;
+            bool partial = false;  // out ends inside a line
+            while (taken < lines) {
+                if (gptr() == egptr() && traits_type::eq_int_type(underflow(), traits_type::eof())) break;
+                char* const begin = gptr();
+                char* const end = egptr();
+                char* p = begin;
+                while (taken < lines) {
+                    auto* const newline = static_cast<char*>(std::memchr(p, '\n', static_cast<size_t>(end - p)));
+                    if (!newline) {
+                        p = end;
+                        break;
+                    }
+                    p = newline + 1;
+                    taken++;
+                }
+                out.append(begin, static_cast<size_t>(p - begin));
+                partial = p[-1] != '\n';
+                gbump(static_cast<int>(p - begin));
+            }
+            if (partial && taken < lines) {
+                out.push_back('\n');
+                taken++;
+            }
+            return taken;
+        }
+
     protected:
         int_type underflow() override {
             if (gptr() < egptr()) return traits_type::to_int_type(*gptr());

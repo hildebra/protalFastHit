@@ -405,6 +405,47 @@ machine has 15 GB): 12–17 s less wall time at 8 threads. Memory is unchanged: 
 the per-string allocation overhead (~16 bytes a gene), and each gene keeps its empty `std::string`.
 Every output of 200k pairs of `w900` and `mix`, at 1 and 8 threads, as before.
 
+**#5, the reader lock.** For FASTQ, `LoadBatch` (under `omp critical(reader)`) now takes the batch's
+4 × 32 lines as they are: from a `ThreadedGzStreambuf`, protal's read input for plain and gzipped
+files alike, `TakeLines` finds them with `memchr` in the inflated block and copies them in one
+`append` per block; from any other stream (tests, `std::istringstream`) line by line with `getline`.
+`NextFastq` then parses the batch outside the lock with `std::string_view`s instead of `getline`
+into a `std::stringstream`: the same records, ends (an empty header line, a record cut short) and
+error message as `ReadNextSequence`, which FASTA and `SeqReader` (`LoadBlock`, used by the build)
+keep. Tested: whole lines across 1 MB blocks (a line longer than a block, empty and CRLF lines, a
+last line without `'\n'`) against `getline`; records with descriptions, tabs, CRLF, a 1.5 MB read
+and a last record without `'\n'` from `std::istringstream`, a plain and a gzipped file, against
+`SeqReader`'s old parser; a malformed header through both paths.
+
+callgrind, 50k pairs of `mix` (`.fq.gz`), 1 thread, per pair:
+
+| | before | after |
+|---|---:|---:|
+| `LoadBatch` (under the lock) | 4.5k | 1.08k |
+| parsing (outside) | 3.2k | 1.5k |
+| the whole run (start-up included) | 355k | 350k |
+
+Of the 1.08k, 650 are the one copy, which glibc does with `rep movsb` and callgrind counts per byte
+(so less in time than in instructions), 330 are `memchr` (one call per line) and 90 the rest.
+
+The reader alone (`bench_reader.cpp`: threads take pairs and do nothing else; 1M pairs of `mix`;
+load 10–17):
+
+| pairs/s | 1 thread | 4 threads | 8 threads |
+|---|---:|---:|---:|
+| plain, before | 0.97–1.18M | 0.81–0.96M | 0.68–0.93M |
+| plain, after | 2.07–2.24M | 1.27–1.87M | 1.18–1.64M |
+| `.fq.gz`, before | 232–274k | 225–235k | 275k |
+| `.fq.gz`, after | 227–266k | 257–262k | 307–324k |
+
+From plain files the ceiling rises 1.7–2×. From gzip files the reader is now bound by zlib's
+inflate (one thread per file, ~270k pairs/s here), which is #6: 1M pairs of `mix` align in 3–5 s
+at 8 threads (200–330k pairs/s), so `mix` from an ordinary `.fq.gz` waits for its input; from BGZF
+input (bgzip, protal's simulator) libdeflate inflates ~3× faster (above). The alignment stage on
+1M pairs of `mix` at 8 threads was 4.9–5.0 s → 3.5–4.8 s (`.fq.gz`) and 4.8–5.4 s → 3.0–4.7 s
+(plain), too noisy on this machine for more than "not slower". Every output of 200k pairs of `w900`
+and `mix`, at 1 and 8 threads, as before.
+
 ## Reproducing
 
 The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, `BIN`, `PROTAL_SRC`,
@@ -425,4 +466,7 @@ bash scripts/sam_speed.sh OLD/protal_avx2 NEW/protal_avx2 $PERF_DIR/db900 w900 W
     mix $PERF_DIR/reads/mix/mix_R1.fq.gz $PERF_DIR/reads/mix/mix_R2.fq.gz
 # follow-up #4: LoadAllGenomes before and after the gene arena (two checkouts: e825cbf and after)
 bash scripts/gene_arena.sh OLD_CHECKOUT NEW_CHECKOUT 2000000
+# follow-up #5: the reader alone before and after (checkouts 94f6a12 and after), plain and gzipped
+bash scripts/reader_lock.sh OLD_CHECKOUT NEW_CHECKOUT $PERF_DIR/reads/mix_plain/mix_R{1,2}.fq \
+    $PERF_DIR/reads/mix/mix_R1.fq.gz $PERF_DIR/reads/mix/mix_R2.fq.gz
 ```
