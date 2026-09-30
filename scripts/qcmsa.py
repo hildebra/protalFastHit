@@ -14,12 +14,12 @@ The filter has two passes:
      non-zero value, so we fence the non-zero counts instead and additionally
      require at least --min-bad bad peers before anything is removed.
 
-  2. Site / sequence cleanup (M5 step 4b) -- optional second pass over the
-     surviving columns: drop near-constant (low-parsimony) variable sites,
-     optionally drop constant (invariant) sites (--discard-constant; kept by
-     default, as they inform branch-length estimation), optionally mask
-     individual cell outliers, and optionally re-apply the per-sequence
-     horizontal-coverage floor after gene removal.
+  2. Site / sequence cleanup (M5 step 4b) -- second pass over the surviving
+     columns: drop columns without any A/C/G/T, optionally drop constant sites
+     (--discard-constant) and low-parsimony variable sites
+     (--min-parsimony-samples), both off by default because a tree's branch
+     lengths need them; optionally mask individual cell outliers, and
+     re-apply the per-sequence horizontal-coverage floor after gene removal.
 
 Inputs match protal's output contract:
   <msa>        FASTA (plain or .gz) -- protal's <species>.raw.msa.fna
@@ -41,6 +41,10 @@ from collections import Counter, defaultdict
 
 # Characters treated as "missing" (no informative base) at an MSA position.
 MISSING = {"-", "N", "n", "."}
+# The unambiguous bases; the site cleanup judges columns on these alone.
+BASES = set("ACGTacgt")
+# What qcmsa writes next to <prefix>; removed first, so no output of an earlier run survives.
+OUTPUT_EXTENSIONS = (".msa.fna", ".partition.txt", ".qcmsa_summary.tsv", ".qc.png")
 
 # --preset -> (iqr_mult, min_bad). Tunes how aggressive the MRate2 fence is.
 PRESETS = {
@@ -73,25 +77,6 @@ def upper_fence(values, iqr_mult):
     q25 = quantile_type7(s, 0.25)
     q75 = quantile_type7(s, 0.75)
     return q75 + iqr_mult * (q75 - q25)
-
-
-def flag_outliers(counts, min_bad, iqr_mult, include_zeros=False):
-    """Given {key: n_bad}, return (flagged_set, fence) for upper-outlier keys.
-
-    fence = Tukey upper fence (Q3 + iqr_mult*IQR). By default it is computed on the
-    *non-zero* counts (qcmsa.R behaviour: finds outliers among the items that already
-    carry signal, robust to a noisy real-data background). With include_zeros=True the
-    fence is computed on the FULL distribution including the zeros -- so when most
-    items are zero (a clean baseline), Q3 collapses to 0 and the fence flags ANY
-    non-zero item (>= min_bad). A key still needs n_bad >= min_bad so a single bad
-    cell never triggers removal. Needs >= 4 non-zero values to fire at all.
-    """
-    nonzero = [c for c in counts.values() if c > 0]
-    if len(nonzero) < 4:
-        return set(), None
-    base = list(counts.values()) if include_zeros else nonzero
-    fence = upper_fence(base, iqr_mult)
-    return {k for k, c in counts.items() if c > fence and c >= min_bad}, fence
 
 
 # ----------------------------------------------------------------------------
@@ -189,8 +174,10 @@ def parse_partition(path, base="auto"):
 META_GENE_COL = "gene_id"
 META_SAMPLE_COL = "sample"
 META_MRATE2_COL = "multi_rate_vcov2"
-META_HCOV_COL = "hcov"               # fraction of gene covered (M3 --gene_min_hcov_frac)
-META_DEPTH_COL = "mean_vcov_nonzero"  # mean depth over covered positions (M3 --gene_min_mean_depth)
+META_MULTI_COL = "multi_allelic"      # positions written as an IUPAC code
+META_VCOV2_COL = "counts_vcov2"       # positions with >= 2 reads
+META_HCOV_COL = "hcov"               # fraction of the gene with >= 1 read
+META_DEPTH_COL = "mean_vcov_nonzero"  # mean depth over those positions; x hcov = mean depth of the gene
 
 
 def load_meta(path, gene_whitelist, sample_whitelist=None):
@@ -198,10 +185,11 @@ def load_meta(path, gene_whitelist, sample_whitelist=None):
     samples in sample_whitelist (the samples in the MSA: protal lists every sample with reads
     on a gene in the meta, also those whose MSA row it dropped).
 
-    Returns (rows, samples_in_order, genes_sorted, cov) where
-      rows = list of (sample:str, gene:int, mrate2:float)
-      cov  = {(sample, gene): (hcov:float, mean_depth:float)} (empty if the
-             coverage columns are absent).
+    Returns (rows, samples_in_order, genes_sorted, depth) where
+      rows  = list of (sample:str, gene:int, mrate2:float, multi:int, vcov2:int): the cell's
+              multi-allelic rate, its multi-allelic positions and its positions with >= 2 reads
+      depth = {(sample, gene): mean depth over the whole gene} (hcov x mean_vcov_nonzero; empty
+              if the coverage columns are absent).
     """
     rows = []
     cov = {}
@@ -211,6 +199,8 @@ def load_meta(path, gene_whitelist, sample_whitelist=None):
             si = header.index(META_SAMPLE_COL)
             gi = header.index(META_GENE_COL)
             mi = header.index(META_MRATE2_COL)
+            ni = header.index(META_MULTI_COL)
+            vi = header.index(META_VCOV2_COL)
         except ValueError as exc:
             raise SystemExit(
                 f"qcmsa.py: meta file '{path}' is missing expected column "
@@ -228,17 +218,17 @@ def load_meta(path, gene_whitelist, sample_whitelist=None):
             sample = f[si]
             if sample_whitelist is not None and sample not in sample_whitelist:
                 continue
-            rows.append((sample, gene, float(f[mi])))
+            rows.append((sample, gene, float(f[mi]), int(f[ni]), int(f[vi])))
             if hi is not None and di is not None:
                 try:
-                    cov[(sample, gene)] = (float(f[hi]), float(f[di]))
+                    cov[(sample, gene)] = float(f[hi]) * float(f[di])
                 except ValueError:
                     pass
 
     samples_seen = []
     seen = set()
     genes_seen = set()
-    for sample, gene, _ in rows:
+    for sample, gene, *_ in rows:
         if sample not in seen:
             seen.add(sample)
             samples_seen.append(sample)
@@ -246,13 +236,35 @@ def load_meta(path, gene_whitelist, sample_whitelist=None):
     return rows, samples_seen, sorted(genes_seen, key=gene_sort_key), cov
 
 
-def coverage_filter(cov, all_genes, hcov_t, depth_t, min_samples):
-    """Reproduce protal's M3 coverage gate from the meta coverage columns.
+def written_fraction(seq_of, samples, reference, partition):
+    """{(sample, gene): share of the gene's positions that the sample's MSA row writes}.
 
-    A (sample,gene) cell passes if hcov >= hcov_t AND mean_depth >= depth_t.
-    A gene is dropped if NOT more than min_samples cells pass (protal uses a
-    strict '>' on msa_min_samples). Returns (dropped_genes, fail_cells, reason)
-    where fail_cells are coverage-failing cells in *surviving* genes (to gap-fill).
+    A gene's positions are its columns where the reference row has a base (insertion columns are
+    left out; without a reference row, every column counts). A written position is anything but
+    -, N and '.': a base or an IUPAC code.
+    """
+    out = {}
+    for g, s, e in partition:
+        skip = [] if reference is None else [c for c in range(s, e + 1) if reference[c] in MISSING]
+        positions = e - s + 1 - len(skip)
+        if positions <= 0:
+            continue
+        for n in samples:
+            seq = seq_of[n]
+            part = seq[s:e + 1]
+            written = len(part) - sum(part.count(ch) for ch in MISSING)
+            written -= sum(1 for c in skip if seq[c] not in MISSING)
+            out[(n, g)] = written / positions
+    return out
+
+
+def coverage_filter(cov, all_genes, hcov_t, depth_t, min_samples):
+    """Gate genes and (sample, gene) cells on coverage.
+
+    cov = {(sample, gene): (hcov, depth)}: the share of the gene the MSA row writes and the gene's
+    mean depth. A cell passes if hcov >= hcov_t AND depth >= depth_t. A gene is dropped if NOT more
+    than min_samples cells pass. Returns (dropped_genes, fail_cells, reason) where fail_cells are
+    coverage-failing cells in *surviving* genes (to gap-fill).
     """
     passing = defaultdict(int)
     failing = defaultdict(set)   # gene -> set of failing samples
@@ -305,84 +317,66 @@ def write_fasta(path, names, seqs, width=80):
 
 
 # ----------------------------------------------------------------------------
-# Pass 1: MRate2 iterative gene/sample filter (identical to qcmsa.R).
+# Pass 1: multi-allelicity (MRate2) sample/gene filter.
 # ----------------------------------------------------------------------------
 def mrate2_filter(rows, all_genes, all_samples, min_bad, iqr_mult,
-                  gene_abs=0, sample_abs=0, include_zeros=False, max_iter=100):
-    kept_genes = set(all_genes)
-    kept_samples = set(all_samples)
-    # reason[id] = (n_bad, fence_or_'abs>=N', iteration) recorded when flagged
-    gene_reason = {}
-    sample_reason = {}
+                  gene_abs=0, sample_abs=0, min_rate=0.002):
+    """Remove samples, then genes, whose pooled multi-allelic rate is an outlier.
 
-    for it in range(1, max_iter + 1):
-        # gene -> number of kept samples with MRate2 > 0
-        gene_counts = defaultdict(int)
-        for sample, gene, mr in rows:
-            if gene in kept_genes and sample in kept_samples and mr > 0:
-                gene_counts[gene] += 1
-        # genes with zero bad cells still need a (zero) entry for the fence base
-        for g in kept_genes:
-            gene_counts.setdefault(g, 0)
-        tukey_genes, gene_fence = flag_outliers(gene_counts, min_bad, iqr_mult, include_zeros)
-        # absolute rule: catch ANY signal above the (often clean-zero) baseline,
-        # which the Tukey fence cannot do when the bad items ARE the distribution.
-        abs_genes = ({g for g, c in gene_counts.items() if c >= gene_abs}
-                     if gene_abs > 0 else set())
-        bad_genes = tukey_genes | abs_genes
+    A sample's pooled rate is its multi-allelic positions (IUPAC codes) over its positions with
+    >= 2 reads, summed over genes; a gene's, the same over the samples kept. Unlike a count of
+    multi-allelic genes, the rate does not grow with depth, so deep clean samples are not taken
+    for mixtures. An item is removed when its rate exceeds both the Tukey upper fence of all
+    items' rates (Q3 + iqr_mult * IQR, over >= 4 items) and min_rate, and it has >= min_bad
+    multi-allelic genes (samples); or, with sample_abs / gene_abs > 0, when it has at least that
+    many. One pass: removals do not move the fence for the rest.
 
-        # sample -> number of bad genes, computed AFTER removing this round's bad genes
-        sample_counts = defaultdict(int)
-        for sample, gene, mr in rows:
-            if (gene in kept_genes and gene not in bad_genes
-                    and sample in kept_samples and mr > 0):
-                sample_counts[sample] += 1
-        for s in kept_samples:
-            sample_counts.setdefault(s, 0)
-        tukey_samples, sample_fence = flag_outliers(sample_counts, min_bad, iqr_mult, include_zeros)
-        abs_samples = ({s for s, c in sample_counts.items() if c >= sample_abs}
-                       if sample_abs > 0 else set())
-        bad_samples = tukey_samples | abs_samples
+    Returns (kept_genes, kept_samples, filtered_genes, filtered_samples, gene_reason,
+    sample_reason), the reasons as {id: (value, text)}.
+    """
+    def rates(key_index, keep):
+        multi, positions, bad = defaultdict(int), defaultdict(int), defaultdict(int)
+        for row in rows:
+            sample, gene, _, m, v = row
+            if not keep(sample, gene):
+                continue
+            key = row[key_index]
+            multi[key] += m
+            positions[key] += v
+            bad[key] += m > 0
+        return multi, positions, bad
 
-        # The Tukey fences need >= 4 items with signal: with 1-3 multi-allelic samples (always
-        # so with fewer than 4 samples) or genes, the filter cannot remove any of them unless an
-        # absolute cutoff is set.
-        if it == 1:
-            n_samples_signal = sum(1 for c in sample_counts.values() if c > 0)
-            n_genes_signal = sum(1 for c in gene_counts.values() if c > 0)
-            if sample_fence is None and sample_abs <= 0 and n_samples_signal > 0:
-                sys.stderr.write(
-                    f"qcmsa.py: WARNING: {n_samples_signal} of {len(kept_samples)} samples have "
-                    "multi-allelic genes, too few for the sample filter (needs 4); set "
-                    "--sample-abs-min-bad to filter them.\n")
-            if gene_fence is None and gene_abs <= 0 and n_genes_signal > 0:
-                sys.stderr.write(
-                    f"qcmsa.py: WARNING: {n_genes_signal} of {len(kept_genes)} genes are "
-                    "multi-allelic, too few for the gene filter (needs 4); set "
-                    "--gene-abs-min-bad to filter them.\n")
+    def flag(keys, multi, positions, bad, abs_min, what, peers):
+        rate = {k: (multi[k] / positions[k] if positions.get(k) else 0.0) for k in keys}
+        fence = upper_fence(list(rate.values()), iqr_mult) if len(rate) >= 4 else None
+        threshold = max(fence, min_rate) if fence is not None else None
+        flagged, reason = set(), {}
+        for k in keys:
+            if threshold is not None and rate[k] > threshold and bad[k] >= min_bad:
+                flagged.add(k)
+                reason[k] = (bad[k], f"multi-allelic rate {rate[k]:.4f} > {threshold:.4f} "
+                                     f"(fence {fence:.4f}, floor {min_rate}); {bad[k]} multi-allelic {peers}")
+            elif abs_min > 0 and bad[k] >= abs_min:
+                flagged.add(k)
+                reason[k] = (bad[k], f"multi-allelic in {bad[k]} {peers} >= {abs_min}")
+        if fence is None and abs_min <= 0 and any(bad[k] > 0 for k in keys):
+            sys.stderr.write(f"qcmsa.py: WARNING: fewer than 4 {what}s, too few for the {what} filter; "
+                             f"set --{what}-abs-min-bad to filter them.\n")
+        return flagged, reason, threshold
 
-        sys.stderr.write(
-            f"  iter {it}: {len(bad_genes)} gene(s) flagged "
-            f"({len(tukey_genes)} Tukey, {len(abs_genes - tukey_genes)} abs) | "
-            f"{len(bad_samples)} sample(s) flagged "
-            f"({len(tukey_samples)} Tukey, {len(abs_samples - tukey_samples)} abs)\n"
-        )
+    samples = list(all_samples)
+    multi, positions, bad = rates(0, lambda s, g: True)
+    bad_samples, sample_reason, s_thr = flag(samples, multi, positions, bad, sample_abs, "sample", "genes")
+    kept_samples = set(samples) - bad_samples
 
-        if not bad_genes and not bad_samples:
-            break
-        for g in bad_genes:
-            fence = (gene_fence if g in tukey_genes else f">=abs {gene_abs}")
-            gene_reason[g] = (gene_counts[g], fence, it)
-        for s in bad_samples:
-            fence = (sample_fence if s in tukey_samples else f">=abs {sample_abs}")
-            sample_reason[s] = (sample_counts[s], fence, it)
-        kept_genes -= bad_genes
-        kept_samples -= bad_samples
+    multi, positions, bad = rates(1, lambda s, g: s in kept_samples)
+    bad_genes, gene_reason, g_thr = flag(list(all_genes), multi, positions, bad, gene_abs, "gene", "samples")
+    kept_genes = set(all_genes) - bad_genes
 
-    filtered_genes = set(all_genes) - kept_genes
-    filtered_samples = set(all_samples) - kept_samples
-    return (kept_genes, kept_samples, filtered_genes, filtered_samples,
-            gene_reason, sample_reason)
+    fmt = lambda t: "-" if t is None else f"{t:.4f}"
+    sys.stderr.write(f"  multi-allelic filter: {len(bad_samples)} sample(s) above rate {fmt(s_thr)}, "
+                     f"{len(bad_genes)} gene(s) above rate {fmt(g_thr)}\n")
+    return (kept_genes, kept_samples, bad_genes, bad_samples, gene_reason, sample_reason)
 
 
 # ----------------------------------------------------------------------------
@@ -420,40 +414,48 @@ def build_argparser():
     p.add_argument("--gene-abs-min-bad", type=int, default=0,
                    help="Remove a gene multi-allelic in >= this many samples, regardless of "
                         "the Tukey fence. 0=off.")
+    p.add_argument("--mrate2-min-rate", type=float, default=0.002,
+                   help="Floor for the multi-allelic fences: a sample, gene or cell is only "
+                        "removed (masked) with a multi-allelic rate above both its Tukey fence "
+                        "and this rate (default 0.002: 0.2%% of the positions with >= 2 reads). "
+                        "It keeps a fence from collapsing to 0 when most items are clean.")
     p.add_argument("--mrate2-include-zeros", action="store_true",
-                   help="Compute the Tukey fence on the FULL distribution (including the "
-                        "zero-MRate2 items) instead of the non-zero values only. On a clean "
-                        "baseline (most items zero) this makes the fence collapse to ~0 so any "
-                        "non-zero item (>= --min-bad peers) is flagged -- catches a sparse 10%% "
-                        "of bad samples/genes that the non-zero fence treats as the norm.")
+                   help="No effect; kept for old command lines. The fences are computed on "
+                        "every item's rate, floored at --mrate2-min-rate.")
 
     # Coverage gating -- this is where the gene/sample coverage filtering lives
-    # (protal emits a raw MSA). Computed from the meta hcov / mean-depth columns.
-    # Defaults are ON; set any to 0 to disable that part.
+    # (protal emits a raw MSA). Set any to 0 to disable that part.
     p.add_argument("--gene-min-hcov", type=float, default=0.3,
-                   help="Min fraction of a gene covered for a (sample,gene) cell to "
-                        "pass. Default 0.3; 0 disables.")
-    p.add_argument("--gene-min-mean-depth", type=float, default=1.0,
-                   help="Min mean depth over covered positions for a cell to pass. "
-                        "Default 1.0; 0 disables.")
-    p.add_argument("--gene-min-samples", type=int, default=3,
+                   help="Min share of a gene's positions that a sample's MSA row writes (a base "
+                        "or IUPAC code, not -, N) for the (sample, gene) cell to pass. "
+                        "Default 0.3; 0 disables.")
+    p.add_argument("--gene-min-mean-depth", type=float, default=0.0,
+                   help="Min mean depth of the gene (the reads the MSA takes, over all its "
+                        "positions: hcov x mean_vcov_nonzero of .meta.tsv) for a cell to pass. "
+                        "Default 0 (off).")
+    p.add_argument("--gene-min-samples", type=int, default=1,
                    help="Drop a gene unless MORE than this many samples pass coverage "
-                        "(strict >, like protal's old msa_min_samples). Default 3; 0 disables.")
+                        "(strict >, like protal's old msa_min_samples). Default 1: a gene "
+                        "needs 2 samples, as protal needs 2 samples for an MSA. 0 disables.")
     p.add_argument("--max-mrate2", type=float, default=None,
                    help="Hard per-cell MRate2 cap for the cell-outlier fence "
                         "(default: Tukey fence derived from the data)")
 
     # M5 step 4b -- site / sequence cleanup
     # Constant (invariant) sites are KEPT by default (they inform branch-length
-    # estimation). Pass --discard-constant to drop them.
+    # estimation). Pass --discard-constant to drop them. Both site tests judge the
+    # bases A/C/G/T only: an IUPAC code is ambiguous, as IQ-TREE reads it.
     p.add_argument("--discard-constant", dest="remove_constant",
                    action="store_true", default=False,
-                   help="Discard constant (invariant) sites (default: off; "
-                        "constant sites are kept)")
-    p.add_argument("--min-parsimony-samples", type=int, default=2,
-                   help="Drop variable sites where fewer than N samples differ from "
-                        "the majority base (default 2). Applies only to variable "
-                        "columns; constant sites are governed by --discard-constant.")
+                   help="Discard constant (invariant) sites: columns with at most one of "
+                        "A/C/G/T (default: off). A tree from such an MSA needs an "
+                        "ascertainment correction (IQ-TREE: +ASC).")
+    p.add_argument("--min-parsimony-samples", type=int, default=0,
+                   help="Drop variable sites where fewer than N samples (the reference "
+                        "row not counted) differ from the majority base (default 0: keep "
+                        "every site). A site where only one sample differs is a strain's "
+                        "own mutation: dropping those shortens terminal branches to near "
+                        "0, so use this for topology-only analyses.")
     p.add_argument("--reapply-hcov", type=int, default=0,
                    help="After gene/site removal, drop sequences with fewer than "
                         "this many valid (non -/N) bases (default 0 = disabled). "
@@ -494,6 +496,21 @@ def main(argv=None):
     if os.path.abspath(prefix + ".msa.fna") == os.path.abspath(args.msa):
         raise SystemExit("qcmsa.py: output would overwrite the input MSA; pass a "
                          "distinct --prefix (input should be <name>.raw.msa.fna).")
+    # Outputs of an earlier run must not stay behind as if this run had written them.
+    for ext in OUTPUT_EXTENSIONS:
+        if os.path.exists(prefix + ext):
+            os.remove(prefix + ext)
+
+    def stop(reason, counts=()):
+        """Write no MSA: say why on stderr and in the summary, and return 0."""
+        sys.stderr.write(f"qcmsa.py: {reason} - no MSA produced (skipping).\n")
+        if args.summary:
+            with open(prefix + ".qcmsa_summary.tsv", "w") as fh:
+                fh.write("section\tkey\tvalue\treason\n")
+                fh.write(f"status\tno_msa\t\t{reason}\n")
+                for key, value in counts:
+                    fh.write(f"count\t{key}\t{value}\t\n")
+        return 0
 
     # --- inputs ---
     partition, gene_display, part_base = parse_partition(
@@ -508,10 +525,14 @@ def main(argv=None):
     names, seqs = read_fasta(args.msa)
     if not names:
         raise SystemExit(f"qcmsa.py: empty MSA '{args.msa}'")
+    duplicates = sorted(n for n, c in Counter(names).items() if c > 1)
+    if duplicates:
+        raise SystemExit(f"qcmsa.py: '{args.msa}' names {len(duplicates)} sequence(s) more than once "
+                         f"({', '.join(duplicates[:5])}); give every sample its own #SAMPLEID")
     seq_of = dict(zip(names, seqs))
     sys.stderr.write(f"MSA loaded: {len(names)} sequences, {len(seqs[0])} bp\n")
 
-    rows, all_samples, all_genes, cov = load_meta(args.meta, gene_whitelist, set(names))
+    rows, all_samples, all_genes, depth = load_meta(args.meta, gene_whitelist, set(names))
     all_samples = sorted(all_samples)
     sys.stderr.write(
         f"Loaded meta: {len(all_samples)} samples x {len(all_genes)} genes (in MSA)\n"
@@ -519,35 +540,41 @@ def main(argv=None):
     sys.stderr.write(f"Params: iqr_mult={iqr_mult} min_bad={min_bad}"
                      + (f" preset={args.preset}" if args.preset else "") + "\n")
 
-    # --- pass 0: optional coverage gate (reproduces protal M3 from meta) ---
+    # --- pass 0: coverage gate, on the share of each gene the MSA row writes and the gene's depth ---
     cov_gate = (args.gene_min_hcov > 0 or args.gene_min_mean_depth > 0
                 or args.gene_min_samples > 0)
     cov_dropped_genes, cov_fail_cells, cov_reason = set(), set(), {}
     if cov_gate:
-        if not cov:
-            sys.stderr.write("qcmsa.py: coverage gating requested but meta has no "
-                             "hcov/mean_vcov_nonzero columns; skipping coverage gate.\n")
-        else:
-            cov_dropped_genes, cov_fail_cells, cov_reason = coverage_filter(
-                cov, set(all_genes), args.gene_min_hcov,
-                args.gene_min_mean_depth, args.gene_min_samples)
-            sys.stderr.write(
-                f"Coverage gate (hcov>={args.gene_min_hcov}, depth>="
-                f"{args.gene_min_mean_depth}, >{args.gene_min_samples} samples): "
-                f"dropped {len(cov_dropped_genes)}/{len(all_genes)} genes, "
-                f"gap-filled {len(cov_fail_cells)} cell(s)\n")
+        if args.gene_min_mean_depth > 0 and not depth:
+            sys.stderr.write("qcmsa.py: the meta has no hcov/mean_vcov_nonzero columns; "
+                             "--gene-min-mean-depth is not applied.\n")
+        # The first sequence that is no sample is protal's reference row.
+        samples_in_meta, genes_in_meta = set(all_samples), set(all_genes)
+        reference = next((seq_of[n] for n in names if n not in samples_in_meta), None)
+        written = written_fraction(seq_of, all_samples, reference,
+                                   [p for p in partition if p[0] in genes_in_meta])
+        cells = {(s, g) for s, g, *_ in rows}
+        cov = {cell: (written.get(cell, 0.0), depth.get(cell, float("inf"))) for cell in cells}
+        cov_dropped_genes, cov_fail_cells, cov_reason = coverage_filter(
+            cov, set(all_genes), args.gene_min_hcov,
+            args.gene_min_mean_depth, args.gene_min_samples)
+        sys.stderr.write(
+            f"Coverage gate (written>={args.gene_min_hcov}, depth>="
+            f"{args.gene_min_mean_depth}, >{args.gene_min_samples} samples): "
+            f"dropped {len(cov_dropped_genes)}/{len(all_genes)} genes, "
+            f"gap-filled {len(cov_fail_cells)} cell(s)\n")
     # Genes/cells removed by coverage don't participate in the MRate2 stats (they
     # are gaps in the output), so the adaptive fence is computed on covered data.
     cov_survivor_genes = [g for g in all_genes if g not in cov_dropped_genes]
-    rows_for_mrate2 = [(s, g, mr) for (s, g, mr) in rows
-                       if g not in cov_dropped_genes and (s, g) not in cov_fail_cells]
+    rows_for_mrate2 = [row for row in rows
+                       if row[1] not in cov_dropped_genes and (row[0], row[1]) not in cov_fail_cells]
 
     # --- pass 1: MRate2 gene/sample filter ---
     (kept_genes, kept_samples, mr_filtered_genes, filtered_samples,
      gene_reason, sample_reason) = mrate2_filter(
         rows_for_mrate2, cov_survivor_genes, all_samples, min_bad, iqr_mult,
         gene_abs=args.gene_abs_min_bad, sample_abs=args.sample_abs_min_bad,
-        include_zeros=args.mrate2_include_zeros
+        min_rate=args.mrate2_min_rate
     )
     filtered_genes = mr_filtered_genes | cov_dropped_genes
     sys.stderr.write(f"Filtered genes: {len(filtered_genes)} / {len(all_genes)}"
@@ -555,24 +582,20 @@ def main(argv=None):
     sys.stderr.write(f"Filtered samples: {len(filtered_samples)} / {len(all_samples)}\n")
 
     # --- cell-outlier fence ---
-    # NB: qcmsa.R fences over *all* MRate2 values, which collapses to 0 when the
-    # data are sparse (mostly zeros) and would then flag every multi-allelic cell.
-    # We fence over the non-zero values instead (same rationale as the count
-    # fences) and disable masking if the fence is still degenerate.
-    nonzero_mrate2 = [mr for _, _, mr in rows if mr > 0]
+    # The fence covers the rates of the kept cells, zeros included, floored at
+    # --mrate2-min-rate as the sample and gene fences are (on mostly clean data Q3 is 0). A cell
+    # also needs --min-bad multi-allelic positions, so one IUPAC code never masks a gene.
+    kept_rows = [row for row in rows_for_mrate2
+                 if row[0] not in filtered_samples and row[1] not in filtered_genes]
     if args.max_mrate2 is not None:
         cell_fence = args.max_mrate2
-    elif len(nonzero_mrate2) >= 4:
-        f = upper_fence(nonzero_mrate2, iqr_mult)
-        cell_fence = f if f > 0 else float("inf")
+    elif len(kept_rows) >= 4:
+        cell_fence = max(upper_fence([mr for _, _, mr, _, _ in kept_rows], iqr_mult),
+                         args.mrate2_min_rate)
     else:
         cell_fence = float("inf")
-    # (sample, gene) cells that exceed the fence and survived the row/col filter
-    outlier_cells = {
-        (sample, gene)
-        for sample, gene, mr in rows
-        if mr > cell_fence and sample not in filtered_samples and gene not in filtered_genes
-    }
+    outlier_cells = {(sample, gene) for sample, gene, mr, multi, _ in kept_rows
+                     if mr > cell_fence and multi >= min_bad}
     sys.stderr.write(
         f"Cell fence (MRate2): {cell_fence:.5f} -> {len(outlier_cells)} outlier cell(s)\n"
     )
@@ -583,13 +606,12 @@ def main(argv=None):
 
     # Degenerate MSA (e.g. only the reference survived protal's row filter): nothing
     # meaningful to filter. Warn and skip gracefully so batch/protal-driven runs continue.
+    progress = [("samples_in", len(all_samples)), ("samples_filtered", len(filtered_samples)),
+                ("genes_in", len(all_genes)), ("genes_filtered_coverage", len(cov_dropped_genes)),
+                ("genes_filtered_mrate2", len(mr_filtered_genes))]
     n_sample_seqs = sum(1 for n in kept_names if n in sample_set)
     if n_sample_seqs < 2:
-        sys.stderr.write(
-            f"qcmsa.py: only {n_sample_seqs} sample sequence(s) in '{args.msa}' "
-            "after filtering; nothing to filter - skipping.\n"
-        )
-        return 0
+        return stop(f"only {n_sample_seqs} sample sequence(s) left after the multi-allelic filter", progress)
 
     # --- surviving genes -> original column ranges (sorted by start) ---
     kept_partition = sorted(
@@ -597,8 +619,7 @@ def main(argv=None):
         key=lambda t: t[1],
     )
     if not kept_partition:
-        sys.stderr.write("qcmsa.py: all genes filtered - no MSA produced (skipping).\n")
-        return 0
+        return stop("every gene was filtered (coverage gate or multi-allelic filter)", progress)
 
     # Per surviving column: which gene it belongs to, and its original index.
     col_gene = []
@@ -642,44 +663,44 @@ def main(argv=None):
             )
         kept_names = [kept_names[i] for i in keep_idx]
         msa_rows = [msa_rows[i] for i in keep_idx]
+        n_sample_seqs = sum(1 for n in kept_names if n in sample_set)
+        if n_sample_seqs < 2:
+            return stop(f"only {n_sample_seqs} sample sequence(s) have {args.reapply_hcov} valid bases "
+                        "(--reapply-hcov)", progress)
 
-    # --- pass 2: site cleanup (constant / low-parsimony) ---
+    # --- pass 2: site cleanup (all-missing / constant / low-parsimony) ---
+    # Sites are judged on A/C/G/T: an IUPAC code is an ambiguity, as IQ-TREE reads it, so a
+    # column of A and R is constant and a column of only N, '-' and IUPAC codes holds no base.
+    # The parsimony count covers the sample rows only: the reference row is not a sample.
+    is_sample_row = [n in sample_set for n in kept_names]
     col_keep = [True] * n_cols
     site_removal_reason = Counter()  # reason -> n_sites, for the summary breakdown
-    if args.remove_constant or args.min_parsimony_samples > 0:
-        for j in range(n_cols):
-            counts = Counter()
-            for row in msa_rows:
-                ch = row[j]
-                if ch not in MISSING:
-                    counts[ch] += 1
-            total = sum(counts.values())
-            if total == 0:
-                col_keep[j] = False  # all-missing column: nothing to keep
-                site_removal_reason["all_missing"] += 1
-                continue
-            majority = max(counts.values())
-            minor = total - majority
-            distinct = len(counts)
-            if args.remove_constant and distinct <= 1:
-                col_keep[j] = False
-                site_removal_reason["constant"] += 1
-            elif distinct > 1 and minor < args.min_parsimony_samples:
-                # Only the low-parsimony (near-constant *variable*) filter here;
-                # the `distinct > 1` guard keeps it from also dropping constant
-                # columns (minor == 0) when constant sites are kept (the default),
-                # so constant retention is decoupled from --min-parsimony-samples.
+    for j in range(n_cols):
+        counts = Counter()
+        sample_counts = Counter()
+        for row, is_sample in zip(msa_rows, is_sample_row):
+            ch = row[j]
+            if ch in BASES:
+                ch = ch.upper()
+                counts[ch] += 1
+                if is_sample:
+                    sample_counts[ch] += 1
+        if not counts:
+            col_keep[j] = False
+            site_removal_reason["all_missing"] += 1
+        elif args.remove_constant and len(counts) <= 1:
+            col_keep[j] = False
+            site_removal_reason["constant"] += 1
+        elif args.min_parsimony_samples > 0 and len(sample_counts) > 1:
+            minor = sum(sample_counts.values()) - max(sample_counts.values())
+            if minor < args.min_parsimony_samples:
                 col_keep[j] = False
                 site_removal_reason["low_parsimony"] += 1
 
     surviving = [j for j in range(n_cols) if col_keep[j]]
     n_removed_sites = n_cols - len(surviving)
     if not surviving:
-        sys.stderr.write(
-            "qcmsa.py: all sites removed by cleanup - no MSA produced (skipping). "
-            "Consider --min-parsimony-samples 0 (constant sites are kept by default).\n"
-        )
-        return 0
+        return stop("every site was removed by the site cleanup", progress + [("sites_in", n_cols)])
 
     # Final sequences (column subset).
     final_seqs = ["".join(row[j] for j in surviving) for row in msa_rows]
@@ -726,9 +747,11 @@ def main(argv=None):
         summary_out = prefix + ".qcmsa_summary.tsv"
         with open(summary_out, "w") as fh:
             fh.write("section\tkey\tvalue\treason\n")
+            fh.write("status\tmsa\t\t\n")
             fh.write(f"param\tiqr_mult\t{iqr_mult}\t\n")
             fh.write(f"param\tmin_bad\t{min_bad}\t\n")
             fh.write(f"param\tpreset\t{args.preset or ''}\t\n")
+            fh.write(f"param\tmrate2_min_rate\t{args.mrate2_min_rate}\t\n")
             fh.write(f"param\tcell_fence\t{cell_fence:.6g}\t\n")
             fh.write(f"count\tsamples_in\t{len(all_samples)}\t\n")
             fh.write(f"count\tsamples_kept\t{len(kept_samples)}\t\n")
@@ -743,9 +766,9 @@ def main(argv=None):
             fh.write(f"count\tsites_kept\t{len(surviving)}\t\n")
             fh.write(f"count\tsites_removed\t{n_removed_sites}\t\n")
             fh.write(f"count\tsites_removed_all_missing\t{site_removal_reason['all_missing']}"
-                     f"\tcolumn is 100% '-'/N/. (no informative base in any kept sequence)\n")
+                     f"\tno A/C/G/T in any kept sequence (only -, N or IUPAC codes)\n")
             fh.write(f"count\tsites_removed_constant\t{site_removal_reason['constant']}"
-                     f"\t--discard-constant: column has a single distinct base (no variation)\n")
+                     f"\t--discard-constant: at most one of A/C/G/T in the column\n")
             fh.write(f"count\tsites_removed_low_parsimony\t{site_removal_reason['low_parsimony']}"
                      f"\t--min-parsimony-samples {args.min_parsimony_samples}: "
                      f"fewer than that many samples differ from the majority base\n")
@@ -757,16 +780,10 @@ def main(argv=None):
                     nb, txt = cov_reason.get(g, (None, "M3 coverage"))
                     fh.write(f"gene_filtered\t{g}\t{nb}\t{txt}\n")
                     continue
-                nb, fence, it = gene_reason.get(g, (None, None, None))
-                fs = (f"{fence:.3g}" if isinstance(fence, (int, float)) else fence)
-                reason = (f"multi-allelic: {nb} samples > {fs} "
-                          f"(iter {it})") if nb is not None else "multi-allelic outlier"
+                nb, reason = gene_reason.get(g, (None, "multi-allelic outlier"))
                 fh.write(f"gene_filtered\t{g}\t{nb}\t{reason}\n")
             for s in sorted(filtered_samples):
-                nb, fence, it = sample_reason.get(s, (None, None, None))
-                fs = (f"{fence:.3g}" if isinstance(fence, (int, float)) else fence)
-                reason = (f"multi-allelic: {nb} genes > {fs} "
-                          f"(iter {it})") if nb is not None else "multi-allelic outlier"
+                nb, reason = sample_reason.get(s, (None, "multi-allelic outlier"))
                 fh.write(f"sample_filtered\t{s}\t{nb}\t{reason}\n")
             for s, g in sorted(outlier_cells):
                 fh.write(f"cell_outlier\t{s}|gene{g}\t\tMRate2 > cell_fence {cell_fence:.3g}\n")
@@ -792,7 +809,7 @@ def make_plot(prefix, rows, all_genes, all_samples,
     gidx = {g: i for i, g in enumerate(all_genes)}
     sidx = {s: i for i, s in enumerate(all_samples)}
     grid = [[float("nan")] * len(all_genes) for _ in all_samples]
-    for sample, gene, mr in rows:
+    for sample, gene, mr, *_ in rows:
         if sample in sidx and gene in gidx:
             grid[sidx[sample]][gidx[gene]] = mr
 

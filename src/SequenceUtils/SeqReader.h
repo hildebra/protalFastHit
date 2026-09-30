@@ -12,8 +12,11 @@ namespace protal {
 
     class SeqReader {
     private:
-//        const size_t m_block_size = (10 * 1024 * 1024);
-        const size_t m_block_size = (1024);
+        // Bytes each thread takes from the shared stream per critical section (then up to the end of
+        // the record). 1 KB, about one marker gene, made the threads of --build's uniqueness check
+        // queue on the lock; 1 MB was the fastest of 1 KB-8 MB on 1-8 threads (8 MB leaves threads
+        // idle behind the one copying).
+        const size_t m_block_size = (1024 * 1024);
         BufferedFastxReader m_reader;
         bool m_valid_fragment = false;
         bool m_valid_block = true;

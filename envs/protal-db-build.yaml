@@ -1,0 +1,43 @@
+# Tools to build and train a protal database: scripts/build_gtdb_database.py and what it runs
+# (gtdb_to_protal_db.py, protal --build, simulate_metagenomes, collect_training_data.py,
+# random_forest_cmdline.py, check_model_parity.py) and download_gtdb.py, which fetches its inputs. See
+# docs/building-a-database.md.
+#
+#   conda env create -f envs/protal-db-build.yaml        # or: micromamba create -f envs/protal-db-build.yaml
+#   conda activate protal-db-build
+#
+# protal itself is built from the checkout: bioconda's protal 0.6.0a predates database.protal,
+# --add_model and the read types that the workflow uses.
+#
+#   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX"
+#   cmake --build build --target protal simulate_metagenomes -j 16
+#   python scripts/build_gtdb_database.py --gtdb GTDB_DIR --outdir OUT \
+#       --protal build/protal --simulator build/simulate_metagenomes -t 16
+name: protal-db-build
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  # Build protal and simulate_metagenomes from the checkout
+  - c-compiler
+  - cxx-compiler          # GCC with OpenMP; C++20 (GCC 13 and 14 are tested)
+  - cmake >=3.22
+  - make
+  - zstd                  # the library, and the zstd CLI the end-to-end tests use
+  - libdeflate            # BGZF (.sam.gz, simulated reads); other gzip: zlib-ng, built from lib/
+  # Run them: simulate_metagenomes runs ART
+  - art                   # art_illumina
+  - pigz                  # optional: download_gtdb.py extracts the release archives with it
+  # Convert the release, collect training data, train the model, check it against protal
+  - python >=3.10
+  - numpy
+  - pandas
+  - scikit-learn          # the random forest; exported to PMML without Java (scripts/model_pmml.py)
+  - joblib
+  # Genomes to simulate from: download_gtdb.py fetches them from NCBI
+  - ncbi-datasets-cli     # the `datasets` command
+  - unzip
+  # Tests of protal and the scripts: just test, just mini-db-test, just model-test, just e2e
+  - just
+  - gtest
+  # Not needed yet: long-read training data (PacBio, ONT) will add a read simulator such as pbsim3.

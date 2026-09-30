@@ -24,6 +24,19 @@ using Qual = uint8_t;
 using QualList = std::vector<Qual>;
 using VariantPos = uint32_t;
 
+// A read's divergence from its gene, 1 - identity, in steps of 0.5% (0-127; 127 = 63.5% or more).
+inline uint8_t DivergenceBin(double identity) {
+    double const bin = (1.0 - identity) * 200.0 + 0.5;
+    return bin <= 0 ? 0 : bin >= 127 ? 127 : static_cast<uint8_t>(bin);
+}
+
+// The largest DivergenceBin of reads with at least `min_identity` (all reads for 0 or less).
+inline uint8_t MaxDivergenceBin(double min_identity) {
+    if (min_identity <= 0) return 127;
+    double const bin = (1.0 - min_identity) * 200.0 + 1e-9;
+    return bin >= 127 ? 127 : static_cast<uint8_t>(bin);
+}
+
 class Variant {
 
     VariantID variant_id = 0;   // size_t
@@ -39,6 +52,9 @@ class Variant {
     // Inserted/deleted bases of an INDEL; null for SNPs. Owned, and deep-copied with the Variant.
     std::unique_ptr<std::string> structural;
     QualList quals;
+    // Per observation (as quals): its read's strand (bit 7) and divergence from the gene (bits 0-6,
+    // DivergenceBin), so that the strain MSA can count a taxon's own reads only.
+    std::vector<uint8_t> reads;
 
 public:
     Variant(VariantPos pos, Base snp, Base ref) :
@@ -54,7 +70,7 @@ public:
             observations_fwd(other.observations_fwd), observations_rev(other.observations_rev),
             is_valid(other.is_valid), is_major(other.is_major),
             structural(other.structural ? std::make_unique<std::string>(*other.structural) : nullptr),
-            quals(other.quals) {};
+            quals(other.quals), reads(other.reads) {};
 
     Variant& operator=(Variant const& other) {
         if (this != &other) *this = Variant(other);
@@ -162,10 +178,29 @@ public:
         return str;
     }
 
-    void AddObservation(Qual quality, bool from_forward) {
+    // An observation from a read on the forward strand or not, whose alignment has this divergence
+    // from the gene (DivergenceBin: 0 = identical).
+    void AddObservation(Qual quality, bool from_forward, uint8_t divergence = 0) {
         observations_fwd += from_forward;
         observations_rev += !from_forward;
         quals.emplace_back(quality);
+        reads.emplace_back(static_cast<uint8_t>((from_forward ? 0x80 : 0) | (divergence & 0x7f)));
+    }
+
+    // A copy with the observations of reads of at most `max_divergence` only (an inferred reference
+    // allele, which has no per-read record, is copied as it is).
+    Variant WithMaxDivergence(uint8_t max_divergence) const {
+        Variant copy(*this);
+        if (reads.size() != quals.size() || reads.size() != Observations()) return copy;
+        copy.observations_fwd = copy.observations_rev = 0;
+        copy.quals.clear();
+        copy.reads.clear();
+        for (size_t i = 0; i < reads.size(); i++) {
+            if ((reads[i] & 0x7f) > max_divergence) continue;
+            bool const forward = reads[i] & 0x80;
+            copy.AddObservation(quals[i], forward, reads[i] & 0x7f);
+        }
+        return copy;
     }
 
     bool IsSNP() const {
@@ -188,16 +223,19 @@ public:
         return observations_fwd > 0 && observations_rev > 0;
     }
 
-    // Strand-bias filter: a non-reference allele must be seen on both strands. The reference allele
-    // is exempt, because its count is inferred from coverage (SetObservations) and has no strand.
-    bool PassesStrandFilter() const {
-        return IsReference() || HasFwdAndRev();
+    uint32_t ObservationsForward() const {
+        return observations_fwd;
     }
 
-    // Sets an inferred observation count (the reference allele: coverage minus variant observations).
-    // It is stored as forward observations because the strand is unknown; see PassesStrandFilter.
-    void SetObservations(size_t obs) {
-        observations_fwd = obs;
+    uint32_t ObservationsReverse() const {
+        return observations_rev;
+    }
+
+    // Sets inferred observation counts (the reference allele: the reads of each strand with a base
+    // at the position, less those carrying another allele there).
+    void SetObservations(size_t forward, size_t reverse) {
+        observations_fwd = static_cast<uint32_t>(forward);
+        observations_rev = static_cast<uint32_t>(reverse);
     }
 
     size_t GetStructuralSize() const {

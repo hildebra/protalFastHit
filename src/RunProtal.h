@@ -22,7 +22,9 @@
 #include <iomanip>
 #include <regex>
 #include <ranges>
+#include <set>
 #include <unistd.h>
+#include <sys/wait.h>
 
 // #include "Profiler/ReadFilter.h"
 
@@ -180,10 +182,6 @@ namespace protal {
             KmerPutterSM kmer_putter{};
             auto protal_stats = protal::build::Run<SimpleKmerHandler<ClosedSyncmer>, KmerPutterSM, DEBUG_NONE>(
                     options, kmer_putter, iterator, db.GetGenomes());
-
-            std::cout << "Check" << std::endl;
-            protal::build::Check<SimpleKmerHandler<ClosedSyncmer>, KmerPutterSM, DEBUG_NONE>(
-                    options, kmer_putter, iterator);
 
             // Last, as the build reads reference.fna until here: the single file (which compresses
             // reference.fna itself), or separate files.
@@ -473,6 +471,44 @@ namespace protal {
     // The model of each kind of reads (ReadType), loaded if the samples have such reads.
     using ReadTypeModels = std::array<std::optional<profiler::TaxonFilterObj>, kReadTypeCount>;
 
+    // A taxon that a sample's profile leaves out (score below --knob) although its own reads are strong
+    // evidence that it is present (profiler::StrongOwnEvidence).
+    struct UnreportedTaxon {
+        std::string species;
+        std::string row;  // of unreported_species.tsv
+    };
+
+    // The UnreportedTaxon of each sample: <misc>/unreported_species.tsv and a warning. Without any, an
+    // earlier run's file is removed.
+    static void WriteUnreportedSpecies(Options const& options, std::vector<std::vector<UnreportedTaxon>> const& samples) {
+        auto const dir = options.GetMiscOutputDir();
+        if (dir.empty()) return;
+        auto const path = dir + "/unreported_species.tsv";
+        std::set<std::string> species;
+        size_t rows = 0;
+        for (auto const& sample : samples) {
+            for (auto const& taxon : sample) species.insert(taxon.species);
+            rows += sample.size();
+        }
+        if (rows == 0) {
+            std::error_code ec;
+            std::filesystem::remove(path, ec);
+            return;
+        }
+        std::ofstream os(path, std::ios::out);
+        os << "sample\tspecies\ttaxid\tscore\town_depth\thit_gene_fraction\ttop_identity\tlow_identity_share\tpasses_msa_knob\n";
+        for (auto const& sample : samples) {
+            for (auto const& taxon : sample) os << taxon.row << '\n';
+        }
+        os.close();
+        if (os.fail()) RunStatus::Get().Fail("Writing " + path + " failed");
+        std::cerr << "Warning: " << species.size() << " species in " << rows << " sample profile(s) score below --knob "
+                  << options.GetKnob() << " and are not reported, although their own reads are strong evidence "
+                  << "(depth 1x or more, reads on 90% of their genes, best reads 98% identical or more); they are "
+                  << "listed in " << path << ". Their samples enter the strain MSAs if they score --msa_knob ("
+                  << options.GetMSAKnob() << ") or more." << std::endl;
+    }
+
     // Profiles the samples, each with the model of its kind of reads. Every taxon's score is then
     // cached (profile.ReleaseReadData scores all), so that later stages may use any model to tell
     // which taxa pass: they get the score of the sample's own model.
@@ -492,6 +528,9 @@ namespace protal {
         // MicrobialProfile holds a reference member so it is not assignable; use optional to allow
         // in-place construction per slot without requiring assignment.
         std::vector<std::optional<profiler::MicrobialProfile>> profile_slots(range.size());
+        // Per sample: the taxa its profile leaves out although their own reads are strong evidence.
+        std::vector<std::vector<UnreportedTaxon>> unreported_slots(range.size());
+        double const msa_knob = options.GetMSAKnob();
 
         omp_set_num_threads(options.GetThreads());
 
@@ -639,9 +678,20 @@ namespace protal {
 
             profile.SetName(options.GetSampleId(i));
 
+            for (auto const& [taxid, taxon] : profile.GetTaxa()) {
+                double const score = filter.Score(taxon);
+                if (score >= filter.GetKnob() || !profiler::StrongOwnEvidence(taxon)) continue;
+                std::string const species = taxonomy.Get(taxid).scientific_name;
+                std::ostringstream line;
+                line << options.GetSampleId(i) << '\t' << species << '\t' << taxid << '\t' << score << '\t'
+                     << taxon.VerticalCoverage() << '\t' << taxon.HitGeneFraction() << '\t' << taxon.TopIdentity() << '\t'
+                     << taxon.LowIdentityShare() << '\t' << (score >= msa_knob ? "yes" : "no");
+                unreported_slots[idx].push_back({ species, line.str() });
+            }
+
             // The sample's outputs are written: only the strain stage reads its profile again, and only
-            // the variants and read ranges of taxa that pass the model.
-            profile.ReleaseReadData(filter, !options.NoStrains());
+            // the variants and read ranges of taxa that enter the MSAs (--msa_knob).
+            profile.ReleaseReadData(filter.WithKnob(msa_knob), !options.NoStrains());
 
             // Each thread writes to its own pre-allocated slot — no lock needed.
             profile_slots[idx].emplace(std::move(profile));
@@ -652,6 +702,7 @@ namespace protal {
         for (auto& slot : profile_slots) {
             if (slot.has_value()) profiles.emplace_back(std::move(slot.value()));
         }
+        WriteUnreportedSpecies(options, unreported_slots);
         return profiles;
     }
 
@@ -1048,7 +1099,19 @@ namespace protal {
 
     static std::vector<uint32_t> SelectGenesForTaxon(uint32_t taxid, std::string name, std::vector<size_t>& selected_profiles, GenomeLoader& loader, Options& options, Profiles& profiles) {
         std::vector<uint32_t> selected_gene_ids;
-        std::vector<uint32_t> gene_ids = loader.GetGenome(taxid).GetHittableGenes();
+        // The genes with reads in any of the samples. A gene without unique k-mers has reads, too (its
+        // k-mers are shared, not absent); a gene without reads would add only gaps.
+        std::vector<uint32_t> gene_ids;
+        {
+            std::set<uint32_t> observed;
+            for (auto sample_index : selected_profiles) {
+                auto const& taxa = profiles[sample_index].GetTaxa();
+                if (!taxa.contains(taxid)) continue;
+                for (auto const& [gene_id, _] : taxa.at(taxid).GetGenes()) observed.insert(gene_id);
+            }
+            gene_ids.assign(observed.begin(), observed.end());
+        }
+        if (gene_ids.empty()) return gene_ids;
 
         auto max_gene_id = std::max_element(gene_ids.begin(), gene_ids.end());
 
@@ -1198,13 +1261,15 @@ namespace protal {
         // is shared with a relative. A species with relatives in the database has them in nearly
         // every gene; a gene without any is one its relatives share unchanged or lack from their
         // reference. A relative's reads of such a gene align here, and its MSA columns would show
-        // them as a second strain, so it is left out. A species without relatives has hardly any
-        // long unique k-mers at all (its k-mers are unique at the core already): all its genes stay.
+        // them as a second strain, so it is left out. A species without relatives has fewer, as its
+        // k-mers are mostly unique at the core already: in the 2026-09-29 strain audit, Dummya solo (no
+        // relative in the database) had long unique k-mers in half its genes, species with congeners
+        // in 98-99%. Unless 90% of a species' genes have long unique k-mers, all its genes stay.
         auto& genome = loader.GetGenome(taxid);
         auto const with_long_uniques = std::count_if(gene_ids.begin(), gene_ids.end(), [&genome](uint32_t gene_id) {
             return genome.GetGene(gene_id).HasLongUniques();
         });
-        if (static_cast<size_t>(with_long_uniques) * 2 < gene_ids.size()) return gene_ids;
+        if (static_cast<size_t>(with_long_uniques) * 10 < gene_ids.size() * 9) return gene_ids;
 
         std::vector<uint32_t> msa_gene_ids;
         std::copy_if(gene_ids.begin(), gene_ids.end(), std::back_inserter(msa_gene_ids), [&genome](uint32_t gene_id) {
@@ -1335,9 +1400,14 @@ namespace protal {
         // above. Forwarded verbatim (unquoted) -- they are a flag list, not a value.
         if (!options.GetQCMSAArgs().empty()) cmd << ' ' << options.GetQCMSAArgs();
         std::cerr << "[qcmsa] " << cmd.str() << std::endl;
-        int rc = std::system(cmd.str().c_str());
-        if (rc != 0) {
-            RunStatus::Get().Fail("qcmsa exited with code " + std::to_string(rc) + " for " + name +
+        int const status = std::system(cmd.str().c_str());
+        if (status != 0) {
+            // std::system returns a wait status: 512 means exit code 2.
+            std::string const how = status == -1 ? "could not be started"
+                                  : WIFEXITED(status) ? "exited with code " + std::to_string(WEXITSTATUS(status))
+                                  : WIFSIGNALED(status) ? "was killed by signal " + std::to_string(WTERMSIG(status))
+                                  : "failed (status " + std::to_string(status) + ")";
+            RunStatus::Get().Fail("qcmsa " + how + " for " + name +
                                   " (post-filter skipped; the raw MSA is still in " + msa + ")");
         } else if (!fs::exists(prefix + ".msa.fna")) {
             // Not an error (qcmsa may filter everything out), but no filtered MSA is not a success either.
@@ -1346,18 +1416,27 @@ namespace protal {
         }
     }
 
-    static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilterObj> const& filter={}) {
-        // An earlier run's MSA must not survive a run that writes none (qcmsa would filter it).
-        for (auto const& stale : { options.GetMSAOutput(taxon_name), options.GetMSAPartitionOutput(taxon_name) }) {
+    // Removes a species' strain outputs of an earlier run, so that none of them survives a run that
+    // writes it no more (e.g. an MSA qcmsa now filters away, or a species with fewer samples).
+    static void RemoveStrainOutputs(Options const& options, std::string const& name) {
+        std::string const prefix = options.GetStrainOutputDir() + '/' + name;
+        for (auto const& stale : { options.GetMSAOutput(name), options.GetMSAPartitionOutput(name),
+                                   options.GetMSAStatsOutput(name), options.GetSpeciesMetaOutput(name),
+                                   prefix + ".msa.fna", prefix + ".partition.txt",
+                                   prefix + ".qcmsa_summary.tsv", prefix + ".qc.png" }) {
             std::error_code ec;
             std::filesystem::remove(stale, ec);
         }
+    }
+
+    static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilterObj> const& filter={}) {
         auto min_hcov = options.GetMSAMinHCOV();
         auto min_qual_sum = options.GetSNPMinPhredSum();
         auto min_cov = options.GetSNPMinCov();
         auto require_strand = options.GetSNPRequireStrand();
         auto min_mean_qual = options.GetSNPMinMeanQual();
         auto snp_max_alleles = options.GetSNPMaxAlleles();
+        uint32_t const min_depth = static_cast<uint32_t>(options.GetMSAMinDepth());
 
         std::vector<size_t> profile_indices = GetProfilesWithTaxon(taxid, profiles, options, filter);
 
@@ -1419,16 +1498,19 @@ namespace protal {
                 } else {
                     auto& gene_obs = genes.at(geneid);
                     auto& strain = gene_obs.GetStrainLevel();
-                    auto& region = strain.GetSequenceRangeHandler();
+                    double const min_af = options.GetSNPMinAF(profile.GetReadType());
 
                     auto ac = gene_obs.AlleleSNPCounts(min_cov, min_qual_sum);
-                    auto tmp_vec = region.CalculateCoverageVector2();
+                    // The gene from the taxon's own reads, as the MSA takes it; tmp_vec: the reads with a
+                    // base per position, what the MSA judges each position by.
+                    auto item = strain.MSAItem(profile.GetTaxa().at(taxid).OwnIdentityThreshold(), min_cov, min_af,
+                                               min_mean_qual, min_qual_sum, require_strand);
+                    auto const& tmp_vec = item.second;
                     auto counts_vcov1 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 1);});
                     auto counts_vcov2 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 2);});
                     // Multi-allelic positions as the MSA writes them (IUPAC codes), which qcmsa filters on.
-                    size_t const multi_allelic = MultiAllelicPositions(strain.GetVariantHandler().GetVariants(), tmp_vec, min_cov,
-                                                                       min_qual_sum, options.GetSNPMinAF(profile.GetReadType()), require_strand,
-                                                                       min_mean_qual, snp_max_alleles);
+                    size_t const multi_allelic = MultiAllelicPositions(item.first, tmp_vec, min_cov, min_qual_sum, min_af,
+                                                                       require_strand, min_mean_qual, snp_max_alleles);
 
                     double median_vcov = 0.0;
                     double mean_vcov_nonzero = 0.0;
@@ -1440,8 +1522,7 @@ namespace protal {
                     // min samples per gene) is done by the qcmsa post-filter, which
                     // reads the hcov / mean_vcov_nonzero columns written below.
                     samples_with_gene++;
-                    auto snps = SharedAlignmentRegion::GetSNPs(strain.GetVariantHandler());
-                    items.emplace_back( OptionalMSASequenceItem { { std::move(snps), region } } );
+                    items.emplace_back( OptionalMSASequenceItem { item } );
 
                     if (os_meta) {
                         auto sorted_cov = tmp_vec;
@@ -1492,7 +1573,7 @@ namespace protal {
                 previous_size = msa.front().size();
 
                 protal::MSAStats gene_stats(items.size());
-                bool result = protal::MSA(items, gene.Sequence(), msa, min_cov, min_qual_sum, min_afs, require_strand, min_mean_qual, &gene_stats, &ref_msa_row, snp_max_alleles);
+                bool result = protal::MSA(items, gene.Sequence(), msa, min_cov, min_qual_sum, min_afs, require_strand, min_mean_qual, &gene_stats, &ref_msa_row, snp_max_alleles, min_depth);
 
                 if (!result) continue;
 
@@ -1682,12 +1763,22 @@ namespace protal {
 
         auto enable_similarity_matrix = false;
 
+        // The species of this run: strain outputs of other species in the directory are an earlier
+        // run's (protal leaves them alone, as the directory may be shared).
+        std::ostringstream species_list;
+        species_list << "species\ttaxid\tsamples\traw_msa\tfiltered_msa\n";
 
         for (auto& taxid : taxids) {
             std::cout << taxonomy.Get(taxid).scientific_name << std::endl;
 
             std::string name = taxonomy.Get(taxid).scientific_name;
             std::replace(name.begin(), name.end(), ' ', '_');
+            RemoveStrainOutputs(options, name);
+
+            size_t const samples = GetProfilesWithTaxon(taxid, profiles, options, filter).size();
+            if (samples == 0) {
+                std::cerr << "[strains] " << name << " (--msa_species) passes in no sample, so it has no MSA" << std::endl;
+            }
 
             if (enable_similarity_matrix) {
                 auto similarities = GetSimilarityMatrixForTaxon(taxid, options, profiles, filter);
@@ -1704,8 +1795,19 @@ namespace protal {
             if (options.GetRunQCMSA()) {
                 RunQCMSA(options, name);
             }
-//            Utils::Input();
+            // File names: the MSAs are next to the list.
+            auto written = [](std::string const& path) {
+                return std::filesystem::exists(path) ? std::filesystem::path(path).filename().string() : std::string("-");
+            };
+            species_list << name << '\t' << taxid << '\t' << samples << '\t'
+                         << written(options.GetMSAOutput(name)) << '\t'
+                         << written(options.GetStrainOutputDir() + '/' + name + ".msa.fna") << '\n';
         }
+
+        std::ofstream os_list(options.GetStrainSpeciesListOutput(), std::ios::out);
+        os_list << species_list.str();
+        os_list.close();
+        if (os_list.fail()) RunStatus::Get().Fail("Writing the list of strain species failed: " + options.GetStrainSpeciesListOutput());
         bm_strain.Stop();
         bm_strain.PrintResults();
     }
@@ -1943,7 +2045,9 @@ namespace protal {
              * STRAIN PART -  RESOLVE MSAs BETWEEN SAMPLES
              */
             if (!options.NoStrains()) {
-                StrainWrapper2(options, profiles, db.GetGenomes(), db.GetTaxonomy(), msa_taxids, filter);
+                // A sample enters a taxon's MSA with a score of --msa_knob or more (by default --knob:
+                // the samples whose profile reports the taxon).
+                StrainWrapper2(options, profiles, db.GetGenomes(), db.GetTaxonomy(), msa_taxids, filter.WithKnob(options.GetMSAKnob()));
             }
         }
 

@@ -76,7 +76,7 @@ strain-protal:
     # the recipe under `set -o pipefail`, which lmod's BASH_ENV enables), show a
     # progress-bar-stripped tail, then exit with protal's own status so a failed run
     # stops `just strain-test` instead of producing a report from stale outputs.
-    PROTAL_DB_PATH="{{strain_db}}" {{protal}} profile \
+    PROTAL_DB_PATH="{{strain_db}}" {{protal}} \
         --map {{strain_run}}/strain_test_map.tsv \
         -t {{strain_threads}} \
         --qcmsa_args "--preset {{preset}}" {{strain_protal_filter_args}} \
@@ -84,12 +84,17 @@ strain-protal:
     tr '\r' '\n' < {{strain_run}}/protal_run.log | grep -vE '^\[=*>* *\] *[0-9]+ %' | tail -40; \
     exit $rc
 
-# Build a per-species ML tree from each strain MSA with IQ-TREE. strain_tree_input
-# selects the MSA: "filtered" = qcmsa output <sp>.msa.fna (default); "raw" = protal
-# native <sp>.raw.msa.fna. Uses the `iqtree` conda env by default; override the
-# launcher with strain_iqtree=... . Skips gracefully if IQ-TREE is unavailable.
+# Build a per-species ML tree from each strain MSA of the last protal run with IQ-TREE.
+# strain_tree_input selects the MSA: "filtered" = qcmsa output <sp>.msa.fna (default);
+# "raw" = protal native <sp>.raw.msa.fna. The species come from strains/species.tsv, which
+# protal writes each run, so MSAs an earlier run left behind are not used. Uses the `iqtree`
+# conda env by default; override the launcher with strain_iqtree=... . Skips gracefully if
+# IQ-TREE is unavailable. strain_iqtree_model is the substitution model: after qcmsa
+# --discard-constant it needs +ASC (e.g. "GTR+G+ASC").
 strain_tree_input := "filtered"
 strain_iqtree := ""
+strain_iqtree_model := "GTR+G"
+strain_iqtree_seed := "1"
 strain-trees:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -111,36 +116,44 @@ strain-trees:
     fi
     echo "[trees] using: $iq"
     mkdir -p "{{strain_run}}/trees"
-    shopt -s nullglob
+    list="{{strain_run}}/strains/species.tsv"
+    if [ ! -f "$list" ]; then
+        echo "[trees] $list not found: run protal (a version that writes it) first." >&2
+        exit 1
+    fi
     case "{{strain_tree_input}}" in raw) ext=".raw.msa.fna";; *) ext=".msa.fna";; esac
     built=0
-    for meta in "{{strain_run}}/strains/"*.meta.tsv; do
-        sp=$(basename "$meta" .meta.tsv)
+    while IFS=$'\t' read -r sp taxid samples raw filtered; do
+        [ "$sp" = species ] && continue
         msa="{{strain_run}}/strains/$sp$ext"
-        [ -f "$msa" ] || continue
+        if [ ! -f "$msa" ]; then
+            echo "[trees] $sp: no $sp$ext (see the qcmsa output in the protal log) - skipping"
+            continue
+        fi
         nseq=$(grep -c '^>' "$msa")
         if [ "$nseq" -lt 4 ]; then
-            echo "[trees] $sp: only $nseq sequences (<4) - skipping"
+            echo "[trees] $sp: only $nseq sequences (<4, the reference row included) - skipping"
             continue
         fi
         echo "[trees] $sp ($nseq taxa) -> {{strain_run}}/trees/$sp.treefile"
-        # Unpartitioned GTR+G ML tree with 1000 ultrafast bootstraps. IQ-TREE
-        # reads the IUPAC ambiguity codes protal writes (milestone M2) natively.
-        $iq -s "$msa" -m GTR+G -B 1000 -T AUTO --seqtype DNA \
-            --prefix "{{strain_run}}/trees/$sp" -redo \
+        # Unpartitioned ML tree with 1000 ultrafast bootstraps (partitioned trees came out the
+        # same in the 2026-09-29 strain audit). IQ-TREE reads protal's IUPAC codes as ambiguities.
+        $iq -s "$msa" -m {{strain_iqtree_model}} -B 1000 -T {{strain_threads}} --seed {{strain_iqtree_seed}} \
+            --seqtype DNA --prefix "{{strain_run}}/trees/$sp" -redo \
             > "{{strain_run}}/trees/$sp.iqtree.stdout.log" 2>&1 \
           && built=$((built+1)) \
           || echo "[trees] $sp: IQ-TREE failed (see {{strain_run}}/trees/$sp.iqtree.stdout.log)"
-    done
+    done < "$list"
     echo "[trees] built $built tree(s) in {{strain_run}}/trees (input={{strain_tree_input}})"
 
-# Re-filter a raw run's MSAs with qcmsa, applying M3-equivalent coverage gating
-# (from the meta hcov/depth columns) PLUS the usual MRate2 + site cleanup. Lets
+# Re-filter a raw run's MSAs with qcmsa: coverage gating (the share of each gene a row
+# writes, the gene's mean depth) PLUS the usual MRate2 + site cleanup. Lets
 # you re-filter strain_test_out/test2 (the raw run) with any thresholds without
 # re-running protal. Outputs into <run>/refiltered/.
 refilter_hcov        := "0.3"
-refilter_depth       := "1"
-refilter_min_samples := "3"
+refilter_depth       := "0"    # >0: minimum mean depth of a gene (all its positions)
+refilter_min_samples := "1"    # a gene needs more than this many samples passing coverage
+refilter_reapply_hcov := "1000" # as protal passes its --msa_min_hcov
 refilter_sample_abs  := "0"    # >0: remove a sample multi-allelic in >= N genes (catches conspecific/mixed strains)
 refilter_gene_abs    := "0"    # >0: remove a gene multi-allelic in >= N samples
 strain-refilter:
@@ -159,6 +172,7 @@ strain-refilter:
             --gene-min-hcov {{refilter_hcov}} \
             --gene-min-mean-depth {{refilter_depth}} \
             --gene-min-samples {{refilter_min_samples}} \
+            --reapply-hcov {{refilter_reapply_hcov}} \
             --sample-abs-min-bad {{refilter_sample_abs}} \
             --gene-abs-min-bad {{refilter_gene_abs}} \
             > "{{strain_run}}/refiltered/$sp.qcmsa.log" 2>&1 \
@@ -250,7 +264,8 @@ install prefix="$HOME/.local": build-all
     cp {{build_dir}}/protal_avx2                    {{prefix}}/bin/protal_avx2
     cp {{build_dir}}/simulate_metagenomes           {{prefix}}/bin/simulate_metagenomes
     cp scripts/protal_map_utils                     {{prefix}}/bin/protal_map_utils
+    cp scripts/protal_profile_utils                 {{prefix}}/bin/protal_profile_utils
     cp protal_launcher                              {{prefix}}/bin/protal
     cp scripts/qcmsa.py                             {{prefix}}/bin/qcmsa
-    chmod +x {{prefix}}/bin/protal_baseline {{prefix}}/bin/protal_avx2 {{prefix}}/bin/simulate_metagenomes {{prefix}}/bin/protal_map_utils {{prefix}}/bin/protal {{prefix}}/bin/qcmsa
+    chmod +x {{prefix}}/bin/protal_baseline {{prefix}}/bin/protal_avx2 {{prefix}}/bin/simulate_metagenomes {{prefix}}/bin/protal_map_utils {{prefix}}/bin/protal_profile_utils {{prefix}}/bin/protal {{prefix}}/bin/qcmsa
     @echo "Installed to {{prefix}}/bin: $({{prefix}}/bin/protal --version)"

@@ -17,6 +17,7 @@ PROTAL          protal binary (default: build/protal)
 SIMULATE        simulate_metagenomes binary (default: build/simulate_metagenomes; optional)
 """
 
+import csv
 import filecmp
 import glob
 import gzip
@@ -34,6 +35,7 @@ import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 DB = os.environ.get("PROTAL_TEST_DB", "")
+DB = os.path.abspath(DB) if DB else ""  # protal runs in temporary folders
 PROTAL = os.path.abspath(os.environ.get("PROTAL", os.path.join(ROOT, "build", "protal")))
 SIMULATE = os.path.abspath(os.environ.get("SIMULATE", os.path.join(ROOT, "build", "simulate_metagenomes")))
 QCMSA = os.path.join(ROOT, "scripts", "qcmsa.py")
@@ -443,13 +445,61 @@ class MsaSampleSelectionTest(WorkDir):
 
 class StrainEdgeCaseTest(WorkDir):
     def test_species_without_msa_genes(self):
-        # No gene reaches --snp_min_cov, so no species has MSA columns (this used to segfault).
+        # No position reaches --msa_min_depth, so no species has MSA columns (this used to segfault).
         # Two samples: MSAs are built only across samples.
         rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa",
-                      "--snp_min_cov", "100000", "--msa_min_hcov", "0")
+                      "--msa_min_depth", "100000", "--msa_min_hcov", "0")
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("has enough coverage for an MSA", log)
         self.assertEqual(glob.glob(self.path("out", "strains", "*.raw.msa.fna")), [])
+
+
+class MSAKnobTest(WorkDir):
+    """A species' MSA holds the samples whose profile reports it; --msa_knob sets another threshold."""
+
+    def calls(self, sample):
+        """{species: (reported, probability)} of a sample's profile, species spelled as in species.tsv."""
+        with open(self.path("out", f"{sample}.profile.log")) as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        return {r["Name"].replace(" ", "_"): (r["Predicted"] == "1", float(r["Probability"])) for r in rows}
+
+    def species_list(self):
+        with open(self.path("out", "strains", "species.tsv")) as fh:
+            return {r["species"]: int(r["samples"]) for r in csv.DictReader(fh, delimiter="\t")}
+
+    def test_msa_samples_mirror_the_profiles(self):
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa",
+                      "--msa_min_hcov", "0")
+        self.assertEqual(rc, 0, log[-3000:])
+        calls = {s: self.calls(s) for s in ("sa", "sb")}
+        listed = self.species_list()
+        for species in set(calls["sa"]) | set(calls["sb"]):
+            reported = sum(calls[s].get(species, (False, 0))[0] for s in calls)
+            if reported >= 2:
+                self.assertEqual(listed.get(species), reported, species)
+            else:
+                self.assertNotIn(species, listed, "an MSA needs 2 samples that report the species")
+
+    def test_msa_knob_admits_unreported_species(self):
+        # No species scores --knob 1, yet --msa_knob 0 builds the MSAs of all species with reads in both
+        # samples. At 2.4x on every gene, the species' reads are strong evidence: those the profiles
+        # leave out are listed in unreported_species.tsv.
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa",
+                      "--msa_min_hcov", "0", "--knob", "1", "--msa_knob", "0")
+        self.assertEqual(rc, 0, log[-3000:])
+        calls = {s: self.calls(s) for s in ("sa", "sb")}
+        listed = self.species_list()
+        for species in set(calls["sa"]) & set(calls["sb"]):
+            self.assertEqual(listed.get(species), 2, species)
+        with open(self.path("out", "misc", "unreported_species.tsv")) as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertTrue(rows, log[-3000:])
+        for r in rows:
+            reported, probability = calls[r["sample"]][r["species"].replace(" ", "_")]
+            self.assertFalse(reported, r)
+            self.assertLess(probability, 1)
+            self.assertEqual(r["passes_msa_knob"], "yes")
+        self.assertIn("are not reported, although their own reads are strong evidence", log)
 
 
 class LowCoverageAbundanceTest(WorkDir):
@@ -604,6 +654,109 @@ class QcmsaContractTest(WorkDir):
         rc, log = run(self.work, *args, "--prefix", self.path("one"), "--gene-min-samples", "1", binary="python3")
         self.assertEqual(rc, 0, log)
         self.assertTrue(os.path.exists(self.path("one.msa.fna")), log)
+
+    def write_species(self, name, rows):
+        """An MSA of one 8-column gene (rows: [(name, sequence)]) with meta rows for its samples."""
+        with open(self.path(name + ".raw.msa.fna"), "w") as fh:
+            fh.writelines(f">{n}\n{s}\n" for n, s in rows)
+        with open(self.path(name + ".raw.partition.txt"), "w") as fh:
+            fh.write("DNA, gene1 = 1-8\n")
+        with open(self.path(name + ".meta.tsv"), "w") as fh:
+            fh.write(self.META_HEADER)
+            for sample, _ in rows[1:]:
+                fh.write(f"{sample}\t1\t5\t8\t8\t0\t0\t0\t0\t0\t0\t5\t1\t8\t5\t5\n")
+        return [QCMSA, self.path(name + ".raw.msa.fna"), self.path(name + ".raw.partition.txt"),
+                self.path(name + ".meta.tsv")]
+
+    def read_msa(self, path):
+        with open(path) as fh:
+            lines = fh.read().split()
+        return dict(zip((n[1:] for n in lines[0::2]), lines[1::2]))
+
+    def test_site_cleanup(self):
+        # Columns: 1 constant; 2 only s1 differs (s1's own mutation); 3 only the reference differs;
+        # 4 A and R (an ambiguity, so constant); 5 an insertion column with only N, '-' and IUPAC
+        # codes; 6 s1 and s2 differ; 7 and 8 constant.
+        args = self.write_species("y", [("y_reference", "AAGA-AAA"), ("s1", "ACAA-CAA"), ("s2", "AAARNCAA"),
+                                        ("s3", "AAAA-AAA"), ("s4", "AAAAYAAA")])
+        rc, log = run(self.work, *args, "--prefix", self.path("default"), binary="python3")
+        self.assertEqual(rc, 0, log)
+        msa = self.read_msa(self.path("default.msa.fna"))
+        self.assertEqual(msa["s1"], "ACAACAA", "every column but the one without a base; singletons kept")
+        self.assertEqual(msa["y_reference"], "AAGAAAA")
+
+        rc, log = run(self.work, *args, "--prefix", self.path("parsimony"), "--min-parsimony-samples", "2", binary="python3")
+        self.assertEqual(rc, 0, log)
+        # Column 2 (one sample differs) goes; column 3 stays: the reference row is not a sample.
+        self.assertEqual(self.read_msa(self.path("parsimony.msa.fna"))["s1"], "AAACAA")
+
+        rc, log = run(self.work, *args, "--prefix", self.path("variable"), "--discard-constant", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertEqual(self.read_msa(self.path("variable.msa.fna"))["s1"], "CAC", "A and R count as constant")
+
+    def test_duplicate_names_stop_qcmsa(self):
+        args = self.write_species("z", [("z_reference", "AAAAAAAA"), ("s1", "ACAAACAA"), ("s1", "AAAAAAAA")])
+        rc, log = run(self.work, *args, "--prefix", self.path("dup"), binary="python3")
+        self.assertNotEqual(rc, 0, log)
+        self.assertIn("names 1 sequence(s) more than once (s1)", log)
+
+    def test_coverage_gate_reads_the_msa(self):
+        # The meta says every cell is fully covered; s3's row writes 2 of the gene's 8 positions, below
+        # --gene-min-hcov 0.3, so its cell is gap-filled.
+        args = self.write_species("c", [("c_reference", "AAAAAAAA"), ("s1", "ACAAAAAA"), ("s2", "AAAAAAAA"),
+                                        ("s3", "AC------")])
+        rc, log = run(self.work, *args, "--prefix", self.path("c"), binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertEqual(self.read_msa(self.path("c.msa.fna"))["s3"], "--------", log)
+        rc, log = run(self.work, *args, "--prefix", self.path("c2"), "--gene-min-hcov", "0.2", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertEqual(self.read_msa(self.path("c2.msa.fna"))["s3"], "AC------", log)
+
+    def test_multi_allelic_filter_judges_rates(self):
+        # 8 samples, 4 genes of 1000 positions with >= 2 reads. s1-s6 hold no IUPAC code; s7, deep,
+        # holds 1 per gene (0.1%, noise); s8, a mixture, 10 per gene (1%). By counts of multi-allelic
+        # genes s7 and s8 are alike; by their rates, only s8 is above the 0.2% floor.
+        samples = [f"s{i}" for i in range(1, 9)]
+        multi = {"s7": 1, "s8": 10}
+        with open(self.path("m.raw.msa.fna"), "w") as fh:
+            fh.write(">m_reference\n" + "A" * 32 + "\n")
+            for i, s in enumerate(samples):
+                fh.write(f">{s}\n" + ("A" * 7 + "ACGT"[i % 4]) * 4 + "\n")
+        with open(self.path("m.raw.partition.txt"), "w") as fh:
+            fh.writelines(f"DNA, gene{g} = {8 * g - 7}-{8 * g}\n" for g in range(1, 5))
+        with open(self.path("m.meta.tsv"), "w") as fh:
+            fh.write(self.META_HEADER)
+            for s in samples:
+                m = multi.get(s, 0)
+                for g in range(1, 5):
+                    fh.write(f"{s}\t{g}\t20\t1000\t1000\t{m}\t0\t{m / 1000}\t0\t{m / 1000}\t0\t20\t1\t1000\t20\t20\n")
+        args = [QCMSA, self.path("m.raw.msa.fna"), self.path("m.raw.partition.txt"), self.path("m.meta.tsv")]
+        rc, log = run(self.work, *args, "--prefix", self.path("m"), binary="python3")
+        self.assertEqual(rc, 0, log)
+        msa = self.read_msa(self.path("m.msa.fna"))
+        self.assertNotIn("s8", msa, log)
+        self.assertEqual(sorted(msa), sorted(["m_reference"] + samples[:7]), log)
+        self.assertEqual(len(msa["s7"]), 32, "no gene removed or masked")
+        with open(self.path("m.qcmsa_summary.tsv")) as fh:
+            summary = fh.read()
+        self.assertIn("sample_filtered\ts8\t4\tmulti-allelic rate 0.0100 > 0.0020", summary)
+
+        # With a floor of 0.05%, the fence (0.0625%) decides, and s7 goes too.
+        rc, log = run(self.work, *args, "--prefix", self.path("floor"), "--mrate2-min-rate", "0.0005", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertEqual(sorted(self.read_msa(self.path("floor.msa.fna"))), sorted(["m_reference"] + samples[:6]))
+
+    def test_no_msa_leaves_no_stale_output(self):
+        args = self.write_species("w", [("w_reference", "AAAAAAAA"), ("s1", "ACAAACAA"), ("s2", "AAAAAAAA")])
+        rc, log = run(self.work, *args, "--prefix", self.path("w"), binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertTrue(os.path.exists(self.path("w.msa.fna")), log)
+        rc, log = run(self.work, *args, "--prefix", self.path("w"), "--gene-min-samples", "5", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertFalse(os.path.exists(self.path("w.msa.fna")), "an earlier run's MSA is removed")
+        self.assertFalse(os.path.exists(self.path("w.partition.txt")))
+        with open(self.path("w.qcmsa_summary.tsv")) as fh:
+            self.assertIn("status\tno_msa\t\tevery gene was filtered", fh.read())
 
 
 class MapUtilsTest(WorkDir):
@@ -1110,6 +1263,16 @@ class FailFastTest(WorkDir):
         self.assertEqual(rc, 8, log[-3000:])
         self.assertRegex(log, r"Invalid reference map .*expected 4 tab-separated columns, found 3")
 
+    def test_missing_db(self):
+        """A --db path with nothing at it is reported as missing, relative to where protal runs."""
+        for args in (reads("sa") + ["-o", "out_nodb", "--no_qcmsa"], ["--unpack_db"], ["--compress_db"]):
+            rc, log = run(self.work, "--db", "no/such_db", *args)
+            self.assertEqual(rc, 30, log[-3000:])
+            self.assertIn("--db no/such_db does not exist (relative to the working directory "
+                          f"{os.path.realpath(self.work)})", log)
+            self.assertNotIn("holds separate files", log)
+            self.assertNotIn("Sequence file does not exist", log)
+
     def test_missing_model_and_unique_kmers(self):
         db = self.db_copy("db_files", drop=("model_pe.xml", "unique_kmers.tsv"))
         rc, log = self.query(db, "out_files")
@@ -1388,13 +1551,33 @@ class QcmsaTest(WorkDir):
         self.assertEqual(filtered, [])
 
     def test_filtered_msa(self):
-        # qcmsa keeps a gene only if MORE than --gene-min-samples samples pass (default 3), which
-        # three samples never do; relax it to exercise the output path.
-        rc, log = run(self.work, "--db", DB, *reads("sa", "sb", "sr"), "-o", "out", "-t", "4",
-                      "--qcmsa_script", QCMSA, "--qcmsa_args", "--gene-min-samples 1")
+        # With its defaults, qcmsa filters an MSA of three samples (a gene needs two).
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb", "sr"), "-o", "out", "-t", "4", "--qcmsa_script", QCMSA)
         self.assertEqual(rc, 0, log[-3000:])
         filtered = [f for f in glob.glob(self.path("out", "strains", "*.msa.fna")) if not f.endswith(".raw.msa.fna")]
         self.assertTrue(filtered, "qcmsa wrote filtered MSAs")
+        with open(self.path("out", "strains", "species.tsv")) as fh:
+            listed = [line.rstrip("\n").split("\t") for line in fh][1:]
+        self.assertEqual(sorted(row[4] for row in listed if row[4] != "-"), sorted(os.path.basename(f) for f in filtered))
+
+        # A rerun in which qcmsa keeps nothing leaves no filtered MSA of the first run behind.
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb", "sr"), "-o", "out", "-t", "4",
+                      "--qcmsa_script", QCMSA, "--qcmsa_args", "--gene-min-samples 100")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertFalse([f for f in filtered if os.path.exists(f)], "stale filtered MSAs")
+        with open(self.path("out", "strains", "species.tsv")) as fh:
+            self.assertTrue(all(line.rstrip("\n").split("\t")[4] == "-" for line in list(fh)[1:]))
+
+    def test_sample_ids_must_be_unique(self):
+        sample_map = self.path("dup.map")
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{self.path('out_dup')}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\n")
+            fh.write(f"same\tsa\t{READS}/sa_R1.fq\t{READS}/sa_R2.fq\n")
+            fh.write(f"same\tsb\t{READS}/sb_R1.fq\t{READS}/sb_R2.fq\n")
+        rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "1", "--no_qcmsa")
+        self.assertNotEqual(rc, 0, log[-3000:])
+        self.assertIn("share the sample ID 'same'", log)
+        self.assertFalse(glob.glob(self.path("out_dup", "**", "*.sam*"), recursive=True))
 
 
 class SingleEndTest(WorkDir):

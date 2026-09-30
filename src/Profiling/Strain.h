@@ -14,11 +14,39 @@
 #include <string_view>
 
 namespace protal {
-    static Variant& GetConsensusCall(VariantBin& bin) {
-        std::sort(bin.begin(), bin.end(), [](Variant const& a, Variant const& b) {
-            return a.QualitySum() > b.QualitySum();
-        });
-        return bin.front();
+    // Alleles ranked as calls: by observations, then by quality sum.
+    static bool RanksBefore(Variant const& a, Variant const& b) {
+        if (a.Observations() != b.Observations()) return a.Observations() > b.Observations();
+        return a.QualitySum() > b.QualitySum();
+    }
+
+    // The call at a site from its base alleles (the reference, SNPs, a deletion; not insertions,
+    // which come before the base): the first that `passes`, ranked by RanksBefore. With none
+    // passing, the top allele is returned and `pass` is false: the site is written as N.
+    template<typename Passes>
+    static Variant const* BaseCall(VariantBin const& bin, Passes&& passes, bool& pass) {
+        std::vector<Variant const*> alleles;
+        for (auto const& v : bin) if (!v.IsINS()) alleles.push_back(&v);
+        pass = false;
+        if (alleles.empty()) return nullptr;
+        std::stable_sort(alleles.begin(), alleles.end(), [](Variant const* a, Variant const* b) { return RanksBefore(*a, *b); });
+        for (auto const* a : alleles) {
+            if (passes(*a)) {
+                pass = true;
+                return a;
+            }
+        }
+        return alleles.front();
+    }
+
+    // The insertion written before a site's base: the top passing one, or none.
+    template<typename Passes>
+    static Variant const* InsertionCall(VariantBin const& bin, Passes&& passes) {
+        Variant const* best = nullptr;
+        for (auto const& v : bin) {
+            if (v.IsINS() && passes(v) && (!best || RanksBefore(v, *best))) best = &v;
+        }
+        return best;
     }
 
 
@@ -84,6 +112,23 @@ namespace protal {
 
         std::vector<SNP> m_snp_tmp;
         const Gene& m_reference;
+        // The fragment of the last alignment added and the reference interval its reads cover here:
+        // its other mate skips that interval, so that a fragment counts once.
+        size_t m_last_read_id = SIZE_MAX;
+        std::pair<size_t, size_t> m_last_interval{ 0, 0 };
+
+        void AddReadRange(size_t start, size_t end, size_t read_id, bool forward, uint8_t divergence) {
+            if (end <= start) return;
+            SequenceRange range(start, end);
+            ReadInfo rinfo;
+            rinfo.read_id = read_id;
+            rinfo.length = static_cast<uint32_t>(end - start);
+            rinfo.start = static_cast<uint32_t>(start);
+            rinfo.forward = forward;
+            rinfo.divergence = divergence;
+            range.AddReadInfo(rinfo);
+            m_sequence_range_handler.Merge(std::move(range));
+        }
 
     public:
         Benchmark bm_add_read{"Add read"};
@@ -93,10 +138,6 @@ namespace protal {
         StrainLevelContainer(Gene const& reference) :
                 m_reference(reference), m_variant_handler(reference.Sequence()) {
         };
-
-        bool AddToVariants(SamEntry const& sam, size_t read_id) {
-            return m_variant_handler.AddVariantsFromSam(sam, read_id);
-        }
 
         const VariantHandler& GetVariantHandler() const {
             return m_variant_handler;
@@ -118,8 +159,64 @@ namespace protal {
         }
 
         void PostProcess(size_t min_observations=2, size_t min_observations_fwdrev=2, double min_frequency=0.2, size_t min_avg_quality=15, size_t min_phred_sum=0, bool require_strand=false) {
+            auto forward = m_sequence_range_handler.CalculateCoverageVector2(SequenceRange::kForward);
+            auto reverse = m_sequence_range_handler.CalculateCoverageVector2(SequenceRange::kReverse);
+            m_variant_handler.PostProcessSNPs(forward, reverse, min_observations, min_observations_fwdrev, min_frequency, min_avg_quality, min_phred_sum, require_strand);
+        }
+
+        // Reads per position that have a base there: the coverage less the reads with an N or inside
+        // a deletion. This is the depth SNP calls and the MSA are judged by.
+        CoverageVec InformativeCoverage() const {
             auto cov = m_sequence_range_handler.CalculateCoverageVector2();
-            m_variant_handler.PostProcessSNPs(cov, min_observations, min_observations_fwdrev, min_frequency, min_avg_quality, min_phred_sum, require_strand);
+            for (auto const& [pos, reads] : m_variant_handler.GetNoBase()) {
+                if (pos >= cov.size()) continue;
+                uint32_t const none = static_cast<uint32_t>(reads.size());
+                cov[pos] = cov[pos] > none ? cov[pos] - none : 0;
+            }
+            return cov;
+        }
+
+        // The gene as the strain MSA takes it: its variant bins (sorted by position) and informative
+        // coverage from the reads with at least `min_identity` only, the taxon's own reads (see
+        // Taxon::OwnIdentityThreshold): reads of relatives would add false SNPs and mixtures. The
+        // reference allele of each bin is inferred again from these reads. The profile's variants
+        // (and the model's features) keep every read.
+        std::pair<VariantVec, CoverageVec> MSAItem(double min_identity, size_t min_observations, double min_frequency,
+                                                   size_t min_avg_quality, size_t min_phred_sum, bool require_strand) const {
+            uint8_t const max_divergence = MaxDivergenceBin(min_identity);
+            auto forward = m_sequence_range_handler.CalculateCoverageVector2(SequenceRange::kForward, max_divergence);
+            auto reverse = m_sequence_range_handler.CalculateCoverageVector2(SequenceRange::kReverse, max_divergence);
+            for (size_t pos = 0; pos < forward.size(); pos++) {
+                uint32_t const f = m_variant_handler.NoBase(pos, SequenceRange::kForward, max_divergence);
+                uint32_t const r = m_variant_handler.NoBase(pos, SequenceRange::kReverse, max_divergence);
+                forward[pos] = forward[pos] > f ? forward[pos] - f : 0;
+                if (pos < reverse.size()) reverse[pos] = reverse[pos] > r ? reverse[pos] - r : 0;
+            }
+
+            VariantVec bins;
+            for (auto const& [pos, bin] : m_variant_handler.GetVariants()) {
+                VariantBin own;
+                for (auto const& v : bin) {
+                    if (v.IsReference()) continue;
+                    auto filtered = v.WithMaxDivergence(max_divergence);
+                    if (filtered.Observations() > 0) own.push_back(std::move(filtered));
+                }
+                if (own.empty()) continue;
+                size_t const f = pos < forward.size() ? forward[pos] : 0;
+                size_t const r = pos < reverse.size() ? reverse[pos] : 0;
+                VariantHandler::PostProcessSNPBin(own, f, r, min_observations, min_observations, min_frequency,
+                                                  min_avg_quality, min_phred_sum, require_strand);
+                bins.push_back(std::move(own));
+            }
+            std::sort(bins.begin(), bins.end(), [](VariantBin const& a, VariantBin const& b) {
+                return a.front().Position() < b.front().Position();
+            });
+
+            CoverageVec informative(forward.size(), 0);
+            for (size_t pos = 0; pos < informative.size(); pos++) {
+                informative[pos] = forward[pos] + (pos < reverse.size() ? reverse[pos] : 0);
+            }
+            return { std::move(bins), std::move(informative) };
         }
 
         void AddToSequenceRange(SamEntry const& sam, size_t read_id) {
@@ -137,21 +234,44 @@ namespace protal {
             m_sequence_range_handler.Merge(std::move(query_range));
         }
 
-        bool AddSam(SamEntry const& sam, size_t read_id, bool read_variants=false) {
-
-//            m_sequence_range_handler.Add(sam.m_pos, sam.m_cigar.length());
+        // Adds an alignment of a read (read_id: its fragment, the same for both mates). With
+        // read_variants, its variants are recorded and its range is the part VariantHandler::AddAlignment
+        // trusts, less what the fragment's other mate already covered; an alignment that does not fit
+        // the gene adds nothing and returns false. Without, only its whole range is added.
+        bool AddSam(SamEntry const& sam, size_t read_id, bool read_variants=false, double identity=1.0) {
             bm_add_read.Start();
+            uint8_t const divergence = DivergenceBin(identity);
+            if (!read_variants) {
+                bm_add_sequence_range.Start();
+                AddToSequenceRange(sam, read_id);
+                bm_add_sequence_range.Stop();
+                bm_add_read.Stop();
+                return true;
+            }
+            size_t skip_begin = 0, skip_end = 0;
+            if (read_id == m_last_read_id) std::tie(skip_begin, skip_end) = m_last_interval;
+            bm_add_variants.Start();
+            auto const interval = m_variant_handler.AddAlignment(sam, skip_begin, skip_end, divergence);
+            bm_add_variants.Stop();
+            if (!interval) {
+                bm_add_read.Stop();
+                return false;
+            }
+            auto const [start, end] = *interval;
+            bool const forward = !Flag::IsReverseComplement(sam.m_flag);
             bm_add_sequence_range.Start();
-            AddToSequenceRange(sam, read_id);
+            AddReadRange(start, std::min(end, skip_begin), read_id, forward, divergence);
+            AddReadRange(std::max(start, skip_end), end, read_id, forward, divergence);
             bm_add_sequence_range.Stop();
-            bool valid = true;
-            if (read_variants) {
-                bm_add_variants.Start();
-                valid = AddToVariants(sam, read_id);
-                bm_add_variants.Stop();
+
+            if (read_id == m_last_read_id) {
+                m_last_interval = { std::min(start, m_last_interval.first), std::max(end, m_last_interval.second) };
+            } else {
+                m_last_read_id = read_id;
+                m_last_interval = { start, end };
             }
             bm_add_read.Stop();
-            return valid;
+            return true;
         }
     };
 
@@ -245,34 +365,53 @@ namespace protal {
             double freq = static_cast<double>(call.Observations()) / coverage;
             if (freq < min_frequency) return false;
         }
-        if (require_strand && !call.PassesStrandFilter()) return false;
+        if (require_strand && !PassesStrandFilter(call, bin)) return false;
         return true;
     }
 
-    // Positions that MSA() writes as an IUPAC code, with the same rule and parameters: the consensus
-    // call (highest quality sum) is a single-base allele that passes, and at least one other base
-    // passes too. The .meta.tsv reports this count, so that qcmsa filters on what the MSA holds.
-    static size_t MultiAllelicPositions(Variants const& variants, CoverageVec const& coverage, uint32_t min_cov,
+    // The bases of a site's SNP alleles (the reference included) that pass, at most max_alleles, the
+    // most observed first (RanksBefore): more than one is written as an IUPAC code.
+    template<typename Passes>
+    static std::vector<char> PassingBases(VariantBin const& bin, Passes&& passes, size_t max_alleles) {
+        std::vector<Variant const*> alleles;
+        for (auto const& v : bin) if (v.IsSNP() && passes(v)) alleles.push_back(&v);
+        std::stable_sort(alleles.begin(), alleles.end(), [](Variant const* a, Variant const* b) { return RanksBefore(*a, *b); });
+        std::vector<char> bases;
+        for (auto const* a : alleles) {
+            if (bases.size() >= max_alleles) break;
+            if (std::find(bases.begin(), bases.end(), a->GetVariant()) == bases.end()) bases.push_back(a->GetVariant());
+        }
+        return bases;
+    }
+
+    // Positions that MSA() writes as an IUPAC code, with the same rule and parameters: the site's call
+    // (BaseCall) is a single-base allele that passes, and at least one other base passes too; sites
+    // inside a deletion the MSA writes as gaps do not count. The .meta.tsv reports this count, so that
+    // qcmsa filters on what the MSA holds. `bins` and `coverage` are the gene as the MSA takes it
+    // (StrainLevelContainer::MSAItem: bins sorted by position, informative coverage).
+    static size_t MultiAllelicPositions(std::vector<VariantBin> const& bins, CoverageVec const& coverage, uint32_t min_cov,
                                         uint32_t min_qual_sum, double min_frequency, bool require_strand,
                                         size_t min_mean_qual, size_t snp_max_alleles) {
         if (snp_max_alleles < 2) return 0;
         size_t multi = 0;
-        for (auto const& [pos, bin] : variants) {
+        size_t deleted_until = 0;
+        for (auto const& bin : bins) {
             if (bin.empty()) continue;
+            size_t const pos = bin.front().Position();
+            if (pos < deleted_until) continue;
             uint32_t const cov = pos < coverage.size() ? coverage[pos] : 0;
             if (cov < min_cov) continue;
-            auto const& consensus = *std::max_element(bin.begin(), bin.end(), [](Variant const& a, Variant const& b) {
-                return a.QualitySum() < b.QualitySum();
-            });
-            if (!consensus.IsSNP() || !VariantPass(consensus, bin, min_qual_sum, min_cov, min_frequency, cov, require_strand, min_mean_qual)) continue;
-            std::vector<char> bases;
-            for (auto const& v : bin) {
-                if (v.IsSNP() && VariantPass(v, bin, min_qual_sum, min_cov, min_frequency, cov, require_strand, min_mean_qual) &&
-                    std::find(bases.begin(), bases.end(), v.GetVariant()) == bases.end()) {
-                    bases.push_back(v.GetVariant());
-                }
+            auto passes = [&](Variant const& v) {
+                return VariantPass(v, bin, min_qual_sum, min_cov, min_frequency, cov, require_strand, min_mean_qual);
+            };
+            bool pass = false;
+            auto const* call = BaseCall(bin, passes, pass);
+            if (!call || !pass) continue;
+            if (call->IsDEL()) {
+                deleted_until = pos + call->GetStructuralSize();
+                continue;
             }
-            multi += bases.size() > 1;
+            multi += PassingBases(bin, passes, snp_max_alleles).size() > 1;
         }
         return multi;
     }
@@ -295,8 +434,9 @@ namespace protal {
     }
 
     using VariantVecRef = std::reference_wrapper<VariantVec>;
-    using SequenceRangeHandlerRef = std::reference_wrapper<SequenceRangeHandler>;
-    using OptionalMSASequenceItem = std::optional<std::pair<VariantVec, SequenceRangeHandlerRef>>;
+    // A sample's gene for the MSA: its variant bins (sorted by position) and its informative coverage
+    // (StrainLevelContainer::InformativeCoverage).
+    using OptionalMSASequenceItem = std::optional<std::pair<VariantVec, CoverageVec>>;
     using MSASequenceItems = std::vector<OptionalMSASequenceItem>;
     using CoverageVecs = std::vector<CoverageVec>;
     using OptionalVariant = std::optional<Variant>;
@@ -317,7 +457,7 @@ namespace protal {
 
         // Position-level outcomes (one count per reference position, excluding deletion continuations)
         size_t positions_ref = 0;              ///< Covered >=min_cov, no variant called → reference base used
-        size_t positions_below_min_cov = 0;    ///< Coverage present but below min_cov threshold → gap
+        size_t positions_below_min_cov = 0;    ///< Coverage present but below min_depth (--msa_min_depth) → gap
         size_t positions_no_coverage = 0;      ///< No coverage or sample absent → gap
 
         // Filled externally after ProcessMSA (vertical coverage filter)
@@ -480,83 +620,29 @@ namespace protal {
 
 
 
-    static bool MSA2(MSASequenceItems const& items, std::string_view const reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, bool ignore_insertions) {
-        // Get Coverages
-        CoverageVecs covs(items.size(), CoverageVec());
-        for (auto i = 0; i < items.size(); i++) {
-            auto& item = items[i];
-            if (!item.has_value()) continue;
-            covs[i] = item->second.get().CalculateCoverageVector2();
-        }
-
-        // Store all variants for column
-        std::vector<OptionalVariant> column( items.size(), OptionalVariant{} );
-        std::vector<int> index(0, items.size());
-
-        // Iterate all positions
-        for (auto rpos = 0; rpos < reference.size(); rpos++) {
-            std::fill(column.begin(), column.end(), OptionalVariant{});
-
-            for (auto i = 0; i < items.size(); i++) {
-                auto& item = items[i];
-                if (!item.has_value()) continue;
-
-                auto& cov = covs[i];
-                column[i] = Variant();
-            }
-        }
-        return true;
-    }
-
+    // The items' informative coverage vectors (empty for a sample without the gene).
     static CoverageVecs LoadCoverageVectors(MSASequenceItems const& items, std::string_view const reference) {
         CoverageVecs covs;
-
         for (auto i = 0; i < items.size(); i++) {
-            auto& optional_item = items[i];
-
-            if (optional_item.has_value()) {
-                auto  valid = optional_item.value().second.get().AreRangesValid(reference.length());
-
-                if (!valid) {
-                    std::cerr << "Coverage ranges are invalid for item " << i << std::endl;
-                }
-            }
-
-            covs.emplace_back(optional_item.has_value() ?
-                              optional_item.value().second.get().CalculateCoverageVector2() :
-                              CoverageVec());
-
+            covs.emplace_back(items[i].has_value() ? items[i]->second : CoverageVec());
             if (covs.back().size() > reference.size()) {
-                std::cerr << "ITEM " << i << " " << covs.back().size() << " > " << reference.size() << std::endl;
-                for (auto c : covs.back()) {
-                    std::cerr << std::to_string(c);
-                }
-                std::cerr << std::endl;
+                std::cerr << "Coverage of MSA item " << i << " is longer than its gene: " << covs.back().size()
+                          << " > " << reference.size() << std::endl;
             }
         }
         return covs;
     }
 
     static size_t GetValidBases(CoverageVecs const& covs, uint32_t min_cov) {
-
         return std::count_if(covs.begin(), covs.end(), [min_cov](auto const& cv) {
             return std::count_if(cv.begin(), cv.end(), [min_cov](auto c){ return c >= min_cov; });
         });
-//
-//        return ranges::count_if(covs, [min_cov](auto const& cv) {
-//            return ranges::count_if(cv, [min_cov](auto c){ return c >= min_cov; });
-//        });
     }
 
     static std::vector<bool> HasVariantVector(MSASequenceItems const& items, std::string_view const reference) {
         std::vector<bool> has_variant(reference.length(), false);
-
-        //        std::cout << "Loop items and check if pos has variant " << std::endl;
-        // Extract information if position has variant or not.
         for (auto& item : items) {
-            if (!item.has_value()) {
-                continue;
-            }
+            if (!item.has_value()) continue;
             for (const auto& var : item.value().first) {
                 if (var.front().Position() < has_variant.size()) has_variant[var.front().Position()] = true;
             }
@@ -565,8 +651,16 @@ namespace protal {
     }
 
     // The MSA of a gene over samples (items), each with its own minimum allele frequency
-    // (min_frequencies, one per item: the SNP filter of its reads' kind).
-    static bool MSA(MSASequenceItems const& items, std::string_view const reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, std::vector<double> const& min_frequencies, bool require_strand=false, size_t min_mean_qual=0, MSAStats* stats = nullptr, MSARow* ref_row = nullptr, size_t snp_max_alleles = 1) {
+    // (min_frequencies, one per item: the SNP filter of its reads' kind). Per sample and position:
+    //   - fewer than min_depth reads with a base (informative coverage): '-';
+    //   - no variant: the reference base;
+    //   - else the site's call (BaseCall): its base, an IUPAC code where more than one SNP allele
+    //     passes (at most snp_max_alleles), '-' over a passing deletion, or N if no allele passes;
+    //   - a passing insertion before the base fills insertion columns, which all other rows (and the
+    //     reference row) get as '-'.
+    // An allele passes with min_cov reads, or with fewer when it has every read of the site: reads
+    // that agree need no second one, while a mixture needs min_cov reads per allele.
+    static bool MSA(MSASequenceItems const& items, std::string_view const reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, std::vector<double> const& min_frequencies, bool require_strand=false, size_t min_mean_qual=0, MSAStats* stats = nullptr, MSARow* ref_row = nullptr, size_t snp_max_alleles = 1, uint32_t min_depth = 1) {
         if (min_frequencies.size() != items.size()) {
             std::cerr << "MSA: " << min_frequencies.size() << " minimum allele frequencies for " << items.size() << " samples" << std::endl;
             return false;
@@ -579,234 +673,134 @@ namespace protal {
 
         if (items.empty()) return false;
 
+        min_depth = std::max<uint32_t>(min_depth, 1);
         CoverageVecs covs = LoadCoverageVectors(items, reference);
-        auto valid_bases = GetValidBases(covs, min_cov);
+        if (GetValidBases(covs, min_depth) == 0) return false;
 
-        if (valid_bases == 0) return false;
-
-        std::vector<bool> has_variant = HasVariantVector(items, reference);
         // Where this gene's columns begin, to take them back should the rows get out of step.
         std::vector<size_t> row_starts;
         for (auto const& row : msa) row_starts.push_back(row.size());
         size_t const ref_row_start = ref_row ? ref_row->size() : 0;
 
-
         std::vector<size_t> indices(items.size(), 0);
         std::vector<uint16_t> pause_timer(items.size(), 0);
-        std::vector<OptionalVariant> column( items.size(), OptionalVariant{} );
-        std::vector<bool> column_pass( items.size(), false );
-        std::vector<const VariantBin*> column_bins( items.size(), nullptr );
-        bool had_indel = false;
+        std::vector<VariantBin const*> bins(items.size(), nullptr);
+        std::vector<Variant const*> base_calls(items.size(), nullptr);
+        std::vector<Variant const*> ins_calls(items.size(), nullptr);
+        std::vector<bool> base_pass(items.size(), false);
+
+        const char LACKING_COVERAGE = '-';
+        const char NO_PASS = 'N';
 
         for (size_t rpos = 0; rpos < reference.length(); rpos++) {
-            std::fill(column.begin(), column.end(), OptionalVariant{});
-            std::fill(column_bins.begin(), column_bins.end(), nullptr);
-            char ref = reference[rpos];
-            auto max_ins = 0;
+            char const ref = reference[rpos];
+            size_t max_ins = 0;
 
+            // The calls of every sample at this position.
+            for (size_t i = 0; i < items.size(); i++) {
+                bins[i] = nullptr;
+                base_calls[i] = nullptr;
+                ins_calls[i] = nullptr;
+                base_pass[i] = false;
+                auto const& cov = covs[i];
+                uint32_t const depth = rpos < cov.size() ? cov[rpos] : 0;
+                if (!items[i].has_value() || depth == 0) continue;
 
-            // Iterate All ITems
-            for (auto i = 0; i < items.size(); i++) {
-                auto& cov = covs[i];
-                if (cov.size() > reference.size()) {
-                    std::cerr << "Coverage values are faulty: " << cov.size() << " > " << reference.size() << std::endl;
-                }
-
-                if (!items[i].has_value() || (rpos < cov.size() && cov[rpos] == 0)) {
-                    column[i] = OptionalVariant();
-                    continue;
-                }
-
-                const VariantVec& const_variants = items[i].value().first;
-                VariantVec& variants = const_cast<VariantVec&>(const_variants);
-
-
-
-                // Find next variant. If variant position is smaller than current ref position move on
-                // Until the variant position is identical with the reference position or larger.
+                auto const& variants = items[i].value().first;
                 while (indices[i] < variants.size() && variants[indices[i]].front().Position() < rpos) indices[i]++;
-//                std::cout << (indices[i] == variants.size() || variants[indices[i]].front().Position() != rpos) << std::endl;
-                if (indices[i] == variants.size() || variants[indices[i]].front().Position() != rpos) {
-                    // Position has not variant.
-                    column[i] = OptionalVariant();
-                } else {
-                    // Position has variant.
-                    auto& variant = variants[indices[i]];
-                    auto& call = GetConsensusCall(variant);
-                    uint32_t pos_cov = (rpos < cov.size()) ? cov[rpos] : 0;
-                    bool pass = VariantPass(call, variant, min_qual_sum, min_cov, min_frequencies[i], pos_cov, require_strand, min_mean_qual);
+                if (indices[i] == variants.size() || variants[indices[i]].front().Position() != rpos) continue;
 
-
-                    column_pass[i] = pass;
-                    column[i] = call;
-                    column_bins[i] = &variant;
-
-                    if (pass && column[i]->IsINS()) max_ins = column[i]->GetStructuralSize() > max_ins ? column[i]->GetStructuralSize() : max_ins;
-                }
+                auto const& bin = variants[indices[i]];
+                auto passes = [&](Variant const& v) {
+                    uint32_t const reads = v.Observations() >= depth ? 1 : min_cov;
+                    return VariantPass(v, bin, min_qual_sum, reads, min_frequencies[i], depth, require_strand, min_mean_qual);
+                };
+                bins[i] = &bin;
+                bool pass = false;
+                base_calls[i] = BaseCall(bin, passes, pass);
+                base_pass[i] = pass;
+                ins_calls[i] = InsertionCall(bin, passes);
+                if (ins_calls[i] && pause_timer[i] == 0) max_ins = std::max<size_t>(max_ins, ins_calls[i]->GetStructuralSize());
             }
 
             // Reference row: gaps for any insertion slots, then the reference base itself.
-            // Deletions in samples leave the reference base intact; no pause_timer needed.
             if (ref_row) {
                 AddInsertionGap(*ref_row, max_ins);
                 ref_row->emplace_back(ref);
             }
 
-            bool current_had_indel = false;
             bool bad = false;
-            size_t before = 0;
-
-
-
-            // Iterate column
-            for (auto i = 0; i < column.size(); i++) {
+            for (size_t i = 0; i < items.size(); i++) {
                 auto& msa_row = msa[i];
-                auto& cov = covs[i];
-                auto& var = column[i];
-                auto var_pass = column_pass[i];
-
-                before = msa_row.size();
-
-//                if (var.has_value()) std::cout << var->ToString() << std::endl;
+                size_t const before = msa_row.size();
+                auto const& cov = covs[i];
+                uint32_t const depth = rpos < cov.size() ? cov[rpos] : 0;
 
                 if (pause_timer[i] > 0) {
+                    // Inside a deletion.
+                    AddInsertionGap(msa_row, max_ins);
                     msa_row.emplace_back('-');
                     pause_timer[i]--;
-                    for (auto j = max_ins; j > 0; j--) msa_row.emplace_back('-');
-
-                    if (i > 0 && msa[i].size() != msa[i-1].size()) {
-                        bad = true;
-                    }
-                    if (msa_row.size() == before) {
-                        std::cout << "Hey this is wrong!! Pause" << std::endl;
-                        if (var.has_value()) std::cout << var->ToString() << std::endl;
-                        std::cout << "Pause timer " << pause_timer[i] << std::endl;
-                    }
-                    continue;
-                }
-
-                //
-                bool no_cov = (rpos < cov.size() && cov[rpos] == 0) || rpos >= cov.size();
-                bool lower_min_cov = rpos < cov.size() && cov[rpos] < min_cov;
-                bool sufficient_cov = rpos < cov.size() && cov[rpos] >= min_cov;
-
-                const char LACKING_COVERAGE = '-'; // Changed from 'N'
-                const char VARIANT_NO_PASS = 'N';
-                const char REFERENCE_NO_PASS = 'N';
-
-                if (!items[i].has_value() || (rpos < cov.size() && cov[rpos] < min_cov) || rpos >= cov.size()) {
+                } else if (!items[i].has_value() || depth < min_depth) {
                     if (stats) {
                         auto& s = (*stats)[i];
-                        // Distinguish: no data/beyond range vs. coverage present but below threshold
-                        if (!items[i].has_value() || rpos >= cov.size() || cov[rpos] == 0)
-                            s.positions_no_coverage++;
-                        else
-                            s.positions_below_min_cov++;
+                        if (!items[i].has_value() || depth == 0) s.positions_no_coverage++;
+                        else s.positions_below_min_cov++;
                     }
-                    for (auto j = max_ins; j > 0; j--) msa_row.emplace_back(LACKING_COVERAGE); // changed from '-'
+                    AddInsertionGap(msa_row, max_ins);
                     msa_row.emplace_back(LACKING_COVERAGE);
-                } else if (cov[rpos] > 0) {
-                    auto coverage = cov[rpos];
-                    bool coverage_pass = coverage >= min_cov;
-
-                    if (!var.has_value()) {
-                        // NO VARIANT: ---------------------------------------------------------------------------------
-                        if (stats) (*stats)[i].positions_ref++;
-                        for (auto j = max_ins; j > 0; j--) msa_row.emplace_back('-');
-                        // Is it really appropriate to incorporate the reference position here?
-                        // Problem is, if var has no value, column_pass is never set to true.
-                        //msa_row.emplace_back(column_pass[i] ? ref : REFERENCE_NO_PASS);
-                        msa_row.emplace_back(coverage_pass ? ref : REFERENCE_NO_PASS); // Triple check but this should be the solution here
+                } else {
+                    // Insertion columns: the sample's passing insertion, left-aligned, or gaps.
+                    if (auto const* ins = ins_calls[i]) {
+                        if (stats) (*stats)[i].insertions_retained++;
+                        for (auto c : ins->GetStructural()) msa_row.emplace_back(c);
+                        AddInsertionGap(msa_row, max_ins - ins->GetStructuralSize());
                     } else {
-                        // VARIANT: ------------------------------------------------------------------------------------
-//                        std::cout << var->ToString() << " pass: " << var_pass << std::endl;
-                        if (!var_pass) {
-                            // NO PASS: IGNORE COLUMN ------------------------------------------------------------------
-                            // Variant does not pass - add 'N' for ambiguous base.
-                            // Re-check each filter independently to attribute rejection reason(s).
-                            if (stats) {
-                                auto& s = (*stats)[i];
-                                uint32_t pos_cov_for_af = (rpos < cov.size()) ? cov[rpos] : 0;
-                                if (var->Observations() < min_cov) s.variants_filtered_obs_cov++;
-                                bool qual_fails = var->QualitySum() < min_qual_sum &&
-                                                  !(min_mean_qual > 0 && var->MeanQuality() >= min_mean_qual);
-                                if (qual_fails) s.variants_filtered_qual_sum++;
-                                if (min_frequencies[i] > 0.0 && pos_cov_for_af > 0 &&
-                                    static_cast<double>(var->Observations()) / pos_cov_for_af < min_frequencies[i])
-                                    s.variants_filtered_af++;
-                                if (require_strand && !var->PassesStrandFilter()) s.variants_filtered_strand++;
-                            }
-                            AddInsertionGap(msa_row, max_ins);
-                            msa_row.emplace_back(VARIANT_NO_PASS);
-                        } else if (var->IsSNP()) {
-                            // PASS: SNP -------------------------------------------------------------------------------
-                            if (stats) {
-                                if (var->IsReference()) (*stats)[i].refs_retained++;
-                                else (*stats)[i].snps_retained++;
-                            }
-                            AddInsertionGap(msa_row, max_ins);
-                            if (snp_max_alleles > 1 && column_bins[i] != nullptr) {
-                                uint32_t pos_cov_v = (rpos < cov.size()) ? cov[rpos] : 0;
-                                // Collect all passing single-base alleles, the reference allele included, ranked
-                                // by observations descending: a REF/ALT mixture is the typical two-strain case.
-                                std::vector<std::pair<uint32_t,char>> candidates;
-                                for (auto const& v : *column_bins[i]) {
-                                    if (v.IsSNP() &&
-                                        VariantPass(v, *column_bins[i], min_qual_sum, min_cov, min_frequencies[i], pos_cov_v, require_strand, min_mean_qual)) {
-                                        candidates.emplace_back(v.Observations(), v.GetVariant());
-                                    }
-                                }
-                                std::sort(candidates.begin(), candidates.end(), [](auto const& a, auto const& b){ return a.first > b.first; });
-                                std::vector<char> alleles;
-                                for (auto const& [obs, base] : candidates) {
-                                    if (alleles.size() >= snp_max_alleles) break;
-                                    if (std::find(alleles.begin(), alleles.end(), base) == alleles.end())
-                                        alleles.push_back(base);
-                                }
-                                std::sort(alleles.begin(), alleles.end());
-                                msa_row.emplace_back(alleles.size() > 1 ? IUPACCode(alleles) : var->GetVariant());
-                            } else {
-                                msa_row.emplace_back(var->GetVariant());
-                            }
-                        } else if (var->IsINS()) {
-                            // PASS: INSERTION -------------------------------------------------------------------------
-                            if (stats) (*stats)[i].insertions_retained++;
-                            // Variant passes and is Insertion
-                            had_indel = true;
-                            current_had_indel=true;
-                            for (auto c: var->GetStructural()) msa_row.emplace_back(c);
-                            AddInsertionGap(msa_row, max_ins - var->GetStructuralSize());
-                            msa_row.emplace_back(ref);
-                        } else {
-                            // PASS: DELETION --------------------------------------------------------------------------
-                            if (stats) (*stats)[i].deletions_retained++;
-                            // Variant passes and is Deletion
-                            had_indel = true;
-                            current_had_indel=true;
-                            AddInsertionGap(msa_row, max_ins);
-                            pause_timer[i] = column[i]->GetStructuralSize() - 1;
-                            msa_row.emplace_back('-');
+                        AddInsertionGap(msa_row, max_ins);
+                    }
+
+                    auto const* call = base_calls[i];
+                    if (!bins[i] || !call) {
+                        // No variant: every read with a base shows the reference.
+                        if (stats) (*stats)[i].positions_ref++;
+                        msa_row.emplace_back(ref);
+                    } else if (!base_pass[i]) {
+                        // No allele passes: an ambiguous base. Each filter the top allele fails is counted.
+                        if (stats) {
+                            auto& s = (*stats)[i];
+                            if (call->Observations() < min_cov) s.variants_filtered_obs_cov++;
+                            bool const qual_fails = call->QualitySum() < min_qual_sum &&
+                                                    !(min_mean_qual > 0 && call->MeanQuality() >= min_mean_qual);
+                            if (qual_fails) s.variants_filtered_qual_sum++;
+                            if (min_frequencies[i] > 0.0 && static_cast<double>(call->Observations()) / depth < min_frequencies[i])
+                                s.variants_filtered_af++;
+                            if (require_strand && !PassesStrandFilter(*call, *bins[i])) s.variants_filtered_strand++;
                         }
-
+                        msa_row.emplace_back(NO_PASS);
+                    } else if (call->IsDEL()) {
+                        if (stats) (*stats)[i].deletions_retained++;
+                        pause_timer[i] = call->GetStructuralSize() - 1;
+                        msa_row.emplace_back('-');
+                    } else {
+                        if (stats) {
+                            if (call->IsReference()) (*stats)[i].refs_retained++;
+                            else (*stats)[i].snps_retained++;
+                        }
+                        char base = call->GetVariant();
+                        if (snp_max_alleles > 1) {
+                            auto const& bin = *bins[i];
+                            auto passes = [&](Variant const& v) {
+                                return VariantPass(v, bin, min_qual_sum, min_cov, min_frequencies[i], depth, require_strand, min_mean_qual);
+                            };
+                            auto alleles = PassingBases(bin, passes, snp_max_alleles);
+                            std::sort(alleles.begin(), alleles.end());
+                            if (alleles.size() > 1) base = IUPACCode(alleles);
+                        }
+                        msa_row.emplace_back(base);
                     }
                 }
 
-
-                if (msa_row.size() == before) {
-                    std::cout << "Hey this is wrong!! " << std::endl;
-                    std::cout << "items[i].has_value(): " << items[i].has_value() << std::endl;
-                    std::cout << "rpos: " << rpos << std::endl;
-                    std::cout << "cov.size(): " << cov.size() << std::endl;
-                    if (rpos < cov.size()) {
-                        std::cout << "cov[rpos]: " << cov[rpos] << std::endl;
-                    }
-                    if (var.has_value()) std::cout << var->ToString() << std::endl;
-                }
-
-                if (i > 0 && msa[i].size() != msa[i-1].size()) {
-                    std::cout << "BAD IN " << i << std::endl;
-                    bad = true;
-                }
+                if (msa_row.size() != before + max_ins + 1 || (i > 0 && msa[i].size() != msa[i - 1].size())) bad = true;
             }
 
             if (bad) {
@@ -819,20 +813,11 @@ namespace protal {
         }
 
         return true;
-
-//        if (had_indel) {
-//            std::cout << "MSA" << std::endl;
-//            for (auto& row : msa) {
-//                for (auto& col : row) std::cout << col;
-//                std::cout << std::endl;
-//            }
-//            Utils::Input();
-//        }
     }
 
     // The MSA with one minimum allele frequency for all samples.
-    static bool MSA(MSASequenceItems const& items, std::string_view const reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, double min_frequency=0.0, bool require_strand=false, size_t min_mean_qual=0, MSAStats* stats = nullptr, MSARow* ref_row = nullptr, size_t snp_max_alleles = 1) {
+    static bool MSA(MSASequenceItems const& items, std::string_view const reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, double min_frequency=0.0, bool require_strand=false, size_t min_mean_qual=0, MSAStats* stats = nullptr, MSARow* ref_row = nullptr, size_t snp_max_alleles = 1, uint32_t min_depth = 1) {
         return MSA(items, reference, msa, min_cov, min_qual_sum, std::vector<double>(items.size(), min_frequency), require_strand,
-                   min_mean_qual, stats, ref_row, snp_max_alleles);
+                   min_mean_qual, stats, ref_row, snp_max_alleles, min_depth);
     }
 }

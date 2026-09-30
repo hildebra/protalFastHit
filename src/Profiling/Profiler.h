@@ -287,19 +287,12 @@ namespace protal {
 
 
             bool AddSam(SamEntry const& sam, size_t read_id, double ani=0.0, bool no_strain=true) {
+                auto const [identity, length] = AlignmentIdentity(sam.m_cigar);
                 if (!no_strain) {
-                    auto successful = m_strain_level.AddSam(sam, read_id, true);
-                    if (!successful) {
-                        return false;;
-                    }
+                    // The read's identity lets the strain MSA keep the taxon's own reads only.
+                    if (!m_strain_level.AddSam(sam, read_id, true, identity)) return false;
                 }
 
-
-                // if (extract_snps) {
-                //     ExtractSNPs(sam, m_gene_ref->Sequence(), m_snps, 0, 0, read_id);
-                // }
-
-                auto const [identity, length] = AlignmentIdentity(sam.m_cigar);
                 m_read_identities.emplace_back(static_cast<float>(identity), static_cast<uint32_t>(length));
                 m_identity_bases += identity * static_cast<double>(length);
                 if (read_id != m_last_read) {
@@ -1213,7 +1206,25 @@ namespace protal {
             }
 
             double GetKnob() const { return m_knob; }
+
+            // The same model with another threshold (e.g. --msa_knob). Scores are cached per taxon,
+            // so both give a taxon the same score.
+            TaxonFilterForest WithKnob(double knob) const {
+                TaxonFilterForest copy(*this);
+                copy.m_knob = knob;
+                return copy;
+            }
         };
+
+        // Whether a taxon's own reads are strong evidence that it is present, whatever its model
+        // score: 1x depth or more from its own reads, reads on 90% of its genes, best reads at least
+        // 98% identical to the reference, and at most half of its aligned bases from reads of lower
+        // identity (a relative's). In the model's test sets on the toy database (2026-09-30), this
+        // held for 9% of the present taxa that scored below 0.5, and for none of 14,390 absent ones.
+        inline bool StrongOwnEvidence(Taxon const& taxon) {
+            return taxon.VerticalCoverage() >= 1.0 && taxon.HitGeneFraction() >= 0.9 &&
+                   taxon.TopIdentity() >= 0.98 && taxon.LowIdentityShare() <= 0.5;
+        }
 
         // A placeholder model (scripts/placeholder_models.py) fills a read type's slot in the database
         // until a trained model replaces it: it scores every taxon 0, and protal warns when it loads one.

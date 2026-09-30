@@ -21,6 +21,7 @@
 #include "KmerUtils.h"
 #include "ReferenceFingerprint.h"
 #include "sparse_map.h"
+#include <atomic>
 #include <bit>
 #include <bits/stdc++.h>
 #include "protal_config.h"
@@ -63,8 +64,12 @@ namespace protal {
             unique_min_distance_two = IsFlagUniqueDistanceMinTwo();
         }
 
+        // Atomic: --build's uniqueness check clears flags from all its threads (with a lock around
+        // each, 8 threads were slower than 4). Clearing a bit commutes, so the result does not depend on
+        // the order.
         void SetFlagNonUnique() {
-            value &= ~(1llu << (taxid_bits + geneid_bits + genepos_bits));
+            std::atomic_ref<uint64_t>(value).fetch_and(~(1llu << (taxid_bits + geneid_bits + genepos_bits)),
+                                                       std::memory_order_relaxed);
         }
 
         void SetFlagUniqueDistanceMinTwo() {
@@ -1284,149 +1289,175 @@ namespace protal {
 
 
 
-        void CountUniqueKmers(std::ostream& os, bool silence_zero_keys = true, bool silent=true) {
-            tsl::sparse_map<std::string, uint32_t> short_unique_kmers;
-            tsl::sparse_map<std::string, uint32_t> long_unique_kmers;
-            tsl::sparse_map<std::string, uint32_t> long_unique_two_kmers;
-            tsl::sparse_map<std::string, uint32_t> all_kmers;
+        // A row of unique_kmers.tsv for each gene id of each reference taxon: row first_row[taxid] +
+        // gene id - 1, so taxon t has first_row[t + 1] - first_row[t] gene ids (see Build.h).
+        struct GeneRows {
+            std::vector<uint64_t> first_row;
+            uint64_t Size() const { return first_row.empty() ? 0 : first_row.back(); }
+        };
 
-            std::vector<size_t> closest_flex;
+        struct UniqueKmerTotals {
+            size_t short_unique = 0, long_unique = 0, long_unique_two = 0, non_unique = 0;
+            size_t comparisons = 0;  // flex parts compared for the distance-two flag
+        };
 
-
-            size_t short_uniques = 0;
-            size_t long_uniques = 0;
-            size_t long_uniques_two = 0;
-            size_t non_uniques = 0;
-            for (size_t key = 0; key < keymap_max; key += m_keys_per_ctrl_block) {
-                auto ctrl_block_keys_index = ControlBlockIndex(key);
-                auto ctrl_block_values_begin = *((uint64_t*)(m_keymap + ctrl_block_keys_index));
-                auto ctrl_block_values_end = *((uint64_t*)(m_keymap + ctrl_block_keys_index + m_keys_per_ctrl_block + ctrl_block_cell_size));
-                auto ctrl_block_values_size = ctrl_block_values_end - ctrl_block_values_begin;
-
-                if (!silence_zero_keys)
-                    std::cout << "Print First block key: " << KmerUtils::ToString(key, m_main_bits) << " -> " << ctrl_block_values_size << "(Size of control block in values)" << std::endl;
-                if (ctrl_block_values_size == 0) continue;
-
-                if (!silent)
-                    std::cout << ">>>>> KEYS: -- Ctrl Block --- Keys: " << ctrl_block_keys_index << " -- Idx in Values: " << ctrl_block_values_begin << " - " << ctrl_block_values_end << std::endl;
-
-                if (!silence_zero_keys) {
-                    for (int i = ctrl_block_cell_size; i < ctrl_block_cell_size + m_keys_per_ctrl_block; i++) {
-                        std::cout << (i-ctrl_block_cell_size) << ": " << (uint32_t) m_keymap[ctrl_block_keys_index + i] << ", ";
-                    }
-                    std::cout << std::endl;
+        // Whether each of the n flex parts has another within distance 1 (all of the flex_k positions
+        // equal but at most one). Two such parts agree once that position is masked out, so sorting the
+        // parts with each position masked in turn finds them all: n log n per position instead of n^2.
+        static void FlexNeighbours(uint32_t const* flex, size_t n, size_t flex_k, std::vector<uint8_t>& close,
+                                   std::vector<std::pair<uint32_t, uint32_t>>& keyed) {
+            close.assign(n, 0);
+            keyed.resize(n);
+            for (size_t p = 0; p < flex_k; p++) {
+                uint32_t const mask = ~(3u << (2 * p));
+                for (size_t e = 0; e < n; e++) keyed[e] = { flex[e] & mask, static_cast<uint32_t>(e) };
+                std::sort(keyed.begin(), keyed.end());
+                for (size_t a = 0, b; a < n; a = b) {
+                    for (b = a + 1; b < n && keyed[b].first == keyed[a].first; b++) {}
+                    if (b - a > 1) for (size_t e = a; e < b; e++) close[keyed[e].second] = 1;
                 }
+            }
+        }
 
-                if (!silent)
-                    std::cout << ">>>>> VALUES: -- Next Ctrl Block --- Keys: " << ctrl_block_keys_index + m_keys_per_ctrl_block + ctrl_block_cell_size << " -- Values: " << ctrl_block_values_end << std::endl;
+        // unique_kmers.tsv: for each gene with values in the index, its unique k-mers (a core with one
+        // value: short; with several, unique by the flex part: long; long and at flex distance two or
+        // more from every other value of the core: long, two) and all its k-mers, as counts and
+        // fractions. Also sets the distance-two flag of those long unique values. Threads take ranges
+        // of control blocks and count into one row per gene (rows); the rows are written in the order
+        // of their genes' first values in the index, through a sparse_map filled in that order, which
+        // is the order the serial scan with four string-keyed maps wrote them in. So the table does not
+        // depend on the threads, and is the one earlier builds wrote.
+        UniqueKmerTotals CountUniqueKmers(std::ostream& os, GeneRows const& rows, int threads) {
+            struct Counts { uint32_t short_unique = 0, long_unique = 0, long_unique_two = 0, total = 0; };
+            uint64_t const n_rows = rows.Size();
+            std::vector<Counts> counts(n_rows);
+            std::vector<uint64_t> first_value(n_rows, UINT64_MAX);
+            UniqueKmerTotals totals;
+            size_t outside = 0;
+            int64_t const n_blocks = static_cast<int64_t>((keymap_max + m_keys_per_ctrl_block - 1) / m_keys_per_ctrl_block);
+            // From this many values of a core on, FlexNeighbours is cheaper than comparing pairs.
+            constexpr size_t kSortFrom = 256;
 
+#pragma omp parallel num_threads(std::max(threads, 1))
+            {
+                UniqueKmerTotals local;
+                size_t local_outside = 0;
+                std::vector<uint8_t> close;
+                std::vector<std::pair<uint32_t, uint32_t>> keyed;
 
-                for (int j = ctrl_block_cell_size; j < ctrl_block_cell_size + m_keys_per_ctrl_block; j++) {
-                    size_t key_index = ctrl_block_keys_index + j;
-                    auto key_value_start = ctrl_block_values_begin + m_keymap[key_index];
-                    auto key_value_end = j == ctrl_block_cell_size + m_keys_per_ctrl_block - 1 ?
-                            ctrl_block_values_end : ctrl_block_values_begin + m_keymap[key_index + 1];
-                    auto key_value_block_size = key_value_end - key_value_start;
-                    if (key_value_block_size == 0) continue;
-                    auto i = 0;
-                    bool has_flex_block = key_value_block_size >= m_flex_threshold;
-                    auto entries = has_flex_block ? key_value_block_size - FlexBlockSize(key_value_block_size) : key_value_block_size;
+#pragma omp for schedule(dynamic, 1 << 14)
+                for (int64_t block = 0; block < n_blocks; block++) {
+                    uint64_t const ctrl = ControlBlockIndex(static_cast<uint64_t>(block) * m_keys_per_ctrl_block);
+                    uint64_t const begin = *((uint64_t*)(m_keymap + ctrl));
+                    uint64_t const end = *((uint64_t*)(m_keymap + ctrl + m_keys_per_ctrl_block + ctrl_block_cell_size));
+                    if (begin == end) continue;
 
-                    if (!silent)
-                        std::cout << "-- Value index: " << key_value_start << " -------------" << (j - ctrl_block_cell_size) << " From, To: " << key_value_start << " - " << key_value_end << " (Size: " << FlexBlockSize(key_value_block_size) << ")      ";
-                    if (has_flex_block) {
-                        if (closest_flex.size() < entries) closest_flex.resize(entries*2, 0);
-                        if (!silent)
-                            std::cout << "-------- Flex-block (" << key_value_start << ")" << std::endl;
+                    for (size_t j = ctrl_block_cell_size; j < ctrl_block_cell_size + m_keys_per_ctrl_block; j++) {
+                        uint64_t const key_start = begin + m_keymap[ctrl + j];
+                        uint64_t const key_end = j + 1 == ctrl_block_cell_size + m_keys_per_ctrl_block ? end : begin + m_keymap[ctrl + j + 1];
+                        uint64_t const size = key_end - key_start;
+                        if (size == 0) continue;
+                        bool const has_flex = size >= m_flex_threshold;
+                        uint64_t const flex_slots = has_flex ? FlexBlockSize(size) : 0;
+                        uint64_t const n = size - flex_slots;
+                        ValueEntry* const values = m_map + key_start + flex_slots;
 
-                        uint32_t* flex_begin = (uint32_t*)(m_map + key_value_start);
-                        uint32_t* flex_end = flex_begin + entries;
-
-                        auto idx = 0;
-                        auto max_sim = 0;
-
-
-                        for (uint32_t* flex_cell = flex_begin; flex_cell != flex_end; flex_cell++) {
-                            auto max = 0;
-                            for (uint32_t* flex_cell_sim = flex_begin; flex_cell_sim != flex_end; flex_cell_sim++) {
-                                auto sim = Seedmap::Similarity(*flex_cell, *flex_cell_sim);
-                                max = sim > max && flex_cell != flex_cell_sim ? sim : max;
+                        if (has_flex) {
+                            // Flex part e belongs to value e. Only unique values get the flag, and only
+                            // whether another value is within distance 1 matters.
+                            uint32_t const* flex = (uint32_t*)(m_map + key_start);
+                            if (n >= kSortFrom) {
+                                FlexNeighbours(flex, n, m_flex_k, close, keyed);
+                                local.comparisons += n * m_flex_k;
+                                for (size_t e = 0; e < n; e++) {
+                                    if (values[e].IsFlagUnique() && !close[e]) values[e].SetFlagUniqueDistanceMinTwo();
+                                }
+                            } else {
+                                for (size_t e = 0; e < n; e++) {
+                                    if (!values[e].IsFlagUnique()) continue;
+                                    bool near = false;
+                                    for (size_t o = 0; o < n && !near; o++) {
+                                        if (o == e) continue;
+                                        local.comparisons++;
+                                        near = Similarity(flex[e], flex[o]) + 1 >= m_flex_k;
+                                    }
+                                    if (!near) values[e].SetFlagUniqueDistanceMinTwo();
+                                }
                             }
-                            // Flex cell i belongs to value entry i of this block. Before index format 2
-                            // idx was never advanced, so every entry got the last cell's distance.
-                            closest_flex[idx++] = m_flex_k - max;
                         }
-                        // std::cout << "-------------";
 
-                        auto flex_block_size = FlexBlockSize(key_value_block_size);
-                        for (; i < flex_block_size; i++);
-                        if (!silent)
-                            std::cout << "-------------";
+                        for (size_t e = 0; e < n; e++) {
+                            auto const& entry = values[e];
+                            auto [taxid, geneid, pos] = entry.Get();
+                            if (taxid + 1 >= rows.first_row.size() || geneid == 0 ||
+                                geneid > rows.first_row[taxid + 1] - rows.first_row[taxid]) {
+                                local_outside++;
+                                continue;
+                            }
+                            uint64_t const row = rows.first_row[taxid] + geneid - 1;
+                            bool const unique = entry.IsFlagUnique();
+                            bool const two = unique && has_flex && entry.IsFlagUniqueDistanceMinTwo();
+                            Counts& c = counts[row];
+                            std::atomic_ref<uint32_t>(c.total).fetch_add(1, std::memory_order_relaxed);
+                            if (unique) std::atomic_ref<uint32_t>(has_flex ? c.long_unique : c.short_unique).fetch_add(1, std::memory_order_relaxed);
+                            if (two) std::atomic_ref<uint32_t>(c.long_unique_two).fetch_add(1, std::memory_order_relaxed);
+                            uint64_t const position = key_start + flex_slots + e;
+                            std::atomic_ref<uint64_t> first(first_value[row]);
+                            uint64_t seen = first.load(std::memory_order_relaxed);
+                            while (position < seen && !first.compare_exchange_weak(seen, position, std::memory_order_relaxed)) {}
+
+                            local.short_unique += unique && !has_flex;
+                            local.long_unique += unique && has_flex;
+                            local.long_unique_two += two;
+                            local.non_unique += !unique;
+                        }
                     }
-                    if (!silent)
-                        std::cout << " Value block" << std::endl;
-                    auto idx = 0;
-                    for (; i < key_value_block_size; i++) {
-                        auto& entry = m_map[key_value_start + i];
-                        auto [taxid, geneid, pos] = entry.Get();
-                        std::string key_str = std::to_string(taxid) + '_' + std::to_string(geneid);
-                        if (entry.IsFlagUnique() && has_flex_block && closest_flex[idx] > 1) {
-                            entry.SetFlagUniqueDistanceMinTwo();
-                            if (!entry.IsFlagUniqueDistanceMinTwo()) exit(213);
-                        }
-
-                        if (!silent)
-                            std::cout << idx << " - " << key_value_start + i << ": " << entry.ToString() << "/" << (has_flex_block ? std::to_string(closest_flex[idx]) : "") << std::endl;
-
-                        if (!short_unique_kmers.contains(key_str)) {
-                            short_unique_kmers.insert({key_str, 0});
-                            long_unique_kmers.insert({key_str, 0});
-                            long_unique_two_kmers.insert({key_str, 0});
-                            all_kmers.insert({key_str, 0});
-                        }
-                        long_unique_two_kmers[key_str] += entry.IsFlagUnique() && entry.IsFlagUniqueDistanceMinTwo() && has_flex_block;
-                        long_unique_kmers[key_str] += entry.IsFlagUnique() && has_flex_block;
-                        short_unique_kmers[key_str] += entry.IsFlagUnique() && !has_flex_block;
-                        all_kmers[key_str]++;
-
-                        long_uniques_two += entry.IsFlagUnique() && entry.IsFlagUniqueDistanceMinTwo() && has_flex_block;
-                        long_uniques += entry.IsFlagUnique() && has_flex_block;
-                        short_uniques += entry.IsFlagUnique() && !has_flex_block;
-                        non_uniques += !entry.IsFlagUnique();
-                        idx++;
-                    }
-                    // if (has_flex_block) {
-                    //     Utils::Input();
-                    // }
                 }
 
-                if (!silent)
-                    std::cout << "----------------- End of Block -----------------" << std::endl;
-
-
-                // Utils::Input();
+#pragma omp critical(unique_kmer_totals)
+                {
+                    totals.short_unique += local.short_unique;
+                    totals.long_unique += local.long_unique;
+                    totals.long_unique_two += local.long_unique_two;
+                    totals.non_unique += local.non_unique;
+                    totals.comparisons += local.comparisons;
+                    outside += local_outside;
+                }
+            }
+            if (outside) {
+                std::cerr << outside << " index values name a gene that is not in reference.map; rebuild the index" << std::endl;
+                exit(8);
             }
 
-            for (auto [key, short_uniques] : short_unique_kmers) {
-                auto long_uniques_two = long_unique_two_kmers[key];
-                auto long_uniques = long_unique_kmers[key];
-                auto total = all_kmers[key];
-
+            std::vector<uint64_t> order;
+            for (uint64_t row = 0; row < n_rows; row++) {
+                if (counts[row].total) order.push_back(row);
+            }
+            std::sort(order.begin(), order.end(), [&](uint64_t a, uint64_t b) { return first_value[a] < first_value[b]; });
+            tsl::sparse_map<std::string, uint32_t> table;  // filled in that order; its iteration order is the file's
+            for (auto row : order) {
+                auto const taxid = static_cast<uint64_t>(
+                        std::upper_bound(rows.first_row.begin(), rows.first_row.end(), row) - rows.first_row.begin()) - 1;
+                table.insert({ std::to_string(taxid) + '_' + std::to_string(row - rows.first_row[taxid] + 1), 0 });
+            }
+            for (auto const& [key, _] : table) {
                 auto [taxid, geneid] = KmerUtils::ExtractHeaderInformation(key);
+                auto const& c = counts[rows.first_row[taxid] + geneid - 1];
                 os << taxid << '\t'; //1
                 os << geneid << '\t'; //2
-                os << short_uniques << '\t'; //3
-                os << static_cast<double>(short_uniques)/total << '\t'; //4
-                os << long_uniques << '\t'; //5
-                os << static_cast<double>(long_uniques)/total << '\t'; //6
-                os << long_uniques_two << '\t';
-                os << static_cast<double>(long_uniques_two)/total << '\t';
-                os << total << std::endl;
+                os << c.short_unique << '\t'; //3
+                os << static_cast<double>(c.short_unique)/c.total << '\t'; //4
+                os << c.long_unique << '\t'; //5
+                os << static_cast<double>(c.long_unique)/c.total << '\t'; //6
+                os << c.long_unique_two << '\t';
+                os << static_cast<double>(c.long_unique_two)/c.total << '\t';
+                os << c.total << '\n';
             }
-            std::cout << "ShortUniques:    " << short_uniques << std::endl;
-            std::cout << "LongUniques:    " << long_uniques << std::endl;
-            std::cout << "LongUniquesTwo:    " << long_uniques_two << std::endl;
-            std::cout << "Nonuniques: " << non_uniques << std::endl;
+            std::cout << "ShortUniques:    " << totals.short_unique << std::endl;
+            std::cout << "LongUniques:    " << totals.long_unique << std::endl;
+            std::cout << "LongUniquesTwo:    " << totals.long_unique_two << std::endl;
+            std::cout << "Nonuniques: " << totals.non_unique << std::endl;
+            return totals;
         }
 
         void BuildValuePointers() {

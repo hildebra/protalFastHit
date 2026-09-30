@@ -21,6 +21,7 @@ struct ReadInfo {
     uint32_t start;
     uint32_t length;
     bool forward;
+    uint8_t divergence = 0;  // of the read from the gene (DivergenceBin in Variant.h)
 
     std::string ToString() const {
         return "read_id: " + std::to_string(read_id) + " [" + std::to_string(start) + ", " + std::to_string(start+length) + "]:" + std::to_string(length) + " forward: " + std::to_string(forward);
@@ -80,11 +81,16 @@ public:
         });
     }
 
-    CoverageVec CoverageVector() const {
+    // Reads per position of the range: all reads, or those of one strand (kForward, kReverse).
+    static constexpr int kBothStrands = -1, kReverse = 0, kForward = 1;
+    // With max_divergence, only reads of at most that divergence (ReadInfo::divergence) count.
+    CoverageVec CoverageVector(int strand = kBothStrands, uint8_t max_divergence = 255) const {
         CoverageVec coverage;
 
         coverage.resize(m_end - m_start, 0);
         for (auto& read : m_read_info) {
+            if (strand != kBothStrands && read.forward != (strand == kForward)) continue;
+            if (read.divergence > max_divergence) continue;
             for (auto i = 0; i < read.length; i++) {
                 // vector starts where m_start is, so m_start is the offset.
                 coverage[i+(read.start-m_start)]++;

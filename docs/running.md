@@ -44,7 +44,23 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 
 Strain MSAs are written for the species that pass the model in at least two samples, each with a
 row for every sample in which the species passes. A run of one sample therefore writes no MSAs.
-`--msa_species s__Genus_species,...` writes MSAs for the named species only.
+`--msa_species s__Genus_species,...` writes MSAs for the named species only. A species passes
+with a model probability of at least `--knob` in the profiles and of at least `--msa_knob`
+(default: `--knob`) for the MSAs, so by default both hold the same samples. An MSA takes the genes
+with reads in its samples. For a species with relatives in the database, whose genes have long
+unique k-mers (a 15-mer core shared with a relative) in 90% of cases or more, the genes without
+any are left out: a relative may share them unchanged, and its reads would then show as a second
+strain.
+
+`misc/unreported_species.tsv` lists the species that a sample's profile leaves out, their
+probability below `--knob`, although their own reads are strong evidence that they are present:
+1x or more depth from reads within `--depth_identity_margin` of their best ones, reads on 90% of
+their genes, best reads 98% identical to the reference or more, and at most half of their
+aligned bases from reads of lower identity. protal warns when it lists any. In the model's test
+sets on the toy database this held for 9% of the present species below the knob and for none of
+14,390 absent ones. Columns: sample, species, taxid, score, own_depth, hit_gene_fraction,
+top_identity, low_identity_share, and passes_msa_knob (whether the sample enters the species'
+MSA).
 
 ## Single-end reads
 
@@ -95,12 +111,14 @@ alignment. Workflow managers can rely on a non-zero status.
 |---|---|---|
 | `-t, --threads` | 1 | threads for alignment (which also compresses the SAM), database loading and profiling. Set it: the default is one thread. While aligning, each read file is also decompressed by a thread of its own (two for paired reads); BGZF files (`bgzip`, `simulate_metagenomes`) decompress about 2x faster than other gzip files (libdeflate against zlib-ng) |
 | `--knob` | 0.5 | detection threshold, 0 to 1 (checked). Choose it on data like yours; see [model-training.md](model-training.md) |
-| `--depth_identity_margin` | 0.04 | a read counts towards a species' abundance only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth. 1 lets every read count |
+| `--depth_identity_margin` | 0.04 | a read counts towards a species' abundance, and towards its strain MSA rows, only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth or strains. 1 lets every read count |
 | `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [model-training.md](model-training.md) |
 | `--model_se` | `--model`, else `model_se.xml` of the database | the model of single-end samples, given as `--model` |
 | `--sam_format` | `zst` | the format of the SAM files protal names: `zst` (`.sam.zst`), `gz` (`.sam.gz`) or `sam`; a map's `SAM` names keep their own ending |
 | `--no_strains` | off | no MSAs or SNP tables. Variants are still called, since the model uses them, so profiles are the same with and without it |
+| `--msa_knob` | `--knob` | model probability a sample's species needs for the sample to enter the species' strain MSA. By default the MSA holds the samples whose profile reports the species; lower it to add samples the profile leaves out |
 | `--msa_min_hcov` | 1000 | minimum non-N, non-gap bases for a sample's sequence to stay in an MSA; passed to qcmsa as `--reapply-hcov` |
+| `--msa_min_depth` | 1 | reads a position needs to be written in an MSA, else `-`. Where its reads all show one allele, that many suffice; a second allele (an IUPAC code) needs `--snp_min_cov` reads, and a position whose reads disagree otherwise is `N`. 2 is the behaviour before the 2026-09-29 strain audit |
 | `--snp_max_alleles` | 3 | alleles encoded as an IUPAC ambiguity code in the MSA: 1 = only the top allele, 2 = two-allele mixtures (R, Y, ...), 3 = also three-allele mixtures (B, H, ...) |
 | `--qcmsa_script` | | the qcmsa executable; see [installation.md](installation.md#installing-a-source-build) for how protal finds it otherwise |
 | `--preload_genomes_off` | off | read reference genes on demand instead of loading `reference.fna`: less memory, slower. Needs the database as separate files, see [database-files.md](database-files.md) |
@@ -108,7 +126,9 @@ alignment. Workflow managers can rely on a non-zero status.
 
 The SNP filters (`--snp_min_cov`, `--snp_min_phred_sum`, `--snp_min_mean_qual`, `--snp_min_af`,
 `--snp_no_strand`) are described on the website. Base qualities are read with the standard
-Phred+33 offset.
+Phred+33 offset. `--snp_min_af` defaults to 0.15 (0.2 for ONT reads): an allele needs
+that share of the reads with a base at a position to be called or to enter an IUPAC code. The
+profiles do not depend on it.
 
 ### Alignment options
 

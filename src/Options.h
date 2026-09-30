@@ -7,6 +7,7 @@
 #include <cxxopts.hpp>
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <utility>
 #include "LineSplitter.h"
 #include <fstream>
@@ -36,6 +37,8 @@ namespace protal {
     static const size_t DEFAULT_ALIGN_TOP = 3;
     static const double DEFAULT_MAX_SCORE_ANI = 0.9;
     static const size_t DEFAULT_MSA_MIN_HCOV = 1000;
+    // Reads a position needs to be written in a strain MSA (a mixture needs --snp_min_cov per allele).
+    static const size_t DEFAULT_MSA_MIN_DEPTH = 1;
     static const size_t DEFAULT_MIN_SUCCESSFUL_LOOKUPS = 4;
     static const size_t DEFAULT_X_DROP = 1000;
     static const size_t DEFAULT_MAX_KEY_UBIQUITY = 256;
@@ -46,7 +49,9 @@ namespace protal {
 
     static const size_t DEFAULT_MIN_SNP_COV = 2;
     static const size_t DEFAULT_MIN_SNP_PHRED_SUM = 90;
-    static const double DEFAULT_MIN_SNP_AF = 0.0;
+    // Below it, an allele is sequencing noise or a read of a relative rather than a strain: at 0,
+    // clean 50x samples carried ~180 IUPAC codes each (strain audit, 2026-09-29).
+    static const double DEFAULT_MIN_SNP_AF = 0.15;
     static const size_t DEFAULT_MIN_SNP_MEAN_QUAL = 15;
     static const bool   DEFAULT_SNP_REQUIRE_STRAND = true; // disabled via --snp_no_strand
     static const size_t DEFAULT_SNP_MAX_ALLELES = 3;
@@ -91,7 +96,7 @@ namespace protal {
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
-                ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
+                ("depth_identity_margin", "Reads count towards a species' abundance, and its strain MSA rows, when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
                 ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_pb", "PMML model file for PacBio samples, given as --model. Default: --model if given, else the database's model_PB.xml.", cxxopts::value<std::string>()->default_value(""))
@@ -104,9 +109,11 @@ namespace protal {
                 ("snp_min_cov", "Minimum number of reads supporting a variant to call a SNP.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_COV)))
                 ("snp_min_phred_sum", "Minimum cumulative phred score (sum of base qualities) across all supporting reads. Combined with --snp_min_mean_qual via OR: a variant passes quality if phred_sum >= snp_min_phred_sum OR mean_qual >= snp_min_mean_qual.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_PHRED_SUM)))
                 ("snp_min_mean_qual", "Minimum mean base quality across supporting reads. Combined with --snp_min_phred_sum via OR: a variant passes quality if mean_qual >= snp_min_mean_qual OR phred_sum >= snp_min_phred_sum. Note: at low coverage, --snp_min_cov is the binding constraint regardless.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_MEAN_QUAL)))
-                ("snp_min_af", "Minimum allele frequency for a variant (variant observations / position coverage). Interacts with --snp_min_cov: below coverage = snp_min_cov/snp_min_af, the count filter is stricter. Given, it applies to all read types; else ONT reads take 0.2 (their errors put low-frequency alleles at many positions).", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MIN_SNP_AF)))
-                ("snp_no_strand", "Disable strand-bias filter. By default protal requires at least one supporting read from each strand (forward and reverse); pass this flag to allow variants supported by a single strand.")
+                ("snp_min_af", "Minimum allele frequency for an allele (its reads / the reads with a base at the position), so also the least share of reads a second strain needs to show as an IUPAC code. Interacts with --snp_min_cov: below coverage = snp_min_cov/snp_min_af, the count filter is stricter. Given, it applies to all read types; else ONT reads take 0.2 (their errors put low-frequency alleles at many positions). Profiles do not depend on it.", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MIN_SNP_AF)))
+                ("snp_no_strand", "Disable the strand-bias filter. By default an allele (the reference included) that is seen on one strand only fails where that is unlikely given the strands of all reads at the position (p < 0.05): with reads on both strands, an allele on just one of them is an artefact. Where the reads are from one strand, as often at low depth, it passes.")
                 ("msa_min_hcov", "Minimum non-N/non-'-' bases required per sequence to keep it in the MSA.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MSA_MIN_HCOV)))
+                ("msa_knob", "Model probability, 0 to 1, a sample's taxon needs for its reads to enter the taxon's strain MSA. Default: --knob, so the MSA holds the samples whose profile reports the taxon.", cxxopts::value<double>())
+                ("msa_min_depth", "Reads a position needs to be written in a strain MSA; with fewer it is '-'. Where all its reads show one allele, that many suffice; a second allele (an IUPAC code) needs --snp_min_cov reads of its own, and a site whose reads disagree otherwise is N.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MSA_MIN_DEPTH)))
                 ("msa_species", "Restrict MSAs to a single species (s__Genus_species) or a comma-separated list.", cxxopts::value<std::string>()->default_value(""))
                 ("snp_max_alleles", "Maximum number of alleles at a position to encode as an IUPAC ambiguity code in the MSA. 1 = only the top allele (standard), 2 = encode two-allele mixtures (e.g. R,Y), 3 = also encode three-allele mixtures (e.g. B,H). Alleles are ranked by observation count; ties go to higher-quality allele.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_SNP_MAX_ALLELES)));
 
@@ -237,6 +244,8 @@ namespace protal {
 
         // strains / MSA
         size_t msa_min_hcov = DEFAULT_MSA_MIN_HCOV;
+        size_t msa_min_depth = DEFAULT_MSA_MIN_DEPTH;
+        std::optional<double> msa_knob;  // --msa_knob; none: --knob
         std::vector<std::string> msa_species;
         size_t snp_min_cov = DEFAULT_MIN_SNP_COV;
         size_t snp_min_phred_sum = DEFAULT_MIN_SNP_PHRED_SUM;
@@ -334,6 +343,8 @@ namespace protal {
         size_t m_min_successful_lookups = DEFAULT_MIN_SUCCESSFUL_LOOKUPS;
         size_t m_max_out = DEFAULT_MAX_OUT;
         size_t m_msa_min_hcov = DEFAULT_MSA_MIN_HCOV;
+        size_t m_msa_min_depth = DEFAULT_MSA_MIN_DEPTH;
+        std::optional<double> m_msa_knob;
         std::vector<std::string> m_msa_species;
 
         size_t m_snp_min_cov = DEFAULT_MIN_SNP_COV;
@@ -448,6 +459,8 @@ namespace protal {
                 m_min_successful_lookups(d.min_successful_lookups),
                 m_max_out(d.max_out),
                 m_msa_min_hcov(d.msa_min_hcov),
+                m_msa_min_depth(d.msa_min_depth),
+                m_msa_knob(d.msa_knob),
                 m_msa_species(std::move(d.msa_species)),
                 m_snp_min_cov(d.snp_min_cov),
                 m_snp_min_phred_sum(d.snp_min_phred_sum),
@@ -543,6 +556,8 @@ namespace protal {
                 result_str << "qcmsa extra args:    " << m_qcmsa_args << '\n';
             result_str << "msa species:         " << Utils::join(m_msa_species, ",") << '\n';
             result_str << "msa min hcov:        " << std::to_string(m_msa_min_hcov) << '\n';
+            result_str << "msa min depth:       " << std::to_string(m_msa_min_depth) << '\n';
+            result_str << "msa knob:            " << std::to_string(GetMSAKnob()) << (m_msa_knob ? "" : " (--knob)") << '\n';
             result_str << "---- Dev Options ----" << std::string(30, '-') << '\n';
             result_str << "verbose:             " << (m_verbose ? "yes" : "no") << '\n';
             result_str << "benchmark alignment: " << (m_benchmark_alignment ? "yes" : "no") << '\n';
@@ -570,6 +585,11 @@ namespace protal {
 
         double GetKnob() const {
             return m_knob;
+        }
+
+        // The model probability a sample's taxon needs to enter its strain MSA: --msa_knob, else --knob.
+        double GetMSAKnob() const {
+            return m_msa_knob.value_or(m_knob);
         }
 
         double GetDepthIdentityMargin() const {
@@ -965,6 +985,11 @@ namespace protal {
             return m_strain_output_dir + '/' + species_name + ".snp_stats.tsv";
         }
 
+        // The species this run wrote strain outputs for, with their MSA files.
+        std::string GetStrainSpeciesListOutput() const {
+            return m_strain_output_dir + "/species.tsv";
+        }
+
         std::string GetBenchmarkAlignmentOutputFile() const {
             return m_benchmark_alignment_output;
         }
@@ -1006,6 +1031,7 @@ namespace protal {
         auto GetMSAMinHCOV() {
             return m_msa_min_hcov;
         }
+        auto GetMSAMinDepth() const { return m_msa_min_depth; }
         const std::vector<std::string>& GetMSASpecies() const {
             return m_msa_species;
         }
@@ -1454,6 +1480,18 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
         void ResolveDatabase(std::vector<std::string>& error_log) {
             m_location = db::Locate(m_database_path);
             m_bundle.reset();
+            if (m_database_path.empty()) {
+                error_log.emplace_back("No database given: give --db, or set $" + PROTAL_DB_ENV_VARIABLE);
+                return;
+            }
+            if (!m_location.missing.empty()) {
+                std::string where;
+                std::error_code ec;
+                auto const cwd = std::filesystem::current_path(ec);
+                if (std::filesystem::path(m_database_path).is_relative() && !ec) where = " (relative to the working directory " + cwd.string() + ")";
+                error_log.emplace_back("--db " + m_database_path + " " + m_location.missing + where);
+                return;
+            }
             if (m_build) {
                 if (m_location.bundle == m_database_path && !m_database_path.empty()) {
                     error_log.emplace_back("--build writes a database into a folder: give --db the folder with reference.fna, "
@@ -1563,7 +1601,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     if (!m_bundle->Find(name)) error_log.emplace_back("The " + what + " " + name + " is not in " + m_bundle->Path());
                 }
                 if (!m_preload_genomes && !db_mode) error_log.emplace_back(PreloadOffNeedsFilesMessage());
-            } else if (!m_unpack_db && (m_build || m_location.bundle.empty())) {  // not a single file that failed to open
+            } else if (!m_unpack_db && m_location.missing.empty() && (m_build || m_location.bundle.empty())) {  // a folder: not missing, nor a single file that failed to open
                 size_t const before = error_log.size();
                 if (!std::filesystem::exists(ResolvedSequenceFile())) {
                     error_log.emplace_back("Sequence file does not exist: " + GetSequenceFile() + " (nor " +
@@ -1621,7 +1659,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     warning_log.emplace_back("no --full_reference: unique k-mers are checked against --reference only");
                     m_full_sequence_file = m_sequence_file;
                 }
-            } else if (m_bundle || m_location.bundle.empty()) {  // not a single file that failed to open
+            } else if (m_bundle || (m_location.missing.empty() && m_location.bundle.empty())) {  // not missing, nor a single file that failed to open
                 if (!m_no_profile && !UniqueKmersFileExists()) {
                     error_log.emplace_back("Unique k-mer file does not exist: " + UniqueKmersDbFile().Name() +
                                            " (without it every taxon fails the model; rebuild the database with --build)");
@@ -1648,6 +1686,12 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             }
             if (!(m_knob >= 0 && m_knob <= 1)) {
                 error_log.emplace_back("--knob must be between 0 and 1 (a probability)");
+            }
+            if (m_msa_min_depth == 0) {
+                error_log.emplace_back("--msa_min_depth must be at least 1");
+            }
+            if (m_msa_knob && !(*m_msa_knob >= 0 && *m_msa_knob <= 1)) {
+                error_log.emplace_back("--msa_knob must be between 0 and 1 (a probability)");
             }
             if (!m_profile_truth_list.empty()) {
                 if (m_profile_truth_list.size() != m_profile_list.size()) {
@@ -1725,6 +1769,26 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             };
             no_shared_files(m_sam_list, "SAM");
             no_shared_files(m_profile_list, "profile");
+
+            // Sample IDs name the rows of the strain MSAs: qcmsa matches rows to .meta.tsv by name,
+            // and IQ-TREE cuts a name at its first space.
+            if (!m_build && !m_no_profile && !m_no_strains) {
+                std::map<std::string, size_t> seen;
+                for (size_t i = 0; i < m_sampleid_list.size(); i++) {
+                    auto const& id = m_sampleid_list[i];
+                    if (std::any_of(id.begin(), id.end(), [](unsigned char c) { return std::isspace(c); })) {
+                        error_log.emplace_back("sample ID '" + id + "' (sample " + std::to_string(i + 1) +
+                                               ") contains whitespace, which the strain MSAs cannot hold; rename it "
+                                               "(#SAMPLEID in a map) or pass --no_strains");
+                    }
+                    auto [it, fresh] = seen.emplace(id, i);
+                    if (!fresh) {
+                        error_log.emplace_back("samples " + std::to_string(it->second + 1) + " and " + std::to_string(i + 1) +
+                                               " share the sample ID '" + id + "', so their strain MSA rows would be "
+                                               "confused; give each its own (#SAMPLEID in a map) or pass --no_strains");
+                    }
+                }
+            }
 
             // Check files
             for (auto i = 0; i < m_first_list.size(); i++) {
@@ -1892,6 +1956,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             size_t max_seed_size = result["max_seed_size"].as<size_t>();
             double max_score_ani = result["max_score_ani"].as<double>();
             size_t msa_min_hcov = result["msa_min_hcov"].as<size_t>();
+            size_t msa_min_depth = result["msa_min_depth"].as<size_t>();
             size_t max_out = result["max_out"].as<size_t>();
             auto msa_species_arg = result["msa_species"].as<std::string>();
             std::vector<std::string> msa_species;
@@ -2167,11 +2232,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             } else {
                 auto db_path_env = std::getenv(PROTAL_DB_ENV_VARIABLE.c_str());
                 std::cout << "Get DB from environment variable $" << PROTAL_DB_ENV_VARIABLE << std::endl;
-                if (!db_path_env) {
-                    std::cerr << "Error " << PROTAL_DB_ENV_VARIABLE << std::endl;
-                } else {
-                    db_path = db_path_env;
-                }
+                if (db_path_env) db_path = db_path_env;  // else PrepareAndCheckValidity reports that none is given
             }
 
             if (range.empty()) {
@@ -2211,6 +2272,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.max_score_ani            = max_score_ani;
             d.max_score_ani_given      = result.count("max_score_ani") > 0;
             d.msa_min_hcov             = msa_min_hcov;
+            d.msa_min_depth            = msa_min_depth;
             d.msa_species              = std::move(msa_species);
             d.snp_min_phred_sum        = snp_min_phred_sum;
             d.snp_min_cov              = snp_min_cov;
@@ -2247,6 +2309,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.compress_window_log      = result["compress_window_log"].as<int>();
             d.compress_frame_mb        = result["compress_frame_mb"].as<int>();
             d.knob                     = result["knob"].as<double>();
+            if (result.count("msa_knob")) d.msa_knob = result["msa_knob"].as<double>();
             d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
             d.model                    = result["model"].as<std::string>();
             d.model_se                 = result["model_se"].as<std::string>();

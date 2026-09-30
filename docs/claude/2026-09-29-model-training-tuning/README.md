@@ -174,3 +174,16 @@ installed yet: PBSIM3, minimap2 (only `art_illumina` is). The read-type names di
 branches (`zstd-compression`: `--read_type pe|se|pb|ont`, `model_PB.xml`; `pacbio-long-reads`:
 `--read_type short|pacbio`, `model_pacbio.xml`; the single-end work: detected per sample,
 `--model_se`) and must be reconciled before these branches merge.
+
+## Follow-up (2026-09-29, later): one download stage
+
+`gtdb_strain_genomes.py` became `scripts/download_gtdb.py`, which also fetches GTDB's own files
+(r226 by default, `--release` 207 to 232) and the representatives of the simulated species from
+NCBI, so the 127 GB archive of GTDB's representative genomes is not needed. The commands of
+"Settings for GTDB r226" are now
+
+    python3 scripts/download_gtdb.py -o /shared/protal_inputs/gtdb_r226            # node with internet
+    python3 scripts/build_gtdb_database.py --inputs /shared/protal_inputs/gtdb_r226 --outdir OUT \
+        --protal build/protal --simulator build/simulate_metagenomes -t 16
+
+The read-type names were reconciled in `26f73db` (`pe|se|pb|ont`, `model_PB.xml`, `model_ONT.xml`).

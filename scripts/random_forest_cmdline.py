@@ -15,10 +15,13 @@ sample (meta_sample) and, if known, the taxon's domain (meta_domain).
 
 Evaluation. Rows of one sample share its reads, and rows of one species share its reference, so a
 random split of rows scores a model on samples and species it was trained on. Here each row is
-scored by forests that saw neither its sample ("by sample") nor its species ("by species"). By
-species is what matters for a large database: of GTDB's ~130,000 species, a training set holds a few
-thousand, so most species protal meets in real samples were never in training. The out-of-bag
-estimate (each tree scores the rows it was not grown on) comes free with the fit.
+scored by forests that saw neither its sample ("by sample") nor its species ("by species"), and,
+with --taxonomy, by forests that saw no taxon of its genus, family, class or phylum. By species is
+what matters for a large database: of GTDB's ~130,000 species, a training set holds a few thousand,
+so most species protal meets in real samples were never in training; the clades tell how far that
+holds. The out-of-bag estimate (each tree scores the rows it was not grown on) comes free with the
+fit. When the training database lacked species or whole clades (build_gtdb_database.py), the report
+also counts the false positives their reads cause, by the rank they were held out at.
 
 Written to PREFIX.*:
   xml                 the model (protal --model FILE, or model.xml of a database)
@@ -52,8 +55,14 @@ from sklearn.metrics import average_precision_score, brier_score_loss, log_loss,
 from sklearn.model_selection import GridSearchCV, GroupKFold, StratifiedKFold
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lineages  # noqa: E402
 from model_features import feature_columns  # noqa: E402
 from model_pmml import PmmlForest, write_forest  # noqa: E402
+
+# Clades held out in cross-validation (with --taxonomy): each row is scored by forests that saw no taxon of
+# its genus, family, order, class or phylum.
+CLADE_SCHEMES = ("genus", "family", "order", "class", "phylum")
+NOVEL_RANKS = ("species", "genus", "family", "order", "class", "phylum")
 
 # Main features written next to the predictions, when the table has them.
 DIAGNOSTIC_FEATURES = ["fragments", "depth", "hit_gene_fraction", "gene_presence_ratio", "identity", "top_identity",
@@ -130,6 +139,12 @@ def load_table(path, taxonomy=None):
     if taxonomy:
         unknown = df["domain"] == "unknown"
         df.loc[unknown, "domain"] = domains_from_taxonomy(taxonomy, df.loc[unknown, "taxon"])
+        # meta_lineage_<rank>: the taxon's clades, for holding out whole clades (not features: meta_*).
+        by_id, _ = lineages.from_taxonomy(taxonomy)
+        taxa = df["taxon"].astype(str)
+        for rank in CLADE_SCHEMES:
+            names = {t: by_id.get(t, {}).get(rank, "unknown") for t in taxa.unique()}
+            df["meta_lineage_" + rank] = taxa.map(names)
     return df
 
 
@@ -163,7 +178,7 @@ def folds(df, y, scheme, opts):
     if scheme == "rows":
         n = min(opts.folds, int(np.bincount(y).min()))
         return list(StratifiedKFold(n, shuffle=True, random_state=opts.seed).split(df, y)) if n >= 2 else None
-    column = {"samples": "meta_sample", "species": "taxon"}[scheme]
+    column = {"samples": "meta_sample", "species": "taxon"}.get(scheme, "meta_lineage_" + scheme)
     if column not in df.columns:
         return None
     groups = df[column].astype(str).to_numpy()
@@ -349,10 +364,12 @@ def study_evaluation(report, df, X, y, opts, oob):
     report.section(f"How well the model does on data it was not trained on (knob {opts.knob})")
     report.add("rows: random rows held out (the samples and species of the held-out rows are in training); "
                "samples: whole samples held out; species: whole species held out (as most GTDB species are when "
-               "profiling real samples). out of bag: each row scored by the trees not grown on it.")
+               "profiling real samples); genus, family, order, class, phylum (with --taxonomy): whole clades held out, "
+               "so the forest saw no taxon of the row's clade (as for taxa of clades the training data barely "
+               "cover). out of bag: each row scored by the trees not grown on it.")
     params = forest_params(opts)
     p = {"out of bag": oob}
-    for scheme in ("rows", "samples", "species"):
+    for scheme in ("rows", "samples", "species", *CLADE_SCHEMES):
         splits = folds(df, y, scheme, opts)
         if splits is not None:
             p[scheme] = predict_out_of_fold(X, y, splits, params)
@@ -426,6 +443,100 @@ def study_breakdown(report, df, y, p, opts):
     report.table(hard[hard.truth == 0].nlargest(12, "p")[shown + ["p"]])
     report.add("present taxa scored lowest:")
     report.table(hard[hard.truth == 1].nsmallest(12, "p")[shown + ["p"]])
+
+
+def rate(n, d):
+    """n of d in %, None without d."""
+    return 100 * n / d if d else None
+
+
+def study_by_rank(report, df, y, p, opts):
+    """False positive and false negative rates by taxonomic rank (collect_training_data.py: meta_novel_level,
+    meta_novel_levels, meta_relative_rank, meta_neighbour_rank; the clades held out in cross-validation)."""
+    ranks_in = lambda column: column in df.columns and (df[column].fillna("").astype(str) != "").any()
+    if not (ranks_in("meta_novel_level") or ranks_in("meta_neighbour_rank") or any(k in p for k in CLADE_SCHEMES)):
+        return
+    report.section("False positives and false negatives by taxonomic rank")
+    report.add("Rates in % at the knob, scored with species held out (and by the collection model, _collection). "
+               "FP rate: of the absent taxa, those called; FN rate: of the present taxa, those not called.")
+    new = p.get("species", p["out of bag"])
+    old = p.get("collection model")
+    absent, present = y == 0, y == 1
+    called_new = new >= opts.knob
+    called_old = old >= opts.knob if old is not None else None
+    data = {}
+
+    def counts(mask, positive):
+        """{taxa, errors, rate} for the rows of mask, errors: called (absent) or missed (present)."""
+        err = lambda called: int((called[mask] if not positive else ~called[mask]).sum())
+        row = {"taxa": int(mask.sum()), "FN" if positive else "FP": err(called_new)}
+        row["FN rate" if positive else "FP rate"] = rate(row["FN" if positive else "FP"], row["taxa"])
+        if called_old is not None:
+            row[("FN" if positive else "FP") + "_collection"] = err(called_old)
+            row[("FN" if positive else "FP") + " rate_collection"] = rate(err(called_old), row["taxa"])
+        return row
+
+    if ranks_in("meta_novel_level"):
+        level = df["meta_novel_level"].fillna("").astype(str).to_numpy()
+        simulated = {}
+        if "meta_novel_levels" in df.columns and "meta_sample" in df.columns:
+            for text in df.drop_duplicates("meta_sample")["meta_novel_levels"].fillna("").astype(str):
+                for part in filter(None, text.split(",")):
+                    rank, _, n = part.partition(":")
+                    simulated[rank] = simulated.get(rank, 0) + int(n or 0)
+        report.add("")
+        report.add("False positives from what the training database lacks (build_gtdb_database.py --holdout, "
+                   "--holdout-clades): absent taxa whose closest species in the sample is one the database lacks, by "
+                   "the rank it was held out at (its reads are the likely source of the taxon's); simulated: such "
+                   "species in the samples. Other absent taxa: closest to a species the database has.")
+        rows = []
+        for rank in NOVEL_RANKS:
+            mask = absent & (level == rank)
+            if mask.any() or simulated.get(rank):
+                row = {"held out at": rank, "simulated": simulated.get(rank, 0), **counts(mask, False)}
+                row["FP per 100 simulated"] = 100 * row["FP"] / simulated[rank] if simulated.get(rank) else None
+                rows.append(row)
+        rows.append({"held out at": "other absent taxa", "simulated": None, **counts(absent & (level == ""), False)})
+        frame = pd.DataFrame(rows)
+        frame["simulated"] = frame["simulated"].map(lambda v: "-" if v is None or pd.isna(v) else int(v))
+        report.table(frame)
+        data["false_positives_by_rank_held_out"] = rows
+        if "meta_relative_rank" in df.columns:
+            relative = df["meta_relative_rank"].fillna("").astype(str).to_numpy()
+            rows = [{"shared rank": rank, **counts(absent & (level != "") & (relative == rank), False)}
+                    for rank in (*NOVEL_RANKS[1:], "domain", "none") if (absent & (level != "") & (relative == rank)).any()]
+            report.add("the same false positives by the deepest rank the taxon shares with that species:")
+            report.table(pd.DataFrame(rows))
+            data["false_positives_by_shared_rank"] = rows
+
+    if ranks_in("meta_neighbour_rank"):
+        neighbour = df["meta_neighbour_rank"].fillna("").astype(str).to_numpy()
+        rows = [{"closest other species shares": rank, **counts(present & (neighbour == rank), True)}
+                for rank in (*NOVEL_RANKS[1:], "domain", "none") if (present & (neighbour == rank)).any()]
+        report.add("")
+        report.add("False negatives by the deepest rank a present taxon shares with another species in its sample (a "
+                   "congener's reads fit it nearly as well):")
+        report.table(pd.DataFrame(rows))
+        data["false_negatives_by_neighbour_rank"] = rows
+
+    schemes = [k for k in ("species", *CLADE_SCHEMES) if k in p]
+    if schemes:
+        rows = []
+        for k in schemes:
+            call = p[k] >= opts.knob
+            ok = ~np.isnan(p[k])
+            fn, fp = int((present & ok & ~call).sum()), int((absent & ok & call).sum())
+            m = report.data.get("evaluation", {}).get(k, {})
+            rows.append({"held out in training": k, "present": int((present & ok).sum()), "FN": fn,
+                         "FN rate": rate(fn, int((present & ok).sum())), "absent": int((absent & ok).sum()), "FP": fp,
+                         "FP rate": rate(fp, int((absent & ok).sum())), "FP per sample": m.get("FP_per_sample"),
+                         "F1": m.get("F1")})
+        report.add("")
+        report.add("With the taxon's whole species, genus, family, order, class or phylum held out of training "
+                   "(cross-validation): how the model does on parts of the tree its training data lack:")
+        report.table(pd.DataFrame(rows))
+        data["clades_held_out_in_training"] = rows
+    report.data["by_rank"] = data
 
 
 def study_threshold(report, y, p, opts, prefix):
@@ -608,11 +719,26 @@ def main(argv=None):
 
     p = {}
     if opts.evaluation != "none":
-        oob = rf.oob_decision_function_[:, 1] if hasattr(rf, "oob_decision_function_") else np.full(len(y), np.nan)
+        oob = rf.oob_decision_function_[:, 1].copy() if hasattr(rf, "oob_decision_function_") else np.full(len(y), np.nan)
+        # scikit-learn (1.9) draws each tree's rows with probability proportional to their class weight, so with
+        # many more absent than present taxa some present rows are in every tree's sample: they have no
+        # out-of-bag score, and scikit-learn gives them 0. They are left out of the out-of-bag estimate.
+        if hasattr(rf, "estimators_samples_"):
+            in_bag = np.zeros(len(y), dtype=int)
+            for rows in rf.estimators_samples_:
+                drawn = np.zeros(len(y), dtype=bool)
+                drawn[rows] = True
+                in_bag += drawn
+            never = in_bag == len(rf.estimators_)
+            oob[never] = np.nan
+            if never.any():
+                report.add(f"out of bag: {int(never.sum())} rows ({int(y[never].sum())} present) were drawn for every tree "
+                           "(rows are drawn by their class weight) and have no out-of-bag score; left out")
         t0 = time.time()
         p = study_evaluation(report, df, X, y, opts, oob)
         study_threshold(report, y, p, opts, prefix)
         study_breakdown(report, df, y, p, opts)
+        study_by_rank(report, df, y, p, opts)
         timing["evaluation"] = time.time() - t0
     if opts.evaluation == "full":
         for name, study in (("feature_sets", lambda: study_features(report, df, y, opts, cols)),
@@ -675,6 +801,21 @@ def main(argv=None):
         rows = report.data["evaluation"].get("rows")
         if rows and rows.get("F1") is not None and species.get("F1") is not None:
             report.add(f"optimism of random row splits: F1 {fmt(rows['F1'])} on rows vs {fmt(species['F1'])} on species held out")
+        by_rank = report.data.get("by_rank", {})
+        pct = lambda v: "-" if v is None else f"{v:.2f}%"
+        fps = [r for r in by_rank.get("false_positives_by_rank_held_out", []) if r["taxa"]]
+        if fps:
+            report.add("FP rate of absent taxa closest to species the database lacks, by the rank held out: "
+                       + ", ".join(f"{r['held out at']} {pct(r['FP rate'])} ({r['FP']}/{r['taxa']})" for r in fps))
+        fns = by_rank.get("false_negatives_by_neighbour_rank", [])
+        if fns:
+            report.add("FN rate of present taxa by the rank shared with the closest other species in the sample: "
+                       + ", ".join(f"{r['closest other species shares']} {pct(r['FN rate'])} ({r['FN']}/{r['taxa']})" for r in fns))
+        clades = by_rank.get("clades_held_out_in_training", [])
+        if clades:
+            report.add("with the clade held out of training: " + "; ".join(
+                f"{r['held out in training']} FN rate {pct(r['FN rate'])}, FP rate {pct(r['FP rate'])}, F1 {fmt(r['F1'])}"
+                for r in clades))
         previous = {r["judged on"]: r for r in report.data.get("previous_procedure", {}).get("results", [])
                     if r["procedure"] == "previous"}
         if "species held out" in previous:

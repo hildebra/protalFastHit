@@ -262,6 +262,25 @@ TEST(Database, LocatePrefersSeparateFiles) {
     auto file = db::Locate(tmp / "both/database.protal");
     EXPECT_EQ(file.bundle, tmp / "both/database.protal");
     EXPECT_EQ(file.dir, tmp / "both");
+    for (auto const& found : {only, both, none, file}) EXPECT_TRUE(found.missing.empty()) << found.missing;
+}
+
+// A path with nothing at it is missing, not a folder of separate files; one that cannot be looked at
+// says why.
+TEST(Database, LocateReportsAMissingPath) {
+    TempDir tmp;
+    Spit(tmp / "file", "x");
+    for (auto const& path : {tmp / "nothing", tmp / "nothing/database.protal", tmp / "file/database.protal", std::string()}) {
+        auto const missing = db::Locate(path);
+        EXPECT_EQ(missing.missing, "does not exist") << path;
+        EXPECT_TRUE(missing.bundle.empty()) << path;
+        EXPECT_TRUE(missing.unused_bundle.empty()) << path;
+    }
+    fs::create_directories(tmp / "closed/db");
+    fs::permissions(tmp / "closed", fs::perms::none);
+    auto const closed = db::Locate(tmp / "closed/db");
+    fs::permissions(tmp / "closed", fs::perms::owner_all);
+    if (::geteuid() != 0) EXPECT_EQ(closed.missing.rfind("cannot be accessed: ", 0), 0u) << closed.missing;  // root may look
 }
 
 // The index's column chunks decode from the member's frames as from index.prx.zst.

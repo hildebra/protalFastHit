@@ -48,19 +48,42 @@ TEST(ExtractVariants, LowQualitySnpKeepsLowQuality) {
     EXPECT_EQ(bin.front().QualitySum(), 2u);
 }
 
-TEST(StrandFilter, ReferenceAlleleIsExempt) {
-    Variant ref(10, 'A', 'A');
-    ref.SetObservations(20);  // inferred from coverage: no strand information
-    EXPECT_TRUE(ref.IsReference());
-    EXPECT_FALSE(ref.HasFwdAndRev());
-    EXPECT_TRUE(ref.PassesStrandFilter());
+TEST(StrandFilter, EveryAlleleIsJudgedByTheStrandsOfTheSite) {
+    // A site of 10 forward and 10 reverse reads.
+    auto site = [](uint32_t alt_forward, uint32_t alt_reverse) {
+        Variant ref(10, 'A', 'A');
+        ref.SetObservations(10 - alt_forward, 10 - alt_reverse);
+        Variant alt(10, 'G', 'A');
+        for (uint32_t i = 0; i < alt_forward; i++) alt.AddObservation(30, true);
+        for (uint32_t i = 0; i < alt_reverse; i++) alt.AddObservation(30, false);
+        return VariantBin{ ref, alt };
+    };
+    auto bin = site(2, 0);
+    EXPECT_TRUE(PassesStrandFilter(bin[1], bin)) << "2 of 10 forward reads: chance";
+    bin = site(6, 0);
+    EXPECT_FALSE(PassesStrandFilter(bin[1], bin)) << "6 of the forward reads and none of the reverse: bias";
+    EXPECT_TRUE(PassesStrandFilter(bin[0], bin)) << "the reference is on both strands";
+    bin = site(6, 5);
+    EXPECT_TRUE(PassesStrandFilter(bin[1], bin));
 
+    // All reads on one strand (common at low depth): no evidence of bias, for any allele.
+    Variant ref(10, 'A', 'A');
+    ref.SetObservations(0, 3);
     Variant alt(10, 'G', 'A');
-    alt.AddObservation(30, true);
-    alt.AddObservation(30, true);
-    EXPECT_FALSE(alt.PassesStrandFilter());
     alt.AddObservation(30, false);
-    EXPECT_TRUE(alt.PassesStrandFilter());
+    alt.AddObservation(30, false);
+    VariantBin one_strand{ ref, alt };
+    EXPECT_TRUE(PassesStrandFilter(one_strand[0], one_strand));
+    EXPECT_TRUE(PassesStrandFilter(one_strand[1], one_strand));
+
+    // The reference allele is tested too: 8 forward reads show it, 8 reverse reads the SNP.
+    Variant split_ref(10, 'A', 'A');
+    split_ref.SetObservations(8, 0);
+    Variant split_alt(10, 'G', 'A');
+    for (int i = 0; i < 8; i++) split_alt.AddObservation(30, false);
+    VariantBin split{ split_ref, split_alt };
+    EXPECT_FALSE(PassesStrandFilter(split[0], split));
+    EXPECT_FALSE(PassesStrandFilter(split[1], split));
 }
 
 TEST(StrandFilter, ReferenceConsensusPassesMsaFilter) {
@@ -70,7 +93,7 @@ TEST(StrandFilter, ReferenceConsensusPassesMsaFilter) {
     Variant alt(10, 'G', 'A');
     alt.AddObservation(30, true);
     VariantBin bin{alt};
-    handler.PostProcessSNPBin(bin, 20, 2, 2, 0.0, 0, 0, true);
+    handler.PostProcessSNPBin(bin, 10, 10, 2, 2, 0.0, 0, 0, true);
 
     auto ref_it = std::find_if(bin.begin(), bin.end(), [](Variant const& v) { return v.IsReference(); });
     ASSERT_NE(ref_it, bin.end());
@@ -87,7 +110,7 @@ TEST(PostProcessSNPBin, FiltersBinsWithoutReferenceReads) {
     Variant alt(10, 'G', 'A');
     alt.AddObservation(30, true);
     VariantBin bin{alt};
-    handler.PostProcessSNPBin(bin, 1, 5, 5, 0.0, 0, 0, false);
+    handler.PostProcessSNPBin(bin, 1, 0, 5, 5, 0.0, 0, 0, false);
 
     ASSERT_EQ(bin.size(), 1u);
     EXPECT_FALSE(bin.front().GetValid());
