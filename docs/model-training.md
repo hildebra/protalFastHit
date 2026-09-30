@@ -1,7 +1,7 @@
 # Training protal's presence model
 
-protal decides whether a species is present with a random forest (PMML, `model.xml` in the
-database). It scores every species with reads, and reports those whose probability of `TRUE` is at
+protal decides whether a species is present with a random forest (PMML, `model_pe.xml` in the
+database for paired-end reads; `model.xml` in databases of earlier versions). It scores every species with reads, and reports those whose probability of `TRUE` is at
 least `--knob` (0 to 1, default 0.5).
 
 The model's features come from the reads and the database, so a model belongs to the kind of
@@ -11,7 +11,8 @@ runs the whole pipeline below in one command; this page describes its parts.
 Features are counted per read, and a pair of reads counts twice, so a model also belongs to the
 kind of reads it was trained on. Single-end samples are profiled with `model_se.xml` of the
 database (or `--model_se`; [running.md](running.md#single-end-reads)), a model trained the same way
-on single-end samples. The pipeline below simulates paired-end reads, so it trains `model.xml` only.
+on single-end samples, and PacBio and Nanopore samples with `model_PB.xml` and `model_ONT.xml`
+(`collect_training_data.py --read_types`).
 
 ## What protal expects of a model
 
@@ -72,8 +73,10 @@ type's model and settings (the map's `READ_TYPE` column), and each read type get
 | `--jobs` | `-t` | design points (and long-read genomes) simulated at a time (ART and pbsim3 simulate one genome at a time) |
 
 The design points are simulated in parallel, then all their samples are profiled in one protal run,
-which loads the database once. Design points already simulated or profiled are skipped, so a run
-can be resumed. Columns it adds start with
+which loads the database once. A rerun resumes: a design point already simulated from the same
+inputs (simulator, genome table, seed and design) and profiled against the same database with the
+same protal is skipped; one made from other inputs is simulated or profiled again (its folder holds
+the key of what made it, `simulated.json` and `profiled.json`). Columns it adds start with
 `meta_` and say where each row comes from: design point, sample, read type (`meta_read_type`), read
 length (the mean for long reads), depth (`meta_read_pairs`: read pairs, reads for se, bases for pb
 and ont), the taxon's
@@ -224,8 +227,8 @@ Try it first without changing the database:
     protal --db DB --model training/model.xml --map test.map -t 16
 
 or, cheaper, on existing alignments with `--profile_only`. To make it the database's default,
-replace `model.xml` (or, for single-end reads, `model_se.xml`) inside the database
-([database-files.md](database-files.md#converting-a-database)).
+add it with `protal --add_model training/model.xml --read_type pe --db DB` (`se`, `pb` or `ont` for a
+model of those reads), which checks it and replaces the database's model of that read type.
 
 Train the production model on simulations from the database's own genomes (for example GTDB), with
 held-out species as negatives. Choose `--knob` on held-out samples like the ones it will profile;

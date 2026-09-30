@@ -37,6 +37,8 @@ import concurrent.futures
 import csv
 import glob
 import gzip
+import hashlib
+import json
 import os
 import random
 import shutil
@@ -255,11 +257,22 @@ def design_points(opts):
     file=R1.txt+R2.txt (or file=P.txt for both reads): quality profiles art_profiler_illumina made from real
     reads, which ART uses instead of the built-in one."""
     setups = [s.split(":") for s in opts.read_setups.split(",")]
+    if any(len(s) != 4 for s in setups):
+        sys.exit(f"--read_setups {opts.read_setups!r}: expected LENGTH:ART_PROFILE:FRAGMENT_MEAN:FRAGMENT_SD, comma-separated")
+    depths = opts.read_pairs.split(",")
+    for what, values in (("--read_setups", [":".join(s) for s in setups]), ("--read_pairs", depths)):
+        twice = sorted(v for v, n in collections.Counter(values).items() if n > 1)
+        if twice:  # their points would share a folder
+            sys.exit(f"{what} lists {', '.join(twice)} more than once")
+    # A point's name tells its setup from the others of its read length (profile, then fragment size).
     lengths = collections.Counter(s[0] for s in setups)
+    profiles = collections.Counter((s[0], s[1]) for s in setups)
     points = []
     for i, (length, profile, fragment_mean, fragment_sd) in enumerate(setups):
         tag = "" if lengths[length] == 1 else "_" + (f"custom{i}" if profile.startswith("file=") else profile)
-        for pairs in opts.read_pairs.split(","):
+        if profiles[(length, profile)] > 1 and not profile.startswith("file="):
+            tag += f"_f{fragment_mean}-{fragment_sd}"
+        for pairs in depths:
             points.append({"name": f"rl{length}{tag}_p{pairs}", "read_length": length, "sequencer": profile,
                            "fragment_mean": fragment_mean, "fragment_sd": fragment_sd, "read_pairs": pairs})
     return points
@@ -298,7 +311,10 @@ def units_of(opts):
                       for p in pe_points]
         else:
             setup = parse_long_setup(opts.pb_setup if read_type == "pb" else opts.ont_setup)
-            for i, bases in enumerate(opts.long_read_bases.split(",")):
+            long_depths = opts.long_read_bases.split(",")
+            if len(set(long_depths)) != len(long_depths):  # their points would share a folder
+                sys.exit(f"--long_read_bases {opts.long_read_bases!r} lists a depth more than once")
+            for i, bases in enumerate(long_depths):
                 name = f"{read_type}_b{bases}"
                 units.append({"type": read_type, "name": name, "setup": setup, "bases": int(float(bases)),
                               "community": pe_points[i % len(pe_points)],
@@ -337,9 +353,56 @@ def abundance_args(text):
     sys.exit(f"--abundance {text!r}: expected lognormal:SIGMA, powerlaw:ALPHA or negbin:R:P")
 
 
-def simulate(point, index, opts, threads, clades):
-    """Simulates the samples of a design point; None, or why it failed. clades: {rank: [held-out clade, ...]},
-    of which one per rank goes into every sample (--novel_clades)."""
+# ---- what a point was made from ---------------------------------------------------------------------------
+# A rerun reuses a point's samples and dumps only if they were made from the same inputs: each point's folder
+# holds the key of what simulated it (simulated.json) and each profile folder that of what profiled it
+# (profiled.json; profiling.json while a run profiles it, so that a stopped run resumes). Another database or
+# protal (a training database rebuilt with other species held out), seed, genome table or design makes them
+# again instead of mixing old dumps into the table.
+
+def identity(path):
+    """A file as part of a key: its real path, size and modification time (a rebuild changes them)."""
+    real = os.path.realpath(shutil.which(path) or path)
+    st = os.stat(real)
+    return [real, st.st_size, st.st_mtime_ns]
+
+
+def db_identity(db):
+    if os.path.isfile(db):
+        return [identity(db)]
+    return [identity(os.path.join(db, n)) for n in sorted(os.listdir(db)) if os.path.isfile(os.path.join(db, n))]
+
+
+def content_hash(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha1(fh.read()).hexdigest()
+
+
+def same_key(path, key):
+    try:
+        with open(path) as fh:
+            return json.load(fh) == json.loads(json.dumps(key))
+    except (OSError, ValueError):
+        return False
+
+
+def write_key(path, key):
+    with open(path + ".partial", "w") as fh:
+        json.dump(key, fh, indent=1)
+    os.replace(path + ".partial", path)
+
+
+def simulation_key(point, index, opts, clades):
+    """What a paired-end point's samples are made from: the simulator's command (but its threads), the genome
+    table's content and the simulator binary."""
+    command, _ = simulation_command(point, index, opts, 1, clades)
+    at = command.index("-t")
+    return {"command": command[:at] + command[at + 2:], "genome_table": content_hash(opts.genome_table),
+            "simulator": identity(opts.simulator)}
+
+
+def simulation_command(point, index, opts, threads, clades):
+    """The simulator's command for a design point, and None, or why there is none."""
     base, sim, profiles = point_dirs(point, opts)
     command = [opts.simulator, "--genome_table", opts.genome_table, "-o", sim, "-n", str(opts.samples),
                "--sample_prefix", point["name"] + "_s", "--total_read_pairs", point["read_pairs"],
@@ -358,10 +421,20 @@ def simulate(point, index, opts, threads, clades):
     if opts.congeners > 0:
         genera = large_genera(opts.genome_table, opts.congeners)
         if not genera:
-            return f"no genus in {opts.genome_table} has {opts.congeners} species (--congeners)"
+            return command, f"no genus in {opts.genome_table} has {opts.congeners} species (--congeners)"
         command += ["--genus", "g__" + random.Random(opts.seed * 1000 + index).choice(genera) + f":{opts.congeners}"]
     if taxa or opts.congeners > 0:
         command += ["--pick_random_demand_if_fail"]
+    return command, None
+
+
+def simulate(point, index, opts, threads, clades, key):
+    """Simulates the samples of a design point; None, or why it failed. clades: {rank: [held-out clade, ...]},
+    of which one per rank goes into every sample (--novel_clades)."""
+    base, sim, _ = point_dirs(point, opts)
+    command, error = simulation_command(point, index, opts, threads, clades)
+    if error:
+        return error
     os.makedirs(sim, exist_ok=True)
     log = os.path.join(base, "simulate.log")
     with open(log, "w") as fh:
@@ -369,6 +442,7 @@ def simulate(point, index, opts, threads, clades):
     if rc != 0:
         shutil.rmtree(sim, ignore_errors=True)  # no protal.meta: simulated again on a rerun
         return f"{point['name']}: {opts.simulator} failed with exit code {rc}; see {log}"
+    write_key(os.path.join(base, "simulated.json"), key)
     return None
 
 
@@ -646,27 +720,64 @@ def main(argv=None):
     # simulates one genome at a time, so design points run in parallel.
     needed = {u["point"]["name"] for u in units if u["type"] in ("pe", "se")} | \
              {u["community"]["name"] for u in units if u["type"] in LONG_READ_TYPES}
-    pending = [(i, p) for i, p in enumerate(pe_points)
-               if p["name"] in needed and not os.path.isfile(os.path.join(point_dirs(p, opts)[1], "protal.meta"))]
+    keys = {p["name"]: simulation_key(p, i, opts, clades) for i, p in enumerate(pe_points) if p["name"] in needed}
+    pending = []
+    for i, p in enumerate(pe_points):
+        base, sim, _ = point_dirs(p, opts)
+        if p["name"] not in needed:
+            continue
+        if os.path.isfile(os.path.join(sim, "protal.meta")):
+            if same_key(os.path.join(base, "simulated.json"), keys[p["name"]]):
+                continue
+            print(f"{p['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
+            shutil.rmtree(base)
+        pending.append((i, p))
     if pending:
         workers = max(1, min(jobs, len(pending)))
         threads = max(1, opts.threads // workers)
         print(f"simulating {len(pending)} paired-end design points, {workers} at a time", flush=True)
         with concurrent.futures.ThreadPoolExecutor(workers) as executor:
-            failures = [f for f in executor.map(lambda ip: simulate(ip[1], ip[0], opts, threads, clades), pending) if f]
+            failures = [f for f in executor.map(lambda ip: simulate(ip[1], ip[0], opts, threads, clades, keys[ip[1]["name"]]),
+                                                pending) if f]
         if failures:
             sys.exit("\n".join(failures))
     # Long reads: pbsim3 simulates one genome at a time, so the genomes of a point run in parallel.
     for i, unit in enumerate(u for u in units if u["type"] in LONG_READ_TYPES):
+        base = point_dirs(unit["point"], opts)[0]
+        keys[unit["name"]] = {"community": keys[unit["community"]["name"]], "setup": unit["setup"], "bases": unit["bases"],
+                              "index": i, "seed": opts.seed, "pbsim": identity(opts.pbsim),
+                              "model": identity(pbsim_model(opts, unit["setup"]["model"]))}
+        if simulated(unit, opts) and not same_key(os.path.join(base, "simulated.json"), keys[unit["name"]]):
+            print(f"{unit['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
+            shutil.rmtree(base)
         if not simulated(unit, opts):
             print(f"simulating {unit['name']} with pbsim3", flush=True)
             failure = simulate_long(unit, i, opts, jobs)
             if failure:
                 sys.exit(f"{unit['name']}: {failure}")
-    # Profiling: every unit not yet profiled, in one protal run.
-    unprofiled = [u for u in units if len(dumps_of(u, opts)) < opts.samples]
+            write_key(os.path.join(base, "simulated.json"), keys[unit["name"]])
+    # Profiling: every unit not yet profiled against this database with this protal, in one protal run.
+    db, protal = db_identity(opts.db), identity(opts.protal)
+    unprofiled = []
+    for unit in units:
+        folder = profile_dir(unit, opts)
+        key = {"simulated": keys[unit["point"]["name"] if unit["type"] in ("pe", "se") else unit["name"]],
+               "db": db, "protal": protal, "read_type": unit["type"]}
+        if same_key(os.path.join(folder, "profiled.json"), key) and len(dumps_of(unit, opts)) >= opts.samples:
+            continue
+        if not same_key(os.path.join(folder, "profiling.json"), key):  # else a stopped run's: go on with it
+            if dumps_of(unit, opts):
+                print(f"{unit['name']} was profiled against another database or with another protal (or by an older "
+                      "collector): profiling it again", flush=True)
+            shutil.rmtree(folder, ignore_errors=True)
+            os.makedirs(folder)
+            write_key(os.path.join(folder, "profiling.json"), key)
+        unprofiled.append(unit)
     if unprofiled:
         profile(unprofiled, opts)
+        for unit in unprofiled:
+            folder = profile_dir(unit, opts)
+            os.replace(os.path.join(folder, "profiling.json"), os.path.join(folder, "profiled.json"))
     for unit in units:
         if len(dumps_of(unit, opts)) != opts.samples:
             sys.exit(f"{unit['name']}: expected {opts.samples} training dumps in {profile_dir(unit, opts)}, "

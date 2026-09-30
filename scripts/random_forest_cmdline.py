@@ -24,7 +24,7 @@ fit. When the training database lacked species or whole clades (build_gtdb_datab
 also counts the false positives their reads cause, by the rank they were held out at.
 
 Written to PREFIX.*:
-  xml                 the model (protal --model FILE, or model.xml of a database)
+  xml                 the model (protal --model FILE, or protal --add_model FILE --read_type pe: model_pe.xml of a database)
   report.txt          the evaluation (also printed); metrics.json has its numbers
   predictions.tsv.gz  each taxon's probabilities out of fold, with its main features
   thresholds.tsv      precision and sensitivity by threshold, from species held out

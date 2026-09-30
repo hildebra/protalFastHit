@@ -1,6 +1,6 @@
 # Database files
 
-A protal database consists of six parts, and a seventh for single-end reads:
+A protal database consists of six parts, and models of other kinds of reads:
 
 | File | What it holds |
 |---|---|
@@ -9,8 +9,9 @@ A protal database consists of six parts, and a seventh for single-end reads:
 | `reference.map` | taxid, gene id, start and end byte of each gene in `reference.fna` |
 | `internal_taxonomy.dmp` | the taxonomy: id, parent, external id, name, rank, level, representative genome |
 | `unique_kmers.tsv` | per species and gene, counts of the k-mers unique to it in the database; the uniqueness features of the model |
-| `model.xml` | the presence model (a random forest in PMML) of paired-end reads, see [model-training.md](model-training.md) |
+| `model_pe.xml` | the presence model (a random forest in PMML) of paired-end reads, see [model-training.md](model-training.md); `model.xml` in databases of earlier versions |
 | `model_se.xml` | optional: the presence model of single-end reads; without it, single-end samples need `--model_se` ([running.md](running.md#single-end-reads)) |
+| `model_PB.xml`, `model_ONT.xml` | optional: the presence models of PacBio and Nanopore reads (`--model_pb`, `--model_ont` without them) |
 
 `protal --build` packs them into one file, `database.protal`, compressed with
 [zstd](https://facebook.github.io/zstd/): one file to copy, download, checksum or version, whose
@@ -85,13 +86,14 @@ uncompressed `reference.fna`, and the other files, into the folder `database.pro
 built with `--no_compress`, and `--compress_db` on such a folder writes `database.protal`
 byte-identical to the one `--build` wrote. `--compress_db` needs the index in memory.
 
-To replace one part, such as the model, unpack, replace the file and pack again (as
-`scripts/build_gtdb_database.py` does); the separate files win over the old `database.protal`,
+`protal --add_model MODEL --read_type pe --db db/` (or `se`, `pb`, `ont`) checks a model and
+replaces the database's model of that read type, as `scripts/build_gtdb_database.py` does. By hand:
+unpack, replace the file and pack again; the separate files win over the old `database.protal`,
 which `--compress_db` then replaces:
 
 ```bash
 protal --unpack_db --db db/ -t 8
-cp new_model.xml db/model.xml
+cp new_model.xml db/model_pe.xml
 protal --compress_db --db db/ -t 8
 ```
 

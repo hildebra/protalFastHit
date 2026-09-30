@@ -45,15 +45,25 @@ against the previous model and training procedure), its numbers as JSON, the
 per-taxon predictions, the threshold table, the parity check with protal, the
 genome table summary and build_metadata.tsv (what the database was built from
 and with).
+
+The tools the run needs are checked before it starts. A run that stops (a failure,
+SIGTERM, Ctrl-C) stops every command it started, and one that fails in the
+background (the finished database's build) stops the run within seconds. A rerun
+into the same OUTDIR resumes: the conversion and the two index builds are skipped
+when their inputs are those of the run that completed them (OUTDIR/.stages), and
+the collector reuses the samples it simulated and profiled with the same database,
+protal and design.
 """
 import argparse
 import collections
 import glob
+import hashlib
 import json
 import os
 import random
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -67,19 +77,72 @@ ACCESSION = re.compile(r"(?:RS_|GB_)?(GC[AF]_\d{9}\.\d+)")
 sys.path.insert(0, os.path.join(HERE, "mini_db"))
 sys.path.insert(0, HERE)
 import lineages  # noqa: E402
-from gtdb_to_protal_db import normalize_accession, read_representatives  # noqa: E402
+from gtdb_to_protal_db import clear_build_outputs, normalize_accession, read_representatives  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 from collect_training_data import TABLES  # noqa: E402
 
 
-def run(command, log):
-    os.makedirs(os.path.dirname(log), exist_ok=True)
-    started = time.time()
-    with open(log, "w") as fh:
-        rc = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
-    if rc:
-        stop(f"Command failed ({rc}); see {log}: {' '.join(command)}")
-    return time.time() - started
+class Job:
+    """A command run with its output to log, in a process group of its own: when the script stops, however
+    it stops (a failure, an exception, SIGTERM, SIGINT, SIGHUP), the command is stopped with what it started
+    (the collector's simulator, ART and protal runs), so that a rerun does not race a build left running.
+    While the script waits for one job, it looks at the others every few seconds: one that failed (the
+    finished database's build in the background) stops the script then, not hours later."""
+    running = []
+
+    def __init__(self, command, log, on_success=None):
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        self.command, self.log, self.on_success, self.started = command, log, on_success, time.time()
+        self.seconds = None  # set when it has ended
+        self.fh = open(log, "w")
+        self.process = subprocess.Popen(command, stdout=self.fh, stderr=subprocess.STDOUT, start_new_session=True)
+        Job.running.append(self)
+
+    def ended(self, rc):
+        self.fh.close()
+        Job.running.remove(self)
+        self.seconds = time.time() - self.started
+        if rc:
+            stop(f"Command failed ({rc}); see {self.log}: {' '.join(self.command)}")
+        if self.on_success:
+            self.on_success()
+
+    def finish(self):
+        """Waits for the command; the seconds it took. Stops the script if it or another job failed."""
+        while self.seconds is None:
+            try:
+                rc = self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                check_jobs()
+                continue
+            self.ended(rc)
+        return self.seconds
+
+    def kill(self):
+        """Stops the command and every process of its group."""
+        for sig, wait in ((signal.SIGTERM, 60), (signal.SIGKILL, None)):
+            try:
+                os.killpg(self.process.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                break
+            try:
+                self.process.wait(timeout=wait)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        self.fh.close()
+
+
+def check_jobs():
+    """Ends the jobs whose command has ended: one that failed stops the script."""
+    for job in list(Job.running):
+        rc = job.process.poll()
+        if rc is not None:
+            job.ended(rc)
+
+
+def run(command, log, on_success=None):
+    return Job(command, log, on_success).finish()
 
 
 def make_genome_table(gtdb, release, output, extra_dirs=(), species=None):
@@ -340,32 +403,108 @@ def build_command(protal, db, threads, *extra):
     return command
 
 
-class Background:
-    """A command run in the background (its output to log); finish() waits for it and stops the script if it
-    failed. Stopped when the script stops before."""
-    running = []
-
-    def __init__(self, command, log):
-        os.makedirs(os.path.dirname(log), exist_ok=True)
-        self.command, self.log, self.started = command, log, time.time()
-        self.fh = open(log, "w")
-        self.process = subprocess.Popen(command, stdout=self.fh, stderr=subprocess.STDOUT)
-        Background.running.append(self)
-
-    def finish(self):
-        rc = self.process.wait()
-        self.fh.close()
-        Background.running.remove(self)
-        if rc:
-            stop(f"Command failed ({rc}); see {self.log}: {' '.join(self.command)}")
-        return time.time() - self.started
+def stop_jobs():
+    """Stops the jobs still running; one that already ended well still counts (its build is recorded)."""
+    for job in list(Job.running):
+        if job.process.poll() == 0:
+            job.ended(0)
+    for job in list(Job.running):
+        job.kill()
+    Job.running.clear()
 
 
 def stop(message):
-    for job in list(Background.running):
-        job.process.terminate()
-        job.process.wait()
+    stop_jobs()
     sys.exit(message)
+
+
+def on_signal(signum, _frame):
+    stop(f"Stopped by {signal.Signals(signum).name}, with the commands it ran")
+
+
+# ---- resuming --------------------------------------------------------------------------------------------
+# A rerun into the same OUTDIR (after a failure in training, say) skips the conversion and the two index
+# builds (at GTDB scale an hour or two each) when their inputs are those of the run that completed them:
+# OUTDIR/.stages/<stage>.json holds the key of those inputs. The collector resumes on its own.
+
+class Stages:
+    def __init__(self, folder):
+        self.folder = folder
+        os.makedirs(folder, exist_ok=True)
+
+    def done(self, name, key):
+        try:
+            with open(os.path.join(self.folder, name + ".json")) as fh:
+                return json.load(fh) == json.loads(json.dumps(key))
+        except (OSError, ValueError):
+            return False
+
+    def mark(self, name, key):
+        path = os.path.join(self.folder, name + ".json")
+        with open(path + ".partial", "w") as fh:
+            json.dump(key, fh, indent=1)
+        os.replace(path + ".partial", path)
+
+    def forget(self, name):
+        if os.path.exists(os.path.join(self.folder, name + ".json")):
+            os.remove(os.path.join(self.folder, name + ".json"))
+
+
+def file_identity(path):
+    """A file as part of a key: its real path, size and modification time."""
+    real = os.path.realpath(shutil.which(path) or path)
+    st = os.stat(real)
+    return [real, st.st_size, st.st_mtime_ns]
+
+
+def content_hash(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha1(fh.read()).hexdigest()
+
+
+def release_identity(gtdb, release):
+    """The release's files the converter reads, as part of a key: the taxonomy and metadata files, and the
+    marker gene folders (whose modification time changes with the files in them)."""
+    items = []
+    for folder in (gtdb, os.path.join(gtdb, "genomic_files_reps"), os.path.join(gtdb, "genomic_files_all")):
+        for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else ():
+            path = os.path.join(folder, name)
+            if f"_r{release}" in name and (os.path.isfile(path) or "_marker_genes_" in name):
+                st = os.stat(path)
+                items.append([os.path.relpath(path, gtdb), st.st_size if os.path.isfile(path) else len(os.listdir(path)),
+                              st.st_mtime_ns])
+    return items
+
+
+def check_tools(args, read_types):
+    """What the run needs later, checked before it starts: a missing tool would otherwise stop it after the
+    conversion, the builds or the collection."""
+    problems = []
+
+    def executable(command, what, hint):
+        if shutil.which(command) or (os.path.isfile(command) and os.access(command, os.X_OK)):
+            return True
+        problems.append(f"{what} ({command}) is not there: {hint}")
+        return False
+
+    if executable(args.protal, "protal", "build it (docs/installation.md), or pass --protal"):
+        version = subprocess.run([args.protal, "--version"], capture_output=True, text=True)
+        if version.returncode:
+            problems.append(f"{args.protal} --version failed ({version.returncode}): {version.stdout[-300:]}{version.stderr[-300:]}")
+    executable(args.simulator, "the simulator", "it is built with protal (target simulate_metagenomes), or pass --simulator")
+    executable("art_illumina", "ART", "the simulator simulates the Illumina reads with it: install ART (conda: art, "
+                                      "envs/protal-db-build.yaml)")
+    if any(t in ("pb", "ont") for t in read_types):
+        executable(args.pbsim, "pbsim3", "pb and ont reads are simulated with it: install it (e.g. micromamba install "
+                                         "-c conda-forge -c bioconda pbsim3), pass --pbsim, or leave pb and ont out of "
+                                         "--read-types")
+    imports = subprocess.run([sys.executable, "-c", "import joblib, numpy, pandas, sklearn"], capture_output=True, text=True)
+    if imports.returncode:
+        problems.append(f"{sys.executable} cannot import what the trainer needs ({imports.stderr.strip().splitlines()[-1]}): "
+                        "install scikit-learn, joblib, numpy and pandas (envs/protal-db-build.yaml), or run this "
+                        "script with a Python that has them")
+    if problems:
+        sys.exit("Cannot start:\n  " + "\n  ".join(problems))
 
 
 def main():
@@ -469,10 +608,7 @@ def main():
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
     if not read_types or any(t not in TABLES for t in read_types):
         p.error(f"--read-types: a comma-separated list of {', '.join(TABLES)}, got {args.read_types!r}")
-    if any(t in ("pb", "ont") for t in read_types) and not (shutil.which(args.pbsim) or os.path.isfile(args.pbsim)):
-        p.error(f"pb and ont reads are simulated with pbsim3, and {args.pbsim} is not there: install it (e.g. "
-                "micromamba install -c conda-forge -c bioconda pbsim3), pass --pbsim, or leave pb and ont out of "
-                "--read-types")
+    check_tools(args, read_types)
     if args.inputs:
         if args.gtdb:
             p.error("give --inputs or --gtdb, not both")
@@ -483,9 +619,11 @@ def main():
             state = json.load(fh)
         args.gtdb = os.path.join(args.inputs, "release")
         args.release = args.release or state["release"]["number"]
-        if os.path.isdir(os.path.join(args.inputs, "genomes")):
+        # The genomes and species to simulate shape the genome table this script makes, not a given one.
+        if os.path.isdir(os.path.join(args.inputs, "genomes")) and not args.genome_table:
             args.extra_genomes.append(os.path.join(args.inputs, "genomes"))
-        if not args.simulate_species and os.path.isfile(os.path.join(args.inputs, "simulation_species.txt")):
+        if not args.simulate_species and not args.genome_table and \
+                os.path.isfile(os.path.join(args.inputs, "simulation_species.txt")):
             args.simulate_species = os.path.join(args.inputs, "simulation_species.txt")
     elif not args.gtdb:
         p.error("give --inputs (a folder of download_gtdb.py) or --gtdb")
@@ -522,17 +660,43 @@ def main():
         fh.write("\n".join(summary) + "\n")
     print("\n".join(summary), flush=True)
 
-    run([sys.executable, CONVERTER, "--gtdb", args.gtdb, "--outdir", db, "--release", release, "-t", str(args.threads)],
-        os.path.join(args.outdir, "convert.log"))
+    # A rerun skips what an earlier run into OUTDIR completed with the same inputs (see Stages).
+    stages = Stages(os.path.join(args.outdir, ".stages"))
+    convert_key = {"converter": content_hash(CONVERTER), "release": release, "gtdb": release_identity(args.gtdb, release),
+                   "placeholders": not args.no_placeholder_models}
+    final_key = {"convert": convert_key, "protal": file_identity(args.protal)}
+    final_done = stages.done("protal_db", final_key) and os.path.isfile(os.path.join(db, "database.protal"))
     # --build packs the taxonomy into database.protal; the collector and the trainer read it (domains,
     # representative genomes). The training database has the same taxonomy.
     taxonomy = os.path.join(args.outdir, "internal_taxonomy.dmp")
-    shutil.copyfile(os.path.join(db, "internal_taxonomy.dmp"), taxonomy)
-    # One model per read type; only paired-end reads can be simulated and aligned here, so the others get
-    # placeholders (protal warns when it loads one), packed by --build like model_pe.xml.
-    if not args.no_placeholder_models:
-        for read_type in ("se", "pb", "ont"):
-            write_placeholder(os.path.join(db, MODEL_FILES[read_type]), read_type)
+
+    def convert(into):
+        """The converted files of the release in `into`, with the models of the read types but pe as
+        placeholders (protal warns when it loads one), packed by --build like model_pe.xml."""
+        run([sys.executable, CONVERTER, "--gtdb", args.gtdb, "--outdir", into, "--release", release, "-t", str(args.threads)],
+            os.path.join(args.outdir, "convert.log"))
+        shutil.copyfile(os.path.join(into, "internal_taxonomy.dmp"), taxonomy)
+        if not args.no_placeholder_models:
+            for read_type in ("se", "pb", "ont"):
+                write_placeholder(os.path.join(into, MODEL_FILES[read_type]), read_type)
+
+    converted = None  # the folder with the converted files, once there
+    if final_done:
+        print(f"{db} was built by an earlier run from the same release and protal; kept", flush=True)
+    elif stages.done("convert", convert_key) and os.path.isfile(taxonomy) and \
+            all(os.path.isfile(os.path.join(db, f)) for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp")):
+        # Converted by an earlier run that stopped before the build packed the files.
+        clear_build_outputs(db)
+        converted = db
+        print(f"{db} holds the release converted by an earlier run; not converted again", flush=True)
+    else:
+        stages.forget("protal_db")
+        convert(db)
+        stages.mark("convert", convert_key)
+        converted = db
+    if not os.path.isfile(taxonomy):
+        convert(os.path.join(args.outdir, ".converted"))
+        converted = os.path.join(args.outdir, ".converted")
 
     # The training database leaves some species out: the model then sees reads of species the database
     # lacks, which land on relatives, and reads of whole families, classes and phyla it lacks, which land on
@@ -548,7 +712,7 @@ def main():
             fh.write("".join(f"{s}\t{rank}\t{clade}\n" for s, (rank, clade) in sorted(chosen.items())))
     elif os.path.exists(heldout):
         os.remove(heldout)
-    training_db = db
+    training_db, training_done = db, False
     n_heldout, holdout_lines = 0, []
     if os.path.exists(heldout):
         chosen = read_holdout(heldout)
@@ -559,23 +723,39 @@ def main():
             fh.write("\n".join(holdout_lines) + "\n")
         print("\n".join(holdout_lines), flush=True)
         training_db = os.path.join(args.outdir, "training_db")
-        run([sys.executable, CONVERTER, "--from_db", db, "--exclude_species", heldout, "--outdir", training_db],
-            os.path.join(args.outdir, "training_db.log"))
+        training_key = {"convert": convert_key, "heldout": content_hash(heldout), "protal": final_key["protal"],
+                        "level": args.training_db_level}
+        training_done = stages.done("training_db", training_key) and \
+            os.path.isfile(os.path.join(training_db, "database.protal"))
+        if training_done:
+            print(f"{training_db} was built by an earlier run with the same species left out; kept", flush=True)
+        else:
+            stages.forget("training_db")
+            if converted is None:  # the finished database's build consumed them
+                converted = os.path.join(args.outdir, ".converted")
+                convert(converted)
+            run([sys.executable, CONVERTER, "--from_db", converted, "--exclude_species", heldout, "--outdir", training_db],
+                os.path.join(args.outdir, "training_db.log"))
+    if converted and converted != db:
+        shutil.rmtree(converted, ignore_errors=True)
 
     # The finished database is needed only for --add_model at the end: it is built in the background from the
     # start, while the training database is built and the training data collected, unless one build at a time.
     final_log = os.path.join(args.outdir, "index_and_package.log")
     final_build = None
-    if training_db != db and not args.one_build_at_a_time:
-        final_build = Background(build_command(args.protal, db, args.threads), final_log)
+    built_final = lambda: stages.mark("protal_db", final_key)
+    if final_done:
+        pass
+    elif training_db != db and not args.one_build_at_a_time:
+        final_build = Job(build_command(args.protal, db, args.threads), final_log, built_final)
         print(f"Building {db} in the background ({final_log})", flush=True)
     elif training_db == db:
-        print(f"Built {db} in {run(build_command(args.protal, db, args.threads), final_log):.0f} s", flush=True)
-    if training_db != db:
+        print(f"Built {db} in {run(build_command(args.protal, db, args.threads), final_log, built_final):.0f} s", flush=True)
+    if training_db != db and not training_done:
         # Read only for the training samples and the parity check: zstd level 3 packs it in a fraction of the
         # time of level 19 (which half of a build spent on), and loads as fast.
         seconds = run(build_command(args.protal, training_db, args.threads, "--compress_level", str(args.training_db_level)),
-                      os.path.join(args.outdir, "training_db_index.log"))
+                      os.path.join(args.outdir, "training_db_index.log"), lambda: stages.mark("training_db", training_key))
         print(f"Built {training_db} in {seconds:.0f} s", flush=True)
 
     # Training data of every read type (pe, se from its first reads, pb and ont from long reads of the same
@@ -618,7 +798,7 @@ def main():
                    "--taxonomy", taxonomy, "--evaluation", args.evaluation]
         if args.test_samples > 0 and os.path.isfile(os.path.join(test, TABLES[t])):
             command += ["--test-file", os.path.join(test, TABLES[t])]
-        trainers[t] = Background(command, os.path.join(args.outdir, "classifier_training" + ("" if t == "pe" else "_" + t) + ".log"))
+        trainers[t] = Job(command, os.path.join(args.outdir, "classifier_training" + ("" if t == "pe" else "_" + t) + ".log"))
     seconds = max(job.finish() for job in trainers.values())
     print(f"Trained the {', '.join(read_types)} model{'s' if len(read_types) > 1 else ''} in parallel in {seconds:.0f} s",
           flush=True)
@@ -642,8 +822,8 @@ def main():
             shutil.copy(name, logs)
     if final_build is not None:
         print(f"Built {db} in {final_build.finish():.0f} s (in the background)", flush=True)
-    elif training_db != db:
-        print(f"Built {db} in {run(build_command(args.protal, db, args.threads), final_log):.0f} s", flush=True)
+    elif training_db != db and not final_done:
+        print(f"Built {db} in {run(build_command(args.protal, db, args.threads), final_log, built_final):.0f} s", flush=True)
     # The trained models replace the shipped one and the placeholders in database.protal; --add_model checks
     # each and copies the other parts as they are.
     for t in read_types:
@@ -663,4 +843,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, on_signal)
+    try:
+        main()
+    finally:  # an uncaught exception, too
+        stop_jobs()

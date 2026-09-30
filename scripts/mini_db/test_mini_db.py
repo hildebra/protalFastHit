@@ -11,17 +11,23 @@ the right genomes in the right proportions. Does not need a protal binary.
   python3 -m unittest scripts/mini_db/test_mini_db.py
 """
 
+import contextlib
 import functools
 import gzip
 import hashlib
 import http.server
+import io
 import json
 import os
+import random
+import shutil
+import signal
 import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -32,10 +38,15 @@ LINEAGES = os.path.join(HERE, "gtdb_like_lineages.py")
 DOWNLOAD = os.path.join(HERE, "..", "download_gtdb.py")
 
 # A stand-in for NCBI's `datasets`: `download genome accession` writes the list into the zip,
-# `rehydrate` copies the synthetic release's genomes; accessions in $FAKE_SUPPRESSED fail a request.
+# `rehydrate` copies the synthetic release's genomes; accessions in $FAKE_SUPPRESSED fail a request, and
+# every request fails with $FAKE_DOWN set (NCBI down). $FAKE_LOG, if set, gets a line per call.
 FAKE_DATASETS = r'''#!/usr/bin/env python3
 import csv, gzip, os, shutil, sys, zipfile
 args = sys.argv[1:]
+if os.environ.get("FAKE_LOG"):
+    open(os.environ["FAKE_LOG"], "a").write(" ".join(args[:3]) + "\n")
+if os.environ.get("FAKE_DOWN"):
+    sys.exit("Error: Gateway Timeout")
 if args[:3] == ["download", "genome", "accession"]:
     accessions = open(args[args.index("--inputfile") + 1]).read().split()
     if set(accessions) & set(os.environ.get("FAKE_SUPPRESSED", "").split(",")):
@@ -223,6 +234,33 @@ class MiniDbTest(unittest.TestCase):
                 fh.write("s__Nonexistent species\n")
             run(CONVERT, "--from_db", self.db, "--exclude_species", excluded, "--outdir", os.path.join(self.tmp.name, "x"))
 
+    def test_a_copy_takes_only_the_converted_files(self):
+        # What a build of the folder wrote, or left when stopped, is not copied (its unique_kmers.tsv, of other
+        # genes, stopped the copy's build), and what an earlier build of the copy left is removed.
+        src, dst = os.path.join(self.tmp.name, "db_built"), os.path.join(self.tmp.name, "db_training")
+        shutil.copytree(self.db, src)
+        for name in ("unique_kmers.tsv", "index.prx.zst.partial", "database.protal.partial", "database.protal",
+                     "build_metadata.tsv"):
+            with open(os.path.join(src, name), "w") as fh:
+                fh.write("left by a build\n")
+        os.makedirs(dst)
+        for name in ("unique_kmers.tsv", "index.prx.zst", "database.protal.partial", "model_ONT.xml"):
+            with open(os.path.join(dst, name), "w") as fh:
+                fh.write("left by an earlier build\n")
+        excluded = os.path.join(self.tmp.name, "excluded_copy.txt")
+        with open(excluded, "w") as fh:
+            fh.write("Mockella beta\n")
+        run(CONVERT, "--from_db", src, "--exclude_species", excluded, "--outdir", dst)
+        sys.path.insert(0, HERE)
+        from gtdb_to_protal_db import CONVERTED_FILES
+        expected = {"reference.fna", "reference.map", "full_reference.fna"} | \
+            {f for f in CONVERTED_FILES if os.path.isfile(os.path.join(self.db, f))}
+        self.assertEqual(set(os.listdir(dst)), expected)
+        # Converting a release anew removes the build outputs of the folder's earlier reference, too.
+        run(CONVERT, "--gtdb", self.gtdb, "--outdir", src)
+        for name in ("unique_kmers.tsv", "index.prx.zst.partial", "database.protal.partial", "database.protal"):
+            self.assertFalse(os.path.exists(os.path.join(src, name)), name)
+
     def test_download_gtdb(self):
         mirror = os.path.join(self.tmp.name, "mirror")
         gtdb_mirror(self.gtdb, mirror)
@@ -281,6 +319,80 @@ class MiniDbTest(unittest.TestCase):
         missing = subprocess.run([sys.executable, DOWNLOAD, "-o", out + "_x", "--release", "999", "--mirror",
                                   f"http://127.0.0.1:{server.server_port}", "--no_genomes"], capture_output=True, text=True)
         self.assertNotEqual(missing.returncode, 0)
+
+        # With NCBI down, a few failed requests in a row stop the run (not ~2n of them halving every batch),
+        # and it does not say its inputs are ready.
+        calls = os.path.join(self.tmp.name, "datasets_calls.txt")
+        down = subprocess.run([sys.executable, DOWNLOAD, "-o", out + "_down", "--mirror", f"http://127.0.0.1:{server.server_port}",
+                               "--datasets", datasets, "--species", "3", "--per_species", "1", "--rep_only_species", "0",
+                               "--batch", "1", "-t", "2"],
+                              env=dict(env, FAKE_DOWN="1", FAKE_LOG=calls), capture_output=True, text=True)
+        self.assertNotEqual(down.returncode, 0, down.stdout)
+        self.assertIn("NCBI requests failed in a row, the last: datasets download failed (1): Error: Gateway Timeout",
+                      down.stderr)
+        self.assertNotIn("Inputs for GTDB", down.stdout)
+        with open(calls) as fh:
+            self.assertEqual(len(fh.readlines()), 5)  # --batch 1: 1 .bit_length() + 4
+
+    def test_download_goes_on_where_a_connection_dropped(self):
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import download_gtdb
+        data = random.Random(5).randbytes(50000)
+        md5 = hashlib.md5(data).hexdigest()
+        requests = []
+
+        class Server(http.server.BaseHTTPRequestHandler):
+            drop = None  # bytes of each response sent before the connection closes; None: all
+
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):  # Range requests as GTDB's server answers them (206, 416 from the end on)
+                requests.append(self.headers.get("Range"))
+                start = int(self.headers["Range"].split("=")[1].split("-")[0]) if self.headers.get("Range") else 0
+                if start >= len(data):
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{len(data)}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                self.send_response(206 if start else 200)
+                if start:
+                    self.send_header("Content-Range", f"bytes {start}-{len(data) - 1}/{len(data)}")
+                self.send_header("Content-Length", str(len(data) - start))
+                self.end_headers()
+                self.wfile.write(data[start:] if Server.drop is None else data[start:start + Server.drop])
+                self.close_connection = True
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Server)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url, dest = f"http://127.0.0.1:{server.server_port}/big.tar.gz", os.path.join(self.tmp.name, "big.tar.gz")
+        quiet = contextlib.redirect_stdout(io.StringIO())
+        # The connection drops after 12,000 bytes each time, without an error: each request goes on from there.
+        Server.drop = 12000
+        with quiet:
+            download_gtdb.download(url, dest, md5)
+        with open(dest, "rb") as fh:
+            self.assertEqual(fh.read(), data)
+        self.assertEqual(requests, [None, "bytes=12000-", "bytes=24000-", "bytes=36000-", "bytes=48000-"])
+        # A whole .part, left by a run stopped before it was checked: the server has nothing after its end (416).
+        os.replace(dest, dest + ".part")
+        requests.clear()
+        Server.drop = None
+        with quiet:
+            download_gtdb.download(url, dest, md5)
+        self.assertEqual(requests, ["bytes=50000-"])
+        self.assertTrue(os.path.isfile(dest) and not os.path.exists(dest + ".part"))
+        # Requests that bring nothing new, three in a row: give up, keeping what came for a rerun.
+        with open(dest + ".part", "wb") as fh:
+            fh.write(data[:1000])
+        Server.drop = 0
+        with quiet, self.assertRaises(SystemExit) as stopped:
+            download_gtdb.download(url, os.path.join(self.tmp.name, "big.tar.gz"), md5)
+        self.assertIn("a rerun goes on from", str(stopped.exception))
+        self.assertEqual(os.path.getsize(dest + ".part"), 1000)
 
     def test_lineages_and_clade_holdout(self):
         # The training scripts read lineages from internal_taxonomy.dmp; build_gtdb_database.py holds out whole
@@ -353,6 +465,15 @@ class MiniDbTest(unittest.TestCase):
         points = collect.design_points(opts)
         self.assertEqual([p["name"] for p in points], ["rl150_HSXt_p1000", "rl150_HSXt_p5000", "rl150_custom1_p1000",
                                                        "rl150_custom1_p5000", "rl250_p1000", "rl250_p5000"])
+        # Setups of one length and profile are told apart by their fragments; a setup or depth given twice
+        # would share a folder.
+        same = argparse.Namespace(read_setups="150:HS25:350:50,150:HS25:500:80", read_pairs="1000")
+        self.assertEqual([p["name"] for p in collect.design_points(same)], ["rl150_HS25_f350-50_p1000", "rl150_HS25_f500-80_p1000"])
+        for setups, pairs in (("150:HS25:350:50,150:HS25:350:50", "1000"), ("150:HS25:350:50", "1000,1000")):
+            with self.assertRaises(SystemExit):
+                collect.design_points(argparse.Namespace(read_setups=setups, read_pairs=pairs))
+        with self.assertRaises(SystemExit):
+            collect.units_of(argparse.Namespace(**{**vars(opts), "long_read_bases": "1e6,1e6"}))
         with self.assertRaises(SystemExit):
             collect.art_profile_args("file=/nonexistent_r1.txt")
         self.assertEqual(collect.art_profile_args("HSXt"), ["--sequencer", "HSXt"])
@@ -547,6 +668,138 @@ class MiniDbTest(unittest.TestCase):
         for rec, seq in read_fasta(os.path.join(self.gtdb, "genomic_files_reps", "bac120_marker_genes_reps_r226",
                                                 "faa", "bac120_TIGR02013.faa")).items():
             self.assertNotIn("*", seq, rec)
+
+
+BUILD = os.path.join(HERE, "..", "build_gtdb_database.py")
+
+
+@unittest.skipUnless(os.environ.get("PROTAL") and os.environ.get("SIMULATE") and shutil.which("art_illumina"),
+                     "needs $PROTAL, $SIMULATE (simulate_metagenomes) and art_illumina")
+class GtdbBuildTest(unittest.TestCase):
+    """build_gtdb_database.py end to end, on a synthetic GTDB-like release of 60 species downloaded from a
+    fake GTDB mirror and a fake NCBI: the database is built and its pe and se models trained; a rerun skips
+    the conversion and both builds; another seed (other species held out) rebuilds the training database
+    only, and simulates and profiles again; a build that fails in the background stops the run at once; a
+    run stopped with SIGTERM leaves no command running. The trainer needs scikit-learn: $PROTAL_TRAIN_PYTHON
+    (default: this Python). About five minutes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.python = os.environ.get("PROTAL_TRAIN_PYTHON", sys.executable)
+        if subprocess.run([cls.python, "-c", "import joblib, numpy, pandas, sklearn"], capture_output=True).returncode:
+            raise unittest.SkipTest(f"{cls.python} cannot import scikit-learn, joblib, numpy and pandas ($PROTAL_TRAIN_PYTHON)")
+        cls.tmp = tempfile.TemporaryDirectory()
+        work = cls.tmp.name
+        lineages = os.path.join(work, "lineages.txt")
+        with open(lineages, "w") as fh:
+            subprocess.run([sys.executable, LINEAGES, "--species", "60", "--archaea", "0.1", "--seed", "1"], stdout=fh, check=True)
+        gtdb = os.path.join(work, "gtdb")
+        run(SIMULATE, "--outdir", gtdb, "--lineages", lineages, "--genomes_per_species", "3", "--genome_length", "40000",
+            "--strain_divergence", "0.002-0.015", "--species_divergence", "0.015-0.04", "--seed", "3")
+        gtdb_mirror(gtdb, os.path.join(work, "mirror"))
+
+        class Quiet(http.server.SimpleHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=os.path.join(work, "mirror")))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        datasets = os.path.join(work, "datasets")
+        with open(datasets, "w") as fh:
+            fh.write(FAKE_DATASETS)
+        os.chmod(datasets, 0o755)
+        cls.inputs = os.path.join(work, "inputs")
+        subprocess.run([sys.executable, DOWNLOAD, "-o", cls.inputs, "--mirror", f"http://127.0.0.1:{server.server_port}",
+                        "--datasets", datasets, "--species", "15", "--per_species", "2", "--rep_only_species", "10",
+                        "--batch", "8", "-t", "2"], env=dict(os.environ, FAKE_TABLE=os.path.join(gtdb, "simulation", "genomes.tsv")),
+                       check=True, capture_output=True)
+        server.shutdown()
+        server.server_close()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def build(self, out, *extra, protal=None, wait=True):
+        command = [self.python, BUILD, "--inputs", self.inputs, "--outdir", os.path.join(self.tmp.name, out),
+                   "--protal", protal or os.environ["PROTAL"], "--simulator", os.environ["SIMULATE"], "-t", "2",
+                   "--samples", "2", "--read-pairs", "1000,4000", "--read-setups", "100:HS20:300:40",
+                   "--species-per-sample", "6-8", "--archaea", "1", "--holdout-max-share", "0.2",
+                   "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
+                   "--test-read-pairs", "2000", "--ntree", "16", "--evaluation", "basic", *extra]
+        if not wait:
+            return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        return subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=3000)
+
+    def text(self, *path):
+        with open(os.path.join(self.tmp.name, *path)) as fh:
+            return fh.read()
+
+    def test_a_build_and_rerun(self):
+        first = self.build("out")
+        self.assertEqual(first.returncode, 0, first.stdout[-3000:])
+        self.assertIn("Ready protal database", first.stdout)
+        for path in ("protal_db/database.protal", "training_db/database.protal", "model_logs/summary.txt",
+                     ".stages/convert.json", ".stages/protal_db.json", ".stages/training_db.json"):
+            self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", path)), path)
+
+        # A rerun converts and builds nothing, and the collector reuses its samples and dumps.
+        again = self.build("out")
+        self.assertEqual(again.returncode, 0, again.stdout[-3000:])
+        self.assertIn("protal_db was built by an earlier run from the same release and protal; kept", again.stdout)
+        self.assertIn("training_db was built by an earlier run with the same species left out; kept", again.stdout)
+        self.assertNotIn("Built ", again.stdout)
+        self.assertNotRegex(self.text("out", "training_data.log"), "simulating|profiling")
+
+        # Other species held out (another seed): only the training database is built again, from the release
+        # converted anew (the finished database's build consumed the converted files), and every point is
+        # simulated and profiled again rather than mixed into the table.
+        other = self.build("out", "--seed", "2")
+        self.assertEqual(other.returncode, 0, other.stdout[-3000:])
+        self.assertIn("protal_db was built by an earlier run from the same release and protal; kept", other.stdout)
+        self.assertRegex(other.stdout, r"Built \S+training_db in \d+ s")
+        self.assertNotRegex(other.stdout, r"Built \S+protal_db")
+        self.assertIn("was simulated from other inputs (or by an older collector): simulating it again",
+                      self.text("out", "training_data.log"))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out", ".converted")))
+
+    def test_b_a_failed_background_build_stops_the_run(self):
+        # The finished database's build fails in the background, 2 s in: the run stops then, not after the
+        # collection, the training and the parity checks.
+        failing = os.path.join(self.tmp.name, "failing_protal")
+        with open(failing, "w") as fh:
+            fh.write(f'#!/bin/sh\ncase "$*" in *--build*protal_db*) sleep 2; exit 3;; esac\nexec {os.environ["PROTAL"]} "$@"\n')
+        os.chmod(failing, 0o755)
+        started = time.time()
+        result = self.build("out_fail", protal=failing)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Command failed (3)", result.stdout)
+        self.assertIn("index_and_package.log", result.stdout)
+        self.assertNotIn("Collected the training data", result.stdout)
+        self.assertLess(time.time() - started, 600)
+
+    def test_c_sigterm_stops_every_command(self):
+        run_ = self.build("out_term", wait=False)
+        log = os.path.join(self.tmp.name, "out_term", "training_data.log")
+        deadline = time.time() + 900
+        while not os.path.exists(log) and run_.poll() is None and time.time() < deadline:
+            time.sleep(1)
+        self.assertIsNone(run_.poll(), "the run ended before the collection")
+        time.sleep(3)  # the collector has started the simulator
+        run_.send_signal(signal.SIGTERM)
+        output, _ = run_.communicate(timeout=120)
+        self.assertNotEqual(run_.returncode, 0)
+        self.assertIn("Stopped by SIGTERM", output)
+        out = os.path.join(self.tmp.name, "out_term")
+        left = []
+        for pid in os.listdir("/proc"):
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                    if out.encode() in fh.read():
+                        left.append(pid)
+            except OSError:
+                pass
+        self.assertEqual(left, [], "commands of the stopped run are still running")
 
 
 if __name__ == "__main__":

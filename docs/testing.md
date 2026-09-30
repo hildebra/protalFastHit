@@ -9,7 +9,20 @@ just model-test    # the presence model's PMML export scores as scikit-learn doe
 ```
 
 The unit tests need GoogleTest (`libgtest-dev` on Ubuntu); the Python tests use the standard
-library only, except `model-test`, which needs numpy, pandas and scikit-learn, as training does. Build requirements are in [installation.md](installation.md#building-from-source).
+library only, except `model-test`, which needs numpy, pandas and scikit-learn, as training does.
+
+`mini-db-test` also runs `build_gtdb_database.py` end to end (`GtdbBuildTest`, about 2 minutes) when
+`$PROTAL` and `$SIMULATE` name the binaries and `art_illumina` is on `$PATH`, with a Python that has
+scikit-learn (`$PROTAL_TRAIN_PYTHON`, default the one running the tests): a synthetic release of
+60 species, downloaded from a fake GTDB server and a fake NCBI `datasets`, built and trained for
+pe and se; a rerun that skips the conversion and both builds; another seed that rebuilds only the
+training database and collects again; a build failing in the background that stops the run at
+once; and `SIGTERM`, after which no command of the run is left.
+
+```bash
+PROTAL=build/protal SIMULATE=build/simulate_metagenomes PROTAL_TRAIN_PYTHON=~/protal-train/bin/python \
+    python3 -m unittest -v scripts.mini_db.test_mini_db.GtdbBuildTest
+``` Build requirements are in [installation.md](installation.md#building-from-source).
 
 ## Unit tests
 

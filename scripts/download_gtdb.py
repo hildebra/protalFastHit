@@ -41,6 +41,7 @@ import concurrent.futures
 import datetime
 import gzip
 import hashlib
+import http.client
 import json
 import os
 import random
@@ -48,6 +49,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 
 MIRROR = "https://data.gtdb.ecogenomic.org/releases"
@@ -147,26 +149,56 @@ def md5_of(path):
     return digest.hexdigest()
 
 
+def expected_size(response, start):
+    """The whole file's size by a response to a request from byte start: from Content-Range (bytes a-b/total)
+    or Content-Length; None if it does not say."""
+    total = re.match(r"bytes \d+-\d+/(\d+)", response.headers.get("Content-Range", ""))
+    if total:
+        return int(total.group(1))
+    length = response.headers.get("Content-Length")
+    return start + int(length) if length and length.isdigit() else None
+
+
 def download(url, dest, md5, attempts=3):
-    """dest from url, resuming a partial download, until its MD5 is md5."""
-    part = dest + ".part"
-    for attempt in range(attempts):
+    """dest from url, resuming a partial download (dest.part, of this run or an earlier one), until its MD5 is
+    md5. A connection that drops returns short data without an error: the next request goes on from there.
+    `attempts` requests in a row that bring nothing new give up; a .part that turns out complete (the server
+    has nothing after its end, 416) is checked and kept."""
+    part, name = dest + ".part", os.path.basename(dest)
+    failed = 0
+    while failed < attempts:
         start = os.path.getsize(part) if os.path.exists(part) else 0
         request = urllib.request.Request(url, headers={"Range": f"bytes={start}-"} if start else {})
+        size = None
         try:
             with urllib.request.urlopen(request, timeout=300) as response:
                 resumed = start and response.status == 206
+                size = expected_size(response, start if resumed else 0)
                 with open(part, "ab" if resumed else "wb") as fh:
                     shutil.copyfileobj(response, fh, 1 << 22)
-        except OSError as e:
-            print(f"  {os.path.basename(dest)}: {e} (attempt {attempt + 1} of {attempts})", flush=True)
+        except urllib.error.HTTPError as e:
+            if e.code != 416 or not start:
+                failed += 1
+                print(f"  {name}: {e} (attempt {failed} of {attempts})", flush=True)
+                continue
+            size = start  # nothing after the .part's end: it is whole, or longer than the file
+        except (OSError, http.client.HTTPException) as e:
+            failed += 1 if (os.path.getsize(part) if os.path.exists(part) else 0) == start else 0
+            print(f"  {name}: {e}; going on from byte {os.path.getsize(part) if os.path.exists(part) else 0}", flush=True)
+            continue
+        have = os.path.getsize(part)
+        if size is not None and have < size:
+            failed += 1 if have == start else 0
+            print(f"  {name}: {have} of {size} bytes (the connection dropped); going on", flush=True)
             continue
         if md5_of(part) == md5:
             os.replace(part, dest)
             return
-        print(f"  {os.path.basename(dest)}: checksum mismatch, downloading again", flush=True)
+        failed += 1
+        print(f"  {name}: checksum mismatch, downloading again (attempt {failed} of {attempts})", flush=True)
         os.remove(part)
-    sys.exit(f"could not download {url} with MD5 {md5}")
+    sys.exit(f"could not download {url} with MD5 {md5}" +
+             (f"; {part} holds what came, which a rerun goes on from" if os.path.exists(part) else ""))
 
 
 def extracted_path(archive):
@@ -299,7 +331,8 @@ def gzip_into(source, dest):
 
 
 def ncbi_batch(opts, accessions, work):
-    """Downloads accessions with datasets into work; {accession: FASTA path} of those delivered."""
+    """Downloads accessions with datasets into work: {accession: FASTA path} of those delivered, and why the
+    request failed ("" if it did not)."""
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
     listing = os.path.join(work, "accessions.txt")
@@ -310,17 +343,22 @@ def ncbi_batch(opts, accessions, work):
               "--dehydrated", "--filename", zip_path],
              ["unzip", "-o", "-q", zip_path, "-d", unpacked],
              [opts.datasets, "rehydrate", "--directory", unpacked, "--max-workers", str(max(1, min(opts.threads, 30)))])
-    with open(os.path.join(work, "log.txt"), "w") as log:
+    log_path = os.path.join(work, "log.txt")
+    with open(log_path, "w") as log:
         for command in steps:
-            if subprocess.run(command, stdout=log, stderr=subprocess.STDOUT).returncode != 0:
-                return {}
+            rc = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT).returncode
+            if rc != 0:
+                log.close()
+                with open(log_path, errors="replace") as fh:
+                    tail = " | ".join(line.strip() for line in fh.read().strip().splitlines()[-3:])
+                return {}, f"{os.path.basename(command[0])} {command[1]} failed ({rc}): {tail}"
     found = {}
     for root, _dirs, names in os.walk(unpacked):
         for name in names:
             m = re.match(r"(GC[AF]_\d{9}\.\d+)_.*_genomic\.fna$", name)
             if m and m.group(1) in accessions:
                 found[m.group(1)] = os.path.join(root, name)
-    return found
+    return found, ""
 
 
 def get_genomes(opts, state, release):
@@ -346,10 +384,21 @@ def get_genomes(opts, state, release):
     missing = []
     work = os.path.join(opts.out, "ncbi_batch")
     batches = [todo[i:i + opts.batch] for i in range(0, len(todo), opts.batch)]
+    # A request that fails is halved, down to single accessions, to find the accessions NCBI refuses; one
+    # such accession fails at most ~log2(--batch) requests in a row. More failures in a row mean that NCBI
+    # (or datasets) is not working, which halving would only ask about ~2n times.
+    in_a_row, most_in_a_row, error = 0, max(1, opts.batch).bit_length() + 4, ""
     with concurrent.futures.ProcessPoolExecutor(max(1, opts.threads)) as pool_executor:
         while batches:
             batch = batches.pop(0)
-            found = ncbi_batch(opts, batch, work)
+            found, why = ncbi_batch(opts, batch, work)
+            if why:
+                in_a_row, error = in_a_row + 1, why
+                if in_a_row >= most_in_a_row:
+                    sys.exit(f"{in_a_row} NCBI requests failed in a row, the last: {error}. Is NCBI reachable from "
+                             f"here, and does {opts.datasets} work? A rerun downloads what is still missing")
+            else:
+                in_a_row = 0
             if not found and len(batch) > 1:  # a failed request: halve it, down to single accessions
                 batches[:0] = [batch[:len(batch) // 2], batch[len(batch) // 2:]]
                 continue
@@ -358,6 +407,8 @@ def get_genomes(opts, state, release):
             print(f"  {len(found)} of {len(batch)} delivered; {len(batches)} requests left", flush=True)
     shutil.rmtree(work, ignore_errors=True)
     have = {name[:-len(".fna.gz")] for name in os.listdir(folder) if name.endswith(".fna.gz")}
+    if wanted and not any(w[0] in have for w in wanted):
+        sys.exit(f"NCBI delivered none of the {len(wanted)} genomes" + (f"; the last failure: {error}" if error else ""))
     with open(os.path.join(opts.out, "genomes.tsv"), "w") as fh:
         fh.write("accession\tspecies\trole\tlineage\tcheckm2_completeness\tcheckm2_contamination\n")
         fh.writelines("\t".join(map(str, w)) + "\n" for w in wanted if w[0] in have)

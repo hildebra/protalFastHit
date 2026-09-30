@@ -42,19 +42,19 @@ python3 scripts/mini_db/gtdb_to_protal_db.py --gtdb /data/gtdb_r226 --outdir /da
 | Option | Default | |
 |---|---|---|
 | `--release` | detected from the taxonomy file names | e.g. `226` |
-| `--model` | `scripts/random_forest.xml` | PMML model copied to `model.xml` |
+| `--model` | `scripts/random_forest.xml` | PMML model copied to `model_pe.xml` (the model of paired-end reads) |
 | `--order` | `gene` | order of `reference.fna`: by gene, then taxon (compresses about 2x better), or `genome` |
 | `-t, --threads` | 1 | marker files read in parallel; the output is the same for any number |
 | `--exclude_species` | | file of species whose marker genes are left out; the taxonomy keeps them with their taxids (a training database) |
 | `--from_db` | | instead of `--gtdb`: copy a folder this script wrote, without the species of `--exclude_species` |
 
 It writes `reference.fna`, `reference.map`, `internal_taxonomy.dmp`, `full_reference.fna` (only if
-`genomic_files_all` is there), `model.xml`, and two tables for your own use: `gene2geneid.tsv`
+`genomic_files_all` is there), `model_pe.xml`, and two tables for your own use: `gene2geneid.tsv`
 (marker id to protal's gene id) and `genome2tiid.tsv` (accession, species taxid, representative,
 lineage). The converter spools each marker's genes to a temporary folder in the output, so it
 holds one gene's sequences per worker in memory, not the whole release.
 
-The default `model.xml` is the model shipped with protal. It was trained on older databases and
+The default `model_pe.xml` is the model shipped with protal. It was trained on older databases and
 does not call archaea reliably ([model-training.md](model-training.md)); for a database you will
 use, train a model on it, or use the one-command route below.
 
@@ -115,8 +115,8 @@ the reduced database, or check its calls on simulated samples first.
 ## Build and train in one command
 
 `scripts/build_gtdb_database.py` runs the converter, builds and packs the index, simulates training
-data from whole genomes, trains a random forest on the normalised features, and packs the database
-again with the new `model.xml`. Its inputs come from `scripts/download_gtdb.py`, the one step that
+data from whole genomes, trains a random forest per read type on the normalised features, and adds
+the trained models to the database (`model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml`). Its inputs come from `scripts/download_gtdb.py`, the one step that
 needs the internet, so it can run on a download node:
 
 ```bash
@@ -130,7 +130,10 @@ ones; the newest point release unless one is named, e.g. `214.1`): taxonomy, met
 marker genes of the representatives and of all genomes (17.7 GB for r226), checked against the
 release's `MD5SUM.txt` and extracted. Then it downloads the genomes to simulate from with NCBI's
 `datasets` CLI (below). The folder serves every later build of that release; a rerun downloads
-only what is missing, and `--dry_run` lists what it would fetch.
+only what is missing, and `--dry_run` lists what it would fetch. A download whose connection drops
+goes on from where it stopped (a `.part` file, also on a rerun), and one that stops after the last
+byte is checked and kept. With NCBI not answering, the run stops after a few failed requests in a
+row, and it fails if no genome arrived.
 
 | `download_gtdb.py` writes | |
 |---|---|
@@ -279,6 +282,28 @@ data are collected; the script waits for it before packing the models. That need
 builds at once (about 50-60 GB each at GTDB scale), or of one build and the collection's protal
 runs. `--one-build-at-a-time` builds it after the training instead.
 
+### Stopping and rerunning
+
+The script checks before it starts that protal, the simulator, `art_illumina` (and pbsim3 for pb
+and ont) are there and that its Python can import what the trainer needs. Each command it runs is
+stopped with the processes it started when the script stops, whether a command failed, a Python
+error, or `SIGTERM`, `SIGINT` (Ctrl-C) or `SIGHUP` stopped it; a rerun never races a build left
+running. The build in the background is looked at every few seconds: when it fails, the run stops
+then, not after the collection and the training.
+
+A rerun into the same `--outdir`, after a failure in training, say, resumes. The conversion and each
+of the two index builds are skipped when their inputs are those of the run that completed them:
+the release's files and the converter for the conversion; also protal for the finished database; and
+the species left out and `--training-db-level` for the training database (`.stages/`). A conversion
+that completed but whose files a stopped build did not pack is used as it is. The collector reuses a
+design point's samples if the simulator, the genome table and the design (seed, depth, read setup,
+species per sample, held-out clades, ...) are the same, and its profiles if the database and protal
+are too; else it simulates or profiles them again and says so, rather than mixing samples of an
+earlier design or database into the table. So another `--seed` or `--holdout` rebuilds the training
+database (from the release converted again, since the finished database's build packed the
+converted files) and collects again, but keeps the finished database. The training, the parity
+checks and `--add_model` run on every rerun.
+
 The database gets the trained model of each read type in `--read-types` (`model_pe.xml`,
 `model_se.xml`, `model_PB.xml`, `model_ONT.xml`), and a placeholder (`scripts/placeholder_models.py`)
 for each read type left out. A placeholder scores every taxon 0, so no species is reported
@@ -292,7 +317,8 @@ The output root holds:
 | `protal_db/database.protal` | the finished database, and `protal_db/build_metadata.tsv`: GTDB release, date, protal version and binary, the scripts' git commit, the command, seed, genome table, what the training database leaves out, the training design, and each model's F1 on species held out and on the test set |
 | `genomes.tsv`, `genome_table.txt` | the genome table used for the simulations, and what it holds (species by domain, how often a simulated species is not its representative) |
 | `training_db/`, `heldout_species.txt` | the training database and the species it leaves out (species, the rank they were held out at, the clade) |
-| `training/`, `test/` | the simulated samples, their profiles and one table per read type (`training_data.tsv` for pe, `training_data_se.tsv`, `_pb`, `_ont`); a rerun skips the design points already done |
+| `training/`, `test/` | the simulated samples, their profiles and one table per read type (`training_data.tsv` for pe, `training_data_se.tsv`, `_pb`, `_ont`); a rerun reuses the design points simulated and profiled from the same inputs (below) |
+| `.stages/` | the inputs of the conversion and the two builds that completed, for a rerun (below) | 
 | `trained_model.*`, `trained_model_se.*`, `_pb.*`, `_ont.*` | the models and the trainer's outputs ([model-training.md](model-training.md#training)) |
 | `model_logs/` | what tells whether the models are good, in one folder: `summary.txt` (per read type: TP, FP, TN, FN, sensitivity, specificity, precision, F1 and false positives per sample, with species held out and on the test set; also printed at the end), each read type's training report and its numbers (`trained_model*.report.txt`, `.metrics.json`), per-taxon predictions (also on the test set), the threshold table, feature importances, the parity checks with protal (`parity*.txt`), `genome_table.txt`, what the training database leaves out (`holdout.txt`, `heldout_species.txt`), the collection logs and `build_metadata.tsv` |
 | `*.log` | one log per stage: `convert`, `training_db`, `index_and_package`, `training_db_index`, `training_data`, `test_data`, `classifier_training*`, `parity*`, `final_package*` |

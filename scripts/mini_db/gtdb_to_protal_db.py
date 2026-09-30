@@ -277,10 +277,30 @@ def species_taxids(taxonomy_rows, names, what):
     return set(found.values())
 
 
+# The files of a database folder this script writes besides reference.fna, reference.map and
+# full_reference.fna, and the models build_gtdb_database.py puts beside them (model_pmml.MODEL_FILES).
+CONVERTED_FILES = ("internal_taxonomy.dmp", "gene2geneid.tsv", "genome2tiid.tsv",
+                   "model_pe.xml", "model_se.xml", "model_PB.xml", "model_ONT.xml")
+# What protal --build writes into the folder (and leaves there when stopped: .partial files), stale once
+# the folder's reference is written anew; it would stop the next build (unique_kmers.tsv of other genes)
+# or shadow the new files (database.protal).
+BUILD_OUTPUTS = ("index.prx", "index.prx.zst", "reference.fna.zst", "unique_kmers.tsv", "database.protal",
+                 "build_metadata.tsv")
+
+
+def clear_build_outputs(folder):
+    for name in os.listdir(folder) if os.path.isdir(folder) else ():
+        path = os.path.join(folder, name)
+        if (name in BUILD_OUTPUTS or name.endswith(".partial")) and os.path.isfile(path):
+            os.remove(path)
+
+
 def exclude_from_db(src, dst, names):
     """Copy the converted database folder src (before protal --build) to dst, leaving out the marker genes
     of the species `names` from reference.fna, reference.map and full_reference.fna. The taxonomy keeps
-    them with the same taxids: truth files still name them, and a model trained on dst applies to src."""
+    them with the same taxids: truth files still name them, and a model trained on dst applies to src.
+    Only the files this script (and build_gtdb_database.py) wrote are copied, not what a build of src
+    wrote or left there; dst's own build outputs are removed."""
     fna = os.path.join(src, "reference.fna")
     if not os.path.isfile(fna):
         sys.exit(f"{src} has no reference.fna: exclude species before protal --build packs the database")
@@ -289,9 +309,12 @@ def exclude_from_db(src, dst, names):
         rows = [(f[0], f[3], f[4]) for f in (line.rstrip("\n").split("\t") for line in fh)]
     drop = species_taxids(rows, names, "--exclude_species")
     os.makedirs(dst, exist_ok=True)
-    for name in os.listdir(src):
-        if name not in ("reference.fna", "reference.map", "full_reference.fna") and os.path.isfile(os.path.join(src, name)):
+    clear_build_outputs(dst)
+    for name in CONVERTED_FILES:
+        if os.path.isfile(os.path.join(src, name)):
             shutil.copyfile(os.path.join(src, name), os.path.join(dst, name))
+        elif os.path.isfile(os.path.join(dst, name)):
+            os.remove(os.path.join(dst, name))
 
     def records(path):
         with open(path) as fh:
@@ -424,6 +447,7 @@ def main():
     drop = {int(t) for t in drop}
 
     os.makedirs(args.outdir, exist_ok=True)
+    clear_build_outputs(args.outdir)
     out = lambda name: os.path.join(args.outdir, name)
 
     with open(out("internal_taxonomy.dmp"), "w", newline="\n") as fh:
@@ -485,6 +509,8 @@ def main():
                 with open(chunk, "rb") as part:
                     shutil.copyfileobj(part, fh, 1 << 22)
                 n_full += count
+    elif os.path.isfile(out("full_reference.fna")):
+        os.remove(out("full_reference.fna"))  # of an earlier conversion; protal --build would take it
     shutil.rmtree(tmp, ignore_errors=True)
 
     if os.path.exists(args.model):
