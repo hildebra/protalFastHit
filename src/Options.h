@@ -83,7 +83,7 @@ namespace protal {
                 ("s,max_seed_size", "Max seed size after which seeding is stopped.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_SEED_SIZE)))
                 ("w,min_successful_lookups", "If the number of seeds is >=max_seed_size and the number of successful core-mer lookups is >= min_successful_lookups, stop looking for further seeds.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SUCCESSFUL_LOOKUPS)))
                 ("a,max_score_ani", "A max score makes an alignment stop if the alignment diverges too much. This parameter estimates the score for a given ani and is a tradeoff between speed/accuracy. Given, it applies to all read types; else ONT reads take 0.85 (their indels count twice).", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MAX_SCORE_ANI)))
-                ("x,x_drop", "Value determines when to cut of branches in the aligment process that are unpromising.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)));
+                ("x,x_drop", "X-drop of the alignment (WFA2), on top of its adaptive pruning: alignment branches whose score falls this far behind are cut. 0 turns it off. The default prunes nothing in practice; small values (50) lose alignments and change MAPQs.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)));
 
         // Profiling options
         options.add_options("Profiling")

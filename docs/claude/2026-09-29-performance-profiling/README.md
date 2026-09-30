@@ -294,6 +294,75 @@ Even if half of that were reference sequence, the index would hold over 100 time
 26.9M values (8 bytes each), more than the ~70 times estimated under [Gaps](#gaps); seeding and
 huge pages matter more there than this small database shows.
 
+## Follow-up: syncmers, where WFA spends its time, and --x_drop
+
+Same day, on `performance` after `bdc5790`, same machine and data.
+
+**Syncmers, prototype** (`scripts/bench_syncmer.cpp`, 500k reads of `mix`, one thread). It
+computes each read's 7-mers once per strand instead of 9 times per 31-mer window and finds the first
+minimum of a window branch-free (7-mer value packed with its index, both strands evaluated,
+the canonical one selected). The k-mer lists are identical to `SimpleKmerHandler<ClosedSyncmer>`'s
+for all 1.5M sequences tried (the reads, their reverse complements, and the reads with Ns):
+
+| | ns per read (150 bp) |
+|---|---:|
+| `SimpleKmerHandler` (current) | 2,530–2,740 |
+| 7-mers once, branching minimum | 1,890–2,060 (1.2–1.4×) |
+| 7-mers once, branch-free | 1,150–1,360 (2.1–2.4×) |
+
+The branching version gains little: the minimum and the canonical strand are data-dependent
+branches. Vectorising 8 windows at a time (AVX2) would be the next step; not tried.
+
+**Where WFA spends its time.** `scripts/wfa_calls.patch` logs every WFA call (outputs unchanged):
+50k pairs, one thread, `scripts/wfa_calls.sh`.
+
+| outcome | `w900` calls | ns/call | WFA time | `mix` calls | WFA time |
+|---|---:|---:|---:|---:|---:|
+| failed (score limit reached) | 46.7% | 5,534 | 66.3% | 75.3% | 86.4% |
+| aligned, >5 mismatches | 19.3% | 4,464 | 22.1% | 9.0% | 9.0% |
+| aligned, 2–5 mismatches | 15.9% | 1,286 | 5.2% | 7.4% | 2.1% |
+| aligned, internal indel | 4.0% | 4,121 | 4.2% | 1.9% | 1.7% |
+| aligned, 1 mismatch | 8.1% | 670 | 1.4% | 3.8% | 0.6% |
+| aligned, exact | 6.0% | 469 | 0.7% | 2.7% | 0.3% |
+
+68% (`w900`) and 85% (`mix`) of the anchors are one exact link, mostly 20–49 bp; 98% of the
+failed calls have 16 or more mismatches along their anchor's diagonal (relatives' genes, and in
+`mix` random reads). An ungapped fast path for reads with at most one mismatch would save about
+2% of WFA time: those calls are already cheap. The time goes into proving that anchors fail.
+
+**Anchored extension, prototype.** For single-link anchors, WFA extended from the two ends of the
+link instead of aligning the whole read in a window with dovetails: right of the link, then left
+(reversed), each with its far end free, the score limit shared between them, so a failing side
+stops the other. Next to the current alignment, for the same calls:
+
+| | `w900` | `mix` |
+|---|---:|---:|
+| single-link calls | 99,681 | 13,612 |
+| WFA time, current → anchored | 0.452 → 0.296 s (1.52×) | 0.067 → 0.045 s (1.50×) |
+| aligned by both: same score | 37,908 of 37,931 (99.94%) | 1,909 of 1,909 |
+| anchored better / worse | 23 / 0 | 0 / 0 |
+| aligned only by the current / only anchored | 0 / 7 | 0 / 2 |
+
+A real version also needs the CIGAR (left reversed + the link + right), multi-link anchors (the
+gaps between links aligned end to end) and the SAM position; its outputs would have to be checked
+against today's, as the scores differ in 0.06% of alignments (always better).
+
+**`--x_drop`** was parsed but never reached WFA2. It is now WFA2's X-drop on top of the
+wf-adaptive heuristic that stays on (0 turns it off). WFA2 alone does not suit protal's scoring
+(`scripts/xdrop_wfa2.cpp`: with a match scoring 0, X-drop alone aborted a 2 kb alignment at 2%
+divergence with 50 and an 8 kb one at 1% with 200). Added to wf-adaptive: 200k pairs of `w900` and
+`mix`, `-x 0`, the default 1000 and `-x 200` give byte-identical SAMs and profiles; `-x 50` reports
+the same species with abundances up to 0.007% (`w900`) and 0.36% (`mix`) apart, and changes 10,093
+SAM records of `w900` (45 fewer alignments, and MAPQs). The default costs 0.12% more instructions (callgrind, 20k pairs). With `-x 50`, WFA2
+reported one alignment complete whose operations held 151 read bases for a 150 bp read, and protal
+stopped (exit 90); the wrapper now counts such an alignment as dropped
+(`tests/test_WFA2Wrapper.cpp` has that read). X-drop does not make protal faster: it only prunes
+at steps where wf-adaptive did not.
+
+Calling WFA2 from unit tests showed that UBSan reports its unaligned 8-byte loads and left shifts
+of negative values, which stop CI's sanitizer job (`halt_on_error=1`); `lib/wfa2-lib.cmake` now
+builds WFA2 without UBSan (ASan stays on).
+
 ## Reproducing
 
 The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, default

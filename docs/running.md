@@ -112,7 +112,7 @@ calibrated with; change them for experiments, not for production profiles.
 | `-s, --max_seed_size` | 128 | seeding stops at this many seeds, if `-w` lookups have succeeded |
 | `-w, --min_successful_lookups` | 4 | successful core k-mer lookups needed before `-s` stops seeding |
 | `-a, --max_score_ani` | 0.9 | give up an alignment once it diverges below about this identity |
-| `-x, --x_drop` | 1000 | X-drop for pruning unpromising alignment branches |
+| `-x, --x_drop` | 1000 | X-drop of the alignment (WFA2), added to its adaptive pruning; 0 turns it off. The default prunes nothing in practice (outputs identical to `-x 0`); `-x 50` loses a few alignments and changes MAPQs |
 
 ### Developer options
 

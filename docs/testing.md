@@ -34,7 +34,9 @@ cmake --build build-asan --target protal_tests
 ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ctest --test-dir build-asan --output-on-failure
 ```
 
-UBSan reports of misaligned loads inside `lib/wfa2-lib` are known and harmless.
+WFA2-lib is built without UBSan (`-fno-sanitize=undefined` in `lib/wfa2-lib.cmake`; ASan stays
+on): its unaligned 8-byte loads and left shifts of negative offsets would otherwise stop every
+test that aligns.
 
 ## End-to-end tests
 
