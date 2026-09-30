@@ -81,9 +81,32 @@ By kind of species, median log2(reported / true), all species in the database:
   0.344 align (primary records) against 0.405 of the representative's at 2x100, and 0.401 against 0.425
   at 2x150 (`aligned_share.py`). That is seeding and `-a` (0.9 by default), not the depth rule.
 
+## The strain MSAs take reads by the same margin
+
+Until this change the MSA's rows took the reads within `--depth_identity_margin` of the best ones too
+(round 4, step N). The strain audit's runs A (one strain per species, 1–50x) and B (two strains per
+species, minor 2–50%), aligned and profiled by 0.7 at margins 0.04 and 0.08 (`scripts/strain_check.sh`,
+scored by the benchmark's copy of the audit's `evaluate.py`; run B by `scripts/mix_summary.py`):
+
+| | 0.04 | 0.08 |
+|---|---|---|
+| run A, 10x: called cells of strain rows after qcmsa | 0.941 | 0.921 |
+| run A, 10x: IUPAC codes in the raw MSA | 0.01% | 0.05% |
+| run A, 1x: false alternative calls per million | 499 | 584 |
+| run B: mixture sites called with both alleles, minor 20% / 30% / 50% | 0.71 / 0.92 / 0.98 | 0.72 / 0.94 / 0.99 |
+| run B: wrong calls per million where the two strains agree, raw MSA | 46–62 | 512–582 |
+| run B: the same after qcmsa | 10–23 | 24–38 |
+
+The wider margin lets a relative's reads (the world's congeners are ~7% apart) into the strain rows:
+10 times the false calls in the raw MSAs, about twice after qcmsa, which also removes 2% more cells.
+So the two thresholds are separate from here on: `--depth_identity_margin` 0.08 for the abundance, and
+a new `--msa_identity_margin` 0.04 for the MSA rows. With the new defaults, the MSAs of runs A and B are
+byte-identical to those of margin 0.04 (48 files), and only the profiles change.
+
 ## Recommendation
 
-Make 0.08 below the 98th percentile the default. It is within 0.003–0.005 of the best rule with every
+Make 0.08 below the 98th percentile the default for the abundance (done: `--depth_identity_margin`,
+with `--msa_identity_margin` keeping the MSAs at 0.04). It is within 0.003–0.005 of the best rule with every
 species in the database and the best with species missing, which is the case the margin exists for.
 The gene median is the better anchor for divergent strains alone, but a relative that outnumbers a
 species pulls it down; before it replaces the fixed margin, it needs a guard against that (e.g. the gene

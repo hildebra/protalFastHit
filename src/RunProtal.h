@@ -1551,7 +1551,8 @@ namespace protal {
                     auto ac = gene_obs.AlleleSNPCounts(min_cov, min_qual_sum);
                     // The gene from the taxon's own reads, as the MSA takes it; tmp_vec: the reads with a
                     // base per position, what the MSA judges each position by.
-                    auto item = strain.MSAItem(profile.GetTaxa().at(taxid).OwnIdentityThreshold(), min_cov, min_af,
+                    auto item = strain.MSAItem(profile.GetTaxa().at(taxid).IdentityThreshold(options.GetMSAIdentityMargin()),
+                                               min_cov, min_af,
                                                min_mean_qual, min_qual_sum, require_strand);
                     auto const& tmp_vec = item.second;
                     auto counts_vcov1 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 1);});

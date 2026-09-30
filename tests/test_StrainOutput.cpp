@@ -495,6 +495,26 @@ TEST(Abundance, DepthCountsOnlyTheTaxonsOwnReads) {
     EXPECT_NEAR(taxon.LowIdentityShare(), 0.0, 1e-9);
 }
 
+TEST(Abundance, TheMsaTakesReadsByAStricterMarginThanTheDepth) {
+    // Reads 5% below the best ones (a distant strain's, or a relative's) count towards the depth with
+    // the default margin (0.08); the strain MSA takes reads within --msa_identity_margin (0.04) only.
+    TinyReference ref;
+    std::string reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence());
+    profiler::MicrobialProfile profile(*ref.loader);
+    profile.SetDepthIdentityMargin(0.08);
+    auto own = MakeSam(reference.substr(0, 20), "20M", 1);
+    auto strain = MakeSam(reference.substr(20, 20), "19M1X", 21);  // identity 0.95
+    for (auto const* sam : { &own, &own, &strain, &strain }) {
+        ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0));
+    }
+    auto& taxon = profile.GetTaxa().at(1);
+    EXPECT_DOUBLE_EQ(taxon.TopIdentity(), 1.0);
+    EXPECT_NEAR(taxon.OwnIdentityThreshold(), 0.92, 1e-9);
+    EXPECT_NEAR(taxon.VerticalCoverage(true), 80.0 / 50, 1e-9);  // both kinds of reads
+    EXPECT_NEAR(taxon.IdentityThreshold(0.04), 0.96, 1e-9);       // the MSA's: the strain's reads out
+    EXPECT_EQ(taxon.IdentityThreshold(1), 0);
+}
+
 // tsl::sparse_map copies the values of a bucket on every insert into it unless they move without
 // throwing.
 static_assert(std::is_nothrow_move_constructible_v<profiler::Gene>);

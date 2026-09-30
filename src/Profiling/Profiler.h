@@ -707,8 +707,15 @@ namespace protal {
             // (absent from the database, or much more abundant) align at lower identity and would
             // inflate its depth. They still count for detection: the model's features use every read.
             double OwnIdentityThreshold() const {
-                if (m_depth_identity_margin >= 1 || PresentGenes() == 0) return 0;
-                return TopIdentity() - m_depth_identity_margin;
+                return IdentityThreshold(m_depth_identity_margin);
+            }
+
+            // The lowest identity of a read within `margin` of TopIdentity; 0 (every read) for a margin of 1
+            // or more. The strain MSA takes its reads with a stricter margin than the depth
+            // (--msa_identity_margin): a relative's reads that a wider margin admits add false alleles.
+            double IdentityThreshold(double margin) const {
+                if (margin >= 1 || PresentGenes() == 0) return 0;
+                return TopIdentity() - margin;
             }
 
             // Fragments with an accepted alignment: a read pair counts once, as it is one draw from the

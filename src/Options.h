@@ -99,7 +99,7 @@ namespace protal {
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
-                ("depth_identity_margin", "Reads count towards a species' abundance, and its strain MSA rows, when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
+                ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
                 ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_pb", "PMML model file for PacBio samples, given as --model. Default: --model if given, else the database's model_PB.xml.", cxxopts::value<std::string>()->default_value(""))
@@ -117,6 +117,7 @@ namespace protal {
                 ("msa_min_hcov", "Minimum non-N/non-'-' bases required per sequence to keep it in the MSA.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MSA_MIN_HCOV)))
                 ("msa_knob", "Model probability, 0 to 1, a sample's taxon needs for its reads to enter the taxon's strain MSA. Default: --knob, so the MSA holds the samples whose profile reports the taxon.", cxxopts::value<double>())
                 ("msa_min_depth", "Reads a position needs to be written in a strain MSA; with fewer it is '-'. Where all its reads show one allele, that many suffice; a second allele (an IUPAC code) needs --snp_min_cov reads of its own, and a site whose reads disagree otherwise is N.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MSA_MIN_DEPTH)))
+                ("msa_identity_margin", "Reads enter a species' strain MSA rows when their identity is at most this far below that of its best-matching reads (98th percentile), as for its abundance (--depth_identity_margin), but by default more strictly: a relative's reads within 0.08 of the best add false alleles (10 times the false calls before qcmsa, twice after). 1 lets every read in.", cxxopts::value<double>()->default_value("0.04"))
                 ("msa_species", "Restrict MSAs to a single species (s__Genus_species) or a comma-separated list.", cxxopts::value<std::string>()->default_value(""))
                 ("snp_max_alleles", "Maximum number of alleles at a position to encode as an IUPAC ambiguity code in the MSA. 1 = only the top allele (standard), 2 = encode two-allele mixtures (e.g. R,Y), 3 = also encode three-allele mixtures (e.g. B,H). Alleles are ranked by observation count; ties go to higher-quality allele.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_SNP_MAX_ALLELES)));
 
@@ -236,7 +237,8 @@ namespace protal {
         std::string read_type;  // --read_type as given (empty if not): the samples' (read_type_list) and --add_model's
         std::string add_model;
         double knob = 0.5;
-        double depth_identity_margin = 0.04;
+        double depth_identity_margin = 0.08;
+        double msa_identity_margin = 0.04;
 
         // alignment
         size_t threads = DEFAULT_THREADS;
@@ -337,7 +339,8 @@ namespace protal {
         std::string m_read_type;  // --read_type as given; empty if not
         std::string m_add_model;  // --add_model
         double m_knob = 0.5;
-        double m_depth_identity_margin = 0.04;
+        double m_depth_identity_margin = 0.08;
+        double m_msa_identity_margin = 0.04;
 
         size_t m_threads = DEFAULT_THREADS;
 
@@ -460,6 +463,7 @@ namespace protal {
                 m_add_model(std::move(d.add_model)),
                 m_knob(d.knob),
                 m_depth_identity_margin(d.depth_identity_margin),
+                m_msa_identity_margin(d.msa_identity_margin),
                 m_threads(d.threads),
                 m_align_top(d.align_top),
                 m_max_score_ani(d.max_score_ani),
@@ -579,6 +583,7 @@ namespace protal {
             result_str << "msa species:         " << Utils::join(m_msa_species, ",") << '\n';
             result_str << "msa min hcov:        " << std::to_string(m_msa_min_hcov) << '\n';
             result_str << "msa min depth:       " << std::to_string(m_msa_min_depth) << '\n';
+            result_str << "msa identity margin: " << std::to_string(m_msa_identity_margin) << '\n';
             result_str << "msa knob:            " << std::to_string(GetMSAKnob()) << (m_msa_knob ? "" : " (--knob)") << '\n';
             result_str << "---- Dev Options ----" << std::string(30, '-') << '\n';
             result_str << "verbose:             " << (m_verbose ? "yes" : "no") << '\n';
@@ -616,6 +621,10 @@ namespace protal {
 
         double GetDepthIdentityMargin() const {
             return m_depth_identity_margin;
+        }
+
+        double GetMSAIdentityMargin() const {
+            return m_msa_identity_margin;
         }
 
         // --add_model: the PMML file to store in the database as the model of AddModelReadType's reads.
@@ -1748,6 +1757,9 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             if (!(m_depth_identity_margin >= 0)) {
                 error_log.emplace_back("--depth_identity_margin must be 0 or more");
             }
+            if (!(m_msa_identity_margin >= 0)) {
+                error_log.emplace_back("--msa_identity_margin must be 0 or more");
+            }
             if (!(m_knob >= 0 && m_knob <= 1)) {
                 error_log.emplace_back("--knob must be between 0 and 1 (a probability)");
             }
@@ -2389,6 +2401,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.knob                     = result["knob"].as<double>();
             if (result.count("msa_knob")) d.msa_knob = result["msa_knob"].as<double>();
             d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
+            d.msa_identity_margin      = result["msa_identity_margin"].as<double>();
             d.model                    = result["model"].as<std::string>();
             d.model_se                 = result["model_se"].as<std::string>();
             d.model_pb                 = result["model_pb"].as<std::string>();
