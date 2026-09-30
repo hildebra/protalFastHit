@@ -2,7 +2,7 @@
 // seekable zstd (.sam.zst), with the header after the records or first; reading them back, and
 // telling a complete file from one cut at a block or frame boundary.
 #include <gtest/gtest.h>
-#include <zlib.h>
+#include <zlib-ng.h>
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -55,12 +55,12 @@ namespace {
     }
 
     std::string GzipRead(std::string const& path) {
-        gzFile f = gzopen(path.c_str(), "rb");
+        gzFile f = zng_gzopen(path.c_str(), "rb");
         std::string text;
         char buffer[1 << 16];
-        int n;
-        while ((n = gzread(f, buffer, sizeof(buffer))) > 0) text.append(buffer, static_cast<size_t>(n));
-        gzclose(f);
+        int32_t n;
+        while ((n = zng_gzread(f, buffer, sizeof(buffer))) > 0) text.append(buffer, static_cast<size_t>(n));
+        zng_gzclose(f);
         return text;
     }
 
@@ -170,7 +170,7 @@ TEST(SamFile, AHeaderGivenUpFrontIsWrittenFirst) {
     }
 }
 
-TEST(SamFile, GzipIsBgzfThatZlibReads) {
+TEST(SamFile, GzipIsBgzfThatZlibNgReads) {
     ScratchDir dir;
     auto const path = dir.File("out.sam.gz");
     std::vector<std::string> blocks;
@@ -196,7 +196,7 @@ TEST(SamFile, GzipIsBgzfThatZlibReads) {
     EXPECT_EQ(bytes.compare(bytes.size() - 28, 28, reinterpret_cast<char const*>(bgzf::kEof), 28), 0);
     EXPECT_TRUE(bgzf::StartsAsBgzf(path));
     EXPECT_TRUE(bgzf::EndsWithEof(path));
-    // zlib's gzread (what protal's gzip reader and zcat use) reads all members.
+    // zlib-ng's gzread (protal's reader for gzip that is not BGZF) reads all members, as zcat does.
     auto const text = GzipRead(path);
     ASSERT_EQ(text.substr(0, kHeader.size()), kHeader);
     ExpectBlocks(text.substr(kHeader.size()), blocks);
@@ -265,7 +265,7 @@ TEST(SamFile, AFileCutAtABlockOrFrameBoundaryIsIncomplete) {
     fs::resize_file(zst, last.compressed_offset + last.compressed_size);
     EXPECT_NE(SamInput(zst).Problem(), "");
 
-    // Cut inside a block or frame, zlib and zstd notice while reading.
+    // Cut inside a block or frame, the gzip reader and zstd notice while reading.
     for (auto const& path : { gz, zst }) {
         fs::resize_file(path, fs::file_size(path) / 2);
         SamInput input(path);
@@ -277,9 +277,9 @@ TEST(SamFile, AFileCutAtABlockOrFrameBoundaryIsIncomplete) {
     // A gzip file from another tool (one member, no BGZF) is complete without the EOF block.
     auto const plain_gz = dir.File("other.sam.gz");
     {
-        gzFile f = gzopen(plain_gz.c_str(), "wb");
-        gzwrite(f, kHeader.data(), static_cast<unsigned>(kHeader.size()));
-        gzclose(f);
+        gzFile f = zng_gzopen(plain_gz.c_str(), "wb");
+        zng_gzwrite(f, kHeader.data(), static_cast<uint32_t>(kHeader.size()));
+        zng_gzclose(f);
     }
     EXPECT_EQ(SamInput(plain_gz).Problem(), "");
     EXPECT_EQ(ReadBack(plain_gz), kHeader);

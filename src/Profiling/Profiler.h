@@ -1834,7 +1834,7 @@ namespace protal {
                 if (!input.Problem().empty()) return "the file is truncated or corrupt (" + input.Problem() + ")";
                 std::istream& file = input.Stream();
                 SamReader reader(file, [this](std::string const& line) { CheckReference(line); });
-                // zlib and zstd read a truncated or corrupt file as one that ends early.
+                // The gzip readers and zstd read a truncated or corrupt file as one that ends early.
                 auto truncated = [&input]() {
                     return "the file is truncated or corrupt (" + input.ReadError() + ")";
                 };

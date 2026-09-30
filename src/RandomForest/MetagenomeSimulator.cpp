@@ -11,7 +11,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <zlib.h>
 
 #include "../Utilities/Benchmark.h"
 #include "../Utilities/Compressor.h"
@@ -405,7 +404,7 @@ static std::uint64_t read_genome_length(const fs::path& fasta_path) {
     };
 
     if (fasta_path.extension() == ".gz") {
-        // BGZF with libdeflate, other gzip with zlib (ThreadedGzStream.h).
+        // BGZF with libdeflate, other gzip with zlib-ng (ThreadedGzStream.h).
         protal::ThreadedGzIstream input(fasta_path.string().c_str());
         if (!input.rdbuf()->is_open()) {
             throw std::runtime_error("Unable to open compressed fasta: " + fasta_path.string());

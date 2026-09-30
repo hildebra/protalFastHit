@@ -25,24 +25,26 @@ for clusters where conda is not an option or where compute nodes differ from the
 installed the software. qcmsa is `scripts/qcmsa.py` of the source (or run protal with
 `--no_qcmsa`).
 
-To build them yourself (needs the static libraries of zlib, zstd and libdeflate):
+To build them yourself (needs the static libraries of zstd and libdeflate):
 
 ```bash
 just static        # -> build/protal_<version>_static, build/simulate_metagenomes_static
 ```
 
-They are compiled for plain x86-64 (SSE2), so they run on any x86-64 CPU.
+They are compiled for plain x86-64 (SSE2), so they run on any x86-64 CPU (zlib-ng, the gzip
+library, picks faster instructions at run time where the CPU has them).
 
 ## Building from source
 
 Requirements: CMake 3.22 or later, a C++20 compiler with OpenMP (GCC 13 and 14 are tested),
-zlib, zstd and libdeflate development files. On Ubuntu:
+zstd and libdeflate development files. On Ubuntu:
 
 ```bash
-sudo apt-get install cmake ninja-build g++ zlib1g-dev libzstd-dev libdeflate-dev python3
+sudo apt-get install cmake ninja-build g++ libzstd-dev libdeflate-dev python3
 ```
 
-All other libraries (WFA2-lib, cPMML, gzstream, robin-map, ...) are in `lib/`. Then:
+All other libraries (zlib-ng, WFA2-lib, cPMML, gzstream, robin-map, ...) are in `lib/` and built
+with protal; no system zlib is needed. Then:
 
 ```bash
 git clone https://github.com/4less/protal.git

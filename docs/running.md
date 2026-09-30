@@ -93,7 +93,7 @@ alignment. Workflow managers can rely on a non-zero status.
 
 | Option | Default | |
 |---|---|---|
-| `-t, --threads` | 1 | threads for alignment (which also compresses the SAM), database loading and profiling. Set it: the default is one thread. While aligning, each read file is also decompressed by a thread of its own (two for paired reads); BGZF files (`bgzip`, `simulate_metagenomes`) decompress about 3x faster than other gzip files (libdeflate against zlib) |
+| `-t, --threads` | 1 | threads for alignment (which also compresses the SAM), database loading and profiling. Set it: the default is one thread. While aligning, each read file is also decompressed by a thread of its own (two for paired reads); BGZF files (`bgzip`, `simulate_metagenomes`) decompress about 2x faster than other gzip files (libdeflate against zlib-ng) |
 | `--knob` | 0.5 | detection threshold, 0 to 1 (checked). Choose it on data like yours; see [model-training.md](model-training.md) |
 | `--depth_identity_margin` | 0.04 | a read counts towards a species' abundance only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth. 1 lets every read count |
 | `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [model-training.md](model-training.md) |

@@ -102,11 +102,11 @@ target_link_options(simulate_metagenomes_static PRIVATE -static -static-libgcc -
 
 
 # Link to cmake file in src
-target_link_libraries(protal PRIVATE protal_lib dl z isa_baseline)
-target_link_libraries(protal_static PRIVATE protal_lib_static dl z isa_baseline)
-target_link_libraries(protal_avx2 PRIVATE protal_lib dl z isa_avx2)
-target_link_libraries(simulate_metagenomes PRIVATE protal_lib dl z isa_baseline)
-target_link_libraries(simulate_metagenomes_static PRIVATE protal_lib_static dl z isa_baseline)
+target_link_libraries(protal PRIVATE protal_lib dl isa_baseline)
+target_link_libraries(protal_static PRIVATE protal_lib_static dl isa_baseline)
+target_link_libraries(protal_avx2 PRIVATE protal_lib dl isa_avx2)
+target_link_libraries(simulate_metagenomes PRIVATE protal_lib dl isa_baseline)
+target_link_libraries(simulate_metagenomes_static PRIVATE protal_lib_static dl isa_baseline)
 
 add_subdirectory(src/)
 

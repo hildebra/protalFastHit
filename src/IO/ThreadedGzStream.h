@@ -2,7 +2,7 @@
 
 #include <fcntl.h>
 #include <unistd.h>
-#include <zlib.h>
+#include <zlib-ng.h>
 
 #include <cerrno>
 #include <condition_variable>
@@ -28,8 +28,8 @@ namespace protal {
     // inflated the input, which capped a run at one core's inflate speed (~200k read pairs/s)
     // whatever -t was. Here the lock holder only copies bytes that are already inflated, and the
     // two files of a pair inflate in parallel. A BGZF file (Bgzf.h: bgzip's, protal's) is
-    // inflated block by block with libdeflate, about 3x faster; any other file with zlib, which
-    // streams (libdeflate cannot).
+    // inflated block by block with libdeflate; any other file with zlib-ng (lib/zlib-ng.cmake),
+    // which streams (libdeflate cannot).
     //
     // As with igzstream, a truncated or corrupt file reads as one that ends early; read_failed()
     // tells the two apart once reading has stopped. A BGZF file must end with its end-of-file
@@ -39,7 +39,7 @@ namespace protal {
     public:
         static constexpr size_t kBlockSize = size_t{1} << 20;  // inflated bytes per block
         static constexpr size_t kBlocks = 4;
-        static constexpr unsigned kZlibBuffer = 1u << 17;      // compressed bytes per read()
+        static constexpr uint32_t kZlibBuffer = 1u << 17;      // compressed bytes per read()
 
         ThreadedGzStreambuf() = default;
         ThreadedGzStreambuf(ThreadedGzStreambuf const&) = delete;
@@ -56,9 +56,9 @@ namespace protal {
                 m_offset = 0;
                 m_last_empty = false;
             } else {
-                m_file = gzopen(path, "rb");
+                m_file = zng_gzopen(path, "rb");
                 if (!m_file) return false;
-                gzbuffer(m_file, kZlibBuffer);
+                zng_gzbuffer(m_file, kZlibBuffer);
             }
             m_blocks.assign(kBlocks, std::vector<char>(kBlockSize));
             m_free.clear();
@@ -83,7 +83,7 @@ namespace protal {
             }
             m_cv.notify_all();
             if (m_thread.joinable()) m_thread.join();
-            if (m_file) gzclose(m_file);
+            if (m_file) zng_gzclose(m_file);
             if (m_fd >= 0) ::close(m_fd);
             m_file = nullptr;
             m_fd = -1;
@@ -91,7 +91,7 @@ namespace protal {
             m_blocks.clear();
         }
 
-        // zlib reports a truncated or corrupt file as the end of the file; this tells them apart.
+        // zlib-ng reports a truncated or corrupt file as the end of the file; this tells them apart.
         bool read_failed() const {
             std::lock_guard<std::mutex> lock(m_mutex);
             return !m_error.empty();
@@ -178,14 +178,14 @@ namespace protal {
                     end = FillBgzf(data, size, error);
                 } else {
                     while (size < kBlockSize) {
-                        int const n = gzread(m_file, data + size, static_cast<unsigned>(kBlockSize - size));
+                        int32_t const n = zng_gzread(m_file, data + size, static_cast<uint32_t>(kBlockSize - size));
                         if (n > 0) {
                             size += static_cast<size_t>(n);
                             continue;
                         }
                         // A gzip file that ends early reads as a normal end of file, but leaves Z_BUF_ERROR.
-                        int errnum = Z_OK;
-                        char const* message = gzerror(m_file, &errnum);
+                        int32_t errnum = Z_OK;
+                        char const* message = zng_gzerror(m_file, &errnum);
                         if (n < 0 || errnum != Z_OK) error = (message && *message) ? message : "read error";
                         end = true;
                         break;

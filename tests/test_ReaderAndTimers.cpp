@@ -101,6 +101,31 @@ namespace {
     }
 }
 
+// gzip that is not BGZF (as sequencers write it) is inflated with zlib-ng, also when protal did not
+// write it: here libdeflate writes it, as one member and as several (all members are read).
+TEST(ThreadedGzStream, ReadsGzipOfAnotherWriter) {
+    ScratchDir dir;
+    auto const content = Fastq(20000, "g");  // ~6 MB, several blocks
+    auto gzip = [](std::string_view text) {
+        libdeflate_compressor* compressor = libdeflate_alloc_compressor(6);
+        std::string out(libdeflate_gzip_compress_bound(compressor, text.size()), '\0');
+        out.resize(libdeflate_gzip_compress(compressor, text.data(), text.size(), out.data(), out.size()));
+        libdeflate_free_compressor(compressor);
+        return out;
+    };
+    std::string const one = gzip(content);
+    std::string several;
+    for (size_t from = 0; from < content.size(); from += 1000003) several += gzip(std::string_view(content).substr(from, 1000003));
+    for (auto const& [name, bytes] : { std::pair{ "one.fq.gz", one }, std::pair{ "several.fq.gz", several } }) {
+        SCOPED_TRACE(name);
+        auto const path = dir.Plain(name, bytes);
+        ASSERT_FALSE(bgzf::StartsAsBgzf(path));
+        ThreadedGzIstream is(path.c_str());
+        EXPECT_EQ(ReadAllOf(is), content);
+        EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+    }
+}
+
 TEST(ThreadedGzStream, ReadsABgzfFileBlockByBlock) {
     ScratchDir dir;
     auto const content = Fastq(40000, "b");  // ~12 MB: ~200 BGZF blocks, several output blocks

@@ -33,7 +33,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <zlib.h>
+#include <zlib-ng.h>  // protal: zlib-ng's native API (zng_gz*), its only gzip library
 
 #ifdef GZSTREAM_NAMESPACE
 namespace GZSTREAM_NAMESPACE {
@@ -52,7 +52,7 @@ private:
     char             buffer[bufferSize]; // data buffer
     char             opened;             // open/close state of stream
     int              mode;               // I/O mode
-    std::string      read_error;         // why reading stopped early, if it did (zlib's message)
+    std::string      read_error;         // why reading stopped early, if it did (zlib-ng's message)
 
     int flush_buffer();
 public:
@@ -64,7 +64,7 @@ public:
         // ASSERT: both input & output capabilities will not be used together
     }
     int is_open() { return opened; }
-    // zlib reports a truncated or corrupt file as the end of the file; this tells them apart.
+    // zlib-ng reports a truncated or corrupt file as the end of the file; this tells them apart.
     bool read_failed() const { return !read_error.empty(); }
     const std::string& read_error_message() const { return read_error; }
     gzstreambuf* open( const char* name, int open_mode);

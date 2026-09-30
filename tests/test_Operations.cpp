@@ -1,7 +1,7 @@
 // Unit tests for run-level plumbing: the failure collector behind the exit code, and in-place
 // compression of the simulator's reads (BGZF, reproducible output).
 #include <gtest/gtest.h>
-#include <zlib.h>
+#include <zlib-ng.h>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -30,14 +30,14 @@ namespace {
         return std::string(std::istreambuf_iterator<char>(in), {});
     }
 
-    // A gzip file's content as zlib (zcat, gzip) reads it.
+    // A gzip file's content as a reader other than libdeflate reads it (zlib-ng; zcat reads the same).
     std::string Gunzip(fs::path const& p) {
-        gzFile f = gzopen(p.c_str(), "rb");
+        gzFile f = zng_gzopen(p.c_str(), "rb");
         std::string text;
         char buffer[1 << 16];
-        int n;
-        while ((n = gzread(f, buffer, sizeof(buffer))) > 0) text.append(buffer, static_cast<size_t>(n));
-        gzclose(f);
+        int32_t n;
+        while ((n = zng_gzread(f, buffer, sizeof(buffer))) > 0) text.append(buffer, static_cast<size_t>(n));
+        zng_gzclose(f);
         return text;
     }
 

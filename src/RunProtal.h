@@ -328,7 +328,7 @@ namespace protal {
                     if (options.Verbose()) {
                         protal_stats.WriteStats();
                     }
-                    // zlib reads a truncated or corrupt gzip file as one that ends early.
+                    // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is.rdbuf()->read_failed();
                     read_success = reader.Success();
                     is.close();
@@ -351,7 +351,7 @@ namespace protal {
                     if (options.Verbose()) {
                         protal_stats.WriteStats();
                     }
-                    // zlib reads a truncated or corrupt gzip file as one that ends early.
+                    // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is.rdbuf()->read_failed();
                     read_success = reader.Success();
                     is.close();
@@ -392,7 +392,7 @@ namespace protal {
                             protal_stats.WriteStats();
                         }
                     }
-                    // zlib reads a truncated or corrupt gzip file as one that ends early.
+                    // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed();
                     read_success = reader.Success();
                     is1.close();

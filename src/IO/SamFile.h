@@ -12,9 +12,9 @@
 // written first and the records follow it directly.
 //
 // Reading (SamInput): a plain, gzip (BGZF or not) or zstd file as a std::istream, with the checks
-// that it is complete: zlib's and zstd's own, and the end markers of the formats written here,
-// which a file cut exactly at a block or frame boundary lacks: BGZF's end-of-file block, and the
-// seek table of a .sam.zst that starts with protal's marker frame.
+// that it is complete: the gzip readers' and zstd's own, and the end markers of the formats
+// written here, which a file cut exactly at a block or frame boundary lacks: BGZF's end-of-file
+// block, and the seek table of a .sam.zst that starts with protal's marker frame.
 #pragma once
 
 #include <fcntl.h>
@@ -434,7 +434,7 @@ namespace protal {
                 if (!m_zbuf->IsOpen()) m_zin->setstate(std::ios_base::badbit);
                 m_stream = m_zin.get();
             } else {
-                // Plain or gzip: BGZF inflated with libdeflate, other gzip with zlib, in a thread of its own.
+                // Plain or gzip: BGZF inflated with libdeflate, other gzip with zlib-ng, in a thread of its own.
                 if (bgzf::StartsAsBgzf(path) && !bgzf::EndsWithEof(path)) m_problem = "the BGZF end-of-file block is missing";
                 m_gz = std::make_unique<ThreadedGzIstream>(path.c_str());
                 m_stream = m_gz.get();

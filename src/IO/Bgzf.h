@@ -4,9 +4,9 @@
 // gzip members of at most 64 KB, each with its size in a "BC" extra field, then an empty member
 // as end-of-file marker. zcat, gzip and zlib read it as any multi-member gzip file; htslib reads
 // its blocks independently. Every block is compressed and decompressed whole, which is what
-// libdeflate does (about 3x zlib's speed at the same ratio, but it cannot stream). Other gzip files,
-// e.g. the single-member .fq.gz of sequencers, are read with zlib's streaming inflate
-// (ThreadedGzStream.h).
+// libdeflate does (inflating about 3x as fast as zlib and 2x as fast as zlib-ng, but it cannot
+// stream). Other gzip files, e.g. the single-member .fq.gz of sequencers, are read with zlib-ng's
+// streaming inflate (ThreadedGzStream.h).
 #pragma once
 
 #include <libdeflate.h>

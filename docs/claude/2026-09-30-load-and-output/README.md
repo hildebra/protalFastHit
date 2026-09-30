@@ -446,6 +446,69 @@ input (bgzip, protal's simulator) libdeflate inflates ~3× faster (above). The a
 (plain), too noisy on this machine for more than "not slower". Every output of 200k pairs of `w900`
 and `mix`, at 1 and 8 threads, as before.
 
+## Follow-up: zlib-ng replaces zlib (#6)
+
+2026-09-30, on `performance` after `d4105e8`. zlib-ng rather than ISA-L, for portability (ISA-L's
+fast paths are assembly for x86-64 and aarch64, built with nasm) and the static build; the only
+gzip path, no zlib fallback.
+
+**What changed.** zlib-ng 2.3.3 is vendored in `lib/zlib-ng` (the release tarball, sha256
+`f9c65aa9…07d1`, as conda-forge packages it, without `test/` and `doc/`: 228 files, 2.5 MB) and
+built by `lib/zlib-ng.cmake` with upstream's own CMakeLists.txt: a static `libz-ng.a` with the
+native API (`zlib-ng.h`, `zng_*`), runtime CPU detection (SSE2 to AVX-512 variants chosen at run
+time, no `-march=native`), no tests (they would fetch googletest), no install rules. Upstream's CMake
+target does not pass `WITH_GZFILEOP` on to its users, which `zlib-ng.h` needs for the `gzFile`
+functions; `lib/zlib-ng.cmake` adds it. Everything that used zlib now uses zlib-ng: the gzip input
+that is not BGZF (`ThreadedGzStreambuf`), `gzstream` (`igzstream`/`ogzstream`) and the tests. zlib
+is gone from the build (`find_package(ZLIB)`, `-lz`), from CI (`zlib1g-dev`) and from the conda
+recipe; zlib-ng needs nothing new, as it is built with protal and linked in. With the native API a
+leftover `#include <zlib.h>` or `gzopen()` would fail to compile or link instead of silently using
+a system zlib. Updating it: replace `lib/zlib-ng` with a new release (less `test/`, `doc/`) and
+update the version and sha256 in `lib/zlib-ng.cmake`.
+
+**Checks.** A fresh configure and build as CI does: no compile unit reads the system `zlib.h`
+(`ninja -t deps`), no link command has `-lz`; `ldd` lists no `libz` for `protal`, `protal_avx2`,
+`simulate_metagenomes` or the tests; the static binaries link, and the static `protal` gives every
+output of 200k pairs of `w900` (`.fq.gz`, 8 threads) as before. Unit tests 167/167 (new: gzip that
+libdeflate wrote, one member and several, read through zlib-ng), also in CI's sanitizer
+configuration (Debug, ASan + UBSan, zlib-ng compiled with them too); e2e 93/93; every output of
+200k pairs of `w900` and `mix`, at 1 and 8 threads, as before; the SAM records of 1M pairs of `mix`
+identical.
+
+**Speed.** This time the laptop was on mains power and idle (load 0.05–2.7): everything ran 3–6×
+faster than in the sections above, so compare within this section only.
+
+| inflate, 1 thread (`bench_inflate.cpp`) | `mix` R1 (99 → 327 MB) | `w900` R1 (97 → 336 MB) |
+|---|---:|---:|
+| zlib 1.3, `gzread` | 393–403 MB/s | 419–421 MB/s |
+| zlib-ng 2.3.3, `zng_gzread` | 611–668 MB/s | 678–697 MB/s |
+| libdeflate 1.19, the whole file in memory (BGZF's library) | 1247–1263 MB/s | 1259–1320 MB/s |
+
+zlib-ng inflates 1.5–1.7× as fast as zlib; libdeflate, which protal uses for BGZF input, is still
+~1.9× faster, so BGZF input keeps its advantage.
+
+| the reader alone, `.fq.gz`, pairs/s (`bench_reader.cpp`) | 1 thread | 4 threads | 8 threads |
+|---|---:|---:|---:|
+| zlib (`d4105e8`) | 1.22M | 1.10–1.13M | 0.89–0.96M |
+| zlib-ng | 1.93–1.94M | 1.70–1.81M | 1.39–1.46M |
+
+From plain files the reader is unchanged (6.3–6.6M pairs/s at 1 thread).
+
+The alignment stage, 1M pairs of `mix` from `.fq.gz`, 8 threads, `--no_profile`, six alternated
+runs per build:
+
+| | zlib (`d4105e8`) | zlib-ng |
+|---|---:|---:|
+| Aligning reads | 1.83–2.76 s | 1.49–2.22 s |
+| wall (start-up included) | 2.39–3.60 s | 1.98–2.72 s |
+| user CPU | 15.8–24.2 s | 13.4–18.7 s |
+| reader time per thread (incl. waiting for the lock) | 0.42–0.67 s | 0.16–0.29 s |
+
+Most of the gain is waiting that is gone: with zlib the lock holder waited for inflated bytes while
+the others waited for the lock (likely spinning for part of it, as user CPU fell as well). An ordinary `.fq.gz` still inflates
+at about half BGZF's speed, one thread per file; going further would need parallel inflating of
+single-member gzip, which no library here does.
+
 ## Reproducing
 
 The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, `BIN`, `PROTAL_SRC`,
@@ -469,4 +532,8 @@ bash scripts/gene_arena.sh OLD_CHECKOUT NEW_CHECKOUT 2000000
 # follow-up #5: the reader alone before and after (checkouts 94f6a12 and after), plain and gzipped
 bash scripts/reader_lock.sh OLD_CHECKOUT NEW_CHECKOUT $PERF_DIR/reads/mix_plain/mix_R{1,2}.fq \
     $PERF_DIR/reads/mix/mix_R1.fq.gz $PERF_DIR/reads/mix/mix_R2.fq.gz
+# follow-up #6: zlib, zlib-ng and libdeflate inflating; the reader before (d4105e8) and after zlib-ng
+ZNG_BUILD=NEW_BUILD/zlib-ng bash scripts/inflate_libs.sh $PERF_DIR/reads/mix/mix_R1.fq.gz W900_R1.fq.gz
+ZNG_BUILD=NEW_BUILD/zlib-ng bash scripts/reader_lock.sh OLD_CHECKOUT NEW_CHECKOUT \
+    $PERF_DIR/reads/mix_plain/mix_R{1,2}.fq $PERF_DIR/reads/mix/mix_R1.fq.gz $PERF_DIR/reads/mix/mix_R2.fq.gz
 ```

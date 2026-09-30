@@ -13,7 +13,6 @@ requirements:
     - gcc_linux-64 >=14.2.0
     - gxx_linux-64 >=14.2.0
     - libgomp >=14.2.0
-    - zlib
     - zstd    # compressed database files (index.prx.zst, reference.fna.zst), .sam.zst
     - libdeflate    # gzip as protal writes it (BGZF .sam.gz, simulated reads) and BGZF input
   run:

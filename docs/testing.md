@@ -36,7 +36,7 @@ ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 cte
 
 WFA2-lib is built without UBSan (`-fno-sanitize=undefined` in `lib/wfa2-lib.cmake`; ASan stays
 on): its unaligned 8-byte loads and left shifts of negative offsets would otherwise stop every
-test that aligns.
+test that aligns. zlib-ng (`lib/zlib-ng`) is built with both sanitizers.
 
 ## End-to-end tests
 
