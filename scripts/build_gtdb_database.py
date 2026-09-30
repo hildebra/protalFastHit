@@ -37,7 +37,8 @@ data, an independent test set of another design (--test-*: other depths,
 community sizes, abundances and strain mixes) is profiled and scored by each
 model: cross-validation on the training data cannot show what its design lacks.
 
-OUT_DIR/model_logs/ collects what tells whether the models are good: each read
+OUT_DIR/model_logs/ collects what tells whether the models are good: summary.txt
+(TP, FP, TN, FN, sensitivity, specificity, precision and F1 of each model), each read
 type's training report (how it does on species and clades it was not trained on,
 on the independent test set, false positive and false negative rates by rank,
 against the previous model and training procedure), its numbers as JSON, the
@@ -298,6 +299,37 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
                                    f"{species_cv.get('FP_per_sample')}; independent test F1 {test.get('F1')}, FP per "
                                    f"sample {test.get('FP_per_sample')}"))
     return rows
+
+
+def summary_lines(read_types, prefixes, db):
+    """model_logs/summary.txt: for each read type's model, TP, FP, TN, FN and the rates, with species held
+    out in training (cross-validation) and on the independent test set, from its .metrics.json."""
+    header = ("read type", "evaluated on", "taxa", "TP", "FP", "TN", "FN", "sensitivity", "specificity",
+              "precision", "F1", "FP/sample")
+    rows = []
+    for t in read_types:
+        try:
+            with open(prefixes[t] + ".metrics.json") as fh:
+                metrics = json.load(fh)
+        except (OSError, ValueError):
+            rows.append((t, "no metrics (training failed?)") + ("",) * (len(header) - 2))
+            continue
+        for label, m in (("species held out", metrics.get("evaluation", {}).get("species")),
+                         ("independent test set", metrics.get("test", {}).get("this one"))):
+            if not m:
+                continue
+            tp, fn, fp = m["present"] - m["FN"], m["FN"], m["FP"]
+            tn = m["taxa"] - m["present"] - fp
+            rate = lambda v: "-" if v is None else f"{v:.4f}"
+            rows.append((t, label, str(m["taxa"]), str(tp), str(fp), str(tn), str(fn), rate(m.get("sensitivity")),
+                         rate(tn / (tn + fp) if tn + fp else None), rate(m.get("precision")), rate(m.get("F1")),
+                         "-" if m.get("FP_per_sample") is None else f"{m['FP_per_sample']:.2f}"))
+    widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))]
+    table = ["  ".join(str(v).ljust(w) for v, w in zip(r, widths)).rstrip() for r in [header, *rows]]
+    return [f"Presence models of {db}, taxa scored at knob 0.5: TP present and called, FP absent and called, TN "
+            "absent and not called, FN present and not called. species held out: each taxon scored by forests "
+            "that did not see its species; independent test set: samples of another design, scored by the "
+            "final model. Details: trained_model*.report.txt", ""] + table
 
 
 def build_command(protal, db, threads, *extra):
@@ -621,6 +653,10 @@ def main():
         fh.write("".join(f"{k}\t{v}\n" for k, v in provenance(args, release, genome_table, heldout, n_heldout,
                                                                   read_types, prefixes)))
     shutil.copy(os.path.join(db, "build_metadata.tsv"), logs)
+    summary = summary_lines(read_types, prefixes, db)
+    with open(os.path.join(logs, "summary.txt"), "w") as fh:
+        fh.write("\n".join(summary) + "\n")
+    print("\n".join(summary), flush=True)
     print(f"Ready protal database: {db}", flush=True)
     print(f"Model evaluation: {logs} (start with trained_model.report.txt, and trained_model_<read type>.report.txt)",
           flush=True)
