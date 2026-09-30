@@ -51,10 +51,10 @@ namespace protal {
 
     class VariantHandler {
         Variants m_variants;
-        // Reads that cover a position without a base there, per strand (forward, reverse): an N in
-        // the read or the reference, or inside a deletion after its first position. They support no
-        // allele, so they are not taken for reference support.
-        tsl::robin_map<VariantPos, std::array<uint32_t, 2>> m_no_base;
+        // Reads that cover a position without a base there: an N in the read or the reference, or
+        // inside a deletion after its first position. They support no allele, so they are not taken
+        // for reference support. One byte per read: its strand (bit 7) and divergence (bits 0-6).
+        tsl::robin_map<VariantPos, std::vector<uint8_t>> m_no_base;
         const std::string& m_reference;
 
     public:
@@ -65,7 +65,7 @@ namespace protal {
         // Drops all variants and frees their memory.
         void Clear() {
             Variants{}.swap(m_variants);
-            tsl::robin_map<VariantPos, std::array<uint32_t, 2>>{}.swap(m_no_base);
+            tsl::robin_map<VariantPos, std::vector<uint8_t>>{}.swap(m_no_base);
         }
 
         // Phred score of a Sanger/Illumina 1.8+ (Phred+33) quality character. Characters below the
@@ -89,7 +89,7 @@ namespace protal {
             });
         }
 
-        Variant& GetVariant(VariantBin& variant_bin, VariantPos pos, Base snp, Base ref) {
+        static Variant& GetVariant(VariantBin& variant_bin, VariantPos pos, Base snp, Base ref) {
             for (auto& variant :  variant_bin) {
                 if (variant.Match(pos, snp, ref)) {
                     return variant;
@@ -108,7 +108,7 @@ namespace protal {
             return m_reference;
         }
 
-        Variant& GetVariant(VariantBin& variant_bin, VariantType type, VariantPos pos, Base ref, std::string& structural) {
+        static Variant& GetVariant(VariantBin& variant_bin, VariantType type, VariantPos pos, Base ref, std::string& structural) {
             for (auto& variant :  variant_bin) {
                 if (variant.Match(type, pos, structural)) {
                     return variant;
@@ -122,34 +122,39 @@ namespace protal {
             return m_variants;
         }
 
-        // Reads without a base at `pos` (see m_no_base): one strand, or both.
-        uint32_t NoBase(VariantPos pos, int strand = SequenceRange::kBothStrands) const {
+        // Reads without a base at `pos` (see m_no_base): one strand, or both; with max_divergence,
+        // only reads of at most that divergence.
+        uint32_t NoBase(VariantPos pos, int strand = SequenceRange::kBothStrands, uint8_t max_divergence = 127) const {
             auto it = m_no_base.find(pos);
             if (it == m_no_base.end()) return 0;
-            if (strand == SequenceRange::kForward) return it->second[0];
-            if (strand == SequenceRange::kReverse) return it->second[1];
-            return it->second[0] + it->second[1];
+            uint32_t n = 0;
+            for (auto read : it->second) {
+                bool const forward = read & 0x80;
+                if ((read & 0x7f) > max_divergence) continue;
+                if (strand == SequenceRange::kBothStrands || forward == (strand == SequenceRange::kForward)) n++;
+            }
+            return n;
         }
 
-        const tsl::robin_map<VariantPos, std::array<uint32_t, 2>>& GetNoBase() const {
+        const tsl::robin_map<VariantPos, std::vector<uint8_t>>& GetNoBase() const {
             return m_no_base;
         }
 
-        void AddSNP(VariantPos position, Base snp, Base ref, bool on_forward, Qual quality) {
+        void AddSNP(VariantPos position, Base snp, Base ref, bool on_forward, Qual quality, uint8_t divergence = 0) {
             if (!HasVariantBin(position)) m_variants.insert({position, VariantBin() });
             auto& variant_bin = GetVariantBin(position);
             auto& variant = GetVariant(variant_bin, position, snp, ref);
-            variant.AddObservation(quality, on_forward);
+            variant.AddObservation(quality, on_forward, divergence);
         }
 
-        void AddINDEL(VariantType type, VariantPos position, Base ref, std::string&& structural, bool on_forward, Qual quality) {
+        void AddINDEL(VariantType type, VariantPos position, Base ref, std::string&& structural, bool on_forward, Qual quality, uint8_t divergence = 0) {
             auto& variant_bin = HasVariantBin(position) ? GetVariantBin(position) : m_variants[position];
             auto& variant = GetVariant(variant_bin, type, position, ref, structural);
-            variant.AddObservation(quality, on_forward);
+            variant.AddObservation(quality, on_forward, divergence);
         }
 
-        void AddNoBase(VariantPos position, bool on_forward) {
-            m_no_base[position][on_forward ? 0 : 1]++;
+        void AddNoBase(VariantPos position, bool on_forward, uint8_t divergence = 0) {
+            m_no_base[position].push_back(static_cast<uint8_t>((on_forward ? 0x80 : 0) | (divergence & 0x7f)));
         }
 
         // A terminal segment of an alignment, before its first (after its last) run of kAnchor
@@ -169,7 +174,8 @@ namespace protal {
         // bases: at either end of an alignment they are artefacts. A deletion has no base of its own
         // and gets the lower quality of its two flanking bases. Positions in [skip_begin, skip_end),
         // the part the fragment's other mate already covered, are left out: a fragment counts once.
-        std::optional<std::pair<size_t, size_t>> AddAlignment(SamEntry const& sam, size_t skip_begin = 0, size_t skip_end = 0) {
+        // Every record carries the read's divergence from the gene (DivergenceBin).
+        std::optional<std::pair<size_t, size_t>> AddAlignment(SamEntry const& sam, size_t skip_begin = 0, size_t skip_end = 0, uint8_t divergence = 0) {
             std::vector<std::pair<int, char>> ops;
             {
                 int cpos = 0, count = 0;
@@ -283,9 +289,9 @@ namespace protal {
             }
             bm_next_compressed_cigar.Stop();
 
-            for (auto const& s : snps) AddSNP(s.pos, s.base, s.ref, is_fwd, s.qual);
-            for (auto& d : indels) AddINDEL(d.type, d.pos, d.ref, std::move(d.structural), is_fwd, d.qual);
-            for (auto pos : no_base) AddNoBase(pos, is_fwd);
+            for (auto const& s : snps) AddSNP(s.pos, s.base, s.ref, is_fwd, s.qual, divergence);
+            for (auto& d : indels) AddINDEL(d.type, d.pos, d.ref, std::move(d.structural), is_fwd, d.qual, divergence);
+            for (auto pos : no_base) AddNoBase(pos, is_fwd, divergence);
             return std::make_pair(start, end);
         }
 
@@ -335,7 +341,7 @@ namespace protal {
         // base here (`forward`, `reverse`) less those carrying another base allele (a SNP or the
         // deletion), and marks each allele valid or not. Insertions sit before the base and are not
         // subtracted: their reads have a base here, too.
-        void PostProcessSNPBin(VariantBin& bin, size_t forward, size_t reverse, size_t min_observations=5, size_t min_observations_fwdrev=3, double min_frequency=0.2, size_t min_avg_quality=15, size_t min_phred_sum=0, bool require_strand=false) {
+        static void PostProcessSNPBin(VariantBin& bin, size_t forward, size_t reverse, size_t min_observations=5, size_t min_observations_fwdrev=3, double min_frequency=0.2, size_t min_avg_quality=15, size_t min_phred_sum=0, bool require_strand=false) {
             auto var_pos = bin.front().Position();
             auto [allele_forward, allele_reverse] = SiteStrandCounts(bin);
             size_t const ref_forward = forward > allele_forward ? forward - allele_forward : 0;

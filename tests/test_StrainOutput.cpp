@@ -298,6 +298,60 @@ TEST(MSA, AnInsertionAndASnpAtOnePosition) {
     EXPECT_EQ(row[27], IUPACCode(both));
 }
 
+TEST(Counters, ObservationsKeepTheirReadsDivergence) {
+    // Observations of reads at 99% and 90% identity: a copy limited to 95% keeps the first only, with
+    // their strands and qualities.
+    Variant snp(3, 'G', 'A');
+    for (int i = 0; i < 4; i++) snp.AddObservation(30, i % 2 == 0, DivergenceBin(0.99));
+    for (int i = 0; i < 3; i++) snp.AddObservation(20, true, DivergenceBin(0.90));
+    auto const own = snp.WithMaxDivergence(MaxDivergenceBin(0.95));
+    EXPECT_EQ(own.Observations(), 4u);
+    EXPECT_EQ(own.ObservationsForward(), 2u);
+    EXPECT_EQ(own.ObservationsReverse(), 2u);
+    EXPECT_EQ(own.QualitySum(), 120u);
+    EXPECT_EQ(snp.WithMaxDivergence(MaxDivergenceBin(0)).Observations(), 7u);
+    EXPECT_EQ(DivergenceBin(1.0), 0u);
+    EXPECT_EQ(DivergenceBin(0.0), 127u);
+    EXPECT_EQ(MaxDivergenceBin(0.95), DivergenceBin(0.95));
+}
+
+TEST(MSA, TheRowIsMadeOfTheTaxonsOwnReads) {
+    // 6 reads of the strain (99% identity) show the reference at 25; 4 reads of a relative (90%) carry
+    // a SNP there and cover 40-49 alone. From every read, 25 is a mixture and 40-49 are called; from
+    // the reads of at least 95% identity, 25 is the reference base and 40-49 have no read.
+    OneSample s;
+    for (size_t i = 0; i < 6; i++) {
+        ASSERT_TRUE(s.strain.AddSam(MakeSam(s.reference.substr(0, 40), "40M", 1, i % 2 ? 0x10 : 0), i, true, 0.99));
+    }
+    auto relative = s.WithBase(25, s.Other(25));
+    for (size_t i = 6; i < 10; i++) {
+        ASSERT_TRUE(s.strain.AddSam(MakeSam(relative, "25M1X24M", 1, i % 2 ? 0x10 : 0), i, true, 0.90));
+    }
+    s.strain.PostProcess(2, 2, 0.0, 15, 90, true);
+    auto row = [&](double min_identity) {
+        MSASequenceItems items;
+        items.emplace_back(OptionalMSASequenceItem{ s.strain.MSAItem(min_identity, 2, 0.15, 15, 90, true) });
+        MSAVector msa(1);
+        if (!MSA(items, s.reference, msa, 2, 90, 0.15, true, 15, nullptr, nullptr, 3)) return std::string();
+        return std::string(msa[0].begin(), msa[0].end());
+    };
+    auto const all = row(0), own = row(0.95);
+    ASSERT_EQ(all.size(), s.reference.size());
+    ASSERT_EQ(own.size(), s.reference.size());
+    std::vector<char> both = { s.reference[25], s.Other(25) };
+    std::sort(both.begin(), both.end());
+    EXPECT_EQ(all[25], IUPACCode(both));
+    EXPECT_EQ(all.substr(40), s.reference.substr(40));
+    EXPECT_EQ(own[25], s.reference[25]);
+    EXPECT_EQ(own.substr(0, 25), s.reference.substr(0, 25));
+    EXPECT_EQ(own.substr(40), std::string(10, '-'));
+
+    // The informative coverage (the MSA's depth, and .meta.tsv's) counts the same reads.
+    auto const [bins, coverage] = s.strain.MSAItem(0.95, 2, 0.15, 15, 90, true);
+    EXPECT_EQ(coverage[25], 6u);
+    EXPECT_TRUE(bins.empty()) << "no allele of the strain's reads differs from the reference";
+}
+
 TEST(MSA, EachSampleTakesItsOwnMinimumAlleleFrequency) {
     // Two samples with the same reads: 3 of 10 carry a SNP at position 10. With no minimum allele
     // frequency, the SNP and the reference base are written as an IUPAC code; with 0.5 (the other

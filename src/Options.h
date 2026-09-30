@@ -45,7 +45,9 @@ namespace protal {
 
     static const size_t DEFAULT_MIN_SNP_COV = 2;
     static const size_t DEFAULT_MIN_SNP_PHRED_SUM = 90;
-    static const double DEFAULT_MIN_SNP_AF = 0.0;
+    // Below it, an allele is sequencing noise or a read of a relative rather than a strain: at 0,
+    // clean 50x samples carried ~180 IUPAC codes each (strain audit, 2026-09-29).
+    static const double DEFAULT_MIN_SNP_AF = 0.15;
     static const size_t DEFAULT_MIN_SNP_MEAN_QUAL = 15;
     static const bool   DEFAULT_SNP_REQUIRE_STRAND = true; // disabled via --snp_no_strand
     static const size_t DEFAULT_SNP_MAX_ALLELES = 3;
@@ -89,7 +91,7 @@ namespace protal {
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
-                ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
+                ("depth_identity_margin", "Reads count towards a species' abundance, and its strain MSA rows, when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. 1 lets every read count.", cxxopts::value<double>()->default_value("0.04"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
                 ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_pb", "PMML model file for PacBio samples, given as --model. Default: --model if given, else the database's model_PB.xml.", cxxopts::value<std::string>()->default_value(""))
@@ -102,7 +104,7 @@ namespace protal {
                 ("snp_min_cov", "Minimum number of reads supporting a variant to call a SNP.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_COV)))
                 ("snp_min_phred_sum", "Minimum cumulative phred score (sum of base qualities) across all supporting reads. Combined with --snp_min_mean_qual via OR: a variant passes quality if phred_sum >= snp_min_phred_sum OR mean_qual >= snp_min_mean_qual.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_PHRED_SUM)))
                 ("snp_min_mean_qual", "Minimum mean base quality across supporting reads. Combined with --snp_min_phred_sum via OR: a variant passes quality if mean_qual >= snp_min_mean_qual OR phred_sum >= snp_min_phred_sum. Note: at low coverage, --snp_min_cov is the binding constraint regardless.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_MEAN_QUAL)))
-                ("snp_min_af", "Minimum allele frequency for a variant (variant observations / position coverage). Interacts with --snp_min_cov: below coverage = snp_min_cov/snp_min_af, the count filter is stricter. Given, it applies to all read types; else ONT reads take 0.2 (their errors put low-frequency alleles at many positions).", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MIN_SNP_AF)))
+                ("snp_min_af", "Minimum allele frequency for an allele (its reads / the reads with a base at the position), so also the least share of reads a second strain needs to show as an IUPAC code. Interacts with --snp_min_cov: below coverage = snp_min_cov/snp_min_af, the count filter is stricter. Given, it applies to all read types; else ONT reads take 0.2 (their errors put low-frequency alleles at many positions). Profiles do not depend on it.", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MIN_SNP_AF)))
                 ("snp_no_strand", "Disable the strand-bias filter. By default an allele (the reference included) that is seen on one strand only fails where that is unlikely given the strands of all reads at the position (p < 0.05): with reads on both strands, an allele on just one of them is an artefact. Where the reads are from one strand, as often at low depth, it passes.")
                 ("msa_min_hcov", "Minimum non-N/non-'-' bases required per sequence to keep it in the MSA.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MSA_MIN_HCOV)))
                 ("msa_species", "Restrict MSAs to a single species (s__Genus_species) or a comma-separated list.", cxxopts::value<std::string>()->default_value(""))

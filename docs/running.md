@@ -83,7 +83,7 @@ alignment. Workflow managers can rely on a non-zero status.
 |---|---|---|
 | `-t, --threads` | 1 | threads for alignment, database loading, profiling and pigz. Set it: the default is one thread |
 | `--knob` | 0.5 | detection threshold, 0 to 1 (checked). Choose it on data like yours; see [model-training.md](model-training.md) |
-| `--depth_identity_margin` | 0.04 | a read counts towards a species' abundance only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth. 1 lets every read count |
+| `--depth_identity_margin` | 0.04 | a read counts towards a species' abundance, and towards its strain MSA rows, only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth or strains. 1 lets every read count |
 | `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [model-training.md](model-training.md) |
 | `--model_se` | `--model`, else `model_se.xml` of the database | the model of single-end samples, given as `--model` |
 | `--no_strains` | off | no MSAs or SNP tables. Variants are still called, since the model uses them, so profiles are the same with and without it |
@@ -95,7 +95,9 @@ alignment. Workflow managers can rely on a non-zero status.
 
 The SNP filters (`--snp_min_cov`, `--snp_min_phred_sum`, `--snp_min_mean_qual`, `--snp_min_af`,
 `--snp_no_strand`) are described on the website. Base qualities are read with the standard
-Phred+33 offset.
+Phred+33 offset. `--snp_min_af` defaults to 0.15 (0.2 for ONT reads): an allele needs
+that share of the reads with a base at a position to be called or to enter an IUPAC code. The
+profiles do not depend on it.
 
 ### Alignment options
 

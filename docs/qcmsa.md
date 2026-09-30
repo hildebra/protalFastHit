@@ -38,8 +38,8 @@ no more. It stops with an error if the MSA names a sequence twice.
 1. Coverage gate: drops genes and gap-fills (sample, gene) cells that are too sparsely covered,
    from the meta columns `hcov` and `mean_vcov_nonzero`. protal itself writes every observed gene
    and sample, so this is the only place these thresholds exist.
-2. Multi-allelicity (MRate2) filter: removes genes and samples that are multi-allelicity outliers
-   by an iterative Tukey-IQR rule, and masks single outlier cells.
+2. Multi-allelicity (MRate2) filter: removes samples, then genes, whose multi-allelic rate is an
+   outlier, and masks single outlier cells. See below.
 3. Sequence floor (`--reapply-hcov`): drops whole sequences with too few valid bases in the genes
    left.
 4. Site cleanup: drops columns without any A/C/G/T and, if asked, constant sites and
@@ -53,14 +53,26 @@ no more. It stops with an error if the MSA names a sequence twice.
 |---|---|---|
 | `--preset strict\|default\|sensitive` | default | sets the two below: strict = 1.0 / 1, default = 1.5 / 2, sensitive = 2.0 / 3 |
 | `--iqr-mult FLOAT` | 1.5 | Tukey fence multiplier; lower removes more |
-| `--min-bad INT` | 2 | bad peers a gene or sample needs before removal; higher removes less |
-| `--sample-abs-min-bad INT` | 0 (off) | remove a sample that is multi-allelic in at least this many genes, whatever the fence says; 1-2 catches mixed or conspecific strains |
+| `--min-bad INT` | 2 | multi-allelic genes a sample needs (samples a gene needs, positions a cell needs) before removal; higher removes less |
+| `--mrate2-min-rate FLOAT` | 0.004 | floor under every fence: nothing with a rate at or below it is removed or masked |
+| `--sample-abs-min-bad INT` | 0 (off) | remove a sample that is multi-allelic in at least this many genes, whatever the fence says |
 | `--gene-abs-min-bad INT` | 0 (off) | remove a gene that is multi-allelic in at least this many samples |
-| `--mrate2-include-zeros` | off | compute the fence over all items, zeros included, so that on a clean baseline any multi-allelic item is flagged |
 | `--max-mrate2 FLOAT` | from the data | hard per-cell MRate2 cap for masking outlier cells |
 | `--no-mask-cell-outliers` | masking on | do not mask single outlier cells |
+| `--mrate2-include-zeros` | | no effect, kept for old command lines |
 
 Explicit `--iqr-mult` or `--min-bad` override the preset.
+
+A sample's rate is its multi-allelic positions (the IUPAC codes of the MSA) over its positions
+with at least 2 reads, pooled over its genes (`multi_allelic` and `counts_vcov2` in `.meta.tsv`).
+A sample is removed when its rate is above the Tukey upper fence of all samples' rates
+(Q3 + `--iqr-mult` × IQR, needing 4 samples) and above `--mrate2-min-rate`, and it is
+multi-allelic in `--min-bad` genes. Genes are then judged the same way on the samples kept, and
+cells (one sample, one gene, `multi_rate_vcov2`) on the samples and genes kept. There is one pass.
+A pooled rate does not grow with depth, as a count of multi-allelic genes does; in the 2026-09-29
+strain audit, two-strain mixtures had rates of 0.45–1.9% and single strains at most 0.34%, before
+`--snp_min_af` and the read identity margin lowered the latter. Without the floor, a fence over
+mostly clean samples is 0 and removes any sample with two IUPAC codes.
 
 ### Coverage
 
@@ -133,8 +145,8 @@ Partitioned trees (`-p <prefix>.partition.txt`) came out the same as unpartition
 
 - Too much removed, strains collapse: loosen with `--preset sensitive` (higher `--iqr-mult`, higher
   `--min-bad`), or lower or disable the coverage gate.
-- Contamination or mixed strains slip through: tighten with `--preset strict`, or add
-  `--sample-abs-min-bad 1`.
+- Contamination or mixed strains slip through: tighten with `--preset strict`, or lower
+  `--mrate2-min-rate`.
 - Your own filtering downstream: run protal with `--no_qcmsa` and filter the `.raw.msa.fna` with
   the `.meta.tsv`, which carry everything qcmsa uses.
 

@@ -117,7 +117,7 @@ namespace protal {
         size_t m_last_read_id = SIZE_MAX;
         std::pair<size_t, size_t> m_last_interval{ 0, 0 };
 
-        void AddReadRange(size_t start, size_t end, size_t read_id, bool forward) {
+        void AddReadRange(size_t start, size_t end, size_t read_id, bool forward, uint8_t divergence) {
             if (end <= start) return;
             SequenceRange range(start, end);
             ReadInfo rinfo;
@@ -125,6 +125,7 @@ namespace protal {
             rinfo.length = static_cast<uint32_t>(end - start);
             rinfo.start = static_cast<uint32_t>(start);
             rinfo.forward = forward;
+            rinfo.divergence = divergence;
             range.AddReadInfo(rinfo);
             m_sequence_range_handler.Merge(std::move(range));
         }
@@ -167,12 +168,55 @@ namespace protal {
         // a deletion. This is the depth SNP calls and the MSA are judged by.
         CoverageVec InformativeCoverage() const {
             auto cov = m_sequence_range_handler.CalculateCoverageVector2();
-            for (auto const& [pos, counts] : m_variant_handler.GetNoBase()) {
+            for (auto const& [pos, reads] : m_variant_handler.GetNoBase()) {
                 if (pos >= cov.size()) continue;
-                uint32_t const none = counts[0] + counts[1];
+                uint32_t const none = static_cast<uint32_t>(reads.size());
                 cov[pos] = cov[pos] > none ? cov[pos] - none : 0;
             }
             return cov;
+        }
+
+        // The gene as the strain MSA takes it: its variant bins (sorted by position) and informative
+        // coverage from the reads with at least `min_identity` only, the taxon's own reads (see
+        // Taxon::OwnIdentityThreshold): reads of relatives would add false SNPs and mixtures. The
+        // reference allele of each bin is inferred again from these reads. The profile's variants
+        // (and the model's features) keep every read.
+        std::pair<VariantVec, CoverageVec> MSAItem(double min_identity, size_t min_observations, double min_frequency,
+                                                   size_t min_avg_quality, size_t min_phred_sum, bool require_strand) const {
+            uint8_t const max_divergence = MaxDivergenceBin(min_identity);
+            auto forward = m_sequence_range_handler.CalculateCoverageVector2(SequenceRange::kForward, max_divergence);
+            auto reverse = m_sequence_range_handler.CalculateCoverageVector2(SequenceRange::kReverse, max_divergence);
+            for (size_t pos = 0; pos < forward.size(); pos++) {
+                uint32_t const f = m_variant_handler.NoBase(pos, SequenceRange::kForward, max_divergence);
+                uint32_t const r = m_variant_handler.NoBase(pos, SequenceRange::kReverse, max_divergence);
+                forward[pos] = forward[pos] > f ? forward[pos] - f : 0;
+                if (pos < reverse.size()) reverse[pos] = reverse[pos] > r ? reverse[pos] - r : 0;
+            }
+
+            VariantVec bins;
+            for (auto const& [pos, bin] : m_variant_handler.GetVariants()) {
+                VariantBin own;
+                for (auto const& v : bin) {
+                    if (v.IsReference()) continue;
+                    auto filtered = v.WithMaxDivergence(max_divergence);
+                    if (filtered.Observations() > 0) own.push_back(std::move(filtered));
+                }
+                if (own.empty()) continue;
+                size_t const f = pos < forward.size() ? forward[pos] : 0;
+                size_t const r = pos < reverse.size() ? reverse[pos] : 0;
+                VariantHandler::PostProcessSNPBin(own, f, r, min_observations, min_observations, min_frequency,
+                                                  min_avg_quality, min_phred_sum, require_strand);
+                bins.push_back(std::move(own));
+            }
+            std::sort(bins.begin(), bins.end(), [](VariantBin const& a, VariantBin const& b) {
+                return a.front().Position() < b.front().Position();
+            });
+
+            CoverageVec informative(forward.size(), 0);
+            for (size_t pos = 0; pos < informative.size(); pos++) {
+                informative[pos] = forward[pos] + (pos < reverse.size() ? reverse[pos] : 0);
+            }
+            return { std::move(bins), std::move(informative) };
         }
 
         void AddToSequenceRange(SamEntry const& sam, size_t read_id) {
@@ -194,8 +238,9 @@ namespace protal {
         // read_variants, its variants are recorded and its range is the part VariantHandler::AddAlignment
         // trusts, less what the fragment's other mate already covered; an alignment that does not fit
         // the gene adds nothing and returns false. Without, only its whole range is added.
-        bool AddSam(SamEntry const& sam, size_t read_id, bool read_variants=false) {
+        bool AddSam(SamEntry const& sam, size_t read_id, bool read_variants=false, double identity=1.0) {
             bm_add_read.Start();
+            uint8_t const divergence = DivergenceBin(identity);
             if (!read_variants) {
                 bm_add_sequence_range.Start();
                 AddToSequenceRange(sam, read_id);
@@ -206,7 +251,7 @@ namespace protal {
             size_t skip_begin = 0, skip_end = 0;
             if (read_id == m_last_read_id) std::tie(skip_begin, skip_end) = m_last_interval;
             bm_add_variants.Start();
-            auto const interval = m_variant_handler.AddAlignment(sam, skip_begin, skip_end);
+            auto const interval = m_variant_handler.AddAlignment(sam, skip_begin, skip_end, divergence);
             bm_add_variants.Stop();
             if (!interval) {
                 bm_add_read.Stop();
@@ -215,8 +260,8 @@ namespace protal {
             auto const [start, end] = *interval;
             bool const forward = !Flag::IsReverseComplement(sam.m_flag);
             bm_add_sequence_range.Start();
-            AddReadRange(start, std::min(end, skip_begin), read_id, forward);
-            AddReadRange(std::max(start, skip_end), end, read_id, forward);
+            AddReadRange(start, std::min(end, skip_begin), read_id, forward, divergence);
+            AddReadRange(std::max(start, skip_end), end, read_id, forward, divergence);
             bm_add_sequence_range.Stop();
 
             if (read_id == m_last_read_id) {
@@ -342,20 +387,18 @@ namespace protal {
     // Positions that MSA() writes as an IUPAC code, with the same rule and parameters: the site's call
     // (BaseCall) is a single-base allele that passes, and at least one other base passes too; sites
     // inside a deletion the MSA writes as gaps do not count. The .meta.tsv reports this count, so that
-    // qcmsa filters on what the MSA holds. `coverage` is the informative coverage.
-    static size_t MultiAllelicPositions(Variants const& variants, CoverageVec const& coverage, uint32_t min_cov,
+    // qcmsa filters on what the MSA holds. `bins` and `coverage` are the gene as the MSA takes it
+    // (StrainLevelContainer::MSAItem: bins sorted by position, informative coverage).
+    static size_t MultiAllelicPositions(std::vector<VariantBin> const& bins, CoverageVec const& coverage, uint32_t min_cov,
                                         uint32_t min_qual_sum, double min_frequency, bool require_strand,
                                         size_t min_mean_qual, size_t snp_max_alleles) {
         if (snp_max_alleles < 2) return 0;
-        std::vector<VariantPos> positions;
-        positions.reserve(variants.size());
-        for (auto const& [pos, _] : variants) positions.push_back(pos);
-        std::sort(positions.begin(), positions.end());
         size_t multi = 0;
         size_t deleted_until = 0;
-        for (auto pos : positions) {
-            auto const& bin = variants.at(pos);
-            if (bin.empty() || pos < deleted_until) continue;
+        for (auto const& bin : bins) {
+            if (bin.empty()) continue;
+            size_t const pos = bin.front().Position();
+            if (pos < deleted_until) continue;
             uint32_t const cov = pos < coverage.size() ? coverage[pos] : 0;
             if (cov < min_cov) continue;
             auto passes = [&](Variant const& v) {

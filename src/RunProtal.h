@@ -1430,16 +1430,19 @@ namespace protal {
                 } else {
                     auto& gene_obs = genes.at(geneid);
                     auto& strain = gene_obs.GetStrainLevel();
+                    double const min_af = options.GetSNPMinAF(profile.GetReadType());
 
                     auto ac = gene_obs.AlleleSNPCounts(min_cov, min_qual_sum);
-                    // Reads with a base per position: what the MSA judges each position by.
-                    auto tmp_vec = strain.InformativeCoverage();
+                    // The gene from the taxon's own reads, as the MSA takes it; tmp_vec: the reads with a
+                    // base per position, what the MSA judges each position by.
+                    auto item = strain.MSAItem(profile.GetTaxa().at(taxid).OwnIdentityThreshold(), min_cov, min_af,
+                                               min_mean_qual, min_qual_sum, require_strand);
+                    auto const& tmp_vec = item.second;
                     auto counts_vcov1 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 1);});
                     auto counts_vcov2 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 2);});
                     // Multi-allelic positions as the MSA writes them (IUPAC codes), which qcmsa filters on.
-                    size_t const multi_allelic = MultiAllelicPositions(strain.GetVariantHandler().GetVariants(), tmp_vec, min_cov,
-                                                                       min_qual_sum, options.GetSNPMinAF(profile.GetReadType()), require_strand,
-                                                                       min_mean_qual, snp_max_alleles);
+                    size_t const multi_allelic = MultiAllelicPositions(item.first, tmp_vec, min_cov, min_qual_sum, min_af,
+                                                                       require_strand, min_mean_qual, snp_max_alleles);
 
                     double median_vcov = 0.0;
                     double mean_vcov_nonzero = 0.0;
@@ -1451,8 +1454,7 @@ namespace protal {
                     // min samples per gene) is done by the qcmsa post-filter, which
                     // reads the hcov / mean_vcov_nonzero columns written below.
                     samples_with_gene++;
-                    auto snps = SharedAlignmentRegion::GetSNPs(strain.GetVariantHandler());
-                    items.emplace_back( OptionalMSASequenceItem { { std::move(snps), tmp_vec } } );
+                    items.emplace_back( OptionalMSASequenceItem { item } );
 
                     if (os_meta) {
                         auto sorted_cov = tmp_vec;

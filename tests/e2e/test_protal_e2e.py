@@ -615,6 +615,39 @@ class QcmsaContractTest(WorkDir):
         self.assertNotEqual(rc, 0, log)
         self.assertIn("names 1 sequence(s) more than once (s1)", log)
 
+    def test_multi_allelic_filter_judges_rates(self):
+        # 8 samples, 4 genes of 1000 positions with >= 2 reads. s1-s6 hold no IUPAC code; s7, deep,
+        # holds 2 per gene (0.2%, noise); s8, a mixture, 10 per gene (1%). By counts of multi-allelic
+        # genes s7 and s8 are alike; by their rates, only s8 is above the 0.4% floor.
+        samples = [f"s{i}" for i in range(1, 9)]
+        multi = {"s7": 2, "s8": 10}
+        with open(self.path("m.raw.msa.fna"), "w") as fh:
+            fh.write(">m_reference\n" + "A" * 32 + "\n")
+            for i, s in enumerate(samples):
+                fh.write(f">{s}\n" + ("A" * 7 + "ACGT"[i % 4]) * 4 + "\n")
+        with open(self.path("m.raw.partition.txt"), "w") as fh:
+            fh.writelines(f"DNA, gene{g} = {8 * g - 7}-{8 * g}\n" for g in range(1, 5))
+        with open(self.path("m.meta.tsv"), "w") as fh:
+            fh.write(self.META_HEADER)
+            for s in samples:
+                m = multi.get(s, 0)
+                for g in range(1, 5):
+                    fh.write(f"{s}\t{g}\t20\t1000\t1000\t{m}\t0\t{m / 1000}\t0\t{m / 1000}\t0\t20\t1\t1000\t20\t20\n")
+        args = [QCMSA, self.path("m.raw.msa.fna"), self.path("m.raw.partition.txt"), self.path("m.meta.tsv")]
+        rc, log = run(self.work, *args, "--prefix", self.path("m"), binary="python3")
+        self.assertEqual(rc, 0, log)
+        msa = self.read_msa(self.path("m.msa.fna"))
+        self.assertNotIn("s8", msa, log)
+        self.assertEqual(sorted(msa), sorted(["m_reference"] + samples[:7]), log)
+        self.assertEqual(len(msa["s7"]), 32, "no gene removed or masked")
+        with open(self.path("m.qcmsa_summary.tsv")) as fh:
+            summary = fh.read()
+        self.assertIn("sample_filtered\ts8\t4\tmulti-allelic rate 0.0100 > 0.0040", summary)
+
+        rc, log = run(self.work, *args, "--prefix", self.path("floor"), "--mrate2-min-rate", "0.001", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertEqual(sorted(self.read_msa(self.path("floor.msa.fna"))), sorted(["m_reference"] + samples[:6]))
+
     def test_no_msa_leaves_no_stale_output(self):
         args = self.write_species("w", [("w_reference", "AAAAAAAA"), ("s1", "ACAAACAA"), ("s2", "AAAAAAAA")])
         rc, log = run(self.work, *args, "--prefix", self.path("w"), binary="python3")

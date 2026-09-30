@@ -286,19 +286,12 @@ namespace protal {
 
 
             bool AddSam(SamEntry const& sam, size_t read_id, double ani=0.0, bool no_strain=true) {
+                auto const [identity, length] = AlignmentIdentity(sam.m_cigar);
                 if (!no_strain) {
-                    auto successful = m_strain_level.AddSam(sam, read_id, true);
-                    if (!successful) {
-                        return false;;
-                    }
+                    // The read's identity lets the strain MSA keep the taxon's own reads only.
+                    if (!m_strain_level.AddSam(sam, read_id, true, identity)) return false;
                 }
 
-
-                // if (extract_snps) {
-                //     ExtractSNPs(sam, m_gene_ref->Sequence(), m_snps, 0, 0, read_id);
-                // }
-
-                auto const [identity, length] = AlignmentIdentity(sam.m_cigar);
                 m_read_identities.emplace_back(static_cast<float>(identity), static_cast<uint32_t>(length));
                 m_identity_bases += identity * static_cast<double>(length);
                 if (read_id != m_last_read) {

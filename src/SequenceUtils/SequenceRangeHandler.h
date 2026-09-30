@@ -52,8 +52,9 @@ public:
     std::string ToVerboseString() const;
 
     CoverageVec CalculateCoverageVector();
-    // Reads per position: all, or one strand's (SequenceRange::kForward, kReverse).
-    CoverageVec CalculateCoverageVector2(int strand = SequenceRange::kBothStrands) const;
+    // Reads per position: all, or one strand's (SequenceRange::kForward, kReverse); with
+    // max_divergence, only reads of at most that divergence from the gene.
+    CoverageVec CalculateCoverageVector2(int strand = SequenceRange::kBothStrands, uint8_t max_divergence = 255) const;
     bool AreRangesValid(size_t const& reference_length) const;
     CoverageVec& GetCoverageVector() {
         return m_cov;
