@@ -109,6 +109,26 @@ about 2x better than one ordered genome by genome, if related genomes lie furthe
 file than zstd's window. protal finds genes through `reference.map`, so any order works;
 `scripts/mini_db/gtdb_to_protal_db.py` writes gene order by default.
 
+## Genes in memory
+
+protal holds the reference genes in memory two bits per base, four bases to a byte (a quarter of
+the byte per base that `reference.fna` uses), and decodes a gene where the alignment code reads it;
+the decoding uses AVX2 where the CPU has it. Only A, C, G and T have codes of their own. Any other
+character is stored as a base, so a gene that protal reads back differs from `reference.fna` at its
+ambiguous bases: `N` is stored as `A`, and an IUPAC ambiguity code as the first base it stands for
+in the order A C G T (`R`, `W`, `M`, `D`, `H`, `V` as `A`; `Y`, `S`, `B` as `C`; `K` as `G`).
+Lowercase letters are read as uppercase, and any other character is stored as `A`. The files
+(`reference.fna`, the index) are unchanged. What the coding changes:
+
+- Alignments are made against the stored bases, so a read is scored against `A` or `C` where the
+  reference has `N`, and the SNP and MSA reference rows show the stored base. A SAM file that an
+  earlier protal made against a gene with an ambiguous base can hold an `M` there that no longer
+  matches the stored base; the profiler sets such records aside (`<sam>.err`) with a warning.
+- `--build` compares single-entry k-mers with the k-mer its gene gives back, which is the stored
+  one. The index reads an ambiguous base as `A` on the forward strand, so the uniqueness flag of a
+  k-mer that overlaps an ambiguous base can differ from a build of an earlier protal (measured: 0.03%
+  of the values' flags, and no value, with four ambiguous bases per 1 kb gene).
+
 ## Loading genes on demand
 
 `--preload_genomes_off` (loading reference genes on demand) reads single genes from a raw

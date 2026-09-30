@@ -194,7 +194,9 @@ before, e.g. to reproduce earlier results; long reads are always aligned as a wh
 ## Memory
 
 protal keeps the index and the reference genes in memory: about 59 GB for the full r226 database
-and 12 GB for the reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads)).
+and 12 GB for the reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads)),
+figures that predate 2-bit genes (the genes now take a quarter of the memory, about 13 GB less
+for the full database; [database-files.md](database-files.md#genes-in-memory)).
 It prints the machine's total memory at start. The index is read at random, one lookup per k-mer,
 so protal asks Linux for transparent huge pages for it; the usual setting (`madvise` in
 `/sys/kernel/mm/transparent_hugepage/enabled`) grants them, and seeding is about a third faster.

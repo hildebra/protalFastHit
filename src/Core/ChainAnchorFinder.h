@@ -159,6 +159,7 @@ namespace protal {
 //            if (seed.taxid == 0) exit(23); // remove
             auto& genome = m_genome_loader.GetGenome(seed.taxid);
             auto& gene = genome.GetGeneOMP(seed.geneid);
+            auto const geneseq = gene.Sequence();
 
             ChainLink fwd_link = ChainLink(seed.genepos, seed.readpos, m_k);
             std::string_view qseedf(fwd.c_str() + seed.readpos, fwd_link.length);//query.substr(s.readpos, s.length);
@@ -166,7 +167,7 @@ namespace protal {
             ReverseSeed(seed, fwd.length(), m_k);
             ChainLink rev_link = ChainLink(seed.genepos, seed.readpos, m_k);
             std::string_view qseedr(rev.c_str() + seed.readpos, rev_link.length);//query.substr(s.readpos, s.length);
-            std::string_view rseed(gene.Sequence().data() + seed.genepos, fwd_link.length);
+            std::string_view rseed(geneseq.data() + seed.genepos, fwd_link.length);
 
             bool forward = qseedf == rseed;
             if (qseedf != rseed && qseedr != rseed) {
@@ -181,9 +182,9 @@ namespace protal {
             }
 
             if (forward) {
-                ExtendSeed(fwd_link, fwd, gene.Sequence());
+                ExtendSeed(fwd_link, fwd, geneseq);
             } else {
-                ExtendSeed(rev_link, rev, gene.Sequence());
+                ExtendSeed(rev_link, rev, geneseq);
             }
 
             ChainAlignmentAnchor anchor{ seed.taxid, seed.geneid, forward };
@@ -519,13 +520,14 @@ namespace protal {
         bool CheckSeedsInAnchor(ChainAlignmentAnchor& anchor, std::string const& query) {
             auto& genome = m_genome_loader.GetGenome(anchor.taxid);
             auto& gene = genome.GetGeneOMP(anchor.geneid);
+            auto const geneseq = gene.Sequence();
 
             bool faulty = false;
             for (auto i = 0; i < anchor.chain.size(); i++) {
                 auto& seed = anchor.chain[i];
 
                 auto seed_q = query.substr(seed.readpos, seed.length);
-                auto seed_r = gene.Sequence().substr(seed.genepos, seed.length);
+                auto seed_r = geneseq.substr(seed.genepos, seed.length);
 
                 if (!IdenticalIgnoreN(seed_q, seed_r) && IdenticalIgnoreN(KmerUtils::ReverseComplement(seed_q), seed_r)) {
                     faulty = true;
@@ -561,6 +563,7 @@ namespace protal {
         void ExtendAnchor(ChainAlignmentAnchor& anchor, std::string const& query) {
             auto& genome = m_genome_loader.GetGenome(anchor.taxid);
             auto& gene = genome.GetGeneOMP(anchor.geneid);
+            auto const geneseq = gene.Sequence();
 
             // std::cerr << anchor.ToVisualString2() << std::endl;
             // std::cerr << anchor.ToString() << std::endl;
@@ -569,7 +572,7 @@ namespace protal {
                 auto& seed = anchor.chain[i];
 
                 std::string_view seed_q(query.c_str() + seed.readpos, seed.length);
-                std::string_view seed_r(gene.Sequence().data() + seed.genepos, seed.length);
+                std::string_view seed_r(geneseq.data() + seed.genepos, seed.length);
                 bool validseed = IdenticalIgnoreAmbig(seed_q, seed_r);
 
                 if (!validseed) {
@@ -620,7 +623,7 @@ namespace protal {
                 ExtendSeed1(seed,
                            (i > 0) ? &anchor.chain[i-1] : nullptr,
                            (i+1) < anchor.chain.size() ? &anchor.chain[i+1] : nullptr,
-                           query, gene.Sequence());
+                           query, geneseq);
 
                 if (i > 0 && seed.OverlapsWithLeft(anchor.chain[i-1])) {
                     anchor.chain[i-1].Merge(seed.readpos, seed.length);
@@ -672,7 +675,8 @@ namespace protal {
                     auto& gene = genome.GetGeneOMP(anchor.geneid);
                     auto seed_q_fwd = m_fwd->substr(seed.readpos, seed.length);
                     auto seed_q_rev = m_rev.substr(seed.readpos, seed.length);
-                    auto seed_r = gene.Sequence().substr(seed.genepos, seed.length);
+                    auto const geneseq = gene.Sequence();
+                    auto seed_r = geneseq.substr(seed.genepos, seed.length);
 
 //                    std::cout << "Single anchor " << anchor.forward << std::endl;
 //                    std::cout << seed_q_fwd << " FWD" << std::endl;

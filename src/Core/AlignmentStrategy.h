@@ -335,10 +335,11 @@ namespace protal {
         void ExtendAnchor(ChainAlignmentAnchor& anchor, std::string const& ref) {
             auto& genome = m_genome_loader.GetGenome(anchor.taxid);
             auto& gene = genome.GetGeneOMP(anchor.geneid);
+            auto const geneseq = gene.Sequence();
 
             for (auto i = 0; i < anchor.chain.size(); i++) {
                 auto& seed = anchor.chain[i];
-                auto [lefta, righta] = ExtendSeed(seed, ref, gene.Sequence(),
+                auto [lefta, righta] = ExtendSeed(seed, ref, geneseq,
                                                   ((i > 0) ? anchor.chain[i-1].readpos + anchor.chain[i-1].length : 0),
                                                   ((i+1) < anchor.chain.size() ? anchor.chain[i+1].readpos : ref.length()));
 
@@ -399,7 +400,7 @@ namespace protal {
             // Get Resources
             auto& genome = m_genome_loader.GetGenome(anchor.taxid);
             auto& gene = genome.GetGeneOMP(anchor.geneid);
-            std::string_view const geneseq = gene.Sequence();
+            auto const geneseq = gene.Sequence();  // decoded; lives to the end of this function
 
 //            std::cerr << "--------------- links: " << anchor.chain.size() << std::endl;
 //            auto [qry, ref] = anchor.ToVisualString(read, geneseq);
@@ -441,7 +442,7 @@ namespace protal {
 //                    std::cerr << anchor.ToVisualString2() << std::endl;
 //
 //                    int abs_pos = static_cast<int>(anchor.Front().genepos) - static_cast<int>(anchor.Front().readpos);
-//                    m_alignment_orientation.Update(abs_pos, read.length(), gene.Sequence().length(), 0);
+//                    m_alignment_orientation.Update(abs_pos, read.length(), gene.GetLength(), 0);
 //                    std::string reference_str = gene.Sequence().substr(m_alignment_orientation.reference_start, m_alignment_orientation.reference_len);
 //                    std::cerr << reference_str << std::endl;
 //
@@ -459,22 +460,22 @@ namespace protal {
             int abs_pos = static_cast<int>(anchor.Front().genepos) - static_cast<int>(anchor.Front().readpos);
 
             size_t max_dove_size = 9;
-            m_alignment_orientation.Update(abs_pos, read.length(), gene.Sequence().length(), max_dove_size);
+            m_alignment_orientation.Update(abs_pos, read.length(), gene.GetLength(), max_dove_size);
 
             assert(m_alignment_orientation.query_start + m_alignment_orientation.query_len <= read.length());
-            assert(m_alignment_orientation.reference_start + m_alignment_orientation.reference_len <= gene.Sequence().length());
+            assert(m_alignment_orientation.reference_start + m_alignment_orientation.reference_len <= gene.GetLength());
             assert(m_alignment_orientation.query_start >= 0);
             assert(m_alignment_orientation.reference_start >= 0);
 
 
             bool approximate_alignment = allow_heuristic_alignment && anchor_indels == 0;
             bool dove_left_required = anchor.Front().readpos != 0 || abs_pos < 0;
-            bool dove_right_required = anchor.Back().readpos + anchor.Back().length != read.length() || abs_pos + read.length() > gene.Sequence().length();
+            bool dove_right_required = anchor.Back().readpos + anchor.Back().length != read.length() || abs_pos + read.length() > gene.GetLength();
 
             std::string cigar = "";
 
             int allowed_del_left = abs_pos < 0 ? (-1 * abs_pos) + 9 : 0;
-            int allowed_del_right = abs_pos + read.length() > gene.Sequence().length() ? (abs_pos + read.length() - gene.Sequence().length()) + 9 : 0;
+            int allowed_del_right = abs_pos + read.length() > gene.GetLength() ? (abs_pos + read.length() - gene.GetLength()) + 9 : 0;
 
             m_alignment_orientation.reference_start += !dove_left_required * m_alignment_orientation.reference_dove_left;
             m_alignment_orientation.reference_end -= !dove_right_required * m_alignment_orientation.reference_dove_right;
@@ -556,14 +557,14 @@ namespace protal {
 
                 auto& info = alignment.GetAlignmentInfo();
                 PostProcessAlignment(m_ops, info, read.length(),
-                                     gene.Sequence().length(), m_alignment_orientation.reference_start, 0, abs_pos);
+                                     gene.GetLength(), m_alignment_orientation.reference_start, 0, abs_pos);
 
                 info.UpdateScore();
                 alignment.Set(anchor.taxid, anchor.geneid, info.gene_alignment_start, anchor.forward, anchor.unique, anchor.unique_best_two);
 
                 // Safety net: reject an alignment whose CIGAR does not fit the sequences. Lock-free
                 // on the common, valid path; the rare diagnostics below are serialised.
-                bool valid = IsAlignmentValid(info, read, gene.Sequence(), 0, true);
+                bool valid = IsAlignmentValid(info, read, geneseq, 0, true);
                 if (!valid) {
 #pragma omp critical (invalid_align)
                     {

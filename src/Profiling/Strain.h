@@ -136,7 +136,7 @@ namespace protal {
         Benchmark bm_add_variants{"Add variants"};
 
         StrainLevelContainer(Gene const& reference) :
-                m_reference(reference), m_variant_handler(reference.Sequence()) {
+                m_reference(reference), m_variant_handler(reference) {
         };
 
         const VariantHandler& GetVariantHandler() const {
@@ -335,7 +335,6 @@ namespace protal {
             SequenceRangeHandler ranges_a, ranges_b;
 //            a.GetSequenceRangeHandler().CalculateCoverageVector();
 //            b.GetSequenceRangeHandler().CalculateCoverageVector();
-            VariantHandler variants_a(a.GetVariantHandler().GetReference()), variants_b(b.GetVariantHandler().GetReference());
 
 //            std::cout << "GetSharedAlignmentRegion: " << a.GetVariantHandler().GetVariants().size() << " " << b.GetVariantHandler().GetVariants().size() << std::endl;
             auto intersection = a.GetSequenceRangeHandler().Intersect(b.GetSequenceRangeHandler(), min_cov, 10);

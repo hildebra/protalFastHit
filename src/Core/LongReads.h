@@ -247,7 +247,7 @@ namespace protal {
 
         void AddCandidate(Anchor const& anchor, ReadChunk const& chunk, int64_t read_length) {
             if (anchor.chain.empty()) return;
-            int64_t const gene_length = m_genomes.GetGenome(anchor.taxid).GetGeneOMP(anchor.geneid).Sequence().length();
+            int64_t const gene_length = m_genomes.GetGenome(anchor.taxid).GetGeneOMP(anchor.geneid).GetLength();
             int64_t const chunk_length = static_cast<int64_t>(chunk.length);
             auto to_read = [&](ReadInterval interval) {  // anchor orientation of the chunk to forward read coordinates
                 if (!anchor.forward) interval = { chunk_length - interval.end, chunk_length - interval.start };

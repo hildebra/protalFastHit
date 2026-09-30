@@ -418,9 +418,9 @@ namespace protal {
                 Changed();
                 if (!m_genes.contains(geneid)) {
                     auto& g = m_genome->GetGene(geneid);
-                    g.LoadOMP();
+                    m_genome->LoadGeneOMP(geneid);
                     m_genes.insert( { geneid, profiler::Gene(g) } );
-                    m_genes.at(geneid).SetLength(m_genome->GetGene(geneid).Sequence().length());
+                    m_genes.at(geneid).SetLength(m_genome->GetGene(geneid).GetLength());
                 }
 
                 m_genes.at(geneid).AddRead(genepos);
@@ -460,9 +460,9 @@ namespace protal {
                 bool const new_gene = !m_genes.contains(geneid);
                 if (new_gene) {
                     auto& g = m_genome->GetGene(geneid);
-                    g.LoadOMP();
+                    m_genome->LoadGeneOMP(geneid);
                     m_genes.insert( { geneid, profiler::Gene(g) } );
-                    m_genes.at(geneid).SetLength(m_genome->GetGene(geneid).Sequence().length());
+                    m_genes.at(geneid).SetLength(m_genome->GetGene(geneid).GetLength());
                 }
 
                 bool success = m_genes.at(geneid).AddSam(sam, read_id, score, no_strain);
@@ -1948,7 +1948,6 @@ namespace protal {
                     auto &[tid, gid] = ExtractTaxidGeneid(any.m_rname);
                     auto &gene = m_genome_loader.GetGenome(tid).GetGeneOMP(gid);
 
-                    gene.LoadOMP();
                     auto const ref = gene.Sequence();
 //                        std::cout << "Extract: " << any.m_qname << " ---> " <<  any.m_rname << std::endl;
 
@@ -1975,8 +1974,7 @@ namespace protal {
                     for (auto &pair: pairlist) {
                         auto& any = pair.Any();
                         auto &[ tid, gid ] = ExtractTaxidGeneid(any.m_rname);
-                        auto& gene = m_genome_loader.GetGenome(tid).GetGene(gid);
-                        gene.LoadOMP();
+                        auto& gene = m_genome_loader.GetGenome(tid).GetGeneOMP(gid);
                         auto const ref = gene.Sequence();
 //                        std::cout << "Extract: " << any.m_qname << " ---> " <<  any.m_rname << std::endl;
 

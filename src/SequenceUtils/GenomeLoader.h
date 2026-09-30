@@ -30,6 +30,7 @@
 #include <sysexits.h>
 
 #include "Benchmark.h"
+#include "PackedSequence.h"
 
 namespace protal {
     // The database's gene tables (reference.map, unique_kmers.tsv), one line per gene (16.6M at GTDB
@@ -173,118 +174,76 @@ namespace protal {
         }
     }
 
+    // One gene of the reference: where its sequence is (the byte in reference.fna until it is loaded,
+    // then its 2-bit packed bytes, see PackedSequence.h), its length, and the k-mer counts of
+    // unique_kmers.tsv. 32 bytes: a database has up to 16.6M of them.
     class Gene {
-        static const size_t DEFAULT = UINT64_MAX;
-    private:
-        size_t m_id = 0;
-        // The sequence: m_length bytes in the GenomeLoader's arena when all genes are preloaded
-        // (LoadAllGenomes: one allocation for all of them), else a string of the gene's own (loaded
-        // on demand, or set).
-        char* m_arena = nullptr;
-        std::string m_sequence = "";
-        size_t m_start_byte;
-        size_t m_length = DEFAULT;
-        std::ifstream* m_is = nullptr;  // nullptr: compressed reference, genes only come from preloading
+        static constexpr uint32_t kUnsetLength = 0x7fffffffu;
 
-        size_t m_short_unique = 0;
-        size_t m_long_unique = 0;
-        size_t m_long_super_unique = 0;
-        size_t m_total_kmers = 0;
-
-        // Reads the gene's bytes from reference.fna at the offsets reference.map gives. A failed read
-        // stops protal: the stream is shared by all genes, and leaving it failed would silently turn
-        // every gene read after it into NUL bytes. Sequences are uppercased (the k-mer and alignment
-        // code only knows A, C, G, T).
-        void Load(std::string& into, size_t start_byte, size_t length) {
-            if(m_is && m_is->is_open())
-            {
-                m_is->seekg(start_byte);
-                into.resize(length);
-                m_is->read(&into[0], length);
-                if (!*m_is || static_cast<size_t>(m_is->gcount()) != length) {
-                    std::cerr << "Cannot read gene " << m_id << " (bytes " << start_byte << "-" << start_byte + length
-                              << ") from reference.fna: reference.map does not match the file" << std::endl;
-                    exit(8);
-                }
-                Uppercase(into);
-            } else if (!m_is && length > 0 && length != DEFAULT) {
-                errx(EX_SOFTWARE, "Gene %zu cannot be loaded on its own from a compressed reference (reference.fna.zst "
-                                  "or a single-file database); the reference must be preloaded.", m_id);
-            }
-        };
+        uint64_t m_where = 0;            // not loaded: start byte in reference.fna; loaded: the packed bytes
+        uint32_t m_id = 0;
+        uint32_t m_length : 31 = kUnsetLength;
+        uint32_t m_loaded : 1 = 0;
+        uint32_t m_short_unique = 0;
+        uint32_t m_long_unique = 0;
+        uint32_t m_long_super_unique = 0;
+        uint32_t m_total_kmers = 0;
 
     public:
-        // The k-mer and alignment code only knows A, C, G, T: lowercase bases would encode as A.
-        static void Uppercase(std::string& sequence) {
-            std::transform(sequence.begin(), sequence.end(), sequence.begin(), [](unsigned char c) { return std::toupper(c); });
-        }
-
         Gene(){};
 
-        void Set(size_t id, size_t start_byte, size_t length, std::ifstream* is) {
-            m_id = id;
-            m_start_byte = start_byte;
-            m_length = length;
-            m_is = is;
+        void Set(size_t id, size_t start_byte, size_t length) {
+            m_id = static_cast<uint32_t>(id);
+            m_where = start_byte;
+            m_length = static_cast<uint32_t>(length);
+            m_loaded = 0;
         }
 
+        // The start byte in reference.fna; not kept once the gene is loaded (0).
         size_t GetStartByte() const {
-            return m_start_byte;
+            return m_loaded ? 0 : m_where;
         }
 
-        void SetSequence(std::string&& sequence) {
-            m_arena = nullptr;
-            m_sequence = std::move(sequence);
+        // The gene's Bytes(GetLength()) packed bytes, in an arena or buffer that outlives the gene, to
+        // be filled in place (packed::PackInto) if they are not yet.
+        void SetPacked(uint8_t* data) {
+            m_where = reinterpret_cast<uintptr_t>(data);
+            m_loaded = 1;
         }
 
-        // The gene's bytes are the m_length bytes at data (in an arena that outlives the gene), to be
-        // filled in place.
-        void SetArena(char* data) {
-            m_arena = data;
-            std::string{}.swap(m_sequence);
-        }
-
-        char* SequenceData() {
-            return m_arena ? m_arena : m_sequence.data();
+        uint8_t* MutablePacked() {
+            return m_loaded ? reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(m_where)) : nullptr;
         }
 
         bool IsSet() const {
-            return (m_id != 0 || m_length > 0) && m_length != DEFAULT;
+            return (m_id != 0 || m_length > 0) && m_length != kUnsetLength;
         }
 
         bool IsLoaded() const {
-            return m_arena != nullptr || !m_sequence.empty();
+            return m_loaded;
         }
-
-        void Load() {
-            if (!IsLoaded()) {
-                Load(m_sequence, m_start_byte, m_length);
-            }
-        };
-
-        void LoadOMP() {
-#pragma omp critical(genome_loader)
-            if (!IsLoaded()) {
-                Load(m_sequence, m_start_byte, m_length);
-            }
-        };
 
         size_t GetLength() const {
             return m_length;
         }
 
-        std::string_view Sequence() const {
-            return m_arena ? std::string_view(m_arena, m_length) : std::string_view(m_sequence);
+        // The gene's bases, decoded (empty while the gene is not loaded). Keep the result in a variable
+        // for as long as a view of it is used.
+        GeneSequence Sequence() const {
+            return m_loaded ? GeneSequence(reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(m_where)), m_length)
+                            : GeneSequence(std::string_view());
         }
+
         const size_t GetId() const {
             return m_id;
         }
 
+        // The counts are stored in 32 bits (a gene has at most 2^20 - 1 bases).
         void SetUniqueValues(size_t short_unique, size_t long_unique, size_t long_super_unique, size_t total_kmers) {
-            m_short_unique = short_unique;
-            m_long_unique = long_unique;
-            m_long_super_unique = long_super_unique;
-            m_total_kmers = total_kmers;
+            m_short_unique = static_cast<uint32_t>(short_unique);
+            m_long_unique = static_cast<uint32_t>(long_unique);
+            m_long_super_unique = static_cast<uint32_t>(long_super_unique);
+            m_total_kmers = static_cast<uint32_t>(total_kmers);
         }
 
         [[nodiscard]] std::tuple<size_t, size_t, size_t, size_t> GetUniqueKmerCounts() const {
@@ -309,6 +268,7 @@ namespace protal {
             return m_long_super_unique/static_cast<double>(m_total_kmers);
         }
     };
+    static_assert(sizeof(Gene) == 32, "Gene is kept small: a database has up to 16.6M of them");
 
 
     class Genome {
@@ -326,6 +286,13 @@ namespace protal {
         // gene counts as hittable; after, only the listed ones, none if none are.
         bool m_hittable_known = false;
         bool m_is_loaded = false;
+        // Where genes are read from when they are loaded one by one: reference.fna, open (shared by all genomes,
+        // used under omp critical(genome_loader)); null for a compressed reference, which only
+        // GenomeLoader::LoadAllGenomes reads.
+        std::ifstream* m_reader = nullptr;
+        // The packed sequences of the genes loaded one by one (LoadAllGenomes keeps its genes in an arena).
+        std::vector<std::unique_ptr<uint8_t[]>> m_owned;
+        std::string m_scratch;
 
         size_t m_short_unique = 0;
         size_t m_long_unique = 0;
@@ -365,7 +332,8 @@ namespace protal {
             if (index >= m_genes.size()) {
                 m_genes.resize(index+1);
             }
-            m_genes[index].Set(key, start_byte, length, is);
+            m_genes[index].Set(key, start_byte, length);
+            m_reader = is;
         }
 
         void AddHittableGene(GeneID geneid) {
@@ -418,8 +386,39 @@ namespace protal {
             return genes;
         }
 
+        // Reads the gene from reference.fna and keeps it packed (PackedSequence.h). A failed read stops
+        // protal: the stream is shared by all genes, and leaving it failed would silently turn every
+        // gene read after it into NUL bytes.
+        void LoadGeneData(Gene& gene) {
+            if (gene.IsLoaded() || !gene.IsSet()) return;
+            size_t const length = gene.GetLength();
+            if (m_reader && m_reader->is_open()) {
+                m_reader->seekg(gene.GetStartByte());
+                m_scratch.resize(length);
+                m_reader->read(m_scratch.data(), length);
+                if (!*m_reader || static_cast<size_t>(m_reader->gcount()) != length) {
+                    std::cerr << "Cannot read gene " << gene.GetId() << " (bytes " << gene.GetStartByte() << "-" << gene.GetStartByte() + length
+                              << ") from reference.fna: reference.map does not match the file" << std::endl;
+                    exit(8);
+                }
+                auto packed = std::make_unique<uint8_t[]>(packed::Bytes(length));  // zeroed
+                packed::Pack(m_scratch.data(), length, packed.get());
+                gene.SetPacked(packed.get());
+                m_owned.emplace_back(std::move(packed));
+            } else if (!m_reader && length > 0) {
+                errx(EX_SOFTWARE, "Gene %zu cannot be loaded on its own from a compressed reference (reference.fna.zst "
+                                  "or a single-file database); the reference must be preloaded.", gene.GetId());
+            }
+        }
+
         void LoadGene(GeneKey key) {
-            m_genes[GeneKeyToIndex(key)].Load();
+            LoadGeneData(m_genes[GeneKeyToIndex(key)]);
+        };
+
+        // LoadGene for threads: one at a time.
+        void LoadGeneOMP(GeneKey key) {
+#pragma omp critical(genome_loader)
+            LoadGeneData(m_genes[GeneKeyToIndex(key)]);
         };
 
         bool ValidGene(GeneKey key) {
@@ -453,7 +452,7 @@ namespace protal {
         }
 
         void LoadGenome() {
-            std::for_each(m_genes.begin(), m_genes.end(), [](Gene& gene){ gene.Load(); });
+            for (auto& gene : m_genes) LoadGeneData(gene);
             m_is_loaded = true;
         };
 
@@ -466,7 +465,7 @@ namespace protal {
 #pragma omp critical(genome_loader)
             {
                 if (!IsLoaded()) {
-                    std::for_each(m_genes.begin(), m_genes.end(), [](Gene &gene) { gene.Load(); });
+                    for (auto& gene : m_genes) LoadGeneData(gene);
                     m_is_loaded = true;
                 }
             }
@@ -476,7 +475,7 @@ namespace protal {
             if (!m_is_loaded) {
 #pragma omp critical(genome_loader)
                 if (!m_is_loaded) {
-                    std::for_each(m_genes.begin(), m_genes.end(), [](Gene &gene) { gene.Load(); });
+                    for (auto& gene : m_genes) LoadGeneData(gene);
                     m_is_loaded = true;
                 }
             }
@@ -485,8 +484,10 @@ namespace protal {
     };
 
 
-    // Copies reference bytes from zstd::ParallelRead into the genes they belong to, uppercased.
-    // genes are sorted by start byte and do not overlap; starts[i] is genes[i]'s start byte.
+    // Copies reference bytes from zstd::ParallelRead into the genes they belong to, packed (two bits per
+    // base, see PackedSequence.h). The genes' packed bytes must be zero (a calloc'd arena), as
+    // packed::PackInto needs. genes are sorted by start byte and do not overlap; starts[i] is genes[i]'s
+    // start byte.
     class GeneSink : public zstd::Sink {
     public:
         GeneSink(std::vector<Gene*> const& genes, std::vector<uint64_t> const& starts) : m_genes(genes), m_starts(starts) {}
@@ -500,12 +501,7 @@ namespace protal {
                 uint64_t const begin = m_starts[i], gene_end = begin + m_genes[i]->GetLength();
                 uint64_t const from = std::max(offset, begin), to = std::min(end, gene_end);
                 if (from >= to) continue;
-                char* dst = m_genes[i]->SequenceData() + (from - begin);
-                char const* src = data + (from - offset);
-                for (uint64_t k = 0; k < to - from; k++) {
-                    char const c = src[k];
-                    dst[k] = (c >= 'a' && c <= 'z') ? static_cast<char>(c - ('a' - 'A')) : c;
-                }
+                packed::PackInto(m_genes[i]->MutablePacked(), from - begin, data + (from - offset), to - from);
             }
         }
 
@@ -527,7 +523,8 @@ namespace protal {
         GenomeMap m_genomes;
 
         int m_threads = 1;  // for reading reference.map
-        std::vector<std::unique_ptr<char[]>> m_arenas;  // the preloaded genes' sequences (Gene::SetArena)
+        struct FreeDeleter { void operator()(void* p) const { std::free(p); } };
+        std::vector<std::unique_ptr<uint8_t[], FreeDeleter>> m_arenas;  // the preloaded genes' packed sequences (Gene::SetPacked)
 
         // Huge pages for a large arena, which the loading threads touch at random offsets (as
         // Seedmap::AdviseHugePages). Without transparent huge pages this does nothing.
@@ -621,6 +618,13 @@ namespace protal {
                     auto const number = gene_table::Number(fields.f[columns[i]], counts[i]);
                     if (number != gene_table::NumberProblem::None) {
                         problem = gene_table::ColumnProblem(columns[i] + 1, number);
+                        return false;
+                    }
+                }
+                // A gene's counts are kept in 32 bits (a gene has fewer than 2^20 bases).
+                for (int i = 2; i < 6; i++) {
+                    if (counts[i] > UINT32_MAX) {
+                        problem = gene_table::ColumnProblem(columns[i] + 1, gene_table::NumberProblem::TooLarge);
                         return false;
                     }
                 }
@@ -774,13 +778,14 @@ namespace protal {
                 return a->GetStartByte() < b->GetStartByte();
             });
 
-            // Give every gene its place in one arena first (sizing 16.6M strings one by one took
-            // seconds on one thread); the threads then fill disjoint parts of it (a gene that spans
-            // two chunks gets its two parts from two threads). The arena is not zeroed: the reference
-            // covers every gene byte, or protal stops below.
+            // Give every gene its place in one arena of packed sequences first (sizing 16.6M strings one
+            // by one took seconds on one thread); the threads then fill disjoint parts of it (a gene that
+            // spans two chunks gets its two parts from two threads). Each gene starts on a byte. The
+            // arena is zero, as PackInto needs, without being touched (calloc hands out fresh pages for
+            // a block this large); the reference covers every gene byte, or protal stops below.
             std::vector<uint64_t> starts;
             starts.reserve(genes.size());
-            uint64_t position = 0, total = 0;
+            uint64_t position = 0, packed_bytes = 0;
             for (Gene* gene : genes) {
                 if (gene->GetStartByte() < position) {
                     std::cerr << "Invalid reference map " << m_map.Name() << ": gene " << gene->GetId() << " at byte "
@@ -788,16 +793,20 @@ namespace protal {
                     exit(8);
                 }
                 position = gene->GetStartByte() + gene->GetLength();
-                total += gene->GetLength();
+                packed_bytes += packed::Bytes(gene->GetLength());
                 starts.emplace_back(gene->GetStartByte());
             }
             if (!genes.empty()) {
-                auto arena = std::make_unique_for_overwrite<char[]>(total);
-                AdviseHugePages(arena.get(), total);
+                std::unique_ptr<uint8_t[], FreeDeleter> arena(static_cast<uint8_t*>(std::calloc(packed_bytes, 1)));
+                if (!arena) {
+                    std::cerr << "Cannot allocate " << packed_bytes << " bytes for the reference genes" << std::endl;
+                    exit(8);
+                }
+                AdviseHugePages(arena.get(), packed_bytes);
                 uint64_t offset = 0;
                 for (Gene* gene : genes) {
-                    gene->SetArena(arena.get() + offset);
-                    offset += gene->GetLength();
+                    gene->SetPacked(arena.get() + offset);
+                    offset += packed::Bytes(gene->GetLength());
                 }
                 m_arenas.emplace_back(std::move(arena));
             }

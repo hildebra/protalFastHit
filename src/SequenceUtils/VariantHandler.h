@@ -55,12 +55,21 @@ namespace protal {
         // inside a deletion after its first position. They support no allele, so they are not taken
         // for reference support. One byte per read: its strand (bit 7) and divergence (bits 0-6).
         tsl::robin_map<VariantPos, std::vector<uint8_t>> m_no_base;
-        std::string_view m_reference;  // the gene's sequence, which outlives the handler
+        // The reference: the gene, whose sequence is decoded where it is read (Reference()), or a fixed
+        // sequence that outlives the handler (tests).
+        Gene const* m_gene = nullptr;
+        std::string_view m_fixed;
 
     public:
         Benchmark bm_next_compressed_cigar{"Next compressed cigar"};
 
-        explicit VariantHandler(std::string_view reference) : m_reference(reference) {};
+        explicit VariantHandler(std::string_view reference) : m_fixed(reference) {};
+        explicit VariantHandler(Gene const& gene) : m_gene(&gene) {};
+
+        // The reference sequence; keep it in a variable while a view of it is used.
+        GeneSequence Reference() const {
+            return m_gene ? m_gene->Sequence() : GeneSequence(m_fixed);
+        }
 
         // Drops all variants and frees their memory.
         void Clear() {
@@ -99,10 +108,6 @@ namespace protal {
             return variant_bin.back();
         }
 
-
-        std::string_view GetReference() const {
-            return m_reference;
-        }
 
         static Variant& GetVariant(VariantBin& variant_bin, VariantType type, VariantPos pos, Base ref, std::string& structural) {
             for (auto& variant :  variant_bin) {
@@ -172,6 +177,7 @@ namespace protal {
         // the part the fragment's other mate already covered, are left out: a fragment counts once.
         // Every record carries the read's divergence from the gene (DivergenceBin).
         std::optional<std::pair<size_t, size_t>> AddAlignment(SamEntry const& sam, size_t skip_begin = 0, size_t skip_end = 0, uint8_t divergence = 0) {
+            auto const reference = Reference();  // the gene, decoded once for this alignment
             std::vector<std::pair<int, char>> ops;
             {
                 int cpos = 0, count = 0;
@@ -220,7 +226,7 @@ namespace protal {
                 auto const [count, op] = ops[k];
                 bool const consumes_ref = !(op == 'I' || op == 'S');
                 bool const consumes_query = op != 'D';
-                if ((consumes_ref && rpos + count > m_reference.size()) || (consumes_query && qpos + count > sam.m_seq.size())) {
+                if ((consumes_ref && rpos + count > reference.size()) || (consumes_query && qpos + count > sam.m_seq.size())) {
                     bm_next_compressed_cigar.Stop();
                     return std::nullopt;
                 }
@@ -231,7 +237,7 @@ namespace protal {
                 if (op == 'M') {
                     for (auto i = 0; i < count; i++) {
                         char const base = sam.m_seq[qpos + i];
-                        char const ref = m_reference[rpos + i];
+                        char const ref = reference[rpos + i];
                         if (base == 'N' || ref == 'N') {
                             if (trusted && !skipped(rpos + i)) no_base.push_back(rpos + i);
                         } else if (base != ref) {
@@ -244,7 +250,7 @@ namespace protal {
                                 {
                                     std::cerr << "Alignment does not match its gene (M at a mismatch; a SAM aligned against "
                                                  "another database?):\n" << sam.ToString() << std::endl;
-                                    PrintAlignment(sam, m_reference, std::cerr);
+                                    PrintAlignment(sam, reference, std::cerr);
                                     if (n + 1 == kShown) std::cerr << "Further such alignments are not shown." << std::endl;
                                 }
                             }
@@ -256,7 +262,7 @@ namespace protal {
                     for (auto i = 0; i < count; i++) {
                         if (skipped(rpos + i)) continue;
                         char const base = sam.m_seq[qpos + i];
-                        char const ref = m_reference[rpos + i];
+                        char const ref = reference[rpos + i];
                         if (base == 'N' || ref == 'N') {
                             no_base.push_back(rpos + i);
                         } else {
@@ -268,12 +274,12 @@ namespace protal {
                     for (auto i = 0; i < count; i++) {
                         qual_sum += PhredScore(sam.m_qual[qpos + i]);
                     }
-                    indels.push_back({ VariantType::INS, static_cast<VariantPos>(rpos), m_reference[rpos],
+                    indels.push_back({ VariantType::INS, static_cast<VariantPos>(rpos), reference[rpos],
                                        sam.m_seq.substr(qpos, count), static_cast<Qual>(qual_sum / count) });
                 } else if (op == 'D' && between_trusted_bases && !(rpos > skip_begin && rpos + count < skip_end)) {
                     Qual const flank = std::min(PhredScore(sam.m_qual[qpos - 1]), PhredScore(sam.m_qual[qpos]));
-                    indels.push_back({ VariantType::DEL, static_cast<VariantPos>(rpos), m_reference[rpos],
-                                       std::string(m_reference.substr(rpos, count)), flank });
+                    indels.push_back({ VariantType::DEL, static_cast<VariantPos>(rpos), reference[rpos],
+                                       std::string(reference.substr(rpos, count)), flank });
                     for (auto i = 1; i < count; i++) {
                         if (!skipped(rpos + i)) no_base.push_back(rpos + i);
                     }
