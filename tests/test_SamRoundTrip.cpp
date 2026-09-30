@@ -60,13 +60,16 @@ namespace {
         return r;
     }
 
+    // The records written; `genes`, if given, receives the genes the handler reported for them.
     std::vector<std::vector<std::string>> WritePairs(TinyReference& ref, PairedAlignmentResultList results,
-                                                     FastxRecord r1, FastxRecord r2) {
+                                                     FastxRecord r1, FastxRecord r2, std::vector<uint64_t>* genes = nullptr) {
         std::ostringstream os;
+        SamStreamSink sink(os);
         {
-            ProtalPairedOutputHandler<false> handler(os, 5, 0, 1 << 16, *ref.loader);
+            ProtalPairedOutputHandler<false> handler(sink, 5, 0, 1 << 16, *ref.loader);
             handler(results, r1, r2);
         }  // the destructor flushes the buffer
+        if (genes) *genes = sink.Genes();
         std::vector<std::vector<std::string>> records;
         std::istringstream in(os.str());
         std::string line;
@@ -202,8 +205,11 @@ TEST(PairedOutputHandler, WritesMatesOnTwoGenesWithTheirOwnMapq) {
     TinyReference ref;
     auto r1 = Record("frag/1", ref.gene.substr(30, 20));
     auto r2 = Record("frag/2", KmerUtils::ReverseComplement(ref.gene2.substr(0, 20)));
+    std::vector<uint64_t> genes;
     auto records = WritePairs(ref, { { Aligned(30, 20, true), AlignmentResult() },
-                                     { AlignmentResult(), Aligned(0, 20, false, 2) } }, r1, r2);
+                                     { AlignmentResult(), Aligned(0, 20, false, 2) } }, r1, r2, &genes);
+    // Both genes go into the SAM header: each is a record's RNAME and the other's RNEXT.
+    EXPECT_EQ(genes, (std::vector<uint64_t>{ SamGeneKey(1, 1), SamGeneKey(1, 2) }));
 
     ASSERT_EQ(records.size(), 2u);
     FLAG_t flag1 = std::stoul(records[0][1]);
@@ -280,6 +286,19 @@ TEST(PairedOutputHandler, SkipsOnlyTheInconsistentCandidate) {
     EXPECT_FALSE(Flag::IsNotPrimaryAlignment(std::stoul(records[0][1])));
 }
 
+TEST(PairedOutputHandler, ReportsOnlyTheGenesOfRecordsWritten) {
+    TinyReference ref;
+    auto r1 = Record("frag/1", ref.gene.substr(0, 20));
+    auto r2 = Record("frag/2", "NNNNNNNNNNNNNNNNNNNN");
+    // The candidate on gene 2 does not fit gene 2 and is skipped: gene 2 must not be in the header.
+    std::vector<uint64_t> genes;
+    auto records = WritePairs(ref, { { Aligned(0, 20, true, 2), AlignmentResult() },
+                                     { Aligned(0, 20, true), AlignmentResult() } }, r1, r2, &genes);
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0][2], "1_1");
+    EXPECT_EQ(genes, (std::vector<uint64_t>{ SamGeneKey(1, 1) }));
+}
+
 TEST(SamReader, SingleEndReadsAreFirstReads) {
     Reader r(SamLine("fwd", 0) + SamLine("rev", 0x10) + SamLine("rev", 0x10 | 0x100));
     for (std::string const name : { "fwd", "rev", "rev" }) {
@@ -306,12 +325,14 @@ TEST(SamReader, TellsPairedFromSingleEndReads) {
 
 namespace {
     std::vector<std::vector<std::string>> WriteSingle(TinyReference& ref, AlignmentResultList results, FastxRecord record,
-                                                      size_t max_out = 5) {
+                                                      size_t max_out = 5, std::vector<uint64_t>* genes = nullptr) {
         std::ostringstream os;
+        SamStreamSink sink(os);
         {
-            ProtalSingleOutputHandler<false> handler(os, max_out, 0, 1 << 16, *ref.loader);
+            ProtalSingleOutputHandler<false> handler(sink, max_out, 0, 1 << 16, *ref.loader);
             handler(results, record);
         }  // the destructor flushes the buffer
+        if (genes) *genes = sink.Genes();
         std::vector<std::vector<std::string>> records;
         std::istringstream in(os.str());
         std::string line;
@@ -382,9 +403,13 @@ TEST(SingleOutputHandler, RanksCandidatesAndWritesTheOthersAsSecondary) {
     EXPECT_EQ(records[1][4], "0");
     EXPECT_EQ(records[0][0], records[1][0]);
 
-    auto first_only = WriteSingle(ref, { Weaker(3, 20, 5, 2), Aligned(0, 20, true) }, Record("r", std::string(20, 'N')), 1);
+    std::vector<uint64_t> genes;
+    auto first_only = WriteSingle(ref, { Weaker(3, 20, 5, 2), Aligned(0, 20, true) }, Record("r", std::string(20, 'N')), 1, &genes);
     ASSERT_EQ(first_only.size(), 1u);
     EXPECT_EQ(first_only[0][2], "1_1");
+    EXPECT_EQ(genes, (std::vector<uint64_t>{ SamGeneKey(1, 1) }));  // gene 2's candidate was not written
+    WriteSingle(ref, { Weaker(3, 20, 5, 2), Aligned(0, 20, true) }, Record("r", std::string(20, 'N')), 5, &genes);
+    EXPECT_EQ(genes, (std::vector<uint64_t>{ SamGeneKey(1, 1), SamGeneKey(1, 2) }));
 }
 
 TEST(SingleOutputHandler, TheSameAlignmentTwiceIsOneCandidate) {

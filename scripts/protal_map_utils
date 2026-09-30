@@ -286,7 +286,7 @@ def generate_sample_name(read1: str, read2: str, indices: List[int], id_from_fol
     return prefix + ("_" if prefix else "") + base
 
 
-def generate_samples_from_reads(read_files: List[str], gzip_sam: bool, id_from_folder: bool) -> List[Dict[str, str]]:
+def generate_samples_from_reads(read_files: List[str], sam_suffix: str, id_from_folder: bool) -> List[Dict[str, str]]:
     read_files = sorted(read_files)
     indices = get_relevant_indices(read_files)
     samples: List[Dict[str, str]] = []
@@ -298,7 +298,7 @@ def generate_samples_from_reads(read_files: List[str], gzip_sam: bool, id_from_f
         potential_second = omit_extension(os.path.basename(potential_second_path))
         if is_pair(first, potential_second):
             sample_name = generate_sample_name(first_path, potential_second_path, indices, id_from_folder)
-            sam_name = f"{sample_name}.sam.gz" if gzip_sam else f"{sample_name}.sam"
+            sam_name = f"{sample_name}{sam_suffix}"
             samples.append(
                 {
                     MAP_SAMPLEID: sample_name,
@@ -328,7 +328,7 @@ def generate_samples_from_reads(read_files: List[str], gzip_sam: bool, id_from_f
     return samples
 
 
-def generate_map(input_dirs: List[str], output_dir: Optional[str], gzip_sam: bool, id_from_folder: bool) -> None:
+def generate_map(input_dirs: List[str], output_dir: Optional[str], sam_suffix: str, id_from_folder: bool) -> None:
     input_dirs_abs = [os.path.abspath(d) for d in input_dirs]
     input_dir = common_path(input_dirs_abs)
     if not input_dir:
@@ -343,7 +343,7 @@ def generate_map(input_dirs: List[str], output_dir: Optional[str], gzip_sam: boo
         for path in all_reads
         if os.path.normpath(path).startswith(input_dir)
     ]
-    samples = generate_samples_from_reads(reads_rel, gzip_sam, id_from_folder)
+    samples = generate_samples_from_reads(reads_rel, sam_suffix, id_from_folder)
 
     seen_sample_ids: Dict[str, str] = {}
     seen_files: Dict[str, str] = {}
@@ -423,7 +423,7 @@ def merge_maps(
     paths: List[str],
     output_dir_override: Optional[str],
     use_sampleid: bool,
-    gzip_sam: bool,
+    sam_suffix: str,
 ) -> None:
     maps = [parse_map(p) for p in paths]
     header = maps[0].header_cols
@@ -540,7 +540,7 @@ def merge_maps(
             sample_id = row[out_sampleid_idx]
             row[out_prefix_idx] = sample_id
             if out_sam_idx is not None and out_sam_idx < len(row):
-                row[out_sam_idx] = f"{sample_id}.sam.gz" if gzip_sam else f"{sample_id}.sam"
+                row[out_sam_idx] = f"{sample_id}{sam_suffix}"
             if out_profile_idx is not None and out_profile_idx < len(row):
                 row[out_profile_idx] = f"{sample_id}.profile"
 
@@ -593,16 +593,25 @@ def build_parser() -> argparse.ArgumentParser:
     generate = sub.add_parser("generate")
     generate.add_argument("--input", required=True, nargs="+")
     generate.add_argument("--out", default=None)
-    generate.add_argument("--nogzip", action="store_true")
     generate.add_argument("--id-from-folder", action="store_true")
 
     merge = sub.add_parser("merge")
     merge.add_argument("--map", required=True, action="append", nargs="+")
     merge.add_argument("--out")
     merge.add_argument("--use-sampleid", action="store_true")
-    merge.add_argument("--nogzip", action="store_true")
+
+    # SAM names: <sample>.sam.gz by default, .sam with --nogzip, .sam.zst (zstd) with --zstd.
+    for command in (generate, merge):
+        formats = command.add_mutually_exclusive_group()
+        formats.add_argument("--nogzip", action="store_true", help="SAM names end in .sam (uncompressed)")
+        formats.add_argument("--zstd", action="store_true", help="SAM names end in .sam.zst (zstd: faster and smaller than gzip)")
 
     return parser
+
+
+def sam_suffix(args: argparse.Namespace) -> str:
+    """The SAM file name ending the options ask for."""
+    return ".sam.zst" if args.zstd else ".sam" if args.nogzip else ".sam.gz"
 
 
 def main() -> int:
@@ -616,13 +625,13 @@ def main() -> int:
             flatten_map(args.map, args.out)
             return 0
         if args.command == "generate":
-            generate_map(args.input, args.out, not args.nogzip, args.id_from_folder)
+            generate_map(args.input, args.out, sam_suffix(args), args.id_from_folder)
             return 0
         if args.command == "merge":
             maps = [item for group in args.map for item in group]
             if len(maps) < 2:
                 raise ValueError("merge requires at least two --map arguments")
-            merge_maps(maps, args.out, args.use_sampleid, not args.nogzip)
+            merge_maps(maps, args.out, args.use_sampleid, sam_suffix(args))
             return 0
     except Exception as exc:
         sys.stderr.write(f"Error: {exc}\n")

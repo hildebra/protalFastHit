@@ -21,9 +21,17 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 - In a map, `#SAMPLEID` (the first column) is the sample name in MSA rows, logs and statistics.
   Every row needs a value in every column the header declares, columns are separated by tabs,
   and no two samples may share a SAM or profile file; protal checks all of this before it starts.
-- A SAM whose name ends in `.gz` (for example `S1.sam.gz` in the map's `SAM` column) is written
-  uncompressed first and then compressed with `pigz -p <threads>`; other names stay plain SAM.
-  `protal_map_utils generate` and `simulate_metagenomes --protal_metafile` write `.sam.gz` names.
+- The SAM's name chooses its format: `.sam.zst` (e.g. `S1.sam.zst` in the map's `SAM` column) is
+  compressed with zstd, `.sam.gz` with gzip, any other name stays plain SAM. The alignment threads
+  compress as they write, so no tool is needed. zstd is the faster choice: for 1M pairs of a
+  marker-rich sample at 8 threads, aligning and writing `.sam.zst` took 22–38% less time than
+  `.sam.gz`, for a 12% smaller file, and profiling reads it faster; `zstdcat S1.sam.zst` or
+  `zstd -dc` decompresses it (samtools does not read zstd). A `.sam.gz` is BGZF (gzip blocks of
+  64 KB, as `bgzip` writes), which `zcat`, `gzip -d` and samtools read. `protal_map_utils generate`
+  (and `merge --use-sampleid`) and `simulate_metagenomes --protal_metafile` write `.sam.gz` names;
+  `protal_map_utils` with `--zstd` writes `.sam.zst` names.
+- The SAM header (`@SQ`) lists the genes that the alignments name, not every gene of the database
+  (the full r226 database has millions); `--full_sam_header` lists every gene, as protal did before.
 - `<sam>.err` lists the reads whose alignment does not fit the database (a gene it lacks, a
   position past a gene's end, bases that differ from the gene). They are left out of the
   profile, and protal warns with their number.
@@ -59,10 +67,10 @@ MSAs are joint.
 protal skips the alignment of a sample whose SAM file already exists and profiles that SAM;
 `--force` aligns again. SAMs are written under a temporary `.partial` name and renamed when
 complete, so an interrupted run never leaves a truncated SAM that a rerun would reuse. A truncated
-`.sam.gz`, or a SAM aligned against another database (its `@SQ` genes missing or of another
-length), stops with an error.
+`.sam.gz` or `.sam.zst`, or a SAM aligned against another database (its `@SQ` genes missing or of
+another length), stops with an error.
 
-`--profile_only a.sam,b.sam.gz` profiles existing SAM files without loading the index. The
+`--profile_only a.sam,b.sam.gz,c.sam.zst` profiles existing SAM files without loading the index. The
 prefixes come from `--prefix` (one per file) or from the SAM names, and the outputs go to `-o`,
 or next to each SAM without it. This is the quick way to try another `--knob`, model or
 `--depth_identity_margin`.
@@ -120,7 +128,8 @@ Also shown by `--full_help`: `--build` and its options ([building-a-database.md]
 the database conversions `--compress_db`, `--unpack_db`, `--decompress_db`
 ([database-files.md](database-files.md)), `--profile_truth` for the training dump
 ([model-training.md](model-training.md)), `--benchmark_alignment` (checks alignments against the
-`taxid_geneid` encoded in simulated read names), `--mapq_debug_output`, and `--whole_read_alignment`.
+`taxid_geneid` encoded in simulated read names), `--mapq_debug_output`, `--full_sam_header` (every
+gene in the SAM header, see above), and `--whole_read_alignment`.
 
 Short reads are aligned from their anchor's exact matches: WFA aligns the read left and right of
 them (and between them), each part anchored at a match, instead of the whole read into the gene

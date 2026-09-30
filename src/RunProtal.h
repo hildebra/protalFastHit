@@ -15,7 +15,7 @@
 #include "TaxonStatisticsOutput.h"
 #include "ProgressBar.h"
 #include "protal_config.h"
-#include "Compressor.h"
+#include "SamFile.h"
 #include "RunStatus.h"
 
 #include <atomic>
@@ -98,36 +98,14 @@ namespace protal {
         }
     };
 
-    // Alignments are written under a temporary name ("<sam>.partial") and only get their final name
-    // once complete, so an interrupted run never leaves a truncated SAM that a rerun would skip and
-    // reuse. This moves a finished file into place, compressing it first when a .gz name was asked for;
-    // if compression fails, the alignments are kept uncompressed (and the run reports the failure).
+    // Alignments are written under a temporary name ("<sam>.partial", compressed already as the name
+    // asks; SamOutput) and only get their final name once complete, so an interrupted run never leaves
+    // a truncated SAM that a rerun would skip and reuse. This moves a finished file into place.
     static void FinishSamFile(Options& options, int index, std::string const& partial) {
-        namespace fs = std::filesystem;
-        auto [sam, gzipped] = options.SamFile(index);
-        auto [sam_nogzip, _] = options.SamFile(index, true);
-        auto const sample = options.GetSampleId(index);
+        auto [sam, _] = options.SamFile(index);
         std::error_code ec;
-
-        if (gzipped) {
-            try {
-                Compressor::compressInPlace(partial, options.GetThreads());
-                fs::rename(partial + ".gz", sam, ec);
-                if (ec) RunStatus::Get().Fail("Cannot move " + partial + ".gz to " + sam + ": " + ec.message());
-                return;
-            } catch (const std::exception& e) {
-                fs::remove(partial + ".gz", ec);
-                if (!fs::exists(partial)) {
-                    RunStatus::Get().Fail("Compressing the SAM file of sample " + sample + " failed: " + e.what());
-                    return;
-                }
-                RunStatus::Get().Fail("Compressing the SAM file of sample " + sample + " failed (" + e.what() +
-                                      "); kept it uncompressed as " + sam_nogzip);
-                options.SetSamFileGzip(index, false);
-            }
-        }
-        fs::rename(partial, sam_nogzip, ec);
-        if (ec) RunStatus::Get().Fail("Cannot move " + partial + " to " + sam_nogzip + ": " + ec.message());
+        std::filesystem::rename(partial, sam, ec);
+        if (ec) RunStatus::Get().Fail("Cannot move " + partial + " to " + sam + ": " + ec.message());
     }
 
     // The index is built from --reference, but queries align reads against the database's reference.fna,
@@ -279,8 +257,8 @@ namespace protal {
                 bm_classify_sample.Start();
 
                 // TODO implement logger in protal
-                auto [sam, gzipped] = options.SamFile(index);
-                auto [sam_nogzip, _] = options.SamFile(index, true);
+                auto [sam, compressed] = options.SamFile(index);
+                auto [sam_plain, _] = options.SamFile(index, true);
 
                 auto dir = std::filesystem::path(sam).parent_path();
 
@@ -293,10 +271,10 @@ namespace protal {
                 // std::cout << index << " Process sample " << options.GetSampleId(index) << (std::filesystem::exists(sam) ? " (sam exists)" : " (sam does not exist)") << std::endl;
 
                 // Avoid aligning files that already exist.
-                if (!options.Force() && (std::filesystem::exists(sam) || std::filesystem::exists(sam_nogzip))) {
+                if (!options.Force() && (std::filesystem::exists(sam) || std::filesystem::exists(sam_plain))) {
                     std::cout << "Skip " << sam << " continue" << std::endl;
                     // Profile the file that is there: an earlier run may have left it uncompressed.
-                    if (gzipped && !std::filesystem::exists(sam)) options.SetSamFileGzip(index, false);
+                    if (compressed && !std::filesystem::exists(sam)) options.UseUncompressedSamFile(index);
                     continue;
                 }
 
@@ -314,14 +292,23 @@ namespace protal {
 
 
                 options.SetCurrentIndex(index);
-                std::string const sam_partial = sam_nogzip + ".partial";  // renamed by FinishSamFile
-                std::ofstream sam_output(sam_partial, std::ios::out);
-                if (!sam_output) {
-                    RunStatus::Get().Fail("Cannot write the SAM file of sample " + options.GetSampleId(index) + ": " + sam_partial);
+                std::string const sam_partial = sam + ".partial";  // renamed by FinishSamFile
+                std::string const read_type_line = kSamReadTypeComment + Info(read_type).token + '\n';
+                // The alignment threads compress the records as the name asks (.gz, .zst). The header
+                // lists the genes that the records name, so it is written once they are complete;
+                // --full_sam_header lists every gene of the database, written first.
+                std::optional<std::string> full_header;
+                if (options.FullSamHeader()) {
+                    std::ostringstream os;
+                    genomes.WriteSamHeader(os);
+                    os << read_type_line;
+                    full_header = os.str();
+                }
+                SamOutput sam_output(sam_partial, SamCompressionOf(sam), full_header);
+                if (!sam_output.Ok()) {
+                    RunStatus::Get().Fail("Cannot write the SAM file of sample " + options.GetSampleId(index) + ": " + sam_output.Error());
                     continue;
                 }
-                genomes.WriteSamHeader(sam_output);
-                sam_output << kSamReadTypeComment << Info(read_type).token << '\n';
                 std::cout << "Align the " << ReadTypeName(read_type) << " reads of sample "
                           << options.GetSampleId(index) << " (-a " << max_score_ani << ")" << std::endl;
 
@@ -412,23 +399,33 @@ namespace protal {
                 }
                 bm_classify_sample.Stop();
                 bm_classify_sample.PrintResults();
-                sam_output.close();
 
                 if (truncated) {
                     RunStatus::Get().Fail("The FASTQ files of sample " + options.GetSampleId(index) + " are truncated or corrupt (" +
                                           read_files + "); no SAM file was written");
-                    std::filesystem::remove(sam_partial);
+                    sam_output.Discard();
                     continue;
                 }
                 if (!read_success) {
                     RunStatus::Get().Fail("Reading the FASTQ files of sample " + options.GetSampleId(index) + " failed (" +
                                           read_files + "); no SAM file was written");
-                    std::filesystem::remove(sam_partial);
+                    sam_output.Discard();
                     continue;
                 }
-                if (sam_output.fail()) {
-                    RunStatus::Get().Fail("Writing the SAM file of sample " + options.GetSampleId(index) + " failed: " + sam_partial);
-                    std::filesystem::remove(sam_partial);
+                Benchmark bm_finish_sam("Writing the SAM header and file");
+                bm_finish_sam.Start();
+                std::string header;
+                if (!full_header) {
+                    std::ostringstream os;
+                    genomes.WriteSamHeader(os, sam_output.Genes());
+                    os << read_type_line;
+                    header = os.str();
+                }
+                bool const written = sam_output.Finish(header);
+                bm_finish_sam.Stop();
+                bm_finish_sam.PrintResults();
+                if (!written) {
+                    RunStatus::Get().Fail("Writing the SAM file of sample " + options.GetSampleId(index) + " failed: " + sam_output.Error());
                     continue;
                 }
                 FinishSamFile(options, index, sam_partial);
@@ -511,12 +508,12 @@ namespace protal {
             auto& filter = *sample_filter;
 
             if (options.Verbose()) {
-                auto [sam, gzipped] = options.SamFile(i);
+                auto [sam, compressed] = options.SamFile(i);
                 #pragma omp critical(print)
-                std::cerr << omp_get_thread_num() << " File " << i << " of " << range.size() << ":\n\t" << sam << (gzipped ? " (gzipped)" : "") << std::endl;
+                std::cerr << omp_get_thread_num() << " File " << i << " of " << range.size() << ":\n\t" << sam << (compressed ? " (compressed)" : "") << std::endl;
             }
 
-            auto [sam, gzipped] = options.SamFile(i);
+            auto [sam, compressed] = options.SamFile(i);
             auto sample_name = options.GetSampleId(i);
 
             if (!Utils::exists(sam)) {
@@ -1876,12 +1873,6 @@ namespace protal {
                              "no gene ids)." << std::endl;
                 exit(2);
             }
-        }
-        if (run_alignment && !options.BuildMode() && FindInPath("pigz").empty() &&
-            std::any_of(sam_files.begin(), sam_files.end(), [](std::string const& f) { return f.ends_with(".gz"); })) {
-            std::cerr << "Error: gzipped SAM output (.sam.gz) needs pigz, which is not on $PATH. "
-                         "Install pigz or request uncompressed .sam files." << std::endl;
-            exit(2);
         }
 
         /*

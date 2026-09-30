@@ -567,6 +567,26 @@ namespace protal {
             }
         }
 
+        // The header for the given genes only (taxid << 32 | gene id, sorted), in that order: SAM
+        // needs @SQ lines only for the references that records name. Genes not in the database are
+        // left out.
+        void WriteSamHeader(std::ostream& os, std::vector<uint64_t> const& genes) {
+            os << "@HD\tVN:1.6\n";
+            std::string line;
+            for (uint64_t const key : genes) {
+                uint64_t const taxid = key >> 32, geneid = key & 0xffffffffu;
+                if (!HasGene(taxid, geneid)) continue;
+                line = "@SQ\tSN:";
+                line += std::to_string(taxid);
+                line += '_';
+                line += std::to_string(geneid);
+                line += "\tLN:";
+                line += std::to_string(GeneLength(taxid, geneid));
+                line += '\n';
+                os << line;
+            }
+        }
+
         // Reads every gene of the reference (raw or compressed) with up to `threads` threads:
         // zstd::ParallelRead delivers the file's bytes (raw and seekable zstd files in parallel
         // chunks, other zstd files in one stream), and each piece is copied, uppercased, into the

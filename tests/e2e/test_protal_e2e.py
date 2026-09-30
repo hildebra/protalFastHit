@@ -606,6 +606,17 @@ class MapUtilsTest(WorkDir):
         for row in rows:
             first = os.path.join(variables.get("#INPUT_DIR", self.work), row["FIRST"])
             self.assertEqual(os.path.realpath(first), os.path.realpath(self.path("reads", row["#SAMPLEID"] + "_R1.fq")))
+        self.assertEqual({row["SAM"] for row in rows}, {"sa.sam", "sb.sam"})  # as the maps name them
+
+        # With --use-sampleid merge names the SAMs itself; the ending chooses protal's output format.
+        for option, ending in ((None, ".sam.gz"), ("--nogzip", ".sam"), ("--zstd", ".sam.zst")):
+            rc, merged = run(self.work, "merge", "--map", maps["sa"], maps["sb"], "--use-sampleid",
+                             *([option] if option else []), binary=tool)
+            self.assertEqual(rc, 0, merged)
+            sams = [line.split("\t")[header.index("SAM")] for line in merged.splitlines() if line and not line.startswith("#")]
+            self.assertEqual(sorted(sams), ["sa" + ending, "sb" + ending], option)
+        rc, log = run(self.work, "merge", "--map", maps["sa"], maps["sb"], "--use-sampleid", "--nogzip", "--zstd", binary=tool)
+        self.assertNotEqual(rc, 0, "one format only")
 
 
 class LauncherTest(WorkDir):
@@ -1225,6 +1236,98 @@ class SamInputTest(WorkDir):
         self.assertNotEqual(rc, 0, log[-3000:])
         self.assertIn("samples 1 and 2 would both use the SAM file", log)
         self.assertFalse(glob.glob(self.path("out_twice.sam", "*.profile")))
+
+
+class CompressedSamOutputTest(WorkDir):
+    """A map's SAM names choose the format: .sam, .sam.gz (BGZF, compressed while aligning) or
+    .sam.zst (seekable zstd). Headers list the genes that records name; --full_sam_header all."""
+
+    FORMATS = {"plain": "sam", "gz": "sam.gz", "zst": "sam.zst"}
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        sample_map = os.path.join(cls.work, "samples.map")
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{os.path.join(cls.work, 'out')}\n#INPUT_DIR\t{READS}\n")
+            fh.write("#SAMPLEID\tPREFIX\tFIRST\tSECOND\tSAM\n")
+            # Names of their own: a rerun takes an existing x.sam for x.sam.gz or x.sam.zst.
+            for name, ext in cls.FORMATS.items():
+                fh.write(f"s_{name}\ts_{name}\tsa_R1.fq\tsa_R2.fq\ts_{name}.{ext}\n")
+        cls.rc, cls.log = run(cls.work, "--db", DB, "--map", sample_map, "-t", "1", "--no_qcmsa")
+
+    def sam(self, name):
+        return self.path("out", "alignments", f"s_{name}.{self.FORMATS[name]}")
+
+    def text(self, name):
+        path = self.sam(name)
+        if name == "gz":
+            with gzip.open(path, "rt") as fh:
+                return fh.read()
+        if name == "zst":
+            if not shutil.which("zstd"):
+                self.skipTest("the zstd CLI is needed to read .sam.zst here")
+            return subprocess.run(["zstd", "-dcq", path], check=True, stdout=subprocess.PIPE, text=True).stdout
+        with open(path) as fh:
+            return fh.read()
+
+    def test_exit_code(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        self.assertNotIn("pigz", self.log)
+
+    def test_every_format_holds_the_same_sam(self):
+        plain = self.text("plain")
+        self.assertTrue(any(not line.startswith("@") for line in plain.splitlines()))
+        for name in ("gz", "zst"):
+            self.assertEqual(self.text(name), plain, name)  # one thread: the same records in the same order
+        self.assertEqual(glob.glob(self.path("out", "**", "*partial*"), recursive=True), [], "no temporary files left")
+
+    def test_gzip_is_bgzf_with_its_end_of_file_block(self):
+        with open(self.sam("gz"), "rb") as fh:
+            data = fh.read()
+        self.assertEqual(data[:4], b"\x1f\x8b\x08\x04")
+        self.assertEqual(data[12:16], b"BC\x02\x00")
+        self.assertEqual(data[-28:], bytes.fromhex("1f8b08040000000000ff0600424302001b0003000000000000000000"))
+
+    def test_the_header_lists_the_genes_the_records_name(self):
+        lines = self.text("plain").splitlines()
+        listed = [line.split("\t")[1][3:] for line in lines if line.startswith("@SQ")]
+        named = set()
+        for line in lines:
+            if not line.startswith("@"):
+                fields = line.split("\t")
+                named.add(fields[2])
+                if fields[6] not in ("=", "*"):
+                    named.add(fields[6])
+        self.assertEqual(sorted(listed), sorted(named))
+        self.assertEqual(len(listed), len(set(listed)))
+        self.assertTrue(set(listed) <= {name for name, _ in reference_genes()})
+
+    def test_profiles_do_not_depend_on_the_format(self):
+        profiles = {}
+        for name in self.FORMATS:
+            path = glob.glob(self.path("out", "**", f"s_{name}.profile"), recursive=True)[0]
+            with open(path) as fh:
+                profiles[name] = fh.read()
+        self.assertTrue(profiles["plain"].strip())
+        self.assertEqual(profiles["gz"], profiles["plain"])
+        self.assertEqual(profiles["zst"], profiles["plain"])
+
+    def test_a_rerun_profiles_the_compressed_sams(self):
+        sample_map = self.path("samples.map")
+        rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "1", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("All alignments are present", log)
+
+    def test_full_sam_header_lists_every_gene(self):
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out_full", "-t", "1", "--no_qcmsa", "--no_profile",
+                      "--full_sam_header")
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(glob.glob(self.path("out_full", "sa*.sam"))[0]) as fh:
+            full = [line for line in fh if line.startswith("@SQ")]
+        self.assertEqual(len(full), len(reference_genes()))
+        listed = [line for line in self.text("plain").splitlines() if line.startswith("@SQ")]
+        self.assertTrue(set(line + "\n" for line in listed) <= set(full))
 
 
 class QcmsaTest(WorkDir):
