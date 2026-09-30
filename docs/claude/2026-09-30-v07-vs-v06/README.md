@@ -152,6 +152,42 @@ even from the reference itself: ART's 250 bp profile (MSv3) has more errors towa
 Real strains of a species can differ from its representative by up to ~5% genome-wide (the 95% ANI
 species boundary), so 0.04 would undercount them too.
 
+### Follow-up: dynamic thresholds
+
+A fixed margin below the 98th percentile cannot follow the strain a sample holds: its reads centre at
+about 1 − (the strain's difference from the reference) − (sequencing errors). Alternative anchors, tried
+with an experimental build (`depth_rule_patch.py`: the rule from `$PROTAL_DEPTH_RULE`; not in the
+repository) on 0.7's SAMs of the deep points (`dynamic_margin.sh`). The gene median is the median over a
+taxon's genes with 3 or more reads of each gene's median read identity: a strain covers all of a
+species' genes, while relatives' reads pile on the conserved ones. `top:0.04` reproduces 0.7's numbers.
+
+| Rule | 2x100 / 2x150 / 2x250 | same, species missing | 5M pairs |
+|---|---|---|---|
+| 98th percentile − 0.04 (0.7) | 0.093 / 0.062 / 0.070 | 0.099 / 0.064 / 0.067 | 0.061 |
+| 98th percentile − 0.08 | 0.029 / 0.023 / 0.015 | 0.037 / 0.027 / 0.020 | 0.016 |
+| gene median − 0.04 | 0.031 / 0.029 / 0.016 | 0.042 / 0.031 / 0.021 | 0.018 |
+| gene median − 0.06 | 0.029 / 0.023 / 0.015 | 0.039 / 0.026 / 0.020 | 0.016 |
+| gene median − 0.08 | 0.029 / 0.023 / 0.015 | 0.040 / 0.027 / 0.020 | 0.016 |
+| gene median − 3 SD of a read's identity (binomial, at its divergence and length) | 0.036 / 0.040 / 0.018 | 0.046 / 0.040 / 0.023 | 0.023 |
+| gene median − 5 SD | 0.028 / 0.027 / 0.014 | 0.039 / 0.029 / 0.020 | 0.019 |
+| 98th percentile − (0.04 + 1 × (1 − gene median)) | 0.031 / 0.028 / 0.015 | 0.042 / 0.031 / 0.021 | 0.017 |
+| 98th percentile − (0.04 + 2 × (1 − gene median)) | 0.028 / 0.024 / 0.015 | 0.039 / 0.027 / 0.020 | 0.016 |
+
+(Bray-Curtis, mean of the two samples; detection unchanged.) By kind of species (`group_bias.py`), the
+good rules remove the bias of 0.04 alike: on 2x100 sample 1, species from another strain alone (true
+0.369) get 0.362–0.364, mixtures with the representative (0.437) 0.433–0.437, the representative alone
+(0.110) 0.119–0.122; 0.04 gives 0.316, 0.458 and 0.152. A minor strain cut off by a gene median that
+follows the dominant one did not show: this world's strains are at most 4% from the reference.
+
+Anchoring on the gene median takes most of the error away even at 0.04, and from 0.06 on it equals a
+fixed 0.08 below the top, as the rule that scales the margin by the gene median's divergence does. None
+beats the fixed 0.08 here, because the world does not reach either end where they would differ: strains
+near the species boundary (~5% from the representative, where 0.08 below the top starts to drop 100 bp
+reads) and close strains beside relatives (where the gene median sits higher and cuts closer). That
+0.08 and no margin at all score nearly alike with species missing (0.037 and 0.040 on 2x100) shows the
+other reason: protal's depth is already a median over genes, which relatives' reads on a few conserved
+genes hardly move.
+
 ## New read types (0.7 only)
 
 0.6.0a profiles paired-end reads only. The same communities as single-end, PacBio and Nanopore reads:
