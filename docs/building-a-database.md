@@ -74,8 +74,9 @@ files. `full_reference.fna`, `gene2geneid.tsv` and `genome2tiid.tsv` stay next t
 separate or uncompressed files and for the compression level. Pass `--no_profile`: without it,
 build mode goes on to profile an empty sample list.
 
-The two passes over `reference.fna` that fill the index run on one thread; the uniqueness check,
-the unique k-mer statistics and the compression use `-t` threads. The log times each phase
+Every phase uses `-t` threads: the two passes over `reference.fna` that fill the index (each
+thread owns a range of k-mers, so the index is the same for any `-t`), the value pointers, the
+uniqueness check, the unique k-mer statistics and the compression. The log times each phase
 (`Pass 1 (count the k-mers) took ...`, `Value pointers`, `Pass 2 (place the values)`, `Uniqueness
 check`, `Unique k-mer statistics`, `Write index`) and counts the uniqueness check's work (k-mers,
 flex parts compared per k-mer, k-mers found under another taxon, entries read back from their

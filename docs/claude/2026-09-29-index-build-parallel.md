@@ -135,3 +135,75 @@ tests and the 85 end-to-end tests pass. The check's ~35-50 min at GTDB scale sho
   GTDB scale this saves most of its ~20-30 min of compression.
 - The two builds still run one after the other (their passes would compete for memory bandwidth,
   and need ~2x the memory together).
+
+## Follow-up: the partitioned passes (implemented)
+
+2026-09-30, on `performance` after it merged `audit-fixes` (`c7cba5d`, with the build changes of
+[the index build gains](2026-09-30-index-build-gains/README.md)). The design above, as described:
+
+- **Both passes** go through `build::PartitionedPass` (`Build.h`). Each round, one thread reads
+  4 x threads batches of whole records (`FastaBatches`, `SequenceUtils/FastaBatches.h`: a batch ends
+  before the first record that starts 1 MB or more into it). The threads parse them
+  (`ForEachFastaRecord`: the header, and the sequence's lines joined, as `SeqReader` gives them),
+  extract the k-mers and sort each batch's items by key range, keeping their order (a counting
+  sort). Then each of 64 x threads key ranges (whole control blocks: the main key's top bits) is
+  applied by one thread, batch after batch in reference order. Pass 1's items are main keys,
+  counted up; pass 2's are the k-mer and its value (the entry's bits as `PutOMP` packs them),
+  placed by `Seedmap::PutOwned`: `PutOMP`'s placement without its lock. `PutOMP` now calls it under
+  its lock; gone are the static counter it incremented without one and a `Get` whose result it
+  dropped.
+- **The value pointers** (`BuildValuePointers(threads)`): 16 parts of the control blocks per thread
+  are laid out from 0 in parallel, the parts' sizes summed in order, and each part's start added to
+  its blocks' control cells; the frequency histogram and counters are summed. The histogram's
+  65,536 log lines are no longer flushed one by one.
+- `--serial_index_passes` (a dev option) runs the passes and the value pointers on one thread as
+  before, for comparison; `--index_batch_kb` sets the batch size (for tests). The warning
+  "Building db with multiple threads is currently broken" and the forced single thread are gone.
+
+No two threads write the same memory: a range's keys own whole control blocks, their values (laid
+out in block order) a stretch of the value array, and the batches are written and read in phases
+with a barrier between them.
+
+**The same index.** On the 765-species tuning world (all species, converted by
+`gtdb_to_protal_db.py`), `index.prx` and `unique_kmers.tsv` (md5 starting `fae024569c18` and
+`23f64e6a581e`) are the same in all 22 builds: `audit-fixes` (`01fcc55`) and the merge, at 1 and 8
+threads; the new code at 1, 4 and 8 threads (several times each), with 64 KB batches, and with
+`--serial_index_passes` at 1 and 8 threads. The new end-to-end test `ParallelIndexBuildTest` builds
+the mini database with `--serial_index_passes -t 1`, with the parallel passes at `-t 1`, and at
+`-t 4` with 16 KB batches (many batches and rounds), and compares both files byte for byte. New
+unit tests: `FastaBatches` against `SeqReader` for batches of 1 byte to 64 MB (300 records: several
+lines, CRLF, trailing blanks, descriptions, one of 300 kb, no final line end), and a file that is
+not FASTA. Unit tests 182/182, end-to-end 103/103, mini-database tests 15/15. Under ASan and UBSan
+(CI's sanitizer configuration, Debug), the mini database built on 4 threads with 16 KB batches and
+with `--serial_index_passes`: no finding, and the same index. ThreadSanitizer was not run: the build
+touches the whole 3 GB key map, and its shadow memory would not fit in 15 GB.
+
+**Time.** The same binary with and without `--serial_index_passes`, alternated, two runs each,
+`--build --no_profile --no_compress`, load 0.6-4:
+
+| | serial, `-t 1` | parallel, `-t 1` | serial, `-t 8` | parallel, `-t 4` | parallel, `-t 8` |
+|---|---:|---:|---:|---:|---:|
+| pass 1 | 1.8-2.3 s | 1.4-1.8 s | 1.3-2.1 s | 0.65-1.0 s | 0.64-0.79 s |
+| value pointers | 3.4-3.9 s | 3.1-4.3 s | 3.2-3.8 s | 1.0-2.0 s | 1.1-1.6 s |
+| pass 2 | 3.3 s | 2.2-2.7 s | 2.9-3.7 s | 0.73-0.89 s | 0.94-1.0 s |
+| **together** | **9.0 s** | **6.6-8.8 s** | **7.4-9.6 s** | **2.4-3.9 s** | **2.7-3.4 s** |
+| the whole build | 20.8-24.7 s | 18.2-21.6 s | 13.4-15.3 s | 9.4-10.1 s | 9.0-10.7 s |
+| peak RSS | 3.45 GB | 3.48 GB | 3.49 GB | 3.58 GB | 3.75 GB |
+
+On 8 threads the passes and pointers take a third of the time; this laptop (4 fast and 4 slow
+cores, shared with other sessions) gains little from 4 to 8 threads. On one thread the partitioned
+passes are not slower: a range's updates stay within a few MB of the key map and its stretch of
+values. The value pointers are the same work for any database (2^27 control blocks). The batches in
+flight cost 0.1 GB at 4 threads and 0.3 GB at 8, whatever the database's size.
+
+At GTDB r226 (an extrapolation: 188 times the reference, and a value array of ~34 GB that makes the
+serial passes' random accesses slower than here): passes 1 and 2 took 5.1-5.6 s on one thread here
+(times 188: ~16-18 min; the earlier estimate was ~30 min) and 1.6-1.8 s on 8 threads (~5-6 min),
+less with more cores; the value pointers stay at ~1-2 s. That is **~5-8 min instead of ~20-30 min
+per build**, and the first r226 build's phase timers will tell.
+
+Reproduce: the inputs as in [the index build gains](2026-09-30-index-build-gains/README.md)
+(`gtdb_to_protal_db.py --gtdb ~/tune/release_p --outdir in100 -t 8`), then per run, on a copy
+`D` of them:
+`protal --build --no_profile --no_compress -t T [--serial_index_passes] --db D --reference D/reference.fna --full_reference D/full_reference.fna`,
+and `md5sum D/index.prx D/unique_kmers.tsv`.

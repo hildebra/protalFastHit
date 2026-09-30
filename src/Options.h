@@ -131,6 +131,8 @@ namespace protal {
                 ("mapq_debug_output", "Output mapq debug info to stderr")
                 ("whole_read_alignment", "Align each short read as a whole into its gene window, as protal did before it aligned from the anchor's exact matches (slower; the results differ in a few alignments). Long reads are always aligned as a whole.")
                 ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
+                ("serial_index_passes", "With --build: count and place the reference's k-mers and compute the value pointers on one thread, as protal did before these ran in -t threads (slower; the index is the same).")
+                ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
                 ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, the models model_*.xml) instead of packing them into database.protal.")
@@ -183,6 +185,8 @@ namespace protal {
         bool mapq_debug_out = false;
         bool whole_read_alignment = false;
         bool full_sam_header = false;
+        bool serial_index_passes = false;
+        size_t index_batch_kb = 1024;
 
         // build
         std::vector<uint8_t> build_gene_mask;
@@ -280,6 +284,8 @@ namespace protal {
         bool m_mapq_debug_out = false;
         bool m_whole_read_alignment = false;
         bool m_full_sam_header = false;
+        bool m_serial_index_passes = false;
+        size_t m_index_batch_kb = 1024;
 
         size_t m_current_index = 0;
 
@@ -412,6 +418,8 @@ namespace protal {
                 m_mapq_debug_out(d.mapq_debug_out),
                 m_whole_read_alignment(d.whole_read_alignment),
                 m_full_sam_header(d.full_sam_header),
+                m_serial_index_passes(d.serial_index_passes),
+                m_index_batch_kb(d.index_batch_kb),
                 m_fastalign(d.fastalign),
                 m_force(d.force),
                 m_verbose(d.verbose),
@@ -1022,6 +1030,16 @@ namespace protal {
         // --full_sam_header: every gene of the database in the SAM header, not only those aligned to.
         bool FullSamHeader() const {
             return m_full_sam_header;
+        }
+
+        // --serial_index_passes: the index build's passes and value pointers on one thread (build::Run).
+        bool SerialIndexPasses() const {
+            return m_serial_index_passes;
+        }
+
+        // --index_batch_kb: bytes of the reference per batch in the parallel index passes.
+        size_t IndexBatchBytes() const {
+            return m_index_batch_kb * 1024;
         }
 
         bool HasProfileTruths() const {
@@ -2108,6 +2126,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             bool mapq_debug_output = result.count("mapq_debug_output");
             bool whole_read_alignment = result.count("whole_read_alignment");
             bool full_sam_header = result.count("full_sam_header");
+            bool serial_index_passes = result.count("serial_index_passes");
+            size_t index_batch_kb = std::max<size_t>(result["index_batch_kb"].as<size_t>(), 1);
             bool force = result.count("force");
 
 
@@ -2255,6 +2275,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.mapq_debug_out           = mapq_debug_output;
             d.whole_read_alignment     = whole_read_alignment;
             d.full_sam_header          = full_sam_header;
+            d.serial_index_passes      = serial_index_passes;
+            d.index_batch_kb           = index_batch_kb;
             d.first_list               = std::move(first_list);
             d.second_list              = std::move(second_list);
             d.samplename_list          = std::move(samplenames_list);

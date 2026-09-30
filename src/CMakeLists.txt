@@ -43,6 +43,7 @@ set(PROTAL_LIB_SOURCES
         Utilities/RunStatus.h
         Utilities/ReferenceFingerprint.h
         SequenceUtils/SeqReader.h
+        SequenceUtils/FastaBatches.h
         SequenceUtils/KmerIterator.h
         SequenceUtils/KmerUtils.h
         SequenceUtils/Minimizer.h
