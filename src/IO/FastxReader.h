@@ -68,6 +68,7 @@ private:
 
     bool NextBatchLine(std::string_view &line);
     bool NextFastq(FastxRecord &record);
+    bool FinishFastq(FastxRecord &record, std::string_view sequence, std::string_view plus, std::string_view quality);
 
 public:
     BufferedFastxReader();

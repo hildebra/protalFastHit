@@ -565,7 +565,12 @@ void protal::taxonomy::IntTaxonomy::Load(std::istream& is, std::string const& pa
         std::string name = tokens.at(3);
 
         if (!defined.insert(id).second) InvalidTaxonomy(path, line_no, "id " + std::to_string(id) + " is defined twice");
-        string_to_id[name] = id;
+        // Names find taxa (truth files, --msa_species) and name files: each must be unique.
+        auto const [named, fresh] = string_to_id.emplace(name, id);
+        if (!fresh) {
+            InvalidTaxonomy(path, line_no, "the name '" + name + "' is given to ids " + std::to_string(named->second) + " and " +
+                                           std::to_string(id) + "; names must be unique");
+        }
 
         std::string rank = tokens.at(4);
         int level = stoi(tokens.at(5));
@@ -601,6 +606,25 @@ void protal::taxonomy::IntTaxonomy::Load(std::istream& is, std::string const& pa
         if (!defined.contains(id)) {
             InvalidTaxonomy(path, 0, "parent id " + std::to_string(id) + " is used but never defined");
         }
+    }
+    // Every lineage must end at the root, the taxon that is its own parent: lineages are walked up
+    // to it (LineageStr), which a cycle, or a root given a parent, would make go on for ever.
+    std::unordered_set<int> reaches_root;
+    std::vector<int> path_up;
+    for (auto const& [start, _] : map) {
+        path_up.clear();
+        int id = start;
+        while (!reaches_root.contains(id)) {
+            auto const& node = map.at(id);
+            path_up.push_back(id);
+            if (node.parent_id == id) break;  // the root
+            if (path_up.size() > map.size()) {
+                InvalidTaxonomy(path, 0, "the lineage of taxon " + std::to_string(start) + " never reaches the root (a cycle " +
+                                         "through id " + std::to_string(id) + "?); the root is the one taxon that is its own parent");
+            }
+            id = node.parent_id;
+        }
+        reaches_root.insert(path_up.begin(), path_up.end());
     }
 }
 

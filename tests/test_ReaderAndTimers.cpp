@@ -2,6 +2,9 @@
 // read pairs threads take from it (SeqReaderPE), and the stage timers (Benchmark).
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cerrno>
+#include <csignal>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -9,9 +12,11 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 #include <omp.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include "gzstream.h"
 #include "IO/ThreadedGzStream.h"
@@ -102,6 +107,20 @@ namespace {
         while (is.read(buffer, sizeof(buffer)) || is.gcount() > 0) text.append(buffer, static_cast<size_t>(is.gcount()));
         return text;
     }
+
+    // content as gzip of another writer than protal (libdeflate), one member.
+    std::string GzipBytes(std::string_view text) {
+        libdeflate_compressor* compressor = libdeflate_alloc_compressor(6);
+        std::string out(libdeflate_gzip_compress_bound(compressor, text.size()), '\0');
+        out.resize(libdeflate_gzip_compress(compressor, text.data(), text.size(), out.data(), out.size()));
+        libdeflate_free_compressor(compressor);
+        return out;
+    }
+
+    std::string FileBytes(std::string const& path) {
+        std::ifstream is(path, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
+    }
 }
 
 // gzip that is not BGZF (as sequencers write it) is inflated with zlib-ng, also when protal did not
@@ -109,16 +128,9 @@ namespace {
 TEST(ThreadedGzStream, ReadsGzipOfAnotherWriter) {
     ScratchDir dir;
     auto const content = Fastq(20000, "g");  // ~6 MB, several blocks
-    auto gzip = [](std::string_view text) {
-        libdeflate_compressor* compressor = libdeflate_alloc_compressor(6);
-        std::string out(libdeflate_gzip_compress_bound(compressor, text.size()), '\0');
-        out.resize(libdeflate_gzip_compress(compressor, text.data(), text.size(), out.data(), out.size()));
-        libdeflate_free_compressor(compressor);
-        return out;
-    };
-    std::string const one = gzip(content);
+    std::string const one = GzipBytes(content);
     std::string several;
-    for (size_t from = 0; from < content.size(); from += 1000003) several += gzip(std::string_view(content).substr(from, 1000003));
+    for (size_t from = 0; from < content.size(); from += 1000003) several += GzipBytes(std::string_view(content).substr(from, 1000003));
     for (auto const& [name, bytes] : { std::pair{ "one.fq.gz", one }, std::pair{ "several.fq.gz", several } }) {
         SCOPED_TRACE(name);
         auto const path = dir.Plain(name, bytes);
@@ -200,6 +212,86 @@ TEST(ThreadedGzStream, AMissingFileFailsToOpen) {
     std::string line;
     EXPECT_FALSE(std::getline(is, line));
     EXPECT_FALSE(is.rdbuf()->read_failed());
+}
+
+// Why a file cannot be read, for protal's message: missing, a directory, or not readable.
+TEST(ThreadedGzStream, AFileThatCannotBeReadSaysWhy) {
+    ScratchDir dir;
+    ThreadedGzIstream missing((dir.path / "none.fq.gz").string().c_str());
+    EXPECT_EQ(missing.rdbuf()->open_error(), std::strerror(ENOENT));
+    ThreadedGzIstream directory(dir.path.string().c_str());
+    EXPECT_FALSE(directory.rdbuf()->is_open());
+    EXPECT_EQ(directory.rdbuf()->open_error(), "it is a directory");
+    if (::geteuid() != 0) {  // root reads any file
+        auto const path = dir.Plain("locked.fq", Fastq(1, "l"));
+        fs::permissions(path, fs::perms::none);
+        ThreadedGzIstream locked(path.c_str());
+        EXPECT_FALSE(locked.rdbuf()->is_open());
+        EXPECT_EQ(locked.rdbuf()->open_error(), std::strerror(EACCES));
+    }
+}
+
+// A pipe (a FIFO, process substitution) is read from its one descriptor: plain, gzip, or BGZF
+// (which a pipe cannot be peeked at for, so it is read as gzip members).
+TEST(ThreadedGzStream, ReadsAPipe) {
+    ScratchDir dir;
+    std::signal(SIGPIPE, SIG_IGN);  // a reader that stops early fails the test, not the process
+    auto const content = Fastq(20000, "f");  // ~6 MB, more than a pipe holds
+    std::vector<std::pair<std::string, std::string>> const inputs{
+        { "plain", content }, { "gzip", GzipBytes(content) }, { "bgzf", FileBytes(Bgzf(dir, "reads.fq.gz", content)) } };
+    for (auto const& [name, bytes] : inputs) {
+        SCOPED_TRACE(name);
+        auto const fifo = (dir.path / (name + ".fifo")).string();
+        ASSERT_EQ(::mkfifo(fifo.c_str(), 0600), 0);
+        std::thread writer([&fifo, &bytes] { std::ofstream(fifo, std::ios::binary) << bytes; });
+        ThreadedGzIstream is(fifo.c_str());
+        EXPECT_EQ(ReadAllOf(is), content);
+        EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+        writer.join();
+    }
+}
+
+// After a gzip member comes another member, zero bytes of padding, or the end of the file.
+// Anything else is a damaged member header, reported rather than taken for the end of the file
+// (zlib's gzread ignores it); a corrupt or cut member is reported by its number.
+TEST(ThreadedGzStream, WhatFollowsAGzipMemberMustBeAMember) {
+    ScratchDir dir;
+    auto const first = Fastq(3000, "m"), second = Fastq(3000, "n");
+    std::string const one = GzipBytes(first), two = GzipBytes(second);
+    int files = 0;
+    auto read = [&](std::string const& bytes, std::string& error) {
+        ThreadedGzIstream is(dir.Plain("reads" + std::to_string(files++) + ".fq.gz", bytes).c_str());
+        auto const text = ReadAllOf(is);
+        error = is.rdbuf()->read_failed() ? is.rdbuf()->read_error_message() : "";
+        return text;
+    };
+    auto const npos = std::string::npos;
+    std::string error;
+    EXPECT_EQ(read(one + two + std::string(70000, '\0'), error), first + second);
+    EXPECT_EQ(error, "");
+
+    std::string damaged = two;
+    damaged[1] = 'X';
+    EXPECT_EQ(read(one + damaged, error), first);
+    EXPECT_NE(error.find("the data at byte " + std::to_string(one.size()) + ", after gzip member 1, is no gzip member"), npos) << error;
+    EXPECT_EQ(read(one + std::string(200000, '\0') + "x", error), first);  // padding that is not all zero
+    EXPECT_NE(error.find("after gzip member 1, is no gzip member"), npos) << error;
+
+    std::string corrupt = two;
+    for (size_t i = corrupt.size() / 2; i < corrupt.size() / 2 + 16; i++) corrupt[i] = static_cast<char>(corrupt[i] ^ 0x5a);
+    auto const text = read(one + corrupt, error);
+    EXPECT_NE(error.find("in gzip member 2 (corrupt file?)"), npos) << error;
+    EXPECT_EQ(text.compare(0, first.size(), first), 0);
+
+    EXPECT_EQ(read(one + two.substr(0, two.size() - 4), error).substr(0, first.size()), first);  // no length field
+    EXPECT_NE(error.find("the file ends inside gzip member 2 (truncated file?)"), npos) << error;
+
+    // A BGZF file goes on with members of other kinds (cat a.bgzf.gz b.gz), which are held to the same.
+    auto const bgzf = FileBytes(Bgzf(dir, "first.fq.gz", first));
+    EXPECT_EQ(read(bgzf + two + one, error), first + second + first);
+    EXPECT_EQ(error, "");
+    EXPECT_EQ(read(bgzf + two + damaged, error), first + second);
+    EXPECT_NE(error.find("the data at byte " + std::to_string(bgzf.size() + two.size())), npos) << error;
 }
 
 TEST(ThreadedGzStream, ClosingBeforeTheEndStopsTheInflatingThread) {
@@ -398,6 +490,104 @@ TEST(SeqReader, AMalformedFastqRecordIsAnError) {
         EXPECT_NE(testing::internal::GetCapturedStderr().find("malformed FASTQ file (exp. '@', saw r2)"), std::string::npos);
         EXPECT_FALSE(reader.Success());
     }
+}
+
+// A record cut short (a truncated file), without its '+' line, with more or fewer qualities than
+// bases, or without a name is an error after the records before it, in SeqReaderSE's batches and
+// SeqReader's lines alike.
+TEST(SeqReader, AnIncompleteOrUnevenFastqRecordIsAnError) {
+    std::string const good = "@r1\nACGT\n+\nIIII\n";
+    std::vector<std::pair<std::string, std::string>> const cases{
+        { good + "@r2\nACGT\n", "malformed FASTQ file: read r2 is incomplete (truncated file?)" },
+        { good + "@r2\nACGT\n+\n", "malformed FASTQ file: read r2 is incomplete (truncated file?)" },
+        { good + "@r2\nACGT\nIIII\n@r3\nACGT\n+\nIIII\n", "malformed FASTQ file: read r2 has no '+' line after its sequence" },
+        { good + "@r2\nACGT\n+\nIII\n", "malformed FASTQ file: read r2 has 4 bases but 3 qualities" },
+        { good + "@r2\nACGT\n+\nII", "malformed FASTQ file: read r2 has 4 bases but 2 qualities" },
+        { good + "@\nACGT\n+\nIIII\n", "a read without a name" },
+    };
+    for (auto const& [content, message] : cases) {
+        SCOPED_TRACE(content);
+        std::istringstream batch_stream(content), line_stream(content);
+        SeqReaderSE batches(batch_stream);
+        SeqReader lines(line_stream);
+        for (auto const& [next, success] : std::initializer_list<std::pair<std::function<bool(FastxRecord&)>, std::function<bool()>>>{
+                 { [&](FastxRecord& r) { return batches(r); }, [&] { return batches.Success(); } },
+                 { [&](FastxRecord& r) { return lines(r); }, [&] { return lines.Success(); } } }) {
+            FastxRecord record;
+            testing::internal::CaptureStderr();
+            ASSERT_TRUE(next(record));
+            EXPECT_EQ(record.id, "r1");
+            EXPECT_FALSE(next(record));
+            EXPECT_NE(testing::internal::GetCapturedStderr().find(message), std::string::npos);
+            EXPECT_FALSE(success());
+        }
+    }
+}
+
+// Lowercase bases (soft-masked reads) are read as uppercase, from FASTQ and FASTA alike.
+TEST(SeqReader, BasesAreReadInUppercase) {
+    for (std::string const content : { "@r1\nacgtn\n+\nIIIII\n@r2\nAcGt\n+\nIIII\n", ">r1\nacgtn\n>r2\nAc\ngt\n" }) {
+        SCOPED_TRACE(content);
+        std::istringstream batch_stream(content), line_stream(content);
+        SeqReaderSE batches(batch_stream);
+        SeqReader lines(line_stream);
+        for (auto const& next : std::initializer_list<std::function<bool(FastxRecord&)>>{
+                 [&](FastxRecord& r) { return batches(r); }, [&](FastxRecord& r) { return lines(r); } }) {
+            std::vector<std::string> sequences;
+            FastxRecord record;
+            while (next(record)) sequences.push_back(record.sequence);
+            EXPECT_EQ(sequences, (std::vector<std::string>{ "ACGTN", "ACGT" }));
+        }
+    }
+}
+
+// With a maximum length (short reads: MAX_SHORT_READ_LENGTH), the first longer read stops the
+// reader and fails it, also after the first 100 reads protal checks before it starts.
+TEST(SeqReader, AReadOverTheMaximumLengthStopsTheReader) {
+    std::string const content = Fastq(150, "s") + "@long\n" + std::string(1001, 'A') + "\n+\n" + std::string(1001, 'I') + "\n" + Fastq(40, "t");
+    std::istringstream is(content);
+    SeqReaderSE reader(is, 0, 1000);
+    EXPECT_EQ(Records([&](FastxRecord& r) { return reader(r); }).size(), 150u);
+    EXPECT_FALSE(reader.Success());
+    EXPECT_EQ(reader.TooLong(), 1001u);
+    EXPECT_EQ(reader.TooLongId(), "long");
+
+    std::istringstream unused("");
+    SeqReaderSE joined(unused);  // the reader the threads' copies are joined into
+    joined.UpdateSuccess(SeqReaderSE(joined));
+    EXPECT_TRUE(joined.Success());
+    joined.UpdateSuccess(reader);
+    EXPECT_FALSE(joined.Success());
+    EXPECT_EQ(joined.TooLong(), 1001u);
+    EXPECT_EQ(joined.TooLongId(), "long");
+
+    std::istringstream again(content);
+    SeqReaderSE unlimited(again);
+    EXPECT_EQ(Records([&](FastxRecord& r) { return unlimited(r); }).size(), 191u);
+    EXPECT_TRUE(unlimited.Success());
+}
+
+// Mates are named alike when their names are the same, or the same but for a last 1 and 2.
+TEST(SeqReaderPE, MatesAreNamedAlikeButForTheirNumber) {
+    EXPECT_TRUE(SeqReaderPE::MatesNamedAlike("r7", "r7"));
+    EXPECT_TRUE(SeqReaderPE::MatesNamedAlike("r7/1", "r7/2"));
+    EXPECT_TRUE(SeqReaderPE::MatesNamedAlike("r7.1", "r7.2"));
+    EXPECT_FALSE(SeqReaderPE::MatesNamedAlike("r7/2", "r7/1"));
+    EXPECT_FALSE(SeqReaderPE::MatesNamedAlike("r7/1", "r8/2"));
+    EXPECT_FALSE(SeqReaderPE::MatesNamedAlike("r7", "r71"));
+    EXPECT_FALSE(SeqReaderPE::MatesNamedAlike("", "2"));
+
+    // Pairs whose mates' names differ are counted (for protal's warning), and the first is kept.
+    std::string const r1 = Fastq(50, "a"), r2 = Fastq(10, "a") + Fastq(40, "b");
+    std::istringstream is1(r1), is2(r2);
+    SeqReaderPE reader(is1, is2);
+    FastxRecord a, b;
+    size_t pairs = 0;
+    while (reader(a, b)) pairs++;
+    EXPECT_EQ(pairs, 50u);
+    EXPECT_TRUE(reader.Success());
+    EXPECT_EQ(reader.NameMismatches(), 40u);
+    EXPECT_EQ(reader.FirstNameMismatch(), "a10/1, b0/1");
 }
 
 TEST(Benchmark, SumsIntervalsShorterThanAMicrosecond) {

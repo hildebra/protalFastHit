@@ -22,6 +22,11 @@ Databases from earlier protal versions (a folder of raw files, index format 1) l
 The index records which features it was built with; protal prints them when it loads it
 (`Index features: ...`) and checks the index against `reference.map` and `reference.fna`.
 
+In `internal_taxonomy.dmp`, ids and names are unique (truth files and `--msa_species` name
+taxa), every parent is defined, and every lineage ends at the root, a taxon that is its own
+parent. `reference.map` and `unique_kmers.tsv` list at least one gene. protal stops at the first
+problem, with the file and line.
+
 ## Compression
 
 Compression saves disk space and makes loading faster wherever storage is slower than

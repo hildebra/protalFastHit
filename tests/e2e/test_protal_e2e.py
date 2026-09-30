@@ -31,6 +31,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -947,6 +948,102 @@ class FailureTest(WorkDir):
         self.assertRegex(log, r"Invalid index .*truncated or corrupt")
 
 
+class BadInputTest(WorkDir):
+    """Read files protal cannot use stop it before aligning (exit 30) or fail their sample (exit 1)
+    with the reason, instead of giving an empty profile and exit 0; pipes are read as files are."""
+
+    MATES = property(lambda self: (os.path.join(READS, "sa_R1.fq"), os.path.join(READS, "sa_R2.fq")))
+
+    def sample(self, out, r1, r2):
+        return run(self.work, "--db", DB, "-1", r1, "-2", r2, "--prefix", "s", "-o", out, "-t", "2",
+                   "--no_qcmsa", timeout=300)
+
+    def assert_no_sam(self, out):
+        self.assertFalse(glob.glob(self.path(out, "*.sam*")), "no SAM may be written")
+
+    def test_reads_that_are_not_fastq_fail_their_sample(self):
+        # e.g. zstd-compressed reads, which protal does not read
+        for name in ("z_R1.fq.zst", "z_R2.fq.zst"):
+            with open(self.path(name), "wb") as fh:
+                fh.write(b"\x28\xb5\x2f\xfd" + random.Random(name).randbytes(4000))
+        rc, log = self.sample("out_zst", self.path("z_R1.fq.zst"), self.path("z_R2.fq.zst"))
+        self.assertEqual(rc, 1, log[-3000:])
+        self.assertIn("Reading the FASTQ files of sample s failed", log)
+        self.assert_no_sam("out_zst")
+
+    def test_an_unreadable_read_file_stops_protal(self):
+        r1, r2 = self.MATES
+        rc, log = self.sample("out_dir", self.work, r2)
+        self.assertEqual(rc, 30, log[-3000:])
+        self.assertIn(f"-1 file cannot be read: {self.work} (it is a directory)", log)
+        if os.geteuid() != 0:  # root reads any file
+            locked = self.path("locked_R2.fq")
+            shutil.copy(r2, locked)
+            os.chmod(locked, 0)
+            rc, log = self.sample("out_locked", r1, locked)
+            self.assertEqual(rc, 30, log[-3000:])
+            self.assertIn(f"-2 file cannot be read: {locked} (Permission denied)", log)
+
+    def test_a_damaged_gzip_member_fails_its_sample(self):
+        r1, r2 = self.MATES
+        with open(r1, "rb") as fh:
+            data = fh.read()
+        half = len(data) // 2
+        damaged = gzip.compress(data[:half], mtime=0) + b"\x1fX" + gzip.compress(data[half:], mtime=0)[2:]
+        with open(self.path("damaged_R1.fq.gz"), "wb") as fh:
+            fh.write(damaged)
+        rc, log = self.sample("out_damaged", self.path("damaged_R1.fq.gz"), r2)
+        self.assertEqual(rc, 1, log[-3000:])
+        self.assertRegex(log, r"The FASTQ files of sample s are truncated or corrupt \(.*: the data at byte \d+, "
+                              r"after gzip member 1, is no gzip member")
+        self.assert_no_sam("out_damaged")
+
+    def test_reads_from_pipes(self):
+        # As from process substitution (-1 <(zcat a.fq.gz)): the files are read once, as they come.
+        r1, r2 = self.MATES
+        rc, log = self.sample("out_files", r1, r2)
+        self.assertEqual(rc, 0, log[-3000:])
+        fifos = [self.path("pipe_R1.fq.gz"), self.path("pipe_R2.fq")]
+        for fifo in fifos:
+            os.mkfifo(fifo)
+
+        def feed(src, fifo, compress):
+            with open(src, "rb") as fin, open(fifo, "wb") as fout:
+                fout.write(gzip.compress(fin.read()) if compress else fin.read())
+
+        writers = [threading.Thread(target=feed, args=(src, fifo, fifo.endswith(".gz")), daemon=True)
+                   for src, fifo in zip((r1, r2), fifos)]
+        for writer in writers:
+            writer.start()
+        rc, log = self.sample("out_pipes", *fifos)
+        self.assertEqual(rc, 0, log[-3000:])
+        for writer in writers:
+            writer.join(timeout=10)
+        with open(glob.glob(self.path("out_files", "*.profile"))[0]) as files, \
+                open(glob.glob(self.path("out_pipes", "*.profile"))[0]) as pipes:
+            self.assertEqual(pipes.read(), files.read())
+
+    def test_mates_of_other_names_are_warned_about(self):
+        r1, r2 = self.MATES
+        with open(r2) as fh:
+            lines = fh.readlines()
+        for i in range(0, len(lines), 4):
+            lines[i] = lines[i].replace("@sa.", "@other.", 1)
+        with open(self.path("renamed_R2.fq"), "w") as fh:
+            fh.writelines(lines)
+        rc, log = self.sample("out_names", r1, self.path("renamed_R2.fq"))
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertRegex(log, rf"Warning: sample s: the mates of {len(lines) // 4} read pair\(s\) have different names "
+                              r"\(e\.g\. sa\.(\d+)/1, other\.\1/2\)")
+
+    def test_empty_read_files_are_warned_about(self):
+        for name in ("empty_R1.fq", "empty_R2.fq"):
+            open(self.path(name), "w").close()
+        rc, log = self.sample("out_empty", self.path("empty_R1.fq"), self.path("empty_R2.fq"))
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Warning: sample s has no reads", log)
+
+
 def is_seekable(path):
     """True if a zstd file ends with a seek table (zstd seekable format, as protal writes)."""
     with open(path, "rb") as fh:
@@ -1719,6 +1816,20 @@ class SingleEndTest(WorkDir):
         self.assertEqual({q for r in records for q in r[10]}, {"?"}, "Q30 for every base")
         _, rows = read_table(self.path("out_fasta", "safa.profile.log"))
         self.assertTrue(rows, "the profiler takes the records")
+
+    def test_a_long_read_after_the_first_100_fails_its_sample(self):
+        # The check before aligning sees the first 100 reads; the reader stops at any later long read.
+        with open(os.path.join(READS, "sa_R1.fq")) as fh:
+            head = fh.readlines()[:600]  # 150 reads
+        late = self.path("late_long.fq")
+        with open(late, "w") as fh:
+            fh.writelines(head)
+            fh.write("@long\n" + "ACGT" * 500 + "\n+\n" + "I" * 2000 + "\n")
+            fh.writelines(head)
+        rc, log = run(self.work, "--db", self.db, "-1", late, "--prefix", "late", "-o", "out_late", "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 1, log[-3000:])
+        self.assertIn("read long has 2000 bp, too long for short reads; give --read_type pb or ont", log)
+        self.assertFalse(glob.glob(self.path("out_late", "*.sam*")))
 
     def test_the_prefix_comes_from_the_read_file(self):
         rc, log = run(self.work, "--db", self.db, "-1", os.path.join(READS, "sa_R1.fq"), "-o", "out_prefix", "-t", "1",

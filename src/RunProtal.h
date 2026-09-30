@@ -314,10 +314,25 @@ namespace protal {
                 // Main Run Call. This is where the reads are read and alignment happens
                 bool truncated = false;
                 bool read_success = true;
+                std::string read_problem;   // why reading failed, if it says
+                size_t reads_read = 0;
                 std::string const read_files = single_file ? options.GetFirstFile(index) :
                                                options.GetFirstFile(index) + ", " + options.GetSecondFile(index);
+                // An input that cannot be opened reads as empty: say why instead.
+                auto cannot_read = [&](ThreadedGzIstream& is, std::string const& path) {
+                    if (is.rdbuf()->is_open()) return false;
+                    RunStatus::Get().Fail("Cannot read " + path + " (sample " + options.GetSampleId(index) + "): " +
+                                          is.rdbuf()->open_error() + "; no SAM file was written");
+                    sam_output.Discard();
+                    return true;
+                };
+                auto read_error = [](ThreadedGzIstream& is) {
+                    auto const message = is.rdbuf()->read_error_message();
+                    return message.empty() ? std::string() : ": " + message;
+                };
                 if (IsLongReadType(read_type)) {
                     ThreadedGzIstream is { options.GetFirstFile(index).c_str() };
+                    if (cannot_read(is, options.GetFirstFile(index))) continue;
                     SeqReaderSE reader{ is, FastaQualityChar(read_type) };
                     LongReadAligner<SimpleKmerHandler<ClosedSyncmer>, AnchorFinder> long_read_aligner(
                             iterator, anchor_finder, alignment_handler, genomes, options.GetAlignTop(), max_score_ani);
@@ -326,13 +341,18 @@ namespace protal {
                     if (options.Verbose()) {
                         protal_stats.WriteStats();
                     }
+                    reads_read = protal_stats.reads;
                     // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is.rdbuf()->read_failed();
+                    read_problem = read_error(is);
                     read_success = reader.Success();
                     is.close();
                 } else if (read_type == ReadType::Single) {
                     ThreadedGzIstream is { options.GetFirstFile(index).c_str() };
-                    SeqReaderSE reader{ is, FastaQualityChar(read_type) };
+                    if (cannot_read(is, options.GetFirstFile(index))) continue;
+                    // Reads longer than short reads are long reads given as single-end: the check
+                    // before aligning sees only the first reads of the file.
+                    SeqReaderSE reader{ is, FastaQualityChar(read_type), MAX_SHORT_READ_LENGTH };
                     auto align = [&](auto output_handler) {
                         return protal::classify::RunSingleEnd<
                                 SimpleKmerHandler<ClosedSyncmer>,
@@ -349,21 +369,30 @@ namespace protal {
                     if (options.Verbose()) {
                         protal_stats.WriteStats();
                     }
+                    reads_read = protal_stats.reads;
                     // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is.rdbuf()->read_failed();
+                    read_problem = read_error(is);
                     read_success = reader.Success();
+                    if (reader.TooLong() > 0) {
+                        read_problem = ": read " + reader.TooLongId() + " has " + std::to_string(reader.TooLong()) +
+                                       " bp, too long for short reads; give --read_type pb or ont (or in the map's READ_TYPE "
+                                       "column) for PacBio or ONT reads";
+                    }
                     is.close();
                 } else {
                     // Each file inflates in a thread of its own (ThreadedGzStream.h), outside the reader lock.
                     ThreadedGzIstream is1 { options.GetFirstFile(index).c_str() };
                     ThreadedGzIstream is2 { options.GetSecondFile(index).c_str() };
+                    if (cannot_read(is1, options.GetFirstFile(index)) || cannot_read(is2, options.GetSecondFile(index))) continue;
                     SeqReaderPE reader{ is1, is2, FastaQualityChar(read_type) };
+                    Statistics protal_stats;
 
                     if (options.GetMAPQDebugOut()) {
                         using OutputHandler = ProtalPairedOutputHandler<true>;
 
                         OutputHandler output_handler(sam_output, options.GetMaxOut(), 1024*512, 1024*1024*16, genomes, 0.8);
-                        auto protal_stats = protal::classify::RunPairedEnd<
+                        protal_stats = protal::classify::RunPairedEnd<
                                 SimpleKmerHandler<ClosedSyncmer>,
                                 AnchorFinder,
                                 SimpleAlignmentHandler,
@@ -371,14 +400,11 @@ namespace protal {
                                 DEBUG_NONE,
                                 AlignmentBenchmark>(
                                 reader, options, anchor_finder, alignment_handler, output_handler, iterator, genomes, benchmark);
-                        if (options.Verbose()) {
-                            protal_stats.WriteStats();
-                        }
                     } else {
                         using OutputHandler = ProtalPairedOutputHandler<false>;
 
                         OutputHandler output_handler(sam_output, options.GetMaxOut(), 1024*512, 1024*1024*16, genomes, 0.8);
-                        auto protal_stats = protal::classify::RunPairedEnd<
+                        protal_stats = protal::classify::RunPairedEnd<
                                 SimpleKmerHandler<ClosedSyncmer>,
                                 AnchorFinder,
                                 SimpleAlignmentHandler,
@@ -386,13 +412,21 @@ namespace protal {
                                 DEBUG_NONE,
                                 AlignmentBenchmark>(
                                 reader, options, anchor_finder, alignment_handler, output_handler, iterator, genomes, benchmark);
-                        if (options.Verbose()) {
-                            protal_stats.WriteStats();
-                        }
                     }
+                    if (options.Verbose()) {
+                        protal_stats.WriteStats();
+                    }
+                    reads_read = protal_stats.reads;
                     // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed();
+                    read_problem = read_error(is1);
+                    if (read_problem.empty()) read_problem = read_error(is2);
                     read_success = reader.Success();
+                    if (reader.NameMismatches() > 0 && read_success && !truncated) {
+                        std::cerr << "Warning: sample " << options.GetSampleId(index) << ": the mates of " << reader.NameMismatches()
+                                  << " read pair(s) have different names (e.g. " << reader.FirstNameMismatch()
+                                  << "); are " << read_files << " in the same order?" << std::endl;
+                    }
                     is1.close();
                     is2.close();
                 }
@@ -401,15 +435,18 @@ namespace protal {
 
                 if (truncated) {
                     RunStatus::Get().Fail("The FASTQ files of sample " + options.GetSampleId(index) + " are truncated or corrupt (" +
-                                          read_files + "); no SAM file was written");
+                                          read_files + read_problem + "); no SAM file was written");
                     sam_output.Discard();
                     continue;
                 }
                 if (!read_success) {
                     RunStatus::Get().Fail("Reading the FASTQ files of sample " + options.GetSampleId(index) + " failed (" +
-                                          read_files + "); no SAM file was written");
+                                          read_files + read_problem + "); no SAM file was written");
                     sam_output.Discard();
                     continue;
+                }
+                if (reads_read == 0) {
+                    std::cerr << "Warning: sample " << options.GetSampleId(index) << " has no reads (" << read_files << ")" << std::endl;
                 }
                 Benchmark bm_finish_sam("Writing the SAM header and file");
                 bm_finish_sam.Start();

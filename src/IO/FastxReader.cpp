@@ -14,12 +14,19 @@
 using std::string;
 
 inline void StripString(string &str) {
-    while (isspace(str.back()))
+    while (!str.empty() && isspace(static_cast<unsigned char>(str.back())))
         str.pop_back();
 }
 
+// Reads may come in lowercase (soft-masked); the index and the genes are uppercase.
+inline void Uppercase(string &seq) {
+    for (char& c : seq) {
+        if (c >= 'a' && c <= 'z') c = static_cast<char>(c - ('a' - 'A'));
+    }
+}
+
 inline std::string_view Stripped(std::string_view str) {
-    while (!str.empty() && isspace(str.back()))
+    while (!str.empty() && isspace(static_cast<unsigned char>(str.back())))
         str.remove_suffix(1);
     return str;
 }
@@ -212,20 +219,40 @@ bool BufferedFastxReader::NextFastq(FastxRecord &record) {
         return false;
     }
     record.header.assign(header);
-    if (header.size() <= 1)
+    if (header.size() <= 1) {
+        m_error = true;
+        std::cerr << "malformed FASTQ file: a read without a name" << std::endl;
         return false;
+    }
     auto const first_whitespace_ch = header.find_first_of(" \t\r", 1);
     record.id.assign(header.substr(1, first_whitespace_ch == std::string_view::npos ? std::string_view::npos : first_whitespace_ch - 1));
 
-    std::string_view line;
-    if (!NextBatchLine(line))
+    std::string_view sequence, plus, quality;
+    if (!NextBatchLine(sequence) || !NextBatchLine(plus) || !NextBatchLine(quality)) {
+        m_error = true;
+        std::cerr << "malformed FASTQ file: read " << record.id << " is incomplete (truncated file?)" << std::endl;
         return false;
-    record.sequence.assign(Stripped(line));
-    if (!NextBatchLine(line))  //  + line, discard
+    }
+    return FinishFastq(record, Stripped(sequence), Stripped(plus), Stripped(quality));
+}
+
+// The rest of a FASTQ record: its '+' line and a quality for each base.
+bool BufferedFastxReader::FinishFastq(FastxRecord &record, std::string_view sequence, std::string_view plus,
+                                      std::string_view quality) {
+    if (plus.empty() || plus[0] != '+') {
+        m_error = true;
+        std::cerr << "malformed FASTQ file: read " << record.id << " has no '+' line after its sequence" << std::endl;
         return false;
-    if (!NextBatchLine(line))
+    }
+    if (quality.size() != sequence.size()) {
+        m_error = true;
+        std::cerr << "malformed FASTQ file: read " << record.id << " has " << sequence.size() << " bases but "
+                  << quality.size() << " qualities" << std::endl;
         return false;
-    record.quality.assign(Stripped(line));
+    }
+    record.sequence.assign(sequence);
+    Uppercase(record.sequence);
+    record.quality.assign(quality);
     return true;
 }
 
@@ -291,30 +318,35 @@ bool BufferedFastxReader::ReadNextSequence(std::istream &is, FastxRecord &record
     if (str_buffer.size() > 1)
         record.id.assign(str_buffer, 1, substr_len);
     else {
+        m_error = true;
+        std::cerr << "malformed sequence file: a read without a name" << std::endl;
         return false;
     }
 
     if (record.format == FORMAT_FASTQ) {
-        if (!getline(is, str_buffer))
+        std::string sequence, plus;
+        if (!getline(is, sequence) || !getline(is, plus) || !getline(is, str_buffer)) {
+            m_error = true;
+            std::cerr << "malformed FASTQ file: read " << record.id << " is incomplete (truncated file?)" << std::endl;
             return false;
+        }
+        StripString(sequence);
+        StripString(plus);
         StripString(str_buffer);
-        record.sequence.assign(str_buffer);
-        if (!getline(is, str_buffer))  //  + line, discard
-            return false;
-        if (!getline(is, str_buffer))
-            return false;
-        StripString(str_buffer);
-        record.quality.assign(str_buffer);
-
+        return FinishFastq(record, sequence, plus, str_buffer);
     } else if (record.format == FORMAT_FASTA) {
         record.quality.assign("");
         record.sequence.assign("");
         while (is && is.peek() != '>') {
-            if (!getline(is, str_buffer))
-                return !record.sequence.empty();
+            if (!getline(is, str_buffer)) {
+                if (record.sequence.empty()) return false;  // a name at the very end, as before
+                break;
+            }
             StripString(str_buffer);
             record.sequence.append(str_buffer);
         }
+        Uppercase(record.sequence);
+        return true;
     } else if (record.format == FORMAT_FASTA_QUAL) {
         record.quality.assign("");
         record.sequence.assign("");

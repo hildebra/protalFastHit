@@ -5,6 +5,9 @@
 #pragma once
 
 #include <cxxopts.hpp>
+#include <cerrno>
+#include <cstring>
+#include <unistd.h>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -1577,6 +1580,15 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             }
         }
 
+        // Why a read file cannot be read, or an empty string if it can. Checked with access(), not by
+        // opening it: opening a FIFO would wait for its writer, and closing it would end its stream.
+        static std::string Unreadable(std::string const& path) {
+            std::error_code ec;
+            if (std::filesystem::is_directory(path, ec)) return "it is a directory";
+            if (::access(path.c_str(), R_OK) != 0) return std::strerror(errno);
+            return {};
+        }
+
         // The longest of the first `records` reads of a FASTQ/FASTA file (plain or gzipped); 0 if it
         // cannot be read.
         static size_t LongestRead(std::string const& path, size_t records) {
@@ -1839,6 +1851,16 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                             error_log.emplace_back(error);
                         }
                     }
+                }
+                // A file that exists but cannot be read (permissions, a directory) would read as empty.
+                if (force_read_check || !sam_exists) {
+                    auto check = [&](char const* flag, std::string const& path) {
+                        if (path.empty() || !std::filesystem::exists(path)) return;
+                        std::string const problem = Unreadable(path);
+                        if (!problem.empty()) error_log.emplace_back(std::string(flag) + " file cannot be read: " + path + " (" + problem + ")");
+                    };
+                    check("-1", first);
+                    check("-2", second);
                 }
             }
 

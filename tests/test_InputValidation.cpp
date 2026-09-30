@@ -79,6 +79,16 @@ TEST(Taxonomy, RejectsMalformedFiles) {
                 testing::ExitedWithCode(8), "id 2 is defined twice");
     EXPECT_EXIT(LoadTaxonomy(dir.Write("orphan.dmp", std::string(kTaxonomy) + "8\t9\t0\ts__Lost\tspecies\t7\t\n")),
                 testing::ExitedWithCode(8), "parent id 9 is used but never defined");
+    // Lineages are walked up to the root, the taxon that is its own parent: a cycle, or a root
+    // given a parent, would make the walk go on for ever.
+    EXPECT_EXIT(LoadTaxonomy(dir.Write("cycle.dmp", std::string(kTaxonomy) + "8\t9\t0\ts__Round\tspecies\t7\t\n9\t8\t0\tg__Round\tgenus\t6\t\n")),
+                testing::ExitedWithCode(8), "never reaches the root .a cycle through id [89]");
+    std::string rooted_below = kTaxonomy;
+    rooted_below.replace(rooted_below.find("4\t4\t0\troot"), 3, "4\t5");
+    EXPECT_EXIT(LoadTaxonomy(dir.Write("rootless.dmp", rooted_below)), testing::ExitedWithCode(8), "never reaches the root");
+    // Truth files and --msa_species name taxa, so a name must be one taxon's.
+    EXPECT_EXIT(LoadTaxonomy(dir.Write("same.dmp", std::string(kTaxonomy) + "8\t6\t0\ts__Mockella alpha\tspecies\t7\t\n")),
+                testing::ExitedWithCode(8), "line 9: the name 's__Mockella alpha' is given to ids 1 and 8; names must be unique");
 }
 
 TEST(Truth, ReadsLineagesAndTaxids) {
@@ -202,6 +212,7 @@ TEST(ReferenceMap, RejectsMalformedLines) {
     EXPECT_EXIT(LoadMap(fna, dir.Write("m6", ref.map + "3\t1\t5\t" + size + "0\n")), testing::ExitedWithCode(8), "is past the end of");
     EXPECT_EXIT(LoadMap(fna, dir.Write("m7", ref.map + "1\t2\t5\t8\n")), testing::ExitedWithCode(8), "gene 1_2 is listed twice");
     EXPECT_EXIT(LoadMap(fna, (dir.path / "none.map").string()), testing::ExitedWithCode(8), "cannot open the file");
+    EXPECT_EXIT(LoadMap(fna, dir.Write("m8", "\n")), testing::ExitedWithCode(8), "the file lists no genes");
 }
 
 TEST(ReferenceFingerprint, TracksMapContentAndReferenceSize) {
@@ -276,6 +287,7 @@ TEST(UniqueKmers, LoadsCountsAndRejectsMalformedLines) {
     EXPECT_EXIT(load("1\t1\t3\n"), testing::ExitedWithCode(8), "line 1: expected 9 tab-separated columns, found 3");
     EXPECT_EXIT(load("1\t1\tx\t0\t0\t0\t0\t0\t10\n"), testing::ExitedWithCode(8), "column 3 is not");
     EXPECT_EXIT(load("7\t1\t3\t0.3\t0\t0\t0\t0\t10\n"), testing::ExitedWithCode(8), "gene 7_1 is not in reference.map");
+    EXPECT_EXIT(load(""), testing::ExitedWithCode(8), "the file lists no genes .rebuild the database with --build.");
 }
 
 namespace {

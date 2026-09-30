@@ -627,7 +627,9 @@ namespace protal {
                 row = { counts[0], counts[1], counts[2], counts[3], counts[4], counts[5], 0 };
                 return true;
             };
+            size_t rows = 0;
             auto add = [&](gene_table::Chunk<Row> const& chunk, size_t line_base) {
+                rows += chunk.rows.size();
                 for (auto const& row : chunk.rows) {
                     auto it = m_genomes.find(row.taxid);
                     if (it == m_genomes.end() || !it->second.HasGene(row.geneid)) {
@@ -642,6 +644,8 @@ namespace protal {
             };
             std::string const error = gene_table::ForEachChunk<Row>(unique_kmers, threads, parse, add);
             if (!error.empty()) InvalidUniqueKmers(file, 0, error);
+            // Without rows every taxon would fail the model silently.
+            if (rows == 0) InvalidUniqueKmers(file, 0, "the file lists no genes (rebuild the database with --build)");
 
             for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) {
                 it.value().SetHittableGenesKnown();
@@ -876,7 +880,9 @@ namespace protal {
                 row = { genome_id, gene_key, start, end, 0 };
                 return true;
             };
+            size_t rows = 0;
             auto add = [&](gene_table::Chunk<Row> const& chunk, size_t line_base) {
+                rows += chunk.rows.size();
                 for (auto const& row : chunk.rows) {
                     auto& genome = AddOrGetGenome(row.taxid);
                     if (genome.HasGene(row.geneid)) {
@@ -888,6 +894,7 @@ namespace protal {
             };
             std::string const error = gene_table::ForEachChunk<Row>(map, threads, parse, add);
             if (!error.empty()) InvalidMap(file_path, 0, error);
+            if (rows == 0) InvalidMap(file_path, 0, "the file lists no genes");
         }
 
         [[noreturn]] static void InvalidUniqueKmers(std::string const& path, size_t line_no, std::string const& reason) {
