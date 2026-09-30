@@ -14,7 +14,8 @@ add_executable(protal_tests
         test_Database.cpp
         test_LongReads.cpp
         test_ReaderAndTimers.cpp
-        test_WFA2Wrapper.cpp)
+        test_WFA2Wrapper.cpp
+        test_Syncmers.cpp)
 target_compile_options(protal_tests PRIVATE ${PROTAL_COMMON_COMPILE_OPTIONS})
 target_link_libraries(protal_tests PRIVATE protal_lib dl z isa_baseline GTest::gtest_main)
 

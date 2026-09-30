@@ -363,6 +363,23 @@ Calling WFA2 from unit tests showed that UBSan reports its unaligned 8-byte load
 of negative values, which stop CI's sanitizer job (`halt_on_error=1`); `lib/wfa2-lib.cmake` now
 builds WFA2 without UBSan (ASan stays on).
 
+## Follow-up: the syncmer scan, implemented
+
+2026-09-30, on `performance` after `ff71972`. `SimpleKmerHandler<ClosedSyncmer>` now scans whole
+sequences as the branch-free prototype does (`ScanClosedSyncmers`); the window-by-window loop stays
+as `WindowByWindow` (the definition, and the path of any other minimizer). Reads and the database
+build use the same code.
+
+- The same k-mers: `tests/test_Syncmers.cpp` compares the scan with the loop and with a brute force
+  from `ClosedSyncmer`'s definition, for both s-mer masks (index formats 1 and 2), on random,
+  low-complexity and short sequences, with Ns, lower case and other symbols. The mini database built
+  by the old and the new binary is byte-identical (`database.protal`), and every output of 200k
+  pairs of `w900` and of `mix` (1 thread) is identical.
+- 200k pairs of `mix`, 1 thread, alternated three times: "Retrieve k-mers" 1.08–1.21 s before,
+  0.53–0.78 s after; the alignment stage 2.44–2.73 s before, 1.87–2.76 s after. Callgrind, 20k
+  pairs: the handler 1.26 G → 0.80 G instructions, the alignment loop 2.75 G → 2.29 G (−17%).
+- Unit tests 139/139, also under ASan/UBSan; e2e 85/85.
+
 ## Reproducing
 
 The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, default

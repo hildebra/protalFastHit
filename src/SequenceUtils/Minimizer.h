@@ -113,6 +113,14 @@ namespace protal {
             return m_smask == (1u << m_sbits) - 1;
         }
 
+        // The definition, for scans of whole sequences (SimpleKmerHandler): the core length, the
+        // s-mer length, the s-mers per core, t, and the mask applied to each s-mer.
+        uint32_t CoreLength() const { return m_k; }
+        uint32_t SmerLength() const { return m_s; }
+        uint32_t SmerCount() const { return m_shift_size; }
+        uint32_t T() const { return m_t; }
+        uint32_t Mask() const { return m_smask; }
+
         // Not "omp simd": the running minimum carries a dependency from one window to the next.
         inline bool operator () (uint64_t& key) {
             size_t min_index = 0;
