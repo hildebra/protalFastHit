@@ -1431,6 +1431,18 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
         void ResolveDatabase(std::vector<std::string>& error_log) {
             m_location = db::Locate(m_database_path);
             m_bundle.reset();
+            if (m_database_path.empty()) {
+                error_log.emplace_back("No database given: give --db, or set $" + PROTAL_DB_ENV_VARIABLE);
+                return;
+            }
+            if (!m_location.missing.empty()) {
+                std::string where;
+                std::error_code ec;
+                auto const cwd = std::filesystem::current_path(ec);
+                if (std::filesystem::path(m_database_path).is_relative() && !ec) where = " (relative to the working directory " + cwd.string() + ")";
+                error_log.emplace_back("--db " + m_database_path + " " + m_location.missing + where);
+                return;
+            }
             if (m_build) {
                 if (m_location.bundle == m_database_path && !m_database_path.empty()) {
                     error_log.emplace_back("--build writes a database into a folder: give --db the folder with reference.fna, "
@@ -1540,7 +1552,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     if (!m_bundle->Find(name)) error_log.emplace_back("The " + what + " " + name + " is not in " + m_bundle->Path());
                 }
                 if (!m_preload_genomes && !db_mode) error_log.emplace_back(PreloadOffNeedsFilesMessage());
-            } else if (!m_unpack_db && (m_build || m_location.bundle.empty())) {  // not a single file that failed to open
+            } else if (!m_unpack_db && m_location.missing.empty() && (m_build || m_location.bundle.empty())) {  // a folder: not missing, nor a single file that failed to open
                 size_t const before = error_log.size();
                 if (!std::filesystem::exists(ResolvedSequenceFile())) {
                     error_log.emplace_back("Sequence file does not exist: " + GetSequenceFile() + " (nor " +
@@ -1598,7 +1610,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     warning_log.emplace_back("no --full_reference: unique k-mers are checked against --reference only");
                     m_full_sequence_file = m_sequence_file;
                 }
-            } else if (m_bundle || m_location.bundle.empty()) {  // not a single file that failed to open
+            } else if (m_bundle || (m_location.missing.empty() && m_location.bundle.empty())) {  // not missing, nor a single file that failed to open
                 if (!m_no_profile && !UniqueKmersFileExists()) {
                     error_log.emplace_back("Unique k-mer file does not exist: " + UniqueKmersDbFile().Name() +
                                            " (without it every taxon fails the model; rebuild the database with --build)");
@@ -2137,11 +2149,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             } else {
                 auto db_path_env = std::getenv(PROTAL_DB_ENV_VARIABLE.c_str());
                 std::cout << "Get DB from environment variable $" << PROTAL_DB_ENV_VARIABLE << std::endl;
-                if (!db_path_env) {
-                    std::cerr << "Error " << PROTAL_DB_ENV_VARIABLE << std::endl;
-                } else {
-                    db_path = db_path_env;
-                }
+                if (db_path_env) db_path = db_path_env;  // else PrepareAndCheckValidity reports that none is given
             }
 
             if (range.empty()) {
