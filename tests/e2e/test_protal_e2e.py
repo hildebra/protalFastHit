@@ -21,6 +21,7 @@ import csv
 import filecmp
 import glob
 import gzip
+import hashlib
 import io
 import os
 import random
@@ -626,6 +627,48 @@ class BuildUniquenessTest(WorkDir):
         for index in ("index.prx", "index.prx.zst"):  # 3 GB raw; --build compresses by default
             if os.path.exists(os.path.join(db, index)):
                 os.remove(os.path.join(db, index))
+
+
+class ParallelIndexBuildTest(WorkDir):
+    """--build counts and places the k-mers in -t threads (by key range, batches applied in reference
+    order): the index and unique_kmers.tsv are those of the one-thread passes (--serial_index_passes)."""
+
+    @staticmethod
+    def content(name):
+        path = db_file(name)
+        if path.endswith(".zst"):
+            return subprocess.run(["zstd", "-dc", path], check=True, stdout=subprocess.PIPE).stdout
+        with open(path, "rb") as fh:
+            return fh.read()
+
+    @staticmethod
+    def digest(path):
+        sha = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for block in iter(lambda: fh.read(1 << 24), b""):
+                sha.update(block)
+        return sha.hexdigest()
+
+    def test_the_index_is_the_same_in_any_threads_and_batches(self):
+        inputs = {f: self.content(f) for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp")}
+        digests = {}
+        # 16 KB batches: many batches and rounds, records cut across the reads of the file
+        for name, extra in (("serial", ["--serial_index_passes", "-t", "1"]), ("parallel_t1", ["-t", "1"]),
+                            ("parallel_t4", ["-t", "4", "--index_batch_kb", "16"])):
+            db = self.path(name)
+            os.mkdir(db)
+            for f, data in inputs.items():
+                with open(os.path.join(db, f), "wb") as fh:
+                    fh.write(data)
+            reference = os.path.join(db, "reference.fna")
+            rc, log = run(self.work, "--build", "--no_compress", "--no_profile", *extra, "--db", db,
+                          "--reference", reference, "--full_reference", reference)
+            self.assertEqual(rc, 0, log[-3000:])
+            self.assertIn("Pass 2 (place the values) took", log)
+            digests[name] = {f: self.digest(os.path.join(db, f)) for f in ("index.prx", "unique_kmers.tsv")}
+            os.remove(os.path.join(db, "index.prx"))  # 3 GB
+        self.assertEqual(digests["parallel_t1"], digests["serial"])
+        self.assertEqual(digests["parallel_t4"], digests["serial"])
 
 
 class QcmsaContractTest(WorkDir):

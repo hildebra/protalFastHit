@@ -5,14 +5,17 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <random>
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 #include <omp.h>
 #include <unistd.h>
 #include "gzstream.h"
 #include "IO/ThreadedGzStream.h"
+#include "SequenceUtils/FastaBatches.h"
 #include "SequenceUtils/SeqReader.h"
 #include "Utilities/Benchmark.h"
 
@@ -303,6 +306,81 @@ TEST(SeqReader, FastqRecordsAreTheSameFromAnyStream) {
         EXPECT_EQ(Records([&](FastxRecord& r) { return reader(r); }), expected);
         EXPECT_TRUE(reader.Success());
     }
+}
+
+namespace {
+    using FastaRecords = std::vector<std::pair<std::string, std::string>>;  // header, sequence
+
+    FastaRecords SeqReaderRecords(std::string const& text) {
+        std::istringstream is(text);
+        SeqReader reader(is);
+        FastxRecord record;
+        FastaRecords records;
+        while (reader(record)) records.emplace_back(record.header, record.sequence);
+        return records;
+    }
+
+    FastaRecords BatchRecords(std::string const& text, size_t bytes, size_t& batches) {
+        std::istringstream is(text);
+        FastaBatches reader(is);
+        std::string batch, scratch;
+        FastaRecords records;
+        batches = 0;
+        while (reader.Next(batch, bytes)) {
+            batches++;
+            EXPECT_EQ(batch.front(), '>') << "batch " << batches;
+            ForEachFastaRecord(batch, scratch, [&](std::string_view header, std::string_view sequence) {
+                records.emplace_back(header, sequence);
+            });
+        }
+        EXPECT_EQ(reader.Error(), "");
+        return records;
+    }
+}
+
+// The index build's parallel passes read the reference in batches of whole records (FastaBatches)
+// and parse each in a thread (ForEachFastaRecord): the records SeqReader gives, for any batch size.
+TEST(FastaBatches, GiveTheRecordsOfSeqReaderInBatchesOfAnySize) {
+    std::mt19937 rng(3);
+    std::string text;
+    for (int i = 0; i < 300; i++) {
+        size_t const length = i == 100 ? 300000 : 50 + rng() % 2000;  // one record longer than most batches
+        std::string sequence;
+        for (size_t j = 0; j < length; j++) sequence += "ACGT"[rng() % 4];
+        std::string const eol = i % 7 == 0 ? "\r\n" : "\n";
+        std::string const blanks = i % 11 == 0 ? " \t" : "";
+        text += ">" + std::to_string(i % 17 + 1) + "_" + std::to_string(i + 1) + (i % 5 == 0 ? " a description" : "") + eol;
+        if (i % 3 == 0) {  // several lines of 60 bases
+            for (size_t j = 0; j < length; j += 60) text += sequence.substr(j, 60) + blanks + eol;
+        } else {
+            text += sequence + blanks + eol;
+        }
+    }
+    text.pop_back();  // the last record ends without a line end
+    auto const expected = SeqReaderRecords(text);
+    ASSERT_EQ(expected.size(), 300u);
+    for (size_t bytes : { size_t{1}, size_t{100}, size_t{4096}, size_t{65536}, size_t{1} << 20, size_t{1} << 26 }) {
+        size_t batches = 0;
+        EXPECT_EQ(BatchRecords(text, bytes, batches), expected) << bytes << " bytes per batch";
+        // A batch ends before the first record that starts `bytes` or more into it.
+        EXPECT_LE(batches, expected.size());
+        if (bytes == 1) EXPECT_EQ(batches, expected.size()) << "one record per batch";
+        // At most `bytes` plus one record (2,100 bytes here, but for the long one) each
+        if (bytes <= 4096) EXPECT_GE(batches, (text.size() - 300000) / (bytes + 2100)) << bytes << " bytes per batch";
+        if (bytes >= size_t{1} << 20) EXPECT_EQ(batches, 1u);
+    }
+}
+
+TEST(FastaBatches, AFileThatIsNotFastaIsAnError) {
+    std::string batch;
+    std::istringstream fastq("@r1\nACGT\n+\nIIII\n");
+    FastaBatches reader(fastq);
+    EXPECT_FALSE(reader.Next(batch, 1024));
+    EXPECT_NE(reader.Error().find("starts with '>'"), std::string::npos) << reader.Error();
+    std::istringstream empty("");
+    FastaBatches none(empty);
+    EXPECT_FALSE(none.Next(batch, 1024));
+    EXPECT_EQ(none.Error(), "");
 }
 
 TEST(SeqReader, AMalformedFastqRecordIsAnError) {

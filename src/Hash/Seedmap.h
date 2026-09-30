@@ -1003,10 +1003,22 @@ namespace protal {
         }
 
         bool PutOMP(uint64_t &key, uint64_t &taxid, uint64_t &geneid, uint64_t &genepos) {
-            uint64_t main_key = MainKey(key);
-            uint64_t flex_key = FlexKey(key);
+            ValueEntry entry;
+            entry.Put(taxid, geneid, genepos + m_flex_k_half);  // the core sits flex_k/2 bases into the k-mer
+            bool placed = false;
+#pragma omp critical(put)
+            placed = PutOwned(key, entry.value);
+            return placed;
+        }
 
-            static size_t count_flex = 0;
+        // Puts a value (the bits of a ValueEntry::Put) into the first empty slot of its key, and in a
+        // flex block the key's flex part into the flex cell of that slot. No lock: one thread at a time
+        // per control block, as PutOMP's lock or the index build's key ranges (Build.h) ensure; a
+        // key's values arrive in reference order and fill its slots in that order. false for a key
+        // without values (not counted, or dropped by BuildValuePointers).
+        bool PutOwned(uint64_t key, uint64_t value) {
+            uint64_t const main_key = MainKey(key);
+            uint64_t const flex_key = FlexKey(key);
             if (m_map == nullptr) {
                 std::cerr << "You need to initialize the values with BuildValuePointers()" << std::endl;
                 exit(8);
@@ -1016,168 +1028,41 @@ namespace protal {
                 exit(8);
             }
 
+            uint64_t const block_start_idx = ControlBlockIndex(main_key);
+            uint64_t const block_end_idx = block_start_idx + m_keys_per_ctrl_block + ctrl_block_cell_size;
+            uint64_t const block_value_start_idx = *((uint64_t*) (m_keymap + block_start_idx));
+            uint64_t const block_value_end_idx = *((uint64_t*) (m_keymap + block_end_idx));
+            if (block_value_end_idx == block_value_start_idx) return false;
 
-            uint64_t block_start_idx = ControlBlockIndex(main_key);
-            uint64_t block_end_idx = block_start_idx + m_keys_per_ctrl_block + ctrl_block_cell_size;
+            size_t const key_index = block_start_idx + ctrl_block_cell_size + BlockKey(main_key);
+            uint64_t const key_value_start = block_value_start_idx + m_keymap[key_index];
+            uint64_t const key_value_end = (key_index + 1) == block_end_idx ? block_value_end_idx : block_value_start_idx + m_keymap[key_index + 1];
+            uint64_t const key_value_block_size = key_value_end - key_value_start;
+            if (!key_value_block_size) return false;
 
-            uint64_t block_value_start_idx = *((uint64_t*) (m_keymap + block_start_idx ) );
-            uint64_t block_value_end_idx = *((uint64_t*) (m_keymap + block_end_idx) );
-            uint64_t block_value_size = block_value_end_idx - block_value_start_idx;
+            bool const is_flex = key_value_block_size >= m_flex_threshold;
+            uint64_t const flex_block_size = FlexBlockSize(key_value_block_size);
+            uint64_t value_index = key_value_start + (is_flex * flex_block_size);
+            auto failed = [&](char const* what, int code) {
+                std::cerr << "Cannot place a value of key " << main_key << " (" << KmerUtils::ToString(main_key, m_main_bits)
+                          << ", flex part " << KmerUtils::ToString(flex_key, m_flex_k_bits) << "): " << what << "; its values "
+                          << key_value_start << "-" << key_value_end << (is_flex ? " (flex block of " : " (")
+                          << (is_flex ? flex_block_size : 0) << "), " << values_size << " values in all" << std::endl;
+                exit(code);
+            };
+            if (value_index >= values_size) failed("they lie beyond the values", 73);
 
-            if (!block_value_size) {
-                return false;
-            }
-
-
-            size_t key_index = block_start_idx + ctrl_block_cell_size + BlockKey(main_key);
-            auto key_value_start = block_value_start_idx + m_keymap[key_index];
-            auto key_value_end = (key_index + 1) == block_end_idx ? block_value_end_idx : block_value_start_idx + m_keymap[key_index + 1];
-            auto key_value_block_size = key_value_end - key_value_start;
-
-            if (!key_value_block_size) {
-                return false;
-            }
-
-            bool is_flex = key_value_block_size >= m_flex_threshold;
-            size_t flex_block_size = FlexBlockSize(key_value_block_size);
-            auto value_index = key_value_start + (is_flex * flex_block_size);
-
-            if (value_index >= values_size) {
-                std::cout << "key: " << key << std::endl;
-                std::cout << "key: " << SeedmapUtils::BitString<64>(key) << std::endl;
-                std::cout << "key: " << SeedmapUtils::BitString<64>(main_key) << std::endl;
-                std::cout << "key: " << SeedmapUtils::BitString<64>(flex_key) << std::endl;
-                std::cout << "block_value_start_idx: " << block_value_start_idx << std::endl;
-                std::cout << "block_value_end_idx: " << block_value_end_idx << std::endl;
-                std::cout << "block_start_idx: " << block_start_idx << std::endl;
-                std::cout << "block_end_idx: " << block_end_idx << std::endl;
-                std::cout << "key_index: " << key_index << std::endl;
-                std::cout << "BlockKey(main_key): " << BlockKey(main_key) << std::endl;
-                std::cout << main_key << " " << KmerUtils::ToString(main_key, m_main_bits) << std::endl;
-                std::cout << flex_key << " " << KmerUtils::ToString(flex_key, m_flex_k_bits) << std::endl;
-                std::cout << "key_value_block_size: " << key_value_block_size << std::endl;
-                std::cout << "is_flex: " << is_flex << std::endl;
-                std::cout << "flex_block_size: " << flex_block_size << std::endl;
-                std::cout << "key_value_start: " << key_value_start << std::endl;
-                std::cout << "key_value_end: " << key_value_end << std::endl;
-                std::cout << "key_value_block_size: " << key_value_block_size << std::endl;
-                std::cout << "Value index " << value_index << "/" << values_size << std::endl;
-
-//                PrintBlock(main_key);
-                exit(73);
-            }
-
-            // Find next empty slot
-            for (; value_index < key_value_end && !m_map[value_index].Empty(); value_index++);
-            if (value_index == key_value_end) {
-                std::cout << "block_value_start_idx: " << block_value_start_idx << std::endl;
-                std::cout << "block_value_end_idx: " << block_value_end_idx << std::endl;
-                std::cout << "block_start_idx: " << block_start_idx << std::endl;
-                std::cout << "key_index: " << key_index << std::endl;
-                std::cout << "BlockKey(main_key): " << BlockKey(main_key) << std::endl;
-                std::cout << main_key << " " << KmerUtils::ToString(main_key, m_main_bits) << std::endl;
-                std::cout << flex_key << " " << KmerUtils::ToString(flex_key, m_flex_k_bits) << std::endl;
-                std::cout << "key_value_block_size: " << key_value_block_size << std::endl;
-                std::cout << "is_flex: " << is_flex << std::endl;
-                std::cout << "flex_block_size: " << flex_block_size << std::endl;
-                std::cout << "key_value_start: " << key_value_start << std::endl;
-                std::cout << "key_value_end: " << key_value_end << std::endl;
-                std::cout << "key_value_block_size: " << key_value_block_size << std::endl;
-                std::cout << "Value index " << value_index << "/" << values_size << std::endl;
-//                PrintBlock(main_key);
-                exit(74);
-            }
-
-#pragma omp critical(put)
-{
-            while(value_index < key_value_end && !m_map[value_index].Empty()) value_index++;
-            if (value_index == key_value_end) {
-                std::cout << "block_value_start_idx: " << block_value_start_idx << std::endl;
-                std::cout << "block_value_end_idx: " << block_value_end_idx << std::endl;
-                std::cout << "block_start_idx: " << block_start_idx << std::endl;
-                std::cout << "key_index: " << key_index << std::endl;
-                std::cout << "BlockKey(main_key): " << BlockKey(main_key) << std::endl;
-                std::cout << main_key << " " << KmerUtils::ToString(main_key, m_main_bits) << std::endl;
-                std::cout << flex_key << " " << KmerUtils::ToString(flex_key, m_flex_k_bits) << std::endl;
-                std::cout << "key_value_block_size: " << key_value_block_size << std::endl;
-                std::cout << "is_flex: " << is_flex << std::endl;
-                std::cout << "flex_block_size: " << flex_block_size << std::endl;
-                std::cout << "key_value_start: " << key_value_start << std::endl;
-                std::cout << "key_value_end: " << key_value_end << std::endl;
-                std::cout << "key_value_block_size: " << key_value_block_size << std::endl;
-                std::cout << "Value index " << value_index << "/" << values_size << std::endl;
-//                PrintBlock(main_key);
-                exit(75);
-            }
-
-//            if (is_flex) {
-//                count_flex++;
-//                uint64_t flexpos = value_index - key_value_start - flex_block_size;
-//                uint32_t* flex_ptr = (uint32_t*) (m_map + key_value_start);
-//                std::cout << "GRAND INDEX: " << key_value_start << "  + FLEXPOS: " << flexpos << " INSERT SIDEKEY " << KmerUtils::ToString(flex_key, 24) << std::endl;
-//                std::cout << "sidekey: " << flex_key << std::endl;
-//                std::cout << "before flex_ptr[flexpos]: " << flex_ptr[flexpos] << std::endl;
-//                flex_ptr[flexpos] = static_cast<uint32_t>(flex_key);
-//                std::cout << "after  flex_ptr[flexpos]: " << flex_ptr[flexpos] << std::endl;
-//
-////                if (flexpos == key_value_block_size - flex_block_size - 1) {
-//                    std:cout << "Before Put" << std::endl;
-//                    std::cout << "Put: " << taxid << ", " << geneid << ", " << genepos << "  at: " << value_index << std::endl;
-//                    std::cout << "Started search at index : " << (key_value_start + (is_flex * flex_block_size)) << " flex start : " << key_value_start << std::endl;
-//                    PrintBlock(main_key);
-////                }
-//
-////                if ((count_flex % 1000) == 0) {
-////                    std::cout << count_flex << std::endl;
-////                }
-//            }
-
-            // put in at value_index:
-            // Need to add m_flex_k to genepos because the main exact match sits in the middle
-            m_map[value_index].Put(taxid, geneid, genepos + m_flex_k_half);
+            // The next empty slot
+            while (value_index < key_value_end && !m_map[value_index].Empty()) value_index++;
+            if (value_index == key_value_end) failed("all its slots are taken", 75);
+            m_map[value_index].value = value;
 
             if (is_flex) {
-                count_flex++;
-                uint64_t flexpos = value_index - key_value_start - flex_block_size;
-                uint32_t* flex_ptr = (uint32_t*) &(m_map[key_value_start]);
-
-//                assert(flex_ptr[flexpos] == 0);
-                if (flex_ptr[flexpos] != 0) {
-                    std::cout << "m_map[" << key_value_start << "]: " << m_map[key_value_start].value << std::endl;
-                    std::cout << ((uint32_t *) (m_map + key_value_start))[0] << " "
-                              << ((uint32_t *) (m_map + key_value_start))[1] << std::endl;
-                    std::cout << KmerUtils::ToString(((uint32_t *) (m_map + key_value_start))[0], m_flex_k_bits) << " "
-                              << KmerUtils::ToString(((uint32_t *) (m_map + key_value_start))[1], m_flex_k_bits) << std::endl;
-                    std::cout << "m_map[key_value_start]empty?: " << m_map[key_value_start].Empty() << std::endl;
-
-                    if (flexpos == key_value_block_size - flex_block_size - 1) {
-                        std::cout << "Main key:          " << KmerUtils::ToString(main_key, m_main_bits) << std::endl;
-                        std::cout << "Side key:          " << KmerUtils::ToString(flex_key, m_flex_k_bits) << std::endl;
-                        std::cout << "At:                " << flexpos + 1 << "/"
-                                  << key_value_block_size - flex_block_size << std::endl;
-                        std::cout << "With Flexpos-size: " << flex_block_size << std::endl;
-                        std::cout << "Block size:        " << key_value_block_size - flex_block_size << std::endl;
-                        std::cout << "key_value_start:   " << key_value_start << std::endl;
-                        std::cout << "flex_start:        " << (key_value_start + (is_flex * flex_block_size))
-                                  << std::endl;
-                    }
-//                    PrintBlock(main_key);
-                    Utils::Input();
-                }
+                uint64_t const flexpos = value_index - key_value_start - flex_block_size;
+                uint32_t* const flex_ptr = (uint32_t*) &(m_map[key_value_start]);
+                if (flex_ptr[flexpos] != 0) failed("its flex cell is taken", 76);
                 flex_ptr[flexpos] = static_cast<uint32_t>(flex_key);
-//                auto tuple = m_map[key_value_start + (flexpos >> 1)].Get();
-//                if (get<0>(tuple) == 38055 && get<1>(tuple) == 479241 && get<2>(tuple) == 304245) {
-//                    PrintBlock(main_key);
-//                    std::cout << key_value_start << " flexpos: " << flexpos << std::endl;
-//                    std::cout << m_map[key_value_start + (flexpos >> 1)].ToString() << std::endl;
-//                    exit(55);
-//                }
             }
-}
-
-            ValueEntry *begin, *end;
-            Get(main_key, begin, end);
-
             return true;
         }
 
@@ -1460,33 +1345,73 @@ namespace protal {
             return totals;
         }
 
-        void BuildValuePointers() {
-            uint32_t control_idx = 0;
-            uint64_t* control_ptr = (uint64_t*) m_keymap;
-
-            uint64_t global_position = 0;
-            uint64_t num_ctrl_blocks = keymap_size >> ctrl_block_frequency_bitshift;
+        // The value positions of every control block and key (from the counts of pass 1), in
+        // `threads` threads: each part of the blocks is laid out from 0, then the parts' sizes are
+        // summed in order and each part's start is added to its blocks' positions. The same key
+        // map as on one thread.
+        void BuildValuePointers(int threads = 1) {
+            uint64_t const num_ctrl_blocks = keymap_size >> ctrl_block_frequency_bitshift;
             std::cout << "number ctrl blocks: " << num_ctrl_blocks << std::endl;
-            uint64_t max_keyblock_size = max_key_ubiquity*2;
-
-
-            subkey subkey[m_keys_per_ctrl_block];
+            uint64_t const max_keyblock_size = max_key_ubiquity*2;
+            uint64_t const block_cells = m_keys_per_ctrl_block + ctrl_block_cell_size;
 
             // Understand kmer frequencies better to improve sensitivity of alignment.
             constexpr int kmer_freq_size = 1 << (sizeof(KeyMap_t) * 8);
-            int kmer_frequencies[kmer_freq_size] = { 0 };
+            std::vector<int> kmer_frequencies(kmer_freq_size, 0);
             size_t count_failed_demand = 0;
             size_t count_total_stored = 0;
             size_t count_total_demand = 0;
 
-            // Iterate through blocks. Each block manages <m_keys_per_ctrl_block> 15-mers
-            for (auto block = 0; block < num_ctrl_blocks; block++) {
-                BuildValuePointersBlock(block, global_position, count_failed_demand, count_total_stored,
-                                        count_total_demand, kmer_frequencies, max_keyblock_size, subkey);
+            threads = std::max(threads, 1);
+            size_t const parts = threads == 1 ? 1 : static_cast<size_t>(threads) * 16;
+            std::vector<uint64_t> part_start(parts + 1, 0);
+            auto part_begin = [&](size_t part) { return num_ctrl_blocks * part / parts; };
+
+#pragma omp parallel num_threads(threads)
+            {
+                std::vector<int> frequencies(kmer_freq_size, 0);
+                size_t failed_demand = 0, total_stored = 0, total_demand = 0;
+                uint64_t keyblock_size = max_keyblock_size;
+                subkey keys[8];
+                std::vector<subkey> key_storage;
+                subkey* sk = keys;
+                if (m_keys_per_ctrl_block > 8) {
+                    key_storage.resize(m_keys_per_ctrl_block);
+                    sk = key_storage.data();
+                }
+
+                // Iterate through blocks. Each block manages <m_keys_per_ctrl_block> 15-mers
+#pragma omp for schedule(dynamic, 1)
+                for (size_t part = 0; part < parts; part++) {
+                    uint64_t position = 0;
+                    for (uint64_t block = part_begin(part); block < part_begin(part + 1); block++) {
+                        BuildValuePointersBlock(block, position, failed_demand, total_stored, total_demand,
+                                                frequencies.data(), keyblock_size, sk);
+                    }
+                    part_start[part + 1] = position;
+                }
+
+#pragma omp critical(value_pointers)
+                {
+                    for (int i = 0; i < kmer_freq_size; i++) kmer_frequencies[i] += frequencies[i];
+                    count_failed_demand += failed_demand;
+                    count_total_stored += total_stored;
+                    count_total_demand += total_demand;
+                }
             }
+            for (size_t part = 0; part < parts; part++) part_start[part + 1] += part_start[part];
+            if (parts > 1) {
+#pragma omp parallel for num_threads(threads) schedule(dynamic, 1)
+                for (size_t part = 1; part < parts; part++) {
+                    for (uint64_t block = part_begin(part); block < part_begin(part + 1); block++) {
+                        *((uint64_t*) (m_keymap + block * block_cells)) += part_start[part];
+                    }
+                }
+            }
+            uint64_t const global_position = part_start[parts];
 
             // set last control pointer
-            control_ptr = (uint64_t*) (m_keymap + keymap_size_total - ctrl_block_cell_size);
+            uint64_t* control_ptr = (uint64_t*) (m_keymap + keymap_size_total - ctrl_block_cell_size);
             *control_ptr = global_position;
             values_size = global_position;
             std::cout << "ctrl_block_cell_size: " << ctrl_block_cell_size << std::endl;
@@ -1505,7 +1430,7 @@ namespace protal {
 
 
                 for (auto i = 0; i < kmer_freq_size; i++) {
-                    std::cout << i << '\t' << kmer_frequencies[i] << std::endl;
+                    std::cout << i << '\t' << kmer_frequencies[i] << '\n';
                 }
                 std::cout << "Total stored: " << count_total_stored << std::endl;
                 std::cout << "Total demand: " << count_total_demand << std::endl;

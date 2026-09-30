@@ -59,8 +59,8 @@ namespace protal {
             return m_sm;
         }
 
-        inline void InitializeForPut() {
-            m_sm.BuildValuePointers();
+        inline void InitializeForPut(int threads = 1) {
+            m_sm.BuildValuePointers(threads);
         }
 
         inline void Save(std::ostream& ofs) {

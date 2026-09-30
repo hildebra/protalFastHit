@@ -6,6 +6,7 @@
 
 #include "Options.h"
 #include "SequenceUtils/SeqReader.h"
+#include "SequenceUtils/FastaBatches.h"
 #include "SequenceUtils/KmerIterator.h"
 #include "Statistics.h"
 #include <iostream>
@@ -605,6 +606,84 @@ namespace protal::build {
         return rows;
     }
 
+    // A pass over the reference in `threads` threads that updates the index as one thread would
+    // (docs/claude/2026-09-29-index-build-parallel.md). The key space is cut into `ranges` ranges of
+    // whole control blocks. Each round, one thread reads batches of whole records (FastaBatches);
+    // the threads parse them, extract their items (extract: a record's k-mers, in order) and group
+    // each batch's items by range (range_of), keeping their order within a range; then each range
+    // is applied (apply) by one thread, batch by batch in reference order. A key's updates thus
+    // come in the serial order, and none needs a lock: no two threads touch the same block.
+    template<typename Item, typename KmerHandler, typename Extract, typename RangeOf, typename Apply>
+    void PartitionedPass(std::istream& is, KmerHandler const& handler_global, int threads, size_t batch_bytes,
+                         size_t ranges, Extract&& extract, RangeOf&& range_of, Apply&& apply, Statistics& statistics) {
+        struct Batch {
+            std::string text;
+            std::vector<Item> items;        // grouped by range
+            std::vector<uint32_t> offsets;  // items [offsets[r], offsets[r + 1]) are range r's
+        };
+        threads = std::max(threads, 1);
+        size_t const per_round = 4 * static_cast<size_t>(threads);
+        std::vector<Batch> batches(per_round);
+        FastaBatches reader(is);
+        size_t filled = 0;
+
+#pragma omp parallel num_threads(threads)
+        {
+            KmerHandler handler(handler_global);
+            Statistics local;
+            std::vector<Item> items;  // a batch's items in record order
+            std::vector<uint32_t> cursor(ranges);
+            std::string scratch, header;
+            KmerList kmers;
+            while (true) {
+#pragma omp single
+                {
+                    filled = 0;
+                    while (filled < per_round && reader.Next(batches[filled].text, batch_bytes)) filled++;
+                }
+                if (filled == 0) break;
+
+#pragma omp for schedule(dynamic, 1)
+                for (size_t b = 0; b < filled; b++) {
+                    Batch& batch = batches[b];
+                    items.clear();
+                    ForEachFastaRecord(batch.text, scratch, [&](std::string_view record_header, std::string_view sequence) {
+                        header.assign(record_header);
+                        extract(handler, header, sequence, kmers, items, local);
+                    });
+                    batch.offsets.assign(ranges + 1, 0);
+                    for (Item const& item : items) batch.offsets[range_of(item) + 1]++;
+                    for (size_t r = 0; r < ranges; r++) batch.offsets[r + 1] += batch.offsets[r];
+                    std::copy(batch.offsets.begin(), batch.offsets.end() - 1, cursor.begin());
+                    batch.items.resize(items.size());
+                    for (Item const& item : items) batch.items[cursor[range_of(item)]++] = item;
+                }
+
+#pragma omp for schedule(dynamic, 1)
+                for (size_t r = 0; r < ranges; r++) {
+                    for (size_t b = 0; b < filled; b++) {
+                        Batch const& batch = batches[b];
+                        for (uint32_t i = batch.offsets[r]; i < batch.offsets[r + 1]; i++) apply(batch.items[i]);
+                    }
+                }
+            }
+#pragma omp critical(statistics)
+            statistics.Join(local);
+        }
+        if (!reader.Error().empty()) {
+            std::cerr << "Cannot read the reference: " << reader.Error() << std::endl;
+            exit(8);
+        }
+    }
+
+    // Key ranges for PartitionedPass: at least 64 per thread for balance, and at least 64 control
+    // blocks each.
+    inline int IndexRangeBits(int threads, size_t main_bits) {
+        int bits = 6;
+        while (bits < 16 && (size_t{1} << bits) < 64 * static_cast<size_t>(std::max(threads, 1))) bits++;
+        return std::min<int>(bits, static_cast<int>(main_bits) - 3 - 6);
+    }
+
     template<typename KmerHandler, typename KmerPutter, DebugLevel debug>
     static Statistics Run(protal::Options const& options, KmerPutter& putter, KmerHandler& kmer_handler_global, GenomeLoader& genomes) {
 
@@ -625,18 +704,48 @@ namespace protal::build {
         size_t flex_k_bits = putter.GetMap().m_flex_k_bits;
 
 
-        // TODO Fix multithreaded database building.
-        if (options.GetThreads() > 1) {
-            std::cerr << "Building db with multiple threads is currently broken" << std::endl;
-            omp_set_num_threads(1);
-        }
+        // The two passes over the reference and the value pointers run in -t threads, the passes by
+        // key range (PartitionedPass), with the index one thread gives; --serial_index_passes runs
+        // them on one thread as before.
+        int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        bool const serial = options.SerialIndexPasses();
+        Seedmap& map = putter.GetMap();
+        int const range_bits = IndexRangeBits(threads, map.m_main_bits);
+        size_t const ranges = size_t{1} << range_bits;
+        int const range_shift = static_cast<int>(map.m_main_bits) - range_bits;
+        if (serial) omp_set_num_threads(1);
 
         // Each phase is timed in the log ("... took"): where a build at GTDB scale spends its time.
         std::cout << "Run Build" << std::endl;
         Benchmark bm_pass1("Pass 1 (count the k-mers)");
         bm_pass1.Start();
-//        if constexpr(protal::HasFirstPut<KmerPutter>) {
-        if (true) {
+        if (!serial) {
+            // Items: the k-mers' main keys, counted up by the thread that owns their range.
+            std::cout << "Build: iterate records" << std::endl;
+            Statistics pass;
+            PartitionedPass<uint32_t>(is, kmer_handler_global, threads, options.IndexBatchBytes(), ranges,
+                [&](KmerHandler& handler, std::string const& header, std::string_view sequence, KmerList& kmers,
+                    std::vector<uint32_t>& items, Statistics& stats) {
+                    stats.reads++;
+                    if (options.HasBuildGeneSubset()) {
+                        auto [taxonomic_id, gene_id] = KmerUtils::ExtractHeaderInformation(header);
+                        (void)taxonomic_id;
+                        if (!options.BuildGeneAllowed(gene_id)) return;
+                    }
+                    kmers.clear();
+                    handler(sequence, kmers);
+                    for (auto const& pair : kmers) items.push_back(static_cast<uint32_t>(map.MainKey(pair.first)));
+                    if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                        stats.kmers_total += handler.TotalKmers();
+                        stats.kmers_accepted += kmers.size();
+                    }
+                },
+                [range_shift](uint32_t main_key) { return static_cast<size_t>(main_key >> range_shift); },
+                [&map](uint32_t main_key) { map.CountUpKey(main_key); },
+                pass);
+            std::cout << "minimizers: " << pass.kmers_accepted << std::endl;
+            statistics.Join(pass);
+        } else {
 #pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, main_k_bits, flex_k_bits)
                 {
                     // Private variables
@@ -690,18 +799,16 @@ namespace protal::build {
                     statistics.Join(thread_statistics);
                     std::cout << "minimizers: " << thread_statistics.kmers_accepted << std::endl;
                 }
-                bm_pass1.Stop();
-                bm_pass1.PrintResults();
-
-                // E.g. if k-mers are counted before they are inserted, call Initialize for put
-                // To calculate the bucket sizes
-                Benchmark bm_pointers("Value pointers");
-                bm_pointers.Start();
-                putter.InitializeForPut();
-                bm_pointers.Stop();
-                bm_pointers.PrintResults();
-
         }
+        bm_pass1.Stop();
+        bm_pass1.PrintResults();
+
+        // Each key's value positions, from its count
+        Benchmark bm_pointers("Value pointers");
+        bm_pointers.Start();
+        putter.InitializeForPut(serial ? 1 : threads);
+        bm_pointers.Stop();
+        bm_pointers.PrintResults();
 
         // Back to the start of the reference for the second pass
         if (!input->Rewind()) {
@@ -711,6 +818,33 @@ namespace protal::build {
 
         Benchmark bm_pass2("Pass 2 (place the values)");
         bm_pass2.Start();
+        if (!serial) {
+            // Items: each k-mer with its value (taxon, gene, position of its core), placed by the
+            // thread that owns its range into the key's next empty slot, in reference order.
+            struct Placement { uint64_t key; uint64_t value; };
+            std::cout << "After first put" << std::endl;
+            PartitionedPass<Placement>(is, kmer_handler_global, threads, options.IndexBatchBytes(), ranges,
+                [&](KmerHandler& handler, std::string const& header, std::string_view sequence, KmerList& kmers,
+                    std::vector<Placement>& items, Statistics& stats) {
+                    auto [taxonomic_id, gene_id] = KmerUtils::ExtractHeaderInformation(header);
+                    if (options.HasBuildGeneSubset() && !options.BuildGeneAllowed(gene_id)) return;
+                    stats.reads++;
+                    kmers.clear();
+                    handler(sequence, kmers);
+                    for (auto const& pair : kmers) {
+                        ValueEntry entry;
+                        entry.Put(taxonomic_id, gene_id, pair.second + map.m_flex_k_half);  // as Seedmap::PutOMP
+                        items.push_back({ pair.first, entry.value });
+                    }
+                    if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                        stats.kmers_total += handler.TotalKmers();
+                        stats.kmers_accepted += handler.TotalMinimizers();
+                    }
+                },
+                [&map, range_shift](Placement const& p) { return static_cast<size_t>(map.MainKey(p.key) >> range_shift); },
+                [&map](Placement const& p) { map.PutOwned(p.key, p.value); },
+                statistics);
+        } else {
 #pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits)
     {
         // Private variables
@@ -767,6 +901,7 @@ namespace protal::build {
 #pragma omp critical(statistics)
         statistics.Join(thread_statistics);
     }
+        }
         bm_pass2.Stop();
         bm_pass2.PrintResults();
 
