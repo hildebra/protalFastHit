@@ -311,53 +311,26 @@ namespace protal {
         }
 
         // The entry of a k-mer core that occurs only once in the index, or nullptr. Such a block has
-        // no flex keys (see m_flex_threshold), so GetFlex returns nothing for it.
+        // no flex keys (see m_flex_threshold), so GetExact returns nothing for it.
         inline ValueEntry* GetSingleEntry(size_t &kmer) {
             m_sm.Get(kmer, m_entry_begin, m_entry_end, m_flex_begin, m_flex_end);
             if (m_entry_begin == nullptr || m_flex_begin != nullptr || m_entry_end - m_entry_begin != 1) return nullptr;
             return m_entry_begin;
         }
 
-        inline void GetFlex(size_t &kmer, std::vector<ValueEntry*>& max_sim_entries, uint32_t& max_similarity) {
+        // The entries of a core with several values whose whole k-mer is `kmer` (equal flex parts),
+        // none if more than m_max_ubiquity are; appended to `entries`, which must be empty. For
+        // --build's uniqueness check, which only acts on whole k-mers. Returns the flex parts compared.
+        inline size_t GetExact(size_t &kmer, std::vector<ValueEntry*>& entries) {
             m_sm.Get(kmer, m_entry_begin, m_entry_end, m_flex_begin, m_flex_end);
-
-            if (m_entry_begin == nullptr || m_entry_end == nullptr) {
-                return;
+            // Get leaves the flex pointers as they were when the core has no values.
+            if (m_entry_begin == nullptr || m_entry_end == nullptr || m_flex_begin == nullptr) return 0;
+            uint32_t const flex_key = static_cast<uint32_t>(m_sm.FlexKey(kmer));
+            for (auto cell = m_flex_begin; cell < m_flex_end; cell++) {
+                if (*cell == flex_key) entries.emplace_back(m_entry_begin + (cell - m_flex_begin));
             }
-
-            if (m_flex_begin != nullptr) {
-                size_t flex_key = m_sm.FlexKey(kmer);
-                flex_vector.clear();
-                max_similarity = 0;
-                auto max_count = 0;
-                for (auto begin = m_flex_begin; begin < m_flex_end; begin++) {
-                    auto sim = Seedmap::Similarity(*begin, flex_key);
-                    flex_vector.emplace_back(sim);
-                    if (sim > max_similarity)  {
-                        max_similarity = sim;
-                        max_count = 0;
-                    }
-                    max_count += (sim == max_similarity);
-                }
-
-                if (max_count > m_max_ubiquity) {
-                    return;
-                }
-
-                for (auto i = 0; i < flex_vector.size(); i++) {
-                    if (flex_vector[i] == max_similarity) {
-                        m_entry_begin[i].Get(m_taxid, m_geneid, m_genepos);
-                        max_sim_entries.emplace_back((m_entry_begin + i));
-                    }
-                }
-            } else {
-                size_t length = m_entry_end - m_entry_begin;
-                if (length > 1) {
-                    for (; m_entry_begin < m_entry_end; m_entry_begin++) {
-                        max_sim_entries.emplace_back(m_entry_begin);
-                    }
-                }
-            }
+            if (entries.size() > m_max_ubiquity) entries.clear();
+            return m_flex_end - m_flex_begin;
         }
 
         inline void Get(LookupList& result, size_t &kmer, uint32_t readpos, RecoverySet* choose=nullptr, LookupList* recovered_results=nullptr) {
