@@ -524,7 +524,7 @@ namespace protal {
                 for (auto const& hit : segment.hits) {
                     LongReadHitToSam(sam, hit, qname);
                     auto const& ar = hit.alignment;
-                    auto const& reference = m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()).Sequence();
+                    auto const reference = m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()).Sequence();
                     if (!ExtractSNPs(sam, reference, snps, ar.Taxid(), ar.GeneId(), 0)) {
 #pragma omp critical(err_out)
                         {

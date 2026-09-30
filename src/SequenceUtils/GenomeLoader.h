@@ -10,7 +10,10 @@
 #include <charconv>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <optional>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <sparse_map.h>
 #include <string>
 #include <string_view>
@@ -174,6 +177,10 @@ namespace protal {
         static const size_t DEFAULT = UINT64_MAX;
     private:
         size_t m_id = 0;
+        // The sequence: m_length bytes in the GenomeLoader's arena when all genes are preloaded
+        // (LoadAllGenomes: one allocation for all of them), else a string of the gene's own (loaded
+        // on demand, or set).
+        char* m_arena = nullptr;
         std::string m_sequence = "";
         size_t m_start_byte;
         size_t m_length = DEFAULT;
@@ -226,17 +233,19 @@ namespace protal {
         }
 
         void SetSequence(std::string&& sequence) {
+            m_arena = nullptr;
             m_sequence = std::move(sequence);
         }
 
-        // Sizes the sequence to the gene's length for filling in place.
-        char* PrepareSequence() {
-            m_sequence.assign(m_length, '\0');
-            return m_sequence.data();
+        // The gene's bytes are the m_length bytes at data (in an arena that outlives the gene), to be
+        // filled in place.
+        void SetArena(char* data) {
+            m_arena = data;
+            std::string{}.swap(m_sequence);
         }
 
         char* SequenceData() {
-            return m_sequence.data();
+            return m_arena ? m_arena : m_sequence.data();
         }
 
         bool IsSet() const {
@@ -244,7 +253,7 @@ namespace protal {
         }
 
         bool IsLoaded() const {
-            return !m_sequence.empty();
+            return m_arena != nullptr || !m_sequence.empty();
         }
 
         void Load() {
@@ -264,8 +273,8 @@ namespace protal {
             return m_length;
         }
 
-        const std::string& Sequence() const {
-            return m_sequence;
+        std::string_view Sequence() const {
+            return m_arena ? std::string_view(m_arena, m_length) : std::string_view(m_sequence);
         }
         const size_t GetId() const {
             return m_id;
@@ -518,6 +527,20 @@ namespace protal {
         GenomeMap m_genomes;
 
         int m_threads = 1;  // for reading reference.map
+        std::vector<std::unique_ptr<char[]>> m_arenas;  // the preloaded genes' sequences (Gene::SetArena)
+
+        // Huge pages for a large arena, which the loading threads touch at random offsets (as
+        // Seedmap::AdviseHugePages). Without transparent huge pages this does nothing.
+        static void AdviseHugePages(void* data, size_t bytes) {
+#ifdef MADV_HUGEPAGE
+            constexpr size_t kMinBytes = size_t{64} << 20;
+            if (bytes < kMinBytes) return;
+            auto const page = static_cast<uintptr_t>(sysconf(_SC_PAGESIZE));
+            auto const begin = (reinterpret_cast<uintptr_t>(data) + page - 1) & ~(page - 1);
+            auto const end = (reinterpret_cast<uintptr_t>(data) + bytes) & ~(page - 1);
+            if (end > begin) madvise(reinterpret_cast<void*>(begin), end - begin, MADV_HUGEPAGE);
+#endif
+        }
 
         Genome& AddOrGetGenome(GenomeKey const& key) {
             auto it = m_genomes.find(key);
@@ -747,11 +770,13 @@ namespace protal {
                 return a->GetStartByte() < b->GetStartByte();
             });
 
-            // Size every sequence first: the threads then fill disjoint parts of them (a gene that
-            // spans two chunks gets its two parts from two threads).
+            // Give every gene its place in one arena first (sizing 16.6M strings one by one took
+            // seconds on one thread); the threads then fill disjoint parts of it (a gene that spans
+            // two chunks gets its two parts from two threads). The arena is not zeroed: the reference
+            // covers every gene byte, or protal stops below.
             std::vector<uint64_t> starts;
             starts.reserve(genes.size());
-            uint64_t position = 0;
+            uint64_t position = 0, total = 0;
             for (Gene* gene : genes) {
                 if (gene->GetStartByte() < position) {
                     std::cerr << "Invalid reference map " << m_map.Name() << ": gene " << gene->GetId() << " at byte "
@@ -759,8 +784,18 @@ namespace protal {
                     exit(8);
                 }
                 position = gene->GetStartByte() + gene->GetLength();
-                gene->PrepareSequence();
+                total += gene->GetLength();
                 starts.emplace_back(gene->GetStartByte());
+            }
+            if (!genes.empty()) {
+                auto arena = std::make_unique_for_overwrite<char[]>(total);
+                AdviseHugePages(arena.get(), total);
+                uint64_t offset = 0;
+                for (Gene* gene : genes) {
+                    gene->SetArena(arena.get() + offset);
+                    offset += gene->GetLength();
+                }
+                m_arenas.emplace_back(std::move(arena));
             }
             GeneSink sink(genes, starts);
             std::string error;

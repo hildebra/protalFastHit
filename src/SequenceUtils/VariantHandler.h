@@ -16,12 +16,12 @@ namespace protal {
     class VariantHandler {
         Variants m_variants;
         tsl::robin_map<VariantPos, uint32_t> m_uncalled;  // reads with an N at a position
-        const std::string& m_reference;
+        std::string_view m_reference;  // the gene's sequence, which outlives the handler
 
     public:
         Benchmark bm_next_compressed_cigar{"Next compressed cigar"};
 
-        VariantHandler(const std::string& reference) : m_reference(reference) {};
+        explicit VariantHandler(std::string_view reference) : m_reference(reference) {};
 
         // Drops all variants and frees their memory.
         void Clear() {
@@ -61,11 +61,7 @@ namespace protal {
         }
 
 
-        const std::string& GetReference() const {
-            return m_reference;
-        }
-
-        std::string GetReference() {
+        std::string_view GetReference() const {
             return m_reference;
         }
 
@@ -171,7 +167,7 @@ namespace protal {
                     AddINDEL(VariantType::INS, rpos, m_reference[rpos], sam.m_seq.substr(qpos, count), is_fwd, qual_sum / count);
                 } else if (op == 'D' && between_aligned_bases) {
                     Qual const flank = std::min(PhredScore(sam.m_qual[qpos - 1]), PhredScore(sam.m_qual[qpos]));
-                    AddINDEL(VariantType::DEL, rpos, m_reference[rpos], m_reference.substr(rpos, count), is_fwd, flank);
+                    AddINDEL(VariantType::DEL, rpos, m_reference[rpos], std::string(m_reference.substr(rpos, count)), is_fwd, flank);
                 }
 
                 qpos += consumes_query * count;

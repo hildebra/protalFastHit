@@ -617,7 +617,7 @@ namespace protal {
         return info;
     }
 
-    static void PrintAlignment(std::string const& cigar, std::string& query, std::string const& reference, std::ostream &out = std::cout) {
+    static void PrintAlignment(std::string const& cigar, std::string& query, std::string_view const reference, std::ostream &out = std::cout) {
         int qpos = 0;
         int rpos = 0;
 //        std::cout << sam.ToString() << std::endl;
@@ -672,7 +672,7 @@ namespace protal {
         }
     }
 
-    static bool PrintAlignment(SamEntry const& sam, std::string const& reference, std::ostream &out = std::cout) {
+    static bool PrintAlignment(SamEntry const& sam, std::string_view const reference, std::ostream &out = std::cout) {
         int qpos = 0;
         int rpos = sam.m_pos - 1;
 

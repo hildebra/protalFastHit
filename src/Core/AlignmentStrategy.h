@@ -203,7 +203,7 @@ namespace protal {
 
 
 
-        size_t ExtendSeedLeft(Seed const& s, std::string const& query, std::string const& gene) {
+        size_t ExtendSeedLeft(Seed const& s, std::string const& query, std::string_view const gene) {
             size_t extension = 0;
             size_t max_extension_len = std::min(static_cast<uint32_t>(s.readpos), s.genepos);
             for (int qpos = s.readpos, rpos = s.genepos;
@@ -214,7 +214,7 @@ namespace protal {
             return extension;
         }
 
-        size_t ExtendSeedRight(Seed const& s, size_t k, std::string const& query, std::string const& gene) {
+        size_t ExtendSeedRight(Seed const& s, size_t k, std::string const& query, std::string_view const gene) {
             size_t extension = 0;
             size_t max_extension_len = std::min(
                     static_cast<uint32_t>(query.length() - s.readpos - k),
@@ -244,7 +244,7 @@ namespace protal {
             };
         }
 
-        static std::pair<size_t, size_t> ExtendSeed(Seed const& s, size_t k, std::string const& query, std::string const& gene) {
+        static std::pair<size_t, size_t> ExtendSeed(Seed const& s, size_t k, std::string const& query, std::string_view const gene) {
             size_t extension_left = 0;
             size_t extension_right = 0;
 
@@ -265,7 +265,7 @@ namespace protal {
             return { extension_left, extension_right };
         }
 
-        static std::pair<size_t, size_t> ExtendSeed(ChainLink& s, std::string const& query, std::string const& gene, uint16_t query_left_limit=0, uint16_t query_right_limit=0) {
+        static std::pair<size_t, size_t> ExtendSeed(ChainLink& s, std::string const& query, std::string_view const gene, uint16_t query_left_limit=0, uint16_t query_right_limit=0) {
             size_t extension_left = 0;
             size_t extension_right = 0;
             if (query_right_limit == 0) query_right_limit = query.length();
@@ -294,7 +294,7 @@ namespace protal {
                 if (invalid) {
                     std::cerr << "____________________________" << std::endl;
                     std::cerr << query << std::endl;
-                    std::cerr << string_view(gene.c_str() + s.genepos, s.length) << std::endl;
+                    std::cerr << string_view(gene.data() + s.genepos, s.length) << std::endl;
                     std::cerr << "____________________________" << std::endl;
                 }
             }
@@ -399,7 +399,7 @@ namespace protal {
             // Get Resources
             auto& genome = m_genome_loader.GetGenome(anchor.taxid);
             auto& gene = genome.GetGeneOMP(anchor.geneid);
-            std::string const& geneseq = gene.Sequence();
+            std::string_view const geneseq = gene.Sequence();
 
 //            std::cerr << "--------------- links: " << anchor.chain.size() << std::endl;
 //            auto [qry, ref] = anchor.ToVisualString(read, geneseq);

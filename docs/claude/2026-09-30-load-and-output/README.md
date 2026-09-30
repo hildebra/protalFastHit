@@ -380,6 +380,31 @@ callgrind at 100k genes: 1.1k instructions per gene for `reference.map` (was 4.2
 to 143k genomes (the gene objects alone are 1.6 GB). The report's estimate of "under a second" was
 too optimistic for it.
 
+**#4, the gene arena.** `LoadAllGenomes` no longer sizes and zero-fills one `std::string` per gene
+before the parallel fill: it allocates one uninitialized buffer for all genes it loads, advised for
+huge pages when over 64 MB, and points each gene at its bytes in `reference.fna` order; the reader
+threads then write the bytes (and take the page faults) in parallel. `Gene::Sequence()` returns a
+`std::string_view`, so the aligners, SNP and variant code, and the MSA take views (the variant
+handler held a `std::string const&` to the gene; it now holds the view). A gene loaded on its own
+(`Gene::Load`, a genome not preloaded) still gets its own string. Tested: a genome loaded gene by
+gene, then `LoadAllGenomes` for the rest, at 1 and 3 threads.
+
+`bench_gene_arena.cpp` at 2M synthetic genes (2.1 GB, the sparse reference in the page cache, so
+this is the memory side only; load 11–12):
+
+| `LoadAllGenomes` | wall | user | system | peak RSS |
+|---|---:|---:|---:|---:|
+| before, 1 thread | 4.1–4.8 s | 0.78 s | 1.8–1.9 s | 2.33 GB |
+| after, 1 thread | 2.1–3.0 s | 0.55–0.60 s | 1.3–1.9 s | 2.34 GB |
+| before, 8 threads | 2.8–3.5 s | 0.96–0.99 s | 2.2–2.7 s | 2.82 GB |
+| after, 8 threads | 1.3–1.4 s | 0.66 s | 2.0–2.1 s | 2.80–2.84 GB |
+
+The system time (page faults, copying from the page cache) stays; it is now spread over the reader
+threads instead of taken by one thread first. Scaled linearly to GTDB's 17.5 GB (not measured; the
+machine has 15 GB): 12–17 s less wall time at 8 threads. Memory is unchanged: the arena saves only
+the per-string allocation overhead (~16 bytes a gene), and each gene keeps its empty `std::string`.
+Every output of 200k pairs of `w900` and `mix`, at 1 and 8 threads, as before.
+
 ## Reproducing
 
 The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, `BIN`, `PROTAL_SRC`,
@@ -398,4 +423,6 @@ bash scripts/benchmarks.sh $PERF_DIR/reads/mix/mix_R1.fq.gz $PERF_DIR/io/o_w900_
 bash scripts/sam_validate.sh OLD/protal_avx2 NEW/protal_avx2 $PERF_DIR/db900 READS_200K_W900 w900 READS_200K_MIX mix
 bash scripts/sam_speed.sh OLD/protal_avx2 NEW/protal_avx2 $PERF_DIR/db900 w900 W900_R1.fq.gz W900_R2.fq.gz \
     mix $PERF_DIR/reads/mix/mix_R1.fq.gz $PERF_DIR/reads/mix/mix_R2.fq.gz
+# follow-up #4: LoadAllGenomes before and after the gene arena (two checkouts: e825cbf and after)
+bash scripts/gene_arena.sh OLD_CHECKOUT NEW_CHECKOUT 2000000
 ```

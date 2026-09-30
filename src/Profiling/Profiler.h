@@ -1938,7 +1938,7 @@ namespace protal {
                     auto &gene = m_genome_loader.GetGenome(tid).GetGeneOMP(gid);
 
                     gene.LoadOMP();
-                    auto &ref = gene.Sequence();
+                    auto const ref = gene.Sequence();
 //                        std::cout << "Extract: " << any.m_qname << " ---> " <<  any.m_rname << std::endl;
 
                     PrintAlignment(any, ref);
@@ -1966,7 +1966,7 @@ namespace protal {
                         auto &[ tid, gid ] = ExtractTaxidGeneid(any.m_rname);
                         auto& gene = m_genome_loader.GetGenome(tid).GetGene(gid);
                         gene.LoadOMP();
-                        auto& ref = gene.Sequence();
+                        auto const ref = gene.Sequence();
 //                        std::cout << "Extract: " << any.m_qname << " ---> " <<  any.m_rname << std::endl;
 
                         PrintAlignment(any, ref);

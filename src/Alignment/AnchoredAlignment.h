@@ -40,7 +40,7 @@ namespace protal {
     public:
         enum class Status { Aligned, Failed, NotApplicable };
 
-        Status Align(std::string const& read, std::string const& gene, ChainList const& chain, AlignmentWindow const& w,
+        Status Align(std::string const& read, std::string_view const gene, ChainList const& chain, AlignmentWindow const& w,
                      WFA2Wrapper2& aligner, std::string& ops) {
             ops.clear();
             if (chain.empty() || w.ref_end > gene.size() || w.ref_start > w.ref_end) return Status::NotApplicable;
@@ -108,7 +108,7 @@ namespace protal {
         // (the flank's end for the left flank, its start for the right one) and free at the other
         // end by up to ref_free reference and read_free read bases. The left flank is aligned
         // reversed; its operations come back reversed too, for the caller to turn around.
-        Status Flank(std::string const& read, std::string const& gene, size_t read_from, size_t read_to, size_t ref_from,
+        Status Flank(std::string const& read, std::string_view const gene, size_t read_from, size_t read_to, size_t ref_from,
                      size_t ref_to, bool reversed, int ref_free, int read_free, int max_score, WFA2Wrapper2& aligner,
                      int& used, std::string& out) {
             size_t const r = read_to - read_from, g = ref_to - ref_from;
@@ -138,7 +138,7 @@ namespace protal {
         // The bases between two links on one diagonal: read [from, to) against as many gene bases
         // from gene_from, both ends fixed. With up to 3 mismatches the ungapped alignment is the best
         // (12 against at least 16 for the insertion and deletion any gapped one needs); else WFA.
-        Status Between(std::string const& read, std::string const& gene, size_t from, size_t to, size_t gene_from, int max_score,
+        Status Between(std::string const& read, std::string_view const gene, size_t from, size_t to, size_t gene_from, int max_score,
                        WFA2Wrapper2& aligner, int& used, std::string& ops) {
             size_t const n = to - from;
             if (n == 0) return m_status = Status::Aligned;

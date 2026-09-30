@@ -166,6 +166,29 @@ TEST(ReferenceMap, LoadsGenesAndUppercasesThem) {
     EXPECT_EQ(gene.Sequence(), "CCGGTTAA");
 }
 
+// LoadAllGenomes puts the genes not yet loaded into one arena; a genome loaded gene by gene
+// before keeps its sequences.
+TEST(ReferenceMap, LoadAllGenomesAfterAGenomeWasLoadedOnItsOwn) {
+    ScratchDir dir;
+    Reference ref;
+    auto fna = dir.Write("reference.fna", ref.fna);
+    auto map = dir.Write("reference.map", ref.map);
+    for (int threads : { 1, 3 }) {
+        protal::GenomeLoader loader(fna, map);
+        EXPECT_EQ(loader.GetGenome(1).GetGeneOMP(2).Sequence(), "CCGGTTAA");
+        loader.LoadAllGenomes(threads);
+        EXPECT_TRUE(loader.AllGenomesLoaded());
+        EXPECT_EQ(loader.GetGenome(1).GetGene(1).Sequence(), "ACGTACGTAA") << threads << " threads";
+        EXPECT_EQ(loader.GetGenome(1).GetGene(2).Sequence(), "CCGGTTAA") << threads << " threads";
+        EXPECT_EQ(loader.GetGenome(2).GetGene(1).Sequence(), "GGGGCCCCAT") << threads << " threads";
+
+        protal::GenomeLoader fresh(fna, map);
+        fresh.LoadAllGenomes(threads);
+        EXPECT_EQ(fresh.GetGenome(1).GetGene(2).Sequence(), "CCGGTTAA") << threads << " threads";
+        EXPECT_EQ(fresh.GetGenome(2).GetGene(1).Sequence(), "GGGGCCCCAT") << threads << " threads";
+    }
+}
+
 TEST(ReferenceMap, RejectsMalformedLines) {
     ScratchDir dir;
     Reference ref;

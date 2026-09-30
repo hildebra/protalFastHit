@@ -391,7 +391,7 @@ namespace protal {
                 m_sam.m_mapq = first ? mapq : 0;
                 m_sam.m_tlen = 0;
 
-                auto const& reference = m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()).Sequence();
+                auto const reference = m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()).Sequence();
                 if (!ExtractSNPs(m_sam, reference, snps, ar.Taxid(), ar.GeneId(), 0)) {
 #pragma omp critical(err_out)
                     {
@@ -666,7 +666,7 @@ namespace protal {
                         {
                             std::cerr << record1.to_string() << std::endl;
                             std::cerr << m_sam1.ToString() << std::endl;
-                            std::string const& reference = m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()).Sequence();
+                            auto const reference = m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()).Sequence();
                             PrintAlignment(m_sam1, reference, std::cerr);
                         }
                     }
@@ -675,7 +675,7 @@ namespace protal {
                         {
                             std::cerr << record2.to_string() << std::endl;
                             std::cerr << m_sam2.ToString() << std::endl;
-                            auto& reference = m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()).Sequence();
+                            auto const reference = m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()).Sequence();
                             PrintAlignment(m_sam2, reference, std::cerr);
                         }
                     }
