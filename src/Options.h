@@ -7,6 +7,7 @@
 #include <cxxopts.hpp>
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <utility>
 #include "LineSplitter.h"
 #include <fstream>
@@ -109,6 +110,7 @@ namespace protal {
                 ("snp_min_af", "Minimum allele frequency for an allele (its reads / the reads with a base at the position), so also the least share of reads a second strain needs to show as an IUPAC code. Interacts with --snp_min_cov: below coverage = snp_min_cov/snp_min_af, the count filter is stricter. Given, it applies to all read types; else ONT reads take 0.2 (their errors put low-frequency alleles at many positions). Profiles do not depend on it.", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MIN_SNP_AF)))
                 ("snp_no_strand", "Disable the strand-bias filter. By default an allele (the reference included) that is seen on one strand only fails where that is unlikely given the strands of all reads at the position (p < 0.05): with reads on both strands, an allele on just one of them is an artefact. Where the reads are from one strand, as often at low depth, it passes.")
                 ("msa_min_hcov", "Minimum non-N/non-'-' bases required per sequence to keep it in the MSA.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MSA_MIN_HCOV)))
+                ("msa_knob", "Model probability, 0 to 1, a sample's taxon needs for its reads to enter the taxon's strain MSA. Default: --knob, so the MSA holds the samples whose profile reports the taxon.", cxxopts::value<double>())
                 ("msa_min_depth", "Reads a position needs to be written in a strain MSA; with fewer it is '-'. Where all its reads show one allele, that many suffice; a second allele (an IUPAC code) needs --snp_min_cov reads of its own, and a site whose reads disagree otherwise is N.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MSA_MIN_DEPTH)))
                 ("msa_species", "Restrict MSAs to a single species (s__Genus_species) or a comma-separated list.", cxxopts::value<std::string>()->default_value(""))
                 ("snp_max_alleles", "Maximum number of alleles at a position to encode as an IUPAC ambiguity code in the MSA. 1 = only the top allele (standard), 2 = encode two-allele mixtures (e.g. R,Y), 3 = also encode three-allele mixtures (e.g. B,H). Alleles are ranked by observation count; ties go to higher-quality allele.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_SNP_MAX_ALLELES)));
@@ -237,6 +239,7 @@ namespace protal {
         // strains / MSA
         size_t msa_min_hcov = DEFAULT_MSA_MIN_HCOV;
         size_t msa_min_depth = DEFAULT_MSA_MIN_DEPTH;
+        std::optional<double> msa_knob;  // --msa_knob; none: --knob
         std::vector<std::string> msa_species;
         size_t snp_min_cov = DEFAULT_MIN_SNP_COV;
         size_t snp_min_phred_sum = DEFAULT_MIN_SNP_PHRED_SUM;
@@ -333,6 +336,7 @@ namespace protal {
         size_t m_max_out = DEFAULT_MAX_OUT;
         size_t m_msa_min_hcov = DEFAULT_MSA_MIN_HCOV;
         size_t m_msa_min_depth = DEFAULT_MSA_MIN_DEPTH;
+        std::optional<double> m_msa_knob;
         std::vector<std::string> m_msa_species;
 
         size_t m_snp_min_cov = DEFAULT_MIN_SNP_COV;
@@ -446,6 +450,7 @@ namespace protal {
                 m_max_out(d.max_out),
                 m_msa_min_hcov(d.msa_min_hcov),
                 m_msa_min_depth(d.msa_min_depth),
+                m_msa_knob(d.msa_knob),
                 m_msa_species(std::move(d.msa_species)),
                 m_snp_min_cov(d.snp_min_cov),
                 m_snp_min_phred_sum(d.snp_min_phred_sum),
@@ -540,6 +545,7 @@ namespace protal {
             result_str << "msa species:         " << Utils::join(m_msa_species, ",") << '\n';
             result_str << "msa min hcov:        " << std::to_string(m_msa_min_hcov) << '\n';
             result_str << "msa min depth:       " << std::to_string(m_msa_min_depth) << '\n';
+            result_str << "msa knob:            " << std::to_string(GetMSAKnob()) << (m_msa_knob ? "" : " (--knob)") << '\n';
             result_str << "---- Dev Options ----" << std::string(30, '-') << '\n';
             result_str << "verbose:             " << (m_verbose ? "yes" : "no") << '\n';
             result_str << "benchmark alignment: " << (m_benchmark_alignment ? "yes" : "no") << '\n';
@@ -567,6 +573,11 @@ namespace protal {
 
         double GetKnob() const {
             return m_knob;
+        }
+
+        // The model probability a sample's taxon needs to enter its strain MSA: --msa_knob, else --knob.
+        double GetMSAKnob() const {
+            return m_msa_knob.value_or(m_knob);
         }
 
         double GetDepthIdentityMargin() const {
@@ -1644,6 +1655,9 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             if (m_msa_min_depth == 0) {
                 error_log.emplace_back("--msa_min_depth must be at least 1");
             }
+            if (m_msa_knob && !(*m_msa_knob >= 0 && *m_msa_knob <= 1)) {
+                error_log.emplace_back("--msa_knob must be between 0 and 1 (a probability)");
+            }
             if (!m_profile_truth_list.empty()) {
                 if (m_profile_truth_list.size() != m_profile_list.size()) {
                     error_log.emplace_back("Truth files (--profile_truth or a PROFILE_TRUTH column) must name one file per sample: " +
@@ -2255,6 +2269,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.compress_window_log      = result["compress_window_log"].as<int>();
             d.compress_frame_mb        = result["compress_frame_mb"].as<int>();
             d.knob                     = result["knob"].as<double>();
+            if (result.count("msa_knob")) d.msa_knob = result["msa_knob"].as<double>();
             d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
             d.model                    = result["model"].as<std::string>();
             d.model_se                 = result["model_se"].as<std::string>();

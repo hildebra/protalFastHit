@@ -17,6 +17,7 @@ PROTAL          protal binary (default: build/protal)
 SIMULATE        simulate_metagenomes binary (default: build/simulate_metagenomes; optional)
 """
 
+import csv
 import filecmp
 import glob
 import gzip
@@ -415,6 +416,54 @@ class StrainEdgeCaseTest(WorkDir):
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("has enough coverage for an MSA", log)
         self.assertEqual(glob.glob(self.path("out", "strains", "*.raw.msa.fna")), [])
+
+
+class MSAKnobTest(WorkDir):
+    """A species' MSA holds the samples whose profile reports it; --msa_knob sets another threshold."""
+
+    def calls(self, sample):
+        """{species: (reported, probability)} of a sample's profile, species spelled as in species.tsv."""
+        with open(self.path("out", f"{sample}.profile.log")) as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        return {r["Name"].replace(" ", "_"): (r["Predicted"] == "1", float(r["Probability"])) for r in rows}
+
+    def species_list(self):
+        with open(self.path("out", "strains", "species.tsv")) as fh:
+            return {r["species"]: int(r["samples"]) for r in csv.DictReader(fh, delimiter="\t")}
+
+    def test_msa_samples_mirror_the_profiles(self):
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa",
+                      "--msa_min_hcov", "0")
+        self.assertEqual(rc, 0, log[-3000:])
+        calls = {s: self.calls(s) for s in ("sa", "sb")}
+        listed = self.species_list()
+        for species in set(calls["sa"]) | set(calls["sb"]):
+            reported = sum(calls[s].get(species, (False, 0))[0] for s in calls)
+            if reported >= 2:
+                self.assertEqual(listed.get(species), reported, species)
+            else:
+                self.assertNotIn(species, listed, "an MSA needs 2 samples that report the species")
+
+    def test_msa_knob_admits_unreported_species(self):
+        # No species scores --knob 1, yet --msa_knob 0 builds the MSAs of all species with reads in both
+        # samples. At 2.4x on every gene, the species' reads are strong evidence: those the profiles
+        # leave out are listed in unreported_species.tsv.
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa",
+                      "--msa_min_hcov", "0", "--knob", "1", "--msa_knob", "0")
+        self.assertEqual(rc, 0, log[-3000:])
+        calls = {s: self.calls(s) for s in ("sa", "sb")}
+        listed = self.species_list()
+        for species in set(calls["sa"]) & set(calls["sb"]):
+            self.assertEqual(listed.get(species), 2, species)
+        with open(self.path("out", "misc", "unreported_species.tsv")) as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertTrue(rows, log[-3000:])
+        for r in rows:
+            reported, probability = calls[r["sample"]][r["species"].replace(" ", "_")]
+            self.assertFalse(reported, r)
+            self.assertLess(probability, 1)
+            self.assertEqual(r["passes_msa_knob"], "yes")
+        self.assertIn("are not reported, although their own reads are strong evidence", log)
 
 
 class LowCoverageAbundanceTest(WorkDir):

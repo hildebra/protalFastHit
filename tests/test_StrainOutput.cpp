@@ -457,6 +457,24 @@ TEST(Abundance, BlendedDepthHasNoStep) {
     EXPECT_DOUBLE_EQ(at(0.02, 2.0), 0.4);  // ...but not from a couple of reads on a short gene
 }
 
+TEST(Abundance, StrongOwnEvidenceNeedsDepthFromTheTaxonsOwnReads) {
+    // What unreported_species.tsv lists a taxon for, whatever its score: its own reads give 1x or
+    // more, on 90% of its genes (here its one gene), and most of its bases are its own reads'.
+    TinyReference ref;
+    std::string reference = ref.loader->GetGenome(1).GetGeneOMP(1).Sequence();
+    profiler::MicrobialProfile profile(*ref.loader);
+    profile.SetDepthIdentityMargin(0.04);
+    auto own = MakeSam(reference.substr(0, 20), "20M", 1);
+    for (int i = 0; i < 2; i++) ASSERT_TRUE(profile.AddSam(1, 1, own, 1.0));
+    auto const& taxon = profile.GetTaxa().at(1);
+    EXPECT_FALSE(profiler::StrongOwnEvidence(taxon)) << "0.8x";
+    ASSERT_TRUE(profile.AddSam(1, 1, own, 1.0));
+    EXPECT_TRUE(profiler::StrongOwnEvidence(taxon)) << "1.2x";
+    auto relative = MakeSam(reference.substr(20, 20), "15M5X", 21);  // identity 0.75
+    for (int i = 0; i < 4; i++) ASSERT_TRUE(profile.AddSam(1, 1, relative, 1.0));
+    EXPECT_FALSE(profiler::StrongOwnEvidence(taxon)) << "most bases from a relative's reads";
+}
+
 TEST(Abundance, DepthCountsOnlyTheTaxonsOwnReads) {
     TinyReference ref;
     std::string reference = ref.loader->GetGenome(1).GetGeneOMP(1).Sequence();

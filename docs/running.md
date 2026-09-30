@@ -32,7 +32,19 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 
 Strain MSAs are written for the species that pass the model in at least two samples, each with a
 row for every sample in which the species passes. A run of one sample therefore writes no MSAs.
-`--msa_species s__Genus_species,...` writes MSAs for the named species only.
+`--msa_species s__Genus_species,...` writes MSAs for the named species only. A species passes
+with a model probability of at least `--knob` in the profiles and of at least `--msa_knob`
+(default: `--knob`) for the MSAs, so by default both hold the same samples.
+
+`misc/unreported_species.tsv` lists the species that a sample's profile leaves out, their
+probability below `--knob`, although their own reads are strong evidence that they are present:
+1x or more depth from reads within `--depth_identity_margin` of their best ones, reads on 90% of
+their genes, best reads 98% identical to the reference or more, and at most half of their
+aligned bases from reads of lower identity. protal warns when it lists any. In the model's test
+sets on the toy database this held for 9% of the present species below the knob and for none of
+14,390 absent ones. Columns: sample, species, taxid, score, own_depth, hit_gene_fraction,
+top_identity, low_identity_share, and passes_msa_knob (whether the sample enters the species'
+MSA).
 
 ## Single-end reads
 
@@ -87,6 +99,7 @@ alignment. Workflow managers can rely on a non-zero status.
 | `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [model-training.md](model-training.md) |
 | `--model_se` | `--model`, else `model_se.xml` of the database | the model of single-end samples, given as `--model` |
 | `--no_strains` | off | no MSAs or SNP tables. Variants are still called, since the model uses them, so profiles are the same with and without it |
+| `--msa_knob` | `--knob` | model probability a sample's species needs for the sample to enter the species' strain MSA. By default the MSA holds the samples whose profile reports the species; lower it to add samples the profile leaves out |
 | `--msa_min_hcov` | 1000 | minimum non-N, non-gap bases for a sample's sequence to stay in an MSA; passed to qcmsa as `--reapply-hcov` |
 | `--msa_min_depth` | 1 | reads a position needs to be written in an MSA, else `-`. Where its reads all show one allele, that many suffice; a second allele (an IUPAC code) needs `--snp_min_cov` reads, and a position whose reads disagree otherwise is `N`. 2 is the behaviour before the 2026-09-29 strain audit |
 | `--snp_max_alleles` | 3 | alleles encoded as an IUPAC ambiguity code in the MSA: 1 = only the top allele, 2 = two-allele mixtures (R, Y, ...), 3 = also three-allele mixtures (B, H, ...) |

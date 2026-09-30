@@ -472,6 +472,44 @@ namespace protal {
     // The model of each kind of reads (ReadType), loaded if the samples have such reads.
     using ReadTypeModels = std::array<std::optional<profiler::TaxonFilterObj>, kReadTypeCount>;
 
+    // A taxon that a sample's profile leaves out (score below --knob) although its own reads are strong
+    // evidence that it is present (profiler::StrongOwnEvidence).
+    struct UnreportedTaxon {
+        std::string species;
+        std::string row;  // of unreported_species.tsv
+    };
+
+    // The UnreportedTaxon of each sample: <misc>/unreported_species.tsv and a warning. Without any, an
+    // earlier run's file is removed.
+    static void WriteUnreportedSpecies(Options const& options, std::vector<std::vector<UnreportedTaxon>> const& samples) {
+        auto const dir = options.GetMiscOutputDir();
+        if (dir.empty()) return;
+        auto const path = dir + "/unreported_species.tsv";
+        std::set<std::string> species;
+        size_t rows = 0;
+        for (auto const& sample : samples) {
+            for (auto const& taxon : sample) species.insert(taxon.species);
+            rows += sample.size();
+        }
+        if (rows == 0) {
+            std::error_code ec;
+            std::filesystem::remove(path, ec);
+            return;
+        }
+        std::ofstream os(path, std::ios::out);
+        os << "sample\tspecies\ttaxid\tscore\town_depth\thit_gene_fraction\ttop_identity\tlow_identity_share\tpasses_msa_knob\n";
+        for (auto const& sample : samples) {
+            for (auto const& taxon : sample) os << taxon.row << '\n';
+        }
+        os.close();
+        if (os.fail()) RunStatus::Get().Fail("Writing " + path + " failed");
+        std::cerr << "Warning: " << species.size() << " species in " << rows << " sample profile(s) score below --knob "
+                  << options.GetKnob() << " and are not reported, although their own reads are strong evidence "
+                  << "(depth 1x or more, reads on 90% of their genes, best reads 98% identical or more); they are "
+                  << "listed in " << path << ". Their samples enter the strain MSAs if they score --msa_knob ("
+                  << options.GetMSAKnob() << ") or more." << std::endl;
+    }
+
     // Profiles the samples, each with the model of its kind of reads. Every taxon's score is then
     // cached (profile.ReleaseReadData scores all), so that later stages may use any model to tell
     // which taxa pass: they get the score of the sample's own model.
@@ -491,6 +529,9 @@ namespace protal {
         // MicrobialProfile holds a reference member so it is not assignable; use optional to allow
         // in-place construction per slot without requiring assignment.
         std::vector<std::optional<profiler::MicrobialProfile>> profile_slots(range.size());
+        // Per sample: the taxa its profile leaves out although their own reads are strong evidence.
+        std::vector<std::vector<UnreportedTaxon>> unreported_slots(range.size());
+        double const msa_knob = options.GetMSAKnob();
 
         omp_set_num_threads(options.GetThreads());
 
@@ -638,9 +679,20 @@ namespace protal {
 
             profile.SetName(options.GetSampleId(i));
 
+            for (auto const& [taxid, taxon] : profile.GetTaxa()) {
+                double const score = filter.Score(taxon);
+                if (score >= filter.GetKnob() || !profiler::StrongOwnEvidence(taxon)) continue;
+                std::string const species = taxonomy.Get(taxid).scientific_name;
+                std::ostringstream line;
+                line << options.GetSampleId(i) << '\t' << species << '\t' << taxid << '\t' << score << '\t'
+                     << taxon.VerticalCoverage() << '\t' << taxon.HitGeneFraction() << '\t' << taxon.TopIdentity() << '\t'
+                     << taxon.LowIdentityShare() << '\t' << (score >= msa_knob ? "yes" : "no");
+                unreported_slots[idx].push_back({ species, line.str() });
+            }
+
             // The sample's outputs are written: only the strain stage reads its profile again, and only
-            // the variants and read ranges of taxa that pass the model.
-            profile.ReleaseReadData(filter, !options.NoStrains());
+            // the variants and read ranges of taxa that enter the MSAs (--msa_knob).
+            profile.ReleaseReadData(filter.WithKnob(msa_knob), !options.NoStrains());
 
             // Each thread writes to its own pre-allocated slot — no lock needed.
             profile_slots[idx].emplace(std::move(profile));
@@ -651,6 +703,7 @@ namespace protal {
         for (auto& slot : profile_slots) {
             if (slot.has_value()) profiles.emplace_back(std::move(slot.value()));
         }
+        WriteUnreportedSpecies(options, unreported_slots);
         return profiles;
     }
 
@@ -1996,7 +2049,9 @@ namespace protal {
              * STRAIN PART -  RESOLVE MSAs BETWEEN SAMPLES
              */
             if (!options.NoStrains()) {
-                StrainWrapper2(options, profiles, db.GetGenomes(), db.GetTaxonomy(), msa_taxids, filter);
+                // A sample enters a taxon's MSA with a score of --msa_knob or more (by default --knob:
+                // the samples whose profile reports the taxon).
+                StrainWrapper2(options, profiles, db.GetGenomes(), db.GetTaxonomy(), msa_taxids, filter.WithKnob(options.GetMSAKnob()));
             }
         }
 
