@@ -42,6 +42,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONVERTER = os.path.join(HERE, "mini_db", "gtdb_to_protal_db.py")
@@ -50,16 +51,20 @@ COLLECTOR = os.path.join(HERE, "collect_training_data.py")
 PARITY = os.path.join(HERE, "check_model_parity.py")
 ACCESSION = re.compile(r"(?:RS_|GB_)?(GC[AF]_\d{9}\.\d+)")
 sys.path.insert(0, os.path.join(HERE, "mini_db"))
+sys.path.insert(0, HERE)
+import lineages  # noqa: E402
 from gtdb_to_protal_db import normalize_accession, read_representatives  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 
 
 def run(command, log):
     os.makedirs(os.path.dirname(log), exist_ok=True)
+    started = time.time()
     with open(log, "w") as fh:
         rc = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
     if rc:
-        sys.exit(f"Command failed ({rc}); see {log}: {' '.join(command)}")
+        stop(f"Command failed ({rc}); see {log}: {' '.join(command)}")
+    return time.time() - started
 
 
 def make_genome_table(gtdb, release, output, extra_dirs=(), species=None):
@@ -133,33 +138,142 @@ def summarize_genome_table(path, reps):
     return lines
 
 
-def choose_holdout(genome_table, taxonomy, fraction, seed):
-    """A random `fraction` of the database's species that the genome table can simulate, the same fraction in
-    each domain."""
-    with open(taxonomy) as fh:
-        header = next(fh).rstrip("\n").split("\t")
-        name, rank = header.index("name"), header.index("rank")
-        in_db = {f[name] for f in (line.rstrip("\n").split("\t") for line in fh) if f[rank] == "species"}
-    by_domain = collections.defaultdict(set)
+CLADE_RANKS = ("phylum", "class", "order", "family", "genus")
+
+
+def parse_clades(text):
+    """--holdout-clades "phylum:2,class:4,family:8" -> {"phylum": 2, ...}; "none" or "" -> {}."""
+    clades = {}
+    for part in (text or "").split(","):
+        part = part.strip()
+        if not part or part == "none":
+            continue
+        rank, _, count = part.partition(":")
+        if rank not in CLADE_RANKS or not count.isdigit():
+            sys.exit(f"--holdout-clades: expected RANK:COUNT with a rank of {', '.join(CLADE_RANKS)}, got {part!r}")
+        clades[rank] = int(count)
+    return clades
+
+
+def choose_holdout(genome_table, taxonomy, fraction, clades, max_share, seed):
+    """The species a training database leaves out, as {species: (rank, clade)}; rank "species" for single
+    species. First whole clades, clades[rank] of each rank from phylum down: drawn among those with at least
+    two species the genome table can simulate (so that samples can have them), with at most max_share of the
+    database's species, and in no clade drawn before. Then a random `fraction` of the species the genome
+    table can simulate that no clade took, the same fraction in each domain."""
+    lineage_by_id, _ = lineages.from_taxonomy(taxonomy)
+    db = {lin["species"]: lin for lin in lineage_by_id.values() if "species" in lin}
+    pool_by_domain = collections.defaultdict(set)
     with open(genome_table) as fh:
         for line in fh:
             lineage = next((f for f in line.rstrip("\n").split("\t") if f.startswith("d__") and ";s__" in f), None)
-            if lineage and lineage.split(";")[-1] in in_db:
-                by_domain[lineage.split(";")[0]].add(lineage.split(";")[-1])
+            if lineage and lineage.split(";")[-1] in db:
+                pool_by_domain[lineage.split(";")[0]].add(lineage.split(";")[-1])
+    pool = set().union(*pool_by_domain.values()) if pool_by_domain else set()
     rng = random.Random(seed)
-    chosen = []
-    for domain in sorted(by_domain):
-        species = sorted(by_domain[domain])
-        chosen += rng.sample(species, round(fraction * len(species)))
-    return sorted(chosen)
+    chosen = {}
+    for rank in CLADE_RANKS:
+        if not clades.get(rank):
+            continue
+        members = collections.defaultdict(set)
+        for species, lin in db.items():
+            if rank in lin:
+                members[lin[rank]].add(species)
+        eligible = sorted(c for c, species in members.items() if len(species & pool) >= 2
+                          and len(species) <= max_share * len(db) and not any(s in chosen for s in species))
+        picked = rng.sample(eligible, min(clades[rank], len(eligible)))
+        if len(picked) < clades[rank]:
+            print(f"WARNING: only {len(eligible)} {rank} clades can be held out (two or more species to simulate, at "
+                  f"most {max_share:.0%} of the species); holding out {len(picked)} instead of {clades[rank]}", flush=True)
+        for clade in sorted(picked):
+            for species in members[clade]:
+                chosen[species] = (rank, clade)
+    for domain in sorted(pool_by_domain):
+        species = sorted(s for s in pool_by_domain[domain] if s not in chosen)
+        for s in rng.sample(species, round(fraction * len(species))):
+            chosen[s] = ("species", s)
+    return chosen
 
 
-def build(protal, db, threads, log, *extra):
+def read_holdout(path):
+    """heldout_species.txt: species, and optionally the rank it was held out at and the clade (a species
+    alone: rank "species") -> {species: (rank, clade)}."""
+    chosen = {}
+    with open(path) as fh:
+        for line in fh:
+            fields = [f.strip() for f in line.rstrip("\n").split("\t")]
+            if not fields[0] or fields[0].startswith("#"):
+                continue
+            species = fields[0] if fields[0].startswith("s__") else "s__" + fields[0]
+            rank = fields[1] if len(fields) > 1 and fields[1] else "species"
+            chosen[species] = (rank, fields[2] if len(fields) > 2 and fields[2] else species)
+    return chosen
+
+
+def pool_species(genome_table):
+    """The species a genome table can simulate."""
+    species = set()
+    with open(genome_table) as fh:
+        for line in fh:
+            lineage = next((f for f in line.rstrip("\n").split("\t") if f.startswith("d__") and ";s__" in f), None)
+            if lineage:
+                species.add(lineage.split(";")[-1])
+    return species
+
+
+def describe_holdout(chosen, pool):
+    """Lines saying what the training database leaves out."""
+    lines = []
+    by_rank = collections.defaultdict(lambda: collections.defaultdict(set))
+    for species, (rank, clade) in chosen.items():
+        by_rank[rank][clade].add(species)
+    for rank in (*CLADE_RANKS, "species"):
+        if rank not in by_rank:
+            continue
+        species = set().union(*by_rank[rank].values())
+        simulated = len(species & pool)
+        if rank == "species":
+            lines.append(f"  {len(species)} single species ({simulated} to simulate)")
+        else:
+            names = ", ".join(f"{c} ({len(s)} species, {len(s & pool)} to simulate)" for c, s in sorted(by_rank[rank].items()))
+            lines.append(f"  {len(by_rank[rank])} {rank} clades, {len(species)} species ({simulated} to simulate): {names}")
+    return lines
+
+
+def build_command(protal, db, threads, *extra):
     command = [protal, "--build", "--no_profile", "-t", str(threads), "--db", db,
                "--reference", os.path.join(db, "reference.fna"), *extra]
     if os.path.isfile(os.path.join(db, "full_reference.fna")):
         command += ["--full_reference", os.path.join(db, "full_reference.fna")]
-    run(command, log)
+    return command
+
+
+class Background:
+    """A command run in the background (its output to log); finish() waits for it and stops the script if it
+    failed. Stopped when the script stops before."""
+    running = []
+
+    def __init__(self, command, log):
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        self.command, self.log, self.started = command, log, time.time()
+        self.fh = open(log, "w")
+        self.process = subprocess.Popen(command, stdout=self.fh, stderr=subprocess.STDOUT)
+        Background.running.append(self)
+
+    def finish(self):
+        rc = self.process.wait()
+        self.fh.close()
+        Background.running.remove(self)
+        if rc:
+            stop(f"Command failed ({rc}); see {self.log}: {' '.join(self.command)}")
+        return time.time() - self.started
+
+
+def stop(message):
+    for job in list(Background.running):
+        job.process.terminate()
+        job.process.wait()
+    sys.exit(message)
 
 
 def main():
@@ -174,10 +288,26 @@ def main():
                    help="folder of more whole genomes of GTDB species, found by the accession in their file names "
                         "(e.g. the NCBI genomes of download_gtdb.py); repeatable")
     p.add_argument("--holdout", type=float, default=0.1,
-                   help="fraction of the species left out of a separate training database (default 0.1): their "
-                        "reads land on relatives, as those of species GTDB lacks do in real samples. 0 trains on "
-                        "the database itself")
-    p.add_argument("--holdout-species", help="file of the species to leave out, instead of a random --holdout fraction")
+                   help="fraction of the species (of those the genome table can simulate and no clade of "
+                        "--holdout-clades took) left out of a separate training database (default 0.1): their "
+                        "reads land on relatives, as those of species GTDB lacks do in real samples. 0 with "
+                        "--holdout-clades none trains on the database itself")
+    p.add_argument("--holdout-clades", default="phylum:2,class:4,family:8",
+                   help="whole clades left out of the training database too, RANK:COUNT for ranks phylum, class, "
+                        "order, family, genus (default phylum:2,class:4,family:8; none for species only): reads of "
+                        "organisms whose family, class or phylum the database lacks land on distant relatives. The "
+                        "report tells how the model does on each rank")
+    p.add_argument("--holdout-max-share", type=float, default=0.02,
+                   help="a held-out clade has at most this share of the database's species (default 0.02)")
+    p.add_argument("--novel-clades-per-sample", type=int, default=1,
+                   help="species of held-out clades in each sample, per rank held out (default 1; "
+                        "collect_training_data.py --novel_clades)")
+    p.add_argument("--holdout-species", help="file of the species to leave out (optionally with their rank and "
+                                             "clade, as heldout_species.txt), instead of choosing them")
+    p.add_argument("--one-build-at-a-time", action="store_true",
+                   help="build the finished database after the model is trained, not while the training data are "
+                        "collected (the default, which needs the memory of two builds, or of one build and the "
+                        "collection's protal runs, at once)")
     p.add_argument("--training-db-level", type=int, default=3,
                    help="zstd level of the training database (default 3; the finished database uses protal's default)")
     p.add_argument("--simulate-species",
@@ -187,13 +317,13 @@ def main():
     p.add_argument("--protal", default="protal", help="protal executable")
     p.add_argument("--simulator", default="simulate_metagenomes", help="simulate_metagenomes executable")
     p.add_argument("-t", "--threads", type=int, default=8)
-    p.add_argument("--samples", type=int, default=8,
-                   help="samples per design point (default 8; on a GTDB-like world the model still improved "
+    p.add_argument("--samples", type=int, default=12,
+                   help="samples per design point (default 12; on a GTDB-like world the model still improved "
                         "from 60 to 120 samples)")
     p.add_argument("--read-pairs", default="5000,20000,100000,500000")
     p.add_argument("--read-setups", default="100:HS20:300:40,150:HS25:350:50,250:MSv3:550:50")
     p.add_argument("--archaea", type=int, default=2)
-    p.add_argument("--species-per-sample", default="10-40")
+    p.add_argument("--species-per-sample", default="20-50")
     p.add_argument("--congeners", type=int, default=0,
                    help="species of one genus in every sample of a design point (collect_training_data.py "
                         "--congeners): relatives that share a sample, as in real samples")
@@ -269,31 +399,48 @@ def main():
             write_placeholder(os.path.join(db, MODEL_FILES[read_type]), read_type)
 
     # The training database leaves some species out: the model then sees reads of species the database
-    # lacks, which land on relatives. It is made from the converted files before --build packs them.
+    # lacks, which land on relatives, and reads of whole families, classes and phyla it lacks, which land on
+    # distant ones. It is made from the converted files before --build packs them. heldout_species.txt: the
+    # species, the rank they were held out at and the clade.
     heldout = os.path.join(args.outdir, "heldout_species.txt")
+    clades = parse_clades(args.holdout_clades)
     if args.holdout_species:
         shutil.copyfile(args.holdout_species, heldout)
-    elif args.holdout > 0:
+    elif args.holdout > 0 or clades:
+        chosen = choose_holdout(genome_table, taxonomy, args.holdout, clades, args.holdout_max_share, args.seed)
         with open(heldout, "w") as fh:
-            fh.write("".join(s + "\n" for s in choose_holdout(genome_table, taxonomy, args.holdout, args.seed)))
+            fh.write("".join(f"{s}\t{rank}\t{clade}\n" for s, (rank, clade) in sorted(chosen.items())))
     elif os.path.exists(heldout):
         os.remove(heldout)
     training_db = db
+    n_heldout, holdout_lines = 0, []
     if os.path.exists(heldout):
-        with open(heldout) as fh:
-            n_heldout = sum(1 for line in fh if line.strip())
+        chosen = read_holdout(heldout)
+        n_heldout = len(chosen)
+        holdout_lines = [f"training database: {n_heldout} species left out ({heldout})"] + \
+            describe_holdout(chosen, pool_species(genome_table))
+        with open(os.path.join(logs, "holdout.txt"), "w") as fh:
+            fh.write("\n".join(holdout_lines) + "\n")
+        print("\n".join(holdout_lines), flush=True)
         training_db = os.path.join(args.outdir, "training_db")
         run([sys.executable, CONVERTER, "--from_db", db, "--exclude_species", heldout, "--outdir", training_db],
             os.path.join(args.outdir, "training_db.log"))
-        print(f"Training database {training_db}: {n_heldout} species left out ({heldout})", flush=True)
-    else:
-        n_heldout = 0
-    build(args.protal, db, args.threads, os.path.join(args.outdir, "index_and_package.log"))
+
+    # The finished database is needed only for --add_model at the end: it is built in the background from the
+    # start, while the training database is built and the training data collected, unless one build at a time.
+    final_log = os.path.join(args.outdir, "index_and_package.log")
+    final_build = None
+    if training_db != db and not args.one_build_at_a_time:
+        final_build = Background(build_command(args.protal, db, args.threads), final_log)
+        print(f"Building {db} in the background ({final_log})", flush=True)
+    elif training_db == db:
+        print(f"Built {db} in {run(build_command(args.protal, db, args.threads), final_log):.0f} s", flush=True)
     if training_db != db:
         # Read only for the training samples and the parity check: zstd level 3 packs it in a fraction of the
         # time of level 19 (which half of a build spent on), and loads as fast.
-        build(args.protal, training_db, args.threads, os.path.join(args.outdir, "training_db_index.log"),
-              "--compress_level", str(args.training_db_level))
+        seconds = run(build_command(args.protal, training_db, args.threads, "--compress_level", str(args.training_db_level)),
+                      os.path.join(args.outdir, "training_db_index.log"))
+        print(f"Built {training_db} in {seconds:.0f} s", flush=True)
 
     training = os.path.join(args.outdir, "training")
     collect = [sys.executable, COLLECTOR, "--db", training_db, "--genome_table", genome_table, "-o", training,
@@ -303,29 +450,38 @@ def main():
                "--seed", str(args.seed), "-t", str(args.threads), "--taxonomy", taxonomy,
                "--congeners", str(args.congeners)]
     if n_heldout:
-        collect += ["--novel_species", heldout]
-    run(collect, os.path.join(args.outdir, "training_data.log"))
+        collect += ["--novel_species", heldout, "--novel_clades", str(args.novel_clades_per_sample)]
+    print(f"Collected the training data in {run(collect, os.path.join(args.outdir, 'training_data.log')):.0f} s", flush=True)
     prefix = os.path.join(args.outdir, "trained_model")
-    run([sys.executable, TRAINER, "--truth-file", os.path.join(training, "training_data.tsv"),
-         "--output-prefix", prefix, "--features", "normalized", "--ntree", str(args.ntree),
-         "--maxnodes", str(args.maxnodes), "--seed", str(args.seed), "--threads", str(args.threads),
-         "--taxonomy", taxonomy, "--evaluation", args.evaluation],
-        os.path.join(args.outdir, "classifier_training.log"))
+    seconds = run([sys.executable, TRAINER, "--truth-file", os.path.join(training, "training_data.tsv"),
+                   "--output-prefix", prefix, "--features", "normalized", "--ntree", str(args.ntree),
+                   "--maxnodes", str(args.maxnodes), "--seed", str(args.seed), "--threads", str(args.threads),
+                   "--taxonomy", taxonomy, "--evaluation", args.evaluation],
+                  os.path.join(args.outdir, "classifier_training.log"))
+    print(f"Trained the model in {seconds:.0f} s", flush=True)
     # protal must score as the trainer does, and compute the features as it did during collection.
     run([sys.executable, PARITY, "--db", training_db, "--model", prefix + ".xml", "--training", training,
          "--protal", args.protal, "-t", str(args.threads)], os.path.join(args.outdir, "parity.log"))
     for name in (prefix + ".report.txt", prefix + ".metrics.json", prefix + ".thresholds.tsv", prefix + ".varimp.tsv",
                  prefix + ".predictions.tsv.gz", os.path.join(training, "parity", "parity.txt"),
-                 os.path.join(args.outdir, "training_data.log"), os.path.join(args.outdir, "genome_table.txt")):
+                 os.path.join(args.outdir, "training_data.log"), os.path.join(args.outdir, "genome_table.txt"),
+                 heldout):
         if os.path.isfile(name):
             shutil.copy(name, logs)
+    if final_build is not None:
+        print(f"Built {db} in {final_build.finish():.0f} s (in the background)", flush=True)
+    elif training_db != db:
+        print(f"Built {db} in {run(build_command(args.protal, db, args.threads), final_log):.0f} s", flush=True)
     # The trained model replaces the shipped one as the paired-end model (model_pe.xml) in
     # database.protal; --add_model checks it and copies the other parts as they are.
     run([args.protal, "--add_model", prefix + ".xml", "--read_type", "pe", "--db", db, "-t", str(args.threads)],
         os.path.join(args.outdir, "final_package.log"))
+    clade_counts = collections.Counter(rank for rank, _ in set(read_holdout(heldout).values())) if n_heldout else {}
     with open(os.path.join(db, "build_metadata.tsv"), "w") as fh:
         fh.write(f"gtdb_release\tr{release}\nclassifier_features\tnormalized\nclassifier_trees\t{args.ntree}\n"
                  f"classifier_max_leaves\t{args.maxnodes}\nclassifier_training_species_left_out\t{n_heldout}\n"
+                 + "".join(f"classifier_training_{rank}_clades_left_out\t{clade_counts[rank]}\n"
+                           for rank in CLADE_RANKS if clade_counts.get(rank)) +
                  f"classifier_training_samples\t{args.samples} per design point\n")
     shutil.copy(os.path.join(db, "build_metadata.tsv"), logs)
     print(f"Ready protal database: {db}", flush=True)

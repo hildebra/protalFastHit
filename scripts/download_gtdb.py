@@ -67,11 +67,11 @@ def parse_args(argv=None):
     p.add_argument("--dry_run", action="store_true", help="list GTDB's files to download, with their sizes, and stop")
     p.add_argument("--keep_archives", action="store_true",
                    help="keep the downloaded .tar.gz archives after extracting them (default: removed)")
-    p.add_argument("--species", type=int, default=4000, help="species to download strains of (default 4000)")
+    p.add_argument("--species", type=int, default=6000, help="species to download strains of (default 6000)")
     p.add_argument("--per_species", type=int, default=2, help="strains per species at most (default 2)")
-    p.add_argument("--rep_only_species", type=int, default=1000,
-                   help="further species, simulated from their representative only (default 1000: with the other "
-                        "defaults, a simulated species is another strain about 53%% of the time)")
+    p.add_argument("--rep_only_species", type=int, default=2000,
+                   help="further species, simulated from their representative only (default 2000: with the other "
+                        "defaults, a simulated species is another strain about 50%% of the time)")
     p.add_argument("--min_completeness", type=float, default=90.0, help="CheckM2 completeness, %% (default 90)")
     p.add_argument("--max_contamination", type=float, default=5.0, help="CheckM2 contamination, %% (default 5)")
     p.add_argument("--seed", type=int, default=1)
