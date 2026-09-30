@@ -61,6 +61,9 @@ set(PROTAL_LIB_SOURCES
         Core/CoreBenchmark.h
         IO/FastxReader.h
         IO/FastxReader.cpp
+        IO/ThreadedGzStream.h
+        IO/Bgzf.h
+        IO/SamFile.h
         IO/SamHandler.h
         IO/BufferedOutput.h
         IO/BufferedOutput.cpp
@@ -183,11 +186,11 @@ target_link_directories(protal_lib_static
 #         ../SNPs)
 
 
-#set(ZLIB_USE_STATIC_LIBS "ON")
-find_package(ZLIB REQUIRED)
+# zlib-ng (vendored in lib/zlib-ng, built static): gzip that is not BGZF, gzstream. No system zlib.
+include(${PROJECT_SOURCE_DIR}/../lib/zlib-ng.cmake)
 
 # zstd: compressed database files (index.prx.zst, reference.fna.zst). Ubuntu: libzstd-dev,
-# conda: zstd. The static build links libzstd.a by name, like zlib.
+# conda: zstd. The static build links libzstd.a by name.
 find_path(ZSTD_INCLUDE_DIR zstd.h REQUIRED)
 find_library(ZSTD_LIBRARY NAMES zstd REQUIRED)
 get_filename_component(ZSTD_LIBRARY_DIR ${ZSTD_LIBRARY} DIRECTORY)
@@ -195,6 +198,16 @@ message(STATUS "zstd: ${ZSTD_LIBRARY} (${ZSTD_INCLUDE_DIR})")
 target_include_directories(protal_lib PUBLIC ${ZSTD_INCLUDE_DIR})
 target_include_directories(protal_lib_static PUBLIC ${ZSTD_INCLUDE_DIR})
 target_link_directories(protal_lib_static PUBLIC ${ZSTD_LIBRARY_DIR})
+
+# libdeflate: gzip as protal writes it (BGZF: .sam.gz, the simulator's reads) and reads BGZF input.
+# Ubuntu: libdeflate-dev, conda: libdeflate. The static build links libdeflate.a by name.
+find_path(LIBDEFLATE_INCLUDE_DIR libdeflate.h REQUIRED)
+find_library(LIBDEFLATE_LIBRARY NAMES deflate REQUIRED)
+get_filename_component(LIBDEFLATE_LIBRARY_DIR ${LIBDEFLATE_LIBRARY} DIRECTORY)
+message(STATUS "libdeflate: ${LIBDEFLATE_LIBRARY} (${LIBDEFLATE_INCLUDE_DIR})")
+target_include_directories(protal_lib PUBLIC ${LIBDEFLATE_INCLUDE_DIR})
+target_include_directories(protal_lib_static PUBLIC ${LIBDEFLATE_INCLUDE_DIR})
+target_link_directories(protal_lib_static PUBLIC ${LIBDEFLATE_LIBRARY_DIR})
 
 target_include_directories(protal_lib PUBLIC ../lib/robin)
 target_include_directories(protal_lib PUBLIC ../lib/tsl)
@@ -262,8 +275,9 @@ target_link_libraries(protal_lib
         stdc++fs
         wfa_lib
         gzstream_lib
-        ZLIB::ZLIB
+        zlib-ng
         ${ZSTD_LIBRARY}
+        ${LIBDEFLATE_LIBRARY}
 )
 
 target_link_libraries(protal_lib_static
@@ -272,8 +286,9 @@ target_link_libraries(protal_lib_static
         stdc++fs
         wfa_lib
         gzstream_lib_static
-        z
+        zlib-ng
         zstd
+        deflate
 )
 
 message("CMAKE_CURRENT_SOURCE_DIR: ${CMAKE_CURRENT_SOURCE_DIR}")

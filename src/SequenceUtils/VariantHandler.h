@@ -55,12 +55,12 @@ namespace protal {
         // inside a deletion after its first position. They support no allele, so they are not taken
         // for reference support. One byte per read: its strand (bit 7) and divergence (bits 0-6).
         tsl::robin_map<VariantPos, std::vector<uint8_t>> m_no_base;
-        const std::string& m_reference;
+        std::string_view m_reference;  // the gene's sequence, which outlives the handler
 
     public:
         Benchmark bm_next_compressed_cigar{"Next compressed cigar"};
 
-        VariantHandler(const std::string& reference) : m_reference(reference) {};
+        explicit VariantHandler(std::string_view reference) : m_reference(reference) {};
 
         // Drops all variants and frees their memory.
         void Clear() {
@@ -100,11 +100,7 @@ namespace protal {
         }
 
 
-        const std::string& GetReference() const {
-            return m_reference;
-        }
-
-        std::string GetReference() {
+        std::string_view GetReference() const {
             return m_reference;
         }
 
@@ -277,7 +273,7 @@ namespace protal {
                 } else if (op == 'D' && between_trusted_bases && !(rpos > skip_begin && rpos + count < skip_end)) {
                     Qual const flank = std::min(PhredScore(sam.m_qual[qpos - 1]), PhredScore(sam.m_qual[qpos]));
                     indels.push_back({ VariantType::DEL, static_cast<VariantPos>(rpos), m_reference[rpos],
-                                       m_reference.substr(rpos, count), flank });
+                                       std::string(m_reference.substr(rpos, count)), flank });
                     for (auto i = 1; i < count; i++) {
                         if (!skipped(rpos + i)) no_base.push_back(rpos + i);
                     }

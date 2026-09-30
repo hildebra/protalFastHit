@@ -58,7 +58,7 @@ gzstreambuf* gzstreambuf::open( const char* name, int open_mode) {
         *fmodeptr++ = 'w';
     *fmodeptr++ = 'b';
     *fmodeptr = '\0';
-    file = gzopen( name, fmode);
+    file = zng_gzopen( name, fmode);
     if (file == 0)
         return (gzstreambuf*)0;
     opened = 1;
@@ -69,7 +69,7 @@ gzstreambuf * gzstreambuf::close() {
     if ( is_open()) {
         sync();
         opened = 0;
-        if ( gzclose( file) == Z_OK)
+        if ( zng_gzclose( file) == Z_OK)
             return this;
     }
     return (gzstreambuf*)0;
@@ -88,11 +88,11 @@ int gzstreambuf::underflow() { // used for input buffer only
     // memmove: after a short read (fewer than 4 bytes) source and destination overlap.
     memmove( buffer + (4 - n_putback), gptr() - n_putback, n_putback);
 
-    int num = gzread( file, buffer+4, bufferSize-4);
+    int num = zng_gzread( file, buffer+4, bufferSize-4);
     if (num <= 0) { // ERROR or EOF
         // A gzip file that ends early reads as a normal end of file, but leaves Z_BUF_ERROR.
-        int errnum = Z_OK;
-        const char* message = gzerror( file, &errnum);
+        int32_t errnum = Z_OK;
+        const char* message = zng_gzerror( file, &errnum);
         if ((num < 0 || errnum != Z_OK) && read_error.empty())
             read_error = (message && *message) ? message : "read error";
         return EOF;
@@ -111,7 +111,7 @@ int gzstreambuf::flush_buffer() {
     // Separate the writing of the buffer from overflow() and
     // sync() operation.
     int w = pptr() - pbase();
-    if ( gzwrite( file, pbase(), w) != w)
+    if ( zng_gzwrite( file, pbase(), w) != w)
         return EOF;
     pbump( -w);
     return w;

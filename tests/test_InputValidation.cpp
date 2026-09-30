@@ -4,6 +4,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -165,6 +166,29 @@ TEST(ReferenceMap, LoadsGenesAndUppercasesThem) {
     EXPECT_EQ(gene.Sequence(), "CCGGTTAA");
 }
 
+// LoadAllGenomes puts the genes not yet loaded into one arena; a genome loaded gene by gene
+// before keeps its sequences.
+TEST(ReferenceMap, LoadAllGenomesAfterAGenomeWasLoadedOnItsOwn) {
+    ScratchDir dir;
+    Reference ref;
+    auto fna = dir.Write("reference.fna", ref.fna);
+    auto map = dir.Write("reference.map", ref.map);
+    for (int threads : { 1, 3 }) {
+        protal::GenomeLoader loader(fna, map);
+        EXPECT_EQ(loader.GetGenome(1).GetGeneOMP(2).Sequence(), "CCGGTTAA");
+        loader.LoadAllGenomes(threads);
+        EXPECT_TRUE(loader.AllGenomesLoaded());
+        EXPECT_EQ(loader.GetGenome(1).GetGene(1).Sequence(), "ACGTACGTAA") << threads << " threads";
+        EXPECT_EQ(loader.GetGenome(1).GetGene(2).Sequence(), "CCGGTTAA") << threads << " threads";
+        EXPECT_EQ(loader.GetGenome(2).GetGene(1).Sequence(), "GGGGCCCCAT") << threads << " threads";
+
+        protal::GenomeLoader fresh(fna, map);
+        fresh.LoadAllGenomes(threads);
+        EXPECT_EQ(fresh.GetGenome(1).GetGene(2).Sequence(), "CCGGTTAA") << threads << " threads";
+        EXPECT_EQ(fresh.GetGenome(2).GetGene(1).Sequence(), "GGGGCCCCAT") << threads << " threads";
+    }
+}
+
 TEST(ReferenceMap, RejectsMalformedLines) {
     ScratchDir dir;
     Reference ref;
@@ -252,6 +276,82 @@ TEST(UniqueKmers, LoadsCountsAndRejectsMalformedLines) {
     EXPECT_EXIT(load("1\t1\t3\n"), testing::ExitedWithCode(8), "line 1: expected 9 tab-separated columns, found 3");
     EXPECT_EXIT(load("1\t1\tx\t0\t0\t0\t0\t0\t10\n"), testing::ExitedWithCode(8), "column 3 is not");
     EXPECT_EXIT(load("7\t1\t3\t0.3\t0\t0\t0\t0\t10\n"), testing::ExitedWithCode(8), "gene 7_1 is not in reference.map");
+}
+
+namespace {
+    // A reference.map of 600 taxa x 100 genes (~1.7 MB: several chunks of the parallel parser) over a
+    // sparse reference.fna, and a unique_kmers.tsv for it. `edit` changes lines (0-based) by index.
+    struct BigTables {
+        std::string fna, map, unique;
+        size_t genes = 60000;
+        BigTables(ScratchDir const& dir, std::map<size_t, std::string> const& map_edits = {},
+                  std::map<size_t, std::string> const& unique_edits = {}) {
+            std::string m, u;
+            uint64_t position = 0;
+            size_t line = 0;
+            for (int taxid = 1; taxid <= 600; taxid++) {
+                for (int gene = 1; gene <= 100; gene++, line++) {
+                    uint64_t const length = 900 + (taxid * 7 + gene) % 300;
+                    std::string map_line = std::to_string(taxid) + '\t' + std::to_string(gene) + '\t' + std::to_string(position) + '\t' + std::to_string(position + length);
+                    std::string unique_line = std::to_string(taxid) + '\t' + std::to_string(gene) + '\t' + std::to_string(gene % 3) + "\t0.1\t" +
+                                              std::to_string(gene % 2) + "\t0.1\t1\t0.1\t" + std::to_string(length - 30);
+                    if (auto it = map_edits.find(line); it != map_edits.end()) map_line = it->second;
+                    if (auto it = unique_edits.find(line); it != unique_edits.end()) unique_line = it->second;
+                    m += map_line + '\n';
+                    u += unique_line + '\n';
+                    position += length + 1;
+                }
+            }
+            fna = dir.Write("big.fna", "");
+            std::filesystem::resize_file(fna, position);
+            map = dir.Write("big.map", m);
+            unique = dir.Write("big_unique.tsv", u);
+        }
+    };
+
+    protal::GenomeLoader LoadBig(BigTables const& t, int threads) {
+        protal::GenomeLoader loader(protal::db::DbFile::OnDisk(t.fna), protal::db::DbFile::OnDisk(t.map), threads);
+        loader.LoadUniqueKmers(t.unique, threads);
+        return loader;
+    }
+}
+
+TEST(GeneTables, ParsedInParallelAsLineByLine) {
+    ScratchDir dir;
+    BigTables tables(dir);
+    ASSERT_GT(std::filesystem::file_size(tables.map), size_t{1} << 20);  // several chunks
+    auto one = LoadBig(tables, 1);
+    auto eight = LoadBig(tables, 8);
+    EXPECT_EQ(one.GeneCount(), tables.genes);
+    EXPECT_EQ(eight.GeneCount(), tables.genes);
+    for (int taxid : { 1, 299, 600 }) {
+        for (int gene : { 1, 50, 100 }) {
+            EXPECT_EQ(eight.GeneLength(taxid, gene), one.GeneLength(taxid, gene));
+            EXPECT_EQ(eight.GetGenome(taxid).GetGene(gene).GetStartByte(), one.GetGenome(taxid).GetGene(gene).GetStartByte());
+            EXPECT_EQ(eight.GetGenome(taxid).GetGene(gene).GetUniqueKmerCounts(), one.GetGenome(taxid).GetGene(gene).GetUniqueKmerCounts());
+            EXPECT_EQ(eight.GetGenome(taxid).IsGeneHittable(gene), one.GetGenome(taxid).IsGeneHittable(gene));
+        }
+        EXPECT_EQ(eight.GetGenome(taxid).GetUniqueKmerCounts(), one.GetGenome(taxid).GetUniqueKmerCounts());
+    }
+}
+
+TEST(GeneTables, TheFirstProblemInTheFileIsReportedWithItsLine) {
+    ScratchDir dir;
+    // A problem deep in the file (a late chunk) keeps its line number.
+    BigTables late(dir, { { 55000, "7\t8\t9" } });
+    EXPECT_EXIT(LoadBig(late, 8), testing::ExitedWithCode(8), "line 55001: expected 4 tab-separated columns, found 3");
+    // A gene listed twice early wins over a malformed line later, and the other way round.
+    BigTables duplicate_first(dir, { { 1000, "1\t1\t0\t10" }, { 50000, "x" } });
+    EXPECT_EXIT(LoadBig(duplicate_first, 8), testing::ExitedWithCode(8), "line 1001: gene 1_1 is listed twice");
+    BigTables malformed_first(dir, { { 1000, "1\t1\tx\t10" }, { 50000, "1\t1\t0\t10" } });
+    EXPECT_EXIT(LoadBig(malformed_first, 8), testing::ExitedWithCode(8), "line 1001: column 3 is not a non-negative integer");
+    BigTables huge(dir, { { 3, "1\t4\t0\t99999999999999999999999" } });
+    EXPECT_EXIT(LoadBig(huge, 8), testing::ExitedWithCode(8), "line 4: column 4 is too large");
+    // unique_kmers.tsv likewise.
+    BigTables unknown_gene(dir, {}, { { 40000, "1\t700\t1\t0.1\t0\t0.1\t1\t0.1\t9" } });
+    EXPECT_EXIT(LoadBig(unknown_gene, 8), testing::ExitedWithCode(8), "line 40001: gene 1_700 is not in reference.map");
+    BigTables short_line(dir, {}, { { 59999, "1\t2" } });
+    EXPECT_EXIT(LoadBig(short_line, 8), testing::ExitedWithCode(8), "line 60000: expected 9 tab-separated columns, found 2");
 }
 
 TEST(ModelFeatures, NormalizedFeaturesOfATaxon) {

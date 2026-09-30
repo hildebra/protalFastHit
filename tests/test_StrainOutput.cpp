@@ -147,7 +147,7 @@ TEST(Coverage, AReadOverSeveralGapsMergesAllTheirRanges) {
 TEST(MSA, DeletionsBecomeGaps) {
     TinyReference ref;
     auto& gene = ref.loader->GetGenome(1).GetGeneOMP(1);
-    std::string reference = gene.Sequence();
+    std::string reference(gene.Sequence());
     StrainLevelContainer strain(gene);
     auto read = reference.substr(0, 20) + reference.substr(22);
     for (size_t i = 0; i < 4; i++) {
@@ -386,7 +386,7 @@ TEST(MSA, EachSampleTakesItsOwnMinimumAlleleFrequency) {
     // sample, as for a noisier read type), the SNP does not pass.
     TinyReference ref;
     auto& gene = ref.loader->GetGenome(1).GetGeneOMP(1);
-    std::string const reference = gene.Sequence();
+    std::string const reference(gene.Sequence());
     std::string snp_read = reference;
     snp_read[10] = reference[10] == 'A' ? 'C' : 'A';
     std::vector<std::unique_ptr<StrainLevelContainer>> strains;
@@ -461,7 +461,7 @@ TEST(Abundance, StrongOwnEvidenceNeedsDepthFromTheTaxonsOwnReads) {
     // What unreported_species.tsv lists a taxon for, whatever its score: its own reads give 1x or
     // more, on 90% of its genes (here its one gene), and most of its bases are its own reads'.
     TinyReference ref;
-    std::string reference = ref.loader->GetGenome(1).GetGeneOMP(1).Sequence();
+    std::string const reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence());
     profiler::MicrobialProfile profile(*ref.loader);
     profile.SetDepthIdentityMargin(0.04);
     auto own = MakeSam(reference.substr(0, 20), "20M", 1);
@@ -477,7 +477,7 @@ TEST(Abundance, StrongOwnEvidenceNeedsDepthFromTheTaxonsOwnReads) {
 
 TEST(Abundance, DepthCountsOnlyTheTaxonsOwnReads) {
     TinyReference ref;
-    std::string reference = ref.loader->GetGenome(1).GetGeneOMP(1).Sequence();
+    std::string reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence());
     profiler::MicrobialProfile profile(*ref.loader);
     profile.SetDepthIdentityMargin(0.04);
     auto own = MakeSam(reference.substr(0, 20), "20M", 1);
@@ -504,7 +504,7 @@ TEST(Abundance, ReleasingReadDataKeepsWhatLaterStagesRead) {
     // Once a sample's outputs are written, its reads' identities are freed, and its variants and
     // read ranges unless the strain stage needs them; depth and counters stay.
     TinyReference ref;
-    std::string reference = ref.loader->GetGenome(1).GetGeneOMP(1).Sequence();
+    std::string reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence());
     for (bool keep_strain_data : { true, false }) {
         profiler::MicrobialProfile profile(*ref.loader);
         profile.SetDepthIdentityMargin(0.04);

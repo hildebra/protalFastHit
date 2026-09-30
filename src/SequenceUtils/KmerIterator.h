@@ -10,6 +10,12 @@
 #include <cassert>
 #include <type_traits>
 #include <vector>
+// x86 with GCC or Clang: the closed-syncmer scan can evaluate windows with AVX2, compiled for it
+// with a function attribute and chosen at run time (SimpleKmerHandler::UsesAvx2).
+#if (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
+#define PROTAL_SYNCMER_AVX2 1
+#include <immintrin.h>
+#endif
 #include "FastxReader.h"
 #include "KmerUtils.h"
 #include "Minimizer.h"
@@ -219,32 +225,61 @@ namespace protal {
         }();
 
         // Closed syncmers of a whole sequence (ScanClosedSyncmers), for the layout protal uses: the
-        // core starts at a whole base of the k-mer, is the syncmer's k, and has at most 16 s-mers of
-        // at most 14 bases (an s-mer and its index fit 32 bits).
+        // core starts at a whole base of the k-mer, is the syncmer's k, is at most 15 bases (30 bits),
+        // and has at most 16 s-mers of at most 14 bases (an s-mer and its index fit 32 bits).
         bool m_scan = false;
+        bool m_avx2 = false;                // windows are evaluated 8 at a time with AVX2
         std::vector<uint32_t> m_smers_fwd;  // (s-mer at i << 4), forward strand
         std::vector<uint32_t> m_smers_rev;  // (reverse complement of that s-mer << 4), coded as the reverse k-mer
+        std::vector<uint32_t> m_cores_fwd;  // AVX2 only, per window: the forward and the reverse core
+        std::vector<uint32_t> m_cores_rev;
+        std::vector<uint64_t> m_kmers_fwd;  // AVX2 only, per window: the forward and the reverse k-mer
+        std::vector<uint64_t> m_kmers_rev;
 
         bool ScanApplies() const {
             if constexpr (std::is_same_v<CFMinimizer, ClosedSyncmer>) {
-                return m_mshift % 2 == 0 && m_m <= m_k && m_minimizer.CoreLength() == m_m &&
+                return m_mshift % 2 == 0 && m_m <= m_k && m_m <= 15 && m_minimizer.CoreLength() == m_m &&
                        m_minimizer.SmerCount() >= 1 && m_minimizer.SmerCount() <= 16 && m_minimizer.SmerLength() <= 14;
             }
             return false;
         }
 
-        // The same k-mers, in the same order, as the window-by-window loop in operator(): for each
-        // k-mer window, the canonical core (of the forward or the reverse k-mer, the reverse on a
-        // tie) is a closed syncmer if the first minimum of its s-mers is at t or at count-1-t. The
-        // loop recomputed every s-mer of every core and found the minimum with data-dependent
-        // branches; here each s-mer is computed once per strand, and each window's first minimum
-        // is the smallest (s-mer << 4 | index), both strands evaluated without branching.
+        // The same k-mers, in the same order, as WindowByWindow: for each k-mer window, the
+        // canonical core (of the forward or the reverse k-mer, the reverse on a tie) is a closed
+        // syncmer if the first minimum of its s-mers is at t or at count-1-t. The window loop
+        // recomputed every s-mer of every core and found the minimum with data-dependent branches;
+        // here each s-mer is computed once per strand, and a window's first minimum is the smallest
+        // (s-mer << 4 | index), both strands evaluated and the canonical one selected, without
+        // branches: 8 windows at a time with AVX2 where the CPU has it, else one by one.
         void ScanClosedSyncmers(KmerList& list) {
-            size_t const n = m_seq.length();
-            uint32_t const s = m_minimizer.SmerLength(), count = m_minimizer.SmerCount(), t = m_minimizer.T();
-            uint32_t const smask = m_minimizer.Mask(), sfull = (1u << (2 * s)) - 1;
-            size_t const core = m_k - m_m - m_mshift / 2;  // the core's first base in the window
+            size_t const windows = m_seq.length() - m_k + 1;
+#ifdef PROTAL_SYNCMER_AVX2
+            if (m_avx2) ScanWindowsAvx2(list);
+            else
+#endif
+            ScanWindows(list);
+            m_total_kmers = windows;
+            m_total_minimizers = list.size();
+            m_pos = static_cast<uint32_t>(windows);
+        }
 
+        // The index (low 4 bits) of the first minimum of the canonical core's s-mers. In the core's
+        // own order the forward s-mers are fwd[0..count); the reverse core's j-th is the reverse
+        // complement of the forward one at count-1-j, rev[count-1-j].
+        static uint32_t FirstMinimum(uint32_t const* fwd, uint32_t const* rev, uint32_t count, bool forward) {
+            uint32_t fmin = fwd[0], rmin = rev[count - 1];
+            for (uint32_t j = 1; j < count; j++) {
+                fmin = std::min(fmin, fwd[j] | j);
+                rmin = std::min(rmin, rev[count - 1 - j] | j);
+            }
+            return (forward ? fmin : rmin) & 0xF;
+        }
+
+        // The s-mers of the sequence on both strands (m_smers_fwd, m_smers_rev).
+        void FillSmers() {
+            size_t const n = m_seq.length();
+            uint32_t const s = m_minimizer.SmerLength();
+            uint32_t const smask = m_minimizer.Mask(), sfull = (1u << (2 * s)) - 1;
             m_smers_fwd.resize(n - s + 1);
             m_smers_rev.resize(n - s + 1);
             uint32_t f = 0, r = 0;
@@ -257,7 +292,14 @@ namespace protal {
                     m_smers_rev[i + 1 - s] = (r & smask) << 4;
                 }
             }
+        }
 
+        // One window at a time, the k-mers rolled along.
+        void ScanWindows(KmerList& list) {
+            FillSmers();
+            size_t const n = m_seq.length();
+            uint32_t const count = m_minimizer.SmerCount(), t = m_minimizer.T();
+            size_t const core = m_k - m_m - m_mshift / 2;  // the core's first base in the window
             uint64_t kf = 0, kr = 0;
             for (size_t i = 0; i < n; i++) {
                 auto const c = static_cast<unsigned char>(m_seq[i]);
@@ -265,25 +307,81 @@ namespace protal {
                 kr = (kr >> 2) | (uint64_t{kReverseCode[c]} << (2 * (m_k - 1)));
                 if (i + 1 < m_k) continue;
                 size_t const p = i + 1 - m_k;
-                m_total_kmers++;
-                uint64_t const core_f = (kf >> m_mshift) & m_mmask, core_r = (kr >> m_mshift) & m_mmask;
-                // The core's s-mers in its own order: forward at p+core+j; the reverse core's j-th is
-                // the reverse complement of the forward one at p+core+count-1-j.
-                uint32_t const* fwd = &m_smers_fwd[p + core];
-                uint32_t const* rev = &m_smers_rev[p + core];
-                uint32_t fmin = fwd[0], rmin = rev[count - 1];
+                bool const forward = ((kf >> m_mshift) & m_mmask) < ((kr >> m_mshift) & m_mmask);
+                uint32_t const first = FirstMinimum(&m_smers_fwd[p + core], &m_smers_rev[p + core], count, forward);
+                if (first == t || first == count - 1 - t) list.emplace_back(KmerElement(forward ? kf : kr, p));
+            }
+        }
+
+#ifdef PROTAL_SYNCMER_AVX2
+        // As ScanWindows, 8 windows at a time: the s-mers, and each window's k-mers and cores, are
+        // stored first; the last windows (fewer than 8) go one by one. Compiled for AVX2 whatever
+        // the build targets, and only called where the CPU has it.
+        __attribute__((target("avx2"))) void ScanWindowsAvx2(KmerList& list) {
+            FillSmers();
+            size_t const n = m_seq.length();
+            size_t const windows = n - m_k + 1;
+            m_cores_fwd.resize(windows);
+            m_cores_rev.resize(windows);
+            m_kmers_fwd.resize(windows);
+            m_kmers_rev.resize(windows);
+            uint64_t kf = 0, kr = 0;
+            for (size_t i = 0; i < n; i++) {
+                auto const c = static_cast<unsigned char>(m_seq[i]);
+                kf = ((kf << 2) | kForwardCode[c]) & m_mask;
+                kr = (kr >> 2) | (uint64_t{kReverseCode[c]} << (2 * (m_k - 1)));
+                if (i + 1 < m_k) continue;
+                size_t const p = i + 1 - m_k;
+                m_kmers_fwd[p] = kf;
+                m_kmers_rev[p] = kr;
+                m_cores_fwd[p] = static_cast<uint32_t>((kf >> m_mshift) & m_mmask);
+                m_cores_rev[p] = static_cast<uint32_t>((kr >> m_mshift) & m_mmask);
+            }
+
+            uint32_t const count = m_minimizer.SmerCount(), t = m_minimizer.T();
+            size_t const core = m_k - m_m - m_mshift / 2;
+            __m256i const t_first = _mm256_set1_epi32(static_cast<int>(t));
+            __m256i const t_last = _mm256_set1_epi32(static_cast<int>(count - 1 - t));
+            __m256i const index_bits = _mm256_set1_epi32(0xF);
+            size_t p = 0;
+            for (; p + 8 <= windows; p += 8) {
+                // Lane l is window p+l: its j-th forward s-mer is at m_smers_fwd[p + core + j + l].
+                __m256i fmin = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_smers_fwd[p + core]));
+                __m256i rmin = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_smers_rev[p + core + count - 1]));
                 for (uint32_t j = 1; j < count; j++) {
-                    fmin = std::min(fmin, fwd[j] | j);
-                    rmin = std::min(rmin, rev[count - 1 - j] | j);
+                    __m256i const index = _mm256_set1_epi32(static_cast<int>(j));
+                    __m256i const f = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_smers_fwd[p + core + j]));
+                    __m256i const r = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_smers_rev[p + core + count - 1 - j]));
+                    fmin = _mm256_min_epu32(fmin, _mm256_or_si256(f, index));
+                    rmin = _mm256_min_epu32(rmin, _mm256_or_si256(r, index));
                 }
-                bool const forward = core_f < core_r;
-                uint32_t const first = (forward ? fmin : rmin) & 0xF;
-                if (first == t || first == count - 1 - t) {
-                    m_total_minimizers++;
-                    list.emplace_back(KmerElement(forward ? kf : kr, p));
+                // Cores are below 2^30, so the signed comparison orders them.
+                __m256i const forward = _mm256_cmpgt_epi32(_mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_cores_rev[p])),
+                                                           _mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_cores_fwd[p])));
+                __m256i const first = _mm256_and_si256(_mm256_blendv_epi8(rmin, fmin, forward), index_bits);
+                __m256i const hit = _mm256_or_si256(_mm256_cmpeq_epi32(first, t_first), _mm256_cmpeq_epi32(first, t_last));
+                auto hits = static_cast<unsigned>(_mm256_movemask_ps(_mm256_castsi256_ps(hit)));
+                auto const forwards = static_cast<unsigned>(_mm256_movemask_ps(_mm256_castsi256_ps(forward)));
+                while (hits) {
+                    auto const lane = static_cast<unsigned>(__builtin_ctz(hits));
+                    list.emplace_back(KmerElement((forwards >> lane) & 1 ? m_kmers_fwd[p + lane] : m_kmers_rev[p + lane], p + lane));
+                    hits &= hits - 1;
                 }
             }
-            m_pos = static_cast<uint32_t>(n - m_k + 1);
+            for (; p < windows; p++) {
+                bool const forward = m_cores_fwd[p] < m_cores_rev[p];
+                uint32_t const first = FirstMinimum(&m_smers_fwd[p + core], &m_smers_rev[p + core], count, forward);
+                if (first == t || first == count - 1 - t) list.emplace_back(KmerElement(forward ? m_kmers_fwd[p] : m_kmers_rev[p], p));
+            }
+        }
+#endif
+
+        static bool CpuHasAvx2() {
+#ifdef PROTAL_SYNCMER_AVX2
+            return __builtin_cpu_supports("avx2");
+#else
+            return false;
+#endif
         }
 
     public:
@@ -306,15 +404,27 @@ namespace protal {
         SimpleKmerHandler(size_t k, size_t m, CFMinimizer& minimizer) :
                 m_k(k), m_m(m), m_mshift((k-m)), m_mmask((1llu << (m*2)) -1), m_mask((1llu << (k*2)) -1), m_minimizer(minimizer) {
             m_scan = ScanApplies();
+            m_avx2 = m_scan && CpuHasAvx2();
         }
         SimpleKmerHandler(SimpleKmerHandler const& other) :
                 m_k(other.m_k), m_m(other.m_m), m_mshift((other.m_k-other.m_m)), m_mmask((1llu << (other.m_m*2)) -1), m_mask((1llu << (other.m_k*2)) -1), m_minimizer(other.m_minimizer) {
             m_scan = ScanApplies();
+            m_avx2 = other.m_avx2;
         }
 
-        // Whether operator() scans whole sequences (ScanClosedSyncmers) rather than window by window.
+        // Whether operator() scans whole sequences (ScanClosedSyncmers) rather than window by window,
+        // and whether the scan evaluates windows with AVX2 (on by default where the CPU has it).
         bool Scans() const {
             return m_scan;
+        }
+
+        bool UsesAvx2() const {
+            return m_avx2;
+        }
+
+        // Switches the AVX2 evaluation off (or back on, where the CPU has it), e.g. to test both.
+        void UseAvx2(bool use) {
+            m_avx2 = use && m_scan && CpuHasAvx2();
         }
 
 

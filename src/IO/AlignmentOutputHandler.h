@@ -16,6 +16,7 @@
 #include "KmerLookup.h"
 #include "FastxReader.h"
 #include "SamHandler.h"
+#include "SamFile.h"
 #include "SNP.h"
 #include "AlignmentUtils.h"
 #include "SNPUtils.h"
@@ -296,34 +297,40 @@ namespace protal {
     template<bool DEBUG=false>
     class ProtalSingleOutputHandler {
     private:
-        std::ostream& m_sam_os;
+        SamSink& m_sink;
         BufferedStringOutput m_sam_output;
+        std::vector<uint64_t> m_genes;  // named by the buffered records (SamGeneKey)
         SamEntry m_sam;
 
         GenomeLoader& m_genomes;
 
         size_t m_max_out = 1;
         double m_min_cigar_ani = 0;
+
+        // Hands the buffered records and the genes they name to the sink (which serialises writers).
+        void Flush() {
+            m_sam_output.Drain([this](char const* data, size_t size) { m_sink.Write(data, size, m_genes); });
+            if (!m_genes.empty()) m_sink.Write(nullptr, 0, m_genes);
+        }
     public:
         size_t alignments = 0;
 
-        ProtalSingleOutputHandler(std::ostream& sam_os, size_t max_out, size_t varkit_buffer_capacity, size_t sam_buffer_capacity, GenomeLoader& genomes, double min_cigar_ani=0.0f) :
-                m_sam_os(sam_os),
+        ProtalSingleOutputHandler(SamSink& sink, size_t max_out, size_t varkit_buffer_capacity, size_t sam_buffer_capacity, GenomeLoader& genomes, double min_cigar_ani=0.0f) :
+                m_sink(sink),
                 m_sam_output(sam_buffer_capacity),
                 m_genomes(genomes),
                 m_max_out(max_out),
                 m_min_cigar_ani(min_cigar_ani) {}
 
         ProtalSingleOutputHandler(ProtalSingleOutputHandler const& other) :
-                m_sam_os(other.m_sam_os),
+                m_sink(other.m_sink),
                 m_sam_output(other.m_sam_output.Capacity()),
                 m_genomes(other.m_genomes),
                 m_max_out(other.m_max_out),
                 m_min_cigar_ani(other.m_min_cigar_ani) {}
 
         ~ProtalSingleOutputHandler() {
-#pragma omp critical(sam_output)
-            m_sam_output.Write(m_sam_os);
+            Flush();
         }
 
         // The score candidates are ranked and MAPQ is computed with, as for pairs (Bitscore).
@@ -384,7 +391,7 @@ namespace protal {
                 m_sam.m_mapq = first ? mapq : 0;
                 m_sam.m_tlen = 0;
 
-                auto const& reference = m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()).Sequence();
+                auto const reference = m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()).Sequence();
                 if (!ExtractSNPs(m_sam, reference, snps, ar.Taxid(), ar.GeneId(), 0)) {
 #pragma omp critical(err_out)
                     {
@@ -400,6 +407,7 @@ namespace protal {
                 alignments++;
                 if (!read_records.empty()) read_records += '\n';
                 read_records += m_sam.ToString();
+                m_genes.push_back(SamGeneKey(ar.Taxid(), ar.GeneId()));
                 if (++output_counter == m_max_out) break;
             }
 
@@ -407,8 +415,7 @@ namespace protal {
             // thread's records land between them: readers take adjacent records with one name as one
             // read's candidates.
             if (!read_records.empty() && !m_sam_output.Write(std::move(read_records))) {
-#pragma omp critical(sam_output)
-                m_sam_output.Write(m_sam_os);
+                Flush();
             }
         }
     };
@@ -420,9 +427,9 @@ namespace protal {
     template<bool DEBUG=false>
     class ProtalPairedOutputHandler {
     private:
-        std::ostream& m_sam_os;
-//        ogzstream& ogz;
+        SamSink& m_sink;
         BufferedStringOutput m_sam_output;
+        std::vector<uint64_t> m_genes;  // named by the buffered records (SamGeneKey)
         SamEntry m_sam1;
         SamEntry m_sam2;
 
@@ -432,26 +439,31 @@ namespace protal {
 
         size_t m_max_out = 1;
         double m_min_cigar_ani = 0;
+
+        // Hands the buffered records and the genes they name to the sink (which serialises writers).
+        void Flush() {
+            m_sam_output.Drain([this](char const* data, size_t size) { m_sink.Write(data, size, m_genes); });
+            if (!m_genes.empty()) m_sink.Write(nullptr, 0, m_genes);
+        }
     public:
         size_t alignments = 0;
 
-        ProtalPairedOutputHandler(std::ostream& sam_os, size_t max_out, size_t varkit_buffer_capacity, size_t sam_buffer_capacity, GenomeLoader& genomes, double min_cigar_ani=0.0f) :
-                m_sam_os(sam_os),
+        ProtalPairedOutputHandler(SamSink& sink, size_t max_out, size_t varkit_buffer_capacity, size_t sam_buffer_capacity, GenomeLoader& genomes, double min_cigar_ani=0.0f) :
+                m_sink(sink),
                 m_sam_output(sam_buffer_capacity),
                 m_min_cigar_ani(min_cigar_ani),
                 m_max_out(max_out),
                 m_genomes(genomes) {}
 
         ProtalPairedOutputHandler(ProtalPairedOutputHandler const& other) :
-                m_sam_os(other.m_sam_os),
+                m_sink(other.m_sink),
                 m_sam_output(other.m_sam_output.Capacity()),
                 m_min_cigar_ani(other.m_min_cigar_ani),
                 m_max_out(other.m_max_out),
                 m_genomes(other.m_genomes) {}
 
         ~ProtalPairedOutputHandler() {
-#pragma omp critical(sam_output)
-            m_sam_output.Write(m_sam_os);
+            Flush();
         }
 
 
@@ -518,9 +530,10 @@ namespace protal {
 
             alignments++;
             std::string records = m_sam1.ToString() + '\n' + m_sam2.ToString();
+            m_genes.push_back(SamGeneKey(ar1.Taxid(), ar1.GeneId()));
+            m_genes.push_back(SamGeneKey(ar2.Taxid(), ar2.GeneId()));
             if (!m_sam_output.Write(std::move(records))) {
-#pragma omp critical(sam_output)
-                m_sam_output.Write(m_sam_os);
+                Flush();
             }
             return true;
         }
@@ -653,7 +666,7 @@ namespace protal {
                         {
                             std::cerr << record1.to_string() << std::endl;
                             std::cerr << m_sam1.ToString() << std::endl;
-                            std::string const& reference = m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()).Sequence();
+                            auto const reference = m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()).Sequence();
                             PrintAlignment(m_sam1, reference, std::cerr);
                         }
                     }
@@ -662,7 +675,7 @@ namespace protal {
                         {
                             std::cerr << record2.to_string() << std::endl;
                             std::cerr << m_sam2.ToString() << std::endl;
-                            auto& reference = m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()).Sequence();
+                            auto const reference = m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()).Sequence();
                             PrintAlignment(m_sam2, reference, std::cerr);
                         }
                     }
@@ -676,6 +689,9 @@ namespace protal {
                 if (ar1.IsSet()) read_records += m_sam1.ToString();
                 if (both) read_records += '\n';
                 if (ar2.IsSet()) read_records += m_sam2.ToString();
+                // Both mates of a candidate are on one gene (RNEXT "="), or the other mate is unmapped.
+                if (ar1.IsSet()) m_genes.push_back(SamGeneKey(ar1.Taxid(), ar1.GeneId()));
+                if (ar2.IsSet()) m_genes.push_back(SamGeneKey(ar2.Taxid(), ar2.GeneId()));
                 if (++output_counter == m_max_out) {
                     break;
                 }
@@ -685,8 +701,7 @@ namespace protal {
             // thread's records land between them: readers pair a read1 record with the line that
             // follows, and take adjacent records with one name as one read's candidates.
             if (!read_records.empty() && !m_sam_output.Write(std::move(read_records))) {
-#pragma omp critical(sam_output)
-                m_sam_output.Write(m_sam_os);
+                Flush();
             }
         }
     };

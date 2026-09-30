@@ -6,6 +6,8 @@
 
 
 #include "Constants.h"
+#include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <string>
 #include "wfa2-lib/bindings/cpp/WFAligner.hpp"
@@ -18,6 +20,12 @@ namespace protal {
     // read the text, so in the returned operations 'I' is a read base missing from the reference and
     // 'D' a reference base missing from the read (as in SAM). WFA2's default wf-adaptive heuristic
     // stays on, as it was with the previously vendored v2.3.
+    //
+    // x_drop (--x_drop) adds WFA2's X-drop to wf-adaptive; 0 leaves it off. The two share WFA2's
+    // step counter, so X-drop prunes only at steps where wf-adaptive did not (short wavefronts).
+    // With protal's scores (a match costs 0), X-drop alone stops good long alignments (a 2 kb read
+    // at 2% divergence with 50); added to wf-adaptive, 50-1000 changed no 150 bp alignment in tests,
+    // and 200 or less gave an 8 kb one a worse score. The default, 1000, prunes nothing in practice.
     class WFA2Wrapper2 {
         WFAlignerGapAffine m_aligner;
 
@@ -34,6 +42,7 @@ namespace protal {
                 m_gap_opening(gap_opening),
                 m_gap_extension(gap_extension),
                 m_x_drop(x_drop) {
+            ApplyXDrop();
         }
 
         WFA2Wrapper2(const WFA2Wrapper2 &other) :
@@ -43,7 +52,12 @@ namespace protal {
                 m_gap_opening(other.m_gap_opening),
                 m_gap_extension(other.m_gap_extension),
                 m_x_drop(other.m_x_drop) {
+            ApplyXDrop();
         };
+
+        size_t XDrop() const {
+            return m_x_drop;
+        }
 
         // Per-base operations (M, X, I, D) of the last successful alignment.
         inline std::string Cigar() {
@@ -65,6 +79,11 @@ namespace protal {
                        int r_begin_free, int r_end_free, int max_score=INT32_MAX) {
             m_aligner.setMaxAlignmentSteps(max_score);
             m_status = m_aligner.alignEndsFree(ref, r_begin_free, r_end_free, query, q_begin_free, q_end_free);
+            // X-drop can report an alignment complete whose operations do not fit the read (151 read
+            // bases for 150, seen with --x_drop 50): count it as dropped, as WFA2 reports a drop otherwise.
+            if (m_x_drop > 0 && m_status == WFAligner::StatusAlgCompleted && !CoversText(query.size())) {
+                m_status = WFAligner::StatusAlgPartial;
+            }
         }
 
         int GetAlignmentScore() {
@@ -80,6 +99,22 @@ namespace protal {
             std::fprintf(stream, "%s (score %d)\n", m_aligner.getAlignment().c_str(), m_aligner.getAlignmentScore());
             m_aligner.printPretty(stream, ref.c_str(), static_cast<int>(ref.length()),
                                   query.c_str(), static_cast<int>(query.length()));
+        }
+
+    private:
+        // Every score step, as wf-adaptive (1 step between cut-offs: the steps are shared).
+        void ApplyXDrop() {
+            if (m_x_drop > 0) m_aligner.setHeuristicXDrop(static_cast<int>(std::min<size_t>(m_x_drop, INT32_MAX)), 1);
+        }
+
+        // Whether the last alignment consumed exactly text_length read bases (every operation but 'D').
+        bool CoversText(size_t text_length) {
+            char* operations = nullptr;
+            int length = 0;
+            m_aligner.getAlignment(&operations, &length);
+            size_t consumed = 0;
+            for (int i = 0; i < length; i++) consumed += operations[i] != 'D';
+            return consumed == text_length;
         }
     };
 }

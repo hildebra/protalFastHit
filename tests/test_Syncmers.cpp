@@ -1,6 +1,7 @@
 // Unit tests for the syncmer extraction of reads and genes (SimpleKmerHandler<ClosedSyncmer>): the
 // whole-sequence scan must give exactly the k-mers of the window-by-window definition, which the
-// index was built with, for both s-mer masks (index formats 1 and 2).
+// index was built with, for both s-mer masks (index formats 1 and 2), evaluating windows one by one
+// and, where the CPU has it, 8 at a time with AVX2.
 #include <gtest/gtest.h>
 #include <random>
 #include <string>
@@ -57,26 +58,41 @@ namespace {
 
 TEST(Syncmers, ScanGivesTheKmersOfTheDefinition) {
     auto const seqs = Sequences();
-    for (bool full_mask : { true, false }) {
-        ClosedSyncmer syncmer{kM, 7, 2, full_mask};
-        SimpleKmerHandler<ClosedSyncmer> handler{kK, kM, syncmer};
-        ASSERT_TRUE(handler.Scans());
-        SimpleKmerHandler<ClosedSyncmer> copy{handler};  // each thread works on a copy
-        ASSERT_TRUE(copy.Scans());
-        KmerList scanned, windows;
-        size_t total = 0;
-        for (auto const& seq : seqs) {
-            auto const expected = BruteForce(seq, syncmer);
-            copy(std::string_view(seq), scanned);
-            EXPECT_EQ(scanned, expected) << "full mask " << full_mask << ", sequence " << seq.substr(0, 60);
-            EXPECT_EQ(copy.TotalKmers(), seq.size() >= kK ? seq.size() - kK + 1 : 0);
-            EXPECT_EQ(copy.TotalMinimizers(), expected.size());
-            copy.WindowByWindow(std::string_view(seq), windows);
-            EXPECT_EQ(windows, expected);
-            total += expected.size();
+    for (bool avx2 : { false, true }) {
+        for (bool full_mask : { true, false }) {
+            ClosedSyncmer syncmer{kM, 7, 2, full_mask};
+            SimpleKmerHandler<ClosedSyncmer> handler{kK, kM, syncmer};
+            ASSERT_TRUE(handler.Scans());
+            handler.UseAvx2(avx2);
+            if (avx2 && !handler.UsesAvx2()) GTEST_SKIP() << "this CPU has no AVX2; the one-by-one evaluation passed";
+            SimpleKmerHandler<ClosedSyncmer> copy{handler};  // each thread works on a copy
+            ASSERT_TRUE(copy.Scans());
+            ASSERT_EQ(copy.UsesAvx2(), avx2);
+            KmerList scanned, windows;
+            size_t total = 0;
+            for (auto const& seq : seqs) {
+                auto const expected = BruteForce(seq, syncmer);
+                copy(std::string_view(seq), scanned);
+                EXPECT_EQ(scanned, expected) << "AVX2 " << avx2 << ", full mask " << full_mask << ", sequence " << seq.substr(0, 60);
+                EXPECT_EQ(copy.TotalKmers(), seq.size() >= kK ? seq.size() - kK + 1 : 0);
+                EXPECT_EQ(copy.TotalMinimizers(), expected.size());
+                copy.WindowByWindow(std::string_view(seq), windows);
+                EXPECT_EQ(windows, expected);
+                total += expected.size();
+            }
+            EXPECT_GT(total, 10000u);
         }
-        EXPECT_GT(total, 10000u);
     }
+}
+
+TEST(Syncmers, AVX2IsUsedWhereTheCpuHasIt) {
+    ClosedSyncmer syncmer{kM, 7, 2, true};
+    SimpleKmerHandler<ClosedSyncmer> handler{kK, kM, syncmer};
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+    EXPECT_EQ(handler.UsesAvx2(), static_cast<bool>(__builtin_cpu_supports("avx2")));
+#endif
+    handler.UseAvx2(false);
+    EXPECT_FALSE(handler.UsesAvx2());
 }
 
 TEST(Syncmers, ScanReusesItsBuffersAcrossLengths) {
@@ -85,6 +101,7 @@ TEST(Syncmers, ScanReusesItsBuffersAcrossLengths) {
     auto const seqs = Sequences();
     KmerList list;
     for (int round = 0; round < 2; round++) {  // long, short, long: buffers shrink and grow
+        handler.UseAvx2(round == 1);
         for (auto it = seqs.rbegin(); it != seqs.rend(); ++it) {
             handler(std::string_view(*it), list);
             EXPECT_EQ(list, BruteForce(*it, syncmer));

@@ -29,7 +29,7 @@ namespace protal::build {
     inline bool IndexedKmer(Seedmap& map, GenomeLoader& genomes, uint64_t taxid, uint64_t geneid, uint64_t genepos, uint64_t& key) {
         size_t const k = map.m_exact_k + map.m_flex_k;
         if (genepos < map.m_flex_k_half) return false;
-        auto const& sequence = genomes.GetGenome(taxid).GetGeneOMP(geneid).Sequence();
+        auto const sequence = genomes.GetGenome(taxid).GetGeneOMP(geneid).Sequence();
         size_t const start = genepos - map.m_flex_k_half;
         if (start + k > sequence.size()) return false;
         uint64_t fwd = 0, rev = 0;

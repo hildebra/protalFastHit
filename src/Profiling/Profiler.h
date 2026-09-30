@@ -19,6 +19,7 @@
 #include "SNPUtils.h"
 #include "ScoreAlignments.h"
 #include "gzstream/gzstream.h"
+#include "SamFile.h"
 #include "cPMML.h"
 #include "sparse_map.h"
 #include "Benchmark.h"
@@ -1828,22 +1829,25 @@ namespace protal {
                 }
             }
 
-            // Reads a SAM file (plain or gzipped) and hands each read's group of candidate alignments to
-            // `on_group`: adjacent records with one QNAME are one read's candidates, and a supplementary record
-            // (0x800) starts a group of its own, one part of a long read. Returns an error
-            // message if the file cannot be read, is truncated or was aligned against another database
+            // Reads a SAM file (plain, gzip or zstd; SamInput) and hands each read's group of candidate
+            // alignments to `on_group`: adjacent records with one QNAME are one read's candidates, and a
+            // supplementary record (0x800) starts a group of its own, one part of a long read. Returns an
+            // error message if the file cannot be read, is truncated or was aligned against another database
             // (CheckReference); a SAM without alignments is not an error.
             template<typename OnGroup>
             std::string ReadSamGroups(std::string const& file_path, OnGroup&& on_group) {
                 if (std::filesystem::exists(file_path) && std::filesystem::file_size(file_path) == 0) {
                     return "the file is empty (not even a SAM header)";
                 }
-                igzstream file{ file_path.c_str() };
-                if (!file.good()) return "cannot open the file";
+                SamInput input(file_path);
+                if (!input.IsOpen()) return "cannot open the file";
+                // A file cut at a block or frame boundary lacks its format's end marker.
+                if (!input.Problem().empty()) return "the file is truncated or corrupt (" + input.Problem() + ")";
+                std::istream& file = input.Stream();
                 SamReader reader(file, [this](std::string const& line) { CheckReference(line); });
-                // zlib reads a truncated or corrupt gzip file as one that ends early.
-                auto truncated = [&file]() {
-                    return "the file is truncated or corrupt (" + file.rdbuf()->read_error_message() + ")";
+                // The gzip readers and zstd read a truncated or corrupt file as one that ends early.
+                auto truncated = [&input]() {
+                    return "the file is truncated or corrupt (" + input.ReadError() + ")";
                 };
 
                 SamEntry sam1;
@@ -1866,10 +1870,10 @@ namespace protal {
                     }
                 } catch (SamFormatError const& e) {
                     // A truncated file's last line is cut short, too: the truncation is the cause.
-                    if (file.rdbuf()->read_failed()) return truncated();
+                    if (input.ReadFailed()) return truncated();
                     return e.what();
                 }
-                if (file.rdbuf()->read_failed()) return truncated();
+                if (input.ReadFailed()) return truncated();
                 if (!group.empty()) on_group(group);
 
                 for (auto const& [reason, count] : reader.Skipped()) {
@@ -1945,7 +1949,7 @@ namespace protal {
                     auto &gene = m_genome_loader.GetGenome(tid).GetGeneOMP(gid);
 
                     gene.LoadOMP();
-                    auto &ref = gene.Sequence();
+                    auto const ref = gene.Sequence();
 //                        std::cout << "Extract: " << any.m_qname << " ---> " <<  any.m_rname << std::endl;
 
                     PrintAlignment(any, ref);
@@ -1973,7 +1977,7 @@ namespace protal {
                         auto &[ tid, gid ] = ExtractTaxidGeneid(any.m_rname);
                         auto& gene = m_genome_loader.GetGenome(tid).GetGene(gid);
                         gene.LoadOMP();
-                        auto& ref = gene.Sequence();
+                        auto const ref = gene.Sequence();
 //                        std::cout << "Extract: " << any.m_qname << " ---> " <<  any.m_rname << std::endl;
 
                         PrintAlignment(any, ref);

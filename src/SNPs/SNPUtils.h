@@ -15,7 +15,7 @@ namespace protal {
     using VariantBin = std::vector<Variant>;
     using Variants = tsl::robin_map<uint32_t, VariantBin>;
 
-    static bool ExtractSNPs(SamEntry const& sam, std::string const& reference, SNPList &snps, int taxid, int geneid, int read_id = 0) {
+    static bool ExtractSNPs(SamEntry const& sam, std::string_view const reference, SNPList &snps, int taxid, int geneid, int read_id = 0) {
 //        snps.clear();
         int qpos = 0;
         int rpos = sam.m_pos - 1;
@@ -98,7 +98,7 @@ namespace protal {
     // Checks that every 'M' column of an alignment is a real match ('N' matches anything) and lies
     // inside both the read and the gene. This runs for every alignment, so the check itself takes
     // no lock; only the diagnostics printed when it fails (unless `silent`) are serialised.
-    static bool IsAlignmentValid(AlignmentInfo const& info, std::string const& query, std::string const& reference, int offset = 0, bool silent=false) {
+    static bool IsAlignmentValid(AlignmentInfo const& info, std::string const& query, std::string_view const reference, int offset = 0, bool silent=false) {
         int qpos = 0;
         int rpos = info.gene_alignment_start + offset;
 

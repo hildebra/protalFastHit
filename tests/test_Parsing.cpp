@@ -379,6 +379,39 @@ TEST(FromSam, ATruncatedGzipFileIsAnError) {
     EXPECT_NE(error.find("the file is truncated or corrupt"), std::string::npos) << error;
 }
 
+TEST(FromSam, ReadsTheCompressedSamsProtalWrites) {
+    TinyReference ref;
+    std::string const header = "@HD\tVN:1.6\n@SQ\tSN:1_1\tLN:50\n";
+    std::string records;
+    for (int i = 0; i < 20000; i++) records += Record("r" + std::to_string(i), 0, "1_1", "20M", ref.gene.substr(i % 30, 20), "\tZU:i:1", 1 + i % 30);
+    for (auto const& name : { "sample.sam.gz", "sample.sam.zst" }) {
+        SCOPED_TRACE(name);
+        auto const path = (ref.dir.path / name).string();
+        {
+            SamOutput out(path, SamCompressionOf(path));
+            std::vector<uint64_t> genes = { SamGeneKey(1, 1) };
+            out.Write(records.data(), records.size(), genes);
+            ASSERT_TRUE(out.Finish(header)) << out.Error();
+        }
+        profiler::Profiler profiler(*ref.loader);
+        EXPECT_EQ(profiler.FromSam(path), "");
+        EXPECT_EQ(profiler.m_pairs_unique.size(), 20000u);
+
+        // Cut after its last block or frame, the file still decompresses, but without its end
+        // marker (BGZF's end-of-file block, the seek table): an error, not a sample with fewer reads.
+        uint64_t cut = fs::file_size(path) - 28;
+        if (SamCompressionOf(path) == SamCompression::Zstd) {
+            std::string error;
+            auto const table = zstd::ReadSeekTable(path, error);
+            ASSERT_TRUE(table.has_value()) << error;
+            cut = table->frames.back().compressed_offset + table->frames.back().compressed_size;
+        }
+        fs::resize_file(path, cut);
+        auto const error = profiler.FromSam(path);
+        EXPECT_NE(error.find("the file is truncated or corrupt"), std::string::npos) << error;
+    }
+}
+
 TEST(Options, ReadTypesOfSamples) {
     ScratchDir dir;
     // From the read files: no second file means single-end reads.

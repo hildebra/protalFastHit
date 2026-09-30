@@ -3,7 +3,7 @@
 `simulate_metagenomes` draws mock communities from a table of genomes and simulates paired-end
 Illumina reads for them with [ART](https://www.niehs.nih.gov/research/resources/software/biostatistics/art)
 (`art_illumina`). It is used to test protal, to benchmark it, and to generate the training data of
-the presence model ([model-training.md](model-training.md)). It needs `art_illumina` and `pigz`.
+the presence model ([model-training.md](model-training.md)). It needs `art_illumina`.
 
 Build it with the other binaries ([installation.md](installation.md)):
 
@@ -36,7 +36,7 @@ database have one in `simulation/genomes.tsv`.
 ```
 
 Reads are simulated per genome, concatenated per sample into `reads/<sample>_R1.fq.gz` and
-`reads/<sample>_R2.fq.gz` (compressed with `pigz`), and the composition is recorded:
+`reads/<sample>_R2.fq.gz` (BGZF, compressed in process with `-t` threads), and the composition is recorded:
 
 | Output | |
 |---|---|
@@ -71,8 +71,8 @@ negatives per sample and writes `<profile>.truth_annotated`.
 | `--read_length`, `--fragment_mean`, `--fragment_stdev` | 150, 350, 50 | ART read and fragment sizes |
 | `--sequencer` | `HS25` | ART error profile |
 | `--extra_art_args` | | passed to ART, e.g. `"--qprof1 q1 --qprof2 q2"` |
-| `--art_path`, `--pigz_path` | on `$PATH` | |
-| `-t, --threads` | 1 | threads for ART and pigz |
+| `--art_path` | on `$PATH` | (`--pigz_path` is accepted and ignored: the reads are compressed in process) |
+| `-t, --threads` | 1 | threads for ART and for compressing the reads |
 | `--test` | off | write the design, manifests and truth, but no reads |
 | `--keep_tmp` | off | keep the reads of each genome |
 

@@ -126,6 +126,20 @@ public:
         }
     }
 
+    // Hands the buffered bytes, then a parked line, to write(data, size) and empties the buffer.
+    // Each call gets whole lines as they were added.
+    template<typename WriteFn>
+    inline void Drain(WriteFn&& write) {
+        if (m_buffer_size != 0) {
+            write(static_cast<char const*>(m_buffer), m_buffer_size);
+            m_buffer_size = 0;
+        }
+        if (!m_line_buffer.empty()) {
+            write(m_line_buffer.data(), m_line_buffer.size());
+            m_line_buffer.clear();
+        }
+    }
+
     inline bool Write(std::string& line) {
         if (m_buffer_size + line.length() > m_buffer_capacity) {
             m_line_buffer = line;

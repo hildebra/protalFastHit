@@ -1,0 +1,21 @@
+# Reviewer report: database container and compression (round 5, strain-fixes @ 39a8585)
+
+Saved from the reviewer's hand-back; also at WSL ~/audit6/database/findings.md; scripts in
+../scripts/database/. WSL crashed once mid-audit (load ~13 from other builds); all experiments completed.
+
+| id | sev | file:line | finding | evidence |
+|---|---|---|---|---|
+| M1 | Medium | Zstd.h ~829 ReadFrame, ~730-735 ParallelReadFrames | seek table's 32-bit decompressed_size sizes the output buffer before validation; protal's own frames store the content size, so the ZSTD_getFrameContentSize guard catches a forged size; a frame with content size omitted (legal zstd, e.g. cat f / zstd, pzstd) skips the guard and the code resizes to the claimed size (up to ~4 GB each, per worker); only compressed sizes are cross-checked against the file length. DoS/OOM on crafted files; honest corruption of protal's own files is safe | harness calling zstd::ReadFrame under ulimit -v 1200000: size stored -> "holds 6370 bytes, the seek table says 4294967280", no alloc; ZSTD_c_contentSizeFlag=0 -> content size UNKNOWN -> std::bad_alloc |
+| M2 | Medium | Database.h ~291-294 Locate; Options.h ~1604-1628 | a partial/aborted --unpack_db (or any stray index.prx[.zst]) next to a valid database.protal makes Locate choose separate files and silently ignore the bundle; errors never mention the bundle (the unused_bundle hint only under --build); --unpack_db writes the index member first, so a crash after that rename gives exactly this state | folder {index.prx.zst, database.protal} -> exit 30, "Sequence file does not exist ... reference.fna", reference.map, taxonomy, model, unique_kmers, no mention of the bundle |
+| L1 | Low | Build.h AddModel ~444-462 | folder-mode --add_model writes only the separate model and leaves a co-located database.protal stale, no warning; deleting the separate files later reactivates the stale bundle without the model (--build --no_bundle calls RemoveStaleBundle) | bundle md5 unchanged; folder gains model_se.xml; bundle has no model_se member |
+| L2 | Low | Options.h ~1633 | --add_model skips the --compress_level/_window_log/_frame_mb range checks (--build rejects --compress_level 99, --add_model accepts it) | --add_model --compress_level 99 -> exit 0; --compress_frame_mb 0 -> exit 8 (database unchanged) |
+| L3 | Low | Zstd.h CompressFramesTo ~1144-1160, WriteSeekable ~1048 | peak compression memory ~ threads x frame size; --compress_frame_mb 4095 -t 16 ~ 100+ GB | code review |
+| L4 | Low | Zstd.h ~793 ParallelRead raw path | file_size(path, ec) without checking ec; total = SIZE_MAX drives the chunk loop (reads then fail) | code review |
+| L5 | Low | Zstd.h CompressFile verify ~1279-1298 | verify of CompressReference / --compress_db --no_bundle decompresses and compares the whole reference.fna single-threaded (serial tail at GTDB scale) | code review |
+| L6 | Low | Options.h ModelDbFile ~762-765 | --model NAME resolves an existing working-directory path before the DB member of that name (documented precedence) | code review |
+
+No High findings.
+
+Verified to hold: --compress_db twice gives byte-identical database.protal; --decompress_db reproduces every member exactly; all writers use .partial + verify + rename, leftover .partial ignored, failure leaves the database unchanged; forged member names (../escapee.map, /tmp/escapee.map) rejected by IsFileName; duplicate / non-tiling / non-covering members, bad version, directory > 16 MB rejected (exit 30, clear messages); 1-byte flip -> exit 8 checksum; seek table cut -> exit 30; mid-frame corruption -> exit 8; a random file or a plain .zst as --db -> exit 30; DecodeChunk under ASan/UBSan: ~4.2 M mutated/truncated chunks, 3,589,241 decoded, 623,295 errors, no crash; 33/33 unit tests (Database, Zstd, ZstdSeekable, IndexCodec); --add_model bundle mode adds the member via .partial + verify (transient ~2x bundle size on disk). docs/database-files.md accurate for the tested workflows; gaps: L1, M2.
+
+Suggested fixes: M1 cap or reject frames without stored content size before allocating; M2 name the bundle in the errors when unused_bundle is set; L1 RemoveStaleBundle or warn in folder --add_model; L2 apply the compression range checks to --add_model.

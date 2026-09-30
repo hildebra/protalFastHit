@@ -2,6 +2,8 @@
 #pragma once
 
 #include <sstream>
+#include <string>
+#include <string_view>
 
 enum FileFormat {
     FORMAT_AUTO_DETECT,
@@ -56,8 +58,16 @@ private:
     bool strip_space_ = true;
     size_t last_block_size_ = 0;
 
+    // FASTQ batches (LoadBatch): whole lines, each ending in '\n', parsed from batch_pos_ on by
+    // NextFastq outside the reader lock. FASTA goes through str_stream_.
+    std::string batch_;
+    size_t batch_pos_ = 0;
+    bool batch_mode_ = false;
+
     bool m_error = false;
 
+    bool NextBatchLine(std::string_view &line);
+    bool NextFastq(FastxRecord &record);
 
 public:
     BufferedFastxReader();
