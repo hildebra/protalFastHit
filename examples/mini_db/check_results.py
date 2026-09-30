@@ -19,9 +19,25 @@ Usage:
 
 import argparse
 import gzip
+import io
 import os
+import subprocess
 import sys
 from collections import Counter, defaultdict
+
+
+def open_text(path):
+    """A plain, gzip (.gz) or zstd (.zst) file for reading as text."""
+    if path.endswith(".gz"):
+        return gzip.open(path, "rt")
+    if path.endswith(".zst"):
+        try:
+            from compression import zstd  # Python 3.14+
+            return zstd.open(path, "rt")
+        except ImportError:
+            out = subprocess.run(["zstd", "-dcq", path], check=True, stdout=subprocess.PIPE, text=True).stdout
+            return io.StringIO(out)
+    return open(path)
 
 
 def read_truth(path):
@@ -52,9 +68,8 @@ def read_profile(path):
 
 def read_sam(path, taxid_name):
     """-> {source accession: Counter(assigned species)} over primary, mapped records."""
-    opener = gzip.open if path.endswith(".gz") else open
     assigned = defaultdict(Counter)
-    with opener(path, "rt") as fh:
+    with open_text(path) as fh:
         for line in fh:
             if line.startswith("@"):
                 continue
@@ -71,7 +86,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--truth", required=True, help="<reads>.truth.tsv from simulate_reads.py")
     ap.add_argument("--profile", required=True, help="protal .profile")
-    ap.add_argument("--sam", required=True, help="protal .sam (or .sam.gz)")
+    ap.add_argument("--sam", required=True, help="protal .sam (or .sam.zst, .sam.gz: the name without the ending finds them)")
     ap.add_argument("--taxonomy", required=True, help="internal_taxonomy.dmp of the DB")
     ap.add_argument("--out", help="write the result table here")
     ap.add_argument("--max_abundance_error", type=float, default=0.05)
@@ -79,7 +94,7 @@ def main():
     ap.add_argument("--min_aligned_fraction", type=float, default=0.2)
     args = ap.parse_args()
 
-    sam = args.sam if os.path.exists(args.sam) or not os.path.exists(args.sam + ".gz") else args.sam + ".gz"
+    sam = next((p for p in (args.sam, args.sam + ".zst", args.sam + ".gz") if os.path.exists(p)), args.sam)
     truth = read_truth(args.truth)
     profile = read_profile(args.profile)
     assigned = read_sam(sam, read_taxonomy(args.taxonomy))

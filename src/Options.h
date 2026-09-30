@@ -74,7 +74,8 @@ namespace protal {
                 
                 ("map", "For larger datasets you can define parameters -1, -2, --prefix and -o in a tsv-file.", cxxopts::value<std::string>()->default_value(""))
                 ("map_range", "If you specified a map file with --map you can also pass a range to protal to run protal only on a subset. The first entry is 1, the end is inclusive. e.g.: 1-10. If the end open or larger than the number of entries in the map file, the last entry in the map file is selected as end.", cxxopts::value<std::string>()->default_value(""))
-                ("profile_only", "Comma separated list of existing sam files to profile without re-running the alignment. Read files given via -1/-2 are ignored. Output prefixes are either given via --prefix (one per sam file) or derived from the sam file names; the outputs then go to -o if it is given, else next to each sam file.", cxxopts::value<std::string>()->default_value(""));
+                ("profile_only", "Comma separated list of existing sam files to profile without re-running the alignment. Read files given via -1/-2 are ignored. Output prefixes are either given via --prefix (one per sam file) or derived from the sam file names; the outputs then go to -o if it is given, else next to each sam file.", cxxopts::value<std::string>()->default_value(""))
+                ("sam_format", "Format of the SAM files that protal names (with -1/-2, or a map without a SAM column): zst (zstd-compressed, <prefix>.sam.zst), gz (gzip, .sam.gz) or sam (plain). A map's SAM names keep their own ending.", cxxopts::value<std::string>()->default_value("zst"));
 
         // Alignment / algorithm options
         options.add_options("Alignment")
@@ -1128,12 +1129,22 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             return true;
         }
 
-        static bool LoadFromMap(std::string map_path, std::string& output_dir, std::string& strain_output_dir, std::string& misc_output_dir, 
-                                std::vector<std::string>& prefix_list, 
+        // The ending of the SAM files protal names, by --sam_format (zst, gz, sam); empty if unknown.
+        static std::string SamEnding(std::string const& format) {
+            if (format == "zst") return ".sam.zst";
+            if (format == "gz") return ".sam.gz";
+            if (format == "sam") return ".sam";
+            return "";
+        }
+        static inline const std::string kDefaultSamEnding = ".sam.zst";
+
+        // sam_ending: of the SAM names given to samples without a SAM column (<prefix><sam_ending>).
+        static bool LoadFromMap(std::string map_path, std::string& output_dir, std::string& strain_output_dir, std::string& misc_output_dir,
+                                std::vector<std::string>& prefix_list,
                                 std::vector<std::string>& first_list, std::vector<std::string>& second_list,
                                 std::vector<std::string>& sam_list, std::vector<std::string>& profile_list,
                                 std::vector<std::string>& samplenames_list, std::vector<std::string>& profile_truth_list,
-                                std::vector<std::string>& read_type_list) {
+                                std::vector<std::string>& read_type_list, std::string const& sam_ending = kDefaultSamEnding) {
             using namespace std::filesystem;
 
             if (!std::filesystem::exists(map_path)) {
@@ -1398,7 +1409,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     std::cout << "column PREFIX must be specified if column SAM is not specified." << std::endl;
                 }
                 for (auto prefix : prefix_list) {
-                    sam_list.emplace_back(prefix + ".sam");
+                    sam_list.emplace_back(prefix + sam_ending);
                 }
             }
 
@@ -1917,6 +1928,12 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             auto sam_in = result.count("profile_only") ? result["profile_only"].as<std::string>() : "";
             auto universal_prefix = result.count("prefix") ? result["prefix"].as<std::string>() : "";
             auto output_dir = result.count("outdir") ? result["outdir"].as<std::string>() : "";
+            std::string const sam_format = result["sam_format"].as<std::string>();
+            std::string const sam_ending = SamEnding(sam_format);
+            if (sam_ending.empty()) {
+                std::cerr << "Error: --sam_format must be zst, gz or sam, not '" << sam_format << "'" << std::endl;
+                exit(2);
+            }
 
             auto range_arg = result.count("map_range") ? result["map_range"].as<std::string>() : "";
             std::vector<size_t> range;
@@ -1979,7 +1996,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     std::cerr << "Map file " << map_file << " does not exist." << std::endl;
                     exit(9);
                 }
-                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list)) {
+                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list, sam_ending)) {
                     std::cerr << "Failed to read map file " << map_file << " (see --map_help)." << std::endl;
                     exit(9);
                 }
@@ -2107,7 +2124,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
 
                 if (sam_list.empty()) {
                     for (auto i = 0; i < prefix_list.size(); i++) {
-                        std::filesystem::path sam { prefix_list[i] + ".sam" };
+                        std::filesystem::path sam { prefix_list[i] + sam_ending };
 
                         // If absolute, just push it directly
                         if (sam.is_absolute()) {

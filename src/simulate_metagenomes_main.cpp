@@ -115,7 +115,7 @@ static void write_protal_metafile(
         auto second = sample.read2_path.filename().string();
         auto prefix = derive_prefix_from_r1(sample.read1_path);
         fs::path truth_abs = to_abs(profile_truth_paths[i]);
-        out << sample.sample_name << '\t' << first << '\t' << second << '\t' << prefix << ".sam.gz"
+        out << sample.sample_name << '\t' << first << '\t' << second << '\t' << prefix << ".sam.zst"
             << '\t' << prefix << '\t' << prefix << ".profile" << '\t' << truth_abs.string() << '\n';
     }
 }

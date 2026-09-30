@@ -9,7 +9,7 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 
 | Output | `-1 -2 --prefix P -o DIR` | `--map` |
 |---|---|---|
-| alignments | `DIR/P.sam` | `#SAM_OUTPUT_DIR/<SAM>`, default `#OUTPUT_DIR/alignments/` |
+| alignments | `DIR/P.sam.zst` | `#SAM_OUTPUT_DIR/<SAM>`, default `#OUTPUT_DIR/alignments/` (without a `SAM` column `<PREFIX>.sam.zst`) |
 | profile and its logs | `DIR/P.profile`, `DIR/P.profile.log`, ... | `#PROFILE_OUTPUT_DIR/<PROFILE>`, default `#OUTPUT_DIR/profiles/` |
 | strain MSAs and tables | `DIR/strains/` | `#STRAIN_OUTPUT_DIR`, default `#OUTPUT_DIR/strains/` |
 | coverage, SNP counts, statistics | `DIR/misc/` | `#MISC_OUTPUT_DIR`, default `#OUTPUT_DIR/misc/` |
@@ -21,15 +21,17 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 - In a map, `#SAMPLEID` (the first column) is the sample name in MSA rows, logs and statistics.
   Every row needs a value in every column the header declares, columns are separated by tabs,
   and no two samples may share a SAM or profile file; protal checks all of this before it starts.
-- The SAM's name chooses its format: `.sam.zst` (e.g. `S1.sam.zst` in the map's `SAM` column) is
-  compressed with zstd, `.sam.gz` with gzip, any other name stays plain SAM. The alignment threads
-  compress as they write, so no tool is needed. zstd is the faster choice: for 1M pairs of a
-  marker-rich sample at 8 threads, aligning and writing `.sam.zst` took 22–38% less time than
-  `.sam.gz`, for a 12% smaller file, and profiling reads it faster; `zstdcat S1.sam.zst` or
-  `zstd -dc` decompresses it (samtools does not read zstd). A `.sam.gz` is BGZF (gzip blocks of
-  64 KB, as `bgzip` writes), which `zcat`, `gzip -d` and samtools read. `protal_map_utils generate`
-  (and `merge --use-sampleid`) and `simulate_metagenomes --protal_metafile` write `.sam.gz` names;
-  `protal_map_utils` with `--zstd` writes `.sam.zst` names.
+- The SAM is an intermediate file, and is zstd-compressed by default: names protal picks end in
+  `.sam.zst` (`--sam_format gz` gives `.sam.gz`, `--sam_format sam` plain `.sam`). In a map, the
+  `SAM` column's name chooses the format: `.sam.zst` zstd, `.sam.gz` gzip, any other name plain SAM.
+  The alignment threads compress as they write, so no tool is needed. zstd is the faster choice:
+  for 1M pairs of a marker-rich sample at 8 threads, aligning and writing `.sam.zst` took 22–38%
+  less time than `.sam.gz`, for a 12% smaller file, and profiling reads it faster;
+  `zstdcat S1.sam.zst` or `zstd -dc` decompresses it (samtools does not read zstd). A `.sam.gz` is
+  BGZF (gzip blocks of 64 KB, as `bgzip` writes), which `zcat`, `gzip -d` and samtools read.
+  `protal_map_utils generate` (and `merge --use-sampleid`) and `simulate_metagenomes
+  --protal_metafile` write `.sam.zst` names; `protal_map_utils --gzip` writes `.sam.gz`, `--nogzip`
+  `.sam`. A rerun also takes a plain `P.sam` from an earlier run as the SAM of `P.sam.zst`.
 - The SAM header (`@SQ`) lists the genes that the alignments name, not every gene of the database
   (the full r226 database has millions); `--full_sam_header` lists every gene, as protal did before.
 - `<sam>.err` lists the reads whose alignment does not fit the database (a gene it lacks, a
@@ -96,6 +98,7 @@ alignment. Workflow managers can rely on a non-zero status.
 | `--depth_identity_margin` | 0.04 | a read counts towards a species' abundance only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth. 1 lets every read count |
 | `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [model-training.md](model-training.md) |
 | `--model_se` | `--model`, else `model_se.xml` of the database | the model of single-end samples, given as `--model` |
+| `--sam_format` | `zst` | the format of the SAM files protal names: `zst` (`.sam.zst`), `gz` (`.sam.gz`) or `sam`; a map's `SAM` names keep their own ending |
 | `--no_strains` | off | no MSAs or SNP tables. Variants are still called, since the model uses them, so profiles are the same with and without it |
 | `--msa_min_hcov` | 1000 | minimum non-N, non-gap bases for a sample's sequence to stay in an MSA; passed to qcmsa as `--reapply-hcov` |
 | `--snp_max_alleles` | 3 | alleles encoded as an IUPAC ambiguity code in the MSA: 1 = only the top allele, 2 = two-allele mixtures (R, Y, ...), 3 = also three-allele mixtures (B, H, ...) |

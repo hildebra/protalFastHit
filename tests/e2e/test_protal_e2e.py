@@ -20,6 +20,7 @@ SIMULATE        simulate_metagenomes binary (default: build/simulate_metagenomes
 import filecmp
 import glob
 import gzip
+import io
 import os
 import random
 import re
@@ -74,6 +75,8 @@ def setUpModule():
         raise unittest.SkipTest("set PROTAL_TEST_DB to a protal database (just mini-db builds data/mini_db/protal_db)")
     if db_file("reference.fna").endswith(".zst") and not shutil.which("zstd"):
         raise unittest.SkipTest("the zstd CLI is needed to read reference.fna.zst")
+    if not shutil.which("zstd") and sys.version_info < (3, 14):
+        raise unittest.SkipTest("the zstd CLI (or Python 3.14) is needed to read protal's default .sam.zst files")
     READS = tempfile.mkdtemp(prefix="protal_e2e_reads_")
     simulate_reads("sa", pairs_per_gene=12, seed=1)
     simulate_reads("sb", pairs_per_gene=12, seed=2)
@@ -168,9 +171,40 @@ def single_reads(*prefixes):
     return ["-1", ",".join(os.path.join(READS, f"{p}_R1.fq") for p in prefixes), "--prefix", ",".join(prefixes)]
 
 
-def sam_records(path):
+def sam_path(path):
+    """The SAM protal wrote as `path` (a name ending in .sam), in whichever format: path, or path with
+    .zst (the default for names protal picks) or .gz appended."""
+    return next((p for p in (path, path + ".zst", path + ".gz") if os.path.exists(p)), path)
+
+
+def find_sams(pattern):
+    """glob for SAMs in any format: pattern (ending in .sam), and with .zst or .gz appended."""
+    return sorted(glob.glob(pattern) + glob.glob(pattern + ".zst") + glob.glob(pattern + ".gz"))
+
+
+def sam_text(path):
+    """The text of a SAM (plain, .gz or .zst; see sam_path)."""
+    path = sam_path(path)
+    if path.endswith(".gz"):
+        with gzip.open(path, "rt") as fh:
+            return fh.read()
+    if path.endswith(".zst"):
+        try:
+            from compression import zstd  # Python 3.14+
+            with zstd.open(path, "rt") as fh:
+                return fh.read()
+        except ImportError:
+            return subprocess.run(["zstd", "-dcq", path], check=True, stdout=subprocess.PIPE, text=True).stdout
     with open(path) as fh:
-        return [line.rstrip("\n").split("\t") for line in fh if not line.startswith("@")]
+        return fh.read()
+
+
+def open_sam(path):
+    return io.StringIO(sam_text(path))
+
+
+def sam_records(path):
+    return [line.split("\t") for line in sam_text(path).splitlines() if not line.startswith("@")]
 
 
 class WorkDir(unittest.TestCase):
@@ -201,7 +235,8 @@ class CompleteRunTest(WorkDir):
         self.assertEqual(self.rc, 0, self.log[-3000:])
 
     def test_outputs(self):
-        self.assertTrue(glob.glob(self.path("out", "sa*.sam")))
+        self.assertTrue(os.path.isfile(self.path("out", "sa.sam.zst")), "SAMs protal names are zstd-compressed")
+        self.assertTrue(find_sams(self.path("out", "sa*.sam")))
         self.assertTrue(glob.glob(self.path("out", "sa*.profile")))
         self.assertEqual(glob.glob(self.path("out", "**", "*.partial"), recursive=True), [], "no .partial SAM left")
         # strains/ and misc/ were never created in -1/-2/-o mode
@@ -210,14 +245,14 @@ class CompleteRunTest(WorkDir):
         self.assertTrue(glob.glob(self.path("out", "strains", "*.raw.msa.fna")))
 
     def test_read_names_and_pairs(self):
-        records = sam_records(glob.glob(self.path("out", "sa*.sam"))[0])
+        records = sam_records(find_sams(self.path("out", "sa*.sam"))[0])
         self.assertTrue(records)
         bad = [r[0] for r in records if not (r[0].startswith("sa.") and r[0][3:].isdigit())]
         self.assertEqual(bad[:5], [], "QNAME is the read id without its /1 /2 suffix, nothing more")
         self.assertTrue(any(int(r[1]) & 0x2 for r in records), "proper pairs are flagged")
 
     def test_read1_only_pairs_are_written(self):
-        records = [r for r in sam_records(glob.glob(self.path("out", "sr*.sam"))[0]) if not int(r[1]) & 0x100]
+        records = [r for r in sam_records(find_sams(self.path("out", "sr*.sam"))[0]) if not int(r[1]) & 0x100]
         read1_only = [r for r in records if int(r[1]) & 0x40 and int(r[1]) & 0x8]
         with open(os.path.join(READS, "sr_R1.fq")) as fh:
             total = sum(1 for _ in fh) // 4
@@ -337,7 +372,7 @@ class MateAssignmentTest(WorkDir):
         rc, log = run(self.work, "--db", DB, "-1", self.path(f"{name}_R1.fq"), "-2", self.path(f"{name}_R2.fq"),
                       "--prefix", name, "-o", "out", "-t", "2", "--no_qcmsa", "--no_strains")
         self.assertEqual(rc, 0, log[-3000:])
-        records = sam_records(glob.glob(self.path("out", f"{name}*.sam"))[0])
+        records = sam_records(find_sams(self.path("out", f"{name}*.sam"))[0])
         return [r for r in records if not int(r[1]) & 0x100]
 
     def test_pairs_where_only_mate2_aligns(self):
@@ -609,7 +644,7 @@ class MapUtilsTest(WorkDir):
         self.assertEqual({row["SAM"] for row in rows}, {"sa.sam", "sb.sam"})  # as the maps name them
 
         # With --use-sampleid merge names the SAMs itself; the ending chooses protal's output format.
-        for option, ending in ((None, ".sam.gz"), ("--nogzip", ".sam"), ("--zstd", ".sam.zst")):
+        for option, ending in ((None, ".sam.zst"), ("--zstd", ".sam.zst"), ("--gzip", ".sam.gz"), ("--nogzip", ".sam")):
             rc, merged = run(self.work, "merge", "--map", maps["sa"], maps["sb"], "--use-sampleid",
                              *([option] if option else []), binary=tool)
             self.assertEqual(rc, 0, merged)
@@ -659,7 +694,7 @@ class RerunTest(WorkDir):
         args = ["--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "4", "--no_qcmsa"]
         rc, log = run(self.work, *args)
         self.assertEqual(rc, 0, log[-3000:])
-        sam = glob.glob(self.path("out", "sa*.sam"))[0]
+        sam = find_sams(self.path("out", "sa*.sam"))[0]
         sam_mtime = os.path.getmtime(sam)
         time.sleep(1)
 
@@ -771,7 +806,7 @@ class CompressedDatabaseTest(WorkDir):
         """Sorted SAM records and profile of sample sa on db."""
         rc, log = run(self.work, "--db", db, *reads("sa"), "-o", out, "-t", str(threads), "--no_qcmsa", *extra)
         self.assertEqual(rc, 0, log[-3000:])
-        with open(glob.glob(self.path(out, "sa*.sam"))[0]) as sam, open(glob.glob(self.path(out, "sa*.profile"))[0]) as prof:
+        with open_sam(find_sams(self.path(out, "sa*.sam"))[0]) as sam, open(glob.glob(self.path(out, "sa*.profile"))[0]) as prof:
             return sorted(line for line in sam if not line.startswith("@")), prof.read(), log
 
     def test_decompress_db(self):
@@ -918,7 +953,7 @@ class CompressedDatabaseTest(WorkDir):
         self.assertIn(f"separate files in {db}", proc.stdout)
         self.assertNotIn("Preload genomes took", proc.stdout)
         expected = self.result(self.dbs["raw"], "out_lazy_expected", 2)
-        with open(glob.glob(self.path("out_lazy_file", "sa*.sam"))[0]) as sam:
+        with open_sam(find_sams(self.path("out_lazy_file", "sa*.sam"))[0]) as sam:
             self.assertEqual(sorted(line for line in sam if not line.startswith("@")), expected[0])
         with open(glob.glob(self.path("out_lazy_file", "sa*.profile"))[0]) as prof:
             self.assertEqual(prof.read(), expected[1])
@@ -940,7 +975,7 @@ class ReadTypeModelTest(WorkDir):
         cls.pe_rc, cls.pe_log = run(cls.work, "--db", cls.db, *reads("sa"), "-o", "out_pe", "-t", "2", "--no_qcmsa")
 
     def profile_only(self, out, *extra):
-        sam = glob.glob(self.path("out_pe", "sa*.sam"))[0]
+        sam = find_sams(self.path("out_pe", "sa*.sam"))[0]
         return run(self.work, "--db", self.db, "--profile_only", sam, "--prefix", "sa", "-o", out, "-t", "2",
                    "--no_qcmsa", *extra)
 
@@ -1159,8 +1194,8 @@ class SamInputTest(WorkDir):
         super().setUpClass()
         rc, log = run(cls.work, "--db", DB, *reads("sa"), "-o", "out", "-t", "2", "--no_qcmsa")
         assert rc == 0, log[-3000:]
-        cls.sam = glob.glob(os.path.join(cls.work, "out", "sa*.sam"))[0]
-        with open(cls.sam) as fh:
+        cls.sam = find_sams(os.path.join(cls.work, "out", "sa*.sam"))[0]
+        with open_sam(cls.sam) as fh:
             lines = fh.read().splitlines()
         cls.header = [line for line in lines if line.startswith("@")]
         cls.records = [line for line in lines if not line.startswith("@")]
@@ -1319,11 +1354,22 @@ class CompressedSamOutputTest(WorkDir):
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("All alignments are present", log)
 
+    def test_sam_format_names_the_sams_protal_picks(self):
+        # CompleteRunTest's -1/-2 run shows the default, .sam.zst; --sam_format picks another.
+        for fmt, name in (("gz", "sa.sam.gz"), ("sam", "sa.sam")):
+            rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", f"out_{fmt}", "-t", "1", "--no_qcmsa", "--no_profile",
+                          "--sam_format", fmt)
+            self.assertEqual(rc, 0, log[-3000:])
+            self.assertEqual(os.listdir(self.path(f"out_{fmt}")).count(name), 1, os.listdir(self.path(f"out_{fmt}")))
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out_bad", "--sam_format", "bam")
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("--sam_format must be zst, gz or sam", log)
+
     def test_full_sam_header_lists_every_gene(self):
         rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "out_full", "-t", "1", "--no_qcmsa", "--no_profile",
                       "--full_sam_header")
         self.assertEqual(rc, 0, log[-3000:])
-        with open(glob.glob(self.path("out_full", "sa*.sam"))[0]) as fh:
+        with open_sam(find_sams(self.path("out_full", "sa*.sam"))[0]) as fh:
             full = [line for line in fh if line.startswith("@SQ")]
         self.assertEqual(len(full), len(reference_genes()))
         listed = [line for line in self.text("plain").splitlines() if line.startswith("@SQ")]
@@ -1400,7 +1446,7 @@ class SingleEndTest(WorkDir):
         self.assertTrue(os.path.exists(self.path("out", "misc", "sa_runtime.tsv")))
 
     def test_profile_only_takes_the_model_of_the_sams_reads(self):
-        sam = self.path("out", "sa.sam")
+        sam = sam_path(self.path("out", "sa.sam"))
         # The test database has no model_se.xml: the SAM's unpaired records ask for one.
         rc, log = run(self.work, "--db", DB, "--profile_only", sam, "-o", self.path("po_missing"), "-t", "2", "--no_qcmsa")
         self.assertEqual(rc, 30, log[-3000:])
@@ -1452,7 +1498,7 @@ class SingleEndTest(WorkDir):
         rc, log = run(self.work, "--db", self.db, "-1", os.path.join(READS, "sa_R1.fq"), "-o", "out_prefix", "-t", "1",
                       "--no_profile")
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertTrue(os.path.exists(self.path("out_prefix", "sa_R1.sam")))
+        self.assertTrue(os.path.exists(sam_path(self.path("out_prefix", "sa_R1.sam"))))
 
     def test_a_single_file_database_holds_model_se(self):
         if not os.path.exists(os.path.join(FILES, "index.prx.zst")):
@@ -1586,7 +1632,7 @@ class PacBioTest(WorkDir):
         self.assertIn("Model of PacBio reads: " + os.path.join(self.db, "model_PB.xml"), self.log)
         self.assertIn("1 read(s) longer than 65000 bp were seeded in chunks", self.log)
         self.assertRegex(self.log, r"\d+ of \d+ gene hits that fit several taxa \(MAPQ < 4\) were settled by their read's other genes")
-        with open(self.path("out", "la.sam")) as fh:
+        with open_sam(self.path("out", "la.sam")) as fh:
             self.assertIn("@CO\tprotal read type: pb\n", fh.read())
 
     def test_records_hold_their_aligned_bases(self):
@@ -1636,7 +1682,7 @@ class PacBioTest(WorkDir):
         self.assertTrue(os.path.exists(self.path("out", "misc", "la_runtime.tsv")))
 
     def test_profile_only_takes_the_pacbio_model(self):
-        sam = self.path("out", "la.sam")
+        sam = sam_path(self.path("out", "la.sam"))
         rc, log = run(self.work, "--db", DB, "--profile_only", sam, "-o", self.path("po_missing"), "-t", "2", "--no_qcmsa")
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("no model for --read_type pb (PacBio reads)", log)
@@ -1677,7 +1723,7 @@ class PacBioTest(WorkDir):
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("1 paired-end, 0 single-end, 1 PacBio, 0 ONT sample(s)", log)
         self.assertTrue(all(int(r[1]) & 0x1 for r in sam_records(self.path("out_map", "pe.sam"))))
-        with open(self.path("out_map", "lb.sam")) as fh:
+        with open_sam(self.path("out_map", "lb.sam")) as fh:
             self.assertIn("@CO\tprotal read type: pb\n", fh.read())
 
 
@@ -1711,7 +1757,7 @@ class OntTest(WorkDir):
         self.assertIn("Align the ONT reads of sample oa (-a 0.85)", self.log)
         self.assertIn("Model of ONT reads: " + os.path.join(self.db, "model_ONT.xml"), self.log)
         self.assertIn("1 read(s) longer than 65000 bp were seeded in chunks", self.log)
-        with open(self.path("out", "oa.sam")) as fh:
+        with open_sam(self.path("out", "oa.sam")) as fh:
             self.assertIn("@CO\tprotal read type: ont\n", fh.read())
 
     def test_every_gene_is_found_once(self):
@@ -1729,7 +1775,7 @@ class OntTest(WorkDir):
             self.assertGreaterEqual(found / (found + missed), 0.9, f"{prefix}: {found} genes found, {missed} missed")
 
     def test_profile_only_takes_the_ont_model(self):
-        sam = self.path("out", "oa.sam")
+        sam = sam_path(self.path("out", "oa.sam"))
         rc, log = run(self.work, "--db", DB, "--profile_only", sam, "-o", self.path("po_missing"), "-t", "2", "--no_qcmsa")
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("no model for --read_type ont (ONT reads)", log)
@@ -1766,7 +1812,7 @@ class OntTest(WorkDir):
         self.assertIn("Align the paired-end reads of sample pe (-a 0.9)", log)
         self.assertIn("Align the ONT reads of sample ob (-a 0.85)", log)
         self.assertNotIn("minimum allele frequencies for", log)
-        with open(self.path("out_map", "ob.sam")) as fh:
+        with open_sam(self.path("out_map", "ob.sam")) as fh:
             self.assertIn("@CO\tprotal read type: ont\n", fh.read())
 
 

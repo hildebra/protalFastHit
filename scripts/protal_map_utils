@@ -600,18 +600,19 @@ def build_parser() -> argparse.ArgumentParser:
     merge.add_argument("--out")
     merge.add_argument("--use-sampleid", action="store_true")
 
-    # SAM names: <sample>.sam.gz by default, .sam with --nogzip, .sam.zst (zstd) with --zstd.
+    # SAM names: <sample>.sam.zst (zstd) by default, .sam.gz with --gzip, .sam with --nogzip.
     for command in (generate, merge):
         formats = command.add_mutually_exclusive_group()
+        formats.add_argument("--zstd", action="store_true", help="SAM names end in .sam.zst (zstd; the default)")
+        formats.add_argument("--gzip", action="store_true", help="SAM names end in .sam.gz (gzip, read by samtools)")
         formats.add_argument("--nogzip", action="store_true", help="SAM names end in .sam (uncompressed)")
-        formats.add_argument("--zstd", action="store_true", help="SAM names end in .sam.zst (zstd: faster and smaller than gzip)")
 
     return parser
 
 
 def sam_suffix(args: argparse.Namespace) -> str:
     """The SAM file name ending the options ask for."""
-    return ".sam.zst" if args.zstd else ".sam" if args.nogzip else ".sam.gz"
+    return ".sam.gz" if args.gzip else ".sam" if args.nogzip else ".sam.zst"
 
 
 def main() -> int:
