@@ -30,10 +30,20 @@ harder in two ways than simulating the database's own references:
   database costs a second index build (while the first one runs) and its disk
   space.
 
-OUT_DIR/model_logs/ collects what tells whether the model is good: the training
-report (how it does on species it was not trained on, against the previous model
-and training procedure), its numbers as JSON, the per-taxon predictions, the
-threshold table, the parity check with protal and the genome table summary.
+One model per read type (--read-types, default pe,se,pb,ont), trained in
+parallel: paired-end reads (ART), their first reads alone (single-end), and
+PacBio and Nanopore reads of the same communities (pbsim3). Besides the training
+data, an independent test set of another design (--test-*: other depths,
+community sizes, abundances and strain mixes) is profiled and scored by each
+model: cross-validation on the training data cannot show what its design lacks.
+
+OUT_DIR/model_logs/ collects what tells whether the models are good: each read
+type's training report (how it does on species and clades it was not trained on,
+on the independent test set, false positive and false negative rates by rank,
+against the previous model and training procedure), its numbers as JSON, the
+per-taxon predictions, the threshold table, the parity check with protal, the
+genome table summary and build_metadata.tsv (what the database was built from
+and with).
 """
 import argparse
 import collections
@@ -58,6 +68,7 @@ sys.path.insert(0, HERE)
 import lineages  # noqa: E402
 from gtdb_to_protal_db import normalize_accession, read_representatives  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
+from collect_training_data import TABLES  # noqa: E402
 
 
 def run(command, log):
@@ -243,6 +254,52 @@ def describe_holdout(chosen, pool):
     return lines
 
 
+def provenance(args, release, genome_table, heldout, n_heldout, read_types, prefixes):
+    """build_metadata.tsv: what the database was built from and with, so that two builds can be compared."""
+    def output(command):
+        try:
+            return subprocess.run(command, capture_output=True, text=True, timeout=60).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    version = output([args.protal, "--version"]).splitlines()
+    commit = output(["git", "-C", HERE, "rev-parse", "HEAD"])
+    if commit and output(["git", "-C", HERE, "status", "--porcelain", "--", "."]):
+        commit += " (scripts changed since)"
+    genomes, species = 0, set()
+    with open(genome_table) as fh:
+        for line in fh:
+            lineage = next((f for f in line.rstrip("\n").split("\t") if f.startswith("d__") and ";s__" in f), None)
+            if lineage:
+                genomes += 1
+                species.add(lineage.split(";")[-1])
+    clade_counts = collections.Counter(rank for rank, _ in set(read_holdout(heldout).values())) if n_heldout else {}
+    rows = [("gtdb_release", f"r{release}"), ("built", time.strftime("%Y-%m-%d %H:%M:%S")),
+            ("protal_version", version[-1] if version else "unknown"), ("protal_binary", args.protal),
+            ("scripts_commit", commit or "unknown (not a git checkout)"), ("command", " ".join(sys.argv)),
+            ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
+            ("classifier_features", "normalized"), ("classifier_trees", args.ntree),
+            ("classifier_max_leaves", args.maxnodes), ("classifier_training_species_left_out", n_heldout)]
+    rows += [(f"classifier_training_{rank}_clades_left_out", clade_counts[rank]) for rank in CLADE_RANKS
+             if clade_counts.get(rank)]
+    rows += [("classifier_training_samples", f"{args.samples} per design point"),
+             ("classifier_training_design", f"read pairs {args.read_pairs}; read setups {args.read_setups}; "
+                                            f"species per sample {args.species_per_sample}; strains "
+                                            f"{args.strains_per_species or 'one'}; abundance {args.abundance or 'default'}"),
+             ("classifier_read_types", ",".join(read_types))]
+    for t in read_types:
+        try:
+            with open(prefixes[t] + ".metrics.json") as fh:
+                metrics = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        species_cv = metrics.get("evaluation", {}).get("species", {})
+        test = metrics.get("test", {}).get("this one", {})
+        rows.append((f"model_{t}", f"species held out F1 {species_cv.get('F1')}, FP per sample "
+                                   f"{species_cv.get('FP_per_sample')}; independent test F1 {test.get('F1')}, FP per "
+                                   f"sample {test.get('FP_per_sample')}"))
+    return rows
+
+
 def build_command(protal, db, threads, *extra):
     command = [protal, "--build", "--no_profile", "-t", str(threads), "--db", db,
                "--reference", os.path.join(db, "reference.fna"), *extra]
@@ -329,9 +386,41 @@ def main():
                    help="read pairs per sample, one design point each (default 1000,5000,20000,100000,500000: "
                         "without the shallowest, a model missed 8%% of the present taxa of samples of 1000 read "
                         "pairs)")
-    p.add_argument("--read-setups", default="100:HS20:300:40,150:HS25:350:50,250:MSv3:550:50")
+    p.add_argument("--read-setups", default="100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50",
+                   help="LENGTH:ART_PROFILE:FRAGMENT_MEAN:FRAGMENT_SD, one design point each (HSXt: HiSeq X, the "
+                        "closest of ART's profiles to NovaSeq; file=R1.txt+R2.txt: profiles art_profiler_illumina "
+                        "made from real reads)")
     p.add_argument("--archaea", type=int, default=2)
-    p.add_argument("--species-per-sample", default="20-50")
+    p.add_argument("--species-per-sample", default="20-200",
+                   help="species per sample, drawn per sample (default 20-200: real gut samples hold 100-300 GTDB "
+                        "species with a long tail of rare ones)")
+    p.add_argument("--strains-per-species", default="0.3,0.1",
+                   help="probabilities of a second, third, ... strain of a species in a sample (default 0.3,0.1): "
+                        "real samples often mix strains, which changes the allele-frequency features")
+    p.add_argument("--abundance", default="",
+                   help="abundance model of the training samples: lognormal:SIGMA, powerlaw:ALPHA or negbin:R:P "
+                        "(default: the simulator's, Poisson-lognormal with sigma 1.3)")
+    p.add_argument("--read-types", default="pe,se,pb,ont",
+                   help="the read types to train a model for (default pe,se,pb,ont): se from the paired-end "
+                        "samples' first reads, pb and ont from long reads of the same communities (pbsim3). The "
+                        "models are trained in parallel; read types left out keep placeholders")
+    p.add_argument("--long-read-bases", default="300000,1500000,6000000,30000000,150000000",
+                   help="bases per long-read sample, one design point each (collect_training_data.py)")
+    p.add_argument("--pb-setup", default="errhmm:ERRHMM-SEQUEL:15000:3000:0.999",
+                   help="pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN of PacBio reads")
+    p.add_argument("--ont-setup", default="qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36",
+                   help="pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN of Nanopore reads")
+    p.add_argument("--pbsim", default="pbsim", help="pbsim3 executable, for pb and ont")
+    p.add_argument("--pbsim-models", help="folder of pbsim3's .model files (default: found next to the executable)")
+    p.add_argument("--test-samples", type=int, default=4,
+                   help="samples per design point of the independent test set (default 4; 0: none). The test set "
+                        "has another design than the training data (--test-*), so that the report shows what "
+                        "cross-validation on the training data cannot")
+    p.add_argument("--test-read-pairs", default="500,2000,10000,50000,200000,1000000")
+    p.add_argument("--test-species-per-sample", default="10-300")
+    p.add_argument("--test-abundance", default="lognormal:2.0", help="(default lognormal:2.0: more uneven than training)")
+    p.add_argument("--test-strains-per-species", default="0.5,0.2")
+    p.add_argument("--test-long-read-bases", default="150000,1000000,5000000,25000000,250000000")
     p.add_argument("--congeners", type=int, default=0,
                    help="species of one genus in every sample of a design point (collect_training_data.py "
                         "--congeners): relatives that share a sample, as in real samples")
@@ -345,6 +434,13 @@ def main():
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
     args = p.parse_args()
+    read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
+    if not read_types or any(t not in TABLES for t in read_types):
+        p.error(f"--read-types: a comma-separated list of {', '.join(TABLES)}, got {args.read_types!r}")
+    if any(t in ("pb", "ont") for t in read_types) and not (shutil.which(args.pbsim) or os.path.isfile(args.pbsim)):
+        p.error(f"pb and ont reads are simulated with pbsim3, and {args.pbsim} is not there: install it (e.g. "
+                "micromamba install -c conda-forge -c bioconda pbsim3), pass --pbsim, or leave pb and ont out of "
+                "--read-types")
     if args.inputs:
         if args.gtdb:
             p.error("give --inputs or --gtdb, not both")
@@ -450,50 +546,83 @@ def main():
                       os.path.join(args.outdir, "training_db_index.log"))
         print(f"Built {training_db} in {seconds:.0f} s", flush=True)
 
+    # Training data of every read type (pe, se from its first reads, pb and ont from long reads of the same
+    # communities), then an independent test set of another design, both against the training database.
+    def collect_command(out, samples, read_pairs, species, abundance, strains, long_bases, seed):
+        command = [sys.executable, COLLECTOR, "--db", training_db, "--genome_table", genome_table, "-o", out,
+                   "--protal", args.protal, "--simulator", args.simulator, "--samples", str(samples),
+                   "--read_pairs", read_pairs, "--read_setups", args.read_setups, "--archaea", str(args.archaea),
+                   "--species_per_sample", species, "--seed", str(seed), "-t", str(args.threads),
+                   "--taxonomy", taxonomy, "--congeners", str(args.congeners), "--read_types", ",".join(read_types),
+                   "--long_read_bases", long_bases, "--pb_setup", args.pb_setup, "--ont_setup", args.ont_setup,
+                   "--pbsim", args.pbsim]
+        command += ["--abundance", abundance] if abundance else []
+        command += ["--strains_per_species", strains] if strains else []
+        command += ["--pbsim_models", args.pbsim_models] if args.pbsim_models else []
+        if n_heldout:
+            command += ["--novel_species", heldout, "--novel_clades", str(args.novel_clades_per_sample)]
+        return command
+
     training = os.path.join(args.outdir, "training")
-    collect = [sys.executable, COLLECTOR, "--db", training_db, "--genome_table", genome_table, "-o", training,
-               "--protal", args.protal, "--simulator", args.simulator, "--samples", str(args.samples),
-               "--read_pairs", args.read_pairs, "--read_setups", args.read_setups,
-               "--archaea", str(args.archaea), "--species_per_sample", args.species_per_sample,
-               "--seed", str(args.seed), "-t", str(args.threads), "--taxonomy", taxonomy,
-               "--congeners", str(args.congeners)]
-    if n_heldout:
-        collect += ["--novel_species", heldout, "--novel_clades", str(args.novel_clades_per_sample)]
-    print(f"Collected the training data in {run(collect, os.path.join(args.outdir, 'training_data.log')):.0f} s", flush=True)
-    prefix = os.path.join(args.outdir, "trained_model")
-    seconds = run([sys.executable, TRAINER, "--truth-file", os.path.join(training, "training_data.tsv"),
-                   "--output-prefix", prefix, "--features", "normalized", "--ntree", str(args.ntree),
-                   "--maxnodes", str(args.maxnodes), "--seed", str(args.seed), "--threads", str(args.threads),
-                   "--taxonomy", taxonomy, "--evaluation", args.evaluation],
-                  os.path.join(args.outdir, "classifier_training.log"))
-    print(f"Trained the model in {seconds:.0f} s", flush=True)
+    seconds = run(collect_command(training, args.samples, args.read_pairs, args.species_per_sample, args.abundance,
+                                  args.strains_per_species, args.long_read_bases, args.seed),
+                  os.path.join(args.outdir, "training_data.log"))
+    print(f"Collected the training data ({', '.join(read_types)}) in {seconds:.0f} s", flush=True)
+    test = os.path.join(args.outdir, "test")
+    if args.test_samples > 0:
+        seconds = run(collect_command(test, args.test_samples, args.test_read_pairs, args.test_species_per_sample,
+                                      args.test_abundance, args.test_strains_per_species, args.test_long_read_bases,
+                                      args.seed + 1000), os.path.join(args.outdir, "test_data.log"))
+        print(f"Collected the independent test set in {seconds:.0f} s", flush=True)
+
+    # One model per read type, trained in parallel.
+    prefixes = {t: os.path.join(args.outdir, "trained_model" + ("" if t == "pe" else "_" + t)) for t in read_types}
+    trainer_threads = max(1, args.threads // len(read_types))
+    trainers = {}
+    for t in read_types:
+        command = [sys.executable, TRAINER, "--truth-file", os.path.join(training, TABLES[t]),
+                   "--output-prefix", prefixes[t], "--features", "normalized", "--ntree", str(args.ntree),
+                   "--maxnodes", str(args.maxnodes), "--seed", str(args.seed), "--threads", str(trainer_threads),
+                   "--taxonomy", taxonomy, "--evaluation", args.evaluation]
+        if args.test_samples > 0 and os.path.isfile(os.path.join(test, TABLES[t])):
+            command += ["--test-file", os.path.join(test, TABLES[t])]
+        trainers[t] = Background(command, os.path.join(args.outdir, "classifier_training" + ("" if t == "pe" else "_" + t) + ".log"))
+    for t, job in trainers.items():
+        print(f"Trained the {t} model in {job.finish():.0f} s", flush=True)
     # protal must score as the trainer does, and compute the features as it did during collection.
-    run([sys.executable, PARITY, "--db", training_db, "--model", prefix + ".xml", "--training", training,
-         "--protal", args.protal, "-t", str(args.threads)], os.path.join(args.outdir, "parity.log"))
-    for name in (prefix + ".report.txt", prefix + ".metrics.json", prefix + ".thresholds.tsv", prefix + ".varimp.tsv",
-                 prefix + ".predictions.tsv.gz", os.path.join(training, "parity", "parity.txt"),
-                 os.path.join(args.outdir, "training_data.log"), os.path.join(args.outdir, "genome_table.txt"),
-                 heldout):
+    for t in read_types:
+        run([sys.executable, PARITY, "--db", training_db, "--model", prefixes[t] + ".xml", "--training", training,
+             "--read_type", t, "--protal", args.protal, "-t", str(args.threads)],
+            os.path.join(args.outdir, "parity" + ("" if t == "pe" else "_" + t) + ".log"))
+    for t in read_types:
+        prefix = prefixes[t]
+        parity = os.path.join(training, "parity" if t == "pe" else "parity_" + t, "parity.txt")
+        for name in (prefix + ".report.txt", prefix + ".metrics.json", prefix + ".thresholds.tsv", prefix + ".varimp.tsv",
+                     prefix + ".predictions.tsv.gz", prefix + ".test_predictions.tsv.gz"):
+            if os.path.isfile(name):
+                shutil.copy(name, logs)
+        if os.path.isfile(parity):
+            shutil.copy(parity, os.path.join(logs, "parity.txt" if t == "pe" else f"parity_{t}.txt"))
+    for name in (os.path.join(args.outdir, "training_data.log"), os.path.join(args.outdir, "test_data.log"),
+                 os.path.join(args.outdir, "genome_table.txt"), heldout):
         if os.path.isfile(name):
             shutil.copy(name, logs)
     if final_build is not None:
         print(f"Built {db} in {final_build.finish():.0f} s (in the background)", flush=True)
     elif training_db != db:
         print(f"Built {db} in {run(build_command(args.protal, db, args.threads), final_log):.0f} s", flush=True)
-    # The trained model replaces the shipped one as the paired-end model (model_pe.xml) in
-    # database.protal; --add_model checks it and copies the other parts as they are.
-    run([args.protal, "--add_model", prefix + ".xml", "--read_type", "pe", "--db", db, "-t", str(args.threads)],
-        os.path.join(args.outdir, "final_package.log"))
-    clade_counts = collections.Counter(rank for rank, _ in set(read_holdout(heldout).values())) if n_heldout else {}
+    # The trained models replace the shipped one and the placeholders in database.protal; --add_model checks
+    # each and copies the other parts as they are.
+    for t in read_types:
+        run([args.protal, "--add_model", prefixes[t] + ".xml", "--read_type", t, "--db", db, "-t", str(args.threads)],
+            os.path.join(args.outdir, "final_package" + ("" if t == "pe" else "_" + t) + ".log"))
     with open(os.path.join(db, "build_metadata.tsv"), "w") as fh:
-        fh.write(f"gtdb_release\tr{release}\nclassifier_features\tnormalized\nclassifier_trees\t{args.ntree}\n"
-                 f"classifier_max_leaves\t{args.maxnodes}\nclassifier_training_species_left_out\t{n_heldout}\n"
-                 + "".join(f"classifier_training_{rank}_clades_left_out\t{clade_counts[rank]}\n"
-                           for rank in CLADE_RANKS if clade_counts.get(rank)) +
-                 f"classifier_training_samples\t{args.samples} per design point\n")
+        fh.write("".join(f"{k}\t{v}\n" for k, v in provenance(args, release, genome_table, heldout, n_heldout,
+                                                                  read_types, prefixes)))
     shutil.copy(os.path.join(db, "build_metadata.tsv"), logs)
     print(f"Ready protal database: {db}", flush=True)
-    print(f"Model evaluation: {logs} (start with trained_model.report.txt)", flush=True)
+    print(f"Model evaluation: {logs} (start with trained_model.report.txt, and trained_model_<read type>.report.txt)",
+          flush=True)
 
 
 if __name__ == "__main__":

@@ -27,7 +27,8 @@ dependencies:
   - zstd                  # the library, and the zstd CLI the end-to-end tests use
   # Run them: protal writes gzipped SAMs, simulate_metagenomes runs ART and compresses its reads
   - pigz
-  - art                   # art_illumina
+  - art                   # art_illumina (and art_profiler_illumina, for profiles of real reads)
+  - pbsim3                # PacBio and Nanopore training reads (collect_training_data.py --read_types pb,ont)
   # Convert the release, collect training data, train the model, check it against protal
   - python >=3.10
   - numpy
@@ -40,4 +41,3 @@ dependencies:
   # Tests of protal and the scripts: just test, just mini-db-test, just model-test, just e2e
   - just
   - gtest
-  # Not needed yet: long-read training data (PacBio, ONT) will add a read simulator such as pbsim3.

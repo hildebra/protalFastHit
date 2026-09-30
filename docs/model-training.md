@@ -41,26 +41,42 @@ profiles them against a database, and joins all dumps into `training_data.tsv`:
     python3 scripts/collect_training_data.py --db DB --genome_table genomes.tsv -o training \
         --archaea 2 --species_per_sample 10-40 -t 8
 
+With `--read_types`, it collects other reads of the same communities too: `se`, the paired-end
+samples' first reads alone, profiled as single-end reads (no new simulation); `pb` and `ont`,
+long reads simulated with pbsim3 from each paired-end sample's manifest, every genome given its
+share of `--long_read_bases` by abundance times length (point i of the long reads replays the
+communities of paired-end point i). All samples are profiled in one protal run, each with its read
+type's model and settings (the map's `READ_TYPE` column), and each read type gets its table:
+`training_data.tsv` (pe), `training_data_se.tsv`, `training_data_pb.tsv`, `training_data_ont.tsv`.
+
 | Option | Default | |
 |---|---|---|
 | `--db`, `--genome_table`, `-o` | required | database, simulator genome table (accession, GTDB taxonomy, FASTA path), output directory |
 | `--protal`, `--simulator` | on `$PATH` | the binaries |
 | `--samples` | 4 | samples per design point |
 | `--read_pairs` | `1000,5000,20000,100000,500000` | depths, one design point each |
-| `--read_setups` | `100:HS20:300:40,150:HS25:350:50,250:MSv3:550:50` | length : ART profile : fragment mean : fragment SD, one design point each |
+| `--read_setups` | `100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | length : ART profile : fragment mean : fragment SD, one design point each; the profile `file=R1.txt+R2.txt` (or `file=P.txt`) uses quality profiles of `art_profiler_illumina` instead of a built-in one |
 | `--species_per_sample` | `5-30` | N or MIN-MAX |
+| `--strains_per_species` | one strain | probabilities of a second, third, ... strain of a species, e.g. `0.3,0.1` |
+| `--abundance` | the simulator's (Poisson-lognormal, sigma 1.3) | `lognormal:SIGMA`, `powerlaw:ALPHA` or `negbin:R:P` |
+| `--read_types` | `pe` | `pe`, `se`, `pb`, `ont`, comma-separated |
+| `--long_read_bases` | `300000,1500000,6000000,30000000,150000000` | bases per long-read sample, one design point each |
+| `--pb_setup`, `--ont_setup` | `errhmm:ERRHMM-SEQUEL:15000:3000:0.999`, `qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36` | pbsim3 method : model : length mean : length SD : accuracy mean (: error mix, for qshmm) |
+| `--pbsim`, `--pbsim_models` | `pbsim`, its data folder | pbsim3 and the folder of its `.model` files |
 | `--archaea` | 0 | archaeal species per sample |
 | `--congeners` | 0 | species of one genus in every sample of a design point (the genus drawn per point): relatives share real samples, but hardly ever uniform draws from many genera |
 | `--novel_species` | | species the database lacks (e.g. those a training database leaves out), optionally with the rank they were held out at and the clade (`heldout_species.txt`), for `meta_novel_*` |
 | `--novel_clades` | 0 | species of held-out clades (ranks above species in `--novel_species`) in every sample, per rank: each design point takes one clade of each rank, in turn |
 | `--taxonomy` | | the database's `internal_taxonomy.dmp`, for `meta_rep_genome`, `meta_relative_rank`, `meta_novel_level` and `meta_neighbour_rank` |
 | `-t`, `--seed` | 4, 1 | threads of the protal run; seed |
-| `--jobs` | `-t` | design points simulated at a time (ART simulates one genome at a time) |
+| `--jobs` | `-t` | design points (and long-read genomes) simulated at a time (ART and pbsim3 simulate one genome at a time) |
 
 The design points are simulated in parallel, then all their samples are profiled in one protal run,
 which loads the database once. Design points already simulated or profiled are skipped, so a run
 can be resumed. Columns it adds start with
-`meta_` and say where each row comes from: design point, sample, read length, depth, the taxon's
+`meta_` and say where each row comes from: design point, sample, read type (`meta_read_type`), read
+length (the mean for long reads), depth (`meta_read_pairs`: read pairs, reads for se, bases for pb
+and ont), the taxon's
 domain (`meta_domain`, from the genome table's lineages; `unknown` for species the table lacks),
 how many species of `--novel_species` the sample holds (`meta_novel_species`), whether the taxon
 shares a genus with one of them (`meta_novel_congener`: the taxa their reads land on), and whether a
@@ -126,6 +142,7 @@ one differs.
 | `--folds` | 5 | folds of the held-out evaluations |
 | `--evaluation` | `full` | `basic`: the held-out evaluations only; `none`: fit and export only |
 | `--taxonomy` | | the database's `internal_taxonomy.dmp`: domains the table's `meta_domain` lacks, and the lineages for holding out whole clades |
+| `--test-file` | | an independent test table (the collector with another design and seed), scored by the fitted forest: the report's section "Independent test set" (metrics, FN and FP rates by depth and by rank, the threshold with the highest F1 there), `<prefix>.test_predictions.tsv.gz`, and a warning when it scores clearly worse than cross-validation |
 | `--seed`, `--threads` | 1, 4 | |
 
 Rows of one sample share its reads, and rows of one species share its reference, so a random split
@@ -190,6 +207,9 @@ the model file's, and that protal computes the features as it did when the train
 collected (another protal version may not):
 
     python3 scripts/check_model_parity.py --db DB --model training/model.xml --training training
+
+`--read_type se` (or `pb`, `ont`) checks a model of other reads, on the collection's samples of that
+read type (protal is given it with `--model_se`, `--model_pb` or `--model_ont`).
 
 `gradient_boosted_cmdline.py` and `hist_gradient_boosted_cmdline.py` train gradient-boosted trees
 with the same inputs; they still export with sklearn2pmml, which needs Java. The histogram variant

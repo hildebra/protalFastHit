@@ -341,6 +341,90 @@ class MiniDbTest(unittest.TestCase):
         self.assertEqual(build.parse_clades("phylum:2,class:4"), {"phylum": 2, "class": 4})
         self.assertEqual(build.parse_clades("none"), {})
 
+    def test_collector_designs(self):
+        # Read setups (built-in and custom ART profiles), abundance models, long-read setups and units.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import argparse
+        import collect_training_data as collect
+        opts = argparse.Namespace(read_setups="150:HSXt:350:50,150:file=/p1+/p2:350:50,250:MSv3:550:50",
+                                  read_pairs="1000,5000", read_types=["pe", "se", "ont"],
+                                  pb_setup="errhmm:ERRHMM-SEQUEL:15000:3000:0.999",
+                                  ont_setup="qshmm:QSHMM-ONT-HQ:8000:6000:0.97", long_read_bases="1e6,2e6,3e6")
+        points = collect.design_points(opts)
+        self.assertEqual([p["name"] for p in points], ["rl150_HSXt_p1000", "rl150_HSXt_p5000", "rl150_custom1_p1000",
+                                                       "rl150_custom1_p5000", "rl250_p1000", "rl250_p5000"])
+        with self.assertRaises(SystemExit):
+            collect.art_profile_args("file=/nonexistent_r1.txt")
+        self.assertEqual(collect.art_profile_args("HSXt"), ["--sequencer", "HSXt"])
+        self.assertEqual(collect.abundance_args("lognormal:2.0"), ["--distribution", "poisson_lognormal", "--pln_sigma", "2.0"])
+        self.assertEqual(collect.abundance_args("powerlaw:1.5"), ["--distribution", "power_law", "--alpha", "1.5"])
+        self.assertEqual(collect.abundance_args(""), [])
+        with self.assertRaises(SystemExit):
+            collect.abundance_args("gamma:1")
+        self.assertEqual(collect.parse_long_setup("qshmm:QSHMM-ONT-HQ:8000:6000:0.97")["length_mean"], 8000)
+        with self.assertRaises(SystemExit):
+            collect.parse_long_setup("art:x:1:1:1")
+        _, units = collect.units_of(opts)
+        self.assertEqual([u["type"] for u in units], ["pe"] * 6 + ["se"] * 6 + ["ont"] * 3)
+        self.assertEqual([u["community"]["name"] for u in units if u["type"] == "ont"],
+                         ["rl150_HSXt_p1000", "rl150_HSXt_p5000", "rl150_custom1_p1000"])
+        self.assertEqual(units[6]["name"], "rl150_HSXt_p1000_se")
+
+    def test_long_read_replay(self):
+        # pb/ont samples replay a paired-end point's communities: each genome gets its share of the bases by
+        # relative abundance times length (a stand-in pbsim writes depth x length / 1000 reads of 1 kb).
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import argparse
+        import collect_training_data as collect
+        root = os.path.join(self.tmp.name, "longreads")
+        point = os.path.join(root, "points", "rl150_p1000")
+        os.makedirs(os.path.join(point, "sim"))
+        genomes = {}
+        for name, length in (("GA", 20000), ("GB", 40000)):
+            genomes[name] = os.path.join(root, name + ".fna.gz")
+            with gzip.open(genomes[name], "wt") as fh:
+                fh.write(f">{name}_contig\n" + "ACGT" * (length // 4) + "\n")
+        with open(os.path.join(point, "sim", "manifest.tsv"), "w") as fh:
+            fh.write("sample\tgenome\tspecies\ttaxonomy\tgenome_length\tread_pairs\tvertical_coverage\trelative_abundance"
+                     "\tfastq_r1\tfastq_r2\tfasta_path\tart_seed\n")
+            for sample, abundances in (("rl150_p1000_s_1", (0.5, 0.5)), ("rl150_p1000_s_2", (0.8, 0.2))):
+                for (name, path), a in zip(genomes.items(), abundances):
+                    length = 20000 if name == "GA" else 40000
+                    fh.write(f"{sample}\t{name}\tS {name}\td__B;s__S {name}\t{length}\t10\t1\t{a}\tr1\tr2\t{path}\t1\n")
+        with open(os.path.join(point, "sim", "protal.meta"), "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{point}/protal\n#INPUT_DIR\t{point}/sim/reads\n"
+                     "#SAMPLEID\tFIRST\tSECOND\tSAM\tPREFIX\tPROFILE\tPROFILE_TRUTH\n"
+                     "rl150_p1000_s_1\ta\tb\tc\td\te\t/truth/1\nrl150_p1000_s_2\ta\tb\tc\td\te\t/truth/2\n")
+        fake = os.path.join(root, "pbsim")
+        with open(fake, "w") as fh:
+            fh.write("#!" + sys.executable + "\nimport sys\na = sys.argv[1:]\nget = lambda k: a[a.index(k) + 1]\n"
+                     "seq = ''.join(l.strip() for l in open(get('--genome')) if not l.startswith('>'))\n"
+                     "n = round(float(get('--depth')) * len(seq) / 1000)\n"
+                     "with open(get('--prefix') + '_0001.fastq', 'w') as out:\n"
+                     "    for i in range(n):\n"
+                     "        out.write('@%s1_%d\\n%s\\n+\\n%s\\n' % (get('--id-prefix'), i, seq[:1000], 'I' * 1000))\n")
+        os.chmod(fake, 0o755)
+        models = os.path.join(root, "models")
+        os.makedirs(models)
+        open(os.path.join(models, "FAKE.model"), "w").close()
+        opts = argparse.Namespace(out=root, seed=1, pbsim=fake, pbsim_models=models, samples=2)
+        unit = {"type": "ont", "name": "ont_b60000", "bases": 60000,
+                "setup": collect.parse_long_setup("qshmm:FAKE:1000:0:0.97"), "community": {"name": "rl150_p1000"},
+                "point": {"name": "ont_b60000", "read_length": "1000", "read_pairs": "60000"}}
+        self.assertIsNone(collect.simulate_long(unit, 0, opts, 2))
+        rows, _ = collect.unit_map_rows(unit, opts)
+        self.assertEqual([r["SAMPLEID"] for r in rows], ["ont_b60000_s_1", "ont_b60000_s_2"])
+        self.assertEqual([r["PROFILE_TRUTH"] for r in rows], ["/truth/1", "/truth/2"])
+        self.assertEqual({r["READ_TYPE"] for r in rows} | {r["SECOND"] for r in rows}, {"ont", "-"})
+        for row, (a, b) in zip(rows, ((0.5, 0.5), (0.8, 0.2))):
+            names = [line.strip() for i, line in enumerate(gzip.open(row["FIRST"], "rt")) if i % 4 == 0]
+            self.assertEqual(len(names), len(set(names)), "read names must be unique within a sample")
+            counts = {g: sum(n.startswith(f"@g{g}x") for n in names) for g in (0, 1)}
+            share_a = a * 20000 / (a * 20000 + b * 40000)
+            self.assertAlmostEqual(counts[0], round(60 * share_a), delta=1)
+            self.assertAlmostEqual(counts[1], round(60 * (1 - share_a)), delta=1)
+        self.assertTrue(collect.simulated(unit, opts))
+
     def test_relation_to_novel_species(self):
         # An absent taxon is put down to a species the database lacks when that species is at least as close to
         # it as every present one.

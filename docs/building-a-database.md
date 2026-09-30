@@ -150,7 +150,7 @@ only what is missing, and `--dry_run` lists what it would fetch.
 | `--mirror`, `--datasets`, `--batch`, `-t` | | GTDB server, NCBI CLI, genomes per NCBI request (500), parallel downloads and compression (8) |
 
 It needs, besides a built `protal` and `simulate_metagenomes`: `art_illumina` and `pigz` on
-`$PATH` (for the simulations), Python 3 with numpy, pandas, joblib and scikit-learn for the
+`$PATH` (for the simulations; pbsim3 for PacBio and Nanopore reads), Python 3 with numpy, pandas, joblib and scikit-learn for the
 training (no Java: the trainer writes the PMML itself), and NCBI's `datasets` for strain genomes.
 The conda environment [`envs/protal-db-build.yaml`](../envs/protal-db-build.yaml) has them all,
 with the compilers to build protal ([installation.md](installation.md#tools-to-build-a-database)).
@@ -182,6 +182,13 @@ with only one of them it either kept 2 false positives per sample or missed a fi
   training database keeps their taxids). It costs a second index build, which runs while the
   first one does (below).
 
+Besides, samples are as complex as real ones: 20-200 species each (`--species-per-sample`; gut
+samples hold 100-300 GTDB species, most of them rare), a second and third strain of a species in
+30% and 10% of cases (`--strains-per-species 0.3,0.1`; mixed strains change the allele-frequency
+features), and reads from 100 bp (HiSeq 2000) to 250 bp (MiSeq), with HiSeq X, the closest of ART's
+built-in profiles to NovaSeq, for 150 bp. A read setup `150:file=R1.txt+R2.txt:350:50` uses quality
+profiles that `art_profiler_illumina` made from real reads instead, e.g. from a NovaSeq run.
+
 The training database lacks whole clades at every rank as well as many single species, since
 false positives from organisms the database lacks are what a presence model must avoid. First
 `--holdout-clades` (default 2 phyla, 4 classes, 6 orders, 8 families, 12 genera) are drawn from
@@ -195,6 +202,32 @@ before one is used again), and puts `--novel-clades-per-sample` (1) of its speci
 sample. `heldout_species.txt` lists the species with the rank they were held out at and the clade,
 `model_logs/holdout.txt` sums them up, and the training report gives false positive and false
 negative rates by rank (see [model-training.md](model-training.md#species-and-clades-the-database-lacks)).
+
+### One model per read type
+
+`--read-types` (default `pe,se,pb,ont`) trains a model for each kind of reads protal profiles,
+from the same communities: paired-end reads (ART); their first reads alone, profiled as single-end
+reads; and PacBio and Nanopore reads simulated with [pbsim3](https://github.com/yukiteruono/pbsim3)
+(`--pb-setup`: HiFi-like reads of the Sequel error model at 99.9% accuracy, 15 kb; `--ont-setup`:
+the high-quality ONT model at 97%, 8 kb), `--long-read-bases` per sample, about as many bases as the
+paired-end depths. All samples are profiled in one protal run, each with its read type's settings,
+and the models are trained in parallel. pbsim3 must be installed for pb and ont (it is in
+`envs/protal-db-build.yaml`; `micromamba install -c conda-forge -c bioconda pbsim3`); without it,
+leave them out of `--read-types`, and they keep placeholder models.
+
+### An independent test set
+
+Cross-validation on the training data judges the model only on what the training design has: a
+model trained on samples of 5,000 read pairs and more missed 8% of the present taxa of 1,000-pair
+test samples while its own estimate said F1 0.997
+([report](claude/2026-09-30-clade-holdouts.md)). So every build also profiles an independent test
+set of another design, `--test-samples` (4) per design point: depths `--test-read-pairs`
+(500 to 1,000,000), 10-300 species (`--test-species-per-sample`), more uneven abundances
+(`--test-abundance lognormal:2.0`), more mixed strains (`--test-strains-per-species 0.5,0.2`),
+long-read depths `--test-long-read-bases`, another seed. Each model scores it (the trainer's
+`--test-file`): the report's section "Independent test set" gives F1, false positives per sample,
+FN and FP rates by depth and by rank, and the threshold with the highest F1 there, and warns when
+the test set scores clearly worse than cross-validation. `--test-samples 0` skips it.
 
 | Option | Default | |
 |---|---|---|
@@ -215,40 +248,50 @@ negative rates by rank (see [model-training.md](model-training.md#species-and-cl
 | `-t, --threads` | 8 | |
 | `--samples` | 12 | samples per design point |
 | `--congeners` | 0 | species of one genus in every sample of a design point |
-| `--no-placeholder-models` | | leave out the placeholder models for se, pb and ont (below) |
+| `--no-placeholder-models` | | leave out the placeholder models of read types not trained (below) |
 | `--read-pairs` | `1000,5000,20000,100000,500000` | depths, one design point each (without the shallowest, a model missed 8% of the present taxa of 1000-pair samples) |
-| `--read-setups` | `100:HS20:300:40,150:HS25:350:50,250:MSv3:550:50` | read length : ART profile : fragment mean : fragment SD, one design point each |
-| `--species-per-sample` | `20-50` | |
+| `--read-setups` | `100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | read length : ART profile (or `file=R1.txt+R2.txt`) : fragment mean : fragment SD, one design point each |
+| `--species-per-sample` | `20-200` | drawn per sample |
+| `--strains-per-species` | `0.3,0.1` | probabilities of a second, third, ... strain of a species |
+| `--abundance` | the simulator's | `lognormal:SIGMA`, `powerlaw:ALPHA` or `negbin:R:P` |
 | `--archaea` | 2 | archaeal species per sample |
+| `--read-types` | `pe,se,pb,ont` | the read types to train a model for |
+| `--long-read-bases` | `300000,1500000,6000000,30000000,150000000` | bases per pb and ont sample, one design point each |
+| `--pb-setup`, `--ont-setup` | `errhmm:ERRHMM-SEQUEL:15000:3000:0.999`, `qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36` | pbsim3 method : model : length mean : length SD : accuracy (: substitution/insertion/deletion mix, for qshmm) |
+| `--pbsim`, `--pbsim-models` | `pbsim`, found next to it | pbsim3 and its models |
+| `--test-samples` | 4 | samples per design point of the independent test set; 0 for none |
+| `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases` | `500,2000,10000,50000,200000,1000000`, `10-300`, `lognormal:2.0`, `0.5,0.2`, `150000,1000000,5000000,25000000,250000000` | the test set's design |
 | `--seed` | 1 | |
 | `--ntree`, `--maxnodes` | 64, 128 | random forest size (more trees did not score better, see [model-training.md](model-training.md#training)) |
 | `--evaluation` | `full` | how much the trainer evaluates: `full`, `basic` or `none` |
 
-With the defaults that is 3 read setups x 5 depths x 12 samples = 180 simulated samples of 20-50
-species, each profiled against the training database. The simulations take most of the compute and
-disk space; training and its evaluation take minutes. Whether 180 samples are enough, the training
-report's learning curve says.
+With the defaults that is 3 read setups x 5 depths x 12 samples = 180 paired-end samples of 20-200
+species, profiled as paired-end and as single-end reads, 5 x 12 PacBio and 5 x 12 Nanopore samples
+of the same communities, and a test set of 3 x 6 x 4 = 72 paired-end samples (and their single-end
+and long-read counterparts), all against the training database. The simulations take most of the
+compute and disk space; training and its evaluation take minutes per read type. Whether 180
+samples are enough, the training report's learning curve says.
 
-The finished database is needed only at the end, to take the trained model (`--add_model`), so it
+The finished database is needed only at the end, to take the trained models (`--add_model`), so it
 is built in the background from the start, while the training database is built and the training
-data are collected; the script waits for it before packing the model. That needs the memory of two
+data are collected; the script waits for it before packing the models. That needs the memory of two
 builds at once (about 50-60 GB each at GTDB scale), or of one build and the collection's protal
 runs. `--one-build-at-a-time` builds it after the training instead.
 
-The database gets one model per read type: the trained one as `model_pe.xml`, and placeholders
-(`scripts/placeholder_models.py`) as `model_se.xml`, `model_PB.xml` and `model_ONT.xml`, since only
-paired-end reads can be simulated and aligned for training so far. A placeholder scores every taxon
-0, so no species is reported (`--knob 0` lists every taxon with reads), and protal warns whenever
-it loads one; replace it with `protal --add_model MODEL --read_type se --db DB`.
+The database gets the trained model of each read type in `--read-types` (`model_pe.xml`,
+`model_se.xml`, `model_PB.xml`, `model_ONT.xml`), and a placeholder (`scripts/placeholder_models.py`)
+for each read type left out. A placeholder scores every taxon 0, so no species is reported
+(`--knob 0` lists every taxon with reads), and protal warns whenever it loads one; replace it with
+`protal --add_model MODEL --read_type se --db DB`.
 
 The output root holds:
 
 | Path | |
 |---|---|
-| `protal_db/database.protal` | the finished database, and `protal_db/build_metadata.tsv` (GTDB release, feature set, forest size) |
+| `protal_db/database.protal` | the finished database, and `protal_db/build_metadata.tsv`: GTDB release, date, protal version and binary, the scripts' git commit, the command, seed, genome table, what the training database leaves out, the training design, and each model's F1 on species held out and on the test set |
 | `genomes.tsv`, `genome_table.txt` | the genome table used for the simulations, and what it holds (species by domain, how often a simulated species is not its representative) |
 | `training_db/`, `heldout_species.txt` | the training database and the species it leaves out (species, the rank they were held out at, the clade) |
-| `training/` | the simulated samples, their profiles and `training_data.tsv`; a rerun skips the design points already done |
-| `trained_model.*` | the model and the trainer's outputs ([model-training.md](model-training.md#training)) |
-| `model_logs/` | what tells whether the model is good, in one folder: the training report and its numbers (`trained_model.report.txt`, `.metrics.json`), per-taxon predictions, the threshold table, feature importances, the parity check with protal (`parity.txt`), `genome_table.txt`, what the training database leaves out (`holdout.txt`, `heldout_species.txt`), the collection log and `build_metadata.tsv` |
-| `*.log` | one log per stage: `convert`, `training_db`, `index_and_package`, `training_db_index`, `training_data`, `classifier_training`, `parity`, `final_package` |
+| `training/`, `test/` | the simulated samples, their profiles and one table per read type (`training_data.tsv` for pe, `training_data_se.tsv`, `_pb`, `_ont`); a rerun skips the design points already done |
+| `trained_model.*`, `trained_model_se.*`, `_pb.*`, `_ont.*` | the models and the trainer's outputs ([model-training.md](model-training.md#training)) |
+| `model_logs/` | what tells whether the models are good, in one folder: each read type's training report and its numbers (`trained_model*.report.txt`, `.metrics.json`), per-taxon predictions (also on the test set), the threshold table, feature importances, the parity checks with protal (`parity*.txt`), `genome_table.txt`, what the training database leaves out (`holdout.txt`, `heldout_species.txt`), the collection logs and `build_metadata.tsv` |
+| `*.log` | one log per stage: `convert`, `training_db`, `index_and_package`, `training_db_index`, `training_data`, `test_data`, `classifier_training*`, `parity*`, `final_package*` |

@@ -89,6 +89,8 @@ def parse_args(argv=None):
                         "none: fit and export only")
     p.add_argument("--taxonomy", help="internal_taxonomy.dmp of the database, for the taxa's domains when the "
                                       "table has no meta_domain column")
+    p.add_argument("--test-file", help="an independent test table (collect_training_data.py with another design and "
+                                       "seed): scored with the fitted forest and reported, by depth and by rank")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--threads", type=int, default=4)
     return p.parse_args(argv)
@@ -450,16 +452,17 @@ def rate(n, d):
     return 100 * n / d if d else None
 
 
-def study_by_rank(report, df, y, p, opts):
+def study_by_rank(report, df, y, p, opts, title="False positives and false negatives by taxonomic rank", key="by_rank",
+                  clade_rows=True, scored="scored with species held out"):
     """False positive and false negative rates by taxonomic rank (collect_training_data.py: meta_novel_level,
     meta_novel_levels, meta_relative_rank, meta_neighbour_rank; the clades held out in cross-validation)."""
     ranks_in = lambda column: column in df.columns and (df[column].fillna("").astype(str) != "").any()
     if not (ranks_in("meta_novel_level") or ranks_in("meta_neighbour_rank") or any(k in p for k in CLADE_SCHEMES)):
         return
-    report.section("False positives and false negatives by taxonomic rank")
-    report.add("Rates in % at the knob, scored with species held out (and by the collection model, _collection). "
+    report.section(title)
+    report.add(f"Rates in % at the knob, {scored} (and by the collection model, _collection). "
                "FP rate: of the absent taxa, those called; FN rate: of the present taxa, those not called.")
-    new = p.get("species", p["out of bag"])
+    new = p["species"] if "species" in p else p["out of bag"]
     old = p.get("collection model")
     absent, present = y == 0, y == 1
     called_new = new >= opts.knob
@@ -519,7 +522,7 @@ def study_by_rank(report, df, y, p, opts):
         report.table(pd.DataFrame(rows))
         data["false_negatives_by_neighbour_rank"] = rows
 
-    schemes = [k for k in ("species", *CLADE_SCHEMES) if k in p]
+    schemes = [k for k in ("species", *CLADE_SCHEMES) if k in p] if clade_rows else []
     if schemes:
         rows = []
         for k in schemes:
@@ -536,7 +539,48 @@ def study_by_rank(report, df, y, p, opts):
                    "(cross-validation): how the model does on parts of the tree its training data lack:")
         report.table(pd.DataFrame(rows))
         data["clades_held_out_in_training"] = rows
-    report.data["by_rank"] = data
+    report.data[key] = data
+
+
+def study_test(report, rf, cols, opts, prefix):
+    """The fitted forest on an independent test table: samples of another design (depths, community sizes,
+    abundance model, strains), which cross-validation on the training data cannot judge. Its probabilities are
+    protal's (the PMML is checked to score as the forest does)."""
+    report.section(f"Independent test set ({opts.test_file})")
+    test = load_table(opts.test_file, opts.taxonomy)
+    check_features(test, cols)
+    y = test["truth"].to_numpy()
+    p = rf.predict_proba(test[cols].to_numpy(dtype=np.float64))[:, 1]
+    rows = [({"model": "this one"}, metrics(y, p, test, opts.knob))]
+    if "probability" in test.columns:
+        rows.append(({"model": "collection model"}, metrics(y, test["probability"].to_numpy(dtype=float), test, opts.knob)))
+    report.add(f"{len(test)} taxa in {test['meta_sample'].nunique() if 'meta_sample' in test else 1} samples, "
+               f"{int(y.sum())} present")
+    report.table(metrics_table(rows))
+    report.data["test"] = {label["model"]: m for label, m in rows}
+    call = p >= opts.knob
+    if "meta_read_pairs" in test.columns:
+        depth_rows = []
+        for depth, g in test.assign(call=call).groupby("meta_read_pairs"):
+            pr, ab = g[g.truth == 1], g[g.truth == 0]
+            depth_rows.append({"depth": depth, "samples": g["meta_sample"].nunique() if "meta_sample" in g else 1,
+                               "present": len(pr), "FN": int((~pr.call).sum()), "FN rate": rate(int((~pr.call).sum()), len(pr)),
+                               "absent": len(ab), "FP": int(ab.call.sum()), "FP rate": rate(int(ab.call.sum()), len(ab))})
+        report.add("by depth (read pairs, or bases for long reads):")
+        report.table(pd.DataFrame(depth_rows))
+        report.data["test_by_depth"] = depth_rows
+    t, prec, rec, f1 = best_threshold(y, p)
+    report.add(f"highest F1 on the test set at threshold {t:.3f} (F1 {f1:.4f}; at knob {opts.knob}: "
+               f"{fmt(rows[0][1]['F1'], 4)})")
+    report.data["test_best_threshold"] = {"threshold": t, "precision": prec, "sensitivity": rec, "F1": f1}
+    collection = {"collection model": test["probability"].to_numpy(dtype=float)} if "probability" in test.columns else {}
+    study_by_rank(report, test, y, {"species": p, **collection}, opts,
+                  title="Independent test set: false positives and false negatives by taxonomic rank",
+                  key="test_by_rank", clade_rows=False, scored="scored by the forest fitted on all training rows")
+    out = test[[c for c in test.columns if c.startswith("meta_")] + [c for c in ("taxon", "taxon_name", "domain", "truth")
+                                                                         if c in test]].copy()
+    out["p"] = p
+    out.to_csv(prefix + ".test_predictions.tsv.gz", sep="\t", index=False, float_format="%.6g")
 
 
 def study_threshold(report, y, p, opts, prefix):
@@ -748,6 +792,12 @@ def main(argv=None):
             t0 = time.time()
             study()
             timing[name] = time.time() - t0
+    if opts.test_file:
+        t0 = time.time()
+        rf.n_jobs = 1  # sum the trees in file order, as protal does
+        study_test(report, rf, cols, opts, prefix)
+        rf.n_jobs = opts.threads
+        timing["test"] = time.time() - t0
 
     # Export, and check that the file scores as the forest does.
     report.section("Model file")
@@ -826,6 +876,19 @@ def main(argv=None):
                        f"{report.data['previous_procedure']['nodes']} nodes vs {nodes}")
         if species.get("F1") is not None and species["F1"] < 0.9:
             warnings.append(f"F1 on species held out is {species['F1']:.3f}")
+    test = report.data.get("test", {}).get("this one")
+    if test:
+        report.add(f"independent test set: F1 {fmt(test['F1'])}, sensitivity {fmt(test['sensitivity'])}, precision "
+                   f"{fmt(test['precision'])}, {fmt(test.get('FP_per_sample'), 2)} false positives per sample at knob "
+                   f"{opts.knob}; highest F1 at threshold {report.data['test_best_threshold']['threshold']:.3f}")
+        worst = [r for r in report.data.get("test_by_depth", []) if r["FN rate"] is not None]
+        if worst:
+            w = max(worst, key=lambda r: r["FN rate"])
+            report.add(f"independent test set, highest FN rate by depth: {w['FN rate']:.2f}% at {w['depth']}")
+        if species and species.get("F1") is not None and test.get("F1") is not None and test["F1"] < species["F1"] - 0.01:
+            warnings.append(f"the independent test set scores F1 {test['F1']:.3f} against {species['F1']:.3f} with species "
+                            "held out in training: the training design misses what the test set has (see its depth "
+                            "table)")
     if diff > 0 or flips:
         warnings.append(f"the PMML file does not score as scikit-learn does (max difference {diff:.3g}): do not use it")
     for w in warnings:

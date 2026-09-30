@@ -13,7 +13,10 @@ files and training dumps. protal re-profiles the SAMs of a few points (--profile
 --model; the new dumps' probabilities are compared with the model file scored in Python, and their
 features with the dumps written during collection.
 
-usage: check_model_parity.py --db DB --model MODEL.xml --training TRAINING_DIR [--points 2] [-o OUT]
+--read_type checks the model of other reads (se, pb, ont: the collection's samples of that read type,
+profiled with protal's option for that model, e.g. --model_se).
+
+usage: check_model_parity.py --db DB --model MODEL.xml --training TRAINING_DIR [--read_type pe] [--points 2]
 Exit code 1 if a probability or a feature differs.
 """
 
@@ -29,21 +32,36 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from model_pmml import PmmlForest  # noqa: E402
 
+# protal's option for each read type's model (ReadType.h).
+MODEL_OPTIONS = {"pe": "--model", "se": "--model_se", "pb": "--model_pb", "ont": "--model_ont"}
+
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--db", required=True, help="protal database")
     p.add_argument("--model", required=True, help="PMML model to check")
     p.add_argument("--training", required=True, help="output folder of collect_training_data.py")
+    p.add_argument("--read_type", default="pe", choices=sorted(MODEL_OPTIONS),
+                   help="the reads the model is for (default pe)")
     p.add_argument("--points", type=int, default=2, help="design points to re-profile (default 2: the first and last)")
     p.add_argument("--protal", default="protal")
-    p.add_argument("-o", "--out", help="folder for protal's outputs (default: TRAINING/parity)")
+    p.add_argument("-o", "--out", help="folder for protal's outputs (default: TRAINING/parity, or parity_<read type>)")
     p.add_argument("-t", "--threads", type=int, default=4)
     return p.parse_args(argv)
 
 
-def samples_of(point):
-    """(sample, SAM path, truth path, collection dump) of each sample of a design point."""
+def samples_of(point, read_type="pe"):
+    """(sample, SAM path, truth path, collection dump) of each sample of a design point: its paired-end samples,
+    or their first reads alone (se, in protal_se), or its long-read samples (pb, ont: sim/samples.tsv)."""
+    if read_type in ("pb", "ont"):
+        with open(os.path.join(point, "sim", "samples.tsv")) as fh:
+            next(fh)
+            for sample, _, truth, _ in (line.rstrip("\n").split("\t") for line in fh if line.strip()):
+                sam = os.path.join(point, "protal", "alignments", sample + ".sam.gz")
+                dumps = glob.glob(os.path.join(point, "protal", "**", sample + ".profile.truth_annotated"), recursive=True)
+                if os.path.isfile(sam) and dumps:
+                    yield sample, sam, truth, dumps[0]
+        return
     meta = os.path.join(point, "sim", "protal.meta")
     output_dir, rows = None, []
     with open(meta) as fh:
@@ -56,10 +74,14 @@ def samples_of(point):
             elif not line.startswith("#") and line.strip():
                 rows.append(dict(zip(header, fields)))
     for row in rows:
-        sam = os.path.join(output_dir, "alignments", row["SAM"])
-        dumps = glob.glob(os.path.join(output_dir, "**", row["SAMPLEID"] + ".profile.truth_annotated"), recursive=True)
+        sample, sam = row["SAMPLEID"], os.path.join(output_dir, "alignments", row["SAM"])
+        if read_type == "se":
+            output_dir_se = os.path.join(point, "protal_se")
+            sample, sam = sample + "_se", os.path.join(output_dir_se, "alignments", sample + "_se.sam.gz")
+        dumps = glob.glob(os.path.join(os.path.dirname(os.path.dirname(sam)), "**", sample + ".profile.truth_annotated"),
+                          recursive=True)
         if os.path.isfile(sam) and dumps:
-            yield row["SAMPLEID"], sam, row["PROFILE_TRUTH"], dumps[0]
+            yield sample, sam, row["PROFILE_TRUTH"], dumps[0]
 
 
 def read_dump(path):
@@ -68,17 +90,21 @@ def read_dump(path):
 
 def main(argv=None):
     opts = parse_args(argv)
-    points = sorted(glob.glob(os.path.join(opts.training, "points", "*")))
+    marker = "samples.tsv" if opts.read_type in ("pb", "ont") else "protal.meta"
+    points = sorted(p for p in glob.glob(os.path.join(opts.training, "points", "*"))
+                    if os.path.isfile(os.path.join(p, "sim", marker))
+                    and (opts.read_type not in ("pb", "ont") or os.path.basename(p).startswith(opts.read_type + "_")))
     if not points:
-        sys.exit(f"no design points in {opts.training}/points")
+        sys.exit(f"no design points of {opts.read_type} reads in {opts.training}/points")
     chosen = points if len(points) <= opts.points else \
         [points[round(i * (len(points) - 1) / max(1, opts.points - 1))] for i in range(opts.points)]
-    samples = [s for point in chosen for s in samples_of(point)]
+    samples = [s for point in chosen for s in samples_of(point, opts.read_type)]
     if not samples:
         sys.exit("no samples with a SAM and a training dump in " + ", ".join(chosen))
-    out = opts.out or os.path.join(opts.training, "parity")
+    out = opts.out or os.path.join(opts.training, "parity" if opts.read_type == "pe" else "parity_" + opts.read_type)
     os.makedirs(out, exist_ok=True)
-    command = [opts.protal, "--db", opts.db, "--model", opts.model, "--profile_only", ",".join(s[1] for s in samples),
+    command = [opts.protal, "--db", opts.db, MODEL_OPTIONS[opts.read_type], opts.model,
+               "--profile_only", ",".join(s[1] for s in samples),
                "--profile_truth", ",".join(s[2] for s in samples), "-o", out, "-t", str(opts.threads),
                "--no_strains", "--no_qcmsa"]
     with open(os.path.join(out, "protal.log"), "w") as log:
@@ -114,7 +140,7 @@ def main(argv=None):
     if feature_diff:
         problems.append("protal computes features differently than when the training data was collected (largest "
                         "relative difference): " + ", ".join(f"{c} {v:.3g}" for c, v in sorted(feature_diff.items())))
-    lines = [f"model {opts.model}: {len(model.trees)} trees, {len(model.features)} features",
+    lines = [f"model {opts.model} ({opts.read_type} reads): {len(model.trees)} trees, {len(model.features)} features",
              f"re-profiled {len(samples)} samples of {', '.join(os.path.basename(p) for p in chosen)}: {rows} taxa"]
     lines += ["PROBLEM: " + p for p in problems] or [
         "protal's probabilities equal the model file's (and so scikit-learn's) for every taxon; "

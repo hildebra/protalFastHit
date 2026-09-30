@@ -577,7 +577,10 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
     for (std::size_t i = 0; i < selected_species.size(); ++i) {
         const auto& species = selected_species[i].first;
         const auto& strains = selected_species[i].second;
-        const std::size_t n_strains = strains.size();
+        // Each strain simulated needs a read pair: a rare species with fewer read pairs than strains keeps
+        // that many, the first of its random pick (with --strains_per_species and many species, shallow
+        // samples have such species).
+        const std::size_t n_strains = std::min<std::size_t>(strains.size(), std::max<std::uint64_t>(species_counts[i], 1));
         std::vector<double> w(n_strains);
         std::uniform_real_distribution<double> uni(0.0, 1.0);
         for (double& v : w) v = uni(rng);
