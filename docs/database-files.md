@@ -124,10 +124,12 @@ Lowercase letters are read as uppercase, and any other character is stored as `A
   reference has `N`, and the SNP and MSA reference rows show the stored base. A SAM file that an
   earlier protal made against a gene with an ambiguous base can hold an `M` there that no longer
   matches the stored base; the profiler sets such records aside (`<sam>.err`) with a warning.
-- `--build` compares single-entry k-mers with the k-mer its gene gives back, which is the stored
-  one. The index reads an ambiguous base as `A` on the forward strand, so the uniqueness flag of a
-  k-mer that overlaps an ambiguous base can differ from a build of an earlier protal (measured: 0.03%
-  of the values' flags, and no value, with four ambiguous bases per 1 kb gene).
+- `--build` leaves every k-mer whose window holds an ambiguous base out of the index (and out of the
+  uniqueness check): it is not counted, placed or looked up, so the index holds k-mers of A, C, G
+  and T only, and the k-mer that `--build` reads back from a gene for the uniqueness check is always
+  the one that was indexed. Before, such a k-mer was indexed with the ambiguous base read as `A`; a
+  database built that way still works, it holds a few more k-mers. Reads are unchanged: a k-mer of
+  a read with an `N` is looked up with the `N` as `A`.
 
 ## Loading genes on demand
 

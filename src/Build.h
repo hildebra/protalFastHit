@@ -42,6 +42,30 @@ namespace protal::build {
         return true;
     }
 
+    // Ambiguous bases (anything but A, C, G, T: N, the IUPAC codes) do not go into the index: a k-mer
+    // whose window holds one is taken out of a record's k-mers (their second is the window's first
+    // position), in the passes that count and place the values and in the uniqueness check. A sequence of
+    // A, C, G, T only, nearly always, is scanned once and left alone.
+    inline void DropAmbiguousKmers(std::string_view sequence, size_t k, KmerList& kmers) {
+        if (kmers.empty()) return;
+        unsigned ambiguous = 0;
+        for (char const c : sequence) {
+            unsigned char const upper = static_cast<unsigned char>(c) & 0xDF;  // lowercase is read as uppercase
+            ambiguous |= !(upper == 'A' || upper == 'C' || upper == 'G' || upper == 'T');
+        }
+        if (!ambiguous) return;
+        std::vector<uint32_t> before(sequence.size() + 1, 0);  // ambiguous bases in sequence[0, i)
+        for (size_t i = 0; i < sequence.size(); i++) {
+            unsigned char const upper = static_cast<unsigned char>(sequence[i]) & 0xDF;
+            before[i + 1] = before[i] + !(upper == 'A' || upper == 'C' || upper == 'G' || upper == 'T');
+        }
+        std::erase_if(kmers, [&](KmerElement const& kmer) {
+            size_t const begin = std::min(kmer.second, sequence.size());
+            size_t const end = std::min(kmer.second + k, sequence.size());
+            return before[end] != before[begin];
+        });
+    }
+
     // Opens a build input (--reference, --full_reference); a .zst file or sibling is fine too.
     inline std::unique_ptr<zstd::InputFile> OpenInput(std::string const& path) {
         auto input = std::make_unique<zstd::InputFile>(zstd::Resolve(path));
@@ -702,6 +726,7 @@ namespace protal::build {
         size_t main_k_bits = putter.GetMap().m_main_bits;
         size_t flex_k = putter.GetMap().m_flex_k;
         size_t flex_k_bits = putter.GetMap().m_flex_k_bits;
+        size_t const kmer_length = main_k + flex_k;  // a window's length
 
 
         // The two passes over the reference and the value pointers run in -t threads, the passes by
@@ -734,6 +759,7 @@ namespace protal::build {
                     }
                     kmers.clear();
                     handler(sequence, kmers);
+                    DropAmbiguousKmers(sequence, kmer_length, kmers);
                     for (auto const& pair : kmers) items.push_back(static_cast<uint32_t>(map.MainKey(pair.first)));
                     if constexpr(KmerStatisticsConcept<KmerHandler>) {
                         stats.kmers_total += handler.TotalKmers();
@@ -746,7 +772,7 @@ namespace protal::build {
             std::cout << "minimizers: " << pass.kmers_accepted << std::endl;
             statistics.Join(pass);
         } else {
-#pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, main_k_bits, flex_k_bits)
+#pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, main_k_bits, flex_k_bits, kmer_length)
                 {
                     // Private variables
                     FastxRecord record;
@@ -775,6 +801,7 @@ namespace protal::build {
                         // Retrieve kmers
                         kmers.clear();
                         kmer_handler(std::string_view(record.sequence), kmers);
+                        DropAmbiguousKmers(record.sequence, kmer_length, kmers);
                         for (auto pair : kmers) {
                             putter.FirstPut(pair.first);
                         }
@@ -831,6 +858,7 @@ namespace protal::build {
                     stats.reads++;
                     kmers.clear();
                     handler(sequence, kmers);
+                    DropAmbiguousKmers(sequence, kmer_length, kmers);
                     for (auto const& pair : kmers) {
                         ValueEntry entry;
                         entry.Put(taxonomic_id, gene_id, pair.second + map.m_flex_k_half);  // as Seedmap::PutOMP
@@ -845,7 +873,7 @@ namespace protal::build {
                 [&map](Placement const& p) { map.PutOwned(p.key, p.value); },
                 statistics);
         } else {
-#pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits)
+#pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, kmer_length)
     {
         // Private variables
         FastxRecord record;
@@ -877,6 +905,7 @@ namespace protal::build {
             // Retrieve kmers
             kmers.clear();
             kmer_handler(std::string_view(record.sequence), kmers);
+            DropAmbiguousKmers(record.sequence, kmer_length, kmers);
             for (auto pair : kmers) {
                 size_t pos = pair.second;
                 putter.Put(pair.first, taxonomic_id, gene_id, pos);
@@ -921,7 +950,7 @@ namespace protal::build {
         // under another taxon or more than once, single entries read back from their gene.
         size_t kmers_checked = 0, flex_compared = 0, kmers_shared = 0, singles_read = 0;
 
-#pragma omp parallel default(none) shared(std::cout, lookup_global, options, full_is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, genomes, kmers_checked, flex_compared, kmers_shared, singles_read)
+#pragma omp parallel default(none) shared(std::cout, lookup_global, options, full_is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, genomes, kmers_checked, flex_compared, kmers_shared, singles_read, kmer_length)
     {
         // Private variables
         FastxRecord record;
@@ -952,6 +981,7 @@ namespace protal::build {
             // Retrieve kmers
             kmers.clear();
             kmer_handler(std::string_view(record.sequence), kmers);
+            DropAmbiguousKmers(record.sequence, kmer_length, kmers);
             local_kmers += kmers.size();
 
             for (auto pair : kmers) {

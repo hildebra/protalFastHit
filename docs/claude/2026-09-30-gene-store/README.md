@@ -139,3 +139,28 @@ g++ -O2 -std=c++20 -I src docs/claude/2026-09-30-gene-store/scripts/bench_gene_d
 # bench_load_genes.cpp: compile against a version's src/ (include paths as in its build.ninja), then
 ./bench_load_X DIR 8000000 8 generate; ./bench_load_X DIR 8000000 8
 ```
+
+## Follow-up: ambiguous bases are not indexed
+
+The build discrepancy above (uniqueness flags of k-mers over an ambiguous base) is removed at its
+source rather than patched: `--build` (`Build.h`, `DropAmbiguousKmers`) takes every k-mer whose
+31-base window holds a base other than A, C, G, T out of a record's k-mers, in both passes that
+count and place the values and in the uniqueness check. Nothing is indexed with an ambiguous base
+read as `A` any more, so what `IndexedKmer` reads back from a gene (the stored bases) is exactly
+the indexed k-mer, and a k-mer of `full_reference.fna` over an `N` no longer meets an `A` k-mer of
+the index and flags it as shared. The two passes drop the same k-mers of the same record, which the
+counting needs for the placing to fit. Reads are not changed (a read k-mer over an `N` is still
+looked up with the `N` as `A`). The scan costs one pass over each record (vectorised), and only a
+record that has an ambiguous base is scanned twice.
+
+Effect on an index: a build of a reference without ambiguous bases is byte-identical to before (the
+900-species world, `index.prx` and `unique_kmers.tsv`); with them the index loses the syncmers whose
+window holds one (about 7 of the 31 windows over a base, at the syncmer density). Tests:
+`AmbiguousKmers` (unit), `BuildAmbiguousBasesTest` (end to end: a gene with an `N`, `Y`, `R` or
+lowercase `k` in a 3 kb gene loses between 1 and 31 k-mers, the other genes none).
+
+After the change: 202 of 202 unit tests and 113 of 113 end-to-end tests. On the 900-species world
+with four ambiguity codes per gene in `reference.fna`, the passes count 18.4M instead of 20.6M
+syncmers (−10%), the index is the same for `-t 1`, `4`, `8` and `--serial_index_passes`, and the key
+map and value slots are those of a build of the clean reference (byte-identical) only where no
+window meets an ambiguous base.

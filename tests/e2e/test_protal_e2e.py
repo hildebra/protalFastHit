@@ -630,6 +630,59 @@ class BuildUniquenessTest(WorkDir):
                 os.remove(os.path.join(db, index))
 
 
+class BuildAmbiguousBasesTest(WorkDir):
+    """Ambiguous bases (N, IUPAC codes) do not go into the index: k-mers whose window holds one are left out
+    of the counting, the placing and the uniqueness check."""
+
+    TAXONOMY = ("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n"
+                "3\t3\t0\troot\tno rank\t0\t\n"
+                "1\t3\t0\ts__Alpha one\tspecies\t7\tGCF_1\n"
+                "2\t3\t0\ts__Beta two\tspecies\t7\tGCF_2\n")
+
+    def build(self, name, genes):
+        db = self.path(name)
+        os.mkdir(db)
+        with open(os.path.join(db, "reference.fna"), "w") as fna, open(os.path.join(db, "reference.map"), "w") as mp:
+            offset = 0
+            for (taxid, gene), seq in genes.items():
+                header = f">{taxid}_{gene}\n"
+                fna.write(header + seq + "\n")
+                mp.write(f"{taxid}\t{gene}\t{offset + len(header)}\t{offset + len(header) + len(seq)}\n")
+                offset += len(header) + len(seq) + 1
+        with open(os.path.join(db, "internal_taxonomy.dmp"), "w") as fh:
+            fh.write(self.TAXONOMY)
+        reference = os.path.join(db, "reference.fna")
+        rc, log = run(self.work, "--build", "--no_bundle", "--no_compress", "--no_profile", "-t", "2", "--db", db,
+                      "--reference", reference, "--full_reference", reference)
+        self.assertEqual(rc, 0, log[-3000:])
+        totals = {}
+        with open(os.path.join(db, "unique_kmers.tsv")) as fh:
+            for line in fh:
+                f = line.split("\t")
+                totals[(int(f[0]), int(f[1]))] = int(f[8])
+        os.remove(os.path.join(db, "index.prx"))  # 3 GB
+        return totals
+
+    def test_windows_with_an_ambiguous_base_are_not_indexed(self):
+        rng = random.Random(3)
+        genes = {(1, 1): None, (1, 2): None, (2, 1): None}
+        for key in genes:
+            genes[key] = "".join(rng.choice("ACGT") for _ in range(3000))
+        clean = self.build("clean", genes)
+        for code in ("N", "Y", "R", "k"):
+            dirty_genes = dict(genes)
+            seq = genes[(1, 1)]
+            dirty_genes[(1, 1)] = seq[:1500] + code + seq[1501:]
+            dirty = self.build("dirty_" + code, dirty_genes)
+            # the other genes are untouched; the 31 windows over the base are gone, so a fifth of them
+            # are fewer syncmers of the gene
+            self.assertEqual(dirty[(1, 2)], clean[(1, 2)])
+            self.assertEqual(dirty[(2, 1)], clean[(2, 1)])
+            lost = clean[(1, 1)] - dirty[(1, 1)]
+            self.assertGreater(lost, 0, code)
+            self.assertLessEqual(lost, 31, code)
+
+
 class ParallelIndexBuildTest(WorkDir):
     """--build counts and places the k-mers in -t threads (by key range, batches applied in reference
     order): the index and unique_kmers.tsv are those of the one-thread passes (--serial_index_passes)."""

@@ -137,3 +137,59 @@ TEST(UniqueKmers, FlexNeighboursMatchAllPairs) {
         if (n >= 17) EXPECT_LT(near, n);
     }
 }
+
+// Ambiguous bases (N, IUPAC codes) do not go into the index: --build takes the k-mers whose window
+// holds one out of a record's k-mers (their second is the window's first position).
+#include "Build.h"
+
+namespace {
+    protal::KmerList WindowsAt(size_t first, size_t last) {
+        protal::KmerList kmers;
+        for (size_t p = first; p <= last; p++) kmers.emplace_back(p * 7, p);
+        return kmers;
+    }
+
+    std::vector<size_t> Positions(protal::KmerList const& kmers) {
+        std::vector<size_t> positions;
+        for (auto const& kmer : kmers) positions.push_back(kmer.second);
+        return positions;
+    }
+}
+
+TEST(AmbiguousKmers, SequencesOfAcgtAreLeftAlone) {
+    std::string sequence(100, 'A');
+    for (size_t i = 0; i < sequence.size(); i++) sequence[i] = "ACGTacgt"[i % 8];
+    auto kmers = WindowsAt(0, 69);
+    protal::build::DropAmbiguousKmers(sequence, 31, kmers);
+    EXPECT_EQ(kmers, WindowsAt(0, 69));
+}
+
+TEST(AmbiguousKmers, WindowsWithAnAmbiguousBaseAreDropped) {
+    std::string sequence(100, 'C');
+    for (char code : { 'N', 'Y', 'R', 'k', '-' }) {
+        sequence[50] = code;
+        auto kmers = WindowsAt(0, 69);
+        protal::build::DropAmbiguousKmers(sequence, 31, kmers);
+        // windows [p, p + 31) that hold position 50: p = 20 .. 50
+        std::vector<size_t> expected;
+        for (size_t p = 0; p <= 69; p++) if (p < 20 || p > 50) expected.push_back(p);
+        EXPECT_EQ(Positions(kmers), expected) << code;
+        sequence[50] = 'C';
+    }
+}
+
+TEST(AmbiguousKmers, AtTheEndsAndSeveralInOneSequence) {
+    std::string sequence(100, 'G');
+    sequence[0] = 'N';
+    sequence[99] = 'W';
+    sequence[60] = 'S';
+    auto kmers = WindowsAt(0, 69);
+    protal::build::DropAmbiguousKmers(sequence, 31, kmers);
+    std::vector<size_t> expected;
+    for (size_t p = 1; p <= 68; p++) if (p < 30 || p > 60) expected.push_back(p);  // base 60 is in windows 30 .. 60, base 99 only in window 69
+    EXPECT_EQ(Positions(kmers), expected);
+
+    protal::KmerList none;
+    protal::build::DropAmbiguousKmers(sequence, 31, none);
+    EXPECT_TRUE(none.empty());
+}
