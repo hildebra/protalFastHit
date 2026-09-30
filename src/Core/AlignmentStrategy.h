@@ -13,6 +13,7 @@
 #include "FastAlignment.h"
 #include "SNPUtils.h"
 #include "AlignmentUtils.h"
+#include "AnchoredAlignment.h"
 
 namespace protal {
     struct AlignmentOrientation {
@@ -101,6 +102,13 @@ namespace protal {
         bool m_fastalign = false;
         AlignmentOrientation m_alignment_orientation;
 
+        // Reads are aligned from their anchor's exact matches (AnchoredAligner) where the chain
+        // allows; off, every read is aligned as a whole into its window (SetAnchoredAlignment).
+        bool m_anchored = false;
+        AnchoredAligner m_anchored_aligner;
+        std::string m_ops;     // the window's alignment operations, from either method
+        std::string m_window;  // the window's reference bases, for the whole-window alignment
+
 
         static bool IsReverse(LookupResult const& first_anchor, LookupResult const& second_anchor) {
             return first_anchor.readpos > second_anchor.readpos;
@@ -127,6 +135,10 @@ namespace protal {
         Benchmark m_bm_alignment {"Raw alignment"};
         Benchmark bm_seedext{ "Seed Extension" };
         size_t dummy = 0;
+        // Anchors aligned from their exact matches, and as a whole (anchored alignment off, or a
+        // chain it does not handle); joined over threads like the benchmarks.
+        size_t m_anchored_alignments = 0;
+        size_t m_whole_window_alignments = 0;
 
 //        AlignmentInfo m_info;
 
@@ -153,7 +165,16 @@ namespace protal {
                 m_kmer_size(other.m_kmer_size),
                 m_align_top(other.m_align_top),
                 m_max_score_ani(other.m_max_score_ani),
-                m_fastalign(other.m_fastalign) {};
+                m_fastalign(other.m_fastalign),
+                m_anchored(other.m_anchored) {};
+
+        void SetAnchoredAlignment(bool anchored) {
+            m_anchored = anchored;
+        }
+
+        bool AnchoredAlignment() const {
+            return m_anchored;
+        }
 
 
 
@@ -471,8 +492,14 @@ namespace protal {
 //            std::string reference_view(const_cast<char *>(gene.Sequence().c_str() + m_alignment_orientation.reference_start),
 //                                       m_alignment_orientation.reference_len);
 
-            std::string reference_str = gene.Sequence().substr(m_alignment_orientation.reference_start, m_alignment_orientation.reference_len);
-
+            AlignmentWindow window;
+            window.ref_start = m_alignment_orientation.reference_start;
+            window.ref_end = m_alignment_orientation.reference_end;
+            window.ref_begin_free = dove_left_required ? m_alignment_orientation.reference_dove_left * 2 : 0;
+            window.ref_end_free = dove_right_required ? m_alignment_orientation.reference_dove_right * 2 : 0;
+            window.read_begin_free = allowed_del_left;
+            window.read_end_free = allowed_del_right;
+            window.max_score = MaxScore(m_max_score_ani, m_alignment_orientation.overlap);
 
             bm_alignment.Start();
             if (approximate_alignment) {
@@ -487,16 +514,25 @@ namespace protal {
 //                score = scoret;
 //                cigar_ani = CigarANI(cigart);
             } else {
-                if (true) {//max_dove_size > 0 && (dove_left_required || dove_right_required)) {
-                    m_bm_alignment.Start();
-                    m_aligner.Alignment(read, reference_str,
-                                        allowed_del_left,
-                                        allowed_del_right,
-                                        dove_left_required ? m_alignment_orientation.reference_dove_left * 2 : 0,
-                                        dove_right_required ? m_alignment_orientation.reference_dove_right * 2 : 0,
-                                        MaxScore(m_max_score_ani, m_alignment_orientation.overlap));
-                    m_bm_alignment.Stop();
+                // From the anchor's exact matches (AnchoredAligner) where its chain allows, else the
+                // whole read into the whole window. Both give the window's operations, free ends
+                // included, which are post-processed alike.
+                m_bm_alignment.Start();
+                using Status = AnchoredAligner::Status;
+                Status status = m_anchored ? m_anchored_aligner.Align(read, geneseq, anchor.chain, window, m_aligner, m_ops)
+                                           : Status::NotApplicable;
+                if (status == Status::NotApplicable) {
+                    m_window.assign(geneseq, window.ref_start, window.ref_end - window.ref_start);
+                    m_aligner.Reset();
+                    m_aligner.Alignment(read, m_window, window.read_begin_free, window.read_end_free,
+                                        window.ref_begin_free, window.ref_end_free, window.max_score);
+                    status = m_aligner.Success() ? Status::Aligned : Status::Failed;
+                    if (status == Status::Aligned) m_ops = m_aligner.Cigar();
+                    m_whole_window_alignments++;
+                } else {
+                    m_anchored_alignments++;
                 }
+                m_bm_alignment.Stop();
 //                else {
 //                    std::cout << "End2End" << std::endl;
 //                    std::cout << anchor.ToString() << std::endl;
@@ -512,14 +548,14 @@ namespace protal {
 //                    }
 //                }
 
-                if (!m_aligner.Success()) {
+                if (status != Status::Aligned) {
                     bm_alignment.Stop();
                     return false;
                 }
 
 
                 auto& info = alignment.GetAlignmentInfo();
-                PostProcessAlignment(m_aligner.Cigar(), info, read.length(),
+                PostProcessAlignment(m_ops, info, read.length(),
                                      gene.Sequence().length(), m_alignment_orientation.reference_start, 0, abs_pos);
 
                 info.UpdateScore();
@@ -540,8 +576,10 @@ namespace protal {
                         std::cerr << read.substr(readstart, std::min(readstart + read.length(), read.length())) << std::endl;
                         std::cerr << geneseq.substr(genestart, std::min(genestart + read.length(), geneseq.length())) << std::endl;
 
-                        std::cerr << "-----Invalid after alignment\t" << reference_str << " " << info.ToString() << std::endl;
+                        std::cerr << "-----Invalid after alignment\t" << geneseq.substr(window.ref_start, window.ref_end - window.ref_start)
+                                  << " " << info.ToString() << std::endl;
                     }
+                    bm_alignment.Stop();
                     return false;
                 }
 
@@ -550,6 +588,7 @@ namespace protal {
                     exit(90);
                 }
             }
+            bm_alignment.Stop();
             return true;
         }
 

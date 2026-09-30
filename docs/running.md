@@ -120,7 +120,15 @@ Also shown by `--full_help`: `--build` and its options ([building-a-database.md]
 the database conversions `--compress_db`, `--unpack_db`, `--decompress_db`
 ([database-files.md](database-files.md)), `--profile_truth` for the training dump
 ([model-training.md](model-training.md)), `--benchmark_alignment` (checks alignments against the
-`taxid_geneid` encoded in simulated read names) and `--mapq_debug_output`.
+`taxid_geneid` encoded in simulated read names), `--mapq_debug_output`, and `--whole_read_alignment`.
+
+Short reads are aligned from their anchor's exact matches: WFA aligns the read left and right of
+them (and between them), each part anchored at a match, instead of the whole read into the gene
+window. Alignments come out as good as before by the aligner's scoring (in tests never worse; 0.5%
+of SAM records differ, mostly in where a gap sits among equally good places, and about 0.15% of
+pairs get a MAPQ a few points apart) and faster, since anchors on relatives' genes are given up on
+sooner. `--whole_read_alignment` aligns every read as a whole, as protal did
+before, e.g. to reproduce earlier results; long reads are always aligned as a whole.
 
 ## Environment variables
 

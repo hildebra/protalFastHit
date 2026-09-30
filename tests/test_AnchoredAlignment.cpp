@@ -1,0 +1,249 @@
+// Unit tests for aligning a read from its anchor's exact matches (AnchoredAligner, as
+// SimpleAlignmentHandler::AlignAnchor uses it) against aligning the whole read into its window:
+// the same alignments where the best path runs through the anchor, the whole-window alignment for
+// chains the anchored one does not handle, and valid alignments throughout.
+#include <gtest/gtest.h>
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <random>
+#include <string>
+#include <vector>
+#include <unistd.h>
+#include "Core/AlignmentStrategy.h"
+
+using namespace protal;
+
+namespace {
+    constexpr size_t kGenes = 20, kGeneLength = 1500;
+
+    // Random genes of taxid 1 (genes 1..kGenes) in a temporary directory, loaded.
+    struct RandomReference {
+        std::vector<std::string> genes;
+        std::filesystem::path dir;
+        std::unique_ptr<GenomeLoader> loader;
+
+        RandomReference() {
+            std::mt19937 rng(23);
+            dir = std::filesystem::temp_directory_path() / ("protal_anchored_test_" + std::to_string(::getpid()));
+            std::filesystem::create_directories(dir);
+            std::ofstream fna(dir / "reference.fna"), map(dir / "reference.map");
+            size_t offset = 0;
+            for (size_t id = 1; id <= kGenes; id++) {
+                std::string seq(kGeneLength, 'A');
+                for (auto& c : seq) c = "ACGT"[rng() % 4];
+                std::string header = ">1_" + std::to_string(id) + "\n";
+                fna << header << seq << '\n';
+                map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
+                offset += header.size() + seq.size() + 1;
+                genes.push_back(seq);
+            }
+            fna.close();
+            map.close();
+            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
+            loader->LoadAllGenomes();
+        }
+        ~RandomReference() { std::filesystem::remove_all(dir); }
+    };
+
+    // Both methods on the same reference, as protal sets them up (-a 0.9).
+    struct Handlers {
+        WFA2Wrapper2 aligner{4, 6, 2, 1000};
+        SimpleAlignmentHandler whole, anchored;
+        explicit Handlers(GenomeLoader& loader) :
+                whole(loader, aligner, 31, 3, 0.9, false), anchored(loader, aligner, 31, 3, 0.9, false) {
+            whole.SetAnchoredAlignment(false);
+            anchored.SetAnchoredAlignment(true);
+        }
+    };
+
+    struct Outcome {
+        bool aligned = false;
+        int score = 0;
+        int start = 0;
+        std::string cigar;
+    };
+
+    Outcome Align(SimpleAlignmentHandler& handler, uint32_t gene, std::string read, ChainList chain) {
+        ChainAlignmentAnchor anchor(1, gene, true);
+        anchor.chain = std::move(chain);
+        AlignmentResult result;
+        std::string rev = KmerUtils::ReverseComplement(read), id = "r";
+        Outcome o;
+        o.aligned = handler.AlignAnchor(anchor, result, read, rev, false, id);
+        if (o.aligned) {
+            o.score = result.AlignmentScore();
+            o.start = result.GetAlignmentInfo().gene_alignment_start;
+            o.cigar = result.GetAlignmentInfo().cigar;
+        }
+        return o;
+    }
+
+    // The maximal exact runs of at least min_length on the diagonal (gene position - read position).
+    ChainList ExactRuns(std::string const& read, std::string const& gene, long diagonal, size_t min_length = 15) {
+        ChainList runs;
+        size_t i = 0;
+        while (i < read.size()) {
+            long const g = diagonal + static_cast<long>(i);
+            if (g < 0 || g >= static_cast<long>(gene.size()) || read[i] != gene[g]) { i++; continue; }
+            size_t j = i;
+            while (j < read.size() && diagonal + static_cast<long>(j) < static_cast<long>(gene.size()) && read[j] == gene[diagonal + j]) j++;
+            if (j - i >= min_length) runs.emplace_back(static_cast<uint32_t>(diagonal + static_cast<long>(i)), static_cast<uint16_t>(i), static_cast<uint16_t>(j - i));
+            i = j;
+        }
+        return runs;
+    }
+
+    void ExpectSame(Outcome const& whole, Outcome const& anchored) {
+        EXPECT_EQ(anchored.aligned, whole.aligned);
+        EXPECT_EQ(anchored.score, whole.score);
+        EXPECT_EQ(anchored.start, whole.start);
+        EXPECT_EQ(anchored.cigar, whole.cigar);
+    }
+}
+
+TEST(AnchoredAlignment, AReadInsideItsGene) {
+    RandomReference ref;
+    Handlers h(*ref.loader);
+    std::string read = ref.genes[0].substr(400, 150);
+    read[20] = read[20] == 'A' ? 'C' : 'A';  // mismatches left and right of the link
+    read[130] = read[130] == 'A' ? 'C' : 'A';
+    ChainList chain = { ChainLink(421, 21, 109) };
+    auto whole = Align(h.whole, 1, read, chain), anchored = Align(h.anchored, 1, read, chain);
+    ASSERT_TRUE(anchored.aligned);
+    ExpectSame(whole, anchored);
+    EXPECT_EQ(anchored.start, 400);
+    EXPECT_EQ(h.anchored.m_anchored_alignments, 1u);
+    EXPECT_EQ(h.whole.m_whole_window_alignments, 1u);
+}
+
+TEST(AnchoredAlignment, ReadsRunningPastTheGeneEnds) {
+    RandomReference ref;
+    Handlers h(*ref.loader);
+    std::mt19937 rng(3);
+    auto random = [&rng](size_t n) { std::string s(n, 'A'); for (auto& c : s) c = "ACGT"[rng() % 4]; return s; };
+    // 20 bases before the gene's start, 30 past its end: soft-clipped by both methods alike.
+    std::string before = random(20) + ref.genes[1].substr(0, 130);
+    std::string after = ref.genes[1].substr(kGeneLength - 120) + random(30);
+    auto w1 = Align(h.whole, 2, before, ExactRuns(before, ref.genes[1], -20));
+    auto a1 = Align(h.anchored, 2, before, ExactRuns(before, ref.genes[1], -20));
+    auto w2 = Align(h.whole, 2, after, ExactRuns(after, ref.genes[1], kGeneLength - 120));
+    auto a2 = Align(h.anchored, 2, after, ExactRuns(after, ref.genes[1], kGeneLength - 120));
+    ASSERT_TRUE(a1.aligned && a2.aligned);
+    ExpectSame(w1, a1);
+    ExpectSame(w2, a2);
+    EXPECT_EQ(a1.cigar.find_first_not_of('S'), 20u);
+    EXPECT_EQ(a2.cigar.size() - 1 - a2.cigar.find_last_not_of('S'), 30u);
+    EXPECT_EQ(h.anchored.m_anchored_alignments, 2u);
+}
+
+TEST(AnchoredAlignment, GapsInEitherFlank) {
+    RandomReference ref;
+    Handlers h(*ref.loader);
+    std::string const& gene = ref.genes[2];
+    // 3 bases deleted from the read 10 bases in, 2 inserted 20 bases before its end; the link in between.
+    std::string read = gene.substr(600, 10) + gene.substr(613, 110) + "GT" + gene.substr(723, 28);
+    ASSERT_EQ(read.size(), 150u);
+    ChainList chain = ExactRuns(read, gene, 603);  // the diagonal after the deletion
+    ASSERT_FALSE(chain.empty());
+    ChainList link = { chain.front() };
+    auto whole = Align(h.whole, 3, read, link), anchored = Align(h.anchored, 3, read, link);
+    ASSERT_TRUE(anchored.aligned);
+    EXPECT_EQ(anchored.score, whole.score);
+    EXPECT_NE(anchored.cigar.find('D'), std::string::npos);
+    EXPECT_NE(anchored.cigar.find('I'), std::string::npos);
+}
+
+TEST(AnchoredAlignment, AnNInsideTheLinkCountsAsAMismatch) {
+    RandomReference ref;
+    Handlers h(*ref.loader);
+    std::string read = ref.genes[3].substr(200, 150);
+    read[75] = 'N';  // protal's seeds read N as A, so a link may span it
+    ChainList chain = { ChainLink(200, 0, 150) };
+    auto whole = Align(h.whole, 4, read, chain), anchored = Align(h.anchored, 4, read, chain);
+    ASSERT_TRUE(anchored.aligned);
+    ExpectSame(whole, anchored);
+    EXPECT_EQ(anchored.cigar[75], 'X');
+}
+
+TEST(AnchoredAlignment, LinksOnOneDiagonalAndBetweenThem) {
+    RandomReference ref;
+    Handlers h(*ref.loader);
+    std::string read = ref.genes[4].substr(300, 150);
+    for (size_t i : { 40u, 41u, 90u, 92u, 94u, 96u, 98u }) read[i] = read[i] == 'A' ? 'C' : 'A';  // 2, then 5 mismatches between links
+    ChainList chain = ExactRuns(read, ref.genes[4], 300);
+    ASSERT_GE(chain.size(), 3u);
+    auto whole = Align(h.whole, 5, read, chain), anchored = Align(h.anchored, 5, read, chain);
+    ASSERT_TRUE(anchored.aligned);
+    ExpectSame(whole, anchored);
+}
+
+TEST(AnchoredAlignment, SeedsThatImplyAnIndelAreAlignedAsAWhole) {
+    RandomReference ref;
+    Handlers h(*ref.loader);
+    std::string const& gene = ref.genes[5];
+    std::string read = gene.substr(500, 70) + gene.substr(574, 80);  // 4 bases deleted in the middle
+    ChainList chain = { ExactRuns(read, gene, 500).front(), ExactRuns(read, gene, 504).back() };
+    auto whole = Align(h.whole, 6, read, chain), anchored = Align(h.anchored, 6, read, chain);
+    ExpectSame(whole, anchored);
+    EXPECT_EQ(h.anchored.m_anchored_alignments, 0u);
+    EXPECT_EQ(h.anchored.m_whole_window_alignments, 1u);
+}
+
+// Simulated reads as protal meets them: from their gene or a relative (up to 15% divergence), with
+// indels, Ns, and running past gene ends, anchored at an exact run on their diagonal or at several.
+TEST(AnchoredAlignment, AgreesWithTheWholeReadAlignment) {
+    RandomReference ref;
+    Handlers h(*ref.loader);
+    std::mt19937 rng(41);
+    std::uniform_real_distribution<double> u(0, 1);
+    size_t cases = 0, both = 0, same_score = 0, same_cigar = 0, only_whole = 0, only_anchored = 0, anchored_better = 0, whole_better = 0;
+    for (int n = 0; n < 6000; n++) {
+        uint32_t const gene_id = 1 + rng() % kGenes;
+        std::string const& gene = ref.genes[gene_id - 1];
+        long const start = static_cast<long>(rng() % (kGeneLength + 60)) - 40;  // some reads run past either end
+        double const divergence = u(rng) < 0.5 ? u(rng) * 0.03 : u(rng) * 0.15;
+        std::string read;
+        for (long i = start; static_cast<long>(read.size()) < 150; i++) {
+            char c = i >= 0 && i < static_cast<long>(gene.size()) ? gene[i] : "ACGT"[rng() % 4];
+            double const r = u(rng);
+            if (r < divergence * 0.9) c = "ACGT"[(std::string("ACGT").find(c) + 1 + rng() % 3) % 4];
+            else if (r < divergence * 0.95) continue;                                                    // deletion
+            else if (r < divergence) { read += "ACGT"[rng() % 4]; if (read.size() == 150) break; }       // insertion
+            if (u(rng) < 0.002) c = 'N';
+            read += c;
+        }
+        ChainList runs = ExactRuns(read, gene, start);
+        if (runs.empty()) continue;
+        ChainList chain;
+        if (rng() % 2) chain = { runs[rng() % runs.size()] };  // one link
+        else chain = runs;                                     // every run on the diagonal
+        auto whole = Align(h.whole, gene_id, read, chain), anchored = Align(h.anchored, gene_id, read, chain);
+        cases++;
+        if (anchored.aligned) {
+            EXPECT_EQ(std::count_if(anchored.cigar.begin(), anchored.cigar.end(), [](char c) { return c != 'D'; }), 150);
+        }
+        if (whole.aligned && anchored.aligned) {
+            both++;
+            same_score += whole.score == anchored.score;
+            same_cigar += whole.cigar == anchored.cigar && whole.start == anchored.start;
+            anchored_better += anchored.score > whole.score;
+            whole_better += whole.score > anchored.score;
+        } else if (whole.aligned) {
+            only_whole++;
+        } else if (anchored.aligned) {
+            only_anchored++;
+        }
+    }
+    RecordProperty("cases", static_cast<int>(cases));
+    std::cout << cases << " anchors: both aligned " << both << ", same score " << same_score << ", same alignment " << same_cigar
+              << ", anchored better " << anchored_better << ", whole better " << whole_better << ", only whole " << only_whole
+              << ", only anchored " << only_anchored << "; anchored " << h.anchored.m_anchored_alignments << ", whole "
+              << h.anchored.m_whole_window_alignments << std::endl;
+    ASSERT_GT(cases, 4000u);
+    EXPECT_GT(both, cases / 3);
+    EXPECT_GE(static_cast<double>(same_score), 0.99 * static_cast<double>(both));
+    EXPECT_GE(static_cast<double>(same_cigar), 0.98 * static_cast<double>(both));
+    EXPECT_LE(only_whole + only_anchored, cases / 200);
+    EXPECT_GT(h.anchored.m_anchored_alignments, cases / 2);
+}

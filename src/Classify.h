@@ -180,6 +180,8 @@ namespace protal::classify {
                 bm_output_global.Join(bm_output);
                 alignment_handler_global.bm_alignment.Join(alignment_handler.bm_alignment);
                 alignment_handler_global.m_bm_alignment.Join(alignment_handler.m_bm_alignment);
+                alignment_handler_global.m_anchored_alignments += alignment_handler.m_anchored_alignments;
+                alignment_handler_global.m_whole_window_alignments += alignment_handler.m_whole_window_alignments;
 
                 thread_statistics.output_alignments = output_handler.alignments;
                 statistics.Join(thread_statistics);
@@ -218,6 +220,8 @@ namespace protal::classify {
             bm_alignment_global.PrintResults();
             bm_output_global.PrintResults();
             std::cout << "----------------------------------------------------\n" << std::endl;
+            std::cout << "Anchors aligned from their exact matches: " << alignment_handler_global.m_anchored_alignments
+                      << ", as whole reads: " << alignment_handler_global.m_whole_window_alignments << std::endl;
         }
 
         WriteAlignmentDiagnostics(options, anchor_finder_global,
@@ -644,6 +648,8 @@ namespace protal::classify {
                 alignment_handler_global.bm_alignment.Join(alignment_handler.bm_alignment);
 
                 alignment_handler_global.m_bm_alignment.Join(alignment_handler.m_bm_alignment);
+                alignment_handler_global.m_anchored_alignments += alignment_handler.m_anchored_alignments;
+                alignment_handler_global.m_whole_window_alignments += alignment_handler.m_whole_window_alignments;
 
                 thread_statistics.output_alignments = output_handler.alignments;
                 statistics.Join(thread_statistics);
@@ -707,6 +713,8 @@ namespace protal::classify {
             std::cout << "Reads that had anchors recovered: "
                       << static_cast<double>(anchor_finder_global.recovered_count) / anchor_finder_global.total_count
                       << std::endl;
+            std::cout << "Anchors aligned from their exact matches: " << alignment_handler_global.m_anchored_alignments
+                      << ", as whole reads: " << alignment_handler_global.m_whole_window_alignments << std::endl;
         }
 
 

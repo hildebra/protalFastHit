@@ -120,6 +120,7 @@ namespace protal {
         // Advanced / benchmarking / build
         options.add_options("DevOptions")
                 ("mapq_debug_output", "Output mapq debug info to stderr")
+                ("whole_read_alignment", "Align each short read as a whole into its gene window, as protal did before it aligned from the anchor's exact matches (slower; the results differ in a few alignments). Long reads are always aligned as a whole.")
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
                 ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, the models model_*.xml) instead of packing them into database.protal.")
@@ -170,6 +171,7 @@ namespace protal {
         bool force = false;
         bool verbose = false;
         bool mapq_debug_out = false;
+        bool whole_read_alignment = false;
 
         // build
         std::vector<uint8_t> build_gene_mask;
@@ -263,6 +265,7 @@ namespace protal {
         bool m_verbose = false;
 
         bool m_mapq_debug_out = false;
+        bool m_whole_read_alignment = false;
 
         size_t m_current_index = 0;
 
@@ -391,6 +394,7 @@ namespace protal {
                 m_benchmark_alignment(d.benchmark_alignment),
                 m_benchmark_alignment_output(std::move(d.benchmark_alignment_output)),
                 m_mapq_debug_out(d.mapq_debug_out),
+                m_whole_read_alignment(d.whole_read_alignment),
                 m_fastalign(d.fastalign),
                 m_force(d.force),
                 m_verbose(d.verbose),
@@ -517,6 +521,7 @@ namespace protal {
             result_str << "max seed size:       " << std::to_string(m_max_seed_size) << '\n';
             result_str << "max score ani:       " << std::to_string(m_max_score_ani) << '\n';
             result_str << "x-drop:              " << std::to_string(m_x_drop) << '\n';
+            result_str << "short reads aligned: " << (m_whole_read_alignment ? "as a whole" : "from their anchors") << '\n';
             result_str << "fastalign:           " << std::to_string(m_fastalign) << '\n';
             result_str << "max out:             " << std::to_string(m_max_out) << '\n';
             result_str << "------ Strains ------" << std::string(30, '-') << '\n';
@@ -984,6 +989,11 @@ namespace protal {
 
         bool GetMAPQDebugOut() const {
             return m_mapq_debug_out;
+        }
+
+        // --whole_read_alignment: short reads aligned as a whole into their window, not from their anchors.
+        bool WholeReadAlignment() const {
+            return m_whole_read_alignment;
         }
 
         bool HasProfileTruths() const {
@@ -2012,6 +2022,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             }
             bool profile_only = result.count("profile_only");
             bool mapq_debug_output = result.count("mapq_debug_output");
+            bool whole_read_alignment = result.count("whole_read_alignment");
             bool force = result.count("force");
 
 
@@ -2162,6 +2173,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.show_map_help            = show_map_help;
             d.show_version             = show_version;
             d.mapq_debug_out           = mapq_debug_output;
+            d.whole_read_alignment     = whole_read_alignment;
             d.first_list               = std::move(first_list);
             d.second_list              = std::move(second_list);
             d.samplename_list          = std::move(samplenames_list);

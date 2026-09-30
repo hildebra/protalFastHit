@@ -400,6 +400,77 @@ pairs) the alignment loop 2.29 G → 1.93 G instructions. On CPUs without AVX2 t
 runs as before (1,392–1,513 ns before, 1,430–1,587 ns after, alternated). Unit tests 140/140, also
 under ASan/UBSan; e2e 85/85. Over the old window loop, k-mer extraction is now 4.4–4.7× faster.
 
+## Follow-up: anchored extension, implemented
+
+2026-09-30, on `performance` after `774240d`. `src/Alignment/AnchoredAlignment.h`: a short read is
+aligned from the exact matches (links) of its anchor chain. `SimpleAlignmentHandler::AlignAnchor`
+sets up the same window as before (the first link's diagonal, 9-base dovetails, up to 18 free
+reference bases at each end, free read bases where the read runs past the gene) and the same
+budget (`MaxScore`); the anchored aligner fills the window's operations piece by piece:
+
+- left of the first link, WFA on the reversed read and window, anchored at the link and free at the
+  window's start as far as the window allows;
+- right of the last link, forward, likewise;
+- between links, the bases in between (as many read as gene bases on one diagonal): ungapped with up
+  to 3 mismatches (then optimal: any gapped path needs an insertion and a deletion, 16), else WFA
+  end to end;
+- the links themselves as they are (N counts as a mismatch, as in WFA).
+
+The pieces share the budget (WFA completes an alignment only if its penalty is below the limit;
+tested), so an anchor on a relative's gene is given up on as soon as one flank exceeds it. The
+result covers the read and the window exactly as a whole-window alignment's operations do, free ends
+included, and goes through the same `PostProcessAlignment`, scoring and checks. Chains it does not
+handle go to the whole-window alignment: links on different diagonals (the seeds imply an indel),
+out of order, outside the window, or not exact but for Ns. Long reads are aligned as a whole as
+before. `--whole_read_alignment` aligns short reads as a whole too (reproducing `774240d`'s outputs
+byte for byte, checked). The `Alignment` stage timer is now also stopped on success.
+
+**Tests.** `tests/test_AnchoredAlignment.cpp` runs the real `AlignAnchor` both ways: a read inside
+its gene, reads running past either gene end (soft clips), gaps in both flanks, an N inside a link,
+several links on one diagonal with mismatches between them, a chain implying an indel (falls back),
+and 5,280 simulated anchors (up to 15% divergence, indels, Ns, overhangs, one or all exact runs on
+the diagonal): the same anchors align both ways, all 4,611 with the same score, 4,553 (98.7%) with
+the same CIGAR and position. Unit tests 147/147, also under ASan/UBSan; e2e 85/85 on a freshly
+built mini database.
+
+**200k pairs, 1 thread, against `774240d`:**
+
+| | `w900` | `mix` |
+|---|---:|---:|
+| anchors aligned anchored / as a whole | 403,647 / 6,894 | 55,326 / 332 |
+| SAM records identical | 175,189 of 176,146 (99.46%) | 8,838 of 8,902 (99.28%) |
+| other gene | 0 | 0 |
+| other CIGAR (of these, also at another position) | 733 (55) | 48 (3) |
+| of those, penalty the same / lower / higher | 732 / 1 / 0 | 47 / 1 / 0 |
+| other MAPQ (none by 10 or more) | 255 | 19 |
+| profile | same species, all abundances identical | same species, abundances up to 0.39% apart |
+
+By the aligner's penalty (mismatch 4, gap 6 + 2 per base), all but one of the other CIGARs are as
+good as before, and that one is better; none is worse. They choose another of several equally good
+alignments, mostly near the read's start, whose flank is aligned reversed: `13M1X9M3D127M` →
+`13M1X8M3D128M`, or `3M1I1X41M1X103M` → `2X2M1X41M1X103M` (penalty 16 each).
+
+Such ties need not be ties for the bitscore that ranks a read's candidates and sets MAPQ (match +2,
+mismatch −3, gap −1 − 2 per base; `Bitscore` in `AlignmentUtils.h`), which WFA optimises in neither
+mode: `3M1I1X...` scores 285, `2X2M1X...` 280. With `--mapq_debug_output`, of the 103,474 pairs of
+`w900` the best pair's bitscore changed for 55 (31 higher, 24 lower; all 24 lower ones have the same
+WFA penalty), the second best's for 153 (94 higher, 59 lower), and MAPQ for 146 (0.14%, none by 10
+or more); in `mix` 3 (all higher), 11 and 10 of 5,205 pairs. The profiler filters reads by MAPQ
+and identity, presumably how `mix`'s abundances moved. Outputs are the same at 1 and 8 threads.
+`scripts/anchored_compare.sh` makes these comparisons.
+
+**Speed.** Callgrind, 20k pairs, 1 thread, instructions `774240d` → anchored:
+
+| | `w900` | `mix` |
+|---|---:|---:|
+| WFA (`alignEndsFree`) | 4.22 G → 2.89 G (−32%) | 686 M → 461 M (−33%) |
+| alignment handler | 5.05 G → 3.99 G (−21%) | 942 M → 735 M (−22%) |
+| alignment loop (reading, seeding, alignment, output) | 6.89 G → 5.83 G (−15%) | 1.93 G → 1.72 G (−11%) |
+
+Wall clock, 200k pairs, 1 thread, three alternated runs each (noisy): the `Raw alignment` timer of
+`w900` 1.33–1.85 s → 1.01–1.23 s, of `mix` 0.26–0.32 s → 0.21–0.32 s; the whole stage varied more
+between runs than it changed.
+
 ## Reproducing
 
 The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, default
@@ -421,6 +492,8 @@ bash scripts/model_test.sh $PERF_DIR/db64 $PERF_DIR/reads/s64/reads
 # follow-ups: the reader alone, and two builds' alignment stage alternated
 bash scripts/bench_reader.sh $PERF_DIR/reads/mix/mix_R1.fq.gz $PERF_DIR/reads/mix/mix_R2.fq.gz 3
 bash scripts/ab_alignment.sh OLD/protal_avx2 NEW/protal_avx2 $PERF_DIR/db900 $PERF_DIR/reads/mix 8 5
+# anchored alignment against 774240d (a folder with 200k pairs of w900 or mix)
+bash scripts/anchored_compare.sh OLD/protal_avx2 NEW/protal_avx2 $PERF_DIR/db900 READS_200K
 ```
 
 The worlds: `~/audit4/gtdb64` is a 64-species `simulate_gtdb_release.py` release with 3 genomes

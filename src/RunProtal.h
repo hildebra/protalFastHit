@@ -307,6 +307,9 @@ namespace protal {
                 // AlignmentHandler approach
                 double const max_score_ani = options.GetMaxScoreAni(read_type);
                 SimpleAlignmentHandler alignment_handler(genomes, aligner, kmer_size, options.GetAlignTop(), max_score_ani, options.FastAlign());
+                // Short reads from their anchors' exact matches (AnchoredAligner); long reads, whose
+                // anchors and windows span whole genes, as a whole, as before.
+                alignment_handler.SetAnchoredAlignment(!IsLongReadType(read_type) && !options.WholeReadAlignment());
 
 
 
