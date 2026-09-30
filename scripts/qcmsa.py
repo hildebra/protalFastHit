@@ -14,12 +14,12 @@ The filter has two passes:
      non-zero value, so we fence the non-zero counts instead and additionally
      require at least --min-bad bad peers before anything is removed.
 
-  2. Site / sequence cleanup (M5 step 4b) -- optional second pass over the
-     surviving columns: drop near-constant (low-parsimony) variable sites,
-     optionally drop constant (invariant) sites (--discard-constant; kept by
-     default, as they inform branch-length estimation), optionally mask
-     individual cell outliers, and optionally re-apply the per-sequence
-     horizontal-coverage floor after gene removal.
+  2. Site / sequence cleanup (M5 step 4b) -- second pass over the surviving
+     columns: drop columns without any A/C/G/T, optionally drop constant sites
+     (--discard-constant) and low-parsimony variable sites
+     (--min-parsimony-samples), both off by default because a tree's branch
+     lengths need them; optionally mask individual cell outliers, and
+     re-apply the per-sequence horizontal-coverage floor after gene removal.
 
 Inputs match protal's output contract:
   <msa>        FASTA (plain or .gz) -- protal's <species>.raw.msa.fna
@@ -41,6 +41,10 @@ from collections import Counter, defaultdict
 
 # Characters treated as "missing" (no informative base) at an MSA position.
 MISSING = {"-", "N", "n", "."}
+# The unambiguous bases; the site cleanup judges columns on these alone.
+BASES = set("ACGTacgt")
+# What qcmsa writes next to <prefix>; removed first, so no output of an earlier run survives.
+OUTPUT_EXTENSIONS = (".msa.fna", ".partition.txt", ".qcmsa_summary.tsv", ".qc.png")
 
 # --preset -> (iqr_mult, min_bad). Tunes how aggressive the MRate2 fence is.
 PRESETS = {
@@ -436,24 +440,29 @@ def build_argparser():
     p.add_argument("--gene-min-mean-depth", type=float, default=1.0,
                    help="Min mean depth over covered positions for a cell to pass. "
                         "Default 1.0; 0 disables.")
-    p.add_argument("--gene-min-samples", type=int, default=3,
+    p.add_argument("--gene-min-samples", type=int, default=1,
                    help="Drop a gene unless MORE than this many samples pass coverage "
-                        "(strict >, like protal's old msa_min_samples). Default 3; 0 disables.")
+                        "(strict >, like protal's old msa_min_samples). Default 1: a gene "
+                        "needs 2 samples, as protal needs 2 samples for an MSA. 0 disables.")
     p.add_argument("--max-mrate2", type=float, default=None,
                    help="Hard per-cell MRate2 cap for the cell-outlier fence "
                         "(default: Tukey fence derived from the data)")
 
     # M5 step 4b -- site / sequence cleanup
     # Constant (invariant) sites are KEPT by default (they inform branch-length
-    # estimation). Pass --discard-constant to drop them.
+    # estimation). Pass --discard-constant to drop them. Both site tests judge the
+    # bases A/C/G/T only: an IUPAC code is ambiguous, as IQ-TREE reads it.
     p.add_argument("--discard-constant", dest="remove_constant",
                    action="store_true", default=False,
-                   help="Discard constant (invariant) sites (default: off; "
-                        "constant sites are kept)")
-    p.add_argument("--min-parsimony-samples", type=int, default=2,
-                   help="Drop variable sites where fewer than N samples differ from "
-                        "the majority base (default 2). Applies only to variable "
-                        "columns; constant sites are governed by --discard-constant.")
+                   help="Discard constant (invariant) sites: columns with at most one of "
+                        "A/C/G/T (default: off). A tree from such an MSA needs an "
+                        "ascertainment correction (IQ-TREE: +ASC).")
+    p.add_argument("--min-parsimony-samples", type=int, default=0,
+                   help="Drop variable sites where fewer than N samples (the reference "
+                        "row not counted) differ from the majority base (default 0: keep "
+                        "every site). A site where only one sample differs is a strain's "
+                        "own mutation: dropping those shortens terminal branches to near "
+                        "0, so use this for topology-only analyses.")
     p.add_argument("--reapply-hcov", type=int, default=0,
                    help="After gene/site removal, drop sequences with fewer than "
                         "this many valid (non -/N) bases (default 0 = disabled). "
@@ -494,6 +503,21 @@ def main(argv=None):
     if os.path.abspath(prefix + ".msa.fna") == os.path.abspath(args.msa):
         raise SystemExit("qcmsa.py: output would overwrite the input MSA; pass a "
                          "distinct --prefix (input should be <name>.raw.msa.fna).")
+    # Outputs of an earlier run must not stay behind as if this run had written them.
+    for ext in OUTPUT_EXTENSIONS:
+        if os.path.exists(prefix + ext):
+            os.remove(prefix + ext)
+
+    def stop(reason, counts=()):
+        """Write no MSA: say why on stderr and in the summary, and return 0."""
+        sys.stderr.write(f"qcmsa.py: {reason} - no MSA produced (skipping).\n")
+        if args.summary:
+            with open(prefix + ".qcmsa_summary.tsv", "w") as fh:
+                fh.write("section\tkey\tvalue\treason\n")
+                fh.write(f"status\tno_msa\t\t{reason}\n")
+                for key, value in counts:
+                    fh.write(f"count\t{key}\t{value}\t\n")
+        return 0
 
     # --- inputs ---
     partition, gene_display, part_base = parse_partition(
@@ -508,6 +532,10 @@ def main(argv=None):
     names, seqs = read_fasta(args.msa)
     if not names:
         raise SystemExit(f"qcmsa.py: empty MSA '{args.msa}'")
+    duplicates = sorted(n for n, c in Counter(names).items() if c > 1)
+    if duplicates:
+        raise SystemExit(f"qcmsa.py: '{args.msa}' names {len(duplicates)} sequence(s) more than once "
+                         f"({', '.join(duplicates[:5])}); give every sample its own #SAMPLEID")
     seq_of = dict(zip(names, seqs))
     sys.stderr.write(f"MSA loaded: {len(names)} sequences, {len(seqs[0])} bp\n")
 
@@ -583,13 +611,12 @@ def main(argv=None):
 
     # Degenerate MSA (e.g. only the reference survived protal's row filter): nothing
     # meaningful to filter. Warn and skip gracefully so batch/protal-driven runs continue.
+    progress = [("samples_in", len(all_samples)), ("samples_filtered", len(filtered_samples)),
+                ("genes_in", len(all_genes)), ("genes_filtered_coverage", len(cov_dropped_genes)),
+                ("genes_filtered_mrate2", len(mr_filtered_genes))]
     n_sample_seqs = sum(1 for n in kept_names if n in sample_set)
     if n_sample_seqs < 2:
-        sys.stderr.write(
-            f"qcmsa.py: only {n_sample_seqs} sample sequence(s) in '{args.msa}' "
-            "after filtering; nothing to filter - skipping.\n"
-        )
-        return 0
+        return stop(f"only {n_sample_seqs} sample sequence(s) left after the multi-allelic filter", progress)
 
     # --- surviving genes -> original column ranges (sorted by start) ---
     kept_partition = sorted(
@@ -597,8 +624,7 @@ def main(argv=None):
         key=lambda t: t[1],
     )
     if not kept_partition:
-        sys.stderr.write("qcmsa.py: all genes filtered - no MSA produced (skipping).\n")
-        return 0
+        return stop("every gene was filtered (coverage gate or multi-allelic filter)", progress)
 
     # Per surviving column: which gene it belongs to, and its original index.
     col_gene = []
@@ -642,44 +668,44 @@ def main(argv=None):
             )
         kept_names = [kept_names[i] for i in keep_idx]
         msa_rows = [msa_rows[i] for i in keep_idx]
+        n_sample_seqs = sum(1 for n in kept_names if n in sample_set)
+        if n_sample_seqs < 2:
+            return stop(f"only {n_sample_seqs} sample sequence(s) have {args.reapply_hcov} valid bases "
+                        "(--reapply-hcov)", progress)
 
-    # --- pass 2: site cleanup (constant / low-parsimony) ---
+    # --- pass 2: site cleanup (all-missing / constant / low-parsimony) ---
+    # Sites are judged on A/C/G/T: an IUPAC code is an ambiguity, as IQ-TREE reads it, so a
+    # column of A and R is constant and a column of only N, '-' and IUPAC codes holds no base.
+    # The parsimony count covers the sample rows only: the reference row is not a sample.
+    is_sample_row = [n in sample_set for n in kept_names]
     col_keep = [True] * n_cols
     site_removal_reason = Counter()  # reason -> n_sites, for the summary breakdown
-    if args.remove_constant or args.min_parsimony_samples > 0:
-        for j in range(n_cols):
-            counts = Counter()
-            for row in msa_rows:
-                ch = row[j]
-                if ch not in MISSING:
-                    counts[ch] += 1
-            total = sum(counts.values())
-            if total == 0:
-                col_keep[j] = False  # all-missing column: nothing to keep
-                site_removal_reason["all_missing"] += 1
-                continue
-            majority = max(counts.values())
-            minor = total - majority
-            distinct = len(counts)
-            if args.remove_constant and distinct <= 1:
-                col_keep[j] = False
-                site_removal_reason["constant"] += 1
-            elif distinct > 1 and minor < args.min_parsimony_samples:
-                # Only the low-parsimony (near-constant *variable*) filter here;
-                # the `distinct > 1` guard keeps it from also dropping constant
-                # columns (minor == 0) when constant sites are kept (the default),
-                # so constant retention is decoupled from --min-parsimony-samples.
+    for j in range(n_cols):
+        counts = Counter()
+        sample_counts = Counter()
+        for row, is_sample in zip(msa_rows, is_sample_row):
+            ch = row[j]
+            if ch in BASES:
+                ch = ch.upper()
+                counts[ch] += 1
+                if is_sample:
+                    sample_counts[ch] += 1
+        if not counts:
+            col_keep[j] = False
+            site_removal_reason["all_missing"] += 1
+        elif args.remove_constant and len(counts) <= 1:
+            col_keep[j] = False
+            site_removal_reason["constant"] += 1
+        elif args.min_parsimony_samples > 0 and len(sample_counts) > 1:
+            minor = sum(sample_counts.values()) - max(sample_counts.values())
+            if minor < args.min_parsimony_samples:
                 col_keep[j] = False
                 site_removal_reason["low_parsimony"] += 1
 
     surviving = [j for j in range(n_cols) if col_keep[j]]
     n_removed_sites = n_cols - len(surviving)
     if not surviving:
-        sys.stderr.write(
-            "qcmsa.py: all sites removed by cleanup - no MSA produced (skipping). "
-            "Consider --min-parsimony-samples 0 (constant sites are kept by default).\n"
-        )
-        return 0
+        return stop("every site was removed by the site cleanup", progress + [("sites_in", n_cols)])
 
     # Final sequences (column subset).
     final_seqs = ["".join(row[j] for j in surviving) for row in msa_rows]
@@ -726,6 +752,7 @@ def main(argv=None):
         summary_out = prefix + ".qcmsa_summary.tsv"
         with open(summary_out, "w") as fh:
             fh.write("section\tkey\tvalue\treason\n")
+            fh.write("status\tmsa\t\t\n")
             fh.write(f"param\tiqr_mult\t{iqr_mult}\t\n")
             fh.write(f"param\tmin_bad\t{min_bad}\t\n")
             fh.write(f"param\tpreset\t{args.preset or ''}\t\n")
@@ -743,9 +770,9 @@ def main(argv=None):
             fh.write(f"count\tsites_kept\t{len(surviving)}\t\n")
             fh.write(f"count\tsites_removed\t{n_removed_sites}\t\n")
             fh.write(f"count\tsites_removed_all_missing\t{site_removal_reason['all_missing']}"
-                     f"\tcolumn is 100% '-'/N/. (no informative base in any kept sequence)\n")
+                     f"\tno A/C/G/T in any kept sequence (only -, N or IUPAC codes)\n")
             fh.write(f"count\tsites_removed_constant\t{site_removal_reason['constant']}"
-                     f"\t--discard-constant: column has a single distinct base (no variation)\n")
+                     f"\t--discard-constant: at most one of A/C/G/T in the column\n")
             fh.write(f"count\tsites_removed_low_parsimony\t{site_removal_reason['low_parsimony']}"
                      f"\t--min-parsimony-samples {args.min_parsimony_samples}: "
                      f"fewer than that many samples differ from the majority base\n")

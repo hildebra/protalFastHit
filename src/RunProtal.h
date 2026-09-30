@@ -22,6 +22,7 @@
 #include <regex>
 #include <ranges>
 #include <unistd.h>
+#include <sys/wait.h>
 
 // #include "Profiler/ReadFilter.h"
 
@@ -1332,9 +1333,14 @@ namespace protal {
         // above. Forwarded verbatim (unquoted) -- they are a flag list, not a value.
         if (!options.GetQCMSAArgs().empty()) cmd << ' ' << options.GetQCMSAArgs();
         std::cerr << "[qcmsa] " << cmd.str() << std::endl;
-        int rc = std::system(cmd.str().c_str());
-        if (rc != 0) {
-            RunStatus::Get().Fail("qcmsa exited with code " + std::to_string(rc) + " for " + name +
+        int const status = std::system(cmd.str().c_str());
+        if (status != 0) {
+            // std::system returns a wait status: 512 means exit code 2.
+            std::string const how = status == -1 ? "could not be started"
+                                  : WIFEXITED(status) ? "exited with code " + std::to_string(WEXITSTATUS(status))
+                                  : WIFSIGNALED(status) ? "was killed by signal " + std::to_string(WTERMSIG(status))
+                                  : "failed (status " + std::to_string(status) + ")";
+            RunStatus::Get().Fail("qcmsa " + how + " for " + name +
                                   " (post-filter skipped; the raw MSA is still in " + msa + ")");
         } else if (!fs::exists(prefix + ".msa.fna")) {
             // Not an error (qcmsa may filter everything out), but no filtered MSA is not a success either.
@@ -1343,12 +1349,20 @@ namespace protal {
         }
     }
 
-    static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilterObj> const& filter={}) {
-        // An earlier run's MSA must not survive a run that writes none (qcmsa would filter it).
-        for (auto const& stale : { options.GetMSAOutput(taxon_name), options.GetMSAPartitionOutput(taxon_name) }) {
+    // Removes a species' strain outputs of an earlier run, so that none of them survives a run that
+    // writes it no more (e.g. an MSA qcmsa now filters away, or a species with fewer samples).
+    static void RemoveStrainOutputs(Options const& options, std::string const& name) {
+        std::string const prefix = options.GetStrainOutputDir() + '/' + name;
+        for (auto const& stale : { options.GetMSAOutput(name), options.GetMSAPartitionOutput(name),
+                                   options.GetMSAStatsOutput(name), options.GetSpeciesMetaOutput(name),
+                                   prefix + ".msa.fna", prefix + ".partition.txt",
+                                   prefix + ".qcmsa_summary.tsv", prefix + ".qc.png" }) {
             std::error_code ec;
             std::filesystem::remove(stale, ec);
         }
+    }
+
+    static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilterObj> const& filter={}) {
         auto min_hcov = options.GetMSAMinHCOV();
         auto min_qual_sum = options.GetSNPMinPhredSum();
         auto min_cov = options.GetSNPMinCov();
@@ -1679,12 +1693,22 @@ namespace protal {
 
         auto enable_similarity_matrix = false;
 
+        // The species of this run: strain outputs of other species in the directory are an earlier
+        // run's (protal leaves them alone, as the directory may be shared).
+        std::ostringstream species_list;
+        species_list << "species\ttaxid\tsamples\traw_msa\tfiltered_msa\n";
 
         for (auto& taxid : taxids) {
             std::cout << taxonomy.Get(taxid).scientific_name << std::endl;
 
             std::string name = taxonomy.Get(taxid).scientific_name;
             std::replace(name.begin(), name.end(), ' ', '_');
+            RemoveStrainOutputs(options, name);
+
+            size_t const samples = GetProfilesWithTaxon(taxid, profiles, options, filter).size();
+            if (samples == 0) {
+                std::cerr << "[strains] " << name << " (--msa_species) passes in no sample, so it has no MSA" << std::endl;
+            }
 
             if (enable_similarity_matrix) {
                 auto similarities = GetSimilarityMatrixForTaxon(taxid, options, profiles, filter);
@@ -1701,8 +1725,19 @@ namespace protal {
             if (options.GetRunQCMSA()) {
                 RunQCMSA(options, name);
             }
-//            Utils::Input();
+            // File names: the MSAs are next to the list.
+            auto written = [](std::string const& path) {
+                return std::filesystem::exists(path) ? std::filesystem::path(path).filename().string() : std::string("-");
+            };
+            species_list << name << '\t' << taxid << '\t' << samples << '\t'
+                         << written(options.GetMSAOutput(name)) << '\t'
+                         << written(options.GetStrainOutputDir() + '/' + name + ".msa.fna") << '\n';
         }
+
+        std::ofstream os_list(options.GetStrainSpeciesListOutput(), std::ios::out);
+        os_list << species_list.str();
+        os_list.close();
+        if (os_list.fail()) RunStatus::Get().Fail("Writing the list of strain species failed: " + options.GetStrainSpeciesListOutput());
         bm_strain.Stop();
         bm_strain.PrintResults();
     }

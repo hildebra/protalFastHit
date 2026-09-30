@@ -962,6 +962,11 @@ namespace protal {
             return m_strain_output_dir + '/' + species_name + ".snp_stats.tsv";
         }
 
+        // The species this run wrote strain outputs for, with their MSA files.
+        std::string GetStrainSpeciesListOutput() const {
+            return m_strain_output_dir + "/species.tsv";
+        }
+
         std::string GetBenchmarkAlignmentOutputFile() const {
             return m_benchmark_alignment_output;
         }
@@ -1702,6 +1707,26 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             };
             no_shared_files(m_sam_list, "SAM");
             no_shared_files(m_profile_list, "profile");
+
+            // Sample IDs name the rows of the strain MSAs: qcmsa matches rows to .meta.tsv by name,
+            // and IQ-TREE cuts a name at its first space.
+            if (!m_build && !m_no_profile && !m_no_strains) {
+                std::map<std::string, size_t> seen;
+                for (size_t i = 0; i < m_sampleid_list.size(); i++) {
+                    auto const& id = m_sampleid_list[i];
+                    if (std::any_of(id.begin(), id.end(), [](unsigned char c) { return std::isspace(c); })) {
+                        error_log.emplace_back("sample ID '" + id + "' (sample " + std::to_string(i + 1) +
+                                               ") contains whitespace, which the strain MSAs cannot hold; rename it "
+                                               "(#SAMPLEID in a map) or pass --no_strains");
+                    }
+                    auto [it, fresh] = seen.emplace(id, i);
+                    if (!fresh) {
+                        error_log.emplace_back("samples " + std::to_string(it->second + 1) + " and " + std::to_string(i + 1) +
+                                               " share the sample ID '" + id + "', so their strain MSA rows would be "
+                                               "confused; give each its own (#SAMPLEID in a map) or pass --no_strains");
+                    }
+                }
+            }
 
             // Check files
             for (auto i = 0; i < m_first_list.size(); i++) {

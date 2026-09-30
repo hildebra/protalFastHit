@@ -16,14 +16,22 @@ For one species, qcmsa reads three files from the strain output directory:
 | `<species>.raw.partition.txt` | gene to column ranges (RAxML style, 1-based) |
 | `<species>.meta.tsv` | per-(sample, gene) coverage and multi-allelicity metrics, the filter's evidence |
 
+The first row of protal's MSA, `<species>_reference`, is the database's genome of the species.
+qcmsa keeps it and does not treat it as a sample: it is not in `.meta.tsv`, the sequence floor
+does not apply to it, and it does not count towards `--min-parsimony-samples`. IQ-TREE sees it as
+one more leaf; in the 2026-09-29 strain audit it neither helped nor hurt the trees.
+
 It writes (the prefix defaults to `<species>`, the input path without `.raw.msa.fna`):
 
 | Output | What it is |
 |---|---|
 | `<prefix>.msa.fna` | the filtered MSA, the one to use downstream |
 | `<prefix>.partition.txt` | the partition with recomputed coordinates |
-| `<prefix>.qcmsa_summary.tsv` | machine-readable decision log: what was removed and why (`--no-summary` skips it) |
+| `<prefix>.qcmsa_summary.tsv` | machine-readable decision log: what was removed and why (`--no-summary` skips it); when no MSA is left, its `status` line says why |
 | `<prefix>.qc.png` | optional MRate2 heatmap (`--plot`, needs matplotlib) |
+
+qcmsa first removes these outputs of an earlier run, so none of them outlives a run that writes it
+no more. It stops with an error if the MSA names a sequence twice.
 
 ## What it filters, in order
 
@@ -32,8 +40,10 @@ It writes (the prefix defaults to `<species>`, the input path without `.raw.msa.
    and sample, so this is the only place these thresholds exist.
 2. Multi-allelicity (MRate2) filter: removes genes and samples that are multi-allelicity outliers
    by an iterative Tukey-IQR rule, and masks single outlier cells.
-3. Site cleanup: drops uninformative variable sites (and, if asked, constant sites).
-4. Sequence floor (`--reapply-hcov`): drops whole sequences with too few valid bases.
+3. Sequence floor (`--reapply-hcov`): drops whole sequences with too few valid bases in the genes
+   left.
+4. Site cleanup: drops columns without any A/C/G/T and, if asked, constant sites and
+   low-parsimony sites. It judges A/C/G/T only: an IUPAC code is an ambiguity, as IQ-TREE reads it.
 
 ## Parameters
 
@@ -58,14 +68,14 @@ Explicit `--iqr-mult` or `--min-bad` override the preset.
 |---|---|---|
 | `--gene-min-hcov FLOAT` | 0.3 | minimum fraction of a gene covered for a cell to pass; 0 disables |
 | `--gene-min-mean-depth FLOAT` | 1.0 | minimum mean depth over covered positions; 0 disables |
-| `--gene-min-samples INT` | 3 | drop a gene unless more than this many samples pass coverage; 0 disables. Only samples in the MSA count |
+| `--gene-min-samples INT` | 1 | drop a gene unless more than this many samples pass coverage, so by default a gene needs 2 (as protal needs 2 samples for an MSA); 0 disables. Only samples in the MSA count |
 
 ### Sites and sequences
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--min-parsimony-samples INT` | 2 | drop variable sites where fewer than N samples differ from the majority; 0 keeps all variable sites |
-| `--discard-constant` | off | drop constant sites (kept by default: they inform branch lengths) |
+| `--min-parsimony-samples INT` | 0 (off) | drop variable sites where fewer than N samples (not counting the reference row) differ from the majority. A site where one sample differs is that strain's own mutation: with 2, terminal branches shrink to 0–9% of their length (2026-09-29 strain audit), so use it for topology only |
+| `--discard-constant` | off | drop constant sites (at most one of A/C/G/T). A tree then needs an ascertainment correction (IQ-TREE `+ASC`, e.g. `just strain-trees strain_iqtree_model=GTR+G+ASC`); without it, branch lengths come out tens of times too long |
 | `--reapply-hcov INT` | 0 (off) | drop sequences with fewer than N valid (non-gap, non-N) bases; protal passes its `--msa_min_hcov` (default 1000) |
 | `--partition-base auto\|0\|1` | auto | coordinate base of the input partition; auto detects it (protal before this version wrote 0-based files) |
 
@@ -94,7 +104,7 @@ qcmsa out/strains/s__Bacteroides_ovatus.raw.msa.fna \
       out/strains/s__Bacteroides_ovatus.raw.partition.txt \
       out/strains/s__Bacteroides_ovatus.meta.tsv \
       --prefix out/refiltered/s__Bacteroides_ovatus \
-      --preset sensitive --gene-min-hcov 0.3 --gene-min-mean-depth 1 --gene-min-samples 3
+      --preset sensitive --gene-min-hcov 0.3 --gene-min-mean-depth 1 --gene-min-samples 2
 ```
 
 The `.qcmsa_summary.tsv` says what was removed (`genes_filtered_coverage`,
@@ -105,13 +115,24 @@ For all species of a run at once, `just strain-refilter` (see the [justfile](../
 [testing.md](testing.md#strain-test-harness)) loops over a run's raw MSAs:
 
 ```bash
-just strain_variant=test2 strain-refilter refilter_hcov=0.3 refilter_depth=1 refilter_min_samples=3 preset=sensitive
+just strain_variant=test2 strain-refilter refilter_hcov=0.3 refilter_depth=1 refilter_min_samples=2 preset=sensitive
 ```
+
+## Building trees
+
+protal lists the species of each run in `<strain output dir>/species.tsv`: species, taxid, the
+samples admitted, and the file names of the raw and filtered MSAs (`-` for none). Outputs of other
+species in the directory are an earlier run's.
+`just strain-trees` builds an IQ-TREE tree for each species in that list (`strain_tree_input=raw`
+uses the raw MSAs), with `GTR+G` (`strain_iqtree_model`), 1000 ultrafast bootstraps and a fixed
+seed (`strain_iqtree_seed`). It skips MSAs with fewer than 4 sequences, the reference row included.
+Partitioned trees (`-p <prefix>.partition.txt`) came out the same as unpartitioned ones in the
+2026-09-29 strain audit, at several times the run time.
 
 ## Picking values
 
 - Too much removed, strains collapse: loosen with `--preset sensitive` (higher `--iqr-mult`, higher
-  `--min-bad`), lower or disable the coverage gate, and set `--min-parsimony-samples 0`.
+  `--min-bad`), or lower or disable the coverage gate.
 - Contamination or mixed strains slip through: tighten with `--preset strict`, or add
   `--sample-abs-min-bad 1`.
 - Your own filtering downstream: run protal with `--no_qcmsa` and filter the `.raw.msa.fna` with

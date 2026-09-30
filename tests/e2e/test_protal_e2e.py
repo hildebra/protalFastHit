@@ -570,6 +570,63 @@ class QcmsaContractTest(WorkDir):
         self.assertEqual(rc, 0, log)
         self.assertTrue(os.path.exists(self.path("one.msa.fna")), log)
 
+    def write_species(self, name, rows):
+        """An MSA of one 8-column gene (rows: [(name, sequence)]) with meta rows for its samples."""
+        with open(self.path(name + ".raw.msa.fna"), "w") as fh:
+            fh.writelines(f">{n}\n{s}\n" for n, s in rows)
+        with open(self.path(name + ".raw.partition.txt"), "w") as fh:
+            fh.write("DNA, gene1 = 1-8\n")
+        with open(self.path(name + ".meta.tsv"), "w") as fh:
+            fh.write(self.META_HEADER)
+            for sample, _ in rows[1:]:
+                fh.write(f"{sample}\t1\t5\t8\t8\t0\t0\t0\t0\t0\t0\t5\t1\t8\t5\t5\n")
+        return [QCMSA, self.path(name + ".raw.msa.fna"), self.path(name + ".raw.partition.txt"),
+                self.path(name + ".meta.tsv")]
+
+    def read_msa(self, path):
+        with open(path) as fh:
+            lines = fh.read().split()
+        return dict(zip((n[1:] for n in lines[0::2]), lines[1::2]))
+
+    def test_site_cleanup(self):
+        # Columns: 1 constant; 2 only s1 differs (s1's own mutation); 3 only the reference differs;
+        # 4 A and R (an ambiguity, so constant); 5 an insertion column with only N, '-' and IUPAC
+        # codes; 6 s1 and s2 differ; 7 and 8 constant.
+        args = self.write_species("y", [("y_reference", "AAGA-AAA"), ("s1", "ACAA-CAA"), ("s2", "AAARNCAA"),
+                                        ("s3", "AAAA-AAA"), ("s4", "AAAAYAAA")])
+        rc, log = run(self.work, *args, "--prefix", self.path("default"), binary="python3")
+        self.assertEqual(rc, 0, log)
+        msa = self.read_msa(self.path("default.msa.fna"))
+        self.assertEqual(msa["s1"], "ACAACAA", "every column but the one without a base; singletons kept")
+        self.assertEqual(msa["y_reference"], "AAGAAAA")
+
+        rc, log = run(self.work, *args, "--prefix", self.path("parsimony"), "--min-parsimony-samples", "2", binary="python3")
+        self.assertEqual(rc, 0, log)
+        # Column 2 (one sample differs) goes; column 3 stays: the reference row is not a sample.
+        self.assertEqual(self.read_msa(self.path("parsimony.msa.fna"))["s1"], "AAACAA")
+
+        rc, log = run(self.work, *args, "--prefix", self.path("variable"), "--discard-constant", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertEqual(self.read_msa(self.path("variable.msa.fna"))["s1"], "CAC", "A and R count as constant")
+
+    def test_duplicate_names_stop_qcmsa(self):
+        args = self.write_species("z", [("z_reference", "AAAAAAAA"), ("s1", "ACAAACAA"), ("s1", "AAAAAAAA")])
+        rc, log = run(self.work, *args, "--prefix", self.path("dup"), binary="python3")
+        self.assertNotEqual(rc, 0, log)
+        self.assertIn("names 1 sequence(s) more than once (s1)", log)
+
+    def test_no_msa_leaves_no_stale_output(self):
+        args = self.write_species("w", [("w_reference", "AAAAAAAA"), ("s1", "ACAAACAA"), ("s2", "AAAAAAAA")])
+        rc, log = run(self.work, *args, "--prefix", self.path("w"), binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertTrue(os.path.exists(self.path("w.msa.fna")), log)
+        rc, log = run(self.work, *args, "--prefix", self.path("w"), "--gene-min-samples", "5", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertFalse(os.path.exists(self.path("w.msa.fna")), "an earlier run's MSA is removed")
+        self.assertFalse(os.path.exists(self.path("w.partition.txt")))
+        with open(self.path("w.qcmsa_summary.tsv")) as fh:
+            self.assertIn("status\tno_msa\t\tevery gene was filtered", fh.read())
+
 
 class MapUtilsTest(WorkDir):
     """protal_map_utils resolves relative map paths as protal does."""
@@ -1239,13 +1296,33 @@ class QcmsaTest(WorkDir):
         self.assertEqual(filtered, [])
 
     def test_filtered_msa(self):
-        # qcmsa keeps a gene only if MORE than --gene-min-samples samples pass (default 3), which
-        # three samples never do; relax it to exercise the output path.
-        rc, log = run(self.work, "--db", DB, *reads("sa", "sb", "sr"), "-o", "out", "-t", "4",
-                      "--qcmsa_script", QCMSA, "--qcmsa_args", "--gene-min-samples 1")
+        # With its defaults, qcmsa filters an MSA of three samples (a gene needs two).
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb", "sr"), "-o", "out", "-t", "4", "--qcmsa_script", QCMSA)
         self.assertEqual(rc, 0, log[-3000:])
         filtered = [f for f in glob.glob(self.path("out", "strains", "*.msa.fna")) if not f.endswith(".raw.msa.fna")]
         self.assertTrue(filtered, "qcmsa wrote filtered MSAs")
+        with open(self.path("out", "strains", "species.tsv")) as fh:
+            listed = [line.rstrip("\n").split("\t") for line in fh][1:]
+        self.assertEqual(sorted(row[4] for row in listed if row[4] != "-"), sorted(os.path.basename(f) for f in filtered))
+
+        # A rerun in which qcmsa keeps nothing leaves no filtered MSA of the first run behind.
+        rc, log = run(self.work, "--db", DB, *reads("sa", "sb", "sr"), "-o", "out", "-t", "4",
+                      "--qcmsa_script", QCMSA, "--qcmsa_args", "--gene-min-samples 100")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertFalse([f for f in filtered if os.path.exists(f)], "stale filtered MSAs")
+        with open(self.path("out", "strains", "species.tsv")) as fh:
+            self.assertTrue(all(line.rstrip("\n").split("\t")[4] == "-" for line in list(fh)[1:]))
+
+    def test_sample_ids_must_be_unique(self):
+        sample_map = self.path("dup.map")
+        with open(sample_map, "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{self.path('out_dup')}\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\n")
+            fh.write(f"same\tsa\t{READS}/sa_R1.fq\t{READS}/sa_R2.fq\n")
+            fh.write(f"same\tsb\t{READS}/sb_R1.fq\t{READS}/sb_R2.fq\n")
+        rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "1", "--no_qcmsa")
+        self.assertNotEqual(rc, 0, log[-3000:])
+        self.assertIn("share the sample ID 'same'", log)
+        self.assertFalse(glob.glob(self.path("out_dup", "**", "*.sam*"), recursive=True))
 
 
 class SingleEndTest(WorkDir):

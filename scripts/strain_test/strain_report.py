@@ -26,16 +26,28 @@ from collections import defaultdict
 # ----------------------------------------------------------------------------
 # Input readers
 # ----------------------------------------------------------------------------
+def reference_name(path):
+    """The name of the reference row in a species' strain file: <species>_reference, with the
+    species taken from the file name (<species>.raw.msa.fna, <species>.snp_stats.tsv, ...)."""
+    name = os.path.basename(path)
+    for suffix in (".raw.msa.fna", ".msa.fna", ".snp_stats.tsv", ".meta.tsv"):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    return name + "_reference"
+
+
 def count_fasta_seqs(path):
-    """Return (total_seqs, sample_seqs). Names containing 'reference' are refs."""
+    """Return (total_seqs, sample_seqs); the <species>_reference row is not a sample."""
     if not os.path.exists(path):
         return None, None
     total, refs = 0, 0
+    ref = reference_name(path)
     with open(path) as fh:
         for line in fh:
             if line.startswith(">"):
                 total += 1
-                if "reference" in line.lower():
+                if line[1:].strip() == ref:
                     refs += 1
     return total, total - refs
 
@@ -91,8 +103,9 @@ def aggregate_snp_stats(path):
         return None, 0
     agg = defaultdict(float)
     n = 0
+    ref = reference_name(path)
     for r in read_tsv(path):
-        if "reference" in r.get("sample", "").lower():
+        if r.get("sample", "") == ref:
             continue
         n += 1
         for col, _ in SNP_FIELDS + POS_FIELDS + [("total_variant_positions", "")]:
