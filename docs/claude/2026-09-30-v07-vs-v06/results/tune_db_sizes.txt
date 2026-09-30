@@ -1,0 +1,36 @@
+392009355	/home/falk/bench07/tune/db07
+3799408615	/home/falk/bench07/tune/db07raw
+3819851517	/home/falk/bench07/tune/db06
+/home/falk/bench07/tune/db06:
+total 3730356
+-rw-r--r-- 1 falk falk  284861169 Sep 30 18:46 full_reference.fna
+-rw-r--r-- 1 falk falk       2260 Sep 30 18:46 gene2geneid.tsv
+-rw-r--r-- 1 falk falk     329628 Sep 30 18:46 genome2tiid.tsv
+-rw-r--r-- 1 falk falk 3422810148 Sep 30 18:48 index.prx
+-rw-r--r-- 1 falk falk      65884 Sep 30 18:46 internal_taxonomy.dmp
+-rw-r--r-- 1 falk falk   10626218 Sep 30 18:46 model.xml
+-rw-r--r-- 1 falk falk   95021506 Sep 30 18:46 reference.fna
+-rw-r--r-- 1 falk falk    2114209 Sep 30 18:46 reference.map
+-rw-r--r-- 1 falk falk    4020495 Sep 30 18:48 unique_kmers.tsv
+
+/home/falk/bench07/tune/db07:
+total 382836
+-rw-r--r-- 1 falk falk 106816298 Sep 30 18:49 database.protal
+-rw-r--r-- 1 falk falk 284861169 Sep 30 18:46 full_reference.fna
+-rw-r--r-- 1 falk falk      2260 Sep 30 18:46 gene2geneid.tsv
+-rw-r--r-- 1 falk falk    329628 Sep 30 18:46 genome2tiid.tsv
+
+/home/falk/bench07/tune/db07raw:
+total 3710388
+-rw-r--r-- 1 falk falk  284861169 Sep 30 18:46 full_reference.fna
+-rw-r--r-- 1 falk falk       2260 Sep 30 18:46 gene2geneid.tsv
+-rw-r--r-- 1 falk falk     329628 Sep 30 18:46 genome2tiid.tsv
+-rw-r--r-- 1 falk falk 3402394224 Sep 30 18:48 index.prx
+-rw-r--r-- 1 falk falk      65884 Sep 30 18:46 internal_taxonomy.dmp
+-rw-r--r-- 1 falk falk   10626218 Sep 30 18:46 model_pe.xml
+-rw-r--r-- 1 falk falk   95021506 Sep 30 18:46 reference.fna
+-rw-r--r-- 1 falk falk    2114209 Sep 30 18:46 reference.map
+-rw-r--r-- 1 falk falk    3993517 Sep 30 18:48 unique_kmers.tsv
+3799408615	/home/falk/bench07/tune/build07raw_t1
+3819851517	/home/falk/bench07/tune/build06_t1
+414430635	/home/falk/bench07/tune/build07_l3

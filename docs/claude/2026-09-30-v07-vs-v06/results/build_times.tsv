@@ -1,0 +1,16 @@
+deep5m.simulate	User time (seconds): 167.65	System time (seconds): 19.17	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:21.08	Maximum resident set size (kbytes): 58980	
+strainw.build06	User time (seconds): 2.82	System time (seconds): 3.39	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:06.55	Maximum resident set size (kbytes): 3154512	
+strainw.build07	User time (seconds): 15.17	System time (seconds): 5.95	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:08.04	Maximum resident set size (kbytes): 3709072	
+strainw.build07raw	User time (seconds): 2.91	System time (seconds): 2.03	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:02.25	Maximum resident set size (kbytes): 3191124	
+strainw.convert	User time (seconds): 0.19	System time (seconds): 0.18	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.18	Maximum resident set size (kbytes): 16844	
+tune.add_model_ont	User time (seconds): 0.37	System time (seconds): 0.18	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.67	Maximum resident set size (kbytes): 134432	
+tune.add_model_pb	User time (seconds): 0.41	System time (seconds): 0.17	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.67	Maximum resident set size (kbytes): 117468	
+tune.add_model_pe	User time (seconds): 1.10	System time (seconds): 0.37	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:01.43	Maximum resident set size (kbytes): 142988	
+tune.add_model_se	User time (seconds): 1.18	System time (seconds): 0.21	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:01.50	Maximum resident set size (kbytes): 144072	
+tune.build06	User time (seconds): 73.33	System time (seconds): 5.14	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:40.29	Maximum resident set size (kbytes): 3469180	
+tune.build06_t1	User time (seconds): 27.08	System time (seconds): 3.82	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:30.98	Maximum resident set size (kbytes): 3469016	
+tune.build07	User time (seconds): 171.39	System time (seconds): 9.13	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:41.18	Maximum resident set size (kbytes): 4881504	
+tune.build07_l3	User time (seconds): 17.89	System time (seconds): 3.19	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:04.92	Maximum resident set size (kbytes): 4353072	
+tune.build07raw	User time (seconds): 20.41	System time (seconds): 7.49	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:13.11	Maximum resident set size (kbytes): 3648180	
+tune.build07raw_t1	User time (seconds): 11.01	System time (seconds): 2.64	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:13.69	Maximum resident set size (kbytes): 3479604	
+tune.convert	User time (seconds): 1.46	System time (seconds): 1.31	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:02.00	Maximum resident set size (kbytes): 36432	
