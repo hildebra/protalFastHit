@@ -587,8 +587,9 @@ def main():
         if args.test_samples > 0 and os.path.isfile(os.path.join(test, TABLES[t])):
             command += ["--test-file", os.path.join(test, TABLES[t])]
         trainers[t] = Background(command, os.path.join(args.outdir, "classifier_training" + ("" if t == "pe" else "_" + t) + ".log"))
-    for t, job in trainers.items():
-        print(f"Trained the {t} model in {job.finish():.0f} s", flush=True)
+    seconds = max(job.finish() for job in trainers.values())
+    print(f"Trained the {', '.join(read_types)} model{'s' if len(read_types) > 1 else ''} in parallel in {seconds:.0f} s",
+          flush=True)
     # protal must score as the trainer does, and compute the features as it did during collection.
     for t in read_types:
         run([sys.executable, PARITY, "--db", training_db, "--model", prefixes[t] + ".xml", "--training", training,
