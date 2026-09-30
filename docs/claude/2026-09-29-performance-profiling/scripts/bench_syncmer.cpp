@@ -127,6 +127,89 @@ public:
     }
 };
 
+#ifdef __AVX2__
+#include <immintrin.h>
+// As BranchFreeSyncmers, 8 windows at a time: a scalar pass stores the s-mers and each window's
+// cores and k-mers, then AVX2 takes the minima of 8 windows per step.
+class Avx2Syncmers {
+    static constexpr int k = 31, s = 7, count = 9, t = 2, core = 8;
+    static constexpr uint64_t kmask = (uint64_t{1} << (2 * k)) - 1, cmask = (uint64_t{1} << 30) - 1;
+    std::array<uint8_t, 256> m_fwd{}, m_rev{};
+    std::vector<uint32_t> m_f7, m_r7, m_cf, m_cr;
+    std::vector<uint64_t> m_kf, m_kr;
+    uint32_t m_smask;
+
+public:
+    explicit Avx2Syncmers(bool full_smer_mask) : m_smask(ClosedSyncmer::SmerMask(s, full_smer_mask)) {
+        for (int c = 0; c < 256; c++) {
+            m_fwd[c] = static_cast<uint8_t>(KmerUtils::BaseToInt(static_cast<char>(c), 0));
+            m_rev[c] = static_cast<uint8_t>(KmerUtils::BaseToIntC(static_cast<char>(c), 0));
+        }
+    }
+
+    void operator()(std::string_view seq, KmerList& list) {
+        list.clear();
+        size_t const n = seq.size();
+        if (n < static_cast<size_t>(k)) return;
+        size_t const windows = n - k + 1;
+        m_f7.resize(n - s + 1); m_r7.resize(n - s + 1);
+        m_cf.resize(windows); m_cr.resize(windows); m_kf.resize(windows); m_kr.resize(windows);
+        uint32_t f = 0, r = 0;
+        uint64_t kf = 0, kr = 0;
+        for (size_t i = 0; i < n; i++) {
+            auto const c = static_cast<unsigned char>(seq[i]);
+            f = ((f << 2) | m_fwd[c]) & 0x3FFF;
+            r = (r >> 2) | (uint32_t{m_rev[c]} << 12);
+            kf = ((kf << 2) | m_fwd[c]) & kmask;
+            kr = (kr >> 2) | (uint64_t{m_rev[c]} << (2 * (k - 1)));
+            if (i + 1 >= static_cast<size_t>(s)) {
+                m_f7[i + 1 - s] = (f & m_smask) << 4;
+                m_r7[i + 1 - s] = (r & m_smask) << 4;
+            }
+            if (i + 1 >= static_cast<size_t>(k)) {
+                size_t const p = i + 1 - k;
+                m_kf[p] = kf; m_kr[p] = kr;
+                m_cf[p] = static_cast<uint32_t>((kf >> 16) & cmask);
+                m_cr[p] = static_cast<uint32_t>((kr >> 16) & cmask);
+            }
+        }
+        __m256i const t1 = _mm256_set1_epi32(t), t2 = _mm256_set1_epi32(count - 1 - t), low = _mm256_set1_epi32(0xF);
+        size_t p = 0;
+        for (; p + 8 <= windows; p += 8) {
+            __m256i fmin = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_f7[p + core]));
+            __m256i rmin = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_r7[p + core + count - 1]));
+            for (int j = 1; j < count; j++) {
+                __m256i const idx = _mm256_set1_epi32(j);
+                fmin = _mm256_min_epu32(fmin, _mm256_or_si256(_mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_f7[p + core + j])), idx));
+                rmin = _mm256_min_epu32(rmin, _mm256_or_si256(_mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_r7[p + core + count - 1 - j])), idx));
+            }
+            __m256i const cf = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_cf[p]));
+            __m256i const cr = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(&m_cr[p]));
+            __m256i const forward = _mm256_cmpgt_epi32(cr, cf);           // core_f < core_r
+            __m256i const first = _mm256_and_si256(_mm256_blendv_epi8(rmin, fmin, forward), low);
+            __m256i const hit = _mm256_or_si256(_mm256_cmpeq_epi32(first, t1), _mm256_cmpeq_epi32(first, t2));
+            unsigned bits = static_cast<unsigned>(_mm256_movemask_ps(_mm256_castsi256_ps(hit)));
+            unsigned const fbits = static_cast<unsigned>(_mm256_movemask_ps(_mm256_castsi256_ps(forward)));
+            while (bits) {
+                unsigned const l = static_cast<unsigned>(__builtin_ctz(bits));
+                list.emplace_back((fbits >> l) & 1 ? m_kf[p + l] : m_kr[p + l], p + l);
+                bits &= bits - 1;
+            }
+        }
+        for (; p < windows; p++) {  // the last < 8 windows
+            uint32_t fmin = m_f7[p + core], rmin = m_r7[p + core + count - 1];
+            for (uint32_t j = 1; j < count; j++) {
+                fmin = std::min(fmin, m_f7[p + core + j] | j);
+                rmin = std::min(rmin, m_r7[p + core + count - 1 - j] | j);
+            }
+            bool const fw = m_cf[p] < m_cr[p];
+            uint32_t const first = (fw ? fmin : rmin) & 0xF;
+            if (first == t || first == count - 1 - t) list.emplace_back(fw ? m_kf[p] : m_kr[p], p);
+        }
+    }
+};
+#endif
+
 int main(int argc, char** argv) {
     std::vector<std::string> reads;
     for (int a = 1; a < argc; a++) {
@@ -142,22 +225,35 @@ int main(int argc, char** argv) {
     BranchFreeSyncmers branchfree{true};
     KmerList a, b, c;
 
+    // "window": the window-by-window definition; "handler": SimpleKmerHandler as built (the scan
+    // where the source has it); "avx2": 8 windows at a time.
+    auto window = [&current](std::string_view seq, KmerList& list) { current.WindowByWindow(seq, list); };
+#ifdef __AVX2__
+    Avx2Syncmers avx2{true};
+    KmerList d;
+#endif
+
     // Equality, read by read (and the reads reversed-complemented, and with Ns).
-    size_t mismatched = 0, mismatched_bf = 0, total = 0;
+    size_t mismatched = 0, mismatched_bf = 0, mismatched_avx2 = 0, total = 0;
     for (auto const& read : reads) {
         for (int variant = 0; variant < 3; variant++) {
             std::string seq = read;
             if (variant == 1) seq = KmerUtils::ReverseComplement(seq);
             if (variant == 2) for (size_t i = 0; i < seq.size(); i += 37) seq[i] = 'N';
-            current(std::string_view(seq), a);
-            fast(std::string_view(seq), b);
+            window(std::string_view(seq), a);
+            current(std::string_view(seq), b);
             branchfree(std::string_view(seq), c);
             mismatched += a != b;
             mismatched_bf += a != c;
+#ifdef __AVX2__
+            avx2(std::string_view(seq), d);
+            mismatched_avx2 += a != d;
+#endif
             total += a.size();
         }
     }
-    std::printf("syncmers %zu, reads with different lists: fast %zu, branch-free %zu\n", total, mismatched, mismatched_bf);
+    std::printf("syncmers %zu, reads with lists other than the definition's: handler %zu, branch-free %zu, avx2 %zu\n",
+                total, mismatched, mismatched_bf, mismatched_avx2);
 
     auto time = [&](auto& handler, KmerList& list) {
         size_t sum = 0;
@@ -166,10 +262,31 @@ int main(int argc, char** argv) {
         return std::pair{ std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(), sum };
     };
     for (int rep = 0; rep < 3; rep++) {
-        auto [cur, s1] = time(current, a);
-        auto [fst, s2] = time(fast, b);
+        auto [win, s1] = time(window, a);
+        auto [cur, s2] = time(current, b);
         auto [bf, s3] = time(branchfree, c);
-        std::printf("ns/read: current %.0f, fast %.0f (%.1fx), branch-free %.0f (%.1fx)  [%zu %zu %zu]\n",
-                    1e9 * cur / reads.size(), 1e9 * fst / reads.size(), cur / fst, 1e9 * bf / reads.size(), cur / bf, s1, s2, s3);
+        double av = 0; size_t s4 = 0;
+#ifdef __AVX2__
+        std::tie(av, s4) = time(avx2, d);
+#endif
+        std::printf("ns/read: window %.0f, handler %.0f (%.1fx), branch-free %.0f (%.1fx), avx2 %.0f (%.1fx)  [%zu %zu %zu %zu]\n",
+                    1e9 * win / reads.size(), 1e9 * cur / reads.size(), win / cur, 1e9 * bf / reads.size(), win / bf,
+                    1e9 * av / reads.size(), av > 0 ? win / av : 0.0, s1, s2, s3, s4);
     }
+#ifdef HAVE_USE_AVX2
+    // The handler's own evaluations: one by one, and 8 at a time with AVX2 (runtime dispatch).
+    SimpleKmerHandler<ClosedSyncmer> scalar{31, 15, minimizer}, vector{31, 15, minimizer};
+    scalar.UseAvx2(false);
+    std::printf("handler uses AVX2 by default: %d\n", vector.UsesAvx2());
+    size_t diff = 0;
+    for (auto const& read : reads) { scalar(std::string_view(read), a); vector(std::string_view(read), b); window(std::string_view(read), c); diff += (a != c) + (b != c); }
+    std::printf("handler lists other than the definition's: %zu\n", diff);
+    for (int rep = 0; rep < 3; rep++) {
+        auto [win, s1] = time(window, a);
+        auto [sc, s2] = time(scalar, b);
+        auto [ve, s3] = time(vector, c);
+        std::printf("ns/read: window %.0f, handler one by one %.0f (%.1fx), handler AVX2 %.0f (%.1fx)  [%zu %zu %zu]\n",
+                    1e9 * win / reads.size(), 1e9 * sc / reads.size(), win / sc, 1e9 * ve / reads.size(), win / ve, s1, s2, s3);
+    }
+#endif
 }

@@ -380,6 +380,26 @@ build use the same code.
   pairs: the handler 1.26 G → 0.80 G instructions, the alignment loop 2.75 G → 2.29 G (−17%).
 - Unit tests 139/139, also under ASan/UBSan; e2e 85/85.
 
+**AVX2, after `8ea37c6`.** Where the CPU has AVX2 (`__builtin_cpu_supports`, so also in the
+baseline `protal` binary), the scan stores each window's cores and k-mers and evaluates 8 windows
+per step: nine loads and unsigned minima per strand, a blend for the canonical strand, a mask of
+the windows that pass; the last windows (fewer than 8) go one by one. The AVX2 function is compiled
+with `__attribute__((target("avx2")))`; other CPUs keep the one-by-one scan of `8ea37c6`, unchanged.
+`tests/test_Syncmers.cpp` checks both evaluations against the definition (`UseAvx2`).
+
+| 500k reads of `mix`, ns per read | window by window | one by one | AVX2 |
+|---|---:|---:|---:|
+| baseline build (`-march=x86-64`) | 2,690–2,890 | 1,410–1,530 | 600–620 |
+| `-march=x86-64-v3` | 2,610–2,780 | 1,240–1,380 | 590 |
+
+The same k-mers again: identical to the definition for all 1.5M benchmark sequences, the mini
+database byte-identical with both binaries, every output of 200k pairs of `w900` and of `mix`
+identical with both binaries. 200k pairs of `mix`, 1 thread, `protal_avx2`, alternated: "Retrieve
+k-mers" 520–560 ms → 260–272 ms, the alignment stage 1.88–2.05 s → 1.64–1.81 s; callgrind (20k
+pairs) the alignment loop 2.29 G → 1.93 G instructions. On CPUs without AVX2 the one-by-one scan
+runs as before (1,392–1,513 ns before, 1,430–1,587 ns after, alternated). Unit tests 140/140, also
+under ASan/UBSan; e2e 85/85. Over the old window loop, k-mer extraction is now 4.4–4.7× faster.
+
 ## Reproducing
 
 The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, default
