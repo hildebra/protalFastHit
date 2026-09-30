@@ -279,7 +279,8 @@ samples are enough, the training report's learning curve says.
 The finished database is needed only at the end, to take the trained models (`--add_model`), so it
 is built in the background from the start, while the training database is built and the training
 data are collected; the script waits for it before packing the models. That needs the memory of two
-builds at once (about 50-60 GB each at GTDB scale), or of one build and the collection's protal
+builds at once (about 50-60 GB each at GTDB scale before the genes were held at two bits per
+base, which takes ~14 GB off each; estimated), or of one build and the collection's protal
 runs. `--one-build-at-a-time` builds it after the training instead.
 
 ### Stopping and rerunning
