@@ -52,7 +52,8 @@ public:
     std::string ToVerboseString() const;
 
     CoverageVec CalculateCoverageVector();
-    CoverageVec CalculateCoverageVector2() const;
+    // Reads per position: all, or one strand's (SequenceRange::kForward, kReverse).
+    CoverageVec CalculateCoverageVector2(int strand = SequenceRange::kBothStrands) const;
     bool AreRangesValid(size_t const& reference_length) const;
     CoverageVec& GetCoverageVector() {
         return m_cov;

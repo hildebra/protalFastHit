@@ -1430,10 +1430,10 @@ namespace protal {
                 } else {
                     auto& gene_obs = genes.at(geneid);
                     auto& strain = gene_obs.GetStrainLevel();
-                    auto& region = strain.GetSequenceRangeHandler();
 
                     auto ac = gene_obs.AlleleSNPCounts(min_cov, min_qual_sum);
-                    auto tmp_vec = region.CalculateCoverageVector2();
+                    // Reads with a base per position: what the MSA judges each position by.
+                    auto tmp_vec = strain.InformativeCoverage();
                     auto counts_vcov1 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 1);});
                     auto counts_vcov2 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 2);});
                     // Multi-allelic positions as the MSA writes them (IUPAC codes), which qcmsa filters on.
@@ -1452,7 +1452,7 @@ namespace protal {
                     // reads the hcov / mean_vcov_nonzero columns written below.
                     samples_with_gene++;
                     auto snps = SharedAlignmentRegion::GetSNPs(strain.GetVariantHandler());
-                    items.emplace_back( OptionalMSASequenceItem { { std::move(snps), region } } );
+                    items.emplace_back( OptionalMSASequenceItem { { std::move(snps), tmp_vec } } );
 
                     if (os_meta) {
                         auto sorted_cov = tmp_vec;

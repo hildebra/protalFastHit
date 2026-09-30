@@ -80,11 +80,14 @@ public:
         });
     }
 
-    CoverageVec CoverageVector() const {
+    // Reads per position of the range: all reads, or those of one strand (kForward, kReverse).
+    static constexpr int kBothStrands = -1, kReverse = 0, kForward = 1;
+    CoverageVec CoverageVector(int strand = kBothStrands) const {
         CoverageVec coverage;
 
         coverage.resize(m_end - m_start, 0);
         for (auto& read : m_read_info) {
+            if (strand != kBothStrands && read.forward != (strand == kForward)) continue;
             for (auto i = 0; i < read.length; i++) {
                 // vector starts where m_start is, so m_start is the offset.
                 coverage[i+(read.start-m_start)]++;

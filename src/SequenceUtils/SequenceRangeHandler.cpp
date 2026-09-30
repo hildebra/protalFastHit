@@ -220,12 +220,12 @@ CoverageVec SequenceRangeHandler::CalculateCoverageVector() {
 }
 
 
-CoverageVec SequenceRangeHandler::CalculateCoverageVector2() const {
+CoverageVec SequenceRangeHandler::CalculateCoverageVector2(int strand) const {
     // Each range's coverage is added at its own position, so it stays correct should ranges overlap.
     CoverageVec cov;
     for (auto &range : m_ranges) {
         if (range.m_end > cov.size()) cov.resize(range.m_end, 0);
-        auto rcov = range.CoverageVector();
+        auto rcov = range.CoverageVector(strand);
         for (size_t i = 0; i < rcov.size(); i++) cov[range.m_start + i] += rcov[i];
     }
     return cov;

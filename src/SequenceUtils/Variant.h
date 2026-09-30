@@ -188,16 +188,19 @@ public:
         return observations_fwd > 0 && observations_rev > 0;
     }
 
-    // Strand-bias filter: a non-reference allele must be seen on both strands. The reference allele
-    // is exempt, because its count is inferred from coverage (SetObservations) and has no strand.
-    bool PassesStrandFilter() const {
-        return IsReference() || HasFwdAndRev();
+    uint32_t ObservationsForward() const {
+        return observations_fwd;
     }
 
-    // Sets an inferred observation count (the reference allele: coverage minus variant observations).
-    // It is stored as forward observations because the strand is unknown; see PassesStrandFilter.
-    void SetObservations(size_t obs) {
-        observations_fwd = obs;
+    uint32_t ObservationsReverse() const {
+        return observations_rev;
+    }
+
+    // Sets inferred observation counts (the reference allele: the reads of each strand with a base
+    // at the position, less those carrying another allele there).
+    void SetObservations(size_t forward, size_t reverse) {
+        observations_fwd = static_cast<uint32_t>(forward);
+        observations_rev = static_cast<uint32_t>(reverse);
     }
 
     size_t GetStructuralSize() const {

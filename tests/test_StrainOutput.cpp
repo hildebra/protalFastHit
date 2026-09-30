@@ -46,8 +46,8 @@ TEST(ExtractVariants, NBasesAreUncalledNotAlleles) {
     ASSERT_TRUE(handler.AddVariantsFromSam(MakeSam(with_snp, "10M1X39M", 1, 0x10)));
     ASSERT_TRUE(handler.AddVariantsFromSam(MakeSam(reference, "50M", 1)));
 
-    // Three reads cover position 10: one N, one T, one reference G.
-    handler.PostProcessSNPs(CoverageVec(50, 3), 1, 1, 0.0, 0, 0, false);
+    // Three reads cover position 10: one N and one reference G (forward), one T (reverse).
+    handler.PostProcessSNPs(CoverageVec(50, 2), CoverageVec(50, 1), 1, 1, 0.0, 0, 0, false);
     auto& bin = handler.GetVariantBin(10);
     auto ref = std::find_if(bin.begin(), bin.end(), [](Variant const& v) { return v.IsReference(); });
     ASSERT_NE(ref, bin.end());
@@ -156,11 +156,146 @@ TEST(MSA, DeletionsBecomeGaps) {
     strain.PostProcess(2, 2, 0.0, 0, 0, false);
 
     MSASequenceItems items;
-    items.emplace_back(OptionalMSASequenceItem{ { SharedAlignmentRegion::GetSNPs(strain.GetVariantHandler()), strain.GetSequenceRangeHandler() } });
+    items.emplace_back(OptionalMSASequenceItem{ { SharedAlignmentRegion::GetSNPs(strain.GetVariantHandler()), strain.InformativeCoverage() } });
     MSAVector msa(1);
     ASSERT_TRUE(MSA(items, reference, msa, 2, 50));
     std::string row(msa[0].begin(), msa[0].end());
     EXPECT_EQ(row, reference.substr(0, 20) + "--" + reference.substr(22));
+}
+
+namespace {
+    // The row of one sample's gene 1_1 after adding reads (sequence, CIGAR, position, reverse strand,
+    // fragment id), with the default SNP filters of protal (2 reads, strand test, 3 alleles).
+    struct OneSample {
+        TinyReference ref;
+        std::string reference;
+        StrainLevelContainer strain;
+        OneSample() : reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence()), strain(ref.loader->GetGenome(1).GetGeneOMP(1)) {}
+
+        bool Add(std::string const& seq, std::string const& cigar, POS_t pos, bool reverse, size_t fragment, std::string qual = "") {
+            return strain.AddSam(MakeSam(seq, cigar, pos, reverse ? 0x10 : 0, qual), fragment, true);
+        }
+
+        std::string Row(size_t max_alleles = 3, uint32_t min_cov = 2) {
+            strain.PostProcess(min_cov, min_cov, 0.0, 15, 90, true);
+            MSASequenceItems items;
+            items.emplace_back(OptionalMSASequenceItem{ { SharedAlignmentRegion::GetSNPs(strain.GetVariantHandler()), strain.InformativeCoverage() } });
+            MSAVector msa(1);
+            if (!MSA(items, reference, msa, min_cov, 90, 0.0, true, 15, nullptr, nullptr, max_alleles)) return "";
+            return std::string(msa[0].begin(), msa[0].end());
+        }
+
+        std::string WithBase(size_t pos, char base) const {
+            auto s = reference;
+            s[pos] = base;
+            return s;
+        }
+        char Other(size_t pos) const { return reference[pos] == 'A' ? 'C' : 'A'; }
+    };
+}
+
+TEST(MSA, ARejectedReadLeavesNothing) {
+    // A read with M at a mismatch after an X: it does not fit the gene, so neither its SNP nor its
+    // coverage counts.
+    OneSample s;
+    auto read = s.WithBase(10, s.Other(10));
+    read[30] = s.Other(30);
+    EXPECT_FALSE(s.Add(read, "10M1X39M", 1, false, 1));
+    EXPECT_TRUE(s.strain.GetVariantHandler().GetVariants().empty());
+    EXPECT_TRUE(s.strain.InformativeCoverage().empty());
+}
+
+TEST(MSA, AFragmentCountsOnce) {
+    // Both mates of one fragment carry the SNP at 25 (and overlap there): one molecule, which does not
+    // make the 2 reads a SNP needs. Two fragments do.
+    OneSample s;
+    auto snp = s.WithBase(25, s.Other(25));
+    ASSERT_TRUE(s.Add(snp.substr(0, 40), "25M1X14M", 1, false, 1));
+    ASSERT_TRUE(s.Add(snp.substr(10), "15M1X24M", 11, true, 1));
+    auto cov = s.strain.InformativeCoverage();
+    EXPECT_EQ(cov[25], 1u);
+    EXPECT_EQ(cov[5], 1u);
+    EXPECT_EQ(cov[45], 1u);
+    EXPECT_EQ(s.Row(), "") << "one read everywhere: no position has the 2 reads a call needs";
+
+    OneSample t;
+    ASSERT_TRUE(t.Add(snp.substr(0, 40), "25M1X14M", 1, false, 1));
+    ASSERT_TRUE(t.Add(snp.substr(10), "15M1X24M", 11, true, 2));
+    EXPECT_EQ(t.Row()[25], s.Other(25));
+}
+
+TEST(MSA, ReadsWithoutABaseAreNoReferenceSupport) {
+    // 4 reads carry a SNP at 25; 2 reads span it with a deletion of 24-26. The deletion's reads have no
+    // base at 25, so they are no support for the reference there: the cell is the SNP, not a mixture.
+    OneSample s;
+    auto snp = s.WithBase(25, s.Other(25));
+    for (size_t i = 0; i < 4; i++) ASSERT_TRUE(s.Add(snp, "25M1X24M", 1, i % 2, i));
+    auto deleted = s.reference.substr(0, 24) + s.reference.substr(27);
+    for (size_t i = 4; i < 6; i++) ASSERT_TRUE(s.Add(deleted, "24M3D23M", 1, i % 2, i));
+    EXPECT_EQ(s.Row()[25], s.Other(25));
+}
+
+TEST(MSA, ASnpOnOneStrandOfFewReadsPasses) {
+    // Two reads, both reverse, carry the SNP: at this depth a one-strand allele is no strand bias.
+    OneSample s;
+    auto snp = s.WithBase(25, s.Other(25));
+    for (size_t i = 0; i < 2; i++) ASSERT_TRUE(s.Add(snp, "25M1X24M", 1, true, i));
+    EXPECT_EQ(s.Row()[25], s.Other(25));
+
+    // 10 reads (5 per strand) show the reference, 8 reverse reads the SNP: strand bias, the SNP fails.
+    OneSample t;
+    for (size_t i = 0; i < 10; i++) ASSERT_TRUE(t.Add(t.reference, "50M", 1, i % 2, i));
+    for (size_t i = 10; i < 18; i++) ASSERT_TRUE(t.Add(snp, "25M1X24M", 1, true, i));
+    EXPECT_EQ(t.Row()[25], t.reference[25]);
+}
+
+TEST(MSA, TheCallIsTheMostObservedAllele) {
+    // 7 reads carry the SNP at Q15, 3 show the reference: the SNP is the call, whatever the qualities
+    // (the reference allele's quality is taken as 40).
+    OneSample s;
+    auto snp = s.WithBase(25, s.Other(25));
+    std::string qual(50, 'I');
+    qual[25] = '0';  // Q15
+    for (size_t i = 0; i < 7; i++) ASSERT_TRUE(s.Add(snp, "25M1X24M", 1, i % 2, i, qual));
+    for (size_t i = 7; i < 10; i++) ASSERT_TRUE(s.Add(s.reference, "50M", 1, i % 2, i));
+    EXPECT_EQ(s.Row(1)[25], s.Other(25));
+}
+
+TEST(MSA, MismatchClustersAtReadEndsAreNotCalled) {
+    // A read that starts with mismatches (as reads starting at an insertion are written): its first
+    // bases, before 5 matching ones, are neither SNPs nor coverage. A single mismatch near an end is
+    // kept.
+    OneSample s;
+    auto read = s.reference;
+    read[0] = s.Other(0);
+    read[1] = s.Other(1);
+    read[3] = s.Other(3);
+    for (size_t i = 0; i < 4; i++) ASSERT_TRUE(s.Add(read, "2X1M1X46M", 1, i % 2, i));
+    EXPECT_TRUE(s.strain.GetVariantHandler().GetVariants().empty());
+    auto cov = s.strain.InformativeCoverage();
+    EXPECT_EQ(cov[3], 0u);
+    EXPECT_EQ(cov[4], 4u);
+
+    OneSample t;
+    auto one = t.WithBase(3, t.Other(3));
+    for (size_t i = 0; i < 4; i++) ASSERT_TRUE(t.Add(one, "3M1X46M", 1, i % 2, i));
+    EXPECT_EQ(t.Row()[3], t.Other(3));
+}
+
+TEST(MSA, AnInsertionAndASnpAtOnePosition) {
+    // 6 reads carry a SNP at 25; 4 reads carry the reference base at 25 behind an insertion of "GG".
+    // The insertion fills insertion columns, and the base is a mixture of the SNP and the reference.
+    OneSample s;
+    auto snp = s.WithBase(25, s.Other(25));
+    for (size_t i = 0; i < 6; i++) ASSERT_TRUE(s.Add(snp, "25M1X24M", 1, i % 2, i));
+    auto inserted = s.reference.substr(0, 25) + "GG" + s.reference.substr(25);
+    for (size_t i = 6; i < 10; i++) ASSERT_TRUE(s.Add(inserted, "25M2I25M", 1, i % 2, i));
+    auto row = s.Row();
+    ASSERT_EQ(row.size(), 52u);
+    EXPECT_EQ(row.substr(25, 2), "GG");
+    std::vector<char> both = { s.reference[25], s.Other(25) };
+    std::sort(both.begin(), both.end());
+    EXPECT_EQ(row[27], IUPACCode(both));
 }
 
 TEST(MSA, EachSampleTakesItsOwnMinimumAlleleFrequency) {
@@ -182,7 +317,7 @@ TEST(MSA, EachSampleTakesItsOwnMinimumAlleleFrequency) {
             ASSERT_TRUE(strain.AddSam(MakeSam(snp ? snp_read : reference, snp ? "10M1X39M" : "50M", 1, i % 2 ? 0x10 : 0), i, true));
         }
         strain.PostProcess(2, 2, 0.0, 0, 0, false);
-        items.emplace_back(OptionalMSASequenceItem{ { SharedAlignmentRegion::GetSNPs(strain.GetVariantHandler()), strain.GetSequenceRangeHandler() } });
+        items.emplace_back(OptionalMSASequenceItem{ { SharedAlignmentRegion::GetSNPs(strain.GetVariantHandler()), strain.InformativeCoverage() } });
     }
     MSAVector msa(2);
     ASSERT_TRUE(MSA(items, reference, msa, 2, 0, std::vector<double>{ 0.0, 0.5 }, false, 0, nullptr, nullptr, 2));
