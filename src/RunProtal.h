@@ -21,6 +21,7 @@
 #include <iomanip>
 #include <regex>
 #include <ranges>
+#include <set>
 #include <unistd.h>
 #include <sys/wait.h>
 
@@ -1046,7 +1047,19 @@ namespace protal {
 
     static std::vector<uint32_t> SelectGenesForTaxon(uint32_t taxid, std::string name, std::vector<size_t>& selected_profiles, GenomeLoader& loader, Options& options, Profiles& profiles) {
         std::vector<uint32_t> selected_gene_ids;
-        std::vector<uint32_t> gene_ids = loader.GetGenome(taxid).GetHittableGenes();
+        // The genes with reads in any of the samples. A gene without unique k-mers has reads, too (its
+        // k-mers are shared, not absent); a gene without reads would add only gaps.
+        std::vector<uint32_t> gene_ids;
+        {
+            std::set<uint32_t> observed;
+            for (auto sample_index : selected_profiles) {
+                auto const& taxa = profiles[sample_index].GetTaxa();
+                if (!taxa.contains(taxid)) continue;
+                for (auto const& [gene_id, _] : taxa.at(taxid).GetGenes()) observed.insert(gene_id);
+            }
+            gene_ids.assign(observed.begin(), observed.end());
+        }
+        if (gene_ids.empty()) return gene_ids;
 
         auto max_gene_id = std::max_element(gene_ids.begin(), gene_ids.end());
 
@@ -1369,6 +1382,7 @@ namespace protal {
         auto require_strand = options.GetSNPRequireStrand();
         auto min_mean_qual = options.GetSNPMinMeanQual();
         auto snp_max_alleles = options.GetSNPMaxAlleles();
+        uint32_t const min_depth = static_cast<uint32_t>(options.GetMSAMinDepth());
 
         std::vector<size_t> profile_indices = GetProfilesWithTaxon(taxid, profiles, options, filter);
 
@@ -1505,7 +1519,7 @@ namespace protal {
                 previous_size = msa.front().size();
 
                 protal::MSAStats gene_stats(items.size());
-                bool result = protal::MSA(items, gene.Sequence(), msa, min_cov, min_qual_sum, min_afs, require_strand, min_mean_qual, &gene_stats, &ref_msa_row, snp_max_alleles);
+                bool result = protal::MSA(items, gene.Sequence(), msa, min_cov, min_qual_sum, min_afs, require_strand, min_mean_qual, &gene_stats, &ref_msa_row, snp_max_alleles, min_depth);
 
                 if (!result) continue;
 

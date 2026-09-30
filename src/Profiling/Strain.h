@@ -457,7 +457,7 @@ namespace protal {
 
         // Position-level outcomes (one count per reference position, excluding deletion continuations)
         size_t positions_ref = 0;              ///< Covered >=min_cov, no variant called → reference base used
-        size_t positions_below_min_cov = 0;    ///< Coverage present but below min_cov threshold → gap
+        size_t positions_below_min_cov = 0;    ///< Coverage present but below min_depth (--msa_min_depth) → gap
         size_t positions_no_coverage = 0;      ///< No coverage or sample absent → gap
 
         // Filled externally after ProcessMSA (vertical coverage filter)
@@ -652,13 +652,15 @@ namespace protal {
 
     // The MSA of a gene over samples (items), each with its own minimum allele frequency
     // (min_frequencies, one per item: the SNP filter of its reads' kind). Per sample and position:
-    //   - fewer than min_cov reads with a base (informative coverage): '-';
+    //   - fewer than min_depth reads with a base (informative coverage): '-';
     //   - no variant: the reference base;
     //   - else the site's call (BaseCall): its base, an IUPAC code where more than one SNP allele
     //     passes (at most snp_max_alleles), '-' over a passing deletion, or N if no allele passes;
     //   - a passing insertion before the base fills insertion columns, which all other rows (and the
     //     reference row) get as '-'.
-    static bool MSA(MSASequenceItems const& items, std::string const& reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, std::vector<double> const& min_frequencies, bool require_strand=false, size_t min_mean_qual=0, MSAStats* stats = nullptr, MSARow* ref_row = nullptr, size_t snp_max_alleles = 1) {
+    // An allele passes with min_cov reads, or with fewer when it has every read of the site: reads
+    // that agree need no second one, while a mixture needs min_cov reads per allele.
+    static bool MSA(MSASequenceItems const& items, std::string const& reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, std::vector<double> const& min_frequencies, bool require_strand=false, size_t min_mean_qual=0, MSAStats* stats = nullptr, MSARow* ref_row = nullptr, size_t snp_max_alleles = 1, uint32_t min_depth = 1) {
         if (min_frequencies.size() != items.size()) {
             std::cerr << "MSA: " << min_frequencies.size() << " minimum allele frequencies for " << items.size() << " samples" << std::endl;
             return false;
@@ -671,8 +673,9 @@ namespace protal {
 
         if (items.empty()) return false;
 
+        min_depth = std::max<uint32_t>(min_depth, 1);
         CoverageVecs covs = LoadCoverageVectors(items, reference);
-        if (GetValidBases(covs, min_cov) == 0) return false;
+        if (GetValidBases(covs, min_depth) == 0) return false;
 
         // Where this gene's columns begin, to take them back should the rows get out of step.
         std::vector<size_t> row_starts;
@@ -709,7 +712,8 @@ namespace protal {
 
                 auto const& bin = variants[indices[i]];
                 auto passes = [&](Variant const& v) {
-                    return VariantPass(v, bin, min_qual_sum, min_cov, min_frequencies[i], depth, require_strand, min_mean_qual);
+                    uint32_t const reads = v.Observations() >= depth ? 1 : min_cov;
+                    return VariantPass(v, bin, min_qual_sum, reads, min_frequencies[i], depth, require_strand, min_mean_qual);
                 };
                 bins[i] = &bin;
                 bool pass = false;
@@ -737,7 +741,7 @@ namespace protal {
                     AddInsertionGap(msa_row, max_ins);
                     msa_row.emplace_back('-');
                     pause_timer[i]--;
-                } else if (!items[i].has_value() || depth < min_cov) {
+                } else if (!items[i].has_value() || depth < min_depth) {
                     if (stats) {
                         auto& s = (*stats)[i];
                         if (!items[i].has_value() || depth == 0) s.positions_no_coverage++;
@@ -812,8 +816,8 @@ namespace protal {
     }
 
     // The MSA with one minimum allele frequency for all samples.
-    static bool MSA(MSASequenceItems const& items, std::string const& reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, double min_frequency=0.0, bool require_strand=false, size_t min_mean_qual=0, MSAStats* stats = nullptr, MSARow* ref_row = nullptr, size_t snp_max_alleles = 1) {
+    static bool MSA(MSASequenceItems const& items, std::string const& reference, MSAVector& msa, uint32_t min_cov, uint32_t min_qual_sum, double min_frequency=0.0, bool require_strand=false, size_t min_mean_qual=0, MSAStats* stats = nullptr, MSARow* ref_row = nullptr, size_t snp_max_alleles = 1, uint32_t min_depth = 1) {
         return MSA(items, reference, msa, min_cov, min_qual_sum, std::vector<double>(items.size(), min_frequency), require_strand,
-                   min_mean_qual, stats, ref_row, snp_max_alleles);
+                   min_mean_qual, stats, ref_row, snp_max_alleles, min_depth);
     }
 }

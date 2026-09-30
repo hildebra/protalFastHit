@@ -146,12 +146,12 @@ strain-trees:
     done < "$list"
     echo "[trees] built $built tree(s) in {{strain_run}}/trees (input={{strain_tree_input}})"
 
-# Re-filter a raw run's MSAs with qcmsa, applying M3-equivalent coverage gating
-# (from the meta hcov/depth columns) PLUS the usual MRate2 + site cleanup. Lets
+# Re-filter a raw run's MSAs with qcmsa: coverage gating (the share of each gene a row
+# writes, the gene's mean depth) PLUS the usual MRate2 + site cleanup. Lets
 # you re-filter strain_test_out/test2 (the raw run) with any thresholds without
 # re-running protal. Outputs into <run>/refiltered/.
 refilter_hcov        := "0.3"
-refilter_depth       := "1"
+refilter_depth       := "0"    # >0: minimum mean depth of a gene (all its positions)
 refilter_min_samples := "1"    # a gene needs more than this many samples passing coverage
 refilter_reapply_hcov := "1000" # as protal passes its --msa_min_hcov
 refilter_sample_abs  := "0"    # >0: remove a sample multi-allelic in >= N genes (catches conspecific/mixed strains)

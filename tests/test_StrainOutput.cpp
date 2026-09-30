@@ -176,12 +176,12 @@ namespace {
             return strain.AddSam(MakeSam(seq, cigar, pos, reverse ? 0x10 : 0, qual), fragment, true);
         }
 
-        std::string Row(size_t max_alleles = 3, uint32_t min_cov = 2) {
+        std::string Row(size_t max_alleles = 3, uint32_t min_cov = 2, uint32_t min_depth = 1) {
             strain.PostProcess(min_cov, min_cov, 0.0, 15, 90, true);
             MSASequenceItems items;
             items.emplace_back(OptionalMSASequenceItem{ { SharedAlignmentRegion::GetSNPs(strain.GetVariantHandler()), strain.InformativeCoverage() } });
             MSAVector msa(1);
-            if (!MSA(items, reference, msa, min_cov, 90, 0.0, true, 15, nullptr, nullptr, max_alleles)) return "";
+            if (!MSA(items, reference, msa, min_cov, 90, 0.0, true, 15, nullptr, nullptr, max_alleles, min_depth)) return "";
             return std::string(msa[0].begin(), msa[0].end());
         }
 
@@ -206,22 +206,50 @@ TEST(MSA, ARejectedReadLeavesNothing) {
 }
 
 TEST(MSA, AFragmentCountsOnce) {
-    // Both mates of one fragment carry the SNP at 25 (and overlap there): one molecule, which does not
-    // make the 2 reads a SNP needs. Two fragments do.
+    // Both mates of one fragment carry the SNP at 25 (and overlap there); another fragment shows the
+    // reference. One molecule against one: neither allele has the 2 reads a mixture needs, so the
+    // site is N (counted twice, the SNP would win 2 to 1). Two fragments with the SNP make it the call.
     OneSample s;
     auto snp = s.WithBase(25, s.Other(25));
     ASSERT_TRUE(s.Add(snp.substr(0, 40), "25M1X14M", 1, false, 1));
     ASSERT_TRUE(s.Add(snp.substr(10), "15M1X24M", 11, true, 1));
+    ASSERT_TRUE(s.Add(s.reference, "50M", 1, false, 2));
     auto cov = s.strain.InformativeCoverage();
-    EXPECT_EQ(cov[25], 1u);
-    EXPECT_EQ(cov[5], 1u);
-    EXPECT_EQ(cov[45], 1u);
-    EXPECT_EQ(s.Row(), "") << "one read everywhere: no position has the 2 reads a call needs";
+    EXPECT_EQ(cov[25], 2u);
+    EXPECT_EQ(cov[5], 2u);
+    EXPECT_EQ(cov[45], 2u);
+    EXPECT_EQ(s.Row()[25], 'N');
 
     OneSample t;
     ASSERT_TRUE(t.Add(snp.substr(0, 40), "25M1X14M", 1, false, 1));
-    ASSERT_TRUE(t.Add(snp.substr(10), "15M1X24M", 11, true, 2));
-    EXPECT_EQ(t.Row()[25], s.Other(25));
+    ASSERT_TRUE(t.Add(snp.substr(10), "15M1X24M", 11, true, 3));
+    ASSERT_TRUE(t.Add(t.reference, "50M", 1, false, 2));
+    EXPECT_EQ(t.Row()[25], t.Other(25));
+}
+
+TEST(MSA, OneReadIsEnoughWhereTheReadsAgree) {
+    // One read, with a SNP at 25 and a Q10 mismatch at 30: every position is written from it, the
+    // SNP too, but the Q10 base fails the quality filter and is N.
+    auto add = [](OneSample& s) {
+        auto read = s.WithBase(25, s.Other(25));
+        read[30] = s.Other(30);
+        std::string qual(50, 'I');
+        qual[30] = '+';  // Q10
+        return s.Add(read, "25M1X4M1X19M", 1, false, 1, qual);
+    };
+    OneSample s;
+    ASSERT_TRUE(add(s));
+    auto const row = s.Row();
+    ASSERT_EQ(row.size(), 50u);
+    EXPECT_EQ(row.substr(0, 25), s.reference.substr(0, 25));
+    EXPECT_EQ(row[25], s.Other(25));
+    EXPECT_EQ(row[30], 'N');
+    EXPECT_EQ(row.substr(31), s.reference.substr(31));
+
+    // With --msa_min_depth 2, one read writes nothing.
+    OneSample t;
+    ASSERT_TRUE(add(t));
+    EXPECT_EQ(t.Row(3, 2, 2), "");
 }
 
 TEST(MSA, ReadsWithoutABaseAreNoReferenceSupport) {

@@ -408,10 +408,10 @@ class MsaSampleSelectionTest(WorkDir):
 
 class StrainEdgeCaseTest(WorkDir):
     def test_species_without_msa_genes(self):
-        # No gene reaches --snp_min_cov, so no species has MSA columns (this used to segfault).
+        # No position reaches --msa_min_depth, so no species has MSA columns (this used to segfault).
         # Two samples: MSAs are built only across samples.
         rc, log = run(self.work, "--db", DB, *reads("sa", "sb"), "-o", "out", "-t", "2", "--no_qcmsa",
-                      "--snp_min_cov", "100000", "--msa_min_hcov", "0")
+                      "--msa_min_depth", "100000", "--msa_min_hcov", "0")
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("has enough coverage for an MSA", log)
         self.assertEqual(glob.glob(self.path("out", "strains", "*.raw.msa.fna")), [])
@@ -614,6 +614,18 @@ class QcmsaContractTest(WorkDir):
         rc, log = run(self.work, *args, "--prefix", self.path("dup"), binary="python3")
         self.assertNotEqual(rc, 0, log)
         self.assertIn("names 1 sequence(s) more than once (s1)", log)
+
+    def test_coverage_gate_reads_the_msa(self):
+        # The meta says every cell is fully covered; s3's row writes 2 of the gene's 8 positions, below
+        # --gene-min-hcov 0.3, so its cell is gap-filled.
+        args = self.write_species("c", [("c_reference", "AAAAAAAA"), ("s1", "ACAAAAAA"), ("s2", "AAAAAAAA"),
+                                        ("s3", "AC------")])
+        rc, log = run(self.work, *args, "--prefix", self.path("c"), binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertEqual(self.read_msa(self.path("c.msa.fna"))["s3"], "--------", log)
+        rc, log = run(self.work, *args, "--prefix", self.path("c2"), "--gene-min-hcov", "0.2", binary="python3")
+        self.assertEqual(rc, 0, log)
+        self.assertEqual(self.read_msa(self.path("c2.msa.fna"))["s3"], "AC------", log)
 
     def test_multi_allelic_filter_judges_rates(self):
         # 8 samples, 4 genes of 1000 positions with >= 2 reads. s1-s6 hold no IUPAC code; s7, deep,

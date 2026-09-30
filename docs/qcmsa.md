@@ -35,9 +35,10 @@ no more. It stops with an error if the MSA names a sequence twice.
 
 ## What it filters, in order
 
-1. Coverage gate: drops genes and gap-fills (sample, gene) cells that are too sparsely covered,
-   from the meta columns `hcov` and `mean_vcov_nonzero`. protal itself writes every observed gene
-   and sample, so this is the only place these thresholds exist.
+1. Coverage gate: drops genes and gap-fills (sample, gene) cells that are too sparsely covered:
+   the share of the gene that the sample's row writes (from the MSA itself), and optionally the
+   gene's mean depth (from `.meta.tsv`). protal itself writes every observed gene and sample, so
+   this is the only place these thresholds exist.
 2. Multi-allelicity (MRate2) filter: removes samples, then genes, whose multi-allelic rate is an
    outlier, and masks single outlier cells. See below.
 3. Sequence floor (`--reapply-hcov`): drops whole sequences with too few valid bases in the genes
@@ -78,8 +79,8 @@ mostly clean samples is 0 and removes any sample with two IUPAC codes.
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--gene-min-hcov FLOAT` | 0.3 | minimum fraction of a gene covered for a cell to pass; 0 disables |
-| `--gene-min-mean-depth FLOAT` | 1.0 | minimum mean depth over covered positions; 0 disables |
+| `--gene-min-hcov FLOAT` | 0.3 | minimum share of a gene's positions (its columns where the reference row has a base) that the sample's row writes as a base or IUPAC code, not `-` or `N`, for the cell to pass; 0 disables |
+| `--gene-min-mean-depth FLOAT` | 0 (off) | minimum mean depth over the whole gene, from the reads the MSA takes (`hcov` × `mean_vcov_nonzero` in `.meta.tsv`) |
 | `--gene-min-samples INT` | 1 | drop a gene unless more than this many samples pass coverage, so by default a gene needs 2 (as protal needs 2 samples for an MSA); 0 disables. Only samples in the MSA count |
 
 ### Sites and sequences
