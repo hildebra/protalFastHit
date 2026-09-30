@@ -1262,13 +1262,15 @@ namespace protal {
         // is shared with a relative. A species with relatives in the database has them in nearly
         // every gene; a gene without any is one its relatives share unchanged or lack from their
         // reference. A relative's reads of such a gene align here, and its MSA columns would show
-        // them as a second strain, so it is left out. A species without relatives has hardly any
-        // long unique k-mers at all (its k-mers are unique at the core already): all its genes stay.
+        // them as a second strain, so it is left out. A species without relatives has fewer, as its
+        // k-mers are mostly unique at the core already: in the 2026-09-29 strain audit, Dummya solo (no
+        // relative in the database) had long unique k-mers in half its genes, species with congeners
+        // in 98-99%. Unless 90% of a species' genes have long unique k-mers, all its genes stay.
         auto& genome = loader.GetGenome(taxid);
         auto const with_long_uniques = std::count_if(gene_ids.begin(), gene_ids.end(), [&genome](uint32_t gene_id) {
             return genome.GetGene(gene_id).HasLongUniques();
         });
-        if (static_cast<size_t>(with_long_uniques) * 2 < gene_ids.size()) return gene_ids;
+        if (static_cast<size_t>(with_long_uniques) * 10 < gene_ids.size() * 9) return gene_ids;
 
         std::vector<uint32_t> msa_gene_ids;
         std::copy_if(gene_ids.begin(), gene_ids.end(), std::back_inserter(msa_gene_ids), [&genome](uint32_t gene_id) {

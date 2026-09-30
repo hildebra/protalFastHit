@@ -34,7 +34,11 @@ Strain MSAs are written for the species that pass the model in at least two samp
 row for every sample in which the species passes. A run of one sample therefore writes no MSAs.
 `--msa_species s__Genus_species,...` writes MSAs for the named species only. A species passes
 with a model probability of at least `--knob` in the profiles and of at least `--msa_knob`
-(default: `--knob`) for the MSAs, so by default both hold the same samples.
+(default: `--knob`) for the MSAs, so by default both hold the same samples. An MSA takes the genes
+with reads in its samples. For a species with relatives in the database, whose genes have long
+unique k-mers (a 15-mer core shared with a relative) in 90% of cases or more, the genes without
+any are left out: a relative may share them unchanged, and its reads would then show as a second
+strain.
 
 `misc/unreported_species.tsv` lists the species that a sample's profile leaves out, their
 probability below `--knob`, although their own reads are strong evidence that they are present:
