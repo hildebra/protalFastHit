@@ -143,3 +143,112 @@ Steps agreed on 2026-09-30, one commit each on branch `strain-fixes`:
 | N | Noise and relatives: an Illumina `--snp_min_af` for IUPAC codes (this leaves profiles unchanged, since the model's features ignore variant validity); an identity margin for reads used in variant calls; MRate2 on the pooled rate, without iteration, guarding IQR = 0. | 2, 7 |
 | O | Coverage and genes: positions with one read are called; genes chosen by their reads; qcmsa's gates on what the MSA holds. | 11, 13, 15 |
 | P | Which samples enter an MSA: their own `--msa_knob`, defaulting to `--knob`; species whose own reads give strong evidence but whose score stays below the knob are reported. | 6 |
+
+## Fix evaluation
+
+Date: 2026-09-30. Commits on `strain-fixes`:
+
+| Step | Commit |
+|---|---|
+| L | `d403dac` |
+| M | `692db41` |
+| N | `9116436`, plus `7c1453f` (qcmsa floor 0.002; in the evaluated P, not in N or O) |
+| O | `05ea20b` |
+| P | `ac0f773` |
+
+**Method.** Each step's protal and qcmsa re-profiled the audit's SAMs; nothing was re-aligned (`scripts/fixes/eval_step.sh <step>`):
+- the accuracy runs A, B and C (200 bp fragments as Cs, 600 bp as Cl), scored by `accuracy/evaluate.py`;
+- the 13 known-tree runs, trees and scores by `phylo/analyze.py` (IQ-TREE GTR+G, 1000 UFBoot, seed 12345).
+
+"base" is the audit's own results at `7c6b2f8`. The comparisons use `tree_summary.py`, `acc_cmp.sh`, `profile_diff.py`, `qc_counts.sh`, `mix_calib.py` and `strong_rule.py`, all in `scripts/fixes/`.
+
+### Trees
+
+The table pools each depth group's species trees. It gives:
+- wrong trees (RF > 0), raw / filtered MSA;
+- true splits with ≥95 bootstrap on the filtered MSA;
+- terminal branch length relative to the truth, filtered MSA;
+- sequences qcmsa removed, over all 13 runs.
+
+| Step | 2x (9 trees): wrong | 2x: splits ≥95 | 2x: terminal | 3x (4): splits ≥95 | 3x: terminal | 5–50x (15): terminal | seqs removed |
+|---|---|---|---|---|---|---|---|
+| base | 1 / 3 | 60/77 | 0.00–0.03 | 28/32 | 0.00–0.05 | 0.01–0.09 | 17 |
+| L | 1 / 0 | 60/77 | 0.72–0.79 | 28/32 | 0.75–0.81 | 0.84–1.01 | 17 |
+| M | 2 / 1 | 73/81 | 0.93–1.11 | 34/36 | 0.93–1.00 | 0.92–1.03 | 16 |
+| N | 0 / 0 | 73/81 | 0.93–1.03 | 34/36 | 0.93–0.98 | 0.96–1.03 | 2 |
+| O | 0 / 0 | 81/81 | 1.10–1.83 | 36/36 | 1.04–1.38 | 0.96–1.18 | 2 |
+| P | 0 / 0 | 81/81 | 1.10–1.83 | 36/36 | 1.04–1.38 | 0.96–1.18 | 2 |
+| O, `--snp_min_mean_qual 30` | 0 / 0 | 79/81 | 0.97–1.15 | 36/36 | 0.97–1.03 | 0.98–1.03 (5x and uneven only) | 0 (7 runs) |
+
+After L, the filtered MSA keeps each strain's own SNPs, and the terminal branches come back.
+- **M** fixes the reference bias at low depth.
+- **N** makes qcmsa keep every clean sample. The two removals left are the mixture sample of the `mixed` run for *M. alpha* and *C. fervens*; its *T. one* mixture has a rate of only 0.02% and stays.
+- **O** writes positions with one read. Every true split then has support, but each lone read's sequencing errors go into the row as SNPs. Terminal branches come out too long at 2–3x, most for *T. one*, the species with the shortest branches (0.2% root-to-tip): 1.77× at 2x.
+- **A Q30 floor** on alleles (tested as `--snp_min_mean_qual 30`, which applies to all alleles, not only lone reads) takes most of the errors out. It costs 6% of the true SNPs at 2x (N at covered true SNPs: 0.4% to 6.1%), since ART gives true SNP bases the same qualities as any base.
+
+### Genotypes
+
+Run A: bacteria except *Dummya*; strain rows. The table gives each step's called fraction of the raw MSA, with false alternative calls in ppm and the N rate at covered true SNPs.
+
+| depth | base | M | N | O | O, Q30 |
+|---|---|---|---|---|---|
+| 1x | .268, 1718 ppm, 38.5% | .264, 2267, 0.77% | .246, 169, 0.44% | .608, 542, 0.50% | .607, 195, 7.9% |
+| 2x | .577, 260, 32.2% | .576, 346, 0.37% | .556, 30, 0.27% | .836, 279, 0.37% | .835, 84, 6.1% |
+| 3x | .783, 70, 23.9% | .783, 86, 0.19% | .765, 7, 0.14% | .931, 144, 0.22% | .930, 41, 4.1% |
+| 5x | .945, 14, 12.8% | .946, 19, 0.04% | .933, 4, 0.06% | .980, 42, 0.08% | .980, 12, 2.1% |
+| 10x | .994, 2, 1.9% | .994, 3, 0.01% | .989, 0, 0.01% | .993, 1, 0.02% | .993, 1, 0.30% |
+| 50x | .996, 0, 0.2% | .996, 2, 0% | .995, 0, 0% | .995, 0, 0% | .995, 0, 0.02% |
+
+SNP recall at covered true SNPs:
+
+| Step | 1x | 2x |
+|---|---|---|
+| base | 0.59 | 0.67 |
+| M | 0.97 | 0.99 |
+| N–P | 0.99 | 0.996 |
+| O, Q30 | 0.92 | 0.94 |
+
+**After qcmsa**, the called fraction is:
+
+| Step | 20x | 50x |
+|---|---|---|
+| base and L | 0.76 | 0.36 |
+| M | 0.75 | 0.31 |
+| N | 0.99 | 0.99 |
+| O | 0.99 | 0.99 |
+| P (floor 0.002) | 0.99 | 0.99 |
+
+With the 0.002 floor, qcmsa removes up to 0.5% more cells at 5–20x. In run A this is 3 genes instead of 1, and 87 masked cells instead of 62; the run holds only single strains, so these are false removals. qcmsa's removals in run A:
+
+| Step | samples (of 306) | genes (MRate2) | cells |
+|---|---|---|---|
+| base and L | 25 | 64 | 57 |
+| M | 30 | 69 | 89 |
+| N and O | 0 | 1 | 62 |
+| P | 0 | 3 | 87 |
+
+**Mixtures and the multi-allelic floor.** With N's calls, pooled multi-allelic rates separate as follows:
+- single-strain rows (306 in runs A and C): at most 0.091%;
+- mixture rows (87 in run B) with a minor strain of 15% or more: at least 0.34%;
+- mixtures with a 10% minor strain: 0.07–0.45%.
+
+A floor of 0.2% has 53 of the 87 mixtures above it and no single-strain row; 0.4% has 44. In run B every sample is a mixture, so the Tukey fence rises above them all and qcmsa removes none: the filter finds outlier samples, not mixtures in general.
+
+### Profiles
+
+The profiles do not depend on the strain fixes: `profile_diff.py` on all accuracy runs gives identical presence calls, probabilities and abundances for N, O and P.
+- M changes probabilities through the variant counts the model's features read (mates now count once): by at most 0.004 in runs A, B and Cl, and by up to 0.02 in Cs.
+- In one sample (Cs, C00), *C. fervens* moves from 0.492 to 0.508 and so across the knob.
+
+### Species with strong evidence below the knob (P)
+
+`misc/unreported_species.tsv` lists 43 sample profiles over the four accuracy runs, all of *C. fervens*:
+- its own reads give 1.7–47x;
+- they cover 94–100% of its genes;
+- its score is 0.25–0.50.
+
+It is the archaeon of finding 6, and the only species the rule flags. The rule was chosen on the model's test sets on the toy database (`~/tune/score/test*/shipped`, `strong_rule.py`). There it flags 28 of 304 and 26 of 316 present species below the knob, and none of 14,390 absent ones.
+
+### Open
+
+Whether a lone read's allele should need a higher base quality than `--snp_min_mean_qual`, e.g. Q30 for alleles that pass on fewer than `--snp_min_cov` reads. That would keep O's support at 2x without its long terminal branches. The global Q30 test above is the upper bound on its cost in true SNPs; a floor on lone reads only would cost fewer.
