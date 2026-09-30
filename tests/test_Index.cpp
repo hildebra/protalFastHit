@@ -111,3 +111,29 @@ TEST(IndexHeader, FeaturesRoundTripAndFormat1IsLegacy) {
     EXPECT_FALSE(legacy.ChecksSingleEntryUniques());
     EXPECT_NE(legacy.FeatureDescription().find("legacy"), std::string::npos);
 }
+
+// The unique k-mer statistics find, for large cores, the values with another within flex distance 1
+// by sorting with each position masked (FlexNeighbours); it must agree with comparing all pairs.
+TEST(UniqueKmers, FlexNeighboursMatchAllPairs) {
+    std::mt19937 rng(7);
+    for (size_t n : { 2, 3, 17, 300, 1000 }) {
+        std::vector<uint32_t> flex(n);
+        for (auto& cell : flex) cell = rng();
+        // Some parts one position away from another, some equal, some two positions away.
+        for (size_t i = 1; i < n; i += 5) flex[i] = flex[i - 1] ^ (1u << (2 * (rng() % 16)));
+        for (size_t i = 3; i < n; i += 11) flex[i] = flex[i - 2];
+        for (size_t i = 4; i < n; i += 13) flex[i] = flex[i - 1] ^ (3u << 2) ^ (2u << 20);
+        std::vector<uint8_t> close;
+        std::vector<std::pair<uint32_t, uint32_t>> keyed;
+        Seedmap::FlexNeighbours(flex.data(), n, 16, close, keyed);
+        size_t near = 0;
+        for (size_t e = 0; e < n; e++) {
+            bool expected = false;
+            for (size_t o = 0; o < n; o++) expected |= o != e && Seedmap::Similarity(flex[e], flex[o]) + 1 >= 16;
+            EXPECT_EQ(bool(close[e]), expected) << "n " << n << ", part " << e;
+            near += expected;
+        }
+        if (n >= 17) EXPECT_GT(near, 0u);
+        if (n >= 17) EXPECT_LT(near, n);
+    }
+}

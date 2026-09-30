@@ -594,80 +594,15 @@ namespace protal::build {
         }
     }
 
-    template<typename KmerHandler, typename KmerPutter, DebugLevel debug>
-    static void Check(protal::Options const& options, KmerPutter& putter, KmerHandler& kmer_handler_global) {
-
-        // Shared
-        auto input = OpenInput(options.GetSequenceFilePath());
-        std::istream& is = input->Stream();
-        size_t dummy = 0;
-        int read_count = 0;
-
-        // Set Thread Num
-        omp_set_num_threads(1);
-
-        size_t main_k = putter.GetMap().m_exact_k;
-        size_t main_k_bits = putter.GetMap().m_main_bits;
-        size_t flex_k = putter.GetMap().m_flex_k;
-        size_t flex_k_bits = putter.GetMap().m_flex_k_bits;
-
-        Statistics statistics;
-
-        KmerLookupSM lookup_global(putter.GetMap());
-
-#pragma omp parallel default(none) shared(std::cout, lookup_global, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits)
-        {
-            // Private variables
-            FastxRecord record;
-
-            // Extract variables from kmi_global
-            KmerHandler kmer_handler(kmer_handler_global);
-            SeqReader reader { is };
-            size_t kmer = 0;
-            Statistics thread_statistics;
-            thread_statistics.thread_num = omp_get_thread_num();
-
-            size_t taxid = 1;
-            size_t geneid = 1;
-            size_t genepos = 1;
-
-            KmerList kmers;
-            KmerLookupSM lookup(lookup_global);
-
-            LookupList seeds;
-            std::vector<ValueEntry*> max_sim_entries;
-            uint32_t max_sim = 0;
-            uint32_t best_possible_sim = putter.GetMap().m_flex_k;
-
-            while (reader(record)) {
-                kmer_handler.SetSequence(std::string_view(record.sequence));
-
-                auto [taxonomic_id, gene_id] = KmerUtils::ExtractHeaderInformation(record.header);
-                if (options.HasBuildGeneSubset() && !options.BuildGeneAllowed(gene_id)) {
-                    continue;
-                }
-
-                thread_statistics.reads++;
-
-                // Retrieve kmers
-                kmers.clear();
-                seeds.clear();
-                kmer_handler(std::string_view(record.sequence), kmers);
-
-                for (auto pair : kmers) {
-                    size_t pos = pair.second;
-                    max_sim = 0;
-                    // std::cout << pair.first << ", " << pair.second << std::endl;
-                    max_sim_entries.clear();
-                    lookup.GetFlex(pair.first, max_sim_entries, max_sim);
-                    if (max_sim_entries.empty()) continue;
-                }
-            }
-
-
-#pragma omp critical(statistics)
-            statistics.Join(thread_statistics);
-        }
+    // A row per gene id of each reference taxon, for the unique k-mer table (Seedmap::CountUniqueKmers).
+    inline Seedmap::GeneRows GeneRowsOf(GenomeLoader& genomes) {
+        size_t max_taxid = 0;
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) max_taxid = std::max<size_t>(max_taxid, taxid);
+        Seedmap::GeneRows rows;
+        rows.first_row.assign(max_taxid + 2, 0);
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) rows.first_row[taxid + 1] = genome.GetGeneList().size();
+        std::partial_sum(rows.first_row.begin(), rows.first_row.end(), rows.first_row.begin());
+        return rows;
     }
 
     template<typename KmerHandler, typename KmerPutter, DebugLevel debug>
@@ -696,7 +631,10 @@ namespace protal::build {
             omp_set_num_threads(1);
         }
 
+        // Each phase is timed in the log ("... took"): where a build at GTDB scale spends its time.
         std::cout << "Run Build" << std::endl;
+        Benchmark bm_pass1("Pass 1 (count the k-mers)");
+        bm_pass1.Start();
 //        if constexpr(protal::HasFirstPut<KmerPutter>) {
         if (true) {
 #pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, main_k_bits, flex_k_bits)
@@ -752,10 +690,16 @@ namespace protal::build {
                     statistics.Join(thread_statistics);
                     std::cout << "minimizers: " << thread_statistics.kmers_accepted << std::endl;
                 }
+                bm_pass1.Stop();
+                bm_pass1.PrintResults();
 
                 // E.g. if k-mers are counted before they are inserted, call Initialize for put
                 // To calculate the bucket sizes
+                Benchmark bm_pointers("Value pointers");
+                bm_pointers.Start();
                 putter.InitializeForPut();
+                bm_pointers.Stop();
+                bm_pointers.PrintResults();
 
         }
 
@@ -765,6 +709,8 @@ namespace protal::build {
             exit(8);
         }
 
+        Benchmark bm_pass2("Pass 2 (place the values)");
+        bm_pass2.Start();
 #pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits)
     {
         // Private variables
@@ -821,10 +767,14 @@ namespace protal::build {
 #pragma omp critical(statistics)
         statistics.Join(thread_statistics);
     }
+        bm_pass2.Stop();
+        bm_pass2.PrintResults();
 
         // Options falls back to --reference when no --full_reference is given, so unique_kmers.tsv is
         // always written: a database without it cannot detect anything.
         std::cout << "Check Uniqueness: " << options.GetFullSequenceFilePath() << std::endl;
+        Benchmark bm_unique("Uniqueness check");
+        bm_unique.Start();
 
         omp_set_num_threads(options.GetThreads());
         auto full_input = OpenInput(options.GetFullSequenceFilePath());
@@ -832,8 +782,11 @@ namespace protal::build {
         KmerLookupSM lookup_global(putter.GetMap());
         // Genes are read back to check single-entry k-mers. They are preloaded unless
         // --preload_genomes_off is given; then GetGeneOMP loads each genome on first use.
+        // Counted for the log: k-mers looked up, flex parts compared, k-mers found in the index
+        // under another taxon or more than once, single entries read back from their gene.
+        size_t kmers_checked = 0, flex_compared = 0, kmers_shared = 0, singles_read = 0;
 
-#pragma omp parallel default(none) shared(std::cout, lookup_global, options, full_is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, genomes)
+#pragma omp parallel default(none) shared(std::cout, lookup_global, options, full_is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, genomes, kmers_checked, flex_compared, kmers_shared, singles_read)
     {
         // Private variables
         FastxRecord record;
@@ -841,7 +794,6 @@ namespace protal::build {
         // Extract variables from kmi_global
         KmerHandler kmer_handler(kmer_handler_global);
         SeqReader reader { full_is };
-        size_t kmer = 0;
         Statistics thread_statistics;
         thread_statistics.thread_num = omp_get_thread_num();
 
@@ -852,10 +804,8 @@ namespace protal::build {
         KmerList kmers;
         KmerLookupSM lookup(lookup_global);
 
-        LookupList seeds;
-        std::vector<ValueEntry*> max_sim_entries;
-        uint32_t max_sim = 0;
-        uint32_t best_possible_sim = putter.GetMap().m_flex_k;
+        std::vector<ValueEntry*> exact;
+        size_t local_kmers = 0, local_compared = 0, local_shared = 0, local_singles = 0;
 
         while (reader(record)) {
             kmer_handler.SetSequence(std::string_view(record.sequence));
@@ -866,17 +816,16 @@ namespace protal::build {
 
             // Retrieve kmers
             kmers.clear();
-            seeds.clear();
             kmer_handler(std::string_view(record.sequence), kmers);
+            local_kmers += kmers.size();
 
             for (auto pair : kmers) {
-                size_t pos = pair.second;
-                max_sim = 0;
-                // std::cout << pair.first << ", " << pair.second << std::endl;
-                max_sim_entries.clear();
-                lookup.GetFlex(pair.first, max_sim_entries, max_sim);
-                if (max_sim_entries.empty()) {
-                    // A core that occurs once in the index has no flex keys, so GetFlex cannot compare
+                // A k-mer counts where the whole of it is indexed (core and flex part): under another
+                // taxon, or more than once, all its values become non-unique.
+                exact.clear();
+                local_compared += lookup.GetExact(pair.first, exact);
+                if (exact.empty()) {
+                    // A core that occurs once in the index has no flex keys, so GetExact cannot compare
                     // the whole k-mer; before, such entries were never checked and all stayed unique.
                     // Compare with the k-mer the entry was built from, read back from its gene, under
                     // the rule used for flex blocks: another taxon with the same k-mer makes it
@@ -885,38 +834,51 @@ namespace protal::build {
                     if (single == nullptr) continue;
                     single->Get(taxid, geneid, genepos);
                     if (taxonomic_id == taxid) continue;
+                    local_singles++;
                     uint64_t indexed_kmer = 0;
                     if (!IndexedKmer(putter.GetMap(), genomes, taxid, geneid, genepos, indexed_kmer) || indexed_kmer != pair.first) continue;
                     single->SetFlagNonUnique();  // atomic
+                    local_shared++;
                     continue;
                 }
 
-                max_sim_entries.front()->Get(taxid, geneid, genepos);
-
-                if (max_sim != best_possible_sim) {
+                exact.front()->Get(taxid, geneid, genepos);
+                if (exact.size() == 1 && taxonomic_id == taxid) {
                     continue;
                 }
-                if (max_sim_entries.size() == 1 && taxonomic_id == taxid) {
-                    continue;
-                }
-
-                for (auto& entry : max_sim_entries) {
-                    // std::cout << "SetNonUnique " << taxonomic_id << " != " << taxid << " entries: " << max_sim_entries.size() << " Isunique? " << entry->IsFlagUnique();
+                local_shared++;
+                for (auto& entry : exact) {
                     entry->SetFlagNonUnique();  // atomic
-                    // std::cout << " -> " << entry->IsFlagUnique() << std::endl;
                 }
             }
         }
 
 
     #pragma omp critical(statistics)
-        statistics.Join(thread_statistics);
+        {
+            statistics.Join(thread_statistics);
+            kmers_checked += local_kmers;
+            flex_compared += local_compared;
+            kmers_shared += local_shared;
+            singles_read += local_singles;
+        }
     }
+        bm_unique.Stop();
+        bm_unique.PrintResults();
+        std::cout << "Uniqueness check: " << kmers_checked << " k-mers, " << flex_compared << " flex parts compared ("
+                  << std::fixed << std::setprecision(1) << flex_compared / std::max(1.0, double(kmers_checked))
+                  << std::defaultfloat << " per k-mer), " << kmers_shared << " found under another taxon or more than once, "
+                  << singles_read << " single entries read back from their genes" << std::endl;
 
         std::cout << "Save unique kmer info: \n" << options.GetUniqueKmersFile() << std::endl;
+        Benchmark bm_statistics("Unique k-mer statistics");
+        bm_statistics.Start();
         std::ofstream os(options.GetUniqueKmersFile());
-        putter.GetMap().CountUniqueKmers(os, true, true);
+        auto const totals = putter.GetMap().CountUniqueKmers(os, GeneRowsOf(genomes), static_cast<int>(options.GetThreads()));
         os.close();
+        bm_statistics.Stop();
+        bm_statistics.PrintResults();
+        std::cout << "Distance-two flags: " << totals.comparisons << " flex parts compared" << std::endl;
 
         // Queries align against the database's reference.fna via reference.map: record which ones.
         // The fingerprint holds the uncompressed size, so it survives compressing reference.fna.

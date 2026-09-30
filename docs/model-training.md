@@ -46,13 +46,14 @@ profiles them against a database, and joins all dumps into `training_data.tsv`:
 | `--db`, `--genome_table`, `-o` | required | database, simulator genome table (accession, GTDB taxonomy, FASTA path), output directory |
 | `--protal`, `--simulator` | on `$PATH` | the binaries |
 | `--samples` | 4 | samples per design point |
-| `--read_pairs` | `5000,20000,100000,500000` | depths, one design point each |
+| `--read_pairs` | `1000,5000,20000,100000,500000` | depths, one design point each |
 | `--read_setups` | `100:HS20:300:40,150:HS25:350:50,250:MSv3:550:50` | length : ART profile : fragment mean : fragment SD, one design point each |
 | `--species_per_sample` | `5-30` | N or MIN-MAX |
 | `--archaea` | 0 | archaeal species per sample |
 | `--congeners` | 0 | species of one genus in every sample of a design point (the genus drawn per point): relatives share real samples, but hardly ever uniform draws from many genera |
-| `--novel_species` | | species the database lacks (e.g. those a training database leaves out), for `meta_novel_*` |
-| `--taxonomy` | | the database's `internal_taxonomy.dmp`, for `meta_rep_genome` |
+| `--novel_species` | | species the database lacks (e.g. those a training database leaves out), optionally with the rank they were held out at and the clade (`heldout_species.txt`), for `meta_novel_*` |
+| `--novel_clades` | 0 | species of held-out clades (ranks above species in `--novel_species`) in every sample, per rank: each design point takes one clade of each rank, in turn |
+| `--taxonomy` | | the database's `internal_taxonomy.dmp`, for `meta_rep_genome`, `meta_relative_rank`, `meta_novel_level` and `meta_neighbour_rank` |
 | `-t`, `--seed` | 4, 1 | threads of the protal run; seed |
 | `--jobs` | `-t` | design points simulated at a time (ART simulates one genome at a time) |
 
@@ -64,13 +65,21 @@ domain (`meta_domain`, from the genome table's lineages; `unknown` for species t
 how many species of `--novel_species` the sample holds (`meta_novel_species`), whether the taxon
 shares a genus with one of them (`meta_novel_congener`: the taxa their reads land on), and whether a
 present species was simulated from its representative, the database's reference, or another
-genome (`meta_rep_genome` 1 or 0). The training report breaks its errors down by the last two.
+genome (`meta_rep_genome` 1 or 0). With the ranks in `--novel_species` and `--taxonomy` also: the
+sample's novel species by the rank they were held out at (`meta_novel_levels`, e.g.
+`species:2,family:1`), the deepest rank a taxon shares with a species simulated in the sample
+(`meta_relative_rank`; `species` for those species themselves), and, for an absent taxon whose
+closest simulated species is a novel one, the rank that one was held out at (`meta_novel_level`):
+its reads are the likely source of the taxon's. For a present taxon, `meta_neighbour_rank` is the
+deepest rank it shares with another species of its sample: a congener's reads fit it nearly as
+well, so it may be missed. The training report breaks its errors down by these.
 
 The genome table should include species that the database lacks. Their reads land on relatives
 the database has, and those species are the false positives the model must learn to reject: build
 the training database with some species left out (`gtdb_to_protal_db.py --exclude_species`, which
 keeps their taxids, so the model applies to the full database) and simulate from all of them.
-`build_gtdb_database.py --holdout` does this. Include archaea,
+`build_gtdb_database.py --holdout` does this, and `--holdout-clades` leaves whole families,
+classes and phyla out too (below). Include archaea,
 too (`--archaea`), since they have fewer marker genes than bacteria. Include genomes other than the
 database's references (other strains of its species): real strains differ from the reference by up
 to a few percent, and a model that has only seen reads of the reference itself may call them
@@ -116,15 +125,19 @@ one differs.
 | `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |
 | `--folds` | 5 | folds of the held-out evaluations |
 | `--evaluation` | `full` | `basic`: the held-out evaluations only; `none`: fit and export only |
-| `--taxonomy` | | the database's `internal_taxonomy.dmp`, for domains the table's `meta_domain` lacks |
+| `--taxonomy` | | the database's `internal_taxonomy.dmp`: domains the table's `meta_domain` lacks, and the lineages for holding out whole clades |
 | `--seed`, `--threads` | 1, 4 | |
 
 Rows of one sample share its reads, and rows of one species share its reference, so a random split
 of rows scores a model on samples and species it was trained on. The trainer scores each row with
-forests that saw neither its sample ("by sample") nor its species ("by species"), and out of bag.
-By species is the estimate that matters for a large database: of GTDB's ~130,000 species a
+forests that saw neither its sample ("by sample") nor its species ("by species"), and out of bag
+(scikit-learn draws each tree's rows by their class weight, so when absent taxa far outnumber
+present ones, some present rows are drawn for every tree and have no out-of-bag score; they are left
+out of that estimate and counted in the report). By species is the estimate that matters for a large database: of GTDB's ~130,000 species a
 training set holds a few thousand, so most species protal meets in real samples were never in
-training. The report also compares with the model that profiled the training samples (the dump's
+training. With `--taxonomy` it also holds out whole genera, families, orders, classes and phyla (a forest
+that saw no taxon of the row's clade): how far the model carries to parts of the tree the training
+data barely cover. The report also compares with the model that profiled the training samples (the dump's
 `probability`, e.g. the shipped model), and `--evaluation full` adds studies of whether the data
 and settings suffice: the other feature set; the procedure this trainer used before (a grid search
 over `max_features`, then a 512-tree forest on only the top features, judged on random rows); the
@@ -135,7 +148,7 @@ number of leaves and of trees; and a learning curve with fewer training samples.
 | `<prefix>.xml` | the model |
 | `<prefix>.report.txt` | the evaluation (also printed): data summary with warnings, held-out results by domain, depth and evidence, the hardest taxa, the threshold, the studies |
 | `<prefix>.metrics.json` | the report's numbers |
-| `<prefix>.predictions.tsv.gz` | every taxon's probability out of bag, by sample, by species and by rows, with its main features |
+| `<prefix>.predictions.tsv.gz` | every taxon's probability out of bag, by sample, by species, by rows and by clade held out, with its main features |
 | `<prefix>.thresholds.tsv` | precision, sensitivity and F1 by threshold, species held out |
 | `<prefix>.varimp.tsv` | feature importances |
 | `<prefix>.joblib` | the fitted scikit-learn forest |
@@ -143,6 +156,33 @@ number of leaves and of trees; and a learning curve with fewer training samples.
 On simulated worlds, 64 trees scored as well as 256 or 512 (the forest is 8 times smaller and
 loads faster in protal), the leaf limit did not bind, and the grid search, which took most of the
 old trainer's time, chose a few top features and did no better on species held out.
+
+### Species and clades the database lacks
+
+Real samples hold organisms the database lacks at every depth: a species of a genus it has, or of a
+genus, family, order, class or phylum it has none of. Their reads land on the closest relatives the
+database has, or nowhere, and those relatives are the false positives to avoid. `build_gtdb_database.py`
+makes such samples: its training database lacks many single species (`--holdout`, 20%) and whole
+clades of every rank (`--holdout-clades`, from phylum down to genus), every sample has species of
+held-out clades (`--novel-clades-per-sample`), and the absent taxa their reads reach are negatives
+the forest is trained on, like any other row.
+
+The report's section "False positives and false negatives by taxonomic rank" gives rates in % at
+the knob, for the model scored with species held out and for the collection model, in rows from
+species to phylum:
+
+- **False positives from what the training database lacks**: absent taxa whose closest species in
+  their sample is one the database lacks (`meta_novel_level`), by the rank it was held out at: the
+  novel species simulated, those taxa, how many are called (FP), the FP rate and FP per 100 novel
+  species; and the other absent taxa for comparison. A second table splits the same taxa by the rank
+  they share with that species (`meta_relative_rank`).
+- **False negatives** of present taxa by the deepest rank they share with another species of their
+  sample (`meta_neighbour_rank`): whether congeners, or relatives further up, cost sensitivity.
+- **With the taxon's clade held out of training** (the cross-validation above, species to phylum):
+  FN rate, FP rate, FP per sample and F1 when the forest has seen nothing of that species, genus,
+  family, order, class or phylum.
+
+The summary repeats the FP and FN rates by rank.
 
 `check_model_parity.py` re-profiles saved training samples (`--profile_only` on the SAMs a
 `collect_training_data.py` folder keeps) with a model and checks that protal's probabilities are

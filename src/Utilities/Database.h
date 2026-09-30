@@ -269,19 +269,25 @@ namespace protal::db {
         std::string dir;            // the database directory; for a single file, the one it is in
         std::string bundle;         // the single-file database, empty for a directory of files
         std::string unused_bundle;  // a database.protal that the separate files next to it take precedence over
+        std::string missing;        // why nothing is at db ("does not exist", or why it cannot be accessed); empty if something is
     };
 
     inline Location Locate(std::string const& db) {
         namespace fs = std::filesystem;
         std::error_code ec;
         Location location;
-        if (fs::is_regular_file(db, ec)) {
+        auto const status = fs::status(db, ec);
+        if (fs::is_regular_file(status)) {
             auto const parent = fs::path(db).parent_path();
             location.dir = parent.empty() ? "." : parent.string();
             location.bundle = db;
             return location;
         }
         location.dir = db;
+        if (status.type() == fs::file_type::not_found || !fs::status_known(status)) {  // unknown: e.g. no permission
+            location.missing = fs::status_known(status) ? "does not exist" : "cannot be accessed: " + ec.message();
+            return location;
+        }
         std::string const bundle = (fs::path(db) / kFileName).string();
         bool const has_index = fs::exists(fs::path(db) / "index.prx", ec) || fs::exists(fs::path(db) / "index.prx.zst", ec);
         if (fs::exists(bundle, ec)) (has_index ? location.unused_bundle : location.bundle) = bundle;

@@ -74,6 +74,14 @@ files. `full_reference.fna`, `gene2geneid.tsv` and `genome2tiid.tsv` stay next t
 separate or uncompressed files and for the compression level. Pass `--no_profile`: without it,
 build mode goes on to profile an empty sample list.
 
+The two passes over `reference.fna` that fill the index run on one thread; the uniqueness check,
+the unique k-mer statistics and the compression use `-t` threads. The log times each phase
+(`Pass 1 (count the k-mers) took ...`, `Value pointers`, `Pass 2 (place the values)`, `Uniqueness
+check`, `Unique k-mer statistics`, `Write index`) and counts the uniqueness check's work (k-mers,
+flex parts compared per k-mer, k-mers found under another taxon, entries read back from their
+genes): at GTDB scale that tells where a build spends its time
+([report](claude/2026-09-30-index-build-gains/README.md)).
+
 ### 3. Check it
 
 Profile samples simulated from genomes whose species you know, and compare. With
@@ -136,7 +144,7 @@ only what is missing, and `--dry_run` lists what it would fetch.
 | `-o` | required | the folder |
 | `--release` | 226 | GTDB release (207 or later) or point release |
 | `--rep_genomes` | `ncbi` | representatives' genomes of the simulated species from NCBI, or `gtdb`: GTDB's archive of all of them (137 GB for r226) |
-| `--species`, `--per_species`, `--rep_only_species` | 4000, 2, 1000 | species with strains, strains each, species simulated from their representative only |
+| `--species`, `--per_species`, `--rep_only_species` | 6000, 2, 2000 | species with strains, strains each, species simulated from their representative only |
 | `--min_completeness`, `--max_contamination` | 90, 5 | CheckM2 filters for strains |
 | `--no_genomes`, `--dry_run` | | GTDB's files only; list the files and their sizes |
 | `--mirror`, `--datasets`, `--batch`, `-t` | | GTDB server, NCBI CLI, genomes per NCBI request (500), parallel downloads and compression (8) |
@@ -161,17 +169,32 @@ with only one of them it either kept 2 false positives per sample or missed a fi
 
 - **Other strains.** With the representatives alone, every simulated species is the database's
   own reference, whose reads match it more closely than those of real strains. `download_gtdb.py`
-  picks, per domain in GTDB's proportions, 4,000 species with non-representative genomes and up to
-  2 of those each, plus 1,000 species simulated from their representative only (about 13,000
-  genomes, ~50 GB as `.fna.gz`), and `--inputs` simulates from exactly these species. The pool
+  picks, per domain in GTDB's proportions, 6,000 species with non-representative genomes and up to
+  2 of those each, plus 2,000 species simulated from their representative only (about 20,000
+  genomes, ~75 GB as `.fna.gz`), and `--inputs` simulates from exactly these species. The pool
   matters: the simulator draws species uniformly, and among all GTDB species the few with strains
   would hardly be drawn; with it, a simulated species is another strain than its representative
-  about 53% of the time. `genome_table.txt` says how often, and the training report warns when
+  about 50% of the time. `genome_table.txt` says how often, and the training report warns when
   nearly every present taxon has reads identical to its reference.
 - **Species the database lacks.** The samples are profiled against a training database
-  (`training_db/`) that leaves `--holdout` of the species out; their reads land on relatives, as
-  those of species GTDB lacks do in real samples. The finished database has all species, and the
-  model trained so (the training database keeps their taxids). It costs a second index build.
+  (`training_db/`) that leaves species out; their reads land on relatives, as those of species GTDB
+  lacks do in real samples. The finished database has all species, and the model trained so (the
+  training database keeps their taxids). It costs a second index build, which runs while the
+  first one does (below).
+
+The training database lacks whole clades at every rank as well as many single species, since
+false positives from organisms the database lacks are what a presence model must avoid. First
+`--holdout-clades` (default 2 phyla, 4 classes, 6 orders, 8 families, 12 genera) are drawn from
+phylum down: clades with at least two species to simulate, at most `--holdout-max-share` (2%) of the
+database's species, and not inside a clade drawn before. Then `--holdout` (20%) of the species to
+simulate that no clade took. Reads of an organism whose genus the database has land on congeners;
+those of one whose genus, family, order, class or phylum it lacks land on ever more distant
+relatives, or nowhere, and the model has to learn all of it. So that such species are in the
+samples, each design point takes one held-out clade of each rank, in turn (every clade is used
+before one is used again), and puts `--novel-clades-per-sample` (1) of its species into every
+sample. `heldout_species.txt` lists the species with the rank they were held out at and the clade,
+`model_logs/holdout.txt` sums them up, and the training report gives false positive and false
+negative rates by rank (see [model-training.md](model-training.md#species-and-clades-the-database-lacks)).
 
 | Option | Default | |
 |---|---|---|
@@ -181,25 +204,36 @@ with only one of them it either kept 2 false positives per sample or missed a fi
 | `--genome-table` | built from the release | genomes to simulate from |
 | `--extra-genomes` | | folder of more genomes of GTDB species (by accession in the file names); repeatable |
 | `--simulate-species` | all | file of the species to simulate from |
-| `--holdout`, `--holdout-species` | 0.1 | share of species left out of the training database, or a file naming them; 0 trains on the database itself |
+| `--holdout` | 0.2 | share of the species to simulate (that no held-out clade took) left out of the training database |
+| `--holdout-clades` | `phylum:2,class:4,order:6,family:8,genus:12` | whole clades left out of the training database, `RANK:COUNT` for phylum, class, order, family, genus; `none` for single species only (with `--holdout 0`: train on the database itself) |
+| `--holdout-max-share` | 0.02 | largest share of the database's species a held-out clade may have |
+| `--novel-clades-per-sample` | 1 | species of held-out clades in every sample, per rank |
+| `--holdout-species` | | a file of the species to leave out instead (optionally with rank and clade, as `heldout_species.txt`) |
+| `--one-build-at-a-time` | | build the finished database after training, not while the training data are collected |
 | `--training-db-level` | 3 | zstd level of the training database (only read while training; level 19 would take about half its build) |
 | `--protal`, `--simulator` | `protal`, `simulate_metagenomes` | the binaries |
 | `-t, --threads` | 8 | |
-| `--samples` | 8 | samples per design point |
+| `--samples` | 12 | samples per design point |
 | `--congeners` | 0 | species of one genus in every sample of a design point |
 | `--no-placeholder-models` | | leave out the placeholder models for se, pb and ont (below) |
-| `--read-pairs` | `5000,20000,100000,500000` | depths, one design point each |
+| `--read-pairs` | `1000,5000,20000,100000,500000` | depths, one design point each (without the shallowest, a model missed 8% of the present taxa of 1000-pair samples) |
 | `--read-setups` | `100:HS20:300:40,150:HS25:350:50,250:MSv3:550:50` | read length : ART profile : fragment mean : fragment SD, one design point each |
-| `--species-per-sample` | `10-40` | |
+| `--species-per-sample` | `20-50` | |
 | `--archaea` | 2 | archaeal species per sample |
 | `--seed` | 1 | |
 | `--ntree`, `--maxnodes` | 64, 128 | random forest size (more trees did not score better, see [model-training.md](model-training.md#training)) |
 | `--evaluation` | `full` | how much the trainer evaluates: `full`, `basic` or `none` |
 
-With the defaults that is 3 read setups x 4 depths x 8 samples = 96 simulated samples, each
-profiled against the training database. The simulations take most of the compute and disk space;
-training and its evaluation take minutes. Whether 96 samples are enough, the training report's
-learning curve says.
+With the defaults that is 3 read setups x 5 depths x 12 samples = 180 simulated samples of 20-50
+species, each profiled against the training database. The simulations take most of the compute and
+disk space; training and its evaluation take minutes. Whether 180 samples are enough, the training
+report's learning curve says.
+
+The finished database is needed only at the end, to take the trained model (`--add_model`), so it
+is built in the background from the start, while the training database is built and the training
+data are collected; the script waits for it before packing the model. That needs the memory of two
+builds at once (about 50-60 GB each at GTDB scale), or of one build and the collection's protal
+runs. `--one-build-at-a-time` builds it after the training instead.
 
 The database gets one model per read type: the trained one as `model_pe.xml`, and placeholders
 (`scripts/placeholder_models.py`) as `model_se.xml`, `model_PB.xml` and `model_ONT.xml`, since only
@@ -213,8 +247,8 @@ The output root holds:
 |---|---|
 | `protal_db/database.protal` | the finished database, and `protal_db/build_metadata.tsv` (GTDB release, feature set, forest size) |
 | `genomes.tsv`, `genome_table.txt` | the genome table used for the simulations, and what it holds (species by domain, how often a simulated species is not its representative) |
-| `training_db/`, `heldout_species.txt` | the training database and the species it leaves out |
+| `training_db/`, `heldout_species.txt` | the training database and the species it leaves out (species, the rank they were held out at, the clade) |
 | `training/` | the simulated samples, their profiles and `training_data.tsv`; a rerun skips the design points already done |
 | `trained_model.*` | the model and the trainer's outputs ([model-training.md](model-training.md#training)) |
-| `model_logs/` | what tells whether the model is good, in one folder: the training report and its numbers (`trained_model.report.txt`, `.metrics.json`), per-taxon predictions, the threshold table, feature importances, the parity check with protal (`parity.txt`), `genome_table.txt`, the collection log and `build_metadata.tsv` |
+| `model_logs/` | what tells whether the model is good, in one folder: the training report and its numbers (`trained_model.report.txt`, `.metrics.json`), per-taxon predictions, the threshold table, feature importances, the parity check with protal (`parity.txt`), `genome_table.txt`, what the training database leaves out (`holdout.txt`, `heldout_species.txt`), the collection log and `build_metadata.tsv` |
 | `*.log` | one log per stage: `convert`, `training_db`, `index_and_package`, `training_db_index`, `training_data`, `classifier_training`, `parity`, `final_package` |

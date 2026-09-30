@@ -282,6 +282,85 @@ class MiniDbTest(unittest.TestCase):
                                   f"http://127.0.0.1:{server.server_port}", "--no_genomes"], capture_output=True, text=True)
         self.assertNotEqual(missing.returncode, 0)
 
+    def test_lineages_and_clade_holdout(self):
+        # The training scripts read lineages from internal_taxonomy.dmp; build_gtdb_database.py holds out whole
+        # clades and then single species.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import build_gtdb_database as build
+        import collect_training_data as collect
+        import lineages
+        taxonomy = os.path.join(self.db, "internal_taxonomy.dmp")
+        by_id, ids = lineages.from_taxonomy(taxonomy)
+        with open(os.path.join(self.db, "genome2tiid.tsv")) as fh:
+            for accession, taxid, _rep, lineage in (line.rstrip("\n").split("\t") for line in fh):
+                self.assertEqual(by_id[taxid], lineages.from_string(lineage), accession)
+        table = os.path.join(self.gtdb, "simulation", "genomes.tsv")
+        pool = build.pool_species(table)
+        species = {lin["species"]: lin for lin in by_id.values() if "species" in lin}
+        families = {}
+        for name, lin in species.items():
+            families.setdefault(lin["family"], set()).add(name)
+        eligible = {f for f, members in families.items() if len(members & pool) >= 2}
+        self.assertTrue(eligible, "the synthetic release needs a family with two species")
+        chosen = build.choose_holdout(table, taxonomy, 0.5, {"family": 1}, 1.0, 3)
+        self.assertEqual(chosen, build.choose_holdout(table, taxonomy, 0.5, {"family": 1}, 1.0, 3))
+        held_family = {clade for rank, clade in chosen.values() if rank == "family"}
+        self.assertEqual(len(held_family), 1)
+        family = held_family.pop()
+        self.assertIn(family, eligible)
+        self.assertEqual({s for s, (rank, _) in chosen.items() if rank == "family"}, families[family])
+        rest = sorted(pool - families[family])
+        self.assertEqual(sum(rank == "species" for rank, _ in chosen.values()),
+                         sum(round(0.5 * len([s for s in rest if species[s]["domain"] == d]))
+                             for d in {species[s]["domain"] for s in rest}))
+        # a clade holding more than the share, or inside one taken before, is not drawn
+        self.assertEqual(build.choose_holdout(table, taxonomy, 0, {"family": 1}, 0.0, 3), {})
+        phylum_first = build.choose_holdout(table, taxonomy, 0, {"phylum": 1, "family": 5}, 1.0, 3)
+        phylum = next(c for r, c in phylum_first.values() if r == "phylum")
+        for s, (rank, clade) in phylum_first.items():
+            if rank == "family":
+                self.assertNotEqual(species[s]["phylum"], phylum)
+        # each rank alone takes a whole clade of that rank; the synthetic release has one clade with two
+        # species, from phylum to genus, so with every rank asked for, the first (phylum) takes it
+        for rank in build.CLADE_RANKS:
+            alone = build.choose_holdout(table, taxonomy, 0, {rank: 1}, 1.0, 3)
+            taken = {c for r, c in alone.values()}
+            self.assertEqual({r for r, _ in alone.values()}, {rank})
+            self.assertEqual(len(taken), 1)
+            clade = taken.pop()
+            self.assertEqual(set(alone), {s for s, lin in species.items() if lin.get(rank) == clade})
+            self.assertEqual(collect.novel_clades(alone, table, 1), {rank: [clade]})
+        every = build.choose_holdout(table, taxonomy, 0, build.parse_clades("phylum:1,class:1,order:1,family:1,genus:2"), 1.0, 3)
+        self.assertEqual({r for r, _ in every.values()}, {"phylum"})
+        # heldout_species.txt round trip, and the collector's reading of it
+        path = os.path.join(self.tmp.name, "heldout.txt")
+        with open(path, "w") as fh:
+            fh.write("".join(f"{s}\t{r}\t{c}\n" for s, (r, c) in sorted(chosen.items())) + "s__Alone one\n")
+        self.assertEqual(build.read_holdout(path), {**chosen, "s__Alone one": ("species", "s__Alone one")})
+        self.assertEqual(collect.read_novel(path), build.read_holdout(path))
+        self.assertEqual(build.parse_clades("phylum:2,class:4"), {"phylum": 2, "class": 4})
+        self.assertEqual(build.parse_clades("none"), {})
+
+    def test_relation_to_novel_species(self):
+        # An absent taxon is put down to a species the database lacks when that species is at least as close to
+        # it as every present one.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import collect_training_data as collect
+        import lineages
+        lin = lambda text: lineages.from_string(text)
+        taxon = lin("d__B;p__P;c__C;o__O;f__F;g__G;s__G a")
+        in_sample = {"s__G b": lin("d__B;p__P;c__C;o__O;f__F;g__G;s__G b"),
+                     "s__H c": lin("d__B;p__P;c__C;o__O2;f__F2;g__H;s__H c")}
+        self.assertEqual(collect.relation(taxon, in_sample, {}), ("genus", ""))
+        self.assertEqual(collect.relation(taxon, in_sample, {"s__G b": ("species", "s__G b")}), ("genus", "species"))
+        self.assertEqual(collect.relation(taxon, in_sample, {"s__H c": ("class", "c__C")}), ("genus", ""))
+        self.assertEqual(collect.relation(taxon, {"s__H c": in_sample["s__H c"]}, {"s__H c": ("order", "o__O2")}),
+                         ("class", "order"))
+        self.assertEqual(collect.relation(taxon, {"s__X": lin("d__A;p__Q;s__X")}, {"s__X": ("phylum", "p__Q")}), ("none", ""))
+        # a present taxon's closest other species (meta_neighbour_rank)
+        self.assertEqual(collect.relation(taxon, {"s__H c": in_sample["s__H c"]}, {})[0], "class")
+        self.assertEqual(collect.relation(taxon, {}, {})[0], "none")
+
     def test_gtdb_like_lineages(self):
         text = subprocess.run([sys.executable, LINEAGES, "--species", "300", "--archaea", "0.1", "--seed", "3"],
                               check=True, capture_output=True, text=True).stdout

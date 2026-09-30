@@ -34,6 +34,7 @@ import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 DB = os.environ.get("PROTAL_TEST_DB", "")
+DB = os.path.abspath(DB) if DB else ""  # protal runs in temporary folders
 PROTAL = os.path.abspath(os.environ.get("PROTAL", os.path.join(ROOT, "build", "protal")))
 SIMULATE = os.path.abspath(os.environ.get("SIMULATE", os.path.join(ROOT, "build", "simulate_metagenomes")))
 QCMSA = os.path.join(ROOT, "scripts", "qcmsa.py")
@@ -1215,6 +1216,16 @@ class FailFastTest(WorkDir):
         rc, log = self.query(db, "out_map")
         self.assertEqual(rc, 8, log[-3000:])
         self.assertRegex(log, r"Invalid reference map .*expected 4 tab-separated columns, found 3")
+
+    def test_missing_db(self):
+        """A --db path with nothing at it is reported as missing, relative to where protal runs."""
+        for args in (reads("sa") + ["-o", "out_nodb", "--no_qcmsa"], ["--unpack_db"], ["--compress_db"]):
+            rc, log = run(self.work, "--db", "no/such_db", *args)
+            self.assertEqual(rc, 30, log[-3000:])
+            self.assertIn("--db no/such_db does not exist (relative to the working directory "
+                          f"{os.path.realpath(self.work)})", log)
+            self.assertNotIn("holds separate files", log)
+            self.assertNotIn("Sequence file does not exist", log)
 
     def test_missing_model_and_unique_kmers(self):
         db = self.db_copy("db_files", drop=("model_pe.xml", "unique_kmers.tsv"))
