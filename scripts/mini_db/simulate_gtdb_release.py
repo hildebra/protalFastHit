@@ -31,7 +31,7 @@ Usage:
   simulate_gtdb_release.py --outdir DIR [--release 226] [--seed 42]
       [--lineages FILE] [--genomes_per_species 3] [--genome_length 150000]
       [--contigs 3] [--marker_loss 0.02] [--strain_divergence 0.005]
-      [--species_divergence 0.035]
+      [--species_divergence 0.035] [--gene_rates none|categories]
 
 --lineages: one GTDB lineage per line (d__...;s__...); '#' lines are comments.
 --strain_divergence and --species_divergence take a rate or a range LOW-HIGH,
@@ -39,6 +39,8 @@ drawn uniformly per genome or per species (written to simulation/divergence.tsv)
 Ranges make training data for the presence model harder: strains that differ
 from the representative by up to a few %, and congeneric species close enough
 that a missing one's reads land on the one the database has.
+--gene_rates categories lets markers evolve at different speeds, by what they do
+(ribosomal proteins slowest), as real genes do (simulation/gene_rates.tsv).
 """
 
 import argparse
@@ -119,6 +121,37 @@ def read_markers(path):
     return lengths, by_set
 
 
+def read_marker_names(path):
+    """-> {marker: name} from markers_r226.tsv."""
+    names = {}
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("#") or line.startswith("set\t"):
+                continue
+            f = line.rstrip("\n").split("\t")
+            names.setdefault(f[1], f[2])
+    return names
+
+
+# --gene_rates categories: how fast a marker evolves, relative to the genome's divergence, by what it does.
+# Ribosomal proteins are among the most conserved genes, the translation and transcription machinery next,
+# then tRNA synthetases and modification enzymes, then the rest (replication, repair, metabolism).
+CATEGORY_RATE = {"ribosomal": 0.4, "translation": 0.8, "trna": 1.1, "other": 1.4}
+
+
+def marker_category(name):
+    n = name.lower()
+    if n.startswith(("ribosomal_", "rps", "rpl", "us11", "l11", "l3_", "l6_", "l9", "l17", "l21", "s6", "s20")):
+        return "ribosomal"
+    if n in ("tig", "era", "frr", "tsf", "ffh", "smpb", "ftsy", "rbfa", "lepa", "prfa", "prfb") or n.startswith(
+            ("rpo", "nus", "infc", "if-", "typa", "obg", "sec", "gtpase", "16s_rimm", "rnaseiii", "rsfs")):
+        return "translation"
+    if (n.endswith(("s", "s_bact")) and len(n.split("_")[0]) == 4) or n.startswith(
+            ("metg", "phet", "trm", "trub", "fmt", "lysidine", "t6a", "rsmg", "ksga", "rrna_methyl")):
+        return "trna"
+    return "other"
+
+
 def random_cds(rng, length_aa):
     """ATG + random sense codons + stop, 1.0-1.15x the HMM length."""
     codons = int(length_aa * (1 + rng.random() * 0.15))
@@ -187,9 +220,23 @@ class Simulator:
         self.markers_by_set = markers_by_set
         # Ancestral (root) sequence for every marker of the union of both sets.
         self.root_seq = {m: random_cds(self.rng, lengths[m]) for m in sorted(lengths)}
+        self.gene_rate = self._gene_rates(sorted(lengths))
         self.node_seq = {}  # (lineage prefix, marker) -> sequence, shared by descendants
         self.species = [self._make_species(i + 1, l) for i, l in enumerate(lineages)]
         self.genomes = [g for sp in self.species for g in self._make_genomes(sp)]
+
+    def _gene_rates(self, markers):
+        """{marker: rate}, which multiplies every branch's divergence at that marker (1 each without
+        --gene_rates). With categories: the category's rate (CATEGORY_RATE) times a gamma draw of mean 1
+        and CV 0.35, scaled to a mean of 1 over all markers (some are in both sets). Drawn with a generator
+        of its own, so the rest of the release is the one without --gene_rates."""
+        if self.args.gene_rates == "none":
+            return {m: 1.0 for m in markers}
+        names = read_marker_names(self.args.markers)
+        rng = random.Random(self.args.seed + 7919)
+        rate = {m: CATEGORY_RATE[marker_category(names[m])] * rng.gammavariate(8.0, 1 / 8.0) for m in markers}
+        mean = sum(rate.values()) / len(rate)
+        return {m: r / mean for m, r in rate.items()}
 
     def _draw(self, rate):
         """A rate from (low, high); a single rate draws no random number, so that runs without
@@ -223,7 +270,7 @@ class Simulator:
         for depth, rank in enumerate(ranks):
             key = (";".join(ranks[:depth + 1]), marker)
             if key not in self.node_seq:
-                rate = species_divergence if rank[0] == "s" else BRANCH[rank[0]]
+                rate = (species_divergence if rank[0] == "s" else BRANCH[rank[0]]) * self.gene_rate[marker]
                 self.node_seq[key] = mutate(self.rng, seq, rate)
             seq = self.node_seq[key]
         return seq
@@ -243,7 +290,7 @@ class Simulator:
             genes = {}
             for m in order:
                 if self.rng.random() >= a.marker_loss:
-                    genes[m] = mutate(self.rng, sp["seqs"][m], divergence)
+                    genes[m] = mutate(self.rng, sp["seqs"][m], divergence * self.gene_rate[m])
             bg = [mutate(self.rng, s, divergence, coding=False) for s in background]
             contigs, positions = self._assemble(acc, order, genes, strand, bg)
             yield {
@@ -353,6 +400,11 @@ def main():
     ap.add_argument("--species_divergence", type=parse_rate, default=(BRANCH["s"], BRANCH["s"]),
                     help="per-site substitution rate of each species relative to its genus, "
                          f"or a range LOW-HIGH drawn per species (default {BRANCH['s']})")
+    ap.add_argument("--gene_rates", choices=("none", "categories"), default="none",
+                    help="how fast each marker evolves relative to the genome: none (every marker alike, the "
+                         "default) or categories (ribosomal proteins 0.4, translation and transcription 0.8, "
+                         "tRNA synthetases and modification 1.1, the rest 1.4, each with some noise, mean 1; "
+                         "written to simulation/gene_rates.tsv)")
     args = ap.parse_args()
 
     if not 1 <= args.genomes_per_species <= 999:
@@ -381,6 +433,12 @@ def main():
 
     sim_dir = os.path.join(out, "simulation")
     os.makedirs(sim_dir, exist_ok=True)
+    if args.gene_rates != "none":
+        names = read_marker_names(args.markers)
+        with open(os.path.join(sim_dir, "gene_rates.tsv"), "w", newline="\n") as fh:
+            fh.write("marker\tname\tcategory\trate\n")
+            for m in sorted(sim.gene_rate):
+                fh.write(f"{m}\t{names[m]}\t{marker_category(names[m])}\t{sim.gene_rate[m]:.4f}\n")
     reps_db = os.path.join(out, "genomic_files_reps", f"gtdb_genomes_reps_{rel}", "database")
     with open(os.path.join(sim_dir, "genomes.tsv"), "w", newline="\n") as gt, \
          open(os.path.join(sim_dir, "marker_positions.tsv"), "w", newline="\n") as mp, \

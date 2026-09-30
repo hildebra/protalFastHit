@@ -83,8 +83,10 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
   plus `simulation/genomes.tsv`, which you can pass to `simulate_metagenomes --genome_table`.
   Options: `--seed`, `--lineages FILE` (one GTDB lineage per line), `--genomes_per_species`,
   `--genome_length`, `--contigs`, `--marker_loss`, `--strain_divergence`, `--species_divergence`
-  (the last two take a rate or a range `LOW-HIGH` drawn per genome or species, written to
-  `simulation/divergence.tsv`).
+  (these two take a rate or a range `LOW-HIGH` drawn per genome or species, written to
+  `simulation/divergence.tsv`), `--gene_rates categories` (markers evolve at different speeds by what
+  they do: ribosomal proteins 0.4, translation and transcription 0.8, tRNA synthetases and modification
+  1.1, the rest 1.4, with noise, mean 1; `simulation/gene_rates.tsv`).
 - `gtdb_like_lineages.py` writes lineages shaped like GTDB's for `--lineages`: up to 999 species,
   most genera with one species and a few with many, unique names, a share of archaea. It makes the
   world the presence model's training was tuned on ([model-training.md](model-training.md)).

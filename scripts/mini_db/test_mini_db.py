@@ -11,7 +11,9 @@ the right genomes in the right proportions. Does not need a protal binary.
   python3 -m unittest scripts/mini_db/test_mini_db.py
 """
 
+import collections
 import contextlib
+import csv
 import functools
 import gzip
 import hashlib
@@ -603,6 +605,40 @@ class MiniDbTest(unittest.TestCase):
         self.assertTrue(all(0.01 <= s <= 0.04 and 0.002 <= g <= 0.02 for s, g in rates))
         self.assertGreater(len({s for s, _ in rates}), 1)
         self.assertEqual(len({g for _, g in rates}), len(rates))
+
+    def test_gene_rates(self):
+        # With --gene_rates categories, markers evolve at their category's speed (mean 1): congeneric species
+        # stay closer at the ribosomal proteins than at the rest. Without it, nothing is written.
+        self.assertFalse(os.path.exists(os.path.join(self.gtdb, "simulation", "gene_rates.tsv")))
+        other = os.path.join(self.tmp.name, "gtdb_gene_rates")
+        run(SIMULATE, "--outdir", other, "--genome_length", "20000", "--gene_rates", "categories")
+        with open(os.path.join(other, "simulation", "gene_rates.tsv")) as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        rate = {r["marker"]: float(r["rate"]) for r in rows}
+        self.assertAlmostEqual(sum(rate.values()) / len(rate), 1.0, places=3)
+        by_category = collections.defaultdict(list)
+        for r in rows:
+            by_category[r["category"]].append(float(r["rate"]))
+        means = {c: sum(v) / len(v) for c, v in by_category.items()}
+        self.assertLess(means["ribosomal"], means["translation"])
+        self.assertLess(means["translation"], means["other"])
+
+        def similarity(category):  # Mockella alpha vs beta, over the category's bac120 markers
+            shared = []
+            for r in rows:
+                if r["category"] != category:
+                    continue
+                path = os.path.join(other, "genomic_files_reps", "bac120_marker_genes_reps_r226", "fna",
+                                    f"bac120_{r['marker']}.fna")
+                if os.path.exists(path):
+                    seqs = read_fasta(path)
+                    a, b = seqs.get("RS_GCF_999001001.1"), seqs.get("RS_GCF_999002001.1")
+                    if a and b:
+                        ka, kb = kmers(a), kmers(b)
+                        shared.append(len(ka & kb) / len(ka | kb))
+            return sum(shared) / len(shared)
+
+        self.assertGreater(similarity("ribosomal"), similarity("other"))
 
     def simulate_reads(self, prefix, community, pairs=400, error_rate="0"):
         path = os.path.join(self.tmp.name, "community.tsv")

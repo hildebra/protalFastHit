@@ -114,3 +114,71 @@ median only where the species' 98th percentile and gene median agree within a fe
 real genomes, whose genes differ in conservation. The undercount of strains 4% or more from the
 reference is at the alignment, and would be the next thing to look at for strains near the species
 boundary.
+
+## Follow-up: genes that differ in conservation
+
+In the first world every marker evolves at one rate, so a relative's reads land on every gene, which is
+why the gene median followed them. Real genes differ: ribosomal proteins are among the most conserved,
+replication, repair and metabolism genes the least. A second world (`scripts/run_gcat.sh`, `~/stress2`;
+binaries of `1b6161d`) is the first one with `simulate_gtdb_release.py --gene_rates categories` (new): each
+marker evolves at its category's rate (ribosomal proteins 0.4, translation and transcription 0.8, tRNA
+synthetases and modification 1.1, the rest 1.4) times a gamma draw of CV 0.35, scaled to a mean of 1, at
+every level from the domain down to the strains (`results/gene_rates_true.tsv`). The design, the held-out
+species and the samples are drawn as in the first world.
+
+Two rules scale by the gene, with a factor r per gene (mean 1):
+
+- per-gene margin: a gene's reads count if their identity is at least the 98th percentile − (M0 + r × K),
+  wide on fast genes, narrow on conserved ones (`gtop:M0:K`);
+- gene-scaled median (the gene median, scaled per gene): D = the median over genes of (1 − the gene's
+  median read identity) / r, the strain's divergence from the reference measured on every gene; a gene's
+  reads count if their identity is at least 1 − r × (D + K) − M (`gmedc:M:K`).
+
+The factors come from the simulator's true rates, or are estimated from the database's genes as a build
+could (`scripts/estimate_gene_rates.py`): for each species and gene, the median k-mer distance of the
+other genomes' copies (`full_reference.fna`) to the representative's, over that species' median across its
+genes; the median of that over species. Per gene, the estimate correlates 0.991 with the true rates;
+averaged per category, 0.70 (the categories' own spread): ribosomal 0.37, translation 0.78, tRNA 1.24,
+other 1.24 (`results/gene_rates_estimate.txt`).
+
+Bray-Curtis, mean of 6 samples (`results/scores_gene_rates.md`):
+
+| Rule | all species, 2x100 | 2x150 | species missing, 2x100 | 2x150 | sum |
+|---|---|---|---|---|---|
+| no filter | 0.049 | 0.026 | 0.052 | 0.037 | 0.165 |
+| 98th percentile − 0.04 | 0.187 | 0.137 | 0.172 | 0.126 | 0.621 |
+| 98th percentile − 0.08 (the default since `1b6161d`) | 0.058 | 0.033 | 0.057 | 0.034 | 0.182 |
+| gene median − 0.06 | 0.052 | 0.030 | 0.052 | 0.034 | 0.168 |
+| gene median − 0.08 | 0.049 | 0.026 | 0.051 | 0.035 | 0.161 |
+| min(gene median − 0.06, 98th percentile − 0.08) | 0.053 | 0.028 | 0.053 | 0.034 | 0.168 |
+| per-gene margin 0.03 + r × 0.05, estimated per gene | 0.056 | 0.029 | 0.056 | 0.032 | 0.173 |
+| per-gene margin 0.03 + r × 0.05, true rates | 0.056 | 0.029 | 0.057 | 0.031 | 0.173 |
+| gene-scaled median, M 0.03, K 0.03, estimated per gene | 0.050 | 0.028 | 0.051 | 0.032 | 0.160 |
+| the same, per category | 0.050 | 0.028 | 0.050 | 0.033 | 0.160 |
+| the same, true rates | 0.050 | 0.028 | 0.051 | 0.032 | 0.160 |
+
+By kind (median log2(reported / true), all species): strains 2–4% from the reference get −0.010 with the
+gene-scaled median, −0.015 with the gene median − 0.08, −0.019 with no filter and −0.032 with 0.08 below
+the top; strains 4% or more away −0.19 to −0.24 with every rule (the reads lost at alignment); against
+`db_missing`, the congeners of missing species +0.018 to +0.021 with the gene-median rules and no filter,
++0.046 with 0.08 below the top.
+
+- **With genes that differ, the fixed margin is the worst of the reasonable rules.** Reads of a strain
+  on its fast genes fall further below the top than 0.08, so it undercounts strains and, in relative
+  terms, overcounts the reference-genome species; no filter does better (0.165 against 0.182).
+- **The relatives' pull is gone.** A relative's reads now align mostly on the conserved genes, so the
+  gene median, and a depth that is a median over genes, follow the species' own reads: even no filter
+  scores 0.037 with species missing at 2x150 (0.066 in the first world).
+- **Scaling the gene median by the gene helps a little** where relatives are present (0.032 against
+  0.035 for the gene median − 0.08 at 2x150) and for strains 2–4% away; the factors estimated from the
+  database's genes do as well as the true rates, and category averages nearly as well.
+- **Over both worlds** (sum of the eight scores): the gene-scaled median 0.327 (its first-world scores are
+  those of the gene median − 0.06, since its factors are all 1 there), the gene median − 0.08 0.330,
+  no filter 0.339, 98th percentile − 0.08 0.344. The differences between the first three are small
+  (0.002–0.008 per score); the fixed margin wins only in the first world with species missing.
+
+**Revised recommendation.** Where genes differ in conservation, as real ones do, the gene median should be
+the anchor: the gene median − 0.08 needs nothing but the reads and scores within 1% of the best rule
+over both worlds; the gene-scaled median adds per-gene factors that a build can estimate from
+`full_reference.fna` (0.99 correlation with the true rates here) for a further ~1%. The fixed 0.08 below
+the top (the current default) should give way to one of them once they are checked on real genomes.

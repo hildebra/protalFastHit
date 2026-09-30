@@ -1,0 +1,2 @@
+168 genes from 120 species; by category: other 1.24 (80 genes), ribosomal 0.37 (36 genes), translation 0.78 (31 genes), trna 1.24 (21 genes)
+correlation with the true rates: per gene 0.991, per category 0.696
