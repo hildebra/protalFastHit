@@ -320,7 +320,7 @@ def write_fasta(path, names, seqs, width=80):
 # Pass 1: multi-allelicity (MRate2) sample/gene filter.
 # ----------------------------------------------------------------------------
 def mrate2_filter(rows, all_genes, all_samples, min_bad, iqr_mult,
-                  gene_abs=0, sample_abs=0, min_rate=0.004):
+                  gene_abs=0, sample_abs=0, min_rate=0.002):
     """Remove samples, then genes, whose pooled multi-allelic rate is an outlier.
 
     A sample's pooled rate is its multi-allelic positions (IUPAC codes) over its positions with
@@ -414,10 +414,10 @@ def build_argparser():
     p.add_argument("--gene-abs-min-bad", type=int, default=0,
                    help="Remove a gene multi-allelic in >= this many samples, regardless of "
                         "the Tukey fence. 0=off.")
-    p.add_argument("--mrate2-min-rate", type=float, default=0.004,
+    p.add_argument("--mrate2-min-rate", type=float, default=0.002,
                    help="Floor for the multi-allelic fences: a sample, gene or cell is only "
                         "removed (masked) with a multi-allelic rate above both its Tukey fence "
-                        "and this rate (default 0.004: 0.4%% of the positions with >= 2 reads). "
+                        "and this rate (default 0.002: 0.2%% of the positions with >= 2 reads). "
                         "It keeps a fence from collapsing to 0 when most items are clean.")
     p.add_argument("--mrate2-include-zeros", action="store_true",
                    help="No effect; kept for old command lines. The fences are computed on "

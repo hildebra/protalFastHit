@@ -55,7 +55,7 @@ no more. It stops with an error if the MSA names a sequence twice.
 | `--preset strict\|default\|sensitive` | default | sets the two below: strict = 1.0 / 1, default = 1.5 / 2, sensitive = 2.0 / 3 |
 | `--iqr-mult FLOAT` | 1.5 | Tukey fence multiplier; lower removes more |
 | `--min-bad INT` | 2 | multi-allelic genes a sample needs (samples a gene needs, positions a cell needs) before removal; higher removes less |
-| `--mrate2-min-rate FLOAT` | 0.004 | floor under every fence: nothing with a rate at or below it is removed or masked |
+| `--mrate2-min-rate FLOAT` | 0.002 | floor under every fence: nothing with a rate at or below it is removed or masked |
 | `--sample-abs-min-bad INT` | 0 (off) | remove a sample that is multi-allelic in at least this many genes, whatever the fence says |
 | `--gene-abs-min-bad INT` | 0 (off) | remove a gene that is multi-allelic in at least this many samples |
 | `--max-mrate2 FLOAT` | from the data | hard per-cell MRate2 cap for masking outlier cells |
@@ -70,10 +70,13 @@ A sample is removed when its rate is above the Tukey upper fence of all samples'
 (Q3 + `--iqr-mult` × IQR, needing 4 samples) and above `--mrate2-min-rate`, and it is
 multi-allelic in `--min-bad` genes. Genes are then judged the same way on the samples kept, and
 cells (one sample, one gene, `multi_rate_vcov2`) on the samples and genes kept. There is one pass.
-A pooled rate does not grow with depth, as a count of multi-allelic genes does; in the 2026-09-29
-strain audit, two-strain mixtures had rates of 0.45–1.9% and single strains at most 0.34%, before
-`--snp_min_af` and the read identity margin lowered the latter. Without the floor, a fence over
-mostly clean samples is 0 and removes any sample with two IUPAC codes.
+A pooled rate does not grow with depth, as a count of multi-allelic genes does. In the simulations
+of the 2026-09-29 strain audit (1–50x, Illumina reads), single-strain rows had rates of at most
+0.09%, and two-strain mixtures whose minor strain had 15% of the reads or more at least 0.34%;
+mixtures with a minor strain of 10% ranged from 0.07% to 0.45%. Without the floor, a fence over
+mostly clean samples is 0 and removes any sample with two IUPAC codes. The fence finds outliers:
+where most samples of a species are mixtures, it rises above them, and only `--sample-abs-min-bad`
+removes them.
 
 ### Coverage
 

@@ -629,10 +629,10 @@ class QcmsaContractTest(WorkDir):
 
     def test_multi_allelic_filter_judges_rates(self):
         # 8 samples, 4 genes of 1000 positions with >= 2 reads. s1-s6 hold no IUPAC code; s7, deep,
-        # holds 2 per gene (0.2%, noise); s8, a mixture, 10 per gene (1%). By counts of multi-allelic
-        # genes s7 and s8 are alike; by their rates, only s8 is above the 0.4% floor.
+        # holds 1 per gene (0.1%, noise); s8, a mixture, 10 per gene (1%). By counts of multi-allelic
+        # genes s7 and s8 are alike; by their rates, only s8 is above the 0.2% floor.
         samples = [f"s{i}" for i in range(1, 9)]
-        multi = {"s7": 2, "s8": 10}
+        multi = {"s7": 1, "s8": 10}
         with open(self.path("m.raw.msa.fna"), "w") as fh:
             fh.write(">m_reference\n" + "A" * 32 + "\n")
             for i, s in enumerate(samples):
@@ -654,9 +654,10 @@ class QcmsaContractTest(WorkDir):
         self.assertEqual(len(msa["s7"]), 32, "no gene removed or masked")
         with open(self.path("m.qcmsa_summary.tsv")) as fh:
             summary = fh.read()
-        self.assertIn("sample_filtered\ts8\t4\tmulti-allelic rate 0.0100 > 0.0040", summary)
+        self.assertIn("sample_filtered\ts8\t4\tmulti-allelic rate 0.0100 > 0.0020", summary)
 
-        rc, log = run(self.work, *args, "--prefix", self.path("floor"), "--mrate2-min-rate", "0.001", binary="python3")
+        # With a floor of 0.05%, the fence (0.0625%) decides, and s7 goes too.
+        rc, log = run(self.work, *args, "--prefix", self.path("floor"), "--mrate2-min-rate", "0.0005", binary="python3")
         self.assertEqual(rc, 0, log)
         self.assertEqual(sorted(self.read_msa(self.path("floor.msa.fna"))), sorted(["m_reference"] + samples[:6]))
 
