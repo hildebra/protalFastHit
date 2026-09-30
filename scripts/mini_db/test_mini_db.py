@@ -320,6 +320,18 @@ class MiniDbTest(unittest.TestCase):
         for s, (rank, clade) in phylum_first.items():
             if rank == "family":
                 self.assertNotEqual(species[s]["phylum"], phylum)
+        # each rank alone takes a whole clade of that rank; the synthetic release has one clade with two
+        # species, from phylum to genus, so with every rank asked for, the first (phylum) takes it
+        for rank in build.CLADE_RANKS:
+            alone = build.choose_holdout(table, taxonomy, 0, {rank: 1}, 1.0, 3)
+            taken = {c for r, c in alone.values()}
+            self.assertEqual({r for r, _ in alone.values()}, {rank})
+            self.assertEqual(len(taken), 1)
+            clade = taken.pop()
+            self.assertEqual(set(alone), {s for s, lin in species.items() if lin.get(rank) == clade})
+            self.assertEqual(collect.novel_clades(alone, table, 1), {rank: [clade]})
+        every = build.choose_holdout(table, taxonomy, 0, build.parse_clades("phylum:1,class:1,order:1,family:1,genus:2"), 1.0, 3)
+        self.assertEqual({r for r, _ in every.values()}, {"phylum"})
         # heldout_species.txt round trip, and the collector's reading of it
         path = os.path.join(self.tmp.name, "heldout.txt")
         with open(path, "w") as fh:
@@ -345,6 +357,9 @@ class MiniDbTest(unittest.TestCase):
         self.assertEqual(collect.relation(taxon, {"s__H c": in_sample["s__H c"]}, {"s__H c": ("order", "o__O2")}),
                          ("class", "order"))
         self.assertEqual(collect.relation(taxon, {"s__X": lin("d__A;p__Q;s__X")}, {"s__X": ("phylum", "p__Q")}), ("none", ""))
+        # a present taxon's closest other species (meta_neighbour_rank)
+        self.assertEqual(collect.relation(taxon, {"s__H c": in_sample["s__H c"]}, {})[0], "class")
+        self.assertEqual(collect.relation(taxon, {}, {})[0], "none")
 
     def test_gtdb_like_lineages(self):
         text = subprocess.run([sys.executable, LINEAGES, "--species", "300", "--archaea", "0.1", "--seed", "3"],

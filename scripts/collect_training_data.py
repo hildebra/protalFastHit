@@ -13,9 +13,10 @@ the database's reference). Train on it with
     python3 scripts/random_forest_cmdline.py --truth-file OUT/training_data.tsv --output-prefix OUT/model
 
 A genome table with species the database lacks gives the negatives that matter most: a relative
-the database has picks up their reads. When whole families, classes or phyla are missing
-(--novel_species with ranks, --novel_clades), the relatives are distant: meta_novel_level marks
-the absent taxa closest to such species. Archaea (--archaea) have fewer marker genes than bacteria
+the database has picks up their reads. When whole genera, families, orders, classes or phyla are
+missing (--novel_species with ranks, --novel_clades), the relatives are distant: meta_novel_level
+marks the absent taxa closest to such species, meta_neighbour_rank how close a present taxon's
+nearest other species in the sample is. Archaea (--archaea) have fewer marker genes than bacteria
 and need to be in the training data, too. Design points are simulated in parallel (--jobs; ART
 simulates one genome at a time), then all their samples are profiled in one protal run, which
 loads the database once. Points already simulated or profiled are skipped, so a run can be resumed.
@@ -47,7 +48,7 @@ def parse_args(argv=None):
     p.add_argument("--protal", default="protal", help="protal binary (default: protal on PATH)")
     p.add_argument("--simulator", default="simulate_metagenomes", help="simulate_metagenomes binary")
     p.add_argument("--samples", type=int, default=4, help="samples per design point (default: 4)")
-    p.add_argument("--read_pairs", default="5000,20000,100000,500000",
+    p.add_argument("--read_pairs", default="1000,5000,20000,100000,500000",
                    help="comma-separated read pairs per sample, one design point each")
     p.add_argument("--read_setups", default="100:HS20:300:40,150:HS25:350:50,250:MSv3:550:50",
                    help="comma-separated LENGTH:ART_PROFILE:FRAGMENT_MEAN:FRAGMENT_SD, one design point each")
@@ -69,8 +70,9 @@ def parse_args(argv=None):
                         "sample is one of them, by the rank it was held out at")
     p.add_argument("--novel_clades", type=int, default=0,
                    help="species of held-out clades (--novel_species with ranks above species) in every sample, per "
-                        "rank: one clade of each rank is drawn per design point (default 0: species are drawn "
-                        "uniformly, and the few of held-out clades hardly appear)")
+                        "rank: each design point takes one clade of each rank, in turn, so that every clade is used "
+                        "before one is used again (default 0: species are drawn uniformly, and the few of held-out "
+                        "clades hardly appear)")
     p.add_argument("--taxonomy", help="internal_taxonomy.dmp of the database: meta_rep_genome says whether a present "
                                       "species was simulated from its representative genome (the database's "
                                       "reference, 1) or from another strain (0)")
@@ -79,12 +81,14 @@ def parse_args(argv=None):
 
 META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pairs", "meta_domain",
                 "meta_novel_species", "meta_novel_congener", "meta_rep_genome", "meta_novel_levels",
-                "meta_novel_level", "meta_relative_rank"]
+                "meta_novel_level", "meta_relative_rank", "meta_neighbour_rank"]
 # meta_novel_levels: the sample's species the database lacks, by the rank they were held out at
 # ("species:2,family:1"). meta_relative_rank: the deepest rank the taxon shares with a species simulated in
 # the sample ("species" for the simulated species themselves, "none" for no shared domain). meta_novel_level:
 # for an absent taxon whose closest simulated species (at least as close as any present one) is one the
 # database lacks, the rank that species was held out at: its reads are the likely source of the taxon's.
+# meta_neighbour_rank: for a present taxon, the deepest rank it shares with another species simulated in the
+# sample (a congener's reads fit it nearly as well, so it may be missed).
 
 
 def large_genera(genome_table, size):
@@ -129,13 +133,14 @@ def species_lineages(genome_table):
     return out
 
 
-def novel_clades(novel, genome_table):
-    """{rank: [clade, ...]} of the held-out clades (ranks above species) the genome table can simulate."""
+def novel_clades(novel, genome_table, seed):
+    """{rank: [clade, ...]} of the held-out clades (ranks above species) the genome table can simulate, each
+    rank's in a random order (design point i takes clade i modulo their number)."""
     simulated = collections.defaultdict(set)
     for species in species_lineages(genome_table):
         if species in novel and novel[species][0] != "species":
             simulated[novel[species][0]].add(novel[species][1])
-    return {rank: sorted(clades) for rank, clades in simulated.items()}
+    return {rank: random.Random(f"{seed}:{rank}").sample(sorted(clades), len(clades)) for rank, clades in simulated.items()}
 
 
 def relation(taxon_lineage, in_sample, novel):
@@ -228,8 +233,7 @@ def simulate(point, index, opts, threads, clades):
     # One --taxon for all demands: the simulator reads only the last.
     taxa = [f"d__Archaea:{opts.archaea}"] if opts.archaea > 0 else []
     if opts.novel_clades > 0:
-        rng = random.Random(opts.seed * 7919 + index)
-        taxa += [f"{rng.choice(clades[rank])}:{opts.novel_clades}" for rank in sorted(clades)]
+        taxa += [f"{clades[rank][index % len(clades[rank])]}:{opts.novel_clades}" for rank in sorted(clades)]
     if taxa:
         command += ["--taxon", ",".join(taxa)]
     if opts.congeners > 0:
@@ -307,7 +311,7 @@ def main(argv=None):
         by_id, _ = lineages.from_taxonomy(opts.taxonomy)
         db_lineages = {lin[max(lin, key=lineages.RANKS.index)]: lin for lin in by_id.values() if lin}
     sim_lineages = species_lineages(opts.genome_table)
-    clades = novel_clades(novel, opts.genome_table) if opts.novel_clades > 0 else {}
+    clades = novel_clades(novel, opts.genome_table, opts.seed) if opts.novel_clades > 0 else {}
     if clades:
         print("held-out clades in every sample, one per rank and design point: "
               + ", ".join(f"{len(c)} {rank}" for rank, c in sorted(clades.items())), flush=True)
@@ -366,14 +370,16 @@ def main(argv=None):
                         rep = ""
                         if is_present and reps.get(taxon) and taxon in in_sample:
                             rep = "1" if all(g == reps[taxon] for g in in_sample[taxon]) else "0"
-                        relative, level = "", ""
+                        relative, level, neighbour = "", "", ""
                         if is_present:
                             relative = "species"
+                            others = {s: lin for s, lin in sample_lineages.items() if s != taxon}
+                            neighbour = relation(db_lineages.get(taxon) or sim_lineages.get(taxon, {}), others, {})[0]
                         elif taxon in db_lineages:
                             relative, level = relation(db_lineages[taxon], sample_lineages, novel)
                         writer.writerow([point["name"], sample, point["read_length"], point["read_pairs"],
                                          domains.get(taxon, "unknown"), len(novel_here), int(congener), rep,
-                                         novel_levels, level, relative] + row)
+                                         novel_levels, level, relative, neighbour] + row)
                         rows += 1
                         present += is_present
                         absent += not is_present

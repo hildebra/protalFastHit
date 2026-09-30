@@ -21,11 +21,14 @@ harder in two ways than simulating the database's own references:
   metadata and downloads them from NCBI, so that species are simulated from
   other strains, too. OUT_DIR/genome_table.txt says how often.
 - Species the database lacks. The samples are profiled against a training
-  database (OUT_DIR/training_db) that leaves --holdout of the species out
+  database (OUT_DIR/training_db) that leaves whole clades of every rank
+  (--holdout-clades) and --holdout of the other species out
   (OUT_DIR/heldout_species.txt): their reads land on relatives, as those of
-  species GTDB lacks do in real samples, and the model learns to reject those
-  relatives. The finished database has all species and the model trained so.
-  The training database costs a second index build and its disk space.
+  organisms GTDB lacks do in real samples, and the model learns to reject those
+  relatives. The report gives false positive and false negative rates by rank.
+  The finished database has all species and the model trained so. The training
+  database costs a second index build (while the first one runs) and its disk
+  space.
 
 OUT_DIR/model_logs/ collects what tells whether the model is good: the training
 report (how it does on species it was not trained on, against the previous model
@@ -287,16 +290,18 @@ def main():
     p.add_argument("--extra-genomes", action="append", default=[],
                    help="folder of more whole genomes of GTDB species, found by the accession in their file names "
                         "(e.g. the NCBI genomes of download_gtdb.py); repeatable")
-    p.add_argument("--holdout", type=float, default=0.1,
+    p.add_argument("--holdout", type=float, default=0.2,
                    help="fraction of the species (of those the genome table can simulate and no clade of "
-                        "--holdout-clades took) left out of a separate training database (default 0.1): their "
-                        "reads land on relatives, as those of species GTDB lacks do in real samples. 0 with "
-                        "--holdout-clades none trains on the database itself")
-    p.add_argument("--holdout-clades", default="phylum:2,class:4,family:8",
+                        "--holdout-clades took) left out of a separate training database (default 0.2): their "
+                        "reads land on relatives, as those of species GTDB lacks do in real samples, and they are "
+                        "the false positives the model must learn to reject. 0 with --holdout-clades none trains "
+                        "on the database itself")
+    p.add_argument("--holdout-clades", default="phylum:2,class:4,order:6,family:8,genus:12",
                    help="whole clades left out of the training database too, RANK:COUNT for ranks phylum, class, "
-                        "order, family, genus (default phylum:2,class:4,family:8; none for species only): reads of "
-                        "organisms whose family, class or phylum the database lacks land on distant relatives. The "
-                        "report tells how the model does on each rank")
+                        "order, family, genus (default phylum:2,class:4,order:6,family:8,genus:12; none for "
+                        "species only): reads of organisms whose genus, family, order, class or phylum the "
+                        "database lacks land on ever more distant relatives. The report gives false positive and "
+                        "false negative rates by rank")
     p.add_argument("--holdout-max-share", type=float, default=0.02,
                    help="a held-out clade has at most this share of the database's species (default 0.02)")
     p.add_argument("--novel-clades-per-sample", type=int, default=1,
@@ -320,7 +325,10 @@ def main():
     p.add_argument("--samples", type=int, default=12,
                    help="samples per design point (default 12; on a GTDB-like world the model still improved "
                         "from 60 to 120 samples)")
-    p.add_argument("--read-pairs", default="5000,20000,100000,500000")
+    p.add_argument("--read-pairs", default="1000,5000,20000,100000,500000",
+                   help="read pairs per sample, one design point each (default 1000,5000,20000,100000,500000: "
+                        "without the shallowest, a model missed 8%% of the present taxa of samples of 1000 read "
+                        "pairs)")
     p.add_argument("--read-setups", default="100:HS20:300:40,150:HS25:350:50,250:MSv3:550:50")
     p.add_argument("--archaea", type=int, default=2)
     p.add_argument("--species-per-sample", default="20-50")

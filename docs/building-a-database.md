@@ -182,17 +182,19 @@ with only one of them it either kept 2 false positives per sample or missed a fi
   training database keeps their taxids). It costs a second index build, which runs while the
   first one does (below).
 
-The training database lacks whole clades as well as single species. First `--holdout-clades`
-(default 2 phyla, 4 classes, 8 families) are drawn from phylum down: clades with at least two
-species to simulate, at most `--holdout-max-share` (2%) of the database's species, and not inside a
-clade drawn before. Then `--holdout` (10%) of the species to simulate that no clade took. Reads of
-an organism whose genus the database has land on congeners; those of one whose family, class or
-phylum it lacks land on distant relatives, or nowhere, and the model has to learn both. So that
-such species are in the samples, each design point draws one held-out clade per rank and puts
-`--novel-clades-per-sample` (1) of its species into every sample. `heldout_species.txt` lists the
-species with the rank they were held out at and the clade, `model_logs/holdout.txt` sums them up,
-and the training report scores the model on each rank (see
-[model-training.md](model-training.md#species-and-clades-the-database-lacks)).
+The training database lacks whole clades at every rank as well as many single species, since
+false positives from organisms the database lacks are what a presence model must avoid. First
+`--holdout-clades` (default 2 phyla, 4 classes, 6 orders, 8 families, 12 genera) are drawn from
+phylum down: clades with at least two species to simulate, at most `--holdout-max-share` (2%) of the
+database's species, and not inside a clade drawn before. Then `--holdout` (20%) of the species to
+simulate that no clade took. Reads of an organism whose genus the database has land on congeners;
+those of one whose genus, family, order, class or phylum it lacks land on ever more distant
+relatives, or nowhere, and the model has to learn all of it. So that such species are in the
+samples, each design point takes one held-out clade of each rank, in turn (every clade is used
+before one is used again), and puts `--novel-clades-per-sample` (1) of its species into every
+sample. `heldout_species.txt` lists the species with the rank they were held out at and the clade,
+`model_logs/holdout.txt` sums them up, and the training report gives false positive and false
+negative rates by rank (see [model-training.md](model-training.md#species-and-clades-the-database-lacks)).
 
 | Option | Default | |
 |---|---|---|
@@ -202,8 +204,8 @@ and the training report scores the model on each rank (see
 | `--genome-table` | built from the release | genomes to simulate from |
 | `--extra-genomes` | | folder of more genomes of GTDB species (by accession in the file names); repeatable |
 | `--simulate-species` | all | file of the species to simulate from |
-| `--holdout` | 0.1 | share of the species to simulate (that no held-out clade took) left out of the training database |
-| `--holdout-clades` | `phylum:2,class:4,family:8` | whole clades left out of the training database, `RANK:COUNT` for phylum, class, order, family, genus; `none` for single species only (with `--holdout 0`: train on the database itself) |
+| `--holdout` | 0.2 | share of the species to simulate (that no held-out clade took) left out of the training database |
+| `--holdout-clades` | `phylum:2,class:4,order:6,family:8,genus:12` | whole clades left out of the training database, `RANK:COUNT` for phylum, class, order, family, genus; `none` for single species only (with `--holdout 0`: train on the database itself) |
 | `--holdout-max-share` | 0.02 | largest share of the database's species a held-out clade may have |
 | `--novel-clades-per-sample` | 1 | species of held-out clades in every sample, per rank |
 | `--holdout-species` | | a file of the species to leave out instead (optionally with rank and clade, as `heldout_species.txt`) |
@@ -214,7 +216,7 @@ and the training report scores the model on each rank (see
 | `--samples` | 12 | samples per design point |
 | `--congeners` | 0 | species of one genus in every sample of a design point |
 | `--no-placeholder-models` | | leave out the placeholder models for se, pb and ont (below) |
-| `--read-pairs` | `5000,20000,100000,500000` | depths, one design point each |
+| `--read-pairs` | `1000,5000,20000,100000,500000` | depths, one design point each (without the shallowest, a model missed 8% of the present taxa of 1000-pair samples) |
 | `--read-setups` | `100:HS20:300:40,150:HS25:350:50,250:MSv3:550:50` | read length : ART profile : fragment mean : fragment SD, one design point each |
 | `--species-per-sample` | `20-50` | |
 | `--archaea` | 2 | archaeal species per sample |
@@ -222,9 +224,9 @@ and the training report scores the model on each rank (see
 | `--ntree`, `--maxnodes` | 64, 128 | random forest size (more trees did not score better, see [model-training.md](model-training.md#training)) |
 | `--evaluation` | `full` | how much the trainer evaluates: `full`, `basic` or `none` |
 
-With the defaults that is 3 read setups x 4 depths x 12 samples = 144 simulated samples of 20-50
+With the defaults that is 3 read setups x 5 depths x 12 samples = 180 simulated samples of 20-50
 species, each profiled against the training database. The simulations take most of the compute and
-disk space; training and its evaluation take minutes. Whether 144 samples are enough, the training
+disk space; training and its evaluation take minutes. Whether 180 samples are enough, the training
 report's learning curve says.
 
 The finished database is needed only at the end, to take the trained model (`--add_model`), so it
