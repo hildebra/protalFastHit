@@ -145,7 +145,6 @@ struct CliOptions {
     bool keep_tmp{false};
     bool pick_random_demand_if_fail{false};
     int threads{1};
-    std::string pigz_path{"pigz"};
     std::optional<fs::path> protal_metafile_output_dir;
     fs::path strain_sharing_file;
     std::optional<fs::path> from_manifest;
@@ -258,8 +257,8 @@ static cxxopts::Options build_cxxopts() {
         ("extra_art_args",  "Extra ART arguments, e.g. \"--qprof1 q1 --qprof2 q2\"", cxxopts::value<std::string>()->default_value(""));
 
     options.add_options("General")
-        ("t,threads",       "Threads for ART/pigz", cxxopts::value<int>()->default_value("1"))
-        ("pigz_path",       "Path to pigz", cxxopts::value<std::string>()->default_value("pigz"))
+        ("t,threads",       "Threads for ART and for compressing the reads", cxxopts::value<int>()->default_value("1"))
+        ("pigz_path",       "Unused: the reads are compressed in process (kept so that older commands still run)", cxxopts::value<std::string>()->default_value(""))
         ("protal_metafile", "Write a Protal meta file (output_dir/protal.meta) but set OUTPUT_DIR to <path>", cxxopts::value<std::string>())
         ("test",            "Generate profiles/manifests but skip read simulation (fast dry run)")
         ("keep_tmp",        "Keep the individual per-genome reads")
@@ -327,7 +326,6 @@ static CliOptions parse_cli(int argc, char** argv) {
     opts.genus_counts      = result["genus"].as<std::string>();
     opts.taxon_counts      = result["taxon"].as<std::string>();
     opts.threads           = result["threads"].as<int>();
-    opts.pigz_path         = result["pigz_path"].as<std::string>();
     opts.test_mode         = result.count("test") > 0;
     opts.keep_tmp          = result.count("keep_tmp") > 0;
     opts.plot_png          = result.count("plot_png") > 0;
@@ -428,7 +426,7 @@ static std::vector<protal::sim::SampleOutput> design_and_simulate(
     }
 
     cli.art.threads = std::max(1, cli.threads);
-    MetagenomeSimulator simulator(std::move(genomes), cli.art, *cli.seed, cli.pigz_path);
+    MetagenomeSimulator simulator(std::move(genomes), cli.art, *cli.seed);
 
     return simulator.simulate_samples(
         profile, cli.samples, cli.sample_prefix, cli.output_dir, cli.test_mode, cli.keep_tmp);
@@ -535,7 +533,7 @@ static std::vector<protal::sim::SampleOutput> replay_from_manifest(
 
     // The seed is only consumed for rows without a recorded art_seed.
     cli.art.threads = std::max(1, cli.threads);
-    MetagenomeSimulator simulator(std::move(replay_genomes), cli.art, *cli.seed, cli.pigz_path);
+    MetagenomeSimulator simulator(std::move(replay_genomes), cli.art, *cli.seed);
 
     return simulator.replay_samples(std::move(design), cli.output_dir, cli.test_mode, cli.keep_tmp);
 }

@@ -4,8 +4,8 @@ protal runs on Linux on x86-64 CPUs. There is no macOS or native Windows version
 builds and runs under WSL2 (see [Windows (WSL2)](#windows-wsl2)).
 
 At run time protal needs `python3` for the strain MSA post-filter [qcmsa](qcmsa.md), which the
-bioconda package brings. It compresses `.sam.gz` and `.sam.zst` outputs itself; `pigz` is needed
-only by `simulate_metagenomes`, for the reads it writes.
+bioconda package brings. It compresses its outputs itself (zstd, and gzip with libdeflate), so
+no external compressor is needed.
 
 ## bioconda (recommended)
 
@@ -23,9 +23,9 @@ Then download a database, as described on the
 The [GitHub releases](https://github.com/4less/protal/releases) have statically linked binaries,
 for clusters where conda is not an option or where compute nodes differ from the node that
 installed the software. qcmsa is `scripts/qcmsa.py` of the source (or run protal with
-`--no_qcmsa`); `simulate_metagenomes` also needs `pigz`.
+`--no_qcmsa`).
 
-To build them yourself (needs the static libraries of zlib and zstd):
+To build them yourself (needs the static libraries of zlib, zstd and libdeflate):
 
 ```bash
 just static        # -> build/protal_<version>_static, build/simulate_metagenomes_static
@@ -36,10 +36,10 @@ They are compiled for plain x86-64 (SSE2), so they run on any x86-64 CPU.
 ## Building from source
 
 Requirements: CMake 3.22 or later, a C++20 compiler with OpenMP (GCC 13 and 14 are tested),
-zlib and zstd development files. On Ubuntu:
+zlib, zstd and libdeflate development files. On Ubuntu:
 
 ```bash
-sudo apt-get install cmake ninja-build g++ zlib1g-dev libzstd-dev pigz python3
+sudo apt-get install cmake ninja-build g++ zlib1g-dev libzstd-dev libdeflate-dev python3
 ```
 
 All other libraries (WFA2-lib, cPMML, gzstream, robin-map, ...) are in `lib/`. Then:

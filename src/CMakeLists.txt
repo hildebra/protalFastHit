@@ -62,6 +62,8 @@ set(PROTAL_LIB_SOURCES
         IO/FastxReader.h
         IO/FastxReader.cpp
         IO/ThreadedGzStream.h
+        IO/Bgzf.h
+        IO/SamFile.h
         IO/SamHandler.h
         IO/BufferedOutput.h
         IO/BufferedOutput.cpp
@@ -197,6 +199,16 @@ target_include_directories(protal_lib PUBLIC ${ZSTD_INCLUDE_DIR})
 target_include_directories(protal_lib_static PUBLIC ${ZSTD_INCLUDE_DIR})
 target_link_directories(protal_lib_static PUBLIC ${ZSTD_LIBRARY_DIR})
 
+# libdeflate: gzip as protal writes it (BGZF: .sam.gz, the simulator's reads) and reads BGZF input.
+# Ubuntu: libdeflate-dev, conda: libdeflate. The static build links libdeflate.a by name.
+find_path(LIBDEFLATE_INCLUDE_DIR libdeflate.h REQUIRED)
+find_library(LIBDEFLATE_LIBRARY NAMES deflate REQUIRED)
+get_filename_component(LIBDEFLATE_LIBRARY_DIR ${LIBDEFLATE_LIBRARY} DIRECTORY)
+message(STATUS "libdeflate: ${LIBDEFLATE_LIBRARY} (${LIBDEFLATE_INCLUDE_DIR})")
+target_include_directories(protal_lib PUBLIC ${LIBDEFLATE_INCLUDE_DIR})
+target_include_directories(protal_lib_static PUBLIC ${LIBDEFLATE_INCLUDE_DIR})
+target_link_directories(protal_lib_static PUBLIC ${LIBDEFLATE_LIBRARY_DIR})
+
 target_include_directories(protal_lib PUBLIC ../lib/robin)
 target_include_directories(protal_lib PUBLIC ../lib/tsl)
 target_include_directories(protal_lib_static PUBLIC ../lib/robin)
@@ -265,6 +277,7 @@ target_link_libraries(protal_lib
         gzstream_lib
         ZLIB::ZLIB
         ${ZSTD_LIBRARY}
+        ${LIBDEFLATE_LIBRARY}
 )
 
 target_link_libraries(protal_lib_static
@@ -275,6 +288,7 @@ target_link_libraries(protal_lib_static
         gzstream_lib_static
         z
         zstd
+        deflate
 )
 
 message("CMAKE_CURRENT_SOURCE_DIR: ${CMAKE_CURRENT_SOURCE_DIR}")

@@ -1,5 +1,6 @@
 // SamFile.h - SAM files as protal writes and reads them: plain (.sam), gzip (.sam.gz, written as
-// BGZF blocks) or zstd (.sam.zst, written in zstd's seekable format), chosen by the file name.
+// BGZF blocks with libdeflate, Bgzf.h) or zstd (.sam.zst, written in zstd's seekable format),
+// chosen by the file name.
 //
 // Writing (SamOutput): the output handlers of all alignment threads hand over blocks of whole
 // reads' records together with the genes those records name. The thread that hands a block over
@@ -19,7 +20,6 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <zlib.h>
 #include <zstd.h>
 
 #include <algorithm>
@@ -40,7 +40,8 @@
 #include <utility>
 #include <vector>
 
-#include "gzstream/gzstream.h"
+#include "Bgzf.h"
+#include "ThreadedGzStream.h"
 #include "Zstd.h"
 
 namespace protal {
@@ -67,102 +68,6 @@ namespace protal {
 
     inline std::pair<uint64_t, uint64_t> SamGeneOfKey(uint64_t key) {
         return { key >> 32, key & 0xffffffffu };
-    }
-
-    // ---- BGZF ------------------------------------------------------------------------------------
-    // Gzip members of at most 64 KB, each with its size in a "BC" extra field (SAM specification,
-    // section 4.1), then an empty member as end-of-file marker. zcat, gzip and zlib read it as any
-    // multi-member gzip file; htslib reads its blocks independently.
-    namespace bgzf {
-        inline constexpr size_t kBlockInput = 0xff00;      // input bytes per block, as htslib
-        inline constexpr size_t kMaxBlock = 0x10000;       // a block's size must fit its 16-bit field
-        inline constexpr size_t kHeaderBytes = 18, kFooterBytes = 8;
-        inline constexpr int kLevel = 6;                   // as pigz and gzip by default
-        inline constexpr unsigned char kHeader[16] = { 0x1f, 0x8b, 8, 4, 0, 0, 0, 0, 0, 0xff, 6, 0, 'B', 'C', 2, 0 };
-        inline constexpr unsigned char kEof[28] = { 0x1f, 0x8b, 8, 4, 0, 0, 0, 0, 0, 0xff, 6, 0, 'B', 'C', 2, 0,
-                                                    0x1b, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-
-        // A raw deflate stream at one level, reset for every block.
-        class Deflater {
-        public:
-            explicit Deflater(int level) {
-                m_ok = deflateInit2(&m_z, level, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) == Z_OK;
-            }
-            ~Deflater() {
-                if (m_ok) deflateEnd(&m_z);
-            }
-            Deflater(Deflater const&) = delete;
-            Deflater& operator=(Deflater const&) = delete;
-
-            // Deflates [in, in + size) into out; the compressed size, or 0 if it does not fit in capacity.
-            size_t Compress(char const* in, size_t size, unsigned char* out, size_t capacity) {
-                if (!m_ok || deflateReset(&m_z) != Z_OK) return 0;
-                m_z.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(in));
-                m_z.avail_in = static_cast<uInt>(size);
-                m_z.next_out = out;
-                m_z.avail_out = static_cast<uInt>(capacity);
-                return deflate(&m_z, Z_FINISH) == Z_STREAM_END ? capacity - m_z.avail_out : 0;
-            }
-
-        private:
-            z_stream m_z{};
-            bool m_ok = false;
-        };
-
-        inline void PutLE16(unsigned char* p, uint32_t v) {
-            p[0] = static_cast<unsigned char>(v & 0xff);
-            p[1] = static_cast<unsigned char>(v >> 8 & 0xff);
-        }
-
-        inline void PutLE32(unsigned char* p, uint32_t v) {
-            for (int i = 0; i < 4; i++) p[i] = static_cast<unsigned char>(v >> (8 * i) & 0xff);
-        }
-
-        // Appends [data, data + size) to out as BGZF blocks. A block that does not shrink below the
-        // 64 KB limit (random data) is stored instead. False only if zlib fails.
-        inline bool Compress(char const* data, size_t size, std::string& out) {
-            thread_local Deflater deflater(kLevel);
-            thread_local Deflater store(0);
-            constexpr size_t kPayload = kMaxBlock - kHeaderBytes - kFooterBytes;
-            for (size_t offset = 0; offset < size; offset += kBlockInput) {
-                size_t const n = std::min(kBlockInput, size - offset);
-                size_t const start = out.size();
-                out.resize(start + kMaxBlock);
-                auto* block = reinterpret_cast<unsigned char*>(out.data() + start);
-                size_t compressed = deflater.Compress(data + offset, n, block + kHeaderBytes, kPayload);
-                if (compressed == 0) compressed = store.Compress(data + offset, n, block + kHeaderBytes, kPayload);
-                if (compressed == 0) return false;
-                size_t const total = kHeaderBytes + compressed + kFooterBytes;
-                std::memcpy(block, kHeader, sizeof(kHeader));
-                PutLE16(block + 16, static_cast<uint32_t>(total - 1));
-                uLong const crc = crc32(crc32(0L, Z_NULL, 0), reinterpret_cast<Bytef const*>(data + offset), static_cast<uInt>(n));
-                PutLE32(block + kHeaderBytes + compressed, static_cast<uint32_t>(crc));
-                PutLE32(block + kHeaderBytes + compressed + 4, static_cast<uint32_t>(n));
-                out.resize(start + total);
-            }
-            return true;
-        }
-
-        // Whether the file begins with a BGZF block header.
-        inline bool StartsAsBgzf(std::string const& path) {
-            std::ifstream is(path, std::ios::binary);
-            unsigned char b[16] = {};
-            is.read(reinterpret_cast<char*>(b), 16);
-            return is.gcount() == 16 && b[0] == 0x1f && b[1] == 0x8b && b[2] == 8 && (b[3] & 4) &&
-                   b[10] == 6 && b[11] == 0 && b[12] == 'B' && b[13] == 'C' && b[14] == 2 && b[15] == 0;
-        }
-
-        // Whether the file ends with the BGZF end-of-file block.
-        inline bool EndsWithEof(std::string const& path) {
-            std::error_code ec;
-            auto const size = std::filesystem::file_size(path, ec);
-            if (ec || size < sizeof(kEof)) return false;
-            std::ifstream is(path, std::ios::binary);
-            is.seekg(static_cast<std::streamoff>(size - sizeof(kEof)));
-            unsigned char b[sizeof(kEof)] = {};
-            is.read(reinterpret_cast<char*>(b), sizeof(b));
-            return is.gcount() == static_cast<std::streamsize>(sizeof(b)) && std::memcmp(b, kEof, sizeof(b)) == 0;
-        }
     }
 
     // ---- zstd ------------------------------------------------------------------------------------
@@ -529,8 +434,9 @@ namespace protal {
                 if (!m_zbuf->IsOpen()) m_zin->setstate(std::ios_base::badbit);
                 m_stream = m_zin.get();
             } else {
+                // Plain or gzip: BGZF inflated with libdeflate, other gzip with zlib, in a thread of its own.
                 if (bgzf::StartsAsBgzf(path) && !bgzf::EndsWithEof(path)) m_problem = "the BGZF end-of-file block is missing";
-                m_gz = std::make_unique<igzstream>(path.c_str());
+                m_gz = std::make_unique<ThreadedGzIstream>(path.c_str());
                 m_stream = m_gz.get();
             }
         }
@@ -538,7 +444,7 @@ namespace protal {
         SamInput(SamInput const&) = delete;
         SamInput& operator=(SamInput const&) = delete;
 
-        bool IsOpen() const { return m_zbuf ? m_zbuf->IsOpen() : m_gz->good(); }
+        bool IsOpen() const { return m_zbuf ? m_zbuf->IsOpen() : m_gz->rdbuf()->is_open(); }
         std::istream& Stream() { return *m_stream; }
         std::string const& Problem() const { return m_problem; }
 
@@ -552,7 +458,7 @@ namespace protal {
         }
 
     private:
-        std::unique_ptr<igzstream> m_gz;
+        std::unique_ptr<ThreadedGzIstream> m_gz;
         std::unique_ptr<zstd::IStreambuf> m_zbuf;
         std::unique_ptr<std::istream> m_zin;
         std::istream* m_stream = nullptr;

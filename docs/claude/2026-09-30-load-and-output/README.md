@@ -290,6 +290,69 @@ at GTDB size.
 Not done: libdeflate for `.sam.gz` (3.6× less CPU at the same ratio, measured above) would make
 gzip output about as cheap as zstd, at the cost of a new dependency.
 
+## Follow-up: zstd by default, libdeflate for gzip, and the MSAs
+
+2026-09-30, on `performance` after `24aa261`.
+
+**zstd by default (`3249337`).** The SAM is an intermediate file, so the names protal picks (`-1/-2`,
+or a map without a `SAM` column) now end in `.sam.zst`; `--sam_format gz|sam` picks another format.
+`protal_map_utils` (`--gzip`, `--nogzip`) and `simulate_metagenomes --protal_metafile` follow.
+
+**libdeflate as the gzip handler.** A new dependency (`libdeflate-dev`, conda `libdeflate`):
+- Writing: `.sam.gz` BGZF blocks are deflated with libdeflate instead of zlib (`src/IO/Bgzf.h`),
+  and the simulator's reads are compressed in process as BGZF (`bgzf::CompressFile`, parallel,
+  the same bytes for any thread count) instead of by pigz, which protal no longer needs anywhere
+  (`--pigz_path` is accepted and ignored).
+- Reading: `ThreadedGzStreambuf` (reads, SAMs, genomes) inflates a BGZF file block by block with
+  libdeflate and checks each block's CRC and the end-of-file block; any other gzip file, e.g. the
+  single-member `.fq.gz` of sequencers, still with zlib, since libdeflate cannot stream (a member
+  must be in memory whole). The profiler reads `.sam.gz` through it too (before: gzstream).
+- Instructions, callgrind, 1 thread (`scripts/gzip_cg.sh`; wall-clock numbers were swamped by
+  load 11 on battery):
+
+| | total | in the inflating threads | in `SamOutput::Write` |
+|---|---:|---:|---:|
+| read 50k pairs of `mix`, single-member gzip (zlib) | 18.21 G | 640 M | |
+| the same reads as BGZF (libdeflate) | 17.91 G | 337 M | |
+| the same reads plain | 17.57 G | | |
+| write 20k pairs of `w900` as `.sam.gz` (libdeflate) | 20.36 G | | 923 M |
+| as `.sam.zst` | 19.68 G | | 239 M |
+| as `.sam` | 19.44 G | | |
+
+User CPU for 1M pairs of `w900` at 8 threads (noisy): `.sam.gz` 79–81 s now against 108–115 s with
+zlib; `.sam.zst` 71–73 s. zstd stays the cheaper and smaller format (93 MB against 104 MB).
+
+**The strain MSAs, `.gz` or `.zst`? (evaluated, not changed.)** Each MSA holds one row per sample,
+the species' concatenated marker genes (~110–130 kb). Two runs (`scripts/msa_formats.sh`, 1M pairs
+split into samples of the same species): 3 raw MSAs of 3 rows from `w900`, and 2 raw MSAs of 5 rows
+plus one qcmsa-filtered MSA from `s64` in 6 samples:
+
+| compression ratio | `w900` raw (1.17 MB) | `s64` raw (1.04 MB) | `s64` filtered (0.50 MB) |
+|---|---:|---:|---:|
+| gzip -6 | 4.0 | 3.7 | 3.2 |
+| BGZF, libdeflate 6 | 4.3 | 3.8 | 3.4 |
+| zstd -3 | 7.6 | 10.8 | 13.7 |
+| zstd -19 | 9.3 | 12.3 | 15.8 |
+
+gzip's 32 KB window is shorter than one row, so it compresses each row on its own (3–4×, whatever
+the number of samples); zstd's window (2 MB at level 3) spans many rows and stores each further
+sample's row mostly as matches to the others, so its ratio grows with the samples (7.6× at 3 rows,
+10.8× at 5). Compressing is cheap either way (zstd -3 under 10 ms here, a few ms per MB), and
+writing the MSAs is a small part of a run (0.4–0.9 s here). What reads them:
+- `qcmsa.py` (protal runs it on each raw MSA) reads plain and `.gz` (Python's `gzip`), not `.zst`:
+  the standard library has zstd only from Python 3.14 (`compression.zstd`); before, the `zstd` CLI
+  (which the conda package brings) or the `zstandard` module would be needed. It read a raw MSA as
+  fast from `.gz` as plain (0.44 and 0.48 s).
+- `scripts/strain_test/strain_report.py` opens them as plain text.
+- The filtered `.msa.fna` goes to phylogenetics tools (RAxML-NG, IQ-TREE, FastTree), which expect
+  plain FASTA; some read gzip, few or none zstd.
+
+So: keep the filtered `.msa.fna` plain; the raw MSA, an intermediate between protal and qcmsa, could
+be `.raw.msa.fna.zst` (with qcmsa reading it through `compression.zstd` or `zstd -dc`, and
+`strain_report.py` likewise). In absolute terms it matters for large cohorts only: 1,000 samples ×
+200 species × 120 kb are ~24 GB of raw MSAs, ~6–8 GB as gzip, and likely a small fraction of that
+as zstd (the ratio at 1,000 rows was not measured).
+
 ## Reproducing
 
 The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, `BIN`, `PROTAL_SRC`,

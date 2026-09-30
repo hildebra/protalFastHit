@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "ArtIlluminaWrapper.h"
+#include "ThreadedGzStream.h"
 
 #include <array>
 #include <cerrno>
@@ -121,23 +122,24 @@ std::optional<std::uint64_t> ArtIlluminaWrapper::seed_override() const {
 }
 
 void ArtIlluminaWrapper::decompress_gzip(const fs::path& gz_path, const fs::path& output_path) const {
-    gzFile input = gzopen(gz_path.string().c_str(), "rb");
-    if (!input) {
+    // BGZF with libdeflate, other gzip with zlib (ThreadedGzStream.h).
+    protal::ThreadedGzIstream input(gz_path.string().c_str());
+    if (!input.rdbuf()->is_open()) {
         throw std::runtime_error("Failed to open compressed genome: " + gz_path.string());
     }
     std::ofstream output(output_path, std::ios::binary);
     if (!output) {
-        gzclose(input);
         throw std::runtime_error("Failed to create decompressed genome: " + output_path.string());
     }
 
-    std::array<char, 8192> buffer{};
-    int bytes_read = 0;
-    while ((bytes_read = gzread(input, buffer.data(), static_cast<unsigned int>(buffer.size()))) > 0) {
-        output.write(buffer.data(), bytes_read);
+    std::array<char, 1 << 16> buffer{};
+    while (input.read(buffer.data(), buffer.size()) || input.gcount() > 0) {
+        output.write(buffer.data(), input.gcount());
     }
-    gzclose(input);
-
+    if (input.rdbuf()->read_failed()) {
+        throw std::runtime_error("The compressed genome " + gz_path.string() + " is truncated or corrupt (" +
+                                 input.rdbuf()->read_error_message() + ")");
+    }
     if (!output) {
         throw std::runtime_error("Failed to write decompressed genome: " + output_path.string());
     }

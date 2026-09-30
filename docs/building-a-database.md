@@ -111,7 +111,7 @@ python3 scripts/build_gtdb_database.py --gtdb /data/gtdb_r226 --outdir /data/pro
     --protal build/protal --simulator build/simulate_metagenomes -t 16
 ```
 
-It needs, besides a built `protal` and `simulate_metagenomes`: `art_illumina` and `pigz` on
+It needs, besides a built `protal` and `simulate_metagenomes`: `art_illumina` on
 `$PATH` (for the simulations), and Python 3 with numpy, pandas, joblib and scikit-learn for the
 training (no Java: the trainer writes the PMML itself).
 

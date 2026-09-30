@@ -83,6 +83,67 @@ TEST(ThreadedGzStream, ReadsAPlainFile) {
     EXPECT_FALSE(is.rdbuf()->read_failed());
 }
 
+namespace {
+    // content written as BGZF (bgzf::CompressFile, as the simulator and bgzip write reads).
+    std::string Bgzf(ScratchDir const& dir, std::string const& name, std::string const& content) {
+        auto const plain = dir.Plain(name + ".plain", content);
+        auto const path = (dir.path / name).string();
+        EXPECT_EQ(bgzf::CompressFile(plain, path, 3), "");
+        return path;
+    }
+
+    std::string ReadAllOf(ThreadedGzIstream& is) {
+        std::string text;
+        char buffer[1 << 16];
+        while (is.read(buffer, sizeof(buffer)) || is.gcount() > 0) text.append(buffer, static_cast<size_t>(is.gcount()));
+        return text;
+    }
+}
+
+TEST(ThreadedGzStream, ReadsABgzfFileBlockByBlock) {
+    ScratchDir dir;
+    auto const content = Fastq(40000, "b");  // ~12 MB: ~200 BGZF blocks, several output blocks
+    auto const path = Bgzf(dir, "reads.fq.gz", content);
+    ASSERT_TRUE(bgzf::StartsAsBgzf(path));
+    ThreadedGzIstream is(path.c_str());
+    EXPECT_EQ(ReadAllOf(is), content);
+    EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+
+    auto const empty = Bgzf(dir, "empty.fq.gz", "");  // only the end-of-file block
+    ThreadedGzIstream none(empty.c_str());
+    EXPECT_EQ(ReadAllOf(none), "");
+    EXPECT_FALSE(none.rdbuf()->read_failed());
+}
+
+TEST(ThreadedGzStream, ACutOrCorruptBgzfFileIsReported) {
+    ScratchDir dir;
+    auto const content = Fastq(20000, "x");
+    // Cut at a block boundary (the end-of-file block gone), inside a block, or with a flipped byte.
+    for (int variant = 0; variant < 3; variant++) {
+        SCOPED_TRACE(variant);
+        auto const path = Bgzf(dir, "reads" + std::to_string(variant) + ".fq.gz", content);
+        auto const size = fs::file_size(path);
+        if (variant == 0) fs::resize_file(path, size - sizeof(bgzf::kEof));
+        if (variant == 1) fs::resize_file(path, size / 2);
+        if (variant == 2) {
+            std::fstream f(path, std::ios::in | std::ios::out | std::ios::binary);
+            f.seekp(static_cast<std::streamoff>(size / 3));
+            char c = 0;
+            f.read(&c, 1);
+            f.seekp(static_cast<std::streamoff>(size / 3));
+            c = static_cast<char>(c ^ 0x5a);
+            f.write(&c, 1);
+        }
+        ThreadedGzIstream is(path.c_str());
+        auto const read = ReadAllOf(is);
+        EXPECT_TRUE(is.rdbuf()->read_failed());
+        EXPECT_FALSE(is.rdbuf()->read_error_message().empty());
+        EXPECT_LT(read.size(), variant == 0 ? content.size() + 1 : content.size());
+        EXPECT_EQ(content.compare(0, read.size(), read), 0);  // what was read is a prefix
+        if (variant == 0) EXPECT_NE(is.rdbuf()->read_error_message().find("end-of-file block"), std::string::npos);
+    }
+}
+
 TEST(ThreadedGzStream, ATruncatedFileReadsAsAPrefixAndIsReported) {
     ScratchDir dir;
     auto const content = Fastq(40000, "t");

@@ -152,7 +152,7 @@ namespace protal {
                 ("full_help", "Get help for developer options.")
                 ("map_help", "Get help how to format the map file.")
                 ("verbose", "Have verbose program output")
-                ("t,threads", "Specify number of threads to use. Will be passed on to pigz for compression of sam files.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_THREADS)))
+                ("t,threads", "Specify number of threads to use: for alignment (which also compresses the SAM), database loading and profiling.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_THREADS)))
                 ("force", "Force redo alignment even if sam files exists.");
 
         return options;
@@ -1076,8 +1076,8 @@ namespace protal {
 The map file helps you organise input files spanning different folders without having to use complicated wildcard terms.
 Header lines are indicated with a # and you can define individual output-base folders for strain output, regular output, sam output,
 and profile output. You could leave them empty and always specify the full path in the sample rows (not starting with a hashtag),
-but this can get complicated quite quickly. We disabled .gz output in sams as it is faster to use linux command pigz instead
-of writing out compressed internally.
+but this can get complicated quite quickly. A SAM name ending in .sam.zst (the default when the SAM column is left out) is
+written zstd-compressed, .sam.gz gzip-compressed, any other name plain.
 				
 #OUTPUT_DIR	/path-to-your-results-dir/					
 #SAM_OUTPUT_DIR	/path-to-your-results-dir/alignments					
@@ -1525,7 +1525,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
         // cannot be read.
         static size_t LongestRead(std::string const& path, size_t records) {
             if (!std::filesystem::is_regular_file(path)) return 0;
-            igzstream is(path.c_str());
+            ThreadedGzIstream is(path.c_str());
             SeqReaderSE reader(is);
             FastxRecord record;
             size_t longest = 0;

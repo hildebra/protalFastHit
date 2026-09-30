@@ -15,6 +15,7 @@
 
 #include "../Utilities/Benchmark.h"
 #include "../Utilities/Compressor.h"
+#include "ThreadedGzStream.h"
 
 namespace fs = std::filesystem;
 
@@ -380,12 +381,11 @@ void write_combined_manifest(const std::vector<SampleOutput>& samples, const fs:
 }
 
 MetagenomeSimulator::MetagenomeSimulator(
-    std::vector<GenomeRecord> genomes, ArtIlluminaOptions art_options, std::uint64_t seed, std::string pigz_path)
+    std::vector<GenomeRecord> genomes, ArtIlluminaOptions art_options, std::uint64_t seed)
     : genomes_(std::move(genomes)),
       art_(std::move(art_options)),
       designer_(genomes_),
-      rng_(seed),
-      pigz_path_(std::move(pigz_path)) {}
+      rng_(seed) {}
 
 static std::uint64_t read_genome_length(const fs::path& fasta_path) {
     auto accumulate_length = [](auto&& getter, auto&& handle) -> std::uint64_t {
@@ -405,25 +405,21 @@ static std::uint64_t read_genome_length(const fs::path& fasta_path) {
     };
 
     if (fasta_path.extension() == ".gz") {
-        gzFile input = gzopen(fasta_path.string().c_str(), "rb");
-        if (!input) {
+        // BGZF with libdeflate, other gzip with zlib (ThreadedGzStream.h).
+        protal::ThreadedGzIstream input(fasta_path.string().c_str());
+        if (!input.rdbuf()->is_open()) {
             throw std::runtime_error("Unable to open compressed fasta: " + fasta_path.string());
         }
-        std::string buffer;
-        buffer.resize(8192);
-        auto getter = [&](gzFile file, std::string& out) -> bool {
-            char* res = gzgets(file, buffer.data(), static_cast<int>(buffer.size()));
-            if (!res) {
-                return false;
-            }
-            out.assign(res);
-            while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) {
-                out.pop_back();
-            }
+        auto getter = [](protal::ThreadedGzIstream& file, std::string& out) -> bool {
+            if (!std::getline(file, out)) return false;
+            if (!out.empty() && out.back() == '\r') out.pop_back();
             return true;
         };
         std::uint64_t len = accumulate_length(getter, input);
-        gzclose(input);
+        if (input.rdbuf()->read_failed()) {
+            throw std::runtime_error("The compressed fasta " + fasta_path.string() + " is truncated or corrupt (" +
+                                     input.rdbuf()->read_error_message() + ")");
+        }
         return len;
     }
 
@@ -613,10 +609,10 @@ void MetagenomeSimulator::render_sample(
             throw std::runtime_error("Unable to finish writing FASTQ files for " + sample_name);
         }
 
-        // Compress reads with pigz (no shell; -n, so replays give byte-identical .gz files)
+        // Compress the reads as BGZF (libdeflate, in process); replays give byte-identical .gz files.
         const int threads = std::max(1, art_.options().threads);
-        Compressor::compressInPlace(r1_path, threads, pigz_path_);
-        Compressor::compressInPlace(r2_path, threads, pigz_path_);
+        Compressor::compressInPlace(r1_path, threads);
+        Compressor::compressInPlace(r2_path, threads);
 
         if (!keep_tmp) {
             fs::remove_all(temp_dir);

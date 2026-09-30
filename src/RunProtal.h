@@ -1863,7 +1863,7 @@ namespace protal {
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {
             // The benchmark takes each read's true gene from its name; without one it would stop
             // at the first read, deep inside the alignment.
-            igzstream is{ options.GetFirstFile(options.GetRange().front()).c_str() };
+            ThreadedGzIstream is{ options.GetFirstFile(options.GetRange().front()).c_str() };
             SeqReader reader{ is };
             FastxRecord record;
             static const std::regex truth_name("^[0-9]+_[0-9]+([^0-9].*)?$");

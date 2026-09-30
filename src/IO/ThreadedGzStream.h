@@ -1,8 +1,14 @@
 #pragma once
 
+#include <fcntl.h>
+#include <unistd.h>
+#include <zlib.h>
+
+#include <cerrno>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <istream>
 #include <mutex>
@@ -11,7 +17,8 @@
 #include <thread>
 #include <utility>
 #include <vector>
-#include <zlib.h>
+
+#include "Bgzf.h"
 
 namespace protal {
 
@@ -20,10 +27,13 @@ namespace protal {
     // batches under one lock (SeqReaderPE, SeqReaderSE); with igzstream the lock holder also
     // inflated the input, which capped a run at one core's inflate speed (~200k read pairs/s)
     // whatever -t was. Here the lock holder only copies bytes that are already inflated, and the
-    // two files of a pair inflate in parallel.
+    // two files of a pair inflate in parallel. A BGZF file (Bgzf.h: bgzip's, protal's) is
+    // inflated block by block with libdeflate, about 3x faster; any other file with zlib, which
+    // streams (libdeflate cannot).
     //
     // As with igzstream, a truncated or corrupt file reads as one that ends early; read_failed()
-    // tells the two apart once reading has stopped. The buffer is read by one thread at a time
+    // tells the two apart once reading has stopped. A BGZF file must end with its end-of-file
+    // block, so a cut at a block boundary is found too. The buffer is read by one thread at a time
     // (the reader lock serialises it); its inflating thread is stopped by close().
     class ThreadedGzStreambuf : public std::streambuf {
     public:
@@ -37,10 +47,19 @@ namespace protal {
         ~ThreadedGzStreambuf() override { close(); }
 
         bool open(char const* path) {
-            if (m_file) return false;
-            m_file = gzopen(path, "rb");
-            if (!m_file) return false;
-            gzbuffer(m_file, kZlibBuffer);
+            if (is_open()) return false;
+            m_bgzf = bgzf::StartsAsBgzf(path);
+            if (m_bgzf) {
+                m_fd = ::open(path, O_RDONLY | O_CLOEXEC);
+                if (m_fd < 0) return false;
+                m_block_in.resize(bgzf::kMaxBlock);
+                m_offset = 0;
+                m_last_empty = false;
+            } else {
+                m_file = gzopen(path, "rb");
+                if (!m_file) return false;
+                gzbuffer(m_file, kZlibBuffer);
+            }
             m_blocks.assign(kBlocks, std::vector<char>(kBlockSize));
             m_free.clear();
             m_ready.clear();
@@ -54,18 +73,20 @@ namespace protal {
             return true;
         }
 
-        bool is_open() const { return m_file != nullptr; }
+        bool is_open() const { return m_file != nullptr || m_fd >= 0; }
 
         void close() {
-            if (!m_file) return;
+            if (!is_open()) return;
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 m_stop = true;
             }
             m_cv.notify_all();
             if (m_thread.joinable()) m_thread.join();
-            gzclose(m_file);
+            if (m_file) gzclose(m_file);
+            if (m_fd >= 0) ::close(m_fd);
             m_file = nullptr;
+            m_fd = -1;
             setg(nullptr, nullptr, nullptr);
             m_blocks.clear();
         }
@@ -84,7 +105,7 @@ namespace protal {
     protected:
         int_type underflow() override {
             if (gptr() < egptr()) return traits_type::to_int_type(*gptr());
-            if (!m_file) return traits_type::eof();
+            if (!is_open()) return traits_type::eof();
             std::unique_lock<std::mutex> lock(m_mutex);
             if (m_current != kNone) {
                 m_free.push_back(m_current);
@@ -121,18 +142,22 @@ namespace protal {
                 char* data = m_blocks[index].data();
                 size_t size = 0;
                 std::string error;
-                while (size < kBlockSize) {
-                    int const n = gzread(m_file, data + size, static_cast<unsigned>(kBlockSize - size));
-                    if (n > 0) {
-                        size += static_cast<size_t>(n);
-                        continue;
+                if (m_bgzf) {
+                    end = FillBgzf(data, size, error);
+                } else {
+                    while (size < kBlockSize) {
+                        int const n = gzread(m_file, data + size, static_cast<unsigned>(kBlockSize - size));
+                        if (n > 0) {
+                            size += static_cast<size_t>(n);
+                            continue;
+                        }
+                        // A gzip file that ends early reads as a normal end of file, but leaves Z_BUF_ERROR.
+                        int errnum = Z_OK;
+                        char const* message = gzerror(m_file, &errnum);
+                        if (n < 0 || errnum != Z_OK) error = (message && *message) ? message : "read error";
+                        end = true;
+                        break;
                     }
-                    // A gzip file that ends early reads as a normal end of file, but leaves Z_BUF_ERROR.
-                    int errnum = Z_OK;
-                    char const* message = gzerror(m_file, &errnum);
-                    if (n < 0 || errnum != Z_OK) error = (message && *message) ? message : "read error";
-                    end = true;
-                    break;
                 }
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
@@ -149,7 +174,67 @@ namespace protal {
             m_cv.notify_all();
         }
 
+        // Reads up to size bytes at the file's current offset; the bytes read (fewer only at its end).
+        size_t ReadUpTo(unsigned char* dst, size_t size, std::string& error) {
+            size_t done = 0;
+            while (done < size) {
+                ssize_t const n = ::read(m_fd, dst + done, size - done);
+                if (n < 0 && errno == EINTR) continue;
+                if (n < 0) {
+                    error = std::string("read error: ") + std::strerror(errno);
+                    break;
+                }
+                if (n == 0) break;
+                done += static_cast<size_t>(n);
+            }
+            return done;
+        }
+
+        // Inflates BGZF blocks into data (from size) while a whole block still fits; true at the end
+        // of the file or on an error (then set).
+        bool FillBgzf(char* data, size_t& size, std::string& error) {
+            while (size + bgzf::kMaxBlock <= kBlockSize) {
+                unsigned char* block = m_block_in.data();
+                size_t const got = ReadUpTo(block, bgzf::kHeaderBytes, error);
+                if (!error.empty()) return true;
+                if (got == 0) {
+                    if (!m_last_empty) error = "the BGZF end-of-file block is missing (truncated file?)";
+                    return true;
+                }
+                if (got < bgzf::kHeaderBytes || !bgzf::IsBlockHeader(block)) {
+                    error = got < bgzf::kHeaderBytes ? "the file ends inside a BGZF block header (truncated file?)"
+                                                     : "no BGZF block at byte " + std::to_string(m_offset) +
+                                                       " (gzip members of other kinds after BGZF ones?)";
+                    return true;
+                }
+                size_t const block_size = bgzf::BlockSize(block);
+                if (block_size < bgzf::kHeaderBytes + bgzf::kFooterBytes) {
+                    error = "an invalid BGZF block size at byte " + std::to_string(m_offset);
+                    return true;
+                }
+                size_t const rest = block_size - bgzf::kHeaderBytes;
+                if (ReadUpTo(block + bgzf::kHeaderBytes, rest, error) != rest) {
+                    if (error.empty()) error = "the file ends inside a BGZF block (truncated file?)";
+                    return true;
+                }
+                size_t n = 0;
+                if (!bgzf::DecompressBlock(block, block_size, data + size, kBlockSize - size, n, error)) {
+                    error += " at byte " + std::to_string(m_offset);
+                    return true;
+                }
+                m_last_empty = n == 0;
+                size += n;
+                m_offset += block_size;
+            }
+            return false;
+        }
+
         gzFile m_file = nullptr;
+        bool m_bgzf = false;                             // read with FillBgzf, from m_fd
+        int m_fd = -1;
+        std::vector<unsigned char> m_block_in;           // one compressed BGZF block
+        uint64_t m_offset = 0;                           // of the next BGZF block in the file
+        bool m_last_empty = false;                       // the last block read was empty (the EOF marker)
         std::thread m_thread;
         std::vector<std::vector<char>> m_blocks;
         std::deque<size_t> m_free;                       // blocks the inflating thread may fill
