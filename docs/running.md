@@ -9,7 +9,7 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 
 | Output | `-1 -2 --prefix P -o DIR` | `--map` |
 |---|---|---|
-| alignments | `DIR/P.sam` | `#SAM_OUTPUT_DIR/<SAM>`, default `#OUTPUT_DIR/alignments/` |
+| alignments | `DIR/P.sam.zst` | `#SAM_OUTPUT_DIR/<SAM>`, default `#OUTPUT_DIR/alignments/` (without a `SAM` column `<PREFIX>.sam.zst`) |
 | profile and its logs | `DIR/P.profile`, `DIR/P.profile.log`, ... | `#PROFILE_OUTPUT_DIR/<PROFILE>`, default `#OUTPUT_DIR/profiles/` |
 | strain MSAs and tables | `DIR/strains/` | `#STRAIN_OUTPUT_DIR`, default `#OUTPUT_DIR/strains/` |
 | coverage, SNP counts, statistics | `DIR/misc/` | `#MISC_OUTPUT_DIR`, default `#OUTPUT_DIR/misc/` |
@@ -21,14 +21,26 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 - In a map, `#SAMPLEID` (the first column) is the sample name in MSA rows, logs and statistics.
   Every row needs a value in every column the header declares, columns are separated by tabs,
   and no two samples may share a SAM or profile file; protal checks all of this before it starts.
-- A SAM whose name ends in `.gz` (for example `S1.sam.gz` in the map's `SAM` column) is written
-  uncompressed first and then compressed with `pigz -p <threads>`; other names stay plain SAM.
-  `protal_map_utils generate` and `simulate_metagenomes --protal_metafile` write `.sam.gz` names.
+- The SAM is an intermediate file, and is zstd-compressed by default: names protal picks end in
+  `.sam.zst` (`--sam_format gz` gives `.sam.gz`, `--sam_format sam` plain `.sam`). In a map, the
+  `SAM` column's name chooses the format: `.sam.zst` zstd, `.sam.gz` gzip, any other name plain SAM.
+  The alignment threads compress as they write, so no tool is needed. zstd is the faster choice:
+  for 1M pairs of a marker-rich sample at 8 threads, aligning and writing `.sam.zst` took 22–38%
+  less time than `.sam.gz`, for a 12% smaller file, and profiling reads it faster;
+  `zstdcat S1.sam.zst` or `zstd -dc` decompresses it (samtools does not read zstd). A `.sam.gz` is
+  BGZF (gzip blocks of 64 KB, as `bgzip` writes), which `zcat`, `gzip -d` and samtools read.
+  `protal_map_utils generate` (and `merge --use-sampleid`) and `simulate_metagenomes
+  --protal_metafile` write `.sam.zst` names; `protal_map_utils --gzip` writes `.sam.gz`, `--nogzip`
+  `.sam`. A rerun also takes a plain `P.sam` from an earlier run as the SAM of `P.sam.zst`.
+- The SAM header (`@SQ`) lists the genes that the alignments name, not every gene of the database
+  (the full r226 database has millions); `--full_sam_header` lists every gene, as protal did before.
 - `<sam>.err` lists the reads whose alignment does not fit the database (a gene it lacks, a
   position past a gene's end, bases that differ from the gene). They are left out of the
   profile, and protal warns with their number.
 - `misc/` also receives `P_seedsizes_histogram.tsv`, `P_anchorsizes_histogram.tsv` and
-  `P_runtime.tsv`, diagnostics of the seeding and alignment stages.
+  `P_runtime.tsv`, diagnostics of the seeding and alignment stages. `P_runtime.tsv` has one row
+  per stage (reading, k-mers, seeding and its steps, alignment, output): the seconds spent in it
+  summed over threads, the number of threads, and the seconds per thread that `--verbose` prints.
 
 Strain MSAs are written for the species that pass the model in at least two samples, each with a
 row for every sample in which the species passes. A run of one sample therefore writes no MSAs.
@@ -73,10 +85,10 @@ MSAs are joint.
 protal skips the alignment of a sample whose SAM file already exists and profiles that SAM;
 `--force` aligns again. SAMs are written under a temporary `.partial` name and renamed when
 complete, so an interrupted run never leaves a truncated SAM that a rerun would reuse. A truncated
-`.sam.gz`, or a SAM aligned against another database (its `@SQ` genes missing or of another
-length), stops with an error.
+`.sam.gz` or `.sam.zst`, or a SAM aligned against another database (its `@SQ` genes missing or of
+another length), stops with an error.
 
-`--profile_only a.sam,b.sam.gz` profiles existing SAM files without loading the index. The
+`--profile_only a.sam,b.sam.gz,c.sam.zst` profiles existing SAM files without loading the index. The
 prefixes come from `--prefix` (one per file) or from the SAM names, and the outputs go to `-o`,
 or next to each SAM without it. This is the quick way to try another `--knob`, model or
 `--depth_identity_margin`.
@@ -97,11 +109,12 @@ alignment. Workflow managers can rely on a non-zero status.
 
 | Option | Default | |
 |---|---|---|
-| `-t, --threads` | 1 | threads for alignment, database loading, profiling and pigz. Set it: the default is one thread |
+| `-t, --threads` | 1 | threads for alignment (which also compresses the SAM), database loading and profiling. Set it: the default is one thread. While aligning, each read file is also decompressed by a thread of its own (two for paired reads); BGZF files (`bgzip`, `simulate_metagenomes`) decompress about 2x faster than other gzip files (libdeflate against zlib-ng) |
 | `--knob` | 0.5 | detection threshold, 0 to 1 (checked). Choose it on data like yours; see [model-training.md](model-training.md) |
 | `--depth_identity_margin` | 0.04 | a read counts towards a species' abundance, and towards its strain MSA rows, only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth or strains. 1 lets every read count |
 | `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [model-training.md](model-training.md) |
 | `--model_se` | `--model`, else `model_se.xml` of the database | the model of single-end samples, given as `--model` |
+| `--sam_format` | `zst` | the format of the SAM files protal names: `zst` (`.sam.zst`), `gz` (`.sam.gz`) or `sam`; a map's `SAM` names keep their own ending |
 | `--no_strains` | off | no MSAs or SNP tables. Variants are still called, since the model uses them, so profiles are the same with and without it |
 | `--msa_knob` | `--knob` | model probability a sample's species needs for the sample to enter the species' strain MSA. By default the MSA holds the samples whose profile reports the species; lower it to add samples the profile leaves out |
 | `--msa_min_hcov` | 1000 | minimum non-N, non-gap bases for a sample's sequence to stay in an MSA; passed to qcmsa as `--reapply-hcov` |
@@ -130,7 +143,7 @@ calibrated with; change them for experiments, not for production profiles.
 | `-s, --max_seed_size` | 128 | seeding stops at this many seeds, if `-w` lookups have succeeded |
 | `-w, --min_successful_lookups` | 4 | successful core k-mer lookups needed before `-s` stops seeding |
 | `-a, --max_score_ani` | 0.9 | give up an alignment once it diverges below about this identity |
-| `-x, --x_drop` | 1000 | X-drop for pruning unpromising alignment branches |
+| `-x, --x_drop` | 1000 | X-drop of the alignment (WFA2), added to its adaptive pruning; 0 turns it off. The default prunes nothing in practice (outputs identical to `-x 0`); `-x 50` loses a few alignments and changes MAPQs |
 
 ### Developer options
 
@@ -138,7 +151,16 @@ Also shown by `--full_help`: `--build` and its options ([building-a-database.md]
 the database conversions `--compress_db`, `--unpack_db`, `--decompress_db`
 ([database-files.md](database-files.md)), `--profile_truth` for the training dump
 ([model-training.md](model-training.md)), `--benchmark_alignment` (checks alignments against the
-`taxid_geneid` encoded in simulated read names) and `--mapq_debug_output`.
+`taxid_geneid` encoded in simulated read names), `--mapq_debug_output`, `--full_sam_header` (every
+gene in the SAM header, see above), and `--whole_read_alignment`.
+
+Short reads are aligned from their anchor's exact matches: WFA aligns the read left and right of
+them (and between them), each part anchored at a match, instead of the whole read into the gene
+window. Alignments come out as good as before by the aligner's scoring (in tests never worse; 0.5%
+of SAM records differ, mostly in where a gap sits among equally good places, and about 0.15% of
+pairs get a MAPQ a few points apart) and faster, since anchors on relatives' genes are given up on
+sooner. `--whole_read_alignment` aligns every read as a whole, as protal did
+before, e.g. to reproduce earlier results; long reads are always aligned as a whole.
 
 ## Environment variables
 
@@ -152,6 +174,9 @@ the database conversions `--compress_db`, `--unpack_db`, `--decompress_db`
 
 protal keeps the index and the reference genes in memory: about 59 GB for the full r226 database
 and 12 GB for the reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads)).
-It prints the machine's total memory at start. The profiling stage streams each SAM and, once a
+It prints the machine's total memory at start. The index is read at random, one lookup per k-mer,
+so protal asks Linux for transparent huge pages for it; the usual setting (`madvise` in
+`/sys/kernel/mm/transparent_hugepage/enabled`) grants them, and seeding is about a third faster.
+With THP set to `never` protal uses normal pages. The profiling stage streams each SAM and, once a
 sample's outputs are written, keeps only what the strain MSAs need: the variants and read ranges
 of the species that pass the model (nothing with `--no_strains`).

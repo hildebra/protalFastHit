@@ -1,7 +1,9 @@
 
 
 #include "FastxReader.h"
+#include "ThreadedGzStream.h"
 #include <cctype>
+#include <cstring>
 #include <err.h>
 #include <fcntl.h>
 #include <cstdio>
@@ -14,6 +16,12 @@ using std::string;
 inline void StripString(string &str) {
     while (isspace(str.back()))
         str.pop_back();
+}
+
+inline std::string_view Stripped(std::string_view str) {
+    while (!str.empty() && isspace(str.back()))
+        str.remove_suffix(1);
+    return str;
 }
 
 string& FastxRecord::to_string() {
@@ -50,6 +58,7 @@ BufferedFastxReader::~BufferedFastxReader() {
 bool BufferedFastxReader::LoadBlock(std::istream &ifs, size_t block_size) {
     str_stream_.clear();
     str_stream_.str("");
+    batch_mode_ = false;
     if (block_buffer_size_ < block_size) {
         delete[] block_buffer_;
         block_buffer_ = new char[block_size];
@@ -107,6 +116,9 @@ bool BufferedFastxReader::LoadBlock(std::istream &ifs, size_t block_size) {
 bool BufferedFastxReader::LoadBatch(std::istream &ifs, size_t record_count) {
     str_stream_.clear();
     str_stream_.str("");
+    batch_.clear();
+    batch_pos_ = 0;
+    batch_mode_ = false;
     auto valid = false;
     if (file_format_ == FORMAT_AUTO_DETECT) {
         if (!ifs)
@@ -129,24 +141,35 @@ bool BufferedFastxReader::LoadBatch(std::istream &ifs, size_t record_count) {
         valid = true;
     }
 
+    // FASTQ: the record_count records' 4 lines each, parsed later outside the reader lock
+    // (NextFastq). From a ThreadedGzStreambuf, protal's read input, they are cut from its inflated
+    // block with memchr and copied at once; from other streams read line by line.
+    if (file_format_ == FORMAT_FASTQ) {
+        batch_mode_ = true;
+        size_t const lines = 4 * record_count;
+        size_t taken = 0;
+        if (auto* gz = dynamic_cast<protal::ThreadedGzStreambuf*>(ifs.rdbuf())) {
+            if (ifs) taken = gz->TakeLines(lines, batch_);
+        } else {
+            while (taken < lines && getline(ifs, str_buffer_)) {
+                batch_.append(str_buffer_);
+                batch_.push_back('\n');
+                taken++;
+            }
+        }
+        last_block_size_ = batch_.size();
+        return valid || taken > 0;
+    }
+
     auto before = ifs.tellg();
 
-    size_t line_count = 0;
     while (record_count > 0 && ifs) {
         str_buffer_.clear();
-        if (getline(ifs, str_buffer_))
-            line_count++;
-        else {
+        if (!getline(ifs, str_buffer_))
             break;
-        }
         valid = true;
-        if (file_format_ == FORMAT_FASTQ) {
-            if (line_count % 4 == 0)
-                record_count--;
-        } else {
-            if (ifs.peek() == '>')
-                record_count--;
-        }
+        if (ifs.peek() == '>')
+            record_count--;
         str_stream_ << str_buffer_ << "\n";
     }
 
@@ -156,8 +179,54 @@ bool BufferedFastxReader::LoadBatch(std::istream &ifs, size_t record_count) {
 }
 
 bool BufferedFastxReader::NextSequence(FastxRecord &seq) {
+    if (batch_mode_) return NextFastq(seq);
     return BufferedFastxReader::ReadNextSequence
             (str_stream_, seq, str_buffer_, file_format_);
+}
+
+// The next line of batch_, without its '\n'.
+bool BufferedFastxReader::NextBatchLine(std::string_view &line) {
+    if (batch_pos_ >= batch_.size()) return false;
+    char const* begin = batch_.data() + batch_pos_;
+    size_t const rest = batch_.size() - batch_pos_;
+    auto const* newline = static_cast<char const*>(std::memchr(begin, '\n', rest));
+    size_t const length = newline ? static_cast<size_t>(newline - begin) : rest;
+    line = std::string_view(begin, length);
+    batch_pos_ += length + 1;
+    return true;
+}
+
+// ReadNextSequence's FASTQ case on the lines of batch_: the same records, ends and errors.
+bool BufferedFastxReader::NextFastq(FastxRecord &record) {
+    std::string_view header;
+    if (!NextBatchLine(header))
+        return false;
+    header = Stripped(header);
+    record.format = FORMAT_FASTQ;
+    if (header.empty()) { // Allow empty line to end file
+        return false;
+    }
+    if (header[0] != '@') {
+        m_error = true;
+        std::cerr << "malformed FASTQ file (exp. '@', saw " << header << ")" << __LINE__ << " in " << __FILE__ << std::endl;
+        return false;
+    }
+    record.header.assign(header);
+    if (header.size() <= 1)
+        return false;
+    auto const first_whitespace_ch = header.find_first_of(" \t\r", 1);
+    record.id.assign(header.substr(1, first_whitespace_ch == std::string_view::npos ? std::string_view::npos : first_whitespace_ch - 1));
+
+    std::string_view line;
+    if (!NextBatchLine(line))
+        return false;
+    record.sequence.assign(Stripped(line));
+    if (!NextBatchLine(line))  //  + line, discard
+        return false;
+    if (!NextBatchLine(line))
+        return false;
+    record.quality.assign(Stripped(line));
+    return true;
 }
 
 bool BufferedFastxReader::ReadNextSequence(std::istream &is, FastxRecord &record,

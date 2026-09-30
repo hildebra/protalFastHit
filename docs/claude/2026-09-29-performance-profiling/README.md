@@ -195,6 +195,282 @@ Smaller things seen on the way: `SimpleAlignmentHandler::ExtendSeed(ChainLink&, 
   MSA stage (it needs two or more samples) or the SAM compression step of map runs.
 - The gains for syncmers and WFA are estimates from instruction counts, not prototypes.
 
+## Follow-up: cPMML upstream, and the patches on `7c6b2f8`
+
+Same day, after `performance` was fast-forwarded to `audit-fixes` at `7c6b2f8`.
+
+**No newer cPMML.** [AmadeusITGroup/cPMML](https://github.com/AmadeusITGroup/cPMML) has no releases
+or tags. Its `master` still ends at `2cd19f9` (2021-01-29), the commit protal imported (version
+0.1); its only other branches are dependabot updates of the documentation's Python requirements.
+The vendored copy differs from upstream only by protal's `Model::from_string` and its CMake
+changes, so there is nothing to update to.
+
+**The patches still apply, and still help.** The models now come in two kinds. The shipped
+`scripts/random_forest.xml` (SoftwareAG PMML Generator, 65,280 nodes; also in databases built with
+it) has no `recordCount`, so it needs both patches. Models written by `scripts/model_pmml.py`
+(`random_forest_cmdline.py`, a few hundred to ~7,000 nodes) carry `recordCount` and a class label as
+`score` on every node: the `recordCount` patch does nothing for them, and the score patch removes
+their throws. 1000 pairs, `db64`, 1 thread, `--model` pointing at each model
+(`patch_check` in the session scratchpad; the same measurement as `scripts/model_test.sh`):
+
+| Model | Model parse, instructions | Exceptions |
+|---|---:|---:|
+| shipped, as is → patched | 4.71 G → 1.16 G | 229,000 → 24,674 |
+| `~/tune/D/trained_model.xml` (6,818 nodes), as is → patched | 746 M → 249 M | 35,530 → 6,437 |
+
+Profiles and their companion files are byte-identical with and without the patches for both
+models. Both patches are now applied to `lib/cPMML` on `performance`. The exceptions left come
+from `MiningField`, `OutlierTreatmentMethod` and `OpType` looking up absent attributes with
+`.at()`.
+
+## Follow-up: the reader, huge pages and the timers, implemented
+
+Same day, on `performance` (`7c6b2f8` plus these changes and the cPMML patches), same machine and
+data. The machine was quieter than in the first round (load 2–8, most of it these runs), but the
+alternated runs still vary by up to 2×; the reader benchmark is the clean measurement.
+
+**What changed**
+
+- `src/IO/ThreadedGzStream.h`: an input stream that inflates the file with zlib in a thread of its
+  own, into four 1 MB blocks ahead of the reader. The FASTQ inputs of paired, single-end and long
+  reads use it instead of `igzstream` (`RunProtal.h`), so the reader lock only copies inflated
+  bytes, and R1 and R2 inflate in parallel. Truncated or corrupt files are still reported
+  (`read_failed()`, as gzstream). No new dependency: libdeflate or ISA-L would inflate faster
+  still, but neither is on this machine or in the conda recipe.
+- `Seedmap::AllocateKeymap`/`AllocateValues`: `madvise(MADV_HUGEPAGE)` on blocks of 64 MB or more,
+  before they are touched. Without THP support it does nothing.
+- `Benchmark`: sums nanoseconds on `steady_clock` (each interval was floored to whole
+  microseconds on `high_resolution_clock`); printing no longer divides the stored sum by the
+  threads, so `_runtime.tsv` no longer depended on `--verbose`. "Retrieve k-mers" is timed (also
+  for single-end reads), joined, printed and written; "Anchor recovery" is joined (it was always 0);
+  `RecoverAnchors` stops its timer on the early return; an unused timer per alignment in
+  `AlignAnchor` is gone. `_runtime.tsv` has a header, `stage seconds threads seconds_per_thread`,
+  with seconds to the microsecond instead of whole seconds.
+
+**Reader alone**, 1M pairs of `mix` (`.gz`), threads that only take pairs
+(`scripts/bench_reader.sh`), three runs each:
+
+| | 1 thread | 8 threads |
+|---|---:|---:|
+| `igzstream` | 2.4–2.7 s (~400k pairs/s) | 3.1–3.5 s (~300k pairs/s) |
+| `ThreadedGzIstream` | 0.82–0.95 s (~1.15M pairs/s) | 1.15–1.26 s (~830k pairs/s) |
+
+The ceiling rises 2.7–2.9×. With 8 threads the new reader is slower than with one: the lock
+changes hands every 32 records. Batches of 128 or 512 records made no consistent difference in
+this benchmark (runs of one setting varied 2×), so the batch size is unchanged.
+
+**Alignment stage**, 1M pairs, `db900`, `--no_profile`, alternated (`scripts/ab_alignment.sh`);
+median of the runs, "old" is `7c6b2f8` as committed, "old + THP" the same with
+`GLIBC_TUNABLES=glibc.malloc.hugetlb=1`:
+
+| | old | old + THP | new |
+|---|---:|---:|---:|
+| `mix` `.gz`, 8 threads (5 runs) | 6.64 s | 6.27 s | 4.50 s |
+| `w900` `.gz`, 8 threads (4 runs) | 10.2 s | 9.4 s | 8.1 s |
+| `mix` `.gz`, 4 threads (3 runs) | 5.90 s | 5.75 s | 4.52 s |
+| `mix` plain, 8 threads (3 runs) | 4.28 s | 3.27 s | 3.07 s |
+
+With gzipped input the new build is 20–32% faster at 8 threads; most of it is the reader, as the
+plain-input row (no inflating at all) shows. The gain depends on load: in the first round, on a
+machine with load 11–14, the same old run took 21 s, because a thread preempted while holding the
+reader lock stalls all others. The new build gets huge pages without the tunable (AnonHugePages
+3.35 of 3.58 GB resident). Single-threaded runs varied too much (12.7–19.9 s) to show the huge-page
+gain on the whole stage; the seeding gain measured before (30–38%) is the better number.
+
+The old stage timers lost most of short intervals: in the same conditions the old build printed
+0.47 s for seeding and the new one 0.81 s, and k-mer extraction, now printed, is the largest
+stage on `mix` (0.73 of 1.82 s per thread at 4 threads). Stage times from the first round are
+low for the short stages.
+
+**Same results.** 200k pairs of `w900` and of `mix`, old against new: at 1 thread the SAM and
+every output file are byte-identical; at 8 threads (and single-end at 4) the profiles, logs and
+statistics are identical and the SAM holds the same records in another order. Unit tests 134/134
+(8 new in `tests/test_ReaderAndTimers.cpp`), also under ASan/UBSan; the new stream's tests are
+clean under TSan (5 repeats; the OpenMP test is left out, libgomp is not instrumented; TSan needs
+`setarch -R` on this kernel); e2e 85/85; `examples/mini_db` passes.
+
+**Also from the docs:** `docs/running.md` puts the full r226 database at about 59 GB in memory.
+Even if half of that were reference sequence, the index would hold over 100 times `db900`'s
+26.9M values (8 bytes each), more than the ~70 times estimated under [Gaps](#gaps); seeding and
+huge pages matter more there than this small database shows.
+
+## Follow-up: syncmers, where WFA spends its time, and --x_drop
+
+Same day, on `performance` after `bdc5790`, same machine and data.
+
+**Syncmers, prototype** (`scripts/bench_syncmer.cpp`, 500k reads of `mix`, one thread). It
+computes each read's 7-mers once per strand instead of 9 times per 31-mer window and finds the first
+minimum of a window branch-free (7-mer value packed with its index, both strands evaluated,
+the canonical one selected). The k-mer lists are identical to `SimpleKmerHandler<ClosedSyncmer>`'s
+for all 1.5M sequences tried (the reads, their reverse complements, and the reads with Ns):
+
+| | ns per read (150 bp) |
+|---|---:|
+| `SimpleKmerHandler` (current) | 2,530–2,740 |
+| 7-mers once, branching minimum | 1,890–2,060 (1.2–1.4×) |
+| 7-mers once, branch-free | 1,150–1,360 (2.1–2.4×) |
+
+The branching version gains little: the minimum and the canonical strand are data-dependent
+branches. Vectorising 8 windows at a time (AVX2) would be the next step; not tried.
+
+**Where WFA spends its time.** `scripts/wfa_calls.patch` logs every WFA call (outputs unchanged):
+50k pairs, one thread, `scripts/wfa_calls.sh`.
+
+| outcome | `w900` calls | ns/call | WFA time | `mix` calls | WFA time |
+|---|---:|---:|---:|---:|---:|
+| failed (score limit reached) | 46.7% | 5,534 | 66.3% | 75.3% | 86.4% |
+| aligned, >5 mismatches | 19.3% | 4,464 | 22.1% | 9.0% | 9.0% |
+| aligned, 2–5 mismatches | 15.9% | 1,286 | 5.2% | 7.4% | 2.1% |
+| aligned, internal indel | 4.0% | 4,121 | 4.2% | 1.9% | 1.7% |
+| aligned, 1 mismatch | 8.1% | 670 | 1.4% | 3.8% | 0.6% |
+| aligned, exact | 6.0% | 469 | 0.7% | 2.7% | 0.3% |
+
+68% (`w900`) and 85% (`mix`) of the anchors are one exact link, mostly 20–49 bp; 98% of the
+failed calls have 16 or more mismatches along their anchor's diagonal (relatives' genes, and in
+`mix` random reads). An ungapped fast path for reads with at most one mismatch would save about
+2% of WFA time: those calls are already cheap. The time goes into proving that anchors fail.
+
+**Anchored extension, prototype.** For single-link anchors, WFA extended from the two ends of the
+link instead of aligning the whole read in a window with dovetails: right of the link, then left
+(reversed), each with its far end free, the score limit shared between them, so a failing side
+stops the other. Next to the current alignment, for the same calls:
+
+| | `w900` | `mix` |
+|---|---:|---:|
+| single-link calls | 99,681 | 13,612 |
+| WFA time, current → anchored | 0.452 → 0.296 s (1.52×) | 0.067 → 0.045 s (1.50×) |
+| aligned by both: same score | 37,908 of 37,931 (99.94%) | 1,909 of 1,909 |
+| anchored better / worse | 23 / 0 | 0 / 0 |
+| aligned only by the current / only anchored | 0 / 7 | 0 / 2 |
+
+A real version also needs the CIGAR (left reversed + the link + right), multi-link anchors (the
+gaps between links aligned end to end) and the SAM position; its outputs would have to be checked
+against today's, as the scores differ in 0.06% of alignments (always better).
+
+**`--x_drop`** was parsed but never reached WFA2. It is now WFA2's X-drop on top of the
+wf-adaptive heuristic that stays on (0 turns it off). WFA2 alone does not suit protal's scoring
+(`scripts/xdrop_wfa2.cpp`: with a match scoring 0, X-drop alone aborted a 2 kb alignment at 2%
+divergence with 50 and an 8 kb one at 1% with 200). Added to wf-adaptive: 200k pairs of `w900` and
+`mix`, `-x 0`, the default 1000 and `-x 200` give byte-identical SAMs and profiles; `-x 50` reports
+the same species with abundances up to 0.007% (`w900`) and 0.36% (`mix`) apart, and changes 10,093
+SAM records of `w900` (45 fewer alignments, and MAPQs). The default costs 0.12% more instructions (callgrind, 20k pairs). With `-x 50`, WFA2
+reported one alignment complete whose operations held 151 read bases for a 150 bp read, and protal
+stopped (exit 90); the wrapper now counts such an alignment as dropped
+(`tests/test_WFA2Wrapper.cpp` has that read). X-drop does not make protal faster: it only prunes
+at steps where wf-adaptive did not.
+
+Calling WFA2 from unit tests showed that UBSan reports its unaligned 8-byte loads and left shifts
+of negative values, which stop CI's sanitizer job (`halt_on_error=1`); `lib/wfa2-lib.cmake` now
+builds WFA2 without UBSan (ASan stays on).
+
+## Follow-up: the syncmer scan, implemented
+
+2026-09-30, on `performance` after `ff71972`. `SimpleKmerHandler<ClosedSyncmer>` now scans whole
+sequences as the branch-free prototype does (`ScanClosedSyncmers`); the window-by-window loop stays
+as `WindowByWindow` (the definition, and the path of any other minimizer). Reads and the database
+build use the same code.
+
+- The same k-mers: `tests/test_Syncmers.cpp` compares the scan with the loop and with a brute force
+  from `ClosedSyncmer`'s definition, for both s-mer masks (index formats 1 and 2), on random,
+  low-complexity and short sequences, with Ns, lower case and other symbols. The mini database built
+  by the old and the new binary is byte-identical (`database.protal`), and every output of 200k
+  pairs of `w900` and of `mix` (1 thread) is identical.
+- 200k pairs of `mix`, 1 thread, alternated three times: "Retrieve k-mers" 1.08–1.21 s before,
+  0.53–0.78 s after; the alignment stage 2.44–2.73 s before, 1.87–2.76 s after. Callgrind, 20k
+  pairs: the handler 1.26 G → 0.80 G instructions, the alignment loop 2.75 G → 2.29 G (−17%).
+- Unit tests 139/139, also under ASan/UBSan; e2e 85/85.
+
+**AVX2, after `8ea37c6`.** Where the CPU has AVX2 (`__builtin_cpu_supports`, so also in the
+baseline `protal` binary), the scan stores each window's cores and k-mers and evaluates 8 windows
+per step: nine loads and unsigned minima per strand, a blend for the canonical strand, a mask of
+the windows that pass; the last windows (fewer than 8) go one by one. The AVX2 function is compiled
+with `__attribute__((target("avx2")))`; other CPUs keep the one-by-one scan of `8ea37c6`, unchanged.
+`tests/test_Syncmers.cpp` checks both evaluations against the definition (`UseAvx2`).
+
+| 500k reads of `mix`, ns per read | window by window | one by one | AVX2 |
+|---|---:|---:|---:|
+| baseline build (`-march=x86-64`) | 2,690–2,890 | 1,410–1,530 | 600–620 |
+| `-march=x86-64-v3` | 2,610–2,780 | 1,240–1,380 | 590 |
+
+The same k-mers again: identical to the definition for all 1.5M benchmark sequences, the mini
+database byte-identical with both binaries, every output of 200k pairs of `w900` and of `mix`
+identical with both binaries. 200k pairs of `mix`, 1 thread, `protal_avx2`, alternated: "Retrieve
+k-mers" 520–560 ms → 260–272 ms, the alignment stage 1.88–2.05 s → 1.64–1.81 s; callgrind (20k
+pairs) the alignment loop 2.29 G → 1.93 G instructions. On CPUs without AVX2 the one-by-one scan
+runs as before (1,392–1,513 ns before, 1,430–1,587 ns after, alternated). Unit tests 140/140, also
+under ASan/UBSan; e2e 85/85. Over the old window loop, k-mer extraction is now 4.4–4.7× faster.
+
+## Follow-up: anchored extension, implemented
+
+2026-09-30, on `performance` after `774240d`. `src/Alignment/AnchoredAlignment.h`: a short read is
+aligned from the exact matches (links) of its anchor chain. `SimpleAlignmentHandler::AlignAnchor`
+sets up the same window as before (the first link's diagonal, 9-base dovetails, up to 18 free
+reference bases at each end, free read bases where the read runs past the gene) and the same
+budget (`MaxScore`); the anchored aligner fills the window's operations piece by piece:
+
+- left of the first link, WFA on the reversed read and window, anchored at the link and free at the
+  window's start as far as the window allows;
+- right of the last link, forward, likewise;
+- between links, the bases in between (as many read as gene bases on one diagonal): ungapped with up
+  to 3 mismatches (then optimal: any gapped path needs an insertion and a deletion, 16), else WFA
+  end to end;
+- the links themselves as they are (N counts as a mismatch, as in WFA).
+
+The pieces share the budget (WFA completes an alignment only if its penalty is below the limit;
+tested), so an anchor on a relative's gene is given up on as soon as one flank exceeds it. The
+result covers the read and the window exactly as a whole-window alignment's operations do, free ends
+included, and goes through the same `PostProcessAlignment`, scoring and checks. Chains it does not
+handle go to the whole-window alignment: links on different diagonals (the seeds imply an indel),
+out of order, outside the window, or not exact but for Ns. Long reads are aligned as a whole as
+before. `--whole_read_alignment` aligns short reads as a whole too (reproducing `774240d`'s outputs
+byte for byte, checked). The `Alignment` stage timer is now also stopped on success.
+
+**Tests.** `tests/test_AnchoredAlignment.cpp` runs the real `AlignAnchor` both ways: a read inside
+its gene, reads running past either gene end (soft clips), gaps in both flanks, an N inside a link,
+several links on one diagonal with mismatches between them, a chain implying an indel (falls back),
+and 5,280 simulated anchors (up to 15% divergence, indels, Ns, overhangs, one or all exact runs on
+the diagonal): the same anchors align both ways, all 4,611 with the same score, 4,553 (98.7%) with
+the same CIGAR and position. Unit tests 147/147, also under ASan/UBSan; e2e 85/85 on a freshly
+built mini database.
+
+**200k pairs, 1 thread, against `774240d`:**
+
+| | `w900` | `mix` |
+|---|---:|---:|
+| anchors aligned anchored / as a whole | 403,647 / 6,894 | 55,326 / 332 |
+| SAM records identical | 175,189 of 176,146 (99.46%) | 8,838 of 8,902 (99.28%) |
+| other gene | 0 | 0 |
+| other CIGAR (of these, also at another position) | 733 (55) | 48 (3) |
+| of those, penalty the same / lower / higher | 732 / 1 / 0 | 47 / 1 / 0 |
+| other MAPQ (none by 10 or more) | 255 | 19 |
+| profile | same species, all abundances identical | same species, abundances up to 0.39% apart |
+
+By the aligner's penalty (mismatch 4, gap 6 + 2 per base), all but one of the other CIGARs are as
+good as before, and that one is better; none is worse. They choose another of several equally good
+alignments, mostly near the read's start, whose flank is aligned reversed: `13M1X9M3D127M` →
+`13M1X8M3D128M`, or `3M1I1X41M1X103M` → `2X2M1X41M1X103M` (penalty 16 each).
+
+Such ties need not be ties for the bitscore that ranks a read's candidates and sets MAPQ (match +2,
+mismatch −3, gap −1 − 2 per base; `Bitscore` in `AlignmentUtils.h`), which WFA optimises in neither
+mode: `3M1I1X...` scores 285, `2X2M1X...` 280. With `--mapq_debug_output`, of the 103,474 pairs of
+`w900` the best pair's bitscore changed for 55 (31 higher, 24 lower; all 24 lower ones have the same
+WFA penalty), the second best's for 153 (94 higher, 59 lower), and MAPQ for 146 (0.14%, none by 10
+or more); in `mix` 3 (all higher), 11 and 10 of 5,205 pairs. The profiler filters reads by MAPQ
+and identity, presumably how `mix`'s abundances moved. Outputs are the same at 1 and 8 threads.
+`scripts/anchored_compare.sh` makes these comparisons.
+
+**Speed.** Callgrind, 20k pairs, 1 thread, instructions `774240d` → anchored:
+
+| | `w900` | `mix` |
+|---|---:|---:|
+| WFA (`alignEndsFree`) | 4.22 G → 2.89 G (−32%) | 686 M → 461 M (−33%) |
+| alignment handler | 5.05 G → 3.99 G (−21%) | 942 M → 735 M (−22%) |
+| alignment loop (reading, seeding, alignment, output) | 6.89 G → 5.83 G (−15%) | 1.93 G → 1.72 G (−11%) |
+
+Wall clock, 200k pairs, 1 thread, three alternated runs each (noisy): the `Raw alignment` timer of
+`w900` 1.33–1.85 s → 1.01–1.23 s, of `mix` 0.26–0.32 s → 0.21–0.32 s; the whole stage varied more
+between runs than it changed.
+
 ## Reproducing
 
 The scripts are in [`scripts/`](scripts/) (settings in `env.sh`: `PERF_DIR`, default
@@ -213,6 +489,11 @@ bash scripts/scaling.sh $PERF_DIR/db900 $PERF_DIR/reads/mix mix 8
 bash scripts/thp_test.sh $PERF_DIR/db900 $PERF_DIR/reads/mix_plain mix 1 2
 bash scripts/mem_trace.sh mem_s64 $PERF_DIR/db64 $PERF_DIR/reads/s64/reads 8
 bash scripts/model_test.sh $PERF_DIR/db64 $PERF_DIR/reads/s64/reads
+# follow-ups: the reader alone, and two builds' alignment stage alternated
+bash scripts/bench_reader.sh $PERF_DIR/reads/mix/mix_R1.fq.gz $PERF_DIR/reads/mix/mix_R2.fq.gz 3
+bash scripts/ab_alignment.sh OLD/protal_avx2 NEW/protal_avx2 $PERF_DIR/db900 $PERF_DIR/reads/mix 8 5
+# anchored alignment against 774240d (a folder with 200k pairs of w900 or mix)
+bash scripts/anchored_compare.sh OLD/protal_avx2 NEW/protal_avx2 $PERF_DIR/db900 READS_200K
 ```
 
 The worlds: `~/audit4/gtdb64` is a 64-species `simulate_gtdb_release.py` release with 3 genomes

@@ -1,0 +1,96 @@
+--- a/src/Core/AlignmentStrategy.h
++++ b/src/Core/AlignmentStrategy.h
+@@ -13,6 +13,10 @@
+ #include "FastAlignment.h"
+ #include "SNPUtils.h"
+ #include "AlignmentUtils.h"
++#include <chrono>
++#include <cstdlib>
++#include <fstream>
++#include <omp.h>
+ 
+ namespace protal {
+     struct AlignmentOrientation {
+@@ -489,13 +493,82 @@
+             } else {
+                 if (true) {//max_dove_size > 0 && (dove_left_required || dove_right_required)) {
+                     m_bm_alignment.Start();
++                    auto const instr_t0 = std::chrono::steady_clock::now();
+                     m_aligner.Alignment(read, reference_str,
+                                         allowed_del_left,
+                                         allowed_del_right,
+                                         dove_left_required ? m_alignment_orientation.reference_dove_left * 2 : 0,
+                                         dove_right_required ? m_alignment_orientation.reference_dove_right * 2 : 0,
+                                         MaxScore(m_max_score_ani, m_alignment_orientation.overlap));
++                    auto const instr_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - instr_t0).count();
+                     m_bm_alignment.Stop();
++                    // INSTRUMENTATION (scratch only): one line per WFA call.
++                    static thread_local std::ofstream instr_log(std::string(std::getenv("PROTAL_WFA_LOG") ? std::getenv("PROTAL_WFA_LOG") : "/dev/null") + "." + std::to_string(omp_get_thread_num()));
++                    size_t covered = 0;
++                    for (auto const& link : anchor.chain) covered += link.length;
++                    int x = 0, ins = 0, del = 0;  // mismatches and internal gap operations (leading/trailing gaps are clipped later)
++                    if (m_aligner.Success()) {
++                        std::string const cig = m_aligner.Cigar();
++                        size_t b = 0, e = cig.size();
++                        while (b < e && (cig[b] == 'I' || cig[b] == 'D')) b++;
++                        while (e > b && (cig[e - 1] == 'I' || cig[e - 1] == 'D')) e--;
++                        for (size_t i = b; i < e; i++) { x += cig[i] == 'X'; ins += cig[i] == 'I'; del += cig[i] == 'D'; }
++                    }
++                    // Mismatches along the first link's diagonal, where read and gene overlap.
++                    int diag_mm = 0;
++                    for (int i = 0; i < static_cast<int>(read.length()); i++) {
++                        int const g = abs_pos + i;
++                        if (g >= 0 && g < static_cast<int>(geneseq.length())) diag_mm += read[i] != geneseq[g];
++                    }
++                    // Prototype: a single-link anchor extended from both ends of its link, each end anchored.
++                    int split_ok = -1, split_score = 0;
++                    long split_ns = 0;
++                    if (anchor.chain.size() == 1) {
++                        static thread_local wfa::WFAlignerGapAffine ext(4, 6, 2, wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
++                        auto const& link = anchor.chain.front();
++                        int const budget = MaxScore(m_max_score_ani, m_alignment_orientation.overlap);
++                        auto const s0 = std::chrono::steady_clock::now();
++                        split_ok = 1;
++                        int used = 0;
++                        // right of the link
++                        size_t const rq = link.readpos + link.length, rg = link.genepos + link.length;
++                        size_t const right = read.length() - rq;
++                        if (right > 0) {
++                            size_t const avail = geneseq.length() - rg;
++                            size_t const rlen = std::min(avail, right + 9);
++                            int const q_end_free = avail < right ? static_cast<int>(right - avail) + 9 : 0;
++                            std::string const q = read.substr(rq), r = geneseq.substr(rg, rlen);
++                            if (r.empty()) { used += 0; }
++                            else {
++                                ext.setMaxAlignmentSteps(budget - used);
++                                auto st = ext.alignEndsFree(r, 0, static_cast<int>(r.size()), q, 0, std::min<int>(q_end_free, q.size()));
++                                if (st != wfa::WFAligner::StatusAlgCompleted) split_ok = 0; else used += -ext.getAlignmentScore();
++                            }
++                        }
++                        // left of the link, reversed
++                        size_t const left = link.readpos;
++                        if (split_ok && left > 0) {
++                            size_t const avail = link.genepos;
++                            size_t const llen = std::min(avail, left + 9);
++                            int const q_end_free = avail < left ? static_cast<int>(left - avail) + 9 : 0;
++                            std::string q(read.rend() - left, read.rend());
++                            std::string r(geneseq.rend() - link.genepos, geneseq.rend() - link.genepos + llen);
++                            if (!r.empty()) {
++                                ext.setMaxAlignmentSteps(budget - used);
++                                auto st = ext.alignEndsFree(r, 0, static_cast<int>(r.size()), q, 0, std::min<int>(q_end_free, q.size()));
++                                if (st != wfa::WFAligner::StatusAlgCompleted) split_ok = 0; else used += -ext.getAlignmentScore();
++                            }
++                        }
++                        split_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - s0).count();
++                        split_score = split_ok ? -used : 0;
++                    }
++                    instr_log << read.length() << '\t' << anchor.chain.size() << '\t' << covered << '\t'
++                              << anchor.Front().readpos << '\t' << (read.length() - anchor.Back().ReadEnd()) << '\t'
++                              << anchor_indels << '\t' << dove_left_required << '\t' << dove_right_required << '\t'
++                              << reference_str.size() << '\t' << allowed_del_left << '\t' << allowed_del_right << '\t'
++                              << m_aligner.Success() << '\t' << (m_aligner.Success() ? m_aligner.GetAlignmentScore() : 0) << '\t'
++                              << x << '\t' << ins << '\t' << del << '\t' << instr_ns << '\t' << diag_mm << '\t'
++                              << split_ok << '\t' << split_score << '\t' << split_ns << '\n';
+                 }
+ //                else {
+ //                    std::cout << "End2End" << std::endl;

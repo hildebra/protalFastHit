@@ -467,32 +467,38 @@ namespace protal {
      */
     class ProtalLongReadOutputHandler {
     private:
-        std::ostream& m_sam_os;
+        SamSink& m_sink;
         BufferedStringOutput m_sam_output;
+        std::vector<uint64_t> m_genes;  // named by the buffered records (SamGeneKey)
         GenomeLoader& m_genomes;
         size_t m_max_out = 1;
         double m_min_cigar_ani = 0;
 
+        // Hands the buffered records and the genes they name to the sink (which serialises writers).
+        void Flush() {
+            m_sam_output.Drain([this](char const* data, size_t size) { m_sink.Write(data, size, m_genes); });
+            if (!m_genes.empty()) m_sink.Write(nullptr, 0, m_genes);
+        }
+
     public:
         size_t alignments = 0;
 
-        ProtalLongReadOutputHandler(std::ostream& sam_os, size_t max_out, size_t sam_buffer_capacity, GenomeLoader& genomes, double min_cigar_ani=0.0) :
-                m_sam_os(sam_os),
+        ProtalLongReadOutputHandler(SamSink& sink, size_t max_out, size_t sam_buffer_capacity, GenomeLoader& genomes, double min_cigar_ani=0.0) :
+                m_sink(sink),
                 m_sam_output(sam_buffer_capacity),
                 m_genomes(genomes),
                 m_max_out(max_out),
                 m_min_cigar_ani(min_cigar_ani) {}
 
         ProtalLongReadOutputHandler(ProtalLongReadOutputHandler const& other) :
-                m_sam_os(other.m_sam_os),
+                m_sink(other.m_sink),
                 m_sam_output(other.m_sam_output.Capacity()),
                 m_genomes(other.m_genomes),
                 m_max_out(other.m_max_out),
                 m_min_cigar_ani(other.m_min_cigar_ani) {}
 
         ~ProtalLongReadOutputHandler() {
-#pragma omp critical(sam_output)
-            m_sam_output.Write(m_sam_os);
+            Flush();
         }
 
         void operator () (LongReadSegments& segments, FastxRecord& record) {
@@ -518,7 +524,7 @@ namespace protal {
                 for (auto const& hit : segment.hits) {
                     LongReadHitToSam(sam, hit, qname);
                     auto const& ar = hit.alignment;
-                    auto const& reference = m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()).Sequence();
+                    auto const reference = m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()).Sequence();
                     if (!ExtractSNPs(sam, reference, snps, ar.Taxid(), ar.GeneId(), 0)) {
 #pragma omp critical(err_out)
                         {
@@ -535,6 +541,7 @@ namespace protal {
                     read_records += sam.ToString();
                     // ZR:i:1: the best hit is the read's taxon's, which the gene alone could not tell.
                     if (first && segment.by_read) read_records += "\tZR:i:1";
+                    m_genes.push_back(SamGeneKey(ar.Taxid(), ar.GeneId()));
                     primary_written = true;
                     first = false;
                     alignments++;
@@ -545,8 +552,7 @@ namespace protal {
             // All records of the read go into the buffer as one unit, so a flush cannot let another
             // thread's records land between them.
             if (!read_records.empty() && !m_sam_output.Write(std::move(read_records))) {
-#pragma omp critical(sam_output)
-                m_sam_output.Write(m_sam_os);
+                Flush();
             }
         }
     };

@@ -63,4 +63,9 @@ list(TRANSFORM WFA2_SOURCES PREPEND ${WFA2_DIR}/)
 add_library(wfa_lib STATIC ${WFA2_SOURCES})
 target_include_directories(wfa_lib PUBLIC ${WFA2_DIR} ${WFA2_DIR}/wavefront ${WFA2_DIR}/utils)
 target_compile_definitions(wfa_lib PRIVATE _FILE_OFFSET_BITS=64)
+# UBSan is off for WFA2 (ASan stays on): it compares sequences in unaligned 8-byte blocks and shifts
+# negative offsets left, idioms UBSan reports and that would stop a sanitizer run with
+# halt_on_error=1 as soon as a test aligns. They are not protal's code; the flag does nothing
+# outside sanitizer builds.
+target_compile_options(wfa_lib PRIVATE -fno-sanitize=undefined)
 set_target_properties(wfa_lib PROPERTIES LINKER_LANGUAGE CXX)

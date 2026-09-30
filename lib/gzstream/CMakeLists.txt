@@ -19,12 +19,10 @@
 project(gzstream_lib)
 set(CMAKE_CXX_STANDARD 20)
 
-set(CMAKE_EXE_LINKER_FLAGS "-lgzstream -lz")
 set(CMAKE_CXX_FLAGS_DEBUG "-pthread -ggdb -g -std=c++2a -fopenmp -Wall")
 set(CMAKE_CXX_FLAGS_RELEASE "-std=c++2a -DNDEBUG -pthread -O3 -fopenmp -Werror=unknown-pragmas") #-march=native
 
-set(ZLIB_USE_STATIC_LIBS "ON")
-find_package(ZLIB REQUIRED)
+# zlib-ng (lib/zlib-ng.cmake, included by src/CMakeLists.txt first) provides the target zlib-ng.
 
 file (GLOB gzstream_sources
         "*.c"
@@ -62,8 +60,8 @@ target_include_directories(gzstream_lib_static
 
 target_link_libraries(gzstream_lib
         PUBLIC
-        ZLIB::ZLIB)
+        zlib-ng)
 
 target_link_libraries(gzstream_lib_static
         PUBLIC
-        z)
+        zlib-ng)

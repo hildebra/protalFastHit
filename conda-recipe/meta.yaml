@@ -20,17 +20,17 @@ requirements:
     - cmake >=3.22
     - make
   host:
-    - zlib
-    - zstd                    # database.protal and its compressed parts
+    - zstd                    # database.protal and its compressed parts, .sam.zst
+    - libdeflate              # gzip as protal writes it (BGZF .sam.gz, simulated reads) and BGZF input
     - libgomp                 # OpenMP
   run:
     - python >=3.8            # qcmsa (standard library only), protal_map_utils, protal_profile_utils
-    - pigz                    # gzipped SAM output; simulate_metagenomes compresses its reads
     - art                     # art_illumina, which simulate_metagenomes runs
     - libgomp
     - matplotlib-base         # only for qcmsa --plot
-    # zlib and zstd come with their run_exports. Building and training a database needs more
-    # (numpy, pandas, scikit-learn, NCBI datasets): see envs/protal-db-build.yaml.
+    # zstd and libdeflate come with their run_exports; zlib-ng is vendored and linked in (lib/zlib-ng).
+    # Building and training a database needs more (numpy, pandas, scikit-learn, NCBI datasets):
+    # see envs/protal-db-build.yaml.
 
 test:
   commands:

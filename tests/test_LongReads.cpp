@@ -135,12 +135,16 @@ namespace {
         ~TinyReference() { std::filesystem::remove_all(dir); }
     };
 
-    std::string Write(TinyReference& ref, LongReadSegments segments, FastxRecord record, size_t max_out = 5) {
+    // The records written; `genes`, if given, receives the genes the handler reported for them.
+    std::string Write(TinyReference& ref, LongReadSegments segments, FastxRecord record, size_t max_out = 5,
+                      std::vector<uint64_t>* genes = nullptr) {
         std::ostringstream os;
+        SamStreamSink sink(os);
         {
-            ProtalLongReadOutputHandler handler(os, max_out, 1 << 16, *ref.loader);
+            ProtalLongReadOutputHandler handler(sink, max_out, 1 << 16, *ref.loader);
             handler(segments, record);
         }  // the destructor flushes the buffer
+        if (genes) *genes = sink.Genes();
         return os.str();
     }
 
@@ -230,6 +234,13 @@ TEST(LongReadOutputHandler, SecondaryHitsFollowTheirSegment) {
     EXPECT_FALSE(Flag::IsSupplementaryAlignment(secondary));
     EXPECT_EQ(records[1][4], "0");
     EXPECT_EQ(Records(Write(ref, { segment }, Read("r", read), 1)).size(), 1u);
+
+    // The genes of the records written, for the SAM header: both, or only the one written with -m 1.
+    std::vector<uint64_t> genes;
+    Write(ref, { segment }, Read("r", read), 5, &genes);
+    EXPECT_EQ(genes, (std::vector<uint64_t>{ SamGeneKey(1, 1), SamGeneKey(1, 2) }));
+    Write(ref, { segment }, Read("r", read), 1, &genes);
+    EXPECT_EQ(genes, (std::vector<uint64_t>{ SamGeneKey(1, 1) }));
 }
 
 TEST(LongReadOutputHandler, SkipsOnlyTheInconsistentHit) {

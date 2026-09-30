@@ -19,6 +19,7 @@
 #include "Zstd.h"
 #include "Database.h"
 #include "SamHandler.h"
+#include "SamFile.h"
 #include "ReadType.h"
 #include "SequenceUtils/SeqReader.h"
 #include "gzstream/gzstream.h"
@@ -78,7 +79,8 @@ namespace protal {
                 
                 ("map", "For larger datasets you can define parameters -1, -2, --prefix and -o in a tsv-file.", cxxopts::value<std::string>()->default_value(""))
                 ("map_range", "If you specified a map file with --map you can also pass a range to protal to run protal only on a subset. The first entry is 1, the end is inclusive. e.g.: 1-10. If the end open or larger than the number of entries in the map file, the last entry in the map file is selected as end.", cxxopts::value<std::string>()->default_value(""))
-                ("profile_only", "Comma separated list of existing sam files to profile without re-running the alignment. Read files given via -1/-2 are ignored. Output prefixes are either given via --prefix (one per sam file) or derived from the sam file names; the outputs then go to -o if it is given, else next to each sam file.", cxxopts::value<std::string>()->default_value(""));
+                ("profile_only", "Comma separated list of existing sam files to profile without re-running the alignment. Read files given via -1/-2 are ignored. Output prefixes are either given via --prefix (one per sam file) or derived from the sam file names; the outputs then go to -o if it is given, else next to each sam file.", cxxopts::value<std::string>()->default_value(""))
+                ("sam_format", "Format of the SAM files that protal names (with -1/-2, or a map without a SAM column): zst (zstd-compressed, <prefix>.sam.zst), gz (gzip, .sam.gz) or sam (plain). A map's SAM names keep their own ending.", cxxopts::value<std::string>()->default_value("zst"));
 
         // Alignment / algorithm options
         options.add_options("Alignment")
@@ -88,7 +90,7 @@ namespace protal {
                 ("s,max_seed_size", "Max seed size after which seeding is stopped.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_SEED_SIZE)))
                 ("w,min_successful_lookups", "If the number of seeds is >=max_seed_size and the number of successful core-mer lookups is >= min_successful_lookups, stop looking for further seeds.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SUCCESSFUL_LOOKUPS)))
                 ("a,max_score_ani", "A max score makes an alignment stop if the alignment diverges too much. This parameter estimates the score for a given ani and is a tradeoff between speed/accuracy. Given, it applies to all read types; else ONT reads take 0.85 (their indels count twice).", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MAX_SCORE_ANI)))
-                ("x,x_drop", "Value determines when to cut of branches in the aligment process that are unpromising.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)));
+                ("x,x_drop", "X-drop of the alignment (WFA2), on top of its adaptive pruning: alignment branches whose score falls this far behind are cut. 0 turns it off. The default prunes nothing in practice; small values (50) lose alignments and change MAPQs.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_X_DROP)));
 
         // Profiling options
         options.add_options("Profiling")
@@ -127,6 +129,8 @@ namespace protal {
         // Advanced / benchmarking / build
         options.add_options("DevOptions")
                 ("mapq_debug_output", "Output mapq debug info to stderr")
+                ("whole_read_alignment", "Align each short read as a whole into its gene window, as protal did before it aligned from the anchor's exact matches (slower; the results differ in a few alignments). Long reads are always aligned as a whole.")
+                ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
                 ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, the models model_*.xml) instead of packing them into database.protal.")
@@ -155,7 +159,7 @@ namespace protal {
                 ("full_help", "Get help for developer options.")
                 ("map_help", "Get help how to format the map file.")
                 ("verbose", "Have verbose program output")
-                ("t,threads", "Specify number of threads to use. Will be passed on to pigz for compression of sam files.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_THREADS)))
+                ("t,threads", "Specify number of threads to use: for alignment (which also compresses the SAM), database loading and profiling.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_THREADS)))
                 ("force", "Force redo alignment even if sam files exists.");
 
         return options;
@@ -177,6 +181,8 @@ namespace protal {
         bool force = false;
         bool verbose = false;
         bool mapq_debug_out = false;
+        bool whole_read_alignment = false;
+        bool full_sam_header = false;
 
         // build
         std::vector<uint8_t> build_gene_mask;
@@ -272,6 +278,8 @@ namespace protal {
         bool m_verbose = false;
 
         bool m_mapq_debug_out = false;
+        bool m_whole_read_alignment = false;
+        bool m_full_sam_header = false;
 
         size_t m_current_index = 0;
 
@@ -402,6 +410,8 @@ namespace protal {
                 m_benchmark_alignment(d.benchmark_alignment),
                 m_benchmark_alignment_output(std::move(d.benchmark_alignment_output)),
                 m_mapq_debug_out(d.mapq_debug_out),
+                m_whole_read_alignment(d.whole_read_alignment),
+                m_full_sam_header(d.full_sam_header),
                 m_fastalign(d.fastalign),
                 m_force(d.force),
                 m_verbose(d.verbose),
@@ -530,6 +540,8 @@ namespace protal {
             result_str << "max seed size:       " << std::to_string(m_max_seed_size) << '\n';
             result_str << "max score ani:       " << std::to_string(m_max_score_ani) << '\n';
             result_str << "x-drop:              " << std::to_string(m_x_drop) << '\n';
+            result_str << "short reads aligned: " << (m_whole_read_alignment ? "as a whole" : "from their anchors") << '\n';
+            result_str << "SAM header lists:    " << (m_full_sam_header ? "every gene" : "the genes aligned to") << '\n';
             result_str << "fastalign:           " << std::to_string(m_fastalign) << '\n';
             result_str << "max out:             " << std::to_string(m_max_out) << '\n';
             result_str << "------ Strains ------" << std::string(30, '-') << '\n';
@@ -882,34 +894,25 @@ namespace protal {
             return m_second_list[index];
         }
 
-        std::pair<std::string, bool> SamFile(int index, bool strip_gzip=false) const {
+        // The SAM file of sample `index`, and whether its name asks for compression (".gz" or ".zst",
+        // see SamFile.h); with strip_compression the name without that extension.
+        std::pair<std::string, bool> SamFile(int index, bool strip_compression=false) const {
             if (index >= m_sam_list.size()) {
                 std::cerr << "Cannot access index " << index << " of sam files (Length: " << m_sam_list.size() << ")" << std::endl;
                 exit(33);
             }
             auto sam = m_sam_list[index];
-
-            bool gzipped = sam.size() >= 3 && sam.compare(sam.size() - 3, 3, ".gz") == 0;
-            if (strip_gzip && gzipped) {
-                sam = sam.substr(0, sam.size() - 3);
-                gzipped = false;
+            bool compressed = SamCompressionOf(sam) != SamCompression::None;
+            if (strip_compression && compressed) {
+                sam = UncompressedSamName(sam);
+                compressed = false;
             }
-
-            return {sam, gzipped};
+            return {sam, compressed};
         }
 
-
-        bool IsSamFileGzipped(int index) {
-            auto [sam, gzipped] = SamFile(index);
-
-            return gzipped;
-        }
-
-        // Points sample `index` at the gzipped (".gz") or the plain name of its SAM file.
-        void SetSamFileGzip(int index, bool gzip) {
-            auto [sam, gzipped] = SamFile(index);
-            if (gzip == gzipped) return;
-            m_sam_list[index] = gzip ? sam + ".gz" : sam.substr(0, sam.size() - 3);
+        // Points sample `index` at the uncompressed name of its SAM file (without ".gz" or ".zst").
+        void UseUncompressedSamFile(int index) {
+            m_sam_list[index] = UncompressedSamName(m_sam_list[index]);
         }
 
         std::vector<std::string> SamFiles() {
@@ -1011,6 +1014,16 @@ namespace protal {
             return m_mapq_debug_out;
         }
 
+        // --whole_read_alignment: short reads aligned as a whole into their window, not from their anchors.
+        bool WholeReadAlignment() const {
+            return m_whole_read_alignment;
+        }
+
+        // --full_sam_header: every gene of the database in the SAM header, not only those aligned to.
+        bool FullSamHeader() const {
+            return m_full_sam_header;
+        }
+
         bool HasProfileTruths() const {
             return m_profile_truth_list.size() == m_profile_list.size();
         }
@@ -1089,8 +1102,8 @@ namespace protal {
 The map file helps you organise input files spanning different folders without having to use complicated wildcard terms.
 Header lines are indicated with a # and you can define individual output-base folders for strain output, regular output, sam output,
 and profile output. You could leave them empty and always specify the full path in the sample rows (not starting with a hashtag),
-but this can get complicated quite quickly. We disabled .gz output in sams as it is faster to use linux command pigz instead
-of writing out compressed internally.
+but this can get complicated quite quickly. A SAM name ending in .sam.zst (the default when the SAM column is left out) is
+written zstd-compressed, .sam.gz gzip-compressed, any other name plain.
 				
 #OUTPUT_DIR	/path-to-your-results-dir/					
 #SAM_OUTPUT_DIR	/path-to-your-results-dir/alignments					
@@ -1142,12 +1155,22 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             return true;
         }
 
-        static bool LoadFromMap(std::string map_path, std::string& output_dir, std::string& strain_output_dir, std::string& misc_output_dir, 
-                                std::vector<std::string>& prefix_list, 
+        // The ending of the SAM files protal names, by --sam_format (zst, gz, sam); empty if unknown.
+        static std::string SamEnding(std::string const& format) {
+            if (format == "zst") return ".sam.zst";
+            if (format == "gz") return ".sam.gz";
+            if (format == "sam") return ".sam";
+            return "";
+        }
+        static inline const std::string kDefaultSamEnding = ".sam.zst";
+
+        // sam_ending: of the SAM names given to samples without a SAM column (<prefix><sam_ending>).
+        static bool LoadFromMap(std::string map_path, std::string& output_dir, std::string& strain_output_dir, std::string& misc_output_dir,
+                                std::vector<std::string>& prefix_list,
                                 std::vector<std::string>& first_list, std::vector<std::string>& second_list,
                                 std::vector<std::string>& sam_list, std::vector<std::string>& profile_list,
                                 std::vector<std::string>& samplenames_list, std::vector<std::string>& profile_truth_list,
-                                std::vector<std::string>& read_type_list) {
+                                std::vector<std::string>& read_type_list, std::string const& sam_ending = kDefaultSamEnding) {
             using namespace std::filesystem;
 
             if (!std::filesystem::exists(map_path)) {
@@ -1412,7 +1435,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     std::cout << "column PREFIX must be specified if column SAM is not specified." << std::endl;
                 }
                 for (auto prefix : prefix_list) {
-                    sam_list.emplace_back(prefix + ".sam");
+                    sam_list.emplace_back(prefix + sam_ending);
                 }
             }
 
@@ -1518,9 +1541,9 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                 }
                 std::optional<ReadType> own;  // the SAM's, if it tells
                 if (i < m_sam_list.size() && std::filesystem::exists(m_sam_list[i])) {
-                    igzstream is(m_sam_list[i].c_str());
+                    SamInput input(m_sam_list[i]);
                     try {
-                        auto const reads = ReadsOfSam(is);
+                        auto const reads = ReadsOfSam(input.Stream());
                         if (reads.declared) {
                             own = *reads.declared;
                         } else if (reads.paired.has_value()) {
@@ -1540,7 +1563,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
         // cannot be read.
         static size_t LongestRead(std::string const& path, size_t records) {
             if (!std::filesystem::is_regular_file(path)) return 0;
-            igzstream is(path.c_str());
+            ThreadedGzIstream is(path.c_str());
             SeqReaderSE reader(is);
             FastxRecord record;
             size_t longest = 0;
@@ -1970,6 +1993,12 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             auto sam_in = result.count("profile_only") ? result["profile_only"].as<std::string>() : "";
             auto universal_prefix = result.count("prefix") ? result["prefix"].as<std::string>() : "";
             auto output_dir = result.count("outdir") ? result["outdir"].as<std::string>() : "";
+            std::string const sam_format = result["sam_format"].as<std::string>();
+            std::string const sam_ending = SamEnding(sam_format);
+            if (sam_ending.empty()) {
+                std::cerr << "Error: --sam_format must be zst, gz or sam, not '" << sam_format << "'" << std::endl;
+                exit(2);
+            }
 
             auto range_arg = result.count("map_range") ? result["map_range"].as<std::string>() : "";
             std::vector<size_t> range;
@@ -2032,7 +2061,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     std::cerr << "Map file " << map_file << " does not exist." << std::endl;
                     exit(9);
                 }
-                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list)) {
+                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list, sam_ending)) {
                     std::cerr << "Failed to read map file " << map_file << " (see --map_help)." << std::endl;
                     exit(9);
                 }
@@ -2077,6 +2106,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             }
             bool profile_only = result.count("profile_only");
             bool mapq_debug_output = result.count("mapq_debug_output");
+            bool whole_read_alignment = result.count("whole_read_alignment");
+            bool full_sam_header = result.count("full_sam_header");
             bool force = result.count("force");
 
 
@@ -2124,12 +2155,11 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                         auto& sam_file = sam_list[i];
 
                         std::string stem;
-                        if (sam_file.size() >= 4 && sam_file.compare(sam_file.size() - 4, 4, ".sam") == 0) {
-                            stem = sam_file.substr(0, sam_file.size() - 4);
-                        } else if (sam_file.size() >= 7 && sam_file.compare(sam_file.size() - 7, 7, ".sam.gz") == 0) {
-                            stem = sam_file.substr(0, sam_file.size() - 7);
+                        std::string const uncompressed = UncompressedSamName(sam_file);  // without .gz or .zst
+                        if (uncompressed.ends_with(".sam")) {
+                            stem = uncompressed.substr(0, uncompressed.size() - 4);
                         } else {
-                            std::cerr << sam_file << " does not end with .sam" << std::endl;
+                            std::cerr << sam_file << " does not end with .sam, .sam.gz or .sam.zst" << std::endl;
                             exit(35);
                         }
                         // The outputs go to -o if it is given (the name is joined with it below), else next to the SAM.
@@ -2159,7 +2189,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
 
                 if (sam_list.empty()) {
                     for (auto i = 0; i < prefix_list.size(); i++) {
-                        std::filesystem::path sam { prefix_list[i] + ".sam" };
+                        std::filesystem::path sam { prefix_list[i] + sam_ending };
 
                         // If absolute, just push it directly
                         if (sam.is_absolute()) {
@@ -2223,6 +2253,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.show_map_help            = show_map_help;
             d.show_version             = show_version;
             d.mapq_debug_out           = mapq_debug_output;
+            d.whole_read_alignment     = whole_read_alignment;
+            d.full_sam_header          = full_sam_header;
             d.first_list               = std::move(first_list);
             d.second_list              = std::move(second_list);
             d.samplename_list          = std::move(samplenames_list);

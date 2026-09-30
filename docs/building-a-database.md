@@ -149,7 +149,7 @@ only what is missing, and `--dry_run` lists what it would fetch.
 | `--no_genomes`, `--dry_run` | | GTDB's files only; list the files and their sizes |
 | `--mirror`, `--datasets`, `--batch`, `-t` | | GTDB server, NCBI CLI, genomes per NCBI request (500), parallel downloads and compression (8) |
 
-It needs, besides a built `protal` and `simulate_metagenomes`: `art_illumina` and `pigz` on
+It needs, besides a built `protal` and `simulate_metagenomes`: `art_illumina` on
 `$PATH` (for the simulations), Python 3 with numpy, pandas, joblib and scikit-learn for the
 training (no Java: the trainer writes the PMML itself), and NCBI's `datasets` for strain genomes.
 The conda environment [`envs/protal-db-build.yaml`](../envs/protal-db-build.yaml) has them all,

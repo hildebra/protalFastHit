@@ -23,11 +23,11 @@ dependencies:
   - cxx-compiler          # GCC with OpenMP; C++20 (GCC 13 and 14 are tested)
   - cmake >=3.22
   - make
-  - zlib
   - zstd                  # the library, and the zstd CLI the end-to-end tests use
-  # Run them: protal writes gzipped SAMs, simulate_metagenomes runs ART and compresses its reads
-  - pigz
+  - libdeflate            # gzip as protal writes it (BGZF) and reads BGZF input; zlib-ng is vendored
+  # Run them: simulate_metagenomes runs ART
   - art                   # art_illumina
+  - pigz                  # optional: download_gtdb.py unpacks GTDB's archives faster with it
   # Convert the release, collect training data, train the model, check it against protal
   - python >=3.10
   - numpy

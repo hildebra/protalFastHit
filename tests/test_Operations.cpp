@@ -1,12 +1,13 @@
-// Unit tests for run-level plumbing: the failure collector behind the exit code, and in-place SAM
-// compression (no shell, reproducible output).
+// Unit tests for run-level plumbing: the failure collector behind the exit code, and in-place
+// compression of the simulator's reads (BGZF, reproducible output).
 #include <gtest/gtest.h>
+#include <zlib-ng.h>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <random>
 #include <sstream>
 #include <string>
-#include <sys/stat.h>
 #include <unistd.h>
 #include "Utilities/Compressor.h"
 #include "Utilities/RunStatus.h"
@@ -24,23 +25,32 @@ namespace {
         ~ScratchDir() { fs::remove_all(path); }
     };
 
-    // Stand-in for pigz that needs only gzip: drops "-p N" and passes everything else on.
-    std::string WritePigzStandIn(fs::path const& dir) {
-        auto script = dir / "pigz-standin";
-        std::ofstream(script) << "#!/usr/bin/env bash\n"
-                                 "args=()\n"
-                                 "while [ $# -gt 0 ]; do\n"
-                                 "  if [ \"$1\" = \"-p\" ]; then shift 2; continue; fi\n"
-                                 "  args+=(\"$1\"); shift\n"
-                                 "done\n"
-                                 "exec gzip \"${args[@]}\"\n";
-        ::chmod(script.c_str(), 0755);
-        return script.string();
-    }
-
     std::string ReadAll(fs::path const& p) {
         std::ifstream in(p, std::ios::binary);
         return std::string(std::istreambuf_iterator<char>(in), {});
+    }
+
+    // A gzip file's content as a reader other than libdeflate reads it (zlib-ng; zcat reads the same).
+    std::string Gunzip(fs::path const& p) {
+        gzFile f = zng_gzopen(p.c_str(), "rb");
+        std::string text;
+        char buffer[1 << 16];
+        int32_t n;
+        while ((n = zng_gzread(f, buffer, sizeof(buffer))) > 0) text.append(buffer, static_cast<size_t>(n));
+        zng_gzclose(f);
+        return text;
+    }
+
+    // ~10 MB of FASTQ-like text: several of the compressor's 4 MB chunks.
+    std::string Reads() {
+        std::mt19937 rng(3);
+        std::string text;
+        while (text.size() < (size_t{10} << 20)) {
+            std::string seq(150, 'A');
+            for (auto& c : seq) c = "ACGT"[rng() % 4];
+            text += "@read" + std::to_string(text.size()) + "\n" + seq + "\n+\n" + std::string(150, 'I') + "\n";
+        }
+        return text;
     }
 }
 
@@ -59,39 +69,48 @@ TEST(RunStatus, ExitCodeReflectsFailures) {
     EXPECT_NE(report.str().find("qcmsa failed for B"), std::string::npos);
 }
 
-TEST(Compressor, HandlesShellMetacharactersWithoutAShell) {
+TEST(Compressor, CompressesInPlaceToBgzf) {
     ScratchDir dir;
-    auto pigz = WritePigzStandIn(dir.path);
-    auto sam = dir.path / "sample $(touch INJECTED); x.sam";
-    std::ofstream(sam) << "@HD\tVN:1.6\n";
+    auto reads = dir.path / "sample $(touch INJECTED); x_R1.fq";  // no shell is involved
+    std::string const text = Reads();
+    std::ofstream(reads, std::ios::binary) << text;
 
-    Compressor::compressInPlace(sam, 2, pigz);
+    Compressor::compressInPlace(reads, 3);
 
-    EXPECT_FALSE(fs::exists(sam));
-    EXPECT_TRUE(fs::exists(sam.string() + ".gz"));
+    fs::path const gz = reads.string() + ".gz";
+    EXPECT_FALSE(fs::exists(reads));
+    ASSERT_TRUE(fs::exists(gz));
     EXPECT_FALSE(fs::exists(dir.path / "INJECTED"));
-    EXPECT_FALSE(fs::exists("INJECTED"));
+    EXPECT_EQ(Gunzip(gz), text);
+    EXPECT_TRUE(protal::bgzf::StartsAsBgzf(gz.string()));
+    EXPECT_TRUE(protal::bgzf::EndsWithEof(gz.string()));
+    EXPECT_LT(fs::file_size(gz), text.size() / 2);
 }
 
-TEST(Compressor, SameContentGivesIdenticalBytes) {
-    // -n keeps name and time stamp out of the gzip header.
+TEST(Compressor, SameContentGivesIdenticalBytesWithAnyThreads) {
+    // No name or time stamp in the gzip headers, and the blocks do not depend on the threads.
     ScratchDir dir;
-    auto pigz = WritePigzStandIn(dir.path);
-    auto a = dir.path / "a.sam";
-    auto b = dir.path / "b_other_name.sam";
-    std::ofstream(a) << "r1\t0\t1_1\t1\t60\t4M\t*\t0\t4\tACGT\tIIII\n";
-    std::ofstream(b) << "r1\t0\t1_1\t1\t60\t4M\t*\t0\t4\tACGT\tIIII\n";
-    fs::last_write_time(b, fs::last_write_time(a) - std::chrono::hours(5));
-
-    Compressor::compressInPlace(a, 1, pigz);
-    Compressor::compressInPlace(b, 1, pigz);
-    EXPECT_EQ(ReadAll(a.string() + ".gz"), ReadAll(b.string() + ".gz"));
+    std::string const text = Reads();
+    std::vector<std::string> packed;
+    for (int threads : { 1, 2, 5 }) {
+        auto file = dir.path / ("reads_" + std::to_string(threads) + ".fq");
+        std::ofstream(file, std::ios::binary) << text;
+        fs::last_write_time(file, fs::file_time_type::clock::now() - std::chrono::hours(threads));
+        Compressor::compressInPlace(file, threads);
+        packed.push_back(ReadAll(file.string() + ".gz"));
+    }
+    EXPECT_EQ(packed[0], packed[1]);
+    EXPECT_EQ(packed[0], packed[2]);
 }
 
-TEST(Compressor, ReportsAMissingProgram) {
+TEST(Compressor, AnEmptyFileAndAMissingOne) {
     ScratchDir dir;
-    auto sam = dir.path / "a.sam";
-    std::ofstream(sam) << "x\n";
-    EXPECT_THROW(Compressor::compressInPlace(sam, 1, "no-such-pigz-binary"), std::runtime_error);
-    EXPECT_TRUE(fs::exists(sam));  // the input is left alone
+    auto empty = dir.path / "empty.fq";
+    std::ofstream(empty).close();
+    Compressor::compressInPlace(empty, 2);
+    EXPECT_EQ(Gunzip(empty.string() + ".gz"), "");
+    EXPECT_TRUE(protal::bgzf::EndsWithEof(empty.string() + ".gz"));
+
+    EXPECT_THROW(Compressor::compressInPlace(dir.path / "missing.fq", 1), std::invalid_argument);
+    EXPECT_FALSE(fs::exists(dir.path / "missing.fq.gz"));
 }

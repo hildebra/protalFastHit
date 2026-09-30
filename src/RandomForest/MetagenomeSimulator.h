@@ -38,8 +38,7 @@ public:
     MetagenomeSimulator(
         std::vector<GenomeRecord> genomes,
         ArtIlluminaOptions art_options = {},
-        std::uint64_t seed = std::random_device{}(),
-        std::string pigz_path = "pigz");
+        std::uint64_t seed = std::random_device{}());
 
     std::vector<SampleOutput> simulate_samples(
         const ProfileDesignOptions& profile_options,
@@ -63,7 +62,6 @@ private:
     ArtIlluminaWrapper art_;
     CommunityProfileDesigner designer_;
     std::mt19937_64 rng_;
-    std::string pigz_path_;
 
     SampleOutput simulate_single(
         const ProfileDesignOptions& profile_options,

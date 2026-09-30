@@ -166,7 +166,7 @@ namespace protal {
             ReverseSeed(seed, fwd.length(), m_k);
             ChainLink rev_link = ChainLink(seed.genepos, seed.readpos, m_k);
             std::string_view qseedr(rev.c_str() + seed.readpos, rev_link.length);//query.substr(s.readpos, s.length);
-            std::string_view rseed(gene.Sequence().c_str() + seed.genepos, fwd_link.length);
+            std::string_view rseed(gene.Sequence().data() + seed.genepos, fwd_link.length);
 
             bool forward = qseedf == rseed;
             if (qseedf != rseed && qseedr != rseed) {
@@ -412,6 +412,7 @@ namespace protal {
                     m_anchors.insert(m_anchors.end(), own_anchors.begin(), own_anchors.end());
                     std::swap(m_anchors, own_anchors);
                 }
+                m_bm_recovering_anchors.Stop();
                 return recovered;
             }
             recovered_count++;
@@ -448,7 +449,7 @@ namespace protal {
         }
 
         //static
-        std::pair<size_t, size_t> ExtendSeed(ChainLink& s, std::string const& query, std::string const& gene, uint16_t query_left_limit=0, uint16_t query_right_limit=0) {
+        std::pair<size_t, size_t> ExtendSeed(ChainLink& s, std::string const& query, std::string_view const gene, uint16_t query_left_limit=0, uint16_t query_right_limit=0) {
             size_t extension_left = 0;
             size_t extension_right = 0;
             if (query_right_limit == 0) query_right_limit = query.length();
@@ -456,11 +457,11 @@ namespace protal {
             constexpr bool check_middle = true;
 
             std::string_view qseed(query.c_str() + s.readpos, s.length);//query.substr(s.readpos, s.length);
-            std::string_view rseed(gene.c_str() + s.genepos, s.length);
+            std::string_view rseed(gene.data() + s.genepos, s.length);
 
             if constexpr (check_middle) {
                 std::string_view qseed(query.c_str() + s.readpos, s.length);
-                std::string_view rseed(gene.c_str() + s.genepos, s.length);
+                std::string_view rseed(gene.data() + s.genepos, s.length);
 
                 bool faulty = false;
                 if (qseed != rseed) {
@@ -504,14 +505,14 @@ namespace protal {
             return { extension_left, extension_right };
         }
 
-        void ExtendSeed1(ChainLink& seed, ChainLink* prev, ChainLink* next, std::string const& query, std::string const& ref) {
+        void ExtendSeed1(ChainLink& seed, ChainLink* prev, ChainLink* next, std::string const& query, std::string_view const ref) {
             auto [lefta, righta] = ExtendSeed(seed, query, ref,
                                               (prev != nullptr ? prev->readpos + prev->length : 0),
                                               (next != nullptr ? next->readpos : ref.length()));
 
         }
 
-        void ExtendSeed2(ChainLink& seed, std::string const& query, std::string const& ref) {
+        void ExtendSeed2(ChainLink& seed, std::string const& query, std::string_view const ref) {
             ExtendSeed1(seed, nullptr, nullptr, query, ref);
         }
 
@@ -568,7 +569,7 @@ namespace protal {
                 auto& seed = anchor.chain[i];
 
                 std::string_view seed_q(query.c_str() + seed.readpos, seed.length);
-                std::string_view seed_r(gene.Sequence().c_str() + seed.genepos, seed.length);
+                std::string_view seed_r(gene.Sequence().data() + seed.genepos, seed.length);
                 bool validseed = IdenticalIgnoreAmbig(seed_q, seed_r);
 
                 if (!validseed) {
