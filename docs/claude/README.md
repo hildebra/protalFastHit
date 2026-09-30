@@ -7,6 +7,7 @@ and on [protal.earlham.ac.uk](https://protal.earlham.ac.uk/main.php?site=documen
 
 | Date | Report | Scope |
 |---|---|---|
+| 2026-09-30 | [Audit round 5](2026-09-30-round5-audit/README.md) | the parts not audited before: the single-file database and its compression, the I/O layer rewritten by `performance`, long reads, the GTDB download/build/training scripts, the simulator, taxonomy and utilities, build, packaging and CI; findings, what holds, fix plan Q–V |
 | 2026-09-30 | [Which genes reach the strain MSAs](2026-09-30-msa-genes/README.md) | genes without unique k-mers and the long-unique filter (finding 11, fixed); what fraction of a species' genes its MSAs keep on a 765-species world with congeners, and whether genes with few unique k-mers can be trusted |
 | 2026-09-30 | [Clade holdouts for training](2026-09-30-clade-holdouts.md) | the training database without whole genera, families, orders, classes and phyla as well as many single species; false positive and false negative rates by rank; cross-validation by clade; the out-of-bag estimate under class-weighted bootstraps; default depths down to 1,000 read pairs; results on the tuning world |
 | 2026-09-30 | [Faster index builds](2026-09-30-index-build-gains/README.md) | what else costs time in `protal --build` at GTDB scale: an unused pass, the unique k-mer statistics, parts that grow faster than the database; measured on the tuning world at three sizes, with exact fixes and estimates for GTDB r226 |
