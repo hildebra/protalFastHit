@@ -7,6 +7,7 @@ and on [protal.earlham.ac.uk](https://protal.earlham.ac.uk/main.php?site=documen
 
 | Date | Report | Scope |
 |---|---|---|
+| 2026-09-30 | [Which genes reach the strain MSAs](2026-09-30-msa-genes/README.md) | genes without unique k-mers and the long-unique filter (finding 11, fixed); what fraction of a species' genes its MSAs keep on a 765-species world with congeners, and whether genes with few unique k-mers can be trusted |
 | 2026-09-29 | [Strain MSAs and trees](2026-09-29-strain-audit/README.md) | audit round 4: how the strain MSAs are built, what qcmsa filters out, and the hand-off to IQ-TREE, measured against true genotypes and known trees; findings, fix plan, and the evaluation of fixes L–P |
 | 2026-09-29 | [Parallelising the index build](2026-09-29-index-build-parallel.md) | where `protal --build` spends its time (measured, and extrapolated to GTDB r226), why the index build is serial, and a parallel design that keeps the index byte-identical; follow-up: the uniqueness check without its lock, 5x faster on 8 threads |
 | 2026-09-29 | [Training the presence model](2026-09-29-model-training-tuning/README.md) | the Java-free trainer against the old procedure; what simulated training data need (strains, species held out) on a GTDB-like world, and the settings for GTDB r226; placeholder models; plan for se/PacBio/ONT training data |

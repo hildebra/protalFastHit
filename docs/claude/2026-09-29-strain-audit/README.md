@@ -249,6 +249,10 @@ The profiles do not depend on the strain fixes: `profile_diff.py` on all accurac
 
 It is the archaeon of finding 6, and the only species the rule flags. The rule was chosen on the model's test sets on the toy database (`~/tune/score/test*/shipped`, `strong_rule.py`). There it flags 28 of 304 and 26 of 316 present species below the knob, and none of 14,390 absent ones.
 
+### Follow-up: finding 11
+
+O's choice of genes by their reads did not bring back *Dummya solo*'s genes: the long-unique filter dropped them again. `a1369eb` fixes that (118 of 118 genes). [Which genes reach the strain MSAs](../2026-09-30-msa-genes/README.md) has the details and measures the gene choice on a larger world.
+
 ### Open
 
 Whether a lone read's allele should need a higher base quality than `--snp_min_mean_qual`, e.g. Q30 for alleles that pass on fewer than `--snp_min_cov` reads. That would keep O's support at 2x without its long terminal branches. The global Q30 test above is the upper bound on its cost in true SNPs; a floor on lone reads only would cost fewer.
