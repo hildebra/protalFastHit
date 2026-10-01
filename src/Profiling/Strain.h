@@ -131,10 +131,6 @@ namespace protal {
         }
 
     public:
-        Benchmark bm_add_read{"Add read"};
-        Benchmark bm_add_sequence_range{"Add sq"};
-        Benchmark bm_add_variants{"Add variants"};
-
         StrainLevelContainer(Gene const& reference) :
                 m_reference(reference), m_variant_handler(reference) {
         };
@@ -239,30 +235,21 @@ namespace protal {
         // trusts, less what the fragment's other mate already covered; an alignment that does not fit
         // the gene adds nothing and returns false. Without, only its whole range is added.
         bool AddSam(SamEntry const& sam, size_t read_id, bool read_variants=false, double identity=1.0) {
-            bm_add_read.Start();
             uint8_t const divergence = DivergenceBin(identity);
             if (!read_variants) {
-                bm_add_sequence_range.Start();
                 AddToSequenceRange(sam, read_id);
-                bm_add_sequence_range.Stop();
-                bm_add_read.Stop();
                 return true;
             }
             size_t skip_begin = 0, skip_end = 0;
             if (read_id == m_last_read_id) std::tie(skip_begin, skip_end) = m_last_interval;
-            bm_add_variants.Start();
             auto const interval = m_variant_handler.AddAlignment(sam, skip_begin, skip_end, divergence);
-            bm_add_variants.Stop();
             if (!interval) {
-                bm_add_read.Stop();
                 return false;
             }
             auto const [start, end] = *interval;
             bool const forward = !Flag::IsReverseComplement(sam.m_flag);
-            bm_add_sequence_range.Start();
             AddReadRange(start, std::min(end, skip_begin), read_id, forward, divergence);
             AddReadRange(std::max(start, skip_end), end, read_id, forward, divergence);
-            bm_add_sequence_range.Stop();
 
             if (read_id == m_last_read_id) {
                 m_last_interval = { std::min(start, m_last_interval.first), std::max(end, m_last_interval.second) };
@@ -270,7 +257,6 @@ namespace protal {
                 m_last_read_id = read_id;
                 m_last_interval = { start, end };
             }
-            bm_add_read.Stop();
             return true;
         }
     };

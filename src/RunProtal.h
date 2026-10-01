@@ -668,7 +668,6 @@ namespace protal {
             }
 
 
-            // profile.bm_add_sam.PrintResults();
 
 
             std::optional<TruthSet> truth = options.HasProfileTruths() ?

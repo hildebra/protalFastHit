@@ -1313,7 +1313,6 @@ namespace protal {
 
         class MicrobialProfile {
         public:
-            Benchmark bm_add_sam{"Add Sam profile"};
             MicrobialProfile(GenomeLoader& genome_loader) : m_genome_loader(genome_loader) {}
 
             // See Taxon::OwnIdentityThreshold; 1 or more lets every read count towards depth.
@@ -1372,9 +1371,7 @@ namespace protal {
                 }
                 auto& taxon = m_taxa.at(taxid);
                 unique = sam.m_mapq > 20;
-                bm_add_sam.Start();
                 bool success = taxon.AddSam(geneid, sam, score, unique, read_id, no_strain);
-                bm_add_sam.Stop();
                 // A taxon exists only with at least one read (its means divide by the read count).
                 if (!success && taxon.TotalHits() == 0) m_taxa.erase(taxid);
                 return success;
@@ -2196,8 +2193,6 @@ namespace protal {
                 pairlist_id++;
             }
 
-            Benchmark m_add_sam{"Add sam.."};
-            Benchmark m_cigar_info{"Compressed cigar info"};
 
 
             bool ProcessMAPQ(MicrobialProfile& profile, AlignmentPair& ap, int read_id=0) {
@@ -2205,10 +2200,8 @@ namespace protal {
 
                 bool take_first = false;
                 bool take_second = false;
-                m_cigar_info.Start();
                 if (ap.HasFirst()) CompressedCigarInfo(ap.First().m_cigar, m_info1);
                 if (ap.HasSecond()) CompressedCigarInfo(ap.Second().m_cigar, m_info2);
-                m_cigar_info.Stop();
 
                 // MAPQ is judged per mate: the mates of a pair aligned together share one MAPQ, those
                 // of a fragment split over two genes each have their own.
@@ -2225,26 +2218,20 @@ namespace protal {
                     auto [tid1, geneid1] = ExtractTaxidGeneid(ap.First().m_rname);
                     auto [tid2, geneid2] = ExtractTaxidGeneid(ap.Second().m_rname);
 
-                    m_add_sam.Start();
                     valid_sam &= profile.AddSam(tid1, geneid1, ap.First(), m_info1.Ani(), true, read_id, kNoStrain);
                     valid_sam &= profile.AddSam(tid2, geneid2, ap.Second(), m_info2.Ani(), true, read_id, kNoStrain);
-                    m_add_sam.Stop();
 
                 } else if (take_first) {
                     auto [tid, geneid] = ExtractTaxidGeneid(ap.First().m_rname);
 
-                    m_add_sam.Start();
                     valid_sam &=profile.AddSam(tid, geneid, ap.First(), m_info1.Ani(), true, read_id, kNoStrain);
-                    m_add_sam.Stop();
 
 
 
                 } else if (take_second) {
                     auto [tid, geneid] = ExtractTaxidGeneid(ap.Second().m_rname);
 
-                    m_add_sam.Start();
                     valid_sam &=profile.AddSam(tid, geneid, ap.Second(), m_info2.Ani(), true, read_id, kNoStrain);
-                    m_add_sam.Stop();
                 }
                 return valid_sam;
             }

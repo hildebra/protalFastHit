@@ -271,7 +271,7 @@ namespace protal {
             auto const& window = candidate.window;
             size_t const window_length = static_cast<size_t>(window.Length());
             m_window.assign(read, window.start, window_length);
-            m_window_rev = KmerUtils::ReverseComplement(m_window);
+            KmerUtils::ReverseComplementInto(m_window, m_window_rev);
 
             // The anchor's positions from its chunk to the window, in the anchor's orientation.
             Anchor anchor = candidate.anchor;

@@ -1,8 +1,10 @@
 // Unit tests for SNP calling: quality parsing, the reference allele's strand handling,
 // variant ownership and matching, IUPAC codes and SAM strand flags.
 #include <gtest/gtest.h>
+#include <random>
 #include <string>
 #include <vector>
+#include "Alignment/AlignmentUtils.h"
 #include "Profiling/Strain.h"
 
 using namespace protal;
@@ -188,4 +190,82 @@ TEST(IsAlignmentValid, AcceptsMatchesAndRejectsMismatchesAndOverruns) {
     info.gene_alignment_start = 4;
     info.compressed_cigar = "2S4M1I3M";
     EXPECT_TRUE(IsAlignmentValid(info, "TTACGTGACG", gene, 0, true));
+}
+
+// AlignmentInfo::GetInstructionCountsAndCompress counts by run now; it must give what the loop over the
+// columns did (counts, block counts, compressed CIGAR, length) for any string, not only for CIGARs
+// WFA2 writes.
+namespace {
+    struct ColumnCounts {
+        uint16_t matches = 0, mismatches = 0, deletions = 0, insertions = 0, insertion_blocks = 0, deletion_blocks = 0;
+        uint16_t softclips = 0, hardclips = 0;
+        uint32_t alignment_length = 0;
+        std::string compressed;
+    };
+
+    ColumnCounts ByColumn(std::string const& cigar) {
+        ColumnCounts r;
+        char last = ' ';
+        size_t counter = 0;
+        auto flush = [&] {
+            if (counter == 0) return;
+            r.insertion_blocks += last == 'I';
+            r.deletion_blocks += last == 'D';
+            r.compressed += std::to_string(counter) + last;
+        };
+        for (char c : cigar) {
+            if (c != last) {
+                flush();
+                last = c;
+                counter = 1;
+            } else {
+                counter++;
+            }
+            r.insertions += c == 'I';
+            r.deletions += c == 'D';
+            r.matches += c == 'M';
+            r.mismatches += c == 'X';
+            r.softclips += c == 'S';
+            r.hardclips += c == 'H';
+        }
+        flush();
+        r.alignment_length = cigar.length() - r.softclips;
+        return r;
+    }
+
+    void ExpectSameCounts(std::string const& cigar) {
+        AlignmentInfo info;
+        info.cigar = cigar;
+        info.compressed_cigar = "left over from an earlier alignment";
+        info.matches = 99;  // the counts start from zero
+        info.GetInstructionCountsAndCompress();
+        auto const expected = ByColumn(cigar);
+        EXPECT_EQ(info.compressed_cigar, expected.compressed) << cigar.substr(0, 60);
+        EXPECT_EQ(info.matches, expected.matches);
+        EXPECT_EQ(info.mismatches, expected.mismatches);
+        EXPECT_EQ(info.deletions, expected.deletions);
+        EXPECT_EQ(info.insertions, expected.insertions);
+        EXPECT_EQ(info.insertion_blocks, expected.insertion_blocks);
+        EXPECT_EQ(info.deletion_blocks, expected.deletion_blocks);
+        EXPECT_EQ(info.softclips, expected.softclips);
+        EXPECT_EQ(info.hardclips, expected.hardclips);
+        EXPECT_EQ(info.alignment_length, expected.alignment_length);
+    }
+}
+
+TEST(AlignmentInfo, CountsAndCompressesACigarAsTheColumnLoopDid) {
+    for (std::string const& cigar : std::vector<std::string>{ "", "M", "MMMM", "MMXMMDDMMIMM", "SSMMMMXHH", std::string(150, 'M'), "IIIIDDDDMMMM", "MXMXMXMX" }) {
+        ExpectSameCounts(cigar);
+    }
+    std::mt19937 rng(11);
+    for (int round = 0; round < 500; round++) {
+        std::string cigar;
+        size_t const runs = rng() % 12;
+        for (size_t r = 0; r < runs; r++) {
+            char const op = "MMMMXIDSH=N"[rng() % 11];  // = and N are counted nowhere but are still compressed
+            cigar.append(1 + rng() % (rng() % 4 == 0 ? 300 : 20), op);
+        }
+        ExpectSameCounts(cigar);
+    }
+    ExpectSameCounts(std::string(70000, 'M') + std::string(66000, 'I'));  // the 16-bit counters wrap alike
 }

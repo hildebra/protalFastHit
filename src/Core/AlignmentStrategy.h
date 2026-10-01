@@ -107,6 +107,7 @@ namespace protal {
         bool m_anchored = false;
         AnchoredAligner m_anchored_aligner;
         std::string m_ops;     // the window's alignment operations, from either method
+        std::string m_reverse; // the reverse complement of the read, when the caller has none
         std::string m_window;  // the window's reference bases, for the whole-window alignment
 
 
@@ -131,9 +132,9 @@ namespace protal {
         size_t total_alignments = 0;
         size_t total_tail_alignments = 0;
         size_t total_tail_length = 0;
-        Benchmark bm_alignment{ "Alignment" };
-        Benchmark m_bm_alignment {"Raw alignment"};
-        Benchmark bm_seedext{ "Seed Extension" };
+        Benchmark bm_alignment{ "Alignment", 0, Benchmark::kPerRead};
+        Benchmark m_bm_alignment {"Raw alignment", 0, Benchmark::kPerRead};
+        Benchmark bm_seedext{ "Seed Extension", 0, Benchmark::kPerRead};
         size_t dummy = 0;
         // Anchors aligned from their exact matches, and as a whole (anchored alignment off, or a
         // chain it does not handle); joined over threads like the benchmarks.
@@ -145,8 +146,8 @@ namespace protal {
         void TotalReset() {
             total_alignments = 0;
             total_tail_alignments = 0;
-            bm_alignment = Benchmark{ "Alignment" };
-            bm_seedext = Benchmark{ "Seed Extension" };
+            bm_alignment = Benchmark{ "Alignment", 0, Benchmark::kPerRead };
+            bm_seedext = Benchmark{ "Seed Extension", 0, Benchmark::kPerRead };
             dummy = 0;
         }
 
@@ -388,7 +389,7 @@ namespace protal {
         SamEntry sam;
         SNPList snps;
         FastxRecord record;
-        bool AlignAnchor(Anchor& anchor, AlignmentResult& alignment, std::string& fwd, std::string rev, bool allow_heuristic_alignment, std::string& id) {
+        bool AlignAnchor(Anchor& anchor, AlignmentResult& alignment, std::string const& fwd, std::string const& rev, bool allow_heuristic_alignment, std::string& id) {
             alignment.GetAlignmentInfo().Reset();
             alignment.Reset();
             m_aligner.Reset();
@@ -593,13 +594,20 @@ namespace protal {
             return true;
         }
 
-        void operator() (AlignmentAnchorList& anchors, AlignmentResultList& results, std::string& sequence, size_t align_top, std::string& header) {
+        void operator() (AlignmentAnchorList& anchors, AlignmentResultList& results, std::string const& sequence, size_t align_top, std::string& header) {
+            KmerUtils::ReverseComplementInto(sequence, m_reverse);
+            (*this)(anchors, results, sequence, m_reverse, align_top, header);
+        }
+
+        // As above for a read whose reverse complement the caller has (the anchor finder computed it): it
+        // is the same for every anchor of the read, and nothing here copies the read.
+        void operator() (AlignmentAnchorList& anchors, AlignmentResultList& results, std::string const& sequence, std::string const& reverse, size_t align_top, std::string& header) {
 //            std::string header = "";
             constexpr bool alignment_verbose = false;
 
-            // Set up sequence as fwd and its reverse complement rev
-            auto fwd = sequence;
-            auto rev = KmerUtils::ReverseComplement(fwd);
+            // The read as fwd and its reverse complement as rev
+            std::string const& fwd = sequence;
+            std::string const& rev = reverse;
 
             bool reversed = false;
 

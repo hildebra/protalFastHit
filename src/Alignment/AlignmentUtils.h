@@ -70,53 +70,37 @@ namespace protal {
             return len != read_length;
         }
 
+        // The per-operation counts of `cigar` (one character per column: M, X, I, D, S, H) and the same
+        // as a compressed CIGAR ("12M1X137M"). Run by run: this runs for every candidate alignment of a
+        // read, and a read in a dense database has many.
         void GetInstructionCountsAndCompress() {
             ResetCigarStats();
             compressed_cigar.clear();
 
-            bool swap_indel = false;
-
-            char last_instruction = ' ';
-            size_t instruction_counter = 0;
-
-            for (auto i = 0; i < cigar.length(); i++) {
-                auto c = cigar[i];
-                // Compressed cigar
-                if (c != last_instruction) {
-                    if (instruction_counter > 0) {
-                        insertion_blocks += last_instruction == 'I';
-                        deletion_blocks += last_instruction == 'D';
-                        if (swap_indel) {
-                            if (last_instruction == 'D') last_instruction = 'I';
-                            else if (last_instruction == 'I') last_instruction = 'D';
-                        }
-                        compressed_cigar += std::to_string(instruction_counter) + last_instruction;
-                    }
-                    last_instruction = c;
-                    instruction_counter = 1;
-                } else {
-                    instruction_counter++;
+            size_t const n = cigar.length();
+            char const* const ops = cigar.data();
+            for (size_t i = 0; i < n;) {
+                char const c = ops[i];
+                size_t end = i + 1;
+                while (end < n && ops[end] == c) end++;
+                size_t const run = end - i;
+                switch (c) {
+                    case 'I': insertions += run; insertion_blocks++; break;
+                    case 'D': deletions += run; deletion_blocks++; break;
+                    case 'M': matches += run; break;
+                    case 'X': mismatches += run; break;
+                    case 'S': softclips += run; break;
+                    case 'H': hardclips += run; break;
+                    default: break;
                 }
-                // compressed cigar end
-                insertions += c == 'I';
-                deletions += c == 'D';
-                matches += c == 'M';
-                mismatches += c == 'X';
-                softclips += c == 'S';
-                hardclips += c == 'H';
+                char digits[20];
+                int length = 0;
+                for (size_t rest = run; rest > 0; rest /= 10) digits[length++] = static_cast<char>('0' + rest % 10);
+                while (length > 0) compressed_cigar.push_back(digits[--length]);
+                compressed_cigar.push_back(c);
+                i = end;
             }
-
-            // Get remainder of operations
-            if (instruction_counter > 0) {
-                insertion_blocks += last_instruction == 'I';
-                deletion_blocks += last_instruction == 'D';
-                if (swap_indel) {
-                    if (last_instruction == 'D') last_instruction = 'I';
-                    else if (last_instruction == 'I') last_instruction = 'D';
-                }
-                compressed_cigar += std::to_string(instruction_counter) + last_instruction;
-            }
-            alignment_length = cigar.length() - softclips;
+            alignment_length = n - softclips;
         }
 
 

@@ -622,3 +622,101 @@ TEST(Benchmark, PrintingKeepsTheSum) {
     EXPECT_NE(printed.find("mean over 4 threads"), std::string::npos) << printed;
     EXPECT_NEAR(static_cast<double>(global.GetDuration(Time::milliseconds)), seconds * 1000, 1.0);
 }
+
+namespace {
+    // Busy-waits, so that an interval lasts at least as long as asked whatever the scheduler does.
+    void Spin(std::chrono::microseconds length) {
+        auto const end = std::chrono::steady_clock::now() + length;
+        while (std::chrono::steady_clock::now() < end) {}
+    }
+}
+
+// The tests below check the sampling by which calls are timed, which needs no clock, and the estimate
+// only from below: a busy machine can make a timed interval longer, never shorter than its spin.
+TEST(Benchmark, ASampledStageTimesTheFirstCallAndThenEveryNth) {
+    Benchmark bm{"per read", 0, Benchmark::kPerRead};
+    std::vector<int> timed;
+    for (int i = 0; i < 400; i++) {
+        bm.Start();
+        if (bm.Timing()) timed.push_back(i);
+        bm.Stop();
+    }
+    EXPECT_EQ(timed, (std::vector<int>{ 0, 61, 122, 183, 244, 305, 366 }));
+    EXPECT_EQ(bm.TimedCalls(), timed.size());
+    EXPECT_FALSE(bm.Timing());
+}
+
+TEST(Benchmark, ASampledStageWithAnOddPeriodTimesBothMatesOfAPair) {
+    // A stage called once per mate: an even period would time the same mate every time.
+    Benchmark bm{"per mate", 0, Benchmark::kPerRead};
+    size_t first_mate = 0, second_mate = 0;
+    for (int i = 0; i < 6100; i++) {
+        bm.Start();
+        if (bm.Timing()) (i % 2 ? second_mate : first_mate)++;
+        bm.Stop();
+    }
+    EXPECT_EQ(first_mate + second_mate, 100u);
+    EXPECT_NEAR(static_cast<double>(first_mate), 50.0, 1.0);
+}
+
+TEST(Benchmark, ASampledStageEstimatesTheTimeOfAllItsCalls) {
+    Benchmark bm{"per read", 0, Benchmark::kPerRead};
+    constexpr int kCalls = 6100;  // 100 timed calls
+    for (int i = 0; i < kCalls; i++) {
+        bm.Start();
+        Spin(std::chrono::microseconds(20));
+        bm.Stop();
+    }
+    EXPECT_GE(bm.Seconds(), 0.99 * kCalls * 20e-6);
+    EXPECT_EQ(bm.Threads(), 1u);
+}
+
+TEST(Benchmark, ASampledStageScalesTheFirstCallToTheCallsMade) {
+    Benchmark bm{"per read", 0, Benchmark::kPerRead};
+    bm.Start();
+    Spin(std::chrono::microseconds(2000));
+    bm.Stop();
+    EXPECT_GE(bm.Seconds(), 0.002);  // a short run has a value from its first call
+    for (int i = 1; i < 61; i++) {   // 60 more calls, none timed: nothing is added, the mean times 61 is
+        bm.Start();
+        EXPECT_FALSE(bm.Timing());
+        bm.Stop();
+    }
+    EXPECT_EQ(bm.TimedCalls(), 1u);
+    EXPECT_GE(bm.Seconds(), 61 * 0.002);
+}
+
+TEST(Benchmark, ASampledStageJoinsAndPrintsItsEstimate) {
+    Benchmark global{"stage", 0};
+    for (int t = 0; t < 3; t++) {
+        Benchmark local{"stage", 0, Benchmark::kPerRead};
+        for (int i = 0; i < 122; i++) {  // 2 timed calls
+            local.Start();
+            Spin(std::chrono::microseconds(500));
+            local.Stop();
+        }
+        global.Join(local);
+    }
+    EXPECT_EQ(global.Threads(), 3u);
+    EXPECT_GE(global.Seconds(), 3 * 122 * 500e-6 * 0.99);
+    testing::internal::CaptureStdout();
+    global.PrintResults();
+    auto const printed = testing::internal::GetCapturedStdout();
+    EXPECT_NE(printed.find("stage took"), std::string::npos) << printed;
+    EXPECT_NE(printed.find("mean over 3 threads"), std::string::npos) << printed;
+}
+
+TEST(Benchmark, AStartedStageIsStoppedWhenPrinted) {
+    Benchmark bm{"open"};
+    bm.Start();
+    Spin(std::chrono::microseconds(3000));
+    testing::internal::CaptureStdout();
+    bm.PrintResults();
+    testing::internal::GetCapturedStdout();
+    EXPECT_GE(bm.Seconds(), 0.003);
+    double const once = bm.Seconds();
+    testing::internal::CaptureStdout();
+    bm.PrintResults();
+    testing::internal::GetCapturedStdout();
+    EXPECT_DOUBLE_EQ(bm.Seconds(), once);  // not stopped, and not added, a second time
+}

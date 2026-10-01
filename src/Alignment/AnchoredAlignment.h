@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <string>
 #include "ChainingStrategy.h"
 #include "WFA2Wrapper2.h"
@@ -65,12 +66,16 @@ namespace protal {
             for (size_t i = 0; i < chain.size(); i++) {
                 auto const& link = chain[i];
                 // The link: exact but for Ns, which count as mismatches as in any alignment.
-                for (uint32_t k = 0; k < link.length; k++) {
-                    char const q = read[link.readpos + k], r = gene[link.genepos + k];
-                    if (q == r) { ops += 'M'; continue; }
-                    if (q != 'N' && r != 'N') return Status::NotApplicable;
-                    ops += 'X';
-                    if ((used += kMismatch) >= w.max_score) return Status::Failed;
+                if (std::memcmp(read.data() + link.readpos, gene.data() + link.genepos, link.length) == 0) {
+                    ops.append(link.length, 'M');  // nearly always: the seeds were exact matches
+                } else {
+                    for (uint32_t k = 0; k < link.length; k++) {
+                        char const q = read[link.readpos + k], r = gene[link.genepos + k];
+                        if (q == r) { ops += 'M'; continue; }
+                        if (q != 'N' && r != 'N') return Status::NotApplicable;
+                        ops += 'X';
+                        if ((used += kMismatch) >= w.max_score) return Status::Failed;
+                    }
                 }
                 if (i + 1 < chain.size()) {
                     // Up to the next link on the same diagonal: as many read as gene bases.
@@ -89,11 +94,8 @@ namespace protal {
             ops += m_right;
 
             // The operations cover the read and the window exactly, as a whole-window alignment's do.
-            size_t read_bases = 0, ref_bases = 0;
-            for (char c : ops) {
-                read_bases += c != 'D';
-                ref_bases += c != 'I';
-            }
+            size_t const read_bases = ops.size() - static_cast<size_t>(std::count(ops.begin(), ops.end(), 'D'));
+            size_t const ref_bases = ops.size() - static_cast<size_t>(std::count(ops.begin(), ops.end(), 'I'));
             if (read_bases != read.size() || ref_bases != w.ref_end - w.ref_start) return Status::NotApplicable;
             return Status::Aligned;
         }
@@ -145,7 +147,9 @@ namespace protal {
             int mismatches = 0;
             for (size_t k = 0; k < n; k++) mismatches += read[from + k] != gene[gene_from + k];
             if (mismatches <= 3) {
-                for (size_t k = 0; k < n; k++) ops += read[from + k] == gene[gene_from + k] ? 'M' : 'X';
+                size_t const old_size = ops.size();
+                ops.resize(old_size + n);
+                for (size_t k = 0; k < n; k++) ops[old_size + k] = read[from + k] == gene[gene_from + k] ? 'M' : 'X';
                 used += kMismatch * mismatches;
                 return m_status = used < max_score ? Status::Aligned : Status::Failed;
             }

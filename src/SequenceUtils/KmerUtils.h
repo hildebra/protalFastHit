@@ -12,6 +12,8 @@
 #include <vector>
 #include <iostream>
 #include <algorithm>
+#include <array>
+#include <string_view>
 
 
 using namespace std;
@@ -231,22 +233,32 @@ namespace KmerUtils {
         return s;
     }
     
-    inline std::string ReverseComplement(std::string forward) {
-        std::string reverse = "";
-        const char * seq = forward.c_str();
-        for (int i = forward.length()-1; i >= 0; i--) {
-            reverse += Complement(forward[i]);
-        }
+    // Complement of every byte, as Complement: ACGT swap, anything else (N, lower case, IUPAC codes) is N.
+    inline std::array<char, 256> const& ComplementTable() {
+        static std::array<char, 256> const table = [] {
+            std::array<char, 256> t{};
+            for (int i = 0; i < 256; i++) t[i] = Complement(static_cast<char>(i));
+            return t;
+        }();
+        return table;
+    }
+
+    // The reverse complement of `forward` written into `reverse`, whose buffer is reused: a read's
+    // is needed by several stages, and one allocation and a table lookup per base is all it costs.
+    // `reverse` must not be `forward`.
+    inline void ReverseComplementInto(std::string_view forward, std::string& reverse) {
+        auto const& table = ComplementTable();
+        size_t const n = forward.size();
+        reverse.resize(n);
+        char* out = reverse.data();
+        for (size_t i = 0; i < n; i++) out[i] = table[static_cast<unsigned char>(forward[n - 1 - i])];
+    }
+
+    inline std::string ReverseComplement(std::string_view forward) {
+        std::string reverse;
+        ReverseComplementInto(forward, reverse);
         return reverse;
     }
-//    static std::string ReverseComplement(std::string &forward) {
-//        std::string reverse = "";
-//        const char * seq = forward.c_str();
-//        for (int i = forward.length()-1; i >= 0; i--) {
-//            reverse += Complement(forward[i]);
-//        }
-//        return reverse;
-//    }
 
     static std::string ExpandShape(std::string kmer, const bool* shape, size_t shape_size) {
         std::string result = "";

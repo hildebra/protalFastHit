@@ -247,3 +247,50 @@ TEST(AnchoredAlignment, AgreesWithTheWholeReadAlignment) {
     EXPECT_LE(only_whole + only_anchored, cases / 200);
     EXPECT_GT(h.anchored.m_anchored_alignments, cases / 2);
 }
+
+// The alignment handler takes the reverse complement of the read from its caller (the anchor finder
+// has it), or makes it itself: either way the same alignments, for reads of either strand, and the
+// caller's string is neither changed nor copied per anchor.
+TEST(SimpleAlignmentHandler, ACallersReverseComplementGivesTheSameAlignments) {
+    RandomReference ref;
+    Handlers own(*ref.loader), given(*ref.loader);
+    std::mt19937 rng(5);
+    size_t aligned = 0;
+    for (bool reverse : { false, true }) {
+        for (int round = 0; round < 20; round++) {
+            uint32_t const gene = 1 + rng() % kGenes;
+            size_t const start = 100 + rng() % 1000;
+            std::string segment = ref.genes[gene - 1].substr(start, 150);
+            for (int m = 0; m < 3; m++) {
+                char& c = segment[10 + rng() % 130];
+                c = c == 'A' ? 'C' : 'A';
+            }
+            std::string const read = reverse ? KmerUtils::ReverseComplement(segment) : segment;
+            ChainAlignmentAnchor anchor(1, gene, !reverse);
+            // the chain is in the orientation of the alignment, the gene's strand: AlignAnchor aligns `rev` of a
+            // reverse anchor, which is the segment
+            anchor.chain = ExactRuns(segment, ref.genes[gene - 1], static_cast<long>(start));
+            ASSERT_FALSE(anchor.chain.empty());
+            std::string const rev = KmerUtils::ReverseComplement(read);
+            std::string const read_before = read, rev_before = rev;
+            std::string header = "r";
+            AlignmentAnchorList a, b;
+            a.push_back(anchor);
+            b.push_back(anchor);
+            AlignmentResultList from_own, from_given;
+            own.anchored(a, from_own, read, 3, header);
+            given.anchored(b, from_given, read, rev, 3, header);
+            ASSERT_EQ(from_own.size(), from_given.size());
+            for (size_t i = 0; i < from_own.size(); i++) {
+                EXPECT_EQ(from_own[i].AlignmentScore(), from_given[i].AlignmentScore());
+                EXPECT_EQ(from_own[i].GetAlignmentInfo().cigar, from_given[i].GetAlignmentInfo().cigar);
+                EXPECT_EQ(from_own[i].GetAlignmentInfo().gene_alignment_start, from_given[i].GetAlignmentInfo().gene_alignment_start);
+                EXPECT_EQ(from_own[i].Forward(), from_given[i].Forward());
+            }
+            aligned += from_given.size();
+            EXPECT_EQ(read, read_before);
+            EXPECT_EQ(rev, rev_before);
+        }
+    }
+    EXPECT_GT(aligned, 30u);
+}

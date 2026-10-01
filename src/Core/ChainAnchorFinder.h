@@ -350,15 +350,15 @@ namespace protal {
 
     public:
         size_t dummy = 0;
-        Benchmark m_bm_operator{"Seed-finding operator"};
-        Benchmark m_bm_reverse_complement{"Reverse complementing read"};
-        Benchmark m_bm_seeding{"Seeding"};
-        Benchmark m_bm_seed_subsetting{"Subset Seeds"};
-        Benchmark m_bm_processing{"Sorting Seeds"};
-        Benchmark m_bm_pairing{"Pairing"};
-        Benchmark m_bm_extend_anchors{"Extending Anchors"};
-        Benchmark m_bm_sorting_anchors{"Sorting Anchors"};
-        Benchmark m_bm_recovering_anchors{"Recovering Anchors"};
+        Benchmark m_bm_operator{"Seed-finding operator", 0, Benchmark::kPerRead};
+        Benchmark m_bm_reverse_complement{"Reverse complementing read", 0, Benchmark::kPerRead};
+        Benchmark m_bm_seeding{"Seeding", 0, Benchmark::kPerRead};
+        Benchmark m_bm_seed_subsetting{"Subset Seeds", 0, Benchmark::kPerRead};
+        Benchmark m_bm_processing{"Sorting Seeds", 0, Benchmark::kPerRead};
+        Benchmark m_bm_pairing{"Pairing", 0, Benchmark::kPerRead};
+        Benchmark m_bm_extend_anchors{"Extending Anchors", 0, Benchmark::kPerRead};
+        Benchmark m_bm_sorting_anchors{"Sorting Anchors", 0, Benchmark::kPerRead};
+        Benchmark m_bm_recovering_anchors{"Recovering Anchors", 0, Benchmark::kPerRead};
 
         size_t recovered_count = 0;
         size_t total_count = 0;
@@ -375,6 +375,11 @@ namespace protal {
 
         bool Success() {
             return !m_error_in_read;
+        }
+
+        // The reverse complement of the read of the last call, valid until the next one.
+        std::string const& ReverseComplement() const {
+            return m_rev;
         }
 
         void NextObservationBM() {
@@ -648,7 +653,7 @@ namespace protal {
             m_bm_reverse_complement.Start();
             auto read_length = query.length();
             m_fwd = &query;
-            m_rev = KmerUtils::ReverseComplement(query);
+            KmerUtils::ReverseComplementInto(query, m_rev);
             m_bm_reverse_complement.Stop();
 
             m_recovery.clear();

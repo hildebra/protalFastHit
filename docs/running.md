@@ -41,6 +41,9 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   `P_runtime.tsv`, diagnostics of the seeding and alignment stages. `P_runtime.tsv` has one row
   per stage (reading, k-mers, seeding and its steps, alignment, output): the seconds spent in it
   summed over threads, the number of threads, and the seconds per thread that `--verbose` prints.
+  The stages that run for every read are timed on every 61st call only (reading the clock costs
+  10-15% of the alignment time otherwise), so their seconds are estimates: the mean timed interval
+  times the number of calls.
 
 Strain MSAs are written for the species that pass the model in at least two samples, each with a
 row for every sample in which the species passes. A run of one sample therefore writes no MSAs.

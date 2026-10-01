@@ -134,7 +134,8 @@ namespace protal {
         sam.m_rnext = "*";
         sam.m_pnext = 0;
         sam.m_tlen = ar.Cigar().length();
-        sam.m_seq = ar.Forward() ? record.sequence : KmerUtils::ReverseComplement(record.sequence);
+        if (ar.Forward()) sam.m_seq = record.sequence;
+        else KmerUtils::ReverseComplementInto(record.sequence, sam.m_seq);  // into the entry's buffer, no allocation
         sam.m_qual = record.quality;
         sam.m_uniques = ar.Uniques();
         sam.m_uniques_two = ar.UniquesTwo();

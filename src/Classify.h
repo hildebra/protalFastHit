@@ -96,11 +96,11 @@ namespace protal::classify {
             AlignmentAnchorList anchors;
             AlignmentResultList alignment_results;
 
-            Benchmark bm_reader{"Sequence reader"};
-            Benchmark bm_kmer_extracter{"Retrieve k-mers"};
-            Benchmark bm_anchor_finder{"Seed- and Anchor-finding"};
-            Benchmark bm_alignment{"Alignment handler"};
-            Benchmark bm_output{"Output handler"};
+            Benchmark bm_reader{"Sequence reader", 0, Benchmark::kPerRead};
+            Benchmark bm_kmer_extracter{"Retrieve k-mers", 0, Benchmark::kPerRead};
+            Benchmark bm_anchor_finder{"Seed- and Anchor-finding", 0, Benchmark::kPerRead};
+            Benchmark bm_alignment{"Alignment handler", 0, Benchmark::kPerRead};
+            Benchmark bm_output{"Output handler", 0, Benchmark::kPerRead};
 
             Utils::Histogram seed_sizes;
             Utils::Histogram anchor_sizes;
@@ -145,7 +145,7 @@ namespace protal::classify {
                 }
 
                 bm_alignment.Start();
-                alignment_handler(anchors, alignment_results, record.sequence, options.GetAlignTop(), record.id);
+                alignment_handler(anchors, alignment_results, record.sequence, anchor_finder.ReverseComplement(), options.GetAlignTop(), record.id);
                 bm_alignment.Stop();
                 thread_statistics.total_alignments += alignment_results.size();
 
@@ -263,9 +263,9 @@ namespace protal::classify {
             Statistics thread_statistics;
             thread_statistics.thread_num = omp_get_thread_num();
 
-            Benchmark bm_reader{"Sequence reader"};
-            Benchmark bm_alignment{"Alignment handler"};
-            Benchmark bm_output{"Output handler"};
+            Benchmark bm_reader{"Sequence reader", 0, Benchmark::kPerRead};
+            Benchmark bm_alignment{"Alignment handler", 0, Benchmark::kPerRead};
+            Benchmark bm_output{"Output handler", 0, Benchmark::kPerRead};
             Utils::Histogram seed_sizes;
             Utils::Histogram anchor_sizes;
 
@@ -468,13 +468,13 @@ namespace protal::classify {
 
             size_t record_id = omp_get_thread_num();
 
-            Benchmark bm_reader{"Sequence reader"};
-            Benchmark bm_kmer_extracter{"Retrieve k-mers"};
-            Benchmark bm_anchor_finder{"Seed- and Anchor-finding"};
-            Benchmark bm_anchor_recovery{"Anchor recovery"};
-            Benchmark bm_alignment{"Alignment handler"};
-            Benchmark bm_alignment_join_sort{"Joining alignment pairs and sorting"};
-            Benchmark bm_output{"Output handler"};
+            Benchmark bm_reader{"Sequence reader", 0, Benchmark::kPerRead};
+            Benchmark bm_kmer_extracter{"Retrieve k-mers", 0, Benchmark::kPerRead};
+            Benchmark bm_anchor_finder{"Seed- and Anchor-finding", 0, Benchmark::kPerRead};
+            Benchmark bm_anchor_recovery{"Anchor recovery", 0, Benchmark::kPerRead};
+            Benchmark bm_alignment{"Alignment handler", 0, Benchmark::kPerRead};
+            Benchmark bm_alignment_join_sort{"Joining alignment pairs and sorting", 0, Benchmark::kPerRead};
+            Benchmark bm_output{"Output handler", 0, Benchmark::kPerRead};
 
             Utils::Histogram seed_sizes;
             Utils::Histogram anchor_sizes;
@@ -566,8 +566,8 @@ namespace protal::classify {
 
                 // Do Alignment
                 bm_alignment.Start();
-                alignment_handler(anchors1, alignment_results1, record1.sequence, options.GetAlignTop() + recover1, record1.id);
-                alignment_handler(anchors2, alignment_results2, record2.sequence, options.GetAlignTop() + recover2, record2.id);
+                alignment_handler(anchors1, alignment_results1, record1.sequence, anchor_finder1.ReverseComplement(), options.GetAlignTop() + recover1, record1.id);
+                alignment_handler(anchors2, alignment_results2, record2.sequence, anchor_finder2.ReverseComplement(), options.GetAlignTop() + recover2, record2.id);
                 bm_alignment.Stop();
 
                 thread_statistics.total_alignments += alignment_results1.size();

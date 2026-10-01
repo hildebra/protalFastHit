@@ -61,7 +61,6 @@ namespace protal {
         std::string_view m_fixed;
 
     public:
-        Benchmark bm_next_compressed_cigar{"Next compressed cigar"};
 
         explicit VariantHandler(std::string_view reference) : m_fixed(reference) {};
         explicit VariantHandler(Gene const& gene) : m_gene(&gene) {};
@@ -221,13 +220,11 @@ namespace protal {
             size_t rpos = sam.m_pos - 1;
             size_t start = 0, end = 0;
 
-            bm_next_compressed_cigar.Start();
             for (std::ptrdiff_t k = 0; k < n_ops; k++) {
                 auto const [count, op] = ops[k];
                 bool const consumes_ref = !(op == 'I' || op == 'S');
                 bool const consumes_query = op != 'D';
                 if ((consumes_ref && rpos + count > reference.size()) || (consumes_query && qpos + count > sam.m_seq.size())) {
-                    bm_next_compressed_cigar.Stop();
                     return std::nullopt;
                 }
                 bool const trusted = k >= first && k <= last;
@@ -254,7 +251,6 @@ namespace protal {
                                     if (n + 1 == kShown) std::cerr << "Further such alignments are not shown." << std::endl;
                                 }
                             }
-                            bm_next_compressed_cigar.Stop();
                             return std::nullopt;
                         }
                     }
@@ -289,7 +285,6 @@ namespace protal {
                 rpos += consumes_ref * count;
                 if (k == last) end = rpos;
             }
-            bm_next_compressed_cigar.Stop();
 
             for (auto const& s : snps) AddSNP(s.pos, s.base, s.ref, is_fwd, s.qual, divergence);
             for (auto& d : indels) AddINDEL(d.type, d.pos, d.ref, std::move(d.structural), is_fwd, d.qual, divergence);
