@@ -77,7 +77,62 @@ the two earlier reports.
 So the direction of R should hold on real genomes (a relative aligns where it differs least), but how much of it
 the MAPQ filter removes, and how often conserved genes are identical between congeners, needs real data.
 
-## How real genomes could tell (not implemented)
+## Follow-up: the drop before the MAPQ filter as a feature (f359d49)
+
+The user's reading of the table above: the drop from conserved to fast genes is clear before the MAPQ filter and
+fuzzy after it, so the records before the filter should show protal a congener it lacks. `f359d49` adds
+`conserved_fast_record_ratio` (log2 of the depth of all of a taxon's best records, MAPQ 0 included, on its genes of
+factor below 1 over that on its other genes) to the normalized features, and the three checks below. Validated as
+0.7.3-dev with its own pipeline on the benchmark world, against 0.7.2-dev (`25d457e`, the same pipeline design and
+seed; `../2026-10-01-features-depth-knobs/scripts/run.sh` with `VERSION=0.7.3dev TAG=v073 REV=f359d49`, and
+`compare.py`; `results/benchmark_v073.md`).
+
+**The signal is there** (the trainer's new section, `results/pipeline_feature_classes.txt`; median, quartiles):
+
+| reads | present, no congener held out | present, beside a held-out congener | absent, congener of a held-out species | absent, other |
+|---|---|---|---|---|
+| pe | +0.03 (−0.19, +0.30) | +0.05 (−0.24, +0.36) | **+1.33** (+0.62, +2.26) | +3.19 |
+| se | +0.01 | +0.03 | **+1.34** | +2.96 |
+| pb | +0.10 | +0.14 | **+1.97** | +5.18 |
+| ont | +0.06 | +0.10 | **+0.93** | +4.51 |
+
+after the filter (`conserved_fast_depth_ratio`) every class has median 0. Its importance in the forests: 0.015
+(ONT) to 0.046 (se).
+
+**It does not raise F1.** 0.7.3-dev less 0.7.2-dev per benchmark sample (long reads: against 0.7.2-dev at `--knob
+0.5`, as 0.7.3-dev has no depth knobs), mean (95% interval):
+
+| reads | full database | missing database |
+|---|---|---|
+| pe | −0.0010 (−0.0031, +0.0007) | −0.0002 (−0.0026, +0.0021) |
+| se | −0.0034 (−0.0063, −0.0005) | −0.0026 (−0.0067, +0.0003) |
+| pb | −0.0013 (−0.0052, +0.0013) | −0.0006 (−0.0025, +0.0013) |
+| ont | −0.0029 (−0.0092, +0.0011); FP +0.88 per sample | +0.0024 (−0.0002, +0.0051) |
+
+The pipeline's own estimates move as little (species held out pe 0.9816 to 0.9833, se 0.9790 to 0.9805; test set pe
+0.9726 to 0.9712, se 0.9666 to 0.9683). Refitting a forest with one feature more changes its trees, which alone
+moves these scores by a few thousandths; only single-end with the full database is outside that, and against it.
+Why the signal does not pay, presumably (not traced taxon by taxon): the absent taxa it marks are mostly ones the
+forest already tells apart by its other features (`excess_median` alone is 0.048 for them against 0.013 for present
+taxa), and where protal still errs, a
+present species beside a congener it lacks, it hardly moves (+0.05 against +0.03): that species' own reads cover its
+genes evenly and outnumber the relative's. A signal of an unknown congener, rather than a feature of the taxa that
+carry its reads, would be a sample-level report: unreported taxa of one genus with a high
+`conserved_fast_record_ratio` and `excess_median` point to a species of that genus the database lacks (not built).
+
+**The checks on the benchmark world** (the pipeline's `model_logs/`): `gene_congeners.tsv`, 1,634 pairs of species
+of 111 genera: the between-species factors correlate 1.00 (Spearman, 168 genes) with the within-species ones, conserved
+genes 0.62, fast ones 1.42; the nearest congener's copy identical in 0.1% of species on conserved genes, within 1% in
+3.4%, never on fast genes. The correlation of 1 is the simulator's assumption (one rate per gene at every timescale),
+so it confirms the check, not the biology; a GTDB build will measure it. `relatives_by_gene_conservation.txt`
+(by the database's factors instead of the simulator's rates) repeats the trace above: R 1.02, 0.79, 0.58 and 0.20 by
+class, 72% of the relative's records below MAPQ 4 on the most conserved genes.
+
+PacBio's `excess_median` is about −0.97 for every class: pbsim3's PacBio reads here carry base qualities near 0, so
+the expected error is near 1. The differences between classes remain (−0.969 present, −0.941 absent beside a held-out
+congener), but the feature means something else than for the other read types.
+
+## How real genomes could tell (implemented in f359d49)
 
 1. **At `--build`, from the database itself.** The build already compares each gene's copies within species
    (`gene_conservation.tsv`, from `full_reference.fna`). The same k-mer distances between each species'

@@ -1,0 +1,29 @@
+gene_congeners	1634 pairs of species of 111 genera (600 species); the genes' divergence between congeners correlates 1.00 with their factors (Spearman, 168 genes); genes of factor below 1: between-species factor 0.62, the nearest congener's copy identical in 0.1% of species, nearer than 0.01 in 3.4%; the other genes: 1.42, 0.0%, 0.0%
+== trained_model
+         present, no congener held out  1835     +0.031 (-0.190, +0.296)    +0.000 (-0.193, +0.197) +0.489 (+0.427, +0.515) +0.013 (+0.001, +0.022)
+   present, beside a held-out congener   536     +0.050 (-0.236, +0.361)    +0.000 (-0.261, +0.184) +0.474 (+0.398, +0.505) +0.015 (+0.003, +0.025)
+absent, congener of a held-out species  1618     +1.326 (+0.616, +2.257)    +0.000 (-0.024, +0.553) +0.500 (+0.333, +0.750) +0.048 (+0.040, +0.057)
+                         absent, other  3794     +3.193 (+2.080, +4.448)    +0.000 (+0.000, +0.000) +1.000 (+0.778, +1.000) +0.056 (+0.042, +0.067)
+
+conserved_fast_record_ratio	0.032962
+== trained_model_se
+         present, no congener held out  1813     +0.008 (-0.234, +0.301)    +0.000 (-0.209, +0.179) +0.467 (+0.393, +0.504) +0.013 (+0.001, +0.022)
+   present, beside a held-out congener   527     +0.027 (-0.307, +0.349)    +0.000 (-0.314, +0.143) +0.450 (+0.333, +0.500) +0.014 (+0.003, +0.024)
+absent, congener of a held-out species  1515     +1.336 (+0.564, +2.152)    +0.000 (-0.190, +0.224) +0.500 (+0.261, +0.714) +0.045 (+0.034, +0.054)
+                         absent, other  3283     +2.957 (+1.881, +4.164)    +0.000 (+0.000, +0.000) +1.000 (+0.735, +1.000) +0.051 (+0.031, +0.064)
+
+conserved_fast_record_ratio	0.046280
+== trained_model_pb
+         present, no congener held out   623     +0.096 (-0.709, +0.798)    +0.000 (+0.000, +0.069) +0.505 (+0.400, +0.600) -0.969 (-0.980, -0.960)
+   present, beside a held-out congener   140     +0.135 (-0.779, +0.877)    +0.000 (+0.000, +0.000) +0.500 (+0.333, +0.598) -0.964 (-0.975, -0.958)
+absent, congener of a held-out species   154     +1.971 (+0.897, +4.114)    +0.000 (+0.000, +0.000) +0.800 (+0.561, +1.000) -0.941 (-0.947, -0.935)
+                         absent, other   168     +5.182 (+3.550, +6.589)    +0.000 (+0.000, +0.000) +1.000 (+1.000, +1.000) -0.930 (-0.937, -0.923)
+
+conserved_fast_record_ratio	0.027728
+== trained_model_ont
+         present, no congener held out   635     +0.058 (-0.525, +0.577)    +0.000 (+0.000, +0.181) +0.500 (+0.400, +0.548) +0.010 (-0.000, +0.018)
+   present, beside a held-out congener   148     +0.100 (-0.983, +0.607)    +0.000 (+0.000, +0.206) +0.500 (+0.250, +0.540) +0.011 (+0.000, +0.019)
+absent, congener of a held-out species   231     +0.926 (-0.006, +2.106)    +0.000 (+0.000, +0.000) +0.544 (+0.183, +1.000) +0.058 (+0.042, +0.073)
+                         absent, other   410     +4.506 (+2.705, +6.195)    +0.000 (+0.000, +0.000) +1.000 (+1.000, +1.000) +0.080 (+0.063, +0.100)
+
+conserved_fast_record_ratio	0.015337

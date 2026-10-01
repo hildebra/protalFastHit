@@ -1,0 +1,13 @@
+Where the reads of species held out of the training database land, by the gene's conservation factor
+(trace_relatives.py; docs/claude/2026-10-01-conservation-pattern)
+
+36 paired-end training samples; source coverage summed: species in the database 2065.4, species held out at species rank 473.8. R: the held-out species' records per unit coverage over a species' own on the same gene; medians over the genes of each class.
+
+| gene factor | genes | R, all records | R, MAPQ >= 4 | on a congener | MAPQ < 4 | own MAPQ < 4 | kept on the most-hit taxon |
+|---|---|---|---|---|---|---|---|
+| factor < 0.7 | 53 | 1.022 | 0.361 | 0.765 | 0.717 | 0.118 | 0.891 |
+| 0.7 - 1 | 31 | 0.789 | 0.411 | 0.892 | 0.508 | 0.031 | 0.836 |
+| 1 - 1.4 | 44 | 0.582 | 0.384 | 0.969 | 0.364 | 0.013 | 0.809 |
+| factor >= 1.4 | 40 | 0.204 | 0.157 | 0.993 | 0.266 | 0.005 | 0.837 |
+
+Spearman correlation of the factor with R over 168 genes: -0.950 (all records), -0.406 (MAPQ >= 4)
