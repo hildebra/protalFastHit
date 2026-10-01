@@ -1,0 +1,68 @@
+read_type	sample	fp_taxon	p	fp_reads	source_genome	source_species	source_status	shared_rank	reads_from_source	mean_identity	same_genus_as_fp
+ont	ont_b3000000_s_1	s__Kawoplasma romihalensis	0.984	4	GCA_999452003.1	s__Kawoplasma ropraa	held out (species)	genus	3	0.939	True
+ont	ont_b3000000_s_1	s__Kawoplasma romihalensis	0.984	4	GCF_999448001.1	s__Kawoplasma ixvitera	held out (species)	genus	1	0.91	True
+ont	ont_b3000000_s_1	s__Belzuplasma tulcorixum	0.844	3	GCF_999278001.1	s__Belzuplasma ronaluii	held out (species)	genus	1	0.909	True
+ont	ont_b3000000_s_1	s__Belzuplasma tulcorixum	0.844	3	GCA_999278003.1	s__Belzuplasma ronaluii	held out (species)	genus	1	0.88	True
+ont	ont_b3000000_s_1	s__Belzuplasma tulcorixum	0.844	3	GCA_999242002.1	s__Miquicoia genluus	held out (family)	order	1	0.86	False
+ont	ont_b90000000_s_1	s__Codamplasma ixdamluus	0.672	3	GCA_999060002.1	s__Codamplasma vipraluensis	held out (species)	genus	3	0.901	True
+ont	ont_b90000000_s_1	s__Rosalruococcus joxaum	0.828	1	GCA_999137003.1	s__Rosalruococcus zunortulii	held out (species)	genus	1	0.95	True
+ont	ont_b90000000_s_1	s__Rosalruococcus venzutulensis	0.734	1	GCA_999137003.1	s__Rosalruococcus zunortulii	held out (species)	genus	1	0.928	True
+pb	pb_b150000_s_1	s__Wohalella tulthius	0.609	2	GCA_999365003.1	s__Wohalella yalyalii	held out (species)	genus	1	0.973	True
+pb	pb_b150000_s_1	s__Wohalella tulthius	0.609	2	GCF_999361001.1	s__Wohalella norneis	held out (species)	genus	1	0.95	True
+pb	pb_b3000000_s_2	s__Fisalcoccus nafium	0.625	1	GCA_999877002.1	s__Fisalcoccus tergencaum	in database	genus	1	0.962	True
+pe	rl100_p10000_s_1	s__Kawoplasma romihalensis	0.875	8	GCA_999448002.1	s__Kawoplasma ixvitera	held out (species)	genus	3	0.917	True
+pe	rl100_p10000_s_1	s__Kawoplasma romihalensis	0.875	8	GCF_999448001.1	s__Kawoplasma ixvitera	held out (species)	genus	1	0.96	True
+pe	rl100_p10000_s_1	s__Kawoplasma romihalensis	0.875	8	GCA_999452003.1	s__Kawoplasma ropraa	held out (species)	genus	4	0.957	True
+pe	rl100_p10000_s_1	s__Zunorbacter negentulus	0.969	4	GCF_999718001.1	s__Zunorbacter wovenflaus	held out (species)	genus	4	0.955	True
+pe	rl100_p10000_s_2	s__Wohalella tulthius	0.547	2	GCA_999361003.1	s__Wohalella norneis	held out (species)	genus	2	0.953	True
+pe	rl100_p500000_s_1	s__Halthivibacter licoa	0.594	171	GCA_999620003.1	s__Flathimoococcus xathibaensis	held out (species)	order	3	0.903	False
+pe	rl100_p500000_s_1	s__Halthivibacter licoa	0.594	171	GCA_999588002.1	s__Halthivibacter terzuis	held out (species)	genus	69	0.939	True
+pe	rl100_p500000_s_1	s__Halthivibacter licoa	0.594	171	GCA_999588003.1	s__Halthivibacter terzuis	held out (species)	genus	14	0.941	True
+pe	rl100_p500000_s_1	s__Halthivibacter licoa	0.594	171	GCF_999588001.1	s__Halthivibacter terzuis	held out (species)	genus	73	0.941	True
+pe	rl100_p500000_s_1	s__Halthivibacter licoa	0.594	171	GCA_999572003.1	s__Sallulispira mothipeum	in database	family	10	0.939	False
+pe	rl100_p500000_s_1	s__Halthivibacter licoa	0.594	171	GCF_999595001.1	s__Vipehalella cofladoum	held out (species)	family	1	0.9	False
+pe	rl100_p500000_s_1	s__Halthivibacter licoa	0.594	171	GCA_999573002.1	s__Sallulispira nebamium	in database	family	1	0.97	False
+pe	rl150_p10000_s_2	s__Salkagencoccus salcoum	0.547	2	GCA_999599002.1	s__Vipehalella dokanorensis	held out (species)	family	2	0.959	False
+pe	rl150_p10000_s_2	s__Wohalella sernorsalensis	0.641	7	GCA_999365003.1	s__Wohalella yalyalii	held out (species)	genus	6	0.952	True
+pe	rl150_p10000_s_2	s__Wohalella sernorsalensis	0.641	7	GCA_999360003.1	s__Wohalella nacorquia	in database	genus	1	0.944	True
+pe	rl150_p500000_s_2	s__Vipehalella nefiensis	0.859	3	GCA_999611002.1	s__Vipehalella vihalis	in database	genus	2	0.979	True
+pe	rl150_p500000_s_2	s__Vipehalella nefiensis	0.859	3	GCA_999588003.1	s__Halthivibacter terzuis	held out (species)	family	1	0.945	False
+pe	rl250_p500000_s_1	s__Literbacter nagenus	0.531	5	GCA_999259003.1	s__Literbacter lemhalis	in database	genus	1	0.985	True
+pe	rl250_p500000_s_1	s__Literbacter nagenus	0.531	5	GCF_999272001.1	s__Lemviella cotercaus	held out (species)	family	1	0.923	False
+pe	rl250_p500000_s_1	s__Literbacter nagenus	0.531	5	GCA_999256002.1	s__Literbacter genxais	in database	genus	1	0.94	True
+pe	rl250_p500000_s_1	s__Literbacter nagenus	0.531	5	GCF_999253001.1	s__Coprathicoccus thicourus	held out (family)	order	1	0.909	False
+pe	rl250_p500000_s_1	s__Literbacter nagenus	0.531	5	GCA_999248002.1	s__Miquicoia terkaviii	held out (family)	order	1	0.91	False
+pe	rl250_p500000_s_1	s__Dambelthiia nadoroensis	0.594	1	GCA_999010003.1	s__Yalsalmonas lemlivenensis	held out (family)	order	1	0.963	False
+pe	rl250_p500000_s_2	s__Lirotervibrio neyaltulis	0.578	4	GCA_999795003.1	s__Rucornecoccus sermiliensis	held out (genus)	order	1	0.917	False
+pe	rl250_p500000_s_2	s__Lirotervibrio neyaltulis	0.578	4	GCF_999787001.1	s__Lirotervibrio norzumia	in database	genus	1	0.969	True
+pe	rl250_p500000_s_2	s__Lirotervibrio neyaltulis	0.578	4	GCA_999782002.1	s__Lirotervibrio nalius	in database	genus	1	0.94	True
+pe	rl250_p500000_s_2	s__Lirotervibrio neyaltulis	0.578	4	GCA_999774002.1	s__Lirotervibrio belsalis	in database	genus	1	0.962	True
+pe	rl250_p500000_s_2	s__Calemtulococcus venyalnaensis	0.531	1	GCA_999729002.1	s__Calemtulococcus vigoris	in database	genus	1	0.962	True
+se	rl100_p10000_s_1_se	s__Wohalella tulthius	0.937	9	GCF_999365001.1	s__Wohalella yalyalii	held out (species)	genus	1	0.94	True
+se	rl100_p10000_s_1_se	s__Wohalella tulthius	0.937	9	GCA_999361003.1	s__Wohalella norneis	held out (species)	genus	8	0.951	True
+se	rl100_p10000_s_1_se	s__Lirotervibrio misala	0.657	14	GCF_999783001.1	s__Lirotervibrio nequixaensis	held out (species)	genus	12	0.937	True
+se	rl100_p10000_s_1_se	s__Lirotervibrio misala	0.657	14	GCA_999788003.1	s__Lirotervibrio tulbaensis	in database	genus	1	0.92	True
+se	rl100_p10000_s_1_se	s__Lirotervibrio misala	0.657	14	GCA_999764002.1	s__Neixxaillus sercorus	in database	family	1	0.95	False
+se	rl100_p10000_s_2_se	s__Literbacter thiquium	0.632	2	GCA_999258003.1	s__Literbacter jobelurus	in database	genus	2	0.951	True
+se	rl150_p10000_s_2_se	s__Salkagencoccus karois	0.75	3	GCA_999599002.1	s__Vipehalella dokanorensis	held out (species)	family	2	0.947	False
+se	rl150_p10000_s_2_se	s__Salkagencoccus karois	0.75	3	GCF_999595001.1	s__Vipehalella cofladoum	held out (species)	family	1	0.927	False
+se	rl150_p10000_s_2_se	s__Wohalella sernorsalensis	0.687	5	GCA_999365003.1	s__Wohalella yalyalii	held out (species)	genus	5	0.955	True
+se	rl150_p10000_s_2_se	s__Pelucoccus tulcordoum	0.905	3	GCA_999108002.1	s__Pelucoccus urnorura	held out (species)	genus	2	0.953	True
+se	rl150_p10000_s_2_se	s__Pelucoccus tulcordoum	0.905	3	GCA_999117003.1	s__Baurluia zuthiis	held out (genus)	family	1	0.907	False
+se	rl150_p500000_s_1_se	s__Kadococcus serpraixum	0.531	81	GCF_999469001.1	s__Kadococcus pratulflaum	held out (species)	genus	22	0.933	True
+se	rl150_p500000_s_1_se	s__Kadococcus serpraixum	0.531	81	GCA_999467002.1	s__Kadococcus jogoris	held out (species)	genus	42	0.936	True
+se	rl150_p500000_s_1_se	s__Kadococcus serpraixum	0.531	81	GCA_999469003.1	s__Kadococcus pratulflaum	held out (species)	genus	14	0.94	True
+se	rl150_p500000_s_1_se	s__Kadococcus serpraixum	0.531	81	GCA_999466002.1	s__Salxabamonas salxagoris	in database	family	2	0.938	False
+se	rl150_p500000_s_1_se	s__Kadococcus serpraixum	0.531	81	GCA_999463002.1	s__Venwovibrio norurum	held out (species)	family	1	0.92	False
+se	rl150_p500000_s_2_se	s__Halthivibacter belvennais	0.594	21	GCA_999619002.1	s__Serdamcorplasma damnakaensis	in database	family	1	0.974	False
+se	rl150_p500000_s_2_se	s__Halthivibacter belvennais	0.594	21	GCA_999588002.1	s__Halthivibacter terzuis	held out (species)	genus	4	0.942	True
+se	rl150_p500000_s_2_se	s__Halthivibacter belvennais	0.594	21	GCA_999588003.1	s__Halthivibacter terzuis	held out (species)	genus	16	0.932	True
+se	rl150_p500000_s_2_se	s__Belzuplasma venzuensis	0.501	9	GCA_999278003.1	s__Belzuplasma ronaluii	held out (species)	genus	9	0.934	True
+se	rl150_p500_s_1_se	s__Kawoplasma romihalensis	0.789	1	GCA_999449003.1	s__Kawoplasma milimium	held out (species)	genus	1	0.953	True
+se	rl150_p500_s_2_se	s__Romiella ronorcaa	0.812	1	GCA_999696002.1	s__Zumivenillus kavimoum	held out (genus)	family	1	0.959	False
+se	rl250_p500000_s_1_se	s__Dambelthiia nadoroensis	0.734	1	GCA_999010003.1	s__Yalsalmonas lemlivenensis	held out (family)	order	1	0.963	False
+se	rl250_p500000_s_2_se	s__Lirotervibrio neyaltulis	0.662	5	GCA_999795003.1	s__Rucornecoccus sermiliensis	held out (genus)	order	1	0.917	False
+se	rl250_p500000_s_2_se	s__Lirotervibrio neyaltulis	0.662	5	GCF_999787001.1	s__Lirotervibrio norzumia	in database	genus	2	0.984	True
+se	rl250_p500000_s_2_se	s__Lirotervibrio neyaltulis	0.662	5	GCA_999774002.1	s__Lirotervibrio belsalis	in database	genus	1	0.968	True
+se	rl250_p500000_s_2_se	s__Lirotervibrio neyaltulis	0.662	5	GCA_999782002.1	s__Lirotervibrio nalius	in database	genus	1	0.928	True
+se	rl250_p500000_s_2_se	s__Calemtulococcus venyalnaensis	0.578	1	GCA_999729002.1	s__Calemtulococcus vigoris	in database	genus	1	0.962	True

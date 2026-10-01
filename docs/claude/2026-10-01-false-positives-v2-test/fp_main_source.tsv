@@ -1,0 +1,33 @@
+read_type	sample	fp_taxon	fp_reads	sources	reads_from_held_out	reads_from_database_species	reads_from_same_genus	source_species	source_status	mean_identity	p
+ont	ont_b3000000_s_1	s__Belzuplasma tulcorixum	3	3	3	0	2	s__Belzuplasma ronaluii	held out (species)	0.909	0.844
+ont	ont_b3000000_s_1	s__Kawoplasma romihalensis	4	2	4	0	4	s__Kawoplasma ropraa	held out (species)	0.939	0.984
+ont	ont_b90000000_s_1	s__Codamplasma ixdamluus	3	1	3	0	3	s__Codamplasma vipraluensis	held out (species)	0.901	0.672
+ont	ont_b90000000_s_1	s__Rosalruococcus joxaum	1	1	1	0	1	s__Rosalruococcus zunortulii	held out (species)	0.95	0.828
+ont	ont_b90000000_s_1	s__Rosalruococcus venzutulensis	1	1	1	0	1	s__Rosalruococcus zunortulii	held out (species)	0.928	0.734
+pb	pb_b150000_s_1	s__Wohalella tulthius	2	2	2	0	2	s__Wohalella yalyalii	held out (species)	0.973	0.609
+pb	pb_b3000000_s_2	s__Fisalcoccus nafium	1	1	0	1	1	s__Fisalcoccus tergencaum	in database	0.962	0.625
+pe	rl100_p10000_s_1	s__Kawoplasma romihalensis	8	3	8	0	8	s__Kawoplasma ropraa	held out (species)	0.957	0.875
+pe	rl100_p10000_s_1	s__Zunorbacter negentulus	4	1	4	0	4	s__Zunorbacter wovenflaus	held out (species)	0.955	0.969
+pe	rl100_p10000_s_2	s__Wohalella tulthius	2	1	2	0	2	s__Wohalella norneis	held out (species)	0.953	0.547
+pe	rl100_p500000_s_1	s__Halthivibacter licoa	171	7	160	11	156	s__Halthivibacter terzuis	held out (species)	0.941	0.594
+pe	rl150_p10000_s_2	s__Salkagencoccus salcoum	2	1	2	0	0	s__Vipehalella dokanorensis	held out (species)	0.959	0.547
+pe	rl150_p10000_s_2	s__Wohalella sernorsalensis	7	2	6	1	7	s__Wohalella yalyalii	held out (species)	0.952	0.641
+pe	rl150_p500000_s_2	s__Vipehalella nefiensis	3	2	1	2	2	s__Vipehalella vihalis	in database	0.979	0.859
+pe	rl250_p500000_s_1	s__Dambelthiia nadoroensis	1	1	1	0	0	s__Yalsalmonas lemlivenensis	held out (family)	0.963	0.594
+pe	rl250_p500000_s_1	s__Literbacter nagenus	5	5	3	2	2	s__Miquicoia terkaviii	held out (family)	0.91	0.531
+pe	rl250_p500000_s_2	s__Calemtulococcus venyalnaensis	1	1	0	1	1	s__Calemtulococcus vigoris	in database	0.962	0.531
+pe	rl250_p500000_s_2	s__Lirotervibrio neyaltulis	4	4	1	3	3	s__Rucornecoccus sermiliensis	held out (genus)	0.917	0.578
+se	rl100_p10000_s_1_se	s__Lirotervibrio misala	14	3	12	2	13	s__Lirotervibrio nequixaensis	held out (species)	0.937	0.657
+se	rl100_p10000_s_1_se	s__Wohalella tulthius	9	2	9	0	9	s__Wohalella norneis	held out (species)	0.951	0.937
+se	rl100_p10000_s_2_se	s__Literbacter thiquium	2	1	0	2	2	s__Literbacter jobelurus	in database	0.951	0.632
+se	rl150_p10000_s_2_se	s__Pelucoccus tulcordoum	3	2	3	0	2	s__Pelucoccus urnorura	held out (species)	0.953	0.905
+se	rl150_p10000_s_2_se	s__Salkagencoccus karois	3	2	3	0	0	s__Vipehalella dokanorensis	held out (species)	0.947	0.75
+se	rl150_p10000_s_2_se	s__Wohalella sernorsalensis	5	1	5	0	5	s__Wohalella yalyalii	held out (species)	0.955	0.687
+se	rl150_p500000_s_1_se	s__Kadococcus serpraixum	81	5	79	2	78	s__Kadococcus jogoris	held out (species)	0.936	0.531
+se	rl150_p500000_s_2_se	s__Belzuplasma venzuensis	9	1	9	0	9	s__Belzuplasma ronaluii	held out (species)	0.934	0.501
+se	rl150_p500000_s_2_se	s__Halthivibacter belvennais	21	3	20	1	20	s__Halthivibacter terzuis	held out (species)	0.932	0.594
+se	rl150_p500_s_1_se	s__Kawoplasma romihalensis	1	1	1	0	1	s__Kawoplasma milimium	held out (species)	0.953	0.789
+se	rl150_p500_s_2_se	s__Romiella ronorcaa	1	1	1	0	0	s__Zumivenillus kavimoum	held out (genus)	0.959	0.812
+se	rl250_p500000_s_1_se	s__Dambelthiia nadoroensis	1	1	1	0	0	s__Yalsalmonas lemlivenensis	held out (family)	0.963	0.734
+se	rl250_p500000_s_2_se	s__Calemtulococcus venyalnaensis	1	1	0	1	1	s__Calemtulococcus vigoris	in database	0.962	0.578
+se	rl250_p500000_s_2_se	s__Lirotervibrio neyaltulis	5	4	1	4	4	s__Lirotervibrio norzumia	in database	0.984	0.662

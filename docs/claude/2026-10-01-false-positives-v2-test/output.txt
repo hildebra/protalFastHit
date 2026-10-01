@@ -1,0 +1,223 @@
+## False positives at knob 0.5: absent taxa called present
+
+           absent  fp  samples  fp_per_sample  fp_rate_%
+read_type                                               
+ont           341   5        6           0.83       1.47
+pb            156   2        6           0.33       1.28
+pe           2164  11       18           0.61       0.51
+se           1923  14       18           0.78       0.73 
+
+by depth (read pairs, or bases for long reads):
+                    absent  fp  fp_rate_%
+read_type depth                          
+ont       150000        31   0       0.00
+          3000000       69   2       2.90
+          90000000     241   3       1.24
+pb        150000        18   1       5.56
+          3000000       34   1       2.94
+          90000000     104   0       0.00
+pe        500           97   0       0.00
+          10000        441   5       1.13
+          500000      1626   6       0.37
+se        500           62   2       3.23
+          10000        348   6       1.72
+          500000      1513   6       0.40 
+
+## Where the false positives sit relative to the sample's simulated species
+
+                                                                      absent  fp  fp_rate_%
+relation                                                                                   
+closest simulated species is held out of the database, shares genus     1800  19       1.06
+closest simulated species is in the database, shares genus              1456   8       0.55
+closest simulated species is held out of the database, shares family     728   5       0.69
+closest simulated species is in the database, shares family              319   0       0.00
+closest simulated species is held out of the database, shares order      255   0       0.00
+closest simulated species is held out of the database, shares class       20   0       0.00
+closest simulated species is in the database, shares order                 6   0       0.00 
+
+## Reads of the false positives, by the genome they were simulated from
+
+read_type               sample                         fp_taxon     p  fp_reads                  source_species      source_status shared_rank  reads_from_source  mean_identity
+      ont     ont_b3000000_s_1       s__Kawoplasma romihalensis 0.984         4            s__Kawoplasma ropraa held out (species)       genus                  3          0.939
+      ont     ont_b3000000_s_1       s__Kawoplasma romihalensis 0.984         4          s__Kawoplasma ixvitera held out (species)       genus                  1          0.910
+      ont     ont_b3000000_s_1        s__Belzuplasma tulcorixum 0.844         3         s__Belzuplasma ronaluii held out (species)       genus                  1          0.909
+      ont     ont_b3000000_s_1        s__Belzuplasma tulcorixum 0.844         3         s__Belzuplasma ronaluii held out (species)       genus                  1          0.880
+      ont     ont_b3000000_s_1        s__Belzuplasma tulcorixum 0.844         3            s__Miquicoia genluus  held out (family)       order                  1          0.860
+      ont    ont_b90000000_s_1         s__Codamplasma ixdamluus 0.672         3     s__Codamplasma vipraluensis held out (species)       genus                  3          0.901
+      ont    ont_b90000000_s_1         s__Rosalruococcus joxaum 0.828         1    s__Rosalruococcus zunortulii held out (species)       genus                  1          0.950
+      ont    ont_b90000000_s_1  s__Rosalruococcus venzutulensis 0.734         1    s__Rosalruococcus zunortulii held out (species)       genus                  1          0.928
+       pb       pb_b150000_s_1            s__Wohalella tulthius 0.609         2           s__Wohalella yalyalii held out (species)       genus                  1          0.973
+       pb       pb_b150000_s_1            s__Wohalella tulthius 0.609         2            s__Wohalella norneis held out (species)       genus                  1          0.950
+       pb      pb_b3000000_s_2            s__Fisalcoccus nafium 0.625         1       s__Fisalcoccus tergencaum        in database       genus                  1          0.962
+       pe     rl100_p10000_s_1       s__Kawoplasma romihalensis 0.875         8          s__Kawoplasma ixvitera held out (species)       genus                  3          0.917
+       pe     rl100_p10000_s_1       s__Kawoplasma romihalensis 0.875         8          s__Kawoplasma ixvitera held out (species)       genus                  1          0.960
+       pe     rl100_p10000_s_1       s__Kawoplasma romihalensis 0.875         8            s__Kawoplasma ropraa held out (species)       genus                  4          0.957
+       pe     rl100_p10000_s_1        s__Zunorbacter negentulus 0.969         4       s__Zunorbacter wovenflaus held out (species)       genus                  4          0.955
+       pe     rl100_p10000_s_2            s__Wohalella tulthius 0.547         2            s__Wohalella norneis held out (species)       genus                  2          0.953
+       pe    rl100_p500000_s_1          s__Halthivibacter licoa 0.594       171 s__Flathimoococcus xathibaensis held out (species)       order                  3          0.903
+       pe    rl100_p500000_s_1          s__Halthivibacter licoa 0.594       171       s__Halthivibacter terzuis held out (species)       genus                 69          0.939
+       pe    rl100_p500000_s_1          s__Halthivibacter licoa 0.594       171       s__Halthivibacter terzuis held out (species)       genus                 14          0.941
+       pe    rl100_p500000_s_1          s__Halthivibacter licoa 0.594       171       s__Halthivibacter terzuis held out (species)       genus                 73          0.941
+       pe    rl100_p500000_s_1          s__Halthivibacter licoa 0.594       171       s__Sallulispira mothipeum        in database      family                 10          0.939
+       pe    rl100_p500000_s_1          s__Halthivibacter licoa 0.594       171        s__Vipehalella cofladoum held out (species)      family                  1          0.900
+       pe    rl100_p500000_s_1          s__Halthivibacter licoa 0.594       171        s__Sallulispira nebamium        in database      family                  1          0.970
+       pe     rl150_p10000_s_2        s__Salkagencoccus salcoum 0.547         2     s__Vipehalella dokanorensis held out (species)      family                  2          0.959
+       pe     rl150_p10000_s_2      s__Wohalella sernorsalensis 0.641         7           s__Wohalella yalyalii held out (species)       genus                  6          0.952
+       pe     rl150_p10000_s_2      s__Wohalella sernorsalensis 0.641         7          s__Wohalella nacorquia        in database       genus                  1          0.944
+       pe    rl150_p500000_s_2         s__Vipehalella nefiensis 0.859         3          s__Vipehalella vihalis        in database       genus                  2          0.979
+       pe    rl150_p500000_s_2         s__Vipehalella nefiensis 0.859         3       s__Halthivibacter terzuis held out (species)      family                  1          0.945
+       pe    rl250_p500000_s_1           s__Literbacter nagenus 0.531         5         s__Literbacter lemhalis        in database       genus                  1          0.985
+       pe    rl250_p500000_s_1           s__Literbacter nagenus 0.531         5          s__Lemviella cotercaus held out (species)      family                  1          0.923
+       pe    rl250_p500000_s_1           s__Literbacter nagenus 0.531         5          s__Literbacter genxais        in database       genus                  1          0.940
+       pe    rl250_p500000_s_1           s__Literbacter nagenus 0.531         5     s__Coprathicoccus thicourus  held out (family)       order                  1          0.909
+       pe    rl250_p500000_s_1           s__Literbacter nagenus 0.531         5          s__Miquicoia terkaviii  held out (family)       order                  1          0.910
+       pe    rl250_p500000_s_1       s__Dambelthiia nadoroensis 0.594         1    s__Yalsalmonas lemlivenensis  held out (family)       order                  1          0.963
+       pe    rl250_p500000_s_2      s__Lirotervibrio neyaltulis 0.578         4   s__Rucornecoccus sermiliensis   held out (genus)       order                  1          0.917
+       pe    rl250_p500000_s_2      s__Lirotervibrio neyaltulis 0.578         4       s__Lirotervibrio norzumia        in database       genus                  1          0.969
+       pe    rl250_p500000_s_2      s__Lirotervibrio neyaltulis 0.578         4         s__Lirotervibrio nalius        in database       genus                  1          0.940
+       pe    rl250_p500000_s_2      s__Lirotervibrio neyaltulis 0.578         4       s__Lirotervibrio belsalis        in database       genus                  1          0.962
+       pe    rl250_p500000_s_2 s__Calemtulococcus venyalnaensis 0.531         1      s__Calemtulococcus vigoris        in database       genus                  1          0.962
+       se  rl100_p10000_s_1_se            s__Wohalella tulthius 0.937         9           s__Wohalella yalyalii held out (species)       genus                  1          0.940
+       se  rl100_p10000_s_1_se            s__Wohalella tulthius 0.937         9            s__Wohalella norneis held out (species)       genus                  8          0.951
+       se  rl100_p10000_s_1_se          s__Lirotervibrio misala 0.657        14   s__Lirotervibrio nequixaensis held out (species)       genus                 12          0.937
+       se  rl100_p10000_s_1_se          s__Lirotervibrio misala 0.657        14     s__Lirotervibrio tulbaensis        in database       genus                  1          0.920
+       se  rl100_p10000_s_1_se          s__Lirotervibrio misala 0.657        14         s__Neixxaillus sercorus        in database      family                  1          0.950
+       se  rl100_p10000_s_2_se          s__Literbacter thiquium 0.632         2        s__Literbacter jobelurus        in database       genus                  2          0.951
+       se  rl150_p10000_s_2_se         s__Salkagencoccus karois 0.750         3     s__Vipehalella dokanorensis held out (species)      family                  2          0.947
+       se  rl150_p10000_s_2_se         s__Salkagencoccus karois 0.750         3        s__Vipehalella cofladoum held out (species)      family                  1          0.927
+       se  rl150_p10000_s_2_se      s__Wohalella sernorsalensis 0.687         5           s__Wohalella yalyalii held out (species)       genus                  5          0.955
+       se  rl150_p10000_s_2_se         s__Pelucoccus tulcordoum 0.905         3          s__Pelucoccus urnorura held out (species)       genus                  2          0.953
+       se  rl150_p10000_s_2_se         s__Pelucoccus tulcordoum 0.905         3             s__Baurluia zuthiis   held out (genus)      family                  1          0.907
+       se rl150_p500000_s_1_se         s__Kadococcus serpraixum 0.531        81       s__Kadococcus pratulflaum held out (species)       genus                 22          0.933
+       se rl150_p500000_s_1_se         s__Kadococcus serpraixum 0.531        81           s__Kadococcus jogoris held out (species)       genus                 42          0.936
+       se rl150_p500000_s_1_se         s__Kadococcus serpraixum 0.531        81       s__Kadococcus pratulflaum held out (species)       genus                 14          0.940
+       se rl150_p500000_s_1_se         s__Kadococcus serpraixum 0.531        81      s__Salxabamonas salxagoris        in database      family                  2          0.938
+       se rl150_p500000_s_1_se         s__Kadococcus serpraixum 0.531        81          s__Venwovibrio norurum held out (species)      family                  1          0.920
+       se rl150_p500000_s_2_se     s__Halthivibacter belvennais 0.594        21 s__Serdamcorplasma damnakaensis        in database      family                  1          0.974
+       se rl150_p500000_s_2_se     s__Halthivibacter belvennais 0.594        21       s__Halthivibacter terzuis held out (species)       genus                  4          0.942
+       se rl150_p500000_s_2_se     s__Halthivibacter belvennais 0.594        21       s__Halthivibacter terzuis held out (species)       genus                 16          0.932
+       se rl150_p500000_s_2_se        s__Belzuplasma venzuensis 0.501         9         s__Belzuplasma ronaluii held out (species)       genus                  9          0.934
+       se    rl150_p500_s_1_se       s__Kawoplasma romihalensis 0.789         1          s__Kawoplasma milimium held out (species)       genus                  1          0.953
+       se    rl150_p500_s_2_se             s__Romiella ronorcaa 0.812         1        s__Zumivenillus kavimoum   held out (genus)      family                  1          0.959
+       se rl250_p500000_s_1_se       s__Dambelthiia nadoroensis 0.734         1    s__Yalsalmonas lemlivenensis  held out (family)       order                  1          0.963
+       se rl250_p500000_s_2_se      s__Lirotervibrio neyaltulis 0.662         5   s__Rucornecoccus sermiliensis   held out (genus)       order                  1          0.917
+       se rl250_p500000_s_2_se      s__Lirotervibrio neyaltulis 0.662         5       s__Lirotervibrio norzumia        in database       genus                  2          0.984
+       se rl250_p500000_s_2_se      s__Lirotervibrio neyaltulis 0.662         5       s__Lirotervibrio belsalis        in database       genus                  1          0.968
+       se rl250_p500000_s_2_se      s__Lirotervibrio neyaltulis 0.662         5         s__Lirotervibrio nalius        in database       genus                  1          0.928
+       se rl250_p500000_s_2_se s__Calemtulococcus venyalnaensis 0.578         1      s__Calemtulococcus vigoris        in database       genus                  1          0.962 
+
+## Per false positive: where its reads come from
+
+read_type               sample                         fp_taxon  fp_reads  sources  reads_from_held_out  reads_from_database_species  reads_from_same_genus                source_species      source_status  mean_identity     p                     main_source_is
+      ont     ont_b3000000_s_1        s__Belzuplasma tulcorixum         3        3                    3                            0                      2       s__Belzuplasma ronaluii held out (species)          0.909 0.844 a species held out of the database
+      ont     ont_b3000000_s_1       s__Kawoplasma romihalensis         4        2                    4                            0                      4          s__Kawoplasma ropraa held out (species)          0.939 0.984 a species held out of the database
+      ont    ont_b90000000_s_1         s__Codamplasma ixdamluus         3        1                    3                            0                      3   s__Codamplasma vipraluensis held out (species)          0.901 0.672 a species held out of the database
+      ont    ont_b90000000_s_1         s__Rosalruococcus joxaum         1        1                    1                            0                      1  s__Rosalruococcus zunortulii held out (species)          0.950 0.828 a species held out of the database
+      ont    ont_b90000000_s_1  s__Rosalruococcus venzutulensis         1        1                    1                            0                      1  s__Rosalruococcus zunortulii held out (species)          0.928 0.734 a species held out of the database
+       pb       pb_b150000_s_1            s__Wohalella tulthius         2        2                    2                            0                      2         s__Wohalella yalyalii held out (species)          0.973 0.609 a species held out of the database
+       pb      pb_b3000000_s_2            s__Fisalcoccus nafium         1        1                    0                            1                      1     s__Fisalcoccus tergencaum        in database          0.962 0.625          a species in the database
+       pe     rl100_p10000_s_1       s__Kawoplasma romihalensis         8        3                    8                            0                      8          s__Kawoplasma ropraa held out (species)          0.957 0.875 a species held out of the database
+       pe     rl100_p10000_s_1        s__Zunorbacter negentulus         4        1                    4                            0                      4     s__Zunorbacter wovenflaus held out (species)          0.955 0.969 a species held out of the database
+       pe     rl100_p10000_s_2            s__Wohalella tulthius         2        1                    2                            0                      2          s__Wohalella norneis held out (species)          0.953 0.547 a species held out of the database
+       pe    rl100_p500000_s_1          s__Halthivibacter licoa       171        7                  160                           11                    156     s__Halthivibacter terzuis held out (species)          0.941 0.594 a species held out of the database
+       pe     rl150_p10000_s_2        s__Salkagencoccus salcoum         2        1                    2                            0                      0   s__Vipehalella dokanorensis held out (species)          0.959 0.547 a species held out of the database
+       pe     rl150_p10000_s_2      s__Wohalella sernorsalensis         7        2                    6                            1                      7         s__Wohalella yalyalii held out (species)          0.952 0.641 a species held out of the database
+       pe    rl150_p500000_s_2         s__Vipehalella nefiensis         3        2                    1                            2                      2        s__Vipehalella vihalis        in database          0.979 0.859          a species in the database
+       pe    rl250_p500000_s_1       s__Dambelthiia nadoroensis         1        1                    1                            0                      0  s__Yalsalmonas lemlivenensis  held out (family)          0.963 0.594 a species held out of the database
+       pe    rl250_p500000_s_1           s__Literbacter nagenus         5        5                    3                            2                      2        s__Miquicoia terkaviii  held out (family)          0.910 0.531 a species held out of the database
+       pe    rl250_p500000_s_2 s__Calemtulococcus venyalnaensis         1        1                    0                            1                      1    s__Calemtulococcus vigoris        in database          0.962 0.531          a species in the database
+       pe    rl250_p500000_s_2      s__Lirotervibrio neyaltulis         4        4                    1                            3                      3 s__Rucornecoccus sermiliensis   held out (genus)          0.917 0.578          a species in the database
+       se  rl100_p10000_s_1_se          s__Lirotervibrio misala        14        3                   12                            2                     13 s__Lirotervibrio nequixaensis held out (species)          0.937 0.657 a species held out of the database
+       se  rl100_p10000_s_1_se            s__Wohalella tulthius         9        2                    9                            0                      9          s__Wohalella norneis held out (species)          0.951 0.937 a species held out of the database
+       se  rl100_p10000_s_2_se          s__Literbacter thiquium         2        1                    0                            2                      2      s__Literbacter jobelurus        in database          0.951 0.632          a species in the database
+       se  rl150_p10000_s_2_se         s__Pelucoccus tulcordoum         3        2                    3                            0                      2        s__Pelucoccus urnorura held out (species)          0.953 0.905 a species held out of the database
+       se  rl150_p10000_s_2_se         s__Salkagencoccus karois         3        2                    3                            0                      0   s__Vipehalella dokanorensis held out (species)          0.947 0.750 a species held out of the database
+       se  rl150_p10000_s_2_se      s__Wohalella sernorsalensis         5        1                    5                            0                      5         s__Wohalella yalyalii held out (species)          0.955 0.687 a species held out of the database
+       se rl150_p500000_s_1_se         s__Kadococcus serpraixum        81        5                   79                            2                     78         s__Kadococcus jogoris held out (species)          0.936 0.531 a species held out of the database
+       se rl150_p500000_s_2_se        s__Belzuplasma venzuensis         9        1                    9                            0                      9       s__Belzuplasma ronaluii held out (species)          0.934 0.501 a species held out of the database
+       se rl150_p500000_s_2_se     s__Halthivibacter belvennais        21        3                   20                            1                     20     s__Halthivibacter terzuis held out (species)          0.932 0.594 a species held out of the database
+       se    rl150_p500_s_1_se       s__Kawoplasma romihalensis         1        1                    1                            0                      1        s__Kawoplasma milimium held out (species)          0.953 0.789 a species held out of the database
+       se    rl150_p500_s_2_se             s__Romiella ronorcaa         1        1                    1                            0                      0      s__Zumivenillus kavimoum   held out (genus)          0.959 0.812 a species held out of the database
+       se rl250_p500000_s_1_se       s__Dambelthiia nadoroensis         1        1                    1                            0                      0  s__Yalsalmonas lemlivenensis  held out (family)          0.963 0.734 a species held out of the database
+       se rl250_p500000_s_2_se s__Calemtulococcus venyalnaensis         1        1                    0                            1                      1    s__Calemtulococcus vigoris        in database          0.962 0.578          a species in the database
+       se rl250_p500000_s_2_se      s__Lirotervibrio neyaltulis         5        4                    1                            4                      4     s__Lirotervibrio norzumia        in database          0.984 0.662          a species in the database 
+
+main_source_is  a species held out of the database  a species in the database
+read_type                                                                    
+ont                                              5                          0
+pb                                               1                          1
+pe                                               8                          3
+se                                              11                          3 
+
+reads of a false positive: median 3, mean 11.8, <= 3 reads: 18 of 32, >= 20 reads: 3; most reads from the same genus: 26 of 32
+alignment identity of those reads: {'count': 67.0, 'mean': 0.941, 'std': 0.024, 'min': 0.86, '25%': 0.928, '50%': 0.941, '75%': 0.958, 'max': 0.985} 
+
+## Why the model calls them: the evidence behind a call
+
+read hits on the taxon:
+          taxa_absent  taxa_present  called_absent  called_present  FP_rate_of_absent_%  sensitivity_%
+hits_bin                                                                                              
+1                1232           483             12             343                 0.97           71.0
+2-3               798           668             12             618                 1.50           92.5
+4-8               828           512              5             494                 0.60           96.5
+9-48             1108           667              1             657                 0.09           98.5
+49+               618          1869              2            1862                 0.32           99.6 
+
+identity of called taxa with up to 8 hits (0 = absent, 1 = present):
+truth                    0         1
+identity     count  29.000  1455.000
+             mean    0.952     0.970
+             std     0.016     0.019
+             min     0.904     0.887
+             25%     0.947     0.960
+             50%     0.954     0.972
+             75%     0.963     0.984
+             max     0.973     1.000
+top_identity count  29.000  1455.000
+             mean    0.963     0.984
+             std     0.017     0.017
+             min     0.909     0.890
+             25%     0.959     0.976
+             50%     0.963     0.988
+             75%     0.973     1.000
+             max     0.985     1.000 
+
+identity of the true positives by read type and read hits (quantiles):
+                 0.05   0.25    0.5  taxa
+read_type hits                           
+ont       9-19  0.917  0.944  0.957    27
+          <=8   0.912  0.938  0.957   312
+          >=20  0.935  0.948  0.956   225
+pb        9-19  0.950  0.958  0.964    51
+          <=8   0.944  0.959  0.970   340
+          >=20  0.952  0.960  0.967   190
+pe        9-19  0.951  0.960  0.969   133
+          <=8   0.950  0.964  0.975   381
+          >=20  0.953  0.964  0.972   936
+se        9-19  0.956  0.966  0.975   112
+          <=8   0.956  0.968  0.979   422
+          >=20  0.956  0.967  0.975   845 
+
+threshold, false positives and false negatives (all read types):
+ threshold  FP  FN
+      0.50  32 225
+      0.60  21 281
+      0.70  13 328
+      0.80   9 427
+      0.90   4 547
+      0.95   2 672 
+
+p of the false positives:
+p
+[0.5, 0.6)    11
+[0.6, 0.7)     8
+[0.7, 0.8)     4
+[0.8, 0.9)     5
+[0.9, 1.0)     4 
+
+32 calls are 28 distinct (sample, taxon) events; in more than one read type:
+community          taxon_name                      
+rl150_p10000_s_2   s__Wohalella sernorsalensis         pe,se
+rl250_p500000_s_1  s__Dambelthiia nadoroensis          pe,se
+rl250_p500000_s_2  s__Calemtulococcus venyalnaensis    pe,se
+                   s__Lirotervibrio neyaltulis         pe,se

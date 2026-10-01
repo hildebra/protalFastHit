@@ -1,0 +1,21 @@
+unsure calls (0.5 <= p < 0.8) and the AUC of each signal for absent vs present among them (> 0.5: higher for absent taxa; < 0.5: lower)
+
+read_type         split  calls  unsure  unsure_absent  unsure_present  FP_unsure_share
+       pe training (CV)   2754      65             19              46         0.791667
+       pe          test   1461      60              8              52         0.727273
+       se training (CV)   2718      94             33              61         0.702128
+       se          test   1393      57             11              46         0.785714
+       pb training (CV)    830      47              8              39         0.727273
+       pb          test    583      71              2              69         1.000000
+      ont training (CV)    852      38              9              29         0.818182
+      ont          test    569      37              2              35         0.400000
+
+read_type         split  congener_share_d0  congener_share_d1  congener_share_d2  other_genus_share_d1  identity_z  identity  top_identity  fragments  mean_mapq  low_mapq_share  mate_concordance  clipped_share  median_congener_d1_absent  median_congener_d1_present
+       pe training (CV)              0.724              0.741              0.680                 0.649       0.361     0.358         0.364      0.465      0.474           0.646             0.322          0.564                      0.421                         0.0
+       pe          test              0.618              0.684              0.674                 0.657       0.416     0.409         0.335      0.457      0.383           0.673             0.333          0.703                      0.333                         0.0
+       se training (CV)              0.786              0.811              0.777                 0.596       0.499     0.488         0.433      0.384      0.359           0.759             0.500          0.616                      0.667                         0.0
+       se          test              0.647              0.678              0.656                 0.638       0.340     0.321         0.289      0.487      0.295           0.745             0.500          0.552                      0.190                         0.0
+       pb training (CV)              0.639              0.816              0.894                 0.500       0.623     0.627         0.511      0.421      0.038           0.984             0.500          0.667                      0.200                         0.0
+       pb          test              0.736              0.710              0.645                 0.493       0.681     0.681         0.514      0.326      0.286           0.645             0.500          0.768                      0.250                         0.0
+      ont training (CV)              0.557              0.615              0.644                 0.483       0.268     0.272         0.291      0.521      0.550           0.603             0.500          0.638                      0.000                         0.0
+      ont          test              0.471              0.614              0.543                 0.500       0.457     0.414         0.357      0.393      0.214           0.879             0.500          0.929                      0.167                         0.0
