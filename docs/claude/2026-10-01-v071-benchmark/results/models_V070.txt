@@ -1,0 +1,11 @@
+Presence models of /home/falk/bench071/V070/protal_db, taxa scored at knob 0.5: TP present and called, FP absent and called, TN absent and not called, FN present and not called. species held out: each taxon scored by forests that did not see its species; independent test set: samples of another design, scored by the final model. Details: trained_model*.report.txt
+
+read type  evaluated on          taxa  TP    FP  TN    FN   sensitivity  specificity  precision  F1      FP/sample
+pe         species held out      8087  2301  42  5673  71   0.9701       0.9927       0.9821     0.9760  1.17
+pe         independent test set  3894  1430  26  2345  93   0.9389       0.9890       0.9821     0.9601  1.44
+se         species held out      7138  2246  71  4727  94   0.9598       0.9852       0.9694     0.9646  1.97
+se         independent test set  3564  1382  23  2054  105  0.9294       0.9889       0.9836     0.9557  1.28
+pb         species held out      1157  733   24  371   29   0.9619       0.9392       0.9683     0.9651  2.00
+pb         independent test set  826   603   9   172   42   0.9349       0.9503       0.9853     0.9594  1.50
+ont        species held out      1539  755   16  740   28   0.9642       0.9788       0.9792     0.9717  1.33
+ont        independent test set  1016  613   9   331   63   0.9068       0.9735       0.9855     0.9445  1.50

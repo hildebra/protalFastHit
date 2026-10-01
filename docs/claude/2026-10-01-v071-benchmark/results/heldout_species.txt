@@ -1,0 +1,290 @@
+s__Babelia damcorrua	species	s__Babelia damcorrua
+s__Babelia flagortulii	species	s__Babelia flagortulii
+s__Babelia motuljoensis	species	s__Babelia motuljoensis
+s__Babelia wolumous	species	s__Babelia wolumous
+s__Banepeococcus nagorflaii	species	s__Banepeococcus nagorflaii
+s__Bapeliococcus genjois	class	c__Flacoria
+s__Bapeliococcus sernapraii	class	c__Flacoria
+s__Baquiillus tullemgena	class	c__Flacoria
+s__Baserella xaurroensis	phylum	p__Damdamjoota
+s__Bellemillus norcobelus	class	c__Flaflaia
+s__Belliillus belrous	genus	g__Belliillus
+s__Belliillus lemsalfius	genus	g__Belliillus
+s__Belliillus tercaus	genus	g__Belliillus
+s__Belliillus tulliis	genus	g__Belliillus
+s__Belliillus xavithiis	genus	g__Belliillus
+s__Belnemoella corbais	phylum	p__Damdamjoota
+s__Belnemoella lempea	phylum	p__Damdamjoota
+s__Camivenella quiflaurus	species	s__Camivenella quiflaurus
+s__Casergenspira doviluis	class	c__Mibaia
+s__Casergenspira genxaensis	class	c__Mibaia
+s__Casergenspira kamoensis	class	c__Mibaia
+s__Comijoillus genneis	genus	g__Comijoillus
+s__Comijoillus lumobelus	genus	g__Comijoillus
+s__Comijoillus necois	genus	g__Comijoillus
+s__Comijoillus pecordamensis	genus	g__Comijoillus
+s__Comijoillus prarumous	genus	g__Comijoillus
+s__Comijoillus zujotulus	genus	g__Comijoillus
+s__Corcoria cahala	family	f__Coluneaceae
+s__Corcoria terkagenus	family	f__Coluneaceae
+s__Corcoria vibasalus	family	f__Coluneaceae
+s__Corcoria xakaixii	family	f__Coluneaceae
+s__Cordoella flajoum	genus	g__Cordoella
+s__Cordoella migorhala	genus	g__Cordoella
+s__Cordoella nagordamii	genus	g__Cordoella
+s__Cordoella salcorum	genus	g__Cordoella
+s__Cordoella salgorus	genus	g__Cordoella
+s__Cordoella zupralemensis	genus	g__Cordoella
+s__Corgencorplasma rupracorum	class	c__Flacoria
+s__Corgengenillus lukaus	species	s__Corgengenillus lukaus
+s__Cormobelmonas norserruum	species	s__Cormobelmonas norserruum
+s__Cornorella hallukais	order	o__Kacorales
+s__Corxavibrio ficoii	family	f__Xanoraceae
+s__Corxavibrio lisernaa	family	f__Xanoraceae
+s__Coserbacter rohalis	order	o__Kacorales
+s__Coserbacter ropebelensis	order	o__Kacorales
+s__Damdambaillus lemurnorensis	family	f__Norseraceae
+s__Damdambaillus salluserus	family	f__Norseraceae
+s__Damdambaillus salthia	family	f__Norseraceae
+s__Damlemspira quifikaum	species	s__Damlemspira quifikaum
+s__Damquiterspira rurowois	family	f__Cawovenaceae
+s__Damserbacter belbaensis	species	s__Damserbacter belbaensis
+s__Damvencoccus gormifiensis	family	f__Liviaceae
+s__Damvencoccus halwocora	family	f__Liviaceae
+s__Damvencoccus serwoviensis	family	f__Liviaceae
+s__Dodamnaplasma halgenpraii	family	f__Vipeaceae
+s__Ficamonas robagorus	order	o__Tulroliales
+s__Firuspira belcois	species	s__Firuspira belcois
+s__Fitulmonas thipraus	species	s__Fitulmonas thipraus
+s__Fiyalvibrio belseryala	class	c__Mobelcoria
+s__Fizubacter thiurum	species	s__Fizubacter thiurum
+s__Flacaspira nasalensis	order	o__Damflaluales
+s__Flafivibrio conorixa	genus	g__Flafivibrio
+s__Flafivibrio copraensis	genus	g__Flafivibrio
+s__Flafivibrio lemzuensis	genus	g__Flafivibrio
+s__Flafivibrio salflaquium	genus	g__Flafivibrio
+s__Flafivibrio terteris	genus	g__Flafivibrio
+s__Flagorpeia xaquiis	order	o__Damflaluales
+s__Flalumonas quilempea	class	c__Flacoria
+s__Flanormonas genfladamii	species	s__Flanormonas genfladamii
+s__Flasalillus salpeterus	species	s__Flasalillus salpeterus
+s__Flasalillus zubelluis	species	s__Flasalillus zubelluis
+s__Flaserzuella genficorii	class	c__Mobelcoria
+s__Flaserzuella mothikaus	class	c__Mobelcoria
+s__Gengorxaococcus wogorthiii	family	f__Cawovenaceae
+s__Genthiia thiwopeis	order	o__Vencorwoales
+s__Genvencorococcus zudamzuis	order	o__Vencorwoales
+s__Gorjomibacter romodoensis	species	s__Gorjomibacter romodoensis
+s__Gornaflamonas gorflalia	species	s__Gornaflamonas gorflalia
+s__Gorquiella miyalcoris	family	f__Tulcaaceae
+s__Gorquiella naficorus	family	f__Tulcaaceae
+s__Gorquiella tertulhalum	family	f__Tulcaaceae
+s__Gorquiella thiquineis	family	f__Tulcaaceae
+s__Gorquiella venhalus	family	f__Tulcaaceae
+s__Gorquiella venthijois	family	f__Tulcaaceae
+s__Gorquiella vipraensis	family	f__Tulcaaceae
+s__Gorserbacter fimodama	species	s__Gorserbacter fimodama
+s__Gorxaia figorcoii	class	c__Mobelcoria
+s__Halhalnebacter mobais	species	s__Halhalnebacter mobais
+s__Hallemplasma belviixensis	family	f__Vipeaceae
+s__Hallemplasma damnoruris	family	f__Vipeaceae
+s__Hallemplasma tulnorbelensis	family	f__Vipeaceae
+s__Halviia momithiis	family	f__Modamliaceae
+s__Ixhaluria belluii	species	s__Ixhaluria belluii
+s__Ixhaluria rotulis	species	s__Ixhaluria rotulis
+s__Ixhaluria salzua	species	s__Ixhaluria salzua
+s__Ixhaluria thivenroensis	species	s__Ixhaluria thivenroensis
+s__Ixhaluria urruis	species	s__Ixhaluria urruis
+s__Ixjoflavibrio flasermois	species	s__Ixjoflavibrio flasermois
+s__Ixjoflavibrio tultermois	species	s__Ixjoflavibrio tultermois
+s__Ixkaplasma coxamium	order	o__Tulroliales
+s__Ixkaplasma quiixis	order	o__Tulroliales
+s__Ixlispira salixcorum	species	s__Ixlispira salixcorum
+s__Ixserquispira luurhalensis	species	s__Ixserquispira luurhalensis
+s__Ixserquispira norroneus	species	s__Ixserquispira norroneus
+s__Ixwofispira quibaa	genus	g__Ixwofispira
+s__Ixwofispira ruyalii	genus	g__Ixwofispira
+s__Jokapraococcus vigorliensis	phylum	p__Saltulflaota
+s__Jokapraococcus woneensis	phylum	p__Saltulflaota
+s__Jomiella beldocorii	class	c__Mibaia
+s__Jomiella gorkaquiis	class	c__Mibaia
+s__Jomiella modamum	class	c__Mibaia
+s__Jomiella roliurum	class	c__Mibaia
+s__Jomiella zucormius	class	c__Mibaia
+s__Jomiella zugorixii	class	c__Mibaia
+s__Joxamicoccus terrobaa	family	f__Cawovenaceae
+s__Kacoluspira midoum	genus	g__Kacoluspira
+s__Kacoluspira rucaus	genus	g__Kacoluspira
+s__Kaficoccus canevenii	species	s__Kaficoccus canevenii
+s__Kakalicoccus lemvenhalum	species	s__Kakalicoccus lemvenhalum
+s__Kaneia necaii	class	c__Mobelcoria
+s__Kaneia rulicais	class	c__Mobelcoria
+s__Kaneia wovenmiensis	class	c__Mobelcoria
+s__Kasalzuillus lugena	class	c__Mobelcoria
+s__Kasalzuillus mipeluis	class	c__Mobelcoria
+s__Kasalzuillus prafiliensis	class	c__Mobelcoria
+s__Kasalzuillus salixviensis	class	c__Mobelcoria
+s__Kasalzuillus urfiensis	class	c__Mobelcoria
+s__Kavenspira xacoruus	species	s__Kavenspira xacoruus
+s__Lemcormonas luyalum	species	s__Lemcormonas luyalum
+s__Lemkarococcus corvenensis	species	s__Lemkarococcus corvenensis
+s__Lemkarococcus serflaxaum	species	s__Lemkarococcus serflaxaum
+s__Lemvenococcus morucoum	species	s__Lemvenococcus morucoum
+s__Lemvenococcus norserfium	species	s__Lemvenococcus norserfium
+s__Lemvenococcus viserpea	species	s__Lemvenococcus viserpea
+s__Lemvenococcus wosalum	species	s__Lemvenococcus wosalum
+s__Liliococcus quiflayalum	species	s__Liliococcus quiflayalum
+s__Liluia balemis	family	f__Cawovenaceae
+s__Liluia urfilua	family	f__Cawovenaceae
+s__Linetulcoccus flalemruii	class	c__Flacoria
+s__Lirowomonas belmoa	class	c__Flaflaia
+s__Lirowomonas urserpraa	class	c__Flaflaia
+s__Lirowomonas venzuensis	class	c__Flaflaia
+s__Lubelpespira belvia	class	c__Flacoria
+s__Lubelpespira praluterus	class	c__Flacoria
+s__Lubelpespira yalurensis	class	c__Flacoria
+s__Lujoterillus genrofius	genus	g__Lujoterillus
+s__Lujoterillus yalvenis	genus	g__Lujoterillus
+s__Lupedococcus luzuroa	order	o__Tulroliales
+s__Lupespira xamiterus	species	s__Lupespira xamiterus
+s__Lusalthicoccus norcorii	species	s__Lusalthicoccus norcorii
+s__Luwovibrio royalpeis	species	s__Luwovibrio royalpeis
+s__Mihalcoccus coyalurus	class	c__Flaflaia
+s__Milemillus quinaurii	species	s__Milemillus quinaurii
+s__Mimiillus fihalus	family	f__Modamliaceae
+s__Mimiillus yalyalcorii	family	f__Modamliaceae
+s__Minawoia runaflaensis	species	s__Minawoia runaflaensis
+s__Mipraplasma jovena	order	o__Kacorales
+s__Mipraplasma norserzuensis	order	o__Kacorales
+s__Miprathiia quiwovenum	order	o__Tulroliales
+s__Mirolubacter firosera	class	c__Mobelcoria
+s__Mivengorbacter xalimia	species	s__Mivengorbacter xalimia
+s__Mivenvibrio damurthium	species	s__Mivenvibrio damurthium
+s__Mofirucoccus thizuii	species	s__Mofirucoccus thizuii
+s__Mofirucoccus urrubelii	species	s__Mofirucoccus urrubelii
+s__Molemthispira bamiensis	genus	g__Molemthispira
+s__Molemthispira serdomiis	genus	g__Molemthispira
+s__Mothiococcus dopralemus	species	s__Mothiococcus dopralemus
+s__Mothiococcus neflaus	species	s__Mothiococcus neflaus
+s__Naflacoccus terdamus	species	s__Naflacoccus terdamus
+s__Nahalbelillus thilemum	species	s__Nahalbelillus thilemum
+s__Nahaltulcoccus lemtercoensis	species	s__Nahaltulcoccus lemtercoensis
+s__Nahaltulcoccus quiteris	species	s__Nahaltulcoccus quiteris
+s__Nahaltulcoccus salvengena	species	s__Nahaltulcoccus salvengena
+s__Napeococcus nedamnaus	family	f__Cawovenaceae
+s__Natultulmonas kamium	species	s__Natultulmonas kamium
+s__Nehalcobacter lemyalus	genus	g__Nehalcobacter
+s__Nehalcobacter pralemus	genus	g__Nehalcobacter
+s__Neixgenvibrio belkapeum	species	s__Neixgenvibrio belkapeum
+s__Neixgenvibrio casalzuii	species	s__Neixgenvibrio casalzuii
+s__Neixgenvibrio dobagena	species	s__Neixgenvibrio dobagena
+s__Nemocococcus tulrobaensis	species	s__Nemocococcus tulrobaensis
+s__Norcajomonas xacorum	class	c__Mibaia
+s__Normigorillus dorocaii	species	s__Normigorillus dorocaii
+s__Normigorillus halwoa	species	s__Normigorillus halwoa
+s__Normigorillus jojowoensis	species	s__Normigorillus jojowoensis
+s__Nornorviococcus nagorhalensis	genus	g__Nornorviococcus
+s__Nornorviococcus pemois	genus	g__Nornorviococcus
+s__Nornorviococcus terdomium	genus	g__Nornorviococcus
+s__Norquiella yalcoensis	class	c__Mibaia
+s__Norquimospira zutulmois	order	o__Kacorales
+s__Pedamia lempraii	phylum	p__Damdamjoota
+s__Peserspira norxabais	class	c__Flacoria
+s__Pexamonas canayalus	class	c__Mobelcoria
+s__Pracadomonas urservium	phylum	p__Saltulflaota
+s__Pralitulbacter bagengenus	class	c__Mobelcoria
+s__Quirubacter jominorensis	phylum	p__Damdamjoota
+s__Quirubacter venurnora	phylum	p__Damdamjoota
+s__Quirubacter zurois	phylum	p__Damdamjoota
+s__Roixcorbacter gorjoa	class	c__Flaflaia
+s__Roixcorbacter miluquium	class	c__Flaflaia
+s__Roixcorbacter prabais	class	c__Flaflaia
+s__Roixcorbacter praserii	class	c__Flaflaia
+s__Roixflamonas terkais	species	s__Roixflamonas terkais
+s__Rudambacter damdama	family	f__Vipeaceae
+s__Ruixia kakaa	species	s__Ruixia kakaa
+s__Rupradamella bacomous	genus	g__Rupradamella
+s__Rupradamella flahalxaus	genus	g__Rupradamella
+s__Rupradamella hallia	genus	g__Rupradamella
+s__Ruquiruillus thivigenii	species	s__Ruquiruillus thivigenii
+s__Salcorlucoccus lemtula	species	s__Salcorlucoccus lemtula
+s__Salixnebacter cocornaensis	species	s__Salixnebacter cocornaensis
+s__Salyalnorillus ludoensis	species	s__Salyalnorillus ludoensis
+s__Sermiplasma bayalvium	species	s__Sermiplasma bayalvium
+s__Sermiplasma courus	species	s__Sermiplasma courus
+s__Sermiplasma damixnaii	species	s__Sermiplasma damixnaii
+s__Sermiplasma modoum	species	s__Sermiplasma modoum
+s__Sermiplasma mosalhalus	species	s__Sermiplasma mosalhalus
+s__Sermiplasma nerolema	species	s__Sermiplasma nerolema
+s__Sermiplasma prarodoa	species	s__Sermiplasma prarodoa
+s__Sermiplasma serjoum	species	s__Sermiplasma serjoum
+s__Sermiplasma vensalcoum	species	s__Sermiplasma vensalcoum
+s__Sermiplasma zugenjous	species	s__Sermiplasma zugenjous
+s__Sernamovibrio gortulgorus	species	s__Sernamovibrio gortulgorus
+s__Sernorbelbacter tulzuus	species	s__Sernorbelbacter tulzuus
+s__Sernorixcoccus molunaa	species	s__Sernorixcoccus molunaa
+s__Serpeixvibrio flahalensis	species	s__Serpeixvibrio flahalensis
+s__Serrumonas jocaus	order	o__Serzuhalales
+s__Serrumonas salurpraii	order	o__Serzuhalales
+s__Serthivibrio migorseris	species	s__Serthivibrio migorseris
+s__Terixlemella terfigena	class	c__Mibaia
+s__Tervenococcus copenorii	species	s__Tervenococcus copenorii
+s__Teryallemspira figora	species	s__Teryallemspira figora
+s__Teryallemspira zucoruii	species	s__Teryallemspira zucoruii
+s__Thicocoplasma joquijous	family	f__Cawovenaceae
+s__Thicocoplasma peprasalii	family	f__Cawovenaceae
+s__Thicocoplasma quidambelensis	family	f__Cawovenaceae
+s__Thigenillus mouris	family	f__Cawovenaceae
+s__Thilizuella pequiensis	species	s__Thilizuella pequiensis
+s__Thiseria belnathius	class	c__Flacoria
+s__Thithiococcus quidamtera	species	s__Thithiococcus quidamtera
+s__Thithiococcus roixa	species	s__Thithiococcus roixa
+s__Tulprabacter praseryala	family	f__Vipeaceae
+s__Urgencoccus flafigorum	species	s__Urgencoccus flafigorum
+s__Vencaococcus bagorflaii	species	s__Vencaococcus bagorflaii
+s__Vidopraia ixhalii	species	s__Vidopraia ixhalii
+s__Viixgoria quilicais	order	o__Ixterales
+s__Viixgoria urlupeus	order	o__Ixterales
+s__Viixgoria yalliseris	order	o__Ixterales
+s__Viixgoria yalsalum	order	o__Ixterales
+s__Viixgoria zuyalliis	order	o__Ixterales
+s__Vitultulia corhalus	species	s__Vitultulia corhalus
+s__Vitultulia kamiterii	species	s__Vitultulia kamiterii
+s__Vitultulia miterrois	species	s__Vitultulia miterrois
+s__Vitultulia nahalroii	species	s__Vitultulia nahalroii
+s__Vitultulia quifia	species	s__Vitultulia quifia
+s__Vitultulia thixamoensis	species	s__Vitultulia thixamoensis
+s__Vitultulia vivenluii	species	s__Vitultulia vivenluii
+s__Vitultulia wocoum	species	s__Vitultulia wocoum
+s__Vivimonas nalemdamis	species	s__Vivimonas nalemdamis
+s__Vivipeella perous	genus	g__Vivipeella
+s__Vivipeella thilujoa	genus	g__Vivipeella
+s__Xacorquicoccus figenii	family	f__Tulcaaceae
+s__Xacorquicoccus zuwocaii	family	f__Tulcaaceae
+s__Xahalcoccus corcais	order	o__Kacorales
+s__Xahalcoccus doixroensis	order	o__Kacorales
+s__Xahalcoccus ixhalserus	order	o__Kacorales
+s__Xahalcoccus lifium	order	o__Kacorales
+s__Xahalcoccus luzuura	order	o__Kacorales
+s__Xahalcoccus mobanaa	order	o__Kacorales
+s__Xahalcoccus monea	order	o__Kacorales
+s__Xahalcoccus tercois	order	o__Kacorales
+s__Xahalcoccus termia	order	o__Kacorales
+s__Xatulmonas rocormous	species	s__Xatulmonas rocormous
+s__Xazuillus corixa	species	s__Xazuillus corixa
+s__Xazuillus lemgorensis	species	s__Xazuillus lemgorensis
+s__Xazuillus lunais	species	s__Xazuillus lunais
+s__Xazuillus mobacoensis	species	s__Xazuillus mobacoensis
+s__Xazuillus naquixaii	species	s__Xazuillus naquixaii
+s__Xazuillus pracaa	species	s__Xazuillus pracaa
+s__Xazuillus prajois	species	s__Xazuillus prajois
+s__Xazuillus rothipea	species	s__Xazuillus rothipea
+s__Yalfiia urcoensis	order	o__Tulroliales
+s__Yalfilubacter rujomiii	species	s__Yalfilubacter rujomiii
+s__Yalnequiococcus xapraa	species	s__Yalnequiococcus xapraa
+s__Yalurkaspira lifiurensis	species	s__Yalurkaspira lifiurensis
+s__Yalurkaspira salnorserii	species	s__Yalurkaspira salnorserii
+s__Yalurkaspira vengenmoa	species	s__Yalurkaspira vengenmoa
+s__Zuflaplasma genvenum	class	c__Mibaia
+s__Zuvenococcus lemgenus	species	s__Zuvenococcus lemgenus
+s__Zuyalmonas prazuii	order	o__Ixterales

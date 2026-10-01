@@ -1,0 +1,4 @@
+protal_version	protal v0.7.1
+command	/home/falk/bench071/src/0.7.1/scripts/build_gtdb_database.py --gtdb /home/falk/bench071/world/release_p --outdir /home/falk/bench071/V071 --protal /home/falk/bench071/bin/protal-0.7.1 --simulator /home/falk/bench071/bin/simulate_metagenomes -t 6 --seed 1 --extra-genomes /home/falk/bench071/world/full/simulation/genomes_nonreps --samples 4 --read-pairs 1000,20000,200000 --test-samples 2 --test-read-pairs 500,10000,500000 --long-read-bases 300000,6000000,60000000 --test-long-read-bases 150000,3000000,90000000 --pbsim /home/falk/micromamba/envs/protal-db-build/bin/pbsim
+genome_table	2295 genomes of 765 species
+gene_conservation	factors 0.25-3.1 for 168 genes, from 765 species (248551 copies compared)
