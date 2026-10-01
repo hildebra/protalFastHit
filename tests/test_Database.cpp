@@ -1,12 +1,15 @@
 // Unit tests for the single-file database (Utilities/Database.h): writing it from seekable and other
 // files, reading members sequentially and in parallel, the index's column chunks and the reference
-// read through member frames, where --db points (Locate), and failures on truncated or corrupt files.
+// read through member frames, where --db points (Locate), and failures on truncated or corrupt files;
+// the genes' conservation factors (gene_conservation.tsv): reading, writing and estimating them.
 #include <gtest/gtest.h>
 #include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <random>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <unistd.h>
@@ -378,4 +381,150 @@ TEST(Database, ReferenceAndTaxonomyLoadFromMembers) {
     taxonomy::IntTaxonomy taxonomy(input->Stream(), taxonomy_file.Name());
     EXPECT_EQ(taxonomy.Get("s__Mockella alpha"), 1u);
     EXPECT_EQ(taxonomy.root_id, 2u);
+}
+
+// gene_conservation.tsv (SequenceUtils/GeneConservation.h): the factors that scale the depth identity
+// margin per gene, as --build estimates and writes them and queries read them.
+namespace {
+    std::string RandomBases(std::mt19937& rng, size_t n) {
+        static constexpr char kBases[] = "ACGT";
+        std::string s(n, 'A');
+        for (auto& c : s) c = kBases[rng() % 4];
+        return s;
+    }
+
+    // seq with a share `rate` of its bases substituted.
+    std::string Mutate(std::mt19937& rng, std::string seq, double rate) {
+        static constexpr char kBases[] = "ACGT";
+        std::bernoulli_distribution change(rate);
+        for (auto& c : seq) {
+            if (!change(rng)) continue;
+            char other = c;
+            while (other == c) other = kBases[rng() % 4];
+            c = other;
+        }
+        return seq;
+    }
+}
+
+TEST(GeneConservation, TheMarginIsFixedForReadErrorsAndScaledForTheRest) {
+    using gene_conservation::GeneMargin;
+    EXPECT_NEAR(GeneMargin(0.08, 1.0), 0.08, 1e-12);  // a gene of typical conservation: the margin
+    EXPECT_NEAR(GeneMargin(0.08, 0.4), 0.05, 1e-12);  // 0.03 + 0.05 x 0.4
+    EXPECT_NEAR(GeneMargin(0.08, 1.6), 0.11, 1e-12);
+    EXPECT_NEAR(GeneMargin(0.02, 3.0), 0.02, 1e-12);  // below the fixed part: not scaled
+    EXPECT_EQ(GeneMargin(1.0, 0.4), 1.0);             // every read counts
+}
+
+TEST(GeneConservation, TheTableReadsWhatItWrites) {
+    gene_conservation::Table table;
+    table.Set(3, 0.4, 25);
+    table.Set(120, 1.62, 40);
+    EXPECT_EQ(table.Genes(), 2u);
+    std::stringstream ss;
+    table.Write(ss);
+    EXPECT_EQ(ss.str(), "geneid\tfactor\tspecies\n3\t0.4000\t25\n120\t1.6200\t40\n");
+    gene_conservation::Table read;
+    ASSERT_EQ(read.Read(ss), "");
+    EXPECT_EQ(read.Genes(), 2u);
+    EXPECT_NEAR(read.Factor(3), 0.4, 1e-6);
+    EXPECT_NEAR(read.Factor(120), 1.62, 1e-6);
+    EXPECT_EQ(read.Factor(4), 1.0);        // a gene without a factor
+    EXPECT_EQ(read.Factor(100000), 1.0);
+    auto const [low, high] = read.Range();
+    EXPECT_NEAR(low, 0.4, 1e-6);
+    EXPECT_NEAR(high, 1.62, 1e-6);
+    EXPECT_EQ(gene_conservation::Table().Range(), (std::pair<double, double>{1, 1}));
+
+    std::istringstream two_columns("# comment\n7\t0.9\n");  // the species column is optional
+    gene_conservation::Table short_table;
+    EXPECT_EQ(short_table.Read(two_columns), "");
+    EXPECT_NEAR(short_table.Factor(7), 0.9, 1e-6);
+}
+
+TEST(GeneConservation, ReadingStopsAtTheFirstBadLine) {
+    auto problem = [](std::string const& content) {
+        std::istringstream is(content);
+        gene_conservation::Table table;
+        return table.Read(is);
+    };
+    EXPECT_EQ(problem("geneid\tfactor\tspecies\n1\t1.0\t3\nx\t1.0\t3\n"), "line 3: the gene id is not a number");
+    EXPECT_EQ(problem("1 1.0\n"), "line 1: expected a gene id and a factor, separated by a tab");
+    EXPECT_EQ(problem("1\tfast\n"), "line 1: the factor is not a number");
+    EXPECT_EQ(problem("1\t0\n"), "line 1: the factor must be above 0 and at most 100");
+    EXPECT_EQ(problem("1\t-0.5\n"), "line 1: the factor must be above 0 and at most 100");
+    EXPECT_EQ(problem("1\tnan\n"), "line 1: the factor is not a number");
+    EXPECT_EQ(problem("1\t1.0\n1\t1.2\n"), "line 2: gene 1 is listed twice");
+    EXPECT_EQ(problem("1048576\t1.0\n"), "line 1: gene id 1048576 is too large");
+}
+
+TEST(GeneConservation, TheMashDistanceEstimatesTheShareOfDifferentBases) {
+    std::mt19937 rng(7);
+    std::string const gene = RandomBases(rng, 3000);
+    auto const kmers = gene_conservation::Kmers(gene);
+    EXPECT_EQ(gene_conservation::MashDistance(kmers, kmers), 0.0);
+    for (double rate : { 0.005, 0.02, 0.05 }) {
+        double const d = gene_conservation::MashDistance(kmers, gene_conservation::Kmers(Mutate(rng, gene, rate)));
+        EXPECT_NEAR(d, rate, 0.25 * rate + 0.002) << "rate " << rate;
+    }
+    EXPECT_GT(gene_conservation::MashDistance(kmers, gene_conservation::Kmers(RandomBases(rng, 3000))), 0.25);
+    EXPECT_EQ(gene_conservation::Kmers("ACGTNACGTACGTACGTAC").size(), 3u);  // the 14 bases after the N
+    EXPECT_EQ(gene_conservation::Kmers("ACGTNACGTACG").size(), 0u);         // no 12 bases without an N
+}
+
+TEST(GeneConservation, TheEstimateFollowsHowFastEachGeneDiverges) {
+    // 30 species of 21 genes: genes 1, 4, ... diverge at 0.4 times a species' rate, genes 2, 5, ... at 1,
+    // genes 3, 6, ... at 1.6; each species' 3 other genomes 0.5-3% from its representative at a gene
+    // of rate 1. The full reference lists the representative's own copy too.
+    std::mt19937 rng(11);
+    std::vector<double> const rate = { 0.4, 1.0, 1.6 };
+    std::vector<uint64_t> keys;
+    std::map<std::pair<uint64_t, uint64_t>, std::string> reference;
+    for (uint64_t taxid = 1; taxid <= 30; taxid++) {
+        for (uint64_t gene = 1; gene <= 21; gene++) {
+            keys.push_back(gene_conservation::Estimator::Key(taxid, gene));
+            reference[{taxid, gene}] = RandomBases(rng, 900);
+        }
+    }
+    // A species with identical genomes and one with only 5 genes inform nothing.
+    for (uint64_t gene = 1; gene <= 21; gene++) keys.push_back(gene_conservation::Estimator::Key(31, gene));
+    for (uint64_t gene = 1; gene <= 5; gene++) keys.push_back(gene_conservation::Estimator::Key(32, gene));
+    gene_conservation::Estimator estimator(keys);
+    for (uint64_t taxid = 1; taxid <= 30; taxid++) {
+        double const divergence = 0.005 + 0.025 * (taxid - 1) / 29.0;
+        for (uint64_t gene = 1; gene <= 21; gene++) {
+            auto const& rep = reference[{taxid, gene}];
+            auto slot = estimator.Take(taxid, gene);
+            ASSERT_TRUE(slot);
+            estimator.Add(*slot, rep, rep);  // the representative's own copy
+            for (int genome = 0; genome < 3; genome++) {
+                slot = estimator.Take(taxid, gene);
+                ASSERT_TRUE(slot);
+                estimator.Add(*slot, rep, Mutate(rng, rep, divergence * rate[(gene - 1) % 3]));
+            }
+        }
+    }
+    std::string const same = RandomBases(rng, 900);
+    for (uint64_t gene = 1; gene <= 21; gene++) {
+        for (int genome = 0; genome < 3; genome++) estimator.Add(*estimator.Take(31, gene), same, same);
+    }
+    for (uint64_t gene = 1; gene <= 5; gene++) estimator.Add(*estimator.Take(32, gene), same, Mutate(rng, same, 0.02));
+    EXPECT_FALSE(estimator.Take(33, 1)) << "not a reference gene";
+
+    auto const estimate = estimator.Finish();
+    EXPECT_EQ(estimate.species, 30u);
+    EXPECT_EQ(estimate.species_with_copies, 32u);
+    EXPECT_EQ(estimate.table.Genes(), 21u);
+    for (uint64_t gene = 1; gene <= 21; gene++) {
+        double const truth = rate[(gene - 1) % 3];
+        double const shrunk = (30 * truth + gene_conservation::kPrior) / (30 + gene_conservation::kPrior);
+        EXPECT_NEAR(estimate.table.Factor(gene), shrunk, 0.12) << "gene " << gene << ", rate " << truth;
+    }
+}
+
+TEST(GeneConservation, CopiesBeyondTheCapAreNotCompared) {
+    gene_conservation::Estimator estimator({ gene_conservation::Estimator::Key(1, 1) });
+    for (uint32_t i = 0; i < gene_conservation::kMaxCopies; i++) EXPECT_TRUE(estimator.Take(1, 1));
+    EXPECT_FALSE(estimator.Take(1, 1));
+    EXPECT_TRUE(estimator.Finish().table.Empty());  // one species, one gene: no factor
 }

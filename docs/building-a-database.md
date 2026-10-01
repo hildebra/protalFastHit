@@ -67,21 +67,36 @@ protal --build --no_profile -t 16 --db /data/protal_r226_db \
 ```
 
 This indexes `reference.fna`, checks every k-mer's uniqueness against `full_reference.fna`
-(`--reference` is used when `--full_reference` is not given), writes `unique_kmers.tsv`, and packs
-everything into `database.protal`, which it reads back and compares before it removes the separate
-files. `full_reference.fna`, `gene2geneid.tsv` and `genome2tiid.tsv` stay next to it.
+(`--reference` is used when `--full_reference` is not given), writes `unique_kmers.tsv` and
+`gene_conservation.tsv` (below), and packs everything into `database.protal`, which it reads back
+and compares before it removes the separate files. `full_reference.fna`, `gene2geneid.tsv` and
+`genome2tiid.tsv` stay next to it.
+
+`gene_conservation.tsv` says how fast each gene diverges within species compared with the species'
+other genes, so that the depth identity margin can be wider on fast genes and narrower on conserved
+ones (`--depth_identity_margin`, [running.md](running.md#options-the-website-does-not-list)). For
+each species and gene, the build compares up to 16 other genomes' copies in `full_reference.fna`
+with the representative's (k-mer distance, k = 12); divided by the distance of the species' median
+gene, this cancels how far a species' strains are from its representative. A gene's factor is the
+median of that ratio over the species with 10 genes or more and strains at least 0.2% from the
+representative, scaled to 1 for the median gene and shrunk towards 1 when few species inform it.
+The log reports the range (`Gene conservation: factors 0.37-1.9 for 168 genes, from 120 species`).
+Without other genomes' copies (no `--full_reference`, or one genome per species) the build writes
+no table, and every gene keeps the whole margin. On a simulated world whose genes evolve at
+different rates the factors correlated 0.99 with the true rates
+([report](claude/2026-10-01-gene-scaled-margin/README.md)).
 [database-files.md](database-files.md#build-options-for-the-format) lists the options for
 separate or uncompressed files and for the compression level. Pass `--no_profile`: without it,
 build mode goes on to profile an empty sample list.
 
 Every phase uses `-t` threads: the two passes over `reference.fna` that fill the index (each
 thread owns a range of k-mers, so the index is the same for any `-t`), the value pointers, the
-uniqueness check, the unique k-mer statistics and the compression. The log times each phase
-(`Pass 1 (count the k-mers) took ...`, `Value pointers`, `Pass 2 (place the values)`, `Uniqueness
-check`, `Unique k-mer statistics`, `Write index`) and counts the uniqueness check's work (k-mers,
-flex parts compared per k-mer, k-mers found under another taxon, entries read back from their
-genes): at GTDB scale that tells where a build spends its time
-([report](claude/2026-09-30-index-build-gains/README.md)).
+uniqueness check, the gene conservation (a second pass over `full_reference.fna`), the unique k-mer
+statistics and the compression. The log times each phase (`Pass 1 (count the k-mers) took ...`,
+`Value pointers`, `Pass 2 (place the values)`, `Uniqueness check`, `Gene conservation`, `Unique k-mer
+statistics`, `Write index`) and counts the uniqueness check's work (k-mers, flex parts compared per
+k-mer, k-mers found under another taxon, entries read back from their genes): at GTDB scale that
+tells where a build spends its time ([report](claude/2026-09-30-index-build-gains/README.md)).
 
 ### 3. Check it
 

@@ -509,10 +509,61 @@ TEST(Abundance, TheMsaTakesReadsByAStricterMarginThanTheDepth) {
     }
     auto& taxon = profile.GetTaxa().at(1);
     EXPECT_DOUBLE_EQ(taxon.TopIdentity(), 1.0);
-    EXPECT_NEAR(taxon.OwnIdentityThreshold(), 0.92, 1e-9);
+    EXPECT_NEAR(taxon.OwnIdentityThreshold(1), 0.92, 1e-9);
     EXPECT_NEAR(taxon.VerticalCoverage(true), 80.0 / 50, 1e-9);  // both kinds of reads
     EXPECT_NEAR(taxon.IdentityThreshold(0.04), 0.96, 1e-9);       // the MSA's: the strain's reads out
     EXPECT_EQ(taxon.IdentityThreshold(1), 0);
+}
+
+TEST(Abundance, TheDepthMarginScalesWithTheGenesConservation) {
+    // Two 50 bp genes of one species: gene 1 conserved (factor 0.4: margin 0.03 + 0.05 x 0.4 = 0.05),
+    // gene 2 fast (1.6: 0.11). Reads 10% below the best on the fast gene are the species' own (a
+    // strain's) and count; a read 6% below on the conserved gene is a relative's and does not.
+    std::filesystem::path const dir = std::filesystem::temp_directory_path() / ("protal_scaled_margin_" + std::to_string(::getpid()));
+    std::filesystem::create_directories(dir);
+    std::string const gene1 = kReference, gene2 = "TTGACCGTAGCATGCAAGTCCGATTGACGTAACGGTCATGCAGTTCAGAC";
+    {
+        std::ofstream fna(dir / "reference.fna");
+        std::ofstream map(dir / "reference.map");
+        size_t offset = 0;
+        for (auto const& [id, seq] : { std::pair<int, std::string>{ 1, gene1 }, { 2, gene2 } }) {
+            std::string const header = ">1_" + std::to_string(id) + "\n";
+            fna << header << seq << '\n';
+            map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
+            offset += header.size() + seq.size() + 1;
+        }
+    }
+    GenomeLoader loader((dir / "reference.fna").string(), (dir / "reference.map").string());
+    loader.LoadAllGenomes();
+    profiler::MicrobialProfile profile(loader);
+    profile.SetDepthIdentityMargin(0.08);
+    auto own = MakeSam(gene1, "50M", 1);
+    auto relative = MakeSam(gene1, "47M3X", 1);  // identity 0.94
+    auto strain = MakeSam(gene2, "45M5X", 1);    // identity 0.90
+    for (auto const* sam : { &own, &own, &relative }) ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0));
+    for (int i = 0; i < 2; i++) ASSERT_TRUE(profile.AddSam(1, 2, strain, 1.0));
+    auto& taxon = profile.GetTaxa().at(1);
+    ASSERT_DOUBLE_EQ(taxon.TopIdentity(), 1.0);
+
+    // Without factors: 0.08 on both genes, the strain's reads out and the relative's in.
+    EXPECT_NEAR(taxon.OwnIdentityThreshold(1), 0.92, 1e-9);
+    EXPECT_NEAR(taxon.OwnIdentityThreshold(2), 0.92, 1e-9);
+    taxon.VerticalCoverage(true);
+    EXPECT_NEAR(taxon.LowIdentityShare(), 100.0 / 250, 1e-9);
+
+    gene_conservation::Table factors;
+    factors.Set(1, 0.4);
+    factors.Set(2, 1.6);
+    loader.SetGeneConservation(factors);
+    EXPECT_NEAR(taxon.OwnIdentityThreshold(1), 0.95, 1e-6);
+    EXPECT_NEAR(taxon.OwnIdentityThreshold(2), 0.89, 1e-6);
+    EXPECT_NEAR(taxon.VerticalCoverage(true), 100.0 / 50, 1e-9);  // two reads' worth on each gene
+    EXPECT_NEAR(taxon.LowIdentityShare(), 50.0 / 250, 1e-9);       // the relative's read only
+
+    profile.SetDepthIdentityMargin(1);  // every read counts, whatever the gene
+    EXPECT_EQ(taxon.OwnIdentityThreshold(1), 0);
+    EXPECT_NEAR(taxon.LowIdentityShare(), 0.0, 1e-9);
+    std::filesystem::remove_all(dir);
 }
 
 // tsl::sparse_map copies the values of a bucket on every insert into it unless they move without

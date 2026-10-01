@@ -547,6 +547,90 @@ class LowCoverageAbundanceTest(WorkDir):
                                                      f"depth {depth:.4f} vs {fraction * full[taxid]:.4f} expected")
 
 
+class GeneConservationTest(WorkDir):
+    """--build estimates how fast each gene diverges within species from the other genomes' copies in
+    --full_reference (gene_conservation.tsv), and queries scale the depth identity margin by it."""
+
+    def build(self, name, rates, with_full_reference=True):
+        """A database of 4 species with 12 genes of 600 bp each; in full_reference, 2 other genomes per
+        species whose gene i differs from the representative's at 2% times rates[i]."""
+        rng = random.Random(21)
+
+        def mutate(seq, rate):
+            return "".join(rng.choice([c for c in "ACGT" if c != b]) if rng.random() < rate else b for b in seq)
+
+        db = self.path(name)
+        os.mkdir(db)
+        genes = {(taxid, gene): "".join(rng.choice("ACGT") for _ in range(600))
+                 for taxid in range(1, 5) for gene in range(1, len(rates) + 1)}
+        with open(os.path.join(db, "reference.fna"), "w") as fna, open(os.path.join(db, "reference.map"), "w") as mp:
+            offset = 0
+            for (taxid, gene), seq in genes.items():
+                header = f">{taxid}_{gene}\n"
+                fna.write(header + seq + "\n")
+                mp.write(f"{taxid}\t{gene}\t{offset + len(header)}\t{offset + len(header) + len(seq)}\n")
+                offset += len(header) + len(seq) + 1
+        with open(os.path.join(db, "internal_taxonomy.dmp"), "w") as fh:
+            fh.write("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n5\t5\t0\troot\tno rank\t0\t\n" +
+                     "".join(f"{t}\t5\t0\ts__Species {t}\tspecies\t7\tGCF_{t}\n" for t in range(1, 5)))
+        full = os.path.join(db, "full_reference.fna")
+        with open(full, "w") as fh:
+            for (taxid, gene), seq in genes.items():
+                fh.write(f">{taxid}_{gene}\n{seq}\n")
+                for _ in range(2):
+                    fh.write(f">{taxid}_{gene}\n{mutate(seq, 0.02 * rates[gene - 1])}\n")
+        args = ["--full_reference", full] if with_full_reference else []
+        rc, log = run(self.work, "--build", "--no_bundle", "--no_profile", "-t", "2", "--db", db,
+                      "--reference", os.path.join(db, "reference.fna"), *args)
+        self.assertEqual(rc, 0, log[-3000:])
+        for index in ("index.prx", "index.prx.zst"):
+            if os.path.exists(os.path.join(db, index)):
+                os.remove(os.path.join(db, index))
+        return db, log
+
+    def test_build_estimates_the_genes_factors(self):
+        rates = [0.3] * 6 + [1.7] * 6
+        db, log = self.build("db", rates)
+        self.assertIn("Gene conservation: factors", log)
+        with open(os.path.join(db, "gene_conservation.tsv")) as fh:
+            header = fh.readline()
+            factors = {int(f[0]): float(f[1]) for f in (line.split("\t") for line in fh)}
+        self.assertEqual(header, "geneid\tfactor\tspecies\n")
+        self.assertEqual(sorted(factors), list(range(1, 13)))
+        slow = [factors[g] for g in range(1, 7)]
+        fast = [factors[g] for g in range(7, 13)]
+        self.assertLess(max(slow), 1, factors)
+        self.assertGreater(min(fast), 1, factors)
+
+        _, log = self.build("db_without", rates, with_full_reference=False)
+        self.assertIn("Gene conservation: no factors", log)
+        self.assertFalse(os.path.exists(self.path("db_without", "gene_conservation.tsv")))
+
+    def test_queries_scale_the_margin_unless_told_not_to(self):
+        if not os.path.exists(db_file("gene_conservation.tsv")):
+            self.skipTest("the test database has no gene_conservation.tsv (built by an earlier protal)")
+        ones = self.path("ones.tsv")
+        with open(db_file("gene_conservation.tsv")) as src, open(ones, "w") as dst:
+            dst.write(src.readline())
+            dst.writelines(line.split("\t")[0] + "\t1\n" for line in src)
+        profiles = {}
+        for name, extra, expected in (("scaled", [], "Gene conservation: factors"),
+                                      ("none", ["--gene_conservation", "none"], "Gene conservation: none"),
+                                      ("ones", ["--gene_conservation", ones], "Gene conservation: factors 1-1 for")):
+            rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name, "-t", "2", "--no_strains", *extra)
+            self.assertEqual(rc, 0, log[-3000:])
+            self.assertIn(expected, log)
+            with open(self.path(name, "sa.profile")) as fh:
+                profiles[name] = fh.read()
+        # The reads are the reference genes' with 0.5% errors: far above any gene's threshold.
+        self.assertEqual(profiles["scaled"], profiles["none"])
+        self.assertEqual(profiles["ones"], profiles["none"])
+
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "missing", "--gene_conservation", "no_such.tsv")
+        self.assertNotEqual(rc, 0, log[-3000:])
+        self.assertIn("--gene_conservation does not exist: no_such.tsv", log)
+
+
 class ModelContractTest(WorkDir):
     """The training dump holds the features the model is scored with, and --no_strains changes no profile."""
 
@@ -1465,6 +1549,12 @@ class FailFastTest(WorkDir):
                           f"{os.path.realpath(self.work)})", log)
             self.assertNotIn("holds separate files", log)
             self.assertNotIn("Sequence file does not exist", log)
+
+    def test_malformed_gene_conservation(self):
+        db = self.db_copy("db_conservation", {"gene_conservation.tsv": b"geneid\tfactor\tspecies\n1\tfast\t3\n"})
+        rc, log = self.query(db, "out_conservation")
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertRegex(log, r"Invalid gene conservation factors .*gene_conservation.tsv: line 2: the factor is not a number")
 
     def test_missing_model_and_unique_kmers(self):
         db = self.db_copy("db_files", drop=("model_pe.xml", "unique_kmers.tsv"))

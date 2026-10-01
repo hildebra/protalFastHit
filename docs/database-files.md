@@ -1,6 +1,7 @@
 # Database files
 
-A protal database consists of six parts, and models of other kinds of reads:
+A protal database consists of six parts, an optional table of the genes' conservation, and models of
+other kinds of reads:
 
 | File | What it holds |
 |---|---|
@@ -9,6 +10,7 @@ A protal database consists of six parts, and models of other kinds of reads:
 | `reference.map` | taxid, gene id, start and end byte of each gene in `reference.fna` |
 | `internal_taxonomy.dmp` | the taxonomy: id, parent, external id, name, rank, level, representative genome |
 | `unique_kmers.tsv` | per species and gene, counts of the k-mers unique to it in the database; the uniqueness features of the model |
+| `gene_conservation.tsv` | optional: per gene id, how fast the gene diverges within species compared with the species' other genes (1 for a typical gene, below 1 for conserved ones); it scales `--depth_identity_margin` per gene. `--build` estimates it from `full_reference.fna` ([building-a-database.md](building-a-database.md#2-build-the-index)). Without it (a database of an earlier version, or of one genome per species) every gene keeps the whole margin |
 | `model_pe.xml` | the presence model (a random forest in PMML) of paired-end reads, see [model-training.md](model-training.md); `model.xml` in databases of earlier versions |
 | `model_se.xml` | optional: the presence model of single-end reads; without it, single-end samples need `--model_se` ([running.md](running.md#single-end-reads)) |
 | `model_PB.xml`, `model_ONT.xml` | optional: the presence models of PacBio and Nanopore reads (`--model_pb`, `--model_ont` without them) |
@@ -25,8 +27,9 @@ The index records which features it was built with; protal prints them when it l
 
 In `internal_taxonomy.dmp`, ids and names are unique (truth files and `--msa_species` name
 taxa), every parent is defined, and every lineage ends at the root, a taxon that is its own
-parent. `reference.map` and `unique_kmers.tsv` list at least one gene. protal stops at the first
-problem, with the file and line.
+parent. `reference.map` and `unique_kmers.tsv` list at least one gene. `gene_conservation.tsv` has a
+line `geneid<TAB>factor<TAB>species` per gene (the header line and the species column may be left
+out), factors above 0. protal stops at the first problem, with the file and line.
 
 ## Compression
 

@@ -267,8 +267,8 @@ class MiniDbTest(unittest.TestCase):
         # genes, stopped the copy's build), and what an earlier build of the copy left is removed.
         src, dst = os.path.join(self.tmp.name, "db_built"), os.path.join(self.tmp.name, "db_training")
         shutil.copytree(self.db, src)
-        for name in ("unique_kmers.tsv", "index.prx.zst.partial", "database.protal.partial", "database.protal",
-                     "build_metadata.tsv"):
+        for name in ("unique_kmers.tsv", "gene_conservation.tsv", "index.prx.zst.partial", "database.protal.partial",
+                     "database.protal", "build_metadata.tsv"):
             with open(os.path.join(src, name), "w") as fh:
                 fh.write("left by a build\n")
         os.makedirs(dst)
@@ -286,7 +286,8 @@ class MiniDbTest(unittest.TestCase):
         self.assertEqual(set(os.listdir(dst)), expected)
         # Converting a release anew removes the build outputs of the folder's earlier reference, too.
         run(CONVERT, "--gtdb", self.gtdb, "--outdir", src)
-        for name in ("unique_kmers.tsv", "index.prx.zst.partial", "database.protal.partial", "database.protal"):
+        for name in ("unique_kmers.tsv", "gene_conservation.tsv", "index.prx.zst.partial", "database.protal.partial",
+                     "database.protal"):
             self.assertFalse(os.path.exists(os.path.join(src, name)), name)
 
     def test_download_gtdb(self):

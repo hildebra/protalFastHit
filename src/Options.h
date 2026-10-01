@@ -25,6 +25,7 @@
 #include "SamFile.h"
 #include "ReadType.h"
 #include "SequenceUtils/SeqReader.h"
+#include "SequenceUtils/GeneConservation.h"
 #include "gzstream/gzstream.h"
 
 
@@ -99,7 +100,8 @@ namespace protal {
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
-                ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
+                ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is scaled per gene by the database's gene conservation factors (see --gene_conservation): 0.03 for read errors plus the rest times the gene's factor, so the default, 0.08, is 0.08 on a gene of typical conservation (factor 1), 0.05 on one with factor 0.4 and 0.10 on one with 1.4. It counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
+                ("gene_conservation", "How fast each gene diverges within species, which scales --depth_identity_margin per gene: a file of gene ids and factors (gene_conservation.tsv: geneid, factor, species; 1 for a gene of typical conservation), or none for the same margin on every gene. Default: the database's gene_conservation.tsv, which --build estimates from --full_reference; without it every gene has factor 1.", cxxopts::value<std::string>()->default_value(""))
                 ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
                 ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_pb", "PMML model file for PacBio samples, given as --model. Default: --model if given, else the database's model_PB.xml.", cxxopts::value<std::string>()->default_value(""))
@@ -139,16 +141,16 @@ namespace protal {
                 ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
-                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, the models model_*.xml) instead of packing them into database.protal.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, the models model_*.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
                 ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
-                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv (if it has one) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. The model is checked first. database.protal is rewritten with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
-                ("full_reference", "All marker genomes (not only representative ones) to check unique k-mers during build process", cxxopts::value<std::string>()->default_value(""))
+                ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "Newline-delimited gene ids (>=1) to include during build (subset of marker genes)", cxxopts::value<std::string>()->default_value(""))
                 ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory. Needs the database as separate files with an uncompressed reference.fna (not reference.fna.zst or database.protal; see --unpack_db).")
@@ -239,6 +241,7 @@ namespace protal {
         double knob = 0.5;
         double depth_identity_margin = 0.08;
         double msa_identity_margin = 0.04;
+        std::string gene_conservation;  // --gene_conservation: empty (the database's), none, or a file
 
         // alignment
         size_t threads = DEFAULT_THREADS;
@@ -341,6 +344,7 @@ namespace protal {
         double m_knob = 0.5;
         double m_depth_identity_margin = 0.08;
         double m_msa_identity_margin = 0.04;
+        std::string m_gene_conservation;  // --gene_conservation
 
         size_t m_threads = DEFAULT_THREADS;
 
@@ -376,6 +380,7 @@ namespace protal {
         static inline const std::string PROTAL_SEQUENCE_MAP_FILE = "reference.map";
         static inline const std::string PROTAL_HITTABLE_GENES_FILE = "species_gene_mask.tsv";
         static inline const std::string PROTAL_UNIQUE_KMER_FILE = "unique_kmers.tsv";
+        static inline const std::string PROTAL_GENE_CONSERVATION_FILE = gene_conservation::kFileName;
         static inline const std::string PROTAL_TAXONOMY_FILE = "internal_taxonomy.dmp";
         // The presence models of paired-end and of single-end reads.
 
@@ -464,6 +469,7 @@ namespace protal {
                 m_knob(d.knob),
                 m_depth_identity_margin(d.depth_identity_margin),
                 m_msa_identity_margin(d.msa_identity_margin),
+                m_gene_conservation(std::move(d.gene_conservation)),
                 m_threads(d.threads),
                 m_align_top(d.align_top),
                 m_max_score_ani(d.max_score_ani),
@@ -729,6 +735,10 @@ namespace protal {
             return m_database_path + "/" + PROTAL_UNIQUE_KMER_FILE;
         }
 
+        std::string GetGeneConservationFile() const {
+            return m_database_path + "/" + PROTAL_GENE_CONSERVATION_FILE;
+        }
+
         bool HittableGenesMapExists() const {
             return Utils::exists(GetHittableGenesMap());
         }
@@ -774,6 +784,15 @@ namespace protal {
 
         db::DbFile UniqueKmersDbFile() const {
             return DbFileNamed(PROTAL_UNIQUE_KMER_FILE, GetUniqueKmersFile());
+        }
+
+        // The genes' conservation factors that scale the depth identity margin: --gene_conservation's
+        // file, else the database's gene_conservation.tsv; nullopt for --gene_conservation none.
+        // Exists() is false if the database has none.
+        std::optional<db::DbFile> GeneConservationDbFile() const {
+            if (m_gene_conservation == "none") return std::nullopt;
+            if (!m_gene_conservation.empty()) return db::DbFile::OnDisk(m_gene_conservation);
+            return DbFileNamed(PROTAL_GENE_CONSERVATION_FILE, GetGeneConservationFile());
         }
 
         // The model given for reads of `type`: by the type's option (--model_se, --model_pb,
@@ -1760,6 +1779,9 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             if (!(m_msa_identity_margin >= 0)) {
                 error_log.emplace_back("--msa_identity_margin must be 0 or more");
             }
+            if (!m_gene_conservation.empty() && m_gene_conservation != "none" && !std::filesystem::is_regular_file(m_gene_conservation)) {
+                error_log.emplace_back("--gene_conservation does not exist: " + m_gene_conservation + " (a file, or none)");
+            }
             if (!(m_knob >= 0 && m_knob <= 1)) {
                 error_log.emplace_back("--knob must be between 0 and 1 (a probability)");
             }
@@ -2402,6 +2424,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             if (result.count("msa_knob")) d.msa_knob = result["msa_knob"].as<double>();
             d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
             d.msa_identity_margin      = result["msa_identity_margin"].as<double>();
+            d.gene_conservation        = result["gene_conservation"].as<std::string>();
             d.model                    = result["model"].as<std::string>();
             d.model_se                 = result["model_se"].as<std::string>();
             d.model_pb                 = result["model_pb"].as<std::string>();

@@ -7,8 +7,9 @@
 //   alignment threads (.sam.zst by default), the database loaded and the index built in parallel.
 // - Database: one file, database.protal (seekable zstd, index in columns), checked against its
 //   reference; --add_model for a read type's model; index format 2 with correct unique flags.
-// - Profiles and strains: abundance from a species' own reads; variants called per fragment with
-//   strand tests, deletions and unbiased depth; MSAs chosen by --msa_knob.
+// - Profiles and strains: abundance from a species' own reads, by a margin scaled per gene by its
+//   conservation; variants called per fragment with strand tests, deletions and unbiased depth; MSAs
+//   chosen by --msa_knob.
 // - Training: build_gtdb_database.py builds and trains a database from a GTDB release (held-out
 //   clades, other strains, an independent test set, one model per read type) and resumes reruns.
 // - Failures are reported and give a non-zero exit; outputs are written crash-safe.

@@ -241,9 +241,10 @@ namespace protal::build {
     // The files of a database folder that go into database.protal (Database.h), in member order: the
     // index (index.prx.zst in the column format, frames copied as they are), the reference (a
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
-    // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv and every
-    // presence model there is (AllModelFiles in ReadType.h: model_pe.xml, model_se.xml, model_PB.xml,
-    // model_ONT.xml, and model.xml / random_forest.xml of older databases).
+    // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv,
+    // gene_conservation.tsv if the build wrote one, and every presence model there is (AllModelFiles in
+    // ReadType.h: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml, and model.xml /
+    // random_forest.xml of older databases).
     static std::vector<db::Source> BundleSources(protal::Options const& options) {
         namespace fs = std::filesystem;
         std::vector<db::Source> sources = {
@@ -252,6 +253,7 @@ namespace protal::build {
                 {Options::PROTAL_SEQUENCE_MAP_FILE, options.GetSequenceMapFile()},
                 {Options::PROTAL_TAXONOMY_FILE, options.GetInternalTaxonomyFile()}};
         if (fs::exists(options.GetUniqueKmersFile())) sources.push_back({Options::PROTAL_UNIQUE_KMER_FILE, options.GetUniqueKmersFile()});
+        if (fs::exists(options.GetGeneConservationFile())) sources.push_back({Options::PROTAL_GENE_CONSERVATION_FILE, options.GetGeneConservationFile()});
         for (auto const& model : AllModelFiles()) {
             std::string const path = (fs::path(options.GetLocation().dir) / model).string();
             if (fs::exists(path)) sources.push_back({model, path});
@@ -628,6 +630,64 @@ namespace protal::build {
         for (auto const& [taxid, genome] : genomes.GetGenomeMap()) rows.first_row[taxid + 1] = genome.GetGeneList().size();
         std::partial_sum(rows.first_row.begin(), rows.first_row.end(), rows.first_row.begin());
         return rows;
+    }
+
+    // The genes' conservation factors (GeneConservation.h) from the copies of the reference genes in
+    // full_reference (every genome's, >taxid_geneid), read with -t threads, against the reference genes
+    // in genomes. Written to target (gene_conservation.tsv) if any gene has a factor; a target left by
+    // an earlier build is removed otherwise. Without other genomes' copies (no --full_reference, or one
+    // genome per species) every gene keeps the whole depth identity margin.
+    static gene_conservation::Estimate WriteGeneConservation(protal::Options const& options, GenomeLoader& genomes,
+                                                             std::string const& full_reference, std::string const& target) {
+        Benchmark bm("Gene conservation");
+        bm.Start();
+        std::vector<uint64_t> keys;
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) {
+            auto const& genes = genome.GetGeneList();
+            for (size_t i = 0; i < genes.size(); i++) {
+                if (genes[i].IsSet()) keys.push_back(gene_conservation::Estimator::Key(taxid, i + 1));
+            }
+        }
+        gene_conservation::Estimator estimator(std::move(keys));
+        auto input = OpenInput(full_reference);
+        std::istream& is = input->Stream();
+        omp_set_num_threads(static_cast<int>(std::max<size_t>(options.GetThreads(), 1)));
+#pragma omp parallel default(none) shared(is, genomes, estimator)
+        {
+            FastxRecord record;
+            SeqReader reader { is };
+            while (reader(record)) {
+                auto const [taxid, geneid] = KmerUtils::ExtractHeaderInformation(record.header);
+                if (!genomes.HasGene(taxid, geneid)) continue;
+                auto const slot = estimator.Take(taxid, geneid);
+                if (!slot) continue;
+                auto const rep = genomes.GetGenome(taxid).GetGeneOMP(geneid).Sequence();
+                estimator.Add(*slot, rep.View(), record.sequence);
+            }
+        }
+        auto estimate = estimator.Finish();
+        std::error_code ec;
+        std::filesystem::remove(target, ec);
+        if (estimate.table.Empty()) {
+            std::cout << "Gene conservation: no factors (" << estimate.species_with_copies << " species with other genomes' copies of "
+                      << "their genes in " << full_reference << ", " << estimate.species << " of them with enough genes that differ from "
+                      << "the representative's): every gene keeps the whole depth identity margin" << std::endl;
+        } else {
+            std::ofstream os(target);
+            estimate.table.Write(os);
+            os.close();
+            if (!os) {
+                std::cerr << "Writing " << target << " failed" << std::endl;
+                exit(8);
+            }
+            auto const [low, high] = estimate.table.Range();
+            std::cout << "Gene conservation: factors " << std::setprecision(2) << low << "-" << high << std::setprecision(6)
+                      << " for " << estimate.table.Genes() << " genes, from " << estimate.species << " species (" << estimate.copies
+                      << " copies compared): " << target << std::endl;
+        }
+        bm.Stop();
+        bm.PrintResults();
+        return estimate;
     }
 
     // A pass over the reference in `threads` threads that updates the index as one thread would
@@ -1034,6 +1094,8 @@ namespace protal::build {
                   << std::fixed << std::setprecision(1) << flex_compared / std::max(1.0, double(kmers_checked))
                   << std::defaultfloat << " per k-mer), " << kmers_shared << " found under another taxon or more than once, "
                   << singles_read << " single entries read back from their genes" << std::endl;
+
+        WriteGeneConservation(options, genomes, options.GetFullSequenceFilePath(), options.GetGeneConservationFile());
 
         std::cout << "Save unique kmer info: \n" << options.GetUniqueKmersFile() << std::endl;
         Benchmark bm_statistics("Unique k-mer statistics");

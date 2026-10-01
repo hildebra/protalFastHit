@@ -402,10 +402,13 @@ namespace protal {
 
             Genome* m_genome;  // the database's genome, shared by all samples
             size_t m_genome_gene_count = 0;
+            gene_conservation::Table const* m_conservation = nullptr;  // none: every gene's factor is 1
 
         public:
 
-            Taxon(Genome& genome) : m_genome(&genome), m_genome_gene_count(genome.GeneNum()) {}
+            // conservation: the database's genes' conservation factors (GenomeLoader::GetGeneConservation).
+            Taxon(Genome& genome, gene_conservation::Table const* conservation = nullptr) :
+                    m_genome(&genome), m_genome_gene_count(genome.GeneNum()), m_conservation(conservation) {}
 
             // Drops what is computed from the reads, when a read is added.
             void Changed() {
@@ -702,12 +705,21 @@ namespace protal {
                 return top;
             }
 
-            // The lowest identity of a read that counts towards the taxon's depth: `margin` below
-            // TopIdentity. A present species' own reads form this top cluster; reads of relatives
-            // (absent from the database, or much more abundant) align at lower identity and would
-            // inflate its depth. They still count for detection: the model's features use every read.
-            double OwnIdentityThreshold() const {
-                return IdentityThreshold(m_depth_identity_margin);
+            // The lowest identity of a read on gene `geneid` that counts towards the taxon's depth: the
+            // depth identity margin below TopIdentity, scaled by the gene's conservation factor
+            // (gene_conservation::GeneMargin: 0.03 + 0.05 x the factor at the default 0.08), as a
+            // strain's reads on a fast gene sit further below the best ones than on a conserved gene. A
+            // present species' own reads form this top cluster; reads of relatives (absent from the
+            // database, or much more abundant) align at lower identity and would inflate its depth. They
+            // still count for detection: the model's features use every read.
+            double OwnIdentityThreshold(uint64_t geneid) const {
+                if (m_depth_identity_margin >= 1 || PresentGenes() == 0) return 0;
+                return TopIdentity() - gene_conservation::GeneMargin(m_depth_identity_margin, GeneFactor(geneid));
+            }
+
+            // The conservation factor of gene `geneid` (1 without the database's factors).
+            double GeneFactor(uint64_t geneid) const {
+                return m_conservation ? m_conservation->Factor(geneid) : 1.0;
             }
 
             // The lowest identity of a read within `margin` of TopIdentity; 0 (every read) for a margin of 1
@@ -809,11 +821,10 @@ namespace protal {
             // Depth of the taxon from its own reads (see OwnIdentityThreshold), estimated by BlendedDepth.
             double VerticalCoverage(bool force=false) const {
                 if (m_vcov == -1 || force) {
-                    double const min_identity = OwnIdentityThreshold();
                     std::vector<double> vcovs;
                     size_t own_bases = 0, all_bases = 0;
                     for (auto& [geneid, gene] : m_genes) {
-                        size_t const bases = gene.MappedLength(min_identity);
+                        size_t const bases = gene.MappedLength(OwnIdentityThreshold(geneid));
                         all_bases += gene.m_mapped_length;
                         if (bases == 0 || gene.m_gene_length == 0) continue;
                         vcovs.emplace_back(static_cast<double>(bases) / static_cast<double>(gene.m_gene_length));
@@ -839,8 +850,8 @@ namespace protal {
                 return m_vcov;
             }
 
-            // Share of the taxon's aligned bases below OwnIdentityThreshold: reads of relatives, e.g. of
-            // a species the database lacks.
+            // Share of the taxon's aligned bases below their gene's OwnIdentityThreshold: reads of
+            // relatives, e.g. of a species the database lacks.
             double LowIdentityShare() const {
                 VerticalCoverage();
                 return m_low_identity_share;
@@ -1336,7 +1347,7 @@ namespace protal {
             void AddRead(InternalReadAlignment const& ira, bool unique=true) {
                 if (!m_taxa.contains(ira.taxid)) {
                     auto& genome = m_genome_loader.GetGenome(ira.taxid);
-                    m_taxa.insert( { ira.taxid, Taxon(genome) } );
+                    m_taxa.insert( { ira.taxid, Taxon(genome, &m_genome_loader.GetGeneConservation()) } );
                     m_taxa.at(ira.taxid).SetName(std::to_string(ira.taxid));
                 }
                 auto& taxon = m_taxa.at(ira.taxid);
@@ -1358,7 +1369,7 @@ namespace protal {
                 if (!m_taxa.contains(taxid)) {
                     auto &genome = m_genome_loader.GetGenome(taxid);
 
-                    m_taxa.insert( { taxid, Taxon(genome) } );
+                    m_taxa.insert( { taxid, Taxon(genome, &m_genome_loader.GetGeneConservation()) } );
                     m_taxa.at(taxid).SetId(taxid);
                     m_taxa.at(taxid).SetDepthIdentityMargin(m_depth_identity_margin);
                     m_taxa.at(taxid).SetName(std::to_string(taxid));

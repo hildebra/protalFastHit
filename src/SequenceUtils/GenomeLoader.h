@@ -31,6 +31,7 @@
 
 #include "Benchmark.h"
 #include "PackedSequence.h"
+#include "GeneConservation.h"
 
 namespace protal {
     // The database's gene tables (reference.map, unique_kmers.tsv), one line per gene (16.6M at GTDB
@@ -521,6 +522,7 @@ namespace protal {
         bool m_compressed = false;  // reference.fna.zst or in database.protal: genes are only read by LoadAllGenomes
         std::ifstream m_is;
         GenomeMap m_genomes;
+        gene_conservation::Table m_gene_conservation;  // empty: every gene's factor is 1
 
         int m_threads = 1;  // for reading reference.map
         struct FreeDeleter { void operator()(void* p) const { std::free(p); } };
@@ -568,6 +570,7 @@ namespace protal {
         GenomeLoader(const GenomeLoader& other) :
                 m_reference(other.m_reference),
                 m_map(other.m_map),
+                m_gene_conservation(other.m_gene_conservation),
                 m_threads(other.m_threads) {
             Open();
             LoadPositionMap(m_map, m_threads);
@@ -575,6 +578,16 @@ namespace protal {
 
         bool IsCompressed() const {
             return m_compressed;
+        }
+
+        // The genes' conservation factors (GeneConservation.h), which scale the depth identity margin
+        // per gene; empty unless set, and then every factor is 1.
+        gene_conservation::Table const& GetGeneConservation() const {
+            return m_gene_conservation;
+        }
+
+        void SetGeneConservation(gene_conservation::Table table) {
+            m_gene_conservation = std::move(table);
         }
 
         ~GenomeLoader() {

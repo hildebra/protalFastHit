@@ -163,6 +163,39 @@ namespace protal {
         }
     }
 
+    // The genes' conservation factors, which scale the depth identity margin per gene
+    // (Options::GeneConservationDbFile, GeneConservation.h): the database's gene_conservation.tsv or
+    // --gene_conservation's file. Without them every gene keeps the whole margin. Exits 8 if the file
+    // cannot be read.
+    static void LoadGeneConservation(Options const& options, GenomeLoader& genomes) {
+        auto const file = options.GeneConservationDbFile();
+        std::string const same = "the depth identity margin is the same on every gene";
+        if (!file) {
+            std::cout << "Gene conservation: none (--gene_conservation none): " << same << std::endl;
+            return;
+        }
+        if (!file->Exists()) {
+            std::cout << "Gene conservation: the database has no " << Options::PROTAL_GENE_CONSERVATION_FILE << " (built by an "
+                      << "earlier protal, or its --full_reference had no other genomes' copies of the genes): " << same << std::endl;
+            return;
+        }
+        std::string error;
+        auto const content = file->ReadAll(error);
+        gene_conservation::Table table;
+        if (content) {
+            std::istringstream is(*content);
+            error = table.Read(is);
+        }
+        if (!error.empty()) {
+            std::cerr << "Invalid gene conservation factors " << file->Name() << ": " << error << std::endl;
+            exit(8);
+        }
+        auto const [low, high] = table.Range();
+        std::cout << "Gene conservation: factors " << std::setprecision(2) << low << "-" << high << std::setprecision(6) << " for "
+                  << table.Genes() << " genes (" << file->Name() << "), which scale the depth identity margin per gene" << std::endl;
+        genomes.SetGeneConservation(std::move(table));
+    }
+
     template<typename AlignmentBenchmark=NoBenchmark>
     static void RunWrapper(Options& options, ProtalDB& db, AlignmentBenchmark benchmark=NoBenchmark{}) {
 
@@ -2011,6 +2044,7 @@ namespace protal {
                     models[static_cast<size_t>(info.type)].emplace(LoadModel(model_file, options.GetKnob()));
                 }
             }
+            LoadGeneConservation(options, db.GetGenomes());
         }
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {
             // The benchmark takes each read's true gene from its name; without one it would stop
