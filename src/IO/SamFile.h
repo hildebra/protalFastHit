@@ -420,18 +420,30 @@ namespace protal {
     // A SAM file for reading: plain, gzip or zstd, told apart by its content. Problem() says why a
     // file is incomplete before it is read (a missing end marker, see the top of this file);
     // ReadFailed() and ReadError() tell, once reading stopped, whether it ended early because the
-    // data are truncated or corrupt.
+    // data are truncated or corrupt. `decompress_threads`: 0 decompresses a zstd file in the thread that
+    // reads it; more decompress a seekable one (protal's .sam.zst) frame by frame on that many threads of
+    // their own, ahead of the reader (zstd::ParallelFrameStreambuf).
     class SamInput {
     public:
-        explicit SamInput(std::string const& path) {
+        explicit SamInput(std::string const& path, size_t decompress_threads = 0) {
             if (zstd::IsCompressed(path)) {
-                if (sam_zstd::StartsWithMarker(path)) {
+                std::optional<zstd::SeekTable> table;
+                bool const marker = sam_zstd::StartsWithMarker(path);
+                if (marker || decompress_threads > 0) {
                     std::string error;
-                    if (!zstd::ReadSeekTable(path, error)) m_problem = error.empty() ? "the seek table that ends it is missing" : error;
+                    table = zstd::ReadSeekTable(path, error);
+                    if (marker && !table) m_problem = error.empty() ? "the seek table that ends it is missing" : error;
                 }
-                m_zbuf = std::make_unique<zstd::IStreambuf>(path);
-                m_zin = std::make_unique<std::istream>(m_zbuf.get());
-                if (!m_zbuf->IsOpen()) m_zin->setstate(std::ios_base::badbit);
+                if (table && decompress_threads > 0) {
+                    m_pbuf = std::make_unique<zstd::ParallelFrameStreambuf>(path, std::move(*table), decompress_threads,
+                                                                             4 * decompress_threads + 4);
+                    m_zin = std::make_unique<std::istream>(m_pbuf.get());
+                    if (!m_pbuf->IsOpen()) m_zin->setstate(std::ios_base::badbit);
+                } else {
+                    m_zbuf = std::make_unique<zstd::IStreambuf>(path);
+                    m_zin = std::make_unique<std::istream>(m_zbuf.get());
+                    if (!m_zbuf->IsOpen()) m_zin->setstate(std::ios_base::badbit);
+                }
                 m_stream = m_zin.get();
             } else {
                 // Plain or gzip: BGZF inflated with libdeflate, other gzip with zlib-ng, in a thread of its own.
@@ -444,22 +456,29 @@ namespace protal {
         SamInput(SamInput const&) = delete;
         SamInput& operator=(SamInput const&) = delete;
 
-        bool IsOpen() const { return m_zbuf ? m_zbuf->IsOpen() : m_gz->rdbuf()->is_open(); }
+        bool IsOpen() const {
+            if (m_zbuf) return m_zbuf->IsOpen();
+            if (m_pbuf) return m_pbuf->IsOpen();
+            return m_gz->rdbuf()->is_open();
+        }
         std::istream& Stream() { return *m_stream; }
         std::string const& Problem() const { return m_problem; }
 
         bool ReadFailed() const {
-            return m_zbuf ? !m_zbuf->Error().empty() || m_zin->bad() : m_gz->rdbuf()->read_failed();
+            if (m_zbuf) return !m_zbuf->Error().empty() || m_zin->bad();
+            if (m_pbuf) return !m_pbuf->Error().empty() || m_zin->bad();
+            return m_gz->rdbuf()->read_failed();
         }
 
         std::string ReadError() const {
-            if (!m_zbuf) return m_gz->rdbuf()->read_error_message();
-            return m_zbuf->Error().empty() ? "read error" : m_zbuf->Error();
+            std::string const& error = m_zbuf ? m_zbuf->Error() : m_pbuf ? m_pbuf->Error() : m_gz->rdbuf()->read_error_message();
+            return error.empty() && (m_zbuf || m_pbuf) ? "read error" : error;
         }
 
     private:
         std::unique_ptr<ThreadedGzIstream> m_gz;
         std::unique_ptr<zstd::IStreambuf> m_zbuf;
+        std::unique_ptr<zstd::ParallelFrameStreambuf> m_pbuf;
         std::unique_ptr<std::istream> m_zin;
         std::istream* m_stream = nullptr;
         std::string m_problem;

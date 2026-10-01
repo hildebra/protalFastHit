@@ -310,6 +310,71 @@ TEST(ZstdSeekable, CorruptFramesAndTablesFail) {
     }
 }
 
+namespace {
+    // A stream read to its end with read() (which turns an exception of the buffer into badbit).
+    std::string ReadToEnd(std::istream& in) {
+        std::vector<char> buffer(size_t{1} << 16);
+        std::string all;
+        while (in.read(buffer.data(), static_cast<std::streamsize>(buffer.size())) || in.gcount() > 0) {
+            all.append(buffer.data(), static_cast<size_t>(in.gcount()));
+        }
+        return all;
+    }
+}
+
+TEST(ZstdSeekable, ParallelFramesAreReadInOrderOnAnyThreadCount) {
+    TempDir tmp;
+    // Frames of 64 KB: many, more than the threads may hold ahead.
+    std::string const data = WriteSeekable(tmp / "s.zst", {TestData(12345, 1), TestData(size_t{3} << 20, 2), TestData(777, 3)}, size_t{1} << 16);
+    std::string error;
+    auto const table = zstd::ReadSeekTable(tmp / "s.zst", error);
+    ASSERT_TRUE(table) << error;
+    for (size_t threads : {1, 2, 4, 9}) {
+        for (size_t ahead : {1, 2, 5, 64}) {
+            zstd::ParallelFrameStreambuf buffer(tmp / "s.zst", *table, threads, ahead);
+            ASSERT_TRUE(buffer.IsOpen());
+            std::istream in(&buffer);
+            EXPECT_EQ(ReadToEnd(in), data) << threads << " threads, " << ahead << " ahead";
+            EXPECT_FALSE(in.bad());
+            EXPECT_TRUE(buffer.Error().empty());
+        }
+    }
+    // A reader that stops early ends the threads, also those waiting for room.
+    for (size_t threads : {1, 4}) {
+        zstd::ParallelFrameStreambuf buffer(tmp / "s.zst", *table, threads, 3);
+        std::istream in(&buffer);
+        std::string first(100, '\0');
+        in.read(first.data(), 100);
+        EXPECT_EQ(first, data.substr(0, 100));
+    }
+    zstd::ParallelFrameStreambuf missing(tmp / "missing.zst", *table, 2, 2);
+    EXPECT_FALSE(missing.IsOpen());
+}
+
+TEST(ZstdSeekable, ParallelFramesStopAtACorruptFrame) {
+    TempDir tmp;
+    std::string const data = WriteSeekable(tmp / "good.zst", {TestData(size_t{4} << 20)}, size_t{1} << 20);
+    std::string corrupt = Slurp(tmp / "good.zst");
+    std::string error;
+    auto const table = zstd::ReadSeekTable(tmp / "good.zst", error);
+    ASSERT_TRUE(table);
+    corrupt[table->frames[2].compressed_offset + table->frames[2].compressed_size / 2] ^= 0x5a;  // in frame 3
+    Spit(tmp / "corrupt.zst", corrupt);
+    for (size_t threads : {1, 3}) {
+        testing::internal::CaptureStderr();
+        zstd::ParallelFrameStreambuf buffer(tmp / "corrupt.zst", *table, threads, 2);
+        std::istream in(&buffer);
+        std::string const read = ReadToEnd(in);
+        std::string const log = testing::internal::GetCapturedStderr();
+        // The frames before it, then the error, printed once.
+        EXPECT_EQ(read, data.substr(0, size_t{2} << 20)) << threads << " threads";
+        EXPECT_TRUE(in.bad());
+        EXPECT_FALSE(buffer.Error().empty());
+        EXPECT_EQ(log.find("Error reading"), log.rfind("Error reading")) << log;
+        EXPECT_NE(log.find("Error reading"), std::string::npos) << log;
+    }
+}
+
 TEST(ZstdSeekable, CompressFileWritesAndRecompressesFrames) {
     TempDir tmp;
     std::string const data = TestData(size_t{3} << 20);

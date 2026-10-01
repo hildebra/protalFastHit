@@ -948,6 +948,152 @@ namespace protal::zstd {
         std::istream m_stream;
     };
 
+    // A seekable zstd file's content read in order, its frames decompressed by `threads` threads of their
+    // own ahead of the reader: at most `ahead` frames are decompressed or waiting to be read, each in a
+    // buffer of its own. A frame that cannot be read or decompressed stops the threads; the reader gets the
+    // frames before it, then the error, as from IStreambuf: printed once (Error() keeps it) and thrown from
+    // the read call, which std::istream turns into badbit.
+    class ParallelFrameStreambuf : public std::streambuf {
+    public:
+        ParallelFrameStreambuf(std::string path, SeekTable table, size_t threads, size_t ahead) :
+                m_path(std::move(path)), m_table(std::move(table)), m_slots(std::max<size_t>(ahead, 1)) {
+            m_fd = ::open(m_path.c_str(), O_RDONLY | O_CLOEXEC);
+            if (m_fd < 0) {
+                m_open_error = std::strerror(errno);
+                return;
+            }
+            posix_fadvise(m_fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+            for (size_t t = 0; t < std::max<size_t>(threads, 1); t++) m_workers.emplace_back(&ParallelFrameStreambuf::Work, this);
+        }
+
+        ~ParallelFrameStreambuf() override {
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_stop = true;
+            }
+            m_cv.notify_all();
+            for (auto& worker : m_workers) worker.join();
+            if (m_fd >= 0) ::close(m_fd);
+        }
+
+        ParallelFrameStreambuf(ParallelFrameStreambuf const&) = delete;
+        ParallelFrameStreambuf& operator=(ParallelFrameStreambuf const&) = delete;
+
+        bool IsOpen() const { return m_open_error.empty(); }
+        std::string const& OpenError() const { return m_open_error; }
+        // Why reading stopped early (as IStreambuf::Error); for the reading thread.
+        std::string const& Error() const { return m_error; }
+
+    protected:
+        int_type underflow() override {
+            if (gptr() < egptr()) return traits_type::to_int_type(*gptr());
+            if (!IsOpen()) return traits_type::eof();
+            std::unique_lock<std::mutex> lock(m_mutex);
+            if (m_reading) {
+                m_slots[m_released % m_slots.size()].ready = false;
+                m_released++;
+                m_reading = false;
+                m_cv.notify_all();
+            }
+            setg(nullptr, nullptr, nullptr);
+            while (m_released < m_table.frames.size()) {
+                size_t const frame = m_released;
+                Slot& slot = m_slots[frame % m_slots.size()];
+                m_cv.wait(lock, [&] { return slot.ready && slot.frame == frame; });
+                if (!slot.error.empty()) {
+                    std::string const error = slot.error;
+                    lock.unlock();
+                    if (m_error.empty()) {
+                        m_error = error;
+                        std::cerr << "Error reading " << m_path << ": " << error << std::endl;
+                    }
+                    throw std::runtime_error(m_path + ": " + error);
+                }
+                if (slot.data.empty()) {  // a frame without content: the marker frame of protal's SAMs
+                    slot.ready = false;
+                    m_released++;
+                    m_cv.notify_all();
+                    continue;
+                }
+                m_reading = true;
+                setg(slot.data.data(), slot.data.data(), slot.data.data() + slot.data.size());
+                return traits_type::to_int_type(*gptr());
+            }
+            return traits_type::eof();
+        }
+
+    private:
+        struct Slot {
+            std::vector<char> data;
+            size_t frame = SIZE_MAX;  // the frame it holds once ready
+            bool ready = false;
+            std::string error;
+        };
+
+        // Takes the next frame while it is fewer than m_slots frames ahead of the reader, and decompresses it
+        // into its slot (the slot of the frame m_slots before it, which the reader has released).
+        void Work() {
+            ZSTD_DCtx* dctx = ZSTD_createDCtx();
+            if (dctx) ZSTD_DCtx_setParameter(dctx, ZSTD_d_windowLogMax, ZSTD_dParam_getBounds(ZSTD_d_windowLogMax).upperBound);
+            std::vector<char> input, output;
+            while (true) {
+                size_t frame;
+                {
+                    std::unique_lock<std::mutex> lock(m_mutex);
+                    m_cv.wait(lock, [this] {
+                        return m_stop || m_failed || m_claimed >= m_table.frames.size() || m_claimed < m_released + m_slots.size();
+                    });
+                    if (m_stop || m_failed || m_claimed >= m_table.frames.size()) break;
+                    frame = m_claimed++;
+                    std::swap(output, m_slots[frame % m_slots.size()].data);  // the slot's buffer, to reuse
+                }
+                std::string error = dctx ? Decompress(frame, dctx, input, output) : "cannot allocate a zstd decompression context";
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    Slot& slot = m_slots[frame % m_slots.size()];
+                    std::swap(slot.data, output);
+                    slot.frame = frame;
+                    slot.error = std::move(error);
+                    slot.ready = true;
+                    if (!slot.error.empty()) m_failed = true;
+                }
+                m_cv.notify_all();
+            }
+            if (dctx) ZSTD_freeDCtx(dctx);
+        }
+
+        std::string Decompress(size_t index, ZSTD_DCtx* dctx, std::vector<char>& input, std::vector<char>& output) const {
+            auto const& frame = m_table.frames[index];
+            input.resize(frame.compressed_size);
+            if (!PreadAll(m_fd, input.data(), frame.compressed_size, frame.compressed_offset)) {
+                return "read error at byte " + std::to_string(frame.compressed_offset);
+            }
+            output.resize(frame.decompressed_size);
+            size_t const got = ZSTD_decompressDCtx(dctx, output.data(), output.size(), input.data(), input.size());
+            if (ZSTD_isError(got)) return std::string(ZSTD_getErrorName(got)) + " (corrupt or not a zstd file?)";
+            if (got != output.size()) {
+                return "frame " + std::to_string(index + 1) + " holds " + std::to_string(got) + " bytes, the seek table says " +
+                       std::to_string(output.size()) + " (corrupt file?)";
+            }
+            return {};
+        }
+
+        std::string m_path;
+        std::string m_open_error;
+        std::string m_error;
+        SeekTable m_table;
+        int m_fd = -1;
+        std::vector<Slot> m_slots;
+        size_t m_claimed = 0;   // frames taken by the threads
+        size_t m_released = 0;  // frames the reader is done with
+        bool m_reading = false; // the reader reads frame m_released
+        bool m_stop = false;
+        bool m_failed = false;
+        std::mutex m_mutex;
+        std::condition_variable m_cv;
+        std::vector<std::thread> m_workers;
+    };
+
     // Writes a file in the seekable format: zstd frames (compressed already) in order, then the
     // seek table (Finish). Failures make Add and Finish return false, with the reason in Error().
     class FrameWriter {

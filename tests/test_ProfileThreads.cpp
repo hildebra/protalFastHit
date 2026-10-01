@@ -198,10 +198,12 @@ namespace {
         size_t reads = 0, rejected_reads = 0;
     };
 
-    Profiled Profile(Reference const& ref, std::string const& sam, size_t threads, size_t chunk_bytes = 0) {
+    Profiled Profile(Reference const& ref, std::string const& sam, size_t threads, size_t chunk_bytes = 0,
+                     std::optional<size_t> decompress_threads = std::nullopt) {
         profiler::Profiler profiler(*ref.loader);
         profiler.SetDepthIdentityMargin(0.08);
         if (chunk_bytes > 0) profiler.SetChunkBytes(chunk_bytes);
+        if (decompress_threads) profiler.SetDecompressThreads(*decompress_threads);
         profiler::MicrobialProfile profile(*ref.loader);
         auto genera = std::make_shared<std::vector<uint32_t>>(std::vector<uint32_t>{ 0, 10, 10, 11, 11, 12 });
         profile.SetGenera(genera);
@@ -366,6 +368,49 @@ TEST(ProfileSam, OnSeveralThreadsTheCompressedSamsGiveTheSameProfile) {
     auto const cut = Profile(ref, path, 1);
     EXPECT_NE(cut.error.find("the file is truncated or corrupt"), std::string::npos) << cut.error;
     for (size_t bytes : { 1, 3000, 0 }) ExpectSame(cut, Profile(ref, path, 4, bytes));
+}
+
+TEST(ProfileSam, AZstdSamOfManyFramesIsDecompressedOnThreadsOfItsOwn) {
+    Reference ref;
+    auto const text = Sam(ref, 3000, 13);
+    auto const header_end = text.find("\nread0\t") + 1;
+    auto const path = (ref.dir.path / "frames.sam.zst").string();
+    {
+        // Many frames: the records written in pieces of whole lines, as the alignment threads hand them over.
+        SamOutput out(path, SamCompression::Zstd);
+        std::vector<uint64_t> genes;
+        for (size_t at = header_end; at < text.size();) {
+            size_t end = text.find('\n', std::min(text.size() - 1, at + 9000)) + 1;
+            out.Write(text.data() + at, end - at, genes);
+            at = end;
+        }
+        ASSERT_TRUE(out.Finish(text.substr(0, header_end))) << out.Error();
+    }
+    std::string error;
+    ASSERT_GT(zstd::ReadSeekTable(path, error)->frames.size(), 50u);
+    auto const serial = Profile(ref, path, 1);
+    ASSERT_EQ(serial.error, "");
+    for (size_t decompress : { 0, 1, 3 }) {
+        SCOPED_TRACE(decompress);
+        ExpectSame(serial, Profile(ref, path, 4, 2000, decompress));
+        ExpectSame(serial, Profile(ref, path, 2, 0, decompress));
+    }
+
+    // A frame in the middle that does not decompress: an error on any number of threads.
+    std::string bytes;
+    {
+        std::ifstream is(path, std::ios::binary);
+        bytes.assign(std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>());
+    }
+    auto const table = zstd::ReadSeekTable(path, error);
+    auto const& middle = table->frames[table->frames.size() / 2];
+    bytes[middle.compressed_offset + middle.compressed_size / 2] ^= 0x5a;
+    std::ofstream(path, std::ios::binary) << bytes;
+    for (size_t decompress : { 0, 1, 3 }) {
+        auto const corrupt = Profile(ref, path, 4, 2000, decompress);
+        EXPECT_NE(corrupt.error.find("the file is truncated or corrupt"), std::string::npos) << decompress << ": " << corrupt.error;
+    }
+    EXPECT_NE(Profile(ref, path, 1).error.find("the file is truncated or corrupt"), std::string::npos);
 }
 
 TEST(ProfileSam, ATaxonLeftWithoutRecordsIsProfiledAsOnOneThread) {

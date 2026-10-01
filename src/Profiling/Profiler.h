@@ -3019,8 +3019,15 @@ namespace protal {
                 m_chunk_bytes = bytes;
             }
 
+            // The threads that decompress a seekable .sam.zst when a SAM is profiled on several threads, in place of
+            // DecompressThreads' choice (0: the thread that reads it).
+            void SetDecompressThreads(size_t threads) {
+                m_decompress_threads = threads;
+            }
+
         private:
             size_t m_chunk_bytes = 0;
+            std::optional<size_t> m_decompress_threads;
 
             // A read of a chunk (ProfileSamParallel): its group of candidates, which holds its records, the one of
             // them that counts (BestOfGroup), its link within the chunk, its records to add (SamAdditions
@@ -3134,6 +3141,15 @@ namespace protal {
                 return true;
             }
 
+            // The threads that decompress a seekable .sam.zst for ProfileSamParallel on `threads` threads (SamInput):
+            // none below 8, where the reading thread keeps ahead of the parsers on its own (0.9 GB/s of SAM, enough for
+            // about 6 threads of parsing; an extra thread only competes for the cores); then one per six threads, at
+            // least two, at most eight (2.4 GB/s with two). SetDecompressThreads overrides it.
+            size_t DecompressThreads(size_t threads) const {
+                if (m_decompress_threads) return *m_decompress_threads;
+                return threads < 8 ? 0 : std::clamp<size_t>(threads / 6, 2, 8);
+            }
+
             // ProfileSam on `threads` threads. The SAM is read in a thread of its own and cut into chunks of whole
             // reads (SamChunks.h), which are parsed and prepared (ParseChunk) in waves. Of a wave's records, what
             // depends on their order is done in file order (PlanChunks), and then the taxa add their records on all
@@ -3146,7 +3162,7 @@ namespace protal {
                 if (std::filesystem::exists(file_path) && std::filesystem::file_size(file_path) == 0) {
                     return "the file is empty (not even a SAM header)";
                 }
-                SamInput input(file_path);
+                SamInput input(file_path, DecompressThreads(threads));
                 if (!input.IsOpen()) return "cannot open the file";
                 // A file cut at a block or frame boundary lacks its format's end marker.
                 if (!input.Problem().empty()) return "the file is truncated or corrupt (" + input.Problem() + ")";
