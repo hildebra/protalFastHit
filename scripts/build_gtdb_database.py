@@ -53,6 +53,11 @@ into the same OUTDIR resumes: the conversion and the two index builds are skippe
 when their inputs are those of the run that completed them (OUTDIR/.stages), and
 the collector reuses the samples it simulated and profiled with the same database,
 protal and design.
+
+Each stage writes to a log of its own in OUTDIR. On the console, each line has the
+time and how long the run has taken; a stage says when it starts and when it ends
+(how long it took, its peak memory), and every --progress-every seconds each stage
+running says how long it has run, the memory it takes and the last line of its log.
 """
 import argparse
 import collections
@@ -77,9 +82,76 @@ ACCESSION = re.compile(r"(?:RS_|GB_)?(GC[AF]_\d{9}\.\d+)")
 sys.path.insert(0, os.path.join(HERE, "mini_db"))
 sys.path.insert(0, HERE)
 import lineages  # noqa: E402
-from gtdb_to_protal_db import clear_build_outputs, normalize_accession, read_representatives  # noqa: E402
+from gtdb_to_protal_db import (clear_build_outputs, full_reference_path, normalize_accession,  # noqa: E402
+                               read_representatives, remove_full_reference as remove_full_reference_files)
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
-from collect_training_data import TABLES  # noqa: E402
+from collect_training_data import TABLES, clock, last_line, units_of, parse_args as collector_args  # noqa: E402
+
+STARTED = time.time()
+
+
+def say(message):
+    """Prints a message, its first line headed by the time and how long the run has taken."""
+    print(f"[{time.strftime('%H:%M:%S')} +{clock(time.time() - STARTED)}] {message}", flush=True)
+
+
+def gigabytes(size):
+    return f"{size / 1e9:.1f} GB" if size >= 1e9 else f"{size / 1e6:.0f} MB"
+
+
+def group_memory(group):
+    """The resident memory of the processes of a process group (a job and the commands it started), in
+    bytes; None without /proc (not Linux)."""
+    total, found = 0, False
+    try:
+        pids = [p for p in os.listdir("/proc") if p.isdigit()]
+    except OSError:
+        return None
+    for pid in pids:
+        try:
+            with open(f"/proc/{pid}/stat") as fh:
+                fields = fh.read().rsplit(")", 1)[1].split()  # the fields after the command's name
+        except (OSError, IndexError):
+            continue  # ended meanwhile
+        if len(fields) > 21 and fields[2] == str(group):  # the process group, and the resident pages
+            total += int(fields[21]) * os.sysconf("SC_PAGE_SIZE")
+            found = True
+    return total if found else None
+
+
+def db_size(db):
+    path = os.path.join(db, "database.protal")
+    return f"; database.protal {gigabytes(os.path.getsize(path))}" if os.path.isfile(path) else ""
+
+
+def tree_size(path):
+    """The bytes of the files under a folder."""
+    total = 0
+    for root, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+class Scratch:
+    """The space the run takes on --scratch: what its file system holds now less what it held at the start,
+    and the most that reached. Looked at every few seconds while the script waits (one statvfs)."""
+
+    def __init__(self, path):
+        self.path, self.start, self.peak = path, shutil.disk_usage(path).used, 0
+
+    def look(self):
+        usage = shutil.disk_usage(self.path)
+        self.peak = max(self.peak, usage.used - self.start)
+        return usage
+
+    def text(self):
+        usage = self.look()
+        return (f"{self.path}: {gigabytes(max(0, usage.used - self.start))} in use by the run (at most "
+                f"{gigabytes(self.peak)} so far), {gigabytes(usage.free)} free")
 
 
 class Job:
@@ -87,16 +159,34 @@ class Job:
     it stops (a failure, an exception, SIGTERM, SIGINT, SIGHUP), the command is stopped with what it started
     (the collector's simulator, ART and protal runs), so that a rerun does not race a build left running.
     While the script waits for one job, it looks at the others every few seconds: one that failed (the
-    finished database's build in the background) stops the script then, not hours later."""
+    finished database's build in the background) stops the script then, not hours later. Every
+    progress_every seconds it says how each job is doing."""
     running = []
+    progress_every = 600
+    scratch = None  # a Scratch with --scratch
 
-    def __init__(self, command, log, on_success=None):
+    def __init__(self, command, log, on_success=None, label=None):
         os.makedirs(os.path.dirname(log), exist_ok=True)
         self.command, self.log, self.on_success, self.started = command, log, on_success, time.time()
+        self.label = label or os.path.basename(log).removesuffix(".log")
         self.seconds = None  # set when it has ended
+        self.peak = None  # the most memory it, or a command it ran, took, in bytes; set when it has ended
         self.fh = open(log, "w")
         self.process = subprocess.Popen(command, stdout=self.fh, stderr=subprocess.STDOUT, start_new_session=True)
         Job.running.append(self)
+
+    def poll(self):
+        """The command's exit code once it has ended, else None. It is reaped with wait4, which tells its peak
+        memory, or that of the commands it ran if larger."""
+        if self.process.returncode is None:
+            try:
+                pid, status, usage = os.wait4(self.process.pid, os.WNOHANG)
+            except ChildProcessError:
+                return self.process.poll()
+            if pid:
+                self.process.returncode = os.waitstatus_to_exitcode(status)
+                self.peak = usage.ru_maxrss * (1 if sys.platform == "darwin" else 1024)
+        return self.process.returncode
 
     def ended(self, rc):
         self.fh.close()
@@ -108,15 +198,40 @@ class Job:
             self.on_success()
 
     def finish(self):
-        """Waits for the command; the seconds it took. Stops the script if it or another job failed."""
+        """Waits for the command; the job, once ended. Stops the script if it or another job failed."""
+        checked = told = time.time()
         while self.seconds is None:
-            try:
-                rc = self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
+            rc = self.poll()
+            if rc is not None:
+                self.ended(rc)
+                break
+            time.sleep(0.2)
+            now = time.time()
+            if now - checked >= 5:
                 check_jobs()
-                continue
-            self.ended(rc)
-        return self.seconds
+                if Job.scratch:
+                    Job.scratch.look()
+                checked = now
+            if 0 < Job.progress_every <= now - told:
+                for job in Job.running:
+                    say(job.status())
+                if Job.scratch:
+                    say("scratch " + Job.scratch.text())
+                told = now
+        return self
+
+    def status(self):
+        """How the command is doing: how long it has run, the memory it and the commands it started take, and
+        the last line of its log."""
+        memory = group_memory(self.process.pid)
+        line = last_line(self.log, 200)
+        return (f"{self.label}: {clock(time.time() - self.started)} so far" +
+                (f", {gigabytes(memory)} in memory" if memory else "") +
+                (f"; {os.path.basename(self.log)}: {line}" if line else ""))
+
+    def took(self):
+        """How long it took, and its peak memory."""
+        return clock(self.seconds) + (f", peak memory {gigabytes(self.peak)}" if self.peak else "")
 
     def kill(self):
         """Stops the command and every process of its group."""
@@ -136,13 +251,13 @@ class Job:
 def check_jobs():
     """Ends the jobs whose command has ended: one that failed stops the script."""
     for job in list(Job.running):
-        rc = job.process.poll()
+        rc = job.poll()
         if rc is not None:
             job.ended(rc)
 
 
-def run(command, log, on_success=None):
-    return Job(command, log, on_success).finish()
+def run(command, log, on_success=None, label=None):
+    return Job(command, log, on_success, label).finish()
 
 
 def make_genome_table(gtdb, release, output, extra_dirs=(), species=None):
@@ -261,8 +376,8 @@ def choose_holdout(genome_table, taxonomy, fraction, clades, max_share, seed):
                           and len(species) <= max_share * len(db) and not any(s in chosen for s in species))
         picked = rng.sample(eligible, min(clades[rank], len(eligible)))
         if len(picked) < clades[rank]:
-            print(f"WARNING: only {len(eligible)} {rank} clades can be held out (two or more species to simulate, at "
-                  f"most {max_share:.0%} of the species); holding out {len(picked)} instead of {clades[rank]}", flush=True)
+            say(f"WARNING: only {len(eligible)} {rank} clades can be held out (two or more species to simulate, at most "
+                f"{max_share:.0%} of the species); holding out {len(picked)} instead of {clades[rank]}")
         for clade in sorted(picked):
             for species in members[clade]:
                 chosen[species] = (rank, clade)
@@ -411,18 +526,27 @@ def summary_lines(read_types, prefixes, db):
             "final model. Details: trained_model*.report.txt", ""] + table
 
 
+def remove_full_reference(folder):
+    """Removes a folder's full reference (full_reference.fna.zst) once its build is done: the marker genes of
+    every genome (86 GB raw at r226), which only that build reads. A rebuild converts the release again (the
+    build packed reference.fna into database.protal)."""
+    path = full_reference_path(folder)
+    if path:
+        say(f"Removed {path} ({gigabytes(remove_full_reference_files(folder))}): only the build reads it")
+
+
 def build_command(protal, db, threads, *extra):
     command = [protal, "--build", "--no_profile", "-t", str(threads), "--db", db,
                "--reference", os.path.join(db, "reference.fna"), *extra]
-    if os.path.isfile(os.path.join(db, "full_reference.fna")):
-        command += ["--full_reference", os.path.join(db, "full_reference.fna")]
+    if full_reference_path(db):
+        command += ["--full_reference", full_reference_path(db)]
     return command
 
 
 def stop_jobs():
     """Stops the jobs still running; one that already ended well still counts (its build is recorded)."""
     for job in list(Job.running):
-        if job.process.poll() == 0:
+        if job.poll() == 0:
             job.ended(0)
     for job in list(Job.running):
         job.kill()
@@ -521,6 +645,9 @@ def check_tools(args, read_types):
                         "script with a Python that has them")
     if problems:
         sys.exit("Cannot start:\n  " + "\n  ".join(problems))
+    if not shutil.which("zstd"):
+        say("Note: no zstd command (envs/protal-db-build.yaml has it): the conversion writes full_reference.fna "
+            "uncompressed, 86 GB at r226")
 
 
 def main():
@@ -620,7 +747,17 @@ def main():
                         "them (placeholder_models.py)")
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
+    p.add_argument("--progress-every", type=float, default=600,
+                   help="seconds between the status lines of the stages running: how long each has run, the memory "
+                        "it takes and the last line of its log (default 600; 0: none)")
+    p.add_argument("--scratch",
+                   help="a fast local disk (a compute node's own) for the simulated samples: their reads, alignments, "
+                        "profiles and the simulators' temporary files go to SCRATCH/training and SCRATCH/test, and "
+                        "only the tables to OUTDIR. A network file system (OUTDIR's, often) is slow at the many "
+                        "files the simulators write and delete. With the defaults the run takes about 60 GB there at "
+                        "its peak (docs/building-a-database.md); a rerun reuses the samples in the same SCRATCH")
     args = p.parse_args()
+    Job.progress_every = args.progress_every
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
     if not read_types or any(t not in TABLES for t in read_types):
         p.error(f"--read-types: a comma-separated list of {', '.join(TABLES)}, got {args.read_types!r}")
@@ -657,6 +794,14 @@ def main():
         if len(found) != 1:
             sys.exit(f"Cannot detect one GTDB release in {args.gtdb}; specify --release")
         release = next(iter(found))
+    say(f"A protal database of GTDB r{release} in {args.outdir}, with {args.threads} threads" +
+        (f"; the stages running are reported every {clock(Job.progress_every)}" if Job.progress_every > 0 else ""))
+    samples_root = args.outdir  # where the collections simulate and profile their samples
+    if args.scratch:
+        samples_root = os.path.abspath(args.scratch)
+        os.makedirs(samples_root, exist_ok=True)
+        Job.scratch = Scratch(samples_root)
+        say(f"The simulated samples go to {samples_root}: {gigabytes(shutil.disk_usage(samples_root).free)} free")
     genome_table = args.genome_table or os.path.join(args.outdir, "genomes.tsv")
     if not args.genome_table:
         pool = None
@@ -665,7 +810,7 @@ def main():
                 pool = {n if n.startswith("s__") else "s__" + n
                         for n in (line.rstrip("\n").split("\t")[0].strip() for line in fh) if n and not n.startswith("#")}
         count = make_genome_table(args.gtdb, release, genome_table, args.extra_genomes, pool)
-        print(f"Found {count} genome FASTAs for training", flush=True)
+        say(f"Found {count} genome FASTAs for training")
     elif args.extra_genomes or args.simulate_species:
         sys.exit("--extra-genomes and --simulate-species shape the genome table this script makes; "
                  "apply them to --genome-table instead")
@@ -674,7 +819,7 @@ def main():
     summary = summarize_genome_table(genome_table, read_representatives(args.gtdb, release))
     with open(os.path.join(args.outdir, "genome_table.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
-    print("\n".join(summary), flush=True)
+    say("\n".join(summary))
 
     # A rerun skips what an earlier run into OUTDIR completed with the same inputs (see Stages).
     stages = Stages(os.path.join(args.outdir, ".stages"))
@@ -689,8 +834,11 @@ def main():
     def convert(into):
         """The converted files of the release in `into`, with the models of the read types but pe as
         placeholders (protal warns when it loads one), packed by --build like model_pe.xml."""
-        run([sys.executable, CONVERTER, "--gtdb", args.gtdb, "--outdir", into, "--release", release, "-t", str(args.threads)],
-            os.path.join(args.outdir, "convert.log"))
+        log = os.path.join(args.outdir, "convert.log")
+        say(f"Converting GTDB r{release} into {into} ({log})")
+        job = run([sys.executable, CONVERTER, "--gtdb", args.gtdb, "--outdir", into, "--release", release, "-t",
+                   str(args.threads)], log, label="converting the release")
+        say(f"Converted GTDB r{release} in {job.took()}")
         shutil.copyfile(os.path.join(into, "internal_taxonomy.dmp"), taxonomy)
         if not args.no_placeholder_models:
             for read_type in ("se", "pb", "ont"):
@@ -698,13 +846,14 @@ def main():
 
     converted = None  # the folder with the converted files, once there
     if final_done:
-        print(f"{db} was built by an earlier run from the same release and protal; kept", flush=True)
+        say(f"{db} was built by an earlier run from the same release and protal; kept")
+        remove_full_reference(db)  # left by an earlier version of this script
     elif stages.done("convert", convert_key) and os.path.isfile(taxonomy) and \
             all(os.path.isfile(os.path.join(db, f)) for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp")):
         # Converted by an earlier run that stopped before the build packed the files.
         clear_build_outputs(db)
         converted = db
-        print(f"{db} holds the release converted by an earlier run; not converted again", flush=True)
+        say(f"{db} holds the release converted by an earlier run; not converted again")
     else:
         stages.forget("protal_db")
         convert(db)
@@ -737,21 +886,24 @@ def main():
             describe_holdout(chosen, pool_species(genome_table))
         with open(os.path.join(logs, "holdout.txt"), "w") as fh:
             fh.write("\n".join(holdout_lines) + "\n")
-        print("\n".join(holdout_lines), flush=True)
+        say("\n".join(holdout_lines))
         training_db = os.path.join(args.outdir, "training_db")
         training_key = {"convert": convert_key, "heldout": content_hash(heldout), "protal": final_key["protal"],
                         "level": args.training_db_level}
         training_done = stages.done("training_db", training_key) and \
             os.path.isfile(os.path.join(training_db, "database.protal"))
         if training_done:
-            print(f"{training_db} was built by an earlier run with the same species left out; kept", flush=True)
+            say(f"{training_db} was built by an earlier run with the same species left out; kept")
+            remove_full_reference(training_db)
         else:
             stages.forget("training_db")
             if converted is None:  # the finished database's build consumed them
                 converted = os.path.join(args.outdir, ".converted")
                 convert(converted)
-            run([sys.executable, CONVERTER, "--from_db", converted, "--exclude_species", heldout, "--outdir", training_db],
-                os.path.join(args.outdir, "training_db.log"))
+            job = run([sys.executable, CONVERTER, "--from_db", converted, "--exclude_species", heldout, "--outdir",
+                       training_db, "-t", str(args.threads)], os.path.join(args.outdir, "training_db.log"),
+                      label="leaving the species out")
+            say(f"Wrote the files of {training_db}, without the species left out, in {job.took()}")
     if converted and converted != db:
         shutil.rmtree(converted, ignore_errors=True)
 
@@ -759,20 +911,33 @@ def main():
     # start, while the training database is built and the training data collected, unless one build at a time.
     final_log = os.path.join(args.outdir, "index_and_package.log")
     final_build = None
-    built_final = lambda: stages.mark("protal_db", final_key)
+
+    def built_final():
+        stages.mark("protal_db", final_key)
+        remove_full_reference(db)
+
+    def built_training():
+        stages.mark("training_db", training_key)
+        remove_full_reference(training_db)
+
     if final_done:
         pass
     elif training_db != db and not args.one_build_at_a_time:
-        final_build = Job(build_command(args.protal, db, args.threads), final_log, built_final)
-        print(f"Building {db} in the background ({final_log})", flush=True)
+        final_build = Job(build_command(args.protal, db, args.threads), final_log, built_final,
+                          label=f"building {os.path.basename(db)} in the background")
+        say(f"Building {db} in the background ({final_log})")
     elif training_db == db:
-        print(f"Built {db} in {run(build_command(args.protal, db, args.threads), final_log, built_final):.0f} s", flush=True)
+        say(f"Building {db} ({final_log})")
+        job = run(build_command(args.protal, db, args.threads), final_log, built_final, f"building {os.path.basename(db)}")
+        say(f"Built {db} in {job.took()}{db_size(db)}")
     if training_db != db and not training_done:
         # Read only for the training samples and the parity check: zstd level 3 packs it in a fraction of the
         # time of level 19 (which half of a build spent on), and loads as fast.
-        seconds = run(build_command(args.protal, training_db, args.threads, "--compress_level", str(args.training_db_level)),
-                      os.path.join(args.outdir, "training_db_index.log"), lambda: stages.mark("training_db", training_key))
-        print(f"Built {training_db} in {seconds:.0f} s", flush=True)
+        log = os.path.join(args.outdir, "training_db_index.log")
+        say(f"Building {training_db} ({log})")
+        job = run(build_command(args.protal, training_db, args.threads, "--compress_level", str(args.training_db_level)),
+                  log, built_training, f"building {os.path.basename(training_db)}")
+        say(f"Built {training_db} in {job.took()}{db_size(training_db)}")
 
     # Training data of every read type (pe, se from its first reads, pb and ont from long reads of the same
     # communities), then an independent test set of another design, both against the training database.
@@ -791,21 +956,43 @@ def main():
             command += ["--novel_species", heldout, "--novel_clades", str(args.novel_clades_per_sample)]
         return command
 
-    training = os.path.join(args.outdir, "training")
-    seconds = run(collect_command(training, args.samples, args.read_pairs, args.species_per_sample, args.abundance,
-                                  args.strains_per_species, args.long_read_bases, args.seed),
-                  os.path.join(args.outdir, "training_data.log"))
-    print(f"Collected the training data ({', '.join(read_types)}) in {seconds:.0f} s", flush=True)
-    test = os.path.join(args.outdir, "test")
+    def collect(what, command, log):
+        """Runs the collector, saying before what it makes and after what its tables hold and how much space its
+        samples take. With --scratch, its tables are copied to OUTDIR."""
+        opts = collector_args(command[2:])
+        units = collections.Counter(unit["type"] for unit in units_of(opts)[1])
+        say(f"Collecting {what}: {', '.join(f'{n * opts.samples} {t}' for t, n in units.items())} samples, "
+            f"{opts.samples} per design point ({log})")
+        job = run(command, log, label=f"collecting {what}")
+        with open(log, errors="replace") as fh:
+            tables = [line.rstrip() for line in fh if re.match(r"\d+ taxa in ", line)]
+        say(f"Collected {what} in {job.took()}; {gigabytes(tree_size(opts.out))} in {opts.out}" +
+            (f"; scratch {Job.scratch.text()}" if Job.scratch else "") + "".join(f"\n  {line}" for line in tables))
+        if args.scratch:
+            keep = os.path.join(args.outdir, os.path.basename(opts.out))
+            os.makedirs(keep, exist_ok=True)
+            for table in TABLES.values():
+                if os.path.isfile(os.path.join(opts.out, table)):
+                    shutil.copy(os.path.join(opts.out, table), keep)
+
+    training = os.path.join(samples_root, "training")
+    collect(f"the training data ({', '.join(read_types)})",
+            collect_command(training, args.samples, args.read_pairs, args.species_per_sample, args.abundance,
+                            args.strains_per_species, args.long_read_bases, args.seed),
+            os.path.join(args.outdir, "training_data.log"))
+    test = os.path.join(samples_root, "test")
     if args.test_samples > 0:
-        seconds = run(collect_command(test, args.test_samples, args.test_read_pairs, args.test_species_per_sample,
-                                      args.test_abundance, args.test_strains_per_species, args.test_long_read_bases,
-                                      args.seed + 1000), os.path.join(args.outdir, "test_data.log"))
-        print(f"Collected the independent test set in {seconds:.0f} s", flush=True)
+        collect("the independent test set",
+                collect_command(test, args.test_samples, args.test_read_pairs, args.test_species_per_sample,
+                                args.test_abundance, args.test_strains_per_species, args.test_long_read_bases,
+                                args.seed + 1000), os.path.join(args.outdir, "test_data.log"))
 
     # One model per read type, trained in parallel.
     prefixes = {t: os.path.join(args.outdir, "trained_model" + ("" if t == "pe" else "_" + t)) for t in read_types}
     trainer_threads = max(1, args.threads // len(read_types))
+    models = f"the {', '.join(read_types)} model{'s' if len(read_types) > 1 else ''}"
+    say(f"Training {models}{' in parallel' if len(read_types) > 1 else ''}, {trainer_threads} "
+        f"thread{'s' if trainer_threads > 1 else ''} each ({os.path.join(args.outdir, 'classifier_training*.log')})")
     trainers = {}
     for t in read_types:
         command = [sys.executable, TRAINER, "--truth-file", os.path.join(training, TABLES[t]),
@@ -814,15 +1001,21 @@ def main():
                    "--taxonomy", taxonomy, "--evaluation", args.evaluation]
         if args.test_samples > 0 and os.path.isfile(os.path.join(test, TABLES[t])):
             command += ["--test-file", os.path.join(test, TABLES[t])]
-        trainers[t] = Job(command, os.path.join(args.outdir, "classifier_training" + ("" if t == "pe" else "_" + t) + ".log"))
-    seconds = max(job.finish() for job in trainers.values())
-    print(f"Trained the {', '.join(read_types)} model{'s' if len(read_types) > 1 else ''} in parallel in {seconds:.0f} s",
-          flush=True)
+        trainers[t] = Job(command, os.path.join(args.outdir, "classifier_training" + ("" if t == "pe" else "_" + t) + ".log"),
+                          label=f"training the {t} model")
+    seconds = max(job.finish().seconds for job in trainers.values())
+    if len(trainers) > 1:
+        say(f"Trained {models} in parallel in {clock(seconds)}" +
+            "".join(f"\n  {t}: {job.took()}" for t, job in trainers.items()))
+    else:
+        say(f"Trained {models} in {trainers[read_types[0]].took()}")
     # protal must score as the trainer does, and compute the features as it did during collection.
     for t in read_types:
-        run([sys.executable, PARITY, "--db", training_db, "--model", prefixes[t] + ".xml", "--training", training,
-             "--read_type", t, "--protal", args.protal, "-t", str(args.threads)],
-            os.path.join(args.outdir, "parity" + ("" if t == "pe" else "_" + t) + ".log"))
+        job = run([sys.executable, PARITY, "--db", training_db, "--model", prefixes[t] + ".xml", "--training", training,
+                   "--read_type", t, "--protal", args.protal, "-t", str(args.threads)],
+                  os.path.join(args.outdir, "parity" + ("" if t == "pe" else "_" + t) + ".log"),
+                  label=f"checking the {t} model's parity with protal")
+        say(f"protal scores the {t} model as the trainer does ({job.took()})")
     for t in read_types:
         prefix = prefixes[t]
         parity = os.path.join(training, "parity" if t == "pe" else "parity_" + t, "parity.txt")
@@ -837,14 +1030,20 @@ def main():
         if os.path.isfile(name):
             shutil.copy(name, logs)
     if final_build is not None:
-        print(f"Built {db} in {final_build.finish():.0f} s (in the background)", flush=True)
+        if final_build.seconds is None:
+            say(f"Waiting for the build of {db} in the background ({final_log})")
+        say(f"Built {db} in the background in {final_build.finish().took()}{db_size(db)}")
     elif training_db != db and not final_done:
-        print(f"Built {db} in {run(build_command(args.protal, db, args.threads), final_log, built_final):.0f} s", flush=True)
+        say(f"Building {db} ({final_log})")
+        job = run(build_command(args.protal, db, args.threads), final_log, built_final, f"building {os.path.basename(db)}")
+        say(f"Built {db} in {job.took()}{db_size(db)}")
     # The trained models replace the shipped one and the placeholders in database.protal; --add_model checks
     # each and copies the other parts as they are.
+    say(f"Adding {models} to {db}")
     for t in read_types:
         run([args.protal, "--add_model", prefixes[t] + ".xml", "--read_type", t, "--db", db, "-t", str(args.threads)],
-            os.path.join(args.outdir, "final_package" + ("" if t == "pe" else "_" + t) + ".log"))
+            os.path.join(args.outdir, "final_package" + ("" if t == "pe" else "_" + t) + ".log"),
+            label=f"adding the {t} model")
     with open(os.path.join(db, "build_metadata.tsv"), "w") as fh:
         fh.write("".join(f"{k}\t{v}\n" for k, v in provenance(args, release, genome_table, heldout, n_heldout,
                                                                   read_types, prefixes)))
@@ -852,10 +1051,13 @@ def main():
     summary = summary_lines(read_types, prefixes, db)
     with open(os.path.join(logs, "summary.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
-    print("\n".join(summary), flush=True)
-    print(f"Ready protal database: {db}", flush=True)
-    print(f"Model evaluation: {logs} (start with trained_model.report.txt, and trained_model_<read type>.report.txt)",
-          flush=True)
+    say("\n".join(summary))
+    if Job.scratch:
+        Job.scratch.look()
+        say(f"The run took at most {gigabytes(Job.scratch.peak)} on {samples_root}; the simulated samples there "
+            f"({gigabytes(tree_size(training) + tree_size(test))}) are left for a rerun")
+    say(f"Ready protal database: {db}{db_size(db)}\nModel evaluation: {logs} (start with trained_model.report.txt, and "
+        "trained_model_<read type>.report.txt)")
 
 
 if __name__ == "__main__":

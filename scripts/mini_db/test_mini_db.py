@@ -136,6 +136,14 @@ def read_fasta(path):
     return records
 
 
+def full_reference(folder):
+    """The content of a converted folder's full reference (full_reference.fna.zst, or .fna without zstd)."""
+    sys.path.insert(0, HERE)
+    from gtdb_to_protal_db import full_reference_path, read_full_reference
+    with read_full_reference(full_reference_path(folder)) as fh:
+        return fh.read()
+
+
 def kmers(seq, k=21):
     return {seq[i:i + k] for i in range(len(seq) - k + 1)}
 
@@ -206,9 +214,11 @@ class MiniDbTest(unittest.TestCase):
             n_genomes = sum(1 for _ in fh) - 1
         with open(os.path.join(self.db, "genome2tiid.tsv")) as fh:
             self.assertEqual(sum(1 for _ in fh), n_genomes)
-        with open(os.path.join(self.db, "full_reference.fna")) as f, \
-             open(os.path.join(self.db, "reference.fna")) as r:
-            self.assertGreater(f.read().count(">"), 2 * r.read().count(">"))
+        with open(os.path.join(self.db, "reference.fna")) as r:
+            self.assertGreater(full_reference(self.db).count(b">"), 2 * r.read().count(">"))
+        # zstd-compressed when the zstd command is there, as protal --build reads it.
+        name = "full_reference.fna.zst" if shutil.which("zstd") else "full_reference.fna"
+        self.assertEqual(sorted(f for f in os.listdir(self.db) if f.startswith("full_reference")), [name])
 
     def test_deterministic(self):
         other = os.path.join(self.tmp.name, "gtdb_again")
@@ -226,9 +236,10 @@ class MiniDbTest(unittest.TestCase):
             one, four = (os.path.join(self.tmp.name, f"db_{order}_t{t}") for t in (1, 4))
             run(CONVERT, "--gtdb", self.gtdb, "--outdir", one, "--order", order, "-t", "1")
             run(CONVERT, "--gtdb", self.gtdb, "--outdir", four, "--order", order, "-t", "4")
-            for f in ("reference.fna", "reference.map", "full_reference.fna", "internal_taxonomy.dmp"):
+            for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp"):
                 with open(os.path.join(one, f), "rb") as a, open(os.path.join(four, f), "rb") as b:
                     self.assertEqual(a.read(), b.read(), f"{order} order, {f}")
+            self.assertEqual(full_reference(one), full_reference(four), f"{order} order, full reference")
             self.assertFalse(os.path.exists(os.path.join(four, ".convert_tmp")))
 
     def test_exclude_species(self):
@@ -239,9 +250,11 @@ class MiniDbTest(unittest.TestCase):
         run(CONVERT, "--gtdb", self.gtdb, "--outdir", direct, "--exclude_species", excluded)
         run(CONVERT, "--from_db", self.db, "--exclude_species", excluded, "--outdir", copied)
         taxids = {r[3]: r[0] for r in self.taxonomy().values() if r[4] == "species"}
-        for f in ("reference.fna", "reference.map", "full_reference.fna", "internal_taxonomy.dmp"):
+        for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp"):
             with open(os.path.join(direct, f), "rb") as a, open(os.path.join(copied, f), "rb") as b:
                 self.assertEqual(a.read(), b.read(), f"{f}: --from_db and --gtdb differ")
+        self.assertEqual(full_reference(direct), full_reference(copied), "full reference: --from_db and --gtdb differ")
+        self.assertLess(len(full_reference(direct)), len(full_reference(self.db)))
         with open(os.path.join(self.db, "internal_taxonomy.dmp"), "rb") as a, \
                 open(os.path.join(direct, "internal_taxonomy.dmp"), "rb") as b:
             self.assertEqual(a.read(), b.read(), "the taxonomy must keep the species left out")
@@ -280,8 +293,8 @@ class MiniDbTest(unittest.TestCase):
             fh.write("Mockella beta\n")
         run(CONVERT, "--from_db", src, "--exclude_species", excluded, "--outdir", dst)
         sys.path.insert(0, HERE)
-        from gtdb_to_protal_db import CONVERTED_FILES
-        expected = {"reference.fna", "reference.map", "full_reference.fna"} | \
+        from gtdb_to_protal_db import CONVERTED_FILES, full_reference_path
+        expected = {"reference.fna", "reference.map", os.path.basename(full_reference_path(self.db))} | \
             {f for f in CONVERTED_FILES if os.path.isfile(os.path.join(self.db, f))}
         self.assertEqual(set(os.listdir(dst)), expected)
         # Converting a release anew removes the build outputs of the folder's earlier reference, too.
@@ -1172,7 +1185,8 @@ class GtdbBuildTest(unittest.TestCase):
                    "--samples", "2", "--read-pairs", "1000,4000", "--read-setups", "100:HS20:300:40",
                    "--species-per-sample", "6-8", "--archaea", "1", "--holdout-max-share", "0.2",
                    "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
-                   "--test-read-pairs", "2000", "--ntree", "16", "--evaluation", "basic", *extra]
+                   "--test-read-pairs", "2000", "--ntree", "16", "--evaluation", "basic", "--progress-every", "5",
+                   *extra]
         if not wait:
             return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         return subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=3000)
@@ -1182,19 +1196,40 @@ class GtdbBuildTest(unittest.TestCase):
             return fh.read()
 
     def test_a_build_and_rerun(self):
-        first = self.build("out")
+        # The samples are simulated on a scratch disk of their own (--scratch), the tables copied to OUTDIR.
+        scratch = ("--scratch", os.path.join(self.tmp.name, "scratch"))
+        first = self.build("out", *scratch)
         self.assertEqual(first.returncode, 0, first.stdout[-3000:])
         self.assertIn("Ready protal database", first.stdout)
         for path in ("protal_db/database.protal", "training_db/database.protal", "model_logs/summary.txt",
                      ".stages/convert.json", ".stages/protal_db.json", ".stages/training_db.json"):
             self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", path)), path)
+        # full_reference.fna, which only the builds read, is gone once they are done.
+        for path in ("protal_db/full_reference.fna", "training_db/full_reference.fna"):
+            for name in (path, path + ".zst"):
+                self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out", name)), name)
+        self.assertRegex(first.stdout, r"Removed \S+protal_db/full_reference\.fna" + (r"\.zst" if shutil.which("zstd") else "")
+                         + r" \([\d.]+ [MG]B\)")
         # The genes' conservation factors are in the database, and their summary in build_metadata.tsv.
         metadata = dict(line.rstrip("\n").split("\t", 1) for line in open(os.path.join(self.tmp.name, "out", "protal_db",
                                                                                        "build_metadata.tsv")))
         self.assertRegex(metadata["gene_conservation"], r"^factors [0-9.]+-[0-9.]+ for \d+ genes, from \d+ species")
+        # Each stage says when it ended and how long it took, one running for a while (5 s here) how it is doing,
+        # and the collector how far the simulations and protal are.
+        self.assertRegex(first.stdout, r"\[\d\d:\d\d:\d\d \+\d+:\d\d:\d\d\] Collected the training data \(pe, se\) in "
+                                       r"\d+:\d\d:\d\d")
+        self.assertRegex(first.stdout, r"\n  \d+ taxa in \S+training_data_se.tsv: \d+ present, \d+ absent, from 4 samples")
+        self.assertRegex(first.stdout, r": \d+:\d\d:\d\d so far")
+        collection = self.text("out", "training_data.log")
+        self.assertRegex(collection, r"2 of 2 design points, \d+:\d\d:\d\d in all")
+        self.assertRegex(collection, r"protal profiled 8 samples in \d+:\d\d:\d\d")
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", "training", "training_data_se.tsv")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out", "training", "points")))
+        self.assertTrue(os.path.isdir(os.path.join(self.tmp.name, "scratch", "training", "points")))
+        self.assertRegex(first.stdout, r"The run took at most [\d.]+ [MG]B on \S+scratch")
 
         # A rerun converts and builds nothing, and the collector reuses its samples and dumps.
-        again = self.build("out")
+        again = self.build("out", *scratch)
         self.assertEqual(again.returncode, 0, again.stdout[-3000:])
         self.assertIn("protal_db was built by an earlier run from the same release and protal; kept", again.stdout)
         self.assertIn("training_db was built by an earlier run with the same species left out; kept", again.stdout)
@@ -1204,10 +1239,10 @@ class GtdbBuildTest(unittest.TestCase):
         # Other species held out (another seed): only the training database is built again, from the release
         # converted anew (the finished database's build consumed the converted files), and every point is
         # simulated and profiled again rather than mixed into the table.
-        other = self.build("out", "--seed", "2")
+        other = self.build("out", "--seed", "2", *scratch)
         self.assertEqual(other.returncode, 0, other.stdout[-3000:])
         self.assertIn("protal_db was built by an earlier run from the same release and protal; kept", other.stdout)
-        self.assertRegex(other.stdout, r"Built \S+training_db in \d+ s")
+        self.assertRegex(other.stdout, r"Built \S+training_db in \d+:\d\d:\d\d")
         self.assertNotRegex(other.stdout, r"Built \S+protal_db")
         self.assertIn("was simulated from other inputs (or by an older collector): simulating it again",
                       self.text("out", "training_data.log"))

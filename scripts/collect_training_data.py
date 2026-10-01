@@ -45,6 +45,7 @@ import random
 import shutil
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lineages  # noqa: E402
@@ -241,11 +242,45 @@ def species_domains(genome_table):
     return domains
 
 
-def run(command, log):
+def clock(seconds):
+    """Seconds as h:mm:ss."""
+    seconds = int(round(seconds))
+    return f"{seconds // 3600}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
+
+
+def run_protal(command, log, samples):
+    """Runs protal on `samples` samples, saying from its log every minute how far it is (when that changed):
+    the sample it aligns, then how many it has profiled. Only what the log gained is read."""
+    started = time.time()
     with open(log, "w") as fh:
-        rc = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
+        process = subprocess.Popen(command, stdout=fh, stderr=subprocess.STDOUT)
+    offset, rest, aligning, profiled, told = 0, b"", 0, 0, (0, 0)
+    try:
+        while True:
+            try:
+                rc = process.wait(timeout=60)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            with open(log, "rb") as fh:
+                fh.seek(offset)
+                chunk = fh.read()
+            offset += len(chunk)
+            lines = (rest + chunk).split(b"\n")
+            rest = lines.pop()  # a line protal is still writing
+            aligning += sum(line.startswith((b"Align the ", b"Skip ")) for line in lines)
+            profiled += sum(line.startswith(b"Write truth to: ") for line in lines)
+            if (aligning, profiled) != told:
+                told = (aligning, profiled)
+                state = f"{profiled} of {samples} samples profiled" if profiled else f"aligning sample {aligning} of {samples}"
+                print(f"protal, {clock(time.time() - started)} in: {state}", flush=True)
+    except BaseException:  # stopped (Ctrl-C, an error): not without protal
+        process.kill()
+        process.wait()
+        raise
     if rc != 0:
         sys.exit(f"{command[0]} failed with exit code {rc}; see {log}")
+    print(f"protal profiled {samples} samples in {clock(time.time() - started)}", flush=True)
 
 
 # ---- design points ----------------------------------------------------------------------------------------
@@ -485,13 +520,16 @@ def long_contigs(fasta, out):
     return kept
 
 
-def last_line(path):
-    """The last non-empty line of a log (an empty string if there is none)."""
+def last_line(path, limit=300):
+    """The last non-empty line of a log, at most `limit` characters (an empty string if there is none). Only
+    the end of the log is read: it may be long, and still being written."""
     try:
-        with open(path, errors="replace") as fh:
-            return next((line.strip() for line in reversed(fh.readlines()) if line.strip()), "")[:300]
+        with open(path, "rb") as fh:
+            fh.seek(max(0, fh.seek(0, os.SEEK_END) - 16384))
+            tail = fh.read().decode(errors="replace")
     except OSError:
         return ""
+    return next((line.strip() for line in reversed(tail.replace("\r", "\n").split("\n")) if line.strip()), "")[:limit]
 
 
 def long_read_genome(task):
@@ -641,8 +679,8 @@ def profile(units, opts):
     kinds = collections.Counter(row["READ_TYPE"] for row in rows)
     print(f"profiling {len(rows)} samples ({', '.join(f'{n} {t}' for t, n in kinds.items())}) of {len(units)} design "
           "points in one protal run", flush=True)
-    run([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains", "--no_qcmsa"],
-        os.path.join(folder, "protal.log"))
+    run_protal([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains", "--no_qcmsa"],
+               os.path.join(folder, "protal.log"), len(rows))
 
 
 # ---- the tables -------------------------------------------------------------------------------------------
@@ -664,7 +702,7 @@ def community_of(unit, sample, opts):
 def write_table(read_type, units, opts, context):
     """Joins the dumps of a read type's units into its table."""
     domains, novel, reps, db_lineages, sim_lineages = context
-    header, rows = None, 0
+    header, rows, totals = None, 0, collections.Counter()
     table = os.path.join(opts.out, TABLES[read_type])
     genomes_of = {}
     with open(table + ".partial", "w", newline="") as out:
@@ -722,8 +760,10 @@ def write_table(read_type, units, opts, context):
                   f"{absent} absent taxa ({congeners} congeners of species the database lacks; closest to a species "
                   f"it lacks, by the rank held out: {by_level or 'none'}) in {len(dumps_of(unit, opts))} samples",
                   flush=True)
+            totals.update(present=present, absent=absent, samples=len(dumps_of(unit, opts)))
     os.replace(table + ".partial", table)
-    print(f"{rows} taxa in {table}", flush=True)
+    print(f"{rows} taxa in {table}: {totals['present']} present, {totals['absent']} absent, from {totals['samples']} "
+          f"sample{'s' if totals['samples'] != 1 else ''}", flush=True)
 
 
 def main(argv=None):
@@ -765,13 +805,26 @@ def main(argv=None):
         workers = max(1, min(jobs, len(pending)))
         threads = max(1, opts.threads // workers)
         print(f"simulating {len(pending)} paired-end design points, {workers} at a time", flush=True)
+        started = time.time()
+
+        def simulate_point(ip):
+            began = time.time()
+            return simulate(ip[1], ip[0], opts, threads, clades, keys[ip[1]["name"]]), time.time() - began
+
+        failures = []
         with concurrent.futures.ThreadPoolExecutor(workers) as executor:
-            failures = [f for f in executor.map(lambda ip: simulate(ip[1], ip[0], opts, threads, clades, keys[ip[1]["name"]]),
-                                                pending) if f]
+            futures = {executor.submit(simulate_point, ip): ip[1]["name"] for ip in pending}
+            for done, future in enumerate(concurrent.futures.as_completed(futures), 1):
+                failure, seconds = future.result()
+                failures += [failure] if failure else []
+                print(f"{futures[future]} {'failed' if failure else 'simulated'} ({opts.samples} samples) in "
+                      f"{clock(seconds)}: {done} of {len(pending)} design points, {clock(time.time() - started)} in all",
+                      flush=True)
         if failures:
             sys.exit("\n".join(failures))
     # Long reads: pbsim3 simulates one genome at a time, so the genomes of a point run in parallel.
-    for i, unit in enumerate(u for u in units if u["type"] in LONG_READ_TYPES):
+    long_units = [u for u in units if u["type"] in LONG_READ_TYPES]
+    for i, unit in enumerate(long_units):
         base = point_dirs(unit["point"], opts)[0]
         keys[unit["name"]] = {"community": keys[unit["community"]["name"]], "setup": unit["setup"], "bases": unit["bases"],
                               "index": i, "seed": opts.seed, "pbsim": identity(opts.pbsim),
@@ -781,10 +834,13 @@ def main(argv=None):
             shutil.rmtree(base)
         if not simulated(unit, opts):
             print(f"simulating {unit['name']} with pbsim3", flush=True)
+            began = time.time()
             failure = simulate_long(unit, i, opts, jobs)
             if failure:
                 sys.exit(f"{unit['name']}: {failure}")
             write_key(os.path.join(base, "simulated.json"), keys[unit["name"]])
+            print(f"{unit['name']} simulated ({opts.samples} samples) in {clock(time.time() - began)}: long-read design "
+                  f"point {i + 1} of {len(long_units)}", flush=True)
     # Profiling: every unit not yet profiled against this database with this protal, in one protal run.
     db, protal = db_identity(opts.db), identity(opts.protal)
     unprofiled = []

@@ -24,8 +24,10 @@ Writes to <outdir>:
   reference.map          taxid, geneid, start byte, end byte of each sequence line
   internal_taxonomy.dmp  id, parent_id, external_id, name, rank, level, rep_genome
                          (species are the leaves; their ids are the reference taxids)
-  full_reference.fna     marker genes of all genomes, header >taxid_geneid of the
-                         genome's species (only if genomic_files_all is present)
+  full_reference.fna.zst marker genes of all genomes, header >taxid_geneid of the
+                         genome's species (only if genomic_files_all is present);
+                         zstd-compressed by the zstd command (86 GB raw at r226),
+                         full_reference.fna without one
   gene2geneid.tsv        marker id -> geneid
   genome2tiid.tsv        accession, species taxid, species rep accession, lineage
   model_pe.xml           copy of --model (the profiler's random forest for paired-end reads;
@@ -34,7 +36,8 @@ Writes to <outdir>:
 Then build the index with
   protal --build --no_profile --db <outdir> --reference <outdir>/reference.fna \\
          --full_reference <outdir>/full_reference.fna
-which writes index.prx.zst and replaces reference.fna by reference.fna.zst unless --no_compress.
+which writes index.prx.zst and replaces reference.fna by reference.fna.zst unless --no_compress
+(for --full_reference full_reference.fna, protal reads its .zst).
 
 Each marker's genes are spooled to <outdir>/.convert_tmp and sorted one gene at a time, so memory
 stays at about one gene's sequences per worker; -t reads the marker files in parallel (the output is
@@ -52,6 +55,7 @@ wrote, before protal --build packs it, without reading the release again.
 """
 
 import argparse
+import contextlib
 import glob
 import gzip
 import heapq
@@ -59,9 +63,15 @@ import multiprocessing
 import os
 import re
 import shutil
+import subprocess
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+FULL_REFERENCE = "full_reference.fna"
+# zstd settings of full_reference.fna.zst (86 GB raw at GTDB r226): level 6 with a 128 MB long-distance window
+# packed a GTDB-like world's 12.8x at ~60 MB/s per thread, and decompresses at ~800 MB/s
+# (docs/claude/2026-10-01-scratch-space). protal --build reads it.
+ZSTD_OPTIONS = ("-6", "--long=27")
 MARKER_SETS = ("bac120", "ar53")
 RANKS = [("d", "domain"), ("p", "phylum"), ("c", "class"), ("o", "order"),
          ("f", "family"), ("g", "genus"), ("s", "species")]
@@ -288,6 +298,72 @@ BUILD_OUTPUTS = ("index.prx", "index.prx.zst", "reference.fna.zst", "unique_kmer
                  "database.protal", "build_metadata.tsv")
 
 
+def full_reference_path(folder):
+    """A converted folder's full reference: full_reference.fna.zst, or full_reference.fna (written so without the
+    zstd command); None if it has neither."""
+    for name in (FULL_REFERENCE + ".zst", FULL_REFERENCE):
+        if os.path.isfile(os.path.join(folder, name)):
+            return os.path.join(folder, name)
+    return None
+
+
+def remove_full_reference(folder):
+    """Removes both variants of a folder's full reference; the bytes removed."""
+    removed = 0
+    for name in (FULL_REFERENCE + ".zst", FULL_REFERENCE):
+        path = os.path.join(folder, name)
+        if os.path.isfile(path):
+            removed += os.path.getsize(path)
+            os.remove(path)
+    return removed
+
+
+@contextlib.contextmanager
+def full_reference_writer(folder, threads):
+    """A binary file to write a folder's full reference to: full_reference.fna.zst through the zstd command
+    (ZSTD_OPTIONS, up to 8 of `threads`), or full_reference.fna without one. Written as a .partial file,
+    renamed once complete; the variant of an earlier conversion goes first."""
+    zstd = shutil.which("zstd")
+    remove_full_reference(folder)
+    target = os.path.join(folder, FULL_REFERENCE + (".zst" if zstd else ""))
+    partial = target + ".partial"
+    if not zstd:
+        sys.stderr.write(f"Note: no zstd command, so {target} is written uncompressed\n")
+        with open(partial, "wb") as fh:
+            yield fh
+    else:
+        process = subprocess.Popen([zstd, "-q", "-f", f"-T{max(1, min(threads, 8))}", *ZSTD_OPTIONS, "-o", partial],
+                                   stdin=subprocess.PIPE)
+        try:
+            yield process.stdin
+        finally:
+            process.stdin.close()
+            rc = process.wait()
+        if rc:
+            sys.exit(f"zstd failed with exit code {rc} writing {partial}")
+    os.replace(partial, target)
+
+
+@contextlib.contextmanager
+def read_full_reference(path):
+    """A full reference, plain or .zst (through the zstd command), as a binary file of its lines."""
+    if not path.endswith(".zst"):
+        with open(path, "rb") as fh:
+            yield fh
+        return
+    zstd = shutil.which("zstd")
+    if not zstd:
+        sys.exit(f"Reading {path} needs the zstd command")
+    process = subprocess.Popen([zstd, "-q", "-dc", "--long=31", path], stdout=subprocess.PIPE)
+    try:
+        yield process.stdout
+    finally:
+        process.stdout.close()
+        rc = process.wait()
+    if rc:
+        sys.exit(f"zstd failed with exit code {rc} reading {path}")
+
+
 def clear_build_outputs(folder):
     for name in os.listdir(folder) if os.path.isdir(folder) else ():
         path = os.path.join(folder, name)
@@ -295,9 +371,9 @@ def clear_build_outputs(folder):
             os.remove(path)
 
 
-def exclude_from_db(src, dst, names):
+def exclude_from_db(src, dst, names, threads=1):
     """Copy the converted database folder src (before protal --build) to dst, leaving out the marker genes
-    of the species `names` from reference.fna, reference.map and full_reference.fna. The taxonomy keeps
+    of the species `names` from reference.fna, reference.map and the full reference. The taxonomy keeps
     them with the same taxids: truth files still name them, and a model trained on dst applies to src.
     Only the files this script (and build_gtdb_database.py) wrote are copied, not what a build of src
     wrote or left there; dst's own build outputs are removed."""
@@ -337,14 +413,21 @@ def exclude_from_db(src, dst, names):
             fmap.write(f"{tid}\t{gid}\t{start}\t{start + len(seq) - 1}\n")
             offset = start + len(seq)
             kept += 1
-    full = os.path.join(src, "full_reference.fna")
+    full = full_reference_path(src)
     full_kept = 0
-    if os.path.isfile(full):
-        with open(os.path.join(dst, "full_reference.fna"), "w", newline="\n") as out:
-            for header, seq, tid in records(full):
-                if tid not in drop:
-                    out.write(header + seq)
+    if full:
+        drop_bytes = {tid.encode() for tid in drop}
+        with read_full_reference(full) as fin, full_reference_writer(dst, threads) as out:
+            for header in fin:
+                seq = fin.readline()
+                if not header.startswith(b">") or not seq:
+                    sys.exit(f"{full}: expected a header and one sequence line per record")
+                if header[1:].split(b"_", 1)[0] not in drop_bytes:
+                    out.write(header)
+                    out.write(seq)
                     full_kept += 1
+    else:
+        remove_full_reference(dst)  # of an earlier copy; protal --build would take it
     sys.stderr.write(f"{src} -> {dst} without {len(drop)} species: {kept} representative sequences kept, "
                      f"{dropped} left out; full reference {full_kept} sequences\n")
 
@@ -395,7 +478,7 @@ def main():
     if args.from_db:
         if not exclude:
             ap.error("--from_db needs --exclude_species")
-        exclude_from_db(args.from_db, args.outdir, exclude)
+        exclude_from_db(args.from_db, args.outdir, exclude, args.threads)
         return
 
     rel = args.release or detect_release(args.gtdb)
@@ -503,15 +586,17 @@ def main():
         written = {}
         for chunks in _parallel(args.threads, _write_full_reference, list(all_by_marker.items())):
             written.update(chunks)
-        with open(out("full_reference.fna"), "wb") as fh:
+        with full_reference_writer(args.outdir, args.threads) as fh:
             for index in range(len(all_files)):
                 chunk, count = written[index]
                 with open(chunk, "rb") as part:
                     shutil.copyfileobj(part, fh, 1 << 22)
+                os.remove(chunk)  # at GTDB size the chunks hold ~90 GB: not kept until all are joined
                 n_full += count
-    elif os.path.isfile(out("full_reference.fna")):
-        os.remove(out("full_reference.fna"))  # of an earlier conversion; protal --build would take it
+    else:
+        remove_full_reference(args.outdir)  # of an earlier conversion; protal --build would take it
     shutil.rmtree(tmp, ignore_errors=True)
+    full = full_reference_path(args.outdir)
 
     if os.path.exists(args.model):
         shutil.copyfile(args.model, out("model_pe.xml"))
@@ -523,7 +608,8 @@ def main():
         f"  species:            {len(taxid)} (taxids 1..{len(taxid)}, root {root_id})"
         + (f", {len(drop)} without marker genes (--exclude_species)" if drop else "") + "\n"
         f"  marker genes:       {len(gene_ids)} ids, {n_records} representative sequences\n"
-        f"  full reference:     {n_full} sequences" + ("" if all_files else " (no genomic_files_all)") + "\n"
+        f"  full reference:     {n_full} sequences" +
+        (f" ({os.path.basename(full)}, {os.path.getsize(full) / 1e9:.2f} GB)" if full else " (no genomic_files_all)") + "\n"
         f"  skipped rep records: " + ", ".join(f"{k}: {v}" for k, v in skipped.items()) + "\n")
 
 

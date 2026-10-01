@@ -48,8 +48,10 @@ python3 scripts/mini_db/gtdb_to_protal_db.py --gtdb /data/gtdb_r226 --outdir /da
 | `--exclude_species` | | file of species whose marker genes are left out; the taxonomy keeps them with their taxids (a training database) |
 | `--from_db` | | instead of `--gtdb`: copy a folder this script wrote, without the species of `--exclude_species` |
 
-It writes `reference.fna`, `reference.map`, `internal_taxonomy.dmp`, `full_reference.fna` (only if
-`genomic_files_all` is there), `model_pe.xml`, and two tables for your own use: `gene2geneid.tsv`
+It writes `reference.fna`, `reference.map`, `internal_taxonomy.dmp`, `full_reference.fna.zst` (only
+if `genomic_files_all` is there: the marker genes of every genome, 86 GB uncompressed at r226,
+compressed with the `zstd` command at level 6; `full_reference.fna` if there is no `zstd`),
+`model_pe.xml`, and two tables for your own use: `gene2geneid.tsv`
 (marker id to protal's gene id) and `genome2tiid.tsv` (accession, species taxid, representative,
 lineage). The converter spools each marker's genes to a temporary folder in the output, so it
 holds one gene's sequences per worker in memory, not the whole release.
@@ -67,7 +69,8 @@ protal --build --no_profile -t 16 --db /data/protal_r226_db \
 ```
 
 This indexes `reference.fna`, checks every k-mer's uniqueness against `full_reference.fna`
-(`--reference` is used when `--full_reference` is not given), writes `unique_kmers.tsv` and
+(`--reference` is used when `--full_reference` is not given; for either name protal reads the `.zst`
+file when there is no plain one), writes `unique_kmers.tsv` and
 `gene_conservation.tsv` (below), and packs everything into `database.protal`, which it reads back
 and compares before it removes the separate files. `full_reference.fna`, `gene2geneid.tsv` and
 `genome2tiid.tsv` stay next to it.
@@ -316,6 +319,8 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--seed` | 1 | |
 | `--ntree`, `--maxnodes` | 64, 128 | random forest size (more trees did not score better, see [model-training.md](model-training.md#training)) |
 | `--evaluation` | `full` | how much the trainer evaluates: `full`, `basic` or `none` |
+| `--progress-every` | 600 | seconds between the status lines of the stages running (below); 0 for none |
+| `--scratch` | | a node's own disk for the simulated samples (below) |
 
 With the defaults that is 3 read setups x 5 depths x 12 samples = 180 paired-end samples of 20-200
 species, profiled as paired-end and as single-end reads, 5 x 12 PacBio and 5 x 12 Nanopore samples
@@ -330,6 +335,56 @@ data are collected; the script waits for it before packing the models. That need
 builds at once (about 50-60 GB each at GTDB scale before the genes were held at two bits per
 base, which takes ~14 GB off each; estimated), or of one build and the collection's protal
 runs. `--one-build-at-a-time` builds it after the training instead.
+
+Both builds read a `full_reference.fna.zst` (the marker genes of every genome; the training
+database's without the species it leaves out), and nothing reads it afterwards: the script removes
+each once its build is done, and a rerun that finds a build done removes one an earlier version
+left (an uncompressed `full_reference.fna`, too). The training database's copy is written with
+`-t` threads of zstd (up to 8).
+
+### What it prints
+
+Each stage writes its output to its own log (listed below). On the console, every line starts
+with the time and how long the run has taken so far (`[14:03:22 +1:25:00]`). A stage says when it
+starts, with its log, and when it ends: how long it took, the peak memory of the largest process
+it ran, and for a build the size of `database.protal`; after a collection, the rows of each table,
+present and absent. Every `--progress-every` seconds (10 minutes by default) each stage still
+running gets a status line: how long it has run, the memory it and the commands it started use
+now (Linux only), and the last line of its log. The collector's log (`training_data.log`,
+`test_data.log`), which such a line shows, says when each design point is simulated, how many
+are done, and which sample protal is aligning, then how many it has profiled. All this reads
+`/proc` and the end of the logs once per status line (and with `--scratch` the free space of its
+file system every 5 s), which costs nothing next to the stages.
+
+From the end-to-end test (a 26-species release, `--scratch SCRATCH`, a status line every 5 s):
+
+```
+[13:28:15 +0:00:40] Built OUT/training_db in 0:00:35, peak memory 3.5 GB; database.protal 9 MB
+[13:28:15 +0:00:40] Collecting the training data (pe, se): 4 pe, 4 se samples, 2 per design point (OUT/training_data.log)
+[13:28:20 +0:00:45] building protal_db in the background: 0:00:40 so far, 3.4 GB in memory; index_and_package.log: Write OUT/protal_db/index.prx.zst (zstd level 19, columns in 64.00 MB chunks, verified, 2 thread(s))
+[13:28:20 +0:00:45] collecting the training data (pe, se): 0:00:05 so far, 1.2 GB in memory; training_data.log: profiling 8 samples (4 pe, 4 se) of 4 design points in one protal run
+[13:28:20 +0:00:45] scratch SCRATCH: 170 MB in use by the run (at most 170 MB so far), 981.9 GB free
+[13:28:22 +0:00:47] Collected the training data (pe, se) in 0:00:07, peak memory 3.3 GB; 5 MB in SCRATCH/training; scratch SCRATCH: 177 MB in use by the run (at most 177 MB so far), 981.9 GB free
+  106 taxa in SCRATCH/training/training_data.tsv: 14 present, 92 absent, from 4 samples
+  93 taxa in SCRATCH/training/training_data_se.tsv: 14 present, 79 absent, from 4 samples
+```
+
+### Local scratch
+
+The collection makes many files and deletes them again: the simulator writes a plain copy of
+each genome of a sample and ART's reads of each genome before it compresses the sample, and for
+long reads the collector copies every genome of every sample for pbsim3, which writes three files
+per contig. With the defaults that is about 470 GB of temporary writes in millions of files,
+which a network file system is slow at (the collector then waits in state D). `--scratch DIR`
+makes the training and test samples on a node's own disk, in `DIR/training` and `DIR/test`, and
+copies their tables to `OUTDIR/training` and `OUTDIR/test`. The samples take ~20 GB at the end and
+about 40 GB at the peak (up to ~55 GB), while the test set's paired-end samples are simulated next
+to the training samples; give it 60 GB at least, 100 GB to be safe (estimated from measured bytes
+per read: [docs/claude/2026-10-01-scratch-space](claude/2026-10-01-scratch-space/README.md)). The
+status lines and the line after each collection say how much the run takes on DIR (what its file
+system holds more than at the start), and the last line the most it took. A rerun reuses the
+samples only from the same DIR; on a node-local disk that is gone after the job, the collection
+starts again (the builds are still kept in OUTDIR).
 
 ### Stopping and rerunning
 
@@ -365,8 +420,8 @@ The output root holds:
 |---|---|
 | `protal_db/database.protal` | the finished database, and `protal_db/build_metadata.tsv`: GTDB release, date, protal version and binary, the scripts' git commit, the command, seed, genome table, what the training database leaves out, the training design, and each model's F1 on species held out and on the test set |
 | `genomes.tsv`, `genome_table.txt` | the genome table used for the simulations, and what it holds (species by domain, how often a simulated species is not its representative) |
-| `training_db/`, `heldout_species.txt` | the training database and the species it leaves out (species, the rank they were held out at, the clade) |
-| `training/`, `test/` | the simulated samples, their profiles and one table per read type (`training_data.tsv` for pe, `training_data_se.tsv`, `_pb`, `_ont`); a rerun reuses the design points simulated and profiled from the same inputs (below) |
+| `training_db/`, `heldout_species.txt` | the training database and the species it leaves out (species, the rank they were held out at, the clade); the `full_reference.fna.zst` of both databases is removed once their builds are done |
+| `training/`, `test/` | the simulated samples, their profiles and one table per read type (`training_data.tsv` for pe, `training_data_se.tsv`, `_pb`, `_ont`); a rerun reuses the design points simulated and profiled from the same inputs (below). With `--scratch`, only the tables; the samples are in the scratch folder |
 | `.stages/` | the inputs of the conversion and the two builds that completed, for a rerun (below) | 
 | `trained_model.*`, `trained_model_se.*`, `_pb.*`, `_ont.*` | the models and the trainer's outputs ([model-training.md](model-training.md#training)) |
 | `model_logs/` | what tells whether the models are good, in one folder: `summary.txt` (per read type: TP, FP, TN, FN, sensitivity, specificity, precision, F1 and false positives per sample, with species held out and on the test set; also printed at the end), each read type's training report and its numbers (`trained_model*.report.txt`, `.metrics.json`), per-taxon predictions (also on the test set), the threshold table, feature importances, the parity checks with protal (`parity*.txt`), `genome_table.txt`, what the training database leaves out (`holdout.txt`, `heldout_species.txt`), the collection logs and `build_metadata.tsv` |
