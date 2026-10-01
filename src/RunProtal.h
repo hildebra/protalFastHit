@@ -668,8 +668,12 @@ namespace protal {
         omp_set_num_threads(options.GetThreads());
 
         // One sample per thread, the next to whichever thread is free: samples differ in depth, and
-        // with the default static schedule one thread could be left with several deep ones.
-        #pragma omp parallel for schedule(dynamic, 1) firstprivate(filters) shared(options, cout, taxonomy, profile_slots, genomes, std::cerr)//, bm_read_alignments, bm_profile)
+        // with the default static schedule one thread could be left with several deep ones. With
+        // fewer samples than threads, each sample is profiled on its share of them (ProfileSam).
+        size_t const threads = std::max<size_t>(options.GetThreads(), 1);
+        int const sample_threads = static_cast<int>(std::clamp<size_t>(range.size(), 1, threads));
+        size_t const threads_per_sample = std::max<size_t>(1, threads / static_cast<size_t>(sample_threads));
+        #pragma omp parallel for schedule(dynamic, 1) num_threads(sample_threads) firstprivate(filters) shared(options, cout, taxonomy, profile_slots, genomes, std::cerr)//, bm_read_alignments, bm_profile)
         for (int idx = 0; idx < static_cast<int>(range.size()); idx++) {
             auto i = range[idx];
 
@@ -727,7 +731,8 @@ namespace protal {
             std::string sam_error = profiler.ProfileSam(sam, profile, std::optional<std::reference_wrapper<std::ostream>>{erro},
                                                         options.GetSNPMinCov(), options.GetSNPMinCov(),
                                                         options.GetSNPMinAF(read_type), options.GetSNPMinMeanQual(),
-                                                        options.GetSNPMinPhredSum(), options.GetSNPRequireStrand());
+                                                        options.GetSNPMinPhredSum(), options.GetSNPRequireStrand(),
+                                                        threads_per_sample);
             erro.close();
             bm_profile.Stop();
 
@@ -738,6 +743,8 @@ namespace protal {
                 profile_slots[idx].emplace(genomes);
                 continue;
             }
+            // The outputs below score every taxon; on the sample's threads first.
+            if (threads_per_sample > 1) profile.ScoreTaxa(filter, threads_per_sample);
             if (profiler.RejectedReads() > 0) {
                 #pragma omp critical(print)
                 std::cerr << "Warning: sample " << sample_name << ": " << profiler.RejectedReads() << " of " << profiler.Reads()
@@ -801,8 +808,8 @@ namespace protal {
             std::ofstream os_dismissed(options.ProfileFile(i) + ".gene.log", std::ios::out);
             std::ofstream os_genes(options.ProfileFile(i) + ".genes.log", std::ios::out);
 
-            profile.WriteSparseProfile(taxonomy, filter, os, &os_total, &os_dismissed);
-            profile.WriteGeneProfile(taxonomy, filter, &os_genes);
+            profile.WriteSparseProfile(taxonomy, filter, os, &os_total, &os_dismissed, threads_per_sample);
+            profile.WriteGeneProfile(taxonomy, filter, &os_genes, threads_per_sample);
             os.close();
             os_total.close();
             os_dismissed.close();

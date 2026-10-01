@@ -409,8 +409,10 @@ namespace protal {
 
     public:
         // `on_header`, if given, is called with each header line and may throw SamFormatError to stop.
-        explicit SamReader(std::istream& is, std::function<void(std::string const&)> on_header = {}) :
-                m_is(is), m_on_header(std::move(on_header)) {}
+        // `first_line`: the lines before the stream's first one, for the line numbers of errors when the
+        // stream is a part of a file (the profiler's chunks, SamChunks.h).
+        explicit SamReader(std::istream& is, std::function<void(std::string const&)> on_header = {}, size_t first_line = 0) :
+                m_is(is), m_line_no(first_line), m_on_header(std::move(on_header)) {}
 
         bool Next(SamEntry &sam1, SamEntry &sam2, bool &has_sam1, bool &has_sam2) {
             has_sam1 = false;

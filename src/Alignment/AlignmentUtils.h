@@ -348,8 +348,8 @@ namespace protal {
         }
 
         AlignmentPair(std::optional<SamEntry>&& first, std::optional<SamEntry>&& second) :
-                first(first),
-                second(second) {
+                first(std::move(first)),
+                second(std::move(second)) {
         }
 
         AlignmentPair() {};

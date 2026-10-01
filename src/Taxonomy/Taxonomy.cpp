@@ -723,7 +723,8 @@ bool protal::taxonomy::IntTaxonomy::IsNodeAncestor(int node_id, int leaf_id) {
 }
 
 std::string protal::taxonomy::IntTaxonomy::LineageStr(int t, const std::vector<std::string> ranks, std::string divider)  {
-    auto node = map.at(t);
+    // References, not copies: a node holds its children, and the profile writers ask for every gene's lineage.
+    auto& node = map.at(t);
 
     std::vector<std::string> result(ranks.size());
 
@@ -739,7 +740,7 @@ std::string protal::taxonomy::IntTaxonomy::LineageStr(int t, const std::vector<s
     int pid = node.parent_id;
 
     while (nid != pid) {
-        auto node = map.at(nid);
+        auto const& node = map.at(nid);
 
         auto it = std::find(ranks.begin(), ranks.end(), node.rank);
         if (it == ranks.end() && node.rank == "superkingdom") {

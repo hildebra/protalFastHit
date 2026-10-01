@@ -25,12 +25,18 @@
 #include "Benchmark.h"
 #include "RunStatus.h"
 #include "ReadType.h"
+#include "SamChunks.h"
 #include <algorithm>
+#include <atomic>
 #include <charconv>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <set>
+#include <sstream>
+#include <unordered_map>
 #include <string_view>
 #include <string>
 #include <ranges>
@@ -398,6 +404,17 @@ namespace protal {
             size_t adjacent = 0;  // genes next to each other on its reads (MicrobialProfile::NoteLinkedRecord)
             size_t adjacent_expected = 0;  // of these, whose ends face each other in its clade (gene_neighbours::Verdict::Expected)
             size_t adjacent_unlikely = 0;  // that never do in a clade with data on them (Verdict::Unlikely)
+
+            RecordEvidence& operator+=(RecordEvidence const& other) {
+                records += other.records;
+                low_mapq += other.low_mapq;
+                congener_fit += other.congener_fit;
+                other_genus_fit += other.other_genus_fit;
+                adjacent += other.adjacent;
+                adjacent_expected += other.adjacent_expected;
+                adjacent_unlikely += other.adjacent_unlikely;
+                return *this;
+            }
         };
 
         // Calls on_alternative(taxid, edits more) for each entry of a ZA tag ("12:0,40:3"; "*" or empty: none).
@@ -1453,12 +1470,14 @@ namespace protal {
             return ModelContractProblemInXml(model, xml);
         }
 
-        class MicrobialProfile {
+        // The counts of the taxa's best records that MicrobialProfile::NoteRecord and NoteLinkedRecord collect before the
+        // filters, kept apart from the taxa until ApplyRecordEvidence hands them over: one per profile, and one per chunk
+        // of a SAM profiled on several threads (Profiler::ProfileSam), whose counts are then added up. They are sums, so
+        // the order the chunks are added in does not matter.
+        class RecordEvidenceCollector {
         public:
-            MicrobialProfile(GenomeLoader& genome_loader) : m_genome_loader(genome_loader) {}
+            explicit RecordEvidenceCollector(GenomeLoader& genome_loader) : m_genome_loader(&genome_loader) {}
 
-            // Every taxid's genus (GeneraOf), which tells a read's alternatives (ZA) of the same genus from those
-            // of another. Without it congener_fit_share and other_genus_fit_share are 0.
             void SetGenera(std::shared_ptr<std::vector<uint32_t> const> genera) {
                 m_genera = std::move(genera);
             }
@@ -1467,11 +1486,16 @@ namespace protal {
                 return m_genera && taxid < m_genera->size() ? (*m_genera)[taxid] : 0;
             }
 
-            // Counts a read's best record (a mate, a single read, a long read's gene) for its taxon, whatever the
-            // filters later make of it: its MAPQ, and whether its alternatives (ZA) hold a congener or a species of
-            // another genus within kAlternativeFitEdits. ApplyRecordEvidence hands the counts to the taxa.
+            // A collector without counts that counts as this one does (the same genera).
+            RecordEvidenceCollector Empty() const {
+                RecordEvidenceCollector empty(*m_genome_loader);
+                empty.m_genera = m_genera;
+                return empty;
+            }
+
+            // See MicrobialProfile::NoteRecord.
             void NoteRecord(uint32_t taxid, SamEntry const& sam) {
-                auto& e = m_record_evidence[taxid];
+                auto& e = m_counts[taxid];
                 e.records++;
                 e.low_mapq += sam.m_mapq < kLowMapq;
                 if (!m_genera) return;
@@ -1486,21 +1510,9 @@ namespace protal {
                 e.other_genus_fit += other;
             }
 
-            // Gives every taxon the counts NoteRecord collected for it (the features low_mapq_share,
-            // congener_fit_share, other_genus_fit_share); taxa without a counted record keep none.
-            void ApplyRecordEvidence() {
-                FinishLink();
-                for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) {
-                    auto found = m_record_evidence.find(static_cast<uint32_t>(it->first));
-                    it.value().SetRecordEvidence(found == m_record_evidence.end() ? RecordEvidence{} : found->second);
-                }
-            }
-
-            // Notes a read's best record (as NoteRecord: before the filters) of taxon taxid on gene geneid for the adjacency
-            // counts, if the database has gene neighbours; link: the read across its records (both mates, a long read's
-            // genes). When the next link begins (or ApplyRecordEvidence), FinishLink judges the last one's records.
+            // See MicrobialProfile::NoteLinkedRecord.
             void NoteLinkedRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, size_t link) {
-                if (link == SIZE_MAX || m_genome_loader.GetGeneNeighbours().Empty()) return;
+                if (link == SIZE_MAX || m_genome_loader->GetGeneNeighbours().Empty()) return;
                 if (link != m_link) {
                     FinishLink();
                     m_link = link;
@@ -1513,14 +1525,9 @@ namespace protal {
                 m_link_paired = Flag::IsPaired(sam.m_flag);
             }
 
-            // The genes of the last link's records next to each other: a pair's mates, which run towards each other, on
-            // two genes, or each two consecutive genes of a long read in read order, at most the table's max_gap apart on
-            // the read (genes further apart are no neighbours, whatever lies between); the ends that face each other
-            // follow from the records' orientations. Whatever taxa the two records are of (a read's gene that its taxon
-            // lacks is written on another), each of them is credited with whether its clade has those ends facing each
-            // other (gene_neighbours::Table::Assess).
+            // See MicrobialProfile::FinishLink.
             void FinishLink() {
-                auto const& table = m_genome_loader.GetGeneNeighbours();
+                auto const& table = m_genome_loader->GetGeneNeighbours();
                 if (m_link_records.size() >= 2) {
                     using gene_neighbours::EndAhead;
                     if (!m_link_paired) {
@@ -1537,7 +1544,7 @@ namespace protal {
                         auto const end_b = EndAhead(m_link_paired ? b.forward : !b.forward);
                         auto credit = [&](uint32_t taxid) {
                             auto const verdict = table.Assess(taxid, a.gene, end_a, b.gene, end_b).verdict;
-                            auto& e = m_record_evidence[taxid];
+                            auto& e = m_counts[taxid];
                             e.adjacent++;
                             e.adjacent_expected += verdict == gene_neighbours::Verdict::Expected;
                             e.adjacent_unlikely += verdict == gene_neighbours::Verdict::Unlikely;
@@ -1547,6 +1554,100 @@ namespace protal {
                     }
                 }
                 m_link_records.clear();
+            }
+
+            // Adds the counts of `other`, whose last link is finished (FinishLink).
+            void Add(RecordEvidenceCollector const& other) {
+                for (auto const& [taxid, counts] : other.m_counts) m_counts[taxid] += counts;
+            }
+
+            // The counts of taxon taxid, or nullptr if it has none.
+            RecordEvidence const* Find(uint32_t taxid) const {
+                auto const found = m_counts.find(taxid);
+                return found == m_counts.end() ? nullptr : &found->second;
+            }
+
+        private:
+            // The best records of the current link, of every taxon (NoteLinkedRecord): taxon, gene, orientation, where on
+            // the read they start and end.
+            struct LinkRecord {
+                uint32_t taxid;
+                uint32_t gene;
+                bool forward;
+                uint32_t start;
+                uint32_t end;
+            };
+            GenomeLoader* m_genome_loader;
+            std::shared_ptr<std::vector<uint32_t> const> m_genera;  // taxid -> genus (0: none)
+            std::unordered_map<uint32_t, RecordEvidence> m_counts;
+            std::vector<LinkRecord> m_link_records;
+            size_t m_link = SIZE_MAX;
+            bool m_link_paired = false;  // the current link is a pair's mates, not a long read's genes
+        };
+
+        class MicrobialProfile {
+        public:
+            MicrobialProfile(GenomeLoader& genome_loader) : m_genome_loader(genome_loader), m_evidence(genome_loader) {}
+
+            // Every taxid's genus (GeneraOf), which tells a read's alternatives (ZA) of the same genus from those
+            // of another. Without it congener_fit_share and other_genus_fit_share are 0.
+            void SetGenera(std::shared_ptr<std::vector<uint32_t> const> genera) {
+                m_genera = std::move(genera);
+                m_evidence.SetGenera(m_genera);
+            }
+
+            uint32_t GenusOf(uint32_t taxid) const {
+                return m_genera && taxid < m_genera->size() ? (*m_genera)[taxid] : 0;
+            }
+
+            // Counts a read's best record (a mate, a single read, a long read's gene) for its taxon, whatever the
+            // filters later make of it: its MAPQ, and whether its alternatives (ZA) hold a congener or a species of
+            // another genus within kAlternativeFitEdits. ApplyRecordEvidence hands the counts to the taxa.
+            void NoteRecord(uint32_t taxid, SamEntry const& sam) {
+                m_evidence.NoteRecord(taxid, sam);
+            }
+
+            // Gives every taxon the counts NoteRecord collected for it (the features low_mapq_share,
+            // congener_fit_share, other_genus_fit_share); taxa without a counted record keep none.
+            void ApplyRecordEvidence() {
+                FinishLink();
+                for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) {
+                    auto const* found = m_evidence.Find(static_cast<uint32_t>(it->first));
+                    it.value().SetRecordEvidence(found ? *found : RecordEvidence{});
+                }
+            }
+
+            // Notes a read's best record (as NoteRecord: before the filters) of taxon taxid on gene geneid for the adjacency
+            // counts, if the database has gene neighbours; link: the read across its records (both mates, a long read's
+            // genes). When the next link begins (or ApplyRecordEvidence), FinishLink judges the last one's records.
+            void NoteLinkedRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, size_t link) {
+                m_evidence.NoteLinkedRecord(taxid, geneid, sam, link);
+            }
+
+            // The genes of the last link's records next to each other: a pair's mates, which run towards each other, on
+            // two genes, or each two consecutive genes of a long read in read order, at most the table's max_gap apart on
+            // the read (genes further apart are no neighbours, whatever lies between); the ends that face each other
+            // follow from the records' orientations. Whatever taxa the two records are of (a read's gene that its taxon
+            // lacks is written on another), each of them is credited with whether its clade has those ends facing each
+            // other (gene_neighbours::Table::Assess).
+            void FinishLink() {
+                m_evidence.FinishLink();
+            }
+
+            // The counts NoteRecord and NoteLinkedRecord collect.
+            RecordEvidenceCollector& Evidence() {
+                return m_evidence;
+            }
+
+            RecordEvidenceCollector const& Evidence() const {
+                return m_evidence;
+            }
+
+            // Drops what the reads added (the taxa and the record evidence), keeping the settings (name, read type,
+            // genera, depth identity margin): the profile is as before its first read.
+            void ClearReads() {
+                m_taxa = TaxonMap();
+                m_evidence = m_evidence.Empty();
             }
 
             // See Taxon::OwnIdentityThreshold; 1 or more lets every read count towards depth.
@@ -1567,6 +1668,20 @@ namespace protal {
                 }
             }
 
+            // Scores every taxon with `filter` on `threads` threads, each with a copy of it (scoring reuses a buffer;
+            // copies share the loaded model). The taxa cache their scores and the depth and top identity the scores
+            // are computed from, so the outputs find them as if they had scored each taxon themselves.
+            void ScoreTaxa(TaxonFilterObj const& filter, size_t threads) {
+                std::vector<Taxon const*> taxa;
+                taxa.reserve(m_taxa.size());
+                for (auto const& [id, taxon] : m_taxa) taxa.push_back(&taxon);
+                size_t const blocks = std::min(taxa.size(), 8 * std::max<size_t>(threads, 1));
+                sam_chunks::ParallelFor(blocks, threads, [&](size_t b) {
+                    TaxonFilterObj model(filter);
+                    for (size_t i = b; i < taxa.size(); i += blocks) model.Score(*taxa[i]);
+                });
+            }
+
             void AddRead(InternalReadAlignment const& ira, bool unique=true) {
                 if (!m_taxa.contains(ira.taxid)) {
                     auto& genome = m_genome_loader.GetGenome(ira.taxid);
@@ -1577,20 +1692,23 @@ namespace protal {
                 taxon.AddHit(ira.geneid, ira.genepos, ira.alignment_ani, unique);
             }
 
-            // link: the read across its records (both mates, a long read's genes), for linked_share; SIZE_MAX: none.
-            bool AddSam(int taxid, int geneid, SamEntry const& sam, double score, bool unique=true, int read_id=0, bool no_strain=true,
-                        size_t link=SIZE_MAX) {
-                // A record on a gene this database does not have, or reaching past the gene's end (a
-                // SAM aligned against another database), is rejected rather than read out of bounds.
+            // What AddSam does with a record (CheckSam).
+            enum class SamCheck { kReject, kSkip, kAdd };
+
+            // Whether AddSam takes a record: kReject for one on a gene this database does not have, or reaching past the
+            // gene's end (a SAM aligned against another database), which is rejected rather than read out of bounds;
+            // kSkip for one on a gene without unique k-mers, which is no evidence of the taxon. Only reads the database.
+            SamCheck CheckSam(int taxid, int geneid, SamEntry const& sam) const {
                 if (!m_genome_loader.HasGene(taxid, geneid) ||
                     sam.m_pos - 1 + AlignmentLengthRef(sam.m_cigar) > m_genome_loader.GeneLength(taxid, geneid)) {
-                    return false;
+                    return SamCheck::kReject;
                 }
-                // Reads on genes without unique k-mers are ignored: they are not evidence of the taxon.
-                if (!m_genome_loader.GetGenome(taxid).IsGeneHittable(geneid)) {
-                    return true;
-                }
+                if (!m_genome_loader.GetGenome(taxid).IsGeneHittable(geneid)) return SamCheck::kSkip;
+                return SamCheck::kAdd;
+            }
 
+            // The taxon `taxid`, made if the profile has none yet.
+            Taxon& TaxonOf(int taxid) {
                 if (!m_taxa.contains(taxid)) {
                     auto &genome = m_genome_loader.GetGenome(taxid);
 
@@ -1599,20 +1717,37 @@ namespace protal {
                     m_taxa.at(taxid).SetDepthIdentityMargin(m_depth_identity_margin);
                     m_taxa.at(taxid).SetName(std::to_string(taxid));
                 }
+                return m_taxa.at(taxid);
+            }
 
-                // Debug
-                if (!m_taxa.contains(taxid)) {
-                    std::cout << "Error: " << taxid << std::endl;
-                    std::cout << sam.ToString() << std::endl;
-                }
-                auto& taxon = m_taxa.at(taxid);
-                unique = sam.m_mapq > 20;
+            // AddSam's work on its taxon: false if the record does not fit its gene. The taxon is not removed then;
+            // AddCheckedSam does that.
+            static bool AddToTaxon(Taxon& taxon, int geneid, SamEntry const& sam, double score, int read_id, bool no_strain, size_t link) {
+                bool const unique = sam.m_mapq > 20;
                 ReadEvidence evidence;
                 evidence.link = link;
-                bool success = taxon.AddSam(geneid, sam, score, unique, read_id, no_strain, evidence);
+                return taxon.AddSam(geneid, sam, score, unique, read_id, no_strain, evidence);
+            }
+
+            // AddSam for a record CheckSam takes (kAdd).
+            bool AddCheckedSam(int taxid, int geneid, SamEntry const& sam, double score, int read_id, bool no_strain, size_t link) {
+                auto& taxon = TaxonOf(taxid);
+                bool success = AddToTaxon(taxon, geneid, sam, score, read_id, no_strain, link);
                 // A taxon exists only with at least one read (its means divide by the read count).
                 if (!success && taxon.TotalHits() == 0) m_taxa.erase(taxid);
                 return success;
+            }
+
+            // link: the read across its records (both mates, a long read's genes), for linked_share; SIZE_MAX: none.
+            // `unique` is unused: a record with MAPQ above 20 is unique.
+            bool AddSam(int taxid, int geneid, SamEntry const& sam, double score, bool unique=true, int read_id=0, bool no_strain=true,
+                        size_t link=SIZE_MAX) {
+                switch (CheckSam(taxid, geneid, sam)) {
+                    case SamCheck::kReject: return false;
+                    case SamCheck::kSkip: return true;
+                    case SamCheck::kAdd: break;
+                }
+                return AddCheckedSam(taxid, geneid, sam, score, read_id, no_strain, link);
             }
 
             void SetName(std::string name) {
@@ -1636,16 +1771,21 @@ namespace protal {
                 return m_name;
             }
 
-            void PostProcessSNPs(size_t min_observations=2, size_t min_observations_fwdrev=2, double min_frequency=0.0, size_t min_avg_quality=15, size_t min_phred_sum=0, bool require_strand=false) {
-                for (auto& [tid, _] : m_taxa) {
-                    auto& taxon = m_taxa.at(tid);
+            // The SNP filters on every gene, on `threads` threads (a taxon each).
+            void PostProcessSNPs(size_t min_observations=2, size_t min_observations_fwdrev=2, double min_frequency=0.0, size_t min_avg_quality=15, size_t min_phred_sum=0, bool require_strand=false,
+                                 size_t threads=1) {
+                std::vector<Taxon*> taxa;
+                taxa.reserve(m_taxa.size());
+                for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) taxa.push_back(&it.value());
+                sam_chunks::ParallelFor(taxa.size(), threads, [&](size_t i) {
+                    auto& taxon = *taxa[i];
                     for (auto& [gid, __] : taxon.GetGenes()) {
                         auto& gene = taxon.GetGenes().at(gid);
                         auto& strain_handler = gene.GetStrainLevel();
                         strain_handler.PostProcess(min_observations, min_observations_fwdrev, min_frequency, min_avg_quality, min_phred_sum, require_strand);
                     }
                     taxon.InvalidateModelScore();
-                }
+                });
             }
 
             std::unordered_set<size_t> GetKeySet(std::optional<TaxonFilter> filter={}) {
@@ -1746,17 +1886,23 @@ namespace protal {
 
             // .genes.log: one line per gene hit, with its taxon's call. TaxAbundance is 0 for taxa the model
             // rejects; MAPQ and ANI are means over the gene's reads.
-            void WriteGeneProfile(taxonomy::IntTaxonomy& taxonomy, TaxonFilterObj const& filter, std::ostream* os) {
+            // On `threads` threads, each taxon's lines apart, then written in the order of the taxa: the same file.
+            void WriteGeneProfile(taxonomy::IntTaxonomy& taxonomy, TaxonFilterObj const& filter, std::ostream* os, size_t threads=1) {
                 *os << "Predicted\tProbability\tTaxID\tLineage\tTaxVCOV\tTaxAbundance\tGeneID\tGeneRefLength\t"
                     << "TotalReads\tTotalMappedLength\tMAPQ\tUniqueMers\tUniqueTwoMers\tUniqueMerReads\tUniqueTwoMerReads\tANI\t"
                     << "VCov\tVCovExp\tHCovExp\tHCovObs\tHCovObsRel\tConsistency\n";
 
                 double const total_vcov = PassingDepth(filter);
 
-                for (auto tax_id : SortedTaxa()) {
+                auto const keys = SortedTaxa();
+                std::vector<std::string> lines(keys.size());
+                sam_chunks::ParallelFor(keys.size(), threads, [&](size_t k) {
+                    auto const tax_id = keys[k];
+                    TaxonFilterObj model(filter);  // scoring reuses a buffer
+                    std::ostringstream out;
                     auto& taxon = m_taxa.at(tax_id);
-                    double probability = filter.Score(taxon);
-                    bool prediction = probability >= filter.GetKnob();
+                    double probability = model.Score(taxon);
+                    bool prediction = probability >= model.GetKnob();
 
                     auto predicted_vcov = taxon.VerticalCoverage();
                     double const predicted_abundance = prediction && total_vcov > 0 ? predicted_vcov / total_vcov : 0;
@@ -1771,7 +1917,7 @@ namespace protal {
                         auto coverage_consistency_ratio = expected_hcov / hcov_obs_rel;
                         double const reads = static_cast<double>(gene.m_mapped_reads);
 
-                        *os
+                        out
                             << prediction << '\t'
                             << probability << '\t'
                             << tax_id << '\t'
@@ -1796,24 +1942,21 @@ namespace protal {
                             << coverage_consistency_ratio
                             << '\n';
                     }
-                }
+                    lines[k] = out.str();
+                });
+                for (auto const& text : lines) *os << text;
             }
 
             // The profile (taxa that pass the model), .profile.log (every taxon with its call, features
             // and per-gene coverage; one column per gene id of the database, so every file has the same
-            // columns) and .gene.log (statistics per gene hit).
-            void WriteSparseProfile(taxonomy::IntTaxonomy& taxonomy, TaxonFilterObj const& filter, std::ostream &os_filtered=std::cout, std::ostream* os_total=nullptr, std::ostream* os_genes=nullptr) {
-                bool one_pass = false;
-
-                std::string gene_covs_str = "";
-                std::string gene_cov_ratios_str = "";
-
+            // columns) and .gene.log (statistics per gene hit). On `threads` threads, each taxon's lines
+            // apart, then written in the order of the taxa: the same files.
+            void WriteSparseProfile(taxonomy::IntTaxonomy& taxonomy, TaxonFilterObj const& filter, std::ostream &os_filtered=std::cout, std::ostream* os_total=nullptr, std::ostream* os_genes=nullptr,
+                                    size_t threads=1) {
                 size_t max_gene_id = 0;
                 for (auto& [key, genome] : m_genome_loader.GetGenomeMap()) {
                     max_gene_id = std::max(max_gene_id, genome.GetGeneList().size());
                 }
-                std::vector<size_t> gene_covs(max_gene_id + 1, 0);
-                std::vector<double> gene_cov_ratios(max_gene_id + 1, 0.0);
 
                 if (os_total) {
                     *os_total << "Predicted\tProbability\tRepGenome\tLineage\tAbundance\tVCovStdDev\tGeneVariance\tGeneVariance5\t"
@@ -1830,19 +1973,26 @@ namespace protal {
 
                 double const total_vcov = PassingDepth(filter);
 
-                for (auto key : SortedTaxa()) {
+                struct Lines {
+                    std::string filtered, total, genes;
+                    bool prediction = false;
+                };
+                auto const keys = SortedTaxa();
+                std::vector<Lines> lines(keys.size());
+                sam_chunks::ParallelFor(keys.size(), threads, [&](size_t k) {
+                    auto const key = keys[k];
+                    TaxonFilterObj model(filter);  // scoring reuses a buffer
+                    std::ostringstream filtered, total, genes;
+                    std::vector<size_t> gene_covs(max_gene_id + 1, 0);
+                    std::vector<double> gene_cov_ratios(max_gene_id + 1, 0.0);
+
                     // this is necessary as taxon cannot be constant
                     auto& taxon = m_taxa.at(key);
-                    double probability = filter.Score(taxon);
-                    bool prediction = probability >= filter.GetKnob();
-                    one_pass |= prediction;
+                    double probability = model.Score(taxon);
+                    bool prediction = probability >= model.GetKnob();
+                    lines[k].prediction = prediction;
                     double const vcov = taxon.VerticalCoverage();
                     double const abundance = prediction && total_vcov > 0 ? vcov / total_vcov : 0;
-
-                    gene_covs_str.clear();
-                    gene_cov_ratios_str.clear();
-                    std::fill(gene_covs.begin(), gene_covs.end(), 0);
-                    std::fill(gene_cov_ratios.begin(), gene_cov_ratios.end(), 0.0);
 
                     for (auto id : taxon.SortedGeneIds()) {
                         auto& gene = taxon.GetGenes().at(id);
@@ -1852,46 +2002,54 @@ namespace protal {
                         gene_cov_ratios[id] = ratio;
 
                         if (os_genes) {
-                            *os_genes << m_name << '\t';
-                            *os_genes << key << '\t';
-                            *os_genes << taxonomy.LineageStr(key) << '\t';
-                            *os_genes << taxon.GetName() << '\t';
-                            *os_genes << id << '\t';
-                            *os_genes << "Gene" + std::to_string(id) << '\t';
-                            *os_genes << gene.GetStatisticsString() << '\n';
+                            genes << m_name << '\t';
+                            genes << key << '\t';
+                            genes << taxonomy.LineageStr(key) << '\t';
+                            genes << taxon.GetName() << '\t';
+                            genes << id << '\t';
+                            genes << "Gene" + std::to_string(id) << '\t';
+                            genes << gene.GetStatisticsString() << '\n';
                         }
                     }
 
-                    gene_covs_str = std::accumulate(gene_covs.begin(), gene_covs.end(), std::string{}, [](std::string acc, size_t val) {
-                        return(acc + "\t" + std::to_string(val));
-                    });
-                    gene_cov_ratios_str = std::accumulate(gene_cov_ratios.begin(), gene_cov_ratios.end(), std::string{}, [](std::string acc, double val) {
-                        return(acc + "\t" + std::to_string(val));
-                    });
+                    std::string gene_covs_str, gene_cov_ratios_str;
+                    for (auto val : gene_covs) gene_covs_str += "\t" + std::to_string(val);
+                    for (auto val : gene_cov_ratios) gene_cov_ratios_str += "\t" + std::to_string(val);
 
                     double mean_gene_covs = std::accumulate(gene_covs.begin(), gene_covs.end(), size_t{0}) /
                                             static_cast<double>(taxon.GetGenes().size());
                     double mean_gene_cov_ratios = std::accumulate(gene_cov_ratios.begin(), gene_cov_ratios.end(), 0.0) /
                                             static_cast<double>(taxon.GetGenes().size());
 
-                    auto node = taxonomy.Get(key);
+                    auto const& node = taxonomy.Get(key);
 
                     if (prediction) {
-                        os_filtered << node.rep_genome << '\t' << taxonomy.LineageStr(key) << '\t' << abundance << std::endl;
+                        filtered << node.rep_genome << '\t' << taxonomy.LineageStr(key) << '\t' << abundance << '\n';
                     }
 
                     if (os_total) {
-                        *os_total << (prediction ? "1" : "0") << "\t" << probability << "\t" << node.rep_genome << '\t' << taxonomy.LineageStr(key) << '\t' << abundance;
-                        *os_total << '\t' << taxon.VCovStdDev();
-                        *os_total << '\t' << taxon.GetGeneVariance();
-                        *os_total << '\t' << taxon.GetGeneVariance(5);
-                        *os_total << '\t' << taxon.ToString(taxonomy);
-                        *os_total << '\t' << vcov << '\t' << taxon.LowIdentityShare();
-                        *os_total << '\t' << mean_gene_covs << '\t' << mean_gene_cov_ratios << gene_covs_str;
-                        *os_total << gene_cov_ratios_str << std::endl;
+                        total << (prediction ? "1" : "0") << "\t" << probability << "\t" << node.rep_genome << '\t' << taxonomy.LineageStr(key) << '\t' << abundance;
+                        total << '\t' << taxon.VCovStdDev();
+                        total << '\t' << taxon.GetGeneVariance();
+                        total << '\t' << taxon.GetGeneVariance(5);
+                        total << '\t' << taxon.ToString(taxonomy);
+                        total << '\t' << vcov << '\t' << taxon.LowIdentityShare();
+                        total << '\t' << mean_gene_covs << '\t' << mean_gene_cov_ratios << gene_covs_str;
+                        total << gene_cov_ratios_str << '\n';
                     }
-                }
+                    lines[k].filtered = filtered.str();
+                    lines[k].total = total.str();
+                    lines[k].genes = genes.str();
+                });
 
+                bool one_pass = false;
+                for (auto const& taxon_lines : lines) {
+                    os_filtered << taxon_lines.filtered;
+                    if (os_total) *os_total << taxon_lines.total;
+                    if (os_genes) *os_genes << taxon_lines.genes;
+                    one_pass |= taxon_lines.prediction;
+                }
+                os_filtered.flush();
 
                 if (!one_pass) {
                     std::cout << "No taxon passes the model in sample " << m_name << std::endl;
@@ -1906,19 +2064,7 @@ namespace protal {
             GenomeLoader &m_genome_loader;
             double m_depth_identity_margin = 1;
             std::shared_ptr<std::vector<uint32_t> const> m_genera;  // taxid -> genus (0: none); see SetGenera
-            std::unordered_map<uint32_t, RecordEvidence> m_record_evidence;  // NoteRecord
-            // The best records of the current link, of every taxon (NoteLinkedRecord): taxon, gene, orientation, where on
-            // the read they start and end.
-            struct LinkRecord {
-                uint32_t taxid;
-                uint32_t gene;
-                bool forward;
-                uint32_t start;
-                uint32_t end;
-            };
-            std::vector<LinkRecord> m_link_records;
-            size_t m_link = SIZE_MAX;
-            bool m_link_paired = false;  // the current link is a pair's mates, not a long read's genes
+            RecordEvidenceCollector m_evidence;  // NoteRecord, NoteLinkedRecord
         };
 
         // Every taxon's genus (its taxid; 0 for a taxon without one), for MicrobialProfile::SetGenera.
@@ -2070,7 +2216,7 @@ namespace protal {
             // Throws SamFormatError if a SAM header line names a reference sequence (@SQ) that is not a
             // gene of this database with the same length: the SAM was aligned against another database,
             // and its records would be compared with the wrong genes.
-            void CheckReference(std::string const& line) {
+            void CheckReference(std::string const& line) const {
                 if (line.rfind("@SQ\t", 0) != 0) return;
                 std::string_view name, length;
                 for (size_t start = 4; start <= line.size();) {
@@ -2105,11 +2251,75 @@ namespace protal {
                 }
             }
 
+            // SamReader's counts of a SAM's records, which ReportSamRecords reports; added up over the chunks of a SAM
+            // profiled on several threads.
+            struct SamRecordCounts {
+                size_t records = 0;
+                size_t without_tags = 0;
+                size_t primary = 0;
+                size_t primary_without_alternatives = 0;
+                std::map<std::string, size_t> skipped;
+
+                void Add(SamReader const& reader) {
+                    records += reader.Records();
+                    without_tags += reader.RecordsWithoutTags();
+                    primary += reader.PrimaryRecords();
+                    primary_without_alternatives += reader.PrimaryRecordsWithoutAlternatives();
+                    for (auto const& [reason, count] : reader.Skipped()) skipped[reason] += count;
+                }
+
+                void Add(SamRecordCounts const& other) {
+                    records += other.records;
+                    without_tags += other.without_tags;
+                    primary += other.primary;
+                    primary_without_alternatives += other.primary_without_alternatives;
+                    for (auto const& [reason, count] : other.skipped) skipped[reason] += count;
+                }
+            };
+
+            // The records skipped, and a SAM without usable records or without protal's tags, once it is read.
+            static void ReportSamRecords(std::string const& file_path, SamRecordCounts const& counts) {
+                for (auto const& [reason, count] : counts.skipped) {
+                    std::cerr << file_path << ": skipped " << count << " record(s): " << reason << std::endl;
+                }
+                if (counts.records == 0) {
+                    std::cerr << file_path << " contains no usable alignments" << std::endl;
+                } else if (counts.without_tags > 0) {
+                    std::cerr << "Warning: " << counts.without_tags << " of " << counts.records << " records in "
+                              << file_path << " have no ZU tag (protal's unique k-mer count). A SAM file not "
+                              << "written by protal lacks it, and the model then rejects most taxa." << std::endl;
+                } else if (counts.primary > 0 && counts.primary_without_alternatives == counts.primary) {
+                    std::cerr << "Warning: no record in " << file_path << " has a ZA tag (the read's alternative alignments "
+                              << "to other taxa), which older protal versions do not write: every taxon's congener_fit_share "
+                              << "and other_genus_fit_share is 0. Align the reads again (--force) for a model that uses them."
+                              << std::endl;
+                }
+            }
+
+            // Hands the reader's records to `on_group` as groups of candidate alignments: adjacent records with one
+            // QNAME are one read's candidates, and a supplementary record (0x800) starts a group of its own, one part
+            // of a long read. When the records end, the last group is left in `group`.
+            template<typename OnGroup>
+            static void CollectGroups(SamReader& reader, std::vector<AlignmentPair>& group, OnGroup&& on_group) {
+                SamEntry sam1;
+                SamEntry sam2;
+                bool has_sam1 = false, has_sam2 = false;
+                while (reader.Next(sam1, sam2, has_sam1, has_sam2)) {
+                    AlignmentPair pair(
+                            has_sam1 ? std::optional<SamEntry>{ std::move(sam1) } : std::optional<SamEntry>{},
+                            has_sam2 ? std::optional<SamEntry>{ std::move(sam2) } : std::optional<SamEntry>{});
+                    if (!group.empty() && (!SameRead(pair, group.front()) || Flag::IsSupplementaryAlignment(pair.Any().m_flag))) {
+                        on_group(group);
+                        group.clear();
+                    }
+                    group.emplace_back(std::move(pair));
+                }
+            }
+
             // Reads a SAM file (plain, gzip or zstd; SamInput) and hands each read's group of candidate
-            // alignments to `on_group`: adjacent records with one QNAME are one read's candidates, and a
-            // supplementary record (0x800) starts a group of its own, one part of a long read. Returns an
-            // error message if the file cannot be read, is truncated or was aligned against another database
-            // (CheckReference); a SAM without alignments is not an error.
+            // alignments to `on_group` (CollectGroups). Returns an error message if the file cannot be read,
+            // is truncated or was aligned against another database (CheckReference); a SAM without
+            // alignments is not an error.
             template<typename OnGroup>
             std::string ReadSamGroups(std::string const& file_path, OnGroup&& on_group) {
                 if (std::filesystem::exists(file_path) && std::filesystem::file_size(file_path) == 0) {
@@ -2126,24 +2336,9 @@ namespace protal {
                     return "the file is truncated or corrupt (" + input.ReadError() + ")";
                 };
 
-                SamEntry sam1;
-                SamEntry sam2;
-                bool has_sam1 = false, has_sam2 = false;
                 std::vector<AlignmentPair> group;
-
                 try {
-                    while (reader.Next(sam1, sam2, has_sam1, has_sam2)) {
-                        AlignmentPair pair(
-                                has_sam1 ? std::optional<SamEntry>{ sam1 } : std::optional<SamEntry>{},
-                                has_sam2 ? std::optional<SamEntry>{ sam2 } : std::optional<SamEntry>{});
-                        // A supplementary record (0x800) starts another part of the read (a long read's
-                        // other gene), with candidates of its own.
-                        if (!group.empty() && (!SameRead(pair, group.front()) || Flag::IsSupplementaryAlignment(pair.Any().m_flag))) {
-                            on_group(group);
-                            group.clear();
-                        }
-                        group.emplace_back(std::move(pair));
-                    }
+                    CollectGroups(reader, group, on_group);
                 } catch (SamFormatError const& e) {
                     // A truncated file's last line is cut short, too: the truncation is the cause.
                     if (input.ReadFailed()) return truncated();
@@ -2152,21 +2347,9 @@ namespace protal {
                 if (input.ReadFailed()) return truncated();
                 if (!group.empty()) on_group(group);
 
-                for (auto const& [reason, count] : reader.Skipped()) {
-                    std::cerr << file_path << ": skipped " << count << " record(s): " << reason << std::endl;
-                }
-                if (reader.Records() == 0) {
-                    std::cerr << file_path << " contains no usable alignments" << std::endl;
-                } else if (reader.RecordsWithoutTags() > 0) {
-                    std::cerr << "Warning: " << reader.RecordsWithoutTags() << " of " << reader.Records() << " records in "
-                              << file_path << " have no ZU tag (protal's unique k-mer count). A SAM file not "
-                              << "written by protal lacks it, and the model then rejects most taxa." << std::endl;
-                } else if (reader.PrimaryRecords() > 0 && reader.PrimaryRecordsWithoutAlternatives() == reader.PrimaryRecords()) {
-                    std::cerr << "Warning: no record in " << file_path << " has a ZA tag (the read's alternative alignments "
-                              << "to other taxa), which older protal versions do not write: every taxon's congener_fit_share "
-                              << "and other_genus_fit_share is 0. Align the reads again (--force) for a model that uses them."
-                              << std::endl;
-                }
+                SamRecordCounts counts;
+                counts.Add(reader);
+                ReportSamRecords(file_path, counts);
                 return {};
             }
 
@@ -2472,54 +2655,85 @@ namespace protal {
 
 
 
-            // link: the read across its groups (a long read's genes; see ProfileSam).
-            bool ProcessMAPQ(MicrobialProfile& profile, AlignmentPair& ap, int read_id=0, size_t link=SIZE_MAX) {
+            // A record that ProcessMAPQ adds to a taxon (MicrobialProfile::AddCheckedSam), with what ProfileSam's chunks
+            // need: the read's number and link in the file, and whether the record fit its gene.
+            struct SamAddition {
+                int taxid = 0;
+                int geneid = 0;
+                SamEntry const* sam = nullptr;
+                double ani = 0;
+                int read_id = 0;
+                size_t link = SIZE_MAX;
+                bool ok = true;
+            };
+
+        private:
+            std::vector<SamAddition> m_additions;  // ProcessMAPQ's
+
+        public:
+            // ProcessMAPQ before it adds anything to a taxon: the read's evidence (NoteRecord, NoteLinkedRecord) into
+            // `evidence`, and its records that pass the MAPQ and length filters into `additions` if CheckSam takes them.
+            // Returns false if CheckSam rejects one (the read does not fit the database). Reads `profile` only, so that
+            // the chunks of a SAM can be prepared on several threads.
+            bool PrepareMAPQ(MicrobialProfile const& profile, AlignmentPair& ap, size_t link, RecordEvidenceCollector& evidence,
+                             CigarInfo& info1, CigarInfo& info2, std::vector<SamAddition>& additions) const {
                 bool valid_sam = true;
 
                 bool take_first = false;
                 bool take_second = false;
-                if (ap.HasFirst()) CompressedCigarInfo(ap.First().m_cigar, m_info1);
-                if (ap.HasSecond()) CompressedCigarInfo(ap.Second().m_cigar, m_info2);
+                if (ap.HasFirst()) CompressedCigarInfo(ap.First().m_cigar, info1);
+                if (ap.HasSecond()) CompressedCigarInfo(ap.Second().m_cigar, info2);
 
                 // Every best record counts for its taxon's MAPQ and alternative evidence, also one the MAPQ filter
                 // below leaves out: a read that fits another taxon as well has MAPQ near 0.
-                if (ap.HasFirst()) profile.NoteRecord(ExtractTaxidGeneid(ap.First().m_rname).first, ap.First());
-                if (ap.HasSecond()) profile.NoteRecord(ExtractTaxidGeneid(ap.Second().m_rname).first, ap.Second());
+                if (ap.HasFirst()) evidence.NoteRecord(ExtractTaxidGeneid(ap.First().m_rname).first, ap.First());
+                if (ap.HasSecond()) evidence.NoteRecord(ExtractTaxidGeneid(ap.Second().m_rname).first, ap.Second());
                 for (auto* sam : { ap.HasFirst() ? &ap.First() : nullptr, ap.HasSecond() ? &ap.Second() : nullptr }) {
                     if (!sam) continue;
                     auto const [taxid, geneid] = ExtractTaxidGeneid(sam->m_rname);
-                    profile.NoteLinkedRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, link);
+                    evidence.NoteLinkedRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, link);
                 }
 
                 // MAPQ is judged per mate: the mates of a pair aligned together share one MAPQ, those
                 // of a fragment split over two genes each have their own.
-                if (ap.HasFirst() && ap.First().m_mapq >= m_min_mapq && m_info1.clipped_alignment_length > m_min_alignment_length) {
+                if (ap.HasFirst() && ap.First().m_mapq >= m_min_mapq && info1.clipped_alignment_length > m_min_alignment_length) {
                     take_first = true;
                 }
-                if (ap.HasSecond() && ap.Second().m_mapq >= m_min_mapq && m_info2.clipped_alignment_length > m_min_alignment_length) {
+                if (ap.HasSecond() && ap.Second().m_mapq >= m_min_mapq && info2.clipped_alignment_length > m_min_alignment_length) {
                     take_second = true;
                 }
                 if (!take_first && !take_second) return true;
 
+                auto take = [&](SamEntry& sam, CigarInfo const& info) {
+                    auto [tid, geneid] = ExtractTaxidGeneid(sam.m_rname);
+                    int const taxid = static_cast<int>(tid), gene = static_cast<int>(geneid);
+                    switch (profile.CheckSam(taxid, gene, sam)) {
+                        case MicrobialProfile::SamCheck::kReject: valid_sam = false; break;
+                        case MicrobialProfile::SamCheck::kSkip: break;
+                        case MicrobialProfile::SamCheck::kAdd: {
+                            SamAddition addition;
+                            addition.taxid = taxid;
+                            addition.geneid = gene;
+                            addition.sam = &sam;
+                            addition.ani = info.Ani();
+                            additions.push_back(addition);
+                            break;
+                        }
+                    }
+                };
+                if (take_first) take(ap.First(), info1);
+                if (take_second) take(ap.Second(), info2);
+                return valid_sam;
+            }
 
-                if (take_first && take_second) {
-                    auto [tid1, geneid1] = ExtractTaxidGeneid(ap.First().m_rname);
-                    auto [tid2, geneid2] = ExtractTaxidGeneid(ap.Second().m_rname);
-
-                    valid_sam &= profile.AddSam(tid1, geneid1, ap.First(), m_info1.Ani(), true, read_id, kNoStrain, link);
-                    valid_sam &= profile.AddSam(tid2, geneid2, ap.Second(), m_info2.Ani(), true, read_id, kNoStrain, link);
-
-                } else if (take_first) {
-                    auto [tid, geneid] = ExtractTaxidGeneid(ap.First().m_rname);
-
-                    valid_sam &=profile.AddSam(tid, geneid, ap.First(), m_info1.Ani(), true, read_id, kNoStrain, link);
-
-
-
-                } else if (take_second) {
-                    auto [tid, geneid] = ExtractTaxidGeneid(ap.Second().m_rname);
-
-                    valid_sam &=profile.AddSam(tid, geneid, ap.Second(), m_info2.Ani(), true, read_id, kNoStrain, link);
+            // Adds a read's best records to the profile: false if one does not fit the database (a gene it lacks, a
+            // position past a gene's end, or bases that differ from the gene). link: the read across its groups (a long
+            // read's genes; see ProfileSam).
+            bool ProcessMAPQ(MicrobialProfile& profile, AlignmentPair& ap, int read_id=0, size_t link=SIZE_MAX) {
+                m_additions.clear();
+                bool valid_sam = PrepareMAPQ(profile, ap, link, profile.Evidence(), m_info1, m_info2, m_additions);
+                for (auto const& addition : m_additions) {
+                    valid_sam &= profile.AddCheckedSam(addition.taxid, addition.geneid, *addition.sam, addition.ani, read_id, kNoStrain, link);
                 }
                 return valid_sam;
             }
@@ -2566,15 +2780,301 @@ namespace protal {
                 }
             }
 
+            // The bytes of SAM text per chunk when a SAM is profiled on several threads (ProfileSam); 0: by the
+            // number of threads. Small chunks let the tests cut a small SAM into many.
+            void SetChunkBytes(size_t bytes) {
+                m_chunk_bytes = bytes;
+            }
+
+        private:
+            size_t m_chunk_bytes = 0;
+
+            // A read of a chunk (ProfileSamParallel): its group of candidates, which holds its records, the one of
+            // them that counts (BestOfGroup), its link within the chunk, its records to add (SamAdditions
+            // [first_addition, first_addition + additions) of the chunk) and whether PrepareMAPQ found it valid.
+            struct ChunkRead {
+                std::vector<AlignmentPair> group;
+                size_t pair = 0;
+                size_t link = 0;
+                size_t first_addition = 0;
+                size_t additions = 0;
+                bool valid = true;
+            };
+
+            // What ParseChunk makes of a chunk. The reads are in a deque: the additions point to their records.
+            struct ParsedChunk {
+                explicit ParsedChunk(RecordEvidenceCollector evidence) : evidence(std::move(evidence)) {}
+                std::deque<ChunkRead> reads;
+                std::vector<SamAddition> additions;
+                RecordEvidenceCollector evidence;
+                SamRecordCounts counts;
+                size_t links = 0;  // reads with their own QNAME
+                size_t lines = 0;  // the line the chunk ends with
+                bool started = false;  // a record was read (a read begun)
+                std::string error;  // a SamFormatError; the reads before it count
+            };
+
+            // ProfileSamParallel's work on a chunk, on any thread: its reads (CollectGroups) with their links within the
+            // chunk and PrepareMAPQ. A chunk starts with a read of its own, so a read is numbered and linked in the
+            // chunk as ProfileSam numbers and links it in the file, less the reads and links of the chunks before.
+            // `last_read`: the chunk's last read counts once the chunk ends; not if the file is truncated there,
+            // as ReadSamGroups leaves it out then.
+            void ParseChunk(MicrobialProfile const& profile, sam_chunks::Chunk& chunk, ParsedChunk& out, bool last_read) const {
+                sam_chunks::TextStreambuf buffer(chunk.text);
+                std::istream is(&buffer);
+                SamReader reader(is, [this](std::string const& line) { CheckReference(line); }, chunk.first_line);
+                CigarInfo info1, info2;
+                size_t link = 0;
+                std::string last_qname;
+                auto on_group = [&](std::vector<AlignmentPair>& group) {
+                    auto& read = out.reads.emplace_back();
+                    read.group = std::move(group);
+                    auto& pair = read.group.size() == 1 ? read.group.front() : BestOfGroup(read.group);
+                    read.pair = static_cast<size_t>(&pair - read.group.data());
+                    auto const& qname = pair.Any().m_qname;
+                    if (out.reads.size() > 1 && qname != last_qname) link++;
+                    last_qname = qname;
+                    read.link = link;
+                    read.first_addition = out.additions.size();
+                    read.valid = PrepareMAPQ(profile, pair, link, out.evidence, info1, info2, out.additions);
+                    read.additions = out.additions.size() - read.first_addition;
+                };
+                std::vector<AlignmentPair> group;
+                try {
+                    CollectGroups(reader, group, on_group);
+                    if (last_read && !group.empty()) on_group(group);
+                } catch (SamFormatError const& e) {
+                    out.error = e.what();
+                }
+                out.started = !out.reads.empty() || !group.empty();
+                out.evidence.FinishLink();
+                out.links = out.reads.empty() ? 0 : link + 1;
+                out.lines = reader.Lines();
+                out.counts.Add(reader);
+                std::string().swap(chunk.text);  // the records hold their own copies
+            }
+
+            // The records of one taxon in a wave, in file order (PlanChunks), which one thread adds to it (RunJob).
+            struct TaxonJob {
+                Taxon* taxon = nullptr;
+                std::vector<SamAddition*> additions;
+            };
+
+            // What has to be done in file order when the parsed chunks [0, used) of a wave are added to the profile: each
+            // read's number and link in the file (read_offset, link_offset: those of the chunks before), and every taxon
+            // made as ProfileSam makes them. Returns each taxon's records, the taxa with most first. No taxon is made or
+            // removed until the jobs are done, so the references hold.
+            std::vector<TaxonJob> PlanChunks(MicrobialProfile& profile, std::vector<ParsedChunk>& parsed, size_t used,
+                                             size_t& read_offset, size_t& link_offset) const {
+                std::unordered_map<uint32_t, size_t> job_of;
+                std::vector<std::pair<uint32_t, std::vector<SamAddition*>>> records;
+                for (size_t c = 0; c < used; c++) {
+                    auto& chunk = parsed[c];
+                    for (size_t r = 0; r < chunk.reads.size(); r++) {
+                        auto const& read = chunk.reads[r];
+                        for (size_t k = read.first_addition; k < read.first_addition + read.additions; k++) {
+                            auto& addition = chunk.additions[k];
+                            addition.read_id = static_cast<int>(read_offset + r);
+                            addition.link = link_offset + read.link;
+                            profile.TaxonOf(addition.taxid);
+                            auto const [it, made] = job_of.try_emplace(static_cast<uint32_t>(addition.taxid), records.size());
+                            if (made) records.emplace_back(static_cast<uint32_t>(addition.taxid), std::vector<SamAddition*>{});
+                            records[it->second].second.push_back(&addition);
+                        }
+                    }
+                    read_offset += chunk.reads.size();
+                    link_offset += chunk.links;
+                }
+                std::sort(records.begin(), records.end(), [](auto const& a, auto const& b) { return a.second.size() > b.second.size(); });
+                std::vector<TaxonJob> jobs;
+                jobs.reserve(records.size());
+                for (auto& [taxid, additions] : records) jobs.push_back({ &profile.GetTaxa().at(taxid), std::move(additions) });
+                return jobs;
+            }
+
+            // Adds a taxon's records of a wave to it. False if a record that does not fit its gene leaves the taxon
+            // without records: ProfileSam would remove the taxon (and maybe make it anew) at that point.
+            static bool RunJob(TaxonJob& job) {
+                for (SamAddition* addition : job.additions) {
+                    addition->ok = MicrobialProfile::AddToTaxon(*job.taxon, addition->geneid, *addition->sam, addition->ani,
+                                                                 addition->read_id, kNoStrain, addition->link);
+                    if (!addition->ok && job.taxon->TotalHits() == 0) return false;
+                }
+                return true;
+            }
+
+            // ProfileSam on `threads` threads. The SAM is read in a thread of its own and cut into chunks of whole
+            // reads (SamChunks.h), which are parsed and prepared (ParseChunk) in waves. Of a wave's records, what
+            // depends on their order is done in file order (PlanChunks), and then the taxa add their records on all
+            // threads (RunJob) while the next wave is parsed: every taxon gets the same records in the same order as
+            // from ProfileSam on one thread, so the profile is the same. The rejected reads' records go to `rejected`,
+            // in file order. Sets `serial` and stops if a record that does not fit its gene would leave its taxon
+            // without records (RunJob); ProfileSam then profiles the file on one thread.
+            std::string ProfileSamParallel(std::string const& file_path, MicrobialProfile& profile, std::string& rejected,
+                                           size_t threads, bool& serial) {
+                if (std::filesystem::exists(file_path) && std::filesystem::file_size(file_path) == 0) {
+                    return "the file is empty (not even a SAM header)";
+                }
+                SamInput input(file_path);
+                if (!input.IsOpen()) return "cannot open the file";
+                // A file cut at a block or frame boundary lacks its format's end marker.
+                if (!input.Problem().empty()) return "the file is truncated or corrupt (" + input.Problem() + ")";
+                // The gzip readers and zstd read a truncated or corrupt file as one that ends early.
+                auto truncated = [&input]() {
+                    return "the file is truncated or corrupt (" + input.ReadError() + ")";
+                };
+
+                // Chunks of 1 MB, four per thread in a wave (up to 128 MB: a wave's records are held in memory), so that
+                // threads of different speed share a wave's work.
+                size_t const bytes = m_chunk_bytes > 0 ? m_chunk_bytes : size_t{1} << 20;
+                size_t const per_wave = std::max(threads, std::min<size_t>(4 * threads, 128));
+                sam_chunks::ChunkReader reader(input.Stream(), bytes, 2 * per_wave);
+                SamRecordCounts counts;
+                size_t read_offset = 0, link_offset = 0, lines = 0;
+                std::string error;
+                bool error_at_end = false;  // in the last chunk
+                bool failed = false;        // the stream could not be read to its end
+                bool end = false;           // the last chunk is taken
+                // Where the last read's rejected records begin in `rejected`, if it was rejected: when reading stops at
+                // an error or at a truncation, ReadSamGroups leaves out the read it has begun, and that is the last read
+                // of an earlier chunk if the chunk with the error began none.
+                size_t last_mark = 0;
+                bool last_rejected = false;
+
+                std::vector<sam_chunks::Chunk> wave, next;     // this wave's chunks, the next one's
+                std::vector<ParsedChunk> parsed, upcoming, done;  // and their parsed reads; the last wave's, to free
+                auto fetch = [&]() {
+                    next.clear();
+                    upcoming.clear();
+                    sam_chunks::Chunk chunk;
+                    while (next.size() < per_wave && !end && reader.Next(chunk)) {
+                        end = chunk.last;
+                        next.push_back(std::move(chunk));
+                    }
+                    // The reader has read all of the stream once it hands over the last chunk.
+                    if (!next.empty() && next.back().last) failed = reader.Bad() || input.ReadFailed();
+                    upcoming.reserve(next.size());
+                    for (size_t i = 0; i < next.size(); i++) upcoming.emplace_back(profile.Evidence().Empty());
+                };
+                auto parse = [&](size_t i) { ParseChunk(profile, next[i], upcoming[i], !(next[i].last && failed)); };
+                auto release = [](ParsedChunk& chunk) {
+                    std::deque<ChunkRead>().swap(chunk.reads);
+                    std::vector<SamAddition>().swap(chunk.additions);
+                };
+
+                fetch();
+                sam_chunks::ParallelFor(next.size(), threads, parse);
+                while (!next.empty()) {
+                    std::swap(wave, next);
+                    std::swap(parsed, upcoming);
+                    // The chunks up to the first with an error count, as the reads before an error do in ProfileSam.
+                    size_t used = wave.size();
+                    for (size_t i = 0; i < wave.size(); i++) {
+                        if (parsed[i].error.empty()) continue;
+                        used = i + 1;
+                        error = parsed[i].error;
+                        error_at_end = wave[i].last;
+                        break;
+                    }
+                    for (size_t i = 0; i < used; i++) {
+                        counts.Add(parsed[i].counts);
+                        profile.Evidence().Add(parsed[i].evidence);
+                        lines = parsed[i].lines;
+                    }
+                    auto jobs = PlanChunks(profile, parsed, used, read_offset, link_offset);
+
+                    // The taxa add this wave's records while the next wave is parsed and the last one is freed.
+                    if (error.empty()) fetch();
+                    else {
+                        next.clear();
+                        upcoming.clear();
+                    }
+                    std::atomic<bool> emptied{ false };
+                    size_t const n_jobs = jobs.size(), n_parse = next.size();
+                    sam_chunks::ParallelFor(n_jobs + n_parse + done.size(), threads, [&](size_t t) {
+                        if (t < n_jobs) {
+                            if (!emptied && !RunJob(jobs[t])) emptied = true;
+                        } else if (t < n_jobs + n_parse) {
+                            parse(t - n_jobs);
+                        } else {
+                            release(done[t - n_jobs - n_parse]);
+                        }
+                    });
+                    done.clear();
+                    if (emptied) {
+                        serial = true;
+                        break;
+                    }
+
+                    for (size_t i = 0; i < used; i++) {
+                        auto& chunk = parsed[i];
+                        for (auto& read : chunk.reads) {
+                            bool valid = read.valid;
+                            for (size_t k = read.first_addition; k < read.first_addition + read.additions; k++) valid &= chunk.additions[k].ok;
+                            last_mark = rejected.size();
+                            last_rejected = !valid;
+                            if (valid) continue;
+                            m_rejected_reads++;
+                            auto& pair = read.group[read.pair];
+                            if (pair.first.has_value()) rejected += pair.first.value().ToString() + '\n';
+                            if (pair.second.has_value()) rejected += pair.second.value().ToString() + '\n';
+                        }
+                    }
+                    size_t const stop = !error.empty() ? used - 1 : wave.back().last && failed ? wave.size() - 1 : SIZE_MAX;
+                    if (stop != SIZE_MAX && !parsed[stop].started && last_rejected) {
+                        rejected.resize(last_mark);
+                        m_rejected_reads--;
+                    }
+                    std::swap(done, parsed);
+                    if (!error.empty()) break;
+                }
+                // What is left of the waves, freed on all threads.
+                for (auto* waves : { &done, &parsed, &upcoming }) {
+                    sam_chunks::ParallelFor(waves->size(), threads, [&](size_t i) { release((*waves)[i]); });
+                }
+                reader.Stop();
+                if (serial) return {};
+                if (!error.empty()) {
+                    // A truncated file's last line is cut short, too: the truncation is the cause.
+                    if (error_at_end && input.ReadFailed()) return truncated();
+                    return error;
+                }
+                if (failed) return input.ReadFailed() ? truncated() : "read error after line " + std::to_string(lines);
+                m_reads = read_offset;
+                ReportSamRecords(file_path, counts);
+                return {};
+            }
+
+        public:
             using OptionalRefOstream = std::optional<std::reference_wrapper<std::ostream>>;
             // Profiles a SAM file one read at a time, without holding the file in memory: a read with
             // one candidate alignment, or the best of a multi-mapped read's (BestOfGroup), is added to
             // `profile`. Records the profile rejects (genes outside the database, alignments that do
-            // not match their gene) go to `erroneous_sam_out`. Returns an error message as ReadSamGroups.
-            std::string ProfileSam(std::string const& file_path, MicrobialProfile& profile, OptionalRefOstream erroneous_sam_out={}, size_t snp_min_cov=2, size_t snp_min_obs_fwdrev=2, double snp_min_af=0.0, size_t snp_min_mean_qual=15, size_t snp_min_phred_sum=0, bool snp_require_strand=false) {
+            // not match their gene) go to `erroneous_sam_out`. Returns an error message as ReadSamGroups;
+            // the profile is then incomplete. On `threads` threads (ProfileSamParallel) the profile is the
+            // same, and so are an error and the rejected records.
+            std::string ProfileSam(std::string const& file_path, MicrobialProfile& profile, OptionalRefOstream erroneous_sam_out={}, size_t snp_min_cov=2, size_t snp_min_obs_fwdrev=2, double snp_min_af=0.0, size_t snp_min_mean_qual=15, size_t snp_min_phred_sum=0, bool snp_require_strand=false,
+                                   size_t threads=1) {
                 profile.SetDepthIdentityMargin(m_depth_identity_margin);
-                size_t read_id = 0;
                 m_rejected_reads = 0;
+                if (threads > 1) {
+                    std::string rejected;
+                    bool serial = false;
+                    auto const error = ProfileSamParallel(file_path, profile, rejected, threads, serial);
+                    if (!serial) {
+                        if (erroneous_sam_out.has_value()) erroneous_sam_out.value().get() << rejected;
+                        if (!error.empty()) return error;
+                        profile.ApplyRecordEvidence();
+                        m_post_process_bm.Start();
+                        profile.PostProcessSNPs(snp_min_cov, snp_min_obs_fwdrev, snp_min_af, snp_min_mean_qual, snp_min_phred_sum, snp_require_strand, threads);
+                        m_post_process_bm.Stop();
+                        return {};
+                    }
+                    // Only the serial profile removes a taxon whose records do not fit, at the point it does: again on one thread.
+                    profile.ClearReads();
+                    m_rejected_reads = 0;
+                }
+                size_t read_id = 0;
                 // One link per read: a pair's group, or all groups of a long read (its genes, one supplementary
                 // record each, which follow each other with the read's name).
                 size_t link = 0;
