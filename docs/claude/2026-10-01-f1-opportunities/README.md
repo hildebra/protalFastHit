@@ -128,7 +128,10 @@ Test F1 change against 0.7.1's model (interval); cross-validated F1 in `results/
 
 - **The conservation pattern**: the log ratio of the median depth of a taxon's conserved genes (factor below 1
   in `gene_conservation.tsv`) to its fast ones, and the conserved share of its hit genes. A missing relative makes
-  the fast genes deeper ([gene-scaled margin report](../2026-10-01-gene-scaled-margin/README.md)).
+  the fast genes deeper ([gene-scaled margin report](../2026-10-01-gene-scaled-margin/README.md)). *Correction
+  (later on 2026-10-01): traced read by read, a missing relative's reads align best on the conserved genes, and a
+  taxon holding them has the conserved genes deeper; the gene-scaled margin report's ratio was of present species
+  in a world dense in congeners ([conservation pattern report](../2026-10-01-conservation-pattern/README.md)).*
 - **Divergence beyond the base qualities**: per read, its differences per aligned base less the mean error
   probability of its bases (10^(−Q/10)); per taxon the median, and the share of reads above 0.02. Present
   taxa's reads exceed their predicted errors by 0.010-0.013, absent taxa's by 0.051-0.066. It separates a

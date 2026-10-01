@@ -132,7 +132,11 @@ In the congener world, by the species' congeners in the sample (median log2(repo
   conserved genes" was reasoned, not measured, and is wrong. Turned round (the conserved genes alone when they
   are less than 0.7–0.8 times as deep as the fast ones), the check halves part of the error with species missing
   but fires as often without a missing relative: congeners in the database lower the conserved genes too (0.86
-  in `db7_full`), and its sums are no better than the fixed margin's.
+  in `db7_full`), and its sums are no better than the fixed margin's. *Note (later on 2026-10-01): these ratios
+  are of present species after the profiler's filters; they do not say where a relative's reads align. Traced read
+  by read on the v0.7.1 benchmark world, a missing relative's reads align best on the conserved genes, most of them
+  there fitting several congeners equally (MAPQ below 4)
+  ([conservation pattern report](../2026-10-01-conservation-pattern/README.md)).*
 
 ## Recommendation
 

@@ -17,7 +17,8 @@ the paired-end F1 on the tuning world.
 Four more (docs/claude/2026-10-01-f1-opportunities): how far the reads differ from the reference beyond
 what their base qualities explain (excess_median, excess_high_share; 0 without qualities), and the depth of the
 taxon's conserved hit genes against its fast ones by the database's gene_conservation.tsv (conserved_fast_depth_ratio,
-conserved_hit_share; 0 and 0.5 without it). A relative's reads exceed their errors and land on the fast genes.
+conserved_hit_share; 0 and 0.5 without it). A relative's reads exceed their errors, and align best on the conserved
+genes, where it differs least from its congeners (docs/claude/2026-10-01-conservation-pattern).
 """
 
 # Columns of the dump that describe the row, not the taxon's evidence; columns that

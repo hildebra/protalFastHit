@@ -141,8 +141,12 @@ On simulated data it finds about a third of the archaea present, with probabilit
   `gene_conservation.tsv`, [database-files.md](database-files.md)): `conserved_fast_depth_ratio`,
   log2 of the median depth of the taxon's hit genes with factor below 1 (conserved) over that of
   its other hit genes, each plus 0.001 (0 if either has none), and `conserved_hit_share`, the share
-  of its hit genes that are conserved; 0 and 0.5 without the table. A relative's reads are
-  deeper on the fast genes, where it differs from the species less than on the conserved ones.
+  of its hit genes that are conserved; 0 and 0.5 without the table. A relative the database lacks
+  differs least from its congeners on the conserved genes, so its reads align there best; on the
+  simulated benchmark world a taxon that only holds such a relative's reads has conserved genes
+  deeper than its fast ones (median ratio +0.33, present taxa about 0), although many of those
+  reads fit several congeners equally and fall below the profiler's MAPQ filter
+  ([report](claude/2026-10-01-conservation-pattern/README.md); not yet checked on real genomes).
 
   The four came after 0.7.1: refitted with them on the 0.7.1 benchmark's training tables, the forest
   gained 0.003 (paired-end) and 0.007 (ONT) of test F1, not significant on their own, and the

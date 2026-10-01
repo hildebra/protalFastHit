@@ -678,7 +678,8 @@ namespace protal {
             // The conservation pattern of the genes its reads hit, by their factors (gene_conservation.tsv): log2 of the
             // median depth of its hit genes with factor below 1 (conserved) over that of the others, each + 0.001 (0 if
             // either has none); and the conserved share of its hit genes (0.5 without genes or factors). A relative the
-            // database lacks makes a species' fast genes deeper (docs/claude/2026-10-01-gene-scaled-margin).
+            // database lacks differs least from its congeners on the conserved genes: a taxon holding its reads has the
+            // conserved genes deeper (docs/claude/2026-10-01-conservation-pattern).
             std::pair<double, double> ConservationPattern() const {
                 if (!m_conservation || m_conservation->Empty() || m_genes.empty()) return { 0.0, 0.5 };
                 std::vector<double> conserved, fast;
@@ -1394,8 +1395,8 @@ namespace protal {
             f.emplace_back("adjacent_unlikely_share", taxon.AdjacentUnlikelyShare());
             // How far its reads differ from the reference beyond their base qualities' errors (ReadExcess: the median,
             // and the share above kHighExcess), and the depth of its conserved hit genes against its fast ones
-            // (ConservationPattern): a relative's reads exceed their errors and land on the fast genes
-            // (docs/claude/2026-10-01-f1-opportunities).
+            // (ConservationPattern): a relative's reads exceed their errors and align best on the conserved genes
+            // (docs/claude/2026-10-01-f1-opportunities, docs/claude/2026-10-01-conservation-pattern).
             f.emplace_back("excess_median", taxon.ExcessMedian());
             f.emplace_back("excess_high_share", taxon.ExcessHighShare());
             auto const [conserved_ratio, conserved_share] = taxon.ConservationPattern();
