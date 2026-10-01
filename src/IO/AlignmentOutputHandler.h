@@ -142,6 +142,19 @@ namespace protal {
         if (!ar.Forward()) reverse(sam.m_qual.begin(), sam.m_qual.end());
     }
 
+    // The gene a SAM record lies on, decoded where it lies (GeneSequence window): the reference positions that
+    // ExtractSNPs and PrintAlignment read, from the record's position over the reference its CIGAR spans.
+    static GeneSequence ReferenceOf(Gene const& gene, SamEntry const& sam) {
+        size_t const begin = sam.m_pos > 0 ? static_cast<size_t>(sam.m_pos) - 1 : 0;
+        size_t span = 0;
+        int cpos = 0, count = 0;
+        char op = ' ';
+        while (NextCompressedCigar(cpos, sam.m_cigar, count, op)) {
+            if (!(op == 'I' || op == 'S')) span += static_cast<size_t>(count);  // the operations that advance the reference
+        }
+        return gene.Window(begin, begin + span);
+    }
+
     using SNPList = std::vector<SNP>;
 
     class ProtalAlignmentDataOutputHandler {
@@ -392,7 +405,7 @@ namespace protal {
                 m_sam.m_mapq = first ? mapq : 0;
                 m_sam.m_tlen = 0;
 
-                auto const reference = m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()).Sequence();
+                auto const reference = ReferenceOf(m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()), m_sam);
                 if (!ExtractSNPs(m_sam, reference, snps, ar.Taxid(), ar.GeneId(), 0)) {
 #pragma omp critical(err_out)
                     {
@@ -512,8 +525,8 @@ namespace protal {
             ArtoSAM(m_sam1, ar1, ar1.GetAlignmentInfo(), record1, qname);
             ArtoSAM(m_sam2, ar2, ar2.GetAlignmentInfo(), record2, qname);
             SNPList snps;
-            if (!ExtractSNPs(m_sam1, m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()).Sequence(), snps, ar1.Taxid(), ar1.GeneId(), 0) ||
-                !ExtractSNPs(m_sam2, m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()).Sequence(), snps, ar2.Taxid(), ar2.GeneId(), 0)) {
+            if (!ExtractSNPs(m_sam1, ReferenceOf(m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()), m_sam1), snps, ar1.Taxid(), ar1.GeneId(), 0) ||
+                !ExtractSNPs(m_sam2, ReferenceOf(m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()), m_sam2), snps, ar2.Taxid(), ar2.GeneId(), 0)) {
                 return false;
             }
             for (auto [sam, ar, other, mapq, is_read1] : { std::make_tuple(&m_sam1, &ar1, &ar2, best1.mapq, true),
@@ -612,7 +625,7 @@ namespace protal {
                     alignment_score += info.Score();
                     m_sam1.m_mapq = first ? mapq : 0;
 
-                    valid1 = ExtractSNPs(m_sam1, m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()).Sequence(), snps, ar1.Taxid(), ar1.GeneId(), 0);
+                    valid1 = ExtractSNPs(m_sam1, ReferenceOf(m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()), m_sam1), snps, ar1.Taxid(), ar1.GeneId(), 0);
                 }
                 if (ar2.IsSet()) {
                     auto len = std::count_if(ar2.Cigar().begin(), ar2.Cigar().end(), [](char c) {
@@ -642,7 +655,7 @@ namespace protal {
                     alignment_score += info.alignment_score;
                     m_sam2.m_mapq = first ? mapq : 0;
 
-                    valid2 = ExtractSNPs(m_sam2, m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()).Sequence(), snps, ar2.Taxid(), ar2.GeneId(), 0);
+                    valid2 = ExtractSNPs(m_sam2, ReferenceOf(m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()), m_sam2), snps, ar2.Taxid(), ar2.GeneId(), 0);
                 }
                 if (both) {
                     m_sam1.m_rnext = "=";
@@ -667,7 +680,7 @@ namespace protal {
                         {
                             std::cerr << record1.to_string() << std::endl;
                             std::cerr << m_sam1.ToString() << std::endl;
-                            auto const reference = m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()).Sequence();
+                            auto const reference = ReferenceOf(m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()), m_sam1);
                             PrintAlignment(m_sam1, reference, std::cerr);
                         }
                     }
@@ -676,7 +689,7 @@ namespace protal {
                         {
                             std::cerr << record2.to_string() << std::endl;
                             std::cerr << m_sam2.ToString() << std::endl;
-                            auto const reference = m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()).Sequence();
+                            auto const reference = ReferenceOf(m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()), m_sam2);
                             PrintAlignment(m_sam2, reference, std::cerr);
                         }
                     }

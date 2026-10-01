@@ -401,7 +401,6 @@ namespace protal {
             // Get Resources
             auto& genome = m_genome_loader.GetGenome(anchor.taxid);
             auto& gene = genome.GetGeneOMP(anchor.geneid);
-            auto const geneseq = gene.Sequence();  // decoded; lives to the end of this function
 
 //            std::cerr << "--------------- links: " << anchor.chain.size() << std::endl;
 //            auto [qry, ref] = anchor.ToVisualString(read, geneseq);
@@ -410,7 +409,7 @@ namespace protal {
 //            auto genestart = anchor.chain.front().genepos;
 //            auto readstart = anchor.chain.front().readpos;
 //            std::cerr << read.substr(readstart, std::min(readstart + read.length(), read.length())) << std::endl;
-//            std::cerr << geneseq.substr(genestart, std::min(genestart + read.length(), geneseq.length())) << std::endl;
+//            std::cerr << geneseq.substr(genestart, std::min<size_t>(read.length(), window.ref_end > genestart ? window.ref_end - genestart : 0)) << std::endl;  // the decoded window
 //            std::cerr << "---------------" << std::endl;
 
 
@@ -503,6 +502,11 @@ namespace protal {
             window.read_end_free = allowed_del_right;
             window.max_score = MaxScore(m_max_score_ani, m_alignment_orientation.overlap);
 
+            // The gene, decoded where the read lies: the window, which holds every link and flank the alignment reads
+            // (AnchoredAligner checks that each link is inside it) and where the alignment is checked; it lives to the
+            // end of this function. The rest of the gene is not decoded.
+            auto const geneseq = gene.Window(window.ref_start, window.ref_end);
+
             bm_alignment.Start();
             if (approximate_alignment) {
 //                auto [successt, scoret, cigart] = Align(anchor, read, gene.Sequence());
@@ -576,7 +580,8 @@ namespace protal {
                         auto readstart = info.read_start_offset;
                         auto genestart = info.gene_alignment_start;
                         std::cerr << read.substr(readstart, std::min(readstart + read.length(), read.length())) << std::endl;
-                        std::cerr << geneseq.substr(genestart, std::min(genestart + read.length(), geneseq.length())) << std::endl;
+                        // only the window is decoded
+                        std::cerr << geneseq.substr(genestart, std::min<size_t>(read.length(), window.ref_end > genestart ? window.ref_end - genestart : 0)) << std::endl;
 
                         std::cerr << "-----Invalid after alignment\t" << geneseq.substr(window.ref_start, window.ref_end - window.ref_start)
                                   << " " << info.ToString() << std::endl;

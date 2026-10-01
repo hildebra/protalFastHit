@@ -4,7 +4,8 @@
 // The reference genes are the second largest part of protal's memory (~17 GB of the 59 of the full
 // GTDB r226 database at one byte per base). They are held packed, four bases to a byte, and a
 // Gene::Sequence() call decodes the gene into a GeneSequence (a buffer on the stack, for genes up to
-// 4096 bases).
+// 4096 bases). Gene::Window(begin, end) decodes only those bases, at their gene positions, for code that
+// works on the stretch of a gene a read lies on.
 //
 // Coding: A 0, C 1, G 2, T 3; base i of a gene is in byte i/4 at bits 2*(i%4), every gene starts on
 // a byte. Anything that is not A, C, G or T has no code of its own and is stored as a base:
@@ -212,6 +213,14 @@ namespace protal::packed {
         if (n > head) Unpack(gene + (first + head) / 4, n - head, d + head);
     }
 
+    // For tests: a byte value to fill the part of a GeneSequence window that is not decoded with (-1: leave it as
+    // it is, which is what production does). A read outside a window then sees that byte, not what was on the
+    // stack: with 0, the strongest case for code that stops at a terminating NUL, deterministically.
+    inline std::atomic<int>& OutsideFill() {
+        static std::atomic<int> fill{ -1 };
+        return fill;
+    }
+
     // Packs `n` bases, which are bases first .. first + n - 1 of the gene whose packed bytes start at
     // `gene`, into it. The bytes must be zero before (a fresh calloc): the byte at either end of the
     // range can be shared with the neighbouring range of another thread and is set with an atomic or;
@@ -259,6 +268,10 @@ namespace protal {
             if (bases > kInline) {
                 m_heap = std::make_unique_for_overwrite<char[]>(bases);
                 out = m_heap.get();
+            }
+            if (int const fill = packed::OutsideFill().load(std::memory_order_relaxed); fill >= 0) {
+                std::memset(out, fill, begin);
+                std::memset(out + end, fill, bases - end);
             }
             if (end > begin) packed::UnpackRange(packed, begin, end - begin, out + begin);
             m_view = std::string_view(out, bases);

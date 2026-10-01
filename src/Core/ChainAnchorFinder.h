@@ -155,11 +155,38 @@ namespace protal {
             return true;
         }
 
+        // Widens [lo, hi) by the stretch of a gene a read can touch along a link's diagonal: where the read lies
+        // over the gene if the link continued without gaps, which is as far as extending the link goes and
+        // where an alignment around it starts (its window is this stretch and a few bases). Start with
+        // lo = SIZE_MAX, hi = 0.
+        // ExtendSeed compares the base after the read's end too (the string's '\0' against the gene's base: one
+        // past the diagonal), so the stretch has a margin, on both sides to be safe.
+        static constexpr int64_t kWindowMargin = 8;
+
+        static void WidenToDiagonal(size_t& lo, size_t& hi, int64_t genepos, int64_t readpos, size_t read_length, size_t gene_length) {
+            int64_t const start = genepos - readpos;
+            lo = std::min<size_t>(lo, static_cast<size_t>(std::max<int64_t>(start - kWindowMargin, 0)));
+            hi = std::max<size_t>(hi, static_cast<size_t>(std::min<int64_t>(std::max<int64_t>(start + static_cast<int64_t>(read_length) + kWindowMargin, 0),
+                                                                           static_cast<int64_t>(gene_length))));
+        }
+
+        // The gene of an anchor decoded around its links: all that extending the anchor and checking its seeds reads.
+        static GeneSequence GeneAround(Gene const& gene, ChainList const& chain, size_t read_length) {
+            size_t lo = SIZE_MAX, hi = 0;
+            for (auto const& link : chain) WidenToDiagonal(lo, hi, link.genepos, link.readpos, read_length, gene.GetLength());
+            return gene.Window(lo, hi);
+        }
+
         Anchor ExtractAndExtendAnchorFromSeed(Seed& seed, std::string& fwd, std::string& rev) {
 //            if (seed.taxid == 0) exit(23); // remove
             auto& genome = m_genome_loader.GetGenome(seed.taxid);
             auto& gene = genome.GetGeneOMP(seed.geneid);
-            auto const geneseq = gene.Sequence();
+            // Along the seed's diagonal on either strand (which one it is on is not known yet).
+            size_t lo = SIZE_MAX, hi = 0;
+            WidenToDiagonal(lo, hi, seed.genepos, seed.readpos, fwd.length(), gene.GetLength());
+            WidenToDiagonal(lo, hi, seed.genepos, static_cast<int64_t>(fwd.length()) - seed.readpos - static_cast<int64_t>(m_k),
+                            fwd.length(), gene.GetLength());
+            auto const geneseq = gene.Window(lo, hi);
 
             ChainLink fwd_link = ChainLink(seed.genepos, seed.readpos, m_k);
             std::string_view qseedf(fwd.c_str() + seed.readpos, fwd_link.length);//query.substr(s.readpos, s.length);
@@ -568,7 +595,12 @@ namespace protal {
         void ExtendAnchor(ChainAlignmentAnchor& anchor, std::string const& query) {
             auto& genome = m_genome_loader.GetGenome(anchor.taxid);
             auto& gene = genome.GetGeneOMP(anchor.geneid);
-            auto const geneseq = gene.Sequence();
+            auto const geneseq = GeneAround(gene, anchor.chain, query.size());
+            ExtendAnchor(anchor, query, geneseq);
+        }
+
+        // As above, with the anchor's gene decoded around its links (GeneAround).
+        void ExtendAnchor(ChainAlignmentAnchor& anchor, std::string const& query, GeneSequence const& geneseq) {
 
             // std::cerr << anchor.ToVisualString2() << std::endl;
             // std::cerr << anchor.ToString() << std::endl;
@@ -674,13 +706,14 @@ namespace protal {
 
             m_bm_extend_anchors.Start();
             for (auto& anchor : anchors) {
+                // The gene around the anchor, decoded once for the checks of a short anchor and its extension.
+                auto& genome = m_genome_loader.GetGenome(anchor.taxid);
+                auto& gene = genome.GetGeneOMP(anchor.geneid);
+                auto const geneseq = GeneAround(gene, anchor.chain, read_length);
                 if (anchor.chain.size() == 1 && anchor.total_length < 20) {
                     auto& seed = anchor.chain.back();
-                    auto& genome = m_genome_loader.GetGenome(anchor.taxid);
-                    auto& gene = genome.GetGeneOMP(anchor.geneid);
                     auto seed_q_fwd = m_fwd->substr(seed.readpos, seed.length);
                     auto seed_q_rev = m_rev.substr(seed.readpos, seed.length);
-                    auto const geneseq = gene.Sequence();
                     auto seed_r = geneseq.substr(seed.genepos, seed.length);
 
 //                    std::cout << "Single anchor " << anchor.forward << std::endl;
@@ -702,7 +735,7 @@ namespace protal {
 //                    Utils::Input();
                 }
 
-                ExtendAnchor(anchor, anchor.forward ? *m_fwd : m_rev);
+                ExtendAnchor(anchor, anchor.forward ? *m_fwd : m_rev, geneseq);
             }
             m_bm_extend_anchors.Stop();
 
