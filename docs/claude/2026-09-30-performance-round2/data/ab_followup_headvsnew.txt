@@ -1,0 +1,36 @@
+2.72 2.71 3.73 2/213 687956
+falk      687783  101  3.0 879532 753952 pts/4   RNl+ 08:40   0:11 /home/falk/exp-build-gc/protal --db /home/falk/stress
+falk      687855  1.4  0.0  96132 13460 pts/3    S+   08:40   0:00 curl -s -o /dev/null -w  --max-time 120 https://ftp.n
+=== mix 1M, db900n
+column:        wall      user      loop      seeding
+A min         16.550    15.400    13.306     3.128
+A median      17.850    16.000    13.446     3.182
+B min         12.630    11.500     9.060     2.997
+B median      13.550    12.280     9.933     3.018
+=== dense_mix 300k
+column:        wall      user      loop      seeding
+A min          5.920     5.210     3.652     0.677
+A median       6.300     5.540     3.924     0.739
+B min          4.730     4.110     2.557     0.656
+B median       5.330     4.470     2.821     0.702
+=== dense_w 300k
+column:        wall      user      loop      seeding
+A min         24.390    23.060    21.506     2.368
+A median      25.310    23.890    22.733     2.489
+B min         21.390    20.310    18.947     2.337
+B median      22.200    20.760    19.267     2.345
+2.30 2.46 3.23 3/244 692655
+2.01 2.39 3.19 2/209 692742
+=== mix 1M, cpu 4
+column:        wall      user      loop      seeding
+A min         15.650    14.460    12.143     2.701
+A median      18.530    16.160    13.873     3.035
+B min         13.630    12.590    10.186     3.118
+B median      14.430    12.910    10.620     3.355
+=== w900 1M, cpu 4
+column:        wall      user      loop      seeding
+A min         38.580    37.340    35.137     5.296
+A median      38.650    37.490    35.145     5.425
+B min         31.830    30.670    28.309     4.918
+B median      33.400    31.910    29.507     5.399
+2.16 2.25 2.84 2/201 696467

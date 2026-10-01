@@ -1,0 +1,8 @@
+per pair: Ir, D1 read misses, LL read misses (simulated 12 MB LL)
+   37309   119.9    78.4  TOTAL
+    1591    62.3    59.7  src/src/Hash/Seedmap.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long unsigned long> std::allocator<s
+     628    20.1     7.9  ./string/../sysdeps/x86_64/multiarch/memchr-avx2.S:__memchr_avx2
+     249     7.5     7.1  src/src/Hash/Seedmap.h:protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult std::allocator<protal::LookupResult> >& protal::LookupPoin
+      72     3.3     2.1  /usr/lib/gcc/x86_64-linux-gnu/13/include/avxintrin.h:protal::GeneSequence::GeneSequence(unsigned char const* unsigned long)
+    2026    11.3     0.8  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms
+       7     0.6     0.3  src/src/SequenceUtils/GenomeLoader.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long unsigned long> st

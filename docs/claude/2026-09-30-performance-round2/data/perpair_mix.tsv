@@ -1,0 +1,60 @@
+18699	src/src/SequenceUtils/KmerIterator.h:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)
+12363	???:inflate_fast_avx2
+5100	???:wavefront_extend_matches_packed_endsfree
+3956	src/src/SequenceUtils/KmerUtils.h:KmerUtils::ReverseComplement(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >)
+3624	src/src/SequenceUtils/KmerUtils.h:protal::SimpleAlignmentHandler::operator()(std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::vector<protal::AlignmentResult, std::allocator<protal::AlignmentResult> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, unsigned long, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&)
+3159	???:wavefront_heuristic_wfadaptive
+3144	/usr/include/c++/13/bits/basic_string.h:protal::SimpleAlignmentHandler::operator()(std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::vector<protal::AlignmentResult, std::allocator<protal::AlignmentResult> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, unsigned long, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&)
+3044	/usr/include/c++/13/bits/basic_string.h:KmerUtils::ReverseComplement(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >)
+2758	???:wavefront_compute_affine_idm
+2164	src/src/IO/FastxReader.cpp:BufferedFastxReader::FinishFastq(FastxRecord&, std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<char> >)
+1959	???:wavefront_termination_endsfree
+1709	???:wavefront_compute_init_ends
+1590	src/src/Hash/Seedmap.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&)
+1478	./malloc/./malloc/malloc.c:_int_free
+1453	./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms
+1408	???:wavefront_compute_process_ends
+1264	/usr/include/c++/13/bits/char_traits.h:KmerUtils::ReverseComplement(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >)
+1223	./malloc/./malloc/malloc.c:malloc
+1160	/usr/lib/gcc/x86_64-linux-gnu/13/include/avx2intrin.h:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)
+1025	???:wavefront_compute_fetch_input
+902	/usr/include/c++/13/bits/char_traits.h:protal::SimpleAlignmentHandler::operator()(std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::vector<protal::AlignmentResult, std::allocator<protal::AlignmentResult> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, unsigned long, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&)
+798	???:std::chrono::_V2::steady_clock::now()
+758	./malloc/./malloc/malloc.c:free
+728	/usr/lib/gcc/x86_64-linux-gnu/13/include/avxintrin.h:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)
+723	???:wavefront_compute_affine
+694	src/src/Core/ChainAnchorFinder.h:protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&)
+668	???:wavefront_slab_allocate
+651	./string/../sysdeps/x86_64/multiarch/memchr-avx2.S:__memchr_avx2
+640	???:wavefront_compute_allocate_output
+610	???:wavefront_extend_endsfree
+590	???:wavefront_slab_reap_repurpose
+586	src/src/Alignment/AlignmentUtils.h:protal::AlignmentInfo::GetInstructionCountsAndCompress()
+549	./time/../sysdeps/unix/sysv/linux/clock_gettime.c:clock_gettime@@GLIBC_2.17
+533	/usr/include/c++/13/bits/vector.tcc:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)
+512	src/src/Hash/KmerLookup.h:protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&)
+442	???:wavefront_heuristic_cufoff
+433	???:operator new(unsigned long)
+424	/usr/include/c++/13/bits/basic_string.tcc:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_mutate(unsigned long, unsigned long, char const*, unsigned long)
+376	???:wavefront_init
+362	/usr/include/c++/13/bits/char_traits.h:BufferedFastxReader::NextFastq(FastxRecord&)
+357	/usr/lib/gcc/x86_64-linux-gnu/13/include/avx2intrin.h:protal::GeneSequence::GeneSequence(unsigned char const*, unsigned long)
+319	???:wavefront_compute_allocate_output_null
+311	???:wavefront_unialign
+310	???:0x0000000000027bb0
+293	src/src/SequenceUtils/SequenceRange.h:SequenceRangeHandler::CoveredPortion(unsigned int) const
+290	???:wavefront_compute_limits_input
+282	???:wavefront_heuristic_xdrop
+278	???:crc32_fold_pclmulqdq
+271	/usr/include/c++/13/bits/stl_vector.h:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)
+259	src/src/IO/FastxReader.cpp:BufferedFastxReader::NextFastq(FastxRecord&)
+259	???:wavefront_components_resize_null__victim
+250	/usr/include/c++/13/bits/basic_string.h:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::push_back(char)
+243	src/src/Alignment/AnchoredAlignment.h:protal::AnchoredAligner::Align(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, std::vector<protal::ChainLink, std::allocator<protal::ChainLink> > const&, protal::AlignmentWindow const&, protal::WFA2Wrapper2&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&)
+241	src/src/Hash/Seedmap.h:protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&)
+235	???:0x0000000000068a10
+235	./stdlib/../stdlib/strtol_l.c:____strtol_l_internal
+232	/usr/include/c++/13/bits/stl_vector.h:std::vector<unsigned int, std::allocator<unsigned int> >::resize(unsigned long)
+227	???:0x000000000001fdf0
+215	/usr/include/c++/13/bits/string_view.tcc:BufferedFastxReader::NextFastq(FastxRecord&)
+197	???:wavefront_backtrace_affine

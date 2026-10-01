@@ -1,0 +1,13 @@
+   99300        total
+   25875  26.1%  strings: reverse complement, copies
+   23040  23.2%  WFA (alignment core)
+   22100  22.3%  syncmer extraction
+   12865  13.0%  gzip inflate (zlib-ng)
+    4264   4.3%  malloc/free
+    2977   3.0%  other
+    2492   2.5%  memcpy/memset/memchr
+    2156   2.2%  seeding + anchors
+    1351   1.4%  stage timers
+    1024   1.0%  profiling stage
+     831   0.8%  alignment post-processing, SAM
+     325   0.3%  FASTQ parsing

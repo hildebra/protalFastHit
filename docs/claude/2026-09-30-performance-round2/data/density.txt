@@ -1,0 +1,15 @@
+== dense_w
+Seeds:              	6119951 (per read avg 61.1995)
+Anchors:            	1164180
+Total alignments:   	370945
+Output alignments:  	58084
+== w900
+Seeds:              	2547655 (per read avg 25.4765)
+Anchors:            	314895
+Total alignments:   	107845
+Output alignments:  	45751
+== mix
+Seeds:              	696994 (per read avg 6.96994)
+Anchors:            	33634
+Total alignments:   	5571
+Output alignments:  	2336

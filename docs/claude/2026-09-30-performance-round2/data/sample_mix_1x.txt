@@ -1,0 +1,45 @@
+samples: 169
+
+by stage:
+   60  35.5%  seeding (index lookups)
+   23  13.6%  WFA
+   22  13.0%  syncmers
+   22  13.0%  stage timers
+   10   5.9%  reverse complement
+    9   5.3%  FASTQ reader
+    6   3.6%  alignment handler (rest)
+    4   2.4%  gene decode
+    3   1.8%  other: ??
+    3   1.8%  anchored aligner (non-WFA)
+    2   1.2%  other: __GI___libc_malloc
+    2   1.2%  SAM output
+    1   0.6%  pairing/sorting
+    1   0.6%  other: tcache_put
+    1   0.6%  other: _int_free
+
+innermost frame:
+   36  21.3%  protal::Seedmap::Get
+   20  11.8%  ??
+   12   7.1%  protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2
+    6   3.6%  wavefront_compute_affine_idm
+    5   3.0%  protal::Entry<20ul, 20ul, 20ul>::Get
+    5   3.0%  __memcpy_avx_unaligned_erms
+    4   2.4%  wavefront_extend_matches_packed_endsfree
+    4   2.4%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::push_back
+    4   2.4%  __memchr_avx2
+    3   1.8%  std::pair<unsigned long, unsigned long>::pair<unsigned long&, unsigned long>
+    3   1.8%  protal::AlignmentInfo::GetInstructionCountsAndCompress
+    2   1.2%  wavefront_termination_endsfree
+    2   1.2%  wavefront_heuristic_wfadaptive
+    2   1.2%  wavefront_extend_endsfree
+    2   1.2%  std::chrono::_V2::steady_clock::now()
+    2   1.2%  std::__insertion_sort<__gnu_cxx::__normal_iterator<protal::LookupPointer*, std::vector<protal::LookupPointer, 
+    2   1.2%  protal::SimpleKmerHandler<protal::ClosedSyncmer>::FillSmers
+    2   1.2%  protal::Seedmap::MainKey
+    2   1.2%  protal::Gene::Sequence
+    2   1.2%  clock_gettime@plt
+    2   1.2%  _int_free
+    2   1.2%  __GI___libc_malloc
+    2   1.2%  __GI___libc_free
+    2   1.2%  _ZN6protal8classifyL12RunPairedEndINS_17SimpleKmerHandlerINS_13ClosedSyncmerEEENS_17ChainAnchorFinderINS_12Kme
+    2   1.2%  Uppercase

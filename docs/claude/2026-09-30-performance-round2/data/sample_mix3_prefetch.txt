@@ -1,0 +1,49 @@
+samples: 298
+
+by stage:
+   87  29.2%  seeding (index lookups)
+   57  19.1%  syncmers
+   48  16.1%  WFA
+   33  11.1%  stage timers
+   15   5.0%  reverse complement
+   12   4.0%  FASTQ reader
+    9   3.0%  gene decode
+    6   2.0%  other: tcache_get_n
+    6   2.0%  alignment handler (rest)
+    5   1.7%  other: __GI___libc_malloc
+    5   1.7%  SAM output
+    4   1.3%  anchored aligner (non-WFA)
+    3   1.0%  other: ??
+    2   0.7%  other: __GI___lll_lock_wake
+    2   0.7%  anchors
+    1   0.3%  pairing/sorting
+    1   0.3%  other: tcache_put
+    1   0.3%  other: malloc@plt
+    1   0.3%  other: _int_free
+
+innermost frame:
+   58  19.5%  protal::Seedmap::Get
+   32  10.7%  ??
+   30  10.1%  protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2
+   14   4.7%  wavefront_extend_matches_packed_endsfree
+   12   4.0%  protal::SimpleKmerHandler<protal::ClosedSyncmer>::FillSmers
+    8   2.7%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::push_back
+    7   2.3%  protal::ChainAnchorFinder<protal::KmerLookupSM>::FindSeeds
+    7   2.3%  KmerUtils::ReverseComplement
+    6   2.0%  wavefront_heuristic_wfadaptive
+    6   2.0%  tcache_get_n
+    6   2.0%  __memcpy_avx_unaligned_erms
+    5   1.7%  std::pair<unsigned long, unsigned long>::pair<unsigned long&, unsigned long>
+    5   1.7%  __GI___libc_malloc
+    4   1.3%  wavefront_slab_reap_repurpose
+    4   1.3%  wavefront_init
+    4   1.3%  std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > 
+    4   1.3%  protal::packed::UnpackAvx2
+    4   1.3%  protal::Entry<20ul, 20ul, 20ul>::Get
+    4   1.3%  __memchr_avx2
+    3   1.0%  wavefront_unialign
+    3   1.0%  protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()
+    2   0.7%  wavefront_slab_allocate
+    2   0.7%  wavefront_compute_fetch_input
+    2   0.7%  wavefront_compute_affine_idm
+    2   0.7%  wavefront_backtrace_affine

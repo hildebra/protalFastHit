@@ -1,0 +1,112 @@
+== f_base_mix
+   98501        total
+   24685  25.1%  strings: reverse complement, copies
+   22918  23.3%  WFA (alignment core)
+   21550  21.9%  syncmer extraction
+   12801  13.0%  gzip inflate (zlib-ng)
+    4174   4.2%  malloc/free
+    3384   3.4%  other
+    2487   2.5%  memcpy/memset/memchr
+    1997   2.0%  seeding + anchors
+    1347   1.4%  stage timers
+    1221   1.2%  alignment post-processing, SAM
+    1045   1.1%  FASTQ parsing
+     892   0.9%  profiling stage
+== f_mine_mix
+   77642        total
+   22918  29.5%  WFA (alignment core)
+   21550  27.8%  syncmer extraction
+   12801  16.5%  gzip inflate (zlib-ng)
+    9662  12.4%  strings: reverse complement, copies
+    2826   3.6%  other
+    2044   2.6%  memcpy/memset/memchr
+    1982   2.6%  seeding + anchors
+    1045   1.3%  FASTQ parsing
+     889   1.1%  profiling stage
+     802   1.0%  malloc/free
+     727   0.9%  alignment post-processing, SAM
+     396   0.5%  stage timers
+== f_base_w900
+  347797        total
+  141895  40.8%  WFA (alignment core)
+   68937  19.8%  strings: reverse complement, copies
+   29298   8.4%  other
+   21553   6.2%  syncmer extraction
+   19066   5.5%  alignment post-processing, SAM
+   15626   4.5%  profiling stage
+   14297   4.1%  malloc/free
+   14062   4.0%  seeding + anchors
+   12784   3.7%  gzip inflate (zlib-ng)
+    7061   2.0%  memcpy/memset/memchr
+    1939   0.6%  stage timers
+    1279   0.4%  FASTQ parsing
+== f_mine_w900
+  303113        total
+  141895  46.8%  WFA (alignment core)
+   42146  13.9%  strings: reverse complement, copies
+   27912   9.2%  other
+   21553   7.1%  syncmer extraction
+   15615   5.2%  profiling stage
+   14065   4.6%  seeding + anchors
+   12784   4.2%  gzip inflate (zlib-ng)
+   10095   3.3%  malloc/free
+    9137   3.0%  alignment post-processing, SAM
+    6151   2.0%  memcpy/memset/memchr
+    1279   0.4%  FASTQ parsing
+     481   0.2%  stage timers
+== d_base_dense_w
+  480897        total
+  172752  35.9%  WFA (alignment core)
+  107880  22.4%  strings: reverse complement, copies
+   46797   9.7%  alignment post-processing, SAM
+   38818   8.1%  other
+   24908   5.2%  seeding + anchors
+   23835   5.0%  malloc/free
+   21554   4.5%  syncmer extraction
+   18828   3.9%  profiling stage
+   12781   2.7%  gzip inflate (zlib-ng)
+    9330   1.9%  memcpy/memset/memchr
+    2135   0.4%  stage timers
+    1279   0.3%  FASTQ parsing
+== f_mine_dense_w
+  405767        total
+  172752  42.6%  WFA (alignment core)
+   69523  17.1%  strings: reverse complement, copies
+   35716   8.8%  other
+   24941   6.1%  seeding + anchors
+   21554   5.3%  syncmer extraction
+   21255   5.2%  alignment post-processing, SAM
+   19188   4.7%  malloc/free
+   18817   4.6%  profiling stage
+   12781   3.1%  gzip inflate (zlib-ng)
+    7421   1.8%  memcpy/memset/memchr
+    1279   0.3%  FASTQ parsing
+     540   0.1%  stage timers
+== d_base_dense_mix
+   90702        total
+   25858  28.5%  strings: reverse complement, copies
+   21550  23.8%  syncmer extraction
+   12795  14.1%  gzip inflate (zlib-ng)
+   12095  13.3%  WFA (alignment core)
+    4478   4.9%  malloc/free
+    3548   3.9%  other
+    2551   2.8%  memcpy/memset/memchr
+    2417   2.7%  alignment post-processing, SAM
+    1981   2.2%  seeding + anchors
+    1342   1.5%  stage timers
+    1052   1.2%  profiling stage
+    1035   1.1%  FASTQ parsing
+== f_mine_dense_mix
+   68378        total
+   21550  31.5%  syncmer extraction
+   12795  18.7%  gzip inflate (zlib-ng)
+   12095  17.7%  WFA (alignment core)
+   10273  15.0%  strings: reverse complement, copies
+    2906   4.2%  other
+    2063   3.0%  memcpy/memset/memchr
+    1966   2.9%  seeding + anchors
+    1145   1.7%  alignment post-processing, SAM
+    1102   1.6%  malloc/free
+    1050   1.5%  profiling stage
+    1038   1.5%  FASTQ parsing
+     395   0.6%  stage timers

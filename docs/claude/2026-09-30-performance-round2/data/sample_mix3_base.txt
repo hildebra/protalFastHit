@@ -1,0 +1,44 @@
+samples: 161
+
+by stage:
+   63  39.1%  seeding (index lookups)
+   27  16.8%  syncmers
+   23  14.3%  WFA
+   14   8.7%  stage timers
+   10   6.2%  reverse complement
+    5   3.1%  gene decode
+    4   2.5%  alignment handler (rest)
+    4   2.5%  FASTQ reader
+    3   1.9%  other: ??
+    3   1.9%  anchored aligner (non-WFA)
+    2   1.2%  other: __GI___lll_lock_wake
+    1   0.6%  other: __GI___libc_malloc
+    1   0.6%  anchors
+    1   0.6%  SAM output
+
+innermost frame:
+   29  18.0%  protal::Seedmap::Get
+   22  13.7%  protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2
+   19  11.8%  tsl::detail_robin_hash::robin_hash<unsigned long, tsl::robin_set<unsigned long, std::hash<unsigned long>, std:
+   11   6.8%  ??
+    5   3.1%  wavefront_extend_matches_packed_endsfree
+    5   3.1%  protal::Entry<20ul, 20ul, 20ul>::Get
+    4   2.5%  protal::packed::UnpackAvx2
+    4   2.5%  __memcpy_avx_unaligned_erms
+    3   1.9%  wavefront_heuristic_wfadaptive
+    3   1.9%  std::chrono::_V2::steady_clock::now()
+    3   1.9%  protal::SimpleKmerHandler<protal::ClosedSyncmer>::FillSmers
+    3   1.9%  KmerUtils::ReverseComplement
+    2   1.2%  wavefront_slab_allocate
+    2   1.2%  wavefront_init
+    2   1.2%  wavefront_compute_init_ends
+    2   1.2%  wavefront_compute_affine_idm
+    2   1.2%  std::chrono::_V2::steady_clock::now()@plt
+    2   1.2%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::push_back
+    2   1.2%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::assign<std::reverse_iterator<
+    2   1.2%  protal::Seedmap::Similarity
+    2   1.2%  __GI___lll_lock_wake
+    1   0.6%  wavefront_unialign
+    1   0.6%  wavefront_termination_endsfree
+    1   0.6%  wavefront_slab_reap_repurpose
+    1   0.6%  wavefront_sequences_init_ascii

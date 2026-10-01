@@ -1,0 +1,25 @@
+Alternating A/B runs of the alignment stage (--no_profile --verbose), scripts/ab.sh, every run pinned to one vCPU
+(PIN=2; taskset), 1 thread, plain FASTQ. "rel" = build-rel, the current source (0e379fc). Wall-clock seconds for
+1M pairs, medians of the runs (min in brackets). Other sessions were running on the machine (load 2-6), which
+moves single runs by up to 25% (see ab_prefetch_pinned.txt); pinning and alternation keep A against B comparable.
+
+mix, 1 thread
+  rel  vs q    (RC + copies + no timers)   9.08 (9.00)  ->  7.35 (7.23)      -19%   reps 6
+  rel  vs nt   (no timers only)           10.70 (9.29)  ->  9.03 (8.26)      -16% (-11% of minima)   reps 6
+  nt   vs q    (RC + copies on top)        8.62 (8.52)  ->  7.81 (7.50)      -9% (-12% of minima)    reps 6
+  rel  vs pgo  (profile-guided)            9.11 (8.99)  ->  8.81 (8.75)      -3%    reps 6
+  rel  vs wa   (WFA2 built for x86-64-v3)  9.03 (8.95)  ->  9.19 (9.06)      +2% (noise)             reps 6
+  rel  vs pf   (prefetch key map)          loop 6.615 -> 6.550, seeding timer 1.863 -> 1.782 s       reps 8
+
+w900, 1 thread
+  rel  vs q                               22.34 (21.60) -> 19.54 (19.38)     -13%   reps 4
+  rel  vs wa                              21.70 (21.45) -> 21.85 (21.81)     +1%    reps 4
+  rel  vs pgo                             23.03 (23.01) -> 21.09 (20.80)     -8%    reps 4
+
+6 threads (not pinned)
+  mix  plain: rel vs q                     4.82 (4.52) -> 3.93 (3.36)        -18%   reps 6
+  w900 plain: rel vs q                     8.91 (8.21) -> 8.11 (7.52)        -9%    reps 4
+
+Identical output: same_output.sh, rel against q on the first 100,000 pairs of w900: 77,189 records each, 0 differing lines.
+Instructions (callgrind, 50,000 pairs, whole run): mix rel 19.19 G, q 18.41 G (-15.6k per pair); w900 rel 31.81 G, q 30.88 G (-18.6k per pair),
+wa 31.27 G (-0.54 G, all in WFA2's extend and affine kernels).

@@ -1,0 +1,9 @@
+unit_release rc=0 100% tests passed, 0 tests failed out of 215  Total Test time (real) =   7.36 sec 
+mini_db_test rc=0 Ran 24 tests in 13.884s  OK (skipped=3) 
+mini_db_build rc=0 -rw-r--r-- 1 falk falk 1162639 Oct  1 08:19 full_reference.fna -rw-r--r-- 1 falk falk    2260 Oct  1 08:19 gene2geneid.tsv -rw-r--r-- 1 falk falk    1155 Oct  1 08:19 genome2tiid.tsv 
+e2e rc=0 Ran 113 tests in 219.342s  OK 
+gtdb_build_test rc=0 Ran 3 tests in 143.832s  OK 
+model_test rc=0 Ran 7 tests in 0.740s  OK 
+asan_build rc=0 [134/134] Linking CXX executable tests/protal_tests lto-wrapper: warning: using serial compilation of 12 LTRANS jobs lto-wrapper: note: see the ‘-flto’ option documentation for more information 
+unit_asan rc=0 100% tests passed, 0 tests failed out of 215  Total Test time (real) =  43.47 sec 
+ALL TESTS RUN

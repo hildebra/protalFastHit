@@ -1,0 +1,32 @@
+old_mix_gz_t1_1	0:19.64	17.16	2.44	3522804	load=2.56 2.47 1.94	loop=15s 666ms	reader=2s 417ms	seed=4s 355ms	align=1s 629ms	loadidx=3s 654ms
+new_mix_gz_t1_1	0:09.81	9.78	1.03	3448792	load=2.12 2.38 1.92	loop=7s 500ms	reader=379ms	seed=3s 483ms	align=1s 786ms	loadidx=2s 30ms
+old_mix_gz_t6_1	0:05.92	30.91	2.47	3657596	load=2.11 2.36 1.92	loop=4s 938ms	reader=1s 297ms	seed=1s 182ms	align=507ms	loadidx=655ms
+new_mix_gz_t6_1	0:03.14	15.38	1.55	3557904	load=2.42 2.43 1.94	loop=2s 277ms	reader=275ms	seed=919ms	align=526ms	loadidx=569ms
+old_mix_plain_t6_1	0:05.96	29.59	3.60	3654084	load=3.03 2.55 1.98	loop=4s 635ms	reader=531ms	seed=1s 323ms	align=591ms	loadidx=922ms
+new_mix_plain_t6_1	0:02.88	13.72	1.97	3563408	load=3.27 2.61 2.01	loop=1s 980ms	reader=140ms	seed=847ms	align=487ms	loadidx=630ms
+old_w900_gz_t1_1	0:31.73	30.14	1.55	3522720	load=3.27 2.61 2.01	loop=28s 757ms	reader=2s 493ms	seed=7s 713ms	align=9s 701ms	loadidx=2s 560ms
+new_w900_gz_t1_1	0:21.94	22.08	0.83	3448520	load=2.26 2.43 1.97	loop=19s 722ms	reader=417ms	seed=6s 574ms	align=8s 343ms	loadidx=1s 933ms
+old_w900_gz_t6_1	0:08.62	47.28	2.43	3653500	load=1.90 2.34 1.95	loop=7s 731ms	reader=892ms	seed=2s 11ms	align=2s 564ms	loadidx=563ms
+new_w900_gz_t6_1	0:06.81	36.86	1.58	3594908	load=2.53 2.46 1.99	loop=5s 958ms	reader=231ms	seed=1s 896ms	align=2s 432ms	loadidx=536ms
+old_w900_plain_t6_1	0:08.69	46.37	3.15	3644336	load=2.81 2.52 2.01	loop=7s 618ms	reader=251ms	seed=2s 155ms	align=2s 772ms	loadidx=667ms
+new_w900_plain_t6_1	0:06.24	34.07	1.43	3594136	load=3.30 2.63 2.06	loop=5s 464ms	reader=151ms	seed=1s 747ms	align=2s 276ms	loadidx=471ms
+old_mix_gz_t1_2	0:17.98	16.52	1.42	3522928	load=3.52 2.69 2.08	loop=14s 955ms	reader=2s 330ms	seed=3s 997ms	align=1s 550ms	loadidx=2s 634ms
+new_mix_gz_t1_2	0:09.53	9.82	0.70	3448480	load=2.80 2.58 2.05	loop=7s 446ms	reader=379ms	seed=3s 521ms	align=1s 738ms	loadidx=1s 828ms
+old_mix_gz_t6_2	0:05.05	25.83	2.38	3646648	load=2.53 2.52 2.04	loop=4s 72ms	reader=1s 8ms	seed=976ms	align=404ms	loadidx=656ms
+new_mix_gz_t6_2	0:03.18	15.49	1.67	3567604	load=2.80 2.58 2.06	loop=2s 275ms	reader=272ms	seed=918ms	align=528ms	loadidx=589ms
+old_mix_plain_t6_2	0:04.58	23.18	1.88	3640000	load=2.80 2.58 2.06	loop=3s 573ms	reader=182ms	seed=1s 54ms	align=468ms	loadidx=602ms
+new_mix_plain_t6_2	0:02.87	13.55	1.90	3572688	load=3.06 2.64 2.08	loop=2s 11ms	reader=151ms	seed=849ms	align=484ms	loadidx=583ms
+old_w900_gz_t1_2	0:31.21	29.60	1.56	3522840	load=3.38 2.71 2.11	loop=28s 225ms	reader=2s 454ms	seed=7s 530ms	align=9s 554ms	loadidx=2s 567ms
+new_w900_gz_t1_2	0:21.91	22.09	0.81	3448284	load=2.78 2.63 2.10	loop=19s 734ms	reader=418ms	seed=6s 686ms	align=8s 309ms	loadidx=1s 885ms
+old_w900_gz_t6_2	0:08.60	47.04	2.42	3645996	load=2.41 2.55 2.09	loop=7s 654ms	reader=903ms	seed=2s 5ms	align=2s 544ms	loadidx=616ms
+new_w900_gz_t6_2	0:07.11	38.59	1.80	3602460	load=2.59 2.59 2.10	loop=6s 271ms	reader=253ms	seed=2s 1ms	align=2s 546ms	loadidx=527ms
+old_w900_plain_t6_2	0:09.88	53.07	3.44	3652020	load=3.26 2.73 2.15	loop=8s 846ms	reader=424ms	seed=2s 449ms	align=3s 203ms	loadidx=633ms
+new_w900_plain_t6_2	0:06.73	36.56	1.64	3604264	load=3.68 2.84 2.20	loop=5s 862ms	reader=176ms	seed=1s 887ms	align=2s 425ms	loadidx=555ms
+old_mix_gz_t6_3	0:05.55	28.90	1.99	3643372	load=3.87 2.89 2.22	loop=4s 555ms	reader=1s 170ms	seed=1s 80ms	align=457ms	loadidx=599ms
+new_mix_gz_t6_3	0:03.24	15.92	1.66	3564896	load=4.04 2.94 2.24	loop=2s 450ms	reader=262ms	seed=1s 13ms	align=588ms	loadidx=513ms
+old_mix_plain_t6_3	0:04.71	23.55	2.36	3664528	load=4.36 3.03 2.27	loop=3s 623ms	reader=204ms	seed=1s 80ms	align=467ms	loadidx=691ms
+new_mix_plain_t6_3	0:02.98	14.30	1.70	3549440	load=4.49 3.08 2.29	loop=2s 141ms	reader=167ms	seed=904ms	align=521ms	loadidx=561ms
+old_w900_gz_t6_3	0:09.29	50.91	2.23	3655348	load=4.49 3.08 2.29	loop=8s 273ms	reader=1s 11ms	seed=2s 145ms	align=2s 726ms	loadidx=608ms
+new_w900_gz_t6_3	0:06.55	36.16	1.17	3601116	load=4.65 3.16 2.32	loop=5s 816ms	reader=240ms	seed=1s 854ms	align=2s 372ms	loadidx=413ms
+old_w900_plain_t6_3	0:09.23	50.08	2.72	3635284	load=4.92 3.24 2.35	loop=8s 224ms	reader=230ms	seed=2s 451ms	align=2s 955ms	loadidx=629ms
+new_w900_plain_t6_3	0:06.48	35.20	1.68	3603352	load=4.79 3.27 2.37	loop=5s 671ms	reader=161ms	seed=1s 856ms	align=2s 343ms	loadidx=515ms

@@ -1,0 +1,23 @@
+q_w900 callgrind 126.65 s 3573300 KB
+q_w900: total 30.88 G instructions, 50000 pairs
+index load (Seedmap::Load)              11.01 G   35.66% of run    78.0% of loop    220189 Ir/pair
+  zstd decompress                        4.52 G   14.64% of run    32.0% of loop     90382 Ir/pair
+  column decode                          7.55 G   24.45% of run    53.5% of loop    150985 Ir/pair
+model parse (cPMML from_string)          1.16 G    3.77% of run     8.2% of loop     23266 Ir/pair
+  exceptions (__cxa_throw)               0.44 G    1.43% of run     3.1% of loop      8832 Ir/pair
+genomes (LoadAllGenomes)                 1.25 G    4.05% of run     8.9% of loop     25006 Ir/pair
+alignment loop (RunPairedEnd)           14.11 G   45.71% of run   100.0% of loop    282255 Ir/pair
+  FASTQ reader (SeqReaderPE)             0.26 G    0.86% of run     1.9% of loop      5288 Ir/pair
+    gzread                               0.00 G    0.00% of run     0.0% of loop         0 Ir/pair
+  syncmers (SimpleKmerHandler)           0.00 G    0.00% of run     0.0% of loop         0 Ir/pair
+  seeds+anchors (ChainAnchorFinder)      1.71 G    5.53% of run    12.1% of loop     34173 Ir/pair
+  alignment (SimpleAlignmentHandler)     9.57 G   31.01% of run    67.8% of loop    191479 Ir/pair
+    WFA (alignEndsFree)                  7.25 G   23.48% of run    51.4% of loop    145018 Ir/pair
+    WF-adaptive cut-off                  1.17 G    3.78% of run     8.3% of loop     23355 Ir/pair
+  SAM output handler                     1.21 G    3.91% of run     8.6% of loop     24148 Ir/pair
+profiling (ProfileWrapper)               0.00 G    0.00% of run     0.0% of loop         0 Ir/pair
+  SAM parse (ReadSamGroups)              1.38 G    4.46% of run     9.8% of loop     27557 Ir/pair
+  calls wfa::WFAligner::alignEndsFree                203908  (2.04 per read)
+  calls protal::Seedmap::Get(                             0  (0.00 per read)
+  calls protal::KmerLookupSM::GetFromLookup         1032051  (10.32 per read)
+  calls ???:__cxa_throw                               24674  (0.25 per read)
