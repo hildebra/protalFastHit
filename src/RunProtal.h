@@ -667,7 +667,9 @@ namespace protal {
 
         omp_set_num_threads(options.GetThreads());
 
-        #pragma omp parallel for firstprivate(filters) shared(options, cout, taxonomy, profile_slots, genomes, std::cerr)//, bm_read_alignments, bm_profile)
+        // One sample per thread, the next to whichever thread is free: samples differ in depth, and
+        // with the default static schedule one thread could be left with several deep ones.
+        #pragma omp parallel for schedule(dynamic, 1) firstprivate(filters) shared(options, cout, taxonomy, profile_slots, genomes, std::cerr)//, bm_read_alignments, bm_profile)
         for (int idx = 0; idx < static_cast<int>(range.size()); idx++) {
             auto i = range[idx];
 

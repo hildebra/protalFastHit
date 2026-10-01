@@ -6,6 +6,7 @@
 
 #include <Constants.h>
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <charconv>
 #include <cstring>
@@ -295,7 +296,22 @@ namespace protal {
         // Set once the database has said which genes are hittable (unique_kmers.tsv). Until then every
         // gene counts as hittable; after, only the listed ones, none if none are.
         bool m_hittable_known = false;
-        bool m_is_loaded = false;
+        // Whether every gene is read: set under critical(genome_loader) once they are, and read
+        // without the lock by GetGeneOMP, so it is set with release and read with acquire (a thread
+        // that sees it set also sees the genes). A genome is moved only while the map is built,
+        // before threads use it.
+        struct LoadedFlag {
+            std::atomic<bool> value{ false };
+            LoadedFlag() = default;
+            LoadedFlag(LoadedFlag&& other) noexcept : value(other.value.load(std::memory_order_relaxed)) {}
+            LoadedFlag& operator=(LoadedFlag&& other) noexcept {
+                value.store(other.value.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                return *this;
+            }
+            bool Get() const { return value.load(std::memory_order_acquire); }
+            void Set() { value.store(true, std::memory_order_release); }
+        };
+        LoadedFlag m_is_loaded;
         // Where genes are read from when they are loaded one by one: reference.fna, open (shared by all genomes,
         // used under omp critical(genome_loader)); null for a compressed reference, which only
         // GenomeLoader::LoadAllGenomes reads.
@@ -452,7 +468,7 @@ namespace protal {
         }
 
         void MarkLoaded() {
-            m_is_loaded = true;
+            m_is_loaded.Set();
         }
 
         size_t GeneNum() const {
@@ -463,11 +479,11 @@ namespace protal {
 
         void LoadGenome() {
             for (auto& gene : m_genes) LoadGeneData(gene);
-            m_is_loaded = true;
+            m_is_loaded.Set();
         };
 
         bool IsLoaded() const {
-            return m_is_loaded;
+            return m_is_loaded.Get();
 //            return std::any_of(m_genes.begin(), m_genes.end(), [](Gene const& gene){ return gene.IsLoaded(); });
         }
 
@@ -476,17 +492,17 @@ namespace protal {
             {
                 if (!IsLoaded()) {
                     for (auto& gene : m_genes) LoadGeneData(gene);
-                    m_is_loaded = true;
+                    m_is_loaded.Set();
                 }
             }
         };
 
         Gene& GetGeneOMP(GeneKey key) {
-            if (!m_is_loaded) {
+            if (!m_is_loaded.Get()) {
 #pragma omp critical(genome_loader)
-                if (!m_is_loaded) {
+                if (!m_is_loaded.Get()) {
                     for (auto& gene : m_genes) LoadGeneData(gene);
-                    m_is_loaded = true;
+                    m_is_loaded.Set();
                 }
             }
             return m_genes.at(GeneKeyToIndex(key));
