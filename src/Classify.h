@@ -359,40 +359,54 @@ namespace protal::classify {
         });
     }
 
-    static void JoinAlignmentPairs(PairedAlignmentResultList &pairs, AlignmentResultList &read1, AlignmentResultList &read2, GenomeLoader& loader) {
-//        std::cout << "Join Alignment Pairs -------------- " << std::endl;
-//        std::cout << "1: " << read1.size() << ",  2: " << read2.size() << std::endl;
+    // Every candidate of mate 1 with every candidate of mate 2 on the same gene in the right orientation, and
+    // each candidate that pairs with none on its own. With `consume`, an alignment is moved into the last pair
+    // it goes into and copied into the ones before (the lists are not used after this): a read on a dense
+    // database has many candidates, and each copy is two strings. The pairs are the same, in the same order.
+    static void JoinAlignmentPairs(PairedAlignmentResultList &pairs, AlignmentResultList &read1, AlignmentResultList &read2, GenomeLoader& loader,
+                                   bool consume = false) {
+        // The pairs as indices first (SIZE_MAX: no mate), then each alignment's last use.
+        static thread_local std::vector<std::pair<size_t, size_t>> joined;
+        static thread_local std::vector<size_t> last1, last2;
+        constexpr size_t kNone = SIZE_MAX;
+        joined.clear();
         std::vector<bool> selected2(read2.size(), false);
-        for (auto& alignment1 : read1) {
-//            std::cout << "Alignment1: " << alignment1.ToString() << std::endl;
+        for (size_t i = 0; i < read1.size(); i++) {
+            auto const& alignment1 = read1[i];
             bool paired = false;
+            // As the loop before it: a candidate in the wrong orientation is skipped without counting it, so
+            // the one marked as paired is read2_index, which lags j by the candidates skipped so far.
             size_t read2_index = 0;
-            for (auto& alignment2 : read2) {
+            for (size_t j = 0; j < read2.size(); j++) {
+                auto const& alignment2 = read2[j];
                 if (alignment1.Taxid() == alignment2.Taxid() && alignment1.GeneId() == alignment2.GeneId()) {
-                    if (!CorrectOrientation(alignment1, alignment2)) {
-                        // std::cerr << "Discard wrong orientation: " << std::endl;
-                        // std::cerr << alignment1.ToString() << std::endl;
-                        // std::cerr << alignment2.ToString() << std::endl;
-                        continue;
-                    }
-
-                    pairs.emplace_back(PairedAlignment{ alignment1, alignment2 });
+                    if (!CorrectOrientation(alignment1, alignment2)) continue;
+                    joined.emplace_back(i, j);
                     selected2[read2_index] = true;
                     paired = true;
-//                    std::cout << "--> Alignment2: " << alignment2.ToString() << std::endl;
                 }
                 read2_index++;
             }
-//            std::cout << "----" << std::endl;
-
-            if (!paired) {
-                pairs.emplace_back(PairedAlignment{ alignment1, AlignmentResult() });
-            }
+            if (!paired) joined.emplace_back(i, kNone);
         }
-        for (int i = 0; i < selected2.size(); i++) {
-            if (!selected2[i]) {
-                pairs.emplace_back(PairedAlignment{ AlignmentResult(), read2[i] });
-            }
+        for (size_t j = 0; j < selected2.size(); j++) {
+            if (!selected2[j]) joined.emplace_back(kNone, j);
+        }
+
+        last1.assign(read1.size(), kNone);
+        last2.assign(read2.size(), kNone);
+        for (size_t p = 0; p < joined.size(); p++) {
+            if (joined[p].first != kNone) last1[joined[p].first] = p;
+            if (joined[p].second != kNone) last2[joined[p].second] = p;
+        }
+        auto take = [&](AlignmentResultList& list, std::vector<size_t> const& last, size_t index, size_t p) {
+            if (index == kNone) return AlignmentResult();
+            if (consume && last[index] == p) return AlignmentResult(std::move(list[index]));
+            return AlignmentResult(list[index]);
+        };
+        pairs.reserve(pairs.size() + joined.size());
+        for (size_t p = 0; p < joined.size(); p++) {
+            pairs.emplace_back(take(read1, last1, joined[p].first, p), take(read2, last2, joined[p].second, p));
         }
     }
 
@@ -575,8 +589,9 @@ namespace protal::classify {
 
                 bm_alignment_join_sort.Start();
                 // This pairs SE alignments into all possible pairs.
+                // The candidate lists are not used after this, but by the alignment benchmark.
                 JoinAlignmentPairs(paired_alignment_results, alignment_results1,
-                                   alignment_results2, genome_loader);
+                                   alignment_results2, genome_loader, /*consume=*/ !benchmark_active);
 
                 //                SortAlignmentPairs1(paired_alignment_results);
                 //                SortAlignmentPairs2(paired_alignment_results);

@@ -108,3 +108,34 @@ TEST(Syncmers, ScanReusesItsBuffersAcrossLengths) {
         }
     }
 }
+
+// The scan codes 32 characters at a time (AVX2) and the rest one by one: any byte, any length.
+TEST(Syncmers, ScanCodesEveryByteAndEveryLengthAsTheDefinition) {
+    std::mt19937 rng(23);
+    std::vector<std::string> seqs;
+    for (size_t len = kK; len < kK + 100; len++) {  // every length around the 32-character steps
+        std::string s(len, 'A');
+        for (auto& c : s) c = "ACGTACGTACGTacgtN"[rng() % 17];
+        seqs.push_back(s);
+    }
+    for (int copy = 0; copy < 200; copy++) {        // bases with a sprinkle of every other byte
+        std::string s(150, 'A');
+        for (auto& c : s) c = "ACGT"[rng() % 4];
+        for (int i = 0; i < 6; i++) s[rng() % s.size()] = static_cast<char>(1 + rng() % 255);
+        seqs.push_back(s);
+    }
+    std::string every(256 + kK, 'A');               // each byte value once, in a k-mer of bases
+    for (int b = 0; b < 256; b++) every[kK / 2 + b] = static_cast<char>(b);
+    seqs.push_back(every);
+    for (bool avx2 : { false, true }) {
+        ClosedSyncmer syncmer{kM, 7, 2, true};
+        SimpleKmerHandler<ClosedSyncmer> handler{kK, kM, syncmer};
+        handler.UseAvx2(avx2);
+        if (avx2 && !handler.UsesAvx2()) GTEST_SKIP() << "this CPU has no AVX2";
+        KmerList scanned;
+        for (auto const& seq : seqs) {
+            handler(std::string_view(seq), scanned);
+            ASSERT_EQ(scanned, BruteForce(seq, syncmer)) << "AVX2 " << avx2 << ", length " << seq.size();
+        }
+    }
+}

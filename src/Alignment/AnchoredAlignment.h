@@ -103,7 +103,7 @@ namespace protal {
     private:
         static constexpr int kMismatch = 4;  // as SimpleAlignmentHandler sets up WFA2Wrapper2 (4, 6, 2)
 
-        std::string m_query, m_ref, m_left, m_right, m_between;
+        std::string m_query, m_ref, m_left, m_right;
         Status m_status = Status::Aligned;
 
         // A flank: read [read_from, read_to) against gene [ref_from, ref_to), anchored at the link
@@ -133,7 +133,7 @@ namespace protal {
                               0, std::min<int>(std::max(ref_free, 0), static_cast<int>(g)), max_score - used);
             if (!aligner.Success()) return m_status = Status::Failed;
             used += -aligner.GetAlignmentScore();
-            out = aligner.Cigar();
+            aligner.CigarInto(out);
             return m_status = Status::Aligned;
         }
 
@@ -159,8 +159,7 @@ namespace protal {
             aligner.Alignment(m_query, m_ref, 0, 0, 0, 0, max_score - used);
             if (!aligner.Success()) return m_status = Status::Failed;
             used += -aligner.GetAlignmentScore();
-            m_between = aligner.Cigar();
-            ops += m_between;
+            aligner.CigarInto(ops, true);
             return m_status = Status::Aligned;
         }
     };

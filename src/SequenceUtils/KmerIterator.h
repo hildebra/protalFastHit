@@ -238,7 +238,7 @@ namespace protal {
 
         bool ScanApplies() const {
             if constexpr (std::is_same_v<CFMinimizer, ClosedSyncmer>) {
-                return m_mshift % 2 == 0 && m_m <= m_k && m_m <= 15 && m_minimizer.CoreLength() == m_m &&
+                return m_mshift % 2 == 0 && m_m <= m_k && m_k <= 31 && m_m <= 15 && m_minimizer.CoreLength() == m_m &&
                        m_minimizer.SmerCount() >= 1 && m_minimizer.SmerCount() <= 16 && m_minimizer.SmerLength() <= 14;
             }
             return false;
@@ -314,29 +314,110 @@ namespace protal {
         }
 
 #ifdef PROTAL_SYNCMER_AVX2
-        // As ScanWindows, 8 windows at a time: the s-mers, and each window's k-mers and cores, are
-        // stored first; the last windows (fewer than 8) go one by one. Compiled for AVX2 whatever
-        // the build targets, and only called where the CPU has it.
-        __attribute__((target("avx2"))) void ScanWindowsAvx2(KmerList& list) {
-            FillSmers();
+        // Per base, the forward and the reverse code (kForwardCode, kReverseCode) and 32 zeros after the
+        // sequence; the codes of 2, 4 and 8 consecutive bases, and of 16 on each strand (FillAvx2).
+        std::vector<uint8_t> m_code_fwd, m_code_rev, m_bases2, m_bases4;
+        std::vector<uint16_t> m_bases8;
+        std::vector<uint32_t> m_bases16;
+
+        // The codes of 16 consecutive bases from the per-base codes `code` (n + 32 of them, zeros after the
+        // sequence), by doubling: 2 bases from 1, 4 from 2, 8 from 4, 16 from 8, each step a loop the compiler
+        // vectorises. Big-endian (the first base highest, as the forward k-mer is rolled) or little-endian
+        // (the first base lowest, as the reverse one is). The 16 at i are valid for i < n + 16.
+        __attribute__((target("avx2"))) void Bases16(uint8_t const* code, size_t n, bool big_endian) {
+            m_bases2.resize(n + 30);
+            m_bases4.resize(n + 28);
+            m_bases8.resize(n + 24);
+            m_bases16.resize(n + 16);
+            uint8_t* b2 = m_bases2.data();
+            uint8_t* b4 = m_bases4.data();
+            uint16_t* b8 = m_bases8.data();
+            uint32_t* b16 = m_bases16.data();
+            if (big_endian) {
+                for (size_t i = 0; i < n + 30; i++) b2[i] = static_cast<uint8_t>((code[i] << 2) | code[i + 1]);
+                for (size_t i = 0; i < n + 28; i++) b4[i] = static_cast<uint8_t>((b2[i] << 4) | b2[i + 2]);
+                for (size_t i = 0; i < n + 24; i++) b8[i] = static_cast<uint16_t>((uint32_t{b4[i]} << 8) | b4[i + 4]);
+                for (size_t i = 0; i < n + 16; i++) b16[i] = (uint32_t{b8[i]} << 16) | b8[i + 8];
+            } else {
+                for (size_t i = 0; i < n + 30; i++) b2[i] = static_cast<uint8_t>(code[i] | (code[i + 1] << 2));
+                for (size_t i = 0; i < n + 28; i++) b4[i] = static_cast<uint8_t>(b2[i] | (b2[i + 2] << 4));
+                for (size_t i = 0; i < n + 24; i++) b8[i] = static_cast<uint16_t>(b4[i] | (uint32_t{b4[i + 4]} << 8));
+                for (size_t i = 0; i < n + 16; i++) b16[i] = b8[i] | (uint32_t{b8[i + 8]} << 16);
+            }
+        }
+
+        // The s-mers, k-mers and cores of the whole sequence, as FillSmers and the rolling loop of ScanWindows
+        // give them, without the base-by-base loops (two of them, ~20 instructions a base, were most of the
+        // scan): the per-base codes 32 at a time, the codes of 16 consecutive bases by doubling (Bases16), and
+        // each k-mer (k <= 32) as the codes of 32 bases from two of those, cut to its k; each s-mer (s <= 16)
+        // from one. Forward strand: big-endian, the k-mer is the 32 bases' top 2k bits; reverse strand:
+        // little-endian, the low 2k bits. A character other than A, C, G, T (either case) is 0 on both strands.
+        __attribute__((target("avx2"))) void FillAvx2() {
             size_t const n = m_seq.length();
             size_t const windows = n - m_k + 1;
+            uint32_t const s = m_minimizer.SmerLength();
+            uint32_t const smask = m_minimizer.Mask(), sfull = (1u << (2 * s)) - 1;
+            m_code_fwd.assign(n + 32, 0);
+            m_code_rev.assign(n + 32, 0);
+            uint8_t* cf = m_code_fwd.data();
+            uint8_t* cr = m_code_rev.data();
+            // The codes, 32 at a time: the low nibble of the upper-case letter tells A (1), C (3), G (7) and T (4)
+            // apart, the table holds their forward codes; the reverse one is 3 minus that; anything else is 0.
+            __m256i const table = _mm256_setr_epi8(0, 0, 0, 1, 3, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+                                                   0, 0, 0, 1, 3, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0);
+            __m256i const upper = _mm256_set1_epi8(static_cast<char>(0xDF)), low_nibble = _mm256_set1_epi8(0x0F);
+            __m256i const a = _mm256_set1_epi8('A'), c = _mm256_set1_epi8('C'), g = _mm256_set1_epi8('G'), t = _mm256_set1_epi8('T');
+            __m256i const three = _mm256_set1_epi8(3);
+            size_t i = 0;
+            for (; i + 32 <= n; i += 32) {
+                __m256i const u = _mm256_and_si256(_mm256_loadu_si256(reinterpret_cast<__m256i const*>(m_seq.data() + i)), upper);
+                __m256i const base = _mm256_or_si256(_mm256_or_si256(_mm256_cmpeq_epi8(u, a), _mm256_cmpeq_epi8(u, c)),
+                                                     _mm256_or_si256(_mm256_cmpeq_epi8(u, g), _mm256_cmpeq_epi8(u, t)));
+                __m256i const code = _mm256_shuffle_epi8(table, _mm256_and_si256(u, low_nibble));
+                _mm256_storeu_si256(reinterpret_cast<__m256i*>(cf + i), _mm256_and_si256(code, base));
+                _mm256_storeu_si256(reinterpret_cast<__m256i*>(cr + i), _mm256_and_si256(_mm256_sub_epi8(three, code), base));
+            }
+            for (; i < n; i++) {
+                auto const ch = static_cast<unsigned char>(m_seq[i]);
+                cf[i] = kForwardCode[ch];
+                cr[i] = kReverseCode[ch];
+            }
+
+            m_smers_fwd.resize(n - s + 1);
+            m_smers_rev.resize(n - s + 1);
             m_cores_fwd.resize(windows);
             m_cores_rev.resize(windows);
             m_kmers_fwd.resize(windows);
             m_kmers_rev.resize(windows);
-            uint64_t kf = 0, kr = 0;
-            for (size_t i = 0; i < n; i++) {
-                auto const c = static_cast<unsigned char>(m_seq[i]);
-                kf = ((kf << 2) | kForwardCode[c]) & m_mask;
-                kr = (kr >> 2) | (uint64_t{kReverseCode[c]} << (2 * (m_k - 1)));
-                if (i + 1 < m_k) continue;
-                size_t const p = i + 1 - m_k;
+            unsigned const kshift = 64 - 2 * m_k, sshift = 32 - 2 * s;
+            unsigned const mshift = static_cast<unsigned>(m_mshift);
+            uint64_t const mmask = m_mmask, kmask = m_mask;
+
+            Bases16(cf, n, true);
+            uint32_t const* b16 = m_bases16.data();
+            for (size_t p = 0; p < windows; p++) {
+                uint64_t const kf = ((uint64_t{b16[p]} << 32) | b16[p + 16]) >> kshift;
                 m_kmers_fwd[p] = kf;
-                m_kmers_rev[p] = kr;
-                m_cores_fwd[p] = static_cast<uint32_t>((kf >> m_mshift) & m_mmask);
-                m_cores_rev[p] = static_cast<uint32_t>((kr >> m_mshift) & m_mmask);
+                m_cores_fwd[p] = static_cast<uint32_t>((kf >> mshift) & mmask);
             }
+            for (size_t q = 0; q + s <= n; q++) m_smers_fwd[q] = ((b16[q] >> sshift) & smask) << 4;
+
+            Bases16(cr, n, false);
+            b16 = m_bases16.data();
+            for (size_t p = 0; p < windows; p++) {
+                uint64_t const kr = (uint64_t{b16[p]} | (uint64_t{b16[p + 16]} << 32)) & kmask;
+                m_kmers_rev[p] = kr;
+                m_cores_rev[p] = static_cast<uint32_t>((kr >> mshift) & mmask);
+            }
+            for (size_t q = 0; q + s <= n; q++) m_smers_rev[q] = (b16[q] & sfull & smask) << 4;
+        }
+
+        // As ScanWindows, 8 windows at a time: the s-mers, and each window's k-mers and cores, are
+        // stored first (FillAvx2); the last windows (fewer than 8) go one by one. Compiled for AVX2
+        // whatever the build targets, and only called where the CPU has it.
+        __attribute__((target("avx2"))) void ScanWindowsAvx2(KmerList& list) {
+            FillAvx2();
+            size_t const windows = m_seq.length() - m_k + 1;
 
             uint32_t const count = m_minimizer.SmerCount(), t = m_minimizer.T();
             size_t const core = m_k - m_m - m_mshift / 2;

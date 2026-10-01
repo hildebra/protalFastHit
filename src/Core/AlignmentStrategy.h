@@ -533,7 +533,7 @@ namespace protal {
                     m_aligner.Alignment(read, m_window, window.read_begin_free, window.read_end_free,
                                         window.ref_begin_free, window.ref_end_free, window.max_score);
                     status = m_aligner.Success() ? Status::Aligned : Status::Failed;
-                    if (status == Status::Aligned) m_ops = m_aligner.Cigar();
+                    if (status == Status::Aligned) m_aligner.CigarInto(m_ops);
                     m_whole_window_alignments++;
                 } else {
                     m_anchored_alignments++;
@@ -634,8 +634,8 @@ namespace protal {
                 auto success = AlignAnchor(anchor, m_alignment_result, fwd, rev, false, header);
 
                 if (success && m_alignment_result.GetAlignmentInfo().GetProxyANI() >= m_max_score_ani) {
-                    auto& info = m_alignment_result.GetAlignmentInfo();
-                    results.emplace_back(m_alignment_result);
+                    // Moved, not copied: AlignAnchor sets every field again for the next anchor.
+                    results.emplace_back(std::move(m_alignment_result));
                     total_alignments++;
                 }
 

@@ -66,6 +66,16 @@ namespace protal {
             return m_aligner.getAlignment();
         }
 
+        // The same operations written into `out` (replaced, or appended to with append), from WFA2's own buffer:
+        // no string of its own per alignment.
+        void CigarInto(std::string& out, bool append = false) {
+            char* operations = nullptr;
+            int length = 0;
+            m_aligner.getAlignment(&operations, &length);
+            if (append) out.append(operations, static_cast<size_t>(length));
+            else out.assign(operations, static_cast<size_t>(length));
+        }
+
         void Reset() {
             m_status = WFAligner::StatusMaxStepsReached;
         }

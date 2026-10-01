@@ -200,7 +200,7 @@ namespace protal {
             return m_uniques_two;
         }
 
-        std::string Cigar() const {
+        std::string const& Cigar() const {
             return m_info.cigar;
         }
 
@@ -393,7 +393,7 @@ namespace protal {
         }
     };
 
-    static double CigarANI(std::string cigar) {
+    static double CigarANI(std::string_view cigar) {
         if (cigar.empty()) return 0;
         size_t matches = std::count_if(cigar.begin(), cigar.end(), [](char const &c) {
             return c == 'M';
@@ -578,7 +578,7 @@ namespace protal {
         size_t new_cigar_start = del_left;
         size_t new_cigar_end = cigar.length() - del_right;
 
-        info.cigar = Hardclip(cigar, del_left, del_right);
+        info.cigar.assign(cigar, del_left, cigar.length() - del_left - del_right);  // Hardclip, in the string's own buffer
         Softclip(info.cigar, ins_left, ins_right);
 
         info.gene_alignment_start = reference_start_pos + del_left;
