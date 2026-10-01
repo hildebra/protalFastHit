@@ -374,18 +374,14 @@ namespace protal::classify {
         for (size_t i = 0; i < read1.size(); i++) {
             auto const& alignment1 = read1[i];
             bool paired = false;
-            // As the loop before it: a candidate in the wrong orientation is skipped without counting it, so
-            // the one marked as paired is read2_index, which lags j by the candidates skipped so far.
-            size_t read2_index = 0;
             for (size_t j = 0; j < read2.size(); j++) {
                 auto const& alignment2 = read2[j];
                 if (alignment1.Taxid() == alignment2.Taxid() && alignment1.GeneId() == alignment2.GeneId()) {
                     if (!CorrectOrientation(alignment1, alignment2)) continue;
                     joined.emplace_back(i, j);
-                    selected2[read2_index] = true;
+                    selected2[j] = true;
                     paired = true;
                 }
-                read2_index++;
             }
             if (!paired) joined.emplace_back(i, kNone);
         }

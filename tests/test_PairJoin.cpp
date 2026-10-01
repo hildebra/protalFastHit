@@ -1,6 +1,6 @@
 // Unit tests for joining the candidate alignments of two mates into pairs (classify::JoinAlignmentPairs):
-// moving each alignment into its last pair gives the pairs that copying gave, in the same order, as the join
-// did before it moved anything (the reference below), including its marking of mate-2 candidates as paired.
+// every pair of candidates on one gene in the right orientation, and each candidate that pairs with none on its
+// own (the reference below), the same whether each alignment is moved into its last pair or copied.
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
@@ -32,20 +32,20 @@ namespace {
         }
     };
 
-    // The join as it was before candidates were moved, kept here as the definition.
+    // The join written plainly, as the definition: a mate-2 candidate that pairs is not also on its own (until
+    // 2026-10-01 the join marked the candidate before it after one in the wrong orientation).
     void ReferenceJoin(PairedAlignmentResultList& pairs, AlignmentResultList& read1, AlignmentResultList& read2) {
         std::vector<bool> selected2(read2.size(), false);
         for (auto& alignment1 : read1) {
             bool paired = false;
-            size_t read2_index = 0;
-            for (auto& alignment2 : read2) {
+            for (size_t j = 0; j < read2.size(); j++) {
+                auto& alignment2 = read2[j];
                 if (alignment1.Taxid() == alignment2.Taxid() && alignment1.GeneId() == alignment2.GeneId()) {
                     if (!CorrectOrientation(alignment1, alignment2)) continue;
                     pairs.emplace_back(PairedAlignment{ alignment1, alignment2 });
-                    selected2[read2_index] = true;
+                    selected2[j] = true;
                     paired = true;
                 }
-                read2_index++;
             }
             if (!paired) pairs.emplace_back(PairedAlignment{ alignment1, AlignmentResult() });
         }
@@ -97,7 +97,7 @@ TEST(PairJoin, MovingGivesThePairsCopyingGave) {
             }
         }
         pairs_seen += expected.size();
-        // a wrong-orientation candidate before a right one: the case where the paired mark lags
+        // a wrong-orientation candidate before a right one: the case where the paired mark lagged
         for (auto const& a : read1) {
             bool wrong = false;
             for (auto const& b : read2) {
@@ -109,4 +109,30 @@ TEST(PairJoin, MovingGivesThePairsCopyingGave) {
     }
     EXPECT_GT(pairs_seen, 5000u);
     EXPECT_GT(skipped_seen, 50u);
+}
+
+// Mate 2 has a candidate on mate 1's gene in the wrong orientation before one in the right orientation: the right one
+// pairs and is not on its own as well; the wrong one, and one on another gene, are on their own.
+TEST(PairJoin, ACandidateThatPairsIsNotAlsoOnItsOwn) {
+    OneGeneLoader genomes;
+    auto candidate = [](uint32_t gene, bool forward, std::string const& name) {
+        AlignmentResult r;
+        r.Set(1, gene, 100, forward);
+        r.GetAlignmentInfo().compressed_cigar = name;
+        return r;
+    };
+    AlignmentResultList const read1 = { candidate(1, true, "a") };
+    AlignmentResultList const read2 = { candidate(1, true, "wrong"), candidate(1, false, "right"), candidate(2, false, "other") };
+    for (bool consume : { false, true }) {
+        AlignmentResultList c1 = read1, c2 = read2;
+        PairedAlignmentResultList pairs;
+        classify::JoinAlignmentPairs(pairs, c1, c2, *genomes.loader, consume);
+        std::vector<std::pair<std::string, std::string>> names;
+        for (auto const& [first, second] : pairs) {
+            names.emplace_back(first.IsSet() ? first.GetAlignmentInfo().compressed_cigar : "-",
+                               second.IsSet() ? second.GetAlignmentInfo().compressed_cigar : "-");
+        }
+        std::vector<std::pair<std::string, std::string>> const expected = { { "a", "right" }, { "-", "wrong" }, { "-", "other" } };
+        EXPECT_EQ(names, expected) << "consume " << consume;
+    }
 }
