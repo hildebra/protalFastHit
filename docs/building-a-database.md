@@ -138,8 +138,9 @@ row, and it fails if no genome arrived.
 | `download_gtdb.py` writes | |
 |---|---|
 | `release/` | GTDB's files as `--gtdb` reads them (archives removed once extracted; `--keep_archives`) |
-| `genomes/` | `<accession>.fna.gz` from NCBI: other strains, and the representatives of the species to simulate |
-| `genomes.tsv`, `missing.txt` | the genomes there (species, role, lineage, CheckM2 values), and those NCBI did not deliver |
+| `genomes/` | `<accession>.fna.gz` from NCBI: other strains, and the representatives of the species to simulate. A build reads all of it, so a rerun that chooses other genomes (other options, or the quality ranking below on inputs downloaded before it) moves the ones it no longer wants to `genomes_unused/` |
+| `genomes.tsv`, `missing.txt` | the genomes there (species, role, lineage, CheckM2 values, genome category, assembly level, contig count and, for strains, the sequencing technology at NCBI), and those NCBI did not deliver |
+| `ncbi_info.tsv` | the sequencing technology NCBI gave for the candidate strains (a rerun asks for none it has) |
 | `simulation_species.txt` | the species to simulate from |
 | `download.json` | the release, the options, the counts, the checksums |
 
@@ -150,6 +151,9 @@ row, and it fails if no genome arrived.
 | `--rep_genomes` | `ncbi` | representatives' genomes of the simulated species from NCBI, or `gtdb`: GTDB's archive of all of them (137 GB for r226) |
 | `--species`, `--per_species`, `--rep_only_species` | 6000, 2, 2000 | species with strains, strains each, species simulated from their representative only |
 | `--min_completeness`, `--max_contamination` | 90, 5 | CheckM2 filters for strains |
+| `--tech_candidates` | 30 | candidate strains per species whose sequencing technology is asked of NCBI (the best by category and assembly level) |
+| `--no_tech_lookup` | | do not ask NCBI for sequencing technologies: no preference for PacBio and Nanopore assemblies |
+| `--progenomes` | | a proGenomes ANI-clustering table ([`pg4_ANI_clustering.tsv.gz`](https://progenomes.embl.de/download.cgi), 5 MB, downloaded by hand) or any list of accessions: strains are taken from these genomes only |
 | `--no_genomes`, `--dry_run` | | GTDB's files only; list the files and their sizes |
 | `--mirror`, `--datasets`, `--batch`, `-t` | | GTDB server, NCBI CLI, genomes per NCBI request (500), parallel downloads and compression (8) |
 
@@ -180,6 +184,19 @@ with only one of them it either kept 2 false positives per sample or missed a fi
   would hardly be drawn; with it, a simulated species is another strain than its representative
   about 50% of the time. `genome_table.txt` says how often, and the training report warns when
   nearly every present taxon has reads identical to its reference.
+
+  Which strains of a species are taken is a choice by quality, not by chance. Among the strains
+  that pass the CheckM2 filters, in this order: isolate genomes before single-cell and
+  metagenome-assembled ones (GTDB's `ncbi_genome_category`, and an "uncultured" or "metagenome"
+  organism name); complete genomes before chromosome-, scaffold- and contig-level assemblies;
+  PacBio or Nanopore assemblies (NCBI's sequencing technology, asked for the best 30 candidates of
+  each species, in at most a few hundred batched requests) before the others; fewer contigs.
+  Genomes that tie are drawn at random, so species with thousands of complete genomes are not
+  always represented by the same two. A species with MAGs only keeps its best MAGs. The
+  representatives are GTDB's, the database's references, whatever their quality. The download
+  prints how many strains are isolates, at which assembly level, and how many are long-read
+  assemblies (`download.json` keeps the counts). Contigs under 100 bases are dropped from a genome
+  before pbsim3 simulates long reads from it, since pbsim3 stops at them.
 - **Species the database lacks.** The samples are profiled against a training database
   (`training_db/`) that leaves species out; their reads land on relatives, as those of species GTDB
   lacks do in real samples. The finished database has all species, and the model trained so (the

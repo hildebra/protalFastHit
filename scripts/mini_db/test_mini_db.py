@@ -41,15 +41,23 @@ DOWNLOAD = os.path.join(HERE, "..", "download_gtdb.py")
 
 # A stand-in for NCBI's `datasets`: `download genome accession` writes the list into the zip,
 # `rehydrate` copies the synthetic release's genomes; accessions in $FAKE_SUPPRESSED fail a request, and
-# every request fails with $FAKE_DOWN set (NCBI down). $FAKE_LOG, if set, gets a line per call.
+# every request fails with $FAKE_DOWN set (NCBI down). `summary genome accession` reports the sequencing
+# technology: PacBio for the accessions in $FAKE_LONG, Illumina for the others (keys in snake_case with
+# $FAKE_SNAKE). $FAKE_LOG, if set, gets a line per call.
 FAKE_DATASETS = r'''#!/usr/bin/env python3
-import csv, gzip, os, shutil, sys, zipfile
+import csv, gzip, json, os, shutil, sys, zipfile
 args = sys.argv[1:]
 if os.environ.get("FAKE_LOG"):
     open(os.environ["FAKE_LOG"], "a").write(" ".join(args[:3]) + "\n")
 if os.environ.get("FAKE_DOWN"):
     sys.exit("Error: Gateway Timeout")
-if args[:3] == ["download", "genome", "accession"]:
+if args[:3] == ["summary", "genome", "accession"]:
+    snake = bool(os.environ.get("FAKE_SNAKE"))
+    for a in open(args[args.index("--inputfile") + 1]).read().split():
+        tech = "PacBio Sequel; Illumina HiSeq" if a in os.environ.get("FAKE_LONG", "").split(",") else "Illumina HiSeq"
+        info = {"assembly_level": "Contig", "sequencing_tech": tech} if snake else {"assemblyLevel": "Contig", "sequencingTech": tech}
+        print(json.dumps({"accession": a, "assembly_info" if snake else "assemblyInfo": info}))
+elif args[:3] == ["download", "genome", "accession"]:
     accessions = open(args[args.index("--inputfile") + 1]).read().split()
     if set(accessions) & set(os.environ.get("FAKE_SUPPRESSED", "").split(",")):
         sys.exit("Error: some accessions are not valid")
@@ -278,8 +286,10 @@ class MiniDbTest(unittest.TestCase):
         with open(datasets, "w") as fh:
             fh.write(FAKE_DATASETS)
         os.chmod(datasets, 0o755)
+        # GCA_999002003.1 is the PacBio assembly among the strains of Mockella beta, so it is the one picked,
+        # and NCBI no longer has it.
         env = dict(os.environ, FAKE_TABLE=os.path.join(self.gtdb, "simulation", "genomes.tsv"),
-                   FAKE_SUPPRESSED="GCA_999002003.1")  # the strain of Mockella beta picked, which NCBI no longer has
+                   FAKE_SUPPRESSED="GCA_999002003.1", FAKE_LONG="GCA_999002003.1")
         out = os.path.join(self.tmp.name, "inputs")
         command = [sys.executable, DOWNLOAD, "-o", out, "--mirror", f"http://127.0.0.1:{server.server_port}",
                    "--datasets", datasets, "--species", "3", "--per_species", "1", "--rep_only_species", "0",
@@ -307,12 +317,33 @@ class MiniDbTest(unittest.TestCase):
             state = json.load(fh)
         self.assertEqual(state["release"]["version"], "226.0")
         self.assertEqual((state["genomes"]["delivered"], state["genomes"]["missing"]), (5, 1))
+        self.assertEqual(state["genomes"]["strain_category"], {"isolate": 2})
+        with open(os.path.join(out, "genomes.tsv")) as fh:
+            header = next(fh).rstrip("\n").split("\t")
+            table = [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh]
+        self.assertEqual({r["role"] for r in table}, {"strain", "representative"})
+        self.assertEqual({r["genome_category"] for r in table}, {"isolate"})
+        self.assertTrue(all(r["sequencing_tech"] == "Illumina HiSeq" for r in table if r["role"] == "strain"), table)
+        with open(os.path.join(out, "ncbi_info.tsv")) as fh:  # every candidate strain was asked for, once
+            asked = [line.split("\t")[0] for line in fh][1:]
+        self.assertIn("GCA_999002003.1", asked)
+        self.assertEqual(len(asked), len(set(asked)))
 
-        # A rerun downloads nothing it has, and the release converts as downloaded.
-        again = subprocess.run(command, env=env, capture_output=True, text=True)
+        # A rerun downloads nothing it has and asks NCBI nothing it knows, and the release converts as downloaded.
+        # A genome of an earlier choice is moved out of genomes/, which a build reads whole.
+        with gzip.open(os.path.join(out, "genomes", "GCA_999999999.1.fna.gz"), "wt") as fh:
+            fh.write(">stray\nACGT\n")
+        calls = os.path.join(self.tmp.name, "datasets_rerun_calls.txt")
+        again = subprocess.run(command, env=dict(env, FAKE_LOG=calls), capture_output=True, text=True)
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertIn("1 genomes that this choice does not include moved to", again.stdout)
+        self.assertEqual(os.listdir(os.path.join(out, "genomes_unused")), ["GCA_999999999.1.fna.gz"])
+        self.assertNotIn("GCA_999999999.1.fna.gz", os.listdir(os.path.join(out, "genomes")))
         self.assertIn("marker_genes_reps_r226.tar.gz: already there", again.stdout)
         self.assertIn("5 already there, 1 to download", again.stdout)
+        self.assertIn(f"sequencing technology of {len(asked)} candidate strains: {len(asked)} known, 0 to ask", again.stdout)
+        with open(calls) as fh:
+            self.assertNotIn("summary", fh.read())
         run(CONVERT, "--gtdb", release, "--outdir", os.path.join(self.tmp.name, "db_downloaded"))
         with open(os.path.join(self.db, "reference.fna"), "rb") as a, \
                 open(os.path.join(self.tmp.name, "db_downloaded", "reference.fna"), "rb") as b:
@@ -323,18 +354,143 @@ class MiniDbTest(unittest.TestCase):
         self.assertNotEqual(missing.returncode, 0)
 
         # With NCBI down, a few failed requests in a row stop the run (not ~2n of them halving every batch),
-        # and it does not say its inputs are ready.
-        calls = os.path.join(self.tmp.name, "datasets_calls.txt")
-        down = subprocess.run([sys.executable, DOWNLOAD, "-o", out + "_down", "--mirror", f"http://127.0.0.1:{server.server_port}",
-                               "--datasets", datasets, "--species", "3", "--per_species", "1", "--rep_only_species", "0",
-                               "--batch", "1", "-t", "2"],
-                              env=dict(env, FAKE_DOWN="1", FAKE_LOG=calls), capture_output=True, text=True)
-        self.assertNotEqual(down.returncode, 0, down.stdout)
-        self.assertIn("NCBI requests failed in a row, the last: datasets download failed (1): Error: Gateway Timeout",
-                      down.stderr)
-        self.assertNotIn("Inputs for GTDB", down.stdout)
-        with open(calls) as fh:
-            self.assertEqual(len(fh.readlines()), 5)  # --batch 1: 1 .bit_length() + 4
+        # in the technology lookup or, without it, in the download, and it does not say its inputs are ready.
+        for extra, failed in (([], "datasets summary failed (1)"), (["--no_tech_lookup"], "datasets download failed (1)")):
+            calls = os.path.join(self.tmp.name, "datasets_calls.txt")
+            if os.path.exists(calls):
+                os.remove(calls)
+            down = subprocess.run([sys.executable, DOWNLOAD, "-o", out + "_down", "--mirror",
+                                   f"http://127.0.0.1:{server.server_port}", "--datasets", datasets, "--species", "3",
+                                   "--per_species", "1", "--rep_only_species", "0", "--batch", "1", "-t", "2", *extra],
+                                  env=dict(env, FAKE_DOWN="1", FAKE_LOG=calls), capture_output=True, text=True)
+            self.assertNotEqual(down.returncode, 0, down.stdout)
+            self.assertIn(f"NCBI requests failed in a row, the last: {failed}: Error: Gateway Timeout", down.stderr)
+            self.assertNotIn("Inputs for GTDB", down.stdout)
+            with open(calls) as fh:
+                self.assertEqual(len(fh.readlines()), 5)  # --batch 1: 1 .bit_length() + 4
+
+    def test_strain_choice(self):
+        # Strains are taken by quality: isolates before MAGs, complete assemblies before drafts, long-read
+        # assemblies before the others; ties are drawn at random; only the best candidates by what the metadata
+        # says are asked for their sequencing technology.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import argparse
+        import download_gtdb as dl
+        rows = []
+
+        def genome(acc, species, category="isolate", level="contig", contigs=50, rep=False, completeness=99.0):
+            lineage = f"d__Bacteria;p__P;c__C;o__O;f__F;g__G;s__{species}"
+            rows.append(dl.Genome(acc, acc.replace("GCF_", "GCA_"), "s__" + species, lineage, rep, completeness, 1.0,
+                                  category, level, contigs))
+
+        genome("GCF_1.1", "A", rep=True)
+        genome("GCA_2.1", "A", "mag", "complete genome", 1)
+        genome("GCA_3.1", "A", "isolate", "contig", 40)
+        genome("GCA_4.1", "A", "isolate", "complete genome", 2)
+        genome("GCA_5.1", "A", "isolate", "complete genome", 2)
+        genome("GCA_6.1", "A", "isolate", "scaffold", 8)
+        genome("GCA_7.1", "A", "isolate", "complete genome", 1, completeness=70.0)  # fails the filter
+        genome("GCF_8.1", "B", rep=True)
+        genome("GCA_9.1", "B", "mag", "contig", 300)
+        genome("GCA_10.1", "B", "mag", "contig", 30)
+        genome("GCA_11.1", "B", "sag", "contig", 400)
+        opts = argparse.Namespace(seed=1, species=2, per_species=2, rep_only_species=0, min_completeness=90.0,
+                                  max_contamination=5.0, tech_candidates=3)
+        asked = []
+
+        def tech(accessions):
+            asked.append(accessions)
+            return {a: "Oxford Nanopore MinION" if a == "GCA_5.1" else "Illumina" for a in accessions}
+
+        picked, chosen, _, _, representative, candidates = dl.pick(rows, opts, tech)
+        by_species = {s: [g.accession for g, _ in picked if g.species == s] for s in chosen}
+        # A: the shortlist is the 3 best isolates (two complete, one scaffold), the Nanopore one first
+        self.assertEqual(by_species["s__A"], ["GCA_5.1", "GCA_4.1"])
+        # B: a SAG before MAGs, then the MAG with fewer contigs
+        self.assertEqual(by_species["s__B"], ["GCA_11.1", "GCA_10.1"])
+        self.assertEqual(sorted(asked[0]), ["GCA_10.1", "GCA_11.1", "GCA_4.1", "GCA_5.1", "GCA_6.1", "GCA_9.1"])
+        self.assertEqual(len(asked), 1, "one lookup for all species")
+        self.assertEqual(dict((g.accession, t) for g, t in picked)["GCA_5.1"], "Oxford Nanopore MinION")
+        self.assertEqual(sorted(representative), ["s__A", "s__B"])
+        self.assertNotIn("GCA_7.1", [g.accession for g in candidates["s__A"]])
+        # Without a lookup, the same quality order (level, then contigs) decides
+        picked, *_ = dl.pick(rows, opts, None)
+        self.assertEqual(sorted(g.accession for g, _ in picked if g.species == "s__A"), ["GCA_4.1", "GCA_5.1"])
+        # Genomes that tie are drawn at random, not by name: another seed picks others
+        for i in range(12):
+            genome(f"GCA_{100 + i}.1", "C", "isolate", "complete genome", 1)
+        genome("GCF_99.1", "C", rep=True)
+        opts.species = 3
+        drawn = set()
+        for seed in range(1, 9):
+            opts.seed = seed
+            picked, *_ = dl.pick(rows, opts, None)
+            drawn.add(tuple(g.accession for g, _ in picked if g.species == "s__C"))
+        self.assertGreater(len(drawn), 3)
+        # Only the genomes of a proGenomes table are taken as strains
+        opts.seed = 1
+        picked, *_ = dl.pick(rows, opts, None, allowed={"GCA_3.1", "GCA_9.1", "GCA_5.1"})
+        self.assertEqual(sorted(g.accession for g, _ in picked), ["GCA_3.1", "GCA_5.1", "GCA_9.1"])
+
+    def test_read_metadata_quality_columns(self):
+        # GTDB's columns for the quality of a genome (names of metadata_field_desc.tsv), with none, missing
+        # and odd values.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import download_gtdb as dl
+        folder = os.path.join(self.tmp.name, "meta_quality")
+        os.makedirs(folder)
+        header = ["accession", "checkm2_completeness", "checkm2_contamination", "gtdb_representative", "gtdb_taxonomy",
+                  "ncbi_assembly_level", "ncbi_genome_category", "ncbi_contig_count", "contig_count",
+                  "ncbi_genbank_assembly_accession", "ncbi_organism_name"]
+        lineage = "d__Bacteria;p__P;c__C;o__O;f__F;g__G;s__G a"
+        rows = [["RS_GCF_000000001.1", "99.5", "0.5", "t", lineage, "Complete Genome", "none", "2", "2",
+                 "GCA_000000001.1", "Gus a"],
+                ["GB_GCA_000000002.1", "95", "1", "f", lineage, "Contig", "derived from metagenome", "none", "310",
+                 "GCA_000000002.1", "uncultured Gus"],
+                ["GB_GCA_000000003.1", "91", "none", "f", lineage, "", "derived from single cell", "", "",
+                 "none", ""]]
+        with open(os.path.join(folder, "bac120_metadata_r226.tsv"), "w") as fh:
+            fh.write("\t".join(header) + "\n" + "".join("\t".join(r) + "\n" for r in rows))
+        a, b, c = dl.read_metadata(folder, "226")
+        self.assertEqual((a.accession, a.genbank, a.is_rep, a.category, a.level, a.contigs),
+                         ("GCF_000000001.1", "GCA_000000001.1", True, "isolate", "complete genome", 2))
+        self.assertEqual((b.accession, b.category, b.level, b.contigs), ("GCA_000000002.1", "mag", "contig", 310))
+        self.assertEqual((c.category, c.level, c.contigs, c.genbank, c.contamination),
+                         ("sag", "", None, "GCA_000000003.1", 0.0))
+        self.assertLess(dl.quality_rank(a), dl.quality_rank(b))
+        self.assertLess(dl.quality_rank(b, True), dl.quality_rank(b))
+
+    def test_ncbi_summary_and_categories(self):
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import argparse
+        import download_gtdb as dl
+        self.assertEqual([dl.genome_category(c, o) for c, o in (
+            ("none", "Escherichia coli"), ("", ""), ("derived from metagenome", ""), ("derived from single cell", "x"),
+            ("none", "uncultured Pseudoalteromonas sp."), ("none", "bacterium metagenome bin 3"),
+            ("derived from environmental sample", ""))], ["isolate", "isolate", "mag", "sag", "mag", "mag", "mag"])
+        for text in ("PacBio Sequel", "Oxford Nanopore MinION; Illumina", "Illumina HiSeq; PacBio RS II", "PacBio HiFi"):
+            self.assertTrue(dl.LONG_READS.search(text), text)
+        for text in ("Illumina HiSeq 2500", "454 GS FLX Titanium", "Sanger dideoxy sequencing", "Ion Torrent"):
+            self.assertFalse(dl.LONG_READS.search(text), text)
+        datasets = os.path.join(self.tmp.name, "datasets_summary")
+        with open(datasets, "w") as fh:
+            fh.write(FAKE_DATASETS)
+        os.chmod(datasets, 0o755)
+        opts = argparse.Namespace(datasets=datasets)
+        work = os.path.join(self.tmp.name, "summary_work")
+        for snake in ("", "1"):  # datasets writes assemblyInfo or assembly_info, by version
+            os.environ["FAKE_LONG"], os.environ["FAKE_SNAKE"] = "GCA_1.1", snake
+            try:
+                found, why = dl.ncbi_summary(opts, ["GCA_1.1", "GCA_2.1"], work)
+            finally:
+                del os.environ["FAKE_LONG"], os.environ["FAKE_SNAKE"]
+            self.assertEqual((found, why), ({"GCA_1.1": "PacBio Sequel; Illumina HiSeq", "GCA_2.1": "Illumina HiSeq"}, ""))
+        os.environ["FAKE_DOWN"] = "1"
+        try:
+            found, why = dl.ncbi_summary(opts, ["GCA_1.1"], work)
+        finally:
+            del os.environ["FAKE_DOWN"]
+        self.assertEqual((found, why), ({}, "datasets summary failed (1): Error: Gateway Timeout"))
 
     def test_download_goes_on_where_a_connection_dropped(self):
         sys.path.insert(0, os.path.join(HERE, ".."))
