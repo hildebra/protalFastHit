@@ -554,8 +554,9 @@ class GeneConservationTest(WorkDir):
     on every gene by default."""
 
     def build(self, name, rates, with_full_reference=True):
-        """A database of 4 species with 12 genes of 600 bp each; in full_reference, 2 other genomes per
-        species whose gene i differs from the representative's at 2% times rates[i]."""
+        """A database of 4 species of one genus with 12 genes of 600 bp each, each species 5% times rates[i] from
+        their ancestor at gene i; in full_reference, 2 other genomes per species whose gene i differs from the
+        representative's at 2% times rates[i]."""
         rng = random.Random(21)
 
         def mutate(seq, rate):
@@ -563,7 +564,8 @@ class GeneConservationTest(WorkDir):
 
         db = self.path(name)
         os.mkdir(db)
-        genes = {(taxid, gene): "".join(rng.choice("ACGT") for _ in range(600))
+        ancestor = {gene: "".join(rng.choice("ACGT") for _ in range(600)) for gene in range(1, len(rates) + 1)}
+        genes = {(taxid, gene): mutate(ancestor[gene], 0.05 * rates[gene - 1])
                  for taxid in range(1, 5) for gene in range(1, len(rates) + 1)}
         with open(os.path.join(db, "reference.fna"), "w") as fna, open(os.path.join(db, "reference.map"), "w") as mp:
             offset = 0
@@ -574,7 +576,8 @@ class GeneConservationTest(WorkDir):
                 offset += len(header) + len(seq) + 1
         with open(os.path.join(db, "internal_taxonomy.dmp"), "w") as fh:
             fh.write("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n5\t5\t0\troot\tno rank\t0\t\n" +
-                     "".join(f"{t}\t5\t0\ts__Species {t}\tspecies\t7\tGCF_{t}\n" for t in range(1, 5)))
+                     "6\t5\t0\tg__Genus\tgenus\t6\t\n" +
+                     "".join(f"{t}\t6\t0\ts__Genus species{t}\tspecies\t7\tGCF_{t}\n" for t in range(1, 5)))
         full = os.path.join(db, "full_reference.fna")
         with open(full, "w") as fh:
             for (taxid, gene), seq in genes.items():
@@ -603,6 +606,14 @@ class GeneConservationTest(WorkDir):
         fast = [factors[g] for g in range(7, 13)]
         self.assertLess(max(slow), 1, factors)
         self.assertGreater(min(fast), 1, factors)
+        # Between the 4 congeners, too, the slow genes differ least (gene_congeners.tsv, a report beside the database).
+        self.assertRegex(log, r"Gene congeners: 6 pairs of species of 1 genera \(4 species\); the genes' divergence between "
+                              r"congeners correlates 0\.[5-9]\d with their factors \(Spearman, 12 genes\)")
+        with open(os.path.join(db, "gene_congeners.tsv")) as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        between = {int(r["geneid"]): float(r["between_factor"]) for r in rows}
+        self.assertLess(max(between[g] for g in range(1, 7)), min(between[g] for g in range(7, 13)), between)
+        self.assertEqual({r["species"] for r in rows}, {"4"})
 
         _, log = self.build("db_without", rates, with_full_reference=False)
         self.assertIn("Gene conservation: no factors", log)

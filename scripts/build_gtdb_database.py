@@ -44,7 +44,10 @@ on the independent test set, false positive and false negative rates by rank,
 against the previous model and training procedure), its numbers as JSON, the
 per-taxon predictions, the threshold table, the parity check with protal, the
 genome table summary and build_metadata.tsv (what the database was built from
-and with).
+and with); and what the model's conservation features rest on, on real genomes:
+gene_congeners.tsv (protal --build: how each gene differs between congeners
+against within species) and relatives_by_gene_conservation.txt (trace_relatives.py:
+where the reads of the held-out species land, by the genes' factors).
 
 The tools the run needs are checked before it starts. A run that stops (a failure,
 SIGTERM, Ctrl-C) stops every command it started, and one that fails in the
@@ -79,9 +82,7 @@ GENE_NEIGHBOURS = os.path.join(HERE, "mini_db", "gene_neighbours.py")
 TRAINER = os.path.join(HERE, "random_forest_cmdline.py")
 COLLECTOR = os.path.join(HERE, "collect_training_data.py")
 PARITY = os.path.join(HERE, "check_model_parity.py")
-# Read types whose models get knobs by sample depth (random_forest_cmdline.py --depth-knobs): long reads, where they
-# raised the test F1 (docs/claude/2026-10-01-f1-opportunities); short reads gained nothing.
-DEPTH_KNOB_READ_TYPES = ("pb", "ont")
+TRACE = os.path.join(HERE, "trace_relatives.py")
 ACCESSION = re.compile(r"(?:RS_|GB_)?(GC[AF]_\d{9}\.\d+)")
 sys.path.insert(0, os.path.join(HERE, "mini_db"))
 sys.path.insert(0, HERE)
@@ -452,6 +453,44 @@ def gene_conservation_summary(build_log):
     return text.rsplit(": ", 1)[0] if text.endswith("gene_conservation.tsv") else text
 
 
+def depth_knob_types(args):
+    """The read types whose models get knobs by sample depth (--depth-knob-read-types)."""
+    return {t.strip() for t in args.depth_knob_read_types.split(",") if t.strip()}
+
+
+def gene_congeners_summary(build_log):
+    """What protal --build said of how the genes differ between congeners (its "Gene congeners:" line, less the
+    file it wrote; gene_congeners.tsv beside the database and in model_logs/), for build_metadata.tsv."""
+    try:
+        with open(build_log) as fh:
+            lines = [line.strip() for line in fh if line.startswith("Gene congeners:")]
+    except OSError:
+        return "unknown (no build log)"
+    if not lines:
+        return "none (this protal does not compare them)"
+    text = lines[-1].removeprefix("Gene congeners:").strip()
+    return text.rsplit(": ", 1)[0] if text.endswith("gene_congeners.tsv") else text
+
+
+def trace_relatives(training, training_db, heldout, logs, outdir):
+    """model_logs/relatives_by_gene_conservation.txt (trace_relatives.py): where the paired-end reads of the species the
+    training database lacks land, by the genes' conservation factors, on real genomes. A failure is reported, and does
+    not stop the build: the models do not depend on it."""
+    log = os.path.join(outdir, "trace_relatives.log")
+    out = os.path.join(logs, "relatives_by_gene_conservation")
+    began = time.time()
+    with open(log, "w") as fh:
+        rc = subprocess.run([sys.executable, TRACE, "--points", os.path.join(training, "points"), "--db", training_db,
+                             "--heldout", heldout, "--out", out], stdout=fh, stderr=subprocess.STDOUT).returncode
+    if rc:
+        say(f"    tracing the held-out species' reads failed ({rc}; see {log}); the build goes on")
+        return
+    with open(out + ".txt") as fh:
+        text = fh.read()
+    first = text.splitlines()[0] if text.startswith("Not traced") else "model_logs/relatives_by_gene_conservation.txt"
+    say(f"    the held-out species' reads by gene conservation, in {clock(time.time() - began)}: {first}")
+
+
 def gene_neighbours_summary(build_log):
     """What protal --build said of the gene neighbours it packed (its "Gene neighbours:" line), for
     build_metadata.tsv."""
@@ -490,6 +529,7 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
             ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, "index_and_package.log"))),
+            ("gene_congeners", gene_congeners_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("classifier_features", "normalized"), ("classifier_trees", args.ntree),
             ("classifier_max_leaves", args.maxnodes), ("classifier_training_species_left_out", n_heldout)]
     rows += [(f"classifier_training_{rank}_clades_left_out", clade_counts[rank]) for rank in CLADE_RANKS
@@ -499,7 +539,7 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
                                             f"species per sample {args.species_per_sample}; strains "
                                             f"{args.strains_per_species or 'one'}; abundance {args.abundance or 'default'}"),
              ("classifier_read_types", ",".join(read_types)),
-             ("classifier_depth_knobs", ",".join(t for t in read_types if t in DEPTH_KNOB_READ_TYPES) or "none")]
+             ("classifier_depth_knobs", ",".join(t for t in read_types if t in depth_knob_types(args)) or "none")]
     for t in read_types:
         try:
             with open(prefixes[t] + ".metrics.json") as fh:
@@ -773,6 +813,10 @@ def main():
                         "them (placeholder_models.py)")
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
+    p.add_argument("--depth-knob-read-types", default="",
+                   help="read types (comma-separated, e.g. pb,ont) whose models also get knobs by sample depth "
+                        "(random_forest_cmdline.py --depth-knobs); none by default: on the v0.7.1 benchmark they cost "
+                        "PacBio up to 0.016 F1 (docs/claude/2026-10-01-features-depth-knobs)")
     p.add_argument("--progress-every", type=float, default=600,
                    help="seconds between the status lines of the stages running: how long each has run, the memory "
                         "it takes and the last line of its log (default 600; 0: none)")
@@ -1033,7 +1077,7 @@ def main():
                    "--output-prefix", prefixes[t], "--features", "normalized", "--ntree", str(args.ntree),
                    "--maxnodes", str(args.maxnodes), "--seed", str(args.seed), "--threads", str(trainer_threads),
                    "--taxonomy", taxonomy, "--evaluation", args.evaluation]
-        if t in DEPTH_KNOB_READ_TYPES:
+        if t in depth_knob_types(args):
             command += ["--depth-knobs"]
         if args.test_samples > 0 and os.path.isfile(os.path.join(test, TABLES[t])):
             command += ["--test-file", os.path.join(test, TABLES[t])]
@@ -1065,6 +1109,8 @@ def main():
                  os.path.join(args.outdir, "genome_table.txt"), heldout):
         if os.path.isfile(name):
             shutil.copy(name, logs)
+    if "pe" in read_types and training_db != db and os.path.isfile(heldout):
+        trace_relatives(training, training_db, heldout, logs, args.outdir)
     if final_build is not None:
         if final_build.seconds is None:
             say(f"Waiting for the build of {db} in the background ({final_log})")
@@ -1084,6 +1130,8 @@ def main():
         fh.write("".join(f"{k}\t{v}\n" for k, v in provenance(args, release, genome_table, heldout, n_heldout,
                                                                   read_types, prefixes)))
     shutil.copy(os.path.join(db, "build_metadata.tsv"), logs)
+    if os.path.isfile(os.path.join(db, "gene_congeners.tsv")):
+        shutil.copy(os.path.join(db, "gene_congeners.tsv"), logs)
     summary = summary_lines(read_types, prefixes, db)
     with open(os.path.join(logs, "summary.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")

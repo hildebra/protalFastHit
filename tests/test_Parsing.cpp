@@ -514,7 +514,7 @@ TEST(MicrobialProfile, CountsAlternativesLowMapqAndLinkedReads) {
     auto genera = std::make_shared<std::vector<uint32_t>>(std::vector<uint32_t>{ 0, 10, 10, 11 });
     auto fill = [&](profiler::MicrobialProfile& profile) {
         auto add = [&](SamEntry const& sam, int read) {
-            profile.NoteRecord(1, sam);
+            profile.NoteRecord(1, 1, sam);
             EXPECT_TRUE(profile.AddSam(1, 1, sam, 1.0, true, read, true, static_cast<size_t>(read)));
         };
         // Read 0, both mates here: one fits a congener within an edit, the other a species of another genus.
@@ -526,7 +526,7 @@ TEST(MicrobialProfile, CountsAlternativesLowMapqAndLinkedReads) {
         add(sam_at(31, 60, "*"), 2);
         // Read 3 fits a congener exactly (MAPQ 0): the profiler's MAPQ filter leaves it out of the taxon's hits,
         // but it counts for the evidence.
-        profile.NoteRecord(1, sam_at(11, 0, "2:0"));
+        profile.NoteRecord(1, 1, sam_at(11, 0, "2:0"));
         profile.ApplyRecordEvidence();
         return profile.GetTaxa().at(1);
     };
@@ -589,10 +589,10 @@ TEST(MicrobialProfile, DivergenceBeyondTheBaseQualities) {
     for (auto const& r : { record("8M2X", std::string(10, '+')),     // 0.1
                            record("10M", std::string(10, 'I')),      // -0.0001
                            record("9M1X", std::string(10, '5')) }) { // 0.09
-        profile.NoteRecord(1, r);
+        profile.NoteRecord(1, 1, r);
         EXPECT_TRUE(profile.AddSam(1, 1, r, 1.0));
     }
-    profile.NoteRecord(1, record("10M", "*"));  // no qualities: no excess
+    profile.NoteRecord(1, 1, record("10M", "*"));  // no qualities: no excess
     profile.ApplyRecordEvidence();
     auto const& taxon = profile.GetTaxa().at(1);
     EXPECT_NEAR(taxon.ExcessMedian(), 0.09, 1e-6);
@@ -608,7 +608,7 @@ TEST(MicrobialProfile, DivergenceBeyondTheBaseQualities) {
     // Reads without qualities: both 0.
     profiler::MicrobialProfile unqualified(*ref.loader);
     auto plain = record("10M", "*");
-    unqualified.NoteRecord(1, plain);
+    unqualified.NoteRecord(1, 1, plain);
     plain.m_qual = std::string(10, 'I');
     EXPECT_TRUE(unqualified.AddSam(1, 1, plain, 1.0));
     unqualified.ApplyRecordEvidence();

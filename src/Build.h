@@ -747,6 +747,101 @@ namespace protal::build {
         return estimate;
     }
 
+    // gene_congeners.tsv next to the database (gene_conservation::CompareCongeners): how each gene differs between the
+    // representatives of congeneric species, against how it differs within species (`within`, the factors just
+    // estimated). A report of the build, which queries do not read; build_gtdb_database.py keeps it in model_logs/.
+    // The genus of a species is its nearest ancestor of rank genus in internal_taxonomy.dmp.
+    static void WriteGeneCongeners(protal::Options const& options, GenomeLoader& genomes, gene_conservation::Table const& within) {
+        namespace fs = std::filesystem;
+        Benchmark bm("Gene congeners");
+        bm.Start();
+        std::string const target = (fs::path(options.GetGeneConservationFile()).parent_path() /
+                                    gene_conservation::kCongenersFileName).string();
+        std::error_code ec;
+        fs::remove(target, ec);
+        std::unordered_map<uint32_t, uint32_t> parent;
+        std::unordered_map<uint32_t, bool> is_genus;
+        {
+            std::ifstream taxonomy(options.GetInternalTaxonomyFile());
+            std::string line;
+            while (std::getline(taxonomy, line)) {
+                std::vector<std::string> fields;
+                size_t start = 0;
+                for (size_t tab; (tab = line.find('\t', start)) != std::string::npos; start = tab + 1) fields.push_back(line.substr(start, tab - start));
+                fields.push_back(line.substr(start));
+                uint32_t id = 0, up = 0;
+                if (fields.size() < 5 || std::from_chars(fields[0].data(), fields[0].data() + fields[0].size(), id).ec != std::errc() ||
+                    std::from_chars(fields[1].data(), fields[1].data() + fields[1].size(), up).ec != std::errc()) continue;
+                parent[id] = up;
+                is_genus[id] = fields[4] == "genus";
+            }
+        }
+        auto genus_of = [&](uint32_t taxid) -> uint32_t {
+            uint32_t node = taxid;
+            for (int depth = 0; depth < 32; depth++) {
+                auto const it = parent.find(node);
+                if (it == parent.end() || it->second == node) return 0;
+                node = it->second;
+                if (is_genus[node]) return node;
+            }
+            return 0;
+        };
+        std::map<uint32_t, std::vector<uint32_t>> by_genus;
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) {
+            if (uint32_t const genus = genus_of(static_cast<uint32_t>(taxid))) by_genus[genus].push_back(static_cast<uint32_t>(taxid));
+        }
+        std::vector<std::vector<uint32_t>> genera;
+        for (auto& [_, members] : by_genus) {
+            if (members.size() >= 2) genera.push_back(std::move(members));
+        }
+        if (genera.empty()) {
+            std::cout << "Gene congeners: no genus with two species or more in the database; no comparison" << std::endl;
+            bm.Stop();
+            return;
+        }
+        auto genes_of = [&genomes](uint32_t taxid) {
+            std::vector<std::pair<uint64_t, std::string>> genes;
+            auto& genome = genomes.GetGenome(taxid);
+            auto const& list = genome.GetGeneList();
+            for (size_t i = 0; i < list.size(); i++) {
+                if (!list[i].IsSet()) continue;
+                auto const seq = genome.GetGeneOMP(i + 1).Sequence();
+                genes.emplace_back(i + 1, std::string(seq.View()));
+            }
+            return genes;
+        };
+        auto const estimate = gene_conservation::CompareCongeners(genera, genes_of, within, static_cast<int>(options.GetThreads()));
+        std::ofstream os(target);
+        estimate.Write(os);
+        os.close();
+        if (!os) {
+            std::cerr << "Writing " << target << " failed" << std::endl;
+            exit(8);
+        }
+        auto pct = [](double v) {
+            if (std::isnan(v)) return std::string("-");
+            std::ostringstream o;
+            o << std::fixed << std::setprecision(1) << 100 * v << "%";
+            return o.str();
+        };
+        auto num = [](double v) {
+            if (std::isnan(v)) return std::string("-");
+            std::ostringstream o;
+            o << std::fixed << std::setprecision(2) << v;
+            return o.str();
+        };
+        std::cout << "Gene congeners: " << estimate.pairs << " pairs of species of " << estimate.genera << " genera ("
+                  << estimate.species << " species); the genes' divergence between congeners correlates "
+                  << num(estimate.spearman) << " with their factors (Spearman, " << estimate.correlated << " genes); genes of "
+                  << "factor below 1: between-species factor " << num(estimate.conserved_between) << ", the nearest congener's "
+                  << "copy identical in " << pct(estimate.conserved_identical) << " of species, nearer than "
+                  << gene_conservation::kNearIdentical << " in " << pct(estimate.conserved_near) << "; the other genes: "
+                  << num(estimate.fast_between) << ", " << pct(estimate.fast_identical) << ", " << pct(estimate.fast_near)
+                  << ": " << target << std::endl;
+        bm.Stop();
+        bm.PrintResults();
+    }
+
     // A pass over the reference in `threads` threads that updates the index as one thread would
     // (docs/claude/2026-09-29-index-build-parallel.md). The key space is cut into `ranges` ranges of
     // whole control blocks. Each round, one thread reads batches of whole records (FastaBatches);
@@ -1152,7 +1247,9 @@ namespace protal::build {
                   << std::defaultfloat << " per k-mer), " << kmers_shared << " found under another taxon or more than once, "
                   << singles_read << " single entries read back from their genes" << std::endl;
 
-        WriteGeneConservation(options, genomes, options.GetFullSequenceFilePath(), options.GetGeneConservationFile());
+        auto const conservation = WriteGeneConservation(options, genomes, options.GetFullSequenceFilePath(),
+                                                        options.GetGeneConservationFile());
+        WriteGeneCongeners(options, genomes, conservation.table);
         CheckGeneNeighbours(options, genomes);
 
         std::cout << "Save unique kmer info: \n" << options.GetUniqueKmersFile() << std::endl;

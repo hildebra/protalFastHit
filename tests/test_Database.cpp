@@ -522,6 +522,56 @@ TEST(GeneConservation, TheEstimateFollowsHowFastEachGeneDiverges) {
     }
 }
 
+TEST(GeneConservation, CongenersDifferMostOnTheFastGenes) {
+    // Genus 1: 6 species from one ancestor, each 4% from it at a gene of rate 1 (8% between two species): genes 1-6 at
+    // rate 0.3, 7-12 at 1.7, and gene 13 the same in every species. Genus 2 has one species: nothing to compare.
+    std::mt19937 rng(11);
+    std::vector<double> const rates = { 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 1.7, 1.7, 1.7, 1.7, 1.7, 1.7, 0 };
+    std::vector<std::string> ancestor;
+    for (size_t g = 0; g < rates.size(); g++) ancestor.push_back(RandomBases(rng, 1200));
+    std::map<uint32_t, std::vector<std::pair<uint64_t, std::string>>> species;
+    for (uint32_t taxid = 1; taxid <= 6; taxid++) {
+        for (size_t g = 0; g < rates.size(); g++) species[taxid].emplace_back(g + 1, Mutate(rng, ancestor[g], 0.04 * rates[g]));
+    }
+    species[7] = species[1];
+    gene_conservation::Table within;
+    for (uint64_t g = 1; g <= 12; g++) within.Set(g, g <= 6 ? 0.5 : 1.5, 6);
+    within.Set(13, 0.5, 6);
+    size_t calls = 0;
+    auto const estimate = gene_conservation::CompareCongeners({ { 1, 2, 3, 4, 5, 6 }, { 7 } }, [&](uint32_t taxid) {
+        calls++;
+        return species.at(taxid);
+    }, within, 1);
+    EXPECT_EQ(calls, 6u);  // the species of genus 1, once each
+    EXPECT_EQ(estimate.genera, 1u);
+    EXPECT_EQ(estimate.species, 6u);
+    EXPECT_EQ(estimate.pairs, 15u);  // each of 6 species against the next 4, cyclically: all 15 pairs
+    ASSERT_EQ(estimate.genes.size(), 13u);
+    // A pair's median gene is a slow one (6 slow, 6 fast, 1 the same): slow genes about 1, fast ones about 5.7.
+    for (auto const& g : estimate.genes) {
+        if (g.geneid <= 6) EXPECT_NEAR(g.between, 1.0, 0.4) << g.geneid;
+        else if (g.geneid <= 12) EXPECT_GT(g.between, 3.0) << g.geneid;
+        else EXPECT_EQ(g.between, 0.0);
+        EXPECT_EQ(g.pairs, 15u) << g.geneid;
+        EXPECT_EQ(g.species, 6u) << g.geneid;
+        EXPECT_EQ(g.identical, g.geneid == 13 ? 6u : 0u) << g.geneid;
+    }
+    EXPECT_GT(estimate.spearman, 0.8);
+    EXPECT_EQ(estimate.correlated, 13u);
+    EXPECT_NEAR(estimate.conserved_between, 1.0, 0.4);
+    EXPECT_GT(estimate.fast_between, 3.0);
+    EXPECT_NEAR(estimate.conserved_identical, 1.0 / 7, 1e-12);  // gene 13 of the 7 conserved genes
+    EXPECT_EQ(estimate.fast_identical, 0.0);
+    std::ostringstream os;
+    estimate.Write(os);
+    EXPECT_EQ(os.str().substr(0, os.str().find('\n')),
+              "geneid\twithin_factor\tbetween_factor\tpairs\tspecies\tidentical_share\tnear_identical_share");
+
+    EXPECT_NEAR(gene_conservation::Spearman({ 1, 2, 3, 4 }, { 10, 20, 30, 40 }), 1.0, 1e-12);
+    EXPECT_NEAR(gene_conservation::Spearman({ 1, 2, 3, 4 }, { 4, 3, 2, 1 }), -1.0, 1e-12);
+    EXPECT_TRUE(std::isnan(gene_conservation::Spearman({ 1, 2 }, { 1, 2 })));
+}
+
 TEST(GeneConservation, CopiesBeyondTheCapAreNotCompared) {
     gene_conservation::Estimator estimator({ gene_conservation::Estimator::Key(1, 1) });
     for (uint32_t i = 0; i < gene_conservation::kMaxCopies; i++) EXPECT_TRUE(estimator.Take(1, 1));

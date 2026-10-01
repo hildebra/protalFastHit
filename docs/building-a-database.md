@@ -123,6 +123,22 @@ The log reports the range (`Gene conservation: factors 0.26-3.3 for 168 genes, f
 species) the build writes no table. On two simulated worlds whose genes evolve at different rates
 the factors correlated 0.985 and 0.999 with the true rates
 ([report](claude/2026-10-01-gene-scaled-margin/README.md)).
+
+The factors, and the model's conservation features, assume that a gene conserved within species is
+conserved between them, so that a relative the database lacks aligns best on the conserved genes.
+To check this on real genomes, the build also compares each gene between the representatives of
+congeneric species (the genus from `internal_taxonomy.dmp`; of a genus with more than 64 species, a
+fixed sample of 64, each against the next 4 of them) and writes `gene_congeners.tsv` beside the
+database: per gene its within-species factor, its between-species factor (the median over pairs of
+species of the gene's k-mer distance over that of the pair's median gene, the median gene 1), the
+pairs and species it is from, and the share of species whose nearest congener's copy is identical,
+or less than 1% apart, so that most of its reads fit both. The log sums it up (`Gene congeners:`:
+the pairs and genera compared, the Spearman correlation of the two factors over the genes, and for
+the genes of factor below 1 and the others the median between-species factor and the identical and
+near-identical shares). Queries do not read
+the file, and `database.protal` does not hold it; `build_gtdb_database.py` keeps it in
+`model_logs/` and the summary in `build_metadata.tsv`
+([report](claude/2026-10-01-conservation-pattern/README.md)).
 [database-files.md](database-files.md#build-options-for-the-format) lists the options for
 separate or uncompressed files and for the compression level. Pass `--no_profile`: without it,
 build mode goes on to profile an empty sample list.
@@ -300,9 +316,11 @@ reads; and PacBio and Nanopore reads simulated with [pbsim3](https://github.com/
 (`--pb-setup`: HiFi-like reads of the Sequel error model at 99.9% accuracy, 15 kb; `--ont-setup`:
 the high-quality ONT model at 97%, 8 kb), `--long-read-bases` per sample, about as many bases as the
 paired-end depths. All samples are profiled in one protal run, each with its read type's settings,
-and the models are trained in parallel. The pb and ont models also get knobs by sample depth
-(the trainer's `--depth-knobs`, [model-training.md](model-training.md#knobs-by-sample-depth)),
-which `build_metadata.tsv` records (`classifier_depth_knobs`, `model_<type>_depth_knobs`). pbsim3
+and the models are trained in parallel. `--depth-knob-read-types pb,ont` gives those models knobs by
+sample depth (the trainer's `--depth-knobs`, [model-training.md](model-training.md#knobs-by-sample-depth)),
+which `build_metadata.tsv` records (`classifier_depth_knobs`, `model_<type>_depth_knobs`); none by
+default, as they cost PacBio F1 on the v0.7.1 benchmark
+([report](claude/2026-10-01-features-depth-knobs/README.md)). pbsim3
 must be installed for pb and ont (it is in
 `envs/protal-db-build.yaml`; `micromamba install -c conda-forge -c bioconda pbsim3`); without it,
 leave them out of `--read-types`, and they keep placeholder models.
@@ -462,5 +480,5 @@ The output root holds:
 | `training/`, `test/` | the simulated samples, their profiles and one table per read type (`training_data.tsv` for pe, `training_data_se.tsv`, `_pb`, `_ont`); a rerun reuses the design points simulated and profiled from the same inputs (below). With `--scratch`, only the tables; the samples are in the scratch folder |
 | `.stages/` | the inputs of the conversion and the two builds that completed, for a rerun (below) | 
 | `trained_model.*`, `trained_model_se.*`, `_pb.*`, `_ont.*` | the models and the trainer's outputs ([model-training.md](model-training.md#training)) |
-| `model_logs/` | what tells whether the models are good, in one folder: `summary.txt` (per read type: TP, FP, TN, FN, sensitivity, specificity, precision, F1 and false positives per sample, with species held out and on the test set; also printed at the end), each read type's training report and its numbers (`trained_model*.report.txt`, `.metrics.json`), per-taxon predictions (also on the test set), the threshold table, feature importances, the parity checks with protal (`parity*.txt`), `genome_table.txt`, what the training database leaves out (`holdout.txt`, `heldout_species.txt`), the collection logs and `build_metadata.tsv` |
+| `model_logs/` | what tells whether the models are good, in one folder: `summary.txt` (per read type: TP, FP, TN, FN, sensitivity, specificity, precision, F1 and false positives per sample, with species held out and on the test set; also printed at the end), each read type's training report and its numbers (`trained_model*.report.txt`, `.metrics.json`), per-taxon predictions (also on the test set), the threshold table, feature importances, the parity checks with protal (`parity*.txt`), `genome_table.txt`, what the training database leaves out (`holdout.txt`, `heldout_species.txt`), the collection logs and `build_metadata.tsv`; and what the conservation features rest on, on the release's real genomes: `gene_congeners.tsv` (the finished database's, see above) and `relatives_by_gene_conservation.txt` and `.tsv` (`scripts/trace_relatives.py`: the paired-end reads of the species held out of the training database followed to the genes they align to, per unit coverage against a species' own reads, before and after the MAPQ filter, by the genes' factors; a failure there is reported and does not stop the build) |
 | `*.log` | one log per stage: `convert`, `training_db`, `index_and_package`, `training_db_index`, `training_data`, `test_data`, `classifier_training*`, `parity*`, `final_package*` |

@@ -32,6 +32,7 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 namespace protal::gene_conservation {
@@ -128,6 +129,9 @@ namespace protal::gene_conservation {
         bool Empty() const { return m_genes == 0; }
         size_t Genes() const { return m_genes; }
 
+        // Whether gene `geneid` has a factor of its own.
+        bool Has(uint64_t geneid) const { return geneid < m_factors.size() && m_factors[geneid] > 0; }
+
         void Set(uint64_t geneid, double factor, uint32_t species = 0) {
             if (geneid >= m_factors.size()) {
                 m_factors.resize(geneid + 1, 0);
@@ -203,6 +207,213 @@ namespace protal::gene_conservation {
         std::vector<uint32_t> m_species;  // species each factor was estimated from
         size_t m_genes = 0;
     };
+
+    // How each gene differs between congeneric species, beside how it differs within species (the factors): --build
+    // compares the representatives' copies (reference.fna) of species of one genus and writes gene_congeners.tsv next
+    // to the database, a report that queries do not read (docs/claude/2026-10-01-conservation-pattern):
+    //   geneid  within_factor  between_factor  pairs  species  identical_share  near_identical_share
+    // between_factor: the median over pairs of species of the gene's k-mer distance over that of the pair's median
+    // gene, scaled so that the median gene has 1, as the within-species factors are; pairs: the pairs it was estimated
+    // from (kMinGenes shared genes, the median gene kMinTypical to kMaxPairTypical apart); species: the species whose
+    // copy was compared with a congener's; identical_share and near_identical_share: of those, the share whose nearest
+    // congener's copy is identical (the same k-mers) or nearer than kNearIdentical, so that most of its reads fit both.
+    // The factors assume that a gene conserved within species is conserved between them; a relative the database lacks
+    // aligns best where it differs least from its congeners, and a read of a gene the same in two congeners fits both.
+    inline const std::string kCongenersFileName = "gene_congeners.tsv";
+    inline constexpr size_t kMaxSpeciesPerGenus = 64;  // of a larger genus, a fixed sample (by a hash of the taxid)
+    inline constexpr size_t kCongenerSteps = 4;        // each species against the next 4 of its genus's sample, cyclically
+    inline constexpr double kMaxPairTypical = 0.2;     // a pair whose median gene is further apart: saturated, no ratios
+    inline constexpr double kNearIdentical = 0.01;     // about one difference in 100 bases
+
+    struct CongenerRow {
+        uint64_t geneid = 0;
+        double within = 0;   // its factor (0: none)
+        double between = std::nan("");  // its between-species factor (NaN: fewer than kMinSpecies pairs)
+        size_t pairs = 0, species = 0, identical = 0, near = 0;
+    };
+
+    struct CongenerEstimate {
+        std::vector<CongenerRow> genes;  // the genes compared between congeners, by gene id
+        size_t genera = 0, species = 0, pairs = 0;
+        double spearman = std::nan("");  // between the within- and between-species factors, over the genes with both
+        size_t correlated = 0;           // the genes it is over
+        // The genes with a factor below 1 (conserved) and the others with one: the median between-species factor,
+        // and the share of compared species whose nearest congener's copy is identical, or nearer than kNearIdentical.
+        double conserved_between = std::nan(""), fast_between = std::nan("");
+        double conserved_identical = std::nan(""), fast_identical = std::nan("");
+        double conserved_near = std::nan(""), fast_near = std::nan("");
+
+        void Write(std::ostream& os) const {
+            os << "geneid\twithin_factor\tbetween_factor\tpairs\tspecies\tidentical_share\tnear_identical_share\n";
+            for (auto const& g : genes) {
+                os << g.geneid << '\t';
+                if (g.within > 0) os << g.within; else os << "NA";
+                os << '\t';
+                if (!std::isnan(g.between)) os << g.between; else os << "NA";
+                os << '\t' << g.pairs << '\t' << g.species << '\t'
+                   << (g.species ? static_cast<double>(g.identical) / static_cast<double>(g.species) : 0.0) << '\t'
+                   << (g.species ? static_cast<double>(g.near) / static_cast<double>(g.species) : 0.0) << '\n';
+            }
+        }
+    };
+
+    // Spearman's rank correlation of x and y (ties ranked by their mean); NaN for fewer than 3 values.
+    inline double Spearman(std::vector<double> const& x, std::vector<double> const& y) {
+        size_t const n = x.size();
+        if (n < 3 || y.size() != n) return std::nan("");
+        auto ranks = [n](std::vector<double> const& v) {
+            std::vector<size_t> order(n);
+            for (size_t i = 0; i < n; i++) order[i] = i;
+            std::sort(order.begin(), order.end(), [&v](size_t a, size_t b) { return v[a] < v[b]; });
+            std::vector<double> r(n);
+            for (size_t i = 0; i < n;) {
+                size_t j = i;
+                while (j + 1 < n && v[order[j + 1]] == v[order[i]]) j++;
+                for (size_t k = i; k <= j; k++) r[order[k]] = (static_cast<double>(i) + static_cast<double>(j)) / 2;
+                i = j + 1;
+            }
+            return r;
+        };
+        auto const rx = ranks(x), ry = ranks(y);
+        double const mean = (static_cast<double>(n) - 1) / 2;
+        double num = 0, dx = 0, dy = 0;
+        for (size_t i = 0; i < n; i++) {
+            num += (rx[i] - mean) * (ry[i] - mean);
+            dx += (rx[i] - mean) * (rx[i] - mean);
+            dy += (ry[i] - mean) * (ry[i] - mean);
+        }
+        return dx > 0 && dy > 0 ? num / std::sqrt(dx * dy) : std::nan("");
+    }
+
+    // Compares the genes of congeneric species. genera: the species (taxids) of each genus; genes_of(taxid): a
+    // species' representative genes as (geneid, sequence) pairs, called once per species compared, from any thread;
+    // within: the within-species factors.
+    template<typename GenesOf>
+    CongenerEstimate CompareCongeners(std::vector<std::vector<uint32_t>> const& genera, GenesOf&& genes_of,
+                                      Table const& within, int threads) {
+        struct GeneSums {
+            std::vector<double> ratios;
+            size_t pairs = 0, species = 0, identical = 0, near = 0;
+        };
+        std::vector<GeneSums> sums;
+        CongenerEstimate estimate;
+#pragma omp parallel for schedule(dynamic, 1) num_threads(std::max(threads, 1)) default(none) shared(genera, genes_of, sums, estimate)
+        for (size_t g = 0; g < genera.size(); g++) {
+            std::vector<uint32_t> members = genera[g];
+            if (members.size() < 2) continue;
+            if (members.size() > kMaxSpeciesPerGenus) {
+                auto const hash = [](uint32_t t) { return (static_cast<uint64_t>(t) * 0x9E3779B97F4A7C15ull) >> 32; };
+                std::sort(members.begin(), members.end(), [&hash](uint32_t a, uint32_t b) { return hash(a) < hash(b); });
+                members.resize(kMaxSpeciesPerGenus);
+            }
+            std::sort(members.begin(), members.end());
+            size_t const n = members.size();
+            std::vector<std::vector<std::pair<uint64_t, std::vector<uint32_t>>>> kmers(n);  // by geneid
+            for (size_t i = 0; i < n; i++) {
+                for (auto const& [geneid, seq] : genes_of(members[i])) kmers[i].emplace_back(geneid, Kmers(seq));
+                std::sort(kmers[i].begin(), kmers[i].end(), [](auto const& a, auto const& b) { return a.first < b.first; });
+            }
+            std::vector<std::vector<std::pair<uint64_t, double>>> nearest(n);  // by geneid: the nearest congener's distance
+            for (size_t i = 0; i < n; i++) {
+                for (auto const& [geneid, _] : kmers[i]) nearest[i].emplace_back(geneid, 2.0);
+            }
+            std::vector<std::pair<size_t, size_t>> pair_list;
+            for (size_t i = 0; i < n; i++) {
+                for (size_t step = 1; step <= kCongenerSteps && step < n; step++) {
+                    size_t const j = (i + step) % n;
+                    pair_list.emplace_back(std::min(i, j), std::max(i, j));
+                }
+            }
+            std::sort(pair_list.begin(), pair_list.end());
+            pair_list.erase(std::unique(pair_list.begin(), pair_list.end()), pair_list.end());
+            std::vector<std::pair<uint64_t, double>> local_ratios;  // geneid, ratio
+            size_t used_pairs = 0;
+            std::vector<double> distances;
+            std::vector<std::tuple<uint64_t, size_t, size_t, double>> shared;  // geneid, index in i, index in j, distance
+            for (auto const [i, j] : pair_list) {
+                shared.clear();
+                for (size_t a = 0, b = 0; a < kmers[i].size() && b < kmers[j].size();) {
+                    if (kmers[i][a].first < kmers[j][b].first) a++;
+                    else if (kmers[i][a].first > kmers[j][b].first) b++;
+                    else {
+                        shared.emplace_back(kmers[i][a].first, a, b, MashDistance(kmers[i][a].second, kmers[j][b].second));
+                        a++;
+                        b++;
+                    }
+                }
+                if (shared.size() < kMinGenes) continue;
+                for (auto const& [geneid, a, b, d] : shared) {
+                    nearest[i][a].second = std::min(nearest[i][a].second, d);
+                    nearest[j][b].second = std::min(nearest[j][b].second, d);
+                }
+                distances.clear();
+                for (auto const& t : shared) distances.push_back(std::get<3>(t));
+                double const typical = Median(distances);
+                if (typical < kMinTypical || typical > kMaxPairTypical) continue;
+                used_pairs++;
+                for (auto const& [geneid, a, b, d] : shared) local_ratios.emplace_back(geneid, d / typical);
+            }
+#pragma omp critical(congener_sums)
+            {
+                estimate.genera++;
+                estimate.species += n;
+                estimate.pairs += used_pairs;
+                for (auto const& [geneid, ratio] : local_ratios) {
+                    if (geneid >= sums.size()) sums.resize(geneid + 1);
+                    sums[geneid].ratios.push_back(ratio);
+                    sums[geneid].pairs++;
+                }
+                for (size_t i = 0; i < n; i++) {
+                    for (auto const& [geneid, d] : nearest[i]) {
+                        if (d > 1.5) continue;  // no congener's copy compared
+                        if (geneid >= sums.size()) sums.resize(geneid + 1);
+                        sums[geneid].species++;
+                        sums[geneid].identical += d == 0;
+                        sums[geneid].near += d < kNearIdentical;
+                    }
+                }
+            }
+        }
+        std::vector<double> medians;
+        for (auto const& s : sums) {
+            if (s.ratios.size() >= kMinSpecies) medians.push_back(Median(s.ratios));
+        }
+        double const typical = Median(medians);
+        std::vector<double> x, y, conserved_between, fast_between;
+        size_t c_species = 0, c_identical = 0, c_near = 0, f_species = 0, f_identical = 0, f_near = 0;
+        for (uint64_t id = 0; id < sums.size(); id++) {
+            auto const& s = sums[id];
+            if (s.species == 0 && s.ratios.empty()) continue;
+            CongenerRow row;
+            row.geneid = id;
+            row.within = within.Has(id) ? within.Factor(id) : 0;
+            row.between = s.ratios.size() >= kMinSpecies && typical > 0 ? Median(s.ratios) / typical : std::nan("");
+            row.pairs = s.pairs;
+            row.species = s.species;
+            row.identical = s.identical;
+            row.near = s.near;
+            estimate.genes.push_back(row);
+            if (row.within <= 0) continue;
+            bool const conserved = row.within < 1;
+            (conserved ? c_species : f_species) += s.species;
+            (conserved ? c_identical : f_identical) += s.identical;
+            (conserved ? c_near : f_near) += s.near;
+            if (std::isnan(row.between)) continue;
+            x.push_back(row.within);
+            y.push_back(row.between);
+            (conserved ? conserved_between : fast_between).push_back(row.between);
+        }
+        estimate.spearman = Spearman(x, y);
+        estimate.correlated = x.size();
+        if (!conserved_between.empty()) estimate.conserved_between = Median(conserved_between);
+        if (!fast_between.empty()) estimate.fast_between = Median(fast_between);
+        auto share = [](size_t k, size_t n) { return n ? static_cast<double>(k) / static_cast<double>(n) : std::nan(""); };
+        estimate.conserved_identical = share(c_identical, c_species);
+        estimate.conserved_near = share(c_near, c_species);
+        estimate.fast_identical = share(f_identical, f_species);
+        estimate.fast_near = share(f_near, f_species);
+        return estimate;
+    }
 
     struct Estimate {
         Table table;

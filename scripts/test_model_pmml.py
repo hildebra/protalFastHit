@@ -148,9 +148,14 @@ class TrainerDepthKnobsTest(unittest.TestCase):
                 present = taxon < 8
                 fragments = rng.integers(500, 3000) if deep else rng.integers(5, 30)
                 signal = (1.5 if deep else 0.6) * present
+                near = not present and taxon < 12  # absent taxa that hold a held-out congener's reads
                 rows.append({"truth": int(present), "taxon": 100 + (taxon + sample) % 60, "taxon_name": "t",
                              "meta_sample": f"s{sample}", "fragments": float(fragments),
-                             "x": signal + rng.normal(0, 0.5), "y": rng.normal(0, 1)})
+                             "x": signal + rng.normal(0, 0.5), "y": rng.normal(0, 1),
+                             "conserved_fast_record_ratio": (1.5 if near else 0.0) + rng.normal(0, 0.2),
+                             "meta_novel_congener": int(present and taxon < 2),
+                             "meta_novel_level": "species" if near else "",
+                             "meta_relative_rank": "genus" if near else ""})
         cls.table = os.path.join(cls.tmp.name, "training.tsv")
         pd.DataFrame(rows).to_csv(cls.table, sep="\t", index=False)
 
@@ -184,6 +189,16 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         plain, metrics = self.train("plain")
         self.assertEqual(read_depth_knobs(plain), {})
         self.assertNotIn("depth_knobs", metrics)
+
+    def test_conservation_features_by_class(self):
+        _, metrics = self.train("classes")
+        classes = metrics["feature_classes"]
+        self.assertEqual(set(classes), set(self.trainer.TAXON_CLASSES))
+        self.assertEqual(classes["absent, congener of a held-out species"]["rows"], 40 * 4)
+        self.assertEqual(classes["present, beside a held-out congener"]["rows"], 40 * 2)
+        near = classes["absent, congener of a held-out species"]["conserved_fast_record_ratio"][1]
+        other = classes["absent, other"]["conserved_fast_record_ratio"][1]
+        self.assertGreater(near, other + 1)
 
 
 if __name__ == "__main__":

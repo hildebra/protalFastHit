@@ -1,0 +1,32 @@
+﻿== pb
+169:## Knobs by sample depth (species held out)
+170- bin   fragments  samples  taxa  present   knob  F1 at 0.5  F1 at the knob
+171-   2      < 10^3        5   288      256 0.1300     0.9514          0.9865
+172-   3 10^3 - 10^4        4   458      347 0.6300     0.9827          0.9840
+173-   4 10^4 - 10^5        3   339      160 0.7400     0.9816          1.0000
+174-   5 10^5 - 10^6        0     0        0      -          -               -
+175-   6     >= 10^6        0     0        0      -          -               -
+176-F1 of species held out: 0.9722 at 0.5, 0.9882 at the depth knobs (2:0.13,3:0.63,4:0.74; bins without one: 0.5). The knobs are chosen on these calls, so the second is optimistic; the test set (--test-file) tells.
+177-
+178-## Independent test set (/home/falk/bench071/V072dev/test/training_data_pb.tsv)
+179-803 taxa in 6 samples, 645 present
+180-           model  taxa  present    AUC     AP  log_loss     F1  sensitivity  precision  FP  FN  FP_per_sample  sens_Archaea  sens_Bacteria
+181-        this one   803      645 0.9882 0.9970    0.1579 0.9723       0.9535     0.9919   5  30         0.8333        0.9355         0.9554
+176:F1 of species held out: 0.9722 at 0.5, 0.9882 at the depth knobs (2:0.13,3:0.63,4:0.74; bins without one: 0.5). The knobs are chosen on these calls, so the second is optimistic; the test set (--test-file) tells.
+188:at the depth knobs (2:0.13,3:0.63,4:0.74), as protal calls by default: F1 0.9727, 14 false positives, 21 false negatives (at knob 0.5: F1 0.9723, 5 and 30)
+== ont
+170:## Knobs by sample depth (species held out)
+171- bin   fragments  samples  taxa  present   knob  F1 at 0.5  F1 at the knob
+172-   2      < 10^3        4   287      233 0.1800     0.9672          0.9807
+173-   3 10^3 - 10^4        4   526      344 0.4900     0.9928          0.9928
+174-   4 10^4 - 10^5        4   611      206 0.5500     0.9856          0.9927
+175-   5 10^5 - 10^6        0     0        0      -          -               -
+176-   6     >= 10^6        0     0        0      -          -               -
+177-F1 of species held out: 0.9834 at 0.5, 0.9892 at the depth knobs (2:0.18,3:0.49,4:0.55; bins without one: 0.5). The knobs are chosen on these calls, so the second is optimistic; the test set (--test-file) tells.
+178-
+179-## Independent test set (/home/falk/bench071/V072dev/test/training_data_ont.tsv)
+180-968 taxa in 6 samples, 676 present
+181-           model  taxa  present    AUC     AP  log_loss     F1  sensitivity  precision  FP  FN  FP_per_sample  sens_Archaea  sens_Bacteria
+182-        this one   968      676 0.9873 0.9946    0.1976 0.9547       0.9201     0.9920   5  54         0.8333        0.8955         0.9228
+177:F1 of species held out: 0.9834 at 0.5, 0.9892 at the depth knobs (2:0.18,3:0.49,4:0.55; bins without one: 0.5). The knobs are chosen on these calls, so the second is optimistic; the test set (--test-file) tells.
+189:at the depth knobs (2:0.18,3:0.49,4:0.55), as protal calls by default: F1 0.9660, 8 false positives, 37 false negatives (at knob 0.5: F1 0.9547, 5 and 54)

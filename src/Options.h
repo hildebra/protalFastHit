@@ -102,7 +102,7 @@ namespace protal {
         // Profiling options
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
-                ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours. Default 0.5, or, for a model with knobs by depth (the trainer writes them for long reads), the model's knob for each sample's depth; a --knob given applies to every sample.", cxxopts::value<double>()->default_value("0.5"))
+                ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours. Default 0.5, or, for a model with knobs by depth (random_forest_cmdline.py --depth-knobs; none by default), the model's knob for each sample's depth; a --knob given applies to every sample.", cxxopts::value<double>()->default_value("0.5"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is the same on every gene unless --gene_conservation scales it. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
                 ("gene_conservation", "Scale --depth_identity_margin per gene by how fast each gene diverges within species: db for the database's factors (gene_conservation.tsv, which --build estimates from --full_reference and stores in the database), or a file of them (geneid, factor, species; 1 for a gene of typical conservation). A gene's margin is then 0.03 for read errors plus the rest times its factor (0.08: 0.05 at factor 0.4, 0.10 at 1.4). none (default): the same margin on every gene, which did best summed over three simulated worlds, among them one with many congeners missing from the database. The factors (the file's, else the database's) give the model's conservation features (conserved_fast_depth_ratio, conserved_hit_share) whatever this says.", cxxopts::value<std::string>()->default_value("none"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
@@ -634,7 +634,7 @@ namespace protal {
         }
 
         // Whether --knob was given: then it applies to every sample; otherwise a model's knob for the sample's depth
-        // (its depth knobs, written by the trainer for long reads) where it has one, else --knob's default.
+        // (its depth knobs, random_forest_cmdline.py --depth-knobs) where it has one, else --knob's default.
         bool KnobGiven() const {
             return m_knob_given;
         }

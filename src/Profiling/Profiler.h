@@ -447,6 +447,8 @@ namespace protal {
             size_t adjacent_expected = 0;  // of these, whose ends face each other in its clade (gene_neighbours::Verdict::Expected)
             size_t adjacent_unlikely = 0;  // that never do in a clade with data on them (Verdict::Unlikely)
             std::vector<float> excess;  // each record's ReadExcess (records with base qualities)
+            uint64_t conserved_bases = 0;  // reference bases of the records on genes of factor below 1 (gene_conservation.tsv)
+            uint64_t fast_bases = 0;       // on the other genes; both 0 without factors
 
             RecordEvidence& operator+=(RecordEvidence const& other) {
                 records += other.records;
@@ -457,6 +459,8 @@ namespace protal {
                 adjacent_expected += other.adjacent_expected;
                 adjacent_unlikely += other.adjacent_unlikely;
                 excess.insert(excess.end(), other.excess.begin(), other.excess.end());
+                conserved_bases += other.conserved_bases;
+                fast_bases += other.fast_bases;
                 return *this;
             }
         };
@@ -508,6 +512,20 @@ namespace protal {
                 if (j == end - 1) break;
                 total += n;
                 end = j;
+            }
+            return total;
+        }
+
+        // The reference bases a CIGAR covers (M, D, N, =, X).
+        inline uint32_t ReferenceBases(std::string_view cigar) {
+            uint32_t total = 0, n = 0;
+            for (char const c : cigar) {
+                if (c >= '0' && c <= '9') {
+                    n = n * 10 + static_cast<uint32_t>(c - '0');
+                    continue;
+                }
+                if (c == 'M' || c == 'D' || c == 'N' || c == '=' || c == 'X') total += n;
+                n = 0;
             }
             return total;
         }
@@ -689,6 +707,26 @@ namespace protal {
                 double const share = static_cast<double>(conserved.size()) / static_cast<double>(m_genes.size());
                 if (conserved.empty() || fast.empty()) return { 0.0, share };
                 return { std::log2((MedianOf(std::move(conserved)) + 1e-3) / (MedianOf(std::move(fast)) + 1e-3)), share };
+            }
+
+            // The same before the filters: the depth of all its best records (NoteRecord, MAPQ 0 included) on its genes of
+            // factor below 1 over that on its other genes, log2, each + 0.001; a depth is the records' reference bases over
+            // the summed length of the taxon's genes of the kind. A species' own reads cover both kinds alike; a relative
+            // the database lacks aligns far better on the conserved genes, where it differs least from its congeners, and
+            // the MAPQ filter then drops most of those reads, as they fit several congeners equally
+            // (docs/claude/2026-10-01-conservation-pattern). 0 without factors or without genes of either kind.
+            double RecordConservedFastRatio() const {
+                if (!m_conservation || m_conservation->Empty()) return 0;
+                size_t conserved_length = 0, fast_length = 0;
+                auto const& genes = m_genome->GetGeneList();
+                for (size_t i = 0; i < genes.size(); i++) {
+                    if (!genes[i].IsSet()) continue;
+                    (m_conservation->Factor(i + 1) < 1 ? conserved_length : fast_length) += genes[i].GetLength();
+                }
+                if (conserved_length == 0 || fast_length == 0) return 0;
+                double const conserved = static_cast<double>(m_records.conserved_bases) / static_cast<double>(conserved_length);
+                double const fast = static_cast<double>(m_records.fast_bases) / static_cast<double>(fast_length);
+                return std::log2((conserved + 1e-3) / (fast + 1e-3));
             }
 
             // Shares of the taxon's best records of all reads (also those the filters left out): with MAPQ below
@@ -1402,6 +1440,9 @@ namespace protal {
             auto const [conserved_ratio, conserved_share] = taxon.ConservationPattern();
             f.emplace_back("conserved_fast_depth_ratio", conserved_ratio);
             f.emplace_back("conserved_hit_share", conserved_share);
+            // The same depth ratio of every best record, before the MAPQ filter: the drop from conserved to fast genes
+            // that a relative's reads show (RecordConservedFastRatio).
+            f.emplace_back("conserved_fast_record_ratio", taxon.RecordConservedFastRatio());
             return f;
         }
 
@@ -1657,11 +1698,15 @@ namespace protal {
             }
 
             // See MicrobialProfile::NoteRecord.
-            void NoteRecord(uint32_t taxid, SamEntry const& sam) {
+            void NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam) {
                 auto& e = m_counts[taxid];
                 e.records++;
                 e.low_mapq += sam.m_mapq < kLowMapq;
                 if (auto const excess = ReadExcess(sam)) e.excess.push_back(*excess);
+                auto const& conservation = m_genome_loader->GetGeneConservation();
+                if (!conservation.Empty()) {
+                    (conservation.Factor(geneid) < 1 ? e.conserved_bases : e.fast_bases) += ReferenceBases(sam.m_cigar);
+                }
                 if (!m_genera) return;
                 auto const genus = GenusOf(taxid);
                 bool congener = false, other = false;
@@ -1764,11 +1809,12 @@ namespace protal {
                 return m_genera && taxid < m_genera->size() ? (*m_genera)[taxid] : 0;
             }
 
-            // Counts a read's best record (a mate, a single read, a long read's gene) for its taxon, whatever the
-            // filters later make of it: its MAPQ, and whether its alternatives (ZA) hold a congener or a species of
+            // Counts a read's best record (a mate, a single read, a long read's gene) on gene geneid for its taxon,
+            // whatever the filters later make of it: its MAPQ, its divergence beyond its base qualities, the bases it
+            // covers on conserved or fast genes, and whether its alternatives (ZA) hold a congener or a species of
             // another genus within kAlternativeFitEdits. ApplyRecordEvidence hands the counts to the taxa.
-            void NoteRecord(uint32_t taxid, SamEntry const& sam) {
-                m_evidence.NoteRecord(taxid, sam);
+            void NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam) {
+                m_evidence.NoteRecord(taxid, geneid, sam);
             }
 
             // Gives every taxon the counts NoteRecord collected for it (the features low_mapq_share,
@@ -2874,11 +2920,10 @@ namespace protal {
 
                 // Every best record counts for its taxon's MAPQ and alternative evidence, also one the MAPQ filter
                 // below leaves out: a read that fits another taxon as well has MAPQ near 0.
-                if (ap.HasFirst()) evidence.NoteRecord(ExtractTaxidGeneid(ap.First().m_rname).first, ap.First());
-                if (ap.HasSecond()) evidence.NoteRecord(ExtractTaxidGeneid(ap.Second().m_rname).first, ap.Second());
                 for (auto* sam : { ap.HasFirst() ? &ap.First() : nullptr, ap.HasSecond() ? &ap.Second() : nullptr }) {
                     if (!sam) continue;
                     auto const [taxid, geneid] = ExtractTaxidGeneid(sam->m_rname);
+                    evidence.NoteRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam);
                     evidence.NoteLinkedRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, link);
                 }
 

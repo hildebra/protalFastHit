@@ -1274,6 +1274,69 @@ class GeneNeighboursTest(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("PROTAL") and os.environ.get("SIMULATE") and shutil.which("art_illumina"),
                      "needs $PROTAL, $SIMULATE (simulate_metagenomes) and art_illumina")
+class TraceRelativesTest(unittest.TestCase):
+    """trace_relatives.py: where the reads of a species the training database lacks land, by the genes' factors."""
+
+    def test_reads_by_gene_factor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            point = os.path.join(tmp, "points", "rl100_p1000")
+            os.makedirs(os.path.join(point, "sim"))
+            os.makedirs(os.path.join(point, "protal", "alignments"))
+            lineage = "d__Bacteria;p__P;c__C;o__O;f__F;g__G;s__G {}"
+            with open(os.path.join(point, "sim", "manifest.tsv"), "w") as fh:
+                fh.write("sample\tgenome\tspecies\ttaxonomy\tvertical_coverage\n")
+                fh.write(f"rl100_p1000_s_1\tGCF_1.1\tG a\t{lineage.format('a')}\t2.0\n")  # in the database (taxon 1)
+                fh.write(f"rl100_p1000_s_1\tGCA_2.1\tG b\t{lineage.format('b')}\t1.0\n")  # held out: lands on taxon 3
+            db = os.path.join(tmp, "training_db")
+            os.makedirs(db)
+            with open(os.path.join(db, "genome2tiid.tsv"), "w") as fh:
+                for taxid, name in ((1, "a"), (3, "c")):
+                    fh.write(f"GCF_{taxid}.1\t{taxid}\tGCF_{taxid}.1\t{lineage.format(name)}\n")
+            with open(os.path.join(db, "gene_congeners.tsv"), "w") as fh:
+                fh.write("geneid\twithin_factor\tbetween_factor\tpairs\tspecies\tidentical_share\tnear_identical_share\n"
+                         "1\t0.5\t0.4\t3\t2\t0\t0\n2\t1.5\t1.6\t3\t2\t0\t0\n")
+            heldout = os.path.join(tmp, "heldout_species.txt")
+            with open(heldout, "w") as fh:
+                fh.write("s__G b\tspecies\ts__G b\n")
+            records = []
+            for i in range(8):  # the species' own: 4 records on each gene
+                records.append((f"GCF_1.1_contig1-{i}", f"1_{1 + i % 2}", 60))
+            for i, mapq in enumerate((60, 60, 0, 1)):  # the relative: 4 on the conserved gene, 2 of them ambiguous
+                records.append((f"GCA_2.1_contig1-{i}", "3_1", mapq))
+            records.append(("GCA_2.1_contig1-9", "3_2", 60))  # and 1 on the fast one
+            records.append(("GCF_1.1_contig1-20", "3_1", 60))  # the species' own read on a congener: not counted
+            with open(os.path.join(point, "protal", "alignments", "rl100_p1000_s_1.sam"), "w") as fh:
+                fh.write("@HD\tVN:1.6\n")
+                for name, ref, mapq in records:
+                    fh.write(f"{name}\t0\t{ref}\t1\t{mapq}\t100M\t*\t0\t0\t{'A' * 100}\t{'I' * 100}\n")
+                fh.write("GCA_2.1_contig1-5\t256\t1_1\t1\t0\t100M\t*\t0\t0\t*\t*\n")  # secondary: not counted
+            out = os.path.join(tmp, "logs", "relatives")
+            result = subprocess.run([sys.executable, os.path.join(HERE, "..", "trace_relatives.py"), "--points",
+                                     os.path.join(tmp, "points"), "--db", db, "--heldout", heldout, "--out", out],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            with open(out + ".tsv") as fh:
+                genes = {r["geneid"]: r for r in csv.DictReader(fh, delimiter="\t")}
+            # Per unit coverage: own 4 / 2 on each gene; the relative 4 / 1 on gene 1 (2 kept), 1 / 1 on gene 2.
+            self.assertAlmostEqual(float(genes["1"]["R"]), 2.0)
+            self.assertAlmostEqual(float(genes["1"]["R_kept"]), 1.0)
+            self.assertAlmostEqual(float(genes["2"]["R"]), 0.5)
+            self.assertAlmostEqual(float(genes["1"]["relative_mapq_below_4"]), 0.5)
+            self.assertAlmostEqual(float(genes["1"]["relative_on_congener"]), 1.0)
+            with open(out + ".txt") as fh:
+                text = fh.read()
+            self.assertIn("1 paired-end training samples", text)
+            self.assertIn("| factor < 0.7 | 1 | 2.000 | 1.000 |", text)
+
+            # Without factors there is nothing to trace by.
+            os.remove(os.path.join(db, "gene_congeners.tsv"))
+            result = subprocess.run([sys.executable, os.path.join(HERE, "..", "trace_relatives.py"), "--points",
+                                     os.path.join(tmp, "points"), "--db", db, "--heldout", heldout, "--out", out],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Not traced: the training database has no gene conservation factors", result.stdout)
+
+
 class GtdbBuildTest(unittest.TestCase):
     """build_gtdb_database.py end to end, on a synthetic GTDB-like release of 60 species downloaded from a
     fake GTDB mirror and a fake NCBI: the database is built and its pe and se models trained; a rerun skips
@@ -1354,6 +1417,11 @@ class GtdbBuildTest(unittest.TestCase):
         metadata = dict(line.rstrip("\n").split("\t", 1) for line in open(os.path.join(self.tmp.name, "out", "protal_db",
                                                                                        "build_metadata.tsv")))
         self.assertRegex(metadata["gene_conservation"], r"^factors [0-9.]+-[0-9.]+ for \d+ genes, from \d+ species")
+        # What the conservation features rest on, on the release's genomes: how the genes differ between congeners
+        # (protal --build), and where the held-out species' reads land (trace_relatives.py).
+        self.assertRegex(metadata["gene_congeners"], r"^\d+ pairs of species of \d+ genera")
+        for name in ("gene_congeners.tsv", "relatives_by_gene_conservation.txt"):
+            self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", "model_logs", name)), name)
         # Each stage says when it ended and how long it took, one running for a while (5 s here) how it is doing,
         # and the collector how far the simulations and protal are.
         self.assertRegex(first.stdout, r"\[\d\d:\d\d:\d\d \+\d+:\d\d:\d\d\] Collected the training data \(pe, se\) in "

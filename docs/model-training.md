@@ -146,7 +146,13 @@ On simulated data it finds about a third of the archaea present, with probabilit
   simulated benchmark world a taxon that only holds such a relative's reads has conserved genes
   deeper than its fast ones (median ratio +0.33, present taxa about 0), although many of those
   reads fit several congeners equally and fall below the profiler's MAPQ filter
-  ([report](claude/2026-10-01-conservation-pattern/README.md); not yet checked on real genomes).
+  ([report](claude/2026-10-01-conservation-pattern/README.md); not yet checked on real genomes);
+- `conserved_fast_record_ratio`: the same log2 ratio of depths over every best record of the taxon,
+  before the MAPQ and length filters (MAPQ 0 included), each depth the records' reference bases
+  over the summed length of the taxon's genes of that kind (+ 0.001); 0 without
+  `gene_conservation.tsv`. A species' own reads cover both kinds alike; a relative's align as often as
+  the species' own on the conserved genes and a fifth as often on the fastest, a drop that the MAPQ
+  filter blurs, since it removes most of the relative's reads on the conserved genes.
 
   The four came after 0.7.1: refitted with them on the 0.7.1 benchmark's training tables, the forest
   gained 0.003 (paired-end) and 0.007 (ONT) of test F1, not significant on their own, and the
@@ -188,7 +194,7 @@ one differs.
 | `--reference-pmml` | | train on the input fields of an existing model instead |
 | `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 128, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves) |
 | `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |
-| `--depth-knobs` | off | also choose a knob per depth bin of the sample and store them in the model ([below](#knobs-by-sample-depth)); `build_gtdb_database.py` passes it for PacBio and ONT |
+| `--depth-knobs` | off | also choose a knob per depth bin of the sample and store them in the model ([below](#knobs-by-sample-depth)); `build_gtdb_database.py --depth-knob-read-types` passes it, for no read type by default |
 | `--folds` | 5 | folds of the held-out evaluations |
 | `--evaluation` | `full` | `basic`: the held-out evaluations only; `none`: fit and export only |
 | `--taxonomy` | | the database's `internal_taxonomy.dmp`: domains the table's `meta_domain` lacks, and the lineages for holding out whole clades |
@@ -251,6 +257,14 @@ species to phylum:
 
 The summary repeats the FP and FN rates by rank.
 
+The section "The conservation features by class of taxon" (and the same for the test set) gives the
+median and quartiles of `conserved_fast_record_ratio`, `conserved_fast_depth_ratio`,
+`conserved_hit_share` and `excess_median` for present taxa beside a congener the database lacks
+(`meta_novel_congener`) or not, for absent taxa whose closest species in the sample is a held-out
+species of their genus (they hold its reads), and for the other absent taxa: whether the features
+carry, in this training data, what a relative the database lacks does to its congeners' genes (on
+a GTDB build, real genomes).
+
 `check_model_parity.py` re-profiles saved training samples (`--profile_only` on the SAMs a
 `collect_training_data.py` folder keeps) with a model and checks that protal's probabilities are
 the model file's, and that protal computes the features as it did when the training data was
@@ -299,7 +313,12 @@ the knob of its bin; a bin without one keeps `--knob`'s default, and `--knob` on
 applies to every sample instead. The log lists a model's knobs and each sample's
 (`Sample S: N fragments, knob K (the model's for depth bin B)`); the training dump's `prediction`,
 the statistics and, unless `--msa_knob` is given, which samples enter the strain MSAs follow the
-sample's knob. Chosen on 0.7.1's long-read training tables, they raised the test F1 by 0.007
-(PacBio) and 0.015 (ONT); on single-end reads they lowered it by 0.001 and on paired-end reads
-they gained 0.001 ([report](claude/2026-10-01-f1-opportunities/README.md)), so the pipeline gives
-them to the long-read models only.
+sample's knob. Chosen on 0.7.1's long-read training tables, they raised the F1 of that pipeline's
+own test set by 0.007 (PacBio) and 0.015 (ONT)
+([report](claude/2026-10-01-f1-opportunities/README.md)), but on the v0.7.1 benchmark's samples
+they cost PacBio 0.007 to 0.016 and helped Nanopore not at all
+([report](claude/2026-10-01-features-depth-knobs/README.md)): a bin's knob rests on a few training
+samples (the PacBio model's shallowest bin on 5 with 32 absent taxa, which put it at 0.13), and
+samples near a bin edge switch between two knobs. `build_gtdb_database.py` therefore gives them to
+no model by default. Knobs that change smoothly with depth, shrunk towards `--knob` where a depth
+has few samples, may fare better; not tried.

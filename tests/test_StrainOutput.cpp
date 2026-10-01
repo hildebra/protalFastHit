@@ -581,6 +581,56 @@ TEST(Abundance, TheDepthMarginScalesWithTheGenesConservation) {
     std::filesystem::remove_all(dir);
 }
 
+TEST(Abundance, TheRecordsDepthOnConservedAgainstFastGenes) {
+    // conserved_fast_record_ratio: every best record (NoteRecord, before the MAPQ filter) on gene 1 (factor 0.4)
+    // against gene 2 (1.6), both 50 bp: 150 bases on gene 1 (one of the records MAPQ 0), 50 on gene 2.
+    std::filesystem::path const dir = std::filesystem::temp_directory_path() / ("protal_record_ratio_" + std::to_string(::getpid()));
+    std::filesystem::create_directories(dir);
+    std::string const gene1 = kReference, gene2 = "TTGACCGTAGCATGCAAGTCCGATTGACGTAACGGTCATGCAGTTCAGAC";
+    {
+        std::ofstream fna(dir / "reference.fna");
+        std::ofstream map(dir / "reference.map");
+        size_t offset = 0;
+        for (auto const& [id, seq] : { std::pair<int, std::string>{ 1, gene1 }, { 2, gene2 } }) {
+            std::string const header = ">1_" + std::to_string(id) + "\n";
+            fna << header << seq << '\n';
+            map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
+            offset += header.size() + seq.size() + 1;
+        }
+    }
+    GenomeLoader loader((dir / "reference.fna").string(), (dir / "reference.map").string());
+    loader.LoadAllGenomes();
+    auto own = MakeSam(gene1, "50M", 1);
+    auto ambiguous = MakeSam(gene1, "50M", 1);
+    ambiguous.m_mapq = 0;
+    auto fast = MakeSam(gene2, "45M5X", 1);
+    auto fill = [&](profiler::MicrobialProfile& profile) -> profiler::Taxon const& {
+        for (auto const* sam : { &own, &own, &ambiguous }) profile.NoteRecord(1, 1, *sam);
+        profile.NoteRecord(1, 2, fast);
+        EXPECT_TRUE(profile.AddSam(1, 1, own, 1.0));
+        profile.ApplyRecordEvidence();
+        return profile.GetTaxa().at(1);
+    };
+    std::map<std::string, double> features;
+
+    profiler::MicrobialProfile without(loader);  // no factors: 0
+    for (auto const& [name, value] : profiler::TaxonFeatures(fill(without))) features[name] = value;
+    EXPECT_EQ(features.at("conserved_fast_record_ratio"), 0.0);
+
+    gene_conservation::Table factors;
+    factors.Set(1, 0.4);
+    factors.Set(2, 1.6);
+    loader.SetGeneConservation(factors);  // for the features; the margin is not scaled
+    profiler::MicrobialProfile profile(loader);
+    auto const& taxon = fill(profile);
+    EXPECT_NEAR(taxon.RecordConservedFastRatio(), std::log2(3.001 / 1.001), 1e-9);
+    for (auto const& [name, value] : profiler::TaxonFeatures(taxon)) features[name] = value;
+    EXPECT_NEAR(features.at("conserved_fast_record_ratio"), std::log2(3.001 / 1.001), 1e-9);
+    // Only the one record the filters keep is a hit: the hit genes' pattern sees gene 1 alone.
+    EXPECT_EQ(taxon.ConservationPattern(), (std::pair<double, double>{ 0.0, 1.0 }));
+    std::filesystem::remove_all(dir);
+}
+
 // tsl::sparse_map copies the values of a bucket on every insert into it unless they move without
 // throwing.
 static_assert(std::is_nothrow_move_constructible_v<profiler::Gene>);

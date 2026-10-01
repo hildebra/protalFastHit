@@ -39,8 +39,10 @@ top features, 512 trees), forest sizes and tree counts, and fewer training sampl
 all their taxa (the digits of their number less one, 2 to 6), the threshold with the highest F1 on
 species held out, where the bin has more than 50 taxa and 10 present. They go into the model's header,
 and protal applies the knob of each sample's bin unless --knob is given (other bins: --knob's default).
-On long reads, whose depth differs most between samples, this raised the test F1 by 0.007 (PacBio) to
-0.015 (ONT); on short reads it did not help (docs/claude/2026-10-01-f1-opportunities).
+On the 0.7.1 pipeline's own long-read test sets this raised F1 by 0.007 (PacBio) and 0.015 (ONT)
+(docs/claude/2026-10-01-f1-opportunities), but on the v0.7.1 benchmark's samples it cost PacBio up to 0.016
+and did not help Nanopore: a bin's knob rests on few samples, and samples near a bin edge switch knobs
+(docs/claude/2026-10-01-features-depth-knobs). build_gtdb_database.py does not pass it by default.
 """
 
 from __future__ import annotations
@@ -81,6 +83,11 @@ DEPTH_KNOB_BINS = range(2, 7)
 DEPTH_KNOB_MIN_TAXA = 50
 DEPTH_KNOB_MIN_PRESENT = 10
 DEPTH_KNOB_GRID = np.round(np.arange(0.05, 0.955, 0.01), 2)
+# The features the report shows by class of taxon (study_feature_classes): what the conservation of the genes a taxon's
+# reads hit, before and after the MAPQ filter, and the divergence beyond the base qualities say of a relative's reads.
+CLASS_FEATURES = ["conserved_fast_record_ratio", "conserved_fast_depth_ratio", "conserved_hit_share", "excess_median"]
+TAXON_CLASSES = ["present, no congener held out", "present, beside a held-out congener",
+                 "absent, congener of a held-out species", "absent, other"]
 
 
 def parse_args(argv=None):
@@ -98,7 +105,7 @@ def parse_args(argv=None):
     p.add_argument("--knob", type=float, default=0.5, help="the threshold protal will use (its --knob, default 0.5)")
     p.add_argument("--depth-knobs", action="store_true",
                    help="also choose a knob per depth bin of the sample, on species held out, and store them in the "
-                        "model, which protal then applies unless --knob is given (for long reads; see above)")
+                        "model, which protal then applies unless --knob is given (see above: not a gain so far)")
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="full: also the studies (see above); basic: out of bag, by sample and by species; "
@@ -558,6 +565,53 @@ def study_by_rank(report, df, y, p, opts, title="False positives and false negat
     report.data[key] = data
 
 
+def taxon_classes(df):
+    """Each row's class (TAXON_CLASSES) by the collector's meta columns: present taxa beside a congener the database
+    lacks in the sample (meta_novel_congener) or not, absent taxa whose closest species in the sample is one the
+    database lacks at species rank and of their genus (meta_novel_level, meta_relative_rank: they hold its reads), and
+    the other absent taxa; None without those columns."""
+    if not {"meta_novel_congener", "meta_novel_level", "meta_relative_rank"} <= set(df.columns):
+        return None
+    congener = pd.to_numeric(df["meta_novel_congener"], errors="coerce").fillna(0).to_numpy() > 0
+    near = ((df["meta_novel_level"].astype(str) == "species") & (df["meta_relative_rank"].astype(str) == "genus")).to_numpy()
+    present = df["truth"].to_numpy() == 1
+    return np.where(present, np.where(congener, TAXON_CLASSES[1], TAXON_CLASSES[0]),
+                    np.where(near, TAXON_CLASSES[2], TAXON_CLASSES[3]))
+
+
+def study_feature_classes(report, df, title="The conservation features by class of taxon", key="feature_classes"):
+    """The medians and quartiles of CLASS_FEATURES by class of taxon: whether the features carry what a relative the
+    database lacks does to its congeners' genes, in this training data (on real genomes in a GTDB build)."""
+    features = [f for f in CLASS_FEATURES if f in df.columns]
+    classes = taxon_classes(df)
+    if not features or classes is None:
+        return
+    report.section(title)
+    report.add("median (quartiles). conserved_fast_record_ratio: log2 of the depth of all best records (before the "
+               "MAPQ filter) on genes of conservation factor below 1 over that on the others; conserved_fast_depth_ratio "
+               "and conserved_hit_share: the same of the hit genes' depths after the filters, and the conserved share of "
+               "the hit genes. A species' own reads cover both kinds of genes alike; a relative's align best on the "
+               "conserved ones (docs/claude/2026-10-01-conservation-pattern).")
+    rows, data = [], {}
+    for cls in TAXON_CLASSES:
+        sel = classes == cls
+        if not sel.any():
+            continue
+        row = {"taxa": cls, "rows": int(sel.sum())}
+        data[cls] = {"rows": int(sel.sum())}
+        for f in features:
+            values = df.loc[sel, f].astype(float).to_numpy()
+            values = values[np.isfinite(values)]
+            if not len(values):
+                continue
+            q = np.quantile(values, [0.25, 0.5, 0.75])
+            row[f] = f"{q[1]:+.3f} ({q[0]:+.3f}, {q[2]:+.3f})"
+            data[cls][f] = [float(v) for v in q]
+        rows.append(row)
+    report.table(pd.DataFrame(rows))
+    report.data[key] = data
+
+
 def depth_bins(df):
     """Each row's depth bin as protal computes it (profiler::DepthKnobBin): the digits of its sample's fragments over
     all the sample's taxa (rows), less one, 2 to 6."""
@@ -658,6 +712,8 @@ def study_test(report, rf, cols, opts, prefix, depth_knobs=None):
     report.add(f"highest F1 on the test set at threshold {t:.3f} (F1 {f1:.4f}; at knob {opts.knob}: "
                f"{fmt(rows[0][1]['F1'], 4)})")
     report.data["test_best_threshold"] = {"threshold": t, "precision": prec, "sensitivity": rec, "F1": f1}
+    study_feature_classes(report, test, "Independent test set: the conservation features by class of taxon",
+                          "test_feature_classes")
     collection = {"collection model": test["probability"].to_numpy(dtype=float)} if "probability" in test.columns else {}
     study_by_rank(report, test, y, {"species": p, **collection}, opts,
                   title="Independent test set: false positives and false negatives by taxonomic rank",
@@ -868,6 +924,7 @@ def main(argv=None):
         study_threshold(report, y, p, opts, prefix)
         study_breakdown(report, df, y, p, opts)
         study_by_rank(report, df, y, p, opts)
+        study_feature_classes(report, df)
         timing["evaluation"] = time.time() - t0
     if opts.evaluation == "full":
         for name, study in (("feature_sets", lambda: study_features(report, df, y, opts, cols)),

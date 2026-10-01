@@ -295,7 +295,7 @@ CONVERTED_FILES = ("internal_taxonomy.dmp", "gene2geneid.tsv", "genome2tiid.tsv"
 # What protal --build writes into the folder (and leaves there when stopped: .partial files), stale once
 # the folder's reference is written anew; it would stop the next build (unique_kmers.tsv of other genes)
 # or shadow the new files (database.protal).
-BUILD_OUTPUTS = ("index.prx", "index.prx.zst", "reference.fna.zst", "unique_kmers.tsv", "gene_conservation.tsv",
+BUILD_OUTPUTS = ("index.prx", "index.prx.zst", "reference.fna.zst", "unique_kmers.tsv", "gene_conservation.tsv", "gene_congeners.tsv",
                  "database.protal", "build_metadata.tsv")
 
 
