@@ -3053,9 +3053,7 @@ namespace protal {
             // `last_read`: the chunk's last read counts once the chunk ends; not if the file is truncated there,
             // as ReadSamGroups leaves it out then.
             void ParseChunk(MicrobialProfile const& profile, sam_chunks::Chunk& chunk, ParsedChunk& out, bool last_read) const {
-                sam_chunks::TextStreambuf buffer(chunk.text);
-                std::istream is(&buffer);
-                SamReader reader(is, [this](std::string const& line) { CheckReference(line); }, chunk.first_line);
+                SamReader reader(std::string_view(chunk.text), [this](std::string const& line) { CheckReference(line); }, chunk.first_line);
                 CigarInfo info1, info2;
                 size_t link = 0;
                 std::string last_qname;

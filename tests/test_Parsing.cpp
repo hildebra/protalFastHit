@@ -648,3 +648,175 @@ TEST(ProfileSam, ALongReadsGenesAreOneLinkedRead) {
     EXPECT_DOUBLE_EQ(taxon.LinkedShare(), 0.5);
     EXPECT_DOUBLE_EQ(taxon.LowMapqShare(), 0.25);  // read e counts: 1 of the 4 records
 }
+
+namespace {
+    // NormalizeCigar as it was before its fast path (IsNormalCigar), to compare with.
+    bool NormalizeCigarReference(std::string& cigar, size_t seq_length, uint32_t* clip_start, uint32_t* clip_end) {
+        uint64_t hard_start = 0, hard_end = 0;
+        bool other = false;
+        std::string out;
+        size_t query = 0;
+        char last_op = 0;
+        uint64_t last_count = 0;
+        auto flush = [&]() {
+            if (last_count > 0) out += std::to_string(last_count) + last_op;
+        };
+        for (size_t i = 0; i < cigar.size();) {
+            size_t j = i;
+            while (j < cigar.size() && std::isdigit(static_cast<unsigned char>(cigar[j]))) j++;
+            uint64_t count;
+            if (j == cigar.size() || !sam_detail::ParseUnsigned(cigar.substr(i, j - i), count) || count == 0) return false;
+            char op = cigar[j];
+            i = j + 1;
+            switch (op) {
+                case '=': op = 'M'; break;
+                case 'M': case 'X': case 'I': case 'D': case 'S': break;
+                case 'H':
+                    (other ? hard_end : hard_start) += count;
+                    continue;
+                default: return false;
+            }
+            other = true;
+            hard_end = 0;
+            if (op != 'D') query += count;
+            if (op == last_op) {
+                last_count += count;
+            } else {
+                flush();
+                last_op = op;
+                last_count = count;
+            }
+        }
+        flush();
+        if (out.empty() || query != seq_length) return false;
+        cigar = std::move(out);
+        if (clip_start) *clip_start = static_cast<uint32_t>(std::min<uint64_t>(hard_start, UINT32_MAX));
+        if (clip_end) *clip_end = static_cast<uint32_t>(std::min<uint64_t>(hard_end, UINT32_MAX));
+        return true;
+    }
+
+    struct Lcg {
+        uint64_t state;
+        uint32_t Next(uint32_t n) {
+            state = state * 6364136223846793005ull + 1442695040888963407ull;
+            return static_cast<uint32_t>((state >> 33) % n);
+        }
+    };
+}
+
+TEST(SamParsing, NormalizeCigarIsWhatItWasWithoutItsFastPath) {
+    Lcg random{ 17 };
+    std::string const ops = "MXIDS=HNP*";
+    size_t fast = 0;
+    for (int n = 0; n < 200000; n++) {
+        std::string cigar;
+        size_t query = 0;
+        int const parts = 1 + static_cast<int>(random.Next(6));
+        for (int p = 0; p < parts; p++) {
+            uint32_t const kind = random.Next(20);
+            std::string count = std::to_string(kind == 0 ? 0 : 1 + random.Next(kind < 3 ? 2000000000u : 150));
+            if (kind == 1) count = "0" + count;           // a leading zero
+            if (kind == 2) count = std::string(12, '9');  // longer than the fast path reads
+            char const op = random.Next(10) < 7 ? "MXIDS"[random.Next(5)] : ops[random.Next(static_cast<uint32_t>(ops.size()))];
+            if (random.Next(30) != 0) cigar += count;
+            if (random.Next(40) != 0) cigar += op;
+            if (op != 'D' && op != 'H' && kind > 2) query += std::stoul(count);
+        }
+        // The read's length right, or off.
+        size_t const length = random.Next(4) == 0 ? query + random.Next(3) : query;
+        std::string a = cigar, b = cigar;
+        uint32_t a_start = 7, a_end = 7, b_start = 7, b_end = 7;
+        bool const ok_a = NormalizeCigar(a, length, &a_start, &a_end);
+        bool const ok_b = NormalizeCigarReference(b, length, &b_start, &b_end);
+        ASSERT_EQ(ok_a, ok_b) << cigar << " " << length;
+        if (!ok_a) continue;
+        ASSERT_EQ(a, b) << cigar;
+        ASSERT_EQ(a_start, b_start) << cigar;
+        ASSERT_EQ(a_end, b_end) << cigar;
+        fast += IsNormalCigar(cigar, length);
+    }
+    EXPECT_GT(fast, 1000u);  // the fast path is taken
+}
+
+TEST(SamParsing, FieldsAreSplitAsLineSplitterSplitsThem) {
+    Lcg random{ 5 };
+    std::vector<std::string> tokens;
+    std::vector<std::string_view> fields;
+    for (int n = 0; n < 20000; n++) {
+        std::string line;
+        int const length = static_cast<int>(random.Next(30));
+        for (int i = 0; i < length; i++) line += "ab\t\t1_2*"[random.Next(8)];
+        LineSplitter::Split(line, "\t", tokens);
+        sam_detail::SplitFields(line, fields);
+        ASSERT_EQ(fields.size(), tokens.size()) << line;
+        for (size_t i = 0; i < fields.size(); i++) ASSERT_EQ(std::string(fields[i]), tokens[i]) << line;
+    }
+}
+
+TEST(SamParsing, CountsAndNameNumbersParseAsStoiAndStoul) {
+    for (std::string const s : { "0", "7", "150", "2147483647", "000123", "4294967295", "18446744073709551615" }) {
+        EXPECT_EQ(NameNumber(s, 0, s.size()), std::stoul(s)) << s;
+    }
+    std::string const name = "123_4567_rest";
+    EXPECT_EQ(NameNumber(name, 0, 3), 123u);
+    EXPECT_EQ(NameNumber(name, 4, 4), 4567u);
+    EXPECT_EQ(NameNumber(name, 4, 9), 4567u);    // not digits only: std::stoul, which stops at the '_'
+    EXPECT_EQ(NameNumber(name, 4, 100), 4567u);  // substr clamps the length
+    EXPECT_THROW(NameNumber(name, 8, 5), std::invalid_argument);  // "_rest", as std::stoul
+    std::string const cigar = "12M3X2147483648S";
+    EXPECT_EQ(CigarCount(cigar, 0, 2), 12);
+    EXPECT_EQ(CigarCount(cigar, 3, 4), 3);
+    EXPECT_THROW(CigarCount(cigar, 5, 15), std::out_of_range);  // beyond int, as std::stoi
+    EXPECT_THROW(CigarCount(cigar, -1, 2), std::out_of_range);  // no digits before an op, as substr(-1)
+    CigarInfo info;
+    CompressedCigarInfo("5S20M2I3D10M1X", info);
+    EXPECT_EQ(info.softclipped, 5);
+    EXPECT_EQ(info.matches, 30);
+    EXPECT_EQ(info.insertions, 2);
+    EXPECT_EQ(info.deletions, 3);
+    EXPECT_EQ(info.mismatches, 1);
+    EXPECT_EQ(info.clipped_alignment_length, 36);
+    EXPECT_EQ(AlignmentLengthRef("5S20M2I3D10M1X"), 34u);
+}
+
+TEST(SamReader, ATextReadsAsTheSameStream) {
+    std::string const text = "@HD\tVN:1.6\r\n\n" + Record("a", kPaired | kBothAlign | kRead1, "1_1", "4M", "ACGT") +
+                             Record("a", kPaired | kBothAlign | kRead2, "1_1", "2M1X1M", "ACGA", "\tZU:i:3\tZA:Z:2:1") +
+                             "u\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*\r\n" + Record("b", 16, "1_2", "3=1M", "ACGT", "") + "c\t0\t1_1";
+    std::istringstream in(text);
+    std::vector<std::string> headers_stream, headers_text;
+    SamReader stream(in, [&](std::string const& line) { headers_stream.push_back(line); });
+    SamReader view(std::string_view(text), [&](std::string const& line) { headers_text.push_back(line); }, 0);
+    SamEntry s1, s2, t1, t2;
+    bool hs1 = false, hs2 = false, ht1 = false, ht2 = false;
+    std::string stream_error, text_error;
+    while (true) {
+        bool more_stream = false, more_text = false;
+        try { more_stream = stream.Next(s1, s2, hs1, hs2); } catch (SamFormatError const& e) { stream_error = e.what(); }
+        try { more_text = view.Next(t1, t2, ht1, ht2); } catch (SamFormatError const& e) { text_error = e.what(); }
+        ASSERT_EQ(more_stream, more_text);
+        if (!more_stream) break;
+        ASSERT_EQ(hs1, ht1);
+        ASSERT_EQ(hs2, ht2);
+        if (hs1) EXPECT_EQ(s1.ToString(), t1.ToString());
+        if (hs2) EXPECT_EQ(s2.ToString(), t2.ToString());
+    }
+    EXPECT_EQ(stream_error, text_error);
+    EXPECT_NE(stream_error.find("line 7"), std::string::npos) << stream_error;
+    EXPECT_EQ(headers_stream, headers_text);
+    EXPECT_EQ(headers_text, std::vector<std::string>{ "@HD\tVN:1.6" });
+    EXPECT_EQ(stream.Records(), view.Records());
+    EXPECT_EQ(stream.Skipped(), view.Skipped());
+    EXPECT_EQ(stream.RecordsWithoutTags(), view.RecordsWithoutTags());
+    // A text that is a part of a file numbers its lines from there.
+    std::string const bad = "x\t0\n";
+    SamReader later(std::string_view(bad), {}, 41);
+    SamEntry e1, e2;
+    bool h1 = false, h2 = false;
+    try {
+        later.Next(e1, e2, h1, h2);
+        ADD_FAILURE() << "no error";
+    } catch (SamFormatError const& e) {
+        EXPECT_NE(std::string(e.what()).find("line 42: expected at least 11 tab-separated fields, found 2"), std::string::npos) << e.what();
+    }
+}

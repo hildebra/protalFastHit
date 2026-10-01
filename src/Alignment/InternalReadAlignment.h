@@ -13,12 +13,26 @@
 #include "AlignmentUtils.h"
 
 namespace protal {
+    // std::stoul(ref.substr(begin, length)) without the substring when it is digits only, as a gene name's ids are.
+    inline unsigned long NameNumber(std::string const& ref, size_t begin, size_t length) {
+        if (length >= 1 && length <= 19 && begin <= ref.size() && length <= ref.size() - begin) {
+            unsigned long value = 0;
+            bool digits = true;
+            for (size_t i = begin; i < begin + length && digits; i++) {
+                digits = ref[i] >= '0' && ref[i] <= '9';
+                value = value * 10 + static_cast<unsigned long>(ref[i] - '0');
+            }
+            if (digits) return value;
+        }
+        return std::stoul(ref.substr(begin, length));
+    }
+
     static const std::pair<TaxId, GeneId> ExtractTaxidGeneid(std::string &ref) {
         int delim_pos = -1;
         while (ref[++delim_pos] != '_');
         int next_delim_pos = delim_pos;
         while (next_delim_pos < ref.size() && ref[++next_delim_pos] != '_');
-        return { stoul(ref.substr(0, delim_pos)), stoul(ref.substr(delim_pos+1, next_delim_pos - delim_pos - 1)) };
+        return { NameNumber(ref, 0, delim_pos), NameNumber(ref, delim_pos + 1, next_delim_pos - delim_pos - 1) };
     }
 
     struct InternalReadAlignment {

@@ -169,14 +169,6 @@ namespace protal::sam_chunks {
         std::thread m_thread;
     };
 
-    // A chunk's text as a stream, without a copy.
-    class TextStreambuf : public std::streambuf {
-    public:
-        explicit TextStreambuf(std::string& text) {
-            setg(text.data(), text.data(), text.data() + text.size());
-        }
-    };
-
     // Runs work(i) for every i in [0, n) on up to `threads` threads (the calling one among them), each
     // taking the next i that is left. The first exception a call throws is thrown once all have ended.
     template<typename Work>

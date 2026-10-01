@@ -5,7 +5,9 @@
 #pragma once
 
 
+#include <climits>
 #include <iostream>
+#include <stdexcept>
 #include "assert.h"
 #include "SamHandler.h"
 #include "Utilities.h"
@@ -261,6 +263,19 @@ namespace protal {
         }
     };
 
+    // std::stoi of the digits [begin, end) of a CIGAR without a substring: the same count, and the same exceptions
+    // for no digits (begin -1, as the callers' loops leave it, is what substr rejects) or a count beyond int.
+    inline int CigarCount(std::string const& cigar, long begin, size_t end) {
+        if (begin < 0 || static_cast<size_t>(begin) > cigar.size()) throw std::out_of_range("basic_string::substr");
+        if (static_cast<size_t>(begin) >= end) throw std::invalid_argument("stoi");
+        long long count = 0;
+        for (size_t i = static_cast<size_t>(begin); i < end; i++) {
+            count = count * 10 + (cigar[i] - '0');
+            if (count > INT_MAX) throw std::out_of_range("stoi");
+        }
+        return static_cast<int>(count);
+    }
+
     static bool NextCompressedCigar(int& pos, const std::string& ccigar, int& count, char& operation) {
         if (pos == ccigar.length()) return false;
         if (!std::isdigit(ccigar[pos])) {
@@ -275,7 +290,7 @@ namespace protal {
         }
 
 
-        count = std::stoi(ccigar.substr(pos, cpos - pos));
+        count = CigarCount(ccigar, pos, static_cast<size_t>(cpos));
         operation = ccigar[cpos];
         pos = cpos+1;
 
@@ -450,7 +465,7 @@ namespace protal {
         info.clipped_alignment_length = alignment_length - info.softclipped - info.hardclipped;
     }
 
-    static void CompressedCigarInfo(std::string cigar, CigarInfo& info) {
+    static void CompressedCigarInfo(std::string const& cigar, CigarInfo& info) {
         info.Reset();
         if (cigar.empty()) return;
 
@@ -461,7 +476,7 @@ namespace protal {
         int total_count = 0;
         for (auto i = 0; i < cigar.length(); i++) {
             if (!std::isdigit(cigar[i])) {
-                count = stoi(cigar.substr(digit_start, i-digit_start));
+                count = CigarCount(cigar, digit_start, static_cast<size_t>(i));
                 c = cigar[i];
                 digit_start = -1;
                 if (c == 'S') info.softclipped += count;
@@ -486,7 +501,7 @@ namespace protal {
         info.unclipped_alignment_length = total_count;
     }
 
-    static int CompressedCigarScore(std::string cigar, int mismatch_pen = 4, int gapopen_pen = 6, int gapext_pen = 2, int match_score = 0) {
+    static int CompressedCigarScore(std::string const& cigar, int mismatch_pen = 4, int gapopen_pen = 6, int gapext_pen = 2, int match_score = 0) {
         if (cigar.empty()) return 0;
 
         int score = 0;
@@ -496,7 +511,7 @@ namespace protal {
 
         for (auto i = 0; i < cigar.length(); i++) {
             if (!std::isdigit(cigar[i])) {
-                count = stoi(cigar.substr(digit_start, i-digit_start));
+                count = CigarCount(cigar, digit_start, static_cast<size_t>(i));
                 c = cigar[i];
                 digit_start = -1;
                 if (c == 'X') score -= mismatch_pen * count;

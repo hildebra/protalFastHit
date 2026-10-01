@@ -70,7 +70,7 @@ namespace protal {
 
         for (auto i = 0; i < cigar.length(); i++) {
             if (!std::isdigit(cigar[i])) {
-                count = stoi(cigar.substr(digit_start, i-digit_start));
+                count = CigarCount(cigar, digit_start, static_cast<size_t>(i));
                 c = cigar[i];
                 digit_start = -1;
                 if (c == 'X') mismatch += count;

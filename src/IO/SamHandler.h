@@ -215,22 +215,22 @@ namespace protal {
     };
 
     namespace sam_detail {
-        inline bool ParseUnsigned(std::string const& s, uint64_t& value) {
+        inline bool ParseUnsigned(std::string_view s, uint64_t& value) {
             auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
             return !s.empty() && ec == std::errc() && ptr == s.data() + s.size();
         }
 
-        inline bool ParseSigned(std::string const& s, int64_t& value) {
+        inline bool ParseSigned(std::string_view s, int64_t& value) {
             auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
             return !s.empty() && ec == std::errc() && ptr == s.data() + s.size();
         }
 
         // Value of an integer tag ("ZU:i:12") among the optional fields, or nullopt if it is absent
         // or not a non-negative integer.
-        inline std::optional<uint64_t> IntTag(std::vector<std::string> const& tokens, std::string_view name) {
+        inline std::optional<uint64_t> IntTag(std::vector<std::string_view> const& tokens, std::string_view name) {
             for (size_t i = 11; i < tokens.size(); i++) {
-                auto const& t = tokens[i];
-                if (t.size() > 5 && t.compare(0, 2, name) == 0 && t.compare(2, 3, ":i:") == 0) {
+                auto const t = tokens[i];
+                if (t.size() > 5 && t.substr(0, 2) == name && t.substr(2, 3) == ":i:") {
                     uint64_t value;
                     if (ParseUnsigned(t.substr(5), value)) return value;
                     return std::nullopt;
@@ -240,12 +240,24 @@ namespace protal {
         }
 
         // Value of a string tag ("ZA:Z:12:0,40:1") among the optional fields, or nullopt if it is absent.
-        inline std::optional<std::string> StringTag(std::vector<std::string> const& tokens, std::string_view name) {
+        inline std::optional<std::string_view> StringTag(std::vector<std::string_view> const& tokens, std::string_view name) {
             for (size_t i = 11; i < tokens.size(); i++) {
-                auto const& t = tokens[i];
-                if (t.size() >= 5 && t.compare(0, 2, name) == 0 && t.compare(2, 3, ":Z:") == 0) return t.substr(5);
+                auto const t = tokens[i];
+                if (t.size() >= 5 && t.substr(0, 2) == name && t.substr(2, 3) == ":Z:") return t.substr(5);
             }
             return std::nullopt;
+        }
+
+        // The tab-separated fields of a line, as LineSplitter::Split gives them (empty ones kept, none for an
+        // empty line), as views into it.
+        inline void SplitFields(std::string_view line, std::vector<std::string_view>& fields) {
+            fields.clear();
+            if (line.empty()) return;
+            size_t start = 0;
+            for (size_t tab; (tab = line.find('\t', start)) != std::string_view::npos; start = tab + 1) {
+                fields.push_back(line.substr(start, tab - start));
+            }
+            fields.push_back(line.substr(start));
         }
 
         // protal references are genes named "<taxid>_<gene id>".
@@ -262,12 +274,39 @@ namespace protal {
         }
     }
 
+    // Whether NormalizeCigar leaves a CIGAR as it is: ops M, X, I, D and S only, no two in a row the same,
+    // each count without leading zeros (of up to 9 digits here; longer ones are left to NormalizeCigar), and the
+    // bases of SEQ.
+    inline bool IsNormalCigar(std::string const& cigar, size_t seq_length) {
+        if (cigar.empty()) return false;
+        size_t query = 0;
+        char last = 0;
+        for (size_t i = 0; i < cigar.size();) {
+            size_t j = i;
+            size_t count = 0;
+            while (j < cigar.size() && cigar[j] >= '0' && cigar[j] <= '9') count = count * 10 + static_cast<size_t>(cigar[j++] - '0');
+            if (j == i || j == cigar.size() || j - i > 9 || cigar[i] == '0') return false;
+            char const op = cigar[j];
+            if (!(op == 'M' || op == 'X' || op == 'I' || op == 'D' || op == 'S') || op == last) return false;
+            if (op != 'D') query += count;
+            last = op;
+            i = j + 1;
+        }
+        return query == seq_length;
+    }
+
     // Rewrites a CIGAR into the ops the profiler walks, which are those protal writes: M for exact
     // matches, X, I, D and S. '=' (sequence match) becomes M, and hard clips are dropped because they
     // consume neither SEQ nor the reference (clip_start and clip_end, if given, get those at the start and
     // at the end). Returns false for a CIGAR that cannot be walked: malformed, with N or P ops, or not
     // covering exactly the bases in SEQ.
     inline bool NormalizeCigar(std::string& cigar, size_t seq_length, uint32_t* clip_start = nullptr, uint32_t* clip_end = nullptr) {
+        // Most CIGARs are left as they are (protal writes them so): only checked, not rebuilt.
+        if (IsNormalCigar(cigar, seq_length)) {
+            if (clip_start) *clip_start = 0;
+            if (clip_end) *clip_end = 0;
+            return true;
+        }
         uint64_t hard_start = 0, hard_end = 0;  // hard_end: those since the last other op
         bool other = false;
         std::string out;
@@ -281,7 +320,7 @@ namespace protal {
             size_t j = i;
             while (j < cigar.size() && std::isdigit(static_cast<unsigned char>(cigar[j]))) j++;
             uint64_t count;
-            if (j == cigar.size() || !sam_detail::ParseUnsigned(cigar.substr(i, j - i), count) || count == 0) return false;
+            if (j == cigar.size() || !sam_detail::ParseUnsigned(std::string_view(cigar).substr(i, j - i), count) || count == 0) return false;
             char op = cigar[j];
             i = j + 1;
             switch (op) {
@@ -314,17 +353,18 @@ namespace protal {
     // Fills sam from the fields of one SAM line; throws SamFormatError if the line cannot be parsed.
     // ZU and ZT (protal's unique k-mer counts) are looked up by name and are 0 when absent; ZA (the
     // read's alternatives in other taxa) is empty when absent.
-    inline void SamFromTokens(std::vector<std::string> const& tokens, SamEntry &sam) {
+    inline void SamFromTokens(std::vector<std::string_view> const& tokens, SamEntry &sam) {
         if (tokens.size() < 11) {
             throw SamFormatError("expected at least 11 tab-separated fields, found " + std::to_string(tokens.size()));
         }
         uint64_t flag, pos, mapq, pnext;
         int64_t tlen;
-        if (!sam_detail::ParseUnsigned(tokens[1], flag) || flag > UINT16_MAX) throw SamFormatError("FLAG is not a 16-bit integer: " + tokens[1]);
-        if (!sam_detail::ParseUnsigned(tokens[3], pos) || pos > UINT32_MAX) throw SamFormatError("POS is not a position: " + tokens[3]);
-        if (!sam_detail::ParseUnsigned(tokens[4], mapq) || mapq > 255) throw SamFormatError("MAPQ is not between 0 and 255: " + tokens[4]);
-        if (!sam_detail::ParseUnsigned(tokens[7], pnext) || pnext > UINT32_MAX) throw SamFormatError("PNEXT is not a position: " + tokens[7]);
-        if (!sam_detail::ParseSigned(tokens[8], tlen)) throw SamFormatError("TLEN is not an integer: " + tokens[8]);
+        auto text = [](std::string_view s) { return std::string(s); };
+        if (!sam_detail::ParseUnsigned(tokens[1], flag) || flag > UINT16_MAX) throw SamFormatError("FLAG is not a 16-bit integer: " + text(tokens[1]));
+        if (!sam_detail::ParseUnsigned(tokens[3], pos) || pos > UINT32_MAX) throw SamFormatError("POS is not a position: " + text(tokens[3]));
+        if (!sam_detail::ParseUnsigned(tokens[4], mapq) || mapq > 255) throw SamFormatError("MAPQ is not between 0 and 255: " + text(tokens[4]));
+        if (!sam_detail::ParseUnsigned(tokens[7], pnext) || pnext > UINT32_MAX) throw SamFormatError("PNEXT is not a position: " + text(tokens[7]));
+        if (!sam_detail::ParseSigned(tokens[8], tlen)) throw SamFormatError("TLEN is not an integer: " + text(tokens[8]));
 
         sam.m_qname = tokens[0];
         sam.m_flag = static_cast<FLAG_t>(flag);
@@ -339,7 +379,7 @@ namespace protal {
         sam.m_qual = tokens[10];
         sam.m_uniques = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZU").value_or(0), UINT16_MAX));
         sam.m_uniques_two = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZT").value_or(0), UINT16_MAX));
-        sam.m_alternatives = sam_detail::StringTag(tokens, "ZA").value_or(std::string());
+        sam.m_alternatives = sam_detail::StringTag(tokens, "ZA").value_or(std::string_view());
     }
 
     // Why the profiler cannot use a parsed record, or nullptr if it can. Normalizes the CIGAR.
@@ -357,11 +397,14 @@ namespace protal {
     // are records the profiler cannot use (counted by reason in Skipped()). Next() returns a read1
     // record together with its mate when the mate's record follows, or a single record: a read2
     // without its read1 in sam2, any other one (an orphan read1, a single-end read) in sam1. A line
-    // that cannot be parsed throws SamFormatError naming the line.
+    // that cannot be parsed throws SamFormatError naming the line. The lines come from a stream or from a
+    // text in memory (the profiler's chunks of a SAM); the fields are views into the line.
     class SamReader {
-        std::istream& m_is;
+        std::istream* m_is = nullptr;
+        std::string_view m_text;
+        size_t m_text_pos = 0;
         std::string m_line;
-        std::vector<std::string> m_tokens;
+        std::vector<std::string_view> m_tokens;
         SamEntry m_next;
         bool m_has_next = false;  // m_next holds a record read ahead
         size_t m_line_no = 0;
@@ -373,18 +416,33 @@ namespace protal {
         std::map<std::string, size_t> m_skipped;
         std::function<void(std::string const&)> m_on_header;  // sees every header line
 
+        // The next line, without its newline (as getline reads it); false at the end.
+        bool NextLine(std::string_view& line) {
+            if (m_is) {
+                if (!std::getline(*m_is, m_line)) return false;
+                line = m_line;
+                return true;
+            }
+            if (m_text_pos >= m_text.size()) return false;
+            size_t end = m_text.find('\n', m_text_pos);
+            if (end == std::string_view::npos) end = m_text.size();
+            line = m_text.substr(m_text_pos, end - m_text_pos);
+            m_text_pos = end + 1;
+            return true;
+        }
+
         // Reads up to and including the next usable record.
         bool Advance(SamEntry& sam) {
-            static const std::string delim = "\t";
-            while (std::getline(m_is, m_line)) {
+            std::string_view line;
+            while (NextLine(line)) {
                 m_line_no++;
-                if (!m_line.empty() && m_line.back() == '\r') m_line.pop_back();
-                if (m_line.empty()) continue;
-                if (m_line[0] == '@') {
-                    if (m_on_header) m_on_header(m_line);
+                if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+                if (line.empty()) continue;
+                if (line[0] == '@') {
+                    if (m_on_header) m_on_header(std::string(line));
                     continue;
                 }
-                LineSplitter::Split(m_line, delim, m_tokens);
+                sam_detail::SplitFields(line, m_tokens);
                 try {
                     SamFromTokens(m_tokens, sam);
                 } catch (SamFormatError const& e) {
@@ -403,16 +461,19 @@ namespace protal {
                 }
                 return true;
             }
-            if (m_is.bad()) throw SamFormatError("read error after line " + std::to_string(m_line_no));
+            if (m_is && m_is->bad()) throw SamFormatError("read error after line " + std::to_string(m_line_no));
             return false;
         }
 
     public:
         // `on_header`, if given, is called with each header line and may throw SamFormatError to stop.
-        // `first_line`: the lines before the stream's first one, for the line numbers of errors when the
-        // stream is a part of a file (the profiler's chunks, SamChunks.h).
-        explicit SamReader(std::istream& is, std::function<void(std::string const&)> on_header = {}, size_t first_line = 0) :
-                m_is(is), m_line_no(first_line), m_on_header(std::move(on_header)) {}
+        explicit SamReader(std::istream& is, std::function<void(std::string const&)> on_header = {}) :
+                m_is(&is), m_on_header(std::move(on_header)) {}
+
+        // The lines of `text`, which must outlive the reader; `first_line`: the lines before it, for the line
+        // numbers of errors when the text is a part of a file (the profiler's chunks, SamChunks.h).
+        SamReader(std::string_view text, std::function<void(std::string const&)> on_header, size_t first_line) :
+                m_text(text), m_line_no(first_line), m_on_header(std::move(on_header)) {}
 
         bool Next(SamEntry &sam1, SamEntry &sam2, bool &has_sam1, bool &has_sam2) {
             has_sam1 = false;
