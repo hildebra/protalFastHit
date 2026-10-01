@@ -26,6 +26,9 @@ LABELS = ("FALSE", "TRUE")
 PLACEHOLDER_MARKER = "protal:placeholder"
 # Database member of each read type's model (kReadTypes in src/ReadType.h).
 MODEL_FILES = {"pe": "model_pe.xml", "se": "model_se.xml", "pb": "model_PB.xml", "ont": "model_ONT.xml"}
+# The header extension with a model's knobs by sample depth (profiler::kDepthKnobsExtension): "2:0.31,3:0.42", bin of
+# the sample's fragments (the digits of their number less one, 2 to 6) : knob.
+DEPTH_KNOBS_EXTENSION = "protal_depth_knobs"
 
 
 def write_placeholder(path, read_type):
@@ -71,9 +74,10 @@ def float32_split(threshold):
     return middle if even else float(np.nextafter(middle, -np.inf))
 
 
-def write_forest(forest, features, path, annotations=()):
+def write_forest(forest, features, path, annotations=(), depth_knobs=None):
     """Write a fitted RandomForestClassifier with classes 0/1 (or False/True), trained on the
-    columns `features` in this order, as PMML for protal. `annotations` go into the header."""
+    columns `features` in this order, as PMML for protal. `annotations` go into the header, and
+    `depth_knobs` ({bin: knob}, see DEPTH_KNOBS_EXTENSION), if any, as an Extension protal reads."""
     try:
         classes = [int(c) for c in forest.classes_]
     except (TypeError, ValueError):
@@ -86,6 +90,8 @@ def write_forest(forest, features, path, annotations=()):
     w = out.append
     w('<?xml version="1.0" encoding="UTF-8"?>\n<PMML version="4.4">\n')
     w(' <Header description="protal presence model: probability that a taxon is present">\n')
+    if depth_knobs:
+        w(f'  <Extension name="{DEPTH_KNOBS_EXTENSION}" value="{format_depth_knobs(depth_knobs)}"/>\n')
     w('  <Application name="protal scripts/random_forest_cmdline.py"/>\n')
     for note in annotations:
         w(f'  <Annotation>{_text(note)}</Annotation>\n')
@@ -130,6 +136,24 @@ def write_forest(forest, features, path, annotations=()):
     w('  </Segmentation>\n </MiningModel>\n</PMML>\n')
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("".join(out))
+
+
+def format_depth_knobs(knobs):
+    """{bin: knob} as the extension's value: "2:0.31,3:0.42"."""
+    return ",".join(f"{int(b)}:{float(k):g}" for b, k in sorted(knobs.items()))
+
+
+def read_depth_knobs(path):
+    """The depth knobs ({bin: knob}) in the header of the PMML model at `path`; {} without them."""
+    root = ET.parse(path).getroot()
+    for elem in root.iter():
+        if "}" in elem.tag:
+            elem.tag = elem.tag.split("}", 1)[1]
+    header = root.find("Header")
+    for ext in (header.findall("Extension") if header is not None else []):
+        if ext.get("name") == DEPTH_KNOBS_EXTENSION:
+            return {int(b): float(k) for b, k in (item.split(":") for item in ext.get("value", "").split(",") if item)}
+    return {}
 
 
 def leaf_probabilities(tree):

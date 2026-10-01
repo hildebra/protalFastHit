@@ -3,19 +3,23 @@
 
 The PMML file is scored with model_pmml.PmmlForest, which compares doubles and averages the trees in
 file order as protal's cPMML does; check_model_parity.py compares PmmlForest with protal itself.
+Also the knobs by sample depth that random_forest_cmdline.py --depth-knobs chooses and writes.
 
   python3 -m unittest scripts/test_model_pmml.py
 """
 
+import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from model_pmml import PmmlForest, float32_split, write_forest  # noqa: E402
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from model_pmml import PmmlForest, float32_split, format_depth_knobs, read_depth_knobs, write_forest  # noqa: E402
 
 try:
     import pandas as pd
@@ -105,10 +109,81 @@ class ForestExportTest(unittest.TestCase):
         self.assertIn('<Value value="TRUE"/>', xml)
         self.assertIn("test &amp; &lt;annotation&gt;", xml)
 
+    def test_depth_knobs(self):
+        # Written as an Extension in the header, before the Application (PMML's order), and read back.
+        rf = RandomForestClassifier(n_estimators=2, random_state=1).fit(self.X, self.y)
+        path = os.path.join(self.tmp.name, "knobs.xml")
+        write_forest(rf, self.features, path, depth_knobs={4: 0.37, 2: 0.6})
+        with open(path) as fh:
+            xml = fh.read()
+        self.assertIn('<Extension name="protal_depth_knobs" value="2:0.6,4:0.37"/>\n  <Application ', xml)
+        self.assertEqual(read_depth_knobs(path), {2: 0.6, 4: 0.37})
+        np.testing.assert_array_equal(PmmlForest(path).predict(self.X), rf.predict_proba(self.X)[:, 1])
+        write_forest(rf, self.features, path)
+        self.assertEqual(read_depth_knobs(path), {})
+        self.assertEqual(format_depth_knobs({6: 0.05, 3: 0.5}), "3:0.5,6:0.05")
+
     def test_rejects_other_classes(self):
         rf = RandomForestClassifier(n_estimators=2, random_state=1).fit(self.X, np.where(self.y == 1, "yes", "no"))
         with self.assertRaises(ValueError):
             write_forest(rf, self.features, os.path.join(self.tmp.name, "bad.xml"))
+
+
+@unittest.skipIf(RandomForestClassifier is None, "needs scikit-learn")
+class TrainerDepthKnobsTest(unittest.TestCase):
+    """random_forest_cmdline.py --depth-knobs on a table of shallow samples (hundreds of fragments, depth bin 2) and
+    deep ones (tens of thousands, bin 4), where a present taxon's evidence grows with depth."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, HERE)
+        import random_forest_cmdline
+        cls.trainer = random_forest_cmdline
+        cls.tmp = tempfile.TemporaryDirectory()
+        rng = np.random.default_rng(5)
+        rows = []
+        for sample in range(40):
+            deep = sample % 2 == 1
+            for taxon in range(30):
+                present = taxon < 8
+                fragments = rng.integers(500, 3000) if deep else rng.integers(5, 30)
+                signal = (1.5 if deep else 0.6) * present
+                rows.append({"truth": int(present), "taxon": 100 + (taxon + sample) % 60, "taxon_name": "t",
+                             "meta_sample": f"s{sample}", "fragments": float(fragments),
+                             "x": signal + rng.normal(0, 0.5), "y": rng.normal(0, 1)})
+        cls.table = os.path.join(cls.tmp.name, "training.tsv")
+        pd.DataFrame(rows).to_csv(cls.table, sep="\t", index=False)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def train(self, name, *extra):
+        prefix = os.path.join(self.tmp.name, name)
+        result = subprocess.run([sys.executable, os.path.join(HERE, "random_forest_cmdline.py"), "--truth-file", self.table,
+                                 "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--evaluation", "basic",
+                                 "--threads", "1", *extra], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
+        with open(prefix + ".metrics.json") as fh:
+            return prefix + ".xml", json.load(fh)
+
+    def test_bins_as_protal(self):
+        # profiler::DepthKnobBin: the digits of the sample's fragments over all its taxa, less one, 2 to 6.
+        frame = pd.DataFrame({"meta_sample": ["a", "a", "b", "c", "d", "e"],
+                              "fragments": [60.0, 39.0, 1000.0, 999.0, 3e7, 0.0]})
+        self.assertEqual(list(self.trainer.depth_bins(frame)), [2, 2, 3, 2, 6, 2])
+
+    def test_depth_knobs_in_the_model(self):
+        model, metrics = self.train("knobs", "--depth-knobs")
+        knobs = read_depth_knobs(model)
+        self.assertEqual(sorted(knobs), [2, 4])
+        self.assertTrue(all(0.05 <= k <= 0.95 for k in knobs.values()), knobs)
+        self.assertEqual(metrics["depth_knobs"]["knobs"], {str(b): k for b, k in knobs.items()})
+        # The knobs are chosen on the species held out: their F1 there is at least that at the one knob.
+        self.assertGreaterEqual(metrics["depth_knobs"]["F1_at_depth_knobs"], metrics["depth_knobs"]["F1_at_knob"])
+        plain, metrics = self.train("plain")
+        self.assertEqual(read_depth_knobs(plain), {})
+        self.assertNotIn("depth_knobs", metrics)
 
 
 if __name__ == "__main__":

@@ -794,6 +794,50 @@ class ModelContractTest(WorkDir):
         self.assertEqual(outputs["strains"], outputs["no_strains"])
 
 
+class DepthKnobsTest(WorkDir):
+    """A model with knobs by sample depth (random_forest_cmdline.py --depth-knobs, in its header): a sample's taxa are
+    reported at the knob of its depth bin unless --knob is given."""
+
+    def model(self, name, value):
+        with open(db_file("model_pe.xml")) as fh:
+            xml = fh.read()
+        xml, n = re.subn(r"(<Header\b[^>]*[^/]>)", r'\1\n  <Extension name="protal_depth_knobs" value="' + value + '"/>',
+                         xml, count=1)
+        self.assertEqual(n, 1, "the model has a header")
+        path = self.path(name)
+        with open(path, "w") as fh:
+            fh.write(xml)
+        return path
+
+    def profile(self, name, *extra):
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name, "-t", "2", "--no_strains", *extra)
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(self.path(name, "sa.profile")) as fh:
+            return log, fh.read()
+
+    def test_the_samples_depth_knob_unless_knob_is_given(self):
+        every_bin = ",".join(f"{b}:0" for b in range(2, 7))
+        model = self.model("knobs.xml", every_bin)
+        log, by_depth = self.profile("by_depth", "--model", model)
+        self.assertIn("knobs by sample depth (bin b: 10^b to 10^(b+1) fragments, 2 also fewer, 6 also more): "
+                      "2: 0, 3: 0, 4: 0, 5: 0, 6: 0; other depths --knob 0.5", log)
+        self.assertRegex(log, r"Sample sa: \d+ fragments, knob 0 \(the model's for depth bin [2-6]\)")
+        _, at_zero = self.profile("at_zero", "--knob", "0")
+        self.assertEqual(by_depth, at_zero)
+
+        log, given = self.profile("given", "--model", model, "--knob", "0.5")
+        self.assertIn("; not used, --knob is given", log)
+        self.assertNotIn("Sample sa: ", log)
+        _, default = self.profile("default")
+        self.assertEqual(given, default)
+
+    def test_malformed_depth_knobs(self):
+        model = self.model("bad.xml", "2:0.3,9:0.4")
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "bad", "--model", model)
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("its depth knobs are malformed ('9:0.4'", log)
+
+
 class BuildUniquenessTest(WorkDir):
     """--build checks every k-mer against the full reference, also those whose core occurs once in the index."""
 

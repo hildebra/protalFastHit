@@ -1412,9 +1412,19 @@ namespace protal {
             return std::string(buffer, end);
         }
 
+        // A sample's depth bin for a model's depth knobs: floor(log10) of the sample's fragments over all its taxa, 2 to
+        // 6 (below 100 fragments 2, a million or more 6), as scripts/random_forest_cmdline.py --depth-knobs bins the
+        // training samples.
+        inline int DepthKnobBin(size_t fragments) {
+            int bin = 0;
+            for (; fragments >= 10; fragments /= 10) bin++;
+            return std::clamp(bin, 2, 6);
+        }
+
         class TaxonFilterForest {
             cpmml::Model m_model{};
             double m_knob = 0.5;
+            std::map<int, double> m_depth_knobs;  // see DepthKnob
 
             mutable std::unordered_map<std::string, std::string> m_sample;
 
@@ -1427,12 +1437,13 @@ namespace protal {
             TaxonFilterForest(cpmml::Model model, double knob) : m_model(std::move(model)), m_knob(knob) {}
 
             TaxonFilterForest(const TaxonFilterForest& other) :
-                    m_model(other.m_model), m_knob(other.m_knob), m_sample() {
+                    m_model(other.m_model), m_knob(other.m_knob), m_depth_knobs(other.m_depth_knobs), m_sample() {
             }
 
             TaxonFilterForest(const TaxonFilterForest&& other) :
                     m_model(other.m_model),
                     m_knob(other.m_knob),
+                    m_depth_knobs(other.m_depth_knobs),
                     m_sample(other.m_sample) {
             }
 
@@ -1464,6 +1475,21 @@ namespace protal {
 
             double GetKnob() const { return m_knob; }
 
+            // The threshold Pass compares with: a sample's (ProfileWrapper sets each sample's on its thread's copy).
+            void SetKnob(double knob) { m_knob = knob; }
+
+            // The model's knobs by sample depth (ParseDepthKnobs), bin (DepthKnobBin) -> knob; empty for most models.
+            void SetDepthKnobs(std::map<int, double> knobs) { m_depth_knobs = std::move(knobs); }
+            std::map<int, double> const& DepthKnobs() const { return m_depth_knobs; }
+
+            // The model's knob for a sample of `fragments` fragments over all its taxa: the F1-optimal threshold the
+            // trainer found for training samples of that depth bin, if the model has one for it.
+            std::optional<double> DepthKnob(size_t fragments) const {
+                auto const it = m_depth_knobs.find(DepthKnobBin(fragments));
+                if (it == m_depth_knobs.end()) return std::nullopt;
+                return it->second;
+            }
+
             // The same model with another threshold (e.g. --msa_knob). Scores are cached per taxon,
             // so both give a taxon the same score.
             TaxonFilterForest WithKnob(double knob) const {
@@ -1490,6 +1516,51 @@ namespace protal {
         inline bool IsPlaceholderModel(std::string const& xml) {
             auto const header_end = xml.find("</Header>");
             return header_end != std::string::npos && xml.rfind(kPlaceholderModelMarker, header_end) != std::string::npos;
+        }
+
+        // A model's knobs by sample depth, which scripts/random_forest_cmdline.py --depth-knobs writes into the header:
+        // <Extension name="protal_depth_knobs" value="2:0.31,3:0.42"/>, depth bin (DepthKnobBin) : knob.
+        inline constexpr std::string_view kDepthKnobsExtension = "protal_depth_knobs";
+
+        // Reads the depth knobs from the header of the PMML `xml` into `knobs` (empty without them); an error message if
+        // they are malformed: a bin outside 2-6, given twice, or a knob outside 0-1.
+        inline std::string ParseDepthKnobs(std::string const& xml, std::map<int, double>& knobs) {
+            knobs.clear();
+            auto const header_end = xml.find("</Header>");
+            if (header_end == std::string::npos) return {};
+            std::string const name = "name=\"" + std::string(kDepthKnobsExtension) + "\"";
+            for (size_t pos = xml.find("<Extension ", 0); pos < header_end; pos = xml.find("<Extension ", pos + 1)) {
+                auto const end = xml.find('>', pos);
+                if (end == std::string::npos || end > header_end) break;
+                std::string_view const tag(xml.data() + pos, end - pos + 1);
+                if (tag.find(" " + name) == std::string_view::npos) continue;
+                auto const key = tag.find(" value=\"");
+                auto const close = key == std::string_view::npos ? key : tag.find('"', key + 8);
+                if (close == std::string_view::npos) return "its depth knobs have no value";
+                std::string const value(tag.substr(key + 8, close - key - 8));
+                if (value.empty()) return "its depth knobs are malformed (no bins: bin 2-6 : knob 0-1, each bin once)";
+                std::istringstream items(value);
+                std::string item;
+                while (std::getline(items, item, ',')) {
+                    auto const colon = item.find(':');
+                    int bin = 0;
+                    double knob = -1;
+                    bool parsed = colon != std::string::npos;
+                    if (parsed) {
+                        auto const* b = item.data();
+                        auto const [bin_end, bin_ec] = std::from_chars(b, b + colon, bin);
+                        auto const [knob_end, knob_ec] = std::from_chars(b + colon + 1, b + item.size(), knob);
+                        parsed = bin_ec == std::errc() && bin_end == b + colon && knob_ec == std::errc() && knob_end == b + item.size();
+                    }
+                    if (!parsed || bin < 2 || bin > 6 || !(knob >= 0 && knob <= 1) || knobs.contains(bin)) {
+                        knobs.clear();
+                        return "its depth knobs are malformed ('" + item + "' in \"" + value + "\": bin 2-6 : knob 0-1, each bin once)";
+                    }
+                    knobs[bin] = knob;
+                }
+                return {};
+            }
+            return {};
         }
 
         // Why protal cannot use the PMML model `model` parsed from `xml`, or an empty string. The
@@ -1855,6 +1926,28 @@ namespace protal {
                 return m_read_type;
             }
 
+            // The threshold its taxa were reported at (--knob, or its model's knob for the sample's depth), and the one
+            // they enter the strain MSAs at (--msa_knob, else the same): ProfileWrapper sets both.
+            void SetKnobs(double knob, double msa_knob) {
+                m_knob = knob;
+                m_msa_knob = msa_knob;
+            }
+
+            double Knob() const {
+                return m_knob;
+            }
+
+            double MSAKnob() const {
+                return m_msa_knob;
+            }
+
+            // The fragments of all its taxa: the sample's depth, by which a model's depth knobs apply (DepthKnobBin).
+            size_t Fragments() const {
+                size_t fragments = 0;
+                for (auto const& [_, taxon] : m_taxa) fragments += taxon.Fragments();
+                return fragments;
+            }
+
             const std::string& GetName() const {
                 return m_name;
             }
@@ -2152,6 +2245,8 @@ namespace protal {
         private:
             std::string m_name;
             ReadType m_read_type = ReadType::Paired;
+            double m_knob = 0.5;      // see Knob
+            double m_msa_knob = 0.5;  // see MSAKnob
             mutable TaxonMap m_taxa;
             GenomeLoader &m_genome_loader;
             double m_depth_identity_margin = 1;

@@ -2,7 +2,9 @@
 
 protal decides whether a species is present with a random forest (PMML, `model_pe.xml` in the
 database for paired-end reads; `model.xml` in databases of earlier versions). It scores every species with reads, and reports those whose probability of `TRUE` is at
-least `--knob` (0 to 1, default 0.5).
+least `--knob` (0 to 1, default 0.5), or, for a model with knobs by sample depth
+([below](#knobs-by-sample-depth)), at least the model's knob for the sample's depth unless `--knob`
+is given.
 
 The model's features come from the reads and the database, so a model belongs to the kind of
 database it was trained on. [building-a-database.md](building-a-database.md#build-and-train-in-one-command)
@@ -182,6 +184,7 @@ one differs.
 | `--reference-pmml` | | train on the input fields of an existing model instead |
 | `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 128, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves) |
 | `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |
+| `--depth-knobs` | off | also choose a knob per depth bin of the sample and store them in the model ([below](#knobs-by-sample-depth)); `build_gtdb_database.py` passes it for PacBio and ONT |
 | `--folds` | 5 | folds of the held-out evaluations |
 | `--evaluation` | `full` | `basic`: the held-out evaluations only; `none`: fit and export only |
 | `--taxonomy` | | the database's `internal_taxonomy.dmp`: domains the table's `meta_domain` lacks, and the lineages for holding out whole clades |
@@ -273,3 +276,26 @@ model of those reads), which checks it and replaces the database's model of that
 Train the production model on simulations from the database's own genomes (for example GTDB), with
 held-out species as negatives. Choose `--knob` on held-out samples like the ones it will profile;
 `<prefix>.thresholds.tsv` is a start.
+
+### Knobs by sample depth
+
+A taxon's features say how much evidence it has, but not how deep its sample is, and the threshold
+that calls best differs with depth: on long reads, which vary most in depth between samples, the
+best threshold of a shallow sample is not that of a deep one. With `--depth-knobs` the trainer bins
+the samples by their fragments over all their taxa (rows), by the digits of that number less one,
+2 to 6 (2: fewer than 1,000; 3: 1,000 to 9,999; ... 6: a million or more), and for each bin with
+more than 50 taxa and 10 present ones picks the threshold (0.05 to 0.95, in steps of 0.01) with the
+highest F1 on species held out. The report's section "Knobs by sample depth" lists them with the
+F1 of each bin at `--knob` and at its own knob; on the test set (`--test-file`) it gives the F1 and
+the errors at the depth knobs, as protal calls by default, next to those at `--knob`. They go into
+the model's header as `<Extension name="protal_depth_knobs" value="2:0.31,4:0.42"/>`.
+
+protal sums each sample's fragments over its taxa in the same way and reports the sample's taxa at
+the knob of its bin; a bin without one keeps `--knob`'s default, and `--knob` on the command line
+applies to every sample instead. The log lists a model's knobs and each sample's
+(`Sample S: N fragments, knob K (the model's for depth bin B)`); the training dump's `prediction`,
+the statistics and, unless `--msa_knob` is given, which samples enter the strain MSAs follow the
+sample's knob. Chosen on 0.7.1's long-read training tables, they raised the test F1 by 0.007
+(PacBio) and 0.015 (ONT); on single-end reads they lowered it by 0.001 and on paired-end reads
+they gained 0.001 ([report](claude/2026-10-01-f1-opportunities/README.md)), so the pipeline gives
+them to the long-read models only.

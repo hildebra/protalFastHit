@@ -653,6 +653,63 @@ TEST(ModelFeatures, TheModelMustFitProtal) {
     std::filesystem::remove_all(dir);
 }
 
+TEST(ModelFeatures, DepthKnobsByTheSamplesFragments) {
+    // The bin: the digits of the sample's fragments less one, 2 to 6 (random_forest_cmdline.py depth_bins).
+    EXPECT_EQ(profiler::DepthKnobBin(0), 2);
+    EXPECT_EQ(profiler::DepthKnobBin(999), 2);
+    EXPECT_EQ(profiler::DepthKnobBin(1000), 3);
+    EXPECT_EQ(profiler::DepthKnobBin(99999), 4);
+    EXPECT_EQ(profiler::DepthKnobBin(1000000), 6);
+    EXPECT_EQ(profiler::DepthKnobBin(5000000000ull), 6);
+
+    // The trainer writes them as an Extension of the header, which cPMML loads past.
+    auto const header = [](std::string const& extension) {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<PMML version=\"4.4\">\n <Header description=\"m\">\n  " + extension +
+               "\n  <Application name=\"test\"/>\n </Header>\n";
+    };
+    std::string const body = R"( <DataDictionary>
+  <DataField name="truth" optype="categorical" dataType="string"><Value value="FALSE"/><Value value="TRUE"/></DataField>
+  <DataField name="fragments" optype="continuous" dataType="double"/>
+ </DataDictionary>
+ <TreeModel functionName="classification" splitCharacteristic="binarySplit">
+  <MiningSchema>
+   <MiningField name="truth" usageType="predicted"/>
+   <MiningField name="fragments"/>
+  </MiningSchema>
+  <Node score="FALSE"><True/><ScoreDistribution value="FALSE" recordCount="0.4"/><ScoreDistribution value="TRUE" recordCount="0.6"/></Node>
+ </TreeModel>
+</PMML>
+)";
+    std::string const xml = header(R"(<Extension name="protal_depth_knobs" value="2:0.31,4:0.4"/>)") + body;
+    std::map<int, double> knobs;
+    EXPECT_EQ(profiler::ParseDepthKnobs(xml, knobs), "");
+    EXPECT_EQ(knobs, (std::map<int, double>{ { 2, 0.31 }, { 4, 0.4 } }));
+
+    profiler::TaxonFilterForest model(cpmml::Model::from_string(xml), 0.5);
+    EXPECT_EQ(profiler::ModelContractProblemInXml(model, xml), "");
+    EXPECT_FALSE(model.DepthKnob(500).has_value());  // none set yet
+    model.SetDepthKnobs(knobs);
+    EXPECT_EQ(model.DepthKnob(500), 0.31);
+    EXPECT_FALSE(model.DepthKnob(5000).has_value());  // bin 3: --knob's default
+    EXPECT_EQ(model.DepthKnob(50000), 0.4);
+    auto const copy = model.WithKnob(0.2);
+    EXPECT_EQ(copy.GetKnob(), 0.2);
+    EXPECT_EQ(copy.DepthKnobs(), knobs);
+
+    // None: another extension, or one after the header.
+    EXPECT_EQ(profiler::ParseDepthKnobs(header(R"(<Extension name="other" value="2:0.3"/>)") + body, knobs), "");
+    EXPECT_TRUE(knobs.empty());
+    EXPECT_EQ(profiler::ParseDepthKnobs(header("") + R"(<Extension name="protal_depth_knobs" value="2:0.3"/>)" + body, knobs), "");
+    EXPECT_TRUE(knobs.empty());
+    // Malformed: a bin outside 2-6, a knob outside 0-1, a bin twice, no colon, trailing characters.
+    for (std::string const value : { "7:0.3", "2:1.5", "2:0.3,2:0.4", "2-0.3", "2:0.3x", "" }) {
+        auto const problem = profiler::ParseDepthKnobs(
+            header(R"(<Extension name="protal_depth_knobs" value=")" + value + R"("/>)") + body, knobs);
+        EXPECT_NE(problem.find("its depth knobs are malformed"), std::string::npos) << value << ": " << problem;
+        EXPECT_TRUE(knobs.empty()) << value;
+    }
+}
+
 TEST(ModelFeatures, NamesAreUniqueAndValuesKeepTheirPrecision) {
     Genome no_genome(0);
     auto features = profiler::TaxonFeatures(profiler::Taxon(no_genome));

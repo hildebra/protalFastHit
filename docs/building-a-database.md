@@ -300,7 +300,10 @@ reads; and PacBio and Nanopore reads simulated with [pbsim3](https://github.com/
 (`--pb-setup`: HiFi-like reads of the Sequel error model at 99.9% accuracy, 15 kb; `--ont-setup`:
 the high-quality ONT model at 97%, 8 kb), `--long-read-bases` per sample, about as many bases as the
 paired-end depths. All samples are profiled in one protal run, each with its read type's settings,
-and the models are trained in parallel. pbsim3 must be installed for pb and ont (it is in
+and the models are trained in parallel. The pb and ont models also get knobs by sample depth
+(the trainer's `--depth-knobs`, [model-training.md](model-training.md#knobs-by-sample-depth)),
+which `build_metadata.tsv` records (`classifier_depth_knobs`, `model_<type>_depth_knobs`). pbsim3
+must be installed for pb and ont (it is in
 `envs/protal-db-build.yaml`; `micromamba install -c conda-forge -c bioconda pbsim3`); without it,
 leave them out of `--read-types`, and they keep placeholder models.
 

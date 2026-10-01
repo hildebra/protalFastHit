@@ -635,11 +635,16 @@ namespace protal {
         }
         os.close();
         if (os.fail()) RunStatus::Get().Fail("Writing " + path + " failed");
-        std::cerr << "Warning: " << species.size() << " species in " << rows << " sample profile(s) score below --knob "
-                  << options.GetKnob() << " and are not reported, although their own reads are strong evidence "
+        std::string const knob = options.KnobGiven() ? "--knob " + profiler::FeatureString(options.GetKnob())
+                                                     : "their sample's knob (" + profiler::FeatureString(options.GetKnob()) +
+                                                       ", or the model's for the sample's depth)";
+        std::string const msa_knob = options.MSAKnobGiven() ? "--msa_knob (" + profiler::FeatureString(options.GetMSAKnob()) + ")"
+                                                            : "that knob";
+        std::cerr << "Warning: " << species.size() << " species in " << rows << " sample profile(s) score below " << knob
+                  << " and are not reported, although their own reads are strong evidence "
                   << "(depth 1x or more, reads on 90% of their genes, best reads 98% identical or more); they are "
-                  << "listed in " << path << ". Their samples enter the strain MSAs if they score --msa_knob ("
-                  << options.GetMSAKnob() << ") or more." << std::endl;
+                  << "listed in " << path << ". Their samples enter the strain MSAs if they score " << msa_knob
+                  << " or more." << std::endl;
     }
 
     // Profiles the samples, each with the model of its kind of reads. Every taxon's score is then
@@ -665,7 +670,6 @@ namespace protal {
         std::vector<std::optional<profiler::MicrobialProfile>> profile_slots(range.size());
         // Per sample: the taxa its profile leaves out although their own reads are strong evidence.
         std::vector<std::vector<UnreportedTaxon>> unreported_slots(range.size());
-        double const msa_knob = options.GetMSAKnob();
 
         omp_set_num_threads(options.GetThreads());
 
@@ -763,6 +767,22 @@ namespace protal {
                 profile_slots[idx].emplace(genomes);
                 continue;
             }
+            // The sample's threshold, on this thread's copy of the model: --knob if given, else the model's knob for the
+            // sample's depth (its fragments over all taxa) if it has depth knobs (the trainer's, for long reads), else
+            // --knob's default. Its taxa enter the strain MSAs at --msa_knob if given, else at the same.
+            filter.SetKnob(options.GetKnob());
+            if (!options.KnobGiven() && !filter.DepthKnobs().empty()) {
+                size_t const fragments = profile.Fragments();
+                if (auto const depth_knob = filter.DepthKnob(fragments)) {
+                    filter.SetKnob(*depth_knob);
+                    #pragma omp critical(print)
+                    std::cout << "Sample " << sample_name << ": " << fragments << " fragments, knob " << *depth_knob
+                              << " (the model's for depth bin " << profiler::DepthKnobBin(fragments) << ")" << std::endl;
+                }
+            }
+            double const msa_knob = options.MSAKnobGiven() ? options.GetMSAKnob() : filter.GetKnob();
+            profile.SetKnobs(filter.GetKnob(), msa_knob);
+
             // The outputs below score every taxon; on the sample's threads first.
             if (threads_per_sample > 1) profile.ScoreTaxa(filter, threads_per_sample);
             if (profiler.RejectedReads() > 0) {
@@ -1082,7 +1102,13 @@ namespace protal {
     using OptionalFilter = optional<std::reference_wrapper<const profiler::TaxonFilter>>;
     using SimilarityMatrix = DoubleMatrix;
 
-    // Taxa in at least `min_samples` profiles (passing `filter`, if given), the most frequent first.
+    // Whether `taxon` of `profile` enters the strain MSAs: the model `filter` scores it at the profile's MSA knob or more
+    // (--msa_knob, else the threshold the sample was reported at: --knob, or its model's knob for its depth).
+    static bool EntersMSA(profiler::TaxonFilterObj const& filter, Profile const& profile, profiler::Taxon const& taxon) {
+        return filter.Score(taxon) >= profile.MSAKnob();
+    }
+
+    // Taxa in at least `min_samples` profiles (entering the MSAs by `filter`, if given), the most frequent first.
     TaxidList ExtractTaxa(Profiles const& profiles, std::optional<profiler::TaxonFilterObj> filter= {}, size_t min_samples = 2) {
         TaxidCounts taxid_counts;
         TaxidSet taxa;
@@ -1090,7 +1116,7 @@ namespace protal {
 
         for (auto& profile : profiles) {
             for (auto& [id, taxon] : profile.GetTaxa()) {
-                if (filter.has_value() && !filter->Pass(taxon)) continue;
+                if (filter.has_value() && !EntersMSA(*filter, profile, taxon)) continue;
                 if (!taxid_counts.contains(id)) {
                     taxid_counts.insert({ id, 0 });
                 }
@@ -1170,7 +1196,7 @@ namespace protal {
             auto& taxon1 = profile1.GetTaxa().at(taxid);
             auto& taxon2 = profile2.GetTaxa().at(taxid);
 
-            if (filter.has_value() && !(filter->Pass(taxon1) && filter->Pass(taxon2))) {
+            if (filter.has_value() && !(EntersMSA(*filter, profile1, taxon1) && EntersMSA(*filter, profile2, taxon2))) {
                 return { NAN, 0 };
             }
 
@@ -1249,7 +1275,7 @@ namespace protal {
             auto& taxon_map = profile.GetTaxa();
 
             auto& taxon = taxon_map.at(taxid);
-            if (filter.has_value() && !filter.value().Pass(taxon)) {
+            if (filter.has_value() && !EntersMSA(filter.value(), profile, taxon)) {
                 continue;
             }
             // std::cout << taxid << " Passes " << std::endl;
@@ -1983,8 +2009,8 @@ namespace protal {
         return pages * page_size;
     }
 
-    // Loads the PMML presence model and checks that protal can use it (ModelContractProblemInXml);
-    // exits 2 if not.
+    // Loads the PMML presence model and its depth knobs (ParseDepthKnobs) and checks that protal can use it
+    // (ModelContractProblemInXml); exits 2 if not.
     static profiler::TaxonFilterObj LoadModel(db::DbFile const& file, double knob) {
         std::string read_error;
         auto const xml = file.ReadAll(read_error);
@@ -1999,10 +2025,14 @@ namespace protal {
             std::cerr << "Cannot load the model " << file.Name() << ": " << e.what() << std::endl;
             exit(2);
         }
-        if (auto problem = profiler::ModelContractProblemInXml(model.value(), *xml); !problem.empty()) {
+        std::map<int, double> depth_knobs;
+        auto problem = profiler::ModelContractProblemInXml(model.value(), *xml);
+        if (problem.empty()) problem = profiler::ParseDepthKnobs(*xml, depth_knobs);
+        if (!problem.empty()) {
             std::cerr << "Cannot use the model " << file.Name() << ": " << problem << std::endl;
             exit(2);
         }
+        model->SetDepthKnobs(std::move(depth_knobs));
         if (profiler::IsPlaceholderModel(*xml)) {
             std::cerr << "WARNING: " << file.Name() << " is a placeholder, not a trained model: it scores every taxon 0, so "
                       << "no species is reported (--knob 0 lists every taxon with reads). Train a model for this read type "
@@ -2123,7 +2153,17 @@ namespace protal {
                 if (options.AnySample(info.type) || (info.type == ReadType::Paired && !any_sample)) {
                     auto const model_file = options.ModelDbFile(info.type);
                     std::cout << "Model of " << info.name << " reads: " << model_file.Name() << std::endl;
-                    models[static_cast<size_t>(info.type)].emplace(LoadModel(model_file, options.GetKnob()));
+                    auto const& model = models[static_cast<size_t>(info.type)].emplace(LoadModel(model_file, options.GetKnob()));
+                    if (!model.DepthKnobs().empty()) {
+                        std::string knobs;
+                        for (auto const& [bin, knob] : model.DepthKnobs()) {
+                            knobs += (knobs.empty() ? "" : ", ") + std::to_string(bin) + ": " + profiler::FeatureString(knob);
+                        }
+                        std::cout << "  knobs by sample depth (bin b: 10^b to 10^(b+1) fragments, 2 also fewer, 6 also more): "
+                                  << knobs << (options.KnobGiven() ? "; not used, --knob is given"
+                                                                   : "; other depths --knob " + profiler::FeatureString(options.GetKnob()))
+                                  << std::endl;
+                    }
                 }
             }
             LoadGeneConservation(options, db.GetGenomes());
@@ -2172,7 +2212,7 @@ namespace protal {
             
             auto profiles = ProfileWrapper(options, db, models);
             // Which taxa pass, for the statistics and strains: the scores ProfileWrapper cached, each
-            // from its sample's model (any model reads them).
+            // from its sample's model (any model reads them), at each profile's knobs.
             auto const loaded = std::find_if(models.begin(), models.end(), [](auto const& m) { return m.has_value(); });
             auto& filter = loaded->value();
             bm_profiling.Stop();
@@ -2198,7 +2238,7 @@ namespace protal {
                         if (!taxa.contains(taxid)) continue;
 
                         auto& taxon = taxa.at(taxid);
-                        bool accepted = filter.Pass(taxon);
+                        bool accepted = filter.Score(taxon) >= profile.Knob();
                         stats.PrintLine(os, profile.GetName(), taxon.VerticalCoverage(), taxon.TotalHits(), taxon.TotalLength(), taxon.GetMeanANI(), taxon.GetMeanMAPQ(), accepted);
                     }
                     os.close();
@@ -2210,9 +2250,9 @@ namespace protal {
              * STRAIN PART -  RESOLVE MSAs BETWEEN SAMPLES
              */
             if (!options.NoStrains()) {
-                // A sample enters a taxon's MSA with a score of --msa_knob or more (by default --knob:
-                // the samples whose profile reports the taxon).
-                StrainWrapper2(options, profiles, db.GetGenomes(), db.GetTaxonomy(), msa_taxids, filter.WithKnob(options.GetMSAKnob()));
+                // A sample enters a taxon's MSA with a score of its profile's MSA knob or more (--msa_knob, by
+                // default the sample's knob: the samples whose profile reports the taxon; EntersMSA).
+                StrainWrapper2(options, profiles, db.GetGenomes(), db.GetTaxonomy(), msa_taxids, filter);
             }
         }
 

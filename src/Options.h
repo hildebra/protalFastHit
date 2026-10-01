@@ -102,7 +102,7 @@ namespace protal {
         // Profiling options
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
-                ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
+                ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours. Default 0.5, or, for a model with knobs by depth (the trainer writes them for long reads), the model's knob for each sample's depth; a --knob given applies to every sample.", cxxopts::value<double>()->default_value("0.5"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is the same on every gene unless --gene_conservation scales it. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
                 ("gene_conservation", "Scale --depth_identity_margin per gene by how fast each gene diverges within species: db for the database's factors (gene_conservation.tsv, which --build estimates from --full_reference and stores in the database), or a file of them (geneid, factor, species; 1 for a gene of typical conservation). A gene's margin is then 0.03 for read errors plus the rest times its factor (0.08: 0.05 at factor 0.4, 0.10 at 1.4). none (default): the same margin on every gene, which did best summed over three simulated worlds, among them one with many congeners missing from the database. The factors (the file's, else the database's) give the model's conservation features (conserved_fast_depth_ratio, conserved_hit_share) whatever this says.", cxxopts::value<std::string>()->default_value("none"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
@@ -120,7 +120,7 @@ namespace protal {
                 ("snp_min_af", "Minimum allele frequency for an allele (its reads / the reads with a base at the position), so also the least share of reads a second strain needs to show as an IUPAC code. Interacts with --snp_min_cov: below coverage = snp_min_cov/snp_min_af, the count filter is stricter. Given, it applies to all read types; else ONT reads take 0.2 (their errors put low-frequency alleles at many positions). Profiles do not depend on it.", cxxopts::value<double>()->default_value(std::to_string(DEFAULT_MIN_SNP_AF)))
                 ("snp_no_strand", "Disable the strand-bias filter. By default an allele (the reference included) that is seen on one strand only fails where that is unlikely given the strands of all reads at the position (p < 0.05): with reads on both strands, an allele on just one of them is an artefact. Where the reads are from one strand, as often at low depth, it passes.")
                 ("msa_min_hcov", "Minimum non-N/non-'-' bases required per sequence to keep it in the MSA.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MSA_MIN_HCOV)))
-                ("msa_knob", "Model probability, 0 to 1, a sample's taxon needs for its reads to enter the taxon's strain MSA. Default: --knob, so the MSA holds the samples whose profile reports the taxon.", cxxopts::value<double>())
+                ("msa_knob", "Model probability, 0 to 1, a sample's taxon needs for its reads to enter the taxon's strain MSA. Default: the sample's knob (--knob, or the model's knob for its depth), so the MSA holds the samples whose profile reports the taxon.", cxxopts::value<double>())
                 ("msa_min_depth", "Reads a position needs to be written in a strain MSA; with fewer it is '-'. Where all its reads show one allele, that many suffice; a second allele (an IUPAC code) needs --snp_min_cov reads of its own, and a site whose reads disagree otherwise is N.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MSA_MIN_DEPTH)))
                 ("msa_identity_margin", "Reads enter a species' strain MSA rows when their identity is at most this far below that of its best-matching reads (98th percentile), as for its abundance (--depth_identity_margin), but by default more strictly: a relative's reads within 0.08 of the best add false alleles (10 times the false calls before qcmsa, twice after). 1 lets every read in.", cxxopts::value<double>()->default_value("0.04"))
                 ("msa_species", "Restrict MSAs to a single species (s__Genus_species) or a comma-separated list.", cxxopts::value<std::string>()->default_value(""))
@@ -244,6 +244,7 @@ namespace protal {
         std::string read_type;  // --read_type as given (empty if not): the samples' (read_type_list) and --add_model's
         std::string add_model;
         double knob = 0.5;
+        bool knob_given = false;  // --knob on the command line: the models' depth knobs are not used
         double depth_identity_margin = 0.08;
         double msa_identity_margin = 0.04;
         std::string gene_conservation = "none";  // --gene_conservation: none, db (the database's), or a file
@@ -349,6 +350,7 @@ namespace protal {
         std::string m_read_type;  // --read_type as given; empty if not
         std::string m_add_model;  // --add_model
         double m_knob = 0.5;
+        bool m_knob_given = false;  // --knob
         double m_depth_identity_margin = 0.08;
         double m_msa_identity_margin = 0.04;
         std::string m_gene_conservation = "none";  // --gene_conservation
@@ -477,6 +479,7 @@ namespace protal {
                 m_read_type(std::move(d.read_type)),
                 m_add_model(std::move(d.add_model)),
                 m_knob(d.knob),
+                m_knob_given(d.knob_given),
                 m_depth_identity_margin(d.depth_identity_margin),
                 m_msa_identity_margin(d.msa_identity_margin),
                 m_gene_conservation(std::move(d.gene_conservation)),
@@ -630,7 +633,19 @@ namespace protal {
             return m_knob;
         }
 
-        // The model probability a sample's taxon needs to enter its strain MSA: --msa_knob, else --knob.
+        // Whether --knob was given: then it applies to every sample; otherwise a model's knob for the sample's depth
+        // (its depth knobs, written by the trainer for long reads) where it has one, else --knob's default.
+        bool KnobGiven() const {
+            return m_knob_given;
+        }
+
+        // Whether --msa_knob was given: otherwise each sample's MSA knob is its profile's knob.
+        bool MSAKnobGiven() const {
+            return m_msa_knob.has_value();
+        }
+
+        // The model probability a sample's taxon needs to enter its strain MSA: --msa_knob, else --knob (ProfileWrapper:
+        // without --msa_knob, each sample's own knob, which may be its model's for its depth).
         double GetMSAKnob() const {
             return m_msa_knob.value_or(m_knob);
         }
@@ -2467,6 +2482,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.compress_window_log      = result["compress_window_log"].as<int>();
             d.compress_frame_mb        = result["compress_frame_mb"].as<int>();
             d.knob                     = result["knob"].as<double>();
+            d.knob_given               = result.count("knob") > 0;
             if (result.count("msa_knob")) d.msa_knob = result["msa_knob"].as<double>();
             d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
             d.msa_identity_margin      = result["msa_identity_margin"].as<double>();

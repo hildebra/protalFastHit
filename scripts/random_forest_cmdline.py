@@ -34,6 +34,13 @@ Written to PREFIX.*:
 --evaluation full adds studies that tell whether the training set and the settings suffice: other
 feature sets, the procedure this script used before (grid search over max_features, then only the
 top features, 512 trees), forest sizes and tree counts, and fewer training samples.
+
+--depth-knobs also chooses a knob per depth of the sample: for each bin of the samples' fragments over
+all their taxa (the digits of their number less one, 2 to 6), the threshold with the highest F1 on
+species held out, where the bin has more than 50 taxa and 10 present. They go into the model's header,
+and protal applies the knob of each sample's bin unless --knob is given (other bins: --knob's default).
+On long reads, whose depth differs most between samples, this raised the test F1 by 0.007 (PacBio) to
+0.015 (ONT); on short reads it did not help (docs/claude/2026-10-01-f1-opportunities).
 """
 
 from __future__ import annotations
@@ -57,7 +64,7 @@ from sklearn.model_selection import GridSearchCV, GroupKFold, StratifiedKFold
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lineages  # noqa: E402
 from model_features import feature_columns  # noqa: E402
-from model_pmml import PmmlForest, write_forest  # noqa: E402
+from model_pmml import PmmlForest, format_depth_knobs, read_depth_knobs, write_forest  # noqa: E402
 
 # Clades held out in cross-validation (with --taxonomy): each row is scored by forests that saw no taxon of
 # its genus, family, order, class or phylum.
@@ -68,6 +75,12 @@ NOVEL_RANKS = ("species", "genus", "family", "order", "class", "phylum")
 DIAGNOSTIC_FEATURES = ["fragments", "depth", "hit_gene_fraction", "gene_presence_ratio", "identity", "top_identity",
                        "low_identity_share", "lsu_per_kb", "lu_per_kb", "uniqueness"]
 FRAGMENT_BINS = [0, 10, 100, 1000, np.inf]
+# --depth-knobs: the bins of a sample's fragments (profiler::DepthKnobBin), the taxa a bin needs for a knob of its own,
+# and the thresholds tried.
+DEPTH_KNOB_BINS = range(2, 7)
+DEPTH_KNOB_MIN_TAXA = 50
+DEPTH_KNOB_MIN_PRESENT = 10
+DEPTH_KNOB_GRID = np.round(np.arange(0.05, 0.955, 0.01), 2)
 
 
 def parse_args(argv=None):
@@ -83,6 +96,9 @@ def parse_args(argv=None):
     p.add_argument("--min-samples-leaf", type=int, default=1)
     p.add_argument("--max-features", default="sqrt", help="features tried per split: sqrt, log2, a count or a fraction")
     p.add_argument("--knob", type=float, default=0.5, help="the threshold protal will use (its --knob, default 0.5)")
+    p.add_argument("--depth-knobs", action="store_true",
+                   help="also choose a knob per depth bin of the sample, on species held out, and store them in the "
+                        "model, which protal then applies unless --knob is given (for long reads; see above)")
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="full: also the studies (see above); basic: out of bag, by sample and by species; "
@@ -542,7 +558,69 @@ def study_by_rank(report, df, y, p, opts, title="False positives and false negat
     report.data[key] = data
 
 
-def study_test(report, rf, cols, opts, prefix):
+def depth_bins(df):
+    """Each row's depth bin as protal computes it (profiler::DepthKnobBin): the digits of its sample's fragments over
+    all the sample's taxa (rows), less one, 2 to 6."""
+    samples = df["meta_sample"].astype(str) if "meta_sample" in df.columns else pd.Series("", index=df.index)
+    totals = df["fragments"].astype(float).groupby(samples).transform("sum").to_numpy()
+    return np.clip([len(str(int(max(t, 1)))) - 1 for t in totals], DEPTH_KNOB_BINS[0], DEPTH_KNOB_BINS[-1])
+
+
+def depth_knob_calls(p, bins, knobs, knob):
+    """Calls at each row's depth knob, else at knob."""
+    return p >= np.array([knobs.get(int(b), knob) for b in bins])
+
+
+def f1_of(y, call):
+    tp, fp, fn = int((call & (y == 1)).sum()), int((call & (y == 0)).sum()), int((~call & (y == 1)).sum())
+    return 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None
+
+
+def bin_fragments(b):
+    """The fragments of depth bin b, as text."""
+    if b == DEPTH_KNOB_BINS[0]:
+        return f"< 10^{b + 1}"
+    if b == DEPTH_KNOB_BINS[-1]:
+        return f">= 10^{b}"
+    return f"10^{b} - 10^{b + 1}"
+
+
+def study_depth_knobs(report, df, X, y, p, opts):
+    """--depth-knobs: the F1-optimal threshold of each depth bin on species held out; returns {bin: knob}."""
+    report.section("Knobs by sample depth (species held out)")
+    scores = p.get("species")
+    if scores is None:
+        splits = folds(df, y, "species", opts)
+        if splits is None:
+            report.add("the table cannot hold out species: no depth knobs")
+            return {}
+        scores = predict_out_of_fold(X, y, splits, forest_params(opts))
+    bins = depth_bins(df)
+    ok = ~np.isnan(scores)
+    samples = df["meta_sample"].astype(str).to_numpy() if "meta_sample" in df.columns else np.full(len(df), "")
+    knobs, rows = {}, []
+    for b in DEPTH_KNOB_BINS:
+        sel = ok & (bins == b)
+        row = {"bin": b, "fragments": bin_fragments(b), "samples": len(np.unique(samples[sel])), "taxa": int(sel.sum()),
+               "present": int(y[sel].sum()), "knob": None, f"F1 at {opts.knob}": f1_of(y[sel], scores[sel] >= opts.knob),
+               "F1 at the knob": None}
+        if row["taxa"] > DEPTH_KNOB_MIN_TAXA and row["present"] >= DEPTH_KNOB_MIN_PRESENT:
+            f1s = [f1_of(y[sel], scores[sel] >= t) or 0.0 for t in DEPTH_KNOB_GRID]
+            knobs[b] = float(DEPTH_KNOB_GRID[int(np.argmax(f1s))])
+            row["knob"], row["F1 at the knob"] = knobs[b], max(f1s)
+        rows.append(row)
+    report.table(pd.DataFrame(rows))
+    at_knob = f1_of(y[ok], scores[ok] >= opts.knob)
+    with_knobs = f1_of(y[ok], depth_knob_calls(scores[ok], bins[ok], knobs, opts.knob))
+    report.add(f"F1 of species held out: {fmt(at_knob, 4)} at {opts.knob}, {fmt(with_knobs, 4)} at the depth knobs "
+               f"({format_depth_knobs(knobs) or 'none'}; bins without one: {opts.knob}). The knobs are chosen on these "
+               "calls, so the second is optimistic; the test set (--test-file) tells.")
+    report.data["depth_knobs"] = {"knobs": {str(b): k for b, k in knobs.items()}, "bins": rows,
+                                  "F1_at_knob": at_knob, "F1_at_depth_knobs": with_knobs}
+    return knobs
+
+
+def study_test(report, rf, cols, opts, prefix, depth_knobs=None):
     """The fitted forest on an independent test table: samples of another design (depths, community sizes,
     abundance model, strains), which cross-validation on the training data cannot judge. Its probabilities are
     protal's (the PMML is checked to score as the forest does)."""
@@ -569,6 +647,13 @@ def study_test(report, rf, cols, opts, prefix):
         report.add("by depth (read pairs, or bases for long reads):")
         report.table(pd.DataFrame(depth_rows))
         report.data["test_by_depth"] = depth_rows
+    if depth_knobs:
+        knob_calls = depth_knob_calls(p, depth_bins(test), depth_knobs, opts.knob)
+        fp, fn = int((knob_calls & (y == 0)).sum()), int((~knob_calls & (y == 1)).sum())
+        report.add(f"at the depth knobs ({format_depth_knobs(depth_knobs)}), as protal calls by default: F1 "
+                   f"{fmt(f1_of(y, knob_calls), 4)}, {fp} false positives, {fn} false negatives (at knob {opts.knob}: "
+                   f"F1 {fmt(rows[0][1]['F1'], 4)}, {rows[0][1]['FP']} and {rows[0][1]['FN']})")
+        report.data["test_depth_knobs"] = {"F1": f1_of(y, knob_calls), "FP": fp, "FN": fn}
     t, prec, rec, f1 = best_threshold(y, p)
     report.add(f"highest F1 on the test set at threshold {t:.3f} (F1 {f1:.4f}; at knob {opts.knob}: "
                f"{fmt(rows[0][1]['F1'], 4)})")
@@ -792,10 +877,15 @@ def main(argv=None):
             t0 = time.time()
             study()
             timing[name] = time.time() - t0
+    depth_knobs = {}
+    if opts.depth_knobs:
+        t0 = time.time()
+        depth_knobs = study_depth_knobs(report, df, X, y, p, opts)
+        timing["depth_knobs"] = time.time() - t0
     if opts.test_file:
         t0 = time.time()
         rf.n_jobs = 1  # sum the trees in file order, as protal does
-        study_test(report, rf, cols, opts, prefix)
+        study_test(report, rf, cols, opts, prefix, depth_knobs)
         rf.n_jobs = opts.threads
         timing["test"] = time.time() - t0
 
@@ -809,7 +899,11 @@ def main(argv=None):
     species = report.data.get("evaluation", {}).get("species")
     if species:
         notes.append(f"species held out: AP {fmt(species['AP'])}, F1 {fmt(species['F1'])} at knob {opts.knob}")
-    write_forest(rf, cols, prefix + ".xml", notes)
+    if depth_knobs:
+        notes.append(f"knobs by sample depth (bin of the fragments: knob): {format_depth_knobs(depth_knobs)}")
+    write_forest(rf, cols, prefix + ".xml", notes, depth_knobs)
+    if read_depth_knobs(prefix + ".xml") != depth_knobs:
+        sys.exit(f"{prefix}.xml: the depth knobs read back differ from those written")
     timing["export"] = time.time() - t0
     rf.n_jobs = 1  # sum the trees in file order, as protal does
     sk = rf.predict_proba(X)[:, 1]

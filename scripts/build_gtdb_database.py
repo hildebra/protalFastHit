@@ -79,6 +79,9 @@ GENE_NEIGHBOURS = os.path.join(HERE, "mini_db", "gene_neighbours.py")
 TRAINER = os.path.join(HERE, "random_forest_cmdline.py")
 COLLECTOR = os.path.join(HERE, "collect_training_data.py")
 PARITY = os.path.join(HERE, "check_model_parity.py")
+# Read types whose models get knobs by sample depth (random_forest_cmdline.py --depth-knobs): long reads, where they
+# raised the test F1 (docs/claude/2026-10-01-f1-opportunities); short reads gained nothing.
+DEPTH_KNOB_READ_TYPES = ("pb", "ont")
 ACCESSION = re.compile(r"(?:RS_|GB_)?(GC[AF]_\d{9}\.\d+)")
 sys.path.insert(0, os.path.join(HERE, "mini_db"))
 sys.path.insert(0, HERE)
@@ -495,7 +498,8 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
              ("classifier_training_design", f"read pairs {args.read_pairs}; read setups {args.read_setups}; "
                                             f"species per sample {args.species_per_sample}; strains "
                                             f"{args.strains_per_species or 'one'}; abundance {args.abundance or 'default'}"),
-             ("classifier_read_types", ",".join(read_types))]
+             ("classifier_read_types", ",".join(read_types)),
+             ("classifier_depth_knobs", ",".join(t for t in read_types if t in DEPTH_KNOB_READ_TYPES) or "none")]
     for t in read_types:
         try:
             with open(prefixes[t] + ".metrics.json") as fh:
@@ -507,6 +511,10 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
         rows.append((f"model_{t}", f"species held out F1 {species_cv.get('F1')}, FP per sample "
                                    f"{species_cv.get('FP_per_sample')}; independent test F1 {test.get('F1')}, FP per "
                                    f"sample {test.get('FP_per_sample')}"))
+        knobs = metrics.get("depth_knobs", {}).get("knobs")
+        if knobs:
+            rows.append((f"model_{t}_depth_knobs", ",".join(f"{b}:{k:g}" for b, k in sorted(knobs.items())) +
+                         f"; independent test F1 at them {metrics.get('test_depth_knobs', {}).get('F1')}"))
     return rows
 
 
@@ -1025,6 +1033,8 @@ def main():
                    "--output-prefix", prefixes[t], "--features", "normalized", "--ntree", str(args.ntree),
                    "--maxnodes", str(args.maxnodes), "--seed", str(args.seed), "--threads", str(trainer_threads),
                    "--taxonomy", taxonomy, "--evaluation", args.evaluation]
+        if t in DEPTH_KNOB_READ_TYPES:
+            command += ["--depth-knobs"]
         if args.test_samples > 0 and os.path.isfile(os.path.join(test, TABLES[t])):
             command += ["--test-file", os.path.join(test, TABLES[t])]
         trainers[t] = Job(command, os.path.join(args.outdir, "classifier_training" + ("" if t == "pe" else "_" + t) + ".log"),

@@ -48,15 +48,16 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 Strain MSAs are written for the species that pass the model in at least two samples, each with a
 row for every sample in which the species passes. A run of one sample therefore writes no MSAs.
 `--msa_species s__Genus_species,...` writes MSAs for the named species only. A species passes
-with a model probability of at least `--knob` in the profiles and of at least `--msa_knob`
-(default: `--knob`) for the MSAs, so by default both hold the same samples. An MSA takes the genes
+with a model probability of at least its sample's knob in the profiles (`--knob`, or a model's knob
+for the sample's depth, [model-training.md](model-training.md#knobs-by-sample-depth)) and of at
+least `--msa_knob` (default: the same knob) for the MSAs, so by default both hold the same samples. An MSA takes the genes
 with reads in its samples. For a species with relatives in the database, whose genes have long
 unique k-mers (a 15-mer core shared with a relative) in 90% of cases or more, the genes without
 any are left out: a relative may share them unchanged, and its reads would then show as a second
 strain.
 
 `misc/unreported_species.tsv` lists the species that a sample's profile leaves out, their
-probability below `--knob`, although their own reads are strong evidence that they are present:
+probability below the sample's knob, although their own reads are strong evidence that they are present:
 1x or more depth from reads within `--depth_identity_margin` of their best ones, reads on 90% of
 their genes, best reads 98% identical to the reference or more, and at most half of their
 aligned bases from reads of lower identity. protal warns when it lists any. In the model's test
@@ -134,7 +135,7 @@ alignment. Workflow managers can rely on a non-zero status.
 | Option | Default | |
 |---|---|---|
 | `-t, --threads` | 1 | threads for alignment (which also compresses the SAM), database loading and profiling. Set it: the default is one thread. While aligning, each read file is also decompressed by a thread of its own (two for paired reads); BGZF files (`bgzip`, `simulate_metagenomes`) decompress about 2x faster than other gzip files (libdeflate against zlib-ng). Samples are profiled in parallel, the largest SAM first, each on threads in proportion to its SAM's share of all the samples' bytes (at least one; a single sample on all), with the same results as on one thread. A sample profiled on several threads also has its SAM read by a thread of its own |
-| `--knob` | 0.5 | detection threshold, 0 to 1 (checked). Choose it on data like yours; see [model-training.md](model-training.md) |
+| `--knob` | 0.5 | detection threshold, 0 to 1 (checked). Choose it on data like yours; see [model-training.md](model-training.md). A model with knobs by sample depth (the database's long-read models, built by `build_gtdb_database.py`) uses the knob for each sample's depth unless `--knob` is given; the log lists them ([model-training.md](model-training.md#knobs-by-sample-depth)) |
 | `--depth_identity_margin` | 0.08 | a read counts towards a species' abundance only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth. The margin is the same on every gene unless `--gene_conservation` scales it. The default counts the reads of strains up to about 5% from the reference; 0.04, the earlier default, dropped up to 40% of the reads of strains 3–5% away and undercounted those strains ([report](claude/2026-09-30-depth-margin-stress/README.md), [scaled per gene](claude/2026-10-01-gene-scaled-margin/README.md)). 1 lets every read count |
 | `--gene_conservation` | `none` | scale `--depth_identity_margin` per gene by how fast each gene diverges within species: `db` for the database's factors (`gene_conservation.tsv`, which `--build` estimates and stores, [database-files.md](database-files.md)), or a file of `geneid<TAB>factor` lines. A gene's margin is then 0.03 for read errors plus the rest times its factor: at 0.08, 0.05 on a gene with factor 0.4 and 0.10 on one with 1.4. `none`, the default, keeps the same margin on every gene: summed over three simulated worlds it did best, since the scaled margin also admits more of a missing relative's reads; the scaled one was better only where strains reach 6% from the reference ([report](claude/2026-10-01-gene-scaled-margin/README.md)). The log says which applies (`Gene conservation: ...`). Whatever it says, the database's factors (or the file's) give the model's conservation features (`conserved_fast_depth_ratio`, `conserved_hit_share`, [model-training.md](model-training.md)); without them these are 0 and 0.5 |
 | `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [model-training.md](model-training.md) |
