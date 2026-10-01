@@ -1,0 +1,25 @@
+# b6: 4.20 3.37 3.75 1/221 559418
+stage	seconds	threads	seconds_per_thread
+Seeding	33.460313	6	5.576719
+Sorting Seeds	11.641662	6	1.940277
+Pairing	6.254657	6	1.042443
+Sorting Anchors	1.777743	6	0.296291
+Extending Anchors	11.498325	6	1.916388
+Sequence reader	8.172271	6	1.362045
+Retrieve k-mers	10.641855	6	1.773643
+Seed- and Anchor-finding	71.207141	6	11.867857
+Anchor recovery	3.346209	6	0.557702
+Alignment handler	57.809915	6	9.634986
+Joining alignment pairs and sorting	11.403337	6	1.900556
+Output handler	25.650360	6	4.275060
+Preload genomes took 102ms
+Load Index took 710ms
+Aligning reads took 29s 900ms
+Writing the SAM header and file took 1s 349ms
+Processing all samples took 31s 249ms
+Profiling took 15s 12ms
+Strain-level MSAs took less than 1ms
+Run protal took 47s 651ms
+	Percent of CPU this job got: 418%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:47.69
+	Maximum resident set size (kbytes): 3636744

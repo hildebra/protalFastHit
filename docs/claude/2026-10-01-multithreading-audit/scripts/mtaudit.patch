@@ -1,0 +1,256 @@
+diff -ruN orig/src/IO/SamFile.h instr-src/src/IO/SamFile.h
+--- a/src/IO/SamFile.h	2026-10-01 16:33:17.000000000 +0100
++++ b/src/IO/SamFile.h	2026-10-01 18:06:33.371927892 +0100
+@@ -43,6 +43,7 @@
+ #include "Bgzf.h"
+ #include "ThreadedGzStream.h"
+ #include "Zstd.h"
++#include "../Utilities/MtAudit.h"
+ 
+ namespace protal {
+     enum class SamCompression { None, Gzip, Zstd };
+@@ -225,11 +226,18 @@
+             thread_local sam_zstd::Frames frames;
+             packed.clear();
+             frames.clear();
++            uint64_t const mt_p0 = mtaudit::Now();
+             bool const packed_ok = size == 0 || Pack(data, size, packed, frames);
++            if (size > 0) mtaudit::Get().sam_pack.Add(mtaudit::Now() - mt_p0);
++            mtaudit::Get().sam_bytes.fetch_add(size, std::memory_order_relaxed);
+             std::sort(genes.begin(), genes.end());
+             genes.erase(std::unique(genes.begin(), genes.end()), genes.end());
+ 
+-            std::lock_guard<std::mutex> lock(m_mutex);
++            uint64_t const mt_w0 = mtaudit::Now();
++            std::unique_lock<std::mutex> lock(m_mutex);
++            uint64_t const mt_w1 = mtaudit::Now();
++            mtaudit::Get().sam_wait.Add(mt_w1 - mt_w0);
++            struct MtHold { uint64_t t; ~MtHold() { mtaudit::Get().sam_hold.Add(mtaudit::Now() - t); } } mt_hold{ mt_w1 };
+             m_genes.insert(genes.begin(), genes.end());
+             genes.clear();
+             if (!m_error.empty() || size == 0) return;
+diff -ruN orig/src/IO/ThreadedGzStream.h instr-src/src/IO/ThreadedGzStream.h
+--- a/src/IO/ThreadedGzStream.h	2026-10-01 16:33:17.000000000 +0100
++++ b/src/IO/ThreadedGzStream.h	2026-10-01 18:06:33.375865577 +0100
+@@ -21,6 +21,7 @@
+ #include <vector>
+ 
+ #include "Bgzf.h"
++#include "../Utilities/MtAudit.h"
+ 
+ namespace protal {
+ 
+@@ -170,7 +171,9 @@
+                 m_current = kNone;
+                 m_cv.notify_all();
+             }
++            uint64_t const mt_u0 = mtaudit::Now();
+             m_cv.wait(lock, [this] { return !m_ready.empty() || m_done; });
++            mtaudit::Get().underflow_wait.Add(mtaudit::Now() - mt_u0);
+             if (m_ready.empty()) {
+                 setg(nullptr, nullptr, nullptr);
+                 return traits_type::eof();
+@@ -192,7 +195,9 @@
+                 size_t index;
+                 {
+                     std::unique_lock<std::mutex> lock(m_mutex);
++                    uint64_t const mt_i0 = mtaudit::Now();
+                     m_cv.wait(lock, [this] { return !m_free.empty() || m_stop; });
++                    mtaudit::Get().inflate_idle.Add(mtaudit::Now() - mt_i0);
+                     if (m_stop) break;
+                     index = m_free.front();
+                     m_free.pop_front();
+@@ -200,7 +205,10 @@
+                 char* data = m_blocks[index].data();
+                 size_t size = 0;
+                 std::string error;
++                uint64_t const mt_b0 = mtaudit::Now();
+                 end = m_bgzf ? FillBgzf(data, size, error) : FillGzip(data, size, error);
++                mtaudit::Get().inflate_busy.Add(mtaudit::Now() - mt_b0);
++                mtaudit::Get().inflated_bytes.fetch_add(size, std::memory_order_relaxed);
+                 {
+                     std::lock_guard<std::mutex> lock(m_mutex);
+                     if (size > 0) m_ready.emplace_back(index, size);
+diff -ruN orig/src/Profiling/Profiler.h instr-src/src/Profiling/Profiler.h
+--- a/src/Profiling/Profiler.h	2026-10-01 16:33:17.000000000 +0100
++++ b/src/Profiling/Profiler.h	2026-10-01 18:06:33.379928029 +0100
+@@ -5,6 +5,7 @@
+ #pragma once
+ 
+ #include "Strain.h"
++#include "../Utilities/MtAudit.h"
+ #include "AlignmentUtils.h"
+ #include <vector>
+ #include <sparse_map.h>
+@@ -1609,7 +1610,9 @@
+                 unique = sam.m_mapq > 20;
+                 ReadEvidence evidence;
+                 evidence.link = link;
++                uint64_t const mt_a0 = mtaudit::Now();
+                 bool success = taxon.AddSam(geneid, sam, score, unique, read_id, no_strain, evidence);
++                mtaudit::Get().prof_addsam.Add(mtaudit::Now() - mt_a0);
+                 // A taxon exists only with at least one read (its means divide by the read count).
+                 if (!success && taxon.TotalHits() == 0) m_taxa.erase(taxid);
+                 return success;
+@@ -2572,6 +2575,8 @@
+             // `profile`. Records the profile rejects (genes outside the database, alignments that do
+             // not match their gene) go to `erroneous_sam_out`. Returns an error message as ReadSamGroups.
+             std::string ProfileSam(std::string const& file_path, MicrobialProfile& profile, OptionalRefOstream erroneous_sam_out={}, size_t snp_min_cov=2, size_t snp_min_obs_fwdrev=2, double snp_min_af=0.0, size_t snp_min_mean_qual=15, size_t snp_min_phred_sum=0, bool snp_require_strand=false) {
++                uint64_t const mt_prof0 = mtaudit::Now();
++                struct MtTotal { uint64_t t; ~MtTotal() { mtaudit::Get().prof_total.Add(mtaudit::Now() - t); } } mt_total{ mt_prof0 };
+                 profile.SetDepthIdentityMargin(m_depth_identity_margin);
+                 size_t read_id = 0;
+                 m_rejected_reads = 0;
+@@ -2580,6 +2585,8 @@
+                 size_t link = 0;
+                 std::string last_qname;
+                 auto error = ReadSamGroups(file_path, [&](std::vector<AlignmentPair>& group) {
++                    uint64_t const mt_g0 = mtaudit::Now();
++                    struct MtGroup { uint64_t t; ~MtGroup() { mtaudit::Get().prof_group.Add(mtaudit::Now() - t); } } mt_group{ mt_g0 };
+                     auto& pair = group.size() == 1 ? group.front() : BestOfGroup(group);
+                     auto const& qname = pair.Any().m_qname;
+                     if (read_id > 0 && qname != last_qname) link++;
+@@ -2595,10 +2602,12 @@
+                 if (!error.empty()) return error;
+ 
+                 m_reads = read_id;
++                uint64_t const mt_pp0 = mtaudit::Now();
+                 profile.ApplyRecordEvidence();
+                 m_post_process_bm.Start();
+                 profile.PostProcessSNPs(snp_min_cov, snp_min_obs_fwdrev, snp_min_af, snp_min_mean_qual, snp_min_phred_sum, snp_require_strand);
+                 m_post_process_bm.Stop();
++                mtaudit::Get().prof_post.Add(mtaudit::Now() - mt_pp0);
+                 return {};
+             }
+ 
+diff -ruN orig/src/SequenceUtils/SeqReader.h instr-src/src/SequenceUtils/SeqReader.h
+--- a/src/SequenceUtils/SeqReader.h	2026-10-01 16:33:17.000000000 +0100
++++ b/src/SequenceUtils/SeqReader.h	2026-10-01 18:06:33.384642787 +0100
+@@ -9,6 +9,7 @@
+ #include <string>
+ #include "FastxReader.h"
+ #include "omp.h"
++#include "../Utilities/MtAudit.h"
+ 
+ namespace protal {
+ 
+@@ -33,9 +34,12 @@
+                 m_is(other.m_is) {};
+ 
+         inline void LoadBlockOMP(std::istream& is) {
++uint64_t const mt_t0 = mtaudit::Now(); uint64_t mt_t1 = 0;
+ #pragma omp critical(reader)
+             {
++    mt_t1 = mtaudit::Now(); mtaudit::Get().reader_wait.Add(mt_t1 - mt_t0);
+                 m_valid_block = m_reader.LoadBlock(is, m_block_size);
++                mtaudit::Get().reader_hold.Add(mtaudit::Now() - mt_t1);
+             }
+         }
+ 
+@@ -116,9 +120,12 @@
+                 m_success = false;
+                 return false;
+             }
++uint64_t const mt_t0 = mtaudit::Now(); uint64_t mt_t1 = 0;
+ #pragma omp critical(reader)
+             {
++    mt_t1 = mtaudit::Now(); mtaudit::Get().reader_wait.Add(mt_t1 - mt_t0);
+                 m_valid_block = m_reader.LoadBatch(m_is, m_record_count);
++                mtaudit::Get().reader_hold.Add(mtaudit::Now() - mt_t1);
+             }
+             if (m_valid_block && Next(record)) return true;
+             m_success &= !m_reader.Error();
+@@ -181,18 +188,24 @@
+         }
+ 
+         inline void LoadBlockOMP() {
++uint64_t const mt_t0 = mtaudit::Now(); uint64_t mt_t1 = 0;
+ #pragma omp critical(reader)
+             {
++    mt_t1 = mtaudit::Now(); mtaudit::Get().reader_wait.Add(mt_t1 - mt_t0);
+ //                m_valid_block_1 = m_reader_1.LoadBlock(m_is1, m_block_size);
+ //                m_valid_block_2 = m_reader_2.LoadBlock(m_is2, m_block_size);
++                mtaudit::Get().reader_hold.Add(mtaudit::Now() - mt_t1);
+                 m_valid_block_1 = m_reader_1.LoadBatch(m_is1, m_record_count);
+                 m_valid_block_2 = m_reader_2.LoadBatch(m_is2, m_record_count);
++                mtaudit::Get().reader_hold.Add(mtaudit::Now() - mt_t1);
+             }
+         }
+ 
+         inline void LoadBlockOMP(bool first) {
++uint64_t const mt_t0 = mtaudit::Now(); uint64_t mt_t1 = 0;
+ #pragma omp critical(reader)
+             {
++    mt_t1 = mtaudit::Now(); mtaudit::Get().reader_wait.Add(mt_t1 - mt_t0);
+                 if (first)
+                     m_valid_block_1 = m_reader_1.LoadBlock(m_is1, m_block_size);
+                 else
+diff -ruN orig/src/Utilities/MtAudit.h instr-src/src/Utilities/MtAudit.h
+--- a/src/Utilities/MtAudit.h	1970-01-01 01:00:00.000000000 +0100
++++ b/src/Utilities/MtAudit.h	2026-10-01 18:06:33.384979337 +0100
+@@ -0,0 +1,65 @@
++// MtAudit.h - experiment only (multithreading audit, 2026-10-01): wall-clock counters around the
++// locks and hand-offs of a run, printed to stderr when the process ends. Not for the tree.
++#pragma once
++
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++
++namespace mtaudit {
++    inline uint64_t Now() {
++        return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                std::chrono::steady_clock::now().time_since_epoch()).count());
++    }
++
++    struct Counter {
++        std::atomic<uint64_t> ns{0}, n{0};
++        void Add(uint64_t d) { ns.fetch_add(d, std::memory_order_relaxed); n.fetch_add(1, std::memory_order_relaxed); }
++    };
++
++    struct Counters {
++        Counter reader_wait;       // waiting to enter critical(reader)
++        Counter reader_hold;       // inside critical(reader)
++        Counter underflow_wait;    // inside it: waiting for an inflated block (consumers faster than inflate)
++        Counter inflate_busy;      // inflating thread: filling a block (all streams)
++        Counter inflate_idle;      // inflating thread: waiting for a free block (inflate faster than consumers)
++        std::atomic<uint64_t> inflated_bytes{0};
++        Counter sam_pack;          // SamOutput::Write: compressing, outside the lock
++        Counter sam_wait;          // waiting for its mutex
++        Counter sam_hold;          // holding it (set insert, write())
++        std::atomic<uint64_t> sam_bytes{0};
++        Counter prof_total;        // ProfileSam: whole
++        Counter prof_group;        // its on_group callbacks (BestOfGroup, ProcessMAPQ, AddSam ...)
++        Counter prof_addsam;       // MicrobialProfile::AddSam inside them
++        Counter prof_post;         // ApplyRecordEvidence + PostProcessSNPs
++        uint64_t start = Now();
++
++        ~Counters() {
++            double const wall = (Now() - start) / 1e9;
++            auto row = [](char const* name, Counter const& c) {
++                std::fprintf(stderr, "MTAUDIT\t%s\t%.6f\t%llu\n", name, c.ns.load() / 1e9, static_cast<unsigned long long>(c.n.load()));
++            };
++            std::fprintf(stderr, "MTAUDIT\twall\t%.6f\t1\n", wall);
++            row("reader_wait", reader_wait);
++            row("reader_hold", reader_hold);
++            row("underflow_wait", underflow_wait);
++            row("inflate_busy", inflate_busy);
++            row("inflate_idle", inflate_idle);
++            std::fprintf(stderr, "MTAUDIT\tinflated_bytes\t%llu\t1\n", static_cast<unsigned long long>(inflated_bytes.load()));
++            row("sam_pack", sam_pack);
++            row("sam_wait", sam_wait);
++            row("sam_hold", sam_hold);
++            std::fprintf(stderr, "MTAUDIT\tsam_bytes\t%llu\t1\n", static_cast<unsigned long long>(sam_bytes.load()));
++            row("prof_total", prof_total);
++            row("prof_group", prof_group);
++            row("prof_addsam", prof_addsam);
++            row("prof_post", prof_post);
++        }
++    };
++
++    inline Counters& Get() {
++        static Counters counters;
++        return counters;
++    }
++}

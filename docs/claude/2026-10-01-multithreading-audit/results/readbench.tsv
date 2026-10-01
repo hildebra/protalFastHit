@@ -1,0 +1,22 @@
+ 1f 8b 08 04
+bgzf extra field:  1f 8b 08 04 00 00 00 00 00 ff 06 00 42 43 02 00
+gz	rep1	threads	1	work_us	0	pairs	4995812	seconds	2.946	pairs_per_s	1695973	MB_per_s	508.8	wait_s	0.007990	hold_s	0.980598	inflate_busy_s	4.940522	underflow_s	0.268541	load	3.21
+gz	rep1	threads	2	work_us	0	pairs	4995812	seconds	3.379	pairs_per_s	1478378	MB_per_s	443.5	wait_s	2.097149	hold_s	2.460411	inflate_busy_s	5.451918	underflow_s	1.606914	load	3.43
+gz	rep1	threads	3	work_us	0	pairs	4995812	seconds	4.013	pairs_per_s	1245036	MB_per_s	373.5	wait_s	6.217517	hold_s	3.381691	inflate_busy_s	6.149453	underflow_s	2.415561	load	3.72
+gz	rep1	threads	4	work_us	0	pairs	4995812	seconds	3.866	pairs_per_s	1292389	MB_per_s	387.7	wait_s	9.735707	hold_s	3.533498	inflate_busy_s	5.928180	underflow_s	2.652241	load	3.72
+gz	rep1	threads	6	work_us	0	pairs	4995812	seconds	5.858	pairs_per_s	852768	MB_per_s	255.8	wait_s	26.688903	hold_s	5.503626	inflate_busy_s	8.256403	underflow_s	4.270104	load	4.60
+plain	rep1	threads	1	work_us	0	pairs	4995812	seconds	2.806	pairs_per_s	1780540	MB_per_s	534.2	wait_s	0.006552	hold_s	0.983535	inflate_busy_s	0.689117	underflow_s	0.014043	load	4.60
+plain	rep1	threads	2	work_us	0	pairs	4995812	seconds	1.680	pairs_per_s	2973085	MB_per_s	891.9	wait_s	0.482603	hold_s	0.967788	inflate_busy_s	0.609571	underflow_s	0.148965	load	4.60
+plain	rep1	threads	3	work_us	0	pairs	4995812	seconds	1.748	pairs_per_s	2858094	MB_per_s	857.4	wait_s	1.566337	hold_s	1.251807	inflate_busy_s	0.668775	underflow_s	0.214427	load	4.95
+plain	rep1	threads	4	work_us	0	pairs	4995812	seconds	1.533	pairs_per_s	3259236	MB_per_s	977.8	wait_s	2.371367	hold_s	1.243389	inflate_busy_s	0.627625	underflow_s	0.211478	load	4.95
+plain	rep1	threads	6	work_us	0	pairs	4995812	seconds	2.174	pairs_per_s	2297464	MB_per_s	689.2	wait_s	8.008284	hold_s	1.952169	inflate_busy_s	0.715524	underflow_s	0.444241	load	5.04
+gz	rep2	threads	1	work_us	0	pairs	4995812	seconds	3.683	pairs_per_s	1356415	MB_per_s	406.9	wait_s	0.010504	hold_s	1.349967	inflate_busy_s	5.569118	underflow_s	0.482156	load	5.04
+gz	rep2	threads	2	work_us	0	pairs	4995812	seconds	4.054	pairs_per_s	1232459	MB_per_s	369.7	wait_s	2.660668	hold_s	2.896585	inflate_busy_s	6.073536	underflow_s	1.946857	load	5.28
+gz	rep2	threads	3	work_us	0	pairs	4995812	seconds	4.635	pairs_per_s	1077894	MB_per_s	323.4	wait_s	7.312103	hold_s	3.873233	inflate_busy_s	7.104808	underflow_s	2.777894	load	5.25
+gz	rep2	threads	4	work_us	0	pairs	4995812	seconds	4.303	pairs_per_s	1161094	MB_per_s	348.3	wait_s	10.929408	hold_s	3.832569	inflate_busy_s	6.498817	underflow_s	2.915711	load	5.63
+gz	rep2	threads	6	work_us	0	pairs	4995812	seconds	5.261	pairs_per_s	949575	MB_per_s	284.9	wait_s	24.005548	hold_s	4.980791	inflate_busy_s	7.339453	underflow_s	3.922559	load	6.30
+plain	rep2	threads	1	work_us	0	pairs	4995812	seconds	2.254	pairs_per_s	2216832	MB_per_s	665.0	wait_s	0.006730	hold_s	0.650149	inflate_busy_s	0.550554	underflow_s	0.007409	load	6.30
+plain	rep2	threads	2	work_us	0	pairs	4995812	seconds	1.343	pairs_per_s	3719908	MB_per_s	1116.0	wait_s	0.200532	hold_s	0.738680	inflate_busy_s	0.616631	underflow_s	0.020685	load	6.12
+plain	rep2	threads	3	work_us	0	pairs	4995812	seconds	1.119	pairs_per_s	4463322	MB_per_s	1339.0	wait_s	0.583736	hold_s	0.824743	inflate_busy_s	0.745470	underflow_s	0.038265	load	6.12
+plain	rep2	threads	4	work_us	0	pairs	4995812	seconds	1.111	pairs_per_s	4495398	MB_per_s	1348.6	wait_s	1.390112	hold_s	0.958226	inflate_busy_s	0.684630	underflow_s	0.114521	load	6.12
+plain	rep2	threads	6	work_us	0	pairs	4995812	seconds	5.475	pairs_per_s	912520	MB_per_s	273.8	wait_s	24.492198	hold_s	4.580553	inflate_busy_s	0.608755	underflow_s	1.769178	load	6.75

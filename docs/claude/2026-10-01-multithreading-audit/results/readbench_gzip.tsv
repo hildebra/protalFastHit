@@ -1,0 +1,15 @@
+-rw-r--r-- 1 falk falk 406946608 Oct  1 17:23 /home/falk/bench071/samples_deep/points/rl150_p5000000/sim/reads/rl150_p5000000_s_1_R1.fq.gz
+-rw-r--r-- 1 falk falk 398004314 Oct  1 18:23 R1.std.gz
+ 1f 8b 08 08 37 96 be 6a 00 03 52 31 2e 66 71 00
+bgzf	rep1	threads	1	work_us	0	pairs	4995812	seconds	3.400	pairs_per_s	1469518	MB_per_s	440.9	wait_s	0.007413	hold_s	1.212531	inflate_busy_s	5.518718	underflow_s	0.422481	load	5.95
+bgzf	rep1	threads	2	work_us	0	pairs	4995812	seconds	3.411	pairs_per_s	1464422	MB_per_s	439.3	wait_s	2.129123	hold_s	2.453215	inflate_busy_s	5.436511	underflow_s	1.641566	load	5.95
+std	rep1	threads	1	work_us	0	pairs	4995812	seconds	4.355	pairs_per_s	1147220	MB_per_s	344.2	wait_s	0.011102	hold_s	2.360167	inflate_busy_s	7.410764	underflow_s	1.677919	load	6.20
+std	rep1	threads	2	work_us	0	pairs	4995812	seconds	4.286	pairs_per_s	1165726	MB_per_s	349.7	wait_s	3.232552	hold_s	3.450455	inflate_busy_s	7.243678	underflow_s	2.734592	load	6.34
+bgzf	rep2	threads	1	work_us	0	pairs	4995812	seconds	2.388	pairs_per_s	2091665	MB_per_s	627.5	wait_s	0.006080	hold_s	0.745868	inflate_busy_s	4.117216	underflow_s	0.185006	load	6.23
+bgzf	rep2	threads	2	work_us	0	pairs	4995812	seconds	7.298	pairs_per_s	684507	MB_per_s	205.4	wait_s	5.527501	hold_s	5.300406	inflate_busy_s	9.635827	underflow_s	3.793096	load	6.93
+std	rep2	threads	1	work_us	0	pairs	4995812	seconds	24.177	pairs_per_s	206638	MB_per_s	62.0	wait_s	0.012362	hold_s	19.057239	inflate_busy_s	33.136888	underflow_s	17.065944	load	10.17
+std	rep2	threads	2	work_us	0	pairs	4995812	seconds	23.708	pairs_per_s	210723	MB_per_s	63.2	wait_s	22.229898	hold_s	21.051362	inflate_busy_s	34.337732	underflow_s	19.133803	load	12.09
+bgzf	rep3	threads	1	work_us	0	pairs	4995812	seconds	16.103	pairs_per_s	310250	MB_per_s	93.1	wait_s	0.007034	hold_s	8.323114	inflate_busy_s	13.059797	underflow_s	5.526773	load	12.57
+bgzf	rep3	threads	2	work_us	0	pairs	4995812	seconds	15.815	pairs_per_s	315900	MB_per_s	94.8	wait_s	12.178536	hold_s	12.106604	inflate_busy_s	17.895080	underflow_s	9.464459	load	12.97
+std	rep3	threads	1	work_us	0	pairs	4995812	seconds	18.911	pairs_per_s	264173	MB_per_s	79.3	wait_s	0.007520	hold_s	14.739651	inflate_busy_s	25.882930	underflow_s	13.089323	load	13.53
+std	rep3	threads	2	work_us	0	pairs	4995812	seconds	18.036	pairs_per_s	276992	MB_per_s	83.1	wait_s	17.069861	hold_s	15.845758	inflate_busy_s	24.916555	underflow_s	14.471306	load	13.55

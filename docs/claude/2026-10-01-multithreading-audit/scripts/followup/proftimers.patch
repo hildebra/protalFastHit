@@ -1,0 +1,183 @@
+diff -ruN orig/src/Profiling/Profiler.h src/src/Profiling/Profiler.h
+--- a/src/Profiling/Profiler.h	2026-10-01 19:58:30.000000000 +0100
++++ b/src/Profiling/Profiler.h	2026-10-01 20:09:59.230349155 +0100
+@@ -2944,6 +2944,7 @@
+                 std::vector<sam_chunks::Chunk> wave, next;     // this wave's chunks, the next one's
+                 std::vector<ParsedChunk> parsed, upcoming, done;  // and their parsed reads; the last wave's, to free
+                 auto fetch = [&]() {
++                    PT_SCOPE("p_fetch");
+                     next.clear();
+                     upcoming.clear();
+                     sam_chunks::Chunk chunk;
+@@ -2962,8 +2963,10 @@
+                     std::vector<SamAddition>().swap(chunk.additions);
+                 };
+ 
++                { PT_SCOPE("p_first_wave");
+                 fetch();
+                 sam_chunks::ParallelFor(next.size(), threads, parse);
++                }
+                 while (!next.empty()) {
+                     std::swap(wave, next);
+                     std::swap(parsed, upcoming);
+@@ -2981,7 +2984,9 @@
+                         profile.Evidence().Add(parsed[i].evidence);
+                         lines = parsed[i].lines;
+                     }
++                    std::optional<proftimers::Scope> pt_plan; pt_plan.emplace("p_plan");
+                     auto jobs = PlanChunks(profile, parsed, used, read_offset, link_offset);
++                    pt_plan.reset();
+ 
+                     // The taxa add this wave's records while the next wave is parsed and the last one is freed.
+                     if (error.empty()) fetch();
+@@ -2991,6 +2996,7 @@
+                     }
+                     std::atomic<bool> emptied{ false };
+                     size_t const n_jobs = jobs.size(), n_parse = next.size();
++                    std::optional<proftimers::Scope> pt_comb; pt_comb.emplace("p_combined");
+                     sam_chunks::ParallelFor(n_jobs + n_parse + done.size(), threads, [&](size_t t) {
+                         if (t < n_jobs) {
+                             if (!emptied && !RunJob(jobs[t])) emptied = true;
+@@ -3000,6 +3006,8 @@
+                             release(done[t - n_jobs - n_parse]);
+                         }
+                     });
++                    pt_comb.reset();
++                    PT_SCOPE("p_rejected_rest");
+                     done.clear();
+                     if (emptied) {
+                         serial = true;
+@@ -3060,11 +3068,14 @@
+                 if (threads > 1) {
+                     std::string rejected;
+                     bool serial = false;
++                    std::optional<proftimers::Scope> pt_ps; pt_ps.emplace("parallel_profilesam");
+                     auto const error = ProfileSamParallel(file_path, profile, rejected, threads, serial);
++                    pt_ps.reset();
+                     if (!serial) {
+                         if (erroneous_sam_out.has_value()) erroneous_sam_out.value().get() << rejected;
+                         if (!error.empty()) return error;
+                         profile.ApplyRecordEvidence();
++                        PT_SCOPE("post_snps");
+                         m_post_process_bm.Start();
+                         profile.PostProcessSNPs(snp_min_cov, snp_min_obs_fwdrev, snp_min_af, snp_min_mean_qual, snp_min_phred_sum, snp_require_strand, threads);
+                         m_post_process_bm.Stop();
+diff -ruN orig/src/Profiling/SamChunks.h src/src/Profiling/SamChunks.h
+--- a/src/Profiling/SamChunks.h	2026-10-01 19:58:30.000000000 +0100
++++ b/src/Profiling/SamChunks.h	2026-10-01 20:09:59.232745200 +0100
+@@ -20,6 +20,7 @@
+ #include <thread>
+ #include <utility>
+ #include <vector>
++#include "../Utilities/ProfTimers.h"
+ 
+ namespace protal::sam_chunks {
+ 
+@@ -127,7 +128,9 @@
+             while (true) {
+                 size_t const had = buffer.size();
+                 buffer.resize(had + m_bytes);
++                { PT_SCOPE("reader_read");
+                 m_is.read(buffer.data() + had, static_cast<std::streamsize>(m_bytes));
++                }
+                 buffer.resize(had + static_cast<size_t>(m_is.gcount()));
+                 bool const end = !m_is;
+                 size_t cut = end ? buffer.size() : ChunkEnd(buffer.data(), buffer.size());
+@@ -147,6 +150,7 @@
+ 
+         // False if the reader was stopped. `bad`: the stream went bad (set with the last chunk).
+         bool Put(Chunk&& chunk, bool bad) {
++            PT_SCOPE("reader_put_wait");
+             std::unique_lock<std::mutex> lock(m_mutex);
+             m_cv.wait(lock, [this] { return m_ready.size() < m_ahead || m_stop; });
+             if (m_stop) return false;
+diff -ruN orig/src/RunProtal.h src/src/RunProtal.h
+--- a/src/RunProtal.h	2026-10-01 19:58:30.000000000 +0100
++++ b/src/RunProtal.h	2026-10-01 20:09:59.225319043 +0100
+@@ -644,6 +644,7 @@
+     // cached (profile.ReleaseReadData scores all), so that later stages may use any model to tell
+     // which taxa pass: they get the score of the sample's own model.
+     Profiles ProfileWrapper(Options& options, ProtalDB& db, ReadTypeModels const& models) {
++        PT_SCOPE("profile_wrapper");
+         GenomeLoader& genomes = db.GetGenomes();
+ 
+         if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
+@@ -728,11 +729,13 @@
+             profile.SetName(sample_name);
+             profile.SetReadType(read_type);
+             profile.SetGenera(genera);
++            std::optional<proftimers::Scope> pt_s; pt_s.emplace("w_profilesam");
+             std::string sam_error = profiler.ProfileSam(sam, profile, std::optional<std::reference_wrapper<std::ostream>>{erro},
+                                                         options.GetSNPMinCov(), options.GetSNPMinCov(),
+                                                         options.GetSNPMinAF(read_type), options.GetSNPMinMeanQual(),
+                                                         options.GetSNPMinPhredSum(), options.GetSNPRequireStrand(),
+                                                         threads_per_sample);
++            pt_s.reset();
+             erro.close();
+             bm_profile.Stop();
+ 
+@@ -744,7 +747,9 @@
+                 continue;
+             }
+             // The outputs below score every taxon; on the sample's threads first.
++            { PT_SCOPE("w_score");
+             if (threads_per_sample > 1) profile.ScoreTaxa(filter, threads_per_sample);
++            }
+             if (profiler.RejectedReads() > 0) {
+                 #pragma omp critical(print)
+                 std::cerr << "Warning: sample " << sample_name << ": " << profiler.RejectedReads() << " of " << profiler.Reads()
+@@ -808,8 +813,12 @@
+             std::ofstream os_dismissed(options.ProfileFile(i) + ".gene.log", std::ios::out);
+             std::ofstream os_genes(options.ProfileFile(i) + ".genes.log", std::ios::out);
+ 
++            { PT_SCOPE("w_write_sparse");
+             profile.WriteSparseProfile(taxonomy, filter, os, &os_total, &os_dismissed, threads_per_sample);
++            }
++            { PT_SCOPE("w_write_gene");
+             profile.WriteGeneProfile(taxonomy, filter, &os_genes, threads_per_sample);
++            }
+             os.close();
+             os_total.close();
+             os_dismissed.close();
+@@ -833,7 +842,9 @@
+ 
+             // The sample's outputs are written: only the strain stage reads its profile again, and only
+             // the variants and read ranges of taxa that enter the MSAs (--msa_knob).
++            { PT_SCOPE("w_release");
+             profile.ReleaseReadData(filter.WithKnob(msa_knob), !options.NoStrains());
++            }
+ 
+             // Each thread writes to its own pre-allocated slot — no lock needed.
+             profile_slots[idx].emplace(std::move(profile));
+diff -ruN orig/src/Utilities/ProfTimers.h src/src/Utilities/ProfTimers.h
+--- a/src/Utilities/ProfTimers.h	1970-01-01 01:00:00.000000000 +0100
++++ b/src/Utilities/ProfTimers.h	2026-10-01 20:09:59.234629592 +0100
+@@ -0,0 +1,28 @@
++// ProfTimers.h - experiment only (parallel profiling, 2026-10-01): wall-clock scope timers, printed at exit.
++#pragma once
++#include <atomic>
++#include <chrono>
++#include <cstdio>
++#include <map>
++#include <mutex>
++#include <string>
++namespace proftimers {
++    struct Table {
++        std::mutex mutex;
++        std::map<std::string, std::pair<double, size_t>> rows;
++        ~Table() { for (auto const& [k, v] : rows) std::fprintf(stderr, "PROFT\t%s\t%.6f\t%zu\n", k.c_str(), v.first, v.second); }
++    };
++    inline Table& Get() { static Table t; return t; }
++    struct Scope {
++        char const* name; std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
++        explicit Scope(char const* n) : name(n) {}
++        ~Scope() {
++            double const s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
++            std::lock_guard<std::mutex> lock(Get().mutex);
++            auto& r = Get().rows[name]; r.first += s; r.second++;
++        }
++    };
++}
++#define PT_CAT2(a, b) a##b
++#define PT_CAT(a, b) PT_CAT2(a, b)
++#define PT_SCOPE(name) proftimers::Scope PT_CAT(pt_scope_, __LINE__)(name)

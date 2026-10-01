@@ -1,0 +1,40 @@
+# i6: 3.83 3.09 3.68 1/231 559311
+stage	seconds	threads	seconds_per_thread
+Seeding	37.838271	6	6.306379
+Sorting Seeds	12.044888	6	2.007481
+Pairing	6.548451	6	1.091409
+Sorting Anchors	1.287740	6	0.214623
+Extending Anchors	13.068376	6	2.178063
+Sequence reader	8.057112	6	1.342852
+Retrieve k-mers	12.895066	6	2.149178
+Seed- and Anchor-finding	76.094443	6	12.682407
+Anchor recovery	4.569819	6	0.761636
+Alignment handler	60.035591	6	10.005932
+Joining alignment pairs and sorting	11.744714	6	1.957452
+Output handler	33.693607	6	5.615601
+MTAUDIT	wall	49.133261	1
+MTAUDIT	reader_wait	2.893057	156126
+MTAUDIT	reader_hold	2.012669	312252
+MTAUDIT	underflow_wait	0.000154	3236
+MTAUDIT	inflate_busy	6.525519	3222
+MTAUDIT	inflate_idle	59.455161	3222
+MTAUDIT	inflated_bytes	3363702722	1
+MTAUDIT	sam_pack	10.412091	202
+MTAUDIT	sam_wait	0.007303	202
+MTAUDIT	sam_hold	0.649246	202
+MTAUDIT	sam_bytes	1712638638	1
+MTAUDIT	prof_total	11.860573	1
+MTAUDIT	prof_group	5.849806	2351020
+MTAUDIT	prof_addsam	3.856235	3846095
+MTAUDIT	prof_post	0.773040	1
+Preload genomes took 108ms
+Load Index took 715ms
+Aligning reads took 33s 145ms
+Writing the SAM header and file took 1s 687ms
+Processing all samples took 34s 833ms
+Profiling took 13s 957ms
+Strain-level MSAs took less than 1ms
+Run protal took 50s 189ms
+	Percent of CPU this job got: 434%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:50.22
+	Maximum resident set size (kbytes): 3659984

@@ -1,0 +1,19 @@
+# Where profiling the 5M-pair SAM (rl150_p5000000_s_1, from the 0.7.1 build's alignment) spends its time with 2f637f9
+# (f5ee645 does not change a single sample's profiling): scripts/followup/proftimers.patch on 2f637f9, Release,
+# protal --profile_only <sam> -t T, 2026-10-01 20:16, load 1.3 before. Seconds of wall time per part (summed over waves).
+part	t6_run1	t6_run2	t3
+profiling (whole stage)	3.780	3.622	4.644
+ProfileSam	3.229	3.070	3.813
+ parallel part (ProfileSamParallel)	2.986	2.841	3.491
+  combined phase: taxa add a wave, next wave parsed, last freed	2.736	2.593	3.280
+  in file order: read numbers, links, taxa made (PlanChunks)	0.111	0.111	0.107
+  rejected reads, error checks	0.064	0.063	0.060
+  waiting for chunks from the reader	0.042	0.041	0.019
+  first wave parsed	0.058	0.059	0.033
+ ApplyRecordEvidence + PostProcessSNPs	0.243	0.229	0.322
+ScoreTaxa	0.179	0.183	0.255
+WriteSparseProfile (.profile, .profile.log, .gene.log)	0.261	0.261	0.425
+WriteGeneProfile (.genes.log)	0.057	0.057	0.095
+ReleaseReadData	0.054	0.051	0.055
+reader thread: reading and decompressing	1.611	1.565	1.361
+reader thread: waiting for room (ahead of the parsers)	0.851	0.745	1.719
