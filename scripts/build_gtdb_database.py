@@ -318,6 +318,21 @@ def describe_holdout(chosen, pool):
     return lines
 
 
+def gene_conservation_summary(build_log):
+    """What protal --build said of the genes' conservation factors (its "Gene conservation:" line, less the
+    file it wrote), for build_metadata.tsv: the factors are in the database, so that the depth margin can be
+    scaled by them (protal --gene_conservation db) without a rebuild."""
+    try:
+        with open(build_log) as fh:
+            lines = [line.strip() for line in fh if line.startswith("Gene conservation:")]
+    except OSError:
+        return "unknown (no build log)"
+    if not lines:
+        return "none (this protal does not estimate them)"
+    text = lines[-1].removeprefix("Gene conservation:").strip()
+    return text.rsplit(": ", 1)[0] if text.endswith("gene_conservation.tsv") else text
+
+
 def provenance(args, release, genome_table, heldout, n_heldout, read_types, prefixes):
     """build_metadata.tsv: what the database was built from and with, so that two builds can be compared."""
     def output(command):
@@ -341,6 +356,7 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
             ("protal_version", version[-1] if version else "unknown"), ("protal_binary", args.protal),
             ("scripts_commit", commit or "unknown (not a git checkout)"), ("command", " ".join(sys.argv)),
             ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
+            ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("classifier_features", "normalized"), ("classifier_trees", args.ntree),
             ("classifier_max_leaves", args.maxnodes), ("classifier_training_species_left_out", n_heldout)]
     rows += [(f"classifier_training_{rank}_clades_left_out", clade_counts[rank]) for rank in CLADE_RANKS

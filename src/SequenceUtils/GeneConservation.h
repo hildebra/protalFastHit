@@ -1,8 +1,12 @@
 // GeneConservation.h - how fast each gene diverges within species compared with the species' other
 // genes: one factor per gene id (a marker, the same in every species), 1 for a gene of typical
-// conservation, below 1 for conserved genes (ribosomal proteins), above 1 for fast ones. It scales the
-// identity margin of a species' depth per gene (GeneMargin; Taxon::OwnIdentityThreshold in Profiler.h):
-// a strain's reads on a fast gene sit further below the species' best reads than on a conserved gene.
+// conservation, below 1 for conserved genes (ribosomal proteins), above 1 for fast ones. With
+// --gene_conservation db it scales the identity margin of a species' depth per gene (GeneMargin;
+// Taxon::OwnIdentityThreshold in Profiler.h): a strain's reads on a fast gene sit further below the
+// species' best reads than on a conserved gene. By default the margin is the same on every gene: summed over
+// three simulated worlds that did better, as the scaled margin also admits more of a missing relative's reads
+// (docs/claude/2026-10-01-gene-scaled-margin). Every database built with other genomes' copies in
+// --full_reference holds the factors, so the scaled margin, or other uses of the genes' rates, need no rebuild.
 //
 // --build estimates the factors from --full_reference (every genome's copy of each gene, >taxid_geneid)
 // against the representatives' genes (reference.fna) and writes gene_conservation.tsv:
@@ -12,9 +16,8 @@
 // median gene, so that how far a species' strains are from its representative cancels out; the factor
 // of a gene is the median of this ratio over the species with kMinGenes genes or more and a median gene
 // at least kMinTypical from the representative, scaled so that the median gene has factor 1, shrunk
-// towards 1 by kPrior species and kept within kMinFactor..kMaxFactor. On a simulated world whose genes
-// evolve at different rates, the estimates correlated 0.99 with the true rates
-// (docs/claude/2026-09-30-depth-margin-stress).
+// towards 1 by kPrior species and kept within kMinFactor..kMaxFactor. On two simulated worlds whose genes
+// evolve at different rates, the estimates correlated 0.985 and 0.999 with the true rates.
 #pragma once
 
 #include <algorithm>

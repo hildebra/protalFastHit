@@ -152,3 +152,14 @@ In the congener world, by the species' congeners in the sample (median log2(repo
   species outnumbered by a missing congener (+0.27 median log2 with the fixed margin, +0.13 with the narrower
   margin beside detected congeners), and strains 4% or more from the reference (world 2: −0.17 to −0.27 under
   every rule), whose reads are lost at alignment.
+
+## Follow-up: the default reverted
+
+As decided the same day, the margin is the same on every gene again: `--gene_conservation` defaults to
+`none` (`25354fd` had made the scaled margin the default), and `--gene_conservation db` scales it by the
+database's factors. `--build` still estimates the factors and stores them in every database built with
+other genomes' copies, so the scaled margin, or any other use of the genes' rates, needs no rebuild. A
+query's log says whether the database has them, `protal --unpack_db` writes the table out, and
+`build_gtdb_database.py` records the build's summary of them in `build_metadata.tsv` (`gene_conservation`).
+The results above stand: the default is the rule "98th percentile − 0.08, the same on every gene" again, and
+the one marked "the new default" is the option.

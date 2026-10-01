@@ -731,6 +731,25 @@ class MiniDbTest(unittest.TestCase):
         self.assertIn("a rerun goes on from", str(stopped.exception))
         self.assertEqual(os.path.getsize(dest + ".part"), 1000)
 
+    def test_gene_conservation_in_the_build_metadata(self):
+        # build_metadata.tsv records what protal --build said of the genes' conservation factors.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import build_gtdb_database as build
+        log = os.path.join(self.tmp.name, "index_and_package.log")
+        with open(log, "w") as fh:
+            fh.write("Uniqueness check took 1s\nGene conservation: factors 0.26-3.3 for 168 genes, from 120 species "
+                     "(65559 copies compared): /data/db/gene_conservation.tsv\nGene conservation took 1s\n")
+        self.assertEqual(build.gene_conservation_summary(log),
+                         "factors 0.26-3.3 for 168 genes, from 120 species (65559 copies compared)")
+        with open(log, "w") as fh:
+            fh.write("Gene conservation: no factors (0 species with other genomes' copies of their genes in x.fna, 0 of "
+                     "them with enough genes that differ from the representative's): every gene keeps the whole margin\n")
+        self.assertTrue(build.gene_conservation_summary(log).startswith("no factors (0 species"))
+        with open(log, "w") as fh:
+            fh.write("Run build took 5s\n")
+        self.assertEqual(build.gene_conservation_summary(log), "none (this protal does not estimate them)")
+        self.assertEqual(build.gene_conservation_summary(log + ".missing"), "unknown (no build log)")
+
     def test_lineages_and_clade_holdout(self):
         # The training scripts read lineages from internal_taxonomy.dmp; build_gtdb_database.py holds out whole
         # clades and then single species.
@@ -1169,6 +1188,10 @@ class GtdbBuildTest(unittest.TestCase):
         for path in ("protal_db/database.protal", "training_db/database.protal", "model_logs/summary.txt",
                      ".stages/convert.json", ".stages/protal_db.json", ".stages/training_db.json"):
             self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", path)), path)
+        # The genes' conservation factors are in the database, and their summary in build_metadata.tsv.
+        metadata = dict(line.rstrip("\n").split("\t", 1) for line in open(os.path.join(self.tmp.name, "out", "protal_db",
+                                                                                       "build_metadata.tsv")))
+        self.assertRegex(metadata["gene_conservation"], r"^factors [0-9.]+-[0-9.]+ for \d+ genes, from \d+ species")
 
         # A rerun converts and builds nothing, and the collector reuses its samples and dumps.
         again = self.build("out")

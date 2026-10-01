@@ -706,9 +706,9 @@ namespace protal {
             }
 
             // The lowest identity of a read on gene `geneid` that counts towards the taxon's depth: the
-            // depth identity margin below TopIdentity, scaled by the gene's conservation factor
-            // (gene_conservation::GeneMargin: 0.03 + 0.05 x the factor at the default 0.08), as a
-            // strain's reads on a fast gene sit further below the best ones than on a conserved gene. A
+            // depth identity margin below TopIdentity, the same on every gene unless conservation factors
+            // are given (--gene_conservation db): then gene_conservation::GeneMargin, 0.03 + 0.05 x the
+            // factor at 0.08, as a strain's reads on a fast gene sit further below the best ones. A
             // present species' own reads form this top cluster; reads of relatives (absent from the
             // database, or much more abundant) align at lower identity and would inflate its depth. They
             // still count for detection: the model's features use every read.
@@ -717,7 +717,7 @@ namespace protal {
                 return TopIdentity() - gene_conservation::GeneMargin(m_depth_identity_margin, GeneFactor(geneid));
             }
 
-            // The conservation factor of gene `geneid` (1 without the database's factors).
+            // The conservation factor of gene `geneid` (1 unless factors are given).
             double GeneFactor(uint64_t geneid) const {
                 return m_conservation ? m_conservation->Factor(geneid) : 1.0;
             }

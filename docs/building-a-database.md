@@ -73,17 +73,20 @@ and compares before it removes the separate files. `full_reference.fna`, `gene2g
 `genome2tiid.tsv` stay next to it.
 
 `gene_conservation.tsv` says how fast each gene diverges within species compared with the species'
-other genes, so that the depth identity margin can be wider on fast genes and narrower on conserved
-ones (`--depth_identity_margin`, [running.md](running.md#options-the-website-does-not-list)). For
+other genes. It is in every database built with other genomes' copies, so that the depth identity
+margin can be scaled by it, wider on fast genes and narrower on conserved ones, without a rebuild
+(`--gene_conservation db`; by default the margin is the same on every gene,
+[running.md](running.md#options-the-website-does-not-list)). For
 each species and gene, the build compares up to 16 other genomes' copies in `full_reference.fna`
 with the representative's (k-mer distance, k = 12); divided by the distance of the species' median
 gene, this cancels how far a species' strains are from its representative. A gene's factor is the
 median of that ratio over the species with 10 genes or more and strains at least 0.2% from the
 representative, scaled to 1 for the median gene and shrunk towards 1 when few species inform it.
-The log reports the range (`Gene conservation: factors 0.37-1.9 for 168 genes, from 120 species`).
-Without other genomes' copies (no `--full_reference`, or one genome per species) the build writes
-no table, and every gene keeps the whole margin. On a simulated world whose genes evolve at
-different rates the factors correlated 0.99 with the true rates
+The log reports the range (`Gene conservation: factors 0.26-3.3 for 168 genes, from 120 species`);
+`protal --unpack_db` writes the table out, and `build_gtdb_database.py` records the range in
+`build_metadata.tsv`. Without other genomes' copies (no `--full_reference`, or one genome per
+species) the build writes no table. On two simulated worlds whose genes evolve at different rates
+the factors correlated 0.985 and 0.999 with the true rates
 ([report](claude/2026-10-01-gene-scaled-margin/README.md)).
 [database-files.md](database-files.md#build-options-for-the-format) lists the options for
 separate or uncompressed files and for the compression level. Pass `--no_profile`: without it,

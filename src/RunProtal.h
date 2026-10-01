@@ -163,15 +163,17 @@ namespace protal {
         }
     }
 
-    // The genes' conservation factors, which scale the depth identity margin per gene
-    // (Options::GeneConservationDbFile, GeneConservation.h): the database's gene_conservation.tsv or
-    // --gene_conservation's file. Without them every gene keeps the whole margin. Exits 8 if the file
-    // cannot be read.
+    // The genes' conservation factors, which scale the depth identity margin per gene with
+    // --gene_conservation db (the database's gene_conservation.tsv) or FILE (Options::GeneConservationDbFile,
+    // GeneConservation.h). By default (none) every gene keeps the whole margin; the log says whether the
+    // database has factors. Exits 8 if the file cannot be read.
     static void LoadGeneConservation(Options const& options, GenomeLoader& genomes) {
         auto const file = options.GeneConservationDbFile();
         std::string const same = "the depth identity margin is the same on every gene";
         if (!file) {
-            std::cout << "Gene conservation: none (--gene_conservation none): " << same << std::endl;
+            bool const stored = options.DatabaseGeneConservationDbFile().Exists();
+            std::cout << "Gene conservation: not used (--gene_conservation none), " << same
+                      << (stored ? "; the database has factors, which --gene_conservation db scales it by" : "") << std::endl;
             return;
         }
         if (!file->Exists()) {

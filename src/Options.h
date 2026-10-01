@@ -100,8 +100,8 @@ namespace protal {
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
-                ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is scaled per gene by the database's gene conservation factors (see --gene_conservation): 0.03 for read errors plus the rest times the gene's factor, so the default, 0.08, is 0.08 on a gene of typical conservation (factor 1), 0.05 on one with factor 0.4 and 0.10 on one with 1.4. It counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
-                ("gene_conservation", "How fast each gene diverges within species, which scales --depth_identity_margin per gene: a file of gene ids and factors (gene_conservation.tsv: geneid, factor, species; 1 for a gene of typical conservation), or none for the same margin on every gene. Default: the database's gene_conservation.tsv, which --build estimates from --full_reference; without it every gene has factor 1.", cxxopts::value<std::string>()->default_value(""))
+                ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is the same on every gene unless --gene_conservation scales it. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
+                ("gene_conservation", "Scale --depth_identity_margin per gene by how fast each gene diverges within species: db for the database's factors (gene_conservation.tsv, which --build estimates from --full_reference and stores in the database), or a file of them (geneid, factor, species; 1 for a gene of typical conservation). A gene's margin is then 0.03 for read errors plus the rest times its factor (0.08: 0.05 at factor 0.4, 0.10 at 1.4). none (default): the same margin on every gene, which did best summed over three simulated worlds, among them one with many congeners missing from the database.", cxxopts::value<std::string>()->default_value("none"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
                 ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_pb", "PMML model file for PacBio samples, given as --model. Default: --model if given, else the database's model_PB.xml.", cxxopts::value<std::string>()->default_value(""))
@@ -241,7 +241,7 @@ namespace protal {
         double knob = 0.5;
         double depth_identity_margin = 0.08;
         double msa_identity_margin = 0.04;
-        std::string gene_conservation;  // --gene_conservation: empty (the database's), none, or a file
+        std::string gene_conservation = "none";  // --gene_conservation: none, db (the database's), or a file
 
         // alignment
         size_t threads = DEFAULT_THREADS;
@@ -344,7 +344,7 @@ namespace protal {
         double m_knob = 0.5;
         double m_depth_identity_margin = 0.08;
         double m_msa_identity_margin = 0.04;
-        std::string m_gene_conservation;  // --gene_conservation
+        std::string m_gene_conservation = "none";  // --gene_conservation
 
         size_t m_threads = DEFAULT_THREADS;
 
@@ -786,13 +786,17 @@ namespace protal {
             return DbFileNamed(PROTAL_UNIQUE_KMER_FILE, GetUniqueKmersFile());
         }
 
-        // The genes' conservation factors that scale the depth identity margin: --gene_conservation's
-        // file, else the database's gene_conservation.tsv; nullopt for --gene_conservation none.
-        // Exists() is false if the database has none.
-        std::optional<db::DbFile> GeneConservationDbFile() const {
-            if (m_gene_conservation == "none") return std::nullopt;
-            if (!m_gene_conservation.empty()) return db::DbFile::OnDisk(m_gene_conservation);
+        // The database's gene_conservation.tsv (--build); Exists() is false if it has none.
+        db::DbFile DatabaseGeneConservationDbFile() const {
             return DbFileNamed(PROTAL_GENE_CONSERVATION_FILE, GetGeneConservationFile());
+        }
+
+        // The genes' conservation factors that scale the depth identity margin: the database's for
+        // --gene_conservation db, else --gene_conservation's file; nullopt for none (the default).
+        std::optional<db::DbFile> GeneConservationDbFile() const {
+            if (m_gene_conservation == "none" || m_gene_conservation.empty()) return std::nullopt;
+            if (m_gene_conservation == "db") return DatabaseGeneConservationDbFile();
+            return db::DbFile::OnDisk(m_gene_conservation);
         }
 
         // The model given for reads of `type`: by the type's option (--model_se, --model_pb,
@@ -1779,8 +1783,9 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             if (!(m_msa_identity_margin >= 0)) {
                 error_log.emplace_back("--msa_identity_margin must be 0 or more");
             }
-            if (!m_gene_conservation.empty() && m_gene_conservation != "none" && !std::filesystem::is_regular_file(m_gene_conservation)) {
-                error_log.emplace_back("--gene_conservation does not exist: " + m_gene_conservation + " (a file, or none)");
+            if (!m_gene_conservation.empty() && m_gene_conservation != "none" && m_gene_conservation != "db" &&
+                !std::filesystem::is_regular_file(m_gene_conservation)) {
+                error_log.emplace_back("--gene_conservation does not exist: " + m_gene_conservation + " (none, db or a file)");
             }
             if (!(m_knob >= 0 && m_knob <= 1)) {
                 error_log.emplace_back("--knob must be between 0 and 1 (a probability)");

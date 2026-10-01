@@ -549,7 +549,8 @@ class LowCoverageAbundanceTest(WorkDir):
 
 class GeneConservationTest(WorkDir):
     """--build estimates how fast each gene diverges within species from the other genomes' copies in
-    --full_reference (gene_conservation.tsv), and queries scale the depth identity margin by it."""
+    --full_reference (gene_conservation.tsv) and stores it in the database; queries scale the depth identity
+    margin by it with --gene_conservation db, and keep the same margin on every gene by default."""
 
     def build(self, name, rates, with_full_reference=True):
         """A database of 4 species with 12 genes of 600 bp each; in full_reference, 2 other genomes per
@@ -606,7 +607,7 @@ class GeneConservationTest(WorkDir):
         self.assertIn("Gene conservation: no factors", log)
         self.assertFalse(os.path.exists(self.path("db_without", "gene_conservation.tsv")))
 
-    def test_queries_scale_the_margin_unless_told_not_to(self):
+    def test_queries_scale_the_margin_only_when_asked(self):
         if not os.path.exists(db_file("gene_conservation.tsv")):
             self.skipTest("the test database has no gene_conservation.tsv (built by an earlier protal)")
         ones = self.path("ones.tsv")
@@ -614,8 +615,10 @@ class GeneConservationTest(WorkDir):
             dst.write(src.readline())
             dst.writelines(line.split("\t")[0] + "\t1\n" for line in src)
         profiles = {}
-        for name, extra, expected in (("scaled", [], "Gene conservation: factors"),
-                                      ("none", ["--gene_conservation", "none"], "Gene conservation: none"),
+        for name, extra, expected in (("default", [], "Gene conservation: not used (--gene_conservation none), the depth "
+                                                     "identity margin is the same on every gene; the database has factors"),
+                                      ("scaled", ["--gene_conservation", "db"], "Gene conservation: factors"),
+                                      ("none", ["--gene_conservation", "none"], "Gene conservation: not used"),
                                       ("ones", ["--gene_conservation", ones], "Gene conservation: factors 1-1 for")):
             rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name, "-t", "2", "--no_strains", *extra)
             self.assertEqual(rc, 0, log[-3000:])
@@ -625,6 +628,7 @@ class GeneConservationTest(WorkDir):
         # The reads are the reference genes' with 0.5% errors: far above any gene's threshold.
         self.assertEqual(profiles["scaled"], profiles["none"])
         self.assertEqual(profiles["ones"], profiles["none"])
+        self.assertEqual(profiles["default"], profiles["none"])
 
         rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "missing", "--gene_conservation", "no_such.tsv")
         self.assertNotEqual(rc, 0, log[-3000:])
@@ -1551,8 +1555,9 @@ class FailFastTest(WorkDir):
             self.assertNotIn("Sequence file does not exist", log)
 
     def test_malformed_gene_conservation(self):
+        # Read only when used (--gene_conservation db).
         db = self.db_copy("db_conservation", {"gene_conservation.tsv": b"geneid\tfactor\tspecies\n1\tfast\t3\n"})
-        rc, log = self.query(db, "out_conservation")
+        rc, log = self.query(db, "out_conservation", "--gene_conservation", "db")
         self.assertEqual(rc, 8, log[-3000:])
         self.assertRegex(log, r"Invalid gene conservation factors .*gene_conservation.tsv: line 2: the factor is not a number")
 
