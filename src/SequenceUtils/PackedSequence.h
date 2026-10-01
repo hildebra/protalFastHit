@@ -28,6 +28,18 @@
 #include <string>
 #include <string_view>
 
+// AddressSanitizer builds poison the part of a gene window that is not decoded (see GeneSequence).
+#if defined(__SANITIZE_ADDRESS__)
+#define PROTAL_GENE_ASAN 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define PROTAL_GENE_ASAN 1
+#endif
+#endif
+#ifdef PROTAL_GENE_ASAN
+#include <sanitizer/asan_interface.h>
+#endif
+
 // x86 with GCC or Clang: packing and unpacking can use AVX2, compiled for it by function attribute.
 #if (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
 #define PROTAL_PACKED_AVX2 1
@@ -186,6 +198,20 @@ namespace protal::packed {
         UnpackScalar(s, n, d);
     }
 
+    // Unpacks bases first .. first + n - 1 of the gene whose packed bytes start at `gene` into n characters
+    // at d (the character of base `first` is d[0]): the bases up to the next byte boundary through the
+    // table, the rest as Unpack, which reads only the bytes of those bases.
+    inline void UnpackRange(const uint8_t* gene, size_t first, size_t n, char* d) {
+        if (n == 0) return;
+        size_t const offset = first % 4;
+        size_t head = offset == 0 ? 0 : std::min(n, 4 - offset);
+        if (head > 0) {
+            uint32_t const word = kWord[gene[first / 4]];
+            std::memcpy(d, reinterpret_cast<const char*>(&word) + offset, head);
+        }
+        if (n > head) Unpack(gene + (first + head) / 4, n - head, d + head);
+    }
+
     // Packs `n` bases, which are bases first .. first + n - 1 of the gene whose packed bytes start at
     // `gene`, into it. The bytes must be zero before (a fresh calloc): the byte at either end of the
     // range can be shared with the neighbouring range of another thread and is set with an atomic or;
@@ -212,24 +238,56 @@ namespace protal {
     // kInline bases), or a view of a sequence that lives elsewhere (a test's string). It lives as long
     // as the object, which is neither copied nor moved: keep it in a variable while its view is used
     // (`auto const reference = gene.Sequence();`), a view taken from a temporary dangles.
+    //
+    // A window of a gene (Gene::Window) decodes only the bases [Begin(), End()): the view is as long as
+    // the gene and indexed by gene position, so code written for a whole gene works unchanged, but only
+    // those bases are valid; the rest of the buffer is not written (and is poisoned in AddressSanitizer
+    // builds, so that a read outside the window is an error there). A read pair needs the ~150 bases of
+    // an anchor's diagonal, not the gene's 1,000 to 4,000: decoding and fetching the gene's packed bytes
+    // were 3% of a dense database's instructions.
     class GeneSequence {
     public:
         static constexpr size_t kInline = 4096;
 
-        GeneSequence(const uint8_t* packed, size_t bases) {
+        GeneSequence(const uint8_t* packed, size_t bases) : GeneSequence(packed, bases, 0, bases) {}
+
+        // The bases [begin, end) of a gene of `bases` bases (the range is cut to the gene).
+        GeneSequence(const uint8_t* packed, size_t bases, size_t begin, size_t end) {
+            end = std::min(end, bases);
+            begin = std::min(begin, end);
             char* out = m_buffer;
             if (bases > kInline) {
                 m_heap = std::make_unique_for_overwrite<char[]>(bases);
                 out = m_heap.get();
             }
-            if (bases > 0) packed::Unpack(packed, bases, out);
+            if (end > begin) packed::UnpackRange(packed, begin, end - begin, out + begin);
             m_view = std::string_view(out, bases);
+            m_begin = begin;
+            m_end = end;
+#ifdef PROTAL_GENE_ASAN
+            if (begin > 0 || end < bases) {
+                ASAN_POISON_MEMORY_REGION(out, begin);
+                ASAN_POISON_MEMORY_REGION(out + end, bases - end);
+                m_poisoned = true;
+            }
+#endif
         }
 
-        explicit GeneSequence(std::string_view external) : m_view(external) {}
+        explicit GeneSequence(std::string_view external) : m_view(external), m_begin(0), m_end(external.size()) {}
+
+        ~GeneSequence() {
+#ifdef PROTAL_GENE_ASAN
+            // The buffer is on the stack, or about to be freed: either must be clean again.
+            if (m_poisoned) ASAN_UNPOISON_MEMORY_REGION(const_cast<char*>(m_view.data()), m_view.size());
+#endif
+        }
 
         GeneSequence(GeneSequence const&) = delete;
         GeneSequence& operator=(GeneSequence const&) = delete;
+
+        // The decoded bases are [Begin(), End()) of the gene; a whole gene has Begin() 0 and End() size().
+        size_t Begin() const { return m_begin; }
+        size_t End() const { return m_end; }
 
         operator std::string_view() const { return m_view; }
         std::string_view View() const { return m_view; }
@@ -248,6 +306,9 @@ namespace protal {
 
     private:
         std::string_view m_view;
+        size_t m_begin = 0;
+        size_t m_end = 0;
+        bool m_poisoned = false;  // AddressSanitizer builds: the undecoded part of the buffer is poisoned
         std::unique_ptr<char[]> m_heap;
         char m_buffer[kInline];  // not initialised
     };

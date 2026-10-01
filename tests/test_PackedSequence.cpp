@@ -209,6 +209,84 @@ TEST(GeneSequence, KeepsShortGenesOnTheStackAndLongOnesOnTheHeap) {
     EXPECT_EQ(view.data(), external.data());
 }
 
+TEST(PackedSequence, AnyRangeUnpacksAsTheWholeGeneDoes) {
+    Restore restore;
+    std::mt19937_64 rng(8);
+    for (size_t n : { 1u, 5u, 130u, 517u }) {
+        std::string const s = Random(rng, n, "ACGT");
+        std::vector<uint8_t> bytes(packed::Bytes(n) + 1);
+        packed::Pack(s.data(), n, bytes.data());
+        for (bool avx2 : Paths()) {
+            packed::UseAvx2(avx2);
+            for (size_t first = 0; first <= n; first++) {
+                for (size_t length : { 0u, 1u, 2u, 3u, 4u, 5u, 31u, 127u, 128u, 129u, 300u }) {
+                    if (first + length > n) continue;
+                    std::string out(length + 2, '#');  // guard bytes: nothing is written outside the range
+                    packed::UnpackRange(bytes.data(), first, length, out.data() + 1);
+                    EXPECT_EQ(out.substr(1, length), s.substr(first, length)) << "n " << n << " first " << first << " length " << length;
+                    EXPECT_EQ(out.front(), '#');
+                    EXPECT_EQ(out.back(), '#');
+                }
+            }
+        }
+    }
+}
+
+TEST(GeneSequence, AWindowDecodesOnlyItsBasesAtTheirGenePositions) {
+    std::mt19937_64 rng(9);
+    for (size_t n : { 1u, 200u, 4096u, 4097u, 9000u }) {
+        std::string const s = Random(rng, n, "ACGT");
+        std::vector<uint8_t> bytes(packed::Bytes(n) + 1);
+        packed::Pack(s.data(), n, bytes.data());
+        for (auto [begin, end] : std::vector<std::pair<size_t, size_t>>{ { 0, n }, { 0, 1 }, { n / 2, n / 2 + 37 }, { n > 3 ? n - 3 : 0, n },
+                                                                           { 7, 3 }, { n, n + 10 }, { 5, 1u << 30 } }) {
+            GeneSequence window(bytes.data(), n, begin, end);
+            size_t const b = std::min(begin, std::min(end, n)), e = std::min(end, n);
+            EXPECT_EQ(window.size(), n);  // as long as the gene, indexed by gene position
+            EXPECT_EQ(window.Begin(), b);
+            EXPECT_EQ(window.End(), e < b ? b : e);
+            for (size_t i = b; i < e; i++) ASSERT_EQ(window[i], s[i]) << "n " << n << " window " << begin << "-" << end << " base " << i;
+            if (e > b) EXPECT_EQ(window.substr(b, e - b), std::string_view(s).substr(b, e - b));
+        }
+    }
+    // A whole gene has the window of the whole gene.
+    std::string const s = "ACGTACGTAC";
+    std::vector<uint8_t> bytes(packed::Bytes(s.size()) + 1);
+    packed::Pack(s.data(), s.size(), bytes.data());
+    GeneSequence whole(bytes.data(), s.size());
+    EXPECT_EQ(whole.Begin(), 0u);
+    EXPECT_EQ(whole.End(), s.size());
+    EXPECT_EQ(std::string_view(whole), s);
+}
+
+TEST(GeneSequence, TheBasesOutsideAWindowAreNotLeftToChance) {
+#ifdef PROTAL_GENE_ASAN
+    std::mt19937_64 rng(10);
+    for (size_t n : { 300u, 5000u }) {  // the stack buffer and the heap one
+        std::string const s = Random(rng, n, "ACGT");
+        std::vector<uint8_t> bytes(packed::Bytes(n) + 1);
+        packed::Pack(s.data(), n, bytes.data());
+        char const* data = nullptr;
+        {
+            GeneSequence window(bytes.data(), n, 100, 200);
+            data = window.data();
+            EXPECT_FALSE(__asan_address_is_poisoned(data + 100));
+            EXPECT_FALSE(__asan_address_is_poisoned(data + 199));
+            EXPECT_TRUE(__asan_address_is_poisoned(data + 16));      // before the window (ASan poisons whole 8-byte granules)
+            EXPECT_TRUE(__asan_address_is_poisoned(data + n - 16));  // after it
+        }
+        if (n <= GeneSequence::kInline) {  // on the stack; the poison is gone with the object
+            GeneSequence whole(bytes.data(), n);
+            EXPECT_FALSE(__asan_address_is_poisoned(whole.data() + 8));
+            EXPECT_FALSE(__asan_address_is_poisoned(whole.data() + n - 1));
+        }
+    }
+#else
+    GTEST_SKIP() << "only meaningful in an AddressSanitizer build (the undecoded bases are poisoned there)";
+#endif
+}
+
+
 namespace {
     // Genes with ambiguity codes and lowercase letters, in the layout of a reference.fna and its map.
     struct AmbiguousReference {
@@ -248,6 +326,32 @@ TEST(GenomeLoaderPacked, GenesAreHeldPackedWithAmbiguityCodesAsTheirFirstBase) {
             EXPECT_EQ(on_demand.GetGenome(taxid).GetGeneOMP(gene).Sequence(), expected) << "gene " << gene << " on demand";
         }
     }
+}
+
+TEST(GenomeLoaderPacked, AWindowOfAGeneIsTheSameBasesAsTheWholeGene) {
+    ScratchDir dir;
+    AmbiguousReference ref;
+    auto fna = dir.Write("reference.fna", ref.fna);
+    auto map = dir.Write("reference.map", ref.map);
+    GenomeLoader preloaded(fna, map);
+    preloaded.LoadAllGenomes(2);
+    GenomeLoader on_demand(fna, map);  // genes loaded when asked for
+    std::mt19937_64 rng(12);
+    for (int gene = 1; gene <= 40; gene++) {
+        int const taxid = 1 + gene % 3;
+        std::string const expected = StoredOf(ref.sequences[gene - 1]);
+        for (Gene const* g : { &preloaded.GetGenome(taxid).GetGene(gene), &on_demand.GetGenome(taxid).GetGeneOMP(gene) }) {
+            for (int round = 0; round < 8; round++) {
+                size_t const begin = rng() % (expected.size() + 1), end = begin + rng() % 120;
+                auto const window = g->Window(begin, end);
+                ASSERT_EQ(window.size(), expected.size());
+                size_t const last = std::min(end, expected.size());
+                for (size_t i = begin; i < last; i++) ASSERT_EQ(window[i], expected[i]) << "gene " << gene << " base " << i;
+            }
+        }
+    }
+    Gene never_loaded;
+    EXPECT_TRUE(never_loaded.Window(0, 10).empty());
 }
 
 TEST(GenomeLoaderPacked, AGeneTakesThirtyTwoBytes) {
