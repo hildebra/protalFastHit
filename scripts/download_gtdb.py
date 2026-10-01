@@ -35,6 +35,12 @@ represented by the same two. A species whose genomes are all MAGs keeps its best
 limits the strains to the genomes of a proGenomes table (isolate genomes that passed CheckM2 and GUNC).
 The representatives are GTDB's and stay as they are, as the database's references.
 
+The genomes are fetched from NCBI's FTP server (--ftp_url) directly, --connections at a time: the
+URL of a genome is built from its accession and the assembly name in GTDB's metadata, the file is
+kept as NCBI compresses it, and is checked against its announced length and read through gzip. What
+that does not deliver (an assembly NCBI renamed or withdrew, a server that fails) goes through the
+`datasets` CLI, batch by batch, which is slower: it asks NCBI per file, one batch after the other.
+
 Written to OUT/:
   release/                GTDB's files as build_gtdb_database.py --gtdb reads them
   genomes/                <accession>.fna.gz of the NCBI genomes
@@ -62,11 +68,19 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 import urllib.error
 import urllib.request
+import zlib
 
 MIRROR = "https://data.gtdb.ecogenomic.org/releases"
+FTP = "https://ftp.ncbi.nlm.nih.gov/genomes/all"
 MARKER_SETS = ("bac120", "ar53")
+USER_AGENT = "protal-download_gtdb (https://protal.earlham.ac.uk)"
+ATTEMPTS = 5  # tries of a genome before it is given up on
+RETRY_WAIT = 2.0  # seconds before the second try of a genome, doubled for each further try (or the server's Retry-After)
+FAILS_IN_A_ROW = 25  # direct fetches that fail in a row (not counting missing files) stop the direct fetching
 
 
 def parse_args(argv=None):
@@ -100,6 +114,10 @@ def parse_args(argv=None):
                         "a cluster and the GenBank accessions of its genomes), or any file listing accessions: "
                         "only strains it lists are taken")
     p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--connections", type=int, default=8,
+                   help="genomes fetched at a time straight from NCBI's FTP server (default 8: NCBI answered HTTP 503 "
+                        "to 32 at a time); 0: only through the datasets CLI, a batch at a time")
+    p.add_argument("--ftp_url", default=FTP, help=f"NCBI's genome archive (default {FTP})")
     p.add_argument("--datasets", default="datasets", help="NCBI datasets binary (default: on PATH)")
     p.add_argument("--batch", type=int, default=500, help="genomes per NCBI request (default 500)")
     p.add_argument("-t", "--threads", type=int, default=8, help="parallel downloads and compression (default 8)")
@@ -288,10 +306,12 @@ def get_release(opts, state):
 # ---- genomes from NCBI ------------------------------------------------------------------------------------
 
 Genome = collections.namedtuple(
-    "Genome", "accession genbank species lineage is_rep completeness contamination category level contigs")
+    "Genome", "accession genbank species lineage is_rep completeness contamination category level contigs name",
+    defaults=("",))
 # category: isolate, sag (single-cell amplified) or mag (metagenome-assembled); level: NCBI's assembly level
 # in lower case ("" if unknown); contigs: the number of contigs (None if unknown); genbank: the GenBank
-# accession (GCA_) of the assembly, which proGenomes lists.
+# accession (GCA_) of the assembly, which proGenomes lists; name: the assembly name ("" if unknown), which
+# is part of the genome's address on NCBI's FTP server.
 
 LEVELS = ("complete genome", "chromosome", "scaffold", "contig")
 CATEGORIES = ("isolate", "sag", "mag")
@@ -347,7 +367,8 @@ def read_metadata(gtdb, release):
                     float(f[contamination]) if contamination is not None and f[contamination] not in ("", "none") else 0.0,
                     genome_category(field(f, "ncbi_genome_category"), field(f, "ncbi_organism_name")),
                     field(f, "ncbi_assembly_level").lower(),
-                    int(float(contigs)) if contigs else None))
+                    int(float(contigs)) if contigs else None,
+                    field(f, "ncbi_assembly_name")))
     if not genomes:
         sys.exit(f"no bac120/ar53_metadata_r{release}.tsv[.gz] in {gtdb}")
     return genomes
@@ -421,6 +442,91 @@ def gzip_into(source, dest):
     with open(source, "rb") as fin, gzip.open(dest + ".part", "wb", compresslevel=6) as fout:
         shutil.copyfileobj(fin, fout, 1 << 22)
     os.replace(dest + ".part", dest)
+
+
+def ftp_url(base, accession, name):
+    """Where NCBI's FTP server has an assembly: base/GCA/000/005/845/GCA_000005845.2_ASM584v2/
+    GCA_000005845.2_ASM584v2_genomic.fna.gz (characters of the name other than letters, digits, . _ - become _)."""
+    folder = f"{accession}_{re.sub('[^A-Za-z0-9._-]', '_', name)}"
+    digits = accession[4:13]
+    return f"{base}/{accession[:3]}/{digits[0:3]}/{digits[3:6]}/{digits[6:9]}/{folder}/{folder}_genomic.fna.gz"
+
+
+def fetch_file(url, dest, attempts=None):
+    """Downloads a gzip file to dest: "" if it arrived whole (the length it announced, and gzip reads it to its
+    end), else why not. A missing file ("not found") or another refusal (HTTP 4xx but 429) is not asked for
+    again; other failures are (ATTEMPTS times), after growing waits (RETRY_WAIT), or as long as the server
+    asks for (Retry-After, at most a minute)."""
+    why = ""
+    part = dest + ".part"
+    asked_to_wait = 0.0
+    for attempt in range(attempts or ATTEMPTS):
+        if attempt:
+            time.sleep(max(RETRY_WAIT * 2 ** (attempt - 1), asked_to_wait))
+        asked_to_wait = 0.0
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(request, timeout=60) as response, open(part, "wb") as fh:
+                expected = response.headers.get("Content-Length")
+                shutil.copyfileobj(response, fh, 1 << 20)
+            if expected is not None and os.path.getsize(part) != int(expected):
+                why = f"{os.path.getsize(part)} of {expected} bytes arrived"
+                continue
+            with gzip.open(part, "rb") as gz:  # CRC and length of the compressed stream
+                while gz.read(1 << 22):
+                    pass
+            os.replace(part, dest)
+            return ""
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return "not found"
+            why = f"HTTP {e.code}"
+            if 400 <= e.code < 500 and e.code != 429:
+                break
+            retry_after = e.headers.get("Retry-After", "") if e.headers else ""
+            if retry_after.isdigit():
+                asked_to_wait = min(60.0, float(retry_after))
+        except (OSError, EOFError, http.client.HTTPException, zlib.error) as e:  # also timeouts, resets, bad gzip
+            why = f"{type(e).__name__}: {e}"
+    if os.path.exists(part):
+        os.remove(part)
+    return why
+
+
+def fetch_direct(opts, wanted, folder):
+    """Downloads wanted [(accession, url)] into folder as <accession>.fna.gz, --connections at a time. Returns
+    ({accession delivered}, {accession: why not}). Missing files are no sign of trouble (an assembly NCBI renamed
+    or withdrew goes through datasets), but FAILS_IN_A_ROW other failures in a row mean that NCBI does not
+    answer: the rest is left undone, for datasets."""
+    delivered, failed = set(), {}
+    lock = threading.Lock()
+    in_a_row = [0]
+    started = time.time()
+    size = [0]
+
+    def one(item):
+        accession, url = item
+        if in_a_row[0] >= FAILS_IN_A_ROW:
+            return accession, "not asked for: too many failures in a row"
+        dest = os.path.join(folder, accession + ".fna.gz")
+        why = fetch_file(url, dest)
+        with lock:
+            if why == "":
+                in_a_row[0] = 0
+                size[0] += os.path.getsize(dest)
+            elif why != "not found":
+                in_a_row[0] += 1
+        return accession, why
+
+    step = max(1, min(500, len(wanted) // 10))
+    with concurrent.futures.ThreadPoolExecutor(max(1, opts.connections)) as executor:
+        for n, (accession, why) in enumerate(executor.map(one, wanted), 1):
+            (failed.__setitem__(accession, why) if why else delivered.add(accession))
+            if n % step == 0 or n == len(wanted):
+                seconds = max(time.time() - started, 1e-6)
+                print(f"  {len(delivered)} of {n} fetched directly ({size[0] / 1e6:.0f} MB, "
+                      f"{size[0] / 1e6 / seconds:.1f} MB/s, {n / seconds:.1f} genomes/s)", flush=True)
+    return delivered, failed
 
 
 def ncbi_batch(opts, accessions, work):
@@ -581,6 +687,21 @@ def get_genomes(opts, state, release):
     print(f"genomes: {len(wanted)} wanted ({len(strains)} strains of {len(chosen)} species"
           + (f", the representatives of {len(pool)} species" if opts.rep_genomes == "ncbi" else "")
           + f"), {len(wanted) - len(todo)} already there, {len(todo)} to download", flush=True)
+    # Straight from NCBI's FTP server, in parallel; what that does not deliver goes through datasets.
+    fetched = 0
+    if todo and opts.connections > 0 and opts.ftp_url:
+        names = {g.accession: g.name for g in genomes}
+        direct = [(a, ftp_url(opts.ftp_url.rstrip("/"), a, names[a])) for a in todo if names.get(a)]
+        if direct:
+            print(f"fetching {len(direct)} genomes from {opts.ftp_url}, {opts.connections} at a time", flush=True)
+            delivered_direct, failed_direct = fetch_direct(opts, direct, folder)
+            fetched = len(delivered_direct)
+            todo = [a for a in todo if a not in delivered_direct]
+            reasons = collections.Counter(failed_direct.values())
+            print(f"  {fetched} fetched directly" + (f"; {len(todo)} left for datasets ("
+                  + "; ".join(f"{n} {why}" for why, n in reasons.most_common(3)) + ")" if todo else ""), flush=True)
+            if reasons["HTTP 503"] or reasons["HTTP 429"]:
+                print(f"  NCBI limited the requests: use fewer --connections (now {opts.connections})", flush=True)
     if todo:
         require_datasets(opts)
     missing = []
@@ -630,7 +751,7 @@ def get_genomes(opts, state, release):
                         "strain_assembly_level": dict(collections.Counter(w[7] or "unknown" for w in picked_strains)),
                         "strains_with_known_technology": len(known_tech), "strains_long_read": len(long_read),
                         "species_with_mags_only": mag_only, "mag_representatives_with_isolate_strains": mag_reps,
-                        "moved_to_genomes_unused": len(stray)}
+                        "moved_to_genomes_unused": len(stray), "fetched_directly": fetched}
     print(f"genomes: {len(delivered)} of {len(wanted)} in {folder} ({len(wanted) - len(delivered)} missing, see "
           f"missing.txt); a simulated species is another strain than the representative {100 * other:.0f}% of the time",
           flush=True)

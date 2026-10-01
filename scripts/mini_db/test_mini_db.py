@@ -73,8 +73,14 @@ elif args[0] == "rehydrate":
 '''
 
 
-def gtdb_mirror(release, root):
-    """release, a synthetic GTDB release, laid out as GTDB's server has it under root/release226/226.0."""
+def assembly_folder(accession):
+    """The name of a synthetic genome's folder on the stand-in FTP server (ASM<digits>v1 is its assembly name)."""
+    return f"{accession}_ASM{accession[4:13]}v1"
+
+
+def gtdb_mirror(release, root, assembly_names=False):
+    """release, a synthetic GTDB release, laid out as GTDB's server has it under root/release226/226.0. With
+    assembly_names, its metadata has the ncbi_assembly_name column (the synthetic one has none)."""
     base = os.path.join(root, "release226", "226.0")
     os.makedirs(os.path.join(base, "genomic_files_reps"))
     os.makedirs(os.path.join(base, "genomic_files_all"))
@@ -85,6 +91,18 @@ def gtdb_mirror(release, root):
         with open(os.path.join(release, f"{mset}_metadata_r226.tsv.gz"), "rb") as fin, \
                 open(os.path.join(base, f"{mset}_metadata_r226.tsv.gz"), "wb") as fout:
             fout.write(fin.read())
+        if assembly_names:
+            path = os.path.join(base, f"{mset}_metadata_r226.tsv.gz")
+            with gzip.open(path, "rt") as fh:
+                lines = fh.read().splitlines()
+            column = lines[0].split("\t").index("accession")
+            out = [lines[0] + "\tncbi_assembly_name"]
+            for line in lines[1:]:
+                accession = line.split("\t")[column]
+                accession = accession[3:] if accession[:3] in ("RS_", "GB_") else accession
+                out.append(f"{line}\tASM{accession[4:13]}v1")
+            with gzip.open(path, "wt", newline="\n") as fh:
+                fh.write("\n".join(out) + "\n")
         for kind in ("reps", "all"):
             name = f"{mset}_marker_genes_{kind}_r226"
             with tarfile.open(os.path.join(base, f"genomic_files_{kind}", name + ".tar.gz"), "w:gz") as tar:
@@ -368,6 +386,166 @@ class MiniDbTest(unittest.TestCase):
             self.assertNotIn("Inputs for GTDB", down.stdout)
             with open(calls) as fh:
                 self.assertEqual(len(fh.readlines()), 5)  # --batch 1: 1 .bit_length() + 4
+
+    def test_download_direct(self):
+        # Genomes come straight from the (stand-in) FTP server, in parallel, without datasets; the ones it does
+        # not have go through datasets.
+        mirror = os.path.join(self.tmp.name, "mirror_direct")
+        gtdb_mirror(self.gtdb, mirror, assembly_names=True)
+        with open(os.path.join(self.gtdb, "simulation", "genomes.tsv")) as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                a = row["accession"]
+                folder = os.path.join(mirror, "ftp", a[:3], a[4:7], a[7:10], a[10:13], assembly_folder(a))
+                os.makedirs(folder)
+                shutil.copy(row["fasta_path"], os.path.join(folder, assembly_folder(a) + "_genomic.fna.gz"))
+
+        class Quiet(http.server.SimpleHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=mirror))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        datasets = os.path.join(self.tmp.name, "datasets_direct")
+        with open(datasets, "w") as fh:
+            fh.write(FAKE_DATASETS)
+        os.chmod(datasets, 0o755)
+        port = server.server_port
+        env = dict(os.environ, FAKE_TABLE=os.path.join(self.gtdb, "simulation", "genomes.tsv"))
+
+        def download(out, *extra, **more):
+            return subprocess.run([sys.executable, DOWNLOAD, "-o", out, "--mirror", f"http://127.0.0.1:{port}",
+                                   "--ftp_url", f"http://127.0.0.1:{port}/ftp", "--species", "3", "--per_species", "1",
+                                   "--rep_only_species", "0", "--connections", "4", *extra],
+                                  env=dict(env, **more), capture_output=True, text=True)
+
+        # Without datasets at all (and no lookup of the sequencing technology, which needs it).
+        out = os.path.join(self.tmp.name, "inputs_direct")
+        first = download(out, "--datasets", "/nonexistent/datasets", "--no_tech_lookup")
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertIn("fetching 6 genomes from", first.stdout)
+        self.assertIn("6 fetched directly", first.stdout)
+        genomes = sorted(os.listdir(os.path.join(out, "genomes")))
+        self.assertEqual(len(genomes), 6, genomes)
+        self.assertFalse([g for g in genomes if g.endswith(".part")])
+        with open(os.path.join(out, "genomes.tsv")) as fh:
+            rows = [r for r in csv.DictReader(fh, delimiter="\t")]
+        with open(os.path.join(self.gtdb, "simulation", "genomes.tsv")) as fh:
+            source = {r["accession"]: r["fasta_path"] for r in csv.DictReader(fh, delimiter="\t")}
+        for r in rows:  # the file is NCBI's, byte for byte
+            with open(os.path.join(out, "genomes", r["accession"] + ".fna.gz"), "rb") as a, open(source[r["accession"]], "rb") as b:
+                self.assertEqual(a.read(), b.read())
+        with open(os.path.join(out, "download.json")) as fh:
+            self.assertEqual(json.load(fh)["genomes"]["fetched_directly"], 6)
+        again = download(out, "--datasets", "/nonexistent/datasets", "--no_tech_lookup")
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertIn("6 already there, 0 to download", again.stdout)
+
+        # A genome the server lacks (404) goes through datasets, and the others do not.
+        lacking = next(r["accession"] for r in rows if r["role"] == "strain")
+        a = lacking
+        os.remove(os.path.join(mirror, "ftp", a[:3], a[4:7], a[7:10], a[10:13], assembly_folder(a),
+                               assembly_folder(a) + "_genomic.fna.gz"))
+        calls = os.path.join(self.tmp.name, "datasets_direct_calls.txt")
+        out2 = os.path.join(self.tmp.name, "inputs_direct2")
+        second = download(out2, "--datasets", datasets, "--no_tech_lookup", FAKE_LOG=calls)
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertIn("5 fetched directly; 1 left for datasets (1 not found)", second.stdout)
+        self.assertEqual(len(os.listdir(os.path.join(out2, "genomes"))), 6)
+        with open(calls) as fh:
+            asked = fh.read().splitlines()
+        self.assertEqual(len([c for c in asked if c.startswith("download genome accession")]), 1, asked)
+        self.assertEqual(len([c for c in asked if c.startswith("rehydrate")]), 1, asked)
+        self.assertEqual(len(asked), 2, asked)
+
+    def test_fetch_file(self):
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import argparse
+        import download_gtdb as dl
+        self.assertEqual(dl.ftp_url("http://x", "GCF_000005845.2", "ASM584v2"),
+                         "http://x/GCF/000/005/845/GCF_000005845.2_ASM584v2/GCF_000005845.2_ASM584v2_genomic.fna.gz")
+        self.assertEqual(dl.ftp_url("http://x", "GCA_947500805.1", "ATCC 21022 (v1)#2"),
+                         "http://x/GCA/947/500/805/GCA_947500805.1_ATCC_21022__v1__2/GCA_947500805.1_ATCC_21022__v1__2_genomic.fna.gz")
+        good = gzip.compress(b">g\nACGT\n" * 1000)
+        requests = collections.Counter()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                name = self.path.lstrip("/")
+                requests[name] += 1
+                if name.startswith("gone"):
+                    self.send_error(404)
+                    return
+                if name.startswith("forbidden"):
+                    self.send_error(403)
+                    return
+                if name.startswith("busy") or (name.startswith("flaky") and requests[name] <= 2):
+                    self.send_error(503)
+                    return
+                if name.startswith("later") and requests[name] == 1:
+                    self.send_response(503)
+                    self.send_header("Retry-After", "1")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                body = good
+                if name.startswith("bad"):
+                    body = b"this is not gzip" * 50
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body) + (500 if name.startswith("short") else 0)))
+                self.end_headers()
+                self.wfile.write(body)
+                self.close_connection = True
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_port}"
+        folder = os.path.join(self.tmp.name, "fetch_file")
+        os.makedirs(folder)
+        wait, dl.RETRY_WAIT = dl.RETRY_WAIT, 0.0
+        self.addCleanup(setattr, dl, "RETRY_WAIT", wait)
+        dest = os.path.join(folder, "x.fna.gz")
+        self.assertEqual(dl.fetch_file(f"{base}/ok.gz", dest), "")
+        with open(dest, "rb") as fh:
+            self.assertEqual(fh.read(), good)
+        self.assertEqual(dl.fetch_file(f"{base}/flaky.gz", dest), "")  # 503 twice, then the file
+        self.assertEqual(requests["flaky.gz"], 3)
+        self.assertEqual(dl.fetch_file(f"{base}/gone.gz", dest), "not found")
+        self.assertEqual(requests["gone.gz"], 1, "a missing file is not asked for again")
+        self.assertEqual(dl.fetch_file(f"{base}/forbidden.gz", dest), "HTTP 403")
+        self.assertEqual(requests["forbidden.gz"], 1)
+        self.assertEqual(dl.fetch_file(f"{base}/busy.gz", dest), "HTTP 503")
+        self.assertEqual(requests["busy.gz"], dl.ATTEMPTS)
+        started = time.time()  # the server says when to come back
+        self.assertEqual(dl.fetch_file(f"{base}/later.gz", dest), "")
+        self.assertGreaterEqual(time.time() - started, 1.0)
+        self.assertEqual(requests["later.gz"], 2)
+        self.assertIn("BadGzipFile", dl.fetch_file(f"{base}/bad.gz", dest))  # the right length, not gzip
+        short = dl.fetch_file(f"{base}/short.gz", dest)
+        self.assertTrue(short, "a file shorter than announced is no delivery")
+        self.assertEqual(sorted(os.listdir(folder)), ["x.fna.gz"], "no .part file is left behind")
+
+        # NCBI not answering: after FAILS_IN_A_ROW failures the rest is left for datasets, not asked for.
+        opts = argparse.Namespace(connections=1)
+        before = sum(requests.values())
+        urls = [(f"G{i}", f"{base}/busy{i}.gz") for i in range(dl.FAILS_IN_A_ROW + 5)]
+        delivered, failed = dl.fetch_direct(opts, urls, folder)
+        self.assertEqual((len(delivered), len(failed)), (0, len(urls)))
+        self.assertEqual(sum(1 for why in failed.values() if why.startswith("not asked for")), 5)
+        self.assertEqual(sum(requests.values()) - before, dl.ATTEMPTS * dl.FAILS_IN_A_ROW)
+        # Missing files are no sign of trouble, however many.
+        urls = [(f"M{i}", f"{base}/gone{i}.gz") for i in range(dl.FAILS_IN_A_ROW + 5)] + [("OK", f"{base}/ok.gz")]
+        delivered, failed = dl.fetch_direct(opts, urls, folder)
+        self.assertEqual(delivered, {"OK"})
+        self.assertEqual(set(failed.values()), {"not found"})
 
     def test_strain_choice(self):
         # Strains are taken by quality: isolates before MAGs, complete assemblies before drafts, long-read

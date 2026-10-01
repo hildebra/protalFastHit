@@ -128,12 +128,24 @@ python3 scripts/build_gtdb_database.py --inputs /shared/protal_inputs/gtdb_r226 
 `download_gtdb.py` fetches GTDB r226 (`--release 220`, or another release from 207 on, for older
 ones; the newest point release unless one is named, e.g. `214.1`): taxonomy, metadata and the
 marker genes of the representatives and of all genomes (17.7 GB for r226), checked against the
-release's `MD5SUM.txt` and extracted. Then it downloads the genomes to simulate from with NCBI's
-`datasets` CLI (below). The folder serves every later build of that release; a rerun downloads
+release's `MD5SUM.txt` and extracted. Then it downloads the genomes to simulate from NCBI. The
+folder serves every later build of that release; a rerun downloads
 only what is missing, and `--dry_run` lists what it would fetch. A download whose connection drops
 goes on from where it stopped (a `.part` file, also on a rerun), and one that stops after the last
 byte is checked and kept. With NCBI not answering, the run stops after a few failed requests in a
 row, and it fails if no genome arrived.
+
+The genomes come from NCBI's FTP server (`--ftp_url`), `--connections` (8) at a time: the address
+of a genome is built from its accession and the assembly name in GTDB's metadata, the file is kept as
+NCBI compresses it, and it is checked against its announced length and read through gzip. A request
+that fails is repeated after growing waits (or the wait the server asks for); a missing file is
+not. What this does not deliver (an assembly NCBI renamed or withdrew, or NCBI not answering) goes
+through NCBI's `datasets` CLI, a batch of `--batch` genomes at a time, which asks NCBI for each file
+and is slower. The log prints the rate (MB/s, genomes/s) as it goes: raise `--connections` if the
+link allows, and lower it if the log says NCBI limited the requests (it answered HTTP 503 to 32
+connections at once in a test). `--connections 0` uses `datasets` only. On one test link (about
+3 MB/s in total, so bandwidth-bound), 4 connections fetched 48 genomes in a third of the time of the
+`datasets` route and one connection in four fifths of it; a faster link gains more from more connections.
 
 | `download_gtdb.py` writes | |
 |---|---|
@@ -155,7 +167,8 @@ row, and it fails if no genome arrived.
 | `--no_tech_lookup` | | do not ask NCBI for sequencing technologies: no preference for PacBio and Nanopore assemblies |
 | `--progenomes` | | a proGenomes ANI-clustering table ([`pg4_ANI_clustering.tsv.gz`](https://progenomes.embl.de/download.cgi), 5 MB, downloaded by hand) or any list of accessions: strains are taken from these genomes only |
 | `--no_genomes`, `--dry_run` | | GTDB's files only; list the files and their sizes |
-| `--mirror`, `--datasets`, `--batch`, `-t` | | GTDB server, NCBI CLI, genomes per NCBI request (500), parallel downloads and compression (8) |
+| `--connections`, `--ftp_url` | 8, `https://ftp.ncbi.nlm.nih.gov/genomes/all` | genomes fetched at a time straight from NCBI's FTP server (0: only through `datasets`), and that server |
+| `--mirror`, `--datasets`, `--batch`, `-t` | | GTDB server, NCBI CLI, genomes per `datasets` request (500), parallel compression of what `datasets` delivers (8) |
 
 It needs, besides a built `protal` and `simulate_metagenomes`: `art_illumina` on
 `$PATH` (for the simulations; pbsim3 for PacBio and Nanopore reads), Python 3 with numpy, pandas, joblib and scikit-learn for the
