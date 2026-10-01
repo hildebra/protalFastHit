@@ -1,20 +1,27 @@
 #!/bin/bash
 # Per-pair instructions by category, from cg_diff.sh's perpair.tsv: cg_categories.sh LABEL
+# A function is classified by its name (the part before its parameter list), not its signature: the first
+# version matched the signature, and every function taking a std::string landed in "strings".
 source "$(dirname "$0")/env.sh"
 f=$PERF_DIR/cg/$1/perpair.tsv
 awk -F'\t' '
-function cat(n) {
+function cat(full,   n, p) {
+  n = full; sub(/^[^:]*:/, "", n)            # drop the source file
+  p = index(n, "("); if (p > 0) n = substr(n, 1, p - 1)
   if (n ~ /wavefront_|wfa::|WFAligner/) return "WFA (alignment core)"
   if (n ~ /inflate|zng_|crc32|adler|ThreadedGz/) return "gzip inflate (zlib-ng)"
-  if (n ~ /KmerIterator|avx2intrin|avxintrin|emmintrin|ScanWindows|stl_vector.h:protal::SimpleKmerHandler|vector.tcc:protal::SimpleKmerHandler/) return "syncmer extraction"
-  if (n ~ /ReverseComplement|KmerUtils\.h|basic_string|char_traits|string_view/) return "strings: reverse complement, copies"
-  if (n ~ /malloc|operator new|operator delete|_int_free|free$/) return "malloc/free"
-  if (n ~ /memmove|memcpy|memset|memchr/) return "memcpy/memset/memchr"
-  if (n ~ /FastxReader|Uppercase/) return "FASTQ parsing"
-  if (n ~ /ChainAnchorFinder|KmerLookup|Seedmap|ChainingStrategy|robin|SeedingStrategy/) return "seeding + anchors"
-  if (n ~ /GetInstructionCountsAndCompress|AlignmentUtils|SNPUtils|AnchoredAlignment|AlignmentStrategy|PackedSequence|GeneSequence|AlignmentOutputHandler|SamHandler|SamFile|ScoreAlign/) return "alignment post-processing, SAM"
-  if (n ~ /SequenceRange|VariantHandler|Profiler|strtol|strtod|charconv|Strain|Profiling/) return "profiling stage"
+  if (n ~ /SimpleKmerHandler|KmerIterator/) return "syncmer extraction"
+  if (n ~ /ReverseComplement|Complement/) return "reverse complement"
+  if (n ~ /basic_string|char_traits|to_string|__to_chars|charconv/) return "std::string operations"
+  if (n ~ /malloc|operator new|operator delete|_int_free|^free$|tcache/) return "malloc/free"
+  if (n ~ /memmove|memcpy|memset|memchr|memcmp/) return "memcpy/memset/memchr"
+  if (n ~ /FastxReader|Uppercase|SeqReader/) return "FASTQ parsing"
+  if (n ~ /ChainAnchorFinder|KmerLookup|Seedmap|ChainingStrategy|robin|SeedingStrategy|LookupResult|LookupPointer/) return "seeding + anchors"
+  if (n ~ /AnchoredAligner|SimpleAlignmentHandler|AlignmentInfo|PostProcess|IsAlignmentValid|GeneSequence|UnpackRange|Unpack/) return "alignment handler (not WFA)"
+  if (n ~ /OutputHandler|ArtoSAM|ExtractSNPs|SamEntry|SamOutput|ReferenceOf|NextCompressedCigar|JoinAlignmentPairs|SortAlignmentPairs|Bitscore/) return "pairing, SAM output"
+  if (n ~ /SequenceRange|VariantHandler|Profiler|profiler|strtol|strtod|Strain|LineSplitter|ReadSamGroups/) return "profiling stage"
   if (n ~ /steady_clock|clock_gettime|chrono|Benchmark/) return "stage timers"
+  if (n ~ /RunPairedEnd|RunSingleEnd/) return "read loop (inlined)"
   return "other"
 }
 { c = cat($2); s[c] += $1; t += $1 }

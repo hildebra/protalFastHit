@@ -1,0 +1,30 @@
+== dense_w_300k dbdense, swapped: A = mine, B = base
+A_1 25.69 23.61 21.815 3.196
+B_1 20.13 18.83 17.484 2.463
+A_2 18.20 16.74 16.008 2.098
+B_2 13.99 13.40 12.573 1.734
+A_3 15.54 14.97 13.891 1.944
+B_3 14.44 13.98 13.021 2.223
+A_4 15.11 14.58 13.581 1.902
+B_4 16.62 15.97 14.865 2.051
+A_5 17.24 16.31 15.182 2.073
+B_5 16.75 16.04 14.789 2.046
+column:        wall      user      loop      seeding
+A min         15.110    14.580    13.581     1.902
+A median      17.240    16.310    15.182     2.073
+B min         13.990    13.400    12.573     1.734
+B median      16.620    15.970    14.789     2.051
+== syncmer scan alone, w900_plain R1
+base full: 200000 reads, AVX2 1: min 776.4 ns/read, median 890.1; checksum 3230539887096321255
+mine full: 200000 reads, AVX2 1: min 626.0 ns/read, median 668.3; checksum 3230539887096321255
+base fill: 200000 reads, AVX2 1: min 312.8 ns/read, median 329.0; checksum 0
+mine fill: 200000 reads, AVX2 1: min 202.5 ns/read, median 220.2; checksum 0
+base full: 200000 reads, AVX2 1: min 780.2 ns/read, median 885.5; checksum 3230539887096321255
+mine full: 200000 reads, AVX2 1: min 653.0 ns/read, median 723.0; checksum 3230539887096321255
+base fill: 200000 reads, AVX2 1: min 400.7 ns/read, median 459.4; checksum 0
+mine fill: 200000 reads, AVX2 1: min 246.7 ns/read, median 259.5; checksum 0
+base full: 200000 reads, AVX2 1: min 861.0 ns/read, median 971.1; checksum 3230539887096321255
+mine full: 200000 reads, AVX2 1: min 675.1 ns/read, median 787.8; checksum 3230539887096321255
+base fill: 200000 reads, AVX2 1: min 327.8 ns/read, median 356.0; checksum 0
+mine fill: 200000 reads, AVX2 1: min 298.8 ns/read, median 422.1; checksum 0
+DONE

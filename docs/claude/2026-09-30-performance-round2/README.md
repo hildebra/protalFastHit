@@ -20,7 +20,9 @@ branch around the anchored-alignment commit; the exact commit was not recorded),
 
 ## Summary
 
-_Follow-up of 2026-10-01 at the end of this file: the first three fixes are implemented, with a denser database._
+_Follow-ups of 2026-10-01 at the end of this file: the first three fixes, implemented, with a denser database; the windowed
+gene decode; syncmers from 2-bit codes and candidate alignments moved instead of copied (with a correction to the
+"strings" category of the tables below)._
 
 1. **Big gains since round 1.** Alignment of `mix` at 1 thread takes 9.5 s instead of 18.0 s, at 6 threads
    3.2 s instead of 5.6 s; `w900` 21.9 s instead of 31.2 s at 1 thread. Instructions per pair in the alignment loop:
@@ -128,6 +130,12 @@ The "strings" category is every `std::string` operation callgrind sees; about 16
 four reverse complements (2 in the anchor finder, 2 in the alignment handler, which also copies the read), the rest
 FASTQ record assignment, read ids and CIGAR strings. Removing the reverse-complement cost and the copies in the
 prototype removed 15.6k (`mix`) and 18.6k (`w900`) instructions per pair, which confirms it.
+
+_Correction (2026-10-01): the script behind these categories (`cg_categories.sh`) matched a function's whole signature,
+so every function that takes a `std::string` (the anchor finder, `AlignAnchor`, the SAM writers...) counted as "strings".
+The reverse-complement part above is right (the prototype confirmed it), but the "strings" totals are too high, most of
+all on `w900` and on the dense database of the first follow-up (69.5k there). The script now classifies by function name;
+the corrected categories are in the last follow-up._
 
 Fixed costs per run, instructions (1k-pair run): index load 11.0 G (zstd 4.5 G, `DecodeChunk` 6.2 G + 0.94 G
 `memcpy`), model parse 1.14 G (0.41 G of it in 24,674 exceptions from `MiningField` and `OpType` parsing), genomes 1.25 G.
@@ -462,3 +470,109 @@ after the checks above; what the report shows is in its `data/` folders, and the
 (`prep_db.sh`, `prep_reads.sh`, `dense_world.sh`, `build_pair.sh`). The commit was checked again afterwards on fresh builds of
 `git archive HEAD` (`f71e7d5`) and of `HEAD~1`: 230 unit tests and 116 end-to-end tests pass, and on a mini database (`build_mini_db.sh`)
 with 200,000 simulated read pairs all 12 outputs are byte-identical to `HEAD~1`'s at one thread, the SAMs equal sorted at four.
+
+## Follow-up (2026-10-01): syncmers from 2-bit codes, candidate alignments moved
+
+Item 3 (syncmers from a packed read) and the candidate copies of the dense follow-up, on `c575aa5`. Implemented in
+`2890fcd`.
+
+**Syncmers.** `ScanWindowsAvx2` built each window's k-mers, cores and s-mers base by base, in two scalar loops of
+~20 instructions a base (item 3). `FillAvx2` now turns the read into 2-bit codes 32 bases at a time, both strands (a
+`pshufb` on the low nibble of the upper-cased letter; a character other than A, C, G, T in either case is 0 on both
+strands, as `kForwardCode`/`kReverseCode` give it), and `Bases16` builds, by doubling, the codes of the 2, 4, 8 and 16
+bases at every position (four loops of one shift and one OR, which the compiler vectorises). A k-mer (k ≤ 31) is then
+two 16-base codes put together and cut to its k, its core a shift and a mask of it, an s-mer a shift and a mask of one
+16-base code; forward big-endian, reverse little-endian. The AVX2 evaluation of the windows after it is unchanged, and
+k > 31 takes the scalar `ScanWindows`, which stays as the reference.
+
+**Candidates.** A candidate alignment that passed was copied into the result list, and then into every pair it went into
+(`JoinAlignmentPairs`), two strings per copy (CIGAR and compressed CIGAR). Now the candidate is moved (`AlignAnchor` sets
+every field again for the next anchor), and the join works out its pairs as indices first, then moves each alignment into
+the last pair it goes into and copies it into the ones before (`consume`; off when `--benchmark_alignment` keeps the
+lists). With them: `AlignmentInfo::Cigar()` returns a reference, `CigarANI` takes a `string_view`, WFA2's operations are
+written into the caller's string (`WFA2Wrapper2::CigarInto`: the anchored aligner's flanks and the whole-window
+alignment no longer build a string per WFA call), and the hard clip of a CIGAR is cut in its own buffer.
+
+**The join's paired mark (kept as it was; probably an error).** In `JoinAlignmentPairs` a mate-2 candidate on the same
+taxon and gene in the wrong orientation is skipped with `continue` before `read2_index++`, so after such a skip the
+index that marks mate-2 candidates as paired lags the loop by the candidates skipped: the candidate before the one that
+paired is marked, and the one that paired is written again as a single without a mate. The rewrite keeps this exactly,
+since changing it would change outputs (the new test compares with the old loop). How much it matters: a build that marks
+the candidate that paired (`selected2[j]`, an experiment, not committed) gives byte-identical outputs to the new build on
+`w900` (394 files, 890k SAM records), `dense_w` (241, 994k) and `mix` (180) at one thread. On these data the lagging mark
+changes nothing that is written; it is still worth fixing on its own, with a test of the case.
+
+**Same outputs.** `compare_outputs.sh`, `c575aa5` against the new build: at one thread every output byte-identical on
+`mix` (180 files), `w900` (394), `dense_w` (241) and `dense_mix` (140), plain FASTQ; `w900` at 6 threads, SAMs equal
+sorted; single-end `dense_w` (300k) and `w900` (3 files each); the baseline-ISA binary on `mix` (180). `dense_mix` gzipped
+at 6 threads: all files the same but `profile.gene.log`, one line of which differs in the sixth decimal (34.592188
+against 34.592187); two runs of `c575aa5`'s binary differ the same way, so it is the order in which threads add up a
+float, not this change. New unit tests: `Syncmers.ScanCodesEveryByteAndEveryLengthAsTheDefinition` (every length from k to
+k + 99 around the 32-base steps, every byte value 0-255 in a read, AVX2 on and off, against the window-by-window
+definition) and `PairJoin.MovingGivesThePairsCopyingGave` (2,000 random rounds; with and without `consume`, against the old
+loop, including the lagging mark). On `git archive` of `ccebade` plus these changes (`data/test_summary_syncmer_move.txt`):
+234 unit tests (Release, and Debug under ASan + UBSan), 30 mini-database tests, 116 end-to-end tests, the GTDB build test
+(3) and the model export test (7) pass. UBSan caught an error in the first version of the pair-join test (a reference bound
+to a null `GenomeLoader`, which the join takes and does not use); the test builds a loader of a one-gene reference now.
+
+**Instructions per pair** (callgrind, 30k pairs against 1k, gzipped input, 1 thread; `data/categories_syncmer_move.txt`):
+
+| | `c575aa5` | now | Δ | syncmer extraction | malloc/free |
+|---|---:|---:|---:|---:|---:|
+| `mix` | 76.6k | 66.6k | −13.0% | 21.9k → 11.6k | 0.7k → 0.7k |
+| `w900` | 287.5k | 276.0k | −4.0% | 22.0k → 11.7k | 9.3k → 8.0k |
+| `dense_w` | 385.1k | 371.1k | −3.6% | 21.5k → 11.5k | 18.2k → 14.3k |
+| `dense_mix` | 65.5k | 55.8k | −14.9% | 21.2k → 11.2k | 1.0k → 0.8k |
+
+The syncmers save ~10k per pair everywhere (item 3 estimated 12k), the moved candidates ~1.2k on `w900` and ~4k on
+`dense_w`, where a read has the most candidates, and nothing on the sparse sets. `ScanWindowsAvx2` itself is 21.5k → 8.2k
+per pair on `mix`, plus 3.0k in `Bases16`.
+
+**Time.** The syncmer scan alone, on the 200,000 first reads of `w900` (`scripts/bench_syncmers.sh`: protal's handler as
+RunProtal sets it up, pinned, 3 alternated runs of 15 rounds each, same checksum in both builds): 641–691 → 500–518 ns per
+read (minimum per run), −22…−26%; the part before the window evaluation (the codes, k-mers, cores and s-mers) 259–266 →
+171–181 ns, −32…−35%. Time falls by less than the instructions (−47%): the instructions removed were cheap ones, and the
+AVX2 window evaluation, which did not change, is now about two-thirds of the scan (~330 ns a read; a branch per syncmer
+found and an `emplace_back` each).
+
+The whole alignment stage, 1 thread pinned, quiet machine (load ~1), the order of the builds rotated every round
+(`scripts/abn.sh`, 5–6 rounds; `data/abn_quiet.txt`, `data/abn_dense_w_align64.txt`). "Aligned" is the same two trees
+built with `-falign-functions=64`; see below for why.
+
+| loop time, min / median (s) | `c575aa5` | now | Δ | aligned: `c575aa5` | now | Δ |
+|---|---:|---:|---:|---:|---:|---:|
+| `mix` (1M pairs) | 5.92 / 6.17 | 5.58 / 5.80 | −5.7% / −6.0% | 5.83 / 5.95 | 5.64 / 5.71 | −3.4% / −4.2% |
+| `dense_mix` (300k) | 1.61 / 1.63 | 1.53 / 1.58 | −5.1% / −3.6% | 1.63 / 1.71 | 1.53 / 1.58 | −5.9% / −8.1% |
+| `w900` (300k) | 5.05 / 5.21 | 5.05 / 6.16 | 0% / noise | 4.86 / 5.21 | 5.05 / 5.18 | +3.9% / −0.6% |
+| `dense_w` (300k) | 10.45 / 10.74 | 10.39 / 10.58 | −0.6% / −1.5% | 10.30 / 10.45 | 10.11 / 10.19 | −1.9% / −2.5% |
+
+So −4…−6% where the syncmers are a large share of the work (most reads do not align: `mix`, `dense_mix`, the realistic
+case), which agrees with the ~320 ns per pair that the scan benchmark saves; on the alignment-bound sets (`w900`,
+`dense_w`, WFA 43–49% of the instructions) 0 to −2%, below what this machine can resolve.
+
+**How the first timings misled.** Run first while another session was running timing experiments of its own (load 3–6),
+the same comparison showed the new build 4–11% *slower* on `dense_w` (minimum and median), in 9 of 10
+alternated pairs and with the order of the two builds swapped (`data/ab_syncmer_move.txt`, `data/ab_syncmer_move_2.txt`); a build with only one of the two
+changes was slower still than both (`data/abn_dense_w_parts.txt`), which no code difference explains. On the quiet machine
+the same binaries tie, and with every function aligned to 64 bytes the new build is ahead. Two things make a few percent
+between builds unreliable here: WSL's vCPU that `taskset` pins is moved by Windows between the laptop's performance and
+low-power cores (one binary's loop takes 10.4 s or 16.6 s), and every change to protal's code moves WFA2's functions
+(linked after it) by a multiple of 16 bytes: `wavefront_extend_endsfree` starts at offsets 48, 16, 0 and 16 within a
+64-byte line in the four builds `c575aa5`, part 1, part 2 and both. The instruction counts above do not depend on either.
+
+**Corrected categories.** By function name (`cg_categories.sh` now), per pair at `c575aa5`, `w900` and `dense_w`: WFA
+47% and 43%; seeding and anchors 9.5% and 13.7%; syncmers 7.7% and 5.6% (4.2% and 3.1% now); the profiling stage
+6.1% and 5.2%; the alignment handler outside WFA 4.6% and 8.9%; gzip 4.4% and 3.2%; `std::string` operations 3.3% and
+3.1%; malloc/free 3.2% and 4.7%; pairing and SAM output 2.7% and 3.2%; memcpy 2.2% and 2.0%. Most of the 17–21% that
+the old tables called strings was the anchor finder, the alignment handler and the SAM writers, filed there by their
+parameters.
+
+**What is left, in the order it pays on dense databases:** fewer or cheaper WFA calls (43–49%); seeding and anchors
+(14% of `dense_w`'s instructions, and 35–39% of the wall time in the sampler of section 2); the alignment
+handler outside WFA (9%); the window evaluation of the syncmer scan (a left-pack of the hits instead of a branch per hit; not tried); the vector index decode
+and the flex-block scan, which matter at GTDB size.
+
+Scripts added: `bench_syncmers.cpp` and `bench_syncmers.sh` (the scan alone, with a fill-only variant), `abn.sh` (any
+number of builds, order rotated), `build_mine.sh` (HEAD plus only the listed working-tree files), `regen_data.sh` (all
+the data of this report, after `~/protal-perf` was removed a second time); `cg_categories.sh` classifies by name;
+`run_all_tests.sh` takes `TREE`, `JOBS` and `TRAIN_PYTHON`, and says when it skips the GTDB build and model tests.

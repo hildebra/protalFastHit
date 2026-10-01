@@ -1,0 +1,122 @@
+# Per-pair exclusive instructions by category (cg_categories.sh, name-based), callgrind 30k pairs against 1k, 1 thread, .gz input.
+# b_ = HEAD c575aa5 (pair/base), m_ = HEAD + packed-read syncmers + moved candidates (pair/mine)
+== b_mix
+   76558        total
+   22850  29.8%  WFA (alignment core)
+   21924  28.6%  syncmer extraction
+   12803  16.7%  gzip inflate (zlib-ng)
+    7573   9.9%  seeding + anchors
+    3386   4.4%  FASTQ parsing
+    2095   2.7%  memcpy/memset/memchr
+    1880   2.5%  other
+     980   1.3%  profiling stage
+     938   1.2%  alignment handler (not WFA)
+     717   0.9%  malloc/free
+     564   0.7%  std::string operations
+     452   0.6%  pairing, SAM output
+     396   0.5%  stage timers
+== m_mix
+   66635        total
+   22847  34.3%  WFA (alignment core)
+   12803  19.2%  gzip inflate (zlib-ng)
+   11581  17.4%  syncmer extraction
+    7573  11.4%  seeding + anchors
+    3386   5.1%  FASTQ parsing
+    2212   3.3%  other
+    2191   3.3%  memcpy/memset/memchr
+     980   1.5%  profiling stage
+     929   1.4%  alignment handler (not WFA)
+     651   1.0%  malloc/free
+     556   0.8%  std::string operations
+     530   0.8%  pairing, SAM output
+     396   0.6%  stage timers
+== b_w900
+  287505        total
+  135480  47.1%  WFA (alignment core)
+   27333   9.5%  seeding + anchors
+   22066   7.7%  other
+   22033   7.7%  syncmer extraction
+   17568   6.1%  profiling stage
+   13240   4.6%  alignment handler (not WFA)
+   12753   4.4%  gzip inflate (zlib-ng)
+    9389   3.3%  std::string operations
+    9312   3.2%  malloc/free
+    7890   2.7%  pairing, SAM output
+    6339   2.2%  memcpy/memset/memchr
+    3625   1.3%  FASTQ parsing
+     477   0.2%  stage timers
+== m_w900
+  276012        total
+  135426  49.1%  WFA (alignment core)
+   27333   9.9%  seeding + anchors
+   22264   8.1%  other
+   17568   6.4%  profiling stage
+   13283   4.8%  alignment handler (not WFA)
+   12753   4.6%  gzip inflate (zlib-ng)
+   11692   4.2%  syncmer extraction
+    9209   3.3%  std::string operations
+    8070   2.9%  pairing, SAM output
+    8028   2.9%  malloc/free
+    6284   2.3%  memcpy/memset/memchr
+    3625   1.3%  FASTQ parsing
+     477   0.2%  stage timers
+== b_dense_w
+  385144        total
+  167023  43.4%  WFA (alignment core)
+   52825  13.7%  seeding + anchors
+   34401   8.9%  alignment handler (not WFA)
+   23026   6.0%  other
+   21494   5.6%  syncmer extraction
+   20113   5.2%  profiling stage
+   18157   4.7%  malloc/free
+   12357   3.2%  gzip inflate (zlib-ng)
+   12184   3.2%  pairing, SAM output
+   11884   3.1%  std::string operations
+    7661   2.0%  memcpy/memset/memchr
+    3497   0.9%  FASTQ parsing
+     522   0.1%  stage timers
+== m_dense_w
+  371129        total
+  166888  45.0%  WFA (alignment core)
+   52825  14.2%  seeding + anchors
+   34553   9.3%  alignment handler (not WFA)
+   22910   6.2%  other
+   20113   5.4%  profiling stage
+   14273   3.8%  malloc/free
+   12566   3.4%  pairing, SAM output
+   12357   3.3%  gzip inflate (zlib-ng)
+   11697   3.2%  std::string operations
+   11498   3.1%  syncmer extraction
+    7430   2.0%  memcpy/memset/memchr
+    3497   0.9%  FASTQ parsing
+     522   0.1%  stage timers
+== b_dense_mix
+   65507        total
+   21203  32.4%  syncmer extraction
+   12371  18.9%  gzip inflate (zlib-ng)
+   11526  17.6%  WFA (alignment core)
+    7372  11.3%  seeding + anchors
+    3274   5.0%  FASTQ parsing
+    2059   3.1%  memcpy/memset/memchr
+    1969   3.0%  other
+    1815   2.8%  alignment handler (not WFA)
+    1149   1.8%  profiling stage
+    1040   1.6%  malloc/free
+     675   1.0%  std::string operations
+     672   1.0%  pairing, SAM output
+     382   0.6%  stage timers
+== m_dense_mix
+   55761        total
+   12371  22.2%  gzip inflate (zlib-ng)
+   11519  20.7%  WFA (alignment core)
+   11203  20.1%  syncmer extraction
+    7372  13.2%  seeding + anchors
+    3274   5.9%  FASTQ parsing
+    2274   4.1%  other
+    2142   3.8%  memcpy/memset/memchr
+    1809   3.2%  alignment handler (not WFA)
+    1149   2.1%  profiling stage
+     844   1.5%  malloc/free
+     758   1.4%  pairing, SAM output
+     664   1.2%  std::string operations
+     382   0.7%  stage timers

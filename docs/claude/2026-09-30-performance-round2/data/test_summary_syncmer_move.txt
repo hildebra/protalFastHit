@@ -1,0 +1,17 @@
+# Test suites on git archive ccebade1d2b63ada9b0bf43df339ed50deccadc5 + the syncmer/move changes (pair/final), 2026-10-01
+# run_all_tests.sh TREE=final JOBS=3; then, after test_PairJoin.cpp was fixed (UBSan: a reference bound to a null GenomeLoader), the unit tests again and the GTDB build and model tests with ~/micromamba/envs/protal-db-build/bin/python
+
+## first run
+unit_release rc=0  The following tests did not run: 	221 - GeneSequence.TheBasesOutsideAWindowAreNotLeftToChance (Skipped) 
+mini_db_test rc=0 Ran 30 tests in 14.551s  OK (skipped=3) 
+mini_db_build rc=0 -rw-r--r-- 1 falk falk  123494 Oct  1 14:19 full_reference.fna.zst -rw-r--r-- 1 falk falk    2260 Oct  1 14:19 gene2geneid.tsv -rw-r--r-- 1 falk falk    1155 Oct  1 14:19 genome2tiid.tsv 
+e2e rc=0 Ran 116 tests in 253.989s  OK 
+asan_build rc=0 [136/136] Linking CXX executable tests/protal_tests lto-wrapper: warning: using serial compilation of 12 LTRANS jobs lto-wrapper: note: see the ‘-flto’ option documentation for more information 
+unit_asan rc=8 Errors while running CTest Output from these tests are in: /home/falk/protal-perf/pair/final/build-asan/Testing/Temporary/LastTest.log Use "--rerun-failed --output-on-failure" to re-run the failed cas
+ALL TESTS RUN
+
+## after the fix
+unit_release: 100% tests passed, 0 tests failed out of 234
+unit_asan: 100% tests passed, 0 tests failed out of 234
+gtdb_build_test: Ran 3 tests in 114.219s  OK 
+model_test: Ran 7 tests in 0.375s  OK 
