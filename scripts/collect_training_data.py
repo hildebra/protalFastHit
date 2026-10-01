@@ -38,6 +38,7 @@ import csv
 import glob
 import gzip
 import hashlib
+import itertools
 import json
 import os
 import random
@@ -463,16 +464,43 @@ def pbsim_model(opts, name):
     sys.exit(f"pbsim3 model {name} not found in {', '.join(folders) or 'no folder'} (--pbsim_models)")
 
 
+PBSIM_MIN_LENGTH = 100  # pbsim3's --length-min: it stops with "Reference is too short" at a shorter sequence
+
+
+def long_contigs(fasta, out):
+    """Copies the sequences of a FASTA (plain or gzipped) that pbsim3 takes, those of PBSIM_MIN_LENGTH bases or
+    more, to `out`; how many. Assemblies of metagenomes have shorter contigs, which fail the whole genome."""
+    kept, record, length = 0, [], 0
+    with (gzip.open(fasta, "rt", errors="replace") if fasta.endswith(".gz") else open(fasta, errors="replace")) as fin, \
+            open(out, "w") as fout:
+        for line in itertools.chain(fin, [">"]):  # the last ">" ends the last sequence
+            if line.startswith(">"):
+                if length >= PBSIM_MIN_LENGTH:
+                    fout.writelines(record)
+                    kept += 1
+                record, length = [line.rstrip("\r\n") + "\n"], 0
+            elif record and line.strip():
+                record.append(line.strip() + "\n")
+                length += len(line.strip())
+    return kept
+
+
+def last_line(path):
+    """The last non-empty line of a log (an empty string if there is none)."""
+    try:
+        with open(path, errors="replace") as fh:
+            return next((line.strip() for line in reversed(fh.readlines()) if line.strip()), "")[:300]
+    except OSError:
+        return ""
+
+
 def long_read_genome(task):
     """pbsim3 reads of one genome of a long-read sample (task: dict); the FASTQ files it wrote."""
     tmp = task["tmp"]
     os.makedirs(tmp, exist_ok=True)
-    fasta = task["fasta"]
-    if fasta.endswith(".gz"):
-        plain = os.path.join(tmp, "genome.fna")
-        with gzip.open(fasta, "rb") as fin, open(plain, "wb") as fout:
-            shutil.copyfileobj(fin, fout)
-        fasta = plain
+    fasta = os.path.join(tmp, "genome.fna")
+    if not long_contigs(task["fasta"], fasta):
+        return None, f"{task['genome']}: no sequence of {PBSIM_MIN_LENGTH} bases or more in {task['fasta']}"
     setup = task["setup"]
     prefix = os.path.join(tmp, "r")
     command = [task["pbsim"], "--strategy", "wgs", "--method", setup["method"], f"--{setup['method']}", task["model"],
@@ -481,10 +509,11 @@ def long_read_genome(task):
                "--seed", str(task["seed"]), "--prefix", prefix, "--id-prefix", task["id_prefix"]]
     if setup.get("ratio"):
         command += ["--difference-ratio", setup["ratio"]]
-    with open(os.path.join(tmp, "pbsim.log"), "w") as log:
+    log_path = os.path.join(tmp, "pbsim.log")
+    with open(log_path, "w") as log:
         rc = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT).returncode
     if rc != 0:
-        return None, f"pbsim failed ({rc}) for {task['genome']}; see {os.path.join(tmp, 'pbsim.log')}"
+        return None, f"pbsim failed ({rc}) for {task['genome']}: {last_line(log_path)}; see {log_path}"
     return sorted(glob.glob(prefix + "_*.fastq*") + glob.glob(prefix + "_*.fq*")), None
 
 

@@ -548,6 +548,62 @@ class MiniDbTest(unittest.TestCase):
             self.assertAlmostEqual(counts[1], round(60 * (1 - share_a)), delta=1)
         self.assertTrue(collect.simulated(unit, opts))
 
+    def test_long_read_short_contigs(self):
+        # pbsim3 stops at a reference sequence under 100 bases ("Reference is too short"), as assemblies of
+        # metagenomes have: it gets the longer sequences only, and a failure says why.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import collect_training_data as collect
+        root = os.path.join(self.tmp.name, "shortcontigs")
+        os.makedirs(root)
+        fake = os.path.join(root, "pbsim")
+        with open(fake, "w") as fh:
+            fh.write("#!" + sys.executable + "\nimport sys\na = sys.argv[1:]\nlengths = []\n"
+                     "for l in open(a[a.index('--genome') + 1]):\n"
+                     "    if l.startswith('>'): lengths.append(0)\n"
+                     "    else: lengths[-1] += len(l.strip())\n"
+                     "if min(lengths) < 100:\n"
+                     "    print('ERROR: Reference is too short. Acceptable length >= 100.')\n"
+                     "    sys.exit(255)\n"
+                     "open(a[a.index('--prefix') + 1] + '_0001.fastq', 'w').write('@r\\nACGT\\n+\\nIIII\\n')\n")
+        os.chmod(fake, 0o755)
+        records = [(">a one", "ACGT" * 75), (">short", "ACGT" * 24 + "ACG"), (">exact", "A" * 100), (">tiny", "ACGT")]
+        text = "".join(f"{header}\r\n" + "\r\n".join(seq[i:i + 60] for i in range(0, len(seq), 60)) + "\r\n\r\n"
+                       for header, seq in records)
+        plain, zipped = os.path.join(root, "plain.fna"), os.path.join(root, "zipped.fna.gz")
+        with open(plain, "w", newline="") as fh:
+            fh.write(text)
+        with gzip.open(zipped, "wt", newline="") as fh:
+            fh.write(text)
+
+        def task(name, fasta, pbsim=fake):
+            return {"genome": name, "fasta": fasta, "tmp": os.path.join(root, "tmp", name), "pbsim": pbsim,
+                    "setup": collect.parse_long_setup("qshmm:FAKE:1000:0:0.97"), "model": "FAKE", "depth": 1.0,
+                    "seed": 1, "id_prefix": "g0x"}
+
+        for name, fasta in (("plain", plain), ("zipped", zipped)):
+            fastqs, error = collect.long_read_genome(task(name, fasta))
+            self.assertIsNone(error)
+            self.assertEqual(len(fastqs), 1)
+            with open(os.path.join(root, "tmp", name, "genome.fna")) as fh:
+                kept = [line.strip() for line in fh if line.startswith(">")]
+            self.assertEqual(kept, [">a one", ">exact"])
+        # What the fix is for: pbsim3 fails on the file as it is.
+        self.assertEqual(subprocess.run([fake, "--genome", plain, "--prefix", os.path.join(root, "x")],
+                                        capture_output=True).returncode, 255)
+        # Only short sequences: nothing to simulate from. A pbsim failure carries its last line of output.
+        short = os.path.join(root, "short.fna")
+        with open(short, "w") as fh:
+            fh.write(">tiny\nACGT\n")
+        _, error = collect.long_read_genome(task("short", short))
+        self.assertIn("no sequence of 100 bases or more", error)
+        failing = os.path.join(root, "failing")
+        with open(failing, "w") as fh:
+            fh.write("#!/bin/sh\necho 'ERROR: out of ideas'\nexit 3\n")
+        os.chmod(failing, 0o755)
+        _, error = collect.long_read_genome(task("failing", plain, failing))
+        self.assertIn("pbsim failed (3)", error)
+        self.assertIn("ERROR: out of ideas", error)
+
     def test_relation_to_novel_species(self):
         # An absent taxon is put down to a species the database lacks when that species is at least as close to
         # it as every present one.

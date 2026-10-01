@@ -46,7 +46,8 @@ With `--read_types`, it collects other reads of the same communities too: `se`, 
 samples' first reads alone, profiled as single-end reads (no new simulation); `pb` and `ont`,
 long reads simulated with pbsim3 from each paired-end sample's manifest, every genome given its
 share of `--long_read_bases` by abundance times length (point i of the long reads replays the
-communities of paired-end point i). All samples are profiled in one protal run, each with its read
+communities of paired-end point i; contigs under 100 bases are left out of a genome before pbsim3
+reads it, since pbsim3 stops at them). All samples are profiled in one protal run, each with its read
 type's model and settings (the map's `READ_TYPE` column), and each read type gets its table:
 `training_data.tsv` (pe), `training_data_se.tsv`, `training_data_pb.tsv`, `training_data_ont.tsv`.
 
