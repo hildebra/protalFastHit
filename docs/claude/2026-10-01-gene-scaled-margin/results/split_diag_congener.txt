@@ -1,0 +1,6 @@
+== db7_missing
+held-out congener, not outnumbered: n=94, conserved/fast depth quartiles 0.71 0.84 0.92; >1.3: 0, >1.5: 0
+no held-out congener: n=240, conserved/fast depth quartiles 0.86 0.93 0.97; >1.3: 0, >1.5: 0
+outnumbered by a held-out congener: n=194, conserved/fast depth quartiles 0.54 0.71 0.86; >1.3: 0, >1.5: 0
+== db7_full
+no held-out congener: n=720, conserved/fast depth quartiles 0.74 0.86 0.93; >1.3: 0, >1.5: 0

@@ -1,0 +1,4 @@
+Gene conservation: factors 0.89-1.1 for 168 genes, from 120 species (65607 copies compared): /home/falk/stress/db7_full/gene_conservation.tsv
+Gene conservation took 2s 542ms
+Gene conservation: factors 0.87-1.1 for 168 genes, from 90 species (48548 copies compared): /home/falk/stress/db7_missing/gene_conservation.tsv
+Gene conservation took 1s 593ms

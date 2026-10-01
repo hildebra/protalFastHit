@@ -1,0 +1,6 @@
+168 genes, factors 0.26-3.28 (median 1.00); at the bounds 0.25 / 4: 0 / 0
+correlation with the true rates (scaled to a median of 1): 0.985 over 168 genes
+  other: 80 genes, true 1.31, estimated 1.30
+  ribosomal: 36 genes, true 0.38, estimated 0.44
+  translation: 31 genes, true 0.80, estimated 0.85
+  trna: 21 genes, true 1.24, estimated 1.31

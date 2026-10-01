@@ -1,0 +1,1081 @@
+sample	species	kind	genome	role	depth	distance	heldout	minor_fraction
+s100_1	Coxamonas literensis	alone_ref	GCF_999016001.1	alone	9.4701	0.0000	1	
+s100_1	Genlemlumonas nevicaa	alone_strain	GCA_999160004.1	alone	3.2733	0.0167	0	
+s100_1	Kalimonas gencoum	close_major	GCF_999145001.1	major	2.7132	0.0000	0	0.2
+s100_1	Kalimonas gencoum	close_major	GCA_999145004.1	minor	0.6786	0.0291	0	0.2
+s100_1	Haldamlemcoccus terneii	far_major	GCA_999100004.1	major	1.6851	0.0187	0	0.2
+s100_1	Haldamlemcoccus terneii	far_major	GCF_999100001.1	minor	0.4212	0.0000	0	0.2
+s100_1	Thicacoccus nepeus	alone_ref	GCF_999057001.1	alone	14.4083	0.0000	0	
+s100_1	Ronaspira genxabaum	alone_strain	GCA_999133002.1	alone	6.4427	0.0213	0	
+s100_1	Haldamlemcoccus mozufiis	close_major	GCF_999097001.1	major	3.9555	0.0000	0	0.3
+s100_1	Haldamlemcoccus mozufiis	close_major	GCA_999097004.1	minor	1.6952	0.0353	0	0.3
+s100_1	Coterbacter zufiroa	far_major	GCA_999069004.1	major	4.8560	0.0217	0	0.3
+s100_1	Coterbacter zufiroa	far_major	GCF_999069001.1	minor	2.0816	0.0000	0	0.3
+s100_1	Coterbacter dorupeum	alone_ref	GCF_999062001.1	alone	4.3544	0.0000	0	
+s100_1	Haldamlemcoccus ixcorensis	alone_strain	GCA_999093003.1	alone	27.9884	0.0286	0	
+s100_1	Haldamlemcoccus kacorthium	close_major	GCF_999095001.1	major	5.0111	0.0000	1	0.1
+s100_1	Haldamlemcoccus kacorthium	close_major	GCA_999095005.1	minor	0.5565	0.0265	1	0.1
+s100_1	Thicacoccus pemoa	far_major	GCA_999058003.1	major	5.4841	0.0222	0	0.1
+s100_1	Thicacoccus pemoa	far_major	GCF_999058001.1	minor	0.6093	0.0000	0	0.1
+s100_1	Jopelemcoccus neixteris	alone_ref	GCF_999128001.1	alone	8.1058	0.0000	0	
+s100_1	Haldamlemcoccus belcorixum	alone_strain	GCA_999091005.1	alone	21.5056	0.0170	0	
+s100_1	Coterbacter thithium	close_major	GCF_999068001.1	major	10.2985	0.0000	0	0.2
+s100_1	Coterbacter thithium	close_major	GCA_999068003.1	minor	2.5747	0.0134	0	0.2
+s100_1	Moixlumonas naruus	far_major	GCA_999151005.1	major	5.4123	0.0252	0	0.2
+s100_1	Moixlumonas naruus	far_major	GCF_999151001.1	minor	1.3531	0.0000	0	0.2
+s100_1	Coterbacter lineus	alone_ref	GCF_999064001.1	alone	9.9409	0.0000	1	
+s100_1	Coxamonas thixacaa	alone_strain	GCA_999020004.1	alone	15.2978	0.0275	1	
+s100_1	Coxamonas kaxaum	close_major	GCF_999013001.1	major	1.3382	0.0000	1	0.3
+s100_1	Coxamonas kaxaum	close_major	GCA_999013005.1	minor	0.5734	0.0138	1	0.3
+s100_1	Coxamonas lemmojoum	far_major	GCA_999014002.1	major	10.0018	0.0206	0	0.3
+s100_1	Coxamonas lemmojoum	far_major	GCF_999014001.1	minor	4.2864	0.0000	0	0.3
+s100_1	Basalspira thilium	alone_ref	GCF_999142001.1	alone	19.1702	0.0000	0	
+s100_1	Coterbacter salluensis	alone_strain	GCA_999067003.1	alone	21.7855	0.0326	1	
+s100_1	Coxamonas luixthium	close_major	GCF_999017001.1	major	4.2625	0.0000	0	0.1
+s100_1	Coxamonas luixthium	close_major	GCA_999017004.1	minor	0.4737	0.0290	0	0.1
+s100_1	Coxamonas lemruum	far_major	GCA_999015004.1	major	5.8571	0.0268	0	0.1
+s100_1	Coxamonas lemruum	far_major	GCF_999015001.1	minor	0.6509	0.0000	0	0.1
+s100_1	Coterbacter mocaus	alone_ref	GCF_999065001.1	alone	23.5299	0.0000	0	
+s100_1	Filubacter nebakais	alone_strain	GCA_999155003.1	alone	4.1263	0.0304	0	
+s100_1	Corxamonas nasalii	close_major	GCF_999121001.1	major	10.7628	0.0000	0	0.2
+s100_1	Corxamonas nasalii	close_major	GCA_999121002.1	minor	2.6906	0.0354	0	0.2
+s100_1	Thicacoccus colemkaensis	far_major	GCA_999051005.1	major	10.7499	0.0294	1	0.2
+s100_1	Thicacoccus colemkaensis	far_major	GCF_999051001.1	minor	2.6877	0.0000	1	0.2
+s100_1	Nacorspira rogorii	alone_ref	GCF_999132001.1	alone	20.9585	0.0000	0	
+s100_1	Thicacoccus navia	alone_strain	GCA_999056004.1	alone	8.3710	0.0102	0	
+s100_1	Thicacoccus gengencoa	close_major	GCF_999053001.1	major	12.8168	0.0000	1	0.3
+s100_1	Thicacoccus gengencoa	close_major	GCA_999053002.1	minor	5.4930	0.0360	1	0.3
+s100_1	Coterbacter napelia	far_major	GCA_999066003.1	major	9.2279	0.0233	1	0.3
+s100_1	Coterbacter napelia	far_major	GCF_999066001.1	minor	3.9546	0.0000	1	0.3
+s100_1	Nacorspira haldammoensis	alone_ref	GCF_999130001.1	alone	3.7868	0.0000	0	
+s100_1	Haldamlemcoccus modois	alone_strain	GCA_999096003.1	alone	23.2685	0.0155	0	
+s100_1	Haldamlemcoccus negenfiis	close_major	GCF_999098001.1	major	6.5038	0.0000	0	0.1
+s100_1	Haldamlemcoccus negenfiis	close_major	GCA_999098004.1	minor	0.7223	0.0226	0	0.1
+s100_1	Terkaella caxazuis	far_major	GCA_999122003.1	major	5.6920	0.0357	0	0.1
+s100_1	Terkaella caxazuis	far_major	GCF_999122001.1	minor	0.6325	0.0000	0	0.1
+s100_1	Haldamlemcoccus gorcorensis	alone_ref	GCF_999092001.1	alone	3.3528	0.0000	1	
+s100_1	Jopelemcoccus lucagenus	alone_strain	GCA_999127003.1	alone	3.7916	0.0204	0	
+s100_1	Ruzunespira baluluii	close_major	GCF_999147001.1	major	55.6898	0.0000	0	0.2
+s100_1	Ruzunespira baluluii	close_major	GCA_999147003.1	minor	13.9223	0.0211	0	0.2
+s100_1	Haldamlemcoccus joruxaus	far_major	GCA_999094005.1	major	5.6515	0.0397	1	0.2
+s100_1	Haldamlemcoccus joruxaus	far_major	GCF_999094001.1	minor	1.4127	0.0000	1	0.2
+s100_1	Thicacoccus zuroixum	alone_ref	GCF_999060001.1	alone	2.3302	0.0000	0	
+s100_1	Coterbacter cosalzuum	alone_strain	GCA_999061004.1	alone	39.0858	0.0230	0	
+s100_1	Thicacoccus mithithium	close_major	GCF_999055001.1	major	5.7593	0.0000	0	0.3
+s100_1	Thicacoccus mithithium	close_major	GCA_999055003.1	minor	2.4684	0.0288	0	0.3
+s100_1	Rurugenvibrio terroxaii	far_major	GCA_999141004.1	major	3.8314	0.0315	0	0.3
+s100_1	Rurugenvibrio terroxaii	far_major	GCF_999141001.1	minor	1.6422	0.0000	0	0.3
+s100_1	Haldamlemcoccus rothia	alone_ref	GCF_999099001.1	alone	1.4998	0.0000	1	
+s100_1	Coterbacter genlirois	alone_strain	GCA_999063003.1	alone	3.6346	0.0117	1	
+s100_1	Thicacoccus halkaus	close_major	GCF_999054001.1	major	4.6211	0.0000	1	0.1
+s100_1	Thicacoccus halkaus	close_major	GCA_999054004.1	minor	0.5135	0.0218	1	0.1
+s100_1	Filubacter gorcocorii	far_major	GCA_999154002.1	major	8.8771	0.0354	0	0.1
+s100_1	Filubacter gorcocorii	far_major	GCF_999154001.1	minor	0.9867	0.0000	0	0.1
+s100_1	Nalujoella damdoa	alone_ref	GCF_999148001.1	alone	10.4063	0.0000	0	
+s100_1	Ronaspira zunethiii	alone_strain	GCA_999135002.1	alone	6.4250	0.0261	0	
+s100_1	Peixsalspira corliii	close_major	GCF_999143001.1	major	1.7406	0.0000	0	0.2
+s100_1	Peixsalspira corliii	close_major	GCA_999143005.1	minor	0.4353	0.0304	0	0.2
+s100_1	Coxamonas ixpea	far_major	GCA_999012002.1	major	11.1434	0.0330	0	0.2
+s100_1	Coxamonas ixpea	far_major	GCF_999012001.1	minor	2.7858	0.0000	0	0.2
+s100_1	Salterdospira nethia	alone_ref	GCF_999126001.1	alone	17.9888	0.0000	0	
+s100_1	Coxamonas gorzudamii	alone_strain	GCA_999011003.1	alone	13.3359	0.0321	0	
+s100_1	Thicacoccus ruterensis	close_major	GCF_999059001.1	major	11.7557	0.0000	0	0.3
+s100_1	Thicacoccus ruterensis	close_major	GCA_999059002.1	minor	5.0382	0.0360	0	0.3
+s100_1	Thicacoccus fladois	far_major	GCA_999052002.1	major	22.9482	0.0255	1	0.3
+s100_1	Thicacoccus fladois	far_major	GCF_999052001.1	minor	9.8351	0.0000	1	0.3
+s100_1	Coxamonas milemensis	alone_ref	GCF_999019001.1	alone	12.8441	0.0000	0	
+s100_1	Coterbacter zugencoensis	alone_strain	GCA_999070003.1	alone	3.0546	0.0181	0	
+s100_1	Coxamonas midomoii	close_major	GCF_999018001.1	major	3.3416	0.0000	1	0.1
+s100_1	Coxamonas midomoii	close_major	GCA_999018002.1	minor	0.3714	0.0340	1	0.1
+s100_1	Filubacter vifius	far_major	GCA_999156002.1	major	9.1947	0.0371	0	0.1
+s100_1	Filubacter vifius	far_major	GCF_999156001.1	minor	1.0216	0.0000	0	0.1
+s100_2	Vipenecoccus kavijois	alone_ref	GCF_999106001.1	alone	7.7513	0.0000	0	
+s100_2	Babapemonas jodous	alone_strain	GCA_999116003.1	alone	13.2299	0.0189	0	
+s100_2	Vipenavibrio pedamii	close_major	GCF_999036001.1	major	6.7973	0.0000	0	0.3
+s100_2	Vipenavibrio pedamii	close_major	GCA_999036004.1	minor	2.9134	0.0349	0	0.3
+s100_2	Vipenavibrio lempebelis	far_major	GCA_999034004.1	major	21.1993	0.0344	0	0.3
+s100_2	Vipenavibrio lempebelis	far_major	GCF_999034001.1	minor	9.0855	0.0000	0	0.3
+s100_2	Vipenecoccus ixcoa	alone_ref	GCF_999104001.1	alone	4.2911	0.0000	0	
+s100_2	Rosalcaspira lisalgenus	alone_strain	GCA_999007003.1	alone	13.5799	0.0296	0	
+s100_2	Vipenavibrio genixlemis	close_major	GCF_999032001.1	major	7.9142	0.0000	1	0.1
+s100_2	Vipenavibrio genixlemis	close_major	GCA_999032003.1	minor	0.8791	0.0271	1	0.1
+s100_2	Corxamonas nasalii	far_major	GCA_999121002.1	major	3.2507	0.0354	0	0.1
+s100_2	Corxamonas nasalii	far_major	GCF_999121001.1	minor	0.3611	0.0000	0	0.1
+s100_2	Babapemonas fimocaa	alone_ref	GCF_999114001.1	alone	1.4997	0.0000	0	
+s100_2	Babapemonas terthilemii	alone_strain	GCA_999119003.1	alone	9.8222	0.0147	0	
+s100_2	Vipenecoccus gorliii	close_major	GCF_999103001.1	major	2.9654	0.0000	0	0.2
+s100_2	Vipenecoccus gorliii	close_major	GCA_999103003.1	minor	0.7411	0.0185	0	0.2
+s100_2	Vipenavibrio lusalzuum	far_major	GCA_999035004.1	major	10.5818	0.0236	1	0.2
+s100_2	Vipenavibrio lusalzuum	far_major	GCF_999035001.1	minor	2.6458	0.0000	1	0.2
+s100_2	Babapemonas belflasalum	alone_ref	GCF_999112001.1	alone	4.5000	0.0000	1	
+s100_2	Rurugenvibrio cohalensis	alone_strain	GCA_999139005.1	alone	10.7088	0.0213	0	
+s100_2	Rosalcaspira mimius	close_major	GCF_999008001.1	major	2.9785	0.0000	1	0.3
+s100_2	Rosalcaspira mimius	close_major	GCA_999008002.1	minor	1.2767	0.0312	1	0.3
+s100_2	Babapemonas belneensis	far_major	GCA_999113002.1	major	19.5052	0.0193	0	0.3
+s100_2	Babapemonas belneensis	far_major	GCF_999113001.1	minor	8.3595	0.0000	0	0.3
+s100_2	Babapemonas gorfineus	alone_ref	GCF_999115001.1	alone	8.8370	0.0000	0	
+s100_2	Vipenavibrio zucorterus	alone_strain	GCA_999040003.1	alone	7.7923	0.0221	0	
+s100_2	Finecoccus napeensis	close_major	GCF_999158001.1	major	22.4573	0.0000	0	0.1
+s100_2	Finecoccus napeensis	close_major	GCA_999158004.1	minor	2.4950	0.0159	0	0.1
+s100_2	Finecoccus micoii	far_major	GCA_999157005.1	major	5.0812	0.0241	0	0.1
+s100_2	Finecoccus micoii	far_major	GCF_999157001.1	minor	0.5646	0.0000	0	0.1
+s100_2	Salterdospira nethia	alone_ref	GCF_999126001.1	alone	2.5166	0.0000	0	
+s100_2	Babapemonas zuroii	alone_strain	GCA_999120003.1	alone	16.3677	0.0333	1	
+s100_2	Joixbelvibrio bamiruii	close_major	GCF_999136001.1	major	13.3179	0.0000	0	0.2
+s100_2	Joixbelvibrio bamiruii	close_major	GCA_999136004.1	minor	3.3294	0.0267	0	0.2
+s100_2	Ronaspira zunethiii	far_major	GCA_999135004.1	major	40.1709	0.0377	0	0.2
+s100_2	Ronaspira zunethiii	far_major	GCF_999135001.1	minor	10.0427	0.0000	0	0.2
+s100_2	Rosalcaspira corropeensis	alone_ref	GCF_999002001.1	alone	11.3360	0.0000	0	
+s100_2	Rosalcaspira corixa	alone_strain	GCA_999001004.1	alone	9.7145	0.0194	0	
+s100_2	Vipenecoccus vijorua	close_major	GCF_999110001.1	major	62.0211	0.0000	1	0.3
+s100_2	Vipenecoccus vijorua	close_major	GCA_999110005.1	minor	26.5806	0.0375	1	0.3
+s100_2	Vipenecoccus cormiruum	far_major	GCA_999101002.1	major	21.6648	0.0299	0	0.3
+s100_2	Vipenecoccus cormiruum	far_major	GCF_999101001.1	minor	9.2849	0.0000	0	0.3
+s100_2	Vipenecoccus gendamjous	alone_ref	GCF_999102001.1	alone	6.2957	0.0000	1	
+s100_2	Nalujoella damdoa	alone_strain	GCA_999148005.1	alone	38.4181	0.0118	0	
+s100_2	Rosalcaspira ixdoensis	close_major	GCF_999005001.1	major	12.0048	0.0000	1	0.1
+s100_2	Rosalcaspira ixdoensis	close_major	GCA_999005005.1	minor	1.3337	0.0373	1	0.1
+s100_2	Jopelemcoccus lucagenus	far_major	GCA_999127002.1	major	3.3995	0.0270	0	0.1
+s100_2	Jopelemcoccus lucagenus	far_major	GCF_999127001.1	minor	0.3776	0.0000	0	0.1
+s100_2	Rosalcaspira rovijoa	alone_ref	GCF_999009001.1	alone	19.4509	0.0000	1	
+s100_2	Jopelemcoccus neixteris	alone_strain	GCA_999128004.1	alone	1.5001	0.0190	0	
+s100_2	Babapemonas belbelbelii	close_major	GCF_999111001.1	major	5.5372	0.0000	1	0.2
+s100_2	Babapemonas belbelbelii	close_major	GCA_999111002.1	minor	1.3844	0.0269	1	0.2
+s100_2	Vipenecoccus namiii	far_major	GCA_999107003.1	major	19.7884	0.0196	1	0.2
+s100_2	Vipenecoccus namiii	far_major	GCF_999107001.1	minor	4.9470	0.0000	1	0.2
+s100_2	Joixbelvibrio terflaii	alone_ref	GCF_999138001.1	alone	4.2962	0.0000	0	
+s100_2	Vipenavibrio romogora	alone_strain	GCA_999038004.1	alone	25.4971	0.0237	1	
+s100_2	Rosalcaspira xaterlium	close_major	GCF_999010001.1	major	2.8085	0.0000	0	0.3
+s100_2	Rosalcaspira xaterlium	close_major	GCA_999010004.1	minor	1.2039	0.0320	0	0.3
+s100_2	Vipenecoccus nedamus	far_major	GCA_999108004.1	major	10.6121	0.0246	0	0.3
+s100_2	Vipenecoccus nedamus	far_major	GCF_999108001.1	minor	4.5479	0.0000	0	0.3
+s100_2	Rosalcaspira corzuis	alone_ref	GCF_999003001.1	alone	56.2297	0.0000	0	
+s100_2	Xagennaella tercoris	alone_strain	GCA_999124003.1	alone	4.1980	0.0116	0	
+s100_2	Rosalcaspira jomobaa	close_major	GCF_999006001.1	major	8.3377	0.0000	1	0.1
+s100_2	Rosalcaspira jomobaa	close_major	GCA_999006004.1	minor	0.9266	0.0169	1	0.1
+s100_2	Vipenavibrio pegenensis	far_major	GCA_999037005.1	major	6.6882	0.0327	0	0.1
+s100_2	Vipenavibrio pegenensis	far_major	GCF_999037001.1	minor	0.7430	0.0000	0	0.1
+s100_2	Kalimonas gencoum	alone_ref	GCF_999145001.1	alone	22.2279	0.0000	0	
+s100_2	Salterdospira ficoixis	alone_strain	GCA_999125003.1	alone	23.6409	0.0153	0	
+s100_2	Basalspira thilium	close_major	GCF_999142001.1	major	6.3253	0.0000	0	0.2
+s100_2	Basalspira thilium	close_major	GCA_999142005.1	minor	1.5810	0.0319	0	0.2
+s100_2	Vipenavibrio genhalzuus	far_major	GCA_999031005.1	major	5.5272	0.0325	0	0.2
+s100_2	Vipenavibrio genhalzuus	far_major	GCF_999031001.1	minor	1.3822	0.0000	0	0.2
+s100_2	Genlemlumonas nevicaa	alone_ref	GCF_999160001.1	alone	3.9486	0.0000	0	
+s100_2	Vipenecoccus jokaa	alone_strain	GCA_999105003.1	alone	27.3631	0.0142	0	
+s100_2	Vipenavibrio joroum	close_major	GCF_999033001.1	major	29.4480	0.0000	1	0.3
+s100_2	Vipenavibrio joroum	close_major	GCA_999033005.1	minor	12.6206	0.0202	1	0.3
+s100_2	Rurugenvibrio moluus	far_major	GCA_999140002.1	major	2.3444	0.0387	0	0.3
+s100_2	Rurugenvibrio moluus	far_major	GCF_999140001.1	minor	1.0049	0.0000	0	0.3
+s100_2	Rosalcaspira flagorixus	alone_ref	GCF_999004001.1	alone	3.4259	0.0000	0	
+s100_2	Rurugenvibrio terroxaii	alone_strain	GCA_999141004.1	alone	9.9670	0.0315	0	
+s100_2	Nacorspira haldammoensis	close_major	GCF_999130001.1	major	10.6164	0.0000	0	0.1
+s100_2	Nacorspira haldammoensis	close_major	GCA_999130004.1	minor	1.1799	0.0212	0	0.1
+s100_2	Vipenecoccus terlia	far_major	GCA_999109004.1	major	5.8966	0.0371	1	0.1
+s100_2	Vipenecoccus terlia	far_major	GCF_999109001.1	minor	0.6554	0.0000	1	0.1
+s100_2	Vipenavibrio vigenterus	alone_ref	GCF_999039001.1	alone	28.3624	0.0000	0	
+s100_2	Babapemonas terflalema	alone_strain	GCA_999117003.1	alone	21.0803	0.0237	0	
+s100_2	Babapemonas terlujoensis	close_major	GCF_999118001.1	major	11.1726	0.0000	1	0.2
+s100_2	Babapemonas terlujoensis	close_major	GCA_999118002.1	minor	2.7933	0.0133	1	0.2
+s100_2	Filubacter vifius	far_major	GCA_999156002.1	major	15.6024	0.0371	0	0.2
+s100_2	Filubacter vifius	far_major	GCF_999156001.1	minor	3.9004	0.0000	0	0.2
+s100_3	Vipenavibrio lempebelis	alone_ref	GCF_999034001.1	alone	1.5001	0.0000	0	
+s100_3	Peixsalspira corliii	alone_strain	GCA_999143005.1	alone	8.0079	0.0304	0	
+s100_3	Thinazucoccus luneis	close_major	GCF_999152001.1	major	11.8132	0.0000	0	0.1
+s100_3	Thinazucoccus luneis	close_major	GCA_999152004.1	minor	1.3127	0.0332	0	0.1
+s100_3	Vipenecoccus ixcoa	far_major	GCA_999104004.1	major	6.7773	0.0248	0	0.1
+s100_3	Vipenecoccus ixcoa	far_major	GCF_999104001.1	minor	0.7527	0.0000	0	0.1
+s100_3	Basalspira thilium	alone_ref	GCF_999142001.1	alone	13.5042	0.0000	0	
+s100_3	Vipenavibrio lusalzuum	alone_strain	GCA_999035005.1	alone	6.8863	0.0119	1	
+s100_3	Vipenecoccus jokaa	close_major	GCF_999105001.1	major	7.1195	0.0000	0	0.2
+s100_3	Vipenecoccus jokaa	close_major	GCA_999105004.1	minor	1.7799	0.0153	0	0.2
+s100_3	Coterbacter genlirois	far_major	GCA_999063002.1	major	13.2377	0.0228	1	0.2
+s100_3	Coterbacter genlirois	far_major	GCF_999063001.1	minor	3.3094	0.0000	1	0.2
+s100_3	Vipenavibrio genhalzuus	alone_ref	GCF_999031001.1	alone	4.4580	0.0000	0	
+s100_3	Vipenecoccus cormiruum	alone_strain	GCA_999101004.1	alone	44.1502	0.0238	0	
+s100_3	Vipenavibrio zucorterus	close_major	GCF_999040001.1	major	10.2711	0.0000	0	0.3
+s100_3	Vipenavibrio zucorterus	close_major	GCA_999040004.1	minor	4.4021	0.0273	0	0.3
+s100_3	Rurugenvibrio cohalensis	far_major	GCA_999139003.1	major	4.5788	0.0324	0	0.3
+s100_3	Rurugenvibrio cohalensis	far_major	GCF_999139001.1	minor	1.9623	0.0000	0	0.3
+s100_3	Vipenavibrio vigenterus	alone_ref	GCF_999039001.1	alone	2.9455	0.0000	0	
+s100_3	Coterbacter zufiroa	alone_strain	GCA_999069002.1	alone	14.8160	0.0110	0	
+s100_3	Peixsalspira liixensis	close_major	GCF_999144001.1	major	10.1570	0.0000	0	0.1
+s100_3	Peixsalspira liixensis	close_major	GCA_999144002.1	minor	1.1288	0.0218	0	0.1
+s100_3	Coterbacter salluensis	far_major	GCA_999067002.1	major	23.4904	0.0363	1	0.1
+s100_3	Coterbacter salluensis	far_major	GCF_999067001.1	minor	2.6098	0.0000	1	0.1
+s100_3	Vipenecoccus nedamus	alone_ref	GCF_999108001.1	alone	22.1636	0.0000	0	
+s100_3	Vipenecoccus kavijois	alone_strain	GCA_999106005.1	alone	12.0282	0.0198	0	
+s100_3	Vipenecoccus terlia	close_major	GCF_999109001.1	major	22.7337	0.0000	1	0.2
+s100_3	Vipenecoccus terlia	close_major	GCA_999109004.1	minor	5.6832	0.0371	1	0.2
+s100_3	Ropebabacter terflahalus	far_major	GCA_999028005.1	major	8.9311	0.0339	1	0.2
+s100_3	Ropebabacter terflahalus	far_major	GCF_999028001.1	minor	2.2330	0.0000	1	0.2
+s100_3	Nacorspira ixfiis	alone_ref	GCF_999131001.1	alone	5.1816	0.0000	0	
+s100_3	Vipenecoccus vijorua	alone_strain	GCA_999110002.1	alone	21.1711	0.0282	1	
+s100_3	Nalujoella luthisalensis	close_major	GCF_999149001.1	major	2.9237	0.0000	0	0.3
+s100_3	Nalujoella luthisalensis	close_major	GCA_999149005.1	minor	1.2531	0.0227	0	0.3
+s100_3	Vipenavibrio pegenensis	far_major	GCA_999037005.1	major	83.9999	0.0327	0	0.3
+s100_3	Vipenavibrio pegenensis	far_major	GCF_999037001.1	minor	36.0001	0.0000	0	0.3
+s100_3	Coterbacter lineus	alone_ref	GCF_999064001.1	alone	5.8943	0.0000	1	
+s100_3	Ronaspira zunethiii	alone_strain	GCA_999135002.1	alone	12.8801	0.0261	0	
+s100_3	Vipenecoccus namiii	close_major	GCF_999107001.1	major	8.7022	0.0000	1	0.1
+s100_3	Vipenecoccus namiii	close_major	GCA_999107003.1	minor	0.9671	0.0196	1	0.1
+s100_3	Terkaella caxazuis	far_major	GCA_999122003.1	major	3.1313	0.0357	0	0.1
+s100_3	Terkaella caxazuis	far_major	GCF_999122001.1	minor	0.3481	0.0000	0	0.1
+s100_3	Ropebabacter mirozuis	alone_ref	GCF_999025001.1	alone	6.8702	0.0000	0	
+s100_3	Ropebabacter damnebaensis	alone_strain	GCA_999021005.1	alone	4.3650	0.0346	0	
+s100_3	Vipenavibrio pedamii	close_major	GCF_999036001.1	major	4.3223	0.0000	0	0.2
+s100_3	Vipenavibrio pedamii	close_major	GCA_999036004.1	minor	1.0807	0.0349	0	0.2
+s100_3	Vipenavibrio joroum	far_major	GCA_999033005.1	major	14.3125	0.0202	1	0.2
+s100_3	Vipenavibrio joroum	far_major	GCF_999033001.1	minor	3.5782	0.0000	1	0.2
+s100_3	Joixbelvibrio nenaensis	alone_ref	GCF_999137001.1	alone	1.5002	0.0000	0	
+s100_3	Coterbacter dorupeum	alone_strain	GCA_999062002.1	alone	12.3231	0.0306	0	
+s100_3	Coterbacter cosalzuum	close_major	GCF_999061001.1	major	19.2675	0.0000	0	0.3
+s100_3	Coterbacter cosalzuum	close_major	GCA_999061004.1	minor	8.2574	0.0230	0	0.3
+s100_3	Ropebabacter xathiis	far_major	GCA_999029003.1	major	4.6875	0.0142	1	0.3
+s100_3	Ropebabacter xathiis	far_major	GCF_999029001.1	minor	2.0090	0.0000	1	0.3
+s100_3	Filubacter nebakais	alone_ref	GCF_999155001.1	alone	6.1335	0.0000	0	
+s100_3	Ropebabacter zuzua	alone_strain	GCA_999030002.1	alone	14.7012	0.0223	0	
+s100_3	Coterbacter mocaus	close_major	GCF_999065001.1	major	8.0325	0.0000	0	0.1
+s100_3	Coterbacter mocaus	close_major	GCA_999065002.1	minor	0.8924	0.0291	0	0.1
+s100_3	Coterbacter napelia	far_major	GCA_999066003.1	major	15.3864	0.0233	1	0.1
+s100_3	Coterbacter napelia	far_major	GCF_999066001.1	minor	1.7098	0.0000	1	0.1
+s100_3	Ropebabacter salbelkaa	alone_ref	GCF_999027001.1	alone	5.2437	0.0000	1	
+s100_3	Jopelemcoccus roterbelus	alone_strain	GCA_999129005.1	alone	6.8088	0.0151	0	
+s100_3	Joixbelvibrio bamiruii	close_major	GCF_999136001.1	major	30.8515	0.0000	0	0.2
+s100_3	Joixbelvibrio bamiruii	close_major	GCA_999136004.1	minor	7.7127	0.0267	0	0.2
+s100_3	Nalujoella vibagenis	far_major	GCA_999150003.1	major	8.0919	0.0239	0	0.2
+s100_3	Nalujoella vibagenis	far_major	GCF_999150001.1	minor	2.0227	0.0000	0	0.2
+s100_3	Cornabacter nenecorus	alone_ref	GCF_999146001.1	alone	15.5765	0.0000	0	
+s100_3	Ruzunespira baluluii	alone_strain	GCA_999147004.1	alone	13.8836	0.0159	0	
+s100_3	Ronaspira genxabaum	close_major	GCF_999133001.1	major	13.7296	0.0000	0	0.3
+s100_3	Ronaspira genxabaum	close_major	GCA_999133004.1	minor	5.8841	0.0247	0	0.3
+s100_3	Ropebabacter lembelus	far_major	GCA_999024004.1	major	1.0499	0.0225	0	0.3
+s100_3	Ropebabacter lembelus	far_major	GCF_999024001.1	minor	0.4501	0.0000	0	0.3
+s100_3	Rurugenvibrio terroxaii	alone_ref	GCF_999141001.1	alone	7.0194	0.0000	0	
+s100_3	Coterbacter zugencoensis	alone_strain	GCA_999070003.1	alone	14.3941	0.0181	0	
+s100_3	Vipenavibrio genixlemis	close_major	GCF_999032001.1	major	6.5140	0.0000	1	0.1
+s100_3	Vipenavibrio genixlemis	close_major	GCA_999032003.1	minor	0.7240	0.0271	1	0.1
+s100_3	Vipenavibrio romogora	far_major	GCA_999038004.1	major	9.8576	0.0237	1	0.1
+s100_3	Vipenavibrio romogora	far_major	GCF_999038001.1	minor	1.0953	0.0000	1	0.1
+s100_3	Finecoccus micoii	alone_ref	GCF_999157001.1	alone	7.6184	0.0000	0	
+s100_3	Coterbacter thithium	alone_strain	GCA_999068002.1	alone	2.8545	0.0089	0	
+s100_3	Jopelemcoccus neixteris	close_major	GCF_999128001.1	major	8.2060	0.0000	0	0.2
+s100_3	Jopelemcoccus neixteris	close_major	GCA_999128002.1	minor	2.0518	0.0223	0	0.2
+s100_3	Ropebabacter nasalnaa	far_major	GCA_999026003.1	major	2.9536	0.0363	0	0.2
+s100_3	Ropebabacter nasalnaa	far_major	GCF_999026001.1	minor	0.7381	0.0000	0	0.2
+s100_3	Vipenecoccus gendamjous	alone_ref	GCF_999102001.1	alone	14.1549	0.0000	1	
+s100_3	Ropebabacter dozulua	alone_strain	GCA_999022005.1	alone	118.0791	0.0275	0	
+s100_3	Vipenecoccus gorliii	close_major	GCF_999103001.1	major	2.7726	0.0000	0	0.3
+s100_3	Vipenecoccus gorliii	close_major	GCA_999103003.1	minor	1.1882	0.0185	0	0.3
+s100_3	Ropebabacter ixmidoa	far_major	GCA_999023002.1	major	5.7919	0.0271	1	0.3
+s100_3	Ropebabacter ixmidoa	far_major	GCF_999023001.1	minor	2.4822	0.0000	1	0.3
+s100_4	Peixsalspira liixensis	alone_ref	GCF_999144001.1	alone	3.9467	0.0000	0	
+s100_4	Babapemonas zuroii	alone_strain	GCA_999120005.1	alone	19.0042	0.0236	1	
+s100_4	Babapemonas fimocaa	close_major	GCF_999114001.1	major	3.3740	0.0000	0	0.2
+s100_4	Babapemonas fimocaa	close_major	GCA_999114002.1	minor	0.8434	0.0285	0	0.2
+s100_4	Nalujoella vibagenis	far_major	GCA_999150003.1	major	32.6570	0.0239	0	0.2
+s100_4	Nalujoella vibagenis	far_major	GCF_999150001.1	minor	8.1645	0.0000	0	0.2
+s100_4	Ropebabacter zuzua	alone_ref	GCF_999030001.1	alone	20.2928	0.0000	0	
+s100_4	Joixbelvibrio bamiruii	alone_strain	GCA_999136002.1	alone	3.6948	0.0195	0	
+s100_4	Nalujoella luthisalensis	close_major	GCF_999149001.1	major	9.6168	0.0000	0	0.3
+s100_4	Nalujoella luthisalensis	close_major	GCA_999149005.1	minor	4.1213	0.0227	0	0.3
+s100_4	Haldamlemcoccus modois	far_major	GCA_999096004.1	major	3.0027	0.0209	0	0.3
+s100_4	Haldamlemcoccus modois	far_major	GCF_999096001.1	minor	1.2869	0.0000	0	0.3
+s100_4	Rogorcomonas jojoum	alone_ref	GCF_999048001.1	alone	97.9963	0.0000	1	
+s100_4	Rurugenvibrio cohalensis	alone_strain	GCA_999139002.1	alone	37.6968	0.0273	0	
+s100_4	Ropebabacter salbelkaa	close_major	GCF_999027001.1	major	51.4326	0.0000	1	0.1
+s100_4	Ropebabacter salbelkaa	close_major	GCA_999027005.1	minor	5.7146	0.0315	1	0.1
+s100_4	Haldamlemcoccus kacorthium	far_major	GCA_999095005.1	major	33.0365	0.0265	1	0.1
+s100_4	Haldamlemcoccus kacorthium	far_major	GCF_999095001.1	minor	3.6704	0.0000	1	0.1
+s100_4	Salterdospira nethia	alone_ref	GCF_999126001.1	alone	8.7531	0.0000	0	
+s100_4	Rogorcomonas morubaum	alone_strain	GCA_999049003.1	alone	1.6991	0.0189	0	
+s100_4	Rogorcomonas codamum	close_major	GCF_999044001.1	major	71.0130	0.0000	1	0.2
+s100_4	Rogorcomonas codamum	close_major	GCA_999044003.1	minor	17.7530	0.0332	1	0.2
+s100_4	Rogorcomonas nathia	far_major	GCA_999050002.1	major	81.0715	0.0316	1	0.2
+s100_4	Rogorcomonas nathia	far_major	GCF_999050001.1	minor	20.2676	0.0000	1	0.2
+s100_4	Ropebabacter xathiis	alone_ref	GCF_999029001.1	alone	32.1810	0.0000	1	
+s100_4	Nacorspira haldammoensis	alone_strain	GCA_999130002.1	alone	5.5006	0.0059	0	
+s100_4	Ropebabacter terflahalus	close_major	GCF_999028001.1	major	8.4873	0.0000	1	0.3
+s100_4	Ropebabacter terflahalus	close_major	GCA_999028005.1	minor	3.6372	0.0339	1	0.3
+s100_4	Babapemonas terthilemii	far_major	GCA_999119002.1	major	5.7935	0.0241	0	0.3
+s100_4	Babapemonas terthilemii	far_major	GCF_999119001.1	minor	2.4829	0.0000	0	0.3
+s100_4	Joixbelvibrio terflaii	alone_ref	GCF_999138001.1	alone	43.5898	0.0000	0	
+s100_4	Rogorcomonas ixroa	alone_strain	GCA_999046004.1	alone	87.2752	0.0215	1	
+s100_4	Haldamlemcoccus mozufiis	close_major	GCF_999097001.1	major	3.7330	0.0000	0	0.1
+s100_4	Haldamlemcoccus mozufiis	close_major	GCA_999097004.1	minor	0.4146	0.0353	0	0.1
+s100_4	Haldamlemcoccus belcorixum	far_major	GCA_999091002.1	major	21.4871	0.0255	0	0.1
+s100_4	Haldamlemcoccus belcorixum	far_major	GCF_999091001.1	minor	2.3877	0.0000	0	0.1
+s100_4	Rogorcomonas jogenii	alone_ref	GCF_999047001.1	alone	8.3601	0.0000	0	
+s100_4	Babapemonas belneensis	alone_strain	GCA_999113005.1	alone	2.5315	0.0178	0	
+s100_4	Babapemonas gorfineus	close_major	GCF_999115001.1	major	5.3886	0.0000	0	0.2
+s100_4	Babapemonas gorfineus	close_major	GCA_999115004.1	minor	1.3471	0.0268	0	0.2
+s100_4	Ropebabacter lembelus	far_major	GCA_999024004.1	major	2.7730	0.0225	0	0.2
+s100_4	Ropebabacter lembelus	far_major	GCF_999024001.1	minor	0.6930	0.0000	0	0.2
+s100_4	Rogorcomonas baneii	alone_ref	GCF_999041001.1	alone	24.5654	0.0000	0	
+s100_4	Kalimonas gencoum	alone_strain	GCA_999145004.1	alone	2.9416	0.0291	0	
+s100_4	Haldamlemcoccus joruxaus	close_major	GCF_999094001.1	major	56.1248	0.0000	1	0.3
+s100_4	Haldamlemcoccus joruxaus	close_major	GCA_999094005.1	minor	24.0533	0.0397	1	0.3
+s100_4	Babapemonas belflasalum	far_major	GCA_999112002.1	major	14.1501	0.0257	1	0.3
+s100_4	Babapemonas belflasalum	far_major	GCF_999112001.1	minor	6.0644	0.0000	1	0.3
+s100_4	Haldamlemcoccus rothia	alone_ref	GCF_999099001.1	alone	41.9084	0.0000	1	
+s100_4	Ropebabacter ixmidoa	alone_strain	GCA_999023003.1	alone	48.9820	0.0176	1	
+s100_4	Thinazucoccus luneis	close_major	GCF_999152001.1	major	1.3503	0.0000	0	0.1
+s100_4	Thinazucoccus luneis	close_major	GCA_999152004.1	minor	0.1500	0.0332	0	0.1
+s100_4	Filubacter gorcocorii	far_major	GCA_999154002.1	major	2.3599	0.0354	0	0.1
+s100_4	Filubacter gorcocorii	far_major	GCF_999154001.1	minor	0.2624	0.0000	0	0.1
+s100_4	Haldamlemcoccus terneii	alone_ref	GCF_999100001.1	alone	11.0291	0.0000	0	
+s100_4	Xagennaella tercoris	alone_strain	GCA_999124002.1	alone	32.5425	0.0117	0	
+s100_4	Babapemonas terlujoensis	close_major	GCF_999118001.1	major	103.8092	0.0000	1	0.2
+s100_4	Babapemonas terlujoensis	close_major	GCA_999118002.1	minor	25.9522	0.0133	1	0.2
+s100_4	Ronaspira zunethiii	far_major	GCA_999135004.1	major	16.1947	0.0377	0	0.2
+s100_4	Ronaspira zunethiii	far_major	GCF_999135001.1	minor	4.0489	0.0000	0	0.2
+s100_4	Rogorcomonas capejois	alone_ref	GCF_999043001.1	alone	14.0383	0.0000	0	
+s100_4	Ruzunespira baluluii	alone_strain	GCA_999147004.1	alone	2.5637	0.0159	0	
+s100_4	Jopelemcoccus roterbelus	close_major	GCF_999129001.1	major	6.5682	0.0000	0	0.3
+s100_4	Jopelemcoccus roterbelus	close_major	GCA_999129002.1	minor	2.8152	0.0213	0	0.3
+s100_4	Salterdospira ficoixis	far_major	GCA_999125004.1	major	6.1480	0.0255	0	0.3
+s100_4	Salterdospira ficoixis	far_major	GCF_999125001.1	minor	2.6352	0.0000	0	0.3
+s100_4	Ropebabacter nasalnaa	alone_ref	GCF_999026001.1	alone	6.3626	0.0000	0	
+s100_4	Ropebabacter damnebaensis	alone_strain	GCA_999021003.1	alone	5.1934	0.0350	0	
+s100_4	Babapemonas belbelbelii	close_major	GCF_999111001.1	major	22.6064	0.0000	1	0.1
+s100_4	Babapemonas belbelbelii	close_major	GCA_999111002.1	minor	2.5121	0.0269	1	0.1
+s100_4	Ropebabacter dozulua	far_major	GCA_999022003.1	major	4.3311	0.0322	0	0.1
+s100_4	Ropebabacter dozulua	far_major	GCF_999022001.1	minor	0.4810	0.0000	0	0.1
+s100_4	Rurugenvibrio moluus	alone_ref	GCF_999140001.1	alone	14.5085	0.0000	0	
+s100_4	Rogorcomonas genvius	alone_strain	GCA_999045005.1	alone	2.9115	0.0282	0	
+s100_4	Moixlumonas naruus	close_major	GCF_999151001.1	major	2.0134	0.0000	0	0.2
+s100_4	Moixlumonas naruus	close_major	GCA_999151005.1	minor	0.5034	0.0252	0	0.2
+s100_4	Haldamlemcoccus gorcorensis	far_major	GCA_999092002.1	major	9.0852	0.0253	1	0.2
+s100_4	Haldamlemcoccus gorcorensis	far_major	GCF_999092001.1	minor	2.2712	0.0000	1	0.2
+s100_4	Filubacter vifius	alone_ref	GCF_999156001.1	alone	20.5931	0.0000	0	
+s100_4	Nacorspira ixfiis	alone_strain	GCA_999131003.1	alone	2.8730	0.0146	0	
+s100_4	Haldamlemcoccus negenfiis	close_major	GCF_999098001.1	major	1.8792	0.0000	0	0.3
+s100_4	Haldamlemcoccus negenfiis	close_major	GCA_999098004.1	minor	0.8054	0.0226	0	0.3
+s100_4	Haldamlemcoccus ixcorensis	far_major	GCA_999093003.1	major	6.3921	0.0286	0	0.3
+s100_4	Haldamlemcoccus ixcorensis	far_major	GCF_999093001.1	minor	2.7399	0.0000	0	0.3
+s100_4	Rogorcomonas calemkaii	alone_ref	GCF_999042001.1	alone	8.9008	0.0000	0	
+s100_4	Babapemonas terflalema	alone_strain	GCA_999117002.1	alone	6.8893	0.0289	0	
+s100_4	Ropebabacter mirozuis	close_major	GCF_999025001.1	major	7.6132	0.0000	0	0.1
+s100_4	Ropebabacter mirozuis	close_major	GCA_999025002.1	minor	0.8459	0.0239	0	0.1
+s100_4	Babapemonas jodous	far_major	GCA_999116002.1	major	45.7506	0.0220	0	0.1
+s100_4	Babapemonas jodous	far_major	GCF_999116001.1	minor	5.0833	0.0000	0	0.1
+s100_5	Coterbacter dorupeum	alone_ref	GCF_999062001.1	alone	21.2361	0.0000	0	
+s100_5	Jopelemcoccus lucagenus	alone_strain	GCA_999127005.1	alone	20.9279	0.0185	0	
+s100_5	Haldamlemcoccus mozufiis	close_major	GCF_999097001.1	major	5.0429	0.0000	0	0.3
+s100_5	Haldamlemcoccus mozufiis	close_major	GCA_999097004.1	minor	2.1614	0.0353	0	0.3
+s100_5	Haldamlemcoccus terneii	far_major	GCA_999100004.1	major	6.6412	0.0187	0	0.3
+s100_5	Haldamlemcoccus terneii	far_major	GCF_999100001.1	minor	2.8463	0.0000	0	0.3
+s100_5	Ropebabacter terflahalus	alone_ref	GCF_999028001.1	alone	47.2515	0.0000	1	
+s100_5	Haldamlemcoccus ixcorensis	alone_strain	GCA_999093005.1	alone	4.5468	0.0271	0	
+s100_5	Haldamlemcoccus belcorixum	close_major	GCF_999091001.1	major	2.6848	0.0000	0	0.1
+s100_5	Haldamlemcoccus belcorixum	close_major	GCA_999091002.1	minor	0.2983	0.0255	0	0.1
+s100_5	Joixbelvibrio nenaensis	far_major	GCA_999137004.1	major	6.1645	0.0169	0	0.1
+s100_5	Joixbelvibrio nenaensis	far_major	GCF_999137001.1	minor	0.6850	0.0000	0	0.1
+s100_5	Coterbacter mocaus	alone_ref	GCF_999065001.1	alone	4.7611	0.0000	0	
+s100_5	Salterdospira ficoixis	alone_strain	GCA_999125004.1	alone	7.6011	0.0255	0	
+s100_5	Haldamlemcoccus negenfiis	close_major	GCF_999098001.1	major	2.8327	0.0000	0	0.2
+s100_5	Haldamlemcoccus negenfiis	close_major	GCA_999098004.1	minor	0.7082	0.0226	0	0.2
+s100_5	Joixbelvibrio bamiruii	far_major	GCA_999136004.1	major	17.0752	0.0267	0	0.2
+s100_5	Joixbelvibrio bamiruii	far_major	GCF_999136001.1	minor	4.2690	0.0000	0	0.2
+s100_5	Coterbacter genlirois	alone_ref	GCF_999063001.1	alone	92.9258	0.0000	1	
+s100_5	Filubacter vifius	alone_strain	GCA_999156003.1	alone	57.6059	0.0235	0	
+s100_5	Gorlemcorvibrio beljoum	close_major	GCF_999071001.1	major	46.9376	0.0000	0	0.3
+s100_5	Gorlemcorvibrio beljoum	close_major	GCA_999071003.1	minor	20.1161	0.0226	0	0.3
+s100_5	Finecoccus micoii	far_major	GCA_999157005.1	major	4.8914	0.0241	0	0.3
+s100_5	Finecoccus micoii	far_major	GCF_999157001.1	minor	2.0966	0.0000	0	0.3
+s100_5	Ropebabacter dozulua	alone_ref	GCF_999022001.1	alone	11.7583	0.0000	0	
+s100_5	Ropebabacter mirozuis	alone_strain	GCA_999025004.1	alone	61.7250	0.0186	0	
+s100_5	Haldamlemcoccus gorcorensis	close_major	GCF_999092001.1	major	63.6986	0.0000	1	0.1
+s100_5	Haldamlemcoccus gorcorensis	close_major	GCA_999092002.1	minor	7.0779	0.0253	1	0.1
+s100_5	Gorlemcorvibrio genroii	far_major	GCA_999075004.1	major	211.8079	0.0227	1	0.1
+s100_5	Gorlemcorvibrio genroii	far_major	GCF_999075001.1	minor	23.5341	0.0000	1	0.1
+s100_5	Thinazucoccus luneis	alone_ref	GCF_999152001.1	alone	12.2857	0.0000	0	
+s100_5	Coterbacter zugencoensis	alone_strain	GCA_999070002.1	alone	17.3675	0.0145	0	
+s100_5	Ropebabacter zuzua	close_major	GCF_999030001.1	major	3.4066	0.0000	0	0.2
+s100_5	Ropebabacter zuzua	close_major	GCA_999030004.1	minor	0.8517	0.0302	0	0.2
+s100_5	Gorlemcorvibrio lubaviis	far_major	GCA_999077004.1	major	26.7013	0.0273	0	0.2
+s100_5	Gorlemcorvibrio lubaviis	far_major	GCF_999077001.1	minor	6.6756	0.0000	0	0.2
+s100_5	Genlemlumonas halpeii	alone_ref	GCF_999159001.1	alone	9.4497	0.0000	0	
+s100_5	Finecoccus napeensis	alone_strain	GCA_999158004.1	alone	8.6493	0.0159	0	
+s100_5	Coterbacter cosalzuum	close_major	GCF_999061001.1	major	21.9508	0.0000	0	0.3
+s100_5	Coterbacter cosalzuum	close_major	GCA_999061004.1	minor	9.4072	0.0230	0	0.3
+s100_5	Gorlemcorvibrio belterdama	far_major	GCA_999072004.1	major	54.9912	0.0251	1	0.3
+s100_5	Gorlemcorvibrio belterdama	far_major	GCF_999072001.1	minor	23.5678	0.0000	1	0.3
+s100_5	Ropebabacter xathiis	alone_ref	GCF_999029001.1	alone	85.4174	0.0000	1	
+s100_5	Gorlemcorvibrio cothiliensis	alone_strain	GCA_999074002.1	alone	40.9829	0.0213	0	
+s100_5	Genlemlumonas nevicaa	close_major	GCF_999160001.1	major	20.0933	0.0000	0	0.1
+s100_5	Genlemlumonas nevicaa	close_major	GCA_999160005.1	minor	2.2325	0.0222	0	0.1
+s100_5	Gorlemcorvibrio lucorus	far_major	GCA_999078004.1	major	66.6662	0.0310	0	0.1
+s100_5	Gorlemcorvibrio lucorus	far_major	GCF_999078001.1	minor	7.4074	0.0000	0	0.1
+s100_5	Coterbacter salluensis	alone_ref	GCF_999067001.1	alone	52.6667	0.0000	1	
+s100_5	Coterbacter lineus	alone_strain	GCA_999064004.1	alone	65.0169	0.0188	1	
+s100_5	Kalimonas gencoum	close_major	GCF_999145001.1	major	15.5238	0.0000	0	0.2
+s100_5	Kalimonas gencoum	close_major	GCA_999145004.1	minor	3.8808	0.0291	0	0.2
+s100_5	Haldamlemcoccus joruxaus	far_major	GCA_999094005.1	major	113.7613	0.0397	1	0.2
+s100_5	Haldamlemcoccus joruxaus	far_major	GCF_999094001.1	minor	28.4401	0.0000	1	0.2
+s100_5	Gorlemcorvibrio gormous	alone_ref	GCF_999076001.1	alone	10.2593	0.0000	1	
+s100_5	Ropebabacter nasalnaa	alone_strain	GCA_999026004.1	alone	21.5928	0.0357	0	
+s100_5	Nacorspira haldammoensis	close_major	GCF_999130001.1	major	10.7570	0.0000	0	0.3
+s100_5	Nacorspira haldammoensis	close_major	GCA_999130004.1	minor	4.6106	0.0212	0	0.3
+s100_5	Terkaella kapeii	far_major	GCA_999123005.1	major	3.4978	0.0266	0	0.3
+s100_5	Terkaella kapeii	far_major	GCF_999123001.1	minor	1.4991	0.0000	0	0.3
+s100_5	Coterbacter thithium	alone_ref	GCF_999068001.1	alone	12.8876	0.0000	0	
+s100_5	Filubacter gorcocorii	alone_strain	GCA_999154002.1	alone	9.5293	0.0354	0	
+s100_5	Rurugenvibrio moluus	close_major	GCF_999140001.1	major	5.4488	0.0000	0	0.1
+s100_5	Rurugenvibrio moluus	close_major	GCA_999140002.1	minor	0.6057	0.0387	0	0.1
+s100_5	Gorlemcorvibrio nemois	far_major	GCA_999079002.1	major	7.4951	0.0274	0	0.1
+s100_5	Gorlemcorvibrio nemois	far_major	GCF_999079001.1	minor	0.8326	0.0000	0	0.1
+s100_5	Coterbacter napelia	alone_ref	GCF_999066001.1	alone	27.1898	0.0000	1	
+s100_5	Coterbacter zufiroa	alone_strain	GCA_999069003.1	alone	20.7670	0.0056	0	
+s100_5	Ronaspira genxabaum	close_major	GCF_999133001.1	major	6.9059	0.0000	0	0.2
+s100_5	Ronaspira genxabaum	close_major	GCA_999133004.1	minor	1.7263	0.0247	0	0.2
+s100_5	Ropebabacter salbelkaa	far_major	GCA_999027005.1	major	42.0286	0.0315	1	0.2
+s100_5	Ropebabacter salbelkaa	far_major	GCF_999027001.1	minor	10.5071	0.0000	1	0.2
+s100_5	Ronaspira zunethiii	alone_ref	GCF_999135001.1	alone	3.1723	0.0000	0	
+s100_5	Gorlemcorvibrio corrolium	alone_strain	GCA_999073005.1	alone	105.1044	0.0106	1	
+s100_5	Haldamlemcoccus kacorthium	close_major	GCF_999095001.1	major	17.4209	0.0000	1	0.3
+s100_5	Haldamlemcoccus kacorthium	close_major	GCA_999095005.1	minor	7.4661	0.0265	1	0.3
+s100_5	Ropebabacter lembelus	far_major	GCA_999024004.1	major	17.0221	0.0225	0	0.3
+s100_5	Ropebabacter lembelus	far_major	GCF_999024001.1	minor	7.2953	0.0000	0	0.3
+s100_5	Nacorspira rogorii	alone_ref	GCF_999132001.1	alone	15.7519	0.0000	0	
+s100_5	Ropebabacter damnebaensis	alone_strain	GCA_999021005.1	alone	32.8077	0.0346	0	
+s100_5	Gorlemcorvibrio saljocaa	close_major	GCF_999080001.1	major	25.2472	0.0000	0	0.1
+s100_5	Gorlemcorvibrio saljocaa	close_major	GCA_999080004.1	minor	2.8055	0.0297	0	0.1
+s100_5	Nalujoella luthisalensis	far_major	GCA_999149005.1	major	6.3062	0.0227	0	0.1
+s100_5	Nalujoella luthisalensis	far_major	GCF_999149001.1	minor	0.7008	0.0000	0	0.1
+s100_5	Ropebabacter ixmidoa	alone_ref	GCF_999023001.1	alone	74.3433	0.0000	1	
+s100_5	Rurugenvibrio terroxaii	alone_strain	GCA_999141004.1	alone	20.2300	0.0315	0	
+s100_5	Haldamlemcoccus modois	close_major	GCF_999096001.1	major	10.8779	0.0000	0	0.2
+s100_5	Haldamlemcoccus modois	close_major	GCA_999096004.1	minor	2.7193	0.0209	0	0.2
+s100_5	Haldamlemcoccus rothia	far_major	GCA_999099004.1	major	15.3063	0.0206	1	0.2
+s100_5	Haldamlemcoccus rothia	far_major	GCF_999099001.1	minor	3.8264	0.0000	1	0.2
+s100_6	Coterbacter lineus	alone_ref	GCF_999064001.1	alone	28.0796	0.0000	1	
+s100_6	Coterbacter mocaus	alone_strain	GCA_999065004.1	alone	7.6887	0.0258	0	
+s100_6	Pehalcoccus lemlifiensis	close_major	GCF_999086001.1	major	242.6569	0.0000	1	0.1
+s100_6	Pehalcoccus lemlifiensis	close_major	GCA_999086005.1	minor	26.9622	0.0149	1	0.1
+s100_6	Rogorcomonas jogenii	far_major	GCA_999047004.1	major	1.9236	0.0330	0	0.1
+s100_6	Rogorcomonas jogenii	far_major	GCF_999047001.1	minor	0.2137	0.0000	0	0.1
+s100_6	Haldamlemcoccus ixcorensis	alone_ref	GCF_999093001.1	alone	6.6289	0.0000	0	
+s100_6	Pehalcoccus salmifia	alone_strain	GCA_999089002.1	alone	20.9770	0.0187	1	
+s100_6	Peixsalspira corliii	close_major	GCF_999143001.1	major	1.6117	0.0000	0	0.2
+s100_6	Peixsalspira corliii	close_major	GCA_999143005.1	minor	0.4032	0.0304	0	0.2
+s100_6	Haldamlemcoccus joruxaus	far_major	GCA_999094005.1	major	37.7505	0.0397	1	0.2
+s100_6	Haldamlemcoccus joruxaus	far_major	GCF_999094001.1	minor	9.4379	0.0000	1	0.2
+s100_6	Nalujoella vibagenis	alone_ref	GCF_999150001.1	alone	5.3551	0.0000	0	
+s100_6	Rogorcomonas calemkaii	alone_strain	GCA_999042005.1	alone	7.5705	0.0097	0	
+s100_6	Rogorcomonas ixroa	close_major	GCF_999046001.1	major	8.4010	0.0000	1	0.3
+s100_6	Rogorcomonas ixroa	close_major	GCA_999046003.1	minor	3.6003	0.0316	1	0.3
+s100_6	Haldamlemcoccus mozufiis	far_major	GCA_999097004.1	major	3.0791	0.0353	0	0.3
+s100_6	Haldamlemcoccus mozufiis	far_major	GCF_999097001.1	minor	1.3193	0.0000	0	0.3
+s100_6	Nacorspira rogorii	alone_ref	GCF_999132001.1	alone	2.6410	0.0000	0	
+s100_6	Coterbacter thithium	alone_strain	GCA_999068004.1	alone	21.3790	0.0103	0	
+s100_6	Haldamlemcoccus negenfiis	close_major	GCF_999098001.1	major	12.6220	0.0000	0	0.1
+s100_6	Haldamlemcoccus negenfiis	close_major	GCA_999098004.1	minor	1.4022	0.0226	0	0.1
+s100_6	Coterbacter napelia	far_major	GCA_999066003.1	major	98.4491	0.0233	1	0.1
+s100_6	Coterbacter napelia	far_major	GCF_999066001.1	minor	10.9385	0.0000	1	0.1
+s100_6	Genlemlumonas nevicaa	alone_ref	GCF_999160001.1	alone	15.5301	0.0000	0	
+s100_6	Pehalcoccus baixus	alone_strain	GCA_999081002.1	alone	34.1041	0.0160	0	
+s100_6	Filubacter gorcocorii	close_major	GCF_999154001.1	major	2.9824	0.0000	0	0.2
+s100_6	Filubacter gorcocorii	close_major	GCA_999154002.1	minor	0.7454	0.0354	0	0.2
+s100_6	Salterdospira nethia	far_major	GCA_999126005.1	major	2.6899	0.0334	0	0.2
+s100_6	Salterdospira nethia	far_major	GCF_999126001.1	minor	0.6728	0.0000	0	0.2
+s100_6	Coterbacter zufiroa	alone_ref	GCF_999069001.1	alone	51.5210	0.0000	0	
+s100_6	Pehalcoccus nazuis	alone_strain	GCA_999088002.1	alone	3.3969	0.0289	0	
+s100_6	Kalimonas gencoum	close_major	GCF_999145001.1	major	7.6098	0.0000	0	0.3
+s100_6	Kalimonas gencoum	close_major	GCA_999145004.1	minor	3.2616	0.0291	0	0.3
+s100_6	Haldamlemcoccus belcorixum	far_major	GCA_999091002.1	major	21.6561	0.0255	0	0.3
+s100_6	Haldamlemcoccus belcorixum	far_major	GCF_999091001.1	minor	9.2813	0.0000	0	0.3
+s100_6	Coterbacter salluensis	alone_ref	GCF_999067001.1	alone	24.5388	0.0000	1	
+s100_6	Rogorcomonas capejois	alone_strain	GCA_999043002.1	alone	3.6808	0.0172	0	
+s100_6	Pehalcoccus micorflaum	close_major	GCF_999087001.1	major	18.1903	0.0000	0	0.1
+s100_6	Pehalcoccus micorflaum	close_major	GCA_999087003.1	minor	2.0210	0.0321	0	0.1
+s100_6	Filubacter vifius	far_major	GCA_999156002.1	major	10.2967	0.0371	0	0.1
+s100_6	Filubacter vifius	far_major	GCF_999156001.1	minor	1.1442	0.0000	0	0.1
+s100_6	Pehalcoccus kacaus	alone_ref	GCF_999085001.1	alone	21.9850	0.0000	0	
+s100_6	Moixlumonas naruus	alone_strain	GCA_999151004.1	alone	14.6573	0.0211	0	
+s100_6	Nacorspira haldammoensis	close_major	GCF_999130001.1	major	33.9999	0.0000	0	0.2
+s100_6	Nacorspira haldammoensis	close_major	GCA_999130004.1	minor	8.5002	0.0212	0	0.2
+s100_6	Ronaspira zunethiii	far_major	GCA_999135004.1	major	12.4384	0.0377	0	0.2
+s100_6	Ronaspira zunethiii	far_major	GCF_999135001.1	minor	3.1099	0.0000	0	0.2
+s100_6	Coterbacter genlirois	alone_ref	GCF_999063001.1	alone	66.1225	0.0000	1	
+s100_6	Haldamlemcoccus kacorthium	alone_strain	GCA_999095003.1	alone	8.1486	0.0234	1	
+s100_6	Nalujoella luthisalensis	close_major	GCF_999149001.1	major	2.9323	0.0000	0	0.3
+s100_6	Nalujoella luthisalensis	close_major	GCA_999149005.1	minor	1.2567	0.0227	0	0.3
+s100_6	Pehalcoccus tercaii	far_major	GCA_999090005.1	major	16.0933	0.0356	0	0.3
+s100_6	Pehalcoccus tercaii	far_major	GCF_999090001.1	minor	6.8969	0.0000	0	0.3
+s100_6	Finecoccus micoii	alone_ref	GCF_999157001.1	alone	31.2409	0.0000	0	
+s100_6	Rogorcomonas jojoum	alone_strain	GCA_999048003.1	alone	79.3275	0.0264	1	
+s100_6	Pehalcoccus genlicoensis	close_major	GCF_999082001.1	major	23.6100	0.0000	0	0.1
+s100_6	Pehalcoccus genlicoensis	close_major	GCA_999082003.1	minor	2.6232	0.0387	0	0.1
+s100_6	Terkaella kapeii	far_major	GCA_999123005.1	major	59.4150	0.0266	0	0.1
+s100_6	Terkaella kapeii	far_major	GCF_999123001.1	minor	6.6019	0.0000	0	0.1
+s100_6	Rogorcomonas nathia	alone_ref	GCF_999050001.1	alone	147.3554	0.0000	1	
+s100_6	Haldamlemcoccus terneii	alone_strain	GCA_999100002.1	alone	8.2129	0.0086	0	
+s100_6	Corxamonas nasalii	close_major	GCF_999121001.1	major	6.4300	0.0000	0	0.2
+s100_6	Corxamonas nasalii	close_major	GCA_999121002.1	minor	1.6076	0.0354	0	0.2
+s100_6	Rogorcomonas codamum	far_major	GCA_999044003.1	major	114.6740	0.0332	1	0.2
+s100_6	Rogorcomonas codamum	far_major	GCF_999044001.1	minor	28.6688	0.0000	1	0.2
+s100_6	Haldamlemcoccus rothia	alone_ref	GCF_999099001.1	alone	24.2115	0.0000	1	
+s100_6	Jopelemcoccus roterbelus	alone_strain	GCA_999129005.1	alone	7.5183	0.0151	0	
+s100_6	Rogorcomonas baneii	close_major	GCF_999041001.1	major	6.3751	0.0000	0	0.3
+s100_6	Rogorcomonas baneii	close_major	GCA_999041003.1	minor	2.7324	0.0307	0	0.3
+s100_6	Rogorcomonas genvius	far_major	GCA_999045004.1	major	3.0208	0.0323	0	0.3
+s100_6	Rogorcomonas genvius	far_major	GCF_999045001.1	minor	1.2948	0.0000	0	0.3
+s100_6	Coterbacter cosalzuum	alone_ref	GCF_999061001.1	alone	5.5445	0.0000	0	
+s100_6	Pehalcoccus ixronaus	alone_strain	GCA_999084005.1	alone	18.1002	0.0155	1	
+s100_6	Haldamlemcoccus modois	close_major	GCF_999096001.1	major	6.0988	0.0000	0	0.1
+s100_6	Haldamlemcoccus modois	close_major	GCA_999096004.1	minor	0.6777	0.0209	0	0.1
+s100_6	Peixsalspira liixensis	far_major	GCA_999144002.1	major	10.8700	0.0218	0	0.1
+s100_6	Peixsalspira liixensis	far_major	GCF_999144001.1	minor	1.2077	0.0000	0	0.1
+s100_6	Genlemlumonas halpeii	alone_ref	GCF_999159001.1	alone	15.2840	0.0000	0	
+s100_6	Haldamlemcoccus gorcorensis	alone_strain	GCA_999092002.1	alone	77.7772	0.0253	1	
+s100_6	Rurugenvibrio cohalensis	close_major	GCF_999139001.1	major	14.7616	0.0000	0	0.2
+s100_6	Rurugenvibrio cohalensis	close_major	GCA_999139003.1	minor	3.6902	0.0324	0	0.2
+s100_6	Ronaspira lemhalfia	far_major	GCA_999134004.1	major	2.0399	0.0170	0	0.2
+s100_6	Ronaspira lemhalfia	far_major	GCF_999134001.1	minor	0.5101	0.0000	0	0.2
+s100_6	Pehalcoccus halcorlema	alone_ref	GCF_999083001.1	alone	63.7394	0.0000	1	
+s100_6	Rogorcomonas morubaum	alone_strain	GCA_999049005.1	alone	5.8194	0.0097	0	
+s100_6	Coterbacter dorupeum	close_major	GCF_999062001.1	major	2.9078	0.0000	0	0.3
+s100_6	Coterbacter dorupeum	close_major	GCA_999062002.1	minor	1.2459	0.0306	0	0.3
+s100_6	Coterbacter zugencoensis	far_major	GCA_999070003.1	major	8.6033	0.0181	0	0.3
+s100_6	Coterbacter zugencoensis	far_major	GCF_999070001.1	minor	3.6873	0.0000	0	0.3
+s150_1	Joixbelvibrio nenaensis	alone_ref	GCF_999137001.1	alone	6.3269	0.0000	0	
+s150_1	Vipenavibrio genhalzuus	alone_strain	GCA_999031003.1	alone	5.8165	0.0257	0	
+s150_1	Rurugenvibrio cohalensis	close_major	GCF_999139001.1	major	7.1945	0.0000	0	0.2
+s150_1	Rurugenvibrio cohalensis	close_major	GCA_999139003.1	minor	1.7985	0.0324	0	0.2
+s150_1	Babapemonas terlujoensis	far_major	GCA_999118002.1	major	2.5314	0.0133	1	0.2
+s150_1	Babapemonas terlujoensis	far_major	GCF_999118001.1	minor	0.6330	0.0000	1	0.2
+s150_1	Pehalcoccus ixronaus	alone_ref	GCF_999084001.1	alone	3.4757	0.0000	1	
+s150_1	Vipenavibrio vigenterus	alone_strain	GCA_999039005.1	alone	9.0623	0.0285	0	
+s150_1	Vipenavibrio zucorterus	close_major	GCF_999040001.1	major	5.3897	0.0000	0	0.3
+s150_1	Vipenavibrio zucorterus	close_major	GCA_999040004.1	minor	2.3101	0.0273	0	0.3
+s150_1	Genlemlumonas nevicaa	far_major	GCA_999160005.1	major	15.5573	0.0222	0	0.3
+s150_1	Genlemlumonas nevicaa	far_major	GCF_999160001.1	minor	6.6675	0.0000	0	0.3
+s150_1	Jopelemcoccus neixteris	alone_ref	GCF_999128001.1	alone	7.5340	0.0000	0	
+s150_1	Vipenavibrio lusalzuum	alone_strain	GCA_999035004.1	alone	5.4087	0.0236	1	
+s150_1	Ropebabacter xathiis	close_major	GCF_999029001.1	major	5.1884	0.0000	1	0.1
+s150_1	Ropebabacter xathiis	close_major	GCA_999029003.1	minor	0.5763	0.0142	1	0.1
+s150_1	Pehalcoccus tercaii	far_major	GCA_999090005.1	major	26.1586	0.0356	0	0.1
+s150_1	Pehalcoccus tercaii	far_major	GCF_999090001.1	minor	2.9069	0.0000	0	0.1
+s150_1	Terkaella kapeii	alone_ref	GCF_999123001.1	alone	4.4053	0.0000	0	
+s150_1	Ropebabacter ixmidoa	alone_strain	GCA_999023003.1	alone	3.1118	0.0176	1	
+s150_1	Terkaella caxazuis	close_major	GCF_999122001.1	major	4.5428	0.0000	0	0.2
+s150_1	Terkaella caxazuis	close_major	GCA_999122003.1	minor	1.1358	0.0357	0	0.2
+s150_1	Pehalcoccus salmifia	far_major	GCA_999089002.1	major	5.7995	0.0187	1	0.2
+s150_1	Pehalcoccus salmifia	far_major	GCF_999089001.1	minor	1.4502	0.0000	1	0.2
+s150_1	Pehalcoccus kacaus	alone_ref	GCF_999085001.1	alone	12.9290	0.0000	0	
+s150_1	Pehalcoccus nazuis	alone_strain	GCA_999088003.1	alone	66.7464	0.0163	0	
+s150_1	Salterdospira nethia	close_major	GCF_999126001.1	major	11.5326	0.0000	0	0.3
+s150_1	Salterdospira nethia	close_major	GCA_999126005.1	minor	4.9428	0.0334	0	0.3
+s150_1	Ropebabacter mirozuis	far_major	GCA_999025002.1	major	12.3776	0.0239	0	0.3
+s150_1	Ropebabacter mirozuis	far_major	GCF_999025001.1	minor	5.3047	0.0000	0	0.3
+s150_1	Babapemonas belneensis	alone_ref	GCF_999113001.1	alone	60.0773	0.0000	0	
+s150_1	Pehalcoccus lemlifiensis	alone_strain	GCA_999086004.1	alone	120.0002	0.0146	1	
+s150_1	Basalspira thilium	close_major	GCF_999142001.1	major	9.0709	0.0000	0	0.1
+s150_1	Basalspira thilium	close_major	GCA_999142005.1	minor	1.0079	0.0319	0	0.1
+s150_1	Nalujoella luthisalensis	far_major	GCA_999149005.1	major	7.1005	0.0227	0	0.1
+s150_1	Nalujoella luthisalensis	far_major	GCF_999149001.1	minor	0.7887	0.0000	0	0.1
+s150_1	Filubacter vifius	alone_ref	GCF_999156001.1	alone	35.6177	0.0000	0	
+s150_1	Ropebabacter salbelkaa	alone_strain	GCA_999027005.1	alone	48.4888	0.0315	1	
+s150_1	Pehalcoccus genlicoensis	close_major	GCF_999082001.1	major	9.8554	0.0000	0	0.2
+s150_1	Pehalcoccus genlicoensis	close_major	GCA_999082003.1	minor	2.4639	0.0387	0	0.2
+s150_1	Babapemonas terthilemii	far_major	GCA_999119002.1	major	5.9247	0.0241	0	0.2
+s150_1	Babapemonas terthilemii	far_major	GCF_999119001.1	minor	1.4814	0.0000	0	0.2
+s150_1	Pehalcoccus micorflaum	alone_ref	GCF_999087001.1	alone	8.2171	0.0000	0	
+s150_1	Pehalcoccus halcorlema	alone_strain	GCA_999083005.1	alone	22.0823	0.0195	1	
+s150_1	Babapemonas fimocaa	close_major	GCF_999114001.1	major	41.8868	0.0000	0	0.3
+s150_1	Babapemonas fimocaa	close_major	GCA_999114002.1	minor	17.9515	0.0285	0	0.3
+s150_1	Babapemonas belbelbelii	far_major	GCA_999111002.1	major	2.5072	0.0269	1	0.3
+s150_1	Babapemonas belbelbelii	far_major	GCF_999111001.1	minor	1.0747	0.0000	1	0.3
+s150_1	Vipenavibrio pedamii	alone_ref	GCF_999036001.1	alone	10.0944	0.0000	0	
+s150_1	Pehalcoccus baixus	alone_strain	GCA_999081005.1	alone	17.1110	0.0125	0	
+s150_1	Cornabacter nenecorus	close_major	GCF_999146001.1	major	36.0623	0.0000	0	0.1
+s150_1	Cornabacter nenecorus	close_major	GCA_999146005.1	minor	4.0071	0.0333	0	0.1
+s150_1	Vipenavibrio genixlemis	far_major	GCA_999032003.1	major	7.1603	0.0271	1	0.1
+s150_1	Vipenavibrio genixlemis	far_major	GCF_999032001.1	minor	0.7958	0.0000	1	0.1
+s150_1	Ropebabacter nasalnaa	alone_ref	GCF_999026001.1	alone	2.8584	0.0000	0	
+s150_1	Nalujoella damdoa	alone_strain	GCA_999148004.1	alone	3.5537	0.0197	0	
+s150_1	Babapemonas zuroii	close_major	GCF_999120001.1	major	46.3723	0.0000	1	0.2
+s150_1	Babapemonas zuroii	close_major	GCA_999120003.1	minor	11.5928	0.0333	1	0.2
+s150_1	Ropebabacter lembelus	far_major	GCA_999024004.1	major	20.3052	0.0225	0	0.2
+s150_1	Ropebabacter lembelus	far_major	GCF_999024001.1	minor	5.0765	0.0000	0	0.2
+s150_1	Babapemonas belflasalum	alone_ref	GCF_999112001.1	alone	3.3612	0.0000	1	
+s150_1	Filubacter gorcocorii	alone_strain	GCA_999154002.1	alone	27.2731	0.0354	0	
+s150_1	Kalimonas gencoum	close_major	GCF_999145001.1	major	7.8245	0.0000	0	0.3
+s150_1	Kalimonas gencoum	close_major	GCA_999145004.1	minor	3.3528	0.0291	0	0.3
+s150_1	Corxamonas nasalii	far_major	GCA_999121002.1	major	10.9542	0.0354	0	0.3
+s150_1	Corxamonas nasalii	far_major	GCF_999121001.1	minor	4.6948	0.0000	0	0.3
+s150_1	Ronaspira lemhalfia	alone_ref	GCF_999134001.1	alone	5.4322	0.0000	0	
+s150_1	Thinazucoccus moterensis	alone_strain	GCA_999153004.1	alone	17.1509	0.0071	0	
+s150_1	Ropebabacter terflahalus	close_major	GCF_999028001.1	major	15.5105	0.0000	1	0.1
+s150_1	Ropebabacter terflahalus	close_major	GCA_999028005.1	minor	1.7229	0.0339	1	0.1
+s150_1	Vipenavibrio pegenensis	far_major	GCA_999037005.1	major	17.5698	0.0327	0	0.1
+s150_1	Vipenavibrio pegenensis	far_major	GCF_999037001.1	minor	1.9525	0.0000	0	0.1
+s150_1	Nacorspira ixfiis	alone_ref	GCF_999131001.1	alone	2.6874	0.0000	0	
+s150_1	Ropebabacter zuzua	alone_strain	GCA_999030003.1	alone	5.7618	0.0251	0	
+s150_1	Babapemonas terflalema	close_major	GCF_999117001.1	major	2.9093	0.0000	0	0.2
+s150_1	Babapemonas terflalema	close_major	GCA_999117005.1	minor	0.7269	0.0314	0	0.2
+s150_1	Vipenavibrio joroum	far_major	GCA_999033005.1	major	1.1998	0.0202	1	0.2
+s150_1	Vipenavibrio joroum	far_major	GCF_999033001.1	minor	0.3000	0.0000	1	0.2
+s150_1	Babapemonas gorfineus	alone_ref	GCF_999115001.1	alone	55.7268	0.0000	0	
+s150_1	Ropebabacter dozulua	alone_strain	GCA_999022002.1	alone	8.6496	0.0297	0	
+s150_1	Vipenavibrio romogora	close_major	GCF_999038001.1	major	14.4670	0.0000	1	0.3
+s150_1	Vipenavibrio romogora	close_major	GCA_999038004.1	minor	6.2000	0.0237	1	0.3
+s150_1	Babapemonas jodous	far_major	GCA_999116002.1	major	31.0501	0.0220	0	0.3
+s150_1	Babapemonas jodous	far_major	GCF_999116001.1	minor	13.3073	0.0000	0	0.3
+s150_1	Peixsalspira liixensis	alone_ref	GCF_999144001.1	alone	3.4971	0.0000	0	
+s150_1	Peixsalspira corliii	alone_strain	GCA_999143005.1	alone	4.3791	0.0304	0	
+s150_1	Vipenavibrio lempebelis	close_major	GCF_999034001.1	major	14.1756	0.0000	0	0.1
+s150_1	Vipenavibrio lempebelis	close_major	GCA_999034004.1	minor	1.5751	0.0344	0	0.1
+s150_1	Ropebabacter damnebaensis	far_major	GCA_999021003.1	major	6.7954	0.0350	0	0.1
+s150_1	Ropebabacter damnebaensis	far_major	GCF_999021001.1	minor	0.7551	0.0000	0	0.1
+s150_2	Nacorspira haldammoensis	alone_ref	GCF_999130001.1	alone	4.4354	0.0000	0	
+s150_2	Vipenecoccus gendamjous	alone_strain	GCA_999102004.1	alone	17.2964	0.0293	1	
+s150_2	Ruzunespira baluluii	close_major	GCF_999147001.1	major	8.7018	0.0000	0	0.3
+s150_2	Ruzunespira baluluii	close_major	GCA_999147003.1	minor	3.7289	0.0211	0	0.3
+s150_2	Filubacter gorcocorii	far_major	GCA_999154002.1	major	5.3674	0.0354	0	0.3
+s150_2	Filubacter gorcocorii	far_major	GCF_999154001.1	minor	2.3009	0.0000	0	0.3
+s150_2	Thicacoccus colemkaensis	alone_ref	GCF_999051001.1	alone	24.4200	0.0000	1	
+s150_2	Nalujoella damdoa	alone_strain	GCA_999148002.1	alone	23.3311	0.0216	0	
+s150_2	Nalujoella luthisalensis	close_major	GCF_999149001.1	major	2.9326	0.0000	0	0.1
+s150_2	Nalujoella luthisalensis	close_major	GCA_999149005.1	minor	0.3260	0.0227	0	0.1
+s150_2	Ropebabacter nasalnaa	far_major	GCA_999026003.1	major	48.4644	0.0363	0	0.1
+s150_2	Ropebabacter nasalnaa	far_major	GCF_999026001.1	minor	5.3847	0.0000	0	0.1
+s150_2	Vipenecoccus gorliii	alone_ref	GCF_999103001.1	alone	37.0543	0.0000	0	
+s150_2	Thicacoccus fladois	alone_strain	GCA_999052003.1	alone	2.6649	0.0125	1	
+s150_2	Ronaspira zunethiii	close_major	GCF_999135001.1	major	4.7948	0.0000	0	0.2
+s150_2	Ronaspira zunethiii	close_major	GCA_999135004.1	minor	1.1992	0.0377	0	0.2
+s150_2	Rogorcomonas ixroa	far_major	GCA_999046003.1	major	6.6495	0.0316	1	0.2
+s150_2	Rogorcomonas ixroa	far_major	GCF_999046001.1	minor	1.6621	0.0000	1	0.2
+s150_2	Salterdospira ficoixis	alone_ref	GCF_999125001.1	alone	9.2113	0.0000	0	
+s150_2	Nalujoella vibagenis	alone_strain	GCA_999150002.1	alone	8.5458	0.0162	0	
+s150_2	Rogorcomonas jogenii	close_major	GCF_999047001.1	major	1.3322	0.0000	0	0.3
+s150_2	Rogorcomonas jogenii	close_major	GCA_999047004.1	minor	0.5705	0.0330	0	0.3
+s150_2	Rurugenvibrio moluus	far_major	GCA_999140002.1	major	5.8794	0.0387	0	0.3
+s150_2	Rurugenvibrio moluus	far_major	GCF_999140001.1	minor	2.5198	0.0000	0	0.3
+s150_2	Rogorcomonas calemkaii	alone_ref	GCF_999042001.1	alone	3.1499	0.0000	0	
+s150_2	Vipenecoccus jokaa	alone_strain	GCA_999105003.1	alone	2.7054	0.0142	0	
+s150_2	Vipenecoccus namiii	close_major	GCF_999107001.1	major	17.3374	0.0000	1	0.1
+s150_2	Vipenecoccus namiii	close_major	GCA_999107003.1	minor	1.9266	0.0196	1	0.1
+s150_2	Rogorcomonas jojoum	far_major	GCA_999048003.1	major	1.7185	0.0264	1	0.1
+s150_2	Rogorcomonas jojoum	far_major	GCF_999048001.1	minor	0.1906	0.0000	1	0.1
+s150_2	Thicacoccus gengencoa	alone_ref	GCF_999053001.1	alone	6.5549	0.0000	1	
+s150_2	Vipenecoccus terlia	alone_strain	GCA_999109004.1	alone	4.1084	0.0371	1	
+s150_2	Thinazucoccus luneis	close_major	GCF_999152001.1	major	10.1080	0.0000	0	0.2
+s150_2	Thinazucoccus luneis	close_major	GCA_999152004.1	minor	2.5269	0.0332	0	0.2
+s150_2	Rogorcomonas morubaum	far_major	GCA_999049003.1	major	30.0380	0.0189	0	0.2
+s150_2	Rogorcomonas morubaum	far_major	GCF_999049001.1	minor	7.5095	0.0000	0	0.2
+s150_2	Rogorcomonas capejois	alone_ref	GCF_999043001.1	alone	3.5122	0.0000	0	
+s150_2	Ropebabacter lembelus	alone_strain	GCA_999024002.1	alone	25.4064	0.0089	0	
+s150_2	Joixbelvibrio terflaii	close_major	GCF_999138001.1	major	27.3099	0.0000	0	0.3
+s150_2	Joixbelvibrio terflaii	close_major	GCA_999138005.1	minor	11.7041	0.0302	0	0.3
+s150_2	Ropebabacter terflahalus	far_major	GCA_999028005.1	major	23.8214	0.0339	1	0.3
+s150_2	Ropebabacter terflahalus	far_major	GCF_999028001.1	minor	10.2095	0.0000	1	0.3
+s150_2	Thicacoccus nepeus	alone_ref	GCF_999057001.1	alone	12.6267	0.0000	0	
+s150_2	Vipenecoccus ixcoa	alone_strain	GCA_999104005.1	alone	3.3656	0.0208	0	
+s150_2	Thicacoccus zuroixum	close_major	GCF_999060001.1	major	3.7684	0.0000	0	0.1
+s150_2	Thicacoccus zuroixum	close_major	GCA_999060003.1	minor	0.4184	0.0250	0	0.1
+s150_2	Ropebabacter mirozuis	far_major	GCA_999025002.1	major	9.3394	0.0239	0	0.1
+s150_2	Ropebabacter mirozuis	far_major	GCF_999025001.1	minor	1.0373	0.0000	0	0.1
+s150_2	Rogorcomonas baneii	alone_ref	GCF_999041001.1	alone	5.2103	0.0000	0	
+s150_2	Basalspira thilium	alone_strain	GCA_999142004.1	alone	6.9984	0.0315	0	
+s150_2	Peixsalspira liixensis	close_major	GCF_999144001.1	major	1.5667	0.0000	0	0.2
+s150_2	Peixsalspira liixensis	close_major	GCA_999144002.1	minor	0.3918	0.0218	0	0.2
+s150_2	Thicacoccus pemoa	far_major	GCA_999058003.1	major	34.5877	0.0222	0	0.2
+s150_2	Thicacoccus pemoa	far_major	GCF_999058001.1	minor	8.6468	0.0000	0	0.2
+s150_2	Ropebabacter dozulua	alone_ref	GCF_999022001.1	alone	35.9527	0.0000	0	
+s150_2	Rurugenvibrio terroxaii	alone_strain	GCA_999141004.1	alone	5.0268	0.0315	0	
+s150_2	Thicacoccus halkaus	close_major	GCF_999054001.1	major	13.5205	0.0000	1	0.3
+s150_2	Thicacoccus halkaus	close_major	GCA_999054004.1	minor	5.7942	0.0218	1	0.3
+s150_2	Ropebabacter damnebaensis	far_major	GCA_999021003.1	major	6.1373	0.0350	0	0.3
+s150_2	Ropebabacter damnebaensis	far_major	GCF_999021001.1	minor	2.6307	0.0000	0	0.3
+s150_2	Moixlumonas naruus	alone_ref	GCF_999151001.1	alone	1.4996	0.0000	0	
+s150_2	Thicacoccus ruterensis	alone_strain	GCA_999059003.1	alone	13.6876	0.0227	0	
+s150_2	Ropebabacter salbelkaa	close_major	GCF_999027001.1	major	7.5159	0.0000	1	0.1
+s150_2	Ropebabacter salbelkaa	close_major	GCA_999027005.1	minor	0.8352	0.0315	1	0.1
+s150_2	Rogorcomonas codamum	far_major	GCA_999044003.1	major	18.2998	0.0332	1	0.1
+s150_2	Rogorcomonas codamum	far_major	GCF_999044001.1	minor	2.0336	0.0000	1	0.1
+s150_2	Xagennaella tercoris	alone_ref	GCF_999124001.1	alone	17.1754	0.0000	0	
+s150_2	Thicacoccus mithithium	alone_strain	GCA_999055005.1	alone	6.8554	0.0233	0	
+s150_2	Ropebabacter ixmidoa	close_major	GCF_999023001.1	major	1.1999	0.0000	1	0.2
+s150_2	Ropebabacter ixmidoa	close_major	GCA_999023002.1	minor	0.2998	0.0271	1	0.2
+s150_2	Rogorcomonas genvius	far_major	GCA_999045004.1	major	5.4165	0.0323	0	0.2
+s150_2	Rogorcomonas genvius	far_major	GCF_999045001.1	minor	1.3540	0.0000	0	0.2
+s150_2	Vipenecoccus nedamus	alone_ref	GCF_999108001.1	alone	23.2104	0.0000	0	
+s150_2	Thicacoccus navia	alone_strain	GCA_999056005.1	alone	1.4999	0.0177	0	
+s150_2	Ropebabacter xathiis	close_major	GCF_999029001.1	major	5.7960	0.0000	1	0.3
+s150_2	Ropebabacter xathiis	close_major	GCA_999029003.1	minor	2.4839	0.0142	1	0.3
+s150_2	Kalimonas gencoum	far_major	GCA_999145004.1	major	1.0497	0.0291	0	0.3
+s150_2	Kalimonas gencoum	far_major	GCF_999145001.1	minor	0.4497	0.0000	0	0.3
+s150_2	Salterdospira nethia	alone_ref	GCF_999126001.1	alone	10.1011	0.0000	0	
+s150_2	Vipenecoccus kavijois	alone_strain	GCA_999106005.1	alone	12.7617	0.0198	0	
+s150_2	Vipenecoccus cormiruum	close_major	GCF_999101001.1	major	3.2194	0.0000	0	0.1
+s150_2	Vipenecoccus cormiruum	close_major	GCA_999101002.1	minor	0.3574	0.0299	0	0.1
+s150_2	Vipenecoccus vijorua	far_major	GCA_999110005.1	major	5.7246	0.0375	1	0.1
+s150_2	Vipenecoccus vijorua	far_major	GCF_999110001.1	minor	0.6365	0.0000	1	0.1
+s150_2	Finecoccus micoii	alone_ref	GCF_999157001.1	alone	12.5455	0.0000	0	
+s150_2	Ropebabacter zuzua	alone_strain	GCA_999030002.1	alone	29.3883	0.0223	0	
+s150_2	Terkaella kapeii	close_major	GCF_999123001.1	major	11.5724	0.0000	0	0.2
+s150_2	Terkaella kapeii	close_major	GCA_999123005.1	minor	2.8928	0.0266	0	0.2
+s150_2	Rogorcomonas nathia	far_major	GCA_999050002.1	major	3.5742	0.0316	1	0.2
+s150_2	Rogorcomonas nathia	far_major	GCF_999050001.1	minor	0.8932	0.0000	1	0.2
+s150_3	Coxamonas milemensis	alone_ref	GCF_999019001.1	alone	5.7133	0.0000	0	
+s150_3	Ronaspira lemhalfia	alone_strain	GCA_999134004.1	alone	52.5981	0.0170	0	
+s150_3	Corxamonas nasalii	close_major	GCF_999121001.1	major	14.5328	0.0000	0	0.1
+s150_3	Corxamonas nasalii	close_major	GCA_999121002.1	minor	1.6143	0.0354	0	0.1
+s150_3	Rogorcomonas codamum	far_major	GCA_999044003.1	major	4.9888	0.0332	1	0.1
+s150_3	Rogorcomonas codamum	far_major	GCF_999044001.1	minor	0.5546	0.0000	1	0.1
+s150_3	Coxamonas gorzudamii	alone_ref	GCF_999011001.1	alone	13.8914	0.0000	0	
+s150_3	Nacorspira haldammoensis	alone_strain	GCA_999130002.1	alone	7.3827	0.0059	0	
+s150_3	Thicacoccus zuroixum	close_major	GCF_999060001.1	major	5.3697	0.0000	0	0.2
+s150_3	Thicacoccus zuroixum	close_major	GCA_999060003.1	minor	1.3427	0.0250	0	0.2
+s150_3	Coxamonas lemmojoum	far_major	GCA_999014002.1	major	10.8066	0.0206	0	0.2
+s150_3	Coxamonas lemmojoum	far_major	GCF_999014001.1	minor	2.7020	0.0000	0	0.2
+s150_3	Joixbelvibrio nenaensis	alone_ref	GCF_999137001.1	alone	120.0004	0.0000	0	
+s150_3	Vipenavibrio zucorterus	alone_strain	GCA_999040005.1	alone	4.4228	0.0206	0	
+s150_3	Rogorcomonas baneii	close_major	GCF_999041001.1	major	3.9086	0.0000	0	0.3
+s150_3	Rogorcomonas baneii	close_major	GCA_999041003.1	minor	1.6748	0.0307	0	0.3
+s150_3	Salterdospira nethia	far_major	GCA_999126005.1	major	4.1720	0.0334	0	0.3
+s150_3	Salterdospira nethia	far_major	GCF_999126001.1	minor	1.7880	0.0000	0	0.3
+s150_3	Thicacoccus ruterensis	alone_ref	GCF_999059001.1	alone	28.1726	0.0000	0	
+s150_3	Nacorspira ixfiis	alone_strain	GCA_999131004.1	alone	10.8697	0.0183	0	
+s150_3	Rogorcomonas jogenii	close_major	GCF_999047001.1	major	39.6412	0.0000	0	0.1
+s150_3	Rogorcomonas jogenii	close_major	GCA_999047004.1	minor	4.4048	0.0330	0	0.1
+s150_3	Vipenavibrio pedamii	far_major	GCA_999036004.1	major	16.2605	0.0349	0	0.1
+s150_3	Vipenavibrio pedamii	far_major	GCF_999036001.1	minor	1.8064	0.0000	0	0.1
+s150_3	Thicacoccus navia	alone_ref	GCF_999056001.1	alone	7.5674	0.0000	0	
+s150_3	Thicacoccus colemkaensis	alone_strain	GCA_999051005.1	alone	10.0939	0.0294	1	
+s150_3	Coxamonas midomoii	close_major	GCF_999018001.1	major	12.4708	0.0000	1	0.2
+s150_3	Coxamonas midomoii	close_major	GCA_999018002.1	minor	3.1179	0.0340	1	0.2
+s150_3	Thicacoccus mithithium	far_major	GCA_999055003.1	major	9.7688	0.0288	0	0.2
+s150_3	Thicacoccus mithithium	far_major	GCF_999055001.1	minor	2.4427	0.0000	0	0.2
+s150_3	Rogorcomonas morubaum	alone_ref	GCF_999049001.1	alone	8.6903	0.0000	0	
+s150_3	Thinazucoccus luneis	alone_strain	GCA_999152005.1	alone	32.3779	0.0229	0	
+s150_3	Coxamonas luixthium	close_major	GCF_999017001.1	major	34.0006	0.0000	0	0.3
+s150_3	Coxamonas luixthium	close_major	GCA_999017004.1	minor	14.5716	0.0290	0	0.3
+s150_3	Rogorcomonas nathia	far_major	GCA_999050002.1	major	13.1952	0.0316	1	0.3
+s150_3	Rogorcomonas nathia	far_major	GCF_999050001.1	minor	5.6552	0.0000	1	0.3
+s150_3	Coxamonas kaxaum	alone_ref	GCF_999013001.1	alone	28.5345	0.0000	1	
+s150_3	Jopelemcoccus lucagenus	alone_strain	GCA_999127005.1	alone	4.0512	0.0185	0	
+s150_3	Vipenavibrio pegenensis	close_major	GCF_999037001.1	major	16.1667	0.0000	0	0.1
+s150_3	Vipenavibrio pegenensis	close_major	GCA_999037005.1	minor	1.7966	0.0327	0	0.1
+s150_3	Peixsalspira corliii	far_major	GCA_999143005.1	major	2.7274	0.0304	0	0.1
+s150_3	Peixsalspira corliii	far_major	GCF_999143001.1	minor	0.3030	0.0000	0	0.1
+s150_3	Vipenavibrio genhalzuus	alone_ref	GCF_999031001.1	alone	47.6468	0.0000	0	
+s150_3	Coxamonas thixacaa	alone_strain	GCA_999020003.1	alone	7.3236	0.0304	1	
+s150_3	Rurugenvibrio cohalensis	close_major	GCF_999139001.1	major	13.0686	0.0000	0	0.2
+s150_3	Rurugenvibrio cohalensis	close_major	GCA_999139003.1	minor	3.2667	0.0324	0	0.2
+s150_3	Vipenavibrio lempebelis	far_major	GCA_999034004.1	major	15.6284	0.0344	0	0.2
+s150_3	Vipenavibrio lempebelis	far_major	GCF_999034001.1	minor	3.9071	0.0000	0	0.2
+s150_3	Ronaspira genxabaum	alone_ref	GCF_999133001.1	alone	2.5797	0.0000	0	
+s150_3	Jopelemcoccus neixteris	alone_strain	GCA_999128002.1	alone	12.5872	0.0223	0	
+s150_3	Coxamonas literensis	close_major	GCF_999016001.1	major	2.8319	0.0000	1	0.3
+s150_3	Coxamonas literensis	close_major	GCA_999016004.1	minor	1.2136	0.0290	1	0.3
+s150_3	Rogorcomonas calemkaii	far_major	GCA_999042003.1	major	13.9295	0.0266	0	0.3
+s150_3	Rogorcomonas calemkaii	far_major	GCF_999042001.1	minor	5.9701	0.0000	0	0.3
+s150_3	Kalimonas gencoum	alone_ref	GCF_999145001.1	alone	33.1240	0.0000	0	
+s150_3	Rogorcomonas ixroa	alone_strain	GCA_999046002.1	alone	6.2651	0.0183	1	
+s150_3	Thicacoccus fladois	close_major	GCF_999052001.1	major	4.0545	0.0000	1	0.1
+s150_3	Thicacoccus fladois	close_major	GCA_999052002.1	minor	0.4509	0.0255	1	0.1
+s150_3	Vipenavibrio vigenterus	far_major	GCA_999039002.1	major	5.3261	0.0339	0	0.1
+s150_3	Vipenavibrio vigenterus	far_major	GCF_999039001.1	minor	0.5922	0.0000	0	0.1
+s150_3	Thicacoccus gengencoa	alone_ref	GCF_999053001.1	alone	4.0050	0.0000	1	
+s150_3	Coxamonas ixpea	alone_strain	GCA_999012005.1	alone	20.0714	0.0199	0	
+s150_3	Rogorcomonas jojoum	close_major	GCF_999048001.1	major	12.1992	0.0000	1	0.2
+s150_3	Rogorcomonas jojoum	close_major	GCA_999048003.1	minor	3.0501	0.0264	1	0.2
+s150_3	Ruzunespira baluluii	far_major	GCA_999147003.1	major	22.9357	0.0211	0	0.2
+s150_3	Ruzunespira baluluii	far_major	GCF_999147001.1	minor	5.7336	0.0000	0	0.2
+s150_3	Vipenavibrio lusalzuum	alone_ref	GCF_999035001.1	alone	15.6958	0.0000	1	
+s150_3	Rogorcomonas capejois	alone_strain	GCA_999043004.1	alone	5.1181	0.0289	0	
+s150_3	Filubacter gorcocorii	close_major	GCF_999154001.1	major	3.9927	0.0000	0	0.3
+s150_3	Filubacter gorcocorii	close_major	GCA_999154002.1	minor	1.7114	0.0354	0	0.3
+s150_3	Cornabacter nenecorus	far_major	GCA_999146005.1	major	6.3624	0.0333	0	0.3
+s150_3	Cornabacter nenecorus	far_major	GCF_999146001.1	minor	2.7265	0.0000	0	0.3
+s150_3	Coxamonas lemruum	alone_ref	GCF_999015001.1	alone	36.2149	0.0000	0	
+s150_3	Genlemlumonas halpeii	alone_strain	GCA_999159003.1	alone	3.4705	0.0231	0	
+s150_3	Vipenavibrio romogora	close_major	GCF_999038001.1	major	6.8493	0.0000	1	0.1
+s150_3	Vipenavibrio romogora	close_major	GCA_999038004.1	minor	0.7614	0.0237	1	0.1
+s150_3	Thicacoccus nepeus	far_major	GCA_999057005.1	major	16.0608	0.0286	0	0.1
+s150_3	Thicacoccus nepeus	far_major	GCF_999057001.1	minor	1.7846	0.0000	0	0.1
+s150_3	Terkaella caxazuis	alone_ref	GCF_999122001.1	alone	8.5739	0.0000	0	
+s150_3	Thicacoccus pemoa	alone_strain	GCA_999058004.1	alone	40.8485	0.0092	0	
+s150_3	Salterdospira ficoixis	close_major	GCF_999125001.1	major	2.9885	0.0000	0	0.2
+s150_3	Salterdospira ficoixis	close_major	GCA_999125004.1	minor	0.7471	0.0255	0	0.2
+s150_3	Genlemlumonas nevicaa	far_major	GCA_999160005.1	major	1.2002	0.0222	0	0.2
+s150_3	Genlemlumonas nevicaa	far_major	GCF_999160001.1	minor	0.2998	0.0000	0	0.2
+s150_3	Vipenavibrio joroum	alone_ref	GCF_999033001.1	alone	6.0584	0.0000	1	
+s150_3	Rogorcomonas genvius	alone_strain	GCA_999045003.1	alone	61.4436	0.0306	0	
+s150_3	Thicacoccus halkaus	close_major	GCF_999054001.1	major	34.2143	0.0000	1	0.3
+s150_3	Thicacoccus halkaus	close_major	GCA_999054004.1	minor	14.6629	0.0218	1	0.3
+s150_3	Vipenavibrio genixlemis	far_major	GCA_999032003.1	major	8.6259	0.0271	1	0.3
+s150_3	Vipenavibrio genixlemis	far_major	GCF_999032001.1	minor	3.6964	0.0000	1	0.3
+s150_4	Thinazucoccus luneis	alone_ref	GCF_999152001.1	alone	11.1607	0.0000	0	
+s150_4	Gorlemcorvibrio corrolium	alone_strain	GCA_999073002.1	alone	159.7926	0.0092	1	
+s150_4	Thicacoccus mithithium	close_major	GCF_999055001.1	major	1.1999	0.0000	0	0.2
+s150_4	Thicacoccus mithithium	close_major	GCA_999055003.1	minor	0.2998	0.0288	0	0.2
+s150_4	Filubacter gorcocorii	far_major	GCA_999154002.1	major	1.5295	0.0354	0	0.2
+s150_4	Filubacter gorcocorii	far_major	GCF_999154001.1	minor	0.3827	0.0000	0	0.2
+s150_4	Gorlemcorvibrio belterdama	alone_ref	GCF_999072001.1	alone	17.8633	0.0000	1	
+s150_4	Rurugenvibrio terroxaii	alone_strain	GCA_999141002.1	alone	10.0614	0.0198	0	
+s150_4	Jopelemcoccus lucagenus	close_major	GCF_999127001.1	major	2.2645	0.0000	0	0.3
+s150_4	Jopelemcoccus lucagenus	close_major	GCA_999127002.1	minor	0.9702	0.0270	0	0.3
+s150_4	Haldamlemcoccus mozufiis	far_major	GCA_999097004.1	major	3.2818	0.0353	0	0.3
+s150_4	Haldamlemcoccus mozufiis	far_major	GCF_999097001.1	minor	1.4067	0.0000	0	0.3
+s150_4	Gorlemcorvibrio beljoum	alone_ref	GCF_999071001.1	alone	4.7564	0.0000	0	
+s150_4	Coterbacter cosalzuum	alone_strain	GCA_999061002.1	alone	39.3013	0.0205	0	
+s150_4	Thicacoccus fladois	close_major	GCF_999052001.1	major	139.4238	0.0000	1	0.1
+s150_4	Thicacoccus fladois	close_major	GCA_999052002.1	minor	15.4913	0.0255	1	0.1
+s150_4	Coterbacter mocaus	far_major	GCA_999065002.1	major	4.8189	0.0291	0	0.1
+s150_4	Coterbacter mocaus	far_major	GCF_999065001.1	minor	0.5350	0.0000	0	0.1
+s150_4	Jopelemcoccus roterbelus	alone_ref	GCF_999129001.1	alone	12.5886	0.0000	0	
+s150_4	Gorlemcorvibrio genroii	alone_strain	GCA_999075004.1	alone	51.9829	0.0227	1	
+s150_4	Haldamlemcoccus modois	close_major	GCF_999096001.1	major	8.8858	0.0000	0	0.2
+s150_4	Haldamlemcoccus modois	close_major	GCA_999096004.1	minor	2.2212	0.0209	0	0.2
+s150_4	Coterbacter zugencoensis	far_major	GCA_999070003.1	major	4.5329	0.0181	0	0.2
+s150_4	Coterbacter zugencoensis	far_major	GCF_999070001.1	minor	1.1334	0.0000	0	0.2
+s150_4	Joixbelvibrio bamiruii	alone_ref	GCF_999136001.1	alone	9.3226	0.0000	0	
+s150_4	Thicacoccus halkaus	alone_strain	GCA_999054005.1	alone	93.9173	0.0099	1	
+s150_4	Thicacoccus colemkaensis	close_major	GCF_999051001.1	major	11.9741	0.0000	1	0.3
+s150_4	Thicacoccus colemkaensis	close_major	GCA_999051005.1	minor	5.1321	0.0294	1	0.3
+s150_4	Gorlemcorvibrio saljocaa	far_major	GCA_999080004.1	major	2.3309	0.0297	0	0.3
+s150_4	Gorlemcorvibrio saljocaa	far_major	GCF_999080001.1	minor	0.9988	0.0000	0	0.3
+s150_4	Haldamlemcoccus kacorthium	alone_ref	GCF_999095001.1	alone	38.7650	0.0000	1	
+s150_4	Thicacoccus navia	alone_strain	GCA_999056002.1	alone	8.0902	0.0121	0	
+s150_4	Jopelemcoccus neixteris	close_major	GCF_999128001.1	major	29.7175	0.0000	0	0.1
+s150_4	Jopelemcoccus neixteris	close_major	GCA_999128002.1	minor	3.3023	0.0223	0	0.1
+s150_4	Terkaella caxazuis	far_major	GCA_999122003.1	major	11.1366	0.0357	0	0.1
+s150_4	Terkaella caxazuis	far_major	GCF_999122001.1	minor	1.2370	0.0000	0	0.1
+s150_4	Peixsalspira liixensis	alone_ref	GCF_999144001.1	alone	8.4853	0.0000	0	
+s150_4	Thicacoccus nepeus	alone_strain	GCA_999057004.1	alone	5.7574	0.0205	0	
+s150_4	Gorlemcorvibrio nemois	close_major	GCF_999079001.1	major	1.1999	0.0000	0	0.2
+s150_4	Gorlemcorvibrio nemois	close_major	GCA_999079002.1	minor	0.2997	0.0274	0	0.2
+s150_4	Gorlemcorvibrio cothiliensis	far_major	GCA_999074005.1	major	21.1820	0.0337	0	0.2
+s150_4	Gorlemcorvibrio cothiliensis	far_major	GCF_999074001.1	minor	5.2954	0.0000	0	0.2
+s150_4	Coterbacter lineus	alone_ref	GCF_999064001.1	alone	47.9250	0.0000	1	
+s150_4	Thicacoccus zuroixum	alone_strain	GCA_999060003.1	alone	10.0126	0.0250	0	
+s150_4	Thicacoccus ruterensis	close_major	GCF_999059001.1	major	7.9075	0.0000	0	0.3
+s150_4	Thicacoccus ruterensis	close_major	GCA_999059002.1	minor	3.3889	0.0360	0	0.3
+s150_4	Rurugenvibrio moluus	far_major	GCA_999140002.1	major	2.6044	0.0387	0	0.3
+s150_4	Rurugenvibrio moluus	far_major	GCF_999140001.1	minor	1.1159	0.0000	0	0.3
+s150_4	Haldamlemcoccus belcorixum	alone_ref	GCF_999091001.1	alone	8.0257	0.0000	0	
+s150_4	Moixlumonas naruus	alone_strain	GCA_999151003.1	alone	14.5444	0.0104	0	
+s150_4	Thicacoccus pemoa	close_major	GCF_999058001.1	major	2.9003	0.0000	0	0.1
+s150_4	Thicacoccus pemoa	close_major	GCA_999058003.1	minor	0.3224	0.0222	0	0.1
+s150_4	Nalujoella vibagenis	far_major	GCA_999150003.1	major	1.9023	0.0239	0	0.1
+s150_4	Nalujoella vibagenis	far_major	GCF_999150001.1	minor	0.2117	0.0000	0	0.1
+s150_4	Haldamlemcoccus rothia	alone_ref	GCF_999099001.1	alone	167.5980	0.0000	1	
+s150_4	Filubacter nebakais	alone_strain	GCA_999155002.1	alone	3.0357	0.0206	0	
+s150_4	Haldamlemcoccus terneii	close_major	GCF_999100001.1	major	5.9227	0.0000	0	0.2
+s150_4	Haldamlemcoccus terneii	close_major	GCA_999100004.1	minor	1.4804	0.0187	0	0.2
+s150_4	Gorlemcorvibrio lucorus	far_major	GCA_999078004.1	major	9.1225	0.0310	0	0.2
+s150_4	Gorlemcorvibrio lucorus	far_major	GCF_999078001.1	minor	2.2809	0.0000	0	0.2
+s150_4	Coterbacter salluensis	alone_ref	GCF_999067001.1	alone	428.8927	0.0000	1	
+s150_4	Coterbacter zufiroa	alone_strain	GCA_999069002.1	alone	23.9183	0.0110	0	
+s150_4	Gorlemcorvibrio gormous	close_major	GCF_999076001.1	major	36.8596	0.0000	1	0.3
+s150_4	Gorlemcorvibrio gormous	close_major	GCA_999076005.1	minor	15.7968	0.0368	1	0.3
+s150_4	Haldamlemcoccus gorcorensis	far_major	GCA_999092002.1	major	60.6537	0.0253	1	0.3
+s150_4	Haldamlemcoccus gorcorensis	far_major	GCF_999092001.1	minor	25.9943	0.0000	1	0.3
+s150_4	Thicacoccus gengencoa	alone_ref	GCF_999053001.1	alone	32.3424	0.0000	1	
+s150_4	Coterbacter dorupeum	alone_strain	GCA_999062002.1	alone	41.1139	0.0306	0	
+s150_4	Joixbelvibrio nenaensis	close_major	GCF_999137001.1	major	6.7735	0.0000	0	0.1
+s150_4	Joixbelvibrio nenaensis	close_major	GCA_999137004.1	minor	0.7528	0.0169	0	0.1
+s150_4	Haldamlemcoccus negenfiis	far_major	GCA_999098004.1	major	4.7300	0.0226	0	0.1
+s150_4	Haldamlemcoccus negenfiis	far_major	GCF_999098001.1	minor	0.5257	0.0000	0	0.1
+s150_4	Haldamlemcoccus joruxaus	alone_ref	GCF_999094001.1	alone	48.8166	0.0000	1	
+s150_4	Nacorspira haldammoensis	alone_strain	GCA_999130002.1	alone	2.6794	0.0059	0	
+s150_4	Coterbacter thithium	close_major	GCF_999068001.1	major	15.8038	0.0000	0	0.2
+s150_4	Coterbacter thithium	close_major	GCA_999068003.1	minor	3.9509	0.0134	0	0.2
+s150_4	Coterbacter napelia	far_major	GCA_999066003.1	major	20.1002	0.0233	1	0.2
+s150_4	Coterbacter napelia	far_major	GCF_999066001.1	minor	5.0249	0.0000	1	0.2
+s150_4	Kalimonas gencoum	alone_ref	GCF_999145001.1	alone	50.0801	0.0000	0	
+s150_4	Gorlemcorvibrio lubaviis	alone_strain	GCA_999077005.1	alone	18.8489	0.0189	0	
+s150_4	Rurugenvibrio cohalensis	close_major	GCF_999139001.1	major	2.6480	0.0000	0	0.3
+s150_4	Rurugenvibrio cohalensis	close_major	GCA_999139003.1	minor	1.1352	0.0324	0	0.3
+s150_4	Nacorspira ixfiis	far_major	GCA_999131002.1	major	8.8032	0.0222	0	0.3
+s150_4	Nacorspira ixfiis	far_major	GCF_999131001.1	minor	3.7728	0.0000	0	0.3
+s150_4	Haldamlemcoccus ixcorensis	alone_ref	GCF_999093001.1	alone	19.4198	0.0000	0	
+s150_4	Nalujoella damdoa	alone_strain	GCA_999148004.1	alone	1.5003	0.0197	0	
+s150_4	Coterbacter genlirois	close_major	GCF_999063001.1	major	22.6629	0.0000	1	0.1
+s150_4	Coterbacter genlirois	close_major	GCA_999063002.1	minor	2.5182	0.0228	1	0.1
+s150_4	Finecoccus micoii	far_major	GCA_999157005.1	major	8.7360	0.0241	0	0.1
+s150_4	Finecoccus micoii	far_major	GCF_999157001.1	minor	0.9705	0.0000	0	0.1
+s150_5	Rogorcomonas nathia	alone_ref	GCF_999050001.1	alone	10.1110	0.0000	1	
+s150_5	Vipenavibrio lusalzuum	alone_strain	GCA_999035003.1	alone	13.3219	0.0158	1	
+s150_5	Thicacoccus navia	close_major	GCF_999056001.1	major	20.4847	0.0000	0	0.3
+s150_5	Thicacoccus navia	close_major	GCA_999056003.1	minor	8.7791	0.0261	0	0.3
+s150_5	Vipenavibrio pedamii	far_major	GCA_999036004.1	major	15.9758	0.0349	0	0.3
+s150_5	Vipenavibrio pedamii	far_major	GCF_999036001.1	minor	6.8469	0.0000	0	0.3
+s150_5	Vipenecoccus cormiruum	alone_ref	GCF_999101001.1	alone	7.3078	0.0000	0	
+s150_5	Thicacoccus zuroixum	alone_strain	GCA_999060002.1	alone	15.2315	0.0192	0	
+s150_5	Thicacoccus halkaus	close_major	GCF_999054001.1	major	32.9426	0.0000	1	0.1
+s150_5	Thicacoccus halkaus	close_major	GCA_999054004.1	minor	3.6604	0.0218	1	0.1
+s150_5	Rogorcomonas baneii	far_major	GCA_999041003.1	major	3.6530	0.0307	0	0.1
+s150_5	Rogorcomonas baneii	far_major	GCF_999041001.1	minor	0.4060	0.0000	0	0.1
+s150_5	Vipenavibrio pegenensis	alone_ref	GCF_999037001.1	alone	19.5883	0.0000	0	
+s150_5	Jopelemcoccus neixteris	alone_strain	GCA_999128002.1	alone	25.9499	0.0223	0	
+s150_5	Vipenavibrio genixlemis	close_major	GCF_999032001.1	major	19.1440	0.0000	1	0.2
+s150_5	Vipenavibrio genixlemis	close_major	GCA_999032003.1	minor	4.7857	0.0271	1	0.2
+s150_5	Thicacoccus pemoa	far_major	GCA_999058003.1	major	27.5207	0.0222	0	0.2
+s150_5	Thicacoccus pemoa	far_major	GCF_999058001.1	minor	6.8801	0.0000	0	0.2
+s150_5	Corxamonas nasalii	alone_ref	GCF_999121001.1	alone	9.6916	0.0000	0	
+s150_5	Rogorcomonas jogenii	alone_strain	GCA_999047005.1	alone	26.2813	0.0218	0	
+s150_5	Rogorcomonas capejois	close_major	GCF_999043001.1	major	14.6898	0.0000	0	0.3
+s150_5	Rogorcomonas capejois	close_major	GCA_999043005.1	minor	6.2951	0.0300	0	0.3
+s150_5	Thicacoccus ruterensis	far_major	GCA_999059002.1	major	2.8436	0.0360	0	0.3
+s150_5	Thicacoccus ruterensis	far_major	GCF_999059001.1	minor	1.2185	0.0000	0	0.3
+s150_5	Vipenecoccus namiii	alone_ref	GCF_999107001.1	alone	27.0099	0.0000	1	
+s150_5	Rogorcomonas jojoum	alone_strain	GCA_999048002.1	alone	133.9857	0.0182	1	
+s150_5	Thinazucoccus luneis	close_major	GCF_999152001.1	major	2.4134	0.0000	0	0.1
+s150_5	Thinazucoccus luneis	close_major	GCA_999152004.1	minor	0.2680	0.0332	0	0.1
+s150_5	Xagennaella tercoris	far_major	GCA_999124005.1	major	13.6660	0.0281	0	0.1
+s150_5	Xagennaella tercoris	far_major	GCF_999124001.1	minor	1.5184	0.0000	0	0.1
+s150_5	Nalujoella luthisalensis	alone_ref	GCF_999149001.1	alone	3.9783	0.0000	0	
+s150_5	Ronaspira lemhalfia	alone_strain	GCA_999134003.1	alone	54.0087	0.0128	0	
+s150_5	Thicacoccus fladois	close_major	GCF_999052001.1	major	28.5835	0.0000	1	0.2
+s150_5	Thicacoccus fladois	close_major	GCA_999052002.1	minor	7.1460	0.0255	1	0.2
+s150_5	Vipenavibrio joroum	far_major	GCA_999033005.1	major	480.0002	0.0202	1	0.2
+s150_5	Vipenavibrio joroum	far_major	GCF_999033001.1	minor	119.9998	0.0000	1	0.2
+s150_5	Vipenavibrio vigenterus	alone_ref	GCF_999039001.1	alone	17.3481	0.0000	0	
+s150_5	Rogorcomonas genvius	alone_strain	GCA_999045004.1	alone	13.5855	0.0323	0	
+s150_5	Basalspira thilium	close_major	GCF_999142001.1	major	47.3389	0.0000	0	0.3
+s150_5	Basalspira thilium	close_major	GCA_999142005.1	minor	20.2877	0.0319	0	0.3
+s150_5	Thicacoccus gengencoa	far_major	GCA_999053002.1	major	66.2714	0.0360	1	0.3
+s150_5	Thicacoccus gengencoa	far_major	GCF_999053001.1	minor	28.4016	0.0000	1	0.3
+s150_5	Finecoccus napeensis	alone_ref	GCF_999158001.1	alone	7.7048	0.0000	0	
+s150_5	Vipenecoccus vijorua	alone_strain	GCA_999110002.1	alone	7.5000	0.0282	1	
+s150_5	Rogorcomonas calemkaii	close_major	GCF_999042001.1	major	11.3751	0.0000	0	0.1
+s150_5	Rogorcomonas calemkaii	close_major	GCA_999042003.1	minor	1.2638	0.0266	0	0.1
+s150_5	Finecoccus micoii	far_major	GCA_999157005.1	major	19.6093	0.0241	0	0.1
+s150_5	Finecoccus micoii	far_major	GCF_999157001.1	minor	2.1790	0.0000	0	0.1
+s150_5	Peixsalspira liixensis	alone_ref	GCF_999144001.1	alone	119.9998	0.0000	0	
+s150_5	Filubacter vifius	alone_strain	GCA_999156005.1	alone	4.8569	0.0245	0	
+s150_5	Vipenecoccus jokaa	close_major	GCF_999105001.1	major	8.7519	0.0000	0	0.2
+s150_5	Vipenecoccus jokaa	close_major	GCA_999105004.1	minor	2.1882	0.0153	0	0.2
+s150_5	Moixlumonas naruus	far_major	GCA_999151005.1	major	17.4887	0.0252	0	0.2
+s150_5	Moixlumonas naruus	far_major	GCF_999151001.1	minor	4.3720	0.0000	0	0.2
+s150_5	Rogorcomonas codamum	alone_ref	GCF_999044001.1	alone	59.1884	0.0000	1	
+s150_5	Nacorspira rogorii	alone_strain	GCA_999132002.1	alone	22.9621	0.0208	0	
+s150_5	Joixbelvibrio nenaensis	close_major	GCF_999137001.1	major	3.6911	0.0000	0	0.3
+s150_5	Joixbelvibrio nenaensis	close_major	GCA_999137004.1	minor	1.5814	0.0169	0	0.3
+s150_5	Vipenecoccus nedamus	far_major	GCA_999108004.1	major	4.3042	0.0246	0	0.3
+s150_5	Vipenecoccus nedamus	far_major	GCF_999108001.1	minor	1.8448	0.0000	0	0.3
+s150_5	Vipenecoccus kavijois	alone_ref	GCF_999106001.1	alone	15.5035	0.0000	0	
+s150_5	Rogorcomonas morubaum	alone_strain	GCA_999049003.1	alone	16.3436	0.0189	0	
+s150_5	Peixsalspira corliii	close_major	GCF_999143001.1	major	34.8471	0.0000	0	0.1
+s150_5	Peixsalspira corliii	close_major	GCA_999143005.1	minor	3.8723	0.0304	0	0.1
+s150_5	Terkaella caxazuis	far_major	GCA_999122003.1	major	72.9445	0.0357	0	0.1
+s150_5	Terkaella caxazuis	far_major	GCF_999122001.1	minor	8.1051	0.0000	0	0.1
+s150_5	Thicacoccus nepeus	alone_ref	GCF_999057001.1	alone	6.9102	0.0000	0	
+s150_5	Thicacoccus mithithium	alone_strain	GCA_999055002.1	alone	1.8597	0.0194	0	
+s150_5	Vipenecoccus ixcoa	close_major	GCF_999104001.1	major	21.5747	0.0000	0	0.2
+s150_5	Vipenecoccus ixcoa	close_major	GCA_999104004.1	minor	5.3940	0.0248	0	0.2
+s150_5	Terkaella kapeii	far_major	GCA_999123005.1	major	4.0163	0.0266	0	0.2
+s150_5	Terkaella kapeii	far_major	GCF_999123001.1	minor	1.0041	0.0000	0	0.2
+s150_5	Vipenecoccus gendamjous	alone_ref	GCF_999102001.1	alone	77.8303	0.0000	1	
+s150_5	Vipenavibrio lempebelis	alone_strain	GCA_999034002.1	alone	52.5445	0.0296	0	
+s150_5	Thinazucoccus moterensis	close_major	GCF_999153001.1	major	8.7191	0.0000	0	0.3
+s150_5	Thinazucoccus moterensis	close_major	GCA_999153003.1	minor	3.7369	0.0214	0	0.3
+s150_5	Rogorcomonas ixroa	far_major	GCA_999046003.1	major	32.0960	0.0316	1	0.3
+s150_5	Rogorcomonas ixroa	far_major	GCF_999046001.1	minor	13.7560	0.0000	1	0.3
+s150_5	Rurugenvibrio moluus	alone_ref	GCF_999140001.1	alone	9.8195	0.0000	0	
+s150_5	Thicacoccus colemkaensis	alone_strain	GCA_999051002.1	alone	123.0116	0.0232	1	
+s150_5	Vipenecoccus gorliii	close_major	GCF_999103001.1	major	24.9276	0.0000	0	0.1
+s150_5	Vipenecoccus gorliii	close_major	GCA_999103003.1	minor	2.7698	0.0185	0	0.1
+s150_5	Rurugenvibrio terroxaii	far_major	GCA_999141004.1	major	13.3846	0.0315	0	0.1
+s150_5	Rurugenvibrio terroxaii	far_major	GCF_999141001.1	minor	1.4873	0.0000	0	0.1
+s150_5	Vipenavibrio zucorterus	alone_ref	GCF_999040001.1	alone	12.8814	0.0000	0	
+s150_5	Vipenavibrio romogora	alone_strain	GCA_999038004.1	alone	43.3758	0.0237	1	
+s150_5	Vipenavibrio genhalzuus	close_major	GCF_999031001.1	major	6.2901	0.0000	0	0.2
+s150_5	Vipenavibrio genhalzuus	close_major	GCA_999031005.1	minor	1.5726	0.0325	0	0.2
+s150_5	Vipenecoccus terlia	far_major	GCA_999109004.1	major	25.8513	0.0371	1	0.2
+s150_5	Vipenecoccus terlia	far_major	GCF_999109001.1	minor	6.4631	0.0000	1	0.2
+s150_6	Rurugenvibrio terroxaii	alone_ref	GCF_999141001.1	alone	5.9934	0.0000	0	
+s150_6	Jopelemcoccus lucagenus	alone_strain	GCA_999127003.1	alone	9.6321	0.0204	0	
+s150_6	Haldamlemcoccus terneii	close_major	GCF_999100001.1	major	49.1001	0.0000	0	0.1
+s150_6	Haldamlemcoccus terneii	close_major	GCA_999100004.1	minor	5.4559	0.0187	0	0.1
+s150_6	Vipenecoccus nedamus	far_major	GCA_999108004.1	major	6.7091	0.0246	0	0.1
+s150_6	Vipenecoccus nedamus	far_major	GCF_999108001.1	minor	0.7456	0.0000	0	0.1
+s150_6	Pehalcoccus baixus	alone_ref	GCF_999081001.1	alone	24.4843	0.0000	0	
+s150_6	Pehalcoccus ixronaus	alone_strain	GCA_999084003.1	alone	52.9825	0.0309	1	
+s150_6	Nalujoella damdoa	close_major	GCF_999148001.1	major	17.6097	0.0000	0	0.2
+s150_6	Nalujoella damdoa	close_major	GCA_999148002.1	minor	4.4021	0.0216	0	0.2
+s150_6	Vipenavibrio genhalzuus	far_major	GCA_999031005.1	major	21.4602	0.0325	0	0.2
+s150_6	Vipenavibrio genhalzuus	far_major	GCF_999031001.1	minor	5.3655	0.0000	0	0.2
+s150_6	Haldamlemcoccus negenfiis	alone_ref	GCF_999098001.1	alone	6.2077	0.0000	0	
+s150_6	Pehalcoccus tercaii	alone_strain	GCA_999090003.1	alone	33.5288	0.0195	0	
+s150_6	Vipenavibrio lempebelis	close_major	GCF_999034001.1	major	3.3247	0.0000	0	0.3
+s150_6	Vipenavibrio lempebelis	close_major	GCA_999034004.1	minor	1.4254	0.0344	0	0.3
+s150_6	Vipenecoccus vijorua	far_major	GCA_999110005.1	major	21.1779	0.0375	1	0.3
+s150_6	Vipenecoccus vijorua	far_major	GCF_999110001.1	minor	9.0761	0.0000	1	0.3
+s150_6	Vipenecoccus gorliii	alone_ref	GCF_999103001.1	alone	2.6928	0.0000	0	
+s150_6	Joixbelvibrio nenaensis	alone_strain	GCA_999137005.1	alone	4.8588	0.0137	0	
+s150_6	Joixbelvibrio terflaii	close_major	GCF_999138001.1	major	4.1437	0.0000	0	0.1
+s150_6	Joixbelvibrio terflaii	close_major	GCA_999138005.1	minor	0.4601	0.0302	0	0.1
+s150_6	Peixsalspira corliii	far_major	GCA_999143005.1	major	3.0141	0.0304	0	0.1
+s150_6	Peixsalspira corliii	far_major	GCF_999143001.1	minor	0.3347	0.0000	0	0.1
+s150_6	Vipenavibrio pedamii	alone_ref	GCF_999036001.1	alone	18.0136	0.0000	0	
+s150_6	Basalspira thilium	alone_strain	GCA_999142004.1	alone	25.9970	0.0315	0	
+s150_6	Vipenecoccus namiii	close_major	GCF_999107001.1	major	44.6783	0.0000	1	0.2
+s150_6	Vipenecoccus namiii	close_major	GCA_999107003.1	minor	11.1696	0.0196	1	0.2
+s150_6	Vipenecoccus jokaa	far_major	GCA_999105004.1	major	29.0432	0.0153	0	0.2
+s150_6	Vipenecoccus jokaa	far_major	GCF_999105001.1	minor	7.2611	0.0000	0	0.2
+s150_6	Pehalcoccus halcorlema	alone_ref	GCF_999083001.1	alone	46.0807	0.0000	1	
+s150_6	Jopelemcoccus neixteris	alone_strain	GCA_999128002.1	alone	6.5918	0.0223	0	
+s150_6	Genlemlumonas nevicaa	close_major	GCF_999160001.1	major	4.7280	0.0000	0	0.3
+s150_6	Genlemlumonas nevicaa	close_major	GCA_999160005.1	minor	2.0257	0.0222	0	0.3
+s150_6	Vipenavibrio vigenterus	far_major	GCA_999039002.1	major	5.3334	0.0339	0	0.3
+s150_6	Vipenavibrio vigenterus	far_major	GCF_999039001.1	minor	2.2854	0.0000	0	0.3
+s150_6	Haldamlemcoccus belcorixum	alone_ref	GCF_999091001.1	alone	24.6973	0.0000	0	
+s150_6	Nalujoella luthisalensis	alone_strain	GCA_999149004.1	alone	92.2561	0.0090	0	
+s150_6	Haldamlemcoccus joruxaus	close_major	GCF_999094001.1	major	492.8231	0.0000	1	0.1
+s150_6	Haldamlemcoccus joruxaus	close_major	GCA_999094005.1	minor	54.7580	0.0397	1	0.1
+s150_6	Pehalcoccus nazuis	far_major	GCA_999088002.1	major	6.2653	0.0289	0	0.1
+s150_6	Pehalcoccus nazuis	far_major	GCF_999088001.1	minor	0.6957	0.0000	0	0.1
+s150_6	Vipenavibrio romogora	alone_ref	GCF_999038001.1	alone	289.7959	0.0000	1	
+s150_6	Vipenecoccus ixcoa	alone_strain	GCA_999104005.1	alone	32.4429	0.0208	0	
+s150_6	Vipenecoccus cormiruum	close_major	GCF_999101001.1	major	6.1288	0.0000	0	0.2
+s150_6	Vipenecoccus cormiruum	close_major	GCA_999101002.1	minor	1.5324	0.0299	0	0.2
+s150_6	Haldamlemcoccus kacorthium	far_major	GCA_999095005.1	major	124.6694	0.0265	1	0.2
+s150_6	Haldamlemcoccus kacorthium	far_major	GCF_999095001.1	minor	31.1673	0.0000	1	0.2
+s150_6	Vipenavibrio zucorterus	alone_ref	GCF_999040001.1	alone	15.6386	0.0000	0	
+s150_6	Ronaspira zunethiii	alone_strain	GCA_999135003.1	alone	4.8850	0.0284	0	
+s150_6	Pehalcoccus kacaus	close_major	GCF_999085001.1	major	8.7250	0.0000	0	0.3
+s150_6	Pehalcoccus kacaus	close_major	GCA_999085004.1	minor	3.7393	0.0301	0	0.3
+s150_6	Vipenavibrio genixlemis	far_major	GCA_999032003.1	major	11.7141	0.0271	1	0.3
+s150_6	Vipenavibrio genixlemis	far_major	GCF_999032001.1	minor	5.0202	0.0000	1	0.3
+s150_6	Vipenecoccus kavijois	alone_ref	GCF_999106001.1	alone	9.7353	0.0000	0	
+s150_6	Vipenecoccus gendamjous	alone_strain	GCA_999102002.1	alone	63.2101	0.0294	1	
+s150_6	Haldamlemcoccus modois	close_major	GCF_999096001.1	major	12.0029	0.0000	0	0.1
+s150_6	Haldamlemcoccus modois	close_major	GCA_999096004.1	minor	1.3336	0.0209	0	0.1
+s150_6	Nacorspira rogorii	far_major	GCA_999132005.1	major	4.8440	0.0210	0	0.1
+s150_6	Nacorspira rogorii	far_major	GCF_999132001.1	minor	0.5379	0.0000	0	0.1
+s150_6	Rurugenvibrio cohalensis	alone_ref	GCF_999139001.1	alone	5.9006	0.0000	0	
+s150_6	Pehalcoccus micorflaum	alone_strain	GCA_999087005.1	alone	1.8780	0.0173	0	
+s150_6	Salterdospira ficoixis	close_major	GCF_999125001.1	major	20.0056	0.0000	0	0.2
+s150_6	Salterdospira ficoixis	close_major	GCA_999125004.1	minor	5.0015	0.0255	0	0.2
+s150_6	Haldamlemcoccus gorcorensis	far_major	GCA_999092002.1	major	97.4240	0.0253	1	0.2
+s150_6	Haldamlemcoccus gorcorensis	far_major	GCF_999092001.1	minor	24.3561	0.0000	1	0.2
+s150_6	Pehalcoccus lemlifiensis	alone_ref	GCF_999086001.1	alone	38.5841	0.0000	1	
+s150_6	Vipenavibrio joroum	alone_strain	GCA_999033003.1	alone	47.7300	0.0069	1	
+s150_6	Haldamlemcoccus ixcorensis	close_major	GCF_999093001.1	major	4.9215	0.0000	0	0.3
+s150_6	Haldamlemcoccus ixcorensis	close_major	GCA_999093003.1	minor	2.1088	0.0286	0	0.3
+s150_6	Haldamlemcoccus mozufiis	far_major	GCA_999097004.1	major	2.6978	0.0353	0	0.3
+s150_6	Haldamlemcoccus mozufiis	far_major	GCF_999097001.1	minor	1.1559	0.0000	0	0.3
+s150_6	Jopelemcoccus roterbelus	alone_ref	GCF_999129001.1	alone	18.0344	0.0000	0	
+s150_6	Pehalcoccus genlicoensis	alone_strain	GCA_999082002.1	alone	13.5210	0.0377	0	
+s150_6	Thinazucoccus moterensis	close_major	GCF_999153001.1	major	3.6682	0.0000	0	0.1
+s150_6	Thinazucoccus moterensis	close_major	GCA_999153003.1	minor	0.4078	0.0214	0	0.1
+s150_6	Finecoccus napeensis	far_major	GCA_999158004.1	major	64.7897	0.0159	0	0.1
+s150_6	Finecoccus napeensis	far_major	GCF_999158001.1	minor	7.1991	0.0000	0	0.1
+s150_6	Vipenecoccus terlia	alone_ref	GCF_999109001.1	alone	52.2068	0.0000	1	
+s150_6	Genlemlumonas halpeii	alone_strain	GCA_999159003.1	alone	16.7601	0.0231	0	
+s150_6	Haldamlemcoccus rothia	close_major	GCF_999099001.1	major	171.4916	0.0000	1	0.2
+s150_6	Haldamlemcoccus rothia	close_major	GCA_999099004.1	minor	42.8733	0.0206	1	0.2
+s150_6	Pehalcoccus salmifia	far_major	GCA_999089002.1	major	17.0018	0.0187	1	0.2
+s150_6	Pehalcoccus salmifia	far_major	GCF_999089001.1	minor	4.2501	0.0000	1	0.2
+s150_6	Vipenavibrio pegenensis	alone_ref	GCF_999037001.1	alone	7.7573	0.0000	0	
+s150_6	Vipenavibrio lusalzuum	alone_strain	GCA_999035005.1	alone	270.3525	0.0119	1	
+s150_6	Moixlumonas naruus	close_major	GCF_999151001.1	major	12.4653	0.0000	0	0.3
+s150_6	Moixlumonas naruus	close_major	GCA_999151005.1	minor	5.3426	0.0252	0	0.3
+s150_6	Cornabacter nenecorus	far_major	GCA_999146005.1	major	8.7113	0.0333	0	0.3
+s150_6	Cornabacter nenecorus	far_major	GCF_999146001.1	minor	3.7334	0.0000	0	0.3

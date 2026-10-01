@@ -182,3 +182,12 @@ the anchor: the gene median − 0.08 needs nothing but the reads and scores with
 over both worlds; the gene-scaled median adds per-gene factors that a build can estimate from
 `full_reference.fna` (0.99 correlation with the true rates here) for a further ~1%. The fixed 0.08 below
 the top (the current default) should give way to one of them once they are checked on real genomes.
+
+## Correction (2026-10-01)
+
+"A relative's reads now align mostly on the conserved genes" above was reasoned, not measured, and is wrong:
+measured on this world's second version and on a world of large genera, a relative the database lacks makes a
+species' fast genes deeper, not its conserved ones (presumably, not measured: on a conserved gene its reads
+match several congeners about equally and are dropped as ambiguous, on a fast gene they align uniquely). The
+margin scaled per gene, now the default, the gene-scaled median and rules for relatives' reads are measured in
+[the depth margin scaled per gene, and congeners](../2026-10-01-gene-scaled-margin/README.md).
