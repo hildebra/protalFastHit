@@ -138,3 +138,116 @@ samples, so these long-read numbers are the least certain.
   here is modest (clear for single-end, positive but uncertain for paired-end); the GTDB r226 build, with
   its larger and real-genome test set, decides. The same scripts run on it (`V2=OUTDIR FPEXP=...`) once its
   points are realigned with `-m 3`.
+
+## In protal: the features, a read consensus, and mates that guide each other
+
+Implemented afterwards (uncommitted at the time of writing, on top of `a1bf586`, in a tree that also held
+another session's performance changes; built in WSL as `~/protal-cons/build/protal`, kept as
+`~/protal-cons/protal-before-fix`, which the results below use before another session extended `MateGuidance.h`
+with the database's gene neighbours; the corrected PacBio and ONT figures come from the shared tree with the
+correction, rebuilt in the same place, on a database without gene neighbours):
+
+- **The features.** Each read's best record carries `ZA:Z:<taxid>:<edits more>,...`: its other candidates in
+  other taxa among those protal aligns (align top 3), with at most 5 edits more than the best, or `*`
+  (`AlternativesTag`, AlignmentOutputHandler.h; long reads per gene). The profiler counts every read's best
+  record for its taxon before its MAPQ and length filters drop any (a read that fits a congener as well has
+  MAPQ near 0, and the first version, which counted after the filters, missed exactly those: its se gain was
+  gone; [`new_build_output.txt`](new_build_output.txt)), and the dump gets `low_mapq_share`,
+  `congener_fit_share`, `other_genus_fit_share` (within one edit) and `linked_share` (reads with two records on
+  the taxon: both mates, or two genes of a long read). `scripts/model_features.py` adds `mean_mapq`,
+  `low_mapq_share`, `congener_fit_share` and `other_genus_fit_share` to the normalized features (28), so that
+  `build_gtdb_database.py` trains with them; `linked_share` stays out (below).
+- **A read consensus** (ReadConsensus.h). A long read's genes, and the two mates of a pair that aligned to two
+  genes, take one taxon: taxa are compared on the parts where both have a candidate (so that a gene the
+  database lacks for the read's species, which aligns to a relative alone, outvotes nothing), and every part
+  takes its alignment of the winner; a part without one, and a long read's gene whose best hit is clearly
+  another taxon's (MAPQ 4 or more against the winner's hit: a chimeric read, or a homolog of a gene elsewhere on
+  the read), keeps its best and is written with MAPQ 0 (long reads: `ZR:i:2`). This replaces the long reads'
+  vote (two thirds of the confident genes, which settled only the ambiguous ones). The clearly-other rule came
+  after the results were first taken (correction below).
+- **Mate guidance** (MateGuidance.h, `--no_mate_guidance` turns it off). When a pair's best candidate has one
+  mate only, that mate has MAPQ 20 or more and the other mate has no candidate of its taxon: the other mate's
+  own anchor of the taxon is aligned (only a read's best anchors are), else the other mate is looked for on the
+  first one's gene where the fragment can reach (1,000 bases on its strand's side), placed by the diagonal of
+  its 12-mers and aligned as from any anchor, in part if it runs past the gene's end.
+
+Tested on the tuning world again: `~/tune` was deleted to free space during this work, and
+[`regen_v3.sh`](regen_v3.sh) rebuilt it from its seeds and ran the V2 build command with the feature build
+(`V3`); its test sets have the same taxa as V2's (pe 3,672, se 3,394, pb 758, ont 958), so the samples are
+V2's. [`profile_new_build.sh`](profile_new_build.sh) profiled V3's samples again with the build that adds the
+consensus and mate guidance, [`tables_new_build.py`](tables_new_build.py) made the tables, and
+[`run_new_build.py`](run_new_build.py) compares feature sets (5 seeds, as above; the shipped 24 features are
+frozen in `exp_lib.py`). Outputs: [`v3_features_output.txt`](v3_features_output.txt),
+[`cons_features_output.txt`](cons_features_output.txt), and for PacBio and ONT after the correction
+[`fix_long_reads_output.txt`](fix_long_reads_output.txt) ([`fix_long_reads.sh`](fix_long_reads.sh)).
+
+Test F1 (mean of 5 seeds; in brackets the change against the shipped features of the same build, with the
+paired bootstrap interval):
+
+| read type | shipped features, feature build | + MAPQ, congener fit | + all five | shipped features, + consensus and guidance | + MAPQ, congener fit | + all five |
+|---|---|---|---|---|---|---|
+| pe | 0.9765 | 0.9774 (+0.0007) | 0.9782 (+0.0016) | 0.9769 | **0.9795** (+0.0026; −0.0007, 0.0072) | 0.9785 (+0.0016) |
+| se | 0.9638 | 0.9703 (+0.0067; 0.0000, 0.0165) | **0.9707** (+0.0072; 0.0008, 0.0163) | (single-end reads have neither) | | |
+| pb | 0.9731 | 0.9712 (−0.0019) | 0.9731 (0) | **0.9757** | 0.9741 (−0.0018) | 0.9747 (−0.0011) |
+| ont | 0.9542 | 0.9552 (+0.0010) | 0.9536 (−0.0005) | 0.9541 | **0.9596** (+0.0056; −0.0036, 0.0179) | 0.9561 (+0.0020) |
+
+Test precision and sensitivity (mean of 5 seeds; FP and FN per seed over the read type's test samples):
+
+| read type | shipped features, feature build | + MAPQ, congener fit, feature build | + MAPQ, congener fit, + consensus and guidance |
+|---|---|---|---|
+| pe | 0.9926 / 0.9610 (FP 10.8, FN 58.8) | 0.9923 / 0.9629 (11.2, 56.0) | 0.9940 / 0.9654 (8.8, 52.2) |
+| se | 0.9881 / 0.9406 (16.6, 87.4) | 0.9875 / 0.9538 (17.8, 68.0) | (as the feature build) |
+| pb | 0.9931 / 0.9539 (4.0, 27.8) | 0.9917 / 0.9516 (4.8, 29.2) | 0.9828 / 0.9655 (10.2, 20.8) |
+| ont | 0.9892 / 0.9216 (6.2, 48.4) | 0.9906 / 0.9222 (5.4, 48.0) | 0.9931 / 0.9284 (4.0, 44.2) |
+
+- Single-end gains clearly from the congener fit (alone +0.0040, interval 0.0003-0.0083): cross-validated false
+  positives 51 to 36.
+- `linked_share` alone lowers the paired-end F1 on both builds (−0.0020; on the consensus build the interval is
+  −0.0040 to −0.0003) and helps nowhere clearly: it is left out of the model's features.
+- The consensus changes the calls of long reads most: with the shipped features, PacBio sensitivity 0.954 to
+  0.967 (FN 27.8 to 20.0; FP 4.0 to 9.0), ONT FP 6.2 to 3.4; the tables lose taxa that only a read's
+  inconsistent part supported (training pe 7,366 to 7,151 rows, pb 1,125 to 1,049, ont 1,458 to 1,334). On the
+  test samples 46,892 long-read gene hits took their read's taxon (another best hit or a higher MAPQ) and 1,453
+  had no hit of it or a clearly better one of another taxon.
+- With the consensus build and the four features: pe 0.9795, se 0.9703, pb 0.9741, ont 0.9596, against
+  0.9765, 0.9638, 0.9731 and 0.9542 with the shipped features of the feature build (pb does best with the
+  shipped features on the consensus build, 0.9757; its 6 test samples cannot tell these apart).
+
+Correction. The first consensus gave every long-read gene its hit of the read's taxon, also when another taxon's
+gene fit clearly better. protal's long-read e2e tests (reads of genes drawn from any taxon) then failed: a gene
+became the read taxon's homolog, which could stand twice on one read while the gene itself was lost. Such a gene
+now keeps its best hit, with MAPQ 0, as the old vote did. On the tuning world's long reads 310 test gene hits
+changed so (47,202 settled and 1,143 inconsistent before), and the test F1 moved by at most 0.0012 (before: pb
+0.9762 shipped, 0.9746 with the four features, 0.9746 with all five; ont 0.9534, 0.9598 and 0.9573); the PacBio
+and ONT figures above are
+those of the corrected build (`fix_long_reads.sh`; paired-end and single-end are unchanged by it).
+
+Mate guidance on the 18 paired-end test samples: 267,075 fragments had a sure mate and another without a
+candidate of its taxon; 9 were aligned from their own anchor (the existing anchor recovery already aligns the
+other mate's anchors of the sure mate's gene), and 33,358 of 267,066 looked for were found on the gene
+([`rescued_mates.py`](rescued_mates.py), on the SAMs with and without guidance): 29,913 mate records that had
+none before (1.5% of 1.93 million; the other mates found replace a record on another taxon; none is lost), 90%
+of them partial (clipped at the gene's end, median 116 bases clipped), at a median identity of 0.979 (10th
+percentile 0.920), and 90% simulated from the genome of the taxon they are written on. These are bases near
+gene ends that the strain MSAs had none of.
+
+Cost. Wall-clock times were no use on this machine while other sessions ran their benchmarks (two rounds of
+[`time_guidance.sh`](time_guidance.sh), 2 threads pinned at nice 19: user CPU 115.0 s with guidance and 112.6 s
+without in the first, about +2%; the second round disagreed with itself by more than that). Instructions instead
+([`count_guidance.sh`](count_guidance.sh): callgrind on the OpenMP body of `RunPairedEnd`, the first 40,000
+pairs of `rl150_p500000_s_1`, one thread, the same binary with and without `--no_mate_guidance`):
+
+| | instructions | per pair |
+|---|---|---|
+| without guidance | 8,722,949,244 | 218,000 |
+| with guidance | 9,014,050,981 (+3.3%) | 225,000 |
+| of which `GuideMate` | 280,962,955 | 82,000 per fragment looked for |
+| of which the 12-mer diagonal (`BestDiagonal`) | 178,473,394 | 52,000 per fragment looked for |
+
+3,423 of the 40,000 fragments were looked for and 423 found (none from an anchor). Most of the cost is the
+diagonal search of mates that are not there (88% of those looked for): a prefilter that gives up after a few of
+the mate's k-mers miss the gene would cut most of it. Index loading and the SAM output are not in these counts;
+over a whole run guidance costs less than 3.3%.
+
+The website's documentation of protal's SAM output and options would need the `ZA` tag, `ZR:i:2` and
+`--no_mate_guidance` (docs/running.md has them).

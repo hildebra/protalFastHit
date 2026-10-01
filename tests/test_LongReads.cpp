@@ -264,44 +264,79 @@ namespace {
     }
 }
 
-TEST(ReadConsensus, TheReadsTaxonNeedsTwoThirdsOfTheConfidentVotes) {
-    auto const taxon = TaxonOfRead({ Voting(1, 40), Voting(1, 30), Voting(2, 10), Voting(2, 0) });
-    ASSERT_TRUE(taxon.has_value());
-    EXPECT_EQ(taxon->taxid, 1u);  // 2 of 3 confident segments
-    EXPECT_EQ(taxon->mapq, 30);   // the weaker of its two segments
-    EXPECT_FALSE(TaxonOfRead({ Voting(1, 30), Voting(2, 30) }).has_value());
-    // A gene the read's species lacks aligns to a relative with a high MAPQ; it has one vote.
-    auto const outvoted = TaxonOfRead({ Voting(1, 8), Voting(1, 6), Voting(1, 9), Voting(2, 140) });
-    ASSERT_TRUE(outvoted.has_value());
-    EXPECT_EQ(outvoted->taxid, 1u);
-    EXPECT_FALSE(TaxonOfRead({ Voting(1, 3), Voting(1, 0) }).has_value()) << "no confident segment";
-    EXPECT_FALSE(TaxonOfRead({}).has_value());
+TEST(ReadConsensus, TaxaAreComparedOnTheGenesBothHit) {
+    // Gene 1 fits taxon 1 better than taxon 2; gene 2 only taxon 2 (the database lacks taxon 1's gene 2, so the
+    // read's gene aligns to the relative alone). Summed over the read, taxon 2 scores more (3500 against 2000), but
+    // on the gene both hit it scores less: the read is taxon 1's.
+    auto const read = ConsensusOfRead({ { { 1, 2000 }, { 2, 1750 } }, { { 2, 1750 } } });
+    ASSERT_TRUE(read.has_value());
+    EXPECT_EQ(read->taxid, 1u);
+    EXPECT_EQ(read->parts, 1u);
+    EXPECT_EQ(read->mapq, MAPQv2(2000, 1750));  // on taxon 1's gene, against taxon 2 there
+
+    // A taxon without competitors on its genes: no MAPQ of the read (-1), its genes keep their own.
+    auto const alone = ConsensusOfRead({ { { 1, 100 } }, { { 1, 120 } } });
+    ASSERT_TRUE(alone.has_value());
+    EXPECT_EQ(alone->mapq, -1);
+    EXPECT_EQ(alone->parts, 2u);
+
+    // Genes of three taxa that share no gene: none wins on enough genes.
+    EXPECT_FALSE(ConsensusOfRead({ { { 1, 100 } }, { { 2, 100 } }, { { 3, 100 } } }, 2).has_value());
+    EXPECT_FALSE(ConsensusOfRead({}).has_value());
+    EXPECT_FALSE(ConsensusOfRead({ {}, {} }).has_value());
+
+    // The read's genes: a taxon needs hits on half of them.
+    auto segments = LongReadSegments{ Voting(1, 40), Voting(1, 30), Voting(2, 10) };
+    auto const of_segments = ConsensusOfSegments(segments);
+    ASSERT_TRUE(of_segments.has_value());
+    EXPECT_EQ(of_segments->taxid, 1u);
 }
 
-TEST(ReadConsensus, AnAmbiguousGeneTakesTheReadsTaxon) {
-    ReadTaxon const taxon{ 1, 30 };
+TEST(ReadConsensus, EveryGeneTakesTheReadsTaxon) {
+    ReadConsensus const read{ 1, 2, 30 };
     // The gene fits taxon 2 about as well as taxon 1 (1000 vs 998 matches): settled for taxon 1.
     LongReadSegment ambiguous;
     ambiguous.hits = { Hit(2, 7, 0, std::string(1000, 'A'), true), Hit(1, 7, 0, std::string(1000, 'A'), true, 2) };
     RankLongReadSegment(ambiguous);
     ASSERT_LT(ambiguous.mapq, kConfidentMapq);
-    EXPECT_TRUE(SettleByRead(ambiguous, taxon));
+    EXPECT_TRUE(SettleByRead(ambiguous, read));
     EXPECT_EQ(ambiguous.hits.front().alignment.Taxid(), 1u);
     EXPECT_EQ(ambiguous.mapq, 30);
     EXPECT_TRUE(ambiguous.by_read);
 
-    // A gene that clearly is taxon 2's stays so; a confident one is not touched; a gene without a
-    // hit of the taxon cannot be settled.
+    // A gene that fits taxon 2 clearly better keeps it (a chimeric read, or a homolog of a gene of taxon 1 that lies
+    // elsewhere on the read), with MAPQ 0: no evidence for taxon 2.
     LongReadSegment other;
     other.hits = { Hit(2, 7, 0, std::string(1000, 'A'), true), Hit(1, 7, 0, std::string(1000, 'A'), true, 100) };
-    other.mapq = 0;
-    EXPECT_FALSE(SettleByRead(other, taxon));
+    RankLongReadSegment(other);
+    ASSERT_GE(other.mapq, kConfidentMapq);
+    EXPECT_TRUE(SettleByRead(other, read));
     EXPECT_EQ(other.hits.front().alignment.Taxid(), 2u);
-    auto confident = Voting(2, 20);
-    EXPECT_FALSE(SettleByRead(confident, taxon));
-    auto alone = Voting(2, 0);
-    EXPECT_FALSE(SettleByRead(alone, taxon));
+    EXPECT_EQ(other.mapq, 0);
+    EXPECT_TRUE(other.inconsistent);
+    EXPECT_FALSE(other.by_read);
+
+    // A gene of the read's taxon keeps a higher MAPQ of its own, and a lower one is raised.
+    auto confident = Voting(1, 40);
+    EXPECT_FALSE(SettleByRead(confident, read));
+    EXPECT_EQ(confident.mapq, 40);
+    EXPECT_FALSE(confident.by_read);
+    auto weak = Voting(1, 2);
+    EXPECT_TRUE(SettleByRead(weak, read));
+    EXPECT_EQ(weak.mapq, 30);
+    EXPECT_TRUE(weak.by_read);
+    // Without competitors on the read (MAPQ -1) a gene keeps its own.
+    auto own = Voting(1, 5);
+    EXPECT_FALSE(SettleByRead(own, ReadConsensus{ 1, 2, -1 }));
+    EXPECT_EQ(own.mapq, 5);
+
+    // A gene without a hit of the read's taxon is no evidence for its own: MAPQ 0, inconsistent.
+    auto alone = Voting(2, 60);
+    EXPECT_TRUE(SettleByRead(alone, read));
+    EXPECT_EQ(alone.mapq, 0);
+    EXPECT_TRUE(alone.inconsistent);
     EXPECT_FALSE(alone.by_read);
+    EXPECT_EQ(alone.hits.front().alignment.Taxid(), 2u);
 }
 
 TEST(LongReadOutputHandler, TagsGenesSettledByTheirRead) {
@@ -315,6 +350,16 @@ TEST(LongReadOutputHandler, TagsGenesSettledByTheirRead) {
     ASSERT_EQ(records.size(), 2u);
     EXPECT_EQ(records[0].back(), "ZR:i:1");
     EXPECT_NE(records[1].back(), "ZR:i:1") << "only the best hit";
+
+    // A gene without a hit of its read's taxon: ZR:i:2, MAPQ 0.
+    LongReadSegment inconsistent;
+    inconsistent.hits = { Hit(1, 1, 5, read, true) };
+    inconsistent.mapq = 0;
+    inconsistent.inconsistent = true;
+    auto const tagged = Records(Write(ref, { inconsistent }, Read("r", read)));
+    ASSERT_EQ(tagged.size(), 1u);
+    EXPECT_EQ(tagged[0].back(), "ZR:i:2");
+    EXPECT_EQ(tagged[0][4], "0");
 }
 
 TEST(SeqReader, ReadsWithoutQualitiesGetTheReadTypesQuality) {

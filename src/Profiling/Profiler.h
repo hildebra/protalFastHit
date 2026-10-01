@@ -380,11 +380,101 @@ namespace protal {
             }
         };
 
+        inline constexpr MAPQ_t kLowMapq = 10;  // a record below fits another candidate nearly as well
+        inline constexpr int kAlternativeFitEdits = 1;  // an alternative this many edits worse fits as well
+
+        // What a read's record tells beyond its own alignment (MicrobialProfile::AddSam).
+        struct ReadEvidence {
+            size_t link = SIZE_MAX;  // the read across its records (both mates, a long read's genes); SIZE_MAX: none
+        };
+
+        // A taxon's best records of all reads, before the profiler's MAPQ and length filters drop any (the reads that
+        // fit another taxon as well have MAPQ near 0 and would never be counted): MicrobialProfile::NoteRecord.
+        struct RecordEvidence {
+            size_t records = 0;
+            size_t low_mapq = 0;  // MAPQ below kLowMapq
+            size_t congener_fit = 0;  // another species of the genus fits the read within kAlternativeFitEdits (ZA)
+            size_t other_genus_fit = 0;  // a species of another genus does
+            size_t adjacent = 0;  // genes next to each other on its reads (MicrobialProfile::NoteLinkedRecord)
+            size_t adjacent_expected = 0;  // of these, whose ends face each other in its clade (gene_neighbours::Verdict::Expected)
+            size_t adjacent_unlikely = 0;  // that never do in a clade with data on them (Verdict::Unlikely)
+        };
+
+        // Calls on_alternative(taxid, edits more) for each entry of a ZA tag ("12:0,40:3"; "*" or empty: none).
+        template<typename F>
+        inline void ForEachAlternative(std::string const& tag, F&& on_alternative) {
+            if (tag.empty() || tag == "*") return;
+            char const* p = tag.data();
+            char const* const end = p + tag.size();
+            while (p < end) {
+                uint32_t taxid = 0;
+                int more = 0;
+                auto r1 = std::from_chars(p, end, taxid);
+                if (r1.ec != std::errc() || r1.ptr == end || *r1.ptr != ':') return;
+                auto r2 = std::from_chars(r1.ptr + 1, end, more);
+                if (r2.ec != std::errc()) return;
+                on_alternative(taxid, more);
+                p = r2.ptr;
+                if (p < end && *p == ',') p++;
+            }
+        }
+
+        // The bases clipped (H, S) at the start of a CIGAR, or at its end (trailing): where a long read's record
+        // starts on the read is the clip at its start, or at its end if it is reverse.
+        inline uint32_t Clip(std::string_view cigar, bool trailing) {
+            uint32_t total = 0;
+            if (!trailing) {
+                size_t i = 0;
+                while (i < cigar.size()) {
+                    uint32_t n = 0;
+                    size_t j = i;
+                    while (j < cigar.size() && cigar[j] >= '0' && cigar[j] <= '9') n = n * 10 + static_cast<uint32_t>(cigar[j++] - '0');
+                    if (j == i || j >= cigar.size() || (cigar[j] != 'H' && cigar[j] != 'S')) break;
+                    total += n;
+                    i = j + 1;
+                }
+                return total;
+            }
+            size_t end = cigar.size();
+            while (end > 0 && (cigar[end - 1] == 'H' || cigar[end - 1] == 'S')) {
+                size_t j = end - 1;
+                uint32_t n = 0, scale = 1;
+                while (j > 0 && cigar[j - 1] >= '0' && cigar[j - 1] <= '9') {
+                    n += static_cast<uint32_t>(cigar[j - 1] - '0') * scale;
+                    scale *= 10;
+                    j--;
+                }
+                if (j == end - 1) break;
+                total += n;
+                end = j;
+            }
+            return total;
+        }
+
+        // The read's bases a CIGAR aligns (M, I, =, X).
+        inline uint32_t QueryBases(std::string_view cigar) {
+            uint32_t total = 0, n = 0;
+            for (char const c : cigar) {
+                if (c >= '0' && c <= '9') {
+                    n = n * 10 + static_cast<uint32_t>(c - '0');
+                    continue;
+                }
+                if (c == 'M' || c == 'I' || c == '=' || c == 'X') total += n;
+                n = 0;
+            }
+            return total;
+        }
+
         class Taxon {
         private:
             size_t m_id;
             std::string m_name;
             size_t m_total_hits = 0;
+            RecordEvidence m_records;  // all of its best records, before the filters (MicrobialProfile::ApplyRecordEvidence)
+            size_t m_links = 0;  // reads with a record here (a pair once, a long read once with all its genes)
+            size_t m_linked = 0;  // of those, with two or more records here: both mates, or two of a long read's genes
+            size_t m_last_link = SIZE_MAX;
+            size_t m_link_records = 0;  // records of m_last_link here
             size_t m_total_kmers = 0;
             size_t m_unique_mers = 0;
             size_t m_unique_mer_reads = 0;
@@ -458,7 +548,8 @@ namespace protal {
                 return ids;
             }
 
-            bool AddSam(GeneId geneid, SamEntry const& sam, double score, bool unique, size_t read_id, bool no_strain=true) {
+            bool AddSam(GeneId geneid, SamEntry const& sam, double score, bool unique, size_t read_id, bool no_strain=true,
+                        ReadEvidence const& evidence = {}) {
                 Changed();
                 bool const new_gene = !m_genes.contains(geneid);
                 if (new_gene) {
@@ -486,8 +577,35 @@ namespace protal {
                 m_ani_sum += score;
                 m_mapq_sum += sam.m_mapq;
                 m_unique_hits += unique;
+                if (evidence.link != SIZE_MAX) {
+                    if (evidence.link != m_last_link) {
+                        m_links++;
+                        m_last_link = evidence.link;
+                        m_link_records = 0;
+                    }
+                    m_linked += ++m_link_records == 2;
+                }
                 return true;
             }
+
+            void SetRecordEvidence(RecordEvidence const& records) {
+                m_records = records;
+            }
+
+            // Shares of the taxon's best records of all reads (also those the filters left out): with MAPQ below
+            // kLowMapq, and whose read another species of the genus, or one of another genus, fits within
+            // kAlternativeFitEdits edits (the ZA tag).
+            double LowMapqShare() const { return m_records.records == 0 ? 0 : m_records.low_mapq / static_cast<double>(m_records.records); }
+            double CongenerFitShare() const { return m_records.records == 0 ? 0 : m_records.congener_fit / static_cast<double>(m_records.records); }
+            double OtherGenusFitShare() const { return m_records.records == 0 ? 0 : m_records.other_genus_fit / static_cast<double>(m_records.records); }
+            // Share of the taxon's reads with two or more records on it: both mates of a pair (on one gene or
+            // two), or two or more genes of a long read. Single-end reads have one record each: 0.
+            double LinkedShare() const { return m_links == 0 ? 0 : m_linked / static_cast<double>(m_links); }
+            // Of the genes next to each other on the taxon's reads (a pair's mates on two genes, a long read's consecutive
+            // genes; MicrobialProfile::NoteLinkedRecord), the share whose ends face each other in the taxon's clade, and
+            // the share whose never do there; both 0 without the database's gene neighbours.
+            double AdjacentExpectedShare() const { return m_records.adjacent == 0 ? 0 : m_records.adjacent_expected / static_cast<double>(m_records.adjacent); }
+            double AdjacentUnlikelyShare() const { return m_records.adjacent == 0 ? 0 : m_records.adjacent_unlikely / static_cast<double>(m_records.adjacent); }
 
 
             size_t GetGenomeGeneNumber() const {
@@ -1162,6 +1280,19 @@ namespace protal {
             f.emplace_back("lsu_per_kb", taxon.PerAlignedKb(taxon.LongSuperUniques()));
             f.emplace_back("variant_sites_per_kb", per_covered_kb(af[1] + af[2] + af[3] + af[4]));
             f.emplace_back("multiallelic_sites_per_kb", per_covered_kb(af[2] + af[3] + af[4]));
+            // Evidence from the reads' other candidates and from their other records: the share of records
+            // with low MAPQ, of records whose read a congener or a species of another genus fits as well (ZA,
+            // within kAlternativeFitEdits), and of reads with two or more records on the taxon (both mates, or
+            // two genes of a long read).
+            f.emplace_back("low_mapq_share", taxon.LowMapqShare());
+            f.emplace_back("congener_fit_share", taxon.CongenerFitShare());
+            f.emplace_back("other_genus_fit_share", taxon.OtherGenusFitShare());
+            f.emplace_back("linked_share", taxon.LinkedShare());
+            // Whether the genes next to each other on its reads are neighbours in the taxon's clade (the database's gene
+            // neighbours; 0 without them): reads of the taxon itself, or of a relative of the same gene order, mostly
+            // are; reads of genes that crossed from elsewhere are not.
+            f.emplace_back("adjacent_expected_share", taxon.AdjacentExpectedShare());
+            f.emplace_back("adjacent_unlikely_share", taxon.AdjacentUnlikelyShare());
             return f;
         }
 
@@ -1326,6 +1457,98 @@ namespace protal {
         public:
             MicrobialProfile(GenomeLoader& genome_loader) : m_genome_loader(genome_loader) {}
 
+            // Every taxid's genus (GeneraOf), which tells a read's alternatives (ZA) of the same genus from those
+            // of another. Without it congener_fit_share and other_genus_fit_share are 0.
+            void SetGenera(std::shared_ptr<std::vector<uint32_t> const> genera) {
+                m_genera = std::move(genera);
+            }
+
+            uint32_t GenusOf(uint32_t taxid) const {
+                return m_genera && taxid < m_genera->size() ? (*m_genera)[taxid] : 0;
+            }
+
+            // Counts a read's best record (a mate, a single read, a long read's gene) for its taxon, whatever the
+            // filters later make of it: its MAPQ, and whether its alternatives (ZA) hold a congener or a species of
+            // another genus within kAlternativeFitEdits. ApplyRecordEvidence hands the counts to the taxa.
+            void NoteRecord(uint32_t taxid, SamEntry const& sam) {
+                auto& e = m_record_evidence[taxid];
+                e.records++;
+                e.low_mapq += sam.m_mapq < kLowMapq;
+                if (!m_genera) return;
+                auto const genus = GenusOf(taxid);
+                bool congener = false, other = false;
+                ForEachAlternative(sam.m_alternatives, [&](uint32_t alternative, int more) {
+                    if (more > kAlternativeFitEdits) return;
+                    if (genus != 0 && GenusOf(alternative) == genus) congener = true;
+                    else other = true;
+                });
+                e.congener_fit += congener;
+                e.other_genus_fit += other;
+            }
+
+            // Gives every taxon the counts NoteRecord collected for it (the features low_mapq_share,
+            // congener_fit_share, other_genus_fit_share); taxa without a counted record keep none.
+            void ApplyRecordEvidence() {
+                FinishLink();
+                for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) {
+                    auto found = m_record_evidence.find(static_cast<uint32_t>(it->first));
+                    it.value().SetRecordEvidence(found == m_record_evidence.end() ? RecordEvidence{} : found->second);
+                }
+            }
+
+            // Notes a read's best record (as NoteRecord: before the filters) of taxon taxid on gene geneid for the adjacency
+            // counts, if the database has gene neighbours; link: the read across its records (both mates, a long read's
+            // genes). When the next link begins (or ApplyRecordEvidence), FinishLink judges the last one's records.
+            void NoteLinkedRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, size_t link) {
+                if (link == SIZE_MAX || m_genome_loader.GetGeneNeighbours().Empty()) return;
+                if (link != m_link) {
+                    FinishLink();
+                    m_link = link;
+                }
+                bool const reverse = Flag::IsReverseComplement(sam.m_flag);
+                // Where on the read it starts: the clips before it in the read's orientation (those at the CIGAR's end if
+                // it is reverse); the reader moved the hard clips out of the CIGAR.
+                uint32_t const start = (reverse ? sam.m_hard_clip_end : sam.m_hard_clip_start) + Clip(sam.m_cigar, reverse);
+                m_link_records.push_back({ taxid, geneid, !reverse, start, start + QueryBases(sam.m_cigar) });
+                m_link_paired = Flag::IsPaired(sam.m_flag);
+            }
+
+            // The genes of the last link's records next to each other: a pair's mates, which run towards each other, on
+            // two genes, or each two consecutive genes of a long read in read order, at most the table's max_gap apart on
+            // the read (genes further apart are no neighbours, whatever lies between); the ends that face each other
+            // follow from the records' orientations. Whatever taxa the two records are of (a read's gene that its taxon
+            // lacks is written on another), each of them is credited with whether its clade has those ends facing each
+            // other (gene_neighbours::Table::Assess).
+            void FinishLink() {
+                auto const& table = m_genome_loader.GetGeneNeighbours();
+                if (m_link_records.size() >= 2) {
+                    using gene_neighbours::EndAhead;
+                    if (!m_link_paired) {
+                        std::stable_sort(m_link_records.begin(), m_link_records.end(),
+                                         [](LinkRecord const& a, LinkRecord const& b) { return a.start < b.start; });
+                    }
+                    uint32_t const max_gap = table.MaxGap() > 0 ? static_cast<uint32_t>(table.MaxGap()) : 3000;
+                    for (size_t i = 1; i < m_link_records.size(); i++) {
+                        auto const& a = m_link_records[i - 1];
+                        auto const& b = m_link_records[i];
+                        if (a.gene == b.gene) continue;
+                        if (!m_link_paired && b.start > a.end + max_gap) continue;
+                        auto const end_a = EndAhead(a.forward);
+                        auto const end_b = EndAhead(m_link_paired ? b.forward : !b.forward);
+                        auto credit = [&](uint32_t taxid) {
+                            auto const verdict = table.Assess(taxid, a.gene, end_a, b.gene, end_b).verdict;
+                            auto& e = m_record_evidence[taxid];
+                            e.adjacent++;
+                            e.adjacent_expected += verdict == gene_neighbours::Verdict::Expected;
+                            e.adjacent_unlikely += verdict == gene_neighbours::Verdict::Unlikely;
+                        };
+                        credit(a.taxid);
+                        if (b.taxid != a.taxid) credit(b.taxid);
+                    }
+                }
+                m_link_records.clear();
+            }
+
             // See Taxon::OwnIdentityThreshold; 1 or more lets every read count towards depth.
             void SetDepthIdentityMargin(double margin) {
                 m_depth_identity_margin = margin;
@@ -1354,7 +1577,9 @@ namespace protal {
                 taxon.AddHit(ira.geneid, ira.genepos, ira.alignment_ani, unique);
             }
 
-            bool AddSam(int taxid, int geneid, SamEntry const& sam, double score, bool unique=true, int read_id=0, bool no_strain=true) {
+            // link: the read across its records (both mates, a long read's genes), for linked_share; SIZE_MAX: none.
+            bool AddSam(int taxid, int geneid, SamEntry const& sam, double score, bool unique=true, int read_id=0, bool no_strain=true,
+                        size_t link=SIZE_MAX) {
                 // A record on a gene this database does not have, or reaching past the gene's end (a
                 // SAM aligned against another database), is rejected rather than read out of bounds.
                 if (!m_genome_loader.HasGene(taxid, geneid) ||
@@ -1382,7 +1607,9 @@ namespace protal {
                 }
                 auto& taxon = m_taxa.at(taxid);
                 unique = sam.m_mapq > 20;
-                bool success = taxon.AddSam(geneid, sam, score, unique, read_id, no_strain);
+                ReadEvidence evidence;
+                evidence.link = link;
+                bool success = taxon.AddSam(geneid, sam, score, unique, read_id, no_strain, evidence);
                 // A taxon exists only with at least one read (its means divide by the read count).
                 if (!success && taxon.TotalHits() == 0) m_taxa.erase(taxid);
                 return success;
@@ -1678,7 +1905,41 @@ namespace protal {
             mutable TaxonMap m_taxa;
             GenomeLoader &m_genome_loader;
             double m_depth_identity_margin = 1;
+            std::shared_ptr<std::vector<uint32_t> const> m_genera;  // taxid -> genus (0: none); see SetGenera
+            std::unordered_map<uint32_t, RecordEvidence> m_record_evidence;  // NoteRecord
+            // The best records of the current link, of every taxon (NoteLinkedRecord): taxon, gene, orientation, where on
+            // the read they start and end.
+            struct LinkRecord {
+                uint32_t taxid;
+                uint32_t gene;
+                bool forward;
+                uint32_t start;
+                uint32_t end;
+            };
+            std::vector<LinkRecord> m_link_records;
+            size_t m_link = SIZE_MAX;
+            bool m_link_paired = false;  // the current link is a pair's mates, not a long read's genes
         };
+
+        // Every taxon's genus (its taxid; 0 for a taxon without one), for MicrobialProfile::SetGenera.
+        inline std::shared_ptr<std::vector<uint32_t> const> GeneraOf(taxonomy::IntTaxonomy const& taxonomy) {
+            size_t max_id = 0;
+            for (auto const& [id, node] : taxonomy.map) max_id = std::max<size_t>(max_id, static_cast<size_t>(id));
+            auto genera = std::make_shared<std::vector<uint32_t>>(max_id + 1, 0);
+            for (auto const& [id, node] : taxonomy.map) {
+                int t = static_cast<int>(id);
+                for (int steps = 0; steps < 64 && taxonomy.map.contains(t); steps++) {
+                    auto const& n = taxonomy.map.at(t);
+                    if (n.rank == "genus") {
+                        (*genera)[id] = static_cast<uint32_t>(n.id);
+                        break;
+                    }
+                    if (n.parent_id < 0 || n.parent_id == t) break;
+                    t = n.parent_id;
+                }
+            }
+            return genera;
+        }
 
 
         using SamPairList = std::vector<std::vector<AlignmentPair>>;
@@ -1900,6 +2161,11 @@ namespace protal {
                     std::cerr << "Warning: " << reader.RecordsWithoutTags() << " of " << reader.Records() << " records in "
                               << file_path << " have no ZU tag (protal's unique k-mer count). A SAM file not "
                               << "written by protal lacks it, and the model then rejects most taxa." << std::endl;
+                } else if (reader.PrimaryRecords() > 0 && reader.PrimaryRecordsWithoutAlternatives() == reader.PrimaryRecords()) {
+                    std::cerr << "Warning: no record in " << file_path << " has a ZA tag (the read's alternative alignments "
+                              << "to other taxa), which older protal versions do not write: every taxon's congener_fit_share "
+                              << "and other_genus_fit_share is 0. Align the reads again (--force) for a model that uses them."
+                              << std::endl;
                 }
                 return {};
             }
@@ -2206,13 +2472,24 @@ namespace protal {
 
 
 
-            bool ProcessMAPQ(MicrobialProfile& profile, AlignmentPair& ap, int read_id=0) {
+            // link: the read across its groups (a long read's genes; see ProfileSam).
+            bool ProcessMAPQ(MicrobialProfile& profile, AlignmentPair& ap, int read_id=0, size_t link=SIZE_MAX) {
                 bool valid_sam = true;
 
                 bool take_first = false;
                 bool take_second = false;
                 if (ap.HasFirst()) CompressedCigarInfo(ap.First().m_cigar, m_info1);
                 if (ap.HasSecond()) CompressedCigarInfo(ap.Second().m_cigar, m_info2);
+
+                // Every best record counts for its taxon's MAPQ and alternative evidence, also one the MAPQ filter
+                // below leaves out: a read that fits another taxon as well has MAPQ near 0.
+                if (ap.HasFirst()) profile.NoteRecord(ExtractTaxidGeneid(ap.First().m_rname).first, ap.First());
+                if (ap.HasSecond()) profile.NoteRecord(ExtractTaxidGeneid(ap.Second().m_rname).first, ap.Second());
+                for (auto* sam : { ap.HasFirst() ? &ap.First() : nullptr, ap.HasSecond() ? &ap.Second() : nullptr }) {
+                    if (!sam) continue;
+                    auto const [taxid, geneid] = ExtractTaxidGeneid(sam->m_rname);
+                    profile.NoteLinkedRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, link);
+                }
 
                 // MAPQ is judged per mate: the mates of a pair aligned together share one MAPQ, those
                 // of a fragment split over two genes each have their own.
@@ -2229,20 +2506,20 @@ namespace protal {
                     auto [tid1, geneid1] = ExtractTaxidGeneid(ap.First().m_rname);
                     auto [tid2, geneid2] = ExtractTaxidGeneid(ap.Second().m_rname);
 
-                    valid_sam &= profile.AddSam(tid1, geneid1, ap.First(), m_info1.Ani(), true, read_id, kNoStrain);
-                    valid_sam &= profile.AddSam(tid2, geneid2, ap.Second(), m_info2.Ani(), true, read_id, kNoStrain);
+                    valid_sam &= profile.AddSam(tid1, geneid1, ap.First(), m_info1.Ani(), true, read_id, kNoStrain, link);
+                    valid_sam &= profile.AddSam(tid2, geneid2, ap.Second(), m_info2.Ani(), true, read_id, kNoStrain, link);
 
                 } else if (take_first) {
                     auto [tid, geneid] = ExtractTaxidGeneid(ap.First().m_rname);
 
-                    valid_sam &=profile.AddSam(tid, geneid, ap.First(), m_info1.Ani(), true, read_id, kNoStrain);
+                    valid_sam &=profile.AddSam(tid, geneid, ap.First(), m_info1.Ani(), true, read_id, kNoStrain, link);
 
 
 
                 } else if (take_second) {
                     auto [tid, geneid] = ExtractTaxidGeneid(ap.Second().m_rname);
 
-                    valid_sam &=profile.AddSam(tid, geneid, ap.Second(), m_info2.Ani(), true, read_id, kNoStrain);
+                    valid_sam &=profile.AddSam(tid, geneid, ap.Second(), m_info2.Ani(), true, read_id, kNoStrain, link);
                 }
                 return valid_sam;
             }
@@ -2298,9 +2575,16 @@ namespace protal {
                 profile.SetDepthIdentityMargin(m_depth_identity_margin);
                 size_t read_id = 0;
                 m_rejected_reads = 0;
+                // One link per read: a pair's group, or all groups of a long read (its genes, one supplementary
+                // record each, which follow each other with the read's name).
+                size_t link = 0;
+                std::string last_qname;
                 auto error = ReadSamGroups(file_path, [&](std::vector<AlignmentPair>& group) {
                     auto& pair = group.size() == 1 ? group.front() : BestOfGroup(group);
-                    bool const valid = ProcessMAPQ(profile, pair, read_id++);
+                    auto const& qname = pair.Any().m_qname;
+                    if (read_id > 0 && qname != last_qname) link++;
+                    last_qname = qname;
+                    bool const valid = ProcessMAPQ(profile, pair, read_id++, link);
                     m_rejected_reads += !valid;
                     if (!valid && erroneous_sam_out.has_value()) {
                         auto& os = erroneous_sam_out.value().get();
@@ -2311,6 +2595,7 @@ namespace protal {
                 if (!error.empty()) return error;
 
                 m_reads = read_id;
+                profile.ApplyRecordEvidence();
                 m_post_process_bm.Start();
                 profile.PostProcessSNPs(snp_min_cov, snp_min_obs_fwdrev, snp_min_af, snp_min_mean_qual, snp_min_phred_sum, snp_require_strand);
                 m_post_process_bm.Stop();

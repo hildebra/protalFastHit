@@ -19,6 +19,7 @@
 #include "CoreBenchmark.h"
 #include "ChainAnchorFinder.h"
 #include "LongReads.h"
+#include "MateGuidance.h"
 #include "ScoreAlignments.h"
 #include "ProgressBar.h"
 
@@ -245,14 +246,14 @@ namespace protal::classify {
         Benchmark bm_output_global{"Output handler", 0};
         Benchmark bm_reader_global{"Sequence reader"};
         Benchmark bm_omp_block{"OMP Loop handler"};
-        size_t chunked_reads = 0, ambiguous_segments = 0, settled_segments = 0;
+        size_t chunked_reads = 0, ambiguous_segments = 0, settled_segments = 0, inconsistent_segments = 0, neighbour_genes = 0;
 
         Utils::Histogram seed_sizes_global;
         Utils::Histogram anchor_sizes_global;
 
         std::cout << "Start parallel execution with " << options.GetThreads() << " threads" << std::endl;
         bm_omp_block.Start();
-#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_alignment_global, bm_output_global, seed_sizes_global, anchor_sizes_global, reader_global, options, statistics, aligner_global, output_handler_global, chunked_reads, ambiguous_segments, settled_segments)
+#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_alignment_global, bm_output_global, seed_sizes_global, anchor_sizes_global, reader_global, options, statistics, aligner_global, output_handler_global, chunked_reads, ambiguous_segments, settled_segments, inconsistent_segments, neighbour_genes)
         {
             FastxRecord record;
             LongReadSegments segments;
@@ -305,6 +306,8 @@ namespace protal::classify {
                 chunked_reads += aligner.ChunkedReads();
                 ambiguous_segments += aligner.AmbiguousSegments();
                 settled_segments += aligner.SettledSegments();
+                inconsistent_segments += aligner.InconsistentSegments();
+                neighbour_genes += aligner.NeighbourGenes();
 
                 reader_global.UpdateSuccess(reader);
                 bm_reader_global.Join(bm_reader);
@@ -323,8 +326,13 @@ namespace protal::classify {
             std::cout << chunked_reads << " read(s) longer than " << kMaxLongReadChunk << " bp were seeded in chunks overlapping by "
                       << aligner_global.ChunkOverlap() << " bp" << std::endl;
         }
-        std::cout << settled_segments << " of " << ambiguous_segments << " gene hits that fit several taxa (MAPQ < " << kConfidentMapq
-                  << ") were settled by their read's other genes" << std::endl;
+        std::cout << ambiguous_segments << " gene hits fit several taxa (MAPQ < " << kConfidentMapq << "); " << settled_segments
+                  << " gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and "
+                  << inconsistent_segments << " had no hit of it or a clearly better one of another taxon (written with MAPQ 0)" << std::endl;
+        if (!aligner_global.GetGenomes().GetGeneNeighbours().Empty()) {
+            std::cout << "Gene neighbours: " << neighbour_genes << " genes found on reads where the database's gene neighbours put "
+                      << "them next to the reads' genes" << std::endl;
+        }
         if (options.Verbose()) {
             std::cout << "---------------Speed benchmarks---------------------" << std::endl;
             bm_omp_block.PrintResults();
@@ -363,8 +371,10 @@ namespace protal::classify {
     // each candidate that pairs with none on its own. With `consume`, an alignment is moved into the last pair
     // it goes into and copied into the ones before (the lists are not used after this): a read on a dense
     // database has many candidates, and each copy is two strings. The pairs are the same, in the same order.
+    // With across_genes (a database with gene neighbours), also mates on two genes of one taxon that are one
+    // fragment across the genes' facing ends (across_genes::PairAcrossNeighbours).
     static void JoinAlignmentPairs(PairedAlignmentResultList &pairs, AlignmentResultList &read1, AlignmentResultList &read2, GenomeLoader& loader,
-                                   bool consume = false) {
+                                   bool consume = false, bool across_genes = false) {
         // The pairs as indices first (SIZE_MAX: no mate), then each alignment's last use.
         static thread_local std::vector<std::pair<size_t, size_t>> joined;
         static thread_local std::vector<size_t> last1, last2;
@@ -378,6 +388,10 @@ namespace protal::classify {
                 auto const& alignment2 = read2[j];
                 if (alignment1.Taxid() == alignment2.Taxid() && alignment1.GeneId() == alignment2.GeneId()) {
                     if (!CorrectOrientation(alignment1, alignment2)) continue;
+                    joined.emplace_back(i, j);
+                    selected2[j] = true;
+                    paired = true;
+                } else if (across_genes && across_genes::PairAcrossNeighbours(alignment1, alignment2, loader, kRescueMaxFragment)) {
                     joined.emplace_back(i, j);
                     selected2[j] = true;
                     paired = true;
@@ -428,6 +442,7 @@ namespace protal::classify {
         Benchmark bm_alignment_global{"Alignment handler", 0};
         Benchmark bm_alignment_join_sort_global{"Joining alignment pairs and sorting", 0};
         Benchmark bm_output_global{"Output handler", 0};
+        MateGuidanceCounts mate_guidance_global;
 
         Utils::Histogram seed_sizes_global;
         Utils::Histogram anchor_sizes_global;
@@ -439,7 +454,7 @@ namespace protal::classify {
 
         std::cout << "Start parallel execution with " << options.GetThreads() << " threads" << std::endl;
         bm_omp_block.Start();
-#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_kmer_extracter_global, bm_omp_before_loop_global, bm_alignment_join_sort_global, bm_anchor_recovery_global, bm_anchor_finder_global, /*adoh_global,*/ genome_loader, seed_sizes_global, anchor_sizes_global, bm_alignment_global, bm_output_global, benchmark_global, reader_global, options, dummy, kmer_handler_global, statistics, anchor_finder_global, alignment_handler_global, output_handler_global)
+#pragma omp parallel default(none) shared(std::cout, bm_reader_global, bm_kmer_extracter_global, bm_omp_before_loop_global, bm_alignment_join_sort_global, bm_anchor_recovery_global, bm_anchor_finder_global, /*adoh_global,*/ genome_loader, seed_sizes_global, anchor_sizes_global, bm_alignment_global, bm_output_global, benchmark_global, reader_global, options, dummy, kmer_handler_global, statistics, anchor_finder_global, alignment_handler_global, output_handler_global, mate_guidance_global)
         {
             bm_omp_before_loop_global.Start();
             // Private variables
@@ -475,6 +490,8 @@ namespace protal::classify {
             AlignmentResultList alignment_results2;
 
             PairedAlignmentResultList paired_alignment_results;
+            MateGuidanceCounts mate_guidance;
+            bool const across = !genome_loader.GetGeneNeighbours().Empty();  // pairs across neighbouring genes
 
             size_t record_id = omp_get_thread_num();
 
@@ -587,11 +604,21 @@ namespace protal::classify {
                 // This pairs SE alignments into all possible pairs.
                 // The candidate lists are not used after this, but by the alignment benchmark.
                 JoinAlignmentPairs(paired_alignment_results, alignment_results1,
-                                   alignment_results2, genome_loader, /*consume=*/ !benchmark_active);
+                                   alignment_results2, genome_loader, /*consume=*/ !benchmark_active, across);
 
                 //                SortAlignmentPairs1(paired_alignment_results);
                 //                SortAlignmentPairs2(paired_alignment_results);
                 SortAlignmentPairs3(paired_alignment_results);
+                // A mate sure of its alignment guides the other one to its taxon and gene (MateGuidance.h).
+                if (options.MateGuidance() &&
+                    GuideMate(paired_alignment_results, anchors1, anchors2, record1, record2, anchor_finder1.ReverseComplement(),
+                              anchor_finder2.ReverseComplement(), alignment_handler, genome_loader, mate_guidance)) {
+                    SortAlignmentPairs3(paired_alignment_results);
+                }
+                if (across && !paired_alignment_results.empty()) {
+                    auto const& [best1, best2] = paired_alignment_results.front();
+                    mate_guidance.paired_across_genes += best1.IsSet() && best2.IsSet() && best1.GeneId() != best2.GeneId();
+                }
                 bm_alignment_join_sort.Stop();
 
                 // Output alignments
@@ -656,6 +683,7 @@ namespace protal::classify {
                 bm_alignment_global.Join(bm_alignment);
                 bm_alignment_join_sort_global.Join(bm_alignment_join_sort);
                 bm_output_global.Join(bm_output);
+                mate_guidance_global.Join(mate_guidance);
                 alignment_handler_global.bm_alignment.Join(alignment_handler.bm_alignment);
 
                 alignment_handler_global.m_bm_alignment.Join(alignment_handler.m_bm_alignment);
@@ -674,6 +702,17 @@ namespace protal::classify {
             }
         }
         bm_omp_block.Stop();
+        if (options.MateGuidance()) {
+            std::cout << mate_guidance_global.guided << " fragments had one mate sure of its alignment and the other "
+                      << "without a candidate of its taxon: " << mate_guidance_global.from_anchor << " aligned from its own "
+                      << "anchor of that taxon, " << mate_guidance_global.rescued << " of " << mate_guidance_global.looked_for
+                      << " found on the mate's gene" << std::endl;
+        }
+        if (!genome_loader.GetGeneNeighbours().Empty()) {
+            std::cout << "Gene neighbours: " << mate_guidance_global.paired_across_genes << " fragments paired across two neighbouring "
+                      << "genes; " << mate_guidance_global.rescued_on_neighbour << " guided mates found on the gene next to their "
+                      << "guiding mate's" << std::endl;
+        }
 
 //        adoh_os.close();
 

@@ -176,6 +176,14 @@ namespace protal {
         QUAL_t m_qual;
         SEQ_t m_seq;
         CIGAR_t m_cigar;
+        // The hard clips at the CIGAR's start and end, which NormalizeCigar drops from m_cigar: where on its read a long
+        // read's record lies (UnusableRecord sets them).
+        uint32_t m_hard_clip_start = 0;
+        uint32_t m_hard_clip_end = 0;
+        // ZA tag of a primary or supplementary record: the read's alternative alignments to other taxa,
+        // "<taxid>:<edits more than this one>" comma-separated (AlternativesTag), or "*" for none. Empty:
+        // not written (secondary records, SAM files of older protal versions).
+        std::string m_alternatives;
 
         [[nodiscard]] std::string ToString() const {
             return  m_qname + '\t'
@@ -190,7 +198,8 @@ namespace protal {
                     + m_seq + '\t'
                     + m_qual + '\t'
                     + "ZU:i:" + std::to_string(m_uniques) + '\t'
-                    + "ZT:i:" + std::to_string(m_uniques_two);
+                    + "ZT:i:" + std::to_string(m_uniques_two)
+                    + (m_alternatives.empty() ? std::string() : "\tZA:Z:" + m_alternatives);
         }
 
         // Strand of THIS record (0x10), for read1 and read2 alike; 0x20 is the mate's strand.
@@ -230,6 +239,15 @@ namespace protal {
             return std::nullopt;
         }
 
+        // Value of a string tag ("ZA:Z:12:0,40:1") among the optional fields, or nullopt if it is absent.
+        inline std::optional<std::string> StringTag(std::vector<std::string> const& tokens, std::string_view name) {
+            for (size_t i = 11; i < tokens.size(); i++) {
+                auto const& t = tokens[i];
+                if (t.size() >= 5 && t.compare(0, 2, name) == 0 && t.compare(2, 3, ":Z:") == 0) return t.substr(5);
+            }
+            return std::nullopt;
+        }
+
         // protal references are genes named "<taxid>_<gene id>".
         inline bool IsProtalGene(std::string const& rname) {
             auto underscore = rname.find('_');
@@ -246,9 +264,12 @@ namespace protal {
 
     // Rewrites a CIGAR into the ops the profiler walks, which are those protal writes: M for exact
     // matches, X, I, D and S. '=' (sequence match) becomes M, and hard clips are dropped because they
-    // consume neither SEQ nor the reference. Returns false for a CIGAR that cannot be walked:
-    // malformed, with N or P ops, or not covering exactly the bases in SEQ.
-    inline bool NormalizeCigar(std::string& cigar, size_t seq_length) {
+    // consume neither SEQ nor the reference (clip_start and clip_end, if given, get those at the start and
+    // at the end). Returns false for a CIGAR that cannot be walked: malformed, with N or P ops, or not
+    // covering exactly the bases in SEQ.
+    inline bool NormalizeCigar(std::string& cigar, size_t seq_length, uint32_t* clip_start = nullptr, uint32_t* clip_end = nullptr) {
+        uint64_t hard_start = 0, hard_end = 0;  // hard_end: those since the last other op
+        bool other = false;
         std::string out;
         size_t query = 0;
         char last_op = 0;
@@ -266,9 +287,13 @@ namespace protal {
             switch (op) {
                 case '=': op = 'M'; break;
                 case 'M': case 'X': case 'I': case 'D': case 'S': break;
-                case 'H': continue;
+                case 'H':
+                    (other ? hard_end : hard_start) += count;
+                    continue;
                 default: return false;
             }
+            other = true;
+            hard_end = 0;
             if (op != 'D') query += count;
             if (op == last_op) {
                 last_count += count;
@@ -281,11 +306,14 @@ namespace protal {
         flush();
         if (out.empty() || query != seq_length) return false;
         cigar = std::move(out);
+        if (clip_start) *clip_start = static_cast<uint32_t>(std::min<uint64_t>(hard_start, UINT32_MAX));
+        if (clip_end) *clip_end = static_cast<uint32_t>(std::min<uint64_t>(hard_end, UINT32_MAX));
         return true;
     }
 
     // Fills sam from the fields of one SAM line; throws SamFormatError if the line cannot be parsed.
-    // ZU and ZT (protal's unique k-mer counts) are looked up by name and are 0 when absent.
+    // ZU and ZT (protal's unique k-mer counts) are looked up by name and are 0 when absent; ZA (the
+    // read's alternatives in other taxa) is empty when absent.
     inline void SamFromTokens(std::vector<std::string> const& tokens, SamEntry &sam) {
         if (tokens.size() < 11) {
             throw SamFormatError("expected at least 11 tab-separated fields, found " + std::to_string(tokens.size()));
@@ -311,6 +339,7 @@ namespace protal {
         sam.m_qual = tokens[10];
         sam.m_uniques = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZU").value_or(0), UINT16_MAX));
         sam.m_uniques_two = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZT").value_or(0), UINT16_MAX));
+        sam.m_alternatives = sam_detail::StringTag(tokens, "ZA").value_or(std::string());
     }
 
     // Why the profiler cannot use a parsed record, or nullptr if it can. Normalizes the CIGAR.
@@ -320,7 +349,7 @@ namespace protal {
         if (sam.m_pos == 0) return "no position";
         if (sam.m_seq == "*") return "no sequence";
         if (sam.m_qual.size() != sam.m_seq.size()) return "no base qualities, or QUAL and SEQ lengths differ";
-        if (!NormalizeCigar(sam.m_cigar, sam.m_seq.size())) return "CIGAR is missing, malformed, has N/P ops or does not match SEQ";
+        if (!NormalizeCigar(sam.m_cigar, sam.m_seq.size(), &sam.m_hard_clip_start, &sam.m_hard_clip_end)) return "CIGAR is missing, malformed, has N/P ops or does not match SEQ";
         return nullptr;
     }
 
@@ -339,6 +368,8 @@ namespace protal {
         size_t m_records = 0;
         size_t m_paired_records = 0;
         size_t m_without_tags = 0;
+        size_t m_primary_records = 0;  // not secondary (0x100)
+        size_t m_primary_without_alternatives = 0;  // of those, without a ZA tag
         std::map<std::string, size_t> m_skipped;
         std::function<void(std::string const&)> m_on_header;  // sees every header line
 
@@ -366,6 +397,10 @@ namespace protal {
                 m_records++;
                 m_paired_records += Flag::IsPaired(sam.m_flag);
                 m_without_tags += !sam_detail::IntTag(m_tokens, "ZU").has_value();
+                if (!Flag::IsNotPrimaryAlignment(sam.m_flag)) {
+                    m_primary_records++;
+                    m_primary_without_alternatives += sam.m_alternatives.empty();
+                }
                 return true;
             }
             if (m_is.bad()) throw SamFormatError("read error after line " + std::to_string(m_line_no));
@@ -409,6 +444,9 @@ namespace protal {
         size_t PairedRecords() const { return m_paired_records; }
         size_t Lines() const { return m_line_no; }
         size_t RecordsWithoutTags() const { return m_without_tags; }
+        size_t PrimaryRecords() const { return m_primary_records; }
+        // Primary and supplementary records without ZA: all of them in a SAM file of an older protal.
+        size_t PrimaryRecordsWithoutAlternatives() const { return m_primary_without_alternatives; }
         std::map<std::string, size_t> const& Skipped() const { return m_skipped; }
     };
 

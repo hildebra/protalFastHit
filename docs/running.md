@@ -170,6 +170,46 @@ calibrated with; change them for experiments, not for production profiles.
 | `-w, --min_successful_lookups` | 4 | successful core k-mer lookups needed before `-s` stops seeding |
 | `-a, --max_score_ani` | 0.9 | give up an alignment once it diverges below about this identity |
 | `-x, --x_drop` | 1000 | X-drop of the alignment of short reads (WFA2), added to its adaptive pruning; 0 turns it off. The default changes no short-read alignment in tests (outputs identical to `-x 0`); `-x 50` loses a few alignments and changes MAPQs. Long reads (`pb`, `ont`) are aligned without X-drop: over their gene-long windows even 1000 lost the own species' alignment of genes an ONT read ends in |
+| `--no_mate_guidance` | off | paired-end reads: do not let a mate that is sure of its alignment (MAPQ 20 or more) guide the other when they did not align together (below) |
+| `--no_gene_neighbours` | off | do not use the database's gene neighbours (below): no mates looked for past their gene's end, no pairs over two neighbouring genes, no genes looked for next to a long read's genes, and the profile's `adjacent_*` features 0. A database without `gene_neighbours.tsv` works as with it |
+
+A read is one organism, so its parts are given one taxon. When the mates of a pair aligned to two
+genes, or a long read to several, protal compares the taxa of their candidates on the parts both
+have a candidate on, and gives every part its alignment of the winning taxon (a long read's genes
+from at least half of them); a part without an alignment of that taxon (a gene the database lacks
+for that species), and a long read's gene that another taxon's gene fits clearly better (MAPQ 4 or
+more between them: a chimeric read, or a homolog of a gene that lies elsewhere on the read), keeps
+its own best alignment but is written with MAPQ 0, so that it counts for no other taxon (long reads:
+tagged `ZR:i:2`; `ZR:i:1` marks a gene whose alignment or MAPQ the read's taxon changed). When only one mate of a pair aligned, or the other has no candidate of the first one's
+taxon, a mate that is sure of its alignment guides the other: the other mate's own anchor of that
+taxon is aligned (only a read's best anchors are), or the other mate is looked for on the first
+one's gene where the fragment can reach (up to 1,000 bases on its side), placed by its 12-mers,
+and aligned in part if it runs past the gene's end. The log reports how many mates each way found.
+
+Marker genes often lie next to each other (the ribosomal protein operons, rpoB and rpoC, ...), so a
+fragment or a long read can span two of them. A database built with gene neighbours
+(`gene_neighbours.tsv`, [building-a-database.md](building-a-database.md#gene-neighbours)) knows,
+for each clade, which gene's end faces which other gene's end and how far apart they are. With it:
+- mates on two genes of one taxon that each run towards the end facing the other gene, as one
+  fragment of at most 1,000 bases would, are paired like mates on one gene: written as a proper
+  pair (flag 2) on two references (RNEXT the other gene, TLEN 0);
+- a guiding mate whose fragment reaches past its gene's end also looks for the other mate on the
+  gene the clade has there, over the stretch the fragment reaches after the gap;
+- a long read that goes on past the end of a gene of its taxon is searched, where the clade puts
+  that gene's neighbour, for the neighbour if no part of the read has it: a candidate of it beyond
+  the longest is aligned, and a gene too divergent to be seeded is placed by its 12-mers (one that
+  was aligned already and did not pass is not tried again);
+- the profile gets `adjacent_expected_share` and `adjacent_unlikely_share`: of the genes next to each
+  other on a taxon's reads, the shares whose ends face each other in the taxon's clade, and that
+  never do ([model-training.md](model-training.md)).
+
+The log says what the database has (`Gene neighbours: ... rules of ... clades`) and how many
+fragments and genes were found so. Gene order is much the same across bacteria, so this helps to
+align and pair reads; it does not tell a species from its congeners.
+
+Each read's best record carries `ZA:Z:<taxid>:<edits more>,...`: its other candidates in other
+taxa (at most 5 edits more than the best, or `*`), from which the profiler counts the reads that a
+congener fits as well ([model-training.md](model-training.md)).
 
 ### Developer options
 

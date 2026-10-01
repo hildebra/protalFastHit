@@ -32,6 +32,7 @@ Usage:
       [--lineages FILE] [--genomes_per_species 3] [--genome_length 150000]
       [--contigs 3] [--marker_loss 0.02] [--strain_divergence 0.005]
       [--species_divergence 0.035] [--gene_rates none|categories]
+      [--operons [--operon_breaks 0.25]]
 
 --lineages: one GTDB lineage per line (d__...;s__...); '#' lines are comments.
 --strain_divergence and --species_divergence take a rate or a range LOW-HIGH,
@@ -41,6 +42,11 @@ from the representative by up to a few %, and congeneric species close enough
 that a missing one's reads land on the one the database has.
 --gene_rates categories lets markers evolve at different speeds, by what they do
 (ribosomal proteins slowest), as real genes do (simulation/gene_rates.tsv).
+--operons lays the markers out in clusters of up to 6 genes 0-150 bases apart, in
+the same order in every species (each family breaks some up, --operon_breaks), as
+in real genomes, where read pairs and long reads span neighbouring markers; without
+it each species' markers are shuffled and spaced evenly (~1.2 kb apart at the
+default length), and no pair spans two of them.
 """
 
 import argparse
@@ -223,7 +229,53 @@ class Simulator:
         self.gene_rate = self._gene_rates(sorted(lengths))
         self.node_seq = {}  # (lineage prefix, marker) -> sequence, shared by descendants
         self.species = [self._make_species(i + 1, l) for i, l in enumerate(lineages)]
+        self.clusters = self._clusters() if args.operons else {}
         self.genomes = [g for sp in self.species for g in self._make_genomes(sp)]
+
+    def _clusters(self):
+        """--operons: the markers of each set in clusters of 1-6, the same in every species: [(marker, strand,
+        bases to the next gene of the cluster)] left to right in the genome; a cluster on the minus strand lists
+        its genes in reverse, so that its genes face each other as in one on the plus strand. Drawn with a
+        generator of its own."""
+        rng = random.Random(self.args.seed + 104729)
+        clusters = {}
+        for mset, markers in sorted(self.markers_by_set.items()):
+            pool = list(markers)
+            rng.shuffle(pool)
+            out = []
+            while pool:
+                size = min(len(pool), rng.choice((1, 2, 3, 4, 5, 6)))
+                genes, pool = pool[:size], pool[size:]
+                strand = rng.choice("+-")
+                gaps = [rng.randint(0, 150) for _ in genes]
+                if strand == "-":
+                    genes = genes[::-1]
+                out.append([(m, strand, gap) for m, gap in zip(genes, gaps)])
+            clusters[mset] = out
+        return clusters
+
+    def _operon_layout(self, sp):
+        """--operons: the order and strands of a species' markers and the bases after each (index 0: before the
+        first): its set's clusters, each broken up into single genes in the species' family with probability
+        --operon_breaks (the same for every species of the family), in an order of the species' own, apart by
+        spacers that share --genome_length."""
+        family = ";".join(sp["lineage"].split(";")[:5])
+        family_rng = random.Random(f"{self.args.seed}:{family}")
+        blocks = []
+        for cluster in self.clusters[sp["set"]]:
+            if len(cluster) > 1 and family_rng.random() < self.args.operon_breaks:
+                blocks.extend([[gene] for gene in cluster])
+            else:
+                blocks.append(cluster)
+        self.rng.shuffle(blocks)
+        spacer = self.args.genome_length // (len(blocks) + 1)
+        order, strand, after = [], {}, [spacer]
+        for block in blocks:
+            for i, (m, s, gap) in enumerate(block):
+                order.append(m)
+                strand[m] = s
+                after.append(gap if i + 1 < len(block) else spacer)
+        return order, strand, after
 
     def _gene_rates(self, markers):
         """{marker: rate}, which multiplies every branch's divergence at that marker (1 each without
@@ -277,11 +329,15 @@ class Simulator:
 
     def _make_genomes(self, sp):
         a = self.args
-        order = list(sp["markers"])
-        self.rng.shuffle(order)
-        strand = {m: "+" if self.rng.random() < 0.5 else "-" for m in order}
-        spacer = a.genome_length // (len(order) + 1)
-        background = [random_dna(self.rng, spacer, sp["gc"]) for _ in range(len(order) + 1)]
+        if a.operons:
+            order, strand, after = self._operon_layout(sp)
+            background = [random_dna(self.rng, n, sp["gc"]) for n in after]
+        else:
+            order = list(sp["markers"])
+            self.rng.shuffle(order)
+            strand = {m: "+" if self.rng.random() < 0.5 else "-" for m in order}
+            spacer = a.genome_length // (len(order) + 1)
+            background = [random_dna(self.rng, spacer, sp["gc"]) for _ in range(len(order) + 1)]
 
         for g in range(1, a.genomes_per_species + 1):
             is_rep = g == 1
@@ -307,8 +363,10 @@ class Simulator:
             }
 
     def _assemble(self, acc, order, genes, strand, bg):
-        """Interleave background spacers and genes; split into contigs between genes."""
+        """Interleave background spacers and genes; split into contigs between genes. With --operons, bg[i + 1]
+        is what follows order[i] (a gene the genome lacks takes its bases with it); else the i-th present gene."""
         present = [m for m in order if m in genes]
+        after = {m: bg[i + 1] for i, m in enumerate(order)} if self.args.operons else None
         n_contigs = max(1, min(self.args.contigs, len(present)))
         # n contigs need n - 1 breaks, chosen among the len(present) - 1 gene gaps.
         breaks = set(self.rng.sample(range(len(present) - 1), n_contigs - 1)) if n_contigs > 1 else set()
@@ -318,8 +376,9 @@ class Simulator:
             seq = genes[m] if strand[m] == "+" else revcomp(genes[m])
             contig = f"{acc}_contig{len(contigs) + 1}"
             positions.append((m, contig, cur_len + 1, cur_len + len(seq), strand[m]))
-            cur += [seq, bg[i + 1]]
-            cur_len += len(seq) + len(bg[i + 1])
+            tail = after[m] if after else bg[i + 1]
+            cur += [seq, tail]
+            cur_len += len(seq) + len(tail)
             if i in breaks:
                 contigs.append("".join(cur))
                 cur, cur_len = [], 0
@@ -405,6 +464,12 @@ def main():
                          "default) or categories (ribosomal proteins 0.4, translation and transcription 0.8, "
                          "tRNA synthetases and modification 1.1, the rest 1.4, each with some noise, mean 1; "
                          "written to simulation/gene_rates.tsv)")
+    ap.add_argument("--operons", action="store_true",
+                    help="markers in clusters of 1-6 genes 0-150 bases apart, the same in every species, as the "
+                         "ribosomal protein operons are, instead of shuffled per species and spaced evenly")
+    ap.add_argument("--operon_breaks", type=float, default=0.25,
+                    help="with --operons: the probability that a family has a cluster broken up into single "
+                         "genes (default 0.25)")
     args = ap.parse_args()
 
     if not 1 <= args.genomes_per_species <= 999:

@@ -20,6 +20,7 @@
 #include "AlignmentOutputHandler.h"
 #include "GenomeLoader.h"
 #include "KmerUtils.h"
+#include "MateGuidance.h"
 
 namespace protal {
     inline constexpr size_t kMaxLongReadChunk = 65000;
@@ -94,13 +95,15 @@ namespace protal {
     };
 
     // The hits of one place of a read: a gene and its homologs in other taxa, best first, each
-    // alignment once, and the MAPQ of the best against the next; or, if the gene alone could not
-    // tell them apart but the read's other genes could (SettleByRead), the best is the hit of the
-    // read's taxon and by_read is set.
+    // alignment once, and the MAPQ of the best against the next. SettleByRead gives the segment its
+    // read's consensus taxon: its hit of that taxon becomes the best, by_read set where that changed
+    // the best or raised its MAPQ; a segment without a hit of that taxon, or with a clearly better hit
+    // of another, keeps its best with MAPQ 0, inconsistent set.
     struct LongReadSegment {
         std::vector<LongReadHit> hits;
         int mapq = 0;
         bool by_read = false;
+        bool inconsistent = false;
     };
 
     using LongReadSegments = std::vector<LongReadSegment>;
@@ -137,56 +140,48 @@ namespace protal {
 
     // A segment is confident with a MAPQ of at least this (the profiler's minimum).
     inline constexpr int kConfidentMapq = 4;
-    // The share of its confident segments that one taxon needs to be a read's taxon.
-    inline constexpr double kReadTaxonShare = 2.0 / 3.0;
 
-    // The taxon of a read, from its confident segments: each votes for the taxon of its best hit, and
-    // a taxon with at least kReadTaxonShare of the votes is the read's. Votes count equally: a gene
-    // that the read's species lacks in the database aligns to a relative with a high MAPQ (it has no
-    // competitor), and weighting by MAPQ let one such gene outvote several of the species' own.
-    // Returns the taxon with the lowest MAPQ of the segments that voted for it (the weakest evidence
-    // it rests on); nullopt without one.
-    struct ReadTaxon {
-        uint32_t taxid = 0;
-        int mapq = 0;
-    };
-
-    inline std::optional<ReadTaxon> TaxonOfRead(LongReadSegments const& segments) {
-        std::vector<std::pair<uint32_t, int>> votes;  // taxon, confident segments
-        int total = 0;
+    // The read's consensus taxon over its segments' hits (ConsensusOfRead: taxa compared on the genes both hit,
+    // so that a gene the read's species lacks in the database, which aligns to a relative alone, outvotes
+    // nothing). It needs hits on at least half of the read's segments; otherwise (a read of several species)
+    // the segments keep their own hits.
+    inline std::optional<ReadConsensus> ConsensusOfSegments(LongReadSegments const& segments) {
+        std::vector<std::vector<PartCandidate>> parts;
+        parts.reserve(segments.size());
         for (auto const& segment : segments) {
-            if (segment.mapq < kConfidentMapq || segment.by_read || segment.hits.empty()) continue;
-            auto const taxid = segment.hits.front().alignment.Taxid();
-            auto it = std::find_if(votes.begin(), votes.end(), [taxid](auto const& v) { return v.first == taxid; });
-            if (it == votes.end()) votes.emplace_back(taxid, 1);
-            else it->second++;
-            total++;
+            parts.emplace_back();
+            for (auto const& hit : segment.hits) parts.back().push_back({ hit.alignment.Taxid(), LongReadBitscore(hit) });
         }
-        if (votes.empty()) return std::nullopt;
-        auto const best = std::max_element(votes.begin(), votes.end(), [](auto const& a, auto const& b) { return a.second < b.second; });
-        if (best->second < kReadTaxonShare * total) return std::nullopt;
-        ReadTaxon taxon{ best->first, std::numeric_limits<int>::max() };
-        for (auto const& segment : segments) {
-            if (segment.mapq >= kConfidentMapq && !segment.by_read && !segment.hits.empty() &&
-                segment.hits.front().alignment.Taxid() == taxon.taxid) {
-                taxon.mapq = std::min(taxon.mapq, segment.mapq);
-            }
-        }
-        return taxon;
+        return ConsensusOfRead(parts, (segments.size() + 1) / 2);
     }
 
-    // Settles an ambiguous segment (MAPQ below kConfidentMapq) by its read's taxon: if the segment
-    // has a hit of the taxon that its best cannot be told apart from (the best's MAPQ against it is
-    // below kConfidentMapq), that hit becomes the best, with the taxon's MAPQ. Returns whether it did.
-    inline bool SettleByRead(LongReadSegment& segment, ReadTaxon const& taxon) {
-        if (segment.mapq >= kConfidentMapq || segment.hits.empty()) return false;
+    // Gives a segment its read's consensus taxon: its hit of that taxon becomes the best, with the read's MAPQ
+    // where that is higher than the segment's own (the read's other genes tell what the gene alone could not;
+    // by_read is then set). A segment without a hit of the taxon (a gene the read's species lacks in the database),
+    // or whose best hit is clearly another taxon's (the gene alone tells them apart, MAPQ kConfidentMapq or more:
+    // a chimeric read, or a homolog of the taxon's gene that lies elsewhere on the read), keeps its best hit with
+    // MAPQ 0, so that it is no evidence for that hit's taxon (inconsistent is set). Returns whether the segment
+    // changed.
+    inline bool SettleByRead(LongReadSegment& segment, ReadConsensus const& read) {
         auto& hits = segment.hits;
-        auto it = std::find_if(hits.begin(), hits.end(), [&taxon](LongReadHit const& h) { return h.alignment.Taxid() == taxon.taxid; });
-        if (it == hits.end()) return false;
-        int const best = LongReadBitscore(hits.front()), own = LongReadBitscore(*it);
-        if (it != hits.begin() && own < best && MAPQv2(best, own) >= kConfidentMapq) return false;  // clearly another taxon's gene
+        if (hits.empty()) return false;
+        auto it = std::find_if(hits.begin(), hits.end(), [&read](LongReadHit const& h) { return h.alignment.Taxid() == read.taxid; });
+        bool const clearly_other = it != hits.end() && it != hits.begin() && LongReadBitscore(*it) < LongReadBitscore(hits.front()) &&
+                                   MAPQv2(LongReadBitscore(hits.front()), LongReadBitscore(*it)) >= kConfidentMapq;
+        if (it == hits.end() || clearly_other) {
+            segment.mapq = 0;
+            segment.inconsistent = true;
+            return true;
+        }
+        int const read_mapq = read.mapq < 0 ? segment.mapq : read.mapq;  // -1: no other taxon competes on its genes
+        if (it == hits.begin()) {
+            if (read_mapq <= segment.mapq) return false;
+            segment.mapq = read_mapq;
+            segment.by_read = true;
+            return true;
+        }
         std::rotate(hits.begin(), it, it + 1);
-        segment.mapq = taxon.mapq;
+        segment.mapq = read_mapq;
         segment.by_read = true;
         return true;
     }
@@ -235,7 +230,9 @@ namespace protal {
         size_t m_last_anchors = 0;
         size_t m_chunked_reads = 0;
         size_t m_ambiguous = 0;  // segments the gene alone could not assign (MAPQ below kConfidentMapq)
-        size_t m_settled = 0;    // of these, those settled by their read's other genes
+        size_t m_settled = 0;    // segments whose best hit or MAPQ their read's consensus taxon changed
+        size_t m_inconsistent = 0;  // segments without a hit of their read's consensus taxon, or with a clearly better one of another (MAPQ 0)
+        size_t m_neighbour_genes = 0;  // hits found where the database's gene neighbours put a gene (AddNeighbourGenes)
 
         std::vector<bool> m_aligned;                        // per candidate of the read
         std::vector<std::vector<size_t>> m_segment_members; // per segment of the read, its candidates
@@ -320,6 +317,115 @@ namespace protal {
             return hit;
         }
 
+        // The genes next to the read's genes of taxon `taxid` (the database's gene neighbours, AcrossGenes.h): past
+        // each end of such a gene that the read goes on beyond, each gene the taxon's clade has there (at most two,
+        // the most common first) is looked for where it should lie on the read, the clade's gap range and a margin
+        // either side, unless a segment has a hit of it already. A gene seeded on the read has candidates: if one was
+        // aligned (and did not pass) the gene is not tried again, else its longest is aligned. An unseeded gene (too
+        // divergent for the seeds) is anchored on the diagonal on which most of the window's k-mers match it
+        // (kRescueMinHits or more) and aligned as any other. The hit joins the segment of its place on the read, or
+        // becomes one of its own; a gene found so is followed on in turn. Returns whether a hit was added.
+        bool AddNeighbourGenes(FastxRecord const& record, LongReadSegments& segments, uint32_t taxid) {
+            if (m_genomes.GetGeneNeighbours().Empty()) return false;
+            using gene_neighbours::End;
+            static thread_local std::vector<gene_neighbours::Rule const*> rules;
+            auto const& read = record.sequence;
+            int64_t const read_length = static_cast<int64_t>(read.size());
+            auto has_gene = [&segments, taxid](uint32_t gene) {
+                return std::any_of(segments.begin(), segments.end(), [&](LongReadSegment const& s) {
+                    return std::any_of(s.hits.begin(), s.hits.end(), [&](LongReadHit const& h) {
+                        return h.alignment.Taxid() == taxid && h.alignment.GeneId() == gene;
+                    });
+                });
+            };
+            bool added = false;
+            for (size_t s = 0; s < segments.size(); s++) {  // grows as genes are found
+                auto const it = std::find_if(segments[s].hits.begin(), segments[s].hits.end(),
+                                             [taxid](LongReadHit const& h) { return h.alignment.Taxid() == taxid; });
+                if (it == segments[s].hits.end()) continue;
+                uint32_t const gene = static_cast<uint32_t>(it->alignment.GeneId());
+                bool const forward = it->alignment.Forward();
+                int64_t const position = it->alignment.GetAlignmentInfo().gene_alignment_start;
+                ReadInterval const aligned = it->aligned;
+                int64_t const gene_length = static_cast<int64_t>(m_genomes.GeneLength(taxid, gene));
+                // Where the gene's ends lie on the read (forward read coordinates, indels aside): a forward hit runs
+                // 5' to 3' left to right, a reverse one right to left.
+                int64_t const five = forward ? aligned.start - position : aligned.end + position;
+                int64_t const three = forward ? five + gene_length : five - gene_length;
+                for (End const end : { End::Five, End::Three }) {
+                    int64_t const boundary = end == End::Five ? five : three;
+                    bool const rightwards = (end == End::Three) == forward;  // the read goes on past this end to its right
+                    int64_t const past = rightwards ? read_length - boundary : boundary;
+                    if (past < kRescueMinBases) continue;
+                    across_genes::Neighbours(m_genomes, taxid, gene, end, 2, rules);
+                    for (auto const* rule : rules) {
+                        if (has_gene(rule->partner)) continue;
+                        int64_t const partner_length = static_cast<int64_t>(m_genomes.GeneLength(taxid, rule->partner));
+                        int64_t const margin = Margin(partner_length) + gene_neighbours::kGapSlack;
+                        // The partner from its facing end gap bases past the boundary, in the read's direction.
+                        int64_t const near = rule->gap_min - margin, far = rule->gap_max + partner_length + margin;
+                        ReadInterval const window = (rightwards ? ReadInterval{ boundary + near, boundary + far }
+                                                                : ReadInterval{ boundary - far, boundary - near }).Within(read_length);
+                        ReadInterval const expected = (rightwards ? ReadInterval{ boundary + rule->gap_median, boundary + rule->gap_median + partner_length }
+                                                                  : ReadInterval{ boundary - rule->gap_median - partner_length, boundary - rule->gap_median });
+                        if (expected.Within(read_length).Length() < kRescueMinBases || window.Length() > std::numeric_limits<uint16_t>::max()) continue;
+                        // A gene that was seeded on the read has a candidate: one aligned already did not pass (too
+                        // divergent), and is not tried again; one beyond the align_top longest is aligned now.
+                        size_t seeded = SIZE_MAX;
+                        bool tried = false;
+                        for (size_t c = 0; c < m_candidates.size() && !tried; c++) {
+                            auto const& a = m_candidates[c].anchor;
+                            if (a.taxid != taxid || a.geneid != rule->partner) continue;
+                            tried = m_aligned[c];
+                            if (seeded == SIZE_MAX) seeded = c;  // the longest anchor
+                        }
+                        if (tried) continue;
+                        std::optional<LongReadHit> hit;
+                        if (seeded != SIZE_MAX) {
+                            m_aligned[seeded] = true;
+                            hit = Align(m_candidates[seeded], record);
+                        } else {
+                            // Not seeded: anchored on the diagonal on which most of the window's k-mers match the gene.
+                            bool const partner_forward = gene_neighbours::OrientationOnPartner(forward, end, rule->partner_end);
+                            m_window.assign(read, static_cast<size_t>(window.start), static_cast<size_t>(window.Length()));
+                            if (!partner_forward) KmerUtils::ReverseComplementInto(m_window, m_window_rev);
+                            auto const& query = partner_forward ? m_window : m_window_rev;
+                            auto const gene_sequence = m_genomes.GetGenome(taxid).GetGeneOMP(rule->partner).Sequence();
+                            auto const diagonal = mate_guidance::BestDiagonal(query, gene_sequence.View(), 0, kRescueK);
+                            if (diagonal.hits < kRescueMinHits) continue;
+                            Anchor anchor(taxid, rule->partner, partner_forward);
+                            anchor.chain.emplace_back(ChainLink(static_cast<uint32_t>(diagonal.offset + diagonal.readpos),
+                                                                static_cast<uint16_t>(diagonal.readpos), static_cast<uint16_t>(kRescueK)));
+                            anchor.total_length = static_cast<uint16_t>(kRescueK);
+                            LongReadCandidate candidate{ anchor, ReadChunk{ static_cast<size_t>(window.start), static_cast<size_t>(window.Length()),
+                                                                            { -kBeyondRead, kBeyondRead } }, expected, window };
+                            hit = Align(candidate, record);
+                        }
+                        if (!hit) continue;
+                        // Into the segment of the place it lies on (one of other taxa' hits only), else one of its own.
+                        size_t at = segments.size();
+                        for (size_t o = 0; o < segments.size() && at == segments.size(); o++) {
+                            for (auto const& h : segments[o].hits) {
+                                if (2 * h.aligned.Overlap(hit->aligned) >= std::min(h.aligned.Length(), hit->aligned.Length())) {
+                                    at = o;
+                                    break;
+                                }
+                            }
+                        }
+                        if (at == segments.size()) {
+                            segments.emplace_back();
+                            m_segment_members.emplace_back();
+                        }
+                        segments[at].hits.push_back(std::move(*hit));
+                        RankLongReadSegment(segments[at]);
+                        m_neighbour_genes++;
+                        added = true;
+                    }
+                }
+            }
+            return added;
+        }
+
     public:
         LongReadAligner(KmerHandler const& kmer_handler, AnchorFinder const& anchor_finder,
                         SimpleAlignmentHandler const& alignment_handler, GenomeLoader& genomes, size_t align_top,
@@ -354,15 +460,20 @@ namespace protal {
         AnchorFinder& GetAnchorFinder() { return m_anchor_finder; }
         KmerHandler& GetKmerHandler() { return m_kmer_handler; }
         SimpleAlignmentHandler& GetAlignmentHandler() { return m_alignment_handler; }
+        GenomeLoader& GetGenomes() { return m_genomes; }
 
         // Seeds and anchors of the last read, and reads that were seeded in chunks.
         size_t LastSeeds() const { return m_last_seeds; }
         size_t LastAnchors() const { return m_last_anchors; }
         size_t ChunkedReads() const { return m_chunked_reads; }
-        // Segments of all reads so far that their gene alone could not assign, and those of them the
-        // read's other genes settled.
+        // Segments of all reads so far that their gene alone could not assign; those whose best hit or MAPQ
+        // their read's consensus taxon changed; and those without a hit of that taxon or with a clearly better
+        // one of another (written with MAPQ 0).
         size_t AmbiguousSegments() const { return m_ambiguous; }
         size_t SettledSegments() const { return m_settled; }
+        size_t InconsistentSegments() const { return m_inconsistent; }
+        // Hits of genes found where the database's gene neighbours put them next to a read's genes.
+        size_t NeighbourGenes() const { return m_neighbour_genes; }
 
         // The segments of `record`: for each place of the read where genes were found, the up to
         // align_top longest anchors (and those as long as the last) are aligned.
@@ -411,27 +522,44 @@ namespace protal {
                 m_segment_members.push_back(std::move(members));
             }
 
-            // Genes that alone fit several taxa are settled by the read's other genes: their hit of
-            // the read's taxon (aligned now if its anchor was not among the longest) becomes the best.
+            // A read is one organism: its genes take the read's consensus taxon. A gene without a hit of that
+            // taxon gets one if the taxon has an anchor there that was not among the longest; then the consensus
+            // is taken again, with those hits, and settles every gene (SettleByRead).
             for (auto const& segment : segments) m_ambiguous += segment.mapq < kConfidentMapq;
-            auto const taxon = TaxonOfRead(segments);
-            if (!taxon) return;
+            // A read of one confident gene: the genes of its taxon next to it (AddNeighbourGenes).
+            if (segments.size() == 1 && segments.front().mapq >= kConfidentMapq) {
+                AddNeighbourGenes(record, segments, static_cast<uint32_t>(segments.front().hits.front().alignment.Taxid()));
+            }
+            if (segments.size() < 2) return;
+            auto consensus = ConsensusOfSegments(segments);
+            if (!consensus) return;
+            bool aligned_more = false;
             for (size_t s = 0; s < segments.size(); s++) {
                 auto& segment = segments[s];
-                if (segment.mapq >= kConfidentMapq) continue;
                 auto const& hits = segment.hits;
-                if (std::none_of(hits.begin(), hits.end(), [&taxon](LongReadHit const& h) { return h.alignment.Taxid() == taxon->taxid; })) {
-                    for (auto i : m_segment_members[s]) {  // longest anchor first
-                        if (m_candidates[i].anchor.taxid != taxon->taxid || m_aligned[i]) continue;
-                        m_aligned[i] = true;
-                        if (auto hit = Align(m_candidates[i], record)) {
-                            segment.hits.push_back(std::move(*hit));
-                            RankLongReadSegment(segment);
-                        }
-                        break;
+                if (std::any_of(hits.begin(), hits.end(), [&consensus](LongReadHit const& h) { return h.alignment.Taxid() == consensus->taxid; })) continue;
+                for (auto i : m_segment_members[s]) {  // longest anchor first
+                    if (m_candidates[i].anchor.taxid != consensus->taxid || m_aligned[i]) continue;
+                    m_aligned[i] = true;
+                    if (auto hit = Align(m_candidates[i], record)) {
+                        segment.hits.push_back(std::move(*hit));
+                        RankLongReadSegment(segment);
+                        aligned_more = true;
                     }
+                    break;
                 }
-                m_settled += SettleByRead(segment, *taxon);
+            }
+            if (aligned_more) consensus = ConsensusOfSegments(segments);
+            if (!consensus) return;
+            // The genes of the consensus taxon next to the read's genes that no segment has.
+            if (AddNeighbourGenes(record, segments, consensus->taxid)) {
+                consensus = ConsensusOfSegments(segments);
+                if (!consensus) return;
+            }
+            for (auto& segment : segments) {
+                bool const changed = SettleByRead(segment, *consensus);
+                m_settled += changed && !segment.inconsistent;
+                m_inconsistent += segment.inconsistent;
             }
         }
     };
@@ -453,6 +581,7 @@ namespace protal {
         sam.m_qual = hit.qual;
         sam.m_uniques = ar.Uniques();
         sam.m_uniques_two = ar.UniquesTwo();
+        sam.m_alternatives.clear();  // set on a segment's best record only
         Flag::SetReadReverseComplement(sam.m_flag, !ar.Forward());
     }
 
@@ -466,7 +595,8 @@ namespace protal {
      * Output of long reads: per segment its best hit, the others (up to -m) as secondary alignments
      * (0x100, MAPQ 0). The best segment's best hit is the read's primary alignment, those of the
      * other segments are supplementary (0x800), each with its segment's MAPQ; a segment settled by
-     * its read's other genes (SettleByRead) is tagged ZR:i:1. Records hold only the aligned bases
+     * its read's consensus taxon (SettleByRead) is tagged ZR:i:1, one without a hit of that taxon
+     * or with a clearly better one of another ZR:i:2 (with MAPQ 0). Records hold only the aligned bases
      * (hard clips); readers take each primary or supplementary record and the secondary ones after
      * it as one read's candidates.
      */
@@ -526,9 +656,11 @@ namespace protal {
                 if (CigarANI(segment.hits.front().alignment.Cigar()) < m_min_cigar_ani) continue;
                 bool first = true;
                 size_t written = 0;
+                auto const candidates = CandidateEdits(segment.hits, [](LongReadHit const& h) { return &h.alignment; });
                 for (auto const& hit : segment.hits) {
                     LongReadHitToSam(sam, hit, qname);
                     auto const& ar = hit.alignment;
+                    if (first) sam.m_alternatives = AlternativesTag(ar.Taxid(), AlignmentEdits(ar.GetAlignmentInfo().compressed_cigar), candidates);
                     auto const reference = m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()).Sequence();
                     if (!ExtractSNPs(sam, reference, snps, ar.Taxid(), ar.GeneId(), 0)) {
 #pragma omp critical(err_out)
@@ -544,8 +676,10 @@ namespace protal {
                     sam.m_cigar = LongReadCigar(hit);
                     if (!read_records.empty()) read_records += '\n';
                     read_records += sam.ToString();
-                    // ZR:i:1: the best hit is the read's taxon's, which the gene alone could not tell.
+                    // ZR:i:1: the best hit is the read's consensus taxon's, which the gene alone could not tell;
+                    // ZR:i:2: the read's consensus taxon has no hit on this gene, or a clearly worse one than another taxon's.
                     if (first && segment.by_read) read_records += "\tZR:i:1";
+                    if (first && segment.inconsistent) read_records += "\tZR:i:2";
                     m_genes.push_back(SamGeneKey(ar.Taxid(), ar.GeneId()));
                     primary_written = true;
                     first = false;

@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -492,4 +493,97 @@ TEST(MicrobialProfile, RejectsRecordsOutsideTheDatabase) {
     EXPECT_TRUE(profile.AddSam(1, 1, inside, 1.0));
     ASSERT_EQ(profile.GetTaxa().size(), 1u);
     EXPECT_EQ(profile.GetTaxa().at(1).TotalHits(), 1u);
+}
+
+TEST(MicrobialProfile, CountsAlternativesLowMapqAndLinkedReads) {
+    TinyReference ref;
+    auto sam_at = [&](int pos, int mapq, std::string alternatives) {
+        SamEntry sam;
+        sam.m_qname = "r";
+        sam.m_flag = 0;
+        sam.m_rname = "1_1";
+        sam.m_pos = pos;
+        sam.m_mapq = mapq;
+        sam.m_cigar = "10M";
+        sam.m_seq = ref.gene.substr(pos - 1, 10);
+        sam.m_qual = std::string(10, 'I');
+        sam.m_alternatives = std::move(alternatives);
+        return sam;
+    };
+    // Taxa 1 and 2 are of genus 10, taxon 3 of genus 11.
+    auto genera = std::make_shared<std::vector<uint32_t>>(std::vector<uint32_t>{ 0, 10, 10, 11 });
+    auto fill = [&](profiler::MicrobialProfile& profile) {
+        auto add = [&](SamEntry const& sam, int read) {
+            profile.NoteRecord(1, sam);
+            EXPECT_TRUE(profile.AddSam(1, 1, sam, 1.0, true, read, true, static_cast<size_t>(read)));
+        };
+        // Read 0, both mates here: one fits a congener within an edit, the other a species of another genus.
+        add(sam_at(1, 60, "2:1"), 0);
+        add(sam_at(21, 60, "3:0,2:4"), 0);
+        // Read 1: an alternative two edits worse does not fit as well; its MAPQ is low.
+        add(sam_at(5, 3, "2:2"), 1);
+        // Read 2: no alternative.
+        add(sam_at(31, 60, "*"), 2);
+        // Read 3 fits a congener exactly (MAPQ 0): the profiler's MAPQ filter leaves it out of the taxon's hits,
+        // but it counts for the evidence.
+        profile.NoteRecord(1, sam_at(11, 0, "2:0"));
+        profile.ApplyRecordEvidence();
+        return profile.GetTaxa().at(1);
+    };
+    profiler::MicrobialProfile profile(*ref.loader);
+    profile.SetGenera(genera);
+    auto const& taxon = fill(profile);
+    EXPECT_EQ(taxon.TotalHits(), 4u);
+    EXPECT_DOUBLE_EQ(taxon.CongenerFitShare(), 0.4);
+    EXPECT_DOUBLE_EQ(taxon.OtherGenusFitShare(), 0.2);
+    EXPECT_DOUBLE_EQ(taxon.LowMapqShare(), 0.4);
+    EXPECT_DOUBLE_EQ(taxon.LinkedShare(), 1.0 / 3);
+    // As the model and the training dump get them.
+    std::map<std::string, double> features;
+    for (auto const& [name, value] : profiler::TaxonFeatures(taxon)) features[name] = value;
+    EXPECT_DOUBLE_EQ(features.at("congener_fit_share"), 0.4);
+    EXPECT_DOUBLE_EQ(features.at("other_genus_fit_share"), 0.2);
+    EXPECT_DOUBLE_EQ(features.at("low_mapq_share"), 0.4);
+    EXPECT_DOUBLE_EQ(features.at("linked_share"), 1.0 / 3);
+
+    // Without the genera the alternatives cannot be told apart: both shares are 0.
+    profiler::MicrobialProfile without(*ref.loader);
+    auto const& plain = fill(without);
+    EXPECT_DOUBLE_EQ(plain.CongenerFitShare(), 0.0);
+    EXPECT_DOUBLE_EQ(plain.OtherGenusFitShare(), 0.0);
+    EXPECT_DOUBLE_EQ(plain.LowMapqShare(), 0.4);
+    EXPECT_DOUBLE_EQ(plain.LinkedShare(), 1.0 / 3);
+}
+
+TEST(ProfileSam, ALongReadsGenesAreOneLinkedRead) {
+    // A 200 bp gene, so that alignments pass the profiler's minimum length (more than 50 bases).
+    std::string gene;
+    uint32_t state = 7;
+    for (int i = 0; i < 200; i++) {
+        state = state * 1103515245u + 12345u;
+        gene += "ACGT"[(state >> 16) & 3];
+    }
+    ScratchDir dir;
+    std::string header = ">1_1\n";
+    auto fna = dir.Write("reference.fna", header + gene + '\n');
+    auto map = dir.Write("reference.map", "1\t1\t" + std::to_string(header.size()) + '\t' + std::to_string(header.size() + gene.size()) + '\n');
+    GenomeLoader loader(fna, map);
+    loader.LoadAllGenomes();
+
+    std::string const tags = "\tZU:i:1\tZT:i:0\tZA:Z:*";
+    // Read c: two parts on the gene (a primary and a supplementary record); read d: one part; read e: MAPQ 2,
+    // which the profiler's MAPQ filter leaves out of the hits.
+    auto sam = dir.Write("long.sam", "@HD\tVN:1.6\n" + kSamReadTypeComment + "pb\n" +
+            Record("c", 0, "1_1", "60M", gene.substr(0, 60), tags, 1) +
+            Record("c", 0x800, "1_1", "60M", gene.substr(100, 60), tags, 101) +
+            Record("d", 0, "1_1", "60M", gene.substr(20, 60), tags, 21) +
+            Record("e", 0, "1_1", "60M", gene.substr(40, 60), tags, 41, 2));
+    profiler::Profiler profiler(loader);
+    profiler::MicrobialProfile profile(loader);
+    EXPECT_EQ(profiler.ProfileSam(sam, profile), "");
+    ASSERT_EQ(profile.GetTaxa().size(), 1u);
+    auto const& taxon = profile.GetTaxa().at(1);
+    EXPECT_EQ(taxon.TotalHits(), 3u);
+    EXPECT_DOUBLE_EQ(taxon.LinkedShare(), 0.5);
+    EXPECT_DOUBLE_EQ(taxon.LowMapqShare(), 0.25);  // read e counts: 1 of the 4 records
 }

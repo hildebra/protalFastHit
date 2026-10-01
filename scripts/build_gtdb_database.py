@@ -75,6 +75,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONVERTER = os.path.join(HERE, "mini_db", "gtdb_to_protal_db.py")
+GENE_NEIGHBOURS = os.path.join(HERE, "mini_db", "gene_neighbours.py")
 TRAINER = os.path.join(HERE, "random_forest_cmdline.py")
 COLLECTOR = os.path.join(HERE, "collect_training_data.py")
 PARITY = os.path.join(HERE, "check_model_parity.py")
@@ -448,6 +449,19 @@ def gene_conservation_summary(build_log):
     return text.rsplit(": ", 1)[0] if text.endswith("gene_conservation.tsv") else text
 
 
+def gene_neighbours_summary(build_log):
+    """What protal --build said of the gene neighbours it packed (its "Gene neighbours:" line), for
+    build_metadata.tsv."""
+    try:
+        with open(build_log) as fh:
+            lines = [line.strip() for line in fh if line.startswith("Gene neighbours:")]
+    except OSError:
+        return "unknown (no build log)"
+    if not lines:
+        return "none (this protal does not pack them)"
+    return lines[-1].removeprefix("Gene neighbours:").strip()
+
+
 def provenance(args, release, genome_table, heldout, n_heldout, read_types, prefixes):
     """build_metadata.tsv: what the database was built from and with, so that two builds can be compared."""
     def output(command):
@@ -472,6 +486,7 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
             ("scripts_commit", commit or "unknown (not a git checkout)"), ("command", " ".join(sys.argv)),
             ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, "index_and_package.log"))),
+            ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("classifier_features", "normalized"), ("classifier_trees", args.ntree),
             ("classifier_max_leaves", args.maxnodes), ("classifier_training_species_left_out", n_heldout)]
     rows += [(f"classifier_training_{rank}_clades_left_out", clade_counts[rank]) for rank in CLADE_RANKS
@@ -741,6 +756,9 @@ def main():
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--ntree", type=int, default=64)
     p.add_argument("--maxnodes", type=int, default=128)
+    p.add_argument("--no-gene-neighbours", action="store_true",
+                   help="do not record which marker genes lie next to which in the genomes to simulate from "
+                        "(gene_neighbours.py; protal then pairs no mates across neighbouring genes)")
     p.add_argument("--no-placeholder-models", action="store_true",
                    help="leave the se, pb and ont models out of the database (a run with such reads then stops "
                         "with an error) instead of placeholders that report no species until trained ones replace "
@@ -824,7 +842,8 @@ def main():
     # A rerun skips what an earlier run into OUTDIR completed with the same inputs (see Stages).
     stages = Stages(os.path.join(args.outdir, ".stages"))
     convert_key = {"converter": content_hash(CONVERTER), "release": release, "gtdb": release_identity(args.gtdb, release),
-                   "placeholders": not args.no_placeholder_models}
+                   "placeholders": not args.no_placeholder_models,
+                   "gene_neighbours": None if args.no_gene_neighbours else [content_hash(GENE_NEIGHBOURS), content_hash(genome_table)]}
     final_key = {"convert": convert_key, "protal": file_identity(args.protal)}
     final_done = stages.done("protal_db", final_key) and os.path.isfile(os.path.join(db, "database.protal"))
     # --build packs the taxonomy into database.protal; the collector and the trainer read it (domains,
@@ -840,6 +859,13 @@ def main():
                    str(args.threads)], log, label="converting the release")
         say(f"Converted GTDB r{release} in {job.took()}")
         shutil.copyfile(os.path.join(into, "internal_taxonomy.dmp"), taxonomy)
+        if not args.no_gene_neighbours:
+            # Which marker genes lie next to which, from the representatives among the genomes to simulate from
+            # (gene_neighbours.tsv, which --build packs; a copy without some species keeps it, per clade).
+            log = os.path.join(args.outdir, "gene_neighbours.log")
+            job = run([sys.executable, GENE_NEIGHBOURS, "--db", into, "--genome_table", genome_table, "-t", str(args.threads)],
+                      log, label="finding the genes' neighbours")
+            say(f"Found the genes' neighbours in the genomes in {job.took()} ({log})")
         if not args.no_placeholder_models:
             for read_type in ("se", "pb", "ont"):
                 write_placeholder(os.path.join(into, MODEL_FILES[read_type]), read_type)

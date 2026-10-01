@@ -35,6 +35,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIMULATE = os.path.join(HERE, "simulate_gtdb_release.py")
 CONVERT = os.path.join(HERE, "gtdb_to_protal_db.py")
+GENE_NEIGHBOURS = os.path.join(HERE, "gene_neighbours.py")
 SIMULATE_READS = os.path.join(HERE, "simulate_reads.py")
 LINEAGES = os.path.join(HERE, "gtdb_like_lineages.py")
 DOWNLOAD = os.path.join(HERE, "..", "download_gtdb.py")
@@ -1130,6 +1131,145 @@ class MiniDbTest(unittest.TestCase):
 
 
 BUILD = os.path.join(HERE, "..", "build_gtdb_database.py")
+
+
+class GeneNeighboursTest(unittest.TestCase):
+    """gene_neighbours.py on a release whose markers lie in operon-like clusters (simulate_gtdb_release.py
+    --operons), 4 species in one family and 2 in another: every representative's genes are found where the
+    simulator put them, and the lines of each family count exactly the neighbours its species' marker positions
+    give (worked out here independently)."""
+
+    MAX_GAP = 3000
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        lineages = os.path.join(cls.tmp.name, "lineages.txt")
+        order = "d__Bacteria;p__Simulatota;c__Simulatia;o__Simulales"
+        with open(lineages, "w") as fh:
+            fh.writelines(f"{order};f__Simulaceae;g__Mockella;s__Mockella s{i}\n" for i in range(4))
+            fh.writelines(f"{order};f__Otheraceae;g__Otherella;s__Otherella s{i}\n" for i in range(2))
+        cls.gtdb = os.path.join(cls.tmp.name, "gtdb")
+        cls.db = os.path.join(cls.tmp.name, "db")
+        run(SIMULATE, "--outdir", cls.gtdb, "--lineages", lineages, "--operons", "--operon_breaks", "0.5",
+            "--genome_length", "400000", "--genomes_per_species", "2", "--contigs", "4")
+        run(CONVERT, "--gtdb", cls.gtdb, "--outdir", cls.db)
+        cls.positions = os.path.join(cls.tmp.name, "positions.tsv")
+        cls.output = subprocess.run([sys.executable, GENE_NEIGHBOURS, "--db", cls.db, "--genome_table",
+                                     os.path.join(cls.gtdb, "simulation", "genomes.tsv"), "--positions", cls.positions,
+                                     "-t", "2"], check=True, capture_output=True, text=True).stdout
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def table(self, name, key_columns):
+        with open(os.path.join(self.db, name) if not os.path.isabs(name) else name) as fh:
+            rows = [line.rstrip("\n").split("\t") for line in fh if not line.startswith("#")]
+        header = rows[0]
+        return [dict(zip(header, r)) for r in rows[1:]] if key_columns else rows
+
+    def representatives(self):
+        """{accession: (species taxid, family taxid)} of the representatives."""
+        with open(os.path.join(self.db, "internal_taxonomy.dmp")) as fh:
+            next(fh)
+            nodes = {int(r[0]): r for r in (l.rstrip("\n").split("\t") for l in fh)}
+        reps = {}
+        for taxid, r in nodes.items():
+            if r[4] == "species":
+                parent = int(r[1])
+                while nodes[parent][4] != "family":
+                    parent = int(nodes[parent][1])
+                reps[r[6]] = (taxid, parent)
+        return reps
+
+    def truth(self):
+        """The simulator's representatives' marker positions: {accession: [(gene id, contig, start, end, strand)]}
+        (1-based, inclusive), and their contigs' lengths."""
+        with open(os.path.join(self.db, "gene2geneid.tsv")) as fh:
+            gene_id = dict(line.rstrip("\n").split("\t")[:2] for line in fh if line.strip())
+        reps = self.representatives()
+        positions = collections.defaultdict(list)
+        with open(os.path.join(self.gtdb, "simulation", "marker_positions.tsv")) as fh:
+            for r in csv.DictReader(fh, delimiter="\t"):
+                if r["accession"] in reps:
+                    positions[r["accession"]].append((int(gene_id[r["marker"]]), r["contig"], int(r["start"]), int(r["end"]), r["strand"]))
+        lengths = {}
+        with open(os.path.join(self.gtdb, "simulation", "genomes.tsv")) as fh:
+            for r in csv.DictReader(fh, delimiter="\t"):
+                if r["accession"] in reps:
+                    lengths.update({name: len(seq) for name, seq in read_fasta(r["fasta_path"]).items()})
+        return reps, positions, lengths
+
+    def test_genes_are_found_where_the_simulator_put_them(self):
+        reps, positions, _ = self.truth()
+        expected = {(acc, g, c, s, e, st) for acc, genes in positions.items() for g, c, s, e, st in genes}
+        found = {(r["accession"], int(r["gene"]), r["contig"], int(r["start"]), int(r["end"]), r["strand"])
+                 for r in self.table(self.positions, True)}
+        self.assertEqual(found, expected)
+        self.assertIn("6 of 6 species have their representative genome", self.output)
+        self.assertIn("(100.0%)", self.output)
+
+    def test_family_lines_count_the_neighbours_of_its_species(self):
+        reps, positions, lengths = self.truth()
+        expected = collections.defaultdict(lambda: [0, []])  # (family, gene, end, partner, partner end) -> species, gaps
+        informative = collections.Counter()
+        for acc, genes in positions.items():
+            family = reps[acc][1]
+            by_contig = collections.defaultdict(list)
+            for g, c, s, e, st in genes:
+                by_contig[c].append((s, e, g, st))
+            for contig, row in by_contig.items():
+                row.sort()
+                for i, (s, e, g, st) in enumerate(row):
+                    right, left = (3, 5) if st == "+" else (5, 3)
+                    sides = []
+                    if i + 1 < len(row) and row[i + 1][0] - 1 - e <= self.MAX_GAP:
+                        n = row[i + 1]
+                        sides.append((right, n[2], 5 if n[3] == "+" else 3, n[0] - 1 - e))
+                    elif i + 1 < len(row) or lengths[contig] - e >= self.MAX_GAP:
+                        sides.append((right, 0, 0, 0))
+                    if i > 0 and s - 1 - row[i - 1][1] <= self.MAX_GAP:
+                        p = row[i - 1]
+                        sides.append((left, p[2], 3 if p[3] == "+" else 5, s - 1 - p[1]))
+                    elif i > 0 or s - 1 >= self.MAX_GAP:
+                        sides.append((left, 0, 0, 0))
+                    for end, partner, partner_end, gap in sides:
+                        expected[(family, g, end, partner, partner_end)][0] += 1
+                        expected[(family, g, end, partner, partner_end)][1].append(gap)
+                        informative[(family, g, end)] += 1
+        families = {f for _, f in reps.values()}
+        rows = {}
+        for r in self.table("gene_neighbours.tsv", True):
+            key = tuple(int(r[c]) for c in ("clade", "gene", "end", "partner", "partner_end"))
+            if key[0] in families:
+                rows[key] = r
+        self.assertEqual(set(rows), set(expected))
+        for key, (species, gaps) in expected.items():
+            r = rows[key]
+            self.assertEqual(int(r["species"]), species, key)
+            self.assertEqual(int(r["informative"]), informative[key[:3]], key)
+            if key[3]:
+                self.assertEqual((int(r["gap_min"]), int(r["gap_max"])), (min(gaps), max(gaps)), key)
+                self.assertLessEqual(int(r["gap_max"]), 150)  # within the simulator's clusters
+        # The two families differ: a cluster that one of them broke up.
+        by_family = collections.defaultdict(set)
+        for family, gene, end, partner, partner_end in rows:
+            if partner:
+                by_family[family].add((gene, end, partner, partner_end))
+        self.assertEqual(len(by_family), 2)
+        a, b = by_family.values()
+        self.assertTrue(a - b or b - a)
+
+    def test_the_order_holds_both_families(self):
+        rows = self.table("gene_neighbours.tsv", True)
+        clades = collections.Counter(int(r["clade"]) for r in rows)
+        reps = self.representatives()
+        families = {f for _, f in reps.values()}
+        self.assertTrue(families < set(clades))  # family, order, class, phylum, domain lines
+        informative = max(int(r["informative"]) for r in rows)
+        self.assertEqual(informative, 6)  # an end informative in all six species of the order
+        self.assertIn("family: 2 clades", self.output)
 
 
 @unittest.skipUnless(os.environ.get("PROTAL") and os.environ.get("SIMULATE") and shutil.which("art_illumina"),

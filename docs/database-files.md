@@ -1,7 +1,7 @@
 # Database files
 
-A protal database consists of six parts, an optional table of the genes' conservation, and models of
-other kinds of reads:
+A protal database consists of six parts, optional tables of the genes' conservation and of their
+neighbours, and models of other kinds of reads:
 
 | File | What it holds |
 |---|---|
@@ -11,6 +11,7 @@ other kinds of reads:
 | `internal_taxonomy.dmp` | the taxonomy: id, parent, external id, name, rank, level, representative genome |
 | `unique_kmers.tsv` | per species and gene, counts of the k-mers unique to it in the database; the uniqueness features of the model |
 | `gene_conservation.tsv` | optional: per gene id, how fast the gene diverges within species compared with the species' other genes (1 for a typical gene, below 1 for conserved ones), which `--build` estimates from `full_reference.fna` ([building-a-database.md](building-a-database.md#2-build-the-index)); `--gene_conservation db` scales `--depth_identity_margin` per gene by it, which is not the default. A database of an earlier version, or built from one genome per species, has none |
+| `gene_neighbours.tsv` | optional: per clade (family up to domain), which end of which gene faces which end of another gene within 3 kb in the representative genomes of its species, how often and how far apart; from whole genomes by `scripts/mini_db/gene_neighbours.py` ([building-a-database.md](building-a-database.md#gene-neighbours)). protal uses it to pair mates and follow long reads over neighbouring genes ([running.md](running.md#options-the-website-does-not-list)). A database of an earlier version, or built without genomes, has none |
 | `model_pe.xml` | the presence model (a random forest in PMML) of paired-end reads, see [model-training.md](model-training.md); `model.xml` in databases of earlier versions |
 | `model_se.xml` | optional: the presence model of single-end reads; without it, single-end samples need `--model_se` ([running.md](running.md#single-end-reads)) |
 | `model_PB.xml`, `model_ONT.xml` | optional: the presence models of PacBio and Nanopore reads (`--model_pb`, `--model_ont` without them) |
@@ -29,7 +30,10 @@ In `internal_taxonomy.dmp`, ids and names are unique (truth files and `--msa_spe
 taxa), every parent is defined, and every lineage ends at the root, a taxon that is its own
 parent. `reference.map` and `unique_kmers.tsv` list at least one gene. `gene_conservation.tsv` has a
 line `geneid<TAB>factor<TAB>species` per gene (the header line and the species column may be left
-out), factors above 0. protal stops at the first problem, with the file and line.
+out), factors above 0. `gene_neighbours.tsv` has ten numbers per line (`clade gene end partner
+partner_end species informative gap_median gap_min gap_max`; ends 5 or 3, partner 0 for no gene
+within 3 kb), every clade in the taxonomy and every gene in `reference.map`; `--build` checks it
+before packing it. protal stops at the first problem, with the file and line.
 
 ## Compression
 

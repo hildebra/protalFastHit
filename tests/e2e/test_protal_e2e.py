@@ -635,6 +635,116 @@ class GeneConservationTest(WorkDir):
         self.assertIn("--gene_conservation does not exist: no_such.tsv", log)
 
 
+class GeneNeighboursTest(WorkDir):
+    """A database of a synthetic release whose markers lie in operon-like clusters (simulate_gtdb_release.py
+    --operons), with the gene neighbours of its genomes (gene_neighbours.py), which --build checks and packs; read
+    pairs drawn from the genomes span neighbouring genes. protal pairs mates across them (a proper pair on two
+    references) and gives the adjacency features; --no_gene_neighbours does neither."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        scripts = os.path.join(ROOT, "scripts", "mini_db")
+        cls.gtdb, cls.db = os.path.join(cls.work, "gtdb"), os.path.join(cls.work, "db")
+
+        def python(*args):
+            proc = subprocess.run([sys.executable, *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            if proc.returncode != 0:
+                raise RuntimeError(" ".join(args[:1]) + " failed:\n" + proc.stdout[-3000:])
+            return proc.stdout
+
+        python(os.path.join(scripts, "simulate_gtdb_release.py"), "--outdir", cls.gtdb, "--operons", "--genome_length",
+               "200000", "--genomes_per_species", "1", "--contigs", "1")
+        python(os.path.join(scripts, "gtdb_to_protal_db.py"), "--gtdb", cls.gtdb, "--outdir", cls.db)
+        genomes = os.path.join(cls.gtdb, "simulation", "genomes.tsv")
+        python(os.path.join(scripts, "gene_neighbours.py"), "--db", cls.db, "--genome_table", genomes)
+        with open(os.path.join(cls.db, "gene_neighbours.tsv")) as fh:
+            cls.table = fh.read()
+        cls.inputs = os.path.join(cls.work, "inputs")  # the converted files, for builds of their own
+        shutil.copytree(cls.db, cls.inputs)
+        rc, cls.build_log = run(cls.work, "--build", "--no_profile", "-t", "2", "--db", cls.db,
+                                "--reference", os.path.join(cls.db, "reference.fna"))
+        if rc != 0:
+            raise RuntimeError("protal --build failed:\n" + cls.build_log[-3000:])
+        with open(genomes) as fh:
+            accessions = [row["accession"] for row in csv.DictReader(fh, delimiter="\t")]
+        community = os.path.join(cls.work, "community.tsv")
+        with open(community, "w") as fh:
+            fh.write("accession\trelative_abundance\n")
+            fh.writelines(f"{a}\t1\n" for a in accessions)
+        python(os.path.join(scripts, "simulate_reads.py"), "--genomes", genomes, "--community", community,
+               "--out_prefix", os.path.join(cls.work, "s"), "--pairs", "8000", "--seed", "5")
+        with open(os.path.join(cls.inputs, "internal_taxonomy.dmp")) as fh:  # --build packed the database's copy
+            next(fh)
+            cls.species = [r[0] for r in (line.split("\t") for line in fh) if r[4] == "species"]
+
+    def profile(self, name, *extra):
+        truth = self.path("truth.tsv")
+        with open(truth, "w") as fh:
+            fh.write("\n".join(self.species) + "\n")
+        rc, log = run(self.work, "--db", self.db, "-1", self.path("s_R1.fq"), "-2", self.path("s_R2.fq"), "--prefix", "s",
+                      "-o", name, "-t", "2", "--no_strains", "--profile_truth", truth, *extra)
+        self.assertEqual(rc, 0, log[-3000:])
+        records = sam_records(find_sams(self.path(name, "s*.sam"))[0])
+        with open(self.path(name, "s.profile.truth_annotated")) as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            rows = [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh]
+        return log, records, rows
+
+    @staticmethod
+    def across(records):
+        """The primary records of proper pairs whose mates are on two genes."""
+        return [r for r in records if int(r[1]) & 0x2 and not int(r[1]) & 0x100 and r[6] not in ("=", "*")]
+
+    def test_the_build_checks_and_packs_the_neighbours(self):
+        self.assertIn("Gene neighbours: ", self.build_log)
+        self.assertIn("stored in the database", self.build_log)
+        unpacked = self.path("unpacked")
+        rc, log = run(self.work, "--unpack_db", "--db", self.db, "--unpack_dir", unpacked, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(os.path.join(unpacked, "gene_neighbours.tsv")) as fh:
+            self.assertEqual(fh.read(), self.table)
+
+    def test_a_bad_table_stops_the_build(self):
+        db = self.path("bad")
+        shutil.copytree(self.inputs, db)
+        with open(os.path.join(db, "gene_neighbours.tsv"), "a") as fh:
+            fh.write(self.table.splitlines()[-1].split("\t", 1)[0] + "\t999\t3\t0\t0\t1\t1\t0\t0\t0\n")
+        rc, log = run(self.work, "--build", "--no_profile", "--no_bundle", "-t", "2", "--db", db,
+                      "--reference", os.path.join(db, "reference.fna"))
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertIn("gene 999 is not in the database", log)
+
+    def test_mates_pair_across_neighbouring_genes(self):
+        log, records, rows = self.profile("with")
+        self.assertRegex(log, r"Gene neighbours: \d+ rules of \d+ clades")
+        paired = int(re.search(r"Gene neighbours: (\d+) fragments paired across two neighbouring genes", log).group(1))
+        self.assertGreater(paired, 50)
+        across = self.across(records)
+        self.assertGreater(len(across), paired)  # both mates of nearly every such fragment (a few fail the identity filter)
+        self.assertLessEqual(len(across), 2 * paired)
+        # Each such pair's genes face each other in its species' clade.
+        adjacent = set()
+        for line in self.table.splitlines():
+            f = line.split("\t")
+            if f[0].isdigit() and f[3] != "0":
+                adjacent.add((f[1], f[3]))
+        for r in across:
+            taxid, gene = r[2].split("_")
+            other_taxid, other = r[6].split("_")
+            self.assertEqual(taxid, other_taxid)
+            self.assertIn((gene, other), adjacent)
+            self.assertEqual(r[8], "0")  # TLEN on two references
+        present = [row for row in rows if row["truth"] == "1"]
+        self.assertTrue(present)
+        self.assertTrue(all(float(row["adjacent_expected_share"]) > 0.9 for row in present), present)
+
+        log, records, rows = self.profile("without", "--no_gene_neighbours")
+        self.assertIn("Gene neighbours: not used (--no_gene_neighbours)", log)
+        self.assertEqual(self.across(records), [])
+        self.assertTrue(all(float(row["adjacent_expected_share"]) == 0 for row in rows))
+
+
 class ModelContractTest(WorkDir):
     """The training dump holds the features the model is scored with, and --no_strains changes no profile."""
 
@@ -2116,7 +2226,9 @@ class PacBioTest(WorkDir):
         self.assertIn("Align the PacBio reads of sample la", self.log)
         self.assertIn("Model of PacBio reads: " + os.path.join(self.db, "model_PB.xml"), self.log)
         self.assertIn("1 read(s) longer than 65000 bp were seeded in chunks", self.log)
-        self.assertRegex(self.log, r"\d+ of \d+ gene hits that fit several taxa \(MAPQ < 4\) were settled by their read's other genes")
+        self.assertRegex(self.log, r"\d+ gene hits fit several taxa \(MAPQ < 4\); \d+ gene hits took their read's consensus taxon "
+                                   r"\(another best hit or a higher MAPQ\), and \d+ had no hit of it or a clearly better one of "
+                                   r"another taxon \(written with MAPQ 0\)")
         with open_sam(self.path("out", "la.sam")) as fh:
             self.assertIn("@CO\tprotal read type: pb\n", fh.read())
 

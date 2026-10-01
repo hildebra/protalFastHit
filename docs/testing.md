@@ -86,7 +86,14 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
   (these two take a rate or a range `LOW-HIGH` drawn per genome or species, written to
   `simulation/divergence.tsv`), `--gene_rates categories` (markers evolve at different speeds by what
   they do: ribosomal proteins 0.4, translation and transcription 0.8, tRNA synthetases and modification
-  1.1, the rest 1.4, with noise, mean 1; `simulation/gene_rates.tsv`).
+  1.1, the rest 1.4, with noise, mean 1; `simulation/gene_rates.tsv`), `--operons` (markers in
+  clusters of up to 6 genes 0-150 bases apart, in the same order in every species, each family
+  breaking some up with `--operon_breaks`, 0.25: read pairs and long reads then span neighbouring
+  genes, as in real genomes; without it each species' markers are shuffled and about 1.2 kb apart).
+  `simulation/marker_positions.tsv` says where each gene lies.
+- `gene_neighbours.py` finds the database's genes in the representatives' genomes and writes
+  `gene_neighbours.tsv` (which genes lie next to which, per clade;
+  [building-a-database.md](building-a-database.md#gene-neighbours)); `build_mini_db.sh` runs it.
 - `gtdb_like_lineages.py` writes lineages shaped like GTDB's for `--lineages`: up to 999 species,
   most genera with one species and a few with many, unique names, a share of archaea. It makes the
   world the presence model's training was tuned on ([model-training.md](model-training.md)).

@@ -19,6 +19,7 @@
 #include "SamFile.h"
 #include "SNP.h"
 #include "AlignmentUtils.h"
+#include "ReadConsensus.h"
 #include "SNPUtils.h"
 #include "GenomeLoader.h"
 
@@ -139,7 +140,58 @@ namespace protal {
         sam.m_qual = record.quality;
         sam.m_uniques = ar.Uniques();
         sam.m_uniques_two = ar.UniquesTwo();
+        sam.m_alternatives.clear();  // set on the read's best record only (AlternativesTag)
         if (!ar.Forward()) reverse(sam.m_qual.begin(), sam.m_qual.end());
+    }
+
+    // The edits of an alignment: mismatches, inserted and deleted bases and soft-clipped read bases.
+    static int AlignmentEdits(std::string const& compressed_cigar) {
+        int pos = 0, count = 0, edits = 0;
+        char op = ' ';
+        while (NextCompressedCigar(pos, compressed_cigar, count, op)) {
+            if (op == 'X' || op == 'I' || op == 'D' || op == 'S') edits += count;
+        }
+        return edits;
+    }
+
+    inline constexpr int kAlternativeMaxEdits = 5;  // alternatives with more edits than the best are not listed
+    inline constexpr size_t kAlternativesListed = 4;
+
+    // The ZA tag of a read's best alignment (SamEntry::m_alternatives): the read's other candidates in other
+    // taxa than the best's (`taxid`, with `edits`), each taxon once with its best candidate, as "<taxid>:<d>"
+    // where d is that candidate's edits (AlignmentEdits) minus the best's; at most kAlternativeMaxEdits more and
+    // kAlternativesListed of them, fewest edits first; "*" if there is none. `candidates`: (taxid, edits) of the
+    // read's candidates, the best among them. The profiler counts a taxon's reads that another species of its
+    // genus, or of another genus, fits as well (congener_fit_share, other_genus_fit_share).
+    static std::string AlternativesTag(uint32_t taxid, int edits, std::vector<std::pair<uint32_t, int>> const& candidates) {
+        std::vector<std::pair<uint32_t, int>> others;  // (taxid, edits more than the best)
+        for (auto const& [t, e] : candidates) {
+            if (t == taxid || e - edits > kAlternativeMaxEdits) continue;
+            auto it = std::find_if(others.begin(), others.end(), [t](auto const& o) { return o.first == t; });
+            if (it == others.end()) others.emplace_back(t, e - edits);
+            else it->second = std::min(it->second, e - edits);
+        }
+        if (others.empty()) return "*";
+        std::stable_sort(others.begin(), others.end(), [](auto const& a, auto const& b) { return a.second < b.second; });
+        if (others.size() > kAlternativesListed) others.resize(kAlternativesListed);
+        std::string tag;
+        for (auto const& [t, more] : others) {
+            if (!tag.empty()) tag += ',';
+            tag += std::to_string(t) + ':' + std::to_string(more);
+        }
+        return tag;
+    }
+
+    // (taxid, edits) of each set alignment of a list of candidates.
+    template<typename Results, typename Pick>
+    static std::vector<std::pair<uint32_t, int>> CandidateEdits(Results const& results, Pick&& pick) {
+        std::vector<std::pair<uint32_t, int>> out;
+        out.reserve(results.size());
+        for (auto const& r : results) {
+            AlignmentResult const* ar = pick(r);
+            if (ar && ar->IsSet()) out.emplace_back(ar->Taxid(), AlignmentEdits(ar->GetAlignmentInfo().compressed_cigar));
+        }
+        return out;
     }
 
     // The gene a SAM record lies on, decoded where it lies (GeneSequence window): the reference positions that
@@ -394,6 +446,7 @@ namespace protal {
             }
 
             auto const qname = ReadQName(record.id);
+            auto const candidates = CandidateEdits(alignment_results, [](AlignmentResult const& r) { return &r; });
             SNPList snps;
             bool first = true;
             size_t output_counter = 0;
@@ -404,6 +457,7 @@ namespace protal {
                 Flag::SetNotPrimaryAlignment(m_sam.m_flag, !first);
                 m_sam.m_mapq = first ? mapq : 0;
                 m_sam.m_tlen = 0;
+                if (first) m_sam.m_alternatives = AlternativesTag(ar.Taxid(), AlignmentEdits(ar.GetAlignmentInfo().compressed_cigar), candidates);
 
                 auto const reference = ReferenceOf(m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()), m_sam);
                 if (!ExtractSNPs(m_sam, reference, snps, ar.Taxid(), ar.GeneId(), 0)) {
@@ -507,23 +561,76 @@ namespace protal {
             return { scored[0].second, best > 0 ? MAPQv2(best, second) : 0 };
         }
 
+        // The index of a candidate holding a mate's best alignment of taxon `taxid`, or SIZE_MAX.
+        static size_t BestOfMateInTaxon(PairedAlignmentResultList const& results, bool mate1, uint32_t taxid) {
+            size_t index = SIZE_MAX;
+            int best = 0;
+            for (size_t i = 0; i < results.size(); i++) {
+                auto const& ar = mate1 ? results[i].first : results[i].second;
+                if (!ar.IsSet() || ar.Taxid() != taxid) continue;
+                int const score = ar.GetAlignmentInfo().Score(2, 3, 1, 2);
+                if (index == SIZE_MAX || score > best) {
+                    index = i;
+                    best = score;
+                }
+            }
+            return index;
+        }
+
+        // A pair is one organism: its mates take the pair's consensus taxon (ConsensusOfRead over both mates'
+        // candidates). A mate whose best alignment is another taxon's takes its best alignment of the consensus
+        // taxon, with the pair's MAPQ; one whose best is the consensus taxon's keeps it, with the higher of its own
+        // and the pair's MAPQ; one without an alignment of that taxon (a gene the species lacks in the database)
+        // keeps its best with MAPQ 0, so that it is no evidence for that alignment's taxon. Changes `best1` and
+        // `best2` (candidate index and MAPQ of each mate).
+        static void SettleMatesByPair(PairedAlignmentResultList const& results, MateBest& best1, MateBest& best2) {
+            std::vector<std::vector<PartCandidate>> parts(2);
+            for (auto const& [a1, a2] : results) {
+                if (a1.IsSet()) parts[0].push_back({ a1.Taxid(), a1.GetAlignmentInfo().Score(2, 3, 1, 2) });
+                if (a2.IsSet()) parts[1].push_back({ a2.Taxid(), a2.GetAlignmentInfo().Score(2, 3, 1, 2) });
+            }
+            auto const consensus = ConsensusOfRead(parts);
+            if (!consensus) return;
+            auto settle = [&](bool mate1, MateBest& best) {
+                auto const& own = mate1 ? results[best.index].first : results[best.index].second;
+                if (own.Taxid() == consensus->taxid) {
+                    best.mapq = std::max(best.mapq, consensus->mapq);
+                    return;
+                }
+                auto const index = BestOfMateInTaxon(results, mate1, consensus->taxid);
+                if (index == SIZE_MAX) {
+                    best.mapq = 0;
+                    return;
+                }
+                best.index = index;
+                best.mapq = std::max(0, consensus->mapq);
+            };
+            settle(true, best1);
+            settle(false, best2);
+        }
+
         // Writes both mates of a fragment whose mates align only separately: to two genes (e.g.
         // neighbouring genes of an operon; candidates pair mates only within one gene) or to one gene
-        // in the wrong orientation. Each mate is written at its own best alignment with its own MAPQ,
-        // flagged paired but not properly paired. Ranking the two single-mate candidates against each
-        // other instead gave MAPQ ~0 and lost the fragment. Returns false, writing nothing, when only
-        // one mate aligned or an alignment is unusable; the caller then writes the candidates as usual.
-        // Only these two primary records are written, also with -m > 1.
+        // in the wrong orientation. Each mate is written at its best alignment of the pair's consensus
+        // taxon (SettleMatesByPair), flagged paired but not properly paired. Ranking the two
+        // single-mate candidates against each other instead gave MAPQ ~0 and lost the fragment. Returns
+        // false, writing nothing, when only one mate aligned or an alignment is unusable; the caller then
+        // writes the candidates as usual. Only these two primary records are written, also with -m > 1.
         bool WriteSplitMates(PairedAlignmentResultList& results, FastxRecord& record1, FastxRecord& record2, std::string const& qname) {
-            auto const best1 = BestOfMate(results, true);
-            auto const best2 = BestOfMate(results, false);
+            auto best1 = BestOfMate(results, true);
+            auto best2 = BestOfMate(results, false);
             if (best1.index == SIZE_MAX || best2.index == SIZE_MAX) return false;
+            SettleMatesByPair(results, best1, best2);
             auto& ar1 = results[best1.index].first;
             auto& ar2 = results[best2.index].second;
             if (CigarANI(ar1.Cigar()) < m_min_cigar_ani || CigarANI(ar2.Cigar()) < m_min_cigar_ani) return false;
 
             ArtoSAM(m_sam1, ar1, ar1.GetAlignmentInfo(), record1, qname);
             ArtoSAM(m_sam2, ar2, ar2.GetAlignmentInfo(), record2, qname);
+            m_sam1.m_alternatives = AlternativesTag(ar1.Taxid(), AlignmentEdits(ar1.GetAlignmentInfo().compressed_cigar),
+                                                    CandidateEdits(results, [](auto const& r) { return &r.first; }));
+            m_sam2.m_alternatives = AlternativesTag(ar2.Taxid(), AlignmentEdits(ar2.GetAlignmentInfo().compressed_cigar),
+                                                    CandidateEdits(results, [](auto const& r) { return &r.second; }));
             SNPList snps;
             if (!ExtractSNPs(m_sam1, ReferenceOf(m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()), m_sam1), snps, ar1.Taxid(), ar1.GeneId(), 0) ||
                 !ExtractSNPs(m_sam2, ReferenceOf(m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()), m_sam2), snps, ar2.Taxid(), ar2.GeneId(), 0)) {
@@ -599,6 +706,8 @@ namespace protal {
 
 
             SNPList snps;
+            auto const candidates1 = CandidateEdits(alignment_results, [](auto const& r) { return &r.first; });
+            auto const candidates2 = CandidateEdits(alignment_results, [](auto const& r) { return &r.second; });
 
             size_t output_counter = 0;
             std::string read_records;
@@ -624,6 +733,7 @@ namespace protal {
                     alignment_length += info.alignment_length;
                     alignment_score += info.Score();
                     m_sam1.m_mapq = first ? mapq : 0;
+                    if (first) m_sam1.m_alternatives = AlternativesTag(ar1.Taxid(), AlignmentEdits(info.compressed_cigar), candidates1);
 
                     valid1 = ExtractSNPs(m_sam1, ReferenceOf(m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()), m_sam1), snps, ar1.Taxid(), ar1.GeneId(), 0);
                 }
@@ -654,12 +764,20 @@ namespace protal {
                     alignment_length += info.alignment_length;
                     alignment_score += info.alignment_score;
                     m_sam2.m_mapq = first ? mapq : 0;
+                    if (first) m_sam2.m_alternatives = AlternativesTag(ar2.Taxid(), AlignmentEdits(info.compressed_cigar), candidates2);
 
                     valid2 = ExtractSNPs(m_sam2, ReferenceOf(m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()), m_sam2), snps, ar2.Taxid(), ar2.GeneId(), 0);
                 }
                 if (both) {
-                    m_sam1.m_rnext = "=";
-                    m_sam2.m_rnext = "=";
+                    // Mates on two neighbouring genes (classify::JoinAlignmentPairs with gene neighbours) are a
+                    // proper pair on two references: RNEXT names the other gene, TLEN is 0.
+                    bool const one_gene = m_sam1.m_rname == m_sam2.m_rname;
+                    m_sam1.m_rnext = one_gene ? "=" : m_sam2.m_rname;
+                    m_sam2.m_rnext = one_gene ? "=" : m_sam1.m_rname;
+                    if (!one_gene) {
+                        m_sam1.m_tlen = 0;
+                        m_sam2.m_tlen = 0;
+                    }
                     m_sam1.m_pnext = m_sam2.m_pos;
                     m_sam2.m_pnext = m_sam1.m_pos;
                     Flag::SetMateReverseComplement(m_sam1.m_flag, (FLAG_t)!ar2.Forward());
@@ -703,7 +821,8 @@ namespace protal {
                 if (ar1.IsSet()) read_records += m_sam1.ToString();
                 if (both) read_records += '\n';
                 if (ar2.IsSet()) read_records += m_sam2.ToString();
-                // Both mates of a candidate are on one gene (RNEXT "="), or the other mate is unmapped.
+                // Both mates of a candidate are on one gene (RNEXT "=") or on two neighbouring genes, or the other
+                // mate is unmapped.
                 if (ar1.IsSet()) m_genes.push_back(SamGeneKey(ar1.Taxid(), ar1.GeneId()));
                 if (ar2.IsSet()) m_genes.push_back(SamGeneKey(ar2.Taxid(), ar2.GeneId()));
                 if (++output_counter == m_max_out) {

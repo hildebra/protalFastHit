@@ -26,6 +26,7 @@
 #include "ReadType.h"
 #include "SequenceUtils/SeqReader.h"
 #include "SequenceUtils/GeneConservation.h"
+#include "SequenceUtils/GeneNeighbours.h"
 #include "gzstream/gzstream.h"
 
 
@@ -90,6 +91,8 @@ namespace protal {
         options.add_options("Alignment")
                 ("c,align_top", "After seeding, anchor are sorted by quality passed to alignment. <take_top> specifies how many anchors should be aligned starting with the most promising anchor.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_ALIGN_TOP)))
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
+                ("no_mate_guidance", "Paired-end reads: do not let a mate that is sure of its alignment guide the other one when they did not align together (to the guiding mate's taxon from the other's own anchor, or on its gene where the fragment can reach, partly if it runs past the gene's end).")
+                ("no_gene_neighbours", "Do not use the database's gene neighbours (gene_neighbours.tsv: which marker gene lies next to which in a clade's genomes): no looking for a mate past the end of its guiding mate's gene, no pairs of mates on two neighbouring genes, no looking on a long read for the genes next to its genes, and adjacent_expected_share and adjacent_unlikely_share 0.")
                 ("u,max_key_ubiquity", "Max key ubiquity. Best matching Flexkey count for seed must be lower or equal", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_KEY_UBIQUITY)))
                 ("s,max_seed_size", "Max seed size after which seeding is stopped.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_SEED_SIZE)))
                 ("w,min_successful_lookups", "If the number of seeds is >=max_seed_size and the number of successful core-mer lookups is >= min_successful_lookups, stop looking for further seeds.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SUCCESSFUL_LOOKUPS)))
@@ -141,13 +144,13 @@ namespace protal {
                 ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
-                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, the models model_*.xml) instead of packing them into database.protal.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, gene_neighbours.tsv, the models model_*.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
                 ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
-                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv (if it has one) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv and gene_neighbours.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. The model is checked first. database.protal is rewritten with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
@@ -184,6 +187,8 @@ namespace protal {
         bool show_map_help = false;
         bool show_version = false;
         bool no_strains = false;
+        bool no_mate_guidance = false;
+        bool no_gene_neighbours = false;
         bool fastalign = false;
         bool profile_only = false;
         bool force = false;
@@ -284,6 +289,8 @@ namespace protal {
         bool m_show_version = false;
 
         bool m_no_strains = false;
+        bool m_no_mate_guidance = false;
+        bool m_no_gene_neighbours = false;
         bool m_fastalign = false;
         bool m_profile_only = false;
         bool m_force = false;
@@ -381,6 +388,7 @@ namespace protal {
         static inline const std::string PROTAL_HITTABLE_GENES_FILE = "species_gene_mask.tsv";
         static inline const std::string PROTAL_UNIQUE_KMER_FILE = "unique_kmers.tsv";
         static inline const std::string PROTAL_GENE_CONSERVATION_FILE = gene_conservation::kFileName;
+        static inline const std::string PROTAL_GENE_NEIGHBOURS_FILE = gene_neighbours::kFileName;
         static inline const std::string PROTAL_TAXONOMY_FILE = "internal_taxonomy.dmp";
         // The presence models of paired-end and of single-end reads.
 
@@ -419,6 +427,8 @@ namespace protal {
                 m_no_profile(d.no_profile),
                 m_profile_only(d.profile_only),
                 m_no_strains(d.no_strains),
+                m_no_mate_guidance(d.no_mate_guidance),
+                m_no_gene_neighbours(d.no_gene_neighbours),
                 m_preload_genomes(d.preload_genomes),
                 m_show_help(d.show_help),
                 m_show_help_dev(d.show_help_dev),
@@ -668,6 +678,16 @@ namespace protal {
             return m_no_strains;
         }
 
+        // Paired-end reads: whether a mate sure of its alignment guides the other (MateGuidance.h).
+        bool MateGuidance() const {
+            return !m_no_mate_guidance;
+        }
+
+        // Whether the database's gene neighbours are used (GeneNeighbours.h), if it has any.
+        bool GeneNeighbours() const {
+            return !m_no_gene_neighbours;
+        }
+
         bool BenchmarkAlignment() const {
             return m_benchmark_alignment;
         }
@@ -739,6 +759,10 @@ namespace protal {
             return m_database_path + "/" + PROTAL_GENE_CONSERVATION_FILE;
         }
 
+        std::string GetGeneNeighboursFile() const {
+            return m_database_path + "/" + PROTAL_GENE_NEIGHBOURS_FILE;
+        }
+
         bool HittableGenesMapExists() const {
             return Utils::exists(GetHittableGenesMap());
         }
@@ -789,6 +813,12 @@ namespace protal {
         // The database's gene_conservation.tsv (--build); Exists() is false if it has none.
         db::DbFile DatabaseGeneConservationDbFile() const {
             return DbFileNamed(PROTAL_GENE_CONSERVATION_FILE, GetGeneConservationFile());
+        }
+
+        // The database's gene_neighbours.tsv (scripts/mini_db/gene_neighbours.py, packed by --build); Exists() is
+        // false if it has none.
+        db::DbFile GeneNeighboursDbFile() const {
+            return DbFileNamed(PROTAL_GENE_NEIGHBOURS_FILE, GetGeneNeighboursFile());
         }
 
         // The genes' conservation factors that scale the depth identity margin: the database's for
@@ -2054,6 +2084,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             }
 
             bool no_strains = result.count("no_strains");
+            bool no_mate_guidance = result.count("no_mate_guidance");
+            bool no_gene_neighbours = result.count("no_gene_neighbours");
             bool build = result.count("build");
             bool preload_genomes_off = result.count("preload_genomes_off");
             bool benchmark_alignment = result.count("benchmark_alignment");
@@ -2360,6 +2392,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.no_profile               = no_profile;
             d.profile_only             = profile_only;
             d.no_strains               = no_strains;
+            d.no_mate_guidance         = no_mate_guidance;
+            d.no_gene_neighbours       = no_gene_neighbours;
             d.preload_genomes          = !preload_genomes_off;
             d.benchmark_alignment      = benchmark_alignment;
             d.benchmark_alignment_output = benchmark_alignment_output_file;

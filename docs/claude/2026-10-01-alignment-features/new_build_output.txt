@@ -1,0 +1,51 @@
+pe new build shipped features       CV F1 0.9873  test F1 0.9765 precision 0.9926 sensitivity 0.9610 (FP 10.8, FN 58.8)
+pe new build + MAPQ                 CV F1 0.9873  test F1 0.9768 precision 0.9926 sensitivity 0.9615 (FP 10.8, FN 58.0)
+pe new build + congener fit         CV F1 0.9873  test F1 0.9769 precision 0.9938 sensitivity 0.9606 (FP 9.0, FN 59.4)
+pe new build + MAPQ, congener fit   CV F1 0.9874  test F1 0.9770 precision 0.9936 sensitivity 0.9610 (FP 9.4, FN 58.8)
+pe new build + linked reads         CV F1 0.9875  test F1 0.9746 precision 0.9914 sensitivity 0.9584 (FP 12.6, FN 62.8)
+pe new build + all five             CV F1 0.9881  test F1 0.9770 precision 0.9927 sensitivity 0.9618 (FP 10.6, FN 57.6)
+se new build shipped features       CV F1 0.9800  test F1 0.9638 precision 0.9881 sensitivity 0.9406 (FP 16.6, FN 87.4)
+se new build + MAPQ                 CV F1 0.9800  test F1 0.9670 precision 0.9867 sensitivity 0.9481 (FP 18.8, FN 76.4)
+se new build + congener fit         CV F1 0.9790  test F1 0.9634 precision 0.9873 sensitivity 0.9406 (FP 17.8, FN 87.4)
+se new build + MAPQ, congener fit   CV F1 0.9808  test F1 0.9668 precision 0.9871 sensitivity 0.9474 (FP 18.2, FN 77.4)
+se new build + linked reads         CV F1 0.9792  test F1 0.9639 precision 0.9876 sensitivity 0.9413 (FP 17.4, FN 86.4)
+se new build + all five             CV F1 0.9803  test F1 0.9674 precision 0.9877 sensitivity 0.9479 (FP 17.4, FN 76.6)
+pb new build shipped features       CV F1 0.9770  test F1 0.9731 precision 0.9931 sensitivity 0.9539 (FP 4.0, FN 27.8)
+pb new build + MAPQ                 CV F1 0.9831  test F1 0.9718 precision 0.9904 sensitivity 0.9539 (FP 5.6, FN 27.8)
+pb new build + congener fit         CV F1 0.9770  test F1 0.9721 precision 0.9910 sensitivity 0.9539 (FP 5.2, FN 27.8)
+pb new build + MAPQ, congener fit   CV F1 0.9835  test F1 0.9719 precision 0.9914 sensitivity 0.9532 (FP 5.0, FN 28.2)
+pb new build + linked reads         CV F1 0.9777  test F1 0.9752 precision 0.9914 sensitivity 0.9595 (FP 5.0, FN 24.4)
+pb new build + all five             CV F1 0.9836  test F1 0.9716 precision 0.9890 sensitivity 0.9549 (FP 6.4, FN 27.2)
+ont new build shipped features       CV F1 0.9793  test F1 0.9542 precision 0.9892 sensitivity 0.9216 (FP 6.2, FN 48.4)
+ont new build + MAPQ                 CV F1 0.9798  test F1 0.9554 precision 0.9896 sensitivity 0.9235 (FP 6.0, FN 47.2)
+ont new build + congener fit         CV F1 0.9786  test F1 0.9531 precision 0.9895 sensitivity 0.9193 (FP 6.0, FN 49.8)
+ont new build + MAPQ, congener fit   CV F1 0.9801  test F1 0.9540 precision 0.9896 sensitivity 0.9209 (FP 6.0, FN 48.8)
+ont new build + linked reads         CV F1 0.9791  test F1 0.9540 precision 0.9895 sensitivity 0.9209 (FP 6.0, FN 48.8)
+ont new build + all five             CV F1 0.9795  test F1 0.9535 precision 0.9895 sensitivity 0.9199 (FP 6.0, FN 49.4)
+
+                                           cv_F1  cv_FP  cv_FN  test_F1  test_F1_sd  precision  sensitivity    FP    FN     dF1      lo      hi
+read_type build     features                                                                                                                   
+pe        new build shipped features      0.9873   25.4   44.8   0.9765      0.0007     0.9926       0.9610  10.8  58.8  0.0000  0.0000  0.0000
+                    + MAPQ                0.9873   25.6   44.4   0.9768      0.0009     0.9926       0.9615  10.8  58.0  0.0002 -0.0030  0.0032
+                    + congener fit        0.9873   25.4   45.0   0.9769      0.0007     0.9938       0.9606   9.0  59.4  0.0003 -0.0026  0.0028
+                    + MAPQ, congener fit  0.9874   26.6   43.2   0.9770      0.0014     0.9936       0.9610   9.4  58.8  0.0004 -0.0026  0.0034
+                    + linked reads        0.9875   27.0   42.0   0.9746      0.0006     0.9914       0.9584  12.6  62.8 -0.0020 -0.0049  0.0006
+                    + all five            0.9881   23.0   42.8   0.9770      0.0011     0.9927       0.9618  10.6  57.6  0.0004 -0.0031  0.0034
+se        new build shipped features      0.9800   51.2   58.2   0.9638      0.0007     0.9881       0.9406  16.6  87.4  0.0000  0.0000  0.0000
+                    + MAPQ                0.9800   49.4   60.0   0.9670      0.0005     0.9867       0.9481  18.8  76.4  0.0033 -0.0008  0.0094
+                    + congener fit        0.9790   53.2   61.4   0.9634      0.0007     0.9873       0.9406  17.8  87.4 -0.0004 -0.0027  0.0018
+                    + MAPQ, congener fit  0.9808   46.0   58.8   0.9668      0.0005     0.9871       0.9474  18.2  77.4  0.0031 -0.0017  0.0091
+                    + linked reads        0.9792   53.6   60.0   0.9639      0.0008     0.9876       0.9413  17.4  86.4  0.0001 -0.0021  0.0021
+                    + all five            0.9803   46.8   60.8   0.9674      0.0009     0.9877       0.9479  17.4  76.6  0.0037 -0.0006  0.0094
+pb        new build shipped features      0.9770   11.4   27.0   0.9731      0.0023     0.9931       0.9539   4.0  27.8  0.0000  0.0000  0.0000
+                    + MAPQ                0.9831    7.0   21.2   0.9718      0.0023     0.9904       0.9539   5.6  27.8 -0.0014 -0.0066  0.0037
+                    + congener fit        0.9770   12.6   25.8   0.9721      0.0019     0.9910       0.9539   5.2  27.8 -0.0009 -0.0057  0.0049
+                    + MAPQ, congener fit  0.9835    7.4   20.2   0.9719      0.0025     0.9914       0.9532   5.0  28.2 -0.0011 -0.0067  0.0036
+                    + linked reads        0.9777    9.8   27.4   0.9752      0.0010     0.9914       0.9595   5.0  24.4  0.0022 -0.0019  0.0080
+                    + all five            0.9836    7.8   19.6   0.9716      0.0010     0.9890       0.9549   6.4  27.2 -0.0014 -0.0063  0.0031
+ont       new build shipped features      0.9793   12.0   23.4   0.9542      0.0010     0.9892       0.9216   6.2  48.4  0.0000  0.0000  0.0000
+                    + MAPQ                0.9798   11.6   23.0   0.9554      0.0026     0.9896       0.9235   6.0  47.2  0.0014 -0.0028  0.0062
+                    + congener fit        0.9786   12.2   24.4   0.9531      0.0010     0.9895       0.9193   6.0  49.8 -0.0009 -0.0051  0.0041
+                    + MAPQ, congener fit  0.9801   11.0   23.0   0.9540      0.0023     0.9896       0.9209   6.0  48.8 -0.0002 -0.0053  0.0047
+                    + linked reads        0.9791   11.2   24.4   0.9540      0.0030     0.9895       0.9209   6.0  48.8 -0.0000 -0.0039  0.0047
+                    + all five            0.9795   11.6   23.4   0.9535      0.0031     0.9895       0.9199   6.0  49.4 -0.0007 -0.0069  0.0054

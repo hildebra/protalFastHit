@@ -7,6 +7,12 @@ read lengths. NORMALIZED_FEATURES are those that do not: fractions, ratios and r
 kb, counting fragments rather than mates. `fragments` and `depth` say how much evidence there is.
 The dump also has gene_dispersion, which is left out here: on simulated data it separated present
 from absent taxa hardly at all (AUC 0.43) and grew with depth.
+
+The last four are about the reads' other candidates (docs/claude/2026-10-01-alignment-features): the reads' MAPQ
+(mean, and the share below 10) and the shares of reads that another species of the genus or a species of another
+genus fits as well (within an edit, from protal's ZA tag). A dump of an older protal lacks them. The dump's
+linked_share (reads with two records on the taxon: both mates, or two genes of a long read) is left out: it lowered
+the paired-end F1 on the tuning world.
 """
 
 # Columns of the dump that describe the row, not the taxon's evidence; columns that
@@ -31,6 +37,8 @@ NORMALIZED_FEATURES = [
     "lu_gene_rate", "lsu_gene_rate",
     "lu_gene_rate2", "lsu_gene_rate2",
     "lu_gene_rate3", "lsu_gene_rate3",
+    "mean_mapq", "low_mapq_share",
+    "congener_fit_share", "other_genus_fit_share",
 ]
 
 

@@ -198,6 +198,54 @@ namespace protal {
         genomes.SetGeneConservation(std::move(table));
     }
 
+    // The database's gene neighbours (gene_neighbours.tsv, GeneNeighbours.h: which marker gene lies next to which
+    // in a clade's genomes), for mate guidance past a gene's end, pairs of mates on neighbouring genes, the genes
+    // next to a long read's genes and the profiler's adjacency features; none without the file or with
+    // --no_gene_neighbours. Every species of the taxonomy gets the clades of its lineage. Exits 8 if the file
+    // cannot be read.
+    static void LoadGeneNeighbours(Options const& options, ProtalDB& db) {
+        auto const file = options.GeneNeighboursDbFile();
+        if (!file.Exists()) {
+            std::cout << "Gene neighbours: the database has none (" << Options::PROTAL_GENE_NEIGHBOURS_FILE << ", from whole "
+                      << "genomes by scripts/mini_db/gene_neighbours.py before --build)" << std::endl;
+            return;
+        }
+        if (!options.GeneNeighbours()) {
+            std::cout << "Gene neighbours: not used (--no_gene_neighbours)" << std::endl;
+            return;
+        }
+        std::string error;
+        auto const content = file.ReadAll(error);
+        gene_neighbours::Table table;
+        if (content) {
+            std::istringstream is(*content);
+            error = table.Read(is);
+        }
+        if (!error.empty()) {
+            std::cerr << "Invalid gene neighbours " << file.Name() << ": " << error << std::endl;
+            exit(8);
+        }
+        if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
+        auto& taxonomy = db.GetTaxonomy();
+        std::vector<uint32_t> lineage;
+        for (auto const& [id, node] : taxonomy.map) {
+            if (node.rank != "species") continue;
+            lineage.assign(1, static_cast<uint32_t>(id));
+            int t = node.parent_id;
+            while (t >= 0 && taxonomy.HasNode(t) && lineage.size() < 64) {
+                lineage.push_back(static_cast<uint32_t>(t));
+                int const parent = taxonomy.Get(t).parent_id;
+                if (parent == t) break;  // the root
+                t = parent;
+            }
+            table.SetLineage(static_cast<uint32_t>(id), lineage);
+        }
+        std::cout << "Gene neighbours: " << table.Rules() << " rules of " << table.Clades() << " clades from " << table.Genomes()
+                  << " genomes (" << file.Name() << "), for " << table.BoundSpecies() << " species: mates looked for past "
+                  << "their gene's end, pairs across neighbouring genes, long reads' neighbouring genes" << std::endl;
+        db.GetGenomes().SetGeneNeighbours(std::move(table));
+    }
+
     template<typename AlignmentBenchmark=NoBenchmark>
     static void RunWrapper(Options& options, ProtalDB& db, AlignmentBenchmark benchmark=NoBenchmark{}) {
 
@@ -600,6 +648,8 @@ namespace protal {
 
         if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
         auto& taxonomy = db.GetTaxonomy();
+        // Which of a read's alternatives (ZA) are congeners of its taxon.
+        auto const genera = profiler::GeneraOf(taxonomy);
 
         // Each thread scores with its own copy (firstprivate): scoring reuses a buffer. Copies share
         // the loaded model.
@@ -671,6 +721,7 @@ namespace protal {
             profiler::MicrobialProfile profile(genomes);
             profile.SetName(sample_name);
             profile.SetReadType(read_type);
+            profile.SetGenera(genera);
             std::string sam_error = profiler.ProfileSam(sam, profile, std::optional<std::reference_wrapper<std::ostream>>{erro},
                                                         options.GetSNPMinCov(), options.GetSNPMinCov(),
                                                         options.GetSNPMinAF(read_type), options.GetSNPMinMeanQual(),
@@ -2048,6 +2099,7 @@ namespace protal {
             }
             LoadGeneConservation(options, db.GetGenomes());
         }
+        if (!options.BuildMode() && (run_alignment || run_profiling)) LoadGeneNeighbours(options, db);
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {
             // The benchmark takes each read's true gene from its name; without one it would stop
             // at the first read, deep inside the alignment.

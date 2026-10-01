@@ -121,7 +121,29 @@ On simulated data it finds about a third of the archaea present, with probabilit
 - the share of low-identity reads, i.e. reads of relatives (`low_identity_share`);
 - the depth's coefficient of variation across genes (`depth_cv`), uniqueness and allele frequency
   classes (`uniqueness`, `RAF0`-`RAF4`, the `*_gene_rate*` columns);
-- `fragments` and `depth`, which say how much evidence there is.
+- `fragments` and `depth`, which say how much evidence there is;
+- what the reads' other candidates and other records say: `mean_mapq` and `low_mapq_share` (the
+  share of the taxon's reads with MAPQ below 10, i.e. nearly as good a second candidate);
+  `congener_fit_share` and `other_genus_fit_share` (the share of its reads that another species of
+  its genus, or a species of another genus, fits within one edit: the reads of a relative the
+  database lacks fit several of its congeners about as well); `linked_share` (the share of its
+  reads with two records on it: both mates of a pair, on one gene or two, or two genes of a long
+  read). These count every read's best record, also those the profiler's MAPQ filter leaves out.
+
+The dump also has `adjacent_expected_share` and `adjacent_unlikely_share`: of the genes next to
+each other on a taxon's reads (a pair's mates on two genes, a long read's consecutive genes within
+3 kb of each other on the read; every read's best records, also those the filters leave out), the
+shares whose ends face each other in the taxon's clade and that never do there, by the database's
+gene neighbours ([running.md](running.md#options-the-website-does-not-list); both 0 without them).
+They are not among the normalised features the models train on: reads of a congener the database
+lacks pair across the same genes as the species' own, and `linked_share`, which they refine,
+lowered the paired-end F1 when it was tried ([report](claude/2026-10-01-gene-neighbours-run/README.md)).
+
+protal writes the alternatives as the `ZA` tag of a read's best record (`ZA:Z:<taxid>:<edits
+more>,...`, the other taxa among the read's aligned candidates with at most 5 edits more, or `*`);
+a SAM file of an older protal lacks it, protal warns, and the two fit shares are then 0, so such
+files are aligned again (`--force`) for a model that uses them. A dump of an older protal lacks the
+five columns, and the trainer stops with `--features normalized`.
 
 ## Training
 

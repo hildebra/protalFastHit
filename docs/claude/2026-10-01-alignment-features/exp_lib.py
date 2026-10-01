@@ -11,12 +11,18 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GroupKFold
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "scripts"))
-from model_features import NORMALIZED_FEATURES  # noqa: E402
+# The 24 normalized features the models were trained with before these experiments (scripts/model_features.py at
+# a1bf586); later versions of that list add the features found here, so the baseline is kept as it was.
+NORMALIZED_FEATURES = [
+    "fragments", "depth", "hit_gene_fraction", "gene_presence_ratio", "depth_cv", "identity", "top_identity",
+    "low_identity_share", "uniqueness", "lu_per_kb", "lsu_per_kb", "variant_sites_per_kb", "multiallelic_sites_per_kb",
+    "RAF0", "RAF1", "RAF2", "RAF3", "RAF4", "lu_gene_rate", "lsu_gene_rate", "lu_gene_rate2", "lsu_gene_rate2",
+    "lu_gene_rate3", "lsu_gene_rate3",
+]
 
 V2 = os.path.expanduser(os.environ.get("V2", "~/tune/V2"))
 EXP = os.path.expanduser(os.environ.get("FPEXP", "~/fpexp"))
-READ_TYPES = ("pe", "se", "pb", "ont")
+READ_TYPES = tuple(os.environ.get("READ_TYPES", "pe se pb ont").split())
 TABLE = {"pe": "training_data.tsv", "se": "training_data_se.tsv", "pb": "training_data_pb.tsv", "ont": "training_data_ont.tsv"}
 KNOB = 0.5
 

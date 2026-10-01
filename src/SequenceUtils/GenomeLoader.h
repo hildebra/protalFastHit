@@ -32,6 +32,7 @@
 #include "Benchmark.h"
 #include "PackedSequence.h"
 #include "GeneConservation.h"
+#include "GeneNeighbours.h"
 
 namespace protal {
     // The database's gene tables (reference.map, unique_kmers.tsv), one line per gene (16.6M at GTDB
@@ -531,6 +532,7 @@ namespace protal {
         std::ifstream m_is;
         GenomeMap m_genomes;
         gene_conservation::Table m_gene_conservation;  // empty: every gene's factor is 1
+        gene_neighbours::Table m_gene_neighbours;      // empty: no gene's neighbours are known
 
         int m_threads = 1;  // for reading reference.map
         struct FreeDeleter { void operator()(void* p) const { std::free(p); } };
@@ -579,6 +581,7 @@ namespace protal {
                 m_reference(other.m_reference),
                 m_map(other.m_map),
                 m_gene_conservation(other.m_gene_conservation),
+                m_gene_neighbours(other.m_gene_neighbours),
                 m_threads(other.m_threads) {
             Open();
             LoadPositionMap(m_map, m_threads);
@@ -596,6 +599,16 @@ namespace protal {
 
         void SetGeneConservation(gene_conservation::Table table) {
             m_gene_conservation = std::move(table);
+        }
+
+        // Which genes lie next to which in the species' clades (GeneNeighbours.h); empty unless set (a
+        // database without gene_neighbours.tsv, or --no_gene_neighbours), and then nothing uses it.
+        gene_neighbours::Table const& GetGeneNeighbours() const {
+            return m_gene_neighbours;
+        }
+
+        void SetGeneNeighbours(gene_neighbours::Table table) {
+            m_gene_neighbours = std::move(table);
         }
 
         ~GenomeLoader() {

@@ -22,7 +22,8 @@ add_executable(protal_tests
         test_PackedSequence.cpp
         test_ReverseComplement.cpp
         test_GeneWindows.cpp
-        test_PairJoin.cpp)
+        test_PairJoin.cpp
+        test_GeneNeighbours.cpp)
 target_compile_options(protal_tests PRIVATE ${PROTAL_COMMON_COMPILE_OPTIONS})
 target_link_libraries(protal_tests PRIVATE protal_lib dl isa_baseline GTest::gtest_main)
 

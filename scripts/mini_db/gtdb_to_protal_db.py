@@ -288,8 +288,9 @@ def species_taxids(taxonomy_rows, names, what):
 
 
 # The files of a database folder this script writes besides reference.fna, reference.map and
-# full_reference.fna, and the models build_gtdb_database.py puts beside them (model_pmml.MODEL_FILES).
-CONVERTED_FILES = ("internal_taxonomy.dmp", "gene2geneid.tsv", "genome2tiid.tsv",
+# full_reference.fna, and those build_gtdb_database.py puts beside them: the models (model_pmml.MODEL_FILES)
+# and gene_neighbours.tsv (gene_neighbours.py; per clade, so it holds for a copy without some species).
+CONVERTED_FILES = ("internal_taxonomy.dmp", "gene2geneid.tsv", "genome2tiid.tsv", "gene_neighbours.tsv",
                    "model_pe.xml", "model_se.xml", "model_PB.xml", "model_ONT.xml")
 # What protal --build writes into the folder (and leaves there when stopped: .partial files), stale once
 # the folder's reference is written anew; it would stop the next build (unique_kmers.tsv of other genes)

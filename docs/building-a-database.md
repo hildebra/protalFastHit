@@ -60,6 +60,36 @@ The default `model_pe.xml` is the model shipped with protal. It was trained on o
 does not call archaea reliably ([model-training.md](model-training.md)); for a database you will
 use, train a model on it, or use the one-command route below.
 
+### Gene neighbours
+
+Optional, between conversion and build: which marker genes lie next to which in the genomes. GTDB's
+marker files hold the accession and nothing about where a gene lies, so this needs whole genomes;
+the representatives' genomes among those downloaded to simulate training data are enough:
+
+```bash
+python3 scripts/mini_db/gene_neighbours.py --db /data/protal_r226_db --genome_table genomes.tsv -t 16
+```
+
+The genome table is the simulator's (accession, GTDB taxonomy, FASTA path; `build_gtdb_database.py`
+writes one as `OUT_DIR/genomes.tsv`). Each database gene is a gene call of its representative genome,
+so it is found there by its exact sequence on either strand; one genome per species counts (the
+representative's), so that species with many genomes do not outweigh the others. For each gene's
+two ends (5' and 3' in its coding orientation) the script records the next marker within
+`--max_gap` (3000) bases, which end of it faces this one and how far apart they are, or that there
+is none; an end within `--max_gap` of its contig's end says nothing. Counted per clade
+(`--ranks`, default family, order, class, phylum, domain), this is `gene_neighbours.tsv`
+([database-files.md](database-files.md)), which `--build` checks and packs. protal takes a species'
+rules from the nearest clade with data on that gene's end: a gene end seen facing the other in a
+species of the clade is expected there; one never seen with the end informative in 3 or more species
+is unlikely ([running.md](running.md#options-the-website-does-not-list) says what a run does with
+it). `--positions FILE` writes where each gene was found.
+
+The script prints a summary: genes found, the share of gene ends with a neighbour and the gaps, and
+for each rank how alike its clades' species are (the share of species that have the most common
+partner of a gene end). Gene order changes little within families, so a family's rules hold for its
+species without genomes; `--min_placed` (0.8) skips a genome in which fewer of its species' genes
+are found (another assembly version). A training database made with `--from_db` keeps the file.
+
 ### 2. Build the index
 
 ```bash
@@ -135,7 +165,9 @@ the reduced database, or check its calls on simulated samples first.
 
 ## Build and train in one command
 
-`scripts/build_gtdb_database.py` runs the converter, builds and packs the index, simulates training
+`scripts/build_gtdb_database.py` runs the converter, records the gene neighbours from the
+representatives among its genomes ([above](#gene-neighbours); `OUT_DIR/gene_neighbours.log`,
+`--no-gene-neighbours` to leave them out), builds and packs the index, simulates training
 data from whole genomes, trains a random forest per read type on the normalised features, and adds
 the trained models to the database (`model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml`). Its inputs come from `scripts/download_gtdb.py`, the one step that
 needs the internet, so it can run on a download node:
@@ -304,6 +336,7 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--samples` | 12 | samples per design point |
 | `--congeners` | 0 | species of one genus in every sample of a design point |
 | `--no-placeholder-models` | | leave out the placeholder models of read types not trained (below) |
+| `--no-gene-neighbours` | | do not record the gene neighbours ([above](#gene-neighbours)); protal then pairs no mates over neighbouring genes |
 | `--read-pairs` | `1000,5000,20000,100000,500000` | depths, one design point each (without the shallowest, a model missed 8% of the present taxa of 1000-pair samples) |
 | `--read-setups` | `100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | read length : ART profile (or `file=R1.txt+R2.txt`) : fragment mean : fragment SD, one design point each |
 | `--species-per-sample` | `20-200` | drawn per sample |

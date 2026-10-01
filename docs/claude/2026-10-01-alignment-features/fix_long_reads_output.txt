@@ -1,0 +1,77 @@
+test: 12 long-read samples
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:52.64
+	Maximum resident set size (kbytes): 3534580
+23 gene hits fit several taxa (MAPQ < 4); 0 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 0 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+8 gene hits fit several taxa (MAPQ < 4); 2 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 0 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+82 gene hits fit several taxa (MAPQ < 4); 335 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 10 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+10 gene hits fit several taxa (MAPQ < 4); 364 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 1 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+767 gene hits fit several taxa (MAPQ < 4); 7965 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 192 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+485 gene hits fit several taxa (MAPQ < 4); 5999 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 111 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+46 gene hits fit several taxa (MAPQ < 4); 6 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 0 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+33 gene hits fit several taxa (MAPQ < 4); 13 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 2 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+169 gene hits fit several taxa (MAPQ < 4); 626 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 23 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+51 gene hits fit several taxa (MAPQ < 4); 794 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 13 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+2664 gene hits fit several taxa (MAPQ < 4); 15819 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 775 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+1225 gene hits fit several taxa (MAPQ < 4); 14969 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 326 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+training: 24 long-read samples
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:08.26
+	Maximum resident set size (kbytes): 3543568
+3 gene hits fit several taxa (MAPQ < 4); 11 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 0 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+16 gene hits fit several taxa (MAPQ < 4); 1 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 0 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+12 gene hits fit several taxa (MAPQ < 4); 0 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 1 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+4 gene hits fit several taxa (MAPQ < 4); 20 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 2 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+77 gene hits fit several taxa (MAPQ < 4); 653 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 13 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+87 gene hits fit several taxa (MAPQ < 4); 365 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 15 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+75 gene hits fit several taxa (MAPQ < 4); 537 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 12 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+3 gene hits fit several taxa (MAPQ < 4); 279 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 2 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+304 gene hits fit several taxa (MAPQ < 4); 5641 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 71 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+401 gene hits fit several taxa (MAPQ < 4); 4686 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 93 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+752 gene hits fit several taxa (MAPQ < 4); 5266 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 157 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+675 gene hits fit several taxa (MAPQ < 4); 9958 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 299 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+10 gene hits fit several taxa (MAPQ < 4); 12 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 1 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+24 gene hits fit several taxa (MAPQ < 4); 11 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 0 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+35 gene hits fit several taxa (MAPQ < 4); 9 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 1 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+20 gene hits fit several taxa (MAPQ < 4); 28 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 3 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+155 gene hits fit several taxa (MAPQ < 4); 1101 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 42 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+237 gene hits fit several taxa (MAPQ < 4); 904 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 45 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+179 gene hits fit several taxa (MAPQ < 4); 1108 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 46 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+110 gene hits fit several taxa (MAPQ < 4); 859 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 28 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+945 gene hits fit several taxa (MAPQ < 4); 11775 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 312 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+963 gene hits fit several taxa (MAPQ < 4); 9296 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 269 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+2111 gene hits fit several taxa (MAPQ < 4); 11118 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 477 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+1616 gene hits fit several taxa (MAPQ < 4); 14889 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 564 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+training pe: 7151 taxa in 36 samples (2775 present); V2 had 7366; 100.0% of the rows matched to V2's
+training se: 6721 taxa in 36 samples (2734 present); V2 had 6721; 100.0% of the rows matched to V2's
+training pb: 1049 taxa in 12 samples (843 present); V2 had 1125; 100.0% of the rows matched to V2's
+training ont: 1334 taxa in 12 samples (860 present); V2 had 1458; 99.9% of the rows matched to V2's
+test pe: 3583 taxa in 18 samples (1509 present); V2 had 3672; 100.0% of the rows matched to V2's
+test se: 3394 taxa in 18 samples (1471 present); V2 had 3394; 100.0% of the rows matched to V2's
+test pb: 725 taxa in 6 samples (603 present); V2 had 758; 99.9% of the rows matched to V2's
+test ont: 900 taxa in 6 samples (617 present); V2 had 958; 99.7% of the rows matched to V2's
+pb new build shipped features       CV F1 0.9808  test F1 0.9757 precision 0.9848 sensitivity 0.9668 (FP 9.0, FN 20.0)
+pb new build + MAPQ                 CV F1 0.9888  test F1 0.9746 precision 0.9831 sensitivity 0.9662 (FP 10.0, FN 20.4)
+pb new build + congener fit         CV F1 0.9829  test F1 0.9753 precision 0.9868 sensitivity 0.9642 (FP 7.8, FN 21.6)
+pb new build + MAPQ, congener fit   CV F1 0.9882  test F1 0.9741 precision 0.9828 sensitivity 0.9655 (FP 10.2, FN 20.8)
+pb new build + linked reads         CV F1 0.9817  test F1 0.9764 precision 0.9852 sensitivity 0.9678 (FP 8.8, FN 19.4)
+pb new build + all five             CV F1 0.9881  test F1 0.9747 precision 0.9835 sensitivity 0.9662 (FP 9.8, FN 20.4)
+ont new build shipped features       CV F1 0.9776  test F1 0.9541 precision 0.9940 sensitivity 0.9173 (FP 3.4, FN 51.0)
+ont new build + MAPQ                 CV F1 0.9813  test F1 0.9586 precision 0.9931 sensitivity 0.9264 (FP 4.0, FN 45.4)
+ont new build + congener fit         CV F1 0.9792  test F1 0.9542 precision 0.9926 sensitivity 0.9186 (FP 4.2, FN 50.2)
+ont new build + MAPQ, congener fit   CV F1 0.9804  test F1 0.9596 precision 0.9931 sensitivity 0.9284 (FP 4.0, FN 44.2)
+ont new build + linked reads         CV F1 0.9779  test F1 0.9540 precision 0.9940 sensitivity 0.9170 (FP 3.4, FN 51.2)
+ont new build + all five             CV F1 0.9805  test F1 0.9561 precision 0.9934 sensitivity 0.9216 (FP 3.8, FN 48.4)
+
+                                           cv_F1  cv_FP  cv_FN  test_F1  test_F1_sd  precision  sensitivity    FP    FN     dF1      lo      hi
+read_type build     features                                                                                                                   
+pb        new build shipped features      0.9808    8.2   23.8   0.9757      0.0022     0.9848       0.9668   9.0  20.0  0.0000  0.0000  0.0000
+                    + MAPQ                0.9888    3.4   15.4   0.9746      0.0014     0.9831       0.9662  10.0  20.4 -0.0012 -0.0075  0.0049
+                    + congener fit        0.9829    7.4   21.2   0.9753      0.0033     0.9868       0.9642   7.8  21.6 -0.0004 -0.0047  0.0034
+                    + MAPQ, congener fit  0.9882    4.6   15.2   0.9741      0.0016     0.9828       0.9655  10.2  20.8 -0.0018 -0.0079  0.0038
+                    + linked reads        0.9817    7.6   23.0   0.9764      0.0022     0.9852       0.9678   8.8  19.4  0.0007 -0.0046  0.0060
+                    + all five            0.9881    4.0   16.0   0.9747      0.0016     0.9835       0.9662   9.8  20.4 -0.0011 -0.0073  0.0045
+ont       new build shipped features      0.9776   13.4   24.8   0.9541      0.0032     0.9940       0.9173   3.4  51.0  0.0000  0.0000  0.0000
+                    + MAPQ                0.9813   10.6   21.4   0.9586      0.0028     0.9931       0.9264   4.0  45.4  0.0045 -0.0038  0.0158
+                    + congener fit        0.9792   12.2   23.4   0.9542      0.0017     0.9926       0.9186   4.2  50.2  0.0001 -0.0055  0.0060
+                    + MAPQ, congener fit  0.9804   12.0   21.6   0.9596      0.0030     0.9931       0.9284   4.0  44.2  0.0056 -0.0036  0.0179
+                    + linked reads        0.9779   12.8   25.0   0.9540      0.0033     0.9940       0.9170   3.4  51.2 -0.0002 -0.0080  0.0062
+                    + all five            0.9805   12.2   21.2   0.9561      0.0024     0.9934       0.9216   3.8  48.4  0.0020 -0.0047  0.0104

@@ -242,7 +242,8 @@ namespace protal::build {
     // index (index.prx.zst in the column format, frames copied as they are), the reference (a
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
     // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv,
-    // gene_conservation.tsv if the build wrote one, and every presence model there is (AllModelFiles in
+    // gene_conservation.tsv if the build wrote one, gene_neighbours.tsv if the folder has one (written by
+    // scripts/mini_db/gene_neighbours.py, checked by CheckGeneNeighbours), and every presence model there is (AllModelFiles in
     // ReadType.h: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml, and model.xml /
     // random_forest.xml of older databases).
     static std::vector<db::Source> BundleSources(protal::Options const& options) {
@@ -254,6 +255,7 @@ namespace protal::build {
                 {Options::PROTAL_TAXONOMY_FILE, options.GetInternalTaxonomyFile()}};
         if (fs::exists(options.GetUniqueKmersFile())) sources.push_back({Options::PROTAL_UNIQUE_KMER_FILE, options.GetUniqueKmersFile()});
         if (fs::exists(options.GetGeneConservationFile())) sources.push_back({Options::PROTAL_GENE_CONSERVATION_FILE, options.GetGeneConservationFile()});
+        if (fs::exists(options.GetGeneNeighboursFile())) sources.push_back({Options::PROTAL_GENE_NEIGHBOURS_FILE, options.GetGeneNeighboursFile()});
         for (auto const& model : AllModelFiles()) {
             std::string const path = (fs::path(options.GetLocation().dir) / model).string();
             if (fs::exists(path)) sources.push_back({model, path});
@@ -637,6 +639,61 @@ namespace protal::build {
     // in genomes. Written to target (gene_conservation.tsv) if any gene has a factor; a target left by
     // an earlier build is removed otherwise. Without other genomes' copies (no --full_reference, or one
     // genome per species) every gene keeps the whole depth identity margin.
+    // gene_neighbours.tsv, which scripts/mini_db/gene_neighbours.py writes into the folder before the build and
+    // BundleSources packs: read and checked against the database's genes and taxonomy, so that a query never
+    // meets a bad one. Exits 8 at the first problem; says so if there is none.
+    static void CheckGeneNeighbours(protal::Options const& options, GenomeLoader& genomes) {
+        std::string const path = options.GetGeneNeighboursFile();
+        if (!std::filesystem::exists(path)) {
+            std::cout << "Gene neighbours: none (" << Options::PROTAL_GENE_NEIGHBOURS_FILE << ", which "
+                      << "scripts/mini_db/gene_neighbours.py writes from whole genomes, is not in the folder)" << std::endl;
+            return;
+        }
+        auto fail = [&path](std::string const& what) {
+            std::cerr << "Invalid gene neighbours " << path << ": " << what << std::endl;
+            exit(8);
+        };
+        std::ifstream is(path);
+        gene_neighbours::Table table;
+        if (!is) fail("cannot open the file");
+        if (auto const error = table.Read(is); !error.empty()) fail(error);
+
+        std::vector<bool> gene_ids;
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) {
+            auto const& genes = genome.GetGeneList();
+            if (genes.size() >= gene_ids.size()) gene_ids.resize(genes.size() + 1, false);
+            for (size_t i = 0; i < genes.size(); i++) gene_ids[i + 1] = gene_ids[i + 1] || genes[i].IsSet();
+        }
+        tsl::sparse_set<uint32_t> taxa;
+        std::ifstream taxonomy(options.GetInternalTaxonomyFile());
+        std::string line;
+        while (std::getline(taxonomy, line)) {
+            uint32_t id = 0;
+            if (std::from_chars(line.data(), line.data() + line.size(), id).ec == std::errc()) taxa.insert(id);
+        }
+        std::ifstream again(path);
+        size_t number = 0;
+        while (std::getline(again, line)) {
+            number++;
+            if (line.empty() || line[0] == '#' || line.rfind("clade", 0) == 0) continue;
+            uint32_t v[4] = {};
+            char const* p = line.data();
+            char const* const end = line.data() + line.size();
+            for (auto& x : v) {
+                p = std::from_chars(p, end, x).ptr;
+                if (p < end) p++;
+            }
+            auto known = [&gene_ids](uint32_t gene) { return gene < gene_ids.size() && gene_ids[gene]; };
+            if (!taxa.contains(v[0])) fail("line " + std::to_string(number) + ": clade " + std::to_string(v[0]) + " is not in the taxonomy");
+            if (!known(v[1]) || (v[3] != 0 && !known(v[3]))) {
+                fail("line " + std::to_string(number) + ": gene " + std::to_string(known(v[1]) ? v[3] : v[1]) + " is not in the database");
+            }
+        }
+        std::cout << "Gene neighbours: " << table.Rules() << " rules of " << table.Clades() << " clades from "
+                  << table.Genomes() << " genomes, neighbours up to " << table.MaxGap() << " bases apart ("
+                  << Options::PROTAL_GENE_NEIGHBOURS_FILE << "), stored in the database" << std::endl;
+    }
+
     static gene_conservation::Estimate WriteGeneConservation(protal::Options const& options, GenomeLoader& genomes,
                                                              std::string const& full_reference, std::string const& target) {
         Benchmark bm("Gene conservation");
@@ -1096,6 +1153,7 @@ namespace protal::build {
                   << singles_read << " single entries read back from their genes" << std::endl;
 
         WriteGeneConservation(options, genomes, options.GetFullSequenceFilePath(), options.GetGeneConservationFile());
+        CheckGeneNeighbours(options, genomes);
 
         std::cout << "Save unique kmer info: \n" << options.GetUniqueKmersFile() << std::endl;
         Benchmark bm_statistics("Unique k-mer statistics");
