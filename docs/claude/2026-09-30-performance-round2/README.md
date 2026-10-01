@@ -396,3 +396,69 @@ databases: fewer or cheaper WFA calls (item 4.2 of the first report: 3.3 calls p
 gene decode, moving candidate alignments instead of copying them, then the packed-read syncmers and the vector flex scan.
 
 Scripts added: `build_pair.sh`, `build_clean.sh`, `compare_outputs.sh`, `run_all_tests.sh`, `dense_world.sh`, `threads.sh`, `cachesim.sh`.
+
+## Follow-up (2026-10-01): windowed gene decode
+
+Implemented in `f71e7d5` (on `062bdf9`/`b1027b3`, which add `GeneSequence` windows and `Gene::Window`).
+
+`Gene::Window(begin, end)` decodes only the bases a read touches. The view it returns is as long as the gene and indexed by gene
+position, so the code that takes a gene as a `string_view` works unchanged; the bases outside `[Begin(), End())` are not decoded.
+Three places use it, each with the range it can read:
+
+| where | window |
+|---|---|
+| `ChainAnchorFinder` (`GeneAround`, `ExtractAndExtendAnchorFromSeed`) | the stretch of the gene along each link's diagonal: `[genepos - readpos, genepos - readpos + read length)` per link, merged, with a margin of 8 on both sides. A single seed of unknown strand takes the union of its two diagonals. One decode per anchor now serves the checks of a short anchor and its extension (two before) |
+| `SimpleAlignmentHandler::AlignAnchor` | the alignment window itself (`window.ref_start` to `ref_end`), which `AnchoredAligner` checks that every link and flank lies in |
+| the SAM writers (`ReferenceOf`) | the reference the record's CIGAR spans, from its position, for `ExtractSNPs` and `PrintAlignment` |
+
+Whole genes are still decoded where whole genes are needed (the strain MSAs, the build, long reads, the profiler's debugging check).
+
+**An error that the review of the first version missed, and how it was found.** `ExtendSeed` extends a link to the right while
+`query[qpos] == gene[rpos]`, and for the last link its limit is the gene's length, not the read's: it stops at the read's
+terminating NUL only because no base is NUL, so it reads the gene base one past the read's diagonal. With a window that ended
+there, that byte was whatever the stack held; when it was 0, the extension ran on and the link came out longer than the read.
+One read pair of 20,000 gave a different CIGAR (`62M3D88M` for `62M3D85M3S`, which is the better alignment, by luck of the chain
+lengths) in one build and not in another with the same source: a build that depended on stack residue. The
+byte-identical comparison caught it (1 record of 1,027), but only because the stack held a 0 in that build; AddressSanitizer did not (it poisons
+whole 8-byte granules and leaves the bytes of a partly poisoned one addressable, so a byte just past a window is missed more often than not);
+`valgrind --tool=memcheck` did, deterministically (an uninitialised conditional jump, then an invalid read of the read's NUL + 1). The window has a margin of 8 on each side
+now, and the tests make the class of error deterministic: `packed::OutsideFill(byte)` fills the undecoded part of every window with a
+byte, and the new tests (`tests/test_GeneWindows.cpp`) compare the finder's extension on windows with the one on the whole
+gene and the handler's alignments with different fills (0, `#`, `N`), over reads that lie inside the gene, run over either end,
+have a gap between their links, on genes shorter than the read, of 1,945 bases (stack) and 6,000 (heap). With the margin set to 0 they
+fail. A second trap: the `pair/new` build of that session was stale: the margin was added while a build was running and ninja judged
+the objects up to date, so the first comparisons were of the old window. `build_pair.sh` now starts the build directory empty.
+
+**Same outputs.** `compare_outputs.sh`, HEAD against the new build, as before: 176 (`mix`), 369 (`w900`), 241 (`dense_w`) and 140
+(`dense_mix`) files byte-identical at one thread, SAMs equal sorted at 6 threads and with `.gz` input, single-end reads, and the
+baseline-ISA binary. Under AddressSanitizer + UBSan (`protal_avx2` Debug build, the undecoded part of every window poisoned):
+`mix` 40k pairs, `w900` 20k, `dense_w` 12k, `dense_mix` 40k: no error, SAMs and profiles identical to HEAD's. Under
+`valgrind --tool=memcheck` (the check that found the error above), on the final build: 1,500 pairs of `dense_w` and 1,500 of `w900`: 0 errors.
+
+**What it saves.** Instructions per pair (callgrind, 30k pairs against 1k), before this change → now: `dense_w` 405.8k → 398.3k (−1.8%),
+`w900` 303.1k → 300.5k (−0.9%), `dense_mix` 68.4k → 67.9k, `mix` 77.6k → 77.3k. The constructor of the window is 200
+instructions per decode against 603 for the whole gene, at 20.6 decodes per pair on `dense_w`: 12.4k → 4.1k instructions per pair.
+Wall time (1 thread pinned, quiet machine, 3–6 alternated runs; `ab.sh`): `dense_w` 10.17 → 10.23 s (min), 11.14 → 10.71 s (median); `w900`
+18.17 → 17.77 s (min), 19.48 → 18.88 s (median); `dense_mix` and `mix` unchanged. So 0–4%, within what the machine's noise
+allows. The genes of these worlds (24 and 84 MB packed) are reused read after read, and stay in the caches. A cold gene decode is
+where the window pays: `scripts/bench_window.cpp`, genes drawn at random from 256 MB of packed genes:
+
+| gene | whole | window of 200 bases |
+|---:|---:|---:|
+| 1,000 bases | 170 ns | 82 ns |
+| 2,000 | 234 ns | 93 ns |
+| 4,000 | 278 ns | 85 ns |
+| 6,000 (heap buffer) | 351 ns | 186 ns |
+| 20,000 | 532 ns | 176 ns |
+
+At ~20 decodes per pair that is up to 2 µs of a pair's ~30 µs on `dense_w` when the genes are cold, as they will be in a GTDB index of
+5 GB of packed genes; not measured at that size. The 4 KB inline buffer still makes genes above 4,096 bases allocate their whole length on the
+heap for a window (the 186 ns above); a thread-local scratch buffer would remove that.
+
+Scripts added: `bench_window.cpp`, and `build_pair.sh` rebuilds from empty.
+
+Note: `~/protal-perf`, the work folder of both rounds (databases, read sets, builds, callgrind outputs), was removed from the machine
+after the checks above; what the report shows is in its `data/` folders, and the scripts regenerate the rest
+(`prep_db.sh`, `prep_reads.sh`, `dense_world.sh`, `build_pair.sh`). The commit was checked again afterwards on fresh builds of
+`git archive HEAD` (`f71e7d5`) and of `HEAD~1`: 230 unit tests and 116 end-to-end tests pass, and on a mini database (`build_mini_db.sh`)
+with 200,000 simulated read pairs all 12 outputs are byte-identical to `HEAD~1`'s at one thread, the SAMs equal sorted at four.

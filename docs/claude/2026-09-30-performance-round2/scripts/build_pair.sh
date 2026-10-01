@@ -14,6 +14,7 @@ if [ $what != new ]; then
    cmake --build build --target protal protal_avx2 simulate_metagenomes -j "$(nproc)" > build.log 2>&1; echo "base rc=$?") &
 fi
 if [ $what != base ]; then
+  rm -rf $PERF_DIR/pair/new/build   # a build left from earlier sources can look up to date to ninja (mtimes); start clean
   mkdir -p $PERF_DIR/pair/new/src
   rsync -a --delete --exclude '/data' --exclude '/build*/' --exclude '/.git' $repo/ $PERF_DIR/pair/new/src/
   (cd $PERF_DIR/pair/new && cmake -S src -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON > cmake.log 2>&1 &&
