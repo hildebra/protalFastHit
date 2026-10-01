@@ -27,7 +27,9 @@
 #include "ReadType.h"
 #include "SamChunks.h"
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <cmath>
 #include <charconv>
 #include <deque>
 #include <filesystem>
@@ -388,6 +390,46 @@ namespace protal {
 
         inline constexpr MAPQ_t kLowMapq = 10;  // a record below fits another candidate nearly as well
         inline constexpr int kAlternativeFitEdits = 1;  // an alternative this many edits worse fits as well
+        inline constexpr double kHighExcess = 0.02;  // a record's divergence beyond its base qualities above this is high
+
+        // A record's differences per aligned base (X + I + D over M + X + I + D, as AlignmentIdentity counts them) less
+        // the mean error probability of its bases by their qualities (10^(-Q/10)): how far its genome differs from the
+        // reference beyond what its sequencing errors explain. A relative's reads exceed their errors by several
+        // percent, a present species' own reads by about one (docs/claude/2026-10-01-f1-opportunities). None without
+        // base qualities ("*") or aligned bases.
+        inline std::optional<float> ReadExcess(SamEntry const& sam) {
+            if (sam.m_qual.empty() || sam.m_qual == "*") return std::nullopt;
+            static std::array<double, 256> const error = [] {
+                std::array<double, 256> e{};
+                for (int c = 0; c < 256; c++) e[c] = c < 33 ? 1.0 : std::pow(10.0, -(c - 33) / 10.0);
+                return e;
+            }();
+            size_t matches = 0, differences = 0, run = 0;
+            for (char const c : sam.m_cigar) {
+                if (c >= '0' && c <= '9') {
+                    run = run * 10 + static_cast<size_t>(c - '0');
+                    continue;
+                }
+                if (c == 'M' || c == '=') matches += run;
+                else if (c == 'X' || c == 'I' || c == 'D') differences += run;
+                run = 0;
+            }
+            if (matches + differences == 0) return std::nullopt;
+            double expected = 0;
+            for (unsigned char const c : sam.m_qual) expected += error[c];
+            expected /= static_cast<double>(sam.m_qual.size());
+            return static_cast<float>(static_cast<double>(differences) / static_cast<double>(matches + differences) - expected);
+        }
+
+        // The median of values (the mean of the two middle ones for an even count); 0 if empty.
+        inline double MedianOf(std::vector<double> values) {
+            if (values.empty()) return 0;
+            size_t const mid = values.size() / 2;
+            std::nth_element(values.begin(), values.begin() + mid, values.end());
+            double const upper = values[mid];
+            if (values.size() % 2 == 1) return upper;
+            return (*std::max_element(values.begin(), values.begin() + mid) + upper) / 2;
+        }
 
         // What a read's record tells beyond its own alignment (MicrobialProfile::AddSam).
         struct ReadEvidence {
@@ -404,6 +446,7 @@ namespace protal {
             size_t adjacent = 0;  // genes next to each other on its reads (MicrobialProfile::NoteLinkedRecord)
             size_t adjacent_expected = 0;  // of these, whose ends face each other in its clade (gene_neighbours::Verdict::Expected)
             size_t adjacent_unlikely = 0;  // that never do in a clade with data on them (Verdict::Unlikely)
+            std::vector<float> excess;  // each record's ReadExcess (records with base qualities)
 
             RecordEvidence& operator+=(RecordEvidence const& other) {
                 records += other.records;
@@ -413,6 +456,7 @@ namespace protal {
                 adjacent += other.adjacent;
                 adjacent_expected += other.adjacent_expected;
                 adjacent_unlikely += other.adjacent_unlikely;
+                excess.insert(excess.end(), other.excess.begin(), other.excess.end());
                 return *this;
             }
         };
@@ -510,12 +554,17 @@ namespace protal {
             Genome* m_genome;  // the database's genome, shared by all samples
             size_t m_genome_gene_count = 0;
             gene_conservation::Table const* m_conservation = nullptr;  // none: every gene's factor is 1
+            bool m_scale_margin = false;  // the depth identity margin scaled by the factors (--gene_conservation db)
+            double m_excess_median = 0;  // see ExcessMedian
+            double m_excess_high_share = 0;
 
         public:
 
-            // conservation: the database's genes' conservation factors (GenomeLoader::GetGeneConservation).
-            Taxon(Genome& genome, gene_conservation::Table const* conservation = nullptr) :
-                    m_genome(&genome), m_genome_gene_count(genome.GeneNum()), m_conservation(conservation) {}
+            // conservation: the genes' conservation factors (GenomeLoader::GetGeneConservation), for the features and,
+            // with scale_margin, to scale the depth identity margin per gene.
+            Taxon(Genome& genome, gene_conservation::Table const* conservation = nullptr, bool scale_margin = false) :
+                    m_genome(&genome), m_genome_gene_count(genome.GeneNum()), m_conservation(conservation),
+                    m_scale_margin(scale_margin) {}
 
             // Drops what is computed from the reads, when a read is added.
             void Changed() {
@@ -605,8 +654,40 @@ namespace protal {
                 return true;
             }
 
+            // Takes the counts of the taxon's best records (MicrobialProfile::ApplyRecordEvidence), and of their excesses
+            // only the median and the high share.
             void SetRecordEvidence(RecordEvidence const& records) {
                 m_records = records;
+                m_records.excess.clear();
+                m_records.excess.shrink_to_fit();
+                m_excess_median = 0;
+                m_excess_high_share = 0;
+                if (!records.excess.empty()) {
+                    std::vector<double> values(records.excess.begin(), records.excess.end());
+                    m_excess_high_share = static_cast<double>(std::count_if(values.begin(), values.end(),
+                        [](double v) { return v > kHighExcess; })) / static_cast<double>(values.size());
+                    m_excess_median = MedianOf(std::move(values));
+                }
+            }
+
+            // The median ReadExcess of the taxon's best records (all reads, before the filters), and the share above
+            // kHighExcess; both 0 without base qualities.
+            double ExcessMedian() const { return m_excess_median; }
+            double ExcessHighShare() const { return m_excess_high_share; }
+
+            // The conservation pattern of the genes its reads hit, by their factors (gene_conservation.tsv): log2 of the
+            // median depth of its hit genes with factor below 1 (conserved) over that of the others, each + 0.001 (0 if
+            // either has none); and the conserved share of its hit genes (0.5 without genes or factors). A relative the
+            // database lacks makes a species' fast genes deeper (docs/claude/2026-10-01-gene-scaled-margin).
+            std::pair<double, double> ConservationPattern() const {
+                if (!m_conservation || m_conservation->Empty() || m_genes.empty()) return { 0.0, 0.5 };
+                std::vector<double> conserved, fast;
+                for (auto const& [id, gene] : m_genes) {
+                    (m_conservation->Factor(id) < 1 ? conserved : fast).push_back(gene.VerticalCoverage());
+                }
+                double const share = static_cast<double>(conserved.size()) / static_cast<double>(m_genes.size());
+                if (conserved.empty() || fast.empty()) return { 0.0, share };
+                return { std::log2((MedianOf(std::move(conserved)) + 1e-3) / (MedianOf(std::move(fast)) + 1e-3)), share };
             }
 
             // Shares of the taxon's best records of all reads (also those the filters left out): with MAPQ below
@@ -852,9 +933,10 @@ namespace protal {
                 return TopIdentity() - gene_conservation::GeneMargin(m_depth_identity_margin, GeneFactor(geneid));
             }
 
-            // The conservation factor of gene `geneid` (1 unless factors are given).
+            // The conservation factor of gene `geneid` the depth identity margin is scaled by: 1 unless the margin is
+            // scaled (--gene_conservation db or FILE) and factors are given.
             double GeneFactor(uint64_t geneid) const {
-                return m_conservation ? m_conservation->Factor(geneid) : 1.0;
+                return m_scale_margin && m_conservation ? m_conservation->Factor(geneid) : 1.0;
             }
 
             // The lowest identity of a read within `margin` of TopIdentity; 0 (every read) for a margin of 1
@@ -1310,6 +1392,15 @@ namespace protal {
             // are; reads of genes that crossed from elsewhere are not.
             f.emplace_back("adjacent_expected_share", taxon.AdjacentExpectedShare());
             f.emplace_back("adjacent_unlikely_share", taxon.AdjacentUnlikelyShare());
+            // How far its reads differ from the reference beyond their base qualities' errors (ReadExcess: the median,
+            // and the share above kHighExcess), and the depth of its conserved hit genes against its fast ones
+            // (ConservationPattern): a relative's reads exceed their errors and land on the fast genes
+            // (docs/claude/2026-10-01-f1-opportunities).
+            f.emplace_back("excess_median", taxon.ExcessMedian());
+            f.emplace_back("excess_high_share", taxon.ExcessHighShare());
+            auto const [conserved_ratio, conserved_share] = taxon.ConservationPattern();
+            f.emplace_back("conserved_fast_depth_ratio", conserved_ratio);
+            f.emplace_back("conserved_hit_share", conserved_share);
             return f;
         }
 
@@ -1498,6 +1589,7 @@ namespace protal {
                 auto& e = m_counts[taxid];
                 e.records++;
                 e.low_mapq += sam.m_mapq < kLowMapq;
+                if (auto const excess = ReadExcess(sam)) e.excess.push_back(*excess);
                 if (!m_genera) return;
                 auto const genus = GenusOf(taxid);
                 bool congener = false, other = false;
@@ -1685,7 +1777,7 @@ namespace protal {
             void AddRead(InternalReadAlignment const& ira, bool unique=true) {
                 if (!m_taxa.contains(ira.taxid)) {
                     auto& genome = m_genome_loader.GetGenome(ira.taxid);
-                    m_taxa.insert( { ira.taxid, Taxon(genome, &m_genome_loader.GetGeneConservation()) } );
+                    m_taxa.insert( { ira.taxid, Taxon(genome, &m_genome_loader.GetGeneConservation(), m_genome_loader.ScaleDepthMargin()) } );
                     m_taxa.at(ira.taxid).SetName(std::to_string(ira.taxid));
                 }
                 auto& taxon = m_taxa.at(ira.taxid);
@@ -1712,7 +1804,7 @@ namespace protal {
                 if (!m_taxa.contains(taxid)) {
                     auto &genome = m_genome_loader.GetGenome(taxid);
 
-                    m_taxa.insert( { taxid, Taxon(genome, &m_genome_loader.GetGeneConservation()) } );
+                    m_taxa.insert( { taxid, Taxon(genome, &m_genome_loader.GetGeneConservation(), m_genome_loader.ScaleDepthMargin()) } );
                     m_taxa.at(taxid).SetId(taxid);
                     m_taxa.at(taxid).SetDepthIdentityMargin(m_depth_identity_margin);
                     m_taxa.at(taxid).SetName(std::to_string(taxid));

@@ -555,6 +555,67 @@ TEST(MicrobialProfile, CountsAlternativesLowMapqAndLinkedReads) {
     EXPECT_DOUBLE_EQ(plain.LinkedShare(), 1.0 / 3);
 }
 
+TEST(MicrobialProfile, DivergenceBeyondTheBaseQualities) {
+    // ReadExcess: the differences per aligned base less the mean error probability of the record's bases.
+    SamEntry sam;
+    sam.m_cigar = "10M";
+    sam.m_qual = "*";
+    EXPECT_FALSE(profiler::ReadExcess(sam).has_value());
+    sam.m_qual = std::string(10, 'I');  // Q40: 0.0001 per base
+    EXPECT_NEAR(*profiler::ReadExcess(sam), -1e-4, 1e-7);
+    sam.m_cigar = "8M2X";
+    sam.m_qual = std::string(10, '+');  // Q10: 0.1
+    EXPECT_NEAR(*profiler::ReadExcess(sam), 0.1, 1e-6);
+    sam.m_cigar = "2S4M1D4M";  // a difference in 9 aligned bases; the clipped bases' qualities count too
+    sam.m_qual = std::string(10, '5');  // Q20: 0.01
+    EXPECT_NEAR(*profiler::ReadExcess(sam), 1.0 / 9 - 0.01, 1e-6);
+    sam.m_cigar = "10S";
+    EXPECT_FALSE(profiler::ReadExcess(sam).has_value());
+
+    // A taxon's excess_median and excess_high_share, over all its best records (NoteRecord) with qualities.
+    TinyReference ref;
+    auto record = [&](std::string cigar, std::string qual) {
+        SamEntry r;
+        r.m_qname = "r";
+        r.m_rname = "1_1";
+        r.m_pos = 1;
+        r.m_mapq = 60;
+        r.m_cigar = std::move(cigar);
+        r.m_seq = ref.gene.substr(0, 10);
+        r.m_qual = std::move(qual);
+        return r;
+    };
+    profiler::MicrobialProfile profile(*ref.loader);
+    for (auto const& r : { record("8M2X", std::string(10, '+')),     // 0.1
+                           record("10M", std::string(10, 'I')),      // -0.0001
+                           record("9M1X", std::string(10, '5')) }) { // 0.09
+        profile.NoteRecord(1, r);
+        EXPECT_TRUE(profile.AddSam(1, 1, r, 1.0));
+    }
+    profile.NoteRecord(1, record("10M", "*"));  // no qualities: no excess
+    profile.ApplyRecordEvidence();
+    auto const& taxon = profile.GetTaxa().at(1);
+    EXPECT_NEAR(taxon.ExcessMedian(), 0.09, 1e-6);
+    EXPECT_DOUBLE_EQ(taxon.ExcessHighShare(), 2.0 / 3);
+    std::map<std::string, double> features;
+    for (auto const& [name, value] : profiler::TaxonFeatures(taxon)) features[name] = value;
+    EXPECT_NEAR(features.at("excess_median"), 0.09, 1e-6);
+    EXPECT_DOUBLE_EQ(features.at("excess_high_share"), 2.0 / 3);
+    // Without the database's gene conservation factors the conservation pattern says nothing.
+    EXPECT_DOUBLE_EQ(features.at("conserved_fast_depth_ratio"), 0.0);
+    EXPECT_DOUBLE_EQ(features.at("conserved_hit_share"), 0.5);
+
+    // Reads without qualities: both 0.
+    profiler::MicrobialProfile unqualified(*ref.loader);
+    auto plain = record("10M", "*");
+    unqualified.NoteRecord(1, plain);
+    plain.m_qual = std::string(10, 'I');
+    EXPECT_TRUE(unqualified.AddSam(1, 1, plain, 1.0));
+    unqualified.ApplyRecordEvidence();
+    EXPECT_DOUBLE_EQ(unqualified.GetTaxa().at(1).ExcessMedian(), 0.0);
+    EXPECT_DOUBLE_EQ(unqualified.GetTaxa().at(1).ExcessHighShare(), 0.0);
+}
+
 TEST(ProfileSam, ALongReadsGenesAreOneLinkedRead) {
     // A 200 bp gene, so that alignments pass the profiler's minimum length (more than 50 bases).
     std::string gene;

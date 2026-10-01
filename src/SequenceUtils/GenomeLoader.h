@@ -548,6 +548,7 @@ namespace protal {
         std::ifstream m_is;
         GenomeMap m_genomes;
         gene_conservation::Table m_gene_conservation;  // empty: every gene's factor is 1
+        bool m_scale_depth_margin = false;  // the depth identity margin scaled by m_gene_conservation (--gene_conservation)
         gene_neighbours::Table m_gene_neighbours;      // empty: no gene's neighbours are known
 
         int m_threads = 1;  // for reading reference.map
@@ -597,6 +598,7 @@ namespace protal {
                 m_reference(other.m_reference),
                 m_map(other.m_map),
                 m_gene_conservation(other.m_gene_conservation),
+                m_scale_depth_margin(other.m_scale_depth_margin),
                 m_gene_neighbours(other.m_gene_neighbours),
                 m_threads(other.m_threads) {
             Open();
@@ -615,6 +617,16 @@ namespace protal {
 
         void SetGeneConservation(gene_conservation::Table table) {
             m_gene_conservation = std::move(table);
+        }
+
+        // Whether the depth identity margin is scaled per gene by the factors (--gene_conservation db or FILE); the
+        // factors give the model's conservation features either way.
+        bool ScaleDepthMargin() const {
+            return m_scale_depth_margin;
+        }
+
+        void SetScaleDepthMargin(bool scale) {
+            m_scale_depth_margin = scale;
         }
 
         // Which genes lie next to which in the species' clades (GeneNeighbours.h); empty unless set (a

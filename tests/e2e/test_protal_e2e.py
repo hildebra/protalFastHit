@@ -549,8 +549,9 @@ class LowCoverageAbundanceTest(WorkDir):
 
 class GeneConservationTest(WorkDir):
     """--build estimates how fast each gene diverges within species from the other genomes' copies in
-    --full_reference (gene_conservation.tsv) and stores it in the database; queries scale the depth identity
-    margin by it with --gene_conservation db, and keep the same margin on every gene by default."""
+    --full_reference (gene_conservation.tsv) and stores it in the database; queries take it for the model's
+    conservation features, scale the depth identity margin by it with --gene_conservation db, and keep the same margin
+    on every gene by default."""
 
     def build(self, name, rates, with_full_reference=True):
         """A database of 4 species with 12 genes of 600 bp each; in full_reference, 2 other genomes per
@@ -615,10 +616,10 @@ class GeneConservationTest(WorkDir):
             dst.write(src.readline())
             dst.writelines(line.split("\t")[0] + "\t1\n" for line in src)
         profiles = {}
-        for name, extra, expected in (("default", [], "Gene conservation: not used (--gene_conservation none), the depth "
-                                                     "identity margin is the same on every gene; the database has factors"),
-                                      ("scaled", ["--gene_conservation", "db"], "Gene conservation: factors"),
-                                      ("none", ["--gene_conservation", "none"], "Gene conservation: not used"),
+        same = "for the conservation features; the depth identity margin is the same on every gene"
+        for name, extra, expected in (("default", [], same),
+                                      ("scaled", ["--gene_conservation", "db"], "they scale the depth identity margin per gene"),
+                                      ("none", ["--gene_conservation", "none"], same),
                                       ("ones", ["--gene_conservation", ones], "Gene conservation: factors 1-1 for")):
             rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name, "-t", "2", "--no_strains", *extra)
             self.assertEqual(rc, 0, log[-3000:])
@@ -761,7 +762,17 @@ class ModelContractTest(WorkDir):
         with open(db_file("model_pe.xml")) as fh:
             fields = set(re.findall(r'<DataField name="([^"]+)"', fh.read())) - {"truth"}
         self.assertEqual(sorted(fields - set(header)), [], "every model input is in the training dump")
+        sys.path.insert(0, os.path.join(ROOT, "scripts"))
+        from model_features import NORMALIZED_FEATURES
+        self.assertEqual([f for f in NORMALIZED_FEATURES if f not in header], [], "the trainer's features are dumped")
         self.assertTrue(rows)
+        conservation = os.path.exists(db_file("gene_conservation.tsv"))
+        for row in rows:
+            # The reference genes' reads with 0.5% substitutions and 1% Q2 bases: about what their qualities explain.
+            self.assertLess(abs(float(row["excess_median"])), 0.02, row)
+            self.assertLessEqual(float(row["excess_high_share"]), 0.5, row)
+            share = float(row["conserved_hit_share"])
+            self.assertTrue(0 <= share <= 1 if conservation else share == 0.5, row)
         for row in rows:
             for prefix, counts in (("RAF", "AF"), ("RA", "A")):
                 total = sum(float(row[f"{counts}{i}"]) for i in range(5))
@@ -1665,9 +1676,9 @@ class FailFastTest(WorkDir):
             self.assertNotIn("Sequence file does not exist", log)
 
     def test_malformed_gene_conservation(self):
-        # Read only when used (--gene_conservation db).
+        # Read by every query: the factors give the model's conservation features.
         db = self.db_copy("db_conservation", {"gene_conservation.tsv": b"geneid\tfactor\tspecies\n1\tfast\t3\n"})
-        rc, log = self.query(db, "out_conservation", "--gene_conservation", "db")
+        rc, log = self.query(db, "out_conservation")
         self.assertEqual(rc, 8, log[-3000:])
         self.assertRegex(log, r"Invalid gene conservation factors .*gene_conservation.tsv: line 2: the factor is not a number")
 

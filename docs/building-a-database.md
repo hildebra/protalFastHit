@@ -106,9 +106,11 @@ and compares before it removes the separate files. `full_reference.fna`, `gene2g
 `genome2tiid.tsv` stay next to it.
 
 `gene_conservation.tsv` says how fast each gene diverges within species compared with the species'
-other genes. It is in every database built with other genomes' copies, so that the depth identity
-margin can be scaled by it, wider on fast genes and narrower on conserved ones, without a rebuild
-(`--gene_conservation db`; by default the margin is the same on every gene,
+other genes. It is in every database built with other genomes' copies. Queries read it for two of
+the model's features, which genes a taxon's reads hit by their conservation
+([model-training.md](model-training.md)), and the depth identity margin can be scaled by it, wider
+on fast genes and narrower on conserved ones, without a rebuild (`--gene_conservation db`; by
+default the margin is the same on every gene,
 [running.md](running.md#options-the-website-does-not-list)). For
 each species and gene, the build compares up to 16 other genomes' copies in `full_reference.fna`
 with the representative's (k-mer distance, k = 12); divided by the distance of the species' median

@@ -535,26 +535,41 @@ TEST(Abundance, TheDepthMarginScalesWithTheGenesConservation) {
     }
     GenomeLoader loader((dir / "reference.fna").string(), (dir / "reference.map").string());
     loader.LoadAllGenomes();
-    profiler::MicrobialProfile profile(loader);
-    profile.SetDepthIdentityMargin(0.08);
     auto own = MakeSam(gene1, "50M", 1);
     auto relative = MakeSam(gene1, "47M3X", 1);  // identity 0.94
     auto strain = MakeSam(gene2, "45M5X", 1);    // identity 0.90
-    for (auto const* sam : { &own, &own, &relative }) ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0));
-    for (int i = 0; i < 2; i++) ASSERT_TRUE(profile.AddSam(1, 2, strain, 1.0));
-    auto& taxon = profile.GetTaxa().at(1);
-    ASSERT_DOUBLE_EQ(taxon.TopIdentity(), 1.0);
+    // A taxon takes the loader's factors, and whether they scale the margin, when its first read comes.
+    auto fill = [&](profiler::MicrobialProfile& profile) -> profiler::Taxon& {
+        profile.SetDepthIdentityMargin(0.08);
+        for (auto const* sam : { &own, &own, &relative }) EXPECT_TRUE(profile.AddSam(1, 1, *sam, 1.0));
+        for (int i = 0; i < 2; i++) EXPECT_TRUE(profile.AddSam(1, 2, strain, 1.0));
+        return profile.GetTaxa().at(1);
+    };
+    profiler::MicrobialProfile without(loader);
+    auto& unscaled = fill(without);
+    ASSERT_DOUBLE_EQ(unscaled.TopIdentity(), 1.0);
 
     // Without factors: 0.08 on both genes, the strain's reads out and the relative's in.
-    EXPECT_NEAR(taxon.OwnIdentityThreshold(1), 0.92, 1e-9);
-    EXPECT_NEAR(taxon.OwnIdentityThreshold(2), 0.92, 1e-9);
-    taxon.VerticalCoverage(true);
-    EXPECT_NEAR(taxon.LowIdentityShare(), 100.0 / 250, 1e-9);
+    EXPECT_NEAR(unscaled.OwnIdentityThreshold(1), 0.92, 1e-9);
+    EXPECT_NEAR(unscaled.OwnIdentityThreshold(2), 0.92, 1e-9);
+    unscaled.VerticalCoverage(true);
+    EXPECT_NEAR(unscaled.LowIdentityShare(), 100.0 / 250, 1e-9);
+    EXPECT_EQ(unscaled.ConservationPattern(), (std::pair<double, double>{ 0.0, 0.5 }));
 
     gene_conservation::Table factors;
     factors.Set(1, 0.4);
     factors.Set(2, 1.6);
     loader.SetGeneConservation(factors);
+    // The factors alone (--gene_conservation none, the default) give the conservation pattern, not the margin:
+    // the conserved gene's depth is 3, the fast one's 2.
+    EXPECT_NEAR(unscaled.OwnIdentityThreshold(1), 0.92, 1e-9);
+    auto const [ratio, share] = unscaled.ConservationPattern();
+    EXPECT_NEAR(ratio, std::log2(3.001 / 2.001), 1e-9);
+    EXPECT_DOUBLE_EQ(share, 0.5);
+
+    loader.SetScaleDepthMargin(true);  // --gene_conservation db
+    profiler::MicrobialProfile profile(loader);
+    auto& taxon = fill(profile);
     EXPECT_NEAR(taxon.OwnIdentityThreshold(1), 0.95, 1e-6);
     EXPECT_NEAR(taxon.OwnIdentityThreshold(2), 0.89, 1e-6);
     EXPECT_NEAR(taxon.VerticalCoverage(true), 100.0 / 50, 1e-9);  // two reads' worth on each gene

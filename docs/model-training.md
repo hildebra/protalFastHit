@@ -128,7 +128,24 @@ On simulated data it finds about a third of the archaea present, with probabilit
   its genus, or a species of another genus, fits within one edit: the reads of a relative the
   database lacks fit several of its congeners about as well); `linked_share` (the share of its
   reads with two records on it: both mates of a pair, on one gene or two, or two genes of a long
-  read). These count every read's best record, also those the profiler's MAPQ filter leaves out.
+  read). These count every read's best record, also those the profiler's MAPQ filter leaves out;
+- how far the reads differ from the reference beyond what their base qualities explain:
+  `excess_median` and `excess_high_share`, the median over the taxon's best records (also those the
+  filters leave out) of a record's differences per aligned base (X, I and D over M, X, I and D)
+  less the mean error probability of its bases (10^(-Q/10)), and the share of records above 0.02;
+  both 0 for reads without qualities. A relative the database lacks gives reads that differ by
+  several percent more than their errors, a present species' own reads by about one;
+- which genes the reads hit, by how fast the genes diverge within species (the database's
+  `gene_conservation.tsv`, [database-files.md](database-files.md)): `conserved_fast_depth_ratio`,
+  log2 of the median depth of the taxon's hit genes with factor below 1 (conserved) over that of
+  its other hit genes, each plus 0.001 (0 if either has none), and `conserved_hit_share`, the share
+  of its hit genes that are conserved; 0 and 0.5 without the table. A relative's reads are
+  deeper on the fast genes, where it differs from the species less than on the conserved ones.
+
+  The four came after 0.7.1: refitted with them on the 0.7.1 benchmark's training tables, the forest
+  gained 0.003 (paired-end) and 0.007 (ONT) of test F1, not significant on their own, and the
+  cross-validated F1 rose too ([report](claude/2026-10-01-f1-opportunities/README.md)). A dump of
+  an older protal lacks them.
 
 The dump also has `adjacent_expected_share` and `adjacent_unlikely_share`: of the genes next to
 each other on a taxon's reads (a pair's mates on two genes, a long read's consecutive genes within

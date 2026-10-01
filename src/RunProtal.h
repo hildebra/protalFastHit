@@ -165,39 +165,39 @@ namespace protal {
         }
     }
 
-    // The genes' conservation factors, which scale the depth identity margin per gene with
-    // --gene_conservation db (the database's gene_conservation.tsv) or FILE (Options::GeneConservationDbFile,
-    // GeneConservation.h). By default (none) every gene keeps the whole margin; the log says whether the
-    // database has factors. Exits 8 if the file cannot be read.
+    // The genes' conservation factors (Options::GeneConservationDbFile, GeneConservation.h: the database's
+    // gene_conservation.tsv, or --gene_conservation's file). They give the model's conservation features
+    // (conserved_fast_depth_ratio, conserved_hit_share) always, and scale the depth identity margin per gene with
+    // --gene_conservation db or FILE; by default (none) every gene keeps the whole margin. Without the file the
+    // features are 0 and 0.5. Exits 8 if the file cannot be read.
     static void LoadGeneConservation(Options const& options, GenomeLoader& genomes) {
         auto const file = options.GeneConservationDbFile();
+        bool const scale = options.ScaleDepthMarginByConservation();
         std::string const same = "the depth identity margin is the same on every gene";
-        if (!file) {
-            bool const stored = options.DatabaseGeneConservationDbFile().Exists();
-            std::cout << "Gene conservation: not used (--gene_conservation none), " << same
-                      << (stored ? "; the database has factors, which --gene_conservation db scales it by" : "") << std::endl;
-            return;
-        }
-        if (!file->Exists()) {
+        if (!file.Exists()) {
             std::cout << "Gene conservation: the database has no " << Options::PROTAL_GENE_CONSERVATION_FILE << " (built by an "
-                      << "earlier protal, or its --full_reference had no other genomes' copies of the genes): " << same << std::endl;
+                      << "earlier protal, or its --full_reference had no other genomes' copies of the genes): the "
+                      << "conservation features are 0 and 0.5, and " << same << std::endl;
             return;
         }
         std::string error;
-        auto const content = file->ReadAll(error);
+        auto const content = file.ReadAll(error);
         gene_conservation::Table table;
         if (content) {
             std::istringstream is(*content);
             error = table.Read(is);
         }
         if (!error.empty()) {
-            std::cerr << "Invalid gene conservation factors " << file->Name() << ": " << error << std::endl;
+            std::cerr << "Invalid gene conservation factors " << file.Name() << ": " << error << std::endl;
             exit(8);
         }
         auto const [low, high] = table.Range();
         std::cout << "Gene conservation: factors " << std::setprecision(2) << low << "-" << high << std::setprecision(6) << " for "
-                  << table.Genes() << " genes (" << file->Name() << "), which scale the depth identity margin per gene" << std::endl;
+                  << table.Genes() << " genes (" << file.Name() << "), for the conservation features; "
+                  << (scale ? "they scale the depth identity margin per gene"
+                            : same + " (--gene_conservation db scales it by them)") << std::endl;
         genomes.SetGeneConservation(std::move(table));
+        genomes.SetScaleDepthMargin(scale);
     }
 
     // The database's gene neighbours (gene_neighbours.tsv, GeneNeighbours.h: which marker gene lies next to which

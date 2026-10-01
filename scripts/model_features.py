@@ -13,6 +13,11 @@ The last four are about the reads' other candidates (docs/claude/2026-10-01-alig
 genus fits as well (within an edit, from protal's ZA tag). A dump of an older protal lacks them. The dump's
 linked_share (reads with two records on the taxon: both mates, or two genes of a long read) is left out: it lowered
 the paired-end F1 on the tuning world.
+
+Four more (docs/claude/2026-10-01-f1-opportunities): how far the reads differ from the reference beyond
+what their base qualities explain (excess_median, excess_high_share; 0 without qualities), and the depth of the
+taxon's conserved hit genes against its fast ones by the database's gene_conservation.tsv (conserved_fast_depth_ratio,
+conserved_hit_share; 0 and 0.5 without it). A relative's reads exceed their errors and land on the fast genes.
 """
 
 # Columns of the dump that describe the row, not the taxon's evidence; columns that
@@ -39,6 +44,8 @@ NORMALIZED_FEATURES = [
     "lu_gene_rate3", "lsu_gene_rate3",
     "mean_mapq", "low_mapq_share",
     "congener_fit_share", "other_genus_fit_share",
+    "excess_median", "excess_high_share",
+    "conserved_fast_depth_ratio", "conserved_hit_share",
 ]
 
 

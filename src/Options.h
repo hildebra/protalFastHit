@@ -104,7 +104,7 @@ namespace protal {
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
                 ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours.", cxxopts::value<double>()->default_value("0.5"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is the same on every gene unless --gene_conservation scales it. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
-                ("gene_conservation", "Scale --depth_identity_margin per gene by how fast each gene diverges within species: db for the database's factors (gene_conservation.tsv, which --build estimates from --full_reference and stores in the database), or a file of them (geneid, factor, species; 1 for a gene of typical conservation). A gene's margin is then 0.03 for read errors plus the rest times its factor (0.08: 0.05 at factor 0.4, 0.10 at 1.4). none (default): the same margin on every gene, which did best summed over three simulated worlds, among them one with many congeners missing from the database.", cxxopts::value<std::string>()->default_value("none"))
+                ("gene_conservation", "Scale --depth_identity_margin per gene by how fast each gene diverges within species: db for the database's factors (gene_conservation.tsv, which --build estimates from --full_reference and stores in the database), or a file of them (geneid, factor, species; 1 for a gene of typical conservation). A gene's margin is then 0.03 for read errors plus the rest times its factor (0.08: 0.05 at factor 0.4, 0.10 at 1.4). none (default): the same margin on every gene, which did best summed over three simulated worlds, among them one with many congeners missing from the database. The factors (the file's, else the database's) give the model's conservation features (conserved_fast_depth_ratio, conserved_hit_share) whatever this says.", cxxopts::value<std::string>()->default_value("none"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
                 ("model_se", "PMML model file for single-end samples, given as --model. Default: --model if given, else the database's model_se.xml.", cxxopts::value<std::string>()->default_value(""))
                 ("model_pb", "PMML model file for PacBio samples, given as --model. Default: --model if given, else the database's model_PB.xml.", cxxopts::value<std::string>()->default_value(""))
@@ -821,12 +821,19 @@ namespace protal {
             return DbFileNamed(PROTAL_GENE_NEIGHBOURS_FILE, GetGeneNeighboursFile());
         }
 
-        // The genes' conservation factors that scale the depth identity margin: the database's for
-        // --gene_conservation db, else --gene_conservation's file; nullopt for none (the default).
-        std::optional<db::DbFile> GeneConservationDbFile() const {
-            if (m_gene_conservation == "none" || m_gene_conservation.empty()) return std::nullopt;
-            if (m_gene_conservation == "db") return DatabaseGeneConservationDbFile();
+        // The genes' conservation factors: --gene_conservation's file, else the database's (for none, the default,
+        // and db). They give the model's conservation features (conserved_fast_depth_ratio, conserved_hit_share)
+        // either way, and scale the depth identity margin with db or a file (ScaleDepthMarginByConservation).
+        db::DbFile GeneConservationDbFile() const {
+            if (m_gene_conservation.empty() || m_gene_conservation == "none" || m_gene_conservation == "db") {
+                return DatabaseGeneConservationDbFile();
+            }
             return db::DbFile::OnDisk(m_gene_conservation);
+        }
+
+        // Whether the depth identity margin is scaled per gene (--gene_conservation db or a file).
+        bool ScaleDepthMarginByConservation() const {
+            return !m_gene_conservation.empty() && m_gene_conservation != "none";
         }
 
         // The model given for reads of `type`: by the type's option (--model_se, --model_pb,
