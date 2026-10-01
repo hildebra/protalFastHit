@@ -1,0 +1,40 @@
+# compare_outputs.sh, BASE = 48e7283 (pair/final), NEW = 48e7283 + the join fix (pair/fix), 2026-10-01
+== mix_plain 1 thread
+b: rc=0 0 lines about alignments in stdout
+compared 180 files (without *_runtime.tsv): IDENTICAL
+== w900_plain 1 thread
+b: rc=0 0 lines about alignments in stdout
+compared 394 files (without *_runtime.tsv): IDENTICAL
+== dense_w_plain 1 thread
+b: rc=0 0 lines about alignments in stdout
+compared 241 files (without *_runtime.tsv): IDENTICAL
+== dense_mix_plain 1 thread
+b: rc=0 0 lines about alignments in stdout
+compared 140 files (without *_runtime.tsv): IDENTICAL
+== dense_mix .gz 6 threads
+sam equal sorted: out/dense_mix_R.sam.zst
+compared 140 files (without *_runtime.tsv): IDENTICAL
+== w900 6 threads
+sam equal sorted: out/w900_R.sam.zst
+compared 394 files (without *_runtime.tsv): IDENTICAL
+== SE dense_w_300k
+b: rc=0 0 lines about alignments in stdout
+compared 3 files (without *_runtime.tsv): IDENTICAL
+== SE w900_plain
+b: rc=0 0 lines about alignments in stdout
+compared 3 files (without *_runtime.tsv): IDENTICAL
+== non-AVX2 binary, mix
+b: rc=0 0 lines about alignments in stdout
+compared 180 files (without *_runtime.tsv): IDENTICAL
+CMP-ALL-DONE
+
+# run_all_tests.sh TREE=fix JOBS=3
+unit_release rc=0  The following tests did not run: 	221 - GeneSequence.TheBasesOutsideAWindowAreNotLeftToChance (Skipped) 
+mini_db_test rc=0 Ran 30 tests in 27.158s  OK (skipped=3) 
+mini_db_build rc=0 -rw-r--r-- 1 falk falk  123494 Oct  1 14:51 full_reference.fna.zst -rw-r--r-- 1 falk falk    2260 Oct  1 14:51 gene2geneid.tsv -rw-r--r-- 1 falk falk    1155 Oct  1 14:51 genome2tii
+e2e rc=0 Ran 116 tests in 268.203s  OK 
+gtdb_build_test rc=0 Ran 3 tests in 153.106s  OK 
+model_test rc=0 Ran 7 tests in 0.711s  OK 
+asan_build rc=0 [136/136] Linking CXX executable tests/protal_tests lto-wrapper: warning: using serial compilation of 12 LTRANS jobs lto-wrapper: note: see the ‘-flto’ option documentation for mor
+unit_asan rc=0 100% tests passed, 0 tests failed out of 235  Total Test time (real) =  43.73 sec 
+ALL TESTS RUN

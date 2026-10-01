@@ -501,6 +501,12 @@ since changing it would change outputs (the new test compares with the old loop)
 the candidate that paired (`selected2[j]`, an experiment, not committed) gives byte-identical outputs to the new build on
 `w900` (394 files, 890k SAM records), `dense_w` (241, 994k) and `mix` (180) at one thread. On these data the lagging mark
 changes nothing that is written; it is still worth fixing on its own, with a test of the case.
+_Fixed in `57448de`: the join marks `selected2[j]`, and `PairJoin.ACandidateThatPairsIsNotAlsoOnItsOwn` tests the case
+(mate 2 with a wrong-orientation candidate on mate 1's gene before a right one: the old join wrote the right one a second
+time as a single and left the wrong one out). Outputs against `48e7283` (`compare_outputs.sh`,
+`data/compare_join_fix.txt`): byte-identical on `mix`, `w900`, `dense_w` and `dense_mix` at one thread, `w900` and gzipped
+`dense_mix` at six (SAMs sorted), single-end, and the baseline-ISA binary. 235 unit tests (Release and ASan + UBSan),
+mini-database, end-to-end, GTDB build and model tests pass._
 
 **Same outputs.** `compare_outputs.sh`, `c575aa5` against the new build: at one thread every output byte-identical on
 `mix` (180 files), `w900` (394), `dense_w` (241) and `dense_mix` (140), plain FASTQ; `w900` at 6 threads, SAMs equal
