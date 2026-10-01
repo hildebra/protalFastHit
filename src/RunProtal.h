@@ -29,7 +29,9 @@
 // #include "Profiler/ReadFilter.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
+#include <numeric>
 
 namespace protal {
 
@@ -667,14 +669,32 @@ namespace protal {
 
         omp_set_num_threads(options.GetThreads());
 
-        // One sample per thread, the next to whichever thread is free: samples differ in depth, and
-        // with the default static schedule one thread could be left with several deep ones. With
-        // fewer samples than threads, each sample is profiled on its share of them (ProfileSam).
+        // Samples are profiled in parallel, the largest SAM first, each next one by whichever thread is
+        // free: samples differ in depth, and with the default static schedule one thread could be left
+        // with several deep ones. A sample is profiled on threads in proportion to its SAM's share of
+        // all the samples' bytes, at least one (ProfileSam: the same profile on any number), so that a
+        // deep sample among shallow ones, or alone, is not left to one thread.
         size_t const threads = std::max<size_t>(options.GetThreads(), 1);
+        std::vector<uintmax_t> sam_bytes(range.size(), 0);
+        for (size_t idx = 0; idx < range.size(); idx++) {
+            std::error_code ec;
+            auto const bytes = std::filesystem::file_size(options.SamFile(range[idx]).first, ec);
+            if (!ec) sam_bytes[idx] = bytes;
+        }
+        uintmax_t const total_bytes = std::accumulate(sam_bytes.begin(), sam_bytes.end(), uintmax_t{0});
+        std::vector<int> order(range.size());
+        std::iota(order.begin(), order.end(), 0);
+        std::stable_sort(order.begin(), order.end(), [&sam_bytes](int a, int b) { return sam_bytes[a] > sam_bytes[b]; });
+        auto threads_of = [&](int idx) {
+            if (total_bytes == 0) return std::max<size_t>(1, threads / std::max<size_t>(range.size(), 1));
+            double const share = static_cast<double>(sam_bytes[idx]) / static_cast<double>(total_bytes);
+            return std::clamp<size_t>(static_cast<size_t>(std::lround(share * static_cast<double>(threads))), 1, threads);
+        };
         int const sample_threads = static_cast<int>(std::clamp<size_t>(range.size(), 1, threads));
-        size_t const threads_per_sample = std::max<size_t>(1, threads / static_cast<size_t>(sample_threads));
         #pragma omp parallel for schedule(dynamic, 1) num_threads(sample_threads) firstprivate(filters) shared(options, cout, taxonomy, profile_slots, genomes, std::cerr)//, bm_read_alignments, bm_profile)
-        for (int idx = 0; idx < static_cast<int>(range.size()); idx++) {
+        for (int k = 0; k < static_cast<int>(range.size()); k++) {
+            int const idx = order[k];
+            size_t const threads_per_sample = threads_of(idx);
             auto i = range[idx];
 
             auto const read_type = options.GetReadType(i);
