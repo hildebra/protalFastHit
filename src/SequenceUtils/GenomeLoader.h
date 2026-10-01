@@ -235,6 +235,14 @@ namespace protal {
                             : GeneSequence(std::string_view());
         }
 
+        // As Sequence, decoding only the bases [begin, end) (cut to the gene): the view is as long as the gene
+        // and indexed by gene position, but only those bases are valid (GeneSequence). For code that works
+        // on a read's stretch of a gene: the stretch costs a fraction of the gene's decoding and cache misses.
+        GeneSequence Window(size_t begin, size_t end) const {
+            return m_loaded ? GeneSequence(reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(m_where)), m_length, begin, end)
+                            : GeneSequence(std::string_view());
+        }
+
         const size_t GetId() const {
             return m_id;
         }
