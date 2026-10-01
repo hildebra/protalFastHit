@@ -200,7 +200,9 @@ namespace protal::index_codec {
                     for (uint64_t key = k; key < end; key++) {
                         uint64_t const n = count(key), f = FlexCells(n);
                         if (n == 0) continue;
-                        std::memcpy(dst, tmp_flex.data() + fp, f * 8);
+                        // Keys of one cell have no flex cells, and tmp_flex has no data pointer while it is
+                        // empty. n - f >= 1, so tmp_entries is never empty here.
+                        if (f) std::memcpy(dst, tmp_flex.data() + fp, f * 8);
                         std::memcpy(dst + f, tmp_entries.data() + ep, (n - f) * 8);
                         dst += n;
                         fp += f;
@@ -474,7 +476,8 @@ namespace protal::index_codec {
             std::string const e = detail::DecodeChunk(data, size, l, ch, km_tmp[worker].data(), val_tmp[worker].data());
             if (!e.empty()) return "chunk " + std::to_string(frame) + ": " + e;
             if (std::memcmp(km_tmp[worker].data(), keymap + ch.first_block * l.CellsPerBlock(), km_tmp[worker].size() * 2) != 0 ||
-                std::memcmp(val_tmp[worker].data(), values + ch.first_value, val_tmp[worker].size() * 8) != 0) {
+                (!val_tmp[worker].empty() &&
+                 std::memcmp(val_tmp[worker].data(), values + ch.first_value, val_tmp[worker].size() * 8) != 0)) {
                 return "chunk " + std::to_string(frame) + " differs from the index";
             }
             return "";

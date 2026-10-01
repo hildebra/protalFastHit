@@ -25,14 +25,15 @@ namespace {
     };
 
     // Keys with c entries take c cells, or c + ceil(c/2) with flex keys (c >= 2); block offsets and
-    // per-key offsets are prefix sums, the last control block holds the number of values.
+    // per-key offsets are prefix sums, the last control block holds the number of values. The keys
+    // of the first single_cell_blocks blocks have 0 or 1 entries, so those blocks have no flex cells.
     struct SmallIndex {
         index_codec::Layout layout;
         std::vector<uint16_t> keymap;
         std::vector<uint64_t> values;
         std::string header = std::string("an index header\0with bytes", 26);
 
-        SmallIndex(uint64_t blocks, unsigned seed, double empty_share) {
+        SmallIndex(uint64_t blocks, unsigned seed, double empty_share, uint64_t single_cell_blocks = 0) {
             std::mt19937_64 rng(seed);
             layout.blocks = blocks;
             keymap.assign(layout.KeymapCells(), 0);
@@ -44,7 +45,7 @@ namespace {
                 for (uint64_t j = 0; j < layout.keys_per_block; j++) {
                     cells[4 + j] = static_cast<uint16_t>(local);
                     std::uniform_real_distribution<double> u(0, 1);
-                    uint64_t const c = u(rng) < empty_share ? 0 : 1 + rng() % (rng() % 4 == 0 ? 40 : 3);
+                    uint64_t const c = u(rng) < empty_share ? 0 : b < single_cell_blocks ? 1 : 1 + rng() % (rng() % 4 == 0 ? 40 : 3);
                     uint64_t const n = c >= 2 ? c + (c + 1) / 2 : c;
                     uint64_t const taxid = 1 + rng() % 5000;
                     for (uint64_t i = 0; i < n - c; i++) values.push_back(rng());  // flex cells
@@ -83,6 +84,49 @@ namespace {
         vals.assign(container->layout.values, 0xabcdef);
         if (out) *out = *container;
         return index_codec::Decode(path, *table, *container, km.data(), vals.data(), threads);
+    }
+
+    // What the header of a chunk (see IndexCodec.h) says about it.
+    struct ChunkInfo {
+        uint8_t mode = 0;
+        uint64_t entries = 0, flex = 0;
+    };
+
+    std::vector<ChunkInfo> ChunkInfos(std::string const& path) {
+        std::string error;
+        auto table = zstd::ReadSeekTable(path, error);
+        std::vector<ChunkInfo> infos;
+        if (!table) return infos;
+        infos.resize(table->frames.size() - 1);
+        zstd::ForEachFrame(path, *table, 1, 1, [&](size_t frame, char const* data, size_t, size_t) -> std::string {
+            ChunkInfo& info = infos[frame - 1];
+            info.mode = static_cast<uint8_t>(data[0]);
+            std::memcpy(&info.entries, data + 8, 8);
+            std::memcpy(&info.flex, data + 16, 8);
+            return "";
+        });
+        return infos;
+    }
+
+    // Writes index with chunks of about chunk_bytes, then checks that every chunk is stored split,
+    // that it reads back as it was written with any thread count, and that Verify accepts it.
+    // Returns the chunks' headers.
+    std::vector<ChunkInfo> RoundTrip(SmallIndex const& index, std::string const& path, uint64_t chunk_bytes) {
+        size_t raw_chunks = 99;
+        std::string error;
+        auto written = index_codec::Write(path, index.header, index.layout, index.keymap.data(), index.values.data(),
+                                          {3, 0, 4, chunk_bytes}, error, &raw_chunks);
+        EXPECT_TRUE(written) << error;
+        EXPECT_EQ(raw_chunks, 0u) << "chunks of " << chunk_bytes;
+        EXPECT_EQ(index_codec::Verify(path, index.header, index.layout, index.keymap.data(), index.values.data(), 3), "");
+        for (int threads : {1, 4}) {
+            std::vector<uint16_t> km;
+            std::vector<uint64_t> vals;
+            EXPECT_EQ(DecodeFile(path, threads, km, vals), "") << "chunks of " << chunk_bytes << ", " << threads << " threads";
+            EXPECT_EQ(km, index.keymap) << "chunks of " << chunk_bytes << ", " << threads << " threads";
+            EXPECT_EQ(vals, index.values) << "chunks of " << chunk_bytes << ", " << threads << " threads";
+        }
+        return ChunkInfos(path);
     }
 }
 
@@ -153,6 +197,38 @@ TEST(IndexCodec, EmptyIndex) {
     std::vector<uint64_t> vals;
     ASSERT_EQ(DecodeFile(tmp / "index.zst", 2, km, vals), "");
     EXPECT_EQ(km, index.keymap);
+    // No value cells at all: Verify decodes into empty value buffers, which have no data pointer.
+    EXPECT_EQ(index_codec::Verify(tmp / "index.zst", index.header, index.layout, index.keymap.data(), index.values.data(), 2), "");
+}
+
+// Keys with 0 or 1 cells have no flex cells; a chunk of such keys has an empty flex column, and the
+// decoder must not copy from the (null) data pointer of an empty buffer.
+TEST(IndexCodec, ChunksWithoutFlexCells) {
+    TempDir tmp;
+    SmallIndex index(3000, 7, 0.3, 3000);
+    ASSERT_FALSE(index.values.empty());
+    for (uint64_t chunk : {uint64_t{4096}, uint64_t{50000}, uint64_t{64} << 20}) {
+        auto const infos = RoundTrip(index, tmp / "index.zst", chunk);
+        ASSERT_FALSE(infos.empty());
+        if (chunk == 4096) EXPECT_GT(infos.size(), 10u);
+        for (auto const& info : infos) {
+            EXPECT_EQ(info.mode, index_codec::kModeSplit);
+            EXPECT_EQ(info.flex, 0u) << "chunks of " << chunk;
+            EXPECT_GT(info.entries, 0u) << "chunks of " << chunk;
+        }
+    }
+}
+
+// A chunk that starts with keys of one cell and has flex keys only after its first batch of cells
+// (DecodeChunk composes the cells in batches of 65536): the flex cells still land at the right keys.
+TEST(IndexCodec, FlexCellsAfterAFirstBatchWithoutAny) {
+    TempDir tmp;
+    SmallIndex index(22000, 8, 0.2, 20000);
+    auto const infos = RoundTrip(index, tmp / "index.zst", uint64_t{64} << 20);
+    ASSERT_EQ(infos.size(), 1u);
+    EXPECT_EQ(infos[0].mode, index_codec::kModeSplit);
+    EXPECT_GT(infos[0].flex, 0u);
+    EXPECT_GT(infos[0].entries, uint64_t{65536});
 }
 
 TEST(IndexCodec, CorruptAndTruncatedFilesFail) {
