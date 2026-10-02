@@ -463,15 +463,16 @@ TEST(Abundance, StrongOwnEvidenceNeedsDepthFromTheTaxonsOwnReads) {
     TinyReference ref;
     std::string const reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence());
     profiler::MicrobialProfile profile(*ref.loader);
+    int read = 0;  // each read its own fragment
     profile.SetDepthIdentityMargin(0.04);
     auto own = MakeSam(reference.substr(0, 20), "20M", 1);
-    for (int i = 0; i < 2; i++) ASSERT_TRUE(profile.AddSam(1, 1, own, 1.0));
+    for (int i = 0; i < 2; i++) ASSERT_TRUE(profile.AddSam(1, 1, own, 1.0, true, ++read));
     auto const& taxon = profile.GetTaxa().at(1);
     EXPECT_FALSE(profiler::StrongOwnEvidence(taxon)) << "0.8x";
-    ASSERT_TRUE(profile.AddSam(1, 1, own, 1.0));
+    ASSERT_TRUE(profile.AddSam(1, 1, own, 1.0, true, ++read));
     EXPECT_TRUE(profiler::StrongOwnEvidence(taxon)) << "1.2x";
     auto relative = MakeSam(reference.substr(20, 20), "15M5X", 21);  // identity 0.75
-    for (int i = 0; i < 4; i++) ASSERT_TRUE(profile.AddSam(1, 1, relative, 1.0));
+    for (int i = 0; i < 4; i++) ASSERT_TRUE(profile.AddSam(1, 1, relative, 1.0, true, ++read));
     EXPECT_FALSE(profiler::StrongOwnEvidence(taxon)) << "most bases from a relative's reads";
 }
 
@@ -479,11 +480,12 @@ TEST(Abundance, DepthCountsOnlyTheTaxonsOwnReads) {
     TinyReference ref;
     std::string reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence());
     profiler::MicrobialProfile profile(*ref.loader);
+    int read = 0;  // each read its own fragment
     profile.SetDepthIdentityMargin(0.04);
     auto own = MakeSam(reference.substr(0, 20), "20M", 1);
     auto relative = MakeSam(reference.substr(20, 20), "15M5X", 21);  // identity 0.75
     for (auto const* sam : { &own, &own, &relative, &relative }) {
-        ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0));
+        ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0, true, ++read));
     }
     auto& taxon = profile.GetTaxa().at(1);
     // One 50 bp gene, every gene hit: the depth is the median gene depth of the own reads.
@@ -495,17 +497,43 @@ TEST(Abundance, DepthCountsOnlyTheTaxonsOwnReads) {
     EXPECT_NEAR(taxon.LowIdentityShare(), 0.0, 1e-9);
 }
 
+TEST(Abundance, AFragmentsOverlapCountsOnceInTheDepth) {
+    // On one 50 bp gene: a pair whose mates overlap by 10 bases (1-30 and 21-50) adds 50 bases, as the strain MSA
+    // counts it, not 60; a pair whose mates do not overlap 40; a single read 50. The depth does not depend on how
+    // often a library's mates overlap; the records' own bases (rates per aligned base) still count both mates.
+    TinyReference ref;
+    std::string reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence());
+    profiler::MicrobialProfile profile(*ref.loader);
+    auto mate = [&](size_t start, size_t length, FLAG_t flag) {
+        return MakeSam(reference.substr(start, length), std::to_string(length) + "M", static_cast<POS_t>(start + 1), flag);
+    };
+    ASSERT_TRUE(profile.AddSam(1, 1, mate(0, 30, 0x1 | 0x40), 1.0, true, 1));
+    ASSERT_TRUE(profile.AddSam(1, 1, mate(20, 30, 0x1 | 0x80 | 0x10), 1.0, true, 1));
+    ASSERT_TRUE(profile.AddSam(1, 1, mate(0, 20, 0x1 | 0x40), 1.0, true, 2));
+    ASSERT_TRUE(profile.AddSam(1, 1, mate(30, 20, 0x1 | 0x80 | 0x10), 1.0, true, 2));
+    ASSERT_TRUE(profile.AddSam(1, 1, mate(0, 50, 0), 1.0, true, 3));
+    auto const& taxon = profile.GetTaxa().at(1);
+    auto const& gene = taxon.GetGenes().at(1);
+    EXPECT_EQ(gene.m_fragment_bases, 140u);
+    EXPECT_EQ(gene.m_mapped_length, 150u);
+    EXPECT_NEAR(gene.VerticalCoverage(), 140.0 / 50, 1e-9);
+    EXPECT_NEAR(taxon.VerticalCoverage(), 140.0 / 50, 1e-9);
+    EXPECT_EQ(taxon.TotalLength(), 150u);
+    EXPECT_EQ(taxon.Fragments(), 3u);
+}
+
 TEST(Abundance, TheMsaTakesReadsByAStricterMarginThanTheDepth) {
     // Reads 5% below the best ones (a distant strain's, or a relative's) count towards the depth with
     // the default margin (0.08); the strain MSA takes reads within --msa_identity_margin (0.04) only.
     TinyReference ref;
     std::string reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence());
     profiler::MicrobialProfile profile(*ref.loader);
+    int read = 0;  // each read its own fragment
     profile.SetDepthIdentityMargin(0.08);
     auto own = MakeSam(reference.substr(0, 20), "20M", 1);
     auto strain = MakeSam(reference.substr(20, 20), "19M1X", 21);  // identity 0.95
     for (auto const* sam : { &own, &own, &strain, &strain }) {
-        ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0));
+        ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0, true, ++read));
     }
     auto& taxon = profile.GetTaxa().at(1);
     EXPECT_DOUBLE_EQ(taxon.TopIdentity(), 1.0);
@@ -540,9 +568,10 @@ TEST(Abundance, TheDepthMarginScalesWithTheGenesConservation) {
     auto strain = MakeSam(gene2, "45M5X", 1);    // identity 0.90
     // A taxon takes the loader's factors, and whether they scale the margin, when its first read comes.
     auto fill = [&](profiler::MicrobialProfile& profile) -> profiler::Taxon& {
+        int read = 0;  // each read its own fragment
         profile.SetDepthIdentityMargin(0.08);
-        for (auto const* sam : { &own, &own, &relative }) EXPECT_TRUE(profile.AddSam(1, 1, *sam, 1.0));
-        for (int i = 0; i < 2; i++) EXPECT_TRUE(profile.AddSam(1, 2, strain, 1.0));
+        for (auto const* sam : { &own, &own, &relative }) EXPECT_TRUE(profile.AddSam(1, 1, *sam, 1.0, true, ++read));
+        for (int i = 0; i < 2; i++) EXPECT_TRUE(profile.AddSam(1, 2, strain, 1.0, true, ++read));
         return profile.GetTaxa().at(1);
     };
     profiler::MicrobialProfile without(loader);

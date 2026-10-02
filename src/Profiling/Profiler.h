@@ -186,13 +186,19 @@ namespace protal {
 
             size_t m_gene_length = 0;
             StrainLevelContainer m_strain_level;
-            // Identity and aligned reference length of every read, for depth from a taxon's own reads.
+            // Identity and fragment bases (below) of every read, for depth from a taxon's own reads.
             std::vector<std::pair<float, uint32_t>> m_read_identities;
             double m_identity_bases = 0;  // aligned reference bases times their read's identity
             size_t m_fragments = 0;       // reads, a pair counting once
             size_t m_last_read = SIZE_MAX;
+            // The reference bases of the gene its fragments cover, each base of a fragment once: where a pair's mates
+            // overlap on the gene, the second mate adds only what the first did not cover, as in the strain MSA. The
+            // depth counts these, so that it does not depend on how often a library's mates overlap (short fragments);
+            // m_mapped_length counts every record's bases, for rates per aligned base.
+            size_t m_fragment_bases = 0;
+            std::pair<size_t, size_t> m_last_interval{ 0, 0 };  // the reference interval of m_last_read's records here
 
-            // Aligned reference bases of the reads with at least `min_identity`.
+            // Fragment bases of the reads with at least `min_identity`.
             size_t MappedLength(double min_identity) const {
                 size_t bases = 0;
                 for (auto const& [identity, length] : m_read_identities) {
@@ -304,12 +310,23 @@ namespace protal {
                     if (!m_strain_level.AddSam(sam, read_id, true, identity, alleles)) return false;
                 }
 
-                m_read_identities.emplace_back(static_cast<float>(identity), static_cast<uint32_t>(length));
-                m_identity_bases += identity * static_cast<double>(length);
-                if (read_id != m_last_read) {
+                // The record's reference interval, and what of it the fragment's other mate covered here already.
+                size_t const start = sam.m_pos > 0 ? static_cast<size_t>(sam.m_pos - 1) : 0;
+                size_t const end = start + length;
+                size_t overlap = 0;
+                if (read_id == m_last_read) {
+                    auto const [last_start, last_end] = m_last_interval;
+                    overlap = std::min(end, last_end) > std::max(start, last_start) ? std::min(end, last_end) - std::max(start, last_start) : 0;
+                    m_last_interval = { std::min(start, last_start), std::max(end, last_end) };
+                } else {
                     m_fragments++;
                     m_last_read = read_id;
+                    m_last_interval = { start, end };
                 }
+                size_t const fragment_bases = length - overlap;
+                m_read_identities.emplace_back(static_cast<float>(identity), static_cast<uint32_t>(fragment_bases));
+                m_identity_bases += identity * static_cast<double>(length);
+                m_fragment_bases += fragment_bases;
 
                 m_mapped_reads++;
                 m_mapped_length += length;
@@ -359,8 +376,9 @@ namespace protal {
             }
 
 
+            // The gene's depth: its fragment bases (a pair's overlap once) over its length.
             double VerticalCoverage() const {
-                return static_cast<double>(m_mapped_length)/static_cast<double>(m_gene_length);
+                return static_cast<double>(m_fragment_bases)/static_cast<double>(m_gene_length);
             }
 
 //            SNPs& GetSNPs() {
@@ -815,7 +833,7 @@ namespace protal {
             }
 
             // The same after the MAPQ and length filters: the bases of the records the profiler keeps (its genes'
-            // mapped lengths) on its genes of factor below 1 against its other genes, as depths over the summed length of
+            // fragment bases) on its genes of factor below 1 against its other genes, as depths over the summed length of
             // the taxon's genes of each kind. The filter drops most of a relative's reads on the conserved genes, which
             // fit several congeners equally: how far this falls below RecordConservedFastRatio tells how ambiguous a
             // taxon's conserved-gene reads are. 0 without factors or without genes of either kind.
@@ -823,7 +841,7 @@ namespace protal {
                 if (!m_conservation || m_conservation->Empty()) return 0;
                 uint64_t conserved = 0, fast = 0;
                 for (auto const& [id, gene] : m_genes) {
-                    (m_conservation->Factor(id) < 1 ? conserved : fast) += gene.m_mapped_length;
+                    (m_conservation->Factor(id) < 1 ? conserved : fast) += gene.m_fragment_bases;
                 }
                 return ConservedFastRatio(conserved, fast);
             }
@@ -1205,7 +1223,7 @@ namespace protal {
                     size_t own_bases = 0, all_bases = 0, own_all = 0;
                     for (auto& [geneid, gene] : m_genes) {
                         size_t const bases = gene.MappedLength(OwnIdentityThreshold(geneid));
-                        all_bases += gene.m_mapped_length;
+                        all_bases += gene.m_fragment_bases;
                         own_all += bases;
                         if (bases == 0 || gene.m_gene_length == 0 || DropsGene(geneid)) continue;
                         vcovs.emplace_back(static_cast<double>(bases) / static_cast<double>(gene.m_gene_length));
@@ -2386,7 +2404,7 @@ namespace protal {
                     for (auto gene_id : taxon.SortedGeneIds()) {
                         auto& gene = taxon.GetGenes().at(gene_id);
                         auto vcov = gene.VerticalCoverage();
-                        auto expected_vcov = static_cast<double>(gene.m_mapped_length) / static_cast<double>(gene.m_gene_length);
+                        auto expected_vcov = static_cast<double>(gene.m_fragment_bases) / static_cast<double>(gene.m_gene_length);
                         auto expected_hcov = 1 - exp(-expected_vcov);
                         auto hcov_obs = gene.GetStrainLevel().GetSequenceRangeHandler().CoveredPortion();
                         auto hcov_obs_rel = static_cast<double>(hcov_obs) / static_cast<double>(gene.m_gene_length);

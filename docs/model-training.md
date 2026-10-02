@@ -199,7 +199,10 @@ neighbours, sees every taxon as one without reads across genes (0, 0 and 0.5). A
 judges a species' own unusual gene order expected, so its present taxa have more expected and fewer
 unlikely pairings than with the clades' lines alone: train on the table the model will run with. The
 `depth` feature leaves out foreign genes ([running.md](running.md#options-the-website-does-not-list)),
-unless `--keep_foreign_genes`.
+unless `--keep_foreign_genes`. Since 2026-10-02 it counts a fragment's bases on a gene once (overlapping
+mates' overlap once, [report](claude/2026-10-02-fragment-depth/README.md)): with the collector's read
+setups the depth of present taxa is 0-3% lower than before and no call of the build's test samples
+changed, but a model is best trained on dumps of the protal it runs with.
 
 protal writes the alternatives as the `ZA` tag of a read's best record (`ZA:Z:<taxid>:<edits
 more>,...`, the other taxa among the read's aligned candidates with at most 5 edits more, or `*`);

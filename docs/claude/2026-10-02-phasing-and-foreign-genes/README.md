@@ -331,6 +331,10 @@ So the rules differ where the uses differ; the two I would change if they matter
 mates in the depth (a cleaner fragment count, with retraining) and the far-strain case for phasing (a margin relative
 to each haplotype's own best reads, which the clustering could provide).
 
+Follow-up (2026-10-02): the depth now counts a fragment's bases once, as the MSA does
+([2026-10-02-fragment-depth](../2026-10-02-fragment-depth/README.md)); on the operon world's 54 paired-end test
+samples no call changed, the present taxa's depth fell by a median 0-1.2% by read setup.
+
 ## Tests run
 
 On the final code (WSL build `~/protal-hap` from the working tree), with a mini database built afresh (its
