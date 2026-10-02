@@ -1,0 +1,11 @@
+--- a/CMakeLists.txt	2026-10-02 08:36:58.378958800 +0100
++++ b/CMakeLists.txt	2026-10-02 08:36:58.459761800 +0100
+@@ -70,7 +70,7 @@
+ endif()
+ 
+ add_library(isa_baseline INTERFACE)
+-target_compile_options(isa_baseline INTERFACE -march=x86-64 -mtune=generic)
++target_compile_options(isa_baseline INTERFACE -march=x86-64-v2 -mtune=generic)
+ 
+ add_library(isa_avx2 INTERFACE)
+ target_compile_options(isa_avx2 INTERFACE -march=x86-64-v3 -mtune=generic)

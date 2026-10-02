@@ -1,0 +1,16 @@
+ctest: 100% tests passed, 0 tests failed out of 274
+e2e: Ran 121 tests in 196.627s  OK 
+OK oneb-final: unit and e2e passed
+clone symbols: 14 v3, 14 default, 14 resolvers
+before: features 0xf47ff, features2 0x5eeedb03
+[Inferior 1 (process 4043507) exited normally]
+	breakpoint already hit 354 times
+	breakpoint already hit 14506 times
+	breakpoint already hit 1751 times
+	breakpoint already hit 52 times
+without x86-64-v3 vs plain x86-64 build: outputs same, SAM text same
+	breakpoint already hit 354 times 	breakpoint already hit 14506 times 	breakpoint already hit 1751 times 	breakpoint already hit 52 times SAM text same as plain x86-64 outputs same 
+Installed to /home/falk/mt-work/oneb-install/bin: protal v0.7.2
+installed: protal protal_map_utils protal_profile_utils qcmsa simulate_metagenomes 
+ELF 64-bit LSB pie executable, x86-64, version 1 (GNU/Linux)
+FINAL DONE

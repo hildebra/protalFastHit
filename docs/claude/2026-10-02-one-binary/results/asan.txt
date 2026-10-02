@@ -1,0 +1,5 @@
+clones in the ASan tests binary: 62
+ctest: 100% tests passed, 0 tests failed out of 274
+OK asan
+100% tests passed, 0 tests failed out of 274
+Total Test time (real) =  62.37 sec

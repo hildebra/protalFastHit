@@ -1,0 +1,169 @@
+# prof500k: self instructions per function (clone suffixes merged), the 25 largest savings
+
+## base -> v2 (positive: v2 executes fewer)
+TOTAL	16981681347	16807088837	1.03
+    98.6M  A    98.6M  B     0.0M   0.58%  __popcountdi2
+    30.2M  A  2261.2M  B  2231.0M  13.32%  SequenceRangeHandler::CoveredPortion(unsigned int) const
+     9.4M  A     9.4M  B     0.0M   0.06%  0x000000000011a9e0
+     5.9M  A    48.1M  B    42.2M   0.28%  protal::GenomeLoader::HasGene(unsigned long, unsigned long) const
+     3.6M  A    18.4M  B    14.9M   0.11%  tsl::sparse_map<unsigned int, protal::profiler::Gene, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<std::pair<unsigne
+     3.4M  A    17.5M  B    14.1M   0.10%  tsl::sparse_map<unsigned int, protal::profiler::Taxon, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<std::pair<unsign
+     3.0M  A    22.6M  B    19.6M   0.13%  protal::GenomeLoader::GeneLength(unsigned long, unsigned long)
+     2.9M  A    26.0M  B    23.1M   0.15%  protal::GenomeLoader::GetGenome(unsigned long const&)
+     2.3M  A    44.9M  B    42.6M   0.26%  protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned
+     2.1M  A   143.4M  B   141.3M   0.84%  protal::profiler::Gene::GetAlleles(std::vector<unsigned long, std::allocator<unsigned long> >&, unsigned int, unsigned int) const
+     2.1M  A   211.6M  B   209.5M   1.25%  protal::profiler::Taxon::AddSam(unsigned int, protal::SamEntry const&, double, bool, unsigned long, bool, protal::profiler::ReadEvidence con
+     1.9M  A    24.1M  B    22.2M   0.14%  protal::profiler::MicrobialProfile::TaxonOf(int)
+     1.9M  A    10.1M  B     8.2M   0.06%  tsl::sparse_map<int, protal::taxonomy::IntNode, std::hash<int>, std::equal_to<int>, std::allocator<std::pair<int, protal::taxonomy::IntNode>
+     1.2M  A  1289.0M  B  1287.9M   7.59%  protal::VariantHandler::AddAlignment(protal::SamEntry const&, unsigned long, unsigned long, unsigned char)
+     1.1M  A    11.4M  B    10.2M   0.07%  std::pair<tsl::detail_sparse_hash::sparse_hash<unsigned int, tsl::sparse_set<unsigned int, std::hash<unsigned int>, std::equal_to<unsigned i
+     0.9M  A     9.4M  B     8.5M   0.06%  protal::GenomeLoader::LoadPositionMap(protal::db::DbFile const&, int)::{lambda(protal::gene_table::Chunk<protal::GenomeLoader::LoadPositionM
+     0.8M  A     5.8M  B     4.9M   0.03%  protal::profiler::TaxonFilter::ExpectedGenesUniqueWeighted(protal::profiler::Taxon const&)
+     0.6M  A     6.7M  B     6.2M   0.04%  void tsl::detail_sparse_hash::sparse_hash<unsigned int, tsl::sparse_set<unsigned int, std::hash<unsigned int>, std::equal_to<unsigned int>, 
+     0.5M  A   148.9M  B   148.4M   0.88%  protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)
+     0.5M  A    17.4M  B    16.9M   0.10%  protal::profiler::Taxon::TopIdentity() const
+     0.4M  A   156.5M  B   156.1M   0.92%  protal::NormalizeCigar(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, unsigned long, unsigned int*, unsig
+     0.4M  A   261.4M  B   261.0M   1.54%  protal::SamReader::Advance(protal::SamEntry&)
+     0.4M  A    38.3M  B    38.0M   0.23%  SequenceRangeHandler::Merge(SequenceRange)
+     0.3M  A     7.5M  B     7.1M   0.04%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > protal::gene_table::ForEachChunk<protal::GenomeLoader::LoadU
+     0.2M  A    32.4M  B    32.2M   0.19%  protal::GenomeLoader::LoadPositionMap(protal::db::DbFile const&, int)::{lambda(std::basic_string_view<char, std::char_traits<char> >, protal
+
+## base -> v3 (positive: v3 executes fewer)
+TOTAL	16981681347	16867217952	0.67
+   173.7M  A   173.7M  B     0.0M   1.02%  protal::packed::UnpackAvx2(unsigned char const*, unsigned long, char*)
+   148.9M  A   148.9M  B     0.0M   0.88%  protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)
+    98.0M  A    98.0M  B     0.0M   0.58%  protal::packed::PackAvx2(char const*, unsigned long, unsigned char*)
+    91.0M  A    98.6M  B     7.6M   0.58%  __popcountdi2
+    16.9M  A   622.1M  B   605.2M   3.66%  protal::profiler::RecordEvidenceCollector::NoteRecord(unsigned int, unsigned int, protal::SamEntry const&)
+    16.0M  A   106.1M  B    90.1M   0.62%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string(std::__cxx11::basic_string<char, std::char_tra
+    13.3M  A    48.1M  B    34.8M   0.28%  protal::GenomeLoader::HasGene(unsigned long, unsigned long) const
+     8.7M  A     9.4M  B     0.7M   0.06%  0x000000000011a9e0
+     8.6M  A   170.7M  B   162.1M   1.01%  protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned
+     7.7M  A    18.4M  B    10.7M   0.11%  tsl::sparse_map<unsigned int, protal::profiler::Gene, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<std::pair<unsigne
+     7.6M  A    26.0M  B    18.4M   0.15%  protal::GenomeLoader::GetGenome(unsigned long const&)
+     7.2M  A    17.5M  B    10.3M   0.10%  tsl::sparse_map<unsigned int, protal::profiler::Taxon, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<std::pair<unsign
+     6.6M  A    20.1M  B    13.5M   0.12%  protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostr
+     5.2M  A    22.6M  B    17.4M   0.13%  protal::GenomeLoader::GeneLength(unsigned long, unsigned long)
+     5.2M  A    22.3M  B    17.1M   0.13%  std::pair<unsigned int, protal::profiler::Gene>* tsl::detail_sparse_hash::sparse_array<std::pair<unsigned int, protal::profiler::Gene>, std:
+     3.9M  A   211.6M  B   207.6M   1.25%  protal::profiler::Taxon::AddSam(unsigned int, protal::SamEntry const&, double, bool, unsigned long, bool, protal::profiler::ReadEvidence con
+     3.0M  A    44.9M  B    41.9M   0.26%  protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned
+     2.9M  A    24.1M  B    21.2M   0.14%  protal::profiler::MicrobialProfile::TaxonOf(int)
+     2.1M  A     2.1M  B     0.0M   0.01%  protal::profiler::Taxon::GeneDispersion() const
+     1.5M  A     2.6M  B     1.1M   0.02%  protal::profiler::MicrobialProfile::ApplyRecordEvidence()
+     1.5M  A     9.4M  B     8.0M   0.06%  protal::GenomeLoader::LoadPositionMap(protal::db::DbFile const&, int)::{lambda(protal::gene_table::Chunk<protal::GenomeLoader::LoadPositionM
+     1.4M  A     7.5M  B     6.0M   0.04%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > protal::gene_table::ForEachChunk<protal::GenomeLoader::LoadU
+     1.4M  A    11.4M  B    10.0M   0.07%  std::pair<tsl::detail_sparse_hash::sparse_hash<unsigned int, tsl::sparse_set<unsigned int, std::hash<unsigned int>, std::equal_to<unsigned i
+     1.4M  A     5.8M  B     4.4M   0.03%  protal::profiler::TaxonFilter::ExpectedGenesUniqueWeighted(protal::profiler::Taxon const&)
+     1.1M  A    17.4M  B    16.3M   0.10%  protal::profiler::Taxon::TopIdentity() const
+
+## base -> cl2 (positive: cl2 executes fewer)
+TOTAL	16981681347	16931916029	0.29
+    30.7M  A    98.6M  B    67.8M   0.58%  __popcountdi2
+    22.5M  A    22.5M  B     0.0M   0.13%  0x000000000011a860
+    16.9M  A   106.1M  B    89.3M   0.62%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string(std::__cxx11::basic_string<char, std::char_tra
+    13.7M  A    13.7M  B     0.0M   0.08%  0x000000000011a7a0
+    13.4M  A    13.4M  B     0.0M   0.08%  0x000000000011a780
+    13.3M  A    48.1M  B    34.8M   0.28%  protal::GenomeLoader::HasGene(unsigned long, unsigned long) const
+    11.5M  A    22.6M  B    11.1M   0.13%  protal::GenomeLoader::GeneLength(unsigned long, unsigned long)
+    10.8M  A    10.8M  B     0.0M   0.06%  0x000000000011a650
+    10.1M  A    44.8M  B    34.7M   0.26%  Variant::operator=(Variant&&)
+     9.4M  A     9.4M  B     0.0M   0.06%  0x000000000011a9e0
+     9.0M  A     9.0M  B     0.0M   0.05%  0x000000000011a360
+     8.8M  A   170.7M  B   161.9M   1.01%  protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned
+     7.6M  A    26.0M  B    18.4M   0.15%  protal::GenomeLoader::GetGenome(unsigned long const&)
+     4.2M  A     4.2M  B     0.0M   0.02%  0x000000000011a350
+     2.7M  A     2.7M  B     0.0M   0.02%  0x000000000011a410
+     2.6M  A     2.6M  B     0.0M   0.02%  0x000000000011ad00
+     1.8M  A     1.8M  B     0.0M   0.01%  0x000000000011ac20
+     1.5M  A     1.5M  B     0.0M   0.01%  0x000000000011af40
+     0.7M  A    44.9M  B    44.2M   0.26%  protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned
+     0.7M  A     0.7M  B     0.0M   0.00%  0x000000000011adb0
+     0.6M  A     0.6M  B     0.0M   0.00%  0x000000000011b040
+     0.5M  A     0.5M  B     0.0M   0.00%  0x000000000011ab40
+     0.4M  A     0.4M  B     0.0M   0.00%  0x000000000011a710
+     0.3M  A     0.6M  B     0.3M   0.00%  tsl::detail_robin_hash::robin_hash<std::pair<unsigned int, std::vector<unsigned char, std::allocator<unsigned char> > >, tsl::robin_map<unsi
+     0.3M  A     0.3M  B     0.0M   0.00%  0x000000000011a140
+
+## cl2 -> base (positive: base executes fewer)
+TOTAL	16931916029	16981681347	-0.29
+    22.5M  A    22.5M  B     0.0M   0.13%  0x000000000011a970
+    16.3M  A    16.3M  B     0.0M   0.10%  tsl::sparse_map<unsigned long, protal::Genome, std::hash<unsigned long>, std::equal_to<unsigned long>, std::allocator<std::pair<unsigned lon
+    15.2M  A   220.5M  B   205.2M   1.30%  protal::SamEntry::SamEntry(protal::SamEntry&&)
+    13.7M  A    13.7M  B     0.0M   0.08%  0x000000000011a8a0
+    13.4M  A    13.4M  B     0.0M   0.08%  0x000000000011a880
+    10.8M  A    10.8M  B     0.0M   0.06%  0x000000000011a750
+     9.0M  A     9.0M  B     0.0M   0.05%  0x000000000011a440
+     7.9M  A    97.6M  B    89.7M   0.58%  __memcmp_avx2_movbe
+     7.6M  A    24.6M  B    17.0M   0.15%  void std::__merge_adaptive<__gnu_cxx::__normal_iterator<Variant*, std::vector<Variant, std::allocator<Variant> > >, long, Variant*, __gnu_cx
+     6.5M  A     6.5M  B     0.0M   0.04%  0x000000000011aaf0
+     4.2M  A     4.2M  B     0.0M   0.02%  0x000000000011a430
+     2.7M  A     2.7M  B     0.0M   0.02%  0x000000000011a510
+     2.6M  A     2.6M  B     0.0M   0.02%  0x000000000011ae60
+     1.9M  A     1.9M  B     0.0M   0.01%  unsigned long& std::vector<unsigned long, std::allocator<unsigned long> >::emplace_back<unsigned long>(unsigned long&&)
+     1.8M  A     1.8M  B     0.0M   0.01%  0x000000000011ad60
+     1.5M  A     1.5M  B     0.0M   0.01%  0x000000000011b0a0
+     0.7M  A     0.7M  B     0.0M   0.00%  0x000000000011a4d0
+     0.7M  A     0.7M  B     0.0M   0.00%  0x000000000011ae10
+     0.7M  A     0.7M  B     0.0M   0.00%  0x000000000011ab70
+     0.7M  A     2.1M  B     1.4M   0.01%  protal::Genome::GetGene(unsigned long)
+     0.7M  A     0.7M  B     0.0M   0.00%  0x000000000011af10
+     0.6M  A  1289.6M  B  1289.0M   7.62%  protal::VariantHandler::AddAlignment(protal::SamEntry const&, unsigned long, unsigned long, unsigned char)
+     0.6M  A     0.6M  B     0.0M   0.00%  0x000000000011b1a0
+     0.5M  A     0.5M  B     0.0M   0.00%  0x000000000011ac70
+     0.5M  A     0.5M  B     0.0M   0.00%  0x000000000011ac90
+
+## v3 -> cl2 (positive: cl2 executes fewer)
+TOTAL	16867217952	16931916029	-0.38
+   167.2M  A   191.8M  B    24.5M   1.14%  protal::GeneSequence::GeneSequence(unsigned char const*, unsigned long, unsigned long, unsigned long)
+   153.9M  A   153.9M  B     0.0M   0.91%  protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, uns
+    82.8M  A    88.9M  B     6.2M   0.53%  protal::GeneSink::Copy(unsigned long, char const*, unsigned long)
+    60.8M  A  1350.5M  B  1289.6M   8.01%  protal::VariantHandler::AddAlignment(protal::SamEntry const&, unsigned long, unsigned long, unsigned char)
+    22.5M  A    22.5M  B     0.0M   0.13%  0x000000000011a860
+    13.7M  A    13.7M  B     0.0M   0.08%  0x000000000011a7a0
+    13.4M  A    13.4M  B     0.0M   0.08%  0x000000000011a780
+    10.9M  A    10.9M  B     0.0M   0.06%  0x000000000011a650
+    10.1M  A    44.8M  B    34.7M   0.27%  Variant::operator=(Variant&&)
+     9.0M  A     9.0M  B     0.0M   0.05%  0x000000000011a360
+     8.9M  A   152.3M  B   143.4M   0.90%  protal::profiler::Gene::GetAlleles(std::vector<unsigned long, std::allocator<unsigned long> >&, unsigned int, unsigned int) const
+     8.4M  A     8.4M  B     0.0M   0.05%  protal::packed::PackScalar(char const*, unsigned long, unsigned char*)
+     6.3M  A    17.4M  B    11.1M   0.10%  protal::GenomeLoader::GeneLength(unsigned long, unsigned long)
+     5.0M  A    96.7M  B    91.6M   0.57%  protal::sam_detail::IntTag(std::vector<std::basic_string_view<char, std::char_traits<char> >, std::allocator<std::basic_string_view<char, st
+     4.4M  A     5.1M  B     0.6M   0.03%  void tsl::detail_sparse_hash::sparse_hash<std::pair<unsigned int, protal::profiler::Gene>, tsl::sparse_map<unsigned int, protal::profiler::G
+     4.3M  A     4.3M  B     0.0M   0.03%  0x000000000011a350
+     3.1M  A    60.9M  B    57.7M   0.36%  protal::VariantHandler::GetVariant(std::vector<Variant, std::allocator<Variant> >&, unsigned int, char, char)
+     2.9M  A   170.9M  B   168.0M   1.01%  protal::gene_neighbours::Table::Read[abi:cxx11](std::istream&)
+     2.7M  A     2.7M  B     0.0M   0.02%  0x000000000011a410
+     2.6M  A     2.6M  B     0.0M   0.02%  0x000000000011ad00
+     2.5M  A    31.7M  B    29.2M   0.19%  tsl::detail_robin_hash::robin_hash<std::pair<unsigned int, std::vector<Variant, std::allocator<Variant> > >, tsl::robin_map<unsigned int, st
+     2.0M  A    37.0M  B    35.0M   0.22%  protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char
+     1.9M  A     3.6M  B     1.7M   0.02%  protal::profiler::TaxonFeatures[abi:cxx11](protal::profiler::Taxon const&)
+     1.8M  A     1.8M  B     0.0M   0.01%  0x000000000011ac20
+     1.8M  A     3.5M  B     1.7M   0.02%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string<std::allocator<char> >(char const*, std::alloc
+
+## cl2 -> v3 (positive: v3 executes fewer)
+TOTAL	16931916029	16867217952	0.38
+   173.7M  A   173.7M  B     0.0M   1.03%  protal::packed::UnpackAvx2(unsigned char const*, unsigned long, char*)
+   148.9M  A   148.9M  B     0.0M   0.88%  protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)
+    98.0M  A    98.0M  B     0.0M   0.58%  protal::packed::PackAvx2(char const*, unsigned long, unsigned char*)
+    60.2M  A    67.8M  B     7.6M   0.40%  __popcountdi2
+    22.5M  A    22.5M  B     0.0M   0.13%  0x000000000011a970
+    16.9M  A   622.1M  B   605.2M   3.67%  protal::profiler::RecordEvidenceCollector::NoteRecord(unsigned int, unsigned int, protal::SamEntry const&)
+    16.3M  A    16.3M  B     0.0M   0.10%  tsl::sparse_map<unsigned long, protal::Genome, std::hash<unsigned long>, std::equal_to<unsigned long>, std::allocator<std::pair<unsigned lon
+    13.7M  A    13.7M  B     0.0M   0.08%  0x000000000011a8a0
+    13.4M  A    13.4M  B     0.0M   0.08%  0x000000000011a880
+    10.8M  A    10.8M  B     0.0M   0.06%  0x000000000011a750
+     9.0M  A     9.0M  B     0.0M   0.05%  0x000000000011a440
+     7.7M  A    18.4M  B    10.7M   0.11%  tsl::sparse_map<unsigned int, protal::profiler::Gene, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<std::pair<unsigne
+     7.6M  A    24.6M  B    17.0M   0.15%  void std::__merge_adaptive<__gnu_cxx::__normal_iterator<Variant*, std::vector<Variant, std::allocator<Variant> > >, long, Variant*, __gnu_cx
+     7.5M  A    97.6M  B    90.1M   0.58%  __memcmp_avx2_movbe
+     7.2M  A    17.5M  B    10.3M   0.10%  tsl::sparse_map<unsigned int, protal::profiler::Taxon, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<std::pair<unsign
+     6.6M  A    20.1M  B    13.5M   0.12%  protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostr
+     6.5M  A     6.5M  B     0.0M   0.04%  0x000000000011aaf0
+     5.2M  A    22.3M  B    17.1M   0.13%  std::pair<unsigned int, protal::profiler::Gene>* tsl::detail_sparse_hash::sparse_array<std::pair<unsigned int, protal::profiler::Gene>, std:
+     4.2M  A     4.2M  B     0.0M   0.02%  0x000000000011a430
+     3.9M  A   211.6M  B   207.6M   1.25%  protal::profiler::Taxon::AddSam(unsigned int, protal::SamEntry const&, double, bool, unsigned long, bool, protal::profiler::ReadEvidence con
+     2.9M  A    24.1M  B    21.2M   0.14%  protal::profiler::MicrobialProfile::TaxonOf(int)
+     2.7M  A     2.7M  B     0.0M   0.02%  0x000000000011a510
+     2.6M  A   220.5M  B   217.9M   1.30%  protal::SamEntry::SamEntry(protal::SamEntry&&)
+     2.6M  A     2.6M  B     0.0M   0.02%  0x000000000011ae60
+     2.3M  A    44.2M  B    41.9M   0.26%  protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned

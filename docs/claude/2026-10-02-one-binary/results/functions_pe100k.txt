@@ -1,0 +1,169 @@
+# pe100k: self instructions per function (clone suffixes merged), the 25 largest savings
+
+## base -> v2 (positive: v2 executes fewer)
+TOTAL	30045682850	29491090575	1.85
+   277.2M  A   277.2M  B     0.0M   0.92%  __popcountdi2
+    91.2M  A   349.9M  B   258.7M   1.16%  protal::AnchoredAligner::Align(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_vie
+    65.7M  A   189.4M  B   123.7M   0.63%  protal::AnchoredAligner::Flank(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_vie
+    30.7M  A   697.4M  B   666.6M   2.32%  protal::SimpleAlignmentHandler::AlignAnchor(protal::ChainAlignmentAnchor&, protal::AlignmentResult&, std::__cxx11::basic_string<char, std::c
+    27.6M  A   592.2M  B   564.5M   1.97%  protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&)
+    26.4M  A    26.4M  B     0.0M   0.09%  0x000000000011a9e0
+    17.6M  A    72.4M  B    54.8M   0.24%  protal::ArtoSAM(protal::SamEntry&, protal::AlignmentResult const&, protal::AlignmentInfo&, FastxRecord&, std::__cxx11::basic_string<char, st
+    10.3M  A    56.1M  B    45.8M   0.19%  protal::CigarANI(std::basic_string_view<char, std::char_traits<char> >)
+     6.8M  A    61.5M  B    54.6M   0.20%  protal::GenomeLoader::GetGenome(unsigned long const&)
+     4.5M  A    33.3M  B    28.8M   0.11%  protal::ProtalPairedOutputHandler<false>::operator()(std::vector<std::pair<protal::AlignmentResult, protal::AlignmentResult>, std::allocator
+     3.8M  A   141.2M  B   137.4M   0.47%  protal::mate_guidance::BestDiagonal(std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<cha
+     1.1M  A    11.4M  B    10.2M   0.04%  std::pair<tsl::detail_sparse_hash::sparse_hash<unsigned int, tsl::sparse_set<unsigned int, std::hash<unsigned int>, std::equal_to<unsigned i
+     0.9M  A   104.3M  B   103.4M   0.35%  _int_malloc
+     0.9M  A     9.4M  B     8.5M   0.03%  protal::GenomeLoader::LoadPositionMap(protal::db::DbFile const&, int)::{lambda(protal::gene_table::Chunk<protal::GenomeLoader::LoadPositionM
+     0.6M  A     6.7M  B     6.2M   0.02%  void tsl::detail_sparse_hash::sparse_hash<unsigned int, tsl::sparse_set<unsigned int, std::hash<unsigned int>, std::equal_to<unsigned int>, 
+     0.3M  A     7.5M  B     7.1M   0.02%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > protal::gene_table::ForEachChunk<protal::GenomeLoader::LoadU
+     0.3M  A    10.4M  B    10.1M   0.03%  unlink_chunk.isra.0
+     0.2M  A     1.6M  B     1.3M   0.01%  tsl::sparse_map<int, protal::taxonomy::IntNode, std::hash<int>, std::equal_to<int>, std::allocator<std::pair<int, protal::taxonomy::IntNode>
+     0.2M  A    32.4M  B    32.2M   0.11%  protal::GenomeLoader::LoadPositionMap(protal::db::DbFile const&, int)::{lambda(std::basic_string_view<char, std::char_traits<char> >, protal
+     0.2M  A    48.9M  B    48.7M   0.16%  protal::zstd::ParallelFor<protal::gene_table::ParsePiece<protal::GenomeLoader::LoadUniqueKmers(protal::db::DbFile const&, int)::Row, protal:
+     0.1M  A   150.9M  B   150.7M   0.50%  malloc
+     0.1M  A     0.8M  B     0.7M   0.00%  protal::GenomeLoader::HasGene(unsigned long, unsigned long) const
+     0.1M  A    23.8M  B    23.7M   0.08%  malloc_consolidate
+     0.1M  A    29.8M  B    29.7M   0.10%  __memcmp_avx2_movbe
+     0.1M  A    49.7M  B    49.6M   0.17%  protal::Statistics protal::classify::RunPairedEnd<protal::SimpleKmerHandler<protal::ClosedSyncmer>, protal::ChainAnchorFinder<protal::KmerLo
+
+## base -> v3 (positive: v3 executes fewer)
+TOTAL	30045682850	29082906368	3.20
+   275.4M  A   277.2M  B     1.8M   0.92%  __popcountdi2
+   255.4M  A  7021.5M  B  6766.1M  23.37%  protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chu
+   142.9M  A   349.9M  B   206.9M   1.16%  protal::AnchoredAligner::Align(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_vie
+    98.0M  A    98.0M  B     0.0M   0.33%  protal::packed::PackAvx2(char const*, unsigned long, unsigned char*)
+    95.3M  A    95.3M  B     0.0M   0.32%  protal::packed::UnpackAvx2(unsigned char const*, unsigned long, char*)
+    62.2M  A   189.4M  B   127.2M   0.63%  protal::AnchoredAligner::Flank(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_vie
+    57.5M  A   697.4M  B   639.9M   2.32%  protal::SimpleAlignmentHandler::AlignAnchor(protal::ChainAlignmentAnchor&, protal::AlignmentResult&, std::__cxx11::basic_string<char, std::c
+    27.6M  A   592.2M  B   564.5M   1.97%  protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&)
+    26.2M  A    26.4M  B     0.2M   0.09%  0x000000000011a9e0
+    26.0M  A    56.1M  B    30.1M   0.19%  protal::CigarANI(std::basic_string_view<char, std::char_traits<char> >)
+    17.9M  A    61.5M  B    43.5M   0.20%  protal::GenomeLoader::GetGenome(unsigned long const&)
+    16.1M  A    72.4M  B    56.3M   0.24%  protal::ArtoSAM(protal::SamEntry&, protal::AlignmentResult const&, protal::AlignmentInfo&, FastxRecord&, std::__cxx11::basic_string<char, st
+    13.1M  A  1226.2M  B  1213.1M   4.08%  protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<un
+     8.4M  A    33.3M  B    24.9M   0.11%  protal::ProtalPairedOutputHandler<false>::operator()(std::vector<std::pair<protal::AlignmentResult, protal::AlignmentResult>, std::allocator
+     6.1M  A    15.2M  B     9.2M   0.05%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string(std::__cxx11::basic_string<char, std::char_tra
+     5.4M  A   828.1M  B   822.7M   2.76%  protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::p
+     3.4M  A     9.7M  B     6.3M   0.03%  void std::__merge_sort_with_buffer<__gnu_cxx::__normal_iterator<protal::gene_neighbours::Partner*, std::vector<protal::gene_neighbours::Part
+     2.5M  A    27.6M  B    25.2M   0.09%  std::__cxx11::to_string(unsigned int)
+     2.4M  A   391.3M  B   388.8M   1.30%  protal::AlignmentInfo::GetInstructionCountsAndCompress()
+     2.4M  A   141.2M  B   138.8M   0.47%  protal::mate_guidance::BestDiagonal(std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<cha
+     2.3M  A    13.6M  B    11.3M   0.05%  std::vector<unsigned long, std::allocator<unsigned long> >::_M_fill_assign(unsigned long, unsigned long const&)
+     1.7M  A   384.6M  B   382.9M   1.28%  protal::gene_neighbours::Table::Assess(unsigned int, unsigned int, protal::gene_neighbours::End, unsigned int, protal::gene_neighbours::End)
+     1.7M  A    11.9M  B    10.2M   0.04%  void std::__introsort_loop<__gnu_cxx::__normal_iterator<protal::LookupPointer*, std::vector<protal::LookupPointer, std::allocator<protal::Lo
+     1.5M  A     9.4M  B     8.0M   0.03%  protal::GenomeLoader::LoadPositionMap(protal::db::DbFile const&, int)::{lambda(protal::gene_table::Chunk<protal::GenomeLoader::LoadPositionM
+     1.4M  A     7.5M  B     6.0M   0.02%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > protal::gene_table::ForEachChunk<protal::GenomeLoader::LoadU
+
+## base -> cl2 (positive: cl2 executes fewer)
+TOTAL	30045682850	28995888970	3.49
+  1028.5M  A  1226.2M  B   197.6M   4.08%  protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<un
+   567.6M  A   697.4M  B   129.7M   2.32%  protal::SimpleAlignmentHandler::AlignAnchor(protal::ChainAlignmentAnchor&, protal::AlignmentResult&, std::__cxx11::basic_string<char, std::c
+   376.0M  A  7021.5M  B  6645.5M  23.37%  protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chu
+   267.7M  A   277.2M  B     9.5M   0.92%  __popcountdi2
+   166.1M  A   349.9M  B   183.7M   1.16%  protal::AnchoredAligner::Align(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_vie
+    89.3M  A   206.4M  B   117.1M   0.69%  protal::LookupResult::SortByReadComparator(protal::LookupResult const&, protal::LookupResult const&)
+    64.4M  A   189.4M  B   125.0M   0.63%  protal::AnchoredAligner::Flank(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_vie
+    35.5M  A    35.5M  B     0.0M   0.12%  0x000000000011a650
+    27.6M  A   592.2M  B   564.5M   1.97%  protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&)
+    26.4M  A    26.4M  B     0.0M   0.09%  0x000000000011a9e0
+    25.9M  A    56.1M  B    30.2M   0.19%  protal::CigarANI(std::basic_string_view<char, std::char_traits<char> >)
+    17.9M  A    61.5M  B    43.5M   0.20%  protal::GenomeLoader::GetGenome(unsigned long const&)
+    16.0M  A    72.4M  B    56.4M   0.24%  protal::ArtoSAM(protal::SamEntry&, protal::AlignmentResult const&, protal::AlignmentInfo&, FastxRecord&, std::__cxx11::basic_string<char, st
+    11.8M  A    11.8M  B     0.0M   0.04%  0x000000000011a860
+    11.3M  A    11.3M  B     0.0M   0.04%  protal::ChainAlignmentAnchor* std::__do_uninit_copy<__gnu_cxx::__normal_iterator<protal::ChainAlignmentAnchor*, std::vector<protal::ChainAli
+     8.2M  A    33.3M  B    25.1M   0.11%  protal::ProtalPairedOutputHandler<false>::operator()(std::vector<std::pair<protal::AlignmentResult, protal::AlignmentResult>, std::allocator
+     6.5M  A     6.5M  B     0.0M   0.02%  0x000000000011a7a0
+     6.4M  A     6.4M  B     0.0M   0.02%  0x000000000011a780
+     3.8M  A     3.8M  B     0.0M   0.01%  0x000000000011a410
+     3.0M  A     3.0M  B     0.0M   0.01%  0x000000000011a360
+     2.5M  A     4.1M  B     1.6M   0.01%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::assign(std::__cxx11::basic_string<char, std::char_traits<ch
+     2.1M  A     2.1M  B     0.0M   0.01%  0x000000000011a350
+     1.7M  A     1.7M  B     0.0M   0.01%  0x000000000011adb0
+     1.6M  A     1.6M  B     0.0M   0.01%  0x000000000011a0d0
+     0.6M  A     0.6M  B     0.0M   0.00%  0x000000000011ad00
+
+## cl2 -> base (positive: base executes fewer)
+TOTAL	28995888970	30045682850	-3.62
+   462.1M  A   462.1M  B     0.0M   1.59%  protal::IsAlignmentValid(protal::AlignmentInfo const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const
+   441.1M  A   441.1M  B     0.0M   1.52%  protal::ChainAnchorFinder<protal::KmerLookupSM>::ExtendAnchor(protal::ChainAlignmentAnchor&, std::__cxx11::basic_string<char, std::char_trai
+   355.9M  A   355.9M  B     0.0M   1.23%  protal::ChainAnchorFinder<protal::KmerLookupSM>::FindSeeds(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<uns
+   245.8M  A   245.8M  B     0.0M   0.85%  KmerUtils::ReverseComplementInto(std::basic_string_view<char, std::char_traits<char> >, std::__cxx11::basic_string<char, std::char_traits<ch
+    54.7M  A    54.7M  B     0.0M   0.19%  protal::PostProcessAlignment(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::AlignmentInfo&,
+    35.5M  A    35.5M  B     0.0M   0.12%  0x000000000011a750
+    29.5M  A    29.5M  B     0.0M   0.10%  protal::AnchoredAligner::Between(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_v
+    13.4M  A    87.2M  B    73.8M   0.30%  void std::__introsort_loop<__gnu_cxx::__normal_iterator<protal::LookupResult*, std::vector<protal::LookupResult, std::allocator<protal::Look
+    11.8M  A    11.8M  B     0.0M   0.04%  0x000000000011a970
+    11.3M  A    12.5M  B     1.3M   0.04%  void std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >::_M_range_insert<__gnu_cxx::__normal_iterator<
+    10.8M  A    71.6M  B    60.8M   0.25%  void std::__introsort_loop<__gnu_cxx::__normal_iterator<protal::LookupResult*, std::vector<protal::LookupResult, std::allocator<protal::Look
+     8.2M  A     8.9M  B     0.7M   0.03%  protal::WFA2Wrapper2::CigarInto(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, bool)
+     6.7M  A     6.7M  B     0.0M   0.02%  protal::ChainAnchorFinder<protal::KmerLookupSM>::IdenticalIgnoreAmbig(std::basic_string_view<char, std::char_traits<char> >, std::basic_stri
+     6.5M  A     6.5M  B     0.0M   0.02%  0x000000000011a8a0
+     6.4M  A     6.4M  B     0.0M   0.02%  0x000000000011a880
+     3.8M  A     3.8M  B     0.0M   0.01%  0x000000000011a510
+     3.0M  A     3.0M  B     0.0M   0.01%  0x000000000011a440
+     2.9M  A     2.9M  B     0.0M   0.01%  0x000000000011a390
+     2.1M  A     2.1M  B     0.0M   0.01%  0x000000000011a430
+     1.9M  A     3.6M  B     1.6M   0.01%  unsigned long& std::vector<unsigned long, std::allocator<unsigned long> >::emplace_back<unsigned long>(unsigned long&&)
+     1.7M  A     1.7M  B     0.0M   0.01%  0x000000000011af10
+     1.6M  A     1.6M  B     0.0M   0.01%  0x000000000011a190
+     0.9M  A     0.9M  B     0.0M   0.00%  0x000000000011aaf0
+     0.6M  A     0.6M  B     0.0M   0.00%  0x000000000011ae60
+     0.6M  A     0.6M  B     0.0M   0.00%  0x000000000011b0a0
+
+## v3 -> cl2 (positive: cl2 executes fewer)
+TOTAL	29082906368	28995888970	0.30
+  1015.4M  A  1213.1M  B   197.6M   4.17%  protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<un
+   510.1M  A   639.9M  B   129.7M   2.20%  protal::SimpleAlignmentHandler::AlignAnchor(protal::ChainAlignmentAnchor&, protal::AlignmentResult&, std::__cxx11::basic_string<char, std::c
+   120.6M  A  6766.1M  B  6645.5M  23.26%  protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chu
+    89.3M  A   206.4M  B   117.1M   0.71%  protal::LookupResult::SortByReadComparator(protal::LookupResult const&, protal::LookupResult const&)
+    82.8M  A    88.9M  B     6.2M   0.31%  protal::GeneSink::Copy(unsigned long, char const*, unsigned long)
+    80.2M  A   156.3M  B    76.1M   0.54%  protal::GeneSequence::GeneSequence(unsigned char const*, unsigned long, unsigned long, unsigned long)
+    35.5M  A    35.5M  B     0.0M   0.12%  0x000000000011a650
+    23.2M  A   206.9M  B   183.7M   0.71%  protal::AnchoredAligner::Align(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_vie
+    11.8M  A    11.8M  B     0.0M   0.04%  0x000000000011a860
+    11.1M  A    11.1M  B     0.0M   0.04%  protal::ChainAlignmentAnchor* std::__do_uninit_copy<__gnu_cxx::__normal_iterator<protal::ChainAlignmentAnchor*, std::vector<protal::ChainAli
+     8.4M  A     8.4M  B     0.0M   0.03%  protal::packed::PackScalar(char const*, unsigned long, unsigned char*)
+     8.2M  A     8.2M  B     0.0M   0.03%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > std::operator+<char, std::char_traits<char>, std::allocator<
+     7.0M  A   244.3M  B   237.3M   0.84%  protal::ChainAnchorFinder<protal::KmerLookupSM>::ExtractAnchor(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, un
+     6.5M  A     6.5M  B     0.0M   0.02%  0x000000000011a7a0
+     6.4M  A     6.4M  B     0.0M   0.02%  0x000000000011a780
+     3.8M  A     3.8M  B     0.0M   0.01%  0x000000000011a410
+     3.6M  A     3.6M  B     0.0M   0.01%  protal::gene_neighbours::Partner* std::__move_merge<__gnu_cxx::__normal_iterator<protal::gene_neighbours::Partner*, std::vector<protal::gene
+     3.0M  A     3.0M  B     0.0M   0.01%  0x000000000011a360
+     2.9M  A   170.9M  B   168.0M   0.59%  protal::gene_neighbours::Table::Read[abi:cxx11](std::istream&)
+     2.5M  A     4.1M  B     1.6M   0.01%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::assign(std::__cxx11::basic_string<char, std::char_traits<ch
+     2.2M  A   127.2M  B   125.0M   0.44%  protal::AnchoredAligner::Flank(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_vie
+     2.1M  A     2.1M  B     0.0M   0.01%  0x000000000011a350
+     1.7M  A     1.7M  B     0.0M   0.01%  0x000000000011adb0
+     1.6M  A     1.6M  B     0.0M   0.01%  0x000000000011a0d0
+     1.2M  A     1.2M  B     0.0M   0.00%  std::vector<protal::ChainLink, std::allocator<protal::ChainLink> >::vector(std::vector<protal::ChainLink, std::allocator<protal::ChainLink> 
+
+## cl2 -> v3 (positive: v3 executes fewer)
+TOTAL	28995888970	29082906368	-0.30
+   462.1M  A   462.1M  B     0.0M   1.59%  protal::IsAlignmentValid(protal::AlignmentInfo const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const
+   441.1M  A   441.1M  B     0.0M   1.52%  protal::ChainAnchorFinder<protal::KmerLookupSM>::ExtendAnchor(protal::ChainAlignmentAnchor&, std::__cxx11::basic_string<char, std::char_trai
+   355.9M  A   355.9M  B     0.0M   1.23%  protal::ChainAnchorFinder<protal::KmerLookupSM>::FindSeeds(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<uns
+   245.8M  A   245.8M  B     0.0M   0.85%  KmerUtils::ReverseComplementInto(std::basic_string_view<char, std::char_traits<char> >, std::__cxx11::basic_string<char, std::char_traits<ch
+    98.0M  A    98.0M  B     0.0M   0.34%  protal::packed::PackAvx2(char const*, unsigned long, unsigned char*)
+    95.3M  A    95.3M  B     0.0M   0.33%  protal::packed::UnpackAvx2(unsigned char const*, unsigned long, char*)
+    54.7M  A    54.7M  B     0.0M   0.19%  protal::PostProcessAlignment(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::AlignmentInfo&,
+    35.5M  A    35.5M  B     0.0M   0.12%  0x000000000011a750
+    29.5M  A    29.5M  B     0.0M   0.10%  protal::AnchoredAligner::Between(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_v
+    13.4M  A    87.2M  B    73.8M   0.30%  void std::__introsort_loop<__gnu_cxx::__normal_iterator<protal::LookupResult*, std::vector<protal::LookupResult, std::allocator<protal::Look
+    11.8M  A    11.8M  B     0.0M   0.04%  0x000000000011a970
+    11.3M  A    12.5M  B     1.3M   0.04%  void std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >::_M_range_insert<__gnu_cxx::__normal_iterator<
+    10.8M  A    71.6M  B    60.8M   0.25%  void std::__introsort_loop<__gnu_cxx::__normal_iterator<protal::LookupResult*, std::vector<protal::LookupResult, std::allocator<protal::Look
+     8.2M  A     8.9M  B     0.7M   0.03%  protal::WFA2Wrapper2::CigarInto(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, bool)
+     7.7M  A     9.5M  B     1.8M   0.03%  __popcountdi2
+     6.7M  A     6.7M  B     0.0M   0.02%  protal::ChainAnchorFinder<protal::KmerLookupSM>::IdenticalIgnoreAmbig(std::basic_string_view<char, std::char_traits<char> >, std::basic_stri
+     6.5M  A     6.5M  B     0.0M   0.02%  0x000000000011a8a0
+     6.4M  A     6.4M  B     0.0M   0.02%  0x000000000011a880
+     6.1M  A    15.2M  B     9.2M   0.05%  std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string(std::__cxx11::basic_string<char, std::char_tra
+     5.4M  A   828.1M  B   822.7M   2.86%  protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::p
+     3.8M  A     3.8M  B     0.0M   0.01%  0x000000000011a510
+     3.4M  A     9.7M  B     6.3M   0.03%  void std::__merge_sort_with_buffer<__gnu_cxx::__normal_iterator<protal::gene_neighbours::Partner*, std::vector<protal::gene_neighbours::Part
+     3.0M  A     3.0M  B     0.0M   0.01%  0x000000000011a440
+     2.9M  A     2.9M  B     0.0M   0.01%  0x000000000011a390
+     2.5M  A    27.6M  B    25.2M   0.10%  std::__cxx11::to_string(unsigned int)

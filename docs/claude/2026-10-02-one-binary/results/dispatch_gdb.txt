@@ -1,0 +1,31 @@
+# feature bits cleared after libgcc's first CPU check (oneb_nocpu.sh): breakpoint hits
+before: features 0xf47ff, features2 0x5eeedb03
+[Inferior 1 (process 4043507) exited normally]
+2       breakpoint     keep y   0x000055555557d400 <protal::CigarANI [clone .default]>
+	breakpoint already hit 354 times
+3       breakpoint     keep y   0x000055555557e0e0 <protal::CigarANI [clone .arch_x86_64_v3]>
+4       breakpoint     keep y   0x00005555555a7c60 <protal::KmerLookupSM::GetFromLookup [clone .default]>
+	breakpoint already hit 14506 times
+5       breakpoint     keep y   0x00005555555a84f0 <protal::KmerLookupSM::GetFromLookup [clone .arch_x86_64_v3]>
+6       breakpoint     keep y   0x00005555555a8d88 <protal::SimpleAlignmentHandler::AlignAnchor [clone .default]+8>
+	breakpoint already hit 1751 times
+7       breakpoint     keep y   0x00005555555a9e20 <protal::SimpleAlignmentHandler::AlignAnchor [clone .arch_x86_64_v3]>
+8       breakpoint     keep y   0x00005555555b1eb0 <protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .default]>
+	breakpoint already hit 52 times
+9       breakpoint     keep y   0x00005555555b4168 <protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]+8>
+
+# feature bits as the CPU reports them (oneb_v3cpu.sh): breakpoint hits
+before: features 0xf47ff, features2 0x5eeedb03
+[Inferior 1 (process 4043544) exited normally]
+2       breakpoint     keep y   0x000055555557d400 <protal::CigarANI [clone .default]>
+3       breakpoint     keep y   0x000055555557e0e0 <protal::CigarANI [clone .arch_x86_64_v3]>
+	breakpoint already hit 354 times
+4       breakpoint     keep y   0x00005555555a7c60 <protal::KmerLookupSM::GetFromLookup [clone .default]>
+5       breakpoint     keep y   0x00005555555a84f0 <protal::KmerLookupSM::GetFromLookup [clone .arch_x86_64_v3]>
+	breakpoint already hit 14506 times
+6       breakpoint     keep y   0x00005555555a8d88 <protal::SimpleAlignmentHandler::AlignAnchor [clone .default]+8>
+7       breakpoint     keep y   0x00005555555a9e20 <protal::SimpleAlignmentHandler::AlignAnchor [clone .arch_x86_64_v3]>
+	breakpoint already hit 1751 times
+8       breakpoint     keep y   0x00005555555b1eb0 <protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .default]>
+9       breakpoint     keep y   0x00005555555b4168 <protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]+8>
+	breakpoint already hit 52 times

@@ -1,0 +1,74 @@
+# clone symbols in the target_clones build (protal), demangled
+protal::AnchoredAligner::Align(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, std::vector<protal::ChainLink, std::allocator<protal::ChainLink> > const&, protal::AlignmentWindow const&, protal::WFA2Wrapper2&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .arch_x86_64_v3]
+protal::AnchoredAligner::Align(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, std::vector<protal::ChainLink, std::allocator<protal::ChainLink> > const&, protal::AlignmentWindow const&, protal::WFA2Wrapper2&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .default]
+protal::AnchoredAligner::Align(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, std::vector<protal::ChainLink, std::allocator<protal::ChainLink> > const&, protal::AlignmentWindow const&, protal::WFA2Wrapper2&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .resolver]
+protal::AnchoredAligner::Flank(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, unsigned long, unsigned long, unsigned long, unsigned long, bool, int, int, int, protal::WFA2Wrapper2&, int&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .arch_x86_64_v3]
+protal::AnchoredAligner::Flank(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, unsigned long, unsigned long, unsigned long, unsigned long, bool, int, int, int, protal::WFA2Wrapper2&, int&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .default]
+protal::AnchoredAligner::Flank(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, unsigned long, unsigned long, unsigned long, unsigned long, bool, int, int, int, protal::WFA2Wrapper2&, int&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .resolver]
+protal::ArtoSAM(protal::SamEntry&, protal::AlignmentResult const&, protal::AlignmentInfo&, FastxRecord&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) [clone .arch_x86_64_v3]
+protal::ArtoSAM(protal::SamEntry&, protal::AlignmentResult const&, protal::AlignmentInfo&, FastxRecord&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) [clone .default]
+protal::ArtoSAM(protal::SamEntry&, protal::AlignmentResult const&, protal::AlignmentInfo&, FastxRecord&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) [clone .resolver]
+protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .arch_x86_64_v3]
+protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .default]
+protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .resolver]
+protal::CigarANI(std::basic_string_view<char, std::char_traits<char> >) [clone .arch_x86_64_v3]
+protal::CigarANI(std::basic_string_view<char, std::char_traits<char> >) [clone .default]
+protal::CigarANI(std::basic_string_view<char, std::char_traits<char> >) [clone .resolver]
+protal::GenomeLoader::GeneLength(unsigned long, unsigned long) [clone .arch_x86_64_v3]
+protal::GenomeLoader::GeneLength(unsigned long, unsigned long) [clone .default]
+protal::GenomeLoader::GeneLength(unsigned long, unsigned long) [clone .resolver]
+protal::GenomeLoader::GetGenome(unsigned long const&) [clone .arch_x86_64_v3]
+protal::GenomeLoader::GetGenome(unsigned long const&) [clone .default]
+protal::GenomeLoader::GetGenome(unsigned long const&) [clone .resolver]
+protal::GenomeLoader::HasGene(unsigned long, unsigned long) const [clone .arch_x86_64_v3]
+protal::GenomeLoader::HasGene(unsigned long, unsigned long) const [clone .default]
+protal::GenomeLoader::HasGene(unsigned long, unsigned long) const [clone .resolver]
+protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&) [clone .arch_x86_64_v3]
+protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&) [clone .default]
+protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&) [clone .resolver]
+protal::ProtalPairedOutputHandler<false>::operator()(std::vector<std::pair<protal::AlignmentResult, protal::AlignmentResult>, std::allocator<std::pair<protal::AlignmentResult, protal::AlignmentResult> > >&, FastxRecord&, FastxRecord&, unsigned long, bool) [clone .arch_x86_64_v3]
+protal::ProtalPairedOutputHandler<false>::operator()(std::vector<std::pair<protal::AlignmentResult, protal::AlignmentResult>, std::allocator<std::pair<protal::AlignmentResult, protal::AlignmentResult> > >&, FastxRecord&, FastxRecord&, unsigned long, bool) [clone .default]
+protal::ProtalPairedOutputHandler<false>::operator()(std::vector<std::pair<protal::AlignmentResult, protal::AlignmentResult>, std::allocator<std::pair<protal::AlignmentResult, protal::AlignmentResult> > >&, FastxRecord&, FastxRecord&, unsigned long, bool) [clone .resolver]
+protal::ProtalPairedOutputHandler<true>::operator()(std::vector<std::pair<protal::AlignmentResult, protal::AlignmentResult>, std::allocator<std::pair<protal::AlignmentResult, protal::AlignmentResult> > >&, FastxRecord&, FastxRecord&, unsigned long, bool) [clone .arch_x86_64_v3]
+protal::ProtalPairedOutputHandler<true>::operator()(std::vector<std::pair<protal::AlignmentResult, protal::AlignmentResult>, std::allocator<std::pair<protal::AlignmentResult, protal::AlignmentResult> > >&, FastxRecord&, FastxRecord&, unsigned long, bool) [clone .default]
+protal::ProtalPairedOutputHandler<true>::operator()(std::vector<std::pair<protal::AlignmentResult, protal::AlignmentResult>, std::allocator<std::pair<protal::AlignmentResult, protal::AlignmentResult> > >&, FastxRecord&, FastxRecord&, unsigned long, bool) [clone .resolver]
+protal::SimpleAlignmentHandler::AlignAnchor(protal::ChainAlignmentAnchor&, protal::AlignmentResult&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .arch_x86_64_v3]
+protal::SimpleAlignmentHandler::AlignAnchor(protal::ChainAlignmentAnchor&, protal::AlignmentResult&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .default]
+protal::SimpleAlignmentHandler::AlignAnchor(protal::ChainAlignmentAnchor&, protal::AlignmentResult&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .resolver]
+protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsigned long*) [clone .arch_x86_64_v3]
+protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsigned long*) [clone .default]
+protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsigned long*) [clone .resolver]
+protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned long, protal::profiler::RecordEvidenceCollector&, protal::CigarInfo&, protal::CigarInfo&, std::vector<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition, std::allocator<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition> >&) const [clone .arch_x86_64_v3]
+protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned long, protal::profiler::RecordEvidenceCollector&, protal::CigarInfo&, protal::CigarInfo&, std::vector<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition, std::allocator<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition> >&) const [clone .default]
+protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned long, protal::profiler::RecordEvidenceCollector&, protal::CigarInfo&, protal::CigarInfo&, std::vector<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition, std::allocator<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition> >&) const [clone .resolver]
+
+clone symbols: 14 v3, 14 default, 14 resolvers
+functions with ymm registers: 26, of them .default clones: 0
+
+# functions with ymm registers (count, name)
+4 <adler32_avx512>:
+4 <adler32_avx512_vnni>:
+4 <adler32_fold_copy_avx512>:
+30 <adler32_fold_copy_avx512_vnni>:
+41 <adler32_fold_copy_impl.part.0>:
+27 <chunkmemset_avx2>:
+34 <chunkmemset_avx512>:
+6 <compare256_avx2>:
+6 <inflate_fast_avx2>:
+9 <inflate_fast_avx512>:
+6 <longest_match_avx2>:
+6 <longest_match_slow_avx2>:
+69 <protal::AnchoredAligner::Align [clone .arch_x86_64_v3]>:
+44 <protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]>:
+9 <protal::ArtoSAM [clone .arch_x86_64_v3]>:
+122 <protal::ChainAnchorFinder<protal::KmerLookupSM>::operator [clone .arch_x86_64_v3]>:
+101 <protal::CigarANI [clone .arch_x86_64_v3]>:
+33 <protal::ProtalPairedOutputHandler<false>::operator [clone .arch_x86_64_v3]>:
+33 <protal::ProtalPairedOutputHandler<true>::operator [clone .arch_x86_64_v3]>:
+67 <protal::SimpleAlignmentHandler::AlignAnchor [clone .arch_x86_64_v3]>:
+80 <protal::SimpleKmerHandler<protal::ClosedSyncmer>::Bases16>:
+134 <protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2>:
+218 <protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]>:
+154 <protal::packed::PackAvx2>:
+61 <protal::packed::UnpackAvx2>:
+7 <slide_hash_avx2>:
