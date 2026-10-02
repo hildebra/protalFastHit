@@ -93,6 +93,7 @@ namespace protal {
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
                 ("no_mate_guidance", "Paired-end reads: do not let a mate that is sure of its alignment guide the other one when they did not align together (to the guiding mate's taxon from the other's own anchor, or on its gene where the fragment can reach, partly if it runs past the gene's end).")
                 ("no_gene_neighbours", "Do not use the database's gene neighbours (gene_neighbours.tsv: how often each marker gene end faces which other in a clade's genomes): no looking for a mate past the end of its guiding mate's gene, no pairs of mates on two neighbouring genes, no looking on a long read for the genes next to its genes, adjacent_expected_share and adjacent_unlikely_share 0 and adjacent_support 0.5.")
+                ("keep_foreign_genes", "Keep foreign genes in their taxon's depth and strain MSAs. A gene is foreign when the genes next to it on its reads (a pair's mates on two genes, a long read's consecutive genes) are mostly unlikely neighbours in its taxon's clade by the database's gene neighbours (4 or more such links judged, more than half of them unlikely): its reads come from another genome. By default foreign genes are left out of both; .profile.genes.log lists them either way.")
                 ("u,max_key_ubiquity", "Max key ubiquity. Best matching Flexkey count for seed must be lower or equal", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_KEY_UBIQUITY)))
                 ("s,max_seed_size", "Max seed size after which seeding is stopped.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_SEED_SIZE)))
                 ("w,min_successful_lookups", "If the number of seeds is >=max_seed_size and the number of successful core-mer lookups is >= min_successful_lookups, stop looking for further seeds.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SUCCESSFUL_LOOKUPS)))
@@ -114,6 +115,7 @@ namespace protal {
         // Strain / SNP options
         options.add_options("Strains")
                 ("no_strains", "Stay on species level: do not write strain MSAs or SNP tables. Variants are still called, as the model uses them, so profiles are the same with or without this flag.")
+                ("no_phasing", "Write one strain MSA row per long-read sample (PacBio, ONT), the consensus of its reads. By default a sample whose reads show two or more strains of a species (on 3 genes or more) gets a row per strain, <sample>_hap1, _hap2, ..., the most abundant first, each called from its strain's reads: the reads are clustered by their alleles across the genes each one covers, and the blocks of genes that no read links are joined by the strains' shares of the reads where those tell which strain is which. <species>.haplotypes.tsv says how each block was phased.")
                 ("snp_min_cov", "Minimum number of reads supporting a variant to call a SNP.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_COV)))
                 ("snp_min_phred_sum", "Minimum cumulative phred score (sum of base qualities) across all supporting reads. Combined with --snp_min_mean_qual via OR: a variant passes quality if phred_sum >= snp_min_phred_sum OR mean_qual >= snp_min_mean_qual.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_PHRED_SUM)))
                 ("snp_min_mean_qual", "Minimum mean base quality across supporting reads. Combined with --snp_min_phred_sum via OR: a variant passes quality if mean_qual >= snp_min_mean_qual OR phred_sum >= snp_min_phred_sum. Note: at low coverage, --snp_min_cov is the binding constraint regardless.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_MEAN_QUAL)))
@@ -189,6 +191,8 @@ namespace protal {
         bool no_strains = false;
         bool no_mate_guidance = false;
         bool no_gene_neighbours = false;
+        bool keep_foreign_genes = false;
+        bool no_phasing = false;
         bool fastalign = false;
         bool profile_only = false;
         bool force = false;
@@ -292,6 +296,8 @@ namespace protal {
         bool m_no_strains = false;
         bool m_no_mate_guidance = false;
         bool m_no_gene_neighbours = false;
+        bool m_keep_foreign_genes = false;
+        bool m_no_phasing = false;
         bool m_fastalign = false;
         bool m_profile_only = false;
         bool m_force = false;
@@ -432,6 +438,8 @@ namespace protal {
                 m_no_strains(d.no_strains),
                 m_no_mate_guidance(d.no_mate_guidance),
                 m_no_gene_neighbours(d.no_gene_neighbours),
+                m_keep_foreign_genes(d.keep_foreign_genes),
+                m_no_phasing(d.no_phasing),
                 m_preload_genomes(d.preload_genomes),
                 m_show_help(d.show_help),
                 m_show_help_dev(d.show_help_dev),
@@ -605,6 +613,8 @@ namespace protal {
             result_str << "msa min depth:       " << std::to_string(m_msa_min_depth) << '\n';
             result_str << "msa identity margin: " << std::to_string(m_msa_identity_margin) << '\n';
             result_str << "msa knob:            " << std::to_string(GetMSAKnob()) << (m_msa_knob ? "" : " (--knob)") << '\n';
+            result_str << "phasing:             " << (m_no_phasing ? "no" : "long-read samples") << '\n';
+            result_str << "foreign genes:       " << (m_keep_foreign_genes ? "kept" : "left out of depth and MSAs") << '\n';
             result_str << "---- Dev Options ----" << std::string(30, '-') << '\n';
             result_str << "verbose:             " << (m_verbose ? "yes" : "no") << '\n';
             result_str << "benchmark alignment: " << (m_benchmark_alignment ? "yes" : "no") << '\n';
@@ -702,6 +712,16 @@ namespace protal {
         // Whether the database's gene neighbours are used (GeneNeighbours.h), if it has any.
         bool GeneNeighbours() const {
             return !m_no_gene_neighbours;
+        }
+
+        // Whether foreign genes (profiler::Taxon::ForeignGene) are left out of their taxon's depth and strain MSAs.
+        bool DropForeignGenes() const {
+            return !m_keep_foreign_genes;
+        }
+
+        // Whether a long-read sample's strain MSA row is split into its strains' (Haplotypes.h).
+        bool Phasing() const {
+            return !m_no_phasing;
         }
 
         bool BenchmarkAlignment() const {
@@ -1089,6 +1109,11 @@ namespace protal {
 
         std::string GetMSAPartitionOutput(std::string species_name) const {
             return m_strain_output_dir + '/' + species_name + ".raw.partition.txt";
+        }
+
+        // How a species' long-read samples were phased into strain rows (Haplotypes.h).
+        std::string GetHaplotypesOutput(std::string species_name) const {
+            return m_strain_output_dir + '/' + species_name + ".haplotypes.tsv";
         }
 
         std::string GetMSAStatsOutput(std::string species_name) const {
@@ -2112,6 +2137,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             bool no_strains = result.count("no_strains");
             bool no_mate_guidance = result.count("no_mate_guidance");
             bool no_gene_neighbours = result.count("no_gene_neighbours");
+            bool keep_foreign_genes = result.count("keep_foreign_genes");
+            bool no_phasing = result.count("no_phasing");
             bool build = result.count("build");
             bool preload_genomes_off = result.count("preload_genomes_off");
             bool benchmark_alignment = result.count("benchmark_alignment");
@@ -2420,6 +2447,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.no_strains               = no_strains;
             d.no_mate_guidance         = no_mate_guidance;
             d.no_gene_neighbours       = no_gene_neighbours;
+            d.keep_foreign_genes       = keep_foreign_genes;
+            d.no_phasing               = no_phasing;
             d.preload_genomes          = !preload_genomes_off;
             d.benchmark_alignment      = benchmark_alignment;
             d.benchmark_alignment_output = benchmark_alignment_output_file;

@@ -29,7 +29,10 @@ end on it is informative. A species counts once: at each gene end its genomes' m
 representative's breaks a tie), and the end informative if it is in any of its genomes, so that another
 strain's complete assembly fills in where the representative's contigs end. A clade's line for a gene end and
 partner says in how many of its species that end faces that partner, of how many in which the end is
-informative: the observed frequency.
+informative: the observed frequency. A species also gets lines of its own (clade: its taxid, 1 of 1 species) for
+the partners any of its genomes shows that would be no expected neighbours by its clades' frequencies alone
+(count_clades; --no_species_lines leaves them out), so that protal judges the genes next to each other on the
+reads of any of its genomes its neighbours.
 
 Writes into <db> (or --output and --positions):
 
@@ -52,7 +55,7 @@ training database that leaves species out (derive()).
 
 Usage:
   gene_neighbours.py --db <converted folder> --genome_table <table> [-t 8] [--max_gap 3000]
-      [--ranks family,order,class,phylum,domain]
+      [--ranks family,order,class,phylum,domain] [--no_species_lines]
   gene_neighbours.py --db <converted folder> --from_positions gene_positions.tsv [--exclude_taxa FILE]
 """
 
@@ -81,6 +84,8 @@ MIN_KMER_HITS = 3     # and at least this many
 TRACE_BAND = 32       # diagonals this close are one place (a strain's indels shift its gene's diagonal)
 PRIOR_SPECIES = 3     # protal's kPriorSpecies: a clade with a gene end informative in fewer species counts less
                       # there than the clades above it, whose share its own is smoothed towards (GeneNeighbours.h)
+MIN_INFORMATIVE = 5   # protal's kMinInformative: a top clade with fewer judges no pairing unlikely
+EXPECTED_SHARE = 0.2  # protal's kExpectedShare: a pairing of this smoothed share or more is expected
 REPEAT_SHARE = 0.5    # a second place with this share of the best's hits: the gene is there twice
 
 
@@ -352,20 +357,70 @@ def species_ends(genomes, representative, max_gap):
     return chosen
 
 
-def count_clades(species, nodes, ranks, reps_of, max_gap):
+def species_partners(genomes, max_gap):
+    """Every partner one species' genomes {accession: placements} show at each gene end: {(gene, end): {(partner,
+    partner end): gap}}, the gap the median of the genomes that show it (0 for no partner)."""
+    seen = collections.defaultdict(lambda: collections.defaultdict(list))
+    for placements in genomes.values():
+        for gene, end, partner, partner_end, gap in neighbour_ends(placements, max_gap):
+            seen[(gene, end)][(partner, partner_end)].append(gap)
+    return {key: {partner: int(round(statistics.median(gaps))) if partner[0] else 0 for partner, gaps in partners.items()}
+            for key, partners in seen.items()}
+
+
+def smoothed_share(counts, informative, chain, gene, end, partner):
+    """protal's share of a pairing in a species (gene_neighbours::Table::Assess): over the species' clades from the
+    top down (chain: nearest first), the top clade with data on the end has its own share, each one below (species +
+    PRIOR_SPECIES x its parent's share) / (informative + PRIOR_SPECIES). -> (share, whether the top clade has the end
+    informative in MIN_INFORMATIVE species or more), or (None, False) if no clade has data on the end."""
+    share, populated = None, False
+    for clade in reversed(chain):
+        key = (clade, gene, end)
+        n_informative = informative.get(key, 0)
+        if n_informative == 0:
+            continue
+        n = len(counts[key].get(partner, ())) if key in counts else 0
+        if share is None:
+            share, populated = n / n_informative, n_informative >= MIN_INFORMATIVE
+        else:
+            share = (n + PRIOR_SPECIES * share) / (n_informative + PRIOR_SPECIES)
+    return share, populated
+
+
+def count_clades(species, nodes, ranks, reps_of, max_gap, species_lines=True):
     """The clades' lines from species {taxid: {accession: placements}}: {(clade, gene, end): {(partner, partner
     end): [gaps of its species]}}, {(clade, gene, end): informative species}, and the species' informative ends'
-    gaps (None: no marker within max_gap)."""
+    gaps (None: no marker within max_gap).
+
+    With species_lines (and no species among the ranks), also lines of the species itself (clade: its taxid, each
+    partner 1 of 1 species) at each end where a partner that any of its genomes shows there would be no expected
+    neighbour by its clades alone (smoothed_share below EXPECTED_SHARE, in clades with enough species to judge): a
+    species whose gene order differs from its family's there, or whose strains differ (a strain's partner, not that
+    of most of its genomes, which the clades count). protal reads the species as the nearest clade of its lineage, so
+    its own neighbours are expected (a share of at least 1/4 with PRIOR_SPECIES 3) while its clades' stay so (3/4 of
+    their share): the genes next to each other on the reads of any of its genomes are judged its neighbours, also
+    where its family has them otherwise."""
     counts = collections.defaultdict(lambda: collections.defaultdict(list))
     informative = collections.Counter()
     ends = []
+    own = {}
     for taxid in sorted(species):
         clades = ancestors(nodes, taxid, ranks).values()
-        for (gene, end), (partner, partner_end, gap) in species_ends(species[taxid], reps_of.get(taxid), max_gap).items():
+        own[taxid] = species_ends(species[taxid], reps_of.get(taxid), max_gap)
+        for (gene, end), (partner, partner_end, gap) in own[taxid].items():
             ends.append(gap if partner else None)
             for clade in clades:
                 counts[(clade, gene, end)][(partner, partner_end)].append(gap)
                 informative[(clade, gene, end)] += 1
+    if species_lines and "species" not in ranks:
+        for taxid in sorted(own):
+            chain = list(ancestors(nodes, taxid, ranks).values())  # nearest first
+            for (gene, end), partners in sorted(species_partners(species[taxid], max_gap).items()):
+                for partner, gap in sorted(partners.items()):
+                    share, populated = smoothed_share(counts, informative, chain, gene, end, partner)
+                    if share is not None and populated and share < EXPECTED_SHARE:
+                        counts[(taxid, gene, end)][partner].append(gap)
+                        informative[(taxid, gene, end)] = 1
     return counts, informative, ends
 
 
@@ -408,16 +463,17 @@ def read_positions(path, exclude=frozenset()):
 
 def derive(positions, taxonomy, output, exclude=frozenset(), positions_out=None):
     """gene_neighbours.tsv (output) from a gene_positions.tsv without the species of `exclude` (taxids), with the
-    max_gap and ranks its comment names; and, with positions_out, the positions file without them. -> (lines,
-    genomes, species)."""
+    max_gap, ranks and species lines its comment names (species lines if it does not say); and, with positions_out,
+    the positions file without them. -> (lines, genomes, species)."""
     nodes, reps = read_taxonomy(taxonomy)
     species, settings = read_positions(positions, exclude)
     max_gap = int(settings.get("max_gap", 3000))
     ranks = settings.get("ranks", "family,order,class,phylum,domain").split(",")
-    counts, informative, _ = count_clades(species, nodes, ranks, {t: a for a, t in reps.items()}, max_gap)
+    species_lines = settings.get("species_lines", "1") != "0"
+    counts, informative, _ = count_clades(species, nodes, ranks, {t: a for a, t in reps.items()}, max_gap, species_lines)
     genomes = sum(len(g) for g in species.values())
     rows = write_table(output, counts, informative, f"genomes={genomes} species={len(species)} max_gap={max_gap} "
-                                                     f"ranks={','.join(ranks)}")
+                                                     f"ranks={','.join(ranks)} species_lines={int(species_lines)}")
     if positions_out:
         with open(positions) as fin, open(positions_out + ".partial", "w", newline="\n") as fout:
             for line in fin:
@@ -459,6 +515,8 @@ def main():
     ap.add_argument("--max_gap", type=int, default=3000, help="the farthest a neighbour counts, in bases (default 3000)")
     ap.add_argument("--ranks", default="family,order,class,phylum,domain",
                     help="the ranks of the clades to count for (default family,order,class,phylum,domain)")
+    ap.add_argument("--no_species_lines", action="store_true",
+                    help="no lines of a species' own where its gene order differs from its clades' (count_clades)")
     ap.add_argument("--min_placed", type=float, default=0.8,
                     help="a genome counts only if this share of its species' genes is placed in it (default 0.8)")
     ap.add_argument("--from_positions", help="derive the table from this gene_positions.tsv instead of the genomes")
@@ -504,7 +562,8 @@ def main():
     with open(positions_path + ".partial", "w", newline="\n") as positions, \
             multiprocessing.Pool(max(1, args.threads)) as pool:
         positions.write(f"# protal gene positions: max_gap={args.max_gap} ranks={','.join(ranks)} kmer={KMER} "
-                        f"stride={STRIDE} min_kmer_share={MIN_KMER_SHARE} min_placed={args.min_placed}\n")
+                        f"stride={STRIDE} min_kmer_share={MIN_KMER_SHARE} min_placed={args.min_placed} "
+                        f"species_lines={int(not args.no_species_lines)}\n")
         positions.write(POSITIONS_HEADER + "\n")
         for taxid, results in pool.imap(place_species, work, chunksize=2):
             for accession, contigs, placements, n_genes, n_repeated in results:
@@ -533,9 +592,10 @@ def main():
                 species[taxid][accession] = rows
     os.replace(positions_path + ".partial", positions_path)
 
-    counts, informative, ends = count_clades(species, nodes, ranks, reps_of, args.max_gap)
+    species_lines = not args.no_species_lines
+    counts, informative, ends = count_clades(species, nodes, ranks, reps_of, args.max_gap, species_lines)
     rows = write_table(output, counts, informative, f"genomes={used} species={len(species)} max_gap={args.max_gap} "
-                                                     f"ranks={','.join(ranks)}")
+                                                     f"ranks={','.join(ranks)} species_lines={int(species_lines)}")
 
     # The snapshot: how the genes were placed, how much adjacency there is, how alike it is within each rank.
     print(f"Genes placed: {exact} exactly and {traced} by their k-mer trace in the {used} genomes used (of "
@@ -552,6 +612,10 @@ def main():
         print(f"Gene ends: {len(ends)} informative in the species, {len(gaps)} ({100 * len(gaps) / len(ends):.1f}%) "
               f"with a marker within {args.max_gap} bases{spread}")
     summarise(counts, informative, nodes, ranks)
+    if species_lines:
+        own = collections.Counter(clade for clade, _, _ in counts if nodes[clade][1] == "species")
+        print(f"  species: {len(own)} of the {len(species)} species have lines of their own, at {sum(own.values())} gene "
+              f"ends where their partner would be no expected neighbour by their clades alone")
     print(f"Wrote {output}: {rows} lines; {positions_path}: the genes of {used} genomes")
 
 

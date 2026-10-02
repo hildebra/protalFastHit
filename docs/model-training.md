@@ -194,7 +194,12 @@ database lacks pair across the same genes as the species' own. Whether they help
 real, a build tells with `--features normalized` (without them) against the default, and every
 `--evaluation full` training compares the feature sets with species held out ("Feature sets" in the
 report). A model trained with them, used with `--no_gene_neighbours` or on a database without gene
-neighbours, sees every taxon as one without reads across genes (0, 0 and 0.5).
+neighbours, sees every taxon as one without reads across genes (0, 0 and 0.5). A database whose
+`gene_neighbours.tsv` has species lines ([building-a-database.md](building-a-database.md#gene-neighbours))
+judges a species' own unusual gene order expected, so its present taxa have more expected and fewer
+unlikely pairings than with the clades' lines alone: train on the table the model will run with. The
+`depth` feature leaves out foreign genes ([running.md](running.md#options-the-website-does-not-list)),
+unless `--keep_foreign_genes`.
 
 protal writes the alternatives as the `ZA` tag of a read's best record (`ZA:Z:<taxid>:<edits
 more>,...`, the other taxa among the read's aligned candidates with at most 5 edits more, or `*`);

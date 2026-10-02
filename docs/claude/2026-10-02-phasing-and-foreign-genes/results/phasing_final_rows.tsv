@@ -1,0 +1,817 @@
+run	species	sample	strains	strain	share	coverage	rows	discriminating	resolved	wrong	recovered	placed	kept_by_qcmsa	TP	FP	FN
+ont.nophase	Babelia yalserjoa	mix1	2	STR05_1	0.7	6.66	1	2393	0.4944	0.0949	0	1	1	574	61	1833
+ont.nophase	Babelia yalserjoa	mix1	2	STR05_2	0.3	6.66	1	2393	0.0	0.0	0		0	574	61	1833
+ont.nophase	Babelia yalserjoa	mix2	2	STR05_3	0.7	6.66	1	2382	0.4861	0.2816	0	1	1	566	223	1834
+ont.nophase	Babelia yalserjoa	mix2	2	STR05_4	0.3	6.66	1	2382	0.0	0.0	0		0	566	223	1834
+ont.nophase	Babelia yalserjoa	mix3	2	STR05_5	0.7	6.66	1	2385	0.4914	0.1464	0	1	1	571	96	1830
+ont.nophase	Babelia yalserjoa	mix3	2	STR05_6	0.3	6.66	1	2385	0.0	0.0	0		0	571	96	1830
+ont.nophase	Babelia yalserjoa	mix4	2	STR05_7	0.7	6.66	1	2427	0.6213	0.0492	1	1	1	736	40	1701
+ont.nophase	Babelia yalserjoa	mix4	2	STR05_8	0.3	6.66	1	2427	0.0	0.0	0		0	736	40	1701
+ont.nophase	Babelia yalserjoa	mix5	2	STR05_1	0.5	6.67	1	209	0.3349	0.4118	0	1	1	1081	28	1315
+ont.nophase	Babelia yalserjoa	mix5	2	STR05_5	0.5	6.67	1	209	0.0	0.0	0		0	1081	28	1315
+ont.nophase	Babelia yalserjoa	mix6	2	STR05_2	0.5	6.67	1	757	0.2668	0.4195	0	1	1	850	60	1562
+ont.nophase	Babelia yalserjoa	mix6	2	STR05_6	0.5	6.67	1	757	0.0	0.0	0		0	850	60	1562
+ont.nophase	Babelia yalserjoa	mix7	3	STR05_3	0.5	6.67	1	2459	0.771	0.0733	1	1	1	916	86	2724
+ont.nophase	Babelia yalserjoa	mix7	3	STR05_7	0.3	6.67	1	2459	0.0	0.0	0		0	916	86	2724
+ont.nophase	Babelia yalserjoa	mix7	3	STR05_8	0.2	6.67	1	2459	0.0	0.0	0		0	916	86	2724
+ont.nophase	Babelia yalserjoa	mix8	2	STR05_4	0.85	6.67	1	2376	0.7496	0.0389	1	1	1	881	40	1515
+ont.nophase	Babelia yalserjoa	mix8	2	STR05_5	0.15	6.67	1	2376	0.0	0.0	0		0	881	40	1515
+ont.nophase	Cordoella zupralemensis	mix1	2	STR02_1	0.7	37.59	1	1046	0.1291	0.0217	0	1	1	650	2	1581
+ont.nophase	Cordoella zupralemensis	mix1	2	STR02_2	0.3	37.59	1	1046	0.0	0.0	0		0	650	2	1581
+ont.nophase	Cordoella zupralemensis	mix2	2	STR02_3	0.7	37.59	1	2245	0.1639	0.0	0	1	1	176	0	2083
+ont.nophase	Cordoella zupralemensis	mix2	2	STR02_4	0.3	37.59	1	2245	0.0	0.0	0		0	176	0	2083
+ont.nophase	Cordoella zupralemensis	mix3	2	STR02_5	0.7	37.59	1	550	0.08	0.1538	0	1	1	860	3	1392
+ont.nophase	Cordoella zupralemensis	mix3	2	STR02_6	0.3	37.59	1	550	0.0	0.0	0		0	860	3	1392
+ont.nophase	Cordoella zupralemensis	mix4	2	STR02_7	0.7	37.59	1	2216	0.2495	0.0579	0	1	1	287	21	1943
+ont.nophase	Cordoella zupralemensis	mix4	2	STR02_8	0.3	37.59	1	2216	0.0	0.0	0		0	287	21	1943
+ont.nophase	Cordoella zupralemensis	mix5	2	STR02_1	0.5	37.59	1	44	0.0227	0.5	0	1	1	1094	1	1159
+ont.nophase	Cordoella zupralemensis	mix5	2	STR02_5	0.5	37.59	1	44	0.0	0.0	0		0	1094	1	1159
+ont.nophase	Cordoella zupralemensis	mix6	2	STR02_2	0.5	37.59	1	1041	0.05	0.037	0	1	1	610	0	1620
+ont.nophase	Cordoella zupralemensis	mix6	2	STR02_6	0.5	37.59	1	1041	0.0	0.0	0		0	610	0	1620
+ont.nophase	Cordoella zupralemensis	mix7	3	STR02_3	0.5	37.59	1	2334	0.1842	0.0672	0	0	1	171	13	3176
+ont.nophase	Cordoella zupralemensis	mix7	3	STR02_7	0.3	37.59	1	2334	0.0	0.0	0		0	171	13	3176
+ont.nophase	Cordoella zupralemensis	mix7	3	STR02_8	0.2	37.59	1	2334	0.0	0.0	0		0	171	13	3176
+ont.nophase	Cordoella zupralemensis	mix8	2	STR02_4	0.85	37.59	1	2263	0.7278	0.0012	1	1	1	824	0	1453
+ont.nophase	Cordoella zupralemensis	mix8	2	STR02_5	0.15	37.59	1	2263	0.0	0.0	0		0	824	0	1453
+ont.nophase	Damquiterspira rurowois	mix1	2	STR12_1	0.7	11.37	1	243	0.572	0.0733	1	1	1	445	5	583
+ont.nophase	Damquiterspira rurowois	mix1	2	STR12_2	0.3	11.37	1	243	0.0	0.0	0		0	445	5	583
+ont.nophase	Damquiterspira rurowois	mix2	2	STR12_3	0.7	11.37	1	1021	0.3536	0.1108	0	1	0	181	16	853
+ont.nophase	Damquiterspira rurowois	mix2	2	STR12_4	0.3	11.37	1	1021	0.0	0.0	0		0	181	16	853
+ont.nophase	Damquiterspira rurowois	mix3	2	STR12_5	0.7	11.37	1	234	0.3675	0.2833	0	1	1	413	14	604
+ont.nophase	Damquiterspira rurowois	mix3	2	STR12_6	0.3	11.37	1	234	0.0	0.0	0		0	413	14	604
+ont.nophase	Damquiterspira rurowois	mix4	2	STR12_7	0.7	11.37	1	287	0.2125	0.1974	0	1	1	371	9	624
+ont.nophase	Damquiterspira rurowois	mix4	2	STR12_8	0.3	11.37	1	287	0.0	0.0	0		0	371	9	624
+ont.nophase	Damquiterspira rurowois	mix5	2	STR12_1	0.5	11.37	1	232	0.1724	0.4937	0	0	1	403	20	612
+ont.nophase	Damquiterspira rurowois	mix5	2	STR12_5	0.5	11.37	1	232	0.0	0.0	0		0	403	20	612
+ont.nophase	Damquiterspira rurowois	mix6	2	STR12_2	0.5	11.37	1	245	0.1551	0.3091	0	1	1	403	10	627
+ont.nophase	Damquiterspira rurowois	mix6	2	STR12_6	0.5	11.37	1	245	0.0	0.0	0		0	403	10	627
+ont.nophase	Damquiterspira rurowois	mix7	3	STR12_3	0.5	11.37	1	962	0.4407	0.1862	0	1	0	248	43	1281
+ont.nophase	Damquiterspira rurowois	mix7	3	STR12_7	0.3	11.37	1	962	0.0	0.0	0		0	248	43	1281
+ont.nophase	Damquiterspira rurowois	mix7	3	STR12_8	0.2	11.37	1	962	0.0	0.0	0		0	248	43	1281
+ont.nophase	Damquiterspira rurowois	mix8	2	STR12_4	0.85	11.37	1	557	0.7971	0.0593	1	1	1	431	11	570
+ont.nophase	Damquiterspira rurowois	mix8	2	STR12_5	0.15	11.37	1	557	0.0	0.0	0		0	431	11	570
+ont.nophase	Damviia corcomia	mix1	2	STR01_1	0.7	38.87	1	355	0.2423	0.1569	0	1	1	916	10	1249
+ont.nophase	Damviia corcomia	mix1	2	STR01_2	0.3	38.87	1	355	0.0	0.0	0		0	916	10	1249
+ont.nophase	Damviia corcomia	mix2	2	STR01_3	0.7	38.87	1	449	0.1537	0.0143	0	1	1	877	4	1293
+ont.nophase	Damviia corcomia	mix2	2	STR01_4	0.3	38.87	1	449	0.0	0.0	0		0	877	4	1293
+ont.nophase	Damviia corcomia	mix3	2	STR01_5	0.7	38.87	1	2305	0.1302	0.0033	0	1	0	142	1	2180
+ont.nophase	Damviia corcomia	mix3	2	STR01_6	0.3	38.87	1	2305	0.0	0.0	0		0	142	1	2180
+ont.nophase	Damviia corcomia	mix4	2	STR01_7	0.7	38.87	1	159	0.1321	0.16	0	1	1	1009	1	1178
+ont.nophase	Damviia corcomia	mix4	2	STR01_8	0.3	38.87	1	159	0.0	0.0	0		0	1009	1	1178
+ont.nophase	Damviia corcomia	mix5	2	STR01_1	0.5	38.87	1	2241	0.0	0.0	0		0	23	20	2234
+ont.nophase	Damviia corcomia	mix5	2	STR01_5	0.5	38.87	1	2241	0.0178	0.4805	0	1	0	23	20	2234
+ont.nophase	Damviia corcomia	mix6	2	STR01_2	0.5	38.87	1	880	0.0	0.0	0		0	675	3	1555
+ont.nophase	Damviia corcomia	mix6	2	STR01_6	0.5	38.87	1	880	0.025	0.2667	0	1	1	675	3	1555
+ont.nophase	Damviia corcomia	mix7	3	STR01_3	0.5	38.87	1	525	0.0952	0.0566	0	1	1	857	1	2409
+ont.nophase	Damviia corcomia	mix7	3	STR01_7	0.3	38.87	1	525	0.0	0.0	0		0	857	1	2409
+ont.nophase	Damviia corcomia	mix7	3	STR01_8	0.2	38.87	1	525	0.0	0.0	0		0	857	1	2409
+ont.nophase	Damviia corcomia	mix8	2	STR01_4	0.85	38.87	1	2251	0.7161	0.0153	1	1	1	759	11	1509
+ont.nophase	Damviia corcomia	mix8	2	STR01_5	0.15	38.87	1	2251	0.0	0.0	0		0	759	11	1509
+ont.nophase	Kakalicoccus corhalixensis	mix1	2	STR10_1	0.7	9.7	1	561	0.4724	0.1017	0	1	1	1218	19	1542
+ont.nophase	Kakalicoccus corhalixensis	mix1	2	STR10_2	0.3	9.7	1	561	0.0	0.0	0		0	1218	19	1542
+ont.nophase	Kakalicoccus corhalixensis	mix2	2	STR10_3	0.7	9.7	1	111	0.2883	0.1111	0	1	1	1336	2	1464
+ont.nophase	Kakalicoccus corhalixensis	mix2	2	STR10_4	0.3	9.7	1	111	0.0	0.0	0		0	1336	2	1464
+ont.nophase	Kakalicoccus corhalixensis	mix3	2	STR10_5	0.7	9.7	1	461	0.4403	0.1748	0	1	1	1224	21	1556
+ont.nophase	Kakalicoccus corhalixensis	mix3	2	STR10_6	0.3	9.7	1	461	0.0	0.0	0		0	1224	21	1556
+ont.nophase	Kakalicoccus corhalixensis	mix4	2	STR10_7	0.7	9.7	1	1431	0.5982	0.0371	1	1	1	1078	21	1722
+ont.nophase	Kakalicoccus corhalixensis	mix4	2	STR10_8	0.3	9.7	1	1431	0.0	0.0	0		0	1078	21	1722
+ont.nophase	Kakalicoccus corhalixensis	mix5	2	STR10_1	0.5	9.7	1	2778	0.0	0.0	0		0	320	292	2479
+ont.nophase	Kakalicoccus corhalixensis	mix5	2	STR10_5	0.5	9.7	1	2778	0.2297	0.4976	0	0	0	320	292	2479
+ont.nophase	Kakalicoccus corhalixensis	mix6	2	STR10_2	0.5	9.7	1	2723	0.2273	0.4794	0	1	0	313	291	2428
+ont.nophase	Kakalicoccus corhalixensis	mix6	2	STR10_6	0.5	9.7	1	2723	0.0	0.0	0		0	313	291	2428
+ont.nophase	Kakalicoccus corhalixensis	mix7	3	STR10_3	0.5	9.7	1	1489	0.7119	0.0337	1	1	1	1160	16	3038
+ont.nophase	Kakalicoccus corhalixensis	mix7	3	STR10_7	0.3	9.7	1	1489	0.0	0.0	0		0	1160	16	3038
+ont.nophase	Kakalicoccus corhalixensis	mix7	3	STR10_8	0.2	9.7	1	1489	0.0	0.0	0		0	1160	16	3038
+ont.nophase	Kakalicoccus corhalixensis	mix8	2	STR10_4	0.85	9.7	1	84	0.7976	0.0147	1	1	1	1381	4	1418
+ont.nophase	Kakalicoccus corhalixensis	mix8	2	STR10_5	0.15	9.7	1	84	0.0	0.0	0		0	1381	4	1418
+ont.nophase	Lemkarococcus bahalflaus	mix1	2	STR06_1	0.7	2.36	1	756	0.3942	0.2678	0	1	1	752	63	2309
+ont.nophase	Lemkarococcus bahalflaus	mix1	2	STR06_2	0.3	2.36	1	756	0.0	0.0	0		0	752	63	2309
+ont.nophase	Lemkarococcus bahalflaus	mix2	2	STR06_3	0.7	2.36	1	1232	0.4269	0.223	0	1	1	833	98	2156
+ont.nophase	Lemkarococcus bahalflaus	mix2	2	STR06_4	0.3	2.36	1	1232	0.0	0.0	0		0	833	98	2156
+ont.nophase	Lemkarococcus bahalflaus	mix3	2	STR06_5	0.7	2.36	1	770	0.5286	0.2188	0	1	1	1129	72	1946
+ont.nophase	Lemkarococcus bahalflaus	mix3	2	STR06_6	0.3	2.36	1	770	0.0	0.0	0		0	1129	72	1946
+ont.nophase	Lemkarococcus bahalflaus	mix4	2	STR06_7	0.7	2.36	1	2964	0.3988	0.4018	0	1	1	589	398	2413
+ont.nophase	Lemkarococcus bahalflaus	mix4	2	STR06_8	0.3	2.36	1	2964	0.0	0.0	0		0	589	398	2413
+ont.nophase	Lemkarococcus bahalflaus	mix5	2	STR06_1	0.5	2.36	1	160	0.0	0.0	0		0	1070	26	2019
+ont.nophase	Lemkarococcus bahalflaus	mix5	2	STR06_5	0.5	2.36	1	160	0.2938	0.3649	0	1	1	1070	26	2019
+ont.nophase	Lemkarococcus bahalflaus	mix6	2	STR06_2	0.5	2.36	1	689	0.0	0.0	0		0	903	84	2144
+ont.nophase	Lemkarococcus bahalflaus	mix6	2	STR06_6	0.5	2.36	1	689	0.3048	0.4215	0	1	1	903	84	2144
+ont.nophase	Lemkarococcus bahalflaus	mix7	3	STR06_3	0.5	2.36	1	3576	0.4888	0.151	0	1	1	643	152	3858
+ont.nophase	Lemkarococcus bahalflaus	mix7	3	STR06_7	0.3	2.36	1	3576	0.0	0.0	0		0	643	152	3858
+ont.nophase	Lemkarococcus bahalflaus	mix7	3	STR06_8	0.2	2.36	1	3576	0.0	0.0	0		0	643	152	3858
+ont.nophase	Lemkarococcus bahalflaus	mix8	2	STR06_4	0.85	2.36	1	2995	0.6461	0.0296	1	1	1	950	48	2093
+ont.nophase	Lemkarococcus bahalflaus	mix8	2	STR06_5	0.15	2.36	1	2995	0.0	0.0	0		0	950	48	2093
+ont.nophase	Neixgenvibrio yalfigorii	mix1	2	STR03_1	0.7	37.25	1	1979	0.1117	0.0	0	1	0	95	1	1901
+ont.nophase	Neixgenvibrio yalfigorii	mix1	2	STR03_2	0.3	37.25	1	1979	0.0	0.0	0		0	95	1	1901
+ont.nophase	Neixgenvibrio yalfigorii	mix2	2	STR03_3	0.7	37.25	1	349	0.1862	0.0	0	1	1	816	0	1226
+ont.nophase	Neixgenvibrio yalfigorii	mix2	2	STR03_4	0.3	37.25	1	349	0.0	0.0	0		0	816	0	1226
+ont.nophase	Neixgenvibrio yalfigorii	mix3	2	STR03_5	0.7	37.25	1	317	0.0631	0.0	0	1	1	777	0	1266
+ont.nophase	Neixgenvibrio yalfigorii	mix3	2	STR03_6	0.3	37.25	1	317	0.0	0.0	0		0	777	0	1266
+ont.nophase	Neixgenvibrio yalfigorii	mix4	2	STR03_7	0.7	37.25	1	170	0.0824	0.0	0	1	1	875	0	1162
+ont.nophase	Neixgenvibrio yalfigorii	mix4	2	STR03_8	0.3	37.25	1	170	0.0	0.0	0		0	875	0	1162
+ont.nophase	Neixgenvibrio yalfigorii	mix5	2	STR03_1	0.5	37.25	1	360	0.0	0.0	0		0	814	2	1237
+ont.nophase	Neixgenvibrio yalfigorii	mix5	2	STR03_5	0.5	37.25	1	360	0.0194	0.2222	0	1	1	814	2	1237
+ont.nophase	Neixgenvibrio yalfigorii	mix6	2	STR03_2	0.5	37.25	1	1967	0.0117	0.3947	0	1	0	12	5	1976
+ont.nophase	Neixgenvibrio yalfigorii	mix6	2	STR03_6	0.5	37.25	1	1967	0.0	0.0	0		0	12	5	1976
+ont.nophase	Neixgenvibrio yalfigorii	mix7	3	STR03_3	0.5	37.25	1	405	0.1383	0.1515	0	1	1	766	4	2299
+ont.nophase	Neixgenvibrio yalfigorii	mix7	3	STR03_7	0.3	37.25	1	405	0.0	0.0	0		0	766	4	2299
+ont.nophase	Neixgenvibrio yalfigorii	mix7	3	STR03_8	0.2	37.25	1	405	0.0	0.0	0		0	766	4	2299
+ont.nophase	Neixgenvibrio yalfigorii	mix8	2	STR03_4	0.85	37.25	1	340	0.5824	0.0	1	1	1	872	0	1160
+ont.nophase	Neixgenvibrio yalfigorii	mix8	2	STR03_5	0.15	37.25	1	340	0.0	0.0	0		0	872	0	1160
+ont.nophase	Nemocococcus tulrobaensis	mix1	2	STR09_1	0.7	23.08	1	2105	0.3183	0.0	0	1	1	319	0	1796
+ont.nophase	Nemocococcus tulrobaensis	mix1	2	STR09_2	0.3	23.08	1	2105	0.0	0.0	0		0	319	0	1796
+ont.nophase	Nemocococcus tulrobaensis	mix2	2	STR09_3	0.7	23.08	1	676	0.3033	0.0097	0	1	1	812	4	1316
+ont.nophase	Nemocococcus tulrobaensis	mix2	2	STR09_4	0.3	23.08	1	676	0.0	0.0	0		0	812	4	1316
+ont.nophase	Nemocococcus tulrobaensis	mix3	2	STR09_5	0.7	23.08	1	1734	0.1696	0.0329	0	1	1	312	4	1810
+ont.nophase	Nemocococcus tulrobaensis	mix3	2	STR09_6	0.3	23.08	1	1734	0.0	0.0	0		0	312	4	1810
+ont.nophase	Nemocococcus tulrobaensis	mix4	2	STR09_7	0.7	23.08	1	1846	0.2189	0.0921	0	1	1	289	22	1748
+ont.nophase	Nemocococcus tulrobaensis	mix4	2	STR09_8	0.3	23.08	1	1846	0.0	0.0	0		0	289	22	1748
+ont.nophase	Nemocococcus tulrobaensis	mix5	2	STR09_1	0.5	23.08	1	2072	0.0642	0.3785	0	1	1	64	34	2015
+ont.nophase	Nemocococcus tulrobaensis	mix5	2	STR09_5	0.5	23.08	1	2072	0.0	0.0	0		0	64	34	2015
+ont.nophase	Nemocococcus tulrobaensis	mix6	2	STR09_2	0.5	23.08	1	1768	0.0	0.0	0		0	221	8	1937
+ont.nophase	Nemocococcus tulrobaensis	mix6	2	STR09_6	0.5	23.08	1	1768	0.0362	0.2727	0	1	1	221	8	1937
+ont.nophase	Nemocococcus tulrobaensis	mix7	3	STR09_3	0.5	23.08	1	2996	0.3204	0.0486	0	1	1	59	21	3053
+ont.nophase	Nemocococcus tulrobaensis	mix7	3	STR09_7	0.3	23.08	1	2996	0.0	0.0	0		0	59	21	3053
+ont.nophase	Nemocococcus tulrobaensis	mix7	3	STR09_8	0.2	23.08	1	2996	0.0	0.0	0		0	59	21	3053
+ont.nophase	Nemocococcus tulrobaensis	mix8	2	STR09_4	0.85	23.08	1	258	0.6783	0.0113	1	1	1	979	1	1115
+ont.nophase	Nemocococcus tulrobaensis	mix8	2	STR09_5	0.15	23.08	1	258	0.0	0.0	0		0	979	1	1115
+ont.nophase	Pexamonas canayalus	mix1	2	STR07_1	0.7	8.63	1	2453	0.6095	0.0906	1	1	1	734	81	1735
+ont.nophase	Pexamonas canayalus	mix1	2	STR07_2	0.3	8.63	1	2453	0.0	0.0	0		0	734	81	1735
+ont.nophase	Pexamonas canayalus	mix2	2	STR07_3	0.7	8.63	1	406	0.6256	0.0764	1	1	1	1163	14	1354
+ont.nophase	Pexamonas canayalus	mix2	2	STR07_4	0.3	8.63	1	406	0.0	0.0	0		0	1163	14	1354
+ont.nophase	Pexamonas canayalus	mix3	2	STR07_5	0.7	8.63	1	1084	0.572	0.0869	1	1	1	981	33	1522
+ont.nophase	Pexamonas canayalus	mix3	2	STR07_6	0.3	8.63	1	1084	0.0	0.0	0		0	981	33	1522
+ont.nophase	Pexamonas canayalus	mix4	2	STR07_7	0.7	8.63	1	2479	0.5216	0.118	0	0	1	645	75	1852
+ont.nophase	Pexamonas canayalus	mix4	2	STR07_8	0.3	8.63	1	2479	0.0	0.0	0		0	645	75	1852
+ont.nophase	Pexamonas canayalus	mix5	2	STR07_1	0.5	8.63	1	2432	0.3104	0.3041	0	1	0	367	145	2078
+ont.nophase	Pexamonas canayalus	mix5	2	STR07_5	0.5	8.63	1	2432	0.0	0.0	0		0	367	145	2078
+ont.nophase	Pexamonas canayalus	mix6	2	STR07_2	0.5	8.63	1	421	0.2304	0.4226	0	1	1	1028	31	1499
+ont.nophase	Pexamonas canayalus	mix6	2	STR07_6	0.5	8.63	1	421	0.0	0.0	0		0	1028	31	1499
+ont.nophase	Pexamonas canayalus	mix7	3	STR07_3	0.5	8.63	1	2697	0.759	0.0367	1	1	1	938	28	2836
+ont.nophase	Pexamonas canayalus	mix7	3	STR07_7	0.3	8.63	1	2697	0.0	0.0	0		0	938	28	2836
+ont.nophase	Pexamonas canayalus	mix7	3	STR07_8	0.2	8.63	1	2697	0.0	0.0	0		0	938	28	2836
+ont.nophase	Pexamonas canayalus	mix8	2	STR07_4	0.85	8.63	1	1054	0.7419	0.0498	1	0	1	1055	28	1421
+ont.nophase	Pexamonas canayalus	mix8	2	STR07_5	0.15	8.63	1	1054	0.0	0.0	0		0	1055	28	1421
+ont.nophase	Teryallemspira wopebaus	mix1	2	STR04_1	0.7	2.29	1	865	0.4532	0.2253	0	1	1	506	77	1229
+ont.nophase	Teryallemspira wopebaus	mix1	2	STR04_2	0.3	2.29	1	865	0.0	0.0	0		0	506	77	1229
+ont.nophase	Teryallemspira wopebaus	mix2	2	STR04_3	0.7	2.29	1	1346	0.5037	0.1859	0	1	1	466	93	1253
+ont.nophase	Teryallemspira wopebaus	mix2	2	STR04_4	0.3	2.29	1	1346	0.0	0.0	0		0	466	93	1253
+ont.nophase	Teryallemspira wopebaus	mix3	2	STR04_5	0.7	2.29	1	1730	0.3301	0.3873	0	1	1	288	198	1450
+ont.nophase	Teryallemspira wopebaus	mix3	2	STR04_6	0.3	2.29	1	1730	0.0	0.0	0		0	288	198	1450
+ont.nophase	Teryallemspira wopebaus	mix4	2	STR04_7	0.7	2.29	1	1259	0.5393	0.262	0	1	1	517	146	1222
+ont.nophase	Teryallemspira wopebaus	mix4	2	STR04_8	0.3	2.29	1	1259	0.0	0.0	0		0	517	146	1222
+ont.nophase	Teryallemspira wopebaus	mix5	2	STR04_1	0.5	2.29	1	1713	0.3719	0.333	0	1	1	307	168	1423
+ont.nophase	Teryallemspira wopebaus	mix5	2	STR04_5	0.5	2.29	1	1713	0.0	0.0	0		0	307	168	1423
+ont.nophase	Teryallemspira wopebaus	mix6	2	STR04_2	0.5	2.29	1	1372	0.4235	0.3034	0	1	1	416	154	1327
+ont.nophase	Teryallemspira wopebaus	mix6	2	STR04_6	0.5	2.29	1	1372	0.0	0.0	0		0	416	154	1327
+ont.nophase	Teryallemspira wopebaus	mix7	3	STR04_3	0.5	2.29	1	1973	0.4724	0.2889	0	1	1	339	221	2251
+ont.nophase	Teryallemspira wopebaus	mix7	3	STR04_7	0.3	2.29	1	1973	0.0	0.0	0		0	339	221	2251
+ont.nophase	Teryallemspira wopebaus	mix7	3	STR04_8	0.2	2.29	1	1973	0.0	0.0	0		0	339	221	2251
+ont.nophase	Teryallemspira wopebaus	mix8	2	STR04_4	0.85	2.29	1	1721	0.4555	0.2947	0	1	1	395	174	1342
+ont.nophase	Teryallemspira wopebaus	mix8	2	STR04_5	0.15	2.29	1	1721	0.0	0.0	0		0	395	174	1342
+ont.nophase	Vitultulia yaldamvenum	mix1	2	STR11_1	0.7	38.98	1	220	0.1273	0.0	0	1	1	103	0	304
+ont.nophase	Vitultulia yaldamvenum	mix1	2	STR11_2	0.3	38.98	1	220	0.0	0.0	0		0	103	0	304
+ont.nophase	Vitultulia yaldamvenum	mix2	2	STR11_3	0.7	38.98	1	86	0.4535	0.0	0	1	1	184	0	246
+ont.nophase	Vitultulia yaldamvenum	mix2	2	STR11_4	0.3	38.98	1	86	0.0	0.0	0		0	184	0	246
+ont.nophase	Vitultulia yaldamvenum	mix3	2	STR11_5	0.7	38.98	1	84	0.0952	0.0	0	1	1	176	0	252
+ont.nophase	Vitultulia yaldamvenum	mix3	2	STR11_6	0.3	38.98	1	84	0.0	0.0	0		0	176	0	252
+ont.nophase	Vitultulia yaldamvenum	mix4	2	STR11_7	0.7	38.98	1	421	0.1069	0.0217	0	1	0	22	3	403
+ont.nophase	Vitultulia yaldamvenum	mix4	2	STR11_8	0.3	38.98	1	421	0.0	0.0	0		0	22	3	403
+ont.nophase	Vitultulia yaldamvenum	mix5	2	STR11_1	0.5	38.98	1	222	0.0	0.0	0		0	97	0	312
+ont.nophase	Vitultulia yaldamvenum	mix5	2	STR11_5	0.5	38.98	1	222	0.0225	0.0	0	1	1	97	0	312
+ont.nophase	Vitultulia yaldamvenum	mix6	2	STR11_2	0.5	38.98	1	82	0.0488	0.0	0	1	1	173	0	253
+ont.nophase	Vitultulia yaldamvenum	mix6	2	STR11_6	0.5	38.98	1	82	0.0	0.0	0		0	173	0	253
+ont.nophase	Vitultulia yaldamvenum	mix7	3	STR11_3	0.5	38.98	1	542	0.3118	0.0663	0	1	0	41	6	599
+ont.nophase	Vitultulia yaldamvenum	mix7	3	STR11_7	0.3	38.98	1	542	0.0	0.0	0		0	41	6	599
+ont.nophase	Vitultulia yaldamvenum	mix7	3	STR11_8	0.2	38.98	1	542	0.0	0.0	0		0	41	6	599
+ont.nophase	Vitultulia yaldamvenum	mix8	2	STR11_4	0.85	38.97	1	84	0.7262	0.0	1	1	1	202	0	226
+ont.nophase	Vitultulia yaldamvenum	mix8	2	STR11_5	0.15	38.97	1	84	0.0	0.0	0		0	202	0	226
+ont.nophase	Yalurkaspira kaluvenensis	mix1	2	STR08_1	0.7	2.86	1	1511	0.4792	0.1752	0	1	1	914	86	2233
+ont.nophase	Yalurkaspira kaluvenensis	mix1	2	STR08_2	0.3	2.86	1	1511	0.0	0.0	0		0	914	86	2233
+ont.nophase	Yalurkaspira kaluvenensis	mix2	2	STR08_3	0.7	2.86	1	3101	0.3618	0.2599	0	1	1	557	203	2575
+ont.nophase	Yalurkaspira kaluvenensis	mix2	2	STR08_4	0.3	2.86	1	3101	0.0	0.0	0		0	557	203	2575
+ont.nophase	Yalurkaspira kaluvenensis	mix3	2	STR08_5	0.7	2.86	1	3097	0.4278	0.1474	0	1	1	664	125	2466
+ont.nophase	Yalurkaspira kaluvenensis	mix3	2	STR08_6	0.3	2.86	1	3097	0.0	0.0	0		0	664	125	2466
+ont.nophase	Yalurkaspira kaluvenensis	mix4	2	STR08_7	0.7	2.86	1	3078	0.2528	0.4172	0	1	1	375	282	2730
+ont.nophase	Yalurkaspira kaluvenensis	mix4	2	STR08_8	0.3	2.86	1	3078	0.0	0.0	0		0	375	282	2730
+ont.nophase	Yalurkaspira kaluvenensis	mix5	2	STR08_1	0.5	2.86	1	599	0.2538	0.4685	0	0	1	769	78	2361
+ont.nophase	Yalurkaspira kaluvenensis	mix5	2	STR08_5	0.5	2.86	1	599	0.0	0.0	0		0	769	78	2361
+ont.nophase	Yalurkaspira kaluvenensis	mix6	2	STR08_2	0.5	2.86	1	3116	0.302	0.4513	0	0	0	497	405	2650
+ont.nophase	Yalurkaspira kaluvenensis	mix6	2	STR08_6	0.5	2.86	1	3116	0.0	0.0	0		0	497	405	2650
+ont.nophase	Yalurkaspira kaluvenensis	mix7	3	STR08_3	0.5	2.86	1	3382	0.5248	0.1433	0	1	1	756	146	3923
+ont.nophase	Yalurkaspira kaluvenensis	mix7	3	STR08_7	0.3	2.86	1	3382	0.0	0.0	0		0	756	146	3923
+ont.nophase	Yalurkaspira kaluvenensis	mix7	3	STR08_8	0.2	2.86	1	3382	0.0	0.0	0		0	756	146	3923
+ont.nophase	Yalurkaspira kaluvenensis	mix8	2	STR08_4	0.85	2.86	1	3098	0.4893	0.0194	0	1	1	756	19	2374
+ont.nophase	Yalurkaspira kaluvenensis	mix8	2	STR08_5	0.15	2.86	1	3098	0.0	0.0	0		0	756	19	2374
+ont.phase	Babelia yalserjoa	mix1	2	STR05_1	0.7	6.66	2	2393	0.5081	0.1176	0	1	1	1093	156	1314
+ont.phase	Babelia yalserjoa	mix1	2	STR05_2	0.3	6.66	2	2393	0.415	0.1014	0	1	1	1093	156	1314
+ont.phase	Babelia yalserjoa	mix2	2	STR05_3	0.7	6.66	2	2382	0.0743	0.0	0	1	0	172	0	2228
+ont.phase	Babelia yalserjoa	mix2	2	STR05_4	0.3	6.66	2	2382	0.0714	0.0	0	1	1	172	0	2228
+ont.phase	Babelia yalserjoa	mix3	2	STR05_5	0.7	6.66	2	2385	0.0935	0.0	0	1	0	199	20	2202
+ont.phase	Babelia yalserjoa	mix3	2	STR05_6	0.3	6.66	2	2385	0.0746	0.1643	0	1	0	199	20	2202
+ont.phase	Babelia yalserjoa	mix4	2	STR05_7	0.7	6.66	2	2427	0.4137	0.0704	0	1	0	694	80	1743
+ont.phase	Babelia yalserjoa	mix4	2	STR05_8	0.3	6.66	2	2427	0.1801	0.1154	0	1	1	694	80	1743
+ont.phase	Babelia yalserjoa	mix5	2	STR05_1	0.5	6.67	2	209	0.2488	0.2571	0	1	1	745	23	1651
+ont.phase	Babelia yalserjoa	mix5	2	STR05_5	0.5	6.67	2	209	0.134	0.3171	0	1	1	745	23	1651
+ont.phase	Babelia yalserjoa	mix6	2	STR05_2	0.5	6.67	2	757	0.1823	0.4298	0	1	1	886	147	1526
+ont.phase	Babelia yalserjoa	mix6	2	STR05_6	0.5	6.67	2	757	0.255	0.4683	0	1	1	886	147	1526
+ont.phase	Babelia yalserjoa	mix7	3	STR05_3	0.5	6.67	2	2459	0.0	0.0	0		0	537	58	3103
+ont.phase	Babelia yalserjoa	mix7	3	STR05_7	0.3	6.67	2	2459	0.327	0.0074	0	1	1	537	58	3103
+ont.phase	Babelia yalserjoa	mix7	3	STR05_8	0.2	6.67	2	2459	0.1228	0.2616	0	1	1	537	58	3103
+ont.phase	Babelia yalserjoa	mix8	2	STR05_4	0.85	6.67	2	2376	0.1174	0.0	0	1	1	231	0	2165
+ont.phase	Babelia yalserjoa	mix8	2	STR05_5	0.15	6.67	2	2376	0.0779	0.0	0	1	1	231	0	2165
+ont.phase	Cordoella zupralemensis	mix1	2	STR02_1	0.7	37.59	2	1046	0.892	0.0	1	1	1	2003	1	228
+ont.phase	Cordoella zupralemensis	mix1	2	STR02_2	0.3	37.59	2	1046	0.8633	0.0	1	1	1	2003	1	228
+ont.phase	Cordoella zupralemensis	mix2	2	STR02_3	0.7	37.59	2	2245	0.8757	0.0	1	1	0	1909	1	350
+ont.phase	Cordoella zupralemensis	mix2	2	STR02_4	0.3	37.59	2	2245	0.8232	0.0043	1	1	1	1909	1	350
+ont.phase	Cordoella zupralemensis	mix3	2	STR02_5	0.7	37.59	2	550	0.9509	0.0	1	1	1	2165	1	87
+ont.phase	Cordoella zupralemensis	mix3	2	STR02_6	0.3	37.59	2	550	0.9527	0.0	1	0	1	2165	1	87
+ont.phase	Cordoella zupralemensis	mix4	2	STR02_7	0.7	37.59	2	2216	0.7599	0.0012	1	1	0	1620	23	610
+ont.phase	Cordoella zupralemensis	mix4	2	STR02_8	0.3	37.59	2	2216	0.7049	0.0139	1	1	1	1620	23	610
+ont.phase	Cordoella zupralemensis	mix5	2	STR02_1	0.5	37.59	2	44	0.3182	0.1765	0	1	1	1052	15	1201
+ont.phase	Cordoella zupralemensis	mix5	2	STR02_5	0.5	37.59	2	44	0.3409	0.1667	0	1	1	1052	15	1201
+ont.phase	Cordoella zupralemensis	mix6	2	STR02_2	0.5	37.59	2	1041	0.3727	0.0	0	1	1	839	0	1391
+ont.phase	Cordoella zupralemensis	mix6	2	STR02_6	0.5	37.59	2	1041	0.3746	0.0	0	0	1	839	0	1391
+ont.phase	Cordoella zupralemensis	mix7	3	STR02_3	0.5	37.59	2	2334	0.904	0.0005	1	0	1	2043	1	1304
+ont.phase	Cordoella zupralemensis	mix7	3	STR02_7	0.3	37.59	2	2334	0.9353	0.0	1	1	1	2043	1	1304
+ont.phase	Cordoella zupralemensis	mix7	3	STR02_8	0.2	37.59	2	2334	0.0	0.0	0		0	2043	1	1304
+ont.phase	Cordoella zupralemensis	mix8	2	STR02_4	0.85	37.59	2	2263	0.8065	0.0011	1	1	0	1356	92	921
+ont.phase	Cordoella zupralemensis	mix8	2	STR02_5	0.15	37.59	2	2263	0.3928	0.1435	0	1	1	1356	92	921
+ont.phase	Damquiterspira rurowois	mix1	2	STR12_1	0.7	11.37	2	243	0.5885	0.0338	1	1	1	506	10	522
+ont.phase	Damquiterspira rurowois	mix1	2	STR12_2	0.3	11.37	2	243	0.2222	0.0357	0	1	1	506	10	522
+ont.phase	Damquiterspira rurowois	mix2	2	STR12_3	0.7	11.37	2	1021	0.3859	0.4197	0	1	0	191	268	843
+ont.phase	Damquiterspira rurowois	mix2	2	STR12_4	0.3	11.37	2	1021	0.0	0.0	0		0	191	268	843
+ont.phase	Damquiterspira rurowois	mix3	2	STR12_5	0.7	11.37	2	234	0.3077	0.191	0	1	1	420	10	597
+ont.phase	Damquiterspira rurowois	mix3	2	STR12_6	0.3	11.37	2	234	0.1795	0.0	0	1	1	420	10	597
+ont.phase	Damquiterspira rurowois	mix4	2	STR12_7	0.7	11.37	2	287	0.547	0.0	1	1	1	582	1	413
+ont.phase	Damquiterspira rurowois	mix4	2	STR12_8	0.3	11.37	2	287	0.4077	0.0	0	1	1	582	1	413
+ont.phase	Damquiterspira rurowois	mix5	2	STR12_1	0.5	11.37	2	232	0.0776	0.0	0	1	1	203	3	812
+ont.phase	Damquiterspira rurowois	mix5	2	STR12_5	0.5	11.37	2	232	0.0603	0.3636	0	1	1	203	3	812
+ont.phase	Damquiterspira rurowois	mix6	2	STR12_2	0.5	11.37	2	245	0.3388	0.2095	0	1	1	627	23	403
+ont.phase	Damquiterspira rurowois	mix6	2	STR12_6	0.5	11.37	2	245	0.3714	0.2353	0	1	1	627	23	403
+ont.phase	Damquiterspira rurowois	mix7	3	STR12_3	0.5	11.37	3	962	0.3742	0.0909	0	1	1	401	76	1128
+ont.phase	Damquiterspira rurowois	mix7	3	STR12_7	0.3	11.37	3	962	0.0936	0.0	0	1	1	401	76	1128
+ont.phase	Damquiterspira rurowois	mix7	3	STR12_8	0.2	11.37	3	962	0.3191	0.2638	0	1	1	401	76	1128
+ont.phase	Damquiterspira rurowois	mix8	2	STR12_4	0.85	11.37	2	557	0.0736	0.0	0	1	1	84	6	917
+ont.phase	Damquiterspira rurowois	mix8	2	STR12_5	0.15	11.37	2	557	0.0628	0.125	0	1	1	84	6	917
+ont.phase	Damviia corcomia	mix1	2	STR01_1	0.7	38.87	2	355	0.5465	0.0762	1	1	1	1457	11	708
+ont.phase	Damviia corcomia	mix1	2	STR01_2	0.3	38.87	2	355	0.4056	0.0	0	1	1	1457	11	708
+ont.phase	Damviia corcomia	mix2	2	STR01_3	0.7	38.87	2	449	0.7884	0.0	1	1	1	1804	5	366
+ont.phase	Damviia corcomia	mix2	2	STR01_4	0.3	38.87	2	449	0.7528	0.0	1	1	1	1804	5	366
+ont.phase	Damviia corcomia	mix3	2	STR01_5	0.7	38.87	2	2305	0.9978	0.0	1	1	1	2255	0	67
+ont.phase	Damviia corcomia	mix3	2	STR01_6	0.3	38.87	2	2305	0.9458	0.0	1	1	1	2255	0	67
+ont.phase	Damviia corcomia	mix4	2	STR01_7	0.7	38.87	2	159	0.761	0.0	1	1	1	1866	0	321
+ont.phase	Damviia corcomia	mix4	2	STR01_8	0.3	38.87	2	159	0.7547	0.0	1	1	1	1866	0	321
+ont.phase	Damviia corcomia	mix5	2	STR01_1	0.5	38.87	2	2241	0.7894	0.0	1	1	1	1784	1	473
+ont.phase	Damviia corcomia	mix5	2	STR01_5	0.5	38.87	2	2241	0.7907	0.0	1	1	1	1784	1	473
+ont.phase	Damviia corcomia	mix6	2	STR01_2	0.5	38.87	2	880	0.8	0.0	1	1	1	1795	1	435
+ont.phase	Damviia corcomia	mix6	2	STR01_6	0.5	38.87	2	880	0.8068	0.0	1	1	1	1795	1	435
+ont.phase	Damviia corcomia	mix7	3	STR01_3	0.5	38.87	2	525	0.8305	0.0	1	1	1	1695	3	1571
+ont.phase	Damviia corcomia	mix7	3	STR01_7	0.3	38.87	2	525	0.0	0.0	0		0	1695	3	1571
+ont.phase	Damviia corcomia	mix7	3	STR01_8	0.2	38.87	2	525	0.5733	0.0131	1	1	1	1695	3	1571
+ont.phase	Damviia corcomia	mix8	2	STR01_4	0.85	38.87	2	2251	0.7992	0.0006	1	1	0	1358	14	910
+ont.phase	Damviia corcomia	mix8	2	STR01_5	0.15	38.87	2	2251	0.4131	0.0	0	1	1	1358	14	910
+ont.phase	Kakalicoccus corhalixensis	mix1	2	STR10_1	0.7	9.7	2	561	0.467	0.0709	0	1	1	1215	11	1545
+ont.phase	Kakalicoccus corhalixensis	mix1	2	STR10_2	0.3	9.7	2	561	0.2513	0.0	0	1	1	1215	11	1545
+ont.phase	Kakalicoccus corhalixensis	mix2	2	STR10_3	0.7	9.7	2	111	0.3423	0.0	0	1	1	1041	4	1759
+ont.phase	Kakalicoccus corhalixensis	mix2	2	STR10_4	0.3	9.7	2	111	0.2883	0.0	0	1	1	1041	4	1759
+ont.phase	Kakalicoccus corhalixensis	mix3	2	STR10_5	0.7	9.7	2	461	0.4707	0.1873	0	1	1	1611	72	1169
+ont.phase	Kakalicoccus corhalixensis	mix3	2	STR10_6	0.3	9.7	2	461	0.2972	0.3116	0	1	1	1611	72	1169
+ont.phase	Kakalicoccus corhalixensis	mix4	2	STR10_7	0.7	9.7	2	1431	0.4514	0.161	0	1	1	1208	184	1592
+ont.phase	Kakalicoccus corhalixensis	mix4	2	STR10_8	0.3	9.7	2	1431	0.211	0.4334	0	1	1	1208	184	1592
+ont.phase	Kakalicoccus corhalixensis	mix5	2	STR10_1	0.5	9.7	2	2778	0.3826	0.1829	0	1	1	1073	326	1726
+ont.phase	Kakalicoccus corhalixensis	mix5	2	STR10_5	0.5	9.7	2	2778	0.3938	0.2628	0	1	0	1073	326	1726
+ont.phase	Kakalicoccus corhalixensis	mix6	2	STR10_2	0.5	9.7	2	2723	0.2505	0.3789	0	1	0	562	398	2179
+ont.phase	Kakalicoccus corhalixensis	mix6	2	STR10_6	0.5	9.7	2	2723	0.1542	0.4636	0	1	1	562	398	2179
+ont.phase	Kakalicoccus corhalixensis	mix7	3	STR10_3	0.5	9.7	2	1489	0.6877	0.0087	1	1	1	1533	144	2665
+ont.phase	Kakalicoccus corhalixensis	mix7	3	STR10_7	0.3	9.7	2	1489	0.0	0.0	0		0	1533	144	2665
+ont.phase	Kakalicoccus corhalixensis	mix7	3	STR10_8	0.2	9.7	2	1489	0.2351	0.4167	0	1	1	1533	144	2665
+ont.phase	Kakalicoccus corhalixensis	mix8	2	STR10_4	0.85	9.7	2	84	0.2381	0.0	0	1	1	490	4	2309
+ont.phase	Kakalicoccus corhalixensis	mix8	2	STR10_5	0.15	9.7	2	84	0.1905	0.0	0	1	1	490	4	2309
+ont.phase	Lemkarococcus bahalflaus	mix1	2	STR06_1	0.7	2.36	1	756	0.3942	0.2678	0	1	1	752	63	2309
+ont.phase	Lemkarococcus bahalflaus	mix1	2	STR06_2	0.3	2.36	1	756	0.0	0.0	0		0	752	63	2309
+ont.phase	Lemkarococcus bahalflaus	mix2	2	STR06_3	0.7	2.36	1	1232	0.4269	0.223	0	1	1	833	98	2156
+ont.phase	Lemkarococcus bahalflaus	mix2	2	STR06_4	0.3	2.36	1	1232	0.0	0.0	0		0	833	98	2156
+ont.phase	Lemkarococcus bahalflaus	mix3	2	STR06_5	0.7	2.36	1	770	0.5286	0.2188	0	1	1	1129	72	1946
+ont.phase	Lemkarococcus bahalflaus	mix3	2	STR06_6	0.3	2.36	1	770	0.0	0.0	0		0	1129	72	1946
+ont.phase	Lemkarococcus bahalflaus	mix4	2	STR06_7	0.7	2.36	2	2964	0.0641	0.0	0	1	1	202	5	2800
+ont.phase	Lemkarococcus bahalflaus	mix4	2	STR06_8	0.3	2.36	2	2964	0.0722	0.0	0	1	1	202	5	2800
+ont.phase	Lemkarococcus bahalflaus	mix5	2	STR06_1	0.5	2.36	1	160	0.0	0.0	0		0	1070	26	2019
+ont.phase	Lemkarococcus bahalflaus	mix5	2	STR06_5	0.5	2.36	1	160	0.2938	0.3649	0	1	1	1070	26	2019
+ont.phase	Lemkarococcus bahalflaus	mix6	2	STR06_2	0.5	2.36	1	689	0.0	0.0	0		0	903	84	2144
+ont.phase	Lemkarococcus bahalflaus	mix6	2	STR06_6	0.5	2.36	1	689	0.3048	0.4215	0	1	1	903	84	2144
+ont.phase	Lemkarococcus bahalflaus	mix7	3	STR06_3	0.5	2.36	1	3576	0.4888	0.151	0	1	1	643	152	3858
+ont.phase	Lemkarococcus bahalflaus	mix7	3	STR06_7	0.3	2.36	1	3576	0.0	0.0	0		0	643	152	3858
+ont.phase	Lemkarococcus bahalflaus	mix7	3	STR06_8	0.2	2.36	1	3576	0.0	0.0	0		0	643	152	3858
+ont.phase	Lemkarococcus bahalflaus	mix8	2	STR06_4	0.85	2.36	1	2995	0.6461	0.0296	1	1	1	950	48	2093
+ont.phase	Lemkarococcus bahalflaus	mix8	2	STR06_5	0.15	2.36	1	2995	0.0	0.0	0		0	950	48	2093
+ont.phase	Neixgenvibrio yalfigorii	mix1	2	STR03_1	0.7	37.25	2	1979	0.8019	0.0587	1	1	1	1593	100	403
+ont.phase	Neixgenvibrio yalfigorii	mix1	2	STR03_2	0.3	37.25	2	1979	0.7969	0.0608	1	1	1	1593	100	403
+ont.phase	Neixgenvibrio yalfigorii	mix2	2	STR03_3	0.7	37.25	2	349	0.6476	0.1661	0	1	1	1581	46	461
+ont.phase	Neixgenvibrio yalfigorii	mix2	2	STR03_4	0.3	37.25	2	349	0.6361	0.1685	0	1	1	1581	46	461
+ont.phase	Neixgenvibrio yalfigorii	mix3	2	STR03_5	0.7	37.25	2	317	0.7256	0.0129	1	1	1	1528	5	515
+ont.phase	Neixgenvibrio yalfigorii	mix3	2	STR03_6	0.3	37.25	2	317	0.7003	0.0133	1	1	1	1528	5	515
+ont.phase	Neixgenvibrio yalfigorii	mix4	2	STR03_7	0.7	37.25	2	170	0.7824	0.0	1	1	1	1627	0	410
+ont.phase	Neixgenvibrio yalfigorii	mix4	2	STR03_8	0.3	37.25	2	170	0.7824	0.0	1	1	1	1627	0	410
+ont.phase	Neixgenvibrio yalfigorii	mix5	2	STR03_1	0.5	37.25	2	360	0.4222	0.2864	0	1	1	1204	62	847
+ont.phase	Neixgenvibrio yalfigorii	mix5	2	STR03_5	0.5	37.25	2	360	0.4194	0.2911	0	1	1	1204	62	847
+ont.phase	Neixgenvibrio yalfigorii	mix6	2	STR03_2	0.5	37.25	2	1967	0.2949	0.4033	0	1	0	586	393	1402
+ont.phase	Neixgenvibrio yalfigorii	mix6	2	STR03_6	0.5	37.25	2	1967	0.2954	0.3992	0	1	1	586	393	1402
+ont.phase	Neixgenvibrio yalfigorii	mix7	3	STR03_3	0.5	37.25	3	405	0.4642	0.0	0	1	1	1421	16	1644
+ont.phase	Neixgenvibrio yalfigorii	mix7	3	STR03_7	0.3	37.25	3	405	0.2123	0.181	0	1	1	1421	16	1644
+ont.phase	Neixgenvibrio yalfigorii	mix7	3	STR03_8	0.2	37.25	3	405	0.3457	0.0968	0	1	1	1421	16	1644
+ont.phase	Neixgenvibrio yalfigorii	mix8	2	STR03_4	0.85	37.25	2	340	0.6059	0.0	1	1	1	1221	2	811
+ont.phase	Neixgenvibrio yalfigorii	mix8	2	STR03_5	0.15	37.25	2	340	0.5206	0.0	1	1	1	1221	2	811
+ont.phase	Nemocococcus tulrobaensis	mix1	2	STR09_1	0.7	23.08	2	2105	0.7986	0.0	1	1	0	1478	0	637
+ont.phase	Nemocococcus tulrobaensis	mix1	2	STR09_2	0.3	23.08	2	2105	0.6133	0.0	1	1	1	1478	0	637
+ont.phase	Nemocococcus tulrobaensis	mix2	2	STR09_3	0.7	23.08	2	676	0.8698	0.0	1	1	1	1766	8	362
+ont.phase	Nemocococcus tulrobaensis	mix2	2	STR09_4	0.3	23.08	2	676	0.6923	0.0021	1	1	1	1766	8	362
+ont.phase	Nemocococcus tulrobaensis	mix3	2	STR09_5	0.7	23.08	2	1734	0.7647	0.0	1	1	0	1550	2	572
+ont.phase	Nemocococcus tulrobaensis	mix3	2	STR09_6	0.3	23.08	2	1734	0.6701	0.0	1	1	1	1550	2	572
+ont.phase	Nemocococcus tulrobaensis	mix4	2	STR09_7	0.7	23.08	2	1846	0.9735	0.0	1	1	1	1964	8	73
+ont.phase	Nemocococcus tulrobaensis	mix4	2	STR09_8	0.3	23.08	2	1846	0.9642	0.0006	1	1	1	1964	8	73
+ont.phase	Nemocococcus tulrobaensis	mix5	2	STR09_1	0.5	23.08	2	2072	0.4025	0.0	0	1	1	839	0	1240
+ont.phase	Nemocococcus tulrobaensis	mix5	2	STR09_5	0.5	23.08	2	2072	0.4064	0.0	0	1	1	839	0	1240
+ont.phase	Nemocococcus tulrobaensis	mix6	2	STR09_2	0.5	23.08	2	1768	0.3914	0.0	0	1	1	837	0	1321
+ont.phase	Nemocococcus tulrobaensis	mix6	2	STR09_6	0.5	23.08	2	1768	0.3914	0.0	0	1	1	837	0	1321
+ont.phase	Nemocococcus tulrobaensis	mix7	3	STR09_3	0.5	23.08	3	2996	0.8158	0.0012	1	1	0	1156	213	1956
+ont.phase	Nemocococcus tulrobaensis	mix7	3	STR09_7	0.3	23.08	3	2996	0.4336	0.0262	0	1	0	1156	213	1956
+ont.phase	Nemocococcus tulrobaensis	mix7	3	STR09_8	0.2	23.08	3	2996	0.0	0.0	0		0	1156	213	1956
+ont.phase	Nemocococcus tulrobaensis	mix8	2	STR09_4	0.85	23.08	2	258	0.8488	0.0	1	1	1	1427	13	667
+ont.phase	Nemocococcus tulrobaensis	mix8	2	STR09_5	0.15	23.08	2	258	0.3798	0.0297	0	1	1	1427	13	667
+ont.phase	Pexamonas canayalus	mix1	2	STR07_1	0.7	8.63	2	2453	0.3037	0.3184	0	1	0	374	265	2095
+ont.phase	Pexamonas canayalus	mix1	2	STR07_2	0.3	8.63	2	2453	0.0	0.0	0		0	374	265	2095
+ont.phase	Pexamonas canayalus	mix2	2	STR07_3	0.7	8.63	2	406	0.5123	0.0095	1	1	1	1092	12	1425
+ont.phase	Pexamonas canayalus	mix2	2	STR07_4	0.3	8.63	2	406	0.3842	0.0	0	0	1	1092	12	1425
+ont.phase	Pexamonas canayalus	mix3	2	STR07_5	0.7	8.63	2	1084	0.3358	0.0027	0	1	1	684	6	1819
+ont.phase	Pexamonas canayalus	mix3	2	STR07_6	0.3	8.63	2	1084	0.2915	0.0032	0	1	1	684	6	1819
+ont.phase	Pexamonas canayalus	mix4	2	STR07_7	0.7	8.63	2	2479	0.5922	0.1544	0	0	1	1286	286	1211
+ont.phase	Pexamonas canayalus	mix4	2	STR07_8	0.3	8.63	2	2479	0.4518	0.2051	0	1	1	1286	286	1211
+ont.phase	Pexamonas canayalus	mix5	2	STR07_1	0.5	8.63	2	2432	0.3766	0.2799	0	1	0	776	350	1669
+ont.phase	Pexamonas canayalus	mix5	2	STR07_5	0.5	8.63	2	2432	0.271	0.3313	0	1	1	776	350	1669
+ont.phase	Pexamonas canayalus	mix6	2	STR07_2	0.5	8.63	2	421	0.2233	0.4013	0	1	1	1049	74	1478
+ont.phase	Pexamonas canayalus	mix6	2	STR07_6	0.5	8.63	2	421	0.2874	0.4183	0	1	1	1049	74	1478
+ont.phase	Pexamonas canayalus	mix7	3	STR07_3	0.5	8.63	3	2697	0.0908	0.3342	0	1	1	292	105	3482
+ont.phase	Pexamonas canayalus	mix7	3	STR07_7	0.3	8.63	3	2697	0.1576	0.0275	0	0	1	292	105	3482
+ont.phase	Pexamonas canayalus	mix7	3	STR07_8	0.2	8.63	3	2697	0.0	0.0	0		0	292	105	3482
+ont.phase	Pexamonas canayalus	mix8	2	STR07_4	0.85	8.63	2	1054	0.4137	0.0	0	0	1	772	3	1704
+ont.phase	Pexamonas canayalus	mix8	2	STR07_5	0.15	8.63	2	1054	0.167	0.0	0	1	1	772	3	1704
+ont.phase	Teryallemspira wopebaus	mix1	2	STR04_1	0.7	2.29	1	865	0.4532	0.2253	0	1	1	506	77	1229
+ont.phase	Teryallemspira wopebaus	mix1	2	STR04_2	0.3	2.29	1	865	0.0	0.0	0		0	506	77	1229
+ont.phase	Teryallemspira wopebaus	mix2	2	STR04_3	0.7	2.29	2	1346	0.055	0.0	0	1	1	126	4	1593
+ont.phase	Teryallemspira wopebaus	mix2	2	STR04_4	0.3	2.29	2	1346	0.1003	0.0	0	1	1	126	4	1593
+ont.phase	Teryallemspira wopebaus	mix3	2	STR04_5	0.7	2.29	1	1730	0.3301	0.3873	0	1	1	288	198	1450
+ont.phase	Teryallemspira wopebaus	mix3	2	STR04_6	0.3	2.29	1	1730	0.0	0.0	0		0	288	198	1450
+ont.phase	Teryallemspira wopebaus	mix4	2	STR04_7	0.7	2.29	1	1259	0.5393	0.262	0	1	1	517	146	1222
+ont.phase	Teryallemspira wopebaus	mix4	2	STR04_8	0.3	2.29	1	1259	0.0	0.0	0		0	517	146	1222
+ont.phase	Teryallemspira wopebaus	mix5	2	STR04_1	0.5	2.29	1	1713	0.3719	0.333	0	1	1	307	168	1423
+ont.phase	Teryallemspira wopebaus	mix5	2	STR04_5	0.5	2.29	1	1713	0.0	0.0	0		0	307	168	1423
+ont.phase	Teryallemspira wopebaus	mix6	2	STR04_2	0.5	2.29	1	1372	0.4235	0.3034	0	1	1	416	154	1327
+ont.phase	Teryallemspira wopebaus	mix6	2	STR04_6	0.5	2.29	1	1372	0.0	0.0	0		0	416	154	1327
+ont.phase	Teryallemspira wopebaus	mix7	3	STR04_3	0.5	2.29	1	1973	0.4724	0.2889	0	1	1	339	221	2251
+ont.phase	Teryallemspira wopebaus	mix7	3	STR04_7	0.3	2.29	1	1973	0.0	0.0	0		0	339	221	2251
+ont.phase	Teryallemspira wopebaus	mix7	3	STR04_8	0.2	2.29	1	1973	0.0	0.0	0		0	339	221	2251
+ont.phase	Teryallemspira wopebaus	mix8	2	STR04_4	0.85	2.29	1	1721	0.4555	0.2947	0	1	1	395	174	1342
+ont.phase	Teryallemspira wopebaus	mix8	2	STR04_5	0.15	2.29	1	1721	0.0	0.0	0		0	395	174	1342
+ont.phase	Vitultulia yaldamvenum	mix1	2	STR11_1	0.7	38.98	2	220	0.6591	0.0	1	1	1	292	0	115
+ont.phase	Vitultulia yaldamvenum	mix1	2	STR11_2	0.3	38.98	2	220	0.6318	0.0	1	1	1	292	0	115
+ont.phase	Vitultulia yaldamvenum	mix2	2	STR11_3	0.7	38.98	2	86	0.6279	0.0	1	1	1	330	6	100
+ont.phase	Vitultulia yaldamvenum	mix2	2	STR11_4	0.3	38.98	2	86	0.5581	0.2	0	1	1	330	6	100
+ont.phase	Vitultulia yaldamvenum	mix3	2	STR11_5	0.7	38.98	2	84	0.9881	0.0	1	1	1	404	0	24
+ont.phase	Vitultulia yaldamvenum	mix3	2	STR11_6	0.3	38.98	2	84	0.8929	0.0	1	1	1	404	0	24
+ont.phase	Vitultulia yaldamvenum	mix4	2	STR11_7	0.7	38.98	2	421	0.5748	0.0041	1	1	0	228	3	197
+ont.phase	Vitultulia yaldamvenum	mix4	2	STR11_8	0.3	38.98	2	421	0.5083	0.0	1	1	1	228	3	197
+ont.phase	Vitultulia yaldamvenum	mix5	2	STR11_1	0.5	38.98	2	222	0.4234	0.0	0	1	1	174	0	235
+ont.phase	Vitultulia yaldamvenum	mix5	2	STR11_5	0.5	38.98	2	222	0.4234	0.0	0	1	1	174	0	235
+ont.phase	Vitultulia yaldamvenum	mix6	2	STR11_2	0.5	38.98	2	82	0.4512	0.4308	0	1	1	286	29	140
+ont.phase	Vitultulia yaldamvenum	mix6	2	STR11_6	0.5	38.98	2	82	0.4146	0.4516	0	1	1	286	29	140
+ont.phase	Vitultulia yaldamvenum	mix7	3	STR11_3	0.5	38.98	3	542	0.5461	0.2952	0	1	1	239	130	401
+ont.phase	Vitultulia yaldamvenum	mix7	3	STR11_7	0.3	38.98	3	542	0.3616	0.0	0	1	1	239	130	401
+ont.phase	Vitultulia yaldamvenum	mix7	3	STR11_8	0.2	38.98	3	542	0.3838	0.4091	0	1	0	239	130	401
+ont.phase	Vitultulia yaldamvenum	mix8	2	STR11_4	0.85	38.97	2	84	0.7262	0.0	1	1	1	247	8	181
+ont.phase	Vitultulia yaldamvenum	mix8	2	STR11_5	0.15	38.97	2	84	0.3452	0.0938	0	1	1	247	8	181
+ont.phase	Yalurkaspira kaluvenensis	mix1	2	STR08_1	0.7	2.86	1	1511	0.4792	0.1752	0	1	1	914	86	2233
+ont.phase	Yalurkaspira kaluvenensis	mix1	2	STR08_2	0.3	2.86	1	1511	0.0	0.0	0		0	914	86	2233
+ont.phase	Yalurkaspira kaluvenensis	mix2	2	STR08_3	0.7	2.86	1	3101	0.3618	0.2599	0	1	1	557	203	2575
+ont.phase	Yalurkaspira kaluvenensis	mix2	2	STR08_4	0.3	2.86	1	3101	0.0	0.0	0		0	557	203	2575
+ont.phase	Yalurkaspira kaluvenensis	mix3	2	STR08_5	0.7	2.86	2	3097	0.0423	0.0	0	1	1	140	0	2990
+ont.phase	Yalurkaspira kaluvenensis	mix3	2	STR08_6	0.3	2.86	2	3097	0.0471	0.0	0	1	1	140	0	2990
+ont.phase	Yalurkaspira kaluvenensis	mix4	2	STR08_7	0.7	2.86	1	3078	0.2528	0.4172	0	1	1	375	282	2730
+ont.phase	Yalurkaspira kaluvenensis	mix4	2	STR08_8	0.3	2.86	1	3078	0.0	0.0	0		0	375	282	2730
+ont.phase	Yalurkaspira kaluvenensis	mix5	2	STR08_1	0.5	2.86	1	599	0.2538	0.4685	0	0	1	769	78	2361
+ont.phase	Yalurkaspira kaluvenensis	mix5	2	STR08_5	0.5	2.86	1	599	0.0	0.0	0		0	769	78	2361
+ont.phase	Yalurkaspira kaluvenensis	mix6	2	STR08_2	0.5	2.86	2	3116	0.0347	0.0	0	1	1	108	0	3039
+ont.phase	Yalurkaspira kaluvenensis	mix6	2	STR08_6	0.5	2.86	2	3116	0.0347	0.0	0	1	1	108	0	3039
+ont.phase	Yalurkaspira kaluvenensis	mix7	3	STR08_3	0.5	2.86	2	3382	0.0651	0.0	0	1	1	174	46	4505
+ont.phase	Yalurkaspira kaluvenensis	mix7	3	STR08_7	0.3	2.86	2	3382	0.0	0.0	0		0	174	46	4505
+ont.phase	Yalurkaspira kaluvenensis	mix7	3	STR08_8	0.2	2.86	2	3382	0.0485	0.3251	0	1	1	174	46	4505
+ont.phase	Yalurkaspira kaluvenensis	mix8	2	STR08_4	0.85	2.86	1	3098	0.4893	0.0194	0	1	1	756	19	2374
+ont.phase	Yalurkaspira kaluvenensis	mix8	2	STR08_5	0.15	2.86	1	3098	0.0	0.0	0		0	756	19	2374
+pb.nophase	Babelia yalserjoa	mix1	2	STR05_1	0.7	6.66	1	2398	0.339	0.1342	0	1	1	395	58	2017
+pb.nophase	Babelia yalserjoa	mix1	2	STR05_2	0.3	6.66	1	2398	0.0	0.0	0		0	395	58	2017
+pb.nophase	Babelia yalserjoa	mix2	2	STR05_3	0.7	6.66	1	2388	0.451	0.02	0	1	1	541	11	1865
+pb.nophase	Babelia yalserjoa	mix2	2	STR05_4	0.3	6.66	1	2388	0.0	0.0	0		0	541	11	1865
+pb.nophase	Babelia yalserjoa	mix3	2	STR05_5	0.7	6.66	1	2390	0.4117	0.0931	0	1	1	501	50	1905
+pb.nophase	Babelia yalserjoa	mix3	2	STR05_6	0.3	6.66	1	2390	0.0	0.0	0		0	501	50	1905
+pb.nophase	Babelia yalserjoa	mix4	2	STR05_7	0.7	6.66	1	2432	0.4174	0.0881	0	1	1	506	53	1936
+pb.nophase	Babelia yalserjoa	mix4	2	STR05_8	0.3	6.66	1	2432	0.0	0.0	0		0	506	53	1936
+pb.nophase	Babelia yalserjoa	mix5	2	STR05_1	0.5	6.67	1	209	0.0	0.0	0		0	1065	12	1335
+pb.nophase	Babelia yalserjoa	mix5	2	STR05_5	0.5	6.67	1	209	0.1675	0.3636	0	1	1	1065	12	1335
+pb.nophase	Babelia yalserjoa	mix6	2	STR05_2	0.5	6.67	1	761	0.2221	0.4404	0	1	1	887	74	1531
+pb.nophase	Babelia yalserjoa	mix6	2	STR05_6	0.5	6.67	1	761	0.0	0.0	0		0	887	74	1531
+pb.nophase	Babelia yalserjoa	mix7	3	STR05_3	0.5	6.67	1	2466	0.5616	0.0022	1	1	1	678	0	2971
+pb.nophase	Babelia yalserjoa	mix7	3	STR05_7	0.3	6.67	1	2466	0.0	0.0	0		0	678	0	2971
+pb.nophase	Babelia yalserjoa	mix7	3	STR05_8	0.2	6.67	1	2466	0.0	0.0	0		0	678	0	2971
+pb.nophase	Babelia yalserjoa	mix8	2	STR05_4	0.85	6.67	1	2380	0.6042	0.0	1	1	1	731	0	1669
+pb.nophase	Babelia yalserjoa	mix8	2	STR05_5	0.15	6.67	1	2380	0.0	0.0	0		0	731	0	1669
+pb.nophase	Cordoella zupralemensis	mix1	2	STR02_1	0.7	37.59	1	1046	0.0822	0.0	0	1	1	633	0	1598
+pb.nophase	Cordoella zupralemensis	mix1	2	STR02_2	0.3	37.59	1	1046	0.0	0.0	0		0	633	0	1598
+pb.nophase	Cordoella zupralemensis	mix2	2	STR02_3	0.7	37.59	1	2245	0.0472	0.1092	0	1	1	60	8	2199
+pb.nophase	Cordoella zupralemensis	mix2	2	STR02_4	0.3	37.59	1	2245	0.0	0.0	0		0	60	8	2199
+pb.nophase	Cordoella zupralemensis	mix3	2	STR02_5	0.7	37.59	1	550	0.0764	0.0455	0	1	1	872	1	1380
+pb.nophase	Cordoella zupralemensis	mix3	2	STR02_6	0.3	37.59	1	550	0.0	0.0	0		0	872	1	1380
+pb.nophase	Cordoella zupralemensis	mix4	2	STR02_7	0.7	37.59	1	2216	0.0334	0.3884	0	1	1	45	23	2185
+pb.nophase	Cordoella zupralemensis	mix4	2	STR02_8	0.3	37.59	1	2216	0.0	0.0	0		0	45	23	2185
+pb.nophase	Cordoella zupralemensis	mix5	2	STR02_1	0.5	37.59	1	44	0.0227	0.0	0	1	1	1101	0	1152
+pb.nophase	Cordoella zupralemensis	mix5	2	STR02_5	0.5	37.59	1	44	0.0	0.0	0		0	1101	0	1152
+pb.nophase	Cordoella zupralemensis	mix6	2	STR02_2	0.5	37.59	1	1041	0.0	0.0	0		0	611	0	1619
+pb.nophase	Cordoella zupralemensis	mix6	2	STR02_6	0.5	37.59	1	1041	0.0423	0.0	0	0	1	611	0	1619
+pb.nophase	Cordoella zupralemensis	mix7	3	STR02_3	0.5	37.59	1	2334	0.057	0.179	0	0	1	33	14	3314
+pb.nophase	Cordoella zupralemensis	mix7	3	STR02_7	0.3	37.59	1	2334	0.0	0.0	0		0	33	14	3314
+pb.nophase	Cordoella zupralemensis	mix7	3	STR02_8	0.2	37.59	1	2334	0.0	0.0	0		0	33	14	3314
+pb.nophase	Cordoella zupralemensis	mix8	2	STR02_4	0.85	37.59	1	2263	0.5139	0.0017	1	1	1	579	0	1698
+pb.nophase	Cordoella zupralemensis	mix8	2	STR02_5	0.15	37.59	1	2263	0.0	0.0	0		0	579	0	1698
+pb.nophase	Damquiterspira rurowois	mix1	2	STR12_1	0.7	11.37	1	243	0.107	0.0	0	1	1	392	0	636
+pb.nophase	Damquiterspira rurowois	mix1	2	STR12_2	0.3	11.37	1	243	0.0	0.0	0		0	392	0	636
+pb.nophase	Damquiterspira rurowois	mix2	2	STR12_3	0.7	11.37	1	1021	0.1998	0.0097	0	1	0	104	0	930
+pb.nophase	Damquiterspira rurowois	mix2	2	STR12_4	0.3	11.37	1	1021	0.0	0.0	0		0	104	0	930
+pb.nophase	Damquiterspira rurowois	mix3	2	STR12_5	0.7	11.37	1	234	0.2051	0.0	0	1	1	400	0	617
+pb.nophase	Damquiterspira rurowois	mix3	2	STR12_6	0.3	11.37	1	234	0.0	0.0	0		0	400	0	617
+pb.nophase	Damquiterspira rurowois	mix4	2	STR12_7	0.7	11.37	1	287	0.0767	0.0833	0	1	1	349	1	646
+pb.nophase	Damquiterspira rurowois	mix4	2	STR12_8	0.3	11.37	1	287	0.0	0.0	0		0	349	1	646
+pb.nophase	Damquiterspira rurowois	mix5	2	STR12_1	0.5	11.37	1	232	0.0819	0.5	0	0	1	388	10	627
+pb.nophase	Damquiterspira rurowois	mix5	2	STR12_5	0.5	11.37	1	232	0.0	0.0	0		0	388	10	627
+pb.nophase	Damquiterspira rurowois	mix6	2	STR12_2	0.5	11.37	1	245	0.0	0.0	0		0	382	1	648
+pb.nophase	Damquiterspira rurowois	mix6	2	STR12_6	0.5	11.37	1	245	0.0612	0.0625	0	1	1	382	1	648
+pb.nophase	Damquiterspira rurowois	mix7	3	STR12_3	0.5	11.37	1	962	0.1778	0.0116	0	1	0	138	0	1391
+pb.nophase	Damquiterspira rurowois	mix7	3	STR12_7	0.3	11.37	1	962	0.0	0.0	0		0	138	0	1391
+pb.nophase	Damquiterspira rurowois	mix7	3	STR12_8	0.2	11.37	1	962	0.0	0.0	0		0	138	0	1391
+pb.nophase	Damquiterspira rurowois	mix8	2	STR12_4	0.85	11.37	1	557	0.5727	0.0	1	1	1	377	0	624
+pb.nophase	Damquiterspira rurowois	mix8	2	STR12_5	0.15	11.37	1	557	0.0	0.0	0		0	377	0	624
+pb.nophase	Damviia corcomia	mix1	2	STR01_1	0.7	38.87	1	355	0.0338	0.0	0	1	1	903	0	1262
+pb.nophase	Damviia corcomia	mix1	2	STR01_2	0.3	38.87	1	355	0.0	0.0	0		0	903	0	1262
+pb.nophase	Damviia corcomia	mix2	2	STR01_3	0.7	38.87	1	449	0.0	0.0	0		0	844	1	1326
+pb.nophase	Damviia corcomia	mix2	2	STR01_4	0.3	38.87	1	449	0.0067	0.4	0	1	1	844	1	1326
+pb.nophase	Damviia corcomia	mix3	2	STR01_5	0.7	38.87	1	2305	0.1041	0.0	0	1	0	118	0	2204
+pb.nophase	Damviia corcomia	mix3	2	STR01_6	0.3	38.87	1	2305	0.0	0.0	0		0	118	0	2204
+pb.nophase	Damviia corcomia	mix4	2	STR01_7	0.7	38.87	1	159	0.0377	0.0	0	1	1	1007	0	1180
+pb.nophase	Damviia corcomia	mix4	2	STR01_8	0.3	38.87	1	159	0.0	0.0	0		0	1007	0	1180
+pb.nophase	Damviia corcomia	mix5	2	STR01_1	0.5	38.87	1	2241	0.037	0.0235	0	1	0	47	0	2210
+pb.nophase	Damviia corcomia	mix5	2	STR01_5	0.5	38.87	1	2241	0.0	0.0	0		0	47	0	2210
+pb.nophase	Damviia corcomia	mix6	2	STR01_2	0.5	38.87	1	880	0.0	0.0	0		0	679	0	1551
+pb.nophase	Damviia corcomia	mix6	2	STR01_6	0.5	38.87	1	880	0.0239	0.0	0	1	1	679	0	1551
+pb.nophase	Damviia corcomia	mix7	3	STR01_3	0.5	38.87	1	525	0.0286	0.1667	0	1	1	862	2	2404
+pb.nophase	Damviia corcomia	mix7	3	STR01_7	0.3	38.87	1	525	0.0	0.0	0		0	862	2	2404
+pb.nophase	Damviia corcomia	mix7	3	STR01_8	0.2	38.87	1	525	0.0	0.0	0		0	862	2	2404
+pb.nophase	Damviia corcomia	mix8	2	STR01_4	0.85	38.87	1	2251	0.4518	0.0068	0	1	1	514	1	1754
+pb.nophase	Damviia corcomia	mix8	2	STR01_5	0.15	38.87	1	2251	0.0	0.0	0		0	514	1	1754
+pb.nophase	Kakalicoccus corhalixensis	mix1	2	STR10_1	0.7	9.7	1	561	0.1373	0.163	0	1	1	1117	8	1643
+pb.nophase	Kakalicoccus corhalixensis	mix1	2	STR10_2	0.3	9.7	1	561	0.0	0.0	0		0	1117	8	1643
+pb.nophase	Kakalicoccus corhalixensis	mix2	2	STR10_3	0.7	9.7	1	111	0.0991	0.2143	0	1	1	1341	0	1459
+pb.nophase	Kakalicoccus corhalixensis	mix2	2	STR10_4	0.3	9.7	1	111	0.0	0.0	0		0	1341	0	1459
+pb.nophase	Kakalicoccus corhalixensis	mix3	2	STR10_5	0.7	9.7	1	461	0.1931	0.1835	0	1	1	1198	8	1582
+pb.nophase	Kakalicoccus corhalixensis	mix3	2	STR10_6	0.3	9.7	1	461	0.0	0.0	0		0	1198	8	1582
+pb.nophase	Kakalicoccus corhalixensis	mix4	2	STR10_7	0.7	9.7	1	1431	0.1146	0.1546	0	1	0	761	11	2039
+pb.nophase	Kakalicoccus corhalixensis	mix4	2	STR10_8	0.3	9.7	1	1431	0.0	0.0	0		0	761	11	2039
+pb.nophase	Kakalicoccus corhalixensis	mix5	2	STR10_1	0.5	9.7	1	2778	0.0	0.0	0		0	109	86	2690
+pb.nophase	Kakalicoccus corhalixensis	mix5	2	STR10_5	0.5	9.7	1	2778	0.0749	0.4497	0	1	0	109	86	2690
+pb.nophase	Kakalicoccus corhalixensis	mix6	2	STR10_2	0.5	9.7	1	2723	0.0	0.0	0		0	104	40	2637
+pb.nophase	Kakalicoccus corhalixensis	mix6	2	STR10_6	0.5	9.7	1	2723	0.0757	0.2847	0	1	0	104	40	2637
+pb.nophase	Kakalicoccus corhalixensis	mix7	3	STR10_3	0.5	9.7	1	1489	0.642	0.0392	1	0	1	1126	17	3072
+pb.nophase	Kakalicoccus corhalixensis	mix7	3	STR10_7	0.3	9.7	1	1489	0.0	0.0	0		0	1126	17	3072
+pb.nophase	Kakalicoccus corhalixensis	mix7	3	STR10_8	0.2	9.7	1	1489	0.0	0.0	0		0	1126	17	3072
+pb.nophase	Kakalicoccus corhalixensis	mix8	2	STR10_4	0.85	9.7	1	84	0.5357	0.0	1	1	1	1370	1	1429
+pb.nophase	Kakalicoccus corhalixensis	mix8	2	STR10_5	0.15	9.7	1	84	0.0	0.0	0		0	1370	1	1429
+pb.nophase	Lemkarococcus bahalflaus	mix1	2	STR06_1	0.7	2.36	1	756	0.795	0.0852	1	1	1	1382	31	1679
+pb.nophase	Lemkarococcus bahalflaus	mix1	2	STR06_2	0.3	2.36	1	756	0.0	0.0	0		0	1382	31	1679
+pb.nophase	Lemkarococcus bahalflaus	mix2	2	STR06_3	0.7	2.36	1	1232	0.6648	0.1342	0	1	1	1172	66	1817
+pb.nophase	Lemkarococcus bahalflaus	mix2	2	STR06_4	0.3	2.36	1	1232	0.0	0.0	0		0	1172	66	1817
+pb.nophase	Lemkarococcus bahalflaus	mix3	2	STR06_5	0.7	2.36	1	770	0.6481	0.1441	0	1	1	1321	46	1754
+pb.nophase	Lemkarococcus bahalflaus	mix3	2	STR06_6	0.3	2.36	1	770	0.0	0.0	0		0	1321	46	1754
+pb.nophase	Lemkarococcus bahalflaus	mix4	2	STR06_7	0.7	2.36	1	2964	0.5688	0.1906	0	1	1	869	193	2133
+pb.nophase	Lemkarococcus bahalflaus	mix4	2	STR06_8	0.3	2.36	1	2964	0.0	0.0	0		0	869	193	2133
+pb.nophase	Lemkarococcus bahalflaus	mix5	2	STR06_1	0.5	2.36	1	160	0.0	0.0	0		0	1188	21	1901
+pb.nophase	Lemkarococcus bahalflaus	mix5	2	STR06_5	0.5	2.36	1	160	0.3375	0.46	0	1	1	1188	21	1901
+pb.nophase	Lemkarococcus bahalflaus	mix6	2	STR06_2	0.5	2.36	1	689	0.3527	0.4916	0	1	1	1129	130	1918
+pb.nophase	Lemkarococcus bahalflaus	mix6	2	STR06_6	0.5	2.36	1	689	0.0	0.0	0		0	1129	130	1918
+pb.nophase	Lemkarococcus bahalflaus	mix7	3	STR06_3	0.5	2.36	1	3576	0.4214	0.2978	0	1	0	523	286	3978
+pb.nophase	Lemkarococcus bahalflaus	mix7	3	STR06_7	0.3	2.36	1	3576	0.0	0.0	0		0	523	286	3978
+pb.nophase	Lemkarococcus bahalflaus	mix7	3	STR06_8	0.2	2.36	1	3576	0.0	0.0	0		0	523	286	3978
+pb.nophase	Lemkarococcus bahalflaus	mix8	2	STR06_4	0.85	2.36	1	2995	0.6521	0.0464	1	1	1	989	48	2054
+pb.nophase	Lemkarococcus bahalflaus	mix8	2	STR06_5	0.15	2.36	1	2995	0.0	0.0	0		0	989	48	2054
+pb.nophase	Neixgenvibrio yalfigorii	mix1	2	STR03_1	0.7	37.25	1	1979	0.0323	0.0	0	1	0	39	0	1957
+pb.nophase	Neixgenvibrio yalfigorii	mix1	2	STR03_2	0.3	37.25	1	1979	0.0	0.0	0		0	39	0	1957
+pb.nophase	Neixgenvibrio yalfigorii	mix2	2	STR03_3	0.7	37.25	1	349	0.0172	0.0	0	1	1	793	0	1249
+pb.nophase	Neixgenvibrio yalfigorii	mix2	2	STR03_4	0.3	37.25	1	349	0.0	0.0	0		0	793	0	1249
+pb.nophase	Neixgenvibrio yalfigorii	mix3	2	STR03_5	0.7	37.25	1	317	0.0	0.0	0	1	1	805	0	1238
+pb.nophase	Neixgenvibrio yalfigorii	mix3	2	STR03_6	0.3	37.25	1	317	0.0	0.0	0		0	805	0	1238
+pb.nophase	Neixgenvibrio yalfigorii	mix4	2	STR03_7	0.7	37.25	1	170	0.0353	0.1429	0	1	1	885	0	1152
+pb.nophase	Neixgenvibrio yalfigorii	mix4	2	STR03_8	0.3	37.25	1	170	0.0	0.0	0		0	885	0	1152
+pb.nophase	Neixgenvibrio yalfigorii	mix5	2	STR03_1	0.5	37.25	1	360	0.0	0.0	0		0	748	0	1303
+pb.nophase	Neixgenvibrio yalfigorii	mix5	2	STR03_5	0.5	37.25	1	360	0.025	0.0	0	1	1	748	0	1303
+pb.nophase	Neixgenvibrio yalfigorii	mix6	2	STR03_2	0.5	37.25	1	1967	0.0	0.0	0		0	2	2	1986
+pb.nophase	Neixgenvibrio yalfigorii	mix6	2	STR03_6	0.5	37.25	1	1967	0.0015	0.4	0	0	0	2	2	1986
+pb.nophase	Neixgenvibrio yalfigorii	mix7	3	STR03_3	0.5	37.25	1	405	0.084	0.0	0	1	1	773	0	2292
+pb.nophase	Neixgenvibrio yalfigorii	mix7	3	STR03_7	0.3	37.25	1	405	0.0	0.0	0		0	773	0	2292
+pb.nophase	Neixgenvibrio yalfigorii	mix7	3	STR03_8	0.2	37.25	1	405	0.0	0.0	0		0	773	0	2292
+pb.nophase	Neixgenvibrio yalfigorii	mix8	2	STR03_4	0.85	37.25	1	340	0.5647	0.0	1	1	1	865	0	1167
+pb.nophase	Neixgenvibrio yalfigorii	mix8	2	STR03_5	0.15	37.25	1	340	0.0	0.0	0		0	865	0	1167
+pb.nophase	Nemocococcus tulrobaensis	mix1	2	STR09_1	0.7	23.08	1	2105	0.1164	0.0	0	1	1	120	0	1995
+pb.nophase	Nemocococcus tulrobaensis	mix1	2	STR09_2	0.3	23.08	1	2105	0.0	0.0	0		0	120	0	1995
+pb.nophase	Nemocococcus tulrobaensis	mix2	2	STR09_3	0.7	23.08	1	676	0.0947	0.1233	0	1	1	751	3	1377
+pb.nophase	Nemocococcus tulrobaensis	mix2	2	STR09_4	0.3	23.08	1	676	0.0	0.0	0		0	751	3	1377
+pb.nophase	Nemocococcus tulrobaensis	mix3	2	STR09_5	0.7	23.08	1	1734	0.0761	0.0435	0	1	1	253	3	1869
+pb.nophase	Nemocococcus tulrobaensis	mix3	2	STR09_6	0.3	23.08	1	1734	0.0	0.0	0		0	253	3	1869
+pb.nophase	Nemocococcus tulrobaensis	mix4	2	STR09_7	0.7	23.08	1	1846	0.0672	0.0	0	1	1	146	0	1891
+pb.nophase	Nemocococcus tulrobaensis	mix4	2	STR09_8	0.3	23.08	1	1846	0.0	0.0	0		0	146	0	1891
+pb.nophase	Nemocococcus tulrobaensis	mix5	2	STR09_1	0.5	23.08	1	2072	0.0227	0.4471	0	1	1	29	16	2050
+pb.nophase	Nemocococcus tulrobaensis	mix5	2	STR09_5	0.5	23.08	1	2072	0.0	0.0	0		0	29	16	2050
+pb.nophase	Nemocococcus tulrobaensis	mix6	2	STR09_2	0.5	23.08	1	1768	0.0	0.0	0		0	213	16	1945
+pb.nophase	Nemocococcus tulrobaensis	mix6	2	STR09_6	0.5	23.08	1	1768	0.0232	0.3387	0	1	1	213	16	1945
+pb.nophase	Nemocococcus tulrobaensis	mix7	3	STR09_3	0.5	23.08	1	2996	0.1415	0.1017	0	1	1	4	25	3108
+pb.nophase	Nemocococcus tulrobaensis	mix7	3	STR09_7	0.3	23.08	1	2996	0.0	0.0	0		0	4	25	3108
+pb.nophase	Nemocococcus tulrobaensis	mix7	3	STR09_8	0.2	23.08	1	2996	0.0	0.0	0		0	4	25	3108
+pb.nophase	Nemocococcus tulrobaensis	mix8	2	STR09_4	0.85	23.08	1	258	0.5969	0.0	1	1	1	987	1	1107
+pb.nophase	Nemocococcus tulrobaensis	mix8	2	STR09_5	0.15	23.08	1	258	0.0	0.0	0		0	987	1	1107
+pb.nophase	Pexamonas canayalus	mix1	2	STR07_1	0.7	8.63	1	2453	0.3893	0.0363	0	1	1	471	21	1998
+pb.nophase	Pexamonas canayalus	mix1	2	STR07_2	0.3	8.63	1	2453	0.0	0.0	0		0	471	21	1998
+pb.nophase	Pexamonas canayalus	mix2	2	STR07_3	0.7	8.63	1	406	0.2512	0.1053	0	1	1	1102	4	1415
+pb.nophase	Pexamonas canayalus	mix2	2	STR07_4	0.3	8.63	1	406	0.0	0.0	0		0	1102	4	1415
+pb.nophase	Pexamonas canayalus	mix3	2	STR07_5	0.7	8.63	1	1084	0.0	0.0	0		0	763	46	1740
+pb.nophase	Pexamonas canayalus	mix3	2	STR07_6	0.3	8.63	1	1084	0.1116	0.4372	0	1	1	763	46	1740
+pb.nophase	Pexamonas canayalus	mix4	2	STR07_7	0.7	8.63	1	2479	0.2763	0.0029	0	0	1	350	0	2147
+pb.nophase	Pexamonas canayalus	mix4	2	STR07_8	0.3	8.63	1	2479	0.0	0.0	0		0	350	0	2147
+pb.nophase	Pexamonas canayalus	mix5	2	STR07_1	0.5	8.63	1	2432	0.0436	0.2933	0	1	1	49	20	2396
+pb.nophase	Pexamonas canayalus	mix5	2	STR07_5	0.5	8.63	1	2432	0.0	0.0	0		0	49	20	2396
+pb.nophase	Pexamonas canayalus	mix6	2	STR07_2	0.5	8.63	1	421	0.133	0.1884	0	1	1	1038	5	1489
+pb.nophase	Pexamonas canayalus	mix6	2	STR07_6	0.5	8.63	1	421	0.0	0.0	0		0	1038	5	1489
+pb.nophase	Pexamonas canayalus	mix7	3	STR07_3	0.5	8.63	1	2697	0.4364	0.0159	0	1	1	544	0	3230
+pb.nophase	Pexamonas canayalus	mix7	3	STR07_7	0.3	8.63	1	2697	0.0	0.0	0		0	544	0	3230
+pb.nophase	Pexamonas canayalus	mix7	3	STR07_8	0.2	8.63	1	2697	0.0	0.0	0		0	544	0	3230
+pb.nophase	Pexamonas canayalus	mix8	2	STR07_4	0.85	8.63	1	1054	0.6044	0.0	1	1	1	1013	0	1463
+pb.nophase	Pexamonas canayalus	mix8	2	STR07_5	0.15	8.63	1	1054	0.0	0.0	0		0	1013	0	1463
+pb.nophase	Teryallemspira wopebaus	mix1	2	STR04_1	0.7	2.29	1	865	0.5572	0.2251	0	1	1	624	74	1111
+pb.nophase	Teryallemspira wopebaus	mix1	2	STR04_2	0.3	2.29	1	865	0.0	0.0	0		0	624	74	1111
+pb.nophase	Teryallemspira wopebaus	mix2	2	STR04_3	0.7	2.29	1	1346	0.4651	0.2262	0	1	1	487	96	1232
+pb.nophase	Teryallemspira wopebaus	mix2	2	STR04_4	0.3	2.29	1	1346	0.0	0.0	0		0	487	96	1232
+pb.nophase	Teryallemspira wopebaus	mix3	2	STR04_5	0.7	2.29	1	1730	0.6231	0.1663	0	1	1	536	113	1202
+pb.nophase	Teryallemspira wopebaus	mix3	2	STR04_6	0.3	2.29	1	1730	0.0	0.0	0		0	536	113	1202
+pb.nophase	Teryallemspira wopebaus	mix4	2	STR04_7	0.7	2.29	1	1259	0.5854	0.0788	1	1	1	598	35	1141
+pb.nophase	Teryallemspira wopebaus	mix4	2	STR04_8	0.3	2.29	1	1259	0.0	0.0	0		0	598	35	1141
+pb.nophase	Teryallemspira wopebaus	mix5	2	STR04_1	0.5	2.29	1	1713	0.0	0.0	0		0	360	251	1370
+pb.nophase	Teryallemspira wopebaus	mix5	2	STR04_5	0.5	2.29	1	1713	0.4162	0.3993	0	1	1	360	251	1370
+pb.nophase	Teryallemspira wopebaus	mix6	2	STR04_2	0.5	2.29	1	1372	0.0	0.0	0		0	438	237	1305
+pb.nophase	Teryallemspira wopebaus	mix6	2	STR04_6	0.5	2.29	1	1372	0.3921	0.4641	0	1	1	438	237	1305
+pb.nophase	Teryallemspira wopebaus	mix7	3	STR04_3	0.5	2.29	1	1973	0.5687	0.2126	0	1	1	415	109	2175
+pb.nophase	Teryallemspira wopebaus	mix7	3	STR04_7	0.3	2.29	1	1973	0.0	0.0	0		0	415	109	2175
+pb.nophase	Teryallemspira wopebaus	mix7	3	STR04_8	0.2	2.29	1	1973	0.0	0.0	0		0	415	109	2175
+pb.nophase	Teryallemspira wopebaus	mix8	2	STR04_4	0.85	2.29	1	1721	0.7838	0.0281	1	1	1	673	19	1064
+pb.nophase	Teryallemspira wopebaus	mix8	2	STR04_5	0.15	2.29	1	1721	0.0	0.0	0		0	673	19	1064
+pb.nophase	Vitultulia yaldamvenum	mix1	2	STR11_1	0.7	38.98	1	220	0.1045	0.0	0	1	1	106	0	301
+pb.nophase	Vitultulia yaldamvenum	mix1	2	STR11_2	0.3	38.98	1	220	0.0	0.0	0		0	106	0	301
+pb.nophase	Vitultulia yaldamvenum	mix2	2	STR11_3	0.7	38.98	1	86	0.0116	0.5	0	1	1	166	0	264
+pb.nophase	Vitultulia yaldamvenum	mix2	2	STR11_4	0.3	38.98	1	86	0.0	0.0	0		0	166	0	264
+pb.nophase	Vitultulia yaldamvenum	mix3	2	STR11_5	0.7	38.98	1	84	0.0357	0.0	0	1	1	170	0	258
+pb.nophase	Vitultulia yaldamvenum	mix3	2	STR11_6	0.3	38.98	1	84	0.0	0.0	0		0	170	0	258
+pb.nophase	Vitultulia yaldamvenum	mix4	2	STR11_7	0.7	38.98	1	421	0.0831	0.0	0	1	0	17	0	408
+pb.nophase	Vitultulia yaldamvenum	mix4	2	STR11_8	0.3	38.98	1	421	0.0	0.0	0		0	17	0	408
+pb.nophase	Vitultulia yaldamvenum	mix5	2	STR11_1	0.5	38.98	1	222	0.018	0.0	0	1	1	94	0	315
+pb.nophase	Vitultulia yaldamvenum	mix5	2	STR11_5	0.5	38.98	1	222	0.0	0.0	0		0	94	0	315
+pb.nophase	Vitultulia yaldamvenum	mix6	2	STR11_2	0.5	38.98	1	82	0.0	0.0	0		0	175	0	251
+pb.nophase	Vitultulia yaldamvenum	mix6	2	STR11_6	0.5	38.98	1	82	0.0488	0.0	0	1	1	175	0	251
+pb.nophase	Vitultulia yaldamvenum	mix7	3	STR11_3	0.5	38.98	1	542	0.1679	0.0619	0	1	0	21	4	619
+pb.nophase	Vitultulia yaldamvenum	mix7	3	STR11_7	0.3	38.98	1	542	0.0	0.0	0		0	21	4	619
+pb.nophase	Vitultulia yaldamvenum	mix7	3	STR11_8	0.2	38.98	1	542	0.0	0.0	0		0	21	4	619
+pb.nophase	Vitultulia yaldamvenum	mix8	2	STR11_4	0.85	38.97	1	84	0.5119	0.0	1	1	1	189	0	239
+pb.nophase	Vitultulia yaldamvenum	mix8	2	STR11_5	0.15	38.97	1	84	0.0	0.0	0		0	189	0	239
+pb.nophase	Yalurkaspira kaluvenensis	mix1	2	STR08_1	0.7	2.86	1	1511	0.3329	0.2447	0	1	1	718	81	2429
+pb.nophase	Yalurkaspira kaluvenensis	mix1	2	STR08_2	0.3	2.86	1	1511	0.0	0.0	0		0	718	81	2429
+pb.nophase	Yalurkaspira kaluvenensis	mix2	2	STR08_3	0.7	2.86	1	3101	0.5605	0.0943	1	1	1	892	97	2240
+pb.nophase	Yalurkaspira kaluvenensis	mix2	2	STR08_4	0.3	2.86	1	3101	0.0	0.0	0		0	892	97	2240
+pb.nophase	Yalurkaspira kaluvenensis	mix3	2	STR08_5	0.7	2.86	1	3097	0.5128	0.0703	1	1	1	788	59	2342
+pb.nophase	Yalurkaspira kaluvenensis	mix3	2	STR08_6	0.3	2.86	1	3097	0.0	0.0	0		0	788	59	2342
+pb.nophase	Yalurkaspira kaluvenensis	mix4	2	STR08_7	0.7	2.86	1	3078	0.4441	0.0441	0	1	1	671	28	2434
+pb.nophase	Yalurkaspira kaluvenensis	mix4	2	STR08_8	0.3	2.86	1	3078	0.0	0.0	0		0	671	28	2434
+pb.nophase	Yalurkaspira kaluvenensis	mix5	2	STR08_1	0.5	2.86	1	599	0.2437	0.4841	0	1	1	867	64	2263
+pb.nophase	Yalurkaspira kaluvenensis	mix5	2	STR08_5	0.5	2.86	1	599	0.0	0.0	0		0	867	64	2263
+pb.nophase	Yalurkaspira kaluvenensis	mix6	2	STR08_2	0.5	2.86	1	3116	0.2041	0.4474	0	1	0	333	250	2814
+pb.nophase	Yalurkaspira kaluvenensis	mix6	2	STR08_6	0.5	2.86	1	3116	0.0	0.0	0		0	333	250	2814
+pb.nophase	Yalurkaspira kaluvenensis	mix7	3	STR08_3	0.5	2.86	1	3382	0.6209	0.0826	1	1	1	926	88	3753
+pb.nophase	Yalurkaspira kaluvenensis	mix7	3	STR08_7	0.3	2.86	1	3382	0.0	0.0	0		0	926	88	3753
+pb.nophase	Yalurkaspira kaluvenensis	mix7	3	STR08_8	0.2	2.86	1	3382	0.0	0.0	0		0	926	88	3753
+pb.nophase	Yalurkaspira kaluvenensis	mix8	2	STR08_4	0.85	2.86	1	3098	0.634	0.0066	1	1	1	981	4	2149
+pb.nophase	Yalurkaspira kaluvenensis	mix8	2	STR08_5	0.15	2.86	1	3098	0.0	0.0	0		0	981	4	2149
+pb.phase	Babelia yalserjoa	mix1	2	STR05_1	0.7	6.66	2	2398	0.5196	0.0235	1	1	0	1078	17	1334
+pb.phase	Babelia yalserjoa	mix1	2	STR05_2	0.3	6.66	2	2398	0.3761	0.0	0	1	1	1078	17	1334
+pb.phase	Babelia yalserjoa	mix2	2	STR05_3	0.7	6.66	2	2388	0.4238	0.001	0	1	1	1020	0	1386
+pb.phase	Babelia yalserjoa	mix2	2	STR05_4	0.3	6.66	2	2388	0.4242	0.0	0	1	1	1020	0	1386
+pb.phase	Babelia yalserjoa	mix3	2	STR05_5	0.7	6.66	2	2390	0.6854	0.0	1	1	1	1567	2	839
+pb.phase	Babelia yalserjoa	mix3	2	STR05_6	0.3	6.66	2	2390	0.6138	0.0	1	1	1	1567	2	839
+pb.phase	Babelia yalserjoa	mix4	2	STR05_7	0.7	6.66	2	2432	0.6488	0.0551	1	1	0	1374	52	1068
+pb.phase	Babelia yalserjoa	mix4	2	STR05_8	0.3	6.66	2	2432	0.4774	0.0	0	1	1	1374	52	1068
+pb.phase	Babelia yalserjoa	mix5	2	STR05_1	0.5	6.67	2	209	0.3636	0.2692	0	1	1	1407	33	993
+pb.phase	Babelia yalserjoa	mix5	2	STR05_5	0.5	6.67	2	209	0.4258	0.2645	0	1	1	1407	33	993
+pb.phase	Babelia yalserjoa	mix6	2	STR05_2	0.5	6.67	2	761	0.2589	0.316	0	1	1	777	91	1641
+pb.phase	Babelia yalserjoa	mix6	2	STR05_6	0.5	6.67	2	761	0.1721	0.4072	0	1	1	777	91	1641
+pb.phase	Babelia yalserjoa	mix7	3	STR05_3	0.5	6.67	2	2466	0.629	0.0013	1	1	1	1270	57	2379
+pb.phase	Babelia yalserjoa	mix7	3	STR05_7	0.3	6.67	2	2466	0.0	0.0	0		0	1270	57	2379
+pb.phase	Babelia yalserjoa	mix7	3	STR05_8	0.2	6.67	2	2466	0.4266	0.1016	0	1	1	1270	57	2379
+pb.phase	Babelia yalserjoa	mix8	2	STR05_4	0.85	6.67	2	2380	0.4584	0.0	0	1	1	1022	46	1378
+pb.phase	Babelia yalserjoa	mix8	2	STR05_5	0.15	6.67	2	2380	0.3958	0.0951	0	1	1	1022	46	1378
+pb.phase	Cordoella zupralemensis	mix1	2	STR02_1	0.7	37.59	2	1046	1.0	0.0	1	1	1	2202	0	29
+pb.phase	Cordoella zupralemensis	mix1	2	STR02_2	0.3	37.59	2	1046	0.9751	0.0	1	1	1	2202	0	29
+pb.phase	Cordoella zupralemensis	mix2	2	STR02_3	0.7	37.59	2	2245	0.9938	0.0	1	1	1	2226	0	33
+pb.phase	Cordoella zupralemensis	mix2	2	STR02_4	0.3	37.59	2	2245	0.9795	0.0	1	1	1	2226	0	33
+pb.phase	Cordoella zupralemensis	mix3	2	STR02_5	0.7	37.59	2	550	0.9945	0.0	1	1	1	2227	0	25
+pb.phase	Cordoella zupralemensis	mix3	2	STR02_6	0.3	37.59	2	550	0.9836	0.0	1	0	1	2227	0	25
+pb.phase	Cordoella zupralemensis	mix4	2	STR02_7	0.7	37.59	2	2216	0.9729	0.0	1	1	1	2180	0	50
+pb.phase	Cordoella zupralemensis	mix4	2	STR02_8	0.3	37.59	2	2216	0.9824	0.0	1	1	1	2180	0	50
+pb.phase	Cordoella zupralemensis	mix5	2	STR02_1	0.5	37.59	2	44	0.3182	0.0	0	1	1	709	0	1544
+pb.phase	Cordoella zupralemensis	mix5	2	STR02_5	0.5	37.59	2	44	0.3182	0.0	0	1	1	709	0	1544
+pb.phase	Cordoella zupralemensis	mix6	2	STR02_2	0.5	37.59	2	1041	0.3727	0.0	0	1	1	840	1	1390
+pb.phase	Cordoella zupralemensis	mix6	2	STR02_6	0.5	37.59	2	1041	0.3746	0.0	0	0	1	840	1	1390
+pb.phase	Cordoella zupralemensis	mix7	3	STR02_3	0.5	37.59	2	2334	0.91	0.0	1	1	1	2107	0	1240
+pb.phase	Cordoella zupralemensis	mix7	3	STR02_7	0.3	37.59	2	2334	0.9841	0.0	1	1	1	2107	0	1240
+pb.phase	Cordoella zupralemensis	mix7	3	STR02_8	0.2	37.59	2	2334	0.0	0.0	0		0	2107	0	1240
+pb.phase	Cordoella zupralemensis	mix8	2	STR02_4	0.85	37.59	2	2263	0.9434	0.0	1	1	1	2121	1	156
+pb.phase	Cordoella zupralemensis	mix8	2	STR02_5	0.15	37.59	2	2263	0.9213	0.0	1	1	1	2121	1	156
+pb.phase	Damquiterspira rurowois	mix1	2	STR12_1	0.7	11.37	2	243	0.7078	0.0	1	1	1	794	0	234
+pb.phase	Damquiterspira rurowois	mix1	2	STR12_2	0.3	11.37	2	243	0.6461	0.0063	1	1	1	794	0	234
+pb.phase	Damquiterspira rurowois	mix2	2	STR12_3	0.7	11.37	2	1021	0.9109	0.0	1	1	1	926	0	108
+pb.phase	Damquiterspira rurowois	mix2	2	STR12_4	0.3	11.37	2	1021	0.8864	0.0	1	1	1	926	0	108
+pb.phase	Damquiterspira rurowois	mix3	2	STR12_5	0.7	11.37	2	234	0.8803	0.0	1	1	1	871	1	146
+pb.phase	Damquiterspira rurowois	mix3	2	STR12_6	0.3	11.37	2	234	0.7778	0.0	1	1	1	871	1	146
+pb.phase	Damquiterspira rurowois	mix4	2	STR12_7	0.7	11.37	2	287	0.662	0.0	1	1	1	750	0	245
+pb.phase	Damquiterspira rurowois	mix4	2	STR12_8	0.3	11.37	2	287	0.6341	0.0	1	1	1	750	0	245
+pb.phase	Damquiterspira rurowois	mix5	2	STR12_1	0.5	11.37	2	232	0.7845	0.0	1	1	1	832	0	183
+pb.phase	Damquiterspira rurowois	mix5	2	STR12_5	0.5	11.37	2	232	0.7802	0.0	1	1	1	832	0	183
+pb.phase	Damquiterspira rurowois	mix6	2	STR12_2	0.5	11.37	2	245	0.449	0.375	0	1	1	699	64	331
+pb.phase	Damquiterspira rurowois	mix6	2	STR12_6	0.5	11.37	2	245	0.4449	0.3663	0	1	1	699	64	331
+pb.phase	Damquiterspira rurowois	mix7	3	STR12_3	0.5	11.37	2	962	0.9023	0.0	1	1	1	883	21	646
+pb.phase	Damquiterspira rurowois	mix7	3	STR12_7	0.3	11.37	2	962	0.7879	0.0501	1	1	1	883	21	646
+pb.phase	Damquiterspira rurowois	mix7	3	STR12_8	0.2	11.37	2	962	0.0	0.0	0		0	883	21	646
+pb.phase	Damquiterspira rurowois	mix8	2	STR12_4	0.85	11.37	2	557	0.395	0.0	0	1	1	381	0	620
+pb.phase	Damquiterspira rurowois	mix8	2	STR12_5	0.15	11.37	2	557	0.3932	0.0	0	1	1	381	0	620
+pb.phase	Damviia corcomia	mix1	2	STR01_1	0.7	38.87	2	355	0.9465	0.0	1	1	1	2017	0	148
+pb.phase	Damviia corcomia	mix1	2	STR01_2	0.3	38.87	2	355	0.9352	0.0	1	1	1	2017	0	148
+pb.phase	Damviia corcomia	mix2	2	STR01_3	0.7	38.87	2	449	0.9933	0.0	1	1	1	2124	0	46
+pb.phase	Damviia corcomia	mix2	2	STR01_4	0.3	38.87	2	449	0.9933	0.0	1	1	1	2124	0	46
+pb.phase	Damviia corcomia	mix3	2	STR01_5	0.7	38.87	2	2305	0.9597	0.0	1	1	1	2218	0	104
+pb.phase	Damviia corcomia	mix3	2	STR01_6	0.3	38.87	2	2305	0.9518	0.0	1	1	1	2218	0	104
+pb.phase	Damviia corcomia	mix4	2	STR01_7	0.7	38.87	2	159	0.9937	0.0	1	1	1	2134	0	53
+pb.phase	Damviia corcomia	mix4	2	STR01_8	0.3	38.87	2	159	0.9686	0.0	1	1	1	2134	0	53
+pb.phase	Damviia corcomia	mix5	2	STR01_1	0.5	38.87	2	2241	0.7925	0.0	1	1	1	1768	0	489
+pb.phase	Damviia corcomia	mix5	2	STR01_5	0.5	38.87	2	2241	0.7733	0.0	1	1	1	1768	0	489
+pb.phase	Damviia corcomia	mix6	2	STR01_2	0.5	38.87	2	880	0.7932	0.0	1	1	1	1794	0	436
+pb.phase	Damviia corcomia	mix6	2	STR01_6	0.5	38.87	2	880	0.8114	0.0	1	1	1	1794	0	436
+pb.phase	Damviia corcomia	mix7	3	STR01_3	0.5	38.87	3	525	0.6686	0.1894	0	1	1	1349	97	1917
+pb.phase	Damviia corcomia	mix7	3	STR01_7	0.3	38.87	3	525	0.3886	0.1207	0	1	1	1349	97	1917
+pb.phase	Damviia corcomia	mix7	3	STR01_8	0.2	38.87	3	525	0.0	0.0	0		0	1349	97	1917
+pb.phase	Damviia corcomia	mix8	2	STR01_4	0.85	38.87	2	2251	0.9494	0.0	1	1	1	2084	0	184
+pb.phase	Damviia corcomia	mix8	2	STR01_5	0.15	38.87	2	2251	0.8898	0.0	1	1	1	2084	0	184
+pb.phase	Kakalicoccus corhalixensis	mix1	2	STR10_1	0.7	9.7	2	561	0.7576	0.1201	0	1	1	2269	62	491
+pb.phase	Kakalicoccus corhalixensis	mix1	2	STR10_2	0.3	9.7	2	561	0.7166	0.1373	0	1	1	2269	62	491
+pb.phase	Kakalicoccus corhalixensis	mix2	2	STR10_3	0.7	9.7	2	111	0.7297	0.0	1	1	1	1999	0	801
+pb.phase	Kakalicoccus corhalixensis	mix2	2	STR10_4	0.3	9.7	2	111	0.7117	0.0	1	1	1	1999	0	801
+pb.phase	Kakalicoccus corhalixensis	mix3	2	STR10_5	0.7	9.7	2	461	0.692	0.0245	1	1	1	1930	2	850
+pb.phase	Kakalicoccus corhalixensis	mix3	2	STR10_6	0.3	9.7	2	461	0.6226	0.0	1	1	1	1930	2	850
+pb.phase	Kakalicoccus corhalixensis	mix4	2	STR10_7	0.7	9.7	2	1431	0.9078	0.0	1	1	1	2581	0	219
+pb.phase	Kakalicoccus corhalixensis	mix4	2	STR10_8	0.3	9.7	2	1431	0.9113	0.0	1	1	1	2581	0	219
+pb.phase	Kakalicoccus corhalixensis	mix5	2	STR10_1	0.5	9.7	2	2778	0.3808	0.0	0	1	1	1095	0	1704
+pb.phase	Kakalicoccus corhalixensis	mix5	2	STR10_5	0.5	9.7	2	2778	0.4028	0.0	0	1	1	1095	0	1704
+pb.phase	Kakalicoccus corhalixensis	mix6	2	STR10_2	0.5	9.7	2	2723	0.3856	0.0	0	1	1	1078	0	1663
+pb.phase	Kakalicoccus corhalixensis	mix6	2	STR10_6	0.5	9.7	2	2723	0.3977	0.0	0	1	1	1078	0	1663
+pb.phase	Kakalicoccus corhalixensis	mix7	3	STR10_3	0.5	9.7	2	1489	0.7482	0.0479	1	0	1	1684	186	2514
+pb.phase	Kakalicoccus corhalixensis	mix7	3	STR10_7	0.3	9.7	2	1489	0.0	0.0	0		0	1684	186	2514
+pb.phase	Kakalicoccus corhalixensis	mix7	3	STR10_8	0.2	9.7	2	1489	0.2787	0.4384	0	1	1	1684	186	2514
+pb.phase	Kakalicoccus corhalixensis	mix8	2	STR10_4	0.85	9.7	2	84	0.2738	0.2812	0	1	1	1003	9	1796
+pb.phase	Kakalicoccus corhalixensis	mix8	2	STR10_5	0.15	9.7	2	84	0.2024	0.3462	0	1	1	1003	9	1796
+pb.phase	Lemkarococcus bahalflaus	mix1	2	STR06_1	0.7	2.36	1	756	0.795	0.0852	1	1	1	1382	31	1679
+pb.phase	Lemkarococcus bahalflaus	mix1	2	STR06_2	0.3	2.36	1	756	0.0	0.0	0		0	1382	31	1679
+pb.phase	Lemkarococcus bahalflaus	mix2	2	STR06_3	0.7	2.36	1	1232	0.6648	0.1342	0	1	1	1172	66	1817
+pb.phase	Lemkarococcus bahalflaus	mix2	2	STR06_4	0.3	2.36	1	1232	0.0	0.0	0		0	1172	66	1817
+pb.phase	Lemkarococcus bahalflaus	mix3	2	STR06_5	0.7	2.36	1	770	0.6481	0.1441	0	1	1	1321	46	1754
+pb.phase	Lemkarococcus bahalflaus	mix3	2	STR06_6	0.3	2.36	1	770	0.0	0.0	0		0	1321	46	1754
+pb.phase	Lemkarococcus bahalflaus	mix4	2	STR06_7	0.7	2.36	1	2964	0.5688	0.1906	0	1	1	869	193	2133
+pb.phase	Lemkarococcus bahalflaus	mix4	2	STR06_8	0.3	2.36	1	2964	0.0	0.0	0		0	869	193	2133
+pb.phase	Lemkarococcus bahalflaus	mix5	2	STR06_1	0.5	2.36	2	160	0.1187	0.0	0	1	1	340	3	2749
+pb.phase	Lemkarococcus bahalflaus	mix5	2	STR06_5	0.5	2.36	2	160	0.1625	0.0	0	1	1	340	3	2749
+pb.phase	Lemkarococcus bahalflaus	mix6	2	STR06_2	0.5	2.36	1	689	0.3527	0.4916	0	1	1	1129	130	1918
+pb.phase	Lemkarococcus bahalflaus	mix6	2	STR06_6	0.5	2.36	1	689	0.0	0.0	0		0	1129	130	1918
+pb.phase	Lemkarococcus bahalflaus	mix7	3	STR06_3	0.5	2.36	2	3576	0.1015	0.074	0	1	1	278	59	4223
+pb.phase	Lemkarococcus bahalflaus	mix7	3	STR06_7	0.3	2.36	2	3576	0.0928	0.2	0	0	0	278	59	4223
+pb.phase	Lemkarococcus bahalflaus	mix7	3	STR06_8	0.2	2.36	2	3576	0.0	0.0	0		0	278	59	4223
+pb.phase	Lemkarococcus bahalflaus	mix8	2	STR06_4	0.85	2.36	1	2995	0.6521	0.0464	1	1	1	989	48	2054
+pb.phase	Lemkarococcus bahalflaus	mix8	2	STR06_5	0.15	2.36	1	2995	0.0	0.0	0		0	989	48	2054
+pb.phase	Neixgenvibrio yalfigorii	mix1	2	STR03_1	0.7	37.25	2	1979	0.8898	0.0	1	1	1	1775	0	221
+pb.phase	Neixgenvibrio yalfigorii	mix1	2	STR03_2	0.3	37.25	2	1979	0.8888	0.0011	1	1	1	1775	0	221
+pb.phase	Neixgenvibrio yalfigorii	mix2	2	STR03_3	0.7	37.25	2	349	0.894	0.0	1	1	1	1864	0	178
+pb.phase	Neixgenvibrio yalfigorii	mix2	2	STR03_4	0.3	37.25	2	349	0.894	0.0	1	1	1	1864	0	178
+pb.phase	Neixgenvibrio yalfigorii	mix3	2	STR03_5	0.7	37.25	2	317	0.8707	0.0	1	1	1	1837	0	206
+pb.phase	Neixgenvibrio yalfigorii	mix3	2	STR03_6	0.3	37.25	2	317	0.8707	0.0	1	1	1	1837	0	206
+pb.phase	Neixgenvibrio yalfigorii	mix4	2	STR03_7	0.7	37.25	2	170	0.8588	0.0	1	1	1	1785	0	252
+pb.phase	Neixgenvibrio yalfigorii	mix4	2	STR03_8	0.3	37.25	2	170	0.8588	0.0	1	1	1	1785	0	252
+pb.phase	Neixgenvibrio yalfigorii	mix5	2	STR03_1	0.5	37.25	2	360	0.2028	0.0	0	1	1	385	0	1666
+pb.phase	Neixgenvibrio yalfigorii	mix5	2	STR03_5	0.5	37.25	2	360	0.2028	0.0	0	1	1	385	0	1666
+pb.phase	Neixgenvibrio yalfigorii	mix6	2	STR03_2	0.5	37.25	2	1967	0.1845	0.0	0	1	1	366	0	1622
+pb.phase	Neixgenvibrio yalfigorii	mix6	2	STR03_6	0.5	37.25	2	1967	0.1845	0.0	0	1	1	366	0	1622
+pb.phase	Neixgenvibrio yalfigorii	mix7	3	STR03_3	0.5	37.25	3	405	0.4864	0.0	0	1	1	1437	16	1628
+pb.phase	Neixgenvibrio yalfigorii	mix7	3	STR03_7	0.3	37.25	3	405	0.4074	0.0884	0	1	1	1437	16	1628
+pb.phase	Neixgenvibrio yalfigorii	mix7	3	STR03_8	0.2	37.25	3	405	0.3383	0.1046	0	1	1	1437	16	1628
+pb.phase	Neixgenvibrio yalfigorii	mix8	2	STR03_4	0.85	37.25	2	340	0.6676	0.0	1	1	1	1341	0	691
+pb.phase	Neixgenvibrio yalfigorii	mix8	2	STR03_5	0.15	37.25	2	340	0.6676	0.0	1	1	1	1341	0	691
+pb.phase	Nemocococcus tulrobaensis	mix1	2	STR09_1	0.7	23.08	2	2105	0.9952	0.0	1	1	1	2084	0	31
+pb.phase	Nemocococcus tulrobaensis	mix1	2	STR09_2	0.3	23.08	2	2105	0.9739	0.0	1	1	1	2084	0	31
+pb.phase	Nemocococcus tulrobaensis	mix2	2	STR09_3	0.7	23.08	2	676	0.8669	0.0	1	1	1	1884	0	244
+pb.phase	Nemocococcus tulrobaensis	mix2	2	STR09_4	0.3	23.08	2	676	0.8565	0.0	1	1	1	1884	0	244
+pb.phase	Nemocococcus tulrobaensis	mix3	2	STR09_5	0.7	23.08	2	1734	0.9821	0.0	1	1	1	2066	0	56
+pb.phase	Nemocococcus tulrobaensis	mix3	2	STR09_6	0.3	23.08	2	1734	0.9642	0.0	1	1	1	2066	0	56
+pb.phase	Nemocococcus tulrobaensis	mix4	2	STR09_7	0.7	23.08	2	1846	0.9967	0.0	1	1	1	2018	0	19
+pb.phase	Nemocococcus tulrobaensis	mix4	2	STR09_8	0.3	23.08	2	1846	0.9843	0.0	1	1	1	2018	0	19
+pb.phase	Nemocococcus tulrobaensis	mix5	2	STR09_1	0.5	23.08	2	2072	0.7703	0.0	1	1	1	1615	0	464
+pb.phase	Nemocococcus tulrobaensis	mix5	2	STR09_5	0.5	23.08	2	2072	0.7872	0.0	1	1	1	1615	0	464
+pb.phase	Nemocococcus tulrobaensis	mix6	2	STR09_2	0.5	23.08	2	1768	0.3914	0.4904	0	1	1	985	656	1173
+pb.phase	Nemocococcus tulrobaensis	mix6	2	STR09_6	0.5	23.08	2	1768	0.3891	0.4796	0	1	1	985	656	1173
+pb.phase	Nemocococcus tulrobaensis	mix7	3	STR09_3	0.5	23.08	3	2996	0.9623	0.0	1	1	1	2838	3	274
+pb.phase	Nemocococcus tulrobaensis	mix7	3	STR09_7	0.3	23.08	3	2996	0.9459	0.0039	1	1	1	2838	3	274
+pb.phase	Nemocococcus tulrobaensis	mix7	3	STR09_8	0.2	23.08	3	2996	0.8411	0.0	1	1	1	2838	3	274
+pb.phase	Nemocococcus tulrobaensis	mix8	2	STR09_4	0.85	23.08	2	258	0.7791	0.005	1	1	1	1488	2	606
+pb.phase	Nemocococcus tulrobaensis	mix8	2	STR09_5	0.15	23.08	2	258	0.593	0.0	1	1	1	1488	2	606
+pb.phase	Pexamonas canayalus	mix1	2	STR07_1	0.7	8.63	2	2453	0.8467	0.0	1	1	1	1843	1	626
+pb.phase	Pexamonas canayalus	mix1	2	STR07_2	0.3	8.63	2	2453	0.6531	0.0	1	1	1	1843	1	626
+pb.phase	Pexamonas canayalus	mix2	2	STR07_3	0.7	8.63	2	406	0.6872	0.0412	1	1	1	1846	6	671
+pb.phase	Pexamonas canayalus	mix2	2	STR07_4	0.3	8.63	2	406	0.5271	0.0	1	1	1	1846	6	671
+pb.phase	Pexamonas canayalus	mix3	2	STR07_5	0.7	8.63	2	1084	0.8561	0.0	1	1	1	2181	3	322
+pb.phase	Pexamonas canayalus	mix3	2	STR07_6	0.3	8.63	2	1084	0.9133	0.0	1	1	1	2181	3	322
+pb.phase	Pexamonas canayalus	mix4	2	STR07_7	0.7	8.63	2	2479	0.8798	0.0	1	0	1	2009	0	488
+pb.phase	Pexamonas canayalus	mix4	2	STR07_8	0.3	8.63	2	2479	0.7285	0.0	1	1	1	2009	0	488
+pb.phase	Pexamonas canayalus	mix5	2	STR07_1	0.5	8.63	2	2432	0.6336	0.0	1	1	1	1549	0	896
+pb.phase	Pexamonas canayalus	mix5	2	STR07_5	0.5	8.63	2	2432	0.6345	0.0	1	1	1	1549	0	896
+pb.phase	Pexamonas canayalus	mix6	2	STR07_2	0.5	8.63	2	421	0.3943	0.2243	0	1	1	1351	49	1176
+pb.phase	Pexamonas canayalus	mix6	2	STR07_6	0.5	8.63	2	421	0.38	0.2157	0	1	1	1351	49	1176
+pb.phase	Pexamonas canayalus	mix7	3	STR07_3	0.5	8.63	3	2697	0.5465	0.0186	1	1	1	1273	173	2501
+pb.phase	Pexamonas canayalus	mix7	3	STR07_7	0.3	8.63	3	2697	0.1772	0.3942	0	0	1	1273	173	2501
+pb.phase	Pexamonas canayalus	mix7	3	STR07_8	0.2	8.63	3	2697	0.2922	0.0013	0	1	1	1273	173	2501
+pb.phase	Pexamonas canayalus	mix8	2	STR07_4	0.85	8.63	2	1054	0.6698	0.0	1	1	1	1427	0	1049
+pb.phase	Pexamonas canayalus	mix8	2	STR07_5	0.15	8.63	2	1054	0.4535	0.0	0	1	1	1427	0	1049
+pb.phase	Teryallemspira wopebaus	mix1	2	STR04_1	0.7	2.29	2	865	0.0902	0.0	0	1	1	135	0	1600
+pb.phase	Teryallemspira wopebaus	mix1	2	STR04_2	0.3	2.29	2	865	0.0844	0.0	0	1	1	135	0	1600
+pb.phase	Teryallemspira wopebaus	mix2	2	STR04_3	0.7	2.29	2	1346	0.2132	0.0	0	1	1	373	0	1346
+pb.phase	Teryallemspira wopebaus	mix2	2	STR04_4	0.3	2.29	2	1346	0.2125	0.0	0	1	1	373	0	1346
+pb.phase	Teryallemspira wopebaus	mix3	2	STR04_5	0.7	2.29	1	1730	0.6231	0.1663	0	1	1	536	113	1202
+pb.phase	Teryallemspira wopebaus	mix3	2	STR04_6	0.3	2.29	1	1730	0.0	0.0	0		0	536	113	1202
+pb.phase	Teryallemspira wopebaus	mix4	2	STR04_7	0.7	2.29	1	1259	0.5854	0.0788	1	1	1	598	35	1141
+pb.phase	Teryallemspira wopebaus	mix4	2	STR04_8	0.3	2.29	1	1259	0.0	0.0	0		0	598	35	1141
+pb.phase	Teryallemspira wopebaus	mix5	2	STR04_1	0.5	2.29	2	1713	0.094	0.1658	0	1	0	165	21	1565
+pb.phase	Teryallemspira wopebaus	mix5	2	STR04_5	0.5	2.29	2	1713	0.0917	0.0	0	1	1	165	21	1565
+pb.phase	Teryallemspira wopebaus	mix6	2	STR04_2	0.5	2.29	2	1372	0.086	0.0	0	1	1	118	0	1625
+pb.phase	Teryallemspira wopebaus	mix6	2	STR04_6	0.5	2.29	2	1372	0.0496	0.0	0	1	1	118	0	1625
+pb.phase	Teryallemspira wopebaus	mix7	3	STR04_3	0.5	2.29	2	1973	0.1885	0.0949	0	1	1	278	45	2312
+pb.phase	Teryallemspira wopebaus	mix7	3	STR04_7	0.3	2.29	2	1973	0.1343	0.2639	0	1	1	278	45	2312
+pb.phase	Teryallemspira wopebaus	mix7	3	STR04_8	0.2	2.29	2	1973	0.0	0.0	0		0	278	45	2312
+pb.phase	Teryallemspira wopebaus	mix8	2	STR04_4	0.85	2.29	1	1721	0.7838	0.0281	1	1	1	673	19	1064
+pb.phase	Teryallemspira wopebaus	mix8	2	STR04_5	0.15	2.29	1	1721	0.0	0.0	0		0	673	19	1064
+pb.phase	Vitultulia yaldamvenum	mix1	2	STR11_1	0.7	38.98	2	220	0.9227	0.0	1	1	1	378	0	29
+pb.phase	Vitultulia yaldamvenum	mix1	2	STR11_2	0.3	38.98	2	220	0.8727	0.0	1	1	1	378	0	29
+pb.phase	Vitultulia yaldamvenum	mix2	2	STR11_3	0.7	38.98	2	86	0.814	0.0	1	1	1	353	0	77
+pb.phase	Vitultulia yaldamvenum	mix2	2	STR11_4	0.3	38.98	2	86	0.8023	0.0	1	1	1	353	0	77
+pb.phase	Vitultulia yaldamvenum	mix3	2	STR11_5	0.7	38.98	2	84	0.8929	0.0	1	1	1	383	0	45
+pb.phase	Vitultulia yaldamvenum	mix3	2	STR11_6	0.3	38.98	2	84	0.869	0.0	1	1	1	383	0	45
+pb.phase	Vitultulia yaldamvenum	mix4	2	STR11_7	0.7	38.98	2	421	0.9881	0.0	1	1	1	414	0	11
+pb.phase	Vitultulia yaldamvenum	mix4	2	STR11_8	0.3	38.98	2	421	0.9596	0.0	1	1	1	414	0	11
+pb.phase	Vitultulia yaldamvenum	mix5	2	STR11_1	0.5	38.98	2	222	0.5	0.0	1	1	1	196	0	213
+pb.phase	Vitultulia yaldamvenum	mix5	2	STR11_5	0.5	38.98	2	222	0.5	0.0	1	1	1	196	0	213
+pb.phase	Vitultulia yaldamvenum	mix6	2	STR11_2	0.5	38.98	2	82	0.4024	0.0	0	1	1	181	0	245
+pb.phase	Vitultulia yaldamvenum	mix6	2	STR11_6	0.5	38.98	2	82	0.4024	0.0	0	0	1	181	0	245
+pb.phase	Vitultulia yaldamvenum	mix7	3	STR11_3	0.5	38.98	3	542	0.7565	0.2205	0	1	1	456	127	184
+pb.phase	Vitultulia yaldamvenum	mix7	3	STR11_7	0.3	38.98	3	542	0.9391	0.0	1	1	1	456	127	184
+pb.phase	Vitultulia yaldamvenum	mix7	3	STR11_8	0.2	38.98	3	542	0.5627	0.31	0	1	1	456	127	184
+pb.phase	Vitultulia yaldamvenum	mix8	2	STR11_4	0.85	38.97	2	84	0.9286	0.0	1	1	1	388	0	40
+pb.phase	Vitultulia yaldamvenum	mix8	2	STR11_5	0.15	38.97	2	84	0.9048	0.0	1	1	1	388	0	40
+pb.phase	Yalurkaspira kaluvenensis	mix1	2	STR08_1	0.7	2.86	1	1463	0.3438	0.2447	0	1	1	718	81	2295
+pb.phase	Yalurkaspira kaluvenensis	mix1	2	STR08_2	0.3	2.86	1	1463	0.0	0.0	0		0	718	81	2295
+pb.phase	Yalurkaspira kaluvenensis	mix2	2	STR08_3	0.7	2.86	1	2977	0.5838	0.0943	1	1	1	892	97	2114
+pb.phase	Yalurkaspira kaluvenensis	mix2	2	STR08_4	0.3	2.86	1	2977	0.0	0.0	0		0	892	97	2114
+pb.phase	Yalurkaspira kaluvenensis	mix3	2	STR08_5	0.7	2.86	2	2973	0.0333	0.0	0	1	1	100	0	2904
+pb.phase	Yalurkaspira kaluvenensis	mix3	2	STR08_6	0.3	2.86	2	2973	0.0333	0.0	0	1	1	100	0	2904
+pb.phase	Yalurkaspira kaluvenensis	mix4	2	STR08_7	0.7	2.86	1	2956	0.4624	0.0441	0	1	1	671	28	2310
+pb.phase	Yalurkaspira kaluvenensis	mix4	2	STR08_8	0.3	2.86	1	2956	0.0	0.0	0		0	671	28	2310
+pb.phase	Yalurkaspira kaluvenensis	mix5	2	STR08_1	0.5	2.86	1	580	0.2517	0.4841	0	1	1	867	64	2136
+pb.phase	Yalurkaspira kaluvenensis	mix5	2	STR08_5	0.5	2.86	1	580	0.0	0.0	0		0	867	64	2136
+pb.phase	Yalurkaspira kaluvenensis	mix6	2	STR08_2	0.5	2.86	1	2985	0.2131	0.4474	0	1	0	333	250	2681
+pb.phase	Yalurkaspira kaluvenensis	mix6	2	STR08_6	0.5	2.86	1	2985	0.0	0.0	0		0	333	250	2681
+pb.phase	Yalurkaspira kaluvenensis	mix7	3	STR08_3	0.5	2.86	1	3249	0.6464	0.0826	1	1	1	926	88	3564
+pb.phase	Yalurkaspira kaluvenensis	mix7	3	STR08_7	0.3	2.86	1	3249	0.0	0.0	0		0	926	88	3564
+pb.phase	Yalurkaspira kaluvenensis	mix7	3	STR08_8	0.2	2.86	1	3249	0.0	0.0	0		0	926	88	3564
+pb.phase	Yalurkaspira kaluvenensis	mix8	2	STR08_4	0.85	2.86	1	2973	0.6606	0.0066	1	1	1	981	4	2022
+pb.phase	Yalurkaspira kaluvenensis	mix8	2	STR08_5	0.15	2.86	1	2973	0.0	0.0	0		0	981	4	2022

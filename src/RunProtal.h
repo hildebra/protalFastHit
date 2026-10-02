@@ -770,6 +770,9 @@ namespace protal {
             profile.SetName(sample_name);
             profile.SetReadType(read_type);
             profile.SetGenera(genera);
+            profile.SetDropForeignGenes(options.DropForeignGenes());
+            // A long-read sample's strains get strain MSA rows of their own (Haplotypes.h).
+            profile.SetKeepPhaseRecords(!options.NoStrains() && options.Phasing() && IsLongReadType(read_type));
             std::string sam_error = profiler.ProfileSam(sam, profile, std::optional<std::reference_wrapper<std::ostream>>{erro},
                                                         options.GetSNPMinCov(), options.GetSNPMinCov(),
                                                         options.GetSNPMinAF(read_type), options.GetSNPMinMeanQual(),
@@ -810,7 +813,14 @@ namespace protal {
                              "a gene's end, or bases that differ from the gene); they are left out and listed in "
                           << sam << ".err" << std::endl;
             }
-            
+            if (auto const [foreign, foreign_taxa] = profile.ForeignGenes(); foreign > 0) {
+                #pragma omp critical(print)
+                std::cout << "Sample " << sample_name << ": " << foreign << " foreign genes of " << foreign_taxa << " taxa (the genes "
+                          << "next to them on their reads are mostly unlikely neighbours in the taxon's clade), "
+                          << (options.DropForeignGenes() ? "left out of their depth and strain MSAs" : "kept (--keep_foreign_genes)")
+                          << "; Foreign in " << options.ProfileFile(i) << ".genes.log" << std::endl;
+            }
+
 
             if (options.Verbose()) {
                 #pragma omp critical(print)
@@ -1628,10 +1638,67 @@ namespace protal {
         std::string const prefix = options.GetStrainOutputDir() + '/' + name;
         for (auto const& stale : { options.GetMSAOutput(name), options.GetMSAPartitionOutput(name),
                                    options.GetMSAStatsOutput(name), options.GetSpeciesMetaOutput(name),
+                                   options.GetHaplotypesOutput(name),
                                    prefix + ".msa.fna", prefix + ".partition.txt",
                                    prefix + ".qcmsa_summary.tsv", prefix + ".qc.png" }) {
             std::error_code ec;
             std::filesystem::remove(stale, ec);
+        }
+    }
+
+    // A long-read sample's strains of taxon `taxid` (Haplotypes.h): its reads' records phased at the multi-allelic sites
+    // of the genes the MSA takes (`genes`, those its taxon has and does not drop), as MSAItem gives them (the taxon's
+    // own reads, by --msa_identity_margin) with the SNP filters of its reads' kind and up to four alleles a site; reads
+    // are cut between genes that are unlikely neighbours in the taxon's clade (the database's gene neighbours).
+    static haplotypes::Phasing PhaseSample(uint32_t taxid, profiler::MicrobialProfile const& profile, std::vector<uint32_t> const& genes,
+                                           Genome& genome, GenomeLoader const& loader, Options const& options) {
+        auto const& taxon = profile.GetTaxa().at(taxid);
+        double const min_identity = taxon.IdentityThreshold(options.GetMSAIdentityMargin());
+        double const min_af = options.GetSNPMinAF(profile.GetReadType());
+        auto const min_cov = options.GetSNPMinCov();
+        auto const min_qual_sum = options.GetSNPMinPhredSum();
+        auto const min_mean_qual = options.GetSNPMinMeanQual();
+        bool const require_strand = options.GetSNPRequireStrand();
+        std::vector<haplotypes::Site> sites;
+        for (auto geneid : genes) {
+            if (!taxon.GetGenes().contains(geneid) || taxon.DropsGene(geneid)) continue;
+            auto const item = taxon.GetGenes().at(geneid).GetStrainLevel().MSAItem(min_identity, min_cov, min_af, min_mean_qual,
+                                                                                 min_qual_sum, require_strand);
+            auto const reference = genome.GetGene(geneid).Sequence();
+            for (auto& [pos, bases] : MultiAllelicSites(item.first, item.second, min_cov, min_qual_sum, min_af, require_strand,
+                                                        min_mean_qual, 4)) {
+                if (pos >= reference.size()) continue;
+                sites.push_back({ geneid, pos, reference[pos], std::move(bases) });
+            }
+        }
+        return haplotypes::Phase(taxon.PhaseRecords(), sites, MaxDivergenceBin(min_identity),
+                                 haplotypes::UnlikelyNeighbours(loader.GetGeneNeighbours(), taxid));
+    }
+
+    // <species>.haplotypes.tsv: per sample phased (PhaseSample), a line per block of its multi-allelic sites (the
+    // sites its reads link): its genes, sites and reads, its haplotypes' reads (the most first), the haplotype of each
+    // strain row (1-based) if it is phased, and how much more likely that join is than the next; and the sample's rows
+    // with their shares of the reads.
+    static void WriteHaplotypes(std::ostream& os, Profiles const& profiles, std::vector<size_t> const& profile_indices,
+                                std::vector<haplotypes::Phasing> const& phasings, std::vector<bool> const& phased) {
+        auto join = [](auto const& values, auto&& each) {
+            std::ostringstream out;
+            for (size_t i = 0; i < values.size(); i++) out << (i ? "," : "") << each(values[i]);
+            return values.empty() ? std::string("-") : out.str();
+        };
+        os << "sample\trows\trow_shares\tblock\tgenes\tsites\treads\thaplotype_reads\trow_haplotypes\tlog_odds\tphased\n";
+        for (size_t i = 0; i < profile_indices.size(); i++) {
+            if (!phased[i]) continue;
+            auto const& p = phasings[i];
+            std::string const shares = join(p.shares, [](double s) { return s; });
+            for (size_t b = 0; b < p.blocks.size(); b++) {
+                auto const& block = p.blocks[b];
+                os << profiles[profile_indices[i]].GetName() << '\t' << p.rows << '\t' << shares << '\t' << b + 1 << '\t'
+                   << join(block.genes, [](uint32_t g) { return g; }) << '\t' << block.sites << '\t' << block.reads << '\t'
+                   << join(block.haplotype_reads, [](size_t n) { return n; }) << '\t'
+                   << join(block.row_haplotype, [](int h) { return h + 1; }) << '\t'
+                   << block.log_odds << '\t' << (block.phased ? "yes" : "no") << '\n';
+            }
         }
     }
 
@@ -1648,139 +1715,211 @@ namespace protal {
 
         if (profile_indices.empty()) return;
 
-        // Each sample's rows take the minimum allele frequency of its reads' kind.
-        std::vector<double> min_afs;
-        for (auto index : profile_indices) min_afs.push_back(options.GetSNPMinAF(profiles[index].GetReadType()));
-
-        MSAVector msa{ profile_indices.size(), std::vector<char>() };
-        protal::MSARow ref_msa_row;
-
-        // Per-sample accumulated SNP-retention statistics across all genes
-        protal::MSAStats sample_stats(profile_indices.size());
-
         auto& genome = loader.GetGenome(taxid);
         if (!genome.IsLoaded()) genome.LoadGenomeOMP();
+        std::vector<uint32_t> selected_genes = SelectGenesForTaxon(taxid, taxon_name, profile_indices, loader, options, profiles);
+
+        // A long-read sample whose reads show two or more strains gets a row per strain, <sample>_hap1, ... (the
+        // most abundant first), each called from the reads of its strain (Haplotypes.h); every other sample one, the
+        // consensus of its reads.
+        std::vector<haplotypes::Phasing> phasings(profile_indices.size());
+        std::vector<bool> phased(profile_indices.size(), false);  // phasing tried
+        if (options.Phasing()) {
+            for (size_t i = 0; i < profile_indices.size(); i++) {
+                auto const& profile = profiles[profile_indices[i]];
+                if (!IsLongReadType(profile.GetReadType()) || profile.GetTaxa().at(taxid).PhaseRecords().empty()) continue;
+                phasings[i] = PhaseSample(taxid, profile, selected_genes, genome, loader, options);
+                phased[i] = true;
+            }
+        }
+        struct Row {
+            size_t sample;  // index into profile_indices
+            int haplotype;  // -1: the sample's own reads
+        };
+        std::vector<Row> rows;
+        for (size_t i = 0; i < profile_indices.size(); i++) {
+            if (phasings[i].rows < 2) rows.push_back({ i, -1 });
+            else for (size_t h = 0; h < phasings[i].rows; h++) rows.push_back({ i, static_cast<int>(h) });
+        }
+        // A strain row's reads' records, by gene.
+        std::vector<std::unordered_map<uint32_t, std::vector<haplotypes::ReadRecord const*>>> row_genes(rows.size());
+        for (size_t r = 0; r < rows.size(); r++) {
+            if (rows[r].haplotype < 0) continue;
+            auto const& records = profiles[profile_indices[rows[r].sample]].GetTaxa().at(taxid).PhaseRecords();
+            for (auto index : phasings[rows[r].sample].row_records[static_cast<size_t>(rows[r].haplotype)]) {
+                row_genes[r][records[index].gene].push_back(&records[index]);
+            }
+        }
+
+        // Each row takes the minimum allele frequency of its sample's reads' kind.
+        std::vector<double> min_afs;
         std::vector<std::string> names;
-        for (auto index : profile_indices) names.emplace_back(profiles[index].GetName());
+        for (auto const& row : rows) {
+            auto const& profile = profiles[profile_indices[row.sample]];
+            min_afs.push_back(options.GetSNPMinAF(profile.GetReadType()));
+            names.push_back(row.haplotype < 0 ? profile.GetName() : profile.GetName() + "_hap" + std::to_string(row.haplotype + 1));
+        }
+
+        MSAVector msa{ rows.size(), std::vector<char>() };
+        protal::MSARow ref_msa_row;
+
+        // Per-row accumulated SNP-retention statistics across all genes
+        protal::MSAStats sample_stats(rows.size());
+
         std::vector<std::string> partitions;
         size_t partition_start = 0;
         size_t previous_size = 0;
 
-        std::vector<uint32_t> selected_genes = SelectGenesForTaxon(taxid, taxon_name, profile_indices, loader, options, profiles);
-
         ProgressBar prog(selected_genes.size());
 
         std::cout << taxid << ": " << taxon_name << " across samples " << profile_indices.size() << std::endl;
-        
+        for (size_t i = 0; i < profile_indices.size(); i++) {
+            auto const& p = phasings[i];
+            if (!phased[i]) continue;
+            std::cout << "  " << profiles[profile_indices[i]].GetName() << ": " << p.reads << " long reads at " << p.blocks.size()
+                      << " blocks of multi-allelic sites (" << p.cut_reads << " cut between unlikely neighbours); ";
+            if (p.rows < 2) {
+                std::cout << "one row" << std::endl;
+            } else {
+                std::cout << p.rows << " strain rows (shares";
+                for (auto share : p.shares) std::cout << ' ' << share;
+                std::cout << "), " << p.PhasedBlocks() << " of the blocks phased" << std::endl;
+            }
+        }
+        if (std::find(phased.begin(), phased.end(), true) != phased.end()) {
+            std::ofstream os_haplotypes(options.GetHaplotypesOutput(taxon_name));
+            WriteHaplotypes(os_haplotypes, profiles, profile_indices, phasings, phased);
+            os_haplotypes.close();
+            if (os_haplotypes.fail()) RunStatus::Get().Fail("Writing the haplotypes of " + taxon_name + " failed: " + options.GetHaplotypesOutput(taxon_name));
+        }
 
-//        std::cout << "Process " << selected_genes.size() << std::endl;
+        // The numbers of a row's .meta.tsv line for a gene, from its item (the gene as the MSA takes it).
+        struct Meta {
+            double vertical_coverage = 0;
+            size_t counts_vcov1 = 0, counts_vcov2 = 0, multi_allelic = 0, filtered = 0, gene_length = 0;
+            double median_vcov = 0, hcov = 0, mean_vcov_nonzero = 0, median_vcov_nonzero = 0;
+        };
+        auto meta_of = [&](std::pair<VariantVec, CoverageVec> const& item, double vertical_coverage, size_t filtered,
+                           size_t gene_length, double min_af) {
+            auto const& tmp_vec = item.second;
+            Meta meta;
+            meta.vertical_coverage = vertical_coverage;
+            meta.counts_vcov1 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 1);});
+            meta.counts_vcov2 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 2);});
+            // Multi-allelic positions as the MSA writes them (IUPAC codes), which qcmsa filters on.
+            meta.multi_allelic = MultiAllelicPositions(item.first, tmp_vec, min_cov, min_qual_sum, min_af,
+                                                       require_strand, min_mean_qual, snp_max_alleles);
+            meta.filtered = filtered;
+            meta.gene_length = gene_length;
+            meta.hcov = static_cast<double>(meta.counts_vcov1) / static_cast<double>(gene_length);
+            if (os_meta) {
+                auto sorted_cov = tmp_vec;
+                sorted_cov.resize(gene_length, 0);
+                std::sort(sorted_cov.begin(), sorted_cov.end());
+                size_t n = sorted_cov.size();
+                meta.median_vcov = n % 2 == 1 ?
+                    static_cast<double>(sorted_cov[n/2]) :
+                    (static_cast<double>(sorted_cov[n/2 - 1]) + static_cast<double>(sorted_cov[n/2])) / 2.0;
+
+                auto nonzero_begin = std::lower_bound(sorted_cov.begin(), sorted_cov.end(), 1);
+                size_t nz = std::distance(nonzero_begin, sorted_cov.end());
+                if (nz > 0) {
+                    double sum = std::accumulate(nonzero_begin, sorted_cov.end(), 0.0);
+                    meta.mean_vcov_nonzero = sum / nz;
+                    size_t mid = nz / 2;
+                    meta.median_vcov_nonzero = nz % 2 == 1 ?
+                        static_cast<double>(*(nonzero_begin + mid)) :
+                        (static_cast<double>(*(nonzero_begin + mid - 1)) + static_cast<double>(*(nonzero_begin + mid))) / 2.0;
+                }
+            }
+            return meta;
+        };
+
         for (auto& geneid : selected_genes) {
-//            std::cout << "GID: " << geneid << std::endl;
-            // if (!loader.GetGenome(taxid).IsGeneHittable(geneid)) {
-            //     continue;
-            // }
-
             prog.UpdateAdd(1);
-            MSASequenceItems items;
-
-            // if (!genome.ValidGene(geneid)) break;
-            //
             auto& gene = genome.GetGene(geneid);
-            // if (!gene.IsSet()) continue;
+            auto const reference = gene.Sequence();
 
-            // Check if
-            size_t samples_with_gene = 0;
+            // Each row's gene as the MSA takes it, and the numbers of its .meta.tsv line; none for a sample without
+            // the gene, or whose taxon drops it (a foreign gene), and for a strain row whose reads lack it. A sample's
+            // gene from its own reads; a strain row's from its strain's (HaplotypeItem).
+            MSASequenceItems items(rows.size());
+            std::vector<std::optional<Meta>> metas(rows.size());
+            size_t rows_with_gene = 0;
 
-            for (auto i = 0; i < profile_indices.size(); i++) {
-                auto& profile = profiles[profile_indices[i]];
-
-                auto& taxon_map = profile.GetTaxa();
-                if (!taxon_map.contains(taxid)) continue;
-
-                auto& genes = profile.GetTaxa().at(taxid).GetGenes();
-
-                if (!genes.contains(geneid)) {
-                    items.emplace_back(OptionalMSASequenceItem{});
-                } else {
-                    auto& gene_obs = genes.at(geneid);
+            for (size_t r = 0; r < rows.size(); r++) {
+                auto& profile = profiles[profile_indices[rows[r].sample]];
+                auto& taxon = profile.GetTaxa().at(taxid);
+                auto& genes = taxon.GetGenes();
+                if (!genes.contains(geneid) || taxon.DropsGene(geneid)) continue;
+                auto& gene_obs = genes.at(geneid);
+                double const min_af = options.GetSNPMinAF(profile.GetReadType());
+                if (rows[r].haplotype < 0) {
                     auto& strain = gene_obs.GetStrainLevel();
-                    double const min_af = options.GetSNPMinAF(profile.GetReadType());
-
                     auto ac = gene_obs.AlleleSNPCounts(min_cov, min_qual_sum);
-                    // The gene from the taxon's own reads, as the MSA takes it; tmp_vec: the reads with a
-                    // base per position, what the MSA judges each position by.
-                    auto item = strain.MSAItem(profile.GetTaxa().at(taxid).IdentityThreshold(options.GetMSAIdentityMargin()),
+                    // The gene from the taxon's own reads, as the MSA takes it: the reads with a base per position,
+                    // what the MSA judges each position by.
+                    auto item = strain.MSAItem(taxon.IdentityThreshold(options.GetMSAIdentityMargin()),
                                                min_cov, min_af,
                                                min_mean_qual, min_qual_sum, require_strand);
-                    auto const& tmp_vec = item.second;
-                    auto counts_vcov1 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 1);});
-                    auto counts_vcov2 = std::count_if(tmp_vec.begin(), tmp_vec.end(), [](auto val){ return(val >= 2);});
-                    // Multi-allelic positions as the MSA writes them (IUPAC codes), which qcmsa filters on.
-                    size_t const multi_allelic = MultiAllelicPositions(item.first, tmp_vec, min_cov, min_qual_sum, min_af,
-                                                                       require_strand, min_mean_qual, snp_max_alleles);
-
-                    double median_vcov = 0.0;
-                    double mean_vcov_nonzero = 0.0;
-                    double median_vcov_nonzero = 0.0;
-                    double hcov = static_cast<double>(counts_vcov1) / static_cast<double>(gene_obs.m_gene_length);
-
-                    // protal emits a raw MSA: every observed gene contributes its
-                    // sequence. Coverage-based gating (horizontal coverage, depth,
-                    // min samples per gene) is done by the qcmsa post-filter, which
-                    // reads the hcov / mean_vcov_nonzero columns written below.
-                    samples_with_gene++;
-                    items.emplace_back( OptionalMSASequenceItem { item } );
-
-                    if (os_meta) {
-                        auto sorted_cov = tmp_vec;
-                        sorted_cov.resize(gene_obs.m_gene_length, 0);
-                        std::sort(sorted_cov.begin(), sorted_cov.end());
-                        size_t n = sorted_cov.size();
-                        median_vcov = n % 2 == 1 ?
-                            static_cast<double>(sorted_cov[n/2]) :
-                            (static_cast<double>(sorted_cov[n/2 - 1]) + static_cast<double>(sorted_cov[n/2])) / 2.0;
-
-                        auto nonzero_begin = std::lower_bound(sorted_cov.begin(), sorted_cov.end(), 1);
-                        size_t nz = std::distance(nonzero_begin, sorted_cov.end());
-                        if (nz > 0) {
-                            double sum = std::accumulate(nonzero_begin, sorted_cov.end(), 0.0);
-                            mean_vcov_nonzero = sum / nz;
-                            size_t mid = nz / 2;
-                            median_vcov_nonzero = nz % 2 == 1 ?
-                                static_cast<double>(*(nonzero_begin + mid)) :
-                                (static_cast<double>(*(nonzero_begin + mid - 1)) + static_cast<double>(*(nonzero_begin + mid))) / 2.0;
-                        }
+                    metas[r] = meta_of(item, gene_obs.VerticalCoverage(), ac.Filtered(), gene_obs.m_gene_length, min_af);
+                    items[r] = std::move(item);
+                } else {
+                    auto const found = row_genes[r].find(geneid);
+                    if (found == row_genes[r].end()) continue;
+                    auto item = haplotypes::HaplotypeItem(found->second, reference, min_cov, min_af, min_mean_qual,
+                                                          min_qual_sum, require_strand);
+                    size_t filtered = 0;  // sites where no allele has min_cov reads and min_qual_sum (AlleleSNPCounts)
+                    for (auto const& bin : item.first) {
+                        filtered += std::none_of(bin.begin(), bin.end(), [&](Variant const& v) {
+                            return v.Observations() >= min_cov && v.QualitySum() >= min_qual_sum;
+                        });
                     }
+                    double const bases = std::accumulate(item.second.begin(), item.second.end(), 0.0);
+                    metas[r] = meta_of(item, bases / static_cast<double>(gene_obs.m_gene_length), filtered,
+                                       gene_obs.m_gene_length, min_af);
+                    items[r] = std::move(item);
+                }
+                // protal emits a raw MSA: every observed gene contributes its
+                // sequence. Coverage-based gating (horizontal coverage, depth,
+                // min samples per gene) is done by the qcmsa post-filter, which
+                // reads the hcov / mean_vcov_nonzero columns written below.
+                rows_with_gene++;
+            }
 
-                    if (os_meta) {
+            if (os_meta) {
+                for (size_t r = 0; r < rows.size(); r++) {
+                    if (!metas[r]) continue;
+                    auto const& meta = *metas[r];
+                    double const v1 = static_cast<double>(meta.counts_vcov1), v2 = static_cast<double>(meta.counts_vcov2);
 #pragma omp critical(metaout)
-                        {
-                            *os_meta << profile.GetName() << '\t';
-                            *os_meta << geneid << '\t';
-                            *os_meta << gene_obs.VerticalCoverage() << '\t';
-                            *os_meta << counts_vcov1 << '\t';
-                            *os_meta << counts_vcov2 << '\t';
-                            *os_meta << multi_allelic << '\t';
-                            *os_meta << ac.Filtered() << '\t';
-                            *os_meta << (counts_vcov1 > 0 ? multi_allelic/static_cast<double>(counts_vcov1) : 0) << '\t';
-                            *os_meta << (counts_vcov1 > 0 ? ac.Filtered()/static_cast<double>(counts_vcov1) : 0) << '\t';
-                            *os_meta << (counts_vcov2 > 0 ? multi_allelic/static_cast<double>(counts_vcov2) : 0) << '\t';
-                            *os_meta << (counts_vcov2 > 0 ? ac.Filtered()/static_cast<double>(counts_vcov2) : 0) << '\t';
-                            *os_meta << median_vcov << '\t';
-                            *os_meta << hcov << '\t';
-                            *os_meta << gene_obs.m_gene_length << '\t';
-                            *os_meta << mean_vcov_nonzero << '\t';
-                            *os_meta << median_vcov_nonzero;
-                            *os_meta << std::endl;
-                        }
+                    {
+                        *os_meta << names[r] << '\t';
+                        *os_meta << geneid << '\t';
+                        *os_meta << meta.vertical_coverage << '\t';
+                        *os_meta << meta.counts_vcov1 << '\t';
+                        *os_meta << meta.counts_vcov2 << '\t';
+                        *os_meta << meta.multi_allelic << '\t';
+                        *os_meta << meta.filtered << '\t';
+                        *os_meta << (v1 > 0 ? meta.multi_allelic / v1 : 0) << '\t';
+                        *os_meta << (v1 > 0 ? meta.filtered / v1 : 0) << '\t';
+                        *os_meta << (v2 > 0 ? meta.multi_allelic / v2 : 0) << '\t';
+                        *os_meta << (v2 > 0 ? meta.filtered / v2 : 0) << '\t';
+                        *os_meta << meta.median_vcov << '\t';
+                        *os_meta << meta.hcov << '\t';
+                        *os_meta << meta.gene_length << '\t';
+                        *os_meta << meta.mean_vcov_nonzero << '\t';
+                        *os_meta << meta.median_vcov_nonzero;
+                        *os_meta << std::endl;
                     }
                 }
             }
-            if (samples_with_gene > 0) {
+            if (rows_with_gene > 0) {
                 previous_size = msa.front().size();
 
                 protal::MSAStats gene_stats(items.size());
-                bool result = protal::MSA(items, gene.Sequence(), msa, min_cov, min_qual_sum, min_afs, require_strand, min_mean_qual, &gene_stats, &ref_msa_row, snp_max_alleles, min_depth);
+                bool result = protal::MSA(items, reference, msa, min_cov, min_qual_sum, min_afs, require_strand, min_mean_qual,
+                                          &gene_stats, &ref_msa_row, snp_max_alleles, min_depth);
 
                 if (!result) continue;
 

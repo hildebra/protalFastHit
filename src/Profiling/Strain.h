@@ -233,8 +233,10 @@ namespace protal {
         // Adds an alignment of a read (read_id: its fragment, the same for both mates). With
         // read_variants, its variants are recorded and its range is the part VariantHandler::AddAlignment
         // trusts, less what the fragment's other mate already covered; an alignment that does not fit
-        // the gene adds nothing and returns false. Without, only its whole range is added.
-        bool AddSam(SamEntry const& sam, size_t read_id, bool read_variants=false, double identity=1.0) {
+        // the gene adds nothing and returns false. Without, only its whole range is added. With read_variants
+        // and `alleles`, what the read shows of the gene is also written there (ReadAlleles, for phasing).
+        bool AddSam(SamEntry const& sam, size_t read_id, bool read_variants=false, double identity=1.0,
+                    ReadAlleles* alleles = nullptr) {
             uint8_t const divergence = DivergenceBin(identity);
             if (!read_variants) {
                 AddToSequenceRange(sam, read_id);
@@ -242,7 +244,7 @@ namespace protal {
             }
             size_t skip_begin = 0, skip_end = 0;
             if (read_id == m_last_read_id) std::tie(skip_begin, skip_end) = m_last_interval;
-            auto const interval = m_variant_handler.AddAlignment(sam, skip_begin, skip_end, divergence);
+            auto const interval = m_variant_handler.AddAlignment(sam, skip_begin, skip_end, divergence, alleles);
             if (!interval) {
                 return false;
             }
@@ -369,16 +371,16 @@ namespace protal {
         return bases;
     }
 
-    // Positions that MSA() writes as an IUPAC code, with the same rule and parameters: the site's call
-    // (BaseCall) is a single-base allele that passes, and at least one other base passes too; sites
-    // inside a deletion the MSA writes as gaps do not count. The .meta.tsv reports this count, so that
-    // qcmsa filters on what the MSA holds. `bins` and `coverage` are the gene as the MSA takes it
-    // (StrainLevelContainer::MSAItem: bins sorted by position, informative coverage).
-    static size_t MultiAllelicPositions(std::vector<VariantBin> const& bins, CoverageVec const& coverage, uint32_t min_cov,
-                                        uint32_t min_qual_sum, double min_frequency, bool require_strand,
-                                        size_t min_mean_qual, size_t snp_max_alleles) {
-        if (snp_max_alleles < 2) return 0;
-        size_t multi = 0;
+    // Positions that MSA() writes as an IUPAC code, with the same rule and parameters, each with its passing bases (at
+    // most max_alleles, the most observed first): the site's call (BaseCall) is a single-base allele that passes, and
+    // at least one other base passes too; sites inside a deletion the MSA writes as gaps do not count. `bins` and
+    // `coverage` are the gene as the MSA takes it (StrainLevelContainer::MSAItem: bins sorted by position, informative
+    // coverage). A long-read sample's strains are phased at these sites (Haplotypes.h).
+    static std::vector<std::pair<uint32_t, std::vector<char>>> MultiAllelicSites(
+            std::vector<VariantBin> const& bins, CoverageVec const& coverage, uint32_t min_cov, uint32_t min_qual_sum,
+            double min_frequency, bool require_strand, size_t min_mean_qual, size_t max_alleles) {
+        std::vector<std::pair<uint32_t, std::vector<char>>> sites;
+        if (max_alleles < 2) return sites;
         size_t deleted_until = 0;
         for (auto const& bin : bins) {
             if (bin.empty()) continue;
@@ -396,9 +398,19 @@ namespace protal {
                 deleted_until = pos + call->GetStructuralSize();
                 continue;
             }
-            multi += PassingBases(bin, passes, snp_max_alleles).size() > 1;
+            auto bases = PassingBases(bin, passes, max_alleles);
+            if (bases.size() > 1) sites.emplace_back(static_cast<uint32_t>(pos), std::move(bases));
         }
-        return multi;
+        return sites;
+    }
+
+    // How many positions MSA() writes as an IUPAC code (MultiAllelicSites with snp_max_alleles). The .meta.tsv
+    // reports this count, so that qcmsa filters on what the MSA holds.
+    static size_t MultiAllelicPositions(std::vector<VariantBin> const& bins, CoverageVec const& coverage, uint32_t min_cov,
+                                        uint32_t min_qual_sum, double min_frequency, bool require_strand,
+                                        size_t min_mean_qual, size_t snp_max_alleles) {
+        return MultiAllelicSites(bins, coverage, min_cov, min_qual_sum, min_frequency, require_strand, min_mean_qual,
+                                 snp_max_alleles).size();
     }
 
     using MSAVector = std::vector<std::vector<char>>;

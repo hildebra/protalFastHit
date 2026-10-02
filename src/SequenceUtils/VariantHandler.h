@@ -49,6 +49,27 @@ namespace protal {
         return p >= kStrandBiasP;
     }
 
+    // What one read shows of a gene where VariantHandler::AddAlignment trusts it, for phasing (Haplotypes.h): the
+    // reference interval [start, end), the bases of its SNPs (X ops) by position, and the positions where it has no
+    // base (an N, or a deletion, its first position included); every other position of the interval shows the
+    // reference's base.
+    struct ReadAlleles {
+        uint32_t start = 0;
+        uint32_t end = 0;
+        std::vector<std::pair<uint32_t, char>> snps;  // ascending positions
+        std::vector<Qual> snp_quals;                  // the SNPs' base qualities
+        std::vector<uint32_t> no_base;                // ascending positions
+
+        // The base the read shows at `pos` given the reference's base there, or 0 for none (outside its interval,
+        // or no base).
+        char BaseAt(uint32_t pos, char reference) const {
+            if (pos < start || pos >= end) return 0;
+            if (std::binary_search(no_base.begin(), no_base.end(), pos)) return 0;
+            auto const it = std::lower_bound(snps.begin(), snps.end(), std::pair<uint32_t, char>{ pos, 0 });
+            return it != snps.end() && it->first == pos ? it->second : reference;
+        }
+    };
+
     class VariantHandler {
         Variants m_variants;
         // Reads that cover a position without a base there: an N in the read or the reference, or
@@ -174,9 +195,12 @@ namespace protal {
         // bases: at either end of an alignment they are artefacts. A deletion has no base of its own
         // and gets the lower quality of its two flanking bases. Positions in [skip_begin, skip_end),
         // the part the fragment's other mate already covered, are left out: a fragment counts once.
-        // Every record carries the read's divergence from the gene (DivergenceBin).
-        std::optional<std::pair<size_t, size_t>> AddAlignment(SamEntry const& sam, size_t skip_begin = 0, size_t skip_end = 0, uint8_t divergence = 0) {
+        // Every record carries the read's divergence from the gene (DivergenceBin). With `alleles`, what the
+        // read shows in its trusted part is also written there (the skipped part included).
+        std::optional<std::pair<size_t, size_t>> AddAlignment(SamEntry const& sam, size_t skip_begin = 0, size_t skip_end = 0, uint8_t divergence = 0,
+                                                              ReadAlleles* alleles = nullptr) {
             auto const reference = Reference();  // the gene, decoded once for this alignment
+            if (alleles) *alleles = ReadAlleles{};
             std::vector<std::pair<int, char>> ops;
             {
                 int cpos = 0, count = 0;
@@ -236,6 +260,7 @@ namespace protal {
                         char const base = sam.m_seq[qpos + i];
                         char const ref = reference[rpos + i];
                         if (base == 'N' || ref == 'N') {
+                            if (trusted && alleles) alleles->no_base.push_back(static_cast<uint32_t>(rpos + i));
                             if (trusted && !skipped(rpos + i)) no_base.push_back(rpos + i);
                         } else if (base != ref) {
                             // The record goes to the sample's .err file; the first few are shown.
@@ -256,6 +281,16 @@ namespace protal {
                     }
                 } else if (op == 'X' && trusted) {
                     for (auto i = 0; i < count; i++) {
+                        if (alleles) {
+                            char const base = sam.m_seq[qpos + i];
+                            auto const at = static_cast<uint32_t>(rpos + i);
+                            if (base == 'N' || reference[rpos + i] == 'N') {
+                                alleles->no_base.push_back(at);
+                            } else {
+                                alleles->snps.emplace_back(at, base);
+                                alleles->snp_quals.push_back(PhredScore(sam.m_qual[qpos + i]));
+                            }
+                        }
                         if (skipped(rpos + i)) continue;
                         char const base = sam.m_seq[qpos + i];
                         char const ref = reference[rpos + i];
@@ -272,7 +307,11 @@ namespace protal {
                     }
                     indels.push_back({ VariantType::INS, static_cast<VariantPos>(rpos), reference[rpos],
                                        sam.m_seq.substr(qpos, count), static_cast<Qual>(qual_sum / count) });
-                } else if (op == 'D' && between_trusted_bases && !(rpos > skip_begin && rpos + count < skip_end)) {
+                }
+                if (op == 'D' && trusted && alleles) {
+                    for (auto i = 0; i < count; i++) alleles->no_base.push_back(static_cast<uint32_t>(rpos + i));
+                }
+                if (op == 'D' && between_trusted_bases && !(rpos > skip_begin && rpos + count < skip_end)) {
                     Qual const flank = std::min(PhredScore(sam.m_qual[qpos - 1]), PhredScore(sam.m_qual[qpos]));
                     indels.push_back({ VariantType::DEL, static_cast<VariantPos>(rpos), reference[rpos],
                                        std::string(reference.substr(rpos, count)), flank });
@@ -289,6 +328,10 @@ namespace protal {
             for (auto const& s : snps) AddSNP(s.pos, s.base, s.ref, is_fwd, s.qual, divergence);
             for (auto& d : indels) AddINDEL(d.type, d.pos, d.ref, std::move(d.structural), is_fwd, d.qual, divergence);
             for (auto pos : no_base) AddNoBase(pos, is_fwd, divergence);
+            if (alleles) {
+                alleles->start = static_cast<uint32_t>(start);
+                alleles->end = static_cast<uint32_t>(end);
+            }
             return std::make_pair(start, end);
         }
 

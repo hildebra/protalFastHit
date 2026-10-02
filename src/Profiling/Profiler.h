@@ -5,6 +5,7 @@
 #pragma once
 
 #include "Strain.h"
+#include "Haplotypes.h"
 #include "AlignmentUtils.h"
 #include <vector>
 #include <sparse_map.h>
@@ -295,11 +296,12 @@ namespace protal {
 
 
 
-            bool AddSam(SamEntry const& sam, size_t read_id, double ani=0.0, bool no_strain=true) {
+            // With `alleles` (and strain data, !no_strain), what the read shows of the gene is written there too.
+            bool AddSam(SamEntry const& sam, size_t read_id, double ani=0.0, bool no_strain=true, ReadAlleles* alleles = nullptr) {
                 auto const [identity, length] = AlignmentIdentity(sam.m_cigar);
                 if (!no_strain) {
                     // The read's identity lets the strain MSA keep the taxon's own reads only.
-                    if (!m_strain_level.AddSam(sam, read_id, true, identity)) return false;
+                    if (!m_strain_level.AddSam(sam, read_id, true, identity, alleles)) return false;
                 }
 
                 m_read_identities.emplace_back(static_cast<float>(identity), static_cast<uint32_t>(length));
@@ -437,6 +439,31 @@ namespace protal {
             size_t link = SIZE_MAX;  // the read across its records (both mates, a long read's genes); SIZE_MAX: none
         };
 
+        // The genes next to one gene of a taxon on the reads (MicrobialProfile::FinishLink), judged by the taxon's clade.
+        struct GeneLinks {
+            uint32_t judged = 0;    // links a clade of the taxon has data on
+            uint32_t unlikely = 0;  // of those, gene_neighbours::Verdict::Unlikely
+
+            GeneLinks& operator+=(GeneLinks const& other) {
+                judged += other.judged;
+                unlikely += other.unlikely;
+                return *this;
+            }
+        };
+
+        // A gene whose reads' neighbouring genes are mostly unlikely neighbours in its taxon's clade (kMinForeignLinks
+        // judged links or more, more than kForeignShare of them unlikely) gets its reads from another genomic context: a
+        // gene transferred into another genome, a relative's homolog in another gene order, a contaminant of the
+        // reference. A gene with one end in context and one not (half its links unlikely) is not. With the species' own
+        // neighbours in the table (gene_neighbours.py's species lines), the genes next to each other on its own
+        // genome's reads are expected, so its own genes are not taken for foreign ones.
+        inline constexpr uint32_t kMinForeignLinks = 4;
+        inline constexpr double kForeignShare = 0.5;
+
+        inline bool Foreign(GeneLinks const& links) {
+            return links.judged >= kMinForeignLinks && links.unlikely > kForeignShare * links.judged;
+        }
+
         // A taxon's best records of all reads, before the profiler's MAPQ and length filters drop any (the reads that
         // fit another taxon as well have MAPQ near 0 and would never be counted): MicrobialProfile::NoteRecord.
         struct RecordEvidence {
@@ -449,6 +476,7 @@ namespace protal {
             size_t adjacent_unlikely = 0;  // that hardly ever or never do in a clade with data on them (Verdict::Unlikely)
             size_t adjacent_judged = 0;    // that a clade has data on
             double adjacent_support = 0;   // the sum of their pairings' shares there (gene_neighbours::Assessment::share)
+            tsl::robin_map<uint32_t, GeneLinks> gene_links;  // the same links by gene: each of the two genes of a link
             std::vector<float> excess;  // each record's ReadExcess (records with base qualities)
             uint64_t conserved_bases = 0;  // reference bases of the records on genes of factor below 1 (gene_conservation.tsv)
             uint64_t fast_bases = 0;       // on the other genes; both 0 without factors
@@ -463,6 +491,7 @@ namespace protal {
                 adjacent_unlikely += other.adjacent_unlikely;
                 adjacent_judged += other.adjacent_judged;
                 adjacent_support += other.adjacent_support;
+                for (auto const& [gene, links] : other.gene_links) gene_links[gene] += links;
                 excess.insert(excess.end(), other.excess.begin(), other.excess.end());
                 conserved_bases += other.conserved_bases;
                 fast_bases += other.fast_bases;
@@ -580,6 +609,9 @@ namespace protal {
             bool m_scale_margin = false;  // the depth identity margin scaled by the factors (--gene_conservation db)
             double m_excess_median = 0;  // see ExcessMedian
             double m_excess_high_share = 0;
+            bool m_drop_foreign_genes = false;  // see SetDropForeignGenes
+            bool m_keep_phase_records = false;  // see SetKeepPhaseRecords
+            std::vector<haplotypes::ReadRecord> m_phase_records;
 
         public:
 
@@ -648,11 +680,27 @@ namespace protal {
                     m_genes.at(geneid).SetLength(m_genome->GetGene(geneid).GetLength());
                 }
 
-                bool success = m_genes.at(geneid).AddSam(sam, read_id, score, no_strain);
+                ReadAlleles read_alleles;
+                ReadAlleles* alleles = m_keep_phase_records && !no_strain ? &read_alleles : nullptr;
+                bool success = m_genes.at(geneid).AddSam(sam, read_id, score, no_strain, alleles);
                 if (!success) {
                     // A gene is present only with at least one read.
                     if (new_gene) m_genes.erase(geneid);
                     return false;
+                }
+                if (alleles) {
+                    // Where on the read it lies: the clips before it in the read's orientation (those at the CIGAR's
+                    // end if it is reverse); the reader moved the hard clips out of the CIGAR.
+                    bool const reverse = Flag::IsReverseComplement(sam.m_flag);
+                    haplotypes::ReadRecord record;
+                    record.link = static_cast<uint32_t>(evidence.link != SIZE_MAX ? evidence.link : read_id);
+                    record.gene = static_cast<uint32_t>(geneid);
+                    record.read_start = (reverse ? sam.m_hard_clip_end : sam.m_hard_clip_start) + Clip(sam.m_cigar, reverse);
+                    record.read_end = record.read_start + QueryBases(sam.m_cigar);
+                    record.forward = !reverse;
+                    record.divergence = DivergenceBin(AlignmentIdentity(sam.m_cigar).first);
+                    record.alleles = std::move(read_alleles);
+                    m_phase_records.push_back(std::move(record));
                 }
 
                 m_unique_mers += sam.m_uniques;
@@ -677,9 +725,51 @@ namespace protal {
                 return true;
             }
 
+            // The genes next to gene `geneid` on the taxon's reads, judged by its clade (MicrobialProfile::FinishLink).
+            GeneLinks LinksOf(uint32_t geneid) const {
+                auto const it = m_records.gene_links.find(geneid);
+                return it == m_records.gene_links.end() ? GeneLinks{} : it->second;
+            }
+
+            // Whether gene `geneid`'s reads come from another genomic context (Foreign: the genes next to it on them are
+            // mostly unlikely neighbours in the taxon's clade); never without the database's gene neighbours.
+            bool ForeignGene(uint32_t geneid) const {
+                return Foreign(LinksOf(geneid));
+            }
+
+            // Its genes with reads that are foreign (ForeignGene).
+            size_t ForeignGenes() const {
+                size_t n = 0;
+                for (auto const& [id, _] : m_genes) n += ForeignGene(id);
+                return n;
+            }
+
+            // Whether its foreign genes are left out of its depth and its strain MSA rows (the default; not with
+            // --keep_foreign_genes): their reads are another genome's.
+            void SetDropForeignGenes(bool drop) {
+                m_drop_foreign_genes = drop;
+                Changed();
+            }
+
+            // Whether gene `geneid` is left out of the depth and the strain MSA (SetDropForeignGenes, ForeignGene).
+            bool DropsGene(uint32_t geneid) const {
+                return m_drop_foreign_genes && ForeignGene(geneid);
+            }
+
+            // Whether it keeps, of each record it takes, what the read shows of its gene (haplotypes::ReadRecord), so
+            // that the strain MSAs can phase its strains (Haplotypes.h): a long-read sample's taxa (not --no_phasing).
+            void SetKeepPhaseRecords(bool keep) {
+                m_keep_phase_records = keep;
+            }
+
+            std::vector<haplotypes::ReadRecord> const& PhaseRecords() const {
+                return m_phase_records;
+            }
+
             // Takes the counts of the taxon's best records (MicrobialProfile::ApplyRecordEvidence), and of their excesses
             // only the median and the high share.
             void SetRecordEvidence(RecordEvidence const& records) {
+                Changed();  // foreign genes leave the depth
                 m_records = records;
                 m_records.excess.clear();
                 m_records.excess.shrink_to_fit();
@@ -961,6 +1051,7 @@ namespace protal {
                     std::vector<std::pair<float, uint32_t>>{}.swap(gene.m_read_identities);
                     if (!keep_strain_data) gene.GetStrainLevel().Clear();
                 }
+                if (!keep_strain_data) std::vector<haplotypes::ReadRecord>{}.swap(m_phase_records);
             }
 
             // The identity of the taxon's best-matching reads: the 98th percentile, by aligned bases,
@@ -1106,19 +1197,21 @@ namespace protal {
                 return { lengths, total };
             }
 
-            // Depth of the taxon from its own reads (see OwnIdentityThreshold), estimated by BlendedDepth.
+            // Depth of the taxon from its own reads (see OwnIdentityThreshold), estimated by BlendedDepth, without the
+            // genes it drops (DropsGene: foreign ones), which count as genes it lacks.
             double VerticalCoverage(bool force=false) const {
                 if (m_vcov == -1 || force) {
                     std::vector<double> vcovs;
-                    size_t own_bases = 0, all_bases = 0;
+                    size_t own_bases = 0, all_bases = 0, own_all = 0;
                     for (auto& [geneid, gene] : m_genes) {
                         size_t const bases = gene.MappedLength(OwnIdentityThreshold(geneid));
                         all_bases += gene.m_mapped_length;
-                        if (bases == 0 || gene.m_gene_length == 0) continue;
+                        own_all += bases;
+                        if (bases == 0 || gene.m_gene_length == 0 || DropsGene(geneid)) continue;
                         vcovs.emplace_back(static_cast<double>(bases) / static_cast<double>(gene.m_gene_length));
                         own_bases += bases;
                     }
-                    m_low_identity_share = all_bases == 0 ? 0 : 1 - static_cast<double>(own_bases) / static_cast<double>(all_bases);
+                    m_low_identity_share = all_bases == 0 ? 0 : 1 - static_cast<double>(own_all) / static_cast<double>(all_bases);
                     std::sort(vcovs.begin(), vcovs.end());
 
                     if (vcovs.empty()) {
@@ -1129,7 +1222,7 @@ namespace protal {
                     size_t expected_length = 0;
                     size_t expected_genes = 0;
                     for (auto gene_id : m_genome->GetHittableGenes()) {
-                        if (!m_genome->HasGene(gene_id)) continue;
+                        if (!m_genome->HasGene(gene_id) || DropsGene(gene_id)) continue;
                         expected_length += m_genome->GetGene(gene_id).GetLength();
                         expected_genes++;
                     }
@@ -1796,9 +1889,19 @@ namespace protal {
                                 e.adjacent_judged++;
                                 e.adjacent_support += assessment.share;
                             }
+                            return assessment;
                         };
-                        credit(a.taxid);
-                        if (b.taxid != a.taxid) credit(b.taxid);
+                        // Each of the two genes, of its own taxon, by that taxon's clade.
+                        auto gene_link = [&](uint32_t taxid, uint32_t gene, gene_neighbours::Assessment const& assessment) {
+                            if (assessment.clade == 0) return;
+                            auto& links = m_counts[taxid].gene_links[gene];
+                            links.judged++;
+                            links.unlikely += assessment.verdict == gene_neighbours::Verdict::Unlikely;
+                        };
+                        auto const of_a = credit(a.taxid);
+                        auto const of_b = b.taxid != a.taxid ? credit(b.taxid) : of_a;
+                        gene_link(a.taxid, a.gene, of_a);
+                        gene_link(b.taxid, b.gene, of_b);
                     }
                 }
                 m_link_records.clear();
@@ -1964,9 +2067,33 @@ namespace protal {
                     m_taxa.insert( { taxid, Taxon(genome, &m_genome_loader.GetGeneConservation(), m_genome_loader.ScaleDepthMargin()) } );
                     m_taxa.at(taxid).SetId(taxid);
                     m_taxa.at(taxid).SetDepthIdentityMargin(m_depth_identity_margin);
+                    m_taxa.at(taxid).SetDropForeignGenes(m_drop_foreign_genes);
+                    m_taxa.at(taxid).SetKeepPhaseRecords(m_keep_phase_records);
                     m_taxa.at(taxid).SetName(std::to_string(taxid));
                 }
                 return m_taxa.at(taxid);
+            }
+
+            // See Taxon::SetDropForeignGenes and Taxon::SetKeepPhaseRecords: for every taxon, made or to be made.
+            void SetDropForeignGenes(bool drop) {
+                m_drop_foreign_genes = drop;
+                for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) it.value().SetDropForeignGenes(drop);
+            }
+
+            void SetKeepPhaseRecords(bool keep) {
+                m_keep_phase_records = keep;
+                for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) it.value().SetKeepPhaseRecords(keep);
+            }
+
+            // Genes of its taxa that are foreign (Taxon::ForeignGene), and the taxa with one.
+            std::pair<size_t, size_t> ForeignGenes() const {
+                size_t genes = 0, taxa = 0;
+                for (auto const& [_, taxon] : m_taxa) {
+                    size_t const n = taxon.ForeignGenes();
+                    genes += n;
+                    taxa += n > 0;
+                }
+                return { genes, taxa };
             }
 
             // AddSam's work on its taxon: false if the record does not fit its gene. The taxon is not removed then;
@@ -2161,7 +2288,11 @@ namespace protal {
             void WriteGeneProfile(taxonomy::IntTaxonomy& taxonomy, TaxonFilterObj const& filter, std::ostream* os, size_t threads=1) {
                 *os << "Predicted\tProbability\tTaxID\tLineage\tTaxVCOV\tTaxAbundance\tGeneID\tGeneRefLength\t"
                     << "TotalReads\tTotalMappedLength\tMAPQ\tUniqueMers\tUniqueTwoMers\tUniqueMerReads\tUniqueTwoMerReads\tANI\t"
-                    << "VCov\tVCovExp\tHCovExp\tHCovObs\tHCovObsRel\tConsistency\n";
+                    << "VCov\tVCovExp\tHCovExp\tHCovObs\tHCovObsRel\tConsistency\t"
+                    // The genes next to it on the reads that its taxon's clade judges, how many of them are unlikely
+                    // neighbours there, and whether that makes it foreign (Taxon::ForeignGene; 1: left out of the depth
+                    // and the strain MSAs unless --keep_foreign_genes).
+                    << "LinksJudged\tLinksUnlikely\tForeign\n";
 
                 double const total_vcov = PassingDepth(filter);
 
@@ -2210,7 +2341,10 @@ namespace protal {
                             << expected_hcov << '\t'
                             << hcov_obs << '\t'
                             << hcov_obs_rel << '\t'
-                            << coverage_consistency_ratio
+                            << coverage_consistency_ratio << '\t'
+                            << taxon.LinksOf(gene_id).judged << '\t'
+                            << taxon.LinksOf(gene_id).unlikely << '\t'
+                            << taxon.ForeignGene(gene_id)
                             << '\n';
                     }
                     lines[k] = out.str();
@@ -2336,6 +2470,8 @@ namespace protal {
             mutable TaxonMap m_taxa;
             GenomeLoader &m_genome_loader;
             double m_depth_identity_margin = 1;
+            bool m_drop_foreign_genes = false;
+            bool m_keep_phase_records = false;
             std::shared_ptr<std::vector<uint32_t> const> m_genera;  // taxid -> genus (0: none); see SetGenera
             RecordEvidenceCollector m_evidence;  // NoteRecord, NoteLinkedRecord
         };

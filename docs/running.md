@@ -61,6 +61,30 @@ unique k-mers (a 15-mer core shared with a relative) in 90% of cases or more, th
 any are left out: a relative may share them unchanged, and its reads would then show as a second
 strain.
 
+A long-read sample (PacBio, ONT) whose reads show two or more strains of a species gets a row per
+strain in the species' MSA, `<sample>_hap1`, `<sample>_hap2`, ... (the most abundant first), in
+place of its one row, which would hold an IUPAC code wherever both strains' alleles pass. A long
+read covers several marker genes, and at each of the sample's multi-allelic sites on them shows the
+allele of the one strain it comes from. protal groups the sites that reads link, directly or through
+other sites, into blocks, and per block grows haplotypes from the reads: a haplotype starts from the
+read with the most sites and takes the reads that share sites with it and agree there; a read that
+fits none starts the next. A block's haplotypes go to the rows by their shares of its reads, which
+are the strains' shares of the sample in every block: the block with the most sites gives the rows,
+and another block's haplotypes join them if their read counts make one join at least 20 times more
+likely than any other. Each row is then called from its strain's reads as a sample's row is from
+the sample's (same SNP filters), so its bases are its strain's also where the sample's filters did
+not see that strain's allele, and it is `-` where its strain's reads do not reach. A block that
+strains of about equal abundance, or too few reads, leave unphased gives no row its reads.
+Phasing needs phased blocks on at least 3 genes: a second allele on one or two genes is a gene
+from elsewhere (another genome's copy of it), not a strain. Reads are cut where two of their genes
+are unlikely neighbours in the species' clade (a chimera; with the database's gene neighbours), and
+a foreign gene (below) is not phased unless kept. The strain rows get lines of their own in
+`.meta.tsv`, so qcmsa judges them as rows. `<species>.haplotypes.tsv` has a line per block of each
+long-read sample: its genes, sites and reads, the reads of its haplotypes, the haplotype of each row
+if it was phased, and the log odds of that join against the next best. `--no_phasing` writes one
+row per sample, as before; paired-end and single-end samples always get one
+([report](claude/2026-10-02-phasing-and-foreign-genes/README.md)).
+
 `misc/unreported_species.tsv` lists the species that a sample's profile leaves out, their
 probability below the sample's knob, although their own reads are strong evidence that they are present:
 1x or more depth from reads within `--depth_identity_margin` of their best ones, reads on 90% of
@@ -152,6 +176,8 @@ alignment. Workflow managers can rely on a non-zero status.
 | `--msa_min_depth` | 1 | reads a position needs to be written in an MSA, else `-`. Where its reads all show one allele, that many suffice; a second allele (an IUPAC code) needs `--snp_min_cov` reads, and a position whose reads disagree otherwise is `N`. 2 is the behaviour before the 2026-09-29 strain audit |
 | `--msa_identity_margin` | 0.04 | a read enters a species' strain MSA rows only if its identity is at most this far below that of the species' best reads (98th percentile), as for the abundance but more strictly: a relative's reads within 0.08 of the best put 10 times more false calls into the raw MSAs of mixed strains (twice as many after qcmsa). 1 lets every read in |
 | `--snp_max_alleles` | 3 | alleles encoded as an IUPAC ambiguity code in the MSA: 1 = only the top allele, 2 = two-allele mixtures (R, Y, ...), 3 = also three-allele mixtures (B, H, ...) |
+| `--no_phasing` | off | one MSA row per long-read sample, the consensus of its reads, as before. By default a PacBio or ONT sample whose reads show two or more strains of a species gets a row per strain (below) |
+| `--keep_foreign_genes` | off | keep foreign genes (below) in their taxon's depth and strain MSAs; by default they are left out of both. `.profile.genes.log` lists them either way |
 | `--qcmsa_script` | | the qcmsa executable; see [installation.md](installation.md#installing-a-source-build) for how protal finds it otherwise |
 | `--preload_genomes_off` | off | read reference genes on demand instead of loading `reference.fna`: less memory, slower. Needs the database as separate files, see [database-files.md](database-files.md) |
 | `--verbose` | off | more progress output |
@@ -213,7 +239,18 @@ more the fewer species the family has
 - the profile gets `adjacent_expected_share`, `adjacent_unlikely_share` and `adjacent_support`: of
   the genes next to each other on a taxon's reads, the shares that are expected and unlikely
   neighbours in the taxon's clade, and the mean frequency of their pairings there
-  ([model-training.md](model-training.md)).
+  ([model-training.md](model-training.md));
+- a gene whose reads' neighbouring genes are mostly unlikely neighbours in its taxon's clade (4 or
+  more such links judged, more than half of them unlikely) is *foreign*: its reads come from another
+  genome, one that carries a copy of it among other genes (a transferred gene, a relative's homolog in
+  another gene order, a contaminant of the reference). It is left out of the taxon's depth (it then
+  counts as a gene the taxon lacks) and of its strain MSA rows, unless `--keep_foreign_genes`;
+  `.profile.genes.log` lists every gene's `LinksJudged`, `LinksUnlikely` and `Foreign`, and the log
+  says how many a sample has. A gene with one end in context and one not is not foreign, and with
+  the species' own lines in the table ([building-a-database.md](building-a-database.md#gene-neighbours))
+  the genes next to each other on its own genome's reads are expected, so its own genes are not taken
+  for foreign ones;
+- a long-read sample's strains are phased with reads cut between unlikely neighbours (above).
 
 The log says what the database has (`Gene neighbours: ... rules of ... clades`) and how many
 fragments and genes were found so. Gene order is much the same across bacteria, so this helps to

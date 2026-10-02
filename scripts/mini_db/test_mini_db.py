@@ -1501,6 +1501,60 @@ class GeneNeighboursTest(unittest.TestCase):
             return next(r[3] for r in (l.rstrip("\n").split("\t") for l in fh) if int(r[0]) == taxid)
 
 
+class SpeciesLinesTest(unittest.TestCase):
+    """count_clades' lines of a species' own: six species of one family, five with genes 1, 2 and 3 in the order 1 2
+    ... 3, one with 1 3 ... 2. Only the odd one gets lines of its own, at the three ends where its partner is rare in
+    the family (1/6, below protal's expected share of 0.2); none for a family too small to judge, or without
+    species lines."""
+
+    @staticmethod
+    def world(odd_order, species=6):
+        nodes = {1: (1, "no rank", "root"), 2: (1, "domain", "d"), 10: (2, "phylum", "p"), 20: (10, "class", "c"),
+                 30: (20, "order", "o"), 40: (30, "family", "f"), 50: (40, "genus", "g")}
+        genomes = {}
+        for i in range(species):
+            taxid = 101 + i
+            nodes[taxid] = (50, "species", f"s{i}")
+            order = odd_order if i == species - 1 else (1, 2, 3)
+            starts = (10000, 11100, 50000)
+            placements = [(gene, "c1", 100000, False, start, start + 900, "+") for gene, start in zip(order, starts)]
+            genomes[taxid] = {f"G{i}": placements}
+        return genomes, nodes
+
+    def lines(self, genomes, nodes, **kwargs):
+        sys.path.insert(0, HERE)
+        import gene_neighbours as gn
+        ranks = ["family", "order", "class", "phylum", "domain"]
+        counts, informative, _ = gn.count_clades(genomes, nodes, ranks, {t: next(iter(g)) for t, g in genomes.items()},
+                                                 3000, **kwargs)
+        return {(clade, gene, end, *partner): (len(gaps), informative[(clade, gene, end)])
+                for (clade, gene, end), partners in counts.items() for partner, gaps in partners.items()
+                if nodes[clade][1] == "species"}
+
+    def test_only_the_odd_species_gets_lines_where_its_partner_is_rare(self):
+        genomes, nodes = self.world((1, 3, 2))
+        self.assertEqual(self.lines(genomes, nodes), {(106, 1, 3, 3, 5): (1, 1), (106, 3, 5, 1, 3): (1, 1),
+                                                      (106, 2, 5, 0, 0): (1, 1)})
+
+    def test_none_without_them_or_in_a_family_too_small_to_judge(self):
+        genomes, nodes = self.world((1, 3, 2))
+        self.assertEqual(self.lines(genomes, nodes, species_lines=False), {})
+        genomes, nodes = self.world((1, 3, 2), species=4)
+        self.assertEqual(self.lines(genomes, nodes), {})
+
+    def test_a_strain_s_own_partners_get_lines_too(self):
+        # The odd species' representative has 1 3 ... 2, two other strains of it the family's 1 2 ... 3: the species
+        # counts as the family does (its genomes' most common partner) in the clades, but the representative's
+        # partners, which the reads of that genome show, get lines of the species', as do its 2' 5' end's
+        # partners (gene 1 in two genomes, none in one).
+        genomes, nodes = self.world((1, 3, 2))
+        strain = [(gene, "c1", 100000, False, start, start + 900, "+") for gene, start in zip((1, 2, 3), (10000, 11100, 50000))]
+        genomes[106]["G5b"] = strain
+        genomes[106]["G5c"] = strain
+        self.assertEqual(self.lines(genomes, nodes), {(106, 1, 3, 3, 5): (1, 1), (106, 3, 5, 1, 3): (1, 1),
+                                                      (106, 2, 5, 0, 0): (1, 1)})
+
+
 class CircularGeneNeighboursTest(unittest.TestCase):
     """gene_neighbours.py on a release whose genomes are each one sequence, short enough that a species' last
     cluster lies within --max_gap of its first across the origin: a representative in one sequence is circular,

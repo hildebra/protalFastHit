@@ -2560,5 +2560,121 @@ class SimulatorTest(WorkDir):
         self.assertLess(sum(f.count("d__A") for f in domains.values()) / len(domains), 3.5)
 
 
+class PhasingTest(WorkDir):
+    """A long-read sample of two strains of a species gets a strain MSA row per strain (Haplotypes.h). The species'
+    genes laid out as a genome (300-800 bp apart, in the database's order); strain 2 has 1.5% of the bases of every
+    gene substituted. Sample pa holds strain 1, pm strains 1 and 2 at 70:30: PacBio-like reads of 6-10 kb at 0.1%
+    errors, about 25x. The MSA has pa, pm_hap1 (strain 1) and pm_hap2 (strain 2); with --no_phasing pa and pm."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.db = os.path.join(cls.work, "pacbio_db")
+        os.mkdir(cls.db)
+        for f in glob.glob(os.path.join(FILES, "*")):
+            if os.path.basename(f) != "database.protal":
+                os.symlink(f, os.path.join(cls.db, os.path.basename(f)))
+        os.symlink(db_file("model_pe.xml"), os.path.join(cls.db, "model_PB.xml"))
+        rng = random.Random(23)
+        genes = [(name, seq) for name, seq in reference_genes() if name.startswith("1_")]
+        cls.strains = [dict(genes), {}]
+        for name, seq in genes:
+            cls.strains[1][name] = "".join(rng.choice([c for c in "ACGT" if c != b]) if rng.random() < 0.015 else b
+                                           for b in seq)
+        spacers = [("".join(rng.choice("ACGT") for _ in range(rng.randint(300, 800)))) for _ in genes]
+        genomes = []
+        for strain in cls.strains:
+            genome = ""
+            for (name, _), spacer in zip(genes, spacers):
+                genome += spacer + strain[name]
+            genomes.append(genome)
+
+        def sample(path, shares, seed):
+            r = random.Random(seed)
+            length = len(genomes[0])
+            reads = int(25 * length / 8000)
+            with open(path, "w") as fh:
+                for i in range(reads):
+                    genome = genomes[0] if r.random() < shares[0] else genomes[1]
+                    size = r.randint(6000, 10000)
+                    start = r.randint(0, max(0, length - size))
+                    seq = genome[start:start + size]
+                    seq = "".join(r.choice([c for c in "ACGT" if c != b]) if r.random() < 0.001 else b for b in seq)
+                    if r.random() < 0.5:
+                        seq = revcomp(seq)
+                    fh.write(f"@m64001_000000/{i + 1}/ccs\n{seq}\n+\n{'I' * len(seq)}\n")
+
+        cls.reads = {"pa": os.path.join(cls.work, "pa.fq"), "pm": os.path.join(cls.work, "pm.fq")}
+        sample(cls.reads["pa"], (1.0, 0.0), 1)
+        sample(cls.reads["pm"], (0.7, 0.3), 2)
+        common = ["--db", cls.db, "-1", ",".join(cls.reads.values()), "--prefix", "pa,pm", "--read_type", "pb", "-t", "4",
+                  "--no_qcmsa", "--msa_knob", "0"]
+        cls.rc, cls.log = run(cls.work, *common, "-o", "out")
+        cls.rc_off, cls.log_off = run(cls.work, *common, "-o", "off", "--no_phasing")
+
+    def msa(self, out):
+        paths = []
+        for path in glob.glob(self.path(out, "strains", "*.raw.msa.fna")):
+            with open(path) as fh:
+                text = fh.read()
+            if ">pa\n" in text:
+                paths.append(path)
+        self.assertEqual(len(paths), 1, paths)
+        rows, name = {}, None
+        with open(paths[0]) as fh:
+            lines = fh.read().splitlines()
+        for line in lines:
+            if line.startswith(">"):
+                name = line[1:]
+                rows[name] = ""
+            else:
+                rows[name] += line
+        return paths[0], rows
+
+    def test_each_strain_gets_its_row(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        self.assertRegex(self.log, r"pm: \d+ long reads at \d+ blocks of multi-allelic sites .*; 2 strain rows \(shares 0\.[67]")
+        path, rows = self.msa("out")
+        self.assertEqual(sorted(n for n in rows if not n.endswith("_reference")), ["pa", "pm_hap1", "pm_hap2"])
+        reference = next(seq for n, seq in rows.items() if n.endswith("_reference"))
+        # The MSA's columns of reference bases in gene order (the partitions), against the strains' genes.
+        with open(path.replace(".raw.msa.fna", ".raw.partition.txt")) as fh:
+            partitions = [line for line in fh.read().splitlines() if line]
+        strain_of = {"pm_hap1": 0, "pm_hap2": 1}
+        matched = {r: [0, 0] for r in strain_of}  # bases of the row's own strain, of the other one, at differing sites
+        for part in partitions:
+            gene, span = re.match(r"DNA, gene(\d+) = (\d+)-(\d+)", part).group(1), re.match(r".* = (\d+)-(\d+)", part).groups()
+            columns = [i for i in range(int(span[0]) - 1, int(span[1])) if reference[i] != "-"]
+            name = f"1_{gene}"
+            if name not in self.strains[0]:
+                continue
+            for k, i in enumerate(columns):
+                a, b = self.strains[0][name][k], self.strains[1][name][k]
+                if a == b:
+                    continue
+                for row, s in strain_of.items():
+                    c = rows[row][i]
+                    own, other = (a, b) if s == 0 else (b, a)
+                    matched[row][0] += c == own
+                    matched[row][1] += c == other
+        for row, (own, other) in matched.items():
+            self.assertGreater(own, 0, row)
+            self.assertLessEqual(other, 0.02 * own, (row, own, other))
+        with open(path.replace(".raw.msa.fna", ".haplotypes.tsv")) as fh:
+            lines = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertTrue(lines)
+        self.assertTrue(all(line["sample"] == "pm" for line in lines))
+        self.assertTrue(any(line["phased"] == "yes" for line in lines))
+        meta = read_table(path.replace(".raw.msa.fna", ".meta.tsv"))[1]
+        self.assertEqual({row[0] for row in meta}, {"pa", "pm_hap1", "pm_hap2"})
+
+    def test_one_row_per_sample_without_phasing(self):
+        self.assertEqual(self.rc_off, 0, self.log_off[-3000:])
+        path, rows = self.msa("off")
+        self.assertEqual(sorted(n for n in rows if not n.endswith("_reference")), ["pa", "pm"])
+        self.assertGreater(sum(c in "RYSWKMBDHV" for c in rows["pm"]), 0)  # the mixture's IUPAC codes
+        self.assertFalse(os.path.exists(path.replace(".raw.msa.fna", ".haplotypes.tsv")))
+
+
 if __name__ == "__main__":
     sys.exit(unittest.main())

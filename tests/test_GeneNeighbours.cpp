@@ -235,6 +235,37 @@ TEST(GeneNeighbours, AFewSpeciesLeanOnTheCladesAbove) {
     EXPECT_EQ(table.AssessGenes(4, 1, 2), Verdict::Unknown);
 }
 
+TEST(GeneNeighbours, ASpeciesOwnLineMakesItsOwnPairingExpected) {
+    // Species 5's family of 30 has gene 1's 3' end face gene 4's 5' end in one species: unlikely (above). With a line
+    // of species 5's own (gene_neighbours.py writes one where its own partner would be no expected neighbour by its
+    // clades alone), the species is the nearest clade of its lineage: its own pairing is expected, by its own gap,
+    // and its family's stays so.
+    gene_neighbours::Table table;
+    std::istringstream is(kTable + "5\t1\t3\t4\t5\t1\t1\t44\t44\t44\n");
+    ASSERT_EQ(table.Read(is), "");
+    table.SetLineage(5, { 5, 103, 200, 300 });
+    auto smoothed = [](double species, double informative, double parent) {
+        return (species + gene_neighbours::kPriorSpecies * parent) / (informative + gene_neighbours::kPriorSpecies);
+    };
+    double const family4 = smoothed(1, 30, 1.0 / 45), family2 = smoothed(29, 30, 36.0 / 45);
+    auto const own = table.Assess(5, 1, End::Three, 4, End::Five);
+    EXPECT_EQ(own.verdict, Verdict::Expected);
+    EXPECT_EQ(own.clade, 5u);
+    EXPECT_NEAR(own.share, smoothed(1, 1, family4), 1e-12);  // 0.26
+    ASSERT_NE(own.rule, nullptr);
+    EXPECT_EQ(own.rule->gap_median, 44);
+    auto const family = table.Assess(5, 1, End::Three, 2, End::Five);
+    EXPECT_EQ(family.verdict, Verdict::Expected);
+    EXPECT_NEAR(family.share, smoothed(0, 1, family2), 1e-12);  // 0.71
+    EXPECT_EQ(table.Assess(5, 1, End::Three, 3, End::Five).verdict, Verdict::Unlikely);
+    // The species' own partner comes first among its partners.
+    std::vector<gene_neighbours::Partner> partners;
+    table.Partners(5, 1, End::Three, partners);
+    ASSERT_FALSE(partners.empty());
+    EXPECT_EQ(partners.front().rule->partner, 4u);
+    EXPECT_EQ(partners.front().rule->informative, 1u);
+}
+
 TEST(GeneNeighbours, WhereAReadLiesOnTheNeighbour) {
     using namespace gene_neighbours;
     EXPECT_EQ(EndAhead(true), End::Three);
@@ -412,4 +443,62 @@ TEST(MicrobialProfile, AdjacentGenesOfLinkedReads) {
     EXPECT_DOUBLE_EQ(without.GetTaxa().at(1).AdjacentExpectedShare(), 0);
     EXPECT_DOUBLE_EQ(without.GetTaxa().at(1).AdjacentUnlikelyShare(), 0);
     EXPECT_DOUBLE_EQ(without.GetTaxa().at(1).AdjacentSupport(), 0.5);
+}
+
+TEST(MicrobialProfile, AGeneWhoseNeighboursAreUnlikelyIsForeign) {
+    // Four pairs with a mate on gene 1 and one on gene 3 (which never faces gene 1's 3' end in the family: unlikely),
+    // four with one on gene 1 and one on gene 2 (expected). Gene 3's four links are all unlikely: foreign. Gene 1 has
+    // half its eight unlikely, one end in context: not foreign. Left out of the depth, gene 3 counts as a gene the
+    // taxon lacks.
+    ThreeGenes ref;
+    auto sam_on = [&](uint32_t gene, int pos, int flag, std::string name) {
+        SamEntry sam;
+        sam.m_qname = std::move(name);
+        sam.m_flag = static_cast<FLAG_t>(flag);
+        sam.m_rname = "1_" + std::to_string(gene);
+        sam.m_pos = pos;
+        sam.m_mapq = 60;
+        sam.m_cigar = "50M";
+        sam.m_seq = ref.genes[gene - 1].substr(static_cast<size_t>(pos - 1), 50);
+        sam.m_qual = std::string(50, 'I');
+        sam.m_alternatives = "*";
+        return sam;
+    };
+    for (bool drop : { false, true }) {
+        profiler::MicrobialProfile profile(*ref.loader);
+        profile.SetDropForeignGenes(drop);
+        int read = 0;
+        size_t link = 0;
+        auto pair = [&](uint32_t other) {
+            for (auto const& sam : { sam_on(1, 201, 0x1 | 0x40, "p" + std::to_string(link)),
+                                     sam_on(other, 31, 0x1 | 0x80 | 0x10, "p" + std::to_string(link)) }) {
+                int const gene = sam.m_rname.back() - '0';
+                profile.NoteLinkedRecord(1, static_cast<uint32_t>(gene), sam, link);
+                EXPECT_TRUE(profile.AddSam(1, gene, sam, 1.0, true, read++, false, link));
+            }
+            link++;
+        };
+        for (int i = 0; i < 4; i++) pair(3);
+        for (int i = 0; i < 4; i++) pair(2);
+        profile.ApplyRecordEvidence();
+        auto const& taxon = profile.GetTaxa().at(1);
+        EXPECT_EQ(taxon.LinksOf(3).judged, 4u);
+        EXPECT_EQ(taxon.LinksOf(3).unlikely, 4u);
+        EXPECT_EQ(taxon.LinksOf(1).judged, 8u);
+        EXPECT_EQ(taxon.LinksOf(1).unlikely, 4u);
+        EXPECT_EQ(taxon.LinksOf(2).unlikely, 0u);
+        EXPECT_TRUE(taxon.ForeignGene(3));
+        EXPECT_FALSE(taxon.ForeignGene(1));
+        EXPECT_FALSE(taxon.ForeignGene(2));
+        EXPECT_EQ(taxon.ForeignGenes(), 1u);
+        EXPECT_EQ(profile.ForeignGenes(), (std::pair<size_t, size_t>{ 1, 1 }));
+        EXPECT_EQ(taxon.DropsGene(3), drop);
+        // 400 bases on gene 1, 200 on each of genes 2 and 3, all 300 long.
+        double const all = profiler::Taxon::BlendedDepth(200.0 / 300, 800, 900, 3, 3);
+        double const without = profiler::Taxon::BlendedDepth((400.0 / 300 + 200.0 / 300) / 2, 600, 600, 2, 2);
+        EXPECT_DOUBLE_EQ(taxon.VerticalCoverage(), drop ? without : all);
+    }
+    // Three links are too few to tell.
+    profiler::GeneLinks three{ 3, 3 };
+    EXPECT_FALSE(profiler::Foreign(three));
 }

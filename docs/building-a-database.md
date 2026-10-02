@@ -97,6 +97,20 @@ default family, order, class, phylum, domain) this gives, for each gene end and 
 of the clade's species the end faces that partner, of how many in which the end counts (it is
 *informative*): the observed frequency.
 
+**A species' own lines.** Where a species' gene order differs from its family's, the clades'
+frequencies alone would judge its own neighbours rare or unlikely (below), and a run would take the
+genes next to each other on its own genome's reads for genes from elsewhere. So the script also
+writes lines of the species itself (clade: its taxid, each partner 1 of 1 species) for the partners
+that any of its genomes shows at a gene end (also a strain's, where the clades count the partner most
+of its genomes show) whose share, smoothed over its clades as a run smooths it, is below 20%, in
+clades with enough species to judge (the top one informative in 5 or more); `--no_species_lines` leaves them out, and
+`--from_positions` follows what the positions file's comment says. A run reads the species as the
+nearest clade of its lineage, so its own neighbours there are expected (a share of at least a
+quarter) and its family's stay so (three quarters of their share). On the synthetic operon world,
+whose simulator rearranges each species' clusters at random, 60,943 of the 319,535 lines were such
+species lines ([report](claude/2026-10-02-phasing-and-foreign-genes/README.md)); real genomes,
+whose order changes less within families, should need fewer.
+
 The script writes two files into the folder ([database-files.md](database-files.md)), which
 `--build` checks and packs:
 - `gene_neighbours.tsv`, the frequencies per clade, which a run loads;
@@ -110,8 +124,9 @@ The script writes two files into the folder ([database-files.md](database-files.
 **Use.** A clade with few species says little on its own, so for a species a clade's share of a
 pairing leans on the clades above it, the more the fewer species it has: from the top clade with data
 on the gene end down to the species' family, each clade's share is (species + 3 × its parent's share)
-/ (informative + 3). A family with the end informative in 3 species counts as much as its order, one
-with 1 a quarter, one with 30 nine tenths. At the nearest clade, two ends that face each other in 20%
+/ (informative + 3), and on to the species itself where it has lines of its own. A family with the end
+informative in 3 species counts as much as its order, one with 1 a quarter, one with 30 nine tenths.
+At the nearest clade, two ends that face each other in 20%
 or more are expected, in 5% or less unlikely (never seen included), and rare in between. If even the
 top clade has the end informative in fewer than 5 species, a pairing seen is expected and another
 unknown. Mates are paired and looked for, and long reads followed, only over expected neighbours;
