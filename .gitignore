@@ -4,7 +4,9 @@
 /src/gzstream
 /src/htslib
 /data/*
-/cmake*
+# CLion's and the conda recipe's build trees (not /cmake*: with core.ignorecase, as on Windows and macOS, that also
+# ignores CMakeLists.txt)
+/cmake-build-*/
 /lib/htslib-1.16
 .cache
 .fleet
@@ -18,6 +20,8 @@
 .idea
 .vscode
 uml
+# results copied from a cluster (e.g. the r226 build's logs) into the checkout
+/local/
 
 # strain test harness outputs (M5)
 strain_test_out/
