@@ -1,4 +1,4 @@
-// protal 0.7.1. In 0.7 (since 0.6.0a):
+// protal 0.7.2. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -15,6 +15,11 @@
 // In 0.7.1: mates paired across neighbouring genes (gene_neighbours.tsv); the reads' other candidates
 //   (MAPQ, congener fits) as model features; depth margin 0.08; genes' within-species conservation
 //   stored (--gene_conservation db); syncmers from 2-bit codes, genes decoded in windows.
+// In 0.7.2: model features of the reads' divergence beyond their base qualities and of the conservation of the
+//   genes a taxon's reads hit, before and after the MAPQ filter (gene_conservation.tsv, now read by every query);
+//   knobs by sample depth in a model (--depth-knobs, for the long-read models); one sample profiled on all threads,
+//   SAM records parsed as views, a .sam.zst decompressed on threads of its own; --build reports how the genes differ
+//   between congeners (gene_congeners.tsv); long training reads drawn by the collector.
 #include <iostream>
 #include "RunProtal.h"
 
