@@ -9,7 +9,9 @@
 // once they are complete, Finish writes the SAM: its header, which lists only the genes that the
 // records name (SAM needs an @SQ line only for the references that records use, and a database has
 // millions of genes), then the records. A header given up front (every gene, --full_sam_header) is
-// written first and the records follow it directly.
+// written first and the records follow it directly. A .sam.zst can instead take its records
+// straight into the SAM behind room left for the header, which a skippable frame pads (header_room),
+// so that they are not copied: the room the header does not need is never written.
 //
 // Reading (SamInput): a plain, gzip (BGZF or not) or zstd file as a std::istream, with the checks
 // that it is complete: the gzip readers' and zstd's own, and the end markers of the formats
@@ -73,11 +75,14 @@ namespace protal {
     // ---- zstd ------------------------------------------------------------------------------------
     // zstd's seekable format (Zstd.h): independent frames with content checksums, then the seek
     // table. The file starts with a skippable frame (which zstd tools skip) that marks it as
-    // protal's, so that a reader knows a seek table must end it.
+    // protal's, so that a reader knows a seek table must end it. With room left for the header,
+    // another skippable frame fills what the header does not need, up to the records.
     namespace sam_zstd {
         inline constexpr int kLevel = 3;                                   // zstd's default
         inline constexpr size_t kFrameInput = size_t{1} << 20;
         inline constexpr uint32_t kMarkerMagic = 0x184D2A50;               // skippable frame, variant 0
+        inline constexpr uint32_t kPaddingMagic = 0x184D2A51;              // skippable frame, variant 1
+        inline constexpr size_t kSkippableHeader = 8;                      // magic and size
         inline constexpr std::string_view kMarkerText = "protal SAM, zstd seekable format: a seek table ends the file";
 
         inline std::string MarkerFrame() {
@@ -86,6 +91,19 @@ namespace protal {
             zstd::PutLE32(frame, static_cast<uint32_t>(kMarkerText.size()));
             frame += kMarkerText;
             return frame;
+        }
+
+        // Room for the marker and header of a SAM whose records name at most `genes` genes, aligned
+        // from `input_bytes` of read files (0: unknown): 8 bytes a gene (a header compresses to about
+        // 3.5 bytes per @SQ line) and no more than 1/16 of the input (headers measured at most 3% of
+        // it), at least 16 KB and at most 1 MB, in whole 4 KB. What the header does not need stays
+        // unwritten; a header that needs more is written as without room (SamOutput).
+        inline size_t HeaderRoom(size_t genes, uint64_t input_bytes = 0) {
+            constexpr size_t kUnit = size_t{4} << 10;
+            size_t room = genes * 8;
+            if (input_bytes > 0) room = std::min<uint64_t>(room, input_bytes / 16);
+            room = std::clamp<size_t>(room, size_t{16} << 10, size_t{1} << 20);
+            return (room + kUnit - 1) / kUnit * kUnit;
         }
 
         using Frames = std::vector<std::pair<uint32_t, uint32_t>>;  // (compressed, content) bytes per frame
@@ -188,13 +206,21 @@ namespace protal {
 
         // Writes the SAM `path`, compressed as `compression`. With a header, the header goes first
         // and the records follow; without one, the records collect in path + kRecordsSuffix until
-        // Finish(header).
-        SamOutput(std::string path, SamCompression compression, std::optional<std::string> const& header = std::nullopt) :
+        // Finish(header). For zstd, `header_room` bytes (sam_zstd::HeaderRoom) instead take the
+        // records into `path` itself, after that much room for the marker and the header.
+        SamOutput(std::string path, SamCompression compression, std::optional<std::string> const& header = std::nullopt,
+                  size_t header_room = 0) :
                 m_path(std::move(path)), m_records_path(m_path + kRecordsSuffix), m_compression(compression),
                 m_header_first(header.has_value()) {
             if (m_header_first) {
                 m_fd = Create(m_path);
                 if (m_fd >= 0) WriteHead(*header);
+            } else if (compression == SamCompression::Zstd && header_room >= sam_zstd::MarkerFrame().size() + sam_zstd::kSkippableHeader) {
+                m_room = header_room;
+                m_fd = Create(m_path);
+                if (m_fd >= 0 && ::lseek(m_fd, static_cast<off_t>(m_room), SEEK_SET) < 0) {
+                    Fail("cannot write " + m_path + ": " + std::strerror(errno));
+                }
             } else {
                 m_fd = Create(m_records_path);
             }
@@ -260,7 +286,9 @@ namespace protal {
                 Discard();
                 return false;
             }
-            if (!m_header_first) {
+            if (!m_header_first && m_room > 0) {
+                if (!PlaceHead(header)) return Abort();
+            } else if (!m_header_first) {
                 if (!CloseFd()) return Abort();
                 m_fd = Create(m_path);
                 if (m_fd < 0 || !WriteHead(header) || !AppendRecords()) return Abort();
@@ -295,6 +323,7 @@ namespace protal {
         std::string m_records_path;
         SamCompression m_compression;
         bool m_header_first;
+        uint64_t m_room = 0;               // zstd: where the records start in m_path (0: in m_records_path)
         bool m_finished = false;
         int m_fd = -1;
         mutable std::mutex m_mutex;
@@ -344,6 +373,22 @@ namespace protal {
             return true;
         }
 
+        // Writes at `offset` of the open file; false (and Error() set) on failure.
+        bool PWriteAll(char const* data, size_t size, uint64_t offset) {
+            while (size > 0) {
+                ssize_t const n = ::pwrite(m_fd, data, size, static_cast<off_t>(offset));
+                if (n < 0) {
+                    if (errno == EINTR) continue;
+                    Fail("writing " + m_path + " failed: " + std::strerror(errno));
+                    return false;
+                }
+                data += n;
+                size -= static_cast<size_t>(n);
+                offset += static_cast<uint64_t>(n);
+            }
+            return true;
+        }
+
         bool Pack(char const* data, size_t size, std::string& out, sam_zstd::Frames& frames) const {
             switch (m_compression) {
                 case SamCompression::None: return true;
@@ -370,20 +415,78 @@ namespace protal {
             return WriteAll(plain ? header.data() : packed.data(), plain ? header.size() : packed.size());
         }
 
-        // Copies the records file to the end of the SAM (in the kernel where it can).
-        bool AppendRecords() {
+        // With room for the header (zstd): the marker and the header's frames go to the start of
+        // the SAM, and a skippable frame from there to the records, whose content is never written
+        // (a hole where the file system has them). Cutting that out of the file
+        // (FALLOC_FL_COLLAPSE_RANGE) would make the file system write the records to disk first:
+        // 0.5-1.6 s for 400 MB just written. A header too large for the room is written as
+        // without room: the records are copied behind it.
+        bool PlaceHead(std::string const& header) {
+            std::string head = sam_zstd::MarkerFrame();
+            sam_zstd::Frames frames{ { static_cast<uint32_t>(head.size()), 0 } };
+            if (!header.empty() && !sam_zstd::Compress(header.data(), header.size(), head, frames)) {
+                Fail("compressing the SAM header failed");
+                return false;
+            }
+            off_t const end = ::lseek(m_fd, 0, SEEK_CUR);  // where the records end
+            if (end < 0) {
+                Fail("writing " + m_path + " failed: " + std::strerror(errno));
+                return false;
+            }
+            bool const records = static_cast<uint64_t>(end) > m_room;
+            if (records && head.size() + sam_zstd::kSkippableHeader > m_room) return MoveRecordsBehind(header);
+            // Without records, the header is all there is before the seek table.
+            uint64_t const records_at = records ? m_room : head.size();
+            if (records_at > head.size()) {
+                uint64_t const padding = records_at - head.size();
+                zstd::PutLE32(head, sam_zstd::kPaddingMagic);
+                zstd::PutLE32(head, static_cast<uint32_t>(padding - sam_zstd::kSkippableHeader));
+                frames.emplace_back(static_cast<uint32_t>(padding), 0);
+            }
+            m_head_frames = std::move(frames);
+            if (!PWriteAll(head.data(), head.size(), 0)) return false;
+            if (::lseek(m_fd, 0, SEEK_END) < 0) {
+                Fail("writing " + m_path + " failed: " + std::strerror(errno));
+                return false;
+            }
+            return true;
+        }
+
+        // The header did not fit its room: the records, from the room's end on, are copied behind
+        // it, as when they collect in the temporary records file.
+        bool MoveRecordsBehind(std::string const& header) {
+            if (!CloseFd()) return false;
+            std::error_code ec;
+            std::filesystem::rename(m_path, m_records_path, ec);
+            if (ec) {
+                Fail("cannot move " + m_path + " to " + m_records_path + ": " + ec.message());
+                return false;
+            }
+            m_fd = Create(m_path);
+            if (m_fd < 0 || !WriteHead(header) || !AppendRecords(m_room)) return false;
+            std::remove(m_records_path.c_str());
+            return true;
+        }
+
+        // Copies the records file, from byte `from` on, to the end of the SAM (in the kernel where it can).
+        bool AppendRecords(uint64_t from = 0) {
             int const in = ::open(m_records_path.c_str(), O_RDONLY | O_CLOEXEC);
             if (in < 0) {
                 Fail("cannot read " + m_records_path + ": " + std::strerror(errno));
                 return false;
             }
             struct stat st{};
-            if (::fstat(in, &st) != 0) {
+            if (::fstat(in, &st) != 0 || ::lseek(in, static_cast<off_t>(from), SEEK_SET) < 0) {
                 Fail("cannot read " + m_records_path + ": " + std::strerror(errno));
                 ::close(in);
                 return false;
             }
-            auto left = static_cast<uint64_t>(st.st_size);
+            if (static_cast<uint64_t>(st.st_size) < from) {
+                Fail("reading " + m_records_path + " failed (it ended early)");
+                ::close(in);
+                return false;
+            }
+            auto left = static_cast<uint64_t>(st.st_size) - from;
 #ifdef __linux__
             while (left > 0) {
                 ssize_t const n = ::copy_file_range(in, nullptr, m_fd, nullptr, left, 0);

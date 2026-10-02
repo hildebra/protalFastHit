@@ -310,6 +310,132 @@ TEST(SamFile, DiscardAndFailuresLeaveNoFiles) {
     EXPECT_FALSE(unwritable.Finish(kHeader));
 }
 
+namespace {
+    // The blocks of one thread, written in order, so that two SAMs hold the same text.
+    std::vector<std::string> WriteInOrder(SamSink& sink, int blocks) {
+        std::vector<std::string> written;
+        std::vector<uint64_t> genes;
+        for (int b = 0; b < blocks; b++) {
+            written.push_back(Block(0, b, genes));
+            sink.Write(written.back().data(), written.back().size(), genes);
+        }
+        return written;
+    }
+
+    // What both zstd readers make of a SAM: the reading thread's, and frames on threads of their own.
+    std::string ReadBothWays(std::string const& path) {
+        std::string const text = ReadBack(path);
+        SamInput parallel(path, 3);
+        EXPECT_EQ(parallel.Problem(), "");
+        EXPECT_EQ(ReadAll(parallel.Stream()), text);
+        EXPECT_FALSE(parallel.ReadFailed()) << parallel.ReadError();
+        return text;
+    }
+
+    std::string Incompressible(size_t size, uint64_t seed) {
+        std::mt19937_64 rng(seed);
+        std::string text(size, '\0');
+        for (auto& c : text) c = static_cast<char>(rng());
+        return text;
+    }
+}
+
+TEST(SamFile, ZstdRecordsGoStraightIntoTheSamBehindRoomForTheHeader) {
+    ScratchDir dir;
+    auto const copied = dir.File("copied.sam.zst"), placed = dir.File("placed.sam.zst");
+    size_t const room = sam_zstd::HeaderRoom(5000);
+    {
+        SamOutput a(copied, SamCompression::Zstd), b(placed, SamCompression::Zstd, std::nullopt, room);
+        WriteInOrder(a, 3000);
+        WriteInOrder(b, 3000);
+        EXPECT_TRUE(fs::exists(copied + SamOutput::kRecordsSuffix));
+        EXPECT_FALSE(fs::exists(placed + SamOutput::kRecordsSuffix));  // the records are in the SAM already
+        EXPECT_TRUE(fs::exists(placed));
+        ASSERT_TRUE(a.Finish(kHeader)) << a.Error();
+        ASSERT_TRUE(b.Finish(kHeader)) << b.Error();
+    }
+    EXPECT_FALSE(fs::exists(placed + SamOutput::kRecordsSuffix));
+    EXPECT_EQ(ReadBothWays(placed), ReadBothWays(copied));
+    EXPECT_TRUE(sam_zstd::StartsWithMarker(placed));
+    // The seek table: the marker, the header, the padding up to the records (all three at the
+    // start, the skippable ones without content), then the records' frames as in the copied SAM.
+    std::string error;
+    auto const ta = zstd::ReadSeekTable(copied, error), tb = zstd::ReadSeekTable(placed, error);
+    ASSERT_TRUE(ta.has_value() && tb.has_value()) << error;
+    ASSERT_EQ(tb->frames.size(), ta->frames.size() + 1);
+    EXPECT_EQ(tb->frames[0].decompressed_size, 0u);
+    EXPECT_EQ(tb->frames[2].decompressed_size, 0u);
+    uint64_t const records_at = tb->frames[3].compressed_offset;
+    EXPECT_EQ(records_at, room);
+    for (size_t i = 3; i < tb->frames.size(); i++) {
+        EXPECT_EQ(tb->frames[i].compressed_size, ta->frames[i - 1].compressed_size);
+        EXPECT_EQ(tb->frames[i].compressed_offset - records_at, ta->frames[i - 1].compressed_offset - ta->frames[2].compressed_offset);
+    }
+    // The files differ by the padding frame (never written) and its seek table entry.
+    EXPECT_EQ(fs::file_size(placed) - fs::file_size(copied), records_at - ta->frames[2].compressed_offset + 8);
+}
+
+TEST(SamFile, AZstdHeaderTooLargeForItsRoomMovesTheRecordsBehindIt) {
+    ScratchDir dir;
+    size_t const room = sam_zstd::HeaderRoom(0);
+    size_t const marker = sam_zstd::MarkerFrame().size();
+    // Incompressible headers, whose frames are their size plus a few bytes, from well inside the
+    // room to past it: the padding frame fits, fits without content, or cannot fit (1-7 bytes).
+    for (size_t size = room - marker - 64; size <= room - marker + 8; size++) {
+        SCOPED_TRACE(size);
+        auto const path = dir.File("out" + std::to_string(size) + ".sam.zst");
+        std::string const header = Incompressible(size, size);
+        std::vector<std::string> blocks;
+        {
+            SamOutput out(path, SamCompression::Zstd, std::nullopt, room);
+            blocks = WriteInOrder(out, 50);
+            ASSERT_TRUE(out.Finish(header)) << out.Error();
+        }
+        EXPECT_FALSE(fs::exists(path + SamOutput::kRecordsSuffix));
+        auto const text = ReadBothWays(path);
+        ASSERT_EQ(text.substr(0, header.size()), header);
+        ExpectBlocks(text.substr(header.size()), blocks);
+        std::string error;
+        EXPECT_TRUE(zstd::ReadSeekTable(path, error).has_value()) << error;
+    }
+}
+
+TEST(SamFile, AZstdSamWithRoomButNoRecords) {
+    ScratchDir dir;
+    auto const path = dir.File("empty.sam.zst");
+    {
+        SamOutput out(path, SamCompression::Zstd, std::nullopt, sam_zstd::HeaderRoom(10));
+        ASSERT_TRUE(out.Finish(kHeader)) << out.Error();
+    }
+    EXPECT_EQ(ReadBothWays(path), kHeader);
+    EXPECT_LT(fs::file_size(path), 1000u);  // no room left over
+    {
+        SamOutput out(path, SamCompression::Zstd, std::nullopt, sam_zstd::HeaderRoom(10));
+        std::vector<uint64_t> genes;
+        out.Write(kHeader.data(), kHeader.size(), genes);
+        // Destroyed without Finish: nothing is left behind.
+    }
+    EXPECT_FALSE(fs::exists(path));
+    EXPECT_FALSE(fs::exists(path + SamOutput::kRecordsSuffix));
+}
+
+TEST(SamFile, HeaderRoomIsEightBytesAGeneWithinItsBounds) {
+    EXPECT_EQ(sam_zstd::HeaderRoom(0), size_t{16} << 10);
+    EXPECT_EQ(sam_zstd::HeaderRoom(8192), size_t{64} << 10);
+    EXPECT_EQ(sam_zstd::HeaderRoom(10000), size_t{80} << 10);  // 80,000 bytes, in whole 4 KB
+    EXPECT_EQ(sam_zstd::HeaderRoom(1000000000), size_t{1} << 20);
+    // No more than 1/16 of the read files, when their size is known.
+    EXPECT_EQ(sam_zstd::HeaderRoom(1000000000, 1600000), size_t{100} << 10);  // 100,000 bytes, in whole 4 KB
+    EXPECT_EQ(sam_zstd::HeaderRoom(1000000000, 1000), size_t{16} << 10);
+    EXPECT_EQ(sam_zstd::HeaderRoom(10000, uint64_t{1} << 40), size_t{80} << 10);
+    // The room is for zstd only: other formats collect the records in the temporary file.
+    ScratchDir dir;
+    auto const path = dir.File("out.sam.gz");
+    SamOutput out(path, SamCompression::Gzip, std::nullopt, sam_zstd::HeaderRoom(0));
+    EXPECT_TRUE(fs::exists(path + SamOutput::kRecordsSuffix));
+    out.Discard();
+}
+
 TEST(SamFile, StreamSinkCollectsTheGenes) {
     std::ostringstream os;
     SamStreamSink sink(os);

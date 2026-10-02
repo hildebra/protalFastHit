@@ -336,6 +336,19 @@ namespace protal {
             Benchmark bm_classify("Processing all samples");
             bm_classify.Start();
             bool long_genes_told = false;  // the warning of LongReadAligner::ChunksHoldEveryGene, once
+            // A .sam.zst takes its records straight into the SAM, behind room for its header: for up
+            // to all the database's genes, and in proportion to the read files (sam_zstd::HeaderRoom).
+            size_t const database_genes = genomes.GeneCount();
+            auto input_bytes = [](std::vector<std::string> const& files) {
+                uint64_t total = 0;
+                for (auto const& file : files) {
+                    std::error_code ec;
+                    if (!std::filesystem::is_regular_file(file, ec)) return uint64_t{0};  // a pipe: unknown
+                    total += std::filesystem::file_size(file, ec);
+                    if (ec) return uint64_t{0};
+                }
+                return total;
+            };
 
             for (auto index : options.GetRange()) {
                 auto const read_type = options.GetReadType(index);
@@ -393,7 +406,10 @@ namespace protal {
                     os << read_type_line;
                     full_header = os.str();
                 }
-                SamOutput sam_output(sam_partial, SamCompressionOf(sam), full_header);
+                std::vector<std::string> read_file_list{ options.GetFirstFile(index) };
+                if (!single_file) read_file_list.push_back(options.GetSecondFile(index));
+                SamOutput sam_output(sam_partial, SamCompressionOf(sam), full_header,
+                                     sam_zstd::HeaderRoom(database_genes, input_bytes(read_file_list)));
                 if (!sam_output.Ok()) {
                     RunStatus::Get().Fail("Cannot write the SAM file of sample " + options.GetSampleId(index) + ": " + sam_output.Error());
                     continue;

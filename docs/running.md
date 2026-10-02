@@ -27,7 +27,12 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   The alignment threads compress as they write, so no tool is needed. zstd is the faster choice:
   for 1M pairs of a marker-rich sample at 8 threads, aligning and writing `.sam.zst` took 22–38%
   less time than `.sam.gz`, for a 12% smaller file, and profiling reads it faster;
-  `zstdcat S1.sam.zst` or `zstd -dc` decompresses it (samtools does not read zstd). A `.sam.gz` is
+  `zstdcat S1.sam.zst` or `zstd -dc` decompresses it (samtools does not read zstd). Its records
+  go straight into the file, behind room left for the header (16 KB to 1 MB, from the database's
+  gene count and the size of the read files), which a skippable zstd frame pads; the room the header
+  does not need is never written, a hole where the file system has them, so `ls -l` can show up to
+  that much more than `du`. A `.sam.gz` or `.sam` collects its records in a temporary file and copies
+  them behind the header at the end, as a `.sam.zst` does when its header needs more room. A `.sam.gz` is
   BGZF (gzip blocks of 64 KB, as `bgzip` writes), which `zcat`, `gzip -d` and samtools read.
   `protal_map_utils generate` (and `merge --use-sampleid`) and `simulate_metagenomes
   --protal_metafile` write `.sam.zst` names; `protal_map_utils --gzip` writes `.sam.gz`, `--nogzip`
