@@ -11,6 +11,8 @@
 #include <filesystem>
 #include <map>
 #include <optional>
+#include <set>
+#include <sstream>
 #include <utility>
 #include "LineSplitter.h"
 #include <fstream>
@@ -154,7 +156,7 @@ namespace protal {
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
                 ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
-                ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. The model is checked first. database.protal is rewritten with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
+                ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "Newline-delimited gene ids (>=1) to include during build (subset of marker genes)", cxxopts::value<std::string>()->default_value(""))
@@ -669,15 +671,30 @@ namespace protal {
             return m_msa_identity_margin;
         }
 
-        // --add_model: the PMML file to store in the database as the model of AddModelReadType's reads.
+        // --add_model as given: one PMML file, or several, comma-separated (AddModels).
         std::string const& GetAddModel() const {
             return m_add_model;
         }
 
-        // The reads whose model --add_model stores: --read_type's, paired-end if it is not given
-        // (checked in PrepareAndCheckValidity).
-        ReadType AddModelReadType() const {
-            return ReadTypeFromToken(m_read_type).value_or(ReadType::Paired);
+        // The models --add_model stores, each with the reads it is for: its files, comma-separated, and --read_type's
+        // tokens at the same places (a single model: pe if --read_type is not given). Checked in PrepareAndCheckValidity;
+        // a read type that is no token is paired-end here.
+        std::vector<std::pair<std::string, ReadType>> AddModels() const {
+            auto split = [](std::string const& text) {
+                std::vector<std::string> items;
+                std::string item;
+                std::istringstream is(text);
+                while (std::getline(is, item, ',')) items.push_back(item);
+                return items;
+            };
+            auto const files = split(m_add_model);
+            auto const types = split(m_read_type);
+            std::vector<std::pair<std::string, ReadType>> models;
+            for (size_t i = 0; i < files.size(); i++) {
+                models.emplace_back(files[i], i < types.size() ? ReadTypeFromToken(types[i]).value_or(ReadType::Paired)
+                                                               : ReadType::Paired);
+            }
+            return models;
         }
 
         bool PreloadGenomes() const {
@@ -1760,11 +1777,31 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                 error_log.emplace_back("--build, --compress_db, --decompress_db, --unpack_db and --add_model cannot be combined "
                                        "(--build compresses unless --no_compress)");
             }
-            if (add_model && !m_read_type.empty() && !ReadTypeFromToken(m_read_type)) {
-                error_log.emplace_back("--read_type must be one of " + ReadTypeTokens() + ", not '" + m_read_type + "'");
-            }
-            if (add_model && !std::filesystem::is_regular_file(m_add_model)) {
-                error_log.emplace_back("--add_model: " + m_add_model + " is not a file");
+            if (add_model) {
+                // --add_model FILE[,FILE...] with --read_type TYPE[,TYPE...]: one read type per model, each once.
+                size_t const models = static_cast<size_t>(std::count(m_add_model.begin(), m_add_model.end(), ',')) + 1;
+                size_t const types = m_read_type.empty() ? 0 : static_cast<size_t>(std::count(m_read_type.begin(), m_read_type.end(), ',')) + 1;
+                if (models > 1 && types != models) {
+                    error_log.emplace_back("--add_model gives " + std::to_string(models) + " models: --read_type must give as many "
+                                           "read types, comma-separated, one per model (e.g. --add_model pe.xml,se.xml "
+                                           "--read_type pe,se), not '" + m_read_type + "'");
+                } else if (types > models) {
+                    error_log.emplace_back("--read_type gives " + std::to_string(types) + " read types for --add_model's " +
+                                           std::to_string(models) + " model");
+                }
+                std::istringstream type_tokens(m_read_type);
+                std::string token;
+                std::set<std::string> seen;
+                while (!m_read_type.empty() && std::getline(type_tokens, token, ',')) {
+                    if (!ReadTypeFromToken(token)) {
+                        error_log.emplace_back("--read_type must be one of " + ReadTypeTokens() + ", not '" + token + "'");
+                    } else if (!seen.insert(token).second) {
+                        error_log.emplace_back("--read_type names " + token + " twice for --add_model");
+                    }
+                }
+                for (auto const& [file, _] : AddModels()) {
+                    if (!std::filesystem::is_regular_file(file)) error_log.emplace_back("--add_model: " + file + " is not a file");
+                }
             }
             if (m_unpack_db && !m_bundle && error_log.empty()) {
                 error_log.emplace_back("--unpack_db needs a single-file database, but " + m_database_path + " holds separate files" +

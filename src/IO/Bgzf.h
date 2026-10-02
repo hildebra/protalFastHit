@@ -204,4 +204,62 @@ namespace protal::bgzf {
         if (std::fclose(out) != 0 && error.empty()) error = "writing " + dst + " failed: " + std::strerror(errno);
         return error;
     }
+
+    // Writes BGZF to a file as its content arrives, on one thread: the blocks start every kBlockInput bytes of the
+    // content, as in CompressFile, so the file is byte for byte what CompressFile makes of the whole content, without
+    // the content ever being on disk. Close() writes the rest and the end-of-file block; check Error() then.
+    class Writer {
+    public:
+        explicit Writer(std::string path) : m_path(std::move(path)), m_out(std::fopen(m_path.c_str(), "wb")) {
+            if (!m_out) m_error = "cannot write " + m_path + ": " + std::strerror(errno);
+        }
+        ~Writer() {
+            if (m_out) std::fclose(m_out);
+        }
+        Writer(Writer const&) = delete;
+        Writer& operator=(Writer const&) = delete;
+
+        void Write(char const* data, size_t size) {
+            if (!m_error.empty()) return;
+            m_buffer.append(data, size);
+            if (m_buffer.size() >= kFlush) Flush(false);
+        }
+
+        // Writes what is left and the end-of-file block, and closes the file; false (see Error) if anything failed.
+        bool Close() {
+            if (!m_out) return false;
+            Flush(true);
+            if (m_error.empty() && std::fwrite(kEof, 1, sizeof(kEof), m_out) != sizeof(kEof)) {
+                m_error = "writing " + m_path + " failed: " + std::strerror(errno);
+            }
+            if (std::fclose(m_out) != 0 && m_error.empty()) m_error = "writing " + m_path + " failed: " + std::strerror(errno);
+            m_out = nullptr;
+            return m_error.empty();
+        }
+
+        std::string const& Error() const { return m_error; }
+
+    private:
+        static constexpr size_t kFlush = 64 * kBlockInput;  // ~4 MB of content, whole blocks, at a time
+
+        // Compresses the buffer's whole blocks (all of it if `all`) and writes them.
+        void Flush(bool all) {
+            size_t const n = all ? m_buffer.size() : m_buffer.size() / kBlockInput * kBlockInput;
+            if (n == 0 || !m_error.empty()) return;
+            m_packed.clear();
+            if (!Compress(m_buffer.data(), n, m_packed)) {
+                m_error = "compressing for " + m_path + " failed";
+                return;
+            }
+            if (std::fwrite(m_packed.data(), 1, m_packed.size(), m_out) != m_packed.size()) {
+                m_error = "writing " + m_path + " failed: " + std::strerror(errno);
+                return;
+            }
+            m_buffer.erase(0, n);
+        }
+
+        std::string m_path;
+        std::FILE* m_out;
+        std::string m_buffer, m_packed, m_error;
+    };
 }

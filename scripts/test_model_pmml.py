@@ -20,7 +20,8 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from model_pmml import PmmlForest, float32_split, format_depth_knobs, read_depth_knobs, write_forest  # noqa: E402
+from model_pmml import (PmmlForest, float32_split, format_depth_knob_curve, format_depth_knobs,  # noqa: E402
+                        read_depth_knob_curve, read_depth_knobs, write_forest)
 
 try:
     import pandas as pd
@@ -110,18 +111,26 @@ class ForestExportTest(unittest.TestCase):
         self.assertIn('<Value value="TRUE"/>', xml)
         self.assertIn("test &amp; &lt;annotation&gt;", xml)
 
-    def test_depth_knobs(self):
+    def test_depth_knob_curve(self):
         # Written as an Extension in the header, before the Application (PMML's order), and read back.
         rf = RandomForestClassifier(n_estimators=2, random_state=1).fit(self.X, self.y)
         path = os.path.join(self.tmp.name, "knobs.xml")
-        write_forest(rf, self.features, path, depth_knobs={4: 0.37, 2: 0.6})
+        write_forest(rf, self.features, path, depth_knob_curve=[(1.3, 0.12), (4.321, 0.9)])
         with open(path) as fh:
             xml = fh.read()
-        self.assertIn('<Extension name="protal_depth_knobs" value="2:0.6,4:0.37"/>\n  <Application ', xml)
-        self.assertEqual(read_depth_knobs(path), {2: 0.6, 4: 0.37})
+        self.assertIn('<Extension name="protal_depth_knob_curve" value="1.300:0.12,4.321:0.9"/>\n  <Application ', xml)
+        self.assertEqual(read_depth_knob_curve(path), [(1.3, 0.12), (4.321, 0.9)])
+        self.assertEqual(read_depth_knobs(path), {}, "no knobs by bin in a model with a curve")
         np.testing.assert_array_equal(PmmlForest(path).predict(self.X), rf.predict_proba(self.X)[:, 1])
         write_forest(rf, self.features, path)
-        self.assertEqual(read_depth_knobs(path), {})
+        self.assertEqual(read_depth_knob_curve(path), [])
+        self.assertEqual(format_depth_knob_curve([(2, 0.5), (3.25, 0.05)]), "2.000:0.5,3.250:0.05")
+        # An older model's knobs by decade are still read.
+        with open(path, "w") as fh:
+            fh.write(xml.replace('name="protal_depth_knob_curve" value="1.300:0.12,4.321:0.9"',
+                                 'name="protal_depth_knobs" value="2:0.6,4:0.37"'))
+        self.assertEqual(read_depth_knobs(path), {2: 0.6, 4: 0.37})
+        self.assertEqual(read_depth_knob_curve(path), [])
         self.assertEqual(format_depth_knobs({6: 0.05, 3: 0.5}), "3:0.5,6:0.05")
 
     def test_rejects_other_classes(self):
@@ -147,8 +156,9 @@ class FeatureSetsTest(unittest.TestCase):
 
 
 class TrainerDepthKnobsTest(unittest.TestCase):
-    """random_forest_cmdline.py --depth-knobs on a table of shallow samples (hundreds of fragments, depth bin 2) and
-    deep ones (tens of thousands, bin 4), where a present taxon's evidence grows with depth."""
+    """random_forest_cmdline.py --depth-knobs on a table of shallow samples (hundreds of fragments, log10 ~2.7) and
+    deep ones (tens of thousands, ~4.7), where a present taxon's evidence grows with depth; half the present taxa
+    simulated from another genome than the representative."""
 
     @classmethod
     def setUpClass(cls):
@@ -171,7 +181,9 @@ class TrainerDepthKnobsTest(unittest.TestCase):
                              "conserved_fast_record_ratio": (1.5 if near else 0.0) + rng.normal(0, 0.2),
                              "meta_novel_congener": int(present and taxon < 2),
                              "meta_novel_level": "species" if near else "",
-                             "meta_relative_rank": "genus" if near else ""})
+                             "meta_relative_rank": "genus" if near else "",
+                             "meta_rep_genome": (taxon % 2) if present else "",
+                             "identity": (0.99 if taxon % 2 else 0.96) if present else 0.93})
         cls.table = os.path.join(cls.tmp.name, "training.tsv")
         pd.DataFrame(rows).to_csv(cls.table, sep="\t", index=False)
 
@@ -188,23 +200,39 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         with open(prefix + ".metrics.json") as fh:
             return prefix + ".xml", json.load(fh)
 
-    def test_bins_as_protal(self):
-        # profiler::DepthKnobBin: the digits of the sample's fragments over all its taxa, less one, 2 to 6.
-        frame = pd.DataFrame({"meta_sample": ["a", "a", "b", "c", "d", "e"],
-                              "fragments": [60.0, 39.0, 1000.0, 999.0, 3e7, 0.0]})
-        self.assertEqual(list(self.trainer.depth_bins(frame)), [2, 2, 3, 2, 6, 2])
+    def test_depths_and_curve_as_protal(self):
+        # profiler::DepthKnobAt: log10 of the sample's fragments over all its taxa (at least 1), linear between the
+        # curve's points, the ends' beyond them.
+        frame = pd.DataFrame({"meta_sample": ["a", "a", "b", "c", "e"], "fragments": [60.0, 40.0, 1000.0, 3e7, 0.0]})
+        np.testing.assert_allclose(self.trainer.sample_depths(frame), [2, 2, 3, np.log10(3e7), 0])
+        curve = [(2.0, 0.2), (4.0, 0.8)]
+        np.testing.assert_allclose(self.trainer.knob_at(curve, np.array([0.0, 2.0, 3.0, 3.5, 4.0, 7.5])),
+                                   [0.2, 0.2, 0.5, 0.65, 0.8, 0.8])
+        calls = self.trainer.depth_knob_calls(np.array([0.3, 0.3]), np.array([2.0, 4.0]), curve, 0.5)
+        self.assertEqual(list(calls), [True, False])
+        self.assertEqual(list(self.trainer.depth_knob_calls(np.array([0.3, 0.6]), np.array([2.0, 4.0]), [], 0.5)),
+                         [False, True])
 
-    def test_depth_knobs_in_the_model(self):
+    def test_depth_knob_curve_in_the_model(self):
         model, metrics = self.train("knobs", "--depth-knobs")
-        knobs = read_depth_knobs(model)
-        self.assertEqual(sorted(knobs), [2, 4])
-        self.assertTrue(all(0.05 <= k <= 0.95 for k in knobs.values()), knobs)
-        self.assertEqual(metrics["depth_knobs"]["knobs"], {str(b): k for b, k in knobs.items()})
+        curve = read_depth_knob_curve(model)
+        # One point per half decade with samples: the shallow ones (~525 fragments) and the deep ones (~52,000).
+        self.assertEqual(len(curve), 2, curve)
+        self.assertTrue(2.5 < curve[0][0] < 3.0 and 4.5 < curve[1][0] < 5.0, curve)
+        self.assertTrue(all(0.05 <= k <= 0.95 for _, k in curve), curve)
+        self.assertEqual([tuple(p) for p in metrics["depth_knobs"]["curve"]], curve)
         # The knobs are chosen on the species held out: their F1 there is at least that at the one knob.
         self.assertGreaterEqual(metrics["depth_knobs"]["F1_at_depth_knobs"], metrics["depth_knobs"]["F1_at_knob"])
         plain, metrics = self.train("plain")
-        self.assertEqual(read_depth_knobs(plain), {})
+        self.assertEqual(read_depth_knob_curve(plain), [])
         self.assertNotIn("depth_knobs", metrics)
+
+    def test_strains(self):
+        _, metrics = self.train("strains")
+        rows = {(r["simulated from"], r["fragments"]): r for r in metrics["strains"]["by_fragments"]}
+        self.assertEqual(rows[("another genome", "all")]["present"], 40 * 4)
+        self.assertEqual(rows[("the representative", "all")]["present"], 40 * 4)
+        self.assertIn("strains missed", [r["taxa"] for r in metrics["strains"]["features"]])
 
     def test_conservation_features_by_class(self):
         _, metrics = self.train("classes")

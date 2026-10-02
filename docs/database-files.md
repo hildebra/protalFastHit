@@ -99,7 +99,10 @@ built with `--no_compress`, and `--compress_db` on such a folder writes `databas
 byte-identical to the one `--build` wrote. `--compress_db` needs the index in memory.
 
 `protal --add_model MODEL --read_type pe --db db/` (or `se`, `pb`, `ont`) checks a model and
-replaces the database's model of that read type, as `scripts/build_gtdb_database.py` does. By hand:
+replaces the database's model of that read type. Several at once, comma-separated with a read type
+each, rewrite `database.protal` once, as `scripts/build_gtdb_database.py` does
+(`--add_model pe.xml,se.xml --read_type pe,se`; every model is checked before anything is
+written; at GTDB r226 a rewrite of the 22 GB file took ~5 minutes). By hand:
 unpack, replace the file and pack again; the separate files win over the old `database.protal`,
 which `--compress_db` then replaces:
 

@@ -15,6 +15,7 @@ import collections
 import contextlib
 import csv
 import functools
+import glob
 import gzip
 import hashlib
 import http.server
@@ -853,19 +854,22 @@ class MiniDbTest(unittest.TestCase):
         import argparse
         import collect_training_data as collect
         opts = argparse.Namespace(read_setups="150:HSXt:350:50,150:file=/p1+/p2:350:50,250:MSv3:550:50",
-                                  read_pairs="1000,5000", read_types=["pe", "se", "ont"],
+                                  read_pairs="1000,5000:2", read_types=["pe", "se", "ont"], samples=4, long_read_samples=0,
                                   pb_setup="errhmm:ERRHMM-SEQUEL:15000:3000:0.999",
-                                  ont_setup="qshmm:QSHMM-ONT-HQ:8000:6000:0.97", long_read_bases="1e6,2e6,3e6")
+                                  ont_setup="qshmm:QSHMM-ONT-HQ:8000:6000:0.97", long_read_bases="1e6,2e6,3e6:5")
         points = collect.design_points(opts)
         self.assertEqual([p["name"] for p in points], ["rl150_HSXt_p1000", "rl150_HSXt_p5000", "rl150_custom1_p1000",
                                                        "rl150_custom1_p5000", "rl250_p1000", "rl250_p5000"])
+        # DEPTH:SAMPLES gives a depth's points other samples than --samples.
+        self.assertEqual([p["samples"] for p in points], [4, 2, 4, 2, 4, 2])
         # Setups of one length and profile are told apart by their fragments; a setup or depth given twice
         # would share a folder.
-        same = argparse.Namespace(read_setups="150:HS25:350:50,150:HS25:500:80", read_pairs="1000")
+        same = argparse.Namespace(read_setups="150:HS25:350:50,150:HS25:500:80", read_pairs="1000", samples=1)
         self.assertEqual([p["name"] for p in collect.design_points(same)], ["rl150_HS25_f350-50_p1000", "rl150_HS25_f500-80_p1000"])
-        for setups, pairs in (("150:HS25:350:50,150:HS25:350:50", "1000"), ("150:HS25:350:50", "1000,1000")):
+        for setups, pairs in (("150:HS25:350:50,150:HS25:350:50", "1000"), ("150:HS25:350:50", "1000,1000"),
+                              ("150:HS25:350:50", "1000,5000:0"), ("150:HS25:350:50", "1000:x")):
             with self.assertRaises(SystemExit):
-                collect.design_points(argparse.Namespace(read_setups=setups, read_pairs=pairs))
+                collect.design_points(argparse.Namespace(read_setups=setups, read_pairs=pairs, samples=1))
         with self.assertRaises(SystemExit):
             collect.units_of(argparse.Namespace(**{**vars(opts), "long_read_bases": "1e6,1e6"}))
         with self.assertRaises(SystemExit):
@@ -883,9 +887,21 @@ class MiniDbTest(unittest.TestCase):
             collect.parse_long_setup("art:x:1:1:1")
         _, units = collect.units_of(opts)
         self.assertEqual([u["type"] for u in units], ["pe"] * 6 + ["se"] * 6 + ["ont"] * 3)
-        self.assertEqual([u["community"]["name"] for u in units if u["type"] == "ont"],
-                         ["rl150_HSXt_p1000", "rl150_HSXt_p5000", "rl150_custom1_p1000"])
+        # A long-read point replays the communities of the paired-end points of the depth at its place (modulo the
+        # depths), of every read setup: more samples than one point has (3:5 against 4 per point).
+        ont = [u for u in units if u["type"] == "ont"]
+        self.assertEqual([[p["name"] for p in u["communities"]] for u in ont],
+                         [["rl150_HSXt_p1000", "rl150_custom1_p1000", "rl250_p1000"],
+                          ["rl150_HSXt_p5000", "rl150_custom1_p5000", "rl250_p5000"],
+                          ["rl150_HSXt_p1000", "rl150_custom1_p1000", "rl250_p1000"]])
+        self.assertEqual([u["samples"] for u in ont], [4, 4, 5])
+        self.assertEqual([u["samples"] for u in units if u["type"] == "se"], [4, 2, 4, 2, 4, 2])
         self.assertEqual(units[6]["name"], "rl150_HSXt_p1000_se")
+        # No more long-read samples than the communities they replay (here 3 x 2 at 5,000 read pairs).
+        with self.assertRaises(SystemExit):
+            collect.units_of(argparse.Namespace(**{**vars(opts), "long_read_bases": "1e6,2e6:7"}))
+        _, units = collect.units_of(argparse.Namespace(**{**vars(opts), "long_read_samples": 12}))
+        self.assertEqual([u["samples"] for u in units if u["type"] == "ont"], [12, 6, 5])
 
     @staticmethod
     def fake_templ_pbsim(path):
@@ -936,7 +952,8 @@ class MiniDbTest(unittest.TestCase):
         open(os.path.join(models, "FAKE.model"), "w").close()
         opts = argparse.Namespace(out=root, seed=1, pbsim=fake, pbsim_models=models, samples=2)
         unit = {"type": "ont", "name": "ont_b300000", "bases": 300000,
-                "setup": collect.parse_long_setup("qshmm:FAKE:1000:0:0.97"), "community": {"name": "rl150_p1000"},
+                "setup": collect.parse_long_setup("qshmm:FAKE:1000:0:0.97"), "samples": 2,
+                "communities": [{"name": "rl150_p1000"}],
                 "point": {"name": "ont_b300000", "read_length": "1000", "read_pairs": "300000"}}
         keys = {"ont_b300000": {"a": 1}}
         self.assertEqual(collect.simulate_long([(0, unit)], opts, 2, keys), {})
@@ -1047,9 +1064,10 @@ class MiniDbTest(unittest.TestCase):
         self.assertIsNone(collect.long_read_sample(task("hifi", plain, missing, setup="hifi:1000:0:3")))
         with gzip.open(os.path.join(root, "hifi.fq.gz"), "rt") as fh:
             lines = fh.read().splitlines()
-        with open(os.path.join(root, "tmp", "hifi", "templates.fa")) as fh:
-            names = [line[1:].strip() for line in fh if line.startswith(">")]
-        self.assertEqual([line[1:] for line in lines[0::4]], names)
+        # Named after their templates, g<genome>x_<n> in the order drawn; the templates go once the reads are there.
+        self.assertEqual([line[1:] for line in lines[0::4]], [f"g0x_{i}" for i in range(1, len(lines) // 4 + 1)])
+        self.assertFalse(os.path.exists(os.path.join(root, "tmp", "hifi")))
+        self.assertFalse(os.path.exists(os.path.join(root, "tmp", "plain")), "a pbsim3 sample's temporary files too")
         quality = [ord(c) - 33 for line in lines[3::4] for c in line]
         self.assertGreater(sorted(quality)[len(quality) // 2], 25)
         for bad in ("hifi:1000:0", "hifi:1000:0:30:3", "hifi:a:0:3"):
@@ -1794,7 +1812,16 @@ class GtdbBuildTest(unittest.TestCase):
         # running for a while (5 s here, --progress-every) how it is doing; the collector how far the simulations
         # and protal are.
         self.assertRegex(first.stdout, r"\[\d\d:\d\d:\d\d \+\d+:\d\d:\d\d\] 4/8 training data \(training_data\.log\): "
-                                       r"4 pe, 4 se samples, 2 per design point\n")
+                                       r"4 pe, 4 se samples\n")
+        # The models go into the database in one rewrite, each with its knob curve over depth (the trainer's
+        # --depth-knobs for every read type), with up to 256 leaves per tree; the converter logs its steps' times.
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", "final_package.log")))
+        self.assertEqual(glob.glob(os.path.join(self.tmp.name, "out", "final_package_*.log")), [])
+        self.assertEqual(self.text("out", "final_package.log").count("Models for read types:"), 1)
+        self.assertEqual(metadata["classifier_depth_knobs"], "pe,se")
+        self.assertEqual(metadata["classifier_max_leaves"], "256")
+        self.assertRegex(self.text("out", "convert.log"), r"spooled the representatives' marker genes \(\d+ species\): [\d.]+ s")
+        self.assertRegex(self.text("out", "convert.log"), r"joined them into full_reference\.fna(\.zst)?: [\d.]+ s")
         self.assertRegex(first.stdout, r"\n\[[^]]+\]     collected in \d+:\d\d:\d\d.*; taxa present/absent: pe \d+/\d+, "
                                        r"se \d+/\d+;")
         self.assertRegex(first.stdout, r"\n\[[^]]+\] 8/8 adding the pe, se models to protal_db")

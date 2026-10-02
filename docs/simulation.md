@@ -39,7 +39,7 @@ simulates. `scripts/build_gtdb_database.py` writes one for a GTDB release, with 
 ```
 
 Reads are simulated per genome, concatenated per sample into `reads/<sample>_R1.fq.gz` and
-`reads/<sample>_R2.fq.gz` (BGZF, compressed in process with `-t` threads), and the composition is recorded:
+`reads/<sample>_R2.fq.gz` (BGZF, compressed in process as each genome's reads are appended: no uncompressed copy is written), and the composition is recorded:
 
 | Output | |
 |---|---|
@@ -75,7 +75,7 @@ negatives per sample and writes `<profile>.truth_annotated`.
 | `--sequencer` | `HS25` | ART error profile |
 | `--extra_art_args` | | passed to ART, e.g. `"--qprof1 q1 --qprof2 q2"` |
 | `--art_path` | on `$PATH` | (`--pigz_path` is accepted and ignored: the reads are compressed in process) |
-| `-t, --threads` | 1 | threads for ART and for compressing the reads |
+| `-t, --threads` | 1 | samples simulated at a time, each on one thread (ART and the compression); the samples are the same for any number (their designs and ART seeds are drawn first, in order) |
 | `--test` | off | write the design, manifests and truth, but no reads |
 | `--keep_tmp` | off | keep the reads of each genome |
 

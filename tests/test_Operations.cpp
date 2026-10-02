@@ -114,3 +114,32 @@ TEST(Compressor, AnEmptyFileAndAMissingOne) {
     EXPECT_THROW(Compressor::compressInPlace(dir.path / "missing.fq", 1), std::invalid_argument);
     EXPECT_FALSE(fs::exists(dir.path / "missing.fq.gz"));
 }
+
+TEST(Compressor, TheStreamingWriterGivesTheSameBytes) {
+    // bgzf::Writer, which the simulator appends each genome's reads to: the blocks start every kBlockInput bytes of
+    // the content however it arrives, so the file is what compressing the whole content gives.
+    ScratchDir dir;
+    std::string text = Reads();
+    while (text.size() < 3 * protal::bgzf::kBlockInput * 64) text += text;  // several flushes
+    auto whole = dir.path / "whole.fq";
+    std::ofstream(whole, std::ios::binary) << text;
+    Compressor::compressInPlace(whole, 2);
+    std::string const expected = ReadAll(whole.string() + ".gz");
+    for (size_t piece : { size_t{1} << 20, size_t{7}, protal::bgzf::kBlockInput, size_t{100003} }) {
+        auto out = dir.path / ("streamed_" + std::to_string(piece) + ".fq.gz");
+        protal::bgzf::Writer writer(out.string());
+        for (size_t at = 0; at < text.size(); at += piece) writer.Write(text.data() + at, std::min(piece, text.size() - at));
+        ASSERT_TRUE(writer.Close()) << writer.Error();
+        EXPECT_EQ(ReadAll(out.string()), expected) << "pieces of " << piece;
+    }
+    // Nothing written: only the end-of-file block, as for an empty file.
+    auto empty = dir.path / "empty.fq.gz";
+    protal::bgzf::Writer writer(empty.string());
+    ASSERT_TRUE(writer.Close());
+    EXPECT_EQ(Gunzip(empty), "");
+    EXPECT_TRUE(protal::bgzf::EndsWithEof(empty.string()));
+    // A file that cannot be written says so.
+    protal::bgzf::Writer bad((dir.path / "no_such_dir" / "x.gz").string());
+    EXPECT_FALSE(bad.Error().empty());
+    EXPECT_FALSE(bad.Close());
+}

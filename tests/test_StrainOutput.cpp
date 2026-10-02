@@ -761,6 +761,37 @@ TEST(ModelFeatures, DepthKnobsByTheSamplesFragments) {
         EXPECT_NE(problem.find("its depth knobs are malformed"), std::string::npos) << value << ": " << problem;
         EXPECT_TRUE(knobs.empty()) << value;
     }
+
+    // A knob curve (the trainer's since 0.7.3): log10 of the sample's fragments : knob, linear between the points, the
+    // ends' beyond them (random_forest_cmdline.py knob_at); a model has bins or a curve.
+    std::string const curve_xml = header(R"(<Extension name="protal_depth_knob_curve" value="2.000:0.2,4.000:0.8"/>)") + body;
+    profiler::DepthKnobCurve curve;
+    EXPECT_EQ(profiler::ParseDepthKnobCurve(curve_xml, curve), "");
+    EXPECT_EQ(curve, (profiler::DepthKnobCurve{ { 2.0, 0.2 }, { 4.0, 0.8 } }));
+    EXPECT_EQ(profiler::ParseDepthKnobs(curve_xml, knobs), "");
+    EXPECT_TRUE(knobs.empty());
+    profiler::TaxonFilterForest curved(cpmml::Model::from_string(curve_xml), 0.5);
+    EXPECT_FALSE(curved.HasDepthKnobs());
+    curved.SetDepthKnobCurve(curve);
+    EXPECT_TRUE(curved.HasDepthKnobs());
+    EXPECT_DOUBLE_EQ(*curved.DepthKnob(0), 0.2);        // below the first point: its knob
+    EXPECT_DOUBLE_EQ(*curved.DepthKnob(100), 0.2);
+    EXPECT_DOUBLE_EQ(*curved.DepthKnob(1000), 0.5);     // halfway in log10
+    EXPECT_NEAR(*curved.DepthKnob(3162), 0.65, 1e-4);   // 10^3.5
+    EXPECT_DOUBLE_EQ(*curved.DepthKnob(10000), 0.8);
+    EXPECT_DOUBLE_EQ(*curved.DepthKnob(5000000000ull), 0.8);  // deeper than any trained: the deepest knob
+    EXPECT_EQ(curved.WithKnob(0.3).GetDepthKnobCurve(), curve);
+    EXPECT_DOUBLE_EQ(profiler::DepthKnobAt({ { 1.5, 0.4 } }, 7), 0.4);  // one point: its knob everywhere
+    EXPECT_DOUBLE_EQ(profiler::DepthKnobAt({}, 7), 0.5);
+    EXPECT_EQ(profiler::ParseDepthKnobCurve(body, curve), "");
+    EXPECT_TRUE(curve.empty());
+    // Malformed: x not increasing or outside 0-12, a knob outside 0-1, no colon, trailing characters, no points.
+    for (std::string const value : { "3:0.3,2:0.4", "2:0.3,2:0.4", "13:0.3", "-1:0.3", "2:1.5", "2-0.3", "2:0.3x", "" }) {
+        auto const problem = profiler::ParseDepthKnobCurve(
+            header(R"(<Extension name="protal_depth_knob_curve" value=")" + value + R"("/>)") + body, curve);
+        EXPECT_NE(problem.find("its depth knob curve is malformed"), std::string::npos) << value << ": " << problem;
+        EXPECT_TRUE(curve.empty()) << value;
+    }
 }
 
 TEST(ModelFeatures, NamesAreUniqueAndValuesKeepTheirPrecision) {

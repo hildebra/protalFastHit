@@ -368,17 +368,22 @@ from the same communities: paired-end reads (ART); their first reads alone, prof
 reads; PacBio HiFi reads (`--pb-setup`: 15 kb, their quality by their length, Q50 at 5 kb to Q30 at
 25 kb and Q20 at 50 kb, by `scripts/hifi_reads.py`); and Nanopore reads simulated with
 [pbsim3](https://github.com/yukiteruono/pbsim3) (`--ont-setup`: the high-quality ONT model at 97%,
-8 kb), `--long-read-bases` per sample, about as many bases as the paired-end depths. The collector
+8 kb), `--long-read-bases` per sample, about as many bases as the paired-end depths, and
+`--long-read-samples` (24) per design point, which replay the communities of the paired-end points of
+the same depth of every read setup (3 x 12 of them). The collector
 draws each long-read sample's reads (genome, length, start, strand;
 [model-training.md](model-training.md#training-data)) and `hifi_reads.py` or pbsim3 adds the errors
 and qualities, in one run per sample. (Until 2026-10-02 pbsim3 made the PacBio reads too, with
 quality 0 at every base; [report](claude/2026-10-02-pacbio-hifi-reads/README.md).) All samples are profiled in one protal run, each with its read type's settings,
-and the models are trained in parallel. The pb and ont models also get knobs by sample depth (the
-trainer's `--depth-knobs`, [model-training.md](model-training.md#knobs-by-sample-depth);
-`--depth-knob-read-types`, default `pb,ont`, `""` for none), which `build_metadata.tsv` records
-(`classifier_depth_knobs`, `model_<type>_depth_knobs`). On the v0.7.1 benchmark they cost PacBio F1
-([report](claude/2026-10-01-features-depth-knobs/README.md)); they are to be tested again with this
-build's training design. pbsim3
+and the models are trained in parallel. Every model also gets a knob curve over the sample's depth
+(the trainer's `--depth-knobs`, [model-training.md](model-training.md#knobs-by-sample-depth);
+`--depth-knob-read-types`, default `pe,se,pb,ont`, `""` for none), which `build_metadata.tsv` records
+(`classifier_depth_knobs`, `model_<type>_depth_knobs`): at GTDB r226 the best threshold went from
+~0.1 for samples of 1,000-5,000 read pairs to ~0.9 for 500,000, and thresholds by depth raised every
+read type's test F1 (by 0.006 to 0.033; [report](claude/2026-10-02-r226-build-evaluation/README.md)).
+The deepest design points (2M and 10M read pairs, 1.5 and 6 Gb of long reads, a few samples each)
+are there because real samples are that deep: the absent taxa a sample holds grow with its depth,
+and a knob is only known for depths the training covered. pbsim3
 must be installed for ont (it is in
 `envs/protal-db-build.yaml`; `micromamba install -c conda-forge -c bioconda pbsim3`); without it,
 leave ont out of `--read-types`, and it keeps a placeholder model.
@@ -390,7 +395,7 @@ model trained on samples of 5,000 read pairs and more missed 8% of the present t
 test samples while its own estimate said F1 0.997
 ([report](claude/2026-09-30-clade-holdouts.md)). So every build also profiles an independent test
 set of another design, `--test-samples` (4) per design point: depths `--test-read-pairs`
-(500 to 1,000,000), 10-300 species (`--test-species-per-sample`), more uneven abundances
+(500 to 5,000,000, the deepest with 2 samples), 10-300 species (`--test-species-per-sample`), more uneven abundances
 (`--test-abundance lognormal:2.0`), more mixed strains (`--test-strains-per-species 0.5,0.2`),
 long-read depths `--test-long-read-bases`, another seed. Each model scores it (the trainer's
 `--test-file`): the report's section "Independent test set" gives F1, false positives per sample,
@@ -412,39 +417,44 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--holdout-species` | | a file of the species to leave out instead (optionally with rank and clade, as `heldout_species.txt`) |
 | `--one-build-at-a-time` | | build the finished database after training, not while the training data are collected |
 | `--training-db-level` | 3 | zstd level of the training database (only read while training; level 19 would take about half its build) |
+| `--final-db-level` | 9 | zstd level of the finished database: at r226 level 19 made the index 2.7% smaller than level 3 for 21 more minutes |
 | `--protal`, `--simulator` | `protal`, `simulate_metagenomes` | the binaries |
 | `-t, --threads` | 8 | |
 | `--samples` | 12 | samples per design point |
 | `--congeners` | 0 | species of one genus in every sample of a design point |
 | `--no-placeholder-models` | | leave out the placeholder models of read types not trained (below) |
 | `--no-gene-neighbours` | | do not record the gene neighbours ([above](#gene-neighbours)); protal then pairs no mates over neighbouring genes |
-| `--read-pairs` | `1000,5000,20000,100000,500000` | depths, one design point each (without the shallowest, a model missed 8% of the present taxa of 1000-pair samples) |
+| `--read-pairs` | `1000,5000,20000,100000,500000,2000000:4,10000000:2` | depths, one design point each, `DEPTH:SAMPLES` for other samples than `--samples` (without the shallowest, a model missed 8% of the present taxa of 1000-pair samples; the deepest are as deep as real samples) |
 | `--read-setups` | `100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | read length : ART profile (or `file=R1.txt+R2.txt`) : fragment mean : fragment SD, one design point each |
 | `--species-per-sample` | `20-200` | drawn per sample |
 | `--strains-per-species` | `0.3,0.1` | probabilities of a second, third, ... strain of a species |
 | `--abundance` | the simulator's | `lognormal:SIGMA`, `powerlaw:ALPHA` or `negbin:R:P` |
 | `--archaea` | 2 | archaeal species per sample |
 | `--read-types` | `pe,se,pb,ont` | the read types to train a model for |
-| `--long-read-bases` | `300000,1500000,6000000,30000000,150000000` | bases per pb and ont sample, one design point each |
+| `--long-read-bases` | `300000,1500000,6000000,30000000,150000000,1500000000:4,6000000000:2` | bases per pb and ont sample, one design point each, `DEPTH:SAMPLES` as for `--read-pairs` |
+| `--long-read-samples` | 24 | samples per long-read design point, at most the communities of the paired-end points of its depth |
 | `--pb-setup` | `hifi:15000:3000:3` | `hifi` : length mean : length SD : SD of the reads' quality around their length's (`hifi_reads.py`, [model-training.md](model-training.md#training-data)); or a pbsim3 setup as `--ont-setup`'s |
 | `--ont-setup` | `qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36` | pbsim3 method : model : length mean : length SD : accuracy (: substitution/insertion/deletion mix, for qshmm) |
 | `--pbsim`, `--pbsim-models` | `pbsim`, found next to it | pbsim3 and its models (for ont, and pb with a pbsim3 setup) |
 | `--test-samples` | 4 | samples per design point of the independent test set; 0 for none |
-| `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases` | `500,2000,10000,50000,200000,1000000`, `10-300`, `lognormal:2.0`, `0.5,0.2`, `150000,1000000,5000000,25000000,250000000` | the test set's design |
+| `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases` | `500,2000,10000,50000,200000,1000000,5000000:2`, `10-300`, `lognormal:2.0`, `0.5,0.2`, `150000,1000000,5000000,25000000,250000000,3000000000:2` | the test set's design (its long-read points have `--test-samples` samples) |
 | `--seed` | 1 | |
-| `--ntree`, `--maxnodes` | 64, 128 | random forest size (more trees did not score better, see [model-training.md](model-training.md#training)) |
+| `--ntree`, `--maxnodes` | 64, 256 | random forest size (more trees did not score better, see [model-training.md](model-training.md#training); at r226 512 leaves gave a lower log loss than 128) |
 | `--features` | `normalized+adjacency` | the models' features ([model-training.md](model-training.md#features)): `normalized` leaves the gene neighbour features out, to test them on real data; `build_metadata.tsv` records the set |
 | `--evaluation` | `full` | how much the trainer evaluates: `full`, `basic` or `none` |
 | `--previous-procedure` | off | the trainer also compares each model with its previous procedure ([model-training.md](model-training.md#training)), for the first builds of a release; `build_metadata.tsv` says whether it did |
 | `--progress-every` | 0 | seconds between status lines of the stages running, besides each step's start and end (below); 0 for none |
 | `--scratch` | | a node's own disk for the simulated samples (below) |
 
-With the defaults that is 3 read setups x 5 depths x 12 samples = 180 paired-end samples of 20-200
-species, profiled as paired-end and as single-end reads, 5 x 12 PacBio and 5 x 12 Nanopore samples
-of the same communities, and a test set of 3 x 6 x 4 = 72 paired-end samples (and their single-end
-and long-read counterparts), all against the training database. The simulations take most of the
-compute and disk space; training and its evaluation take minutes per read type. Whether 180
-samples are enough, the training report's learning curve says.
+With the defaults that is 3 read setups x (5 depths x 12 samples + 4 samples of 2M and 2 of 10M read
+pairs) = 198 paired-end samples of 20-200 species, profiled as paired-end and as single-end reads,
+5 x 24 + 4 + 2 = 126 PacBio and as many Nanopore samples of the same communities, and a test set of
+3 x (6 x 4 + 2) = 78 paired-end samples (and their single-end and long-read counterparts), all against
+the training database. The simulations take most of the compute and disk space, the deep points most
+of the alignment; training and its evaluation take minutes per read type. Whether the samples are
+enough, the training report's learning curve says. The simulator writes a design point's samples on
+threads of their own (as many as the point's share of the work), so that the deep points do not
+take as long as their samples one after the other.
 
 The finished database is needed only at the end, to take the trained models (`--add_model`), so it
 is built in the background from the start, while the training database is built and the training
@@ -463,8 +473,12 @@ length as a fourth column, so the simulator does not read every genome for it at
 Both builds read a `full_reference.fna.zst` (the marker genes of every genome; the training
 database's without the species it leaves out), and nothing reads it afterwards: the script removes
 each once its build is done, and a rerun that finds a build done removes one an earlier version
-left (an uncompressed `full_reference.fna`, too). The training database's copy is written with
-`-t` threads of zstd (up to 8).
+left (an uncompressed `full_reference.fna`, too). The converter's workers compress their chunks of
+it as they write them (each a zstd frame; joined, they are the file), so the ~86 GB of r226 are
+never written uncompressed, and `convert.log` gives each of the converter's steps its time; with
+`--scratch` it spools the marker genes there (`--tmp`). The training database's copy is written with
+`-t` threads of zstd (up to 8). The finished database is compressed at `--final-db-level` (9), the
+training database at `--training-db-level` (3).
 
 ### What it prints
 
@@ -512,7 +526,7 @@ From a small build of the tuning world (765 species, one sample per design point
 [02:48:48 +0:00:33] 7/8 checking that protal scores the models as the trainer does (parity*.log)
 [02:48:52 +0:00:37]     pe, se, pb, ont: the same probabilities and features, checked in 0:00:04
 [02:48:52 +0:00:37]     the held-out species' reads by gene conservation, in 0:00:00: model_logs/relatives_by_gene_conservation.txt
-[02:48:52 +0:00:37] 8/8 adding the pe, se, pb, ont models to protal_db (final_package*.log)
+[02:48:52 +0:00:37] 8/8 adding the pe, se, pb, ont models to protal_db (final_package.log)
 [02:48:52 +0:00:37]     waiting for protal_db's build in the background (index_and_package.log)
 [02:49:56 +0:01:41]     built protal_db in the background in 0:01:35, peak memory 4.6 GB; database.protal 108 MB; full_reference.fna.zst removed (23 MB)
 [02:49:57 +0:01:42]     added in 0:00:01; database.protal 108 MB
@@ -540,10 +554,14 @@ defaults that is about 240 GB of temporary writes in ~150,000 files (estimated; 
 of files before), which a network file system is slow at (the collector then waits in state D).
 `--scratch DIR`
 makes the training and test samples on a node's own disk, in `DIR/training` and `DIR/test`, and
-copies their tables to `OUTDIR/training` and `OUTDIR/test`. The samples take ~20 GB at the end and
-about 40 GB at the peak (up to ~55 GB), while the test set's paired-end samples are simulated next
-to the training samples; give it 60 GB at least, 100 GB to be safe (estimated from measured bytes
-per read: [docs/claude/2026-10-01-scratch-space](claude/2026-10-01-scratch-space/README.md)). The
+copies their tables to `OUTDIR/training` and `OUTDIR/test`; the converter spools the release's
+marker genes there too, before the samples (~35 GB at r226, estimated). The simulator compresses a
+sample's reads as it appends each genome's, and the collector removes a long-read sample's
+templates once its reads are written, so the samples' temporary files stay small. With the 0.7.2
+design the r226 build took at most 23.7 GB there and left 15.5 GB; the deep design points of the
+defaults add about 70 GB of reads (estimated from measured bytes per read,
+[docs/claude/2026-10-01-scratch-space](claude/2026-10-01-scratch-space/README.md)): give it 150 GB,
+or fewer deep samples (`DEPTH:SAMPLES`). The
 line after each collection (and the status lines, with `--progress-every`) says how much the run
 takes on DIR (what its file system holds more than at the start), and the last line the most it
 took. A rerun reuses the samples only from the same DIR; on a node-local disk that is gone after
@@ -588,4 +606,4 @@ The output root holds:
 | `.stages/` | the inputs of the conversion and the two builds that completed, for a rerun (below) | 
 | `trained_model.*`, `trained_model_se.*`, `_pb.*`, `_ont.*` | the models and the trainer's outputs ([model-training.md](model-training.md#training)) |
 | `model_logs/` | what tells whether the models are good, in one folder: `summary.txt` (per read type: TP, FP, TN, FN, sensitivity, specificity, precision, F1 and false positives per sample, with species held out and on the test set; also printed at the end), each read type's training report and its numbers (`trained_model*.report.txt`, `.metrics.json`), per-taxon predictions (also on the test set), the threshold table, feature importances, the parity checks with protal (`parity*.txt`), `genome_table.txt`, what the training database leaves out (`holdout.txt`, `heldout_species.txt`), the collection logs and `build_metadata.tsv`; and what the conservation features rest on, on the release's real genomes: `gene_congeners.tsv` (the finished database's, see above) and `relatives_by_gene_conservation.txt` and `.tsv` (`scripts/trace_relatives.py`: the paired-end reads of the species held out of the training database followed to the genes they align to, per unit coverage against a species' own reads, before and after the MAPQ filter, by the genes' factors; a failure there is reported and does not stop the build) |
-| `*.log` | one log per stage: `convert`, `training_db`, `index_and_package`, `training_db_index`, `training_data_simulation`, `training_data`, `test_data_simulation`, `test_data`, `classifier_training*`, `parity*`, `final_package*` |
+| `*.log` | one log per stage: `convert`, `training_db`, `index_and_package`, `training_db_index`, `training_data_simulation`, `training_data`, `test_data_simulation`, `test_data`, `classifier_training*`, `parity*`, `final_package` |

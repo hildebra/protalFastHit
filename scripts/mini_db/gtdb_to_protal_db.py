@@ -39,9 +39,10 @@ Then build the index with
 which writes index.prx.zst and replaces reference.fna by reference.fna.zst unless --no_compress
 (for --full_reference full_reference.fna, protal reads its .zst).
 
-Each marker's genes are spooled to <outdir>/.convert_tmp and sorted one gene at a time, so memory
-stays at about one gene's sequences per worker; -t reads the marker files in parallel (the output is
-the same for any -t).
+Each marker's genes are spooled to <outdir>/.convert_tmp (or <--tmp>/.convert_tmp) and sorted one gene
+at a time, so memory stays at about one gene's sequences per worker; -t reads the marker files in
+parallel (the output is the same for any -t). The workers compress their chunks of the full reference
+themselves (zstd frames, joined as they are), and the log gives each step's time.
 
 Usage:
   gtdb_to_protal_db.py --gtdb <release dir> --outdir <db dir> [--release 226] [--model FILE]
@@ -65,6 +66,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 FULL_REFERENCE = "full_reference.fna"
@@ -246,21 +248,23 @@ def _gene_records(path, gid):
 
 def _write_full_reference(item):
     """One marker's files of all genomes: records of the database's species (not those left out), a
-    genome's first copy, one chunk per file; -> {file index: (chunk, records)}."""
+    genome's first copy, one chunk per file, zstd-compressed (a frame of its own: the chunks joined are
+    the compressed full reference) when there is the zstd command (_WORK["zstd"]); -> {file index:
+    (chunk, records)}."""
     marker, files = item
     gid = _WORK["gene_ids"][marker]
     lineage, taxid, drop = _WORK["lineage"], _WORK["taxid"], _WORK["drop"]
     seen, result = set(), {}
     for index, path in files:
-        chunk, n = os.path.join(_WORK["tmp"], f"full_{index}.fna"), 0
-        with open(chunk, "w", newline="\n") as fh:
+        chunk, n = os.path.join(_WORK["tmp"], f"full_{index}.fna" + (".zst" if _WORK["zstd"] else "")), 0
+        with (zstd_writer(chunk, 1) if _WORK["zstd"] else open(chunk, "wb")) as fh:
             for header, seq in read_fasta(path):
                 acc = normalize_accession(header)
                 sp = lineage.get(acc, "").split(";")[-1]
                 if sp not in taxid or taxid[sp] in drop or acc in seen:
                     continue
                 seen.add(acc)
-                fh.write(f">{taxid[sp]}_{gid}\n{seq.upper()}\n")
+                fh.write(f">{taxid[sp]}_{gid}\n{seq.upper()}\n".encode())
                 n += 1
         result[index] = (chunk, n)
     return result
@@ -322,29 +326,38 @@ def remove_full_reference(folder):
 
 
 @contextlib.contextmanager
+def zstd_writer(path, threads):
+    """A binary file to write `path` through the zstd command (ZSTD_OPTIONS, up to 8 of `threads`): written as
+    path.partial, renamed once complete."""
+    partial = path + ".partial"
+    process = subprocess.Popen([shutil.which("zstd") or "zstd", "-q", "-f", f"-T{max(1, min(threads, 8))}", *ZSTD_OPTIONS,
+                                "-o", partial], stdin=subprocess.PIPE)
+    try:
+        yield process.stdin
+    finally:
+        process.stdin.close()
+        rc = process.wait()
+    if rc:
+        sys.exit(f"zstd failed with exit code {rc} writing {partial}")
+    os.replace(partial, path)
+
+
+@contextlib.contextmanager
 def full_reference_writer(folder, threads):
     """A binary file to write a folder's full reference to: full_reference.fna.zst through the zstd command
-    (ZSTD_OPTIONS, up to 8 of `threads`), or full_reference.fna without one. Written as a .partial file,
-    renamed once complete; the variant of an earlier conversion goes first."""
+    (zstd_writer), or full_reference.fna without one, written as a .partial file and renamed once complete; the
+    variant of an earlier conversion goes first."""
     zstd = shutil.which("zstd")
     remove_full_reference(folder)
     target = os.path.join(folder, FULL_REFERENCE + (".zst" if zstd else ""))
-    partial = target + ".partial"
-    if not zstd:
-        sys.stderr.write(f"Note: no zstd command, so {target} is written uncompressed\n")
-        with open(partial, "wb") as fh:
+    if zstd:
+        with zstd_writer(target, threads) as fh:
             yield fh
-    else:
-        process = subprocess.Popen([zstd, "-q", "-f", f"-T{max(1, min(threads, 8))}", *ZSTD_OPTIONS, "-o", partial],
-                                   stdin=subprocess.PIPE)
-        try:
-            yield process.stdin
-        finally:
-            process.stdin.close()
-            rc = process.wait()
-        if rc:
-            sys.exit(f"zstd failed with exit code {rc} writing {partial}")
-    os.replace(partial, target)
+        return
+    sys.stderr.write(f"Note: no zstd command, so {target} is written uncompressed\n")
+    with open(target + ".partial", "wb") as fh:
+        yield fh
+    os.replace(target + ".partial", target)
 
 
 @contextlib.contextmanager
@@ -482,6 +495,8 @@ def main():
                     help="reference.fna record order: by gene, then taxid (compresses better), or by taxid, then gene")
     ap.add_argument("-t", "--threads", type=int, default=1,
                     help="marker files read in parallel (default 1); the output does not depend on it")
+    ap.add_argument("--tmp", help="where the marker genes are spooled, in a .convert_tmp folder in it, removed when "
+                                  "done (default: OUTDIR), e.g. a node's own disk")
     ap.add_argument("--exclude_species", help="file of species (s__Genus species, one per line) whose marker genes "
                                               "are left out; the taxonomy keeps them, with the taxids they have "
                                               "with all species (a training database with species held out)")
@@ -495,14 +510,25 @@ def main():
         exclude_from_db(args.from_db, args.outdir, exclude, args.threads)
         return
 
+    clock = [time.time()]
+
+    def phase(what):
+        """Logs how long the step that ended took (convert.log of build_gtdb_database.py)."""
+        now = time.time()
+        sys.stderr.write(f"{what}: {now - clock[0]:.1f} s\n")
+        sys.stderr.flush()
+        clock[0] = now
+
     rel = args.release or detect_release(args.gtdb)
     lineage = read_taxonomy(args.gtdb, rel)
     reps = read_representatives(args.gtdb, rel)
+    phase(f"read the taxonomy and metadata ({len(lineage)} genomes)")
 
     rep_files = marker_files(args.gtdb, "genomic_files_reps", "reps", rel)
     if not rep_files:
         sys.exit(f"No *_marker_genes_reps_r{rel} marker files under {args.gtdb}/genomic_files_reps")
     all_files = marker_files(args.gtdb, "genomic_files_all", "all", rel)
+    phase(f"found the marker files ({len(rep_files)} of representatives, {len(all_files)} of all genomes)")
 
     # Gene ids follow the order of first appearance (bac120 markers, then ar53-only ones).
     gene_ids = {}
@@ -510,11 +536,11 @@ def main():
         gene_ids.setdefault(marker, len(gene_ids) + 1)
 
     # The marker files are read in parallel (--threads), one marker at a time per worker, and spooled
-    # to a temporary folder: the representatives' genes are never all in memory.
-    tmp = os.path.join(args.outdir, ".convert_tmp")
+    # to a temporary folder (--tmp): the representatives' genes are never all in memory.
+    tmp = os.path.join(args.tmp or args.outdir, ".convert_tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
-    _WORK.update(lineage=lineage, reps=reps, tmp=tmp, gene_ids=gene_ids)
+    _WORK.update(lineage=lineage, reps=reps, tmp=tmp, gene_ids=gene_ids, zstd=bool(shutil.which("zstd")))
 
     # --- representative marker genes -------------------------------------------------
     skipped = {"not in taxonomy": 0, "not a representative": 0, "duplicate": 0}
@@ -530,6 +556,7 @@ def main():
             other = species_rep.setdefault(species, acc)
             if other != acc:
                 sys.exit(f"Species {species} has two representatives with marker genes: {other}, {acc}")
+    phase(f"spooled the representatives' marker genes ({len(species_rep)} species)")
 
     species_lineage = {sp: lineage[acc] for sp, acc in species_rep.items()}
     for sp, lin in species_lineage.items():
@@ -556,8 +583,10 @@ def main():
     # by taxid, then gene (--order genome).
     _WORK.update(taxid=taxid, drop=drop)
     markers = sorted(by_marker, key=lambda m: gene_ids[m])
+    phase("wrote the taxonomy")
     lengths = dict(zip(markers, _parallel(args.threads, _write_gene, markers)))
     n_records = sum(len(v) for v in lengths.values())
+    phase(f"sorted each gene's representative sequences ({n_records})")
     with open(out("reference.fna"), "wb") as fna, open(out("reference.map"), "w", newline="\n") as fmap:
         offset = 0
 
@@ -588,27 +617,34 @@ def main():
             sp = lineage[acc].split(";")[-1]
             if sp in taxid:
                 fh.write(f"{acc}\t{taxid[sp]}\t{species_rep[sp]}\t{lineage[acc]}\n")
+    phase("wrote reference.fna, reference.map, gene2geneid.tsv and genome2tiid.tsv")
 
     # --- all genomes, for the unique k-mer check -----------------------------------------
     n_full = 0
+    remove_full_reference(args.outdir)  # of an earlier conversion; protal --build would take it
     if all_files:
-        # One worker per marker (duplicates are per genome and marker), one chunk per file, joined in
-        # file order.
+        # One worker per marker (duplicates are per genome and marker), one chunk per file, compressed by the
+        # worker when there is zstd (each chunk a zstd frame: joined in file order they are the compressed file,
+        # so the ~90 GB of GTDB r226 are never written or read uncompressed), joined in file order.
         all_by_marker = {}
         for index, (marker, path) in enumerate(all_files):
             all_by_marker.setdefault(marker, []).append((index, path))
         written = {}
         for chunks in _parallel(args.threads, _write_full_reference, list(all_by_marker.items())):
             written.update(chunks)
-        with full_reference_writer(args.outdir, args.threads) as fh:
+        phase(f"wrote the full reference's chunks ({len(all_files)}" + (", zstd-compressed)" if _WORK["zstd"] else ")"))
+        target = out(FULL_REFERENCE + (".zst" if _WORK["zstd"] else ""))
+        if not _WORK["zstd"]:
+            sys.stderr.write(f"Note: no zstd command, so {target} is written uncompressed\n")
+        with open(target + ".partial", "wb") as fh:
             for index in range(len(all_files)):
                 chunk, count = written[index]
                 with open(chunk, "rb") as part:
                     shutil.copyfileobj(part, fh, 1 << 22)
-                os.remove(chunk)  # at GTDB size the chunks hold ~90 GB: not kept until all are joined
+                os.remove(chunk)  # not kept until all are joined
                 n_full += count
-    else:
-        remove_full_reference(args.outdir)  # of an earlier conversion; protal --build would take it
+        os.replace(target + ".partial", target)
+        phase(f"joined them into {os.path.basename(target)}")
     shutil.rmtree(tmp, ignore_errors=True)
     full = full_reference_path(args.outdir)
 

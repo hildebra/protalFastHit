@@ -1591,10 +1591,30 @@ namespace protal {
             return std::clamp(bin, 2, 6);
         }
 
+        // A model's knob as a function of the sample's depth (ParseDepthKnobCurve): points (log10 of the sample's
+        // fragments over all its taxa, knob), x increasing. Written by scripts/random_forest_cmdline.py --depth-knobs.
+        using DepthKnobCurve = std::vector<std::pair<double, double>>;
+
+        // The curve's knob for a sample of `fragments` fragments: linear in log10(fragments) between its points, the
+        // first point's below it and the last's beyond it (a sample deeper than any the trainer saw keeps the deepest
+        // knob, not --knob's default). An empty curve gives --knob's default, 0.5.
+        inline double DepthKnobAt(DepthKnobCurve const& curve, size_t fragments) {
+            if (curve.empty()) return 0.5;
+            double const x = std::log10(static_cast<double>(std::max<size_t>(fragments, 1)));
+            if (x <= curve.front().first) return curve.front().second;
+            if (x >= curve.back().first) return curve.back().second;
+            auto const next = std::upper_bound(curve.begin(), curve.end(), x,
+                                               [](double v, auto const& point) { return v < point.first; });
+            auto const& [x1, k1] = *next;
+            auto const& [x0, k0] = *std::prev(next);
+            return k0 + (k1 - k0) * (x - x0) / (x1 - x0);
+        }
+
         class TaxonFilterForest {
             cpmml::Model m_model{};
             double m_knob = 0.5;
-            std::map<int, double> m_depth_knobs;  // see DepthKnob
+            std::map<int, double> m_depth_knobs;  // see DepthKnob: an older model's knobs by decade of the sample's fragments
+            DepthKnobCurve m_depth_knob_curve;    // see DepthKnob
 
             mutable std::unordered_map<std::string, std::string> m_sample;
 
@@ -1607,13 +1627,15 @@ namespace protal {
             TaxonFilterForest(cpmml::Model model, double knob) : m_model(std::move(model)), m_knob(knob) {}
 
             TaxonFilterForest(const TaxonFilterForest& other) :
-                    m_model(other.m_model), m_knob(other.m_knob), m_depth_knobs(other.m_depth_knobs), m_sample() {
+                    m_model(other.m_model), m_knob(other.m_knob), m_depth_knobs(other.m_depth_knobs),
+                    m_depth_knob_curve(other.m_depth_knob_curve), m_sample() {
             }
 
             TaxonFilterForest(const TaxonFilterForest&& other) :
                     m_model(other.m_model),
                     m_knob(other.m_knob),
                     m_depth_knobs(other.m_depth_knobs),
+                    m_depth_knob_curve(other.m_depth_knob_curve),
                     m_sample(other.m_sample) {
             }
 
@@ -1648,13 +1670,19 @@ namespace protal {
             // The threshold Pass compares with: a sample's (ProfileWrapper sets each sample's on its thread's copy).
             void SetKnob(double knob) { m_knob = knob; }
 
-            // The model's knobs by sample depth (ParseDepthKnobs), bin (DepthKnobBin) -> knob; empty for most models.
+            // The model's knobs by sample depth: a curve (ParseDepthKnobCurve), or an older model's bins (ParseDepthKnobs,
+            // bin (DepthKnobBin) -> knob); neither for most models.
             void SetDepthKnobs(std::map<int, double> knobs) { m_depth_knobs = std::move(knobs); }
             std::map<int, double> const& DepthKnobs() const { return m_depth_knobs; }
+            void SetDepthKnobCurve(DepthKnobCurve curve) { m_depth_knob_curve = std::move(curve); }
+            DepthKnobCurve const& GetDepthKnobCurve() const { return m_depth_knob_curve; }
+            bool HasDepthKnobs() const { return !m_depth_knobs.empty() || !m_depth_knob_curve.empty(); }
 
-            // The model's knob for a sample of `fragments` fragments over all its taxa: the F1-optimal threshold the
-            // trainer found for training samples of that depth bin, if the model has one for it.
+            // The model's knob for a sample of `fragments` fragments over all its taxa: from its curve (DepthKnobAt), or
+            // the F1-optimal threshold the trainer found for training samples of that depth bin, if an older model has
+            // one for it.
             std::optional<double> DepthKnob(size_t fragments) const {
+                if (!m_depth_knob_curve.empty()) return DepthKnobAt(m_depth_knob_curve, fragments);
                 auto const it = m_depth_knobs.find(DepthKnobBin(fragments));
                 if (it == m_depth_knobs.end()) return std::nullopt;
                 return it->second;
@@ -1727,6 +1755,52 @@ namespace protal {
                         return "its depth knobs are malformed ('" + item + "' in \"" + value + "\": bin 2-6 : knob 0-1, each bin once)";
                     }
                     knobs[bin] = knob;
+                }
+                return {};
+            }
+            return {};
+        }
+
+        // A model's knob by sample depth as a curve, which scripts/random_forest_cmdline.py --depth-knobs writes into the
+        // header: <Extension name="protal_depth_knob_curve" value="1.30:0.12,2.89:0.40,4.32:0.92"/>, log10 of the
+        // sample's fragments : knob (DepthKnobAt).
+        inline constexpr std::string_view kDepthKnobCurveExtension = "protal_depth_knob_curve";
+
+        // Reads the depth knob curve from the header of the PMML `xml` into `curve` (empty without one); an error message
+        // if it is malformed: no points, an x outside 0-12 or not above the one before, a knob outside 0-1.
+        inline std::string ParseDepthKnobCurve(std::string const& xml, DepthKnobCurve& curve) {
+            curve.clear();
+            auto const header_end = xml.find("</Header>");
+            if (header_end == std::string::npos) return {};
+            std::string const name = "name=\"" + std::string(kDepthKnobCurveExtension) + "\"";
+            for (size_t pos = xml.find("<Extension ", 0); pos < header_end; pos = xml.find("<Extension ", pos + 1)) {
+                auto const end = xml.find('>', pos);
+                if (end == std::string::npos || end > header_end) break;
+                std::string_view const tag(xml.data() + pos, end - pos + 1);
+                if (tag.find(" " + name) == std::string_view::npos) continue;
+                auto const key = tag.find(" value=\"");
+                auto const close = key == std::string_view::npos ? key : tag.find('"', key + 8);
+                if (close == std::string_view::npos) return "its depth knob curve has no value";
+                std::string const value(tag.substr(key + 8, close - key - 8));
+                std::string const expected = "log10 of the sample's fragments 0-12, increasing : knob 0-1";
+                if (value.empty()) return "its depth knob curve is malformed (no points: " + expected + ")";
+                std::istringstream items(value);
+                std::string item;
+                while (std::getline(items, item, ',')) {
+                    auto const colon = item.find(':');
+                    double x = -1, knob = -1;
+                    bool parsed = colon != std::string::npos;
+                    if (parsed) {
+                        auto const* b = item.data();
+                        auto const [x_end, x_ec] = std::from_chars(b, b + colon, x);
+                        auto const [knob_end, knob_ec] = std::from_chars(b + colon + 1, b + item.size(), knob);
+                        parsed = x_ec == std::errc() && x_end == b + colon && knob_ec == std::errc() && knob_end == b + item.size();
+                    }
+                    if (!parsed || !(x >= 0 && x <= 12) || !(knob >= 0 && knob <= 1) || (!curve.empty() && x <= curve.back().first)) {
+                        curve.clear();
+                        return "its depth knob curve is malformed ('" + item + "' in \"" + value + "\": " + expected + ")";
+                    }
+                    curve.emplace_back(x, knob);
                 }
                 return {};
             }

@@ -26,8 +26,12 @@ LABELS = ("FALSE", "TRUE")
 PLACEHOLDER_MARKER = "protal:placeholder"
 # Database member of each read type's model (kReadTypes in src/ReadType.h).
 MODEL_FILES = {"pe": "model_pe.xml", "se": "model_se.xml", "pb": "model_PB.xml", "ont": "model_ONT.xml"}
-# The header extension with a model's knobs by sample depth (profiler::kDepthKnobsExtension): "2:0.31,3:0.42", bin of
-# the sample's fragments (the digits of their number less one, 2 to 6) : knob.
+# The header extension with a model's knob curve over the sample's depth (profiler::kDepthKnobCurveExtension, read by
+# profiler::DepthKnobAt): "1.300:0.12,2.890:0.4", log10 of the sample's fragments over all its taxa : knob, linear between
+# the points and the ends' beyond them. random_forest_cmdline.py --depth-knobs writes it.
+DEPTH_KNOB_CURVE_EXTENSION = "protal_depth_knob_curve"
+# An older model's knobs by sample depth (profiler::kDepthKnobsExtension): "2:0.31,3:0.42", bin of the sample's
+# fragments (the digits of their number less one, 2 to 6) : knob. protal still reads them.
 DEPTH_KNOBS_EXTENSION = "protal_depth_knobs"
 
 
@@ -74,10 +78,11 @@ def float32_split(threshold):
     return middle if even else float(np.nextafter(middle, -np.inf))
 
 
-def write_forest(forest, features, path, annotations=(), depth_knobs=None):
+def write_forest(forest, features, path, annotations=(), depth_knob_curve=None):
     """Write a fitted RandomForestClassifier with classes 0/1 (or False/True), trained on the
     columns `features` in this order, as PMML for protal. `annotations` go into the header, and
-    `depth_knobs` ({bin: knob}, see DEPTH_KNOBS_EXTENSION), if any, as an Extension protal reads."""
+    `depth_knob_curve` ([(log10 fragments, knob)], see DEPTH_KNOB_CURVE_EXTENSION), if any, as an Extension
+    protal reads."""
     try:
         classes = [int(c) for c in forest.classes_]
     except (TypeError, ValueError):
@@ -90,8 +95,8 @@ def write_forest(forest, features, path, annotations=(), depth_knobs=None):
     w = out.append
     w('<?xml version="1.0" encoding="UTF-8"?>\n<PMML version="4.4">\n')
     w(' <Header description="protal presence model: probability that a taxon is present">\n')
-    if depth_knobs:
-        w(f'  <Extension name="{DEPTH_KNOBS_EXTENSION}" value="{format_depth_knobs(depth_knobs)}"/>\n')
+    if depth_knob_curve:
+        w(f'  <Extension name="{DEPTH_KNOB_CURVE_EXTENSION}" value="{format_depth_knob_curve(depth_knob_curve)}"/>\n')
     w('  <Application name="protal scripts/random_forest_cmdline.py"/>\n')
     for note in annotations:
         w(f'  <Annotation>{_text(note)}</Annotation>\n')
@@ -138,22 +143,39 @@ def write_forest(forest, features, path, annotations=(), depth_knobs=None):
         fh.write("".join(out))
 
 
+def format_depth_knob_curve(curve):
+    """[(log10 fragments, knob)] as the extension's value: "1.300:0.12,2.890:0.4"."""
+    return ",".join(f"{float(x):.3f}:{float(k):g}" for x, k in curve)
+
+
+def read_depth_knob_curve(path):
+    """The depth knob curve ([(log10 fragments, knob)]) in the header of the PMML model at `path`; [] without one."""
+    value = _header_extension(path, DEPTH_KNOB_CURVE_EXTENSION)
+    return [(float(x), float(k)) for x, k in (item.split(":") for item in (value or "").split(",") if item)]
+
+
 def format_depth_knobs(knobs):
-    """{bin: knob} as the extension's value: "2:0.31,3:0.42"."""
+    """An older model's {bin: knob} as its extension's value: "2:0.31,3:0.42"."""
     return ",".join(f"{int(b)}:{float(k):g}" for b, k in sorted(knobs.items()))
 
 
 def read_depth_knobs(path):
-    """The depth knobs ({bin: knob}) in the header of the PMML model at `path`; {} without them."""
+    """An older model's depth knobs ({bin: knob}) in the header of the PMML model at `path`; {} without them."""
+    value = _header_extension(path, DEPTH_KNOBS_EXTENSION)
+    return {int(b): float(k) for b, k in (item.split(":") for item in (value or "").split(",") if item)}
+
+
+def _header_extension(path, name):
+    """The value of the header Extension `name` of the PMML model at `path`, or None."""
     root = ET.parse(path).getroot()
     for elem in root.iter():
         if "}" in elem.tag:
             elem.tag = elem.tag.split("}", 1)[1]
     header = root.find("Header")
     for ext in (header.findall("Extension") if header is not None else []):
-        if ext.get("name") == DEPTH_KNOBS_EXTENSION:
-            return {int(b): float(k) for b, k in (item.split(":") for item in ext.get("value", "").split(",") if item)}
-    return {}
+        if ext.get("name") == name:
+            return ext.get("value", "")
+    return None
 
 
 def leaf_probabilities(tree):

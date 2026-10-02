@@ -39,6 +39,10 @@ model: cross-validation on the training data cannot show what its design lacks.
 The simulations need no database: both collections simulate in the background,
 at a lower priority than the builds, from the moment the species to leave out
 are chosen, and profile their samples once the training database is built.
+The design reaches the depths of real samples (2M and 10M read pairs, 1.5 and
+6 Gb of long reads, a few samples each: DEPTH:SAMPLES), and each model gets a
+knob curve over the sample's depth (--depth-knob-read-types): a deep sample
+holds many more absent taxa with a few reads, and needs a higher threshold.
 
 OUT_DIR/model_logs/ collects what tells whether the models are good: summary.txt
 (TP, FP, TN, FN, sensitivity, specificity, precision and F1 of each model), each read
@@ -656,9 +660,9 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
         rows.append((f"model_{t}", f"species held out F1 {species_cv.get('F1')}, FP per sample "
                                    f"{species_cv.get('FP_per_sample')}; independent test F1 {test.get('F1')}, FP per "
                                    f"sample {test.get('FP_per_sample')}"))
-        knobs = metrics.get("depth_knobs", {}).get("knobs")
-        if knobs:
-            rows.append((f"model_{t}_depth_knobs", ",".join(f"{b}:{k:g}" for b, k in sorted(knobs.items())) +
+        curve = metrics.get("depth_knobs", {}).get("curve")
+        if curve:
+            rows.append((f"model_{t}_depth_knobs", "log10 fragments:knob " + ",".join(f"{x:.3f}:{k:g}" for x, k in curve) +
                          f"; independent test F1 at them {metrics.get('test_depth_knobs', {}).get('F1')}"))
     return rows
 
@@ -875,7 +879,11 @@ def main():
                         "collected (the default, which needs the memory of two builds, or of one build and the "
                         "collection's protal runs, at once)")
     p.add_argument("--training-db-level", type=int, default=3,
-                   help="zstd level of the training database (default 3; the finished database uses protal's default)")
+                   help="zstd level of the training database (default 3)")
+    p.add_argument("--final-db-level", type=int, default=9,
+                   help="zstd level of the finished database (default 9: at GTDB r226, protal's default 19 made the index "
+                        "2.7%% smaller than level 3 for 21 more minutes of a 1:20 build; docs/claude/2026-10-02-r226-build-"
+                        "evaluation)")
     p.add_argument("--simulate-species",
                    help="file of the species to simulate from (e.g. simulation_species.txt of download_gtdb.py: "
                         "species with other strains, and some without): the simulator draws species uniformly, so "
@@ -886,10 +894,11 @@ def main():
     p.add_argument("--samples", type=int, default=12,
                    help="samples per design point (default 12; on a GTDB-like world the model still improved "
                         "from 60 to 120 samples)")
-    p.add_argument("--read-pairs", default="1000,5000,20000,100000,500000",
-                   help="read pairs per sample, one design point each (default 1000,5000,20000,100000,500000: "
-                        "without the shallowest, a model missed 8%% of the present taxa of samples of 1000 read "
-                        "pairs)")
+    p.add_argument("--read-pairs", default="1000,5000,20000,100000,500000,2000000:4,10000000:2",
+                   help="read pairs per sample, one design point each, DEPTH:SAMPLES for other samples than --samples "
+                        "(default 1000,5000,20000,100000,500000,2000000:4,10000000:2: without the shallowest, a model "
+                        "missed 8%% of the present taxa of samples of 1000 read pairs; at GTDB r226 the absent taxa per "
+                        "sample grew as depth^0.84 to 500,000, and real samples are often 5-50M)")
     p.add_argument("--read-setups", default="100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50",
                    help="LENGTH:ART_PROFILE:FRAGMENT_MEAN:FRAGMENT_SD, one design point each (HSXt: HiSeq X, the "
                         "closest of ART's profiles to NovaSeq; file=R1.txt+R2.txt: profiles art_profiler_illumina "
@@ -909,8 +918,12 @@ def main():
                         "samples' first reads, pb and ont from long reads of the same communities (HiFi reads by "
                         "hifi_reads.py, Nanopore reads by pbsim3). The "
                         "models are trained in parallel; read types left out keep placeholders")
-    p.add_argument("--long-read-bases", default="300000,1500000,6000000,30000000,150000000",
-                   help="bases per long-read sample, one design point each (collect_training_data.py)")
+    p.add_argument("--long-read-bases", default="300000,1500000,6000000,30000000,150000000,1500000000:4,6000000000:2",
+                   help="bases per long-read sample, one design point each, DEPTH:SAMPLES for other samples than "
+                        "--long-read-samples (collect_training_data.py; real HiFi and Nanopore metagenomes are 5-30 Gb)")
+    p.add_argument("--long-read-samples", type=int, default=24,
+                   help="samples per long-read design point (default 24, at most the communities of the paired-end "
+                        "points of its depth: the long-read models' learning curve still fell from 30 to 60 samples)")
     p.add_argument("--pb-setup", default="hifi:15000:3000:3",
                    help="PacBio reads: hifi:LENGTH_MEAN:LENGTH_SD:Q_SD, HiFi reads by hifi_reads.py, their quality by "
                         "their length (Q50 at 5 kb to Q30 at 25 kb, Q20 at 50 kb) and Q_SD around it (default), or a "
@@ -923,17 +936,18 @@ def main():
                    help="samples per design point of the independent test set (default 4; 0: none). The test set "
                         "has another design than the training data (--test-*), so that the report shows what "
                         "cross-validation on the training data cannot")
-    p.add_argument("--test-read-pairs", default="500,2000,10000,50000,200000,1000000")
+    p.add_argument("--test-read-pairs", default="500,2000,10000,50000,200000,1000000,5000000:2")
     p.add_argument("--test-species-per-sample", default="10-300")
     p.add_argument("--test-abundance", default="lognormal:2.0", help="(default lognormal:2.0: more uneven than training)")
     p.add_argument("--test-strains-per-species", default="0.5,0.2")
-    p.add_argument("--test-long-read-bases", default="150000,1000000,5000000,25000000,250000000")
+    p.add_argument("--test-long-read-bases", default="150000,1000000,5000000,25000000,250000000,3000000000:2")
     p.add_argument("--congeners", type=int, default=0,
                    help="species of one genus in every sample of a design point (collect_training_data.py "
                         "--congeners): relatives that share a sample, as in real samples")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--ntree", type=int, default=64)
-    p.add_argument("--maxnodes", type=int, default=128)
+    p.add_argument("--maxnodes", type=int, default=256,
+                   help="leaves per tree at most (random_forest_cmdline.py --maxnodes; default 256)")
     p.add_argument("--no-gene-neighbours", action="store_true",
                    help="do not record which marker genes lie next to which in the genomes to simulate from "
                         "(gene_neighbours.py; protal then pairs no mates across neighbouring genes)")
@@ -951,11 +965,11 @@ def main():
                    help="the trainer also compares with its previous procedure (random_forest_cmdline.py "
                         "--previous-procedure): for the first builds of a release; off by default, as it takes "
                         "most of the training time")
-    p.add_argument("--depth-knob-read-types", default="pb,ont",
-                   help="read types (comma-separated) whose models also get knobs by sample depth "
-                        "(random_forest_cmdline.py --depth-knobs; default pb,ont, '' for none). On the v0.7.1 benchmark "
-                        "they cost PacBio up to 0.016 F1 (docs/claude/2026-10-01-features-depth-knobs); to be tested "
-                        "again with this build's training design")
+    p.add_argument("--depth-knob-read-types", default="pe,se,pb,ont",
+                   help="read types (comma-separated) whose models also get a knob curve over the sample's depth "
+                        "(random_forest_cmdline.py --depth-knobs; default all four, '' for none): at GTDB r226 the best "
+                        "threshold went from ~0.1 at 1,000 read pairs to ~0.9 at 500,000, and thresholds by depth raised "
+                        "the test sets' F1 by 0.006-0.033 (docs/claude/2026-10-02-r226-build-evaluation)")
     p.add_argument("--progress-every", type=float, default=0,
                    help="seconds between status lines of the stages running, besides the lines of each step's start "
                         "and end: how long each has run, the memory it takes and the last line of its log (default "
@@ -964,8 +978,9 @@ def main():
                    help="a fast local disk (a compute node's own) for the simulated samples: their reads, alignments, "
                         "profiles and the simulators' temporary files go to SCRATCH/training and SCRATCH/test, and "
                         "only the tables to OUTDIR. A network file system (OUTDIR's, often) is slow at the many "
-                        "files the simulators write and delete. With the defaults the run takes about 60 GB there at "
-                        "its peak (docs/building-a-database.md); a rerun reuses the samples in the same SCRATCH")
+                        "files the simulators write and delete; the converter spools the release's marker genes there "
+                        "too. With the defaults the run takes up to ~100 GB there (estimated; give it 150 GB, docs/building-a-"
+                        "database.md); a rerun reuses the samples in the same SCRATCH")
     args = p.parse_args()
     Job.progress_every = args.progress_every
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
@@ -1042,7 +1057,7 @@ def main():
     convert_key = {"converter": content_hash(CONVERTER), "release": release, "gtdb": release_identity(args.gtdb, release),
                    "placeholders": not args.no_placeholder_models,
                    "gene_neighbours": None if args.no_gene_neighbours else [content_hash(GENE_NEIGHBOURS), content_hash(genome_table)]}
-    final_key = {"convert": convert_key, "protal": file_identity(args.protal)}
+    final_key = {"convert": convert_key, "protal": file_identity(args.protal), "level": args.final_db_level}
     final_done = stages.done("protal_db", final_key) and os.path.isfile(os.path.join(db, "database.protal"))
     # --build packs the taxonomy into database.protal; the collector and the trainer read it (domains,
     # representative genomes). The training database has the same taxonomy.
@@ -1052,8 +1067,10 @@ def main():
         """The converted files of the release in `into`, with the models of the read types but pe as
         placeholders (protal warns when it loads one), packed by --build like model_pe.xml. Says how long it
         took."""
+        # With --scratch, the converter spools the marker genes on the node's disk (~5 GB compressed at r226).
         job = run([sys.executable, CONVERTER, "--gtdb", args.gtdb, "--outdir", into, "--release", release, "-t",
-                   str(args.threads)], os.path.join(args.outdir, "convert.log"), label="converting the release")
+                   str(args.threads)] + (["--tmp", samples_root] if args.scratch else []),
+                  os.path.join(args.outdir, "convert.log"), label="converting the release")
         shutil.copyfile(os.path.join(into, "internal_taxonomy.dmp"), taxonomy)
         took = f"converted in {job.took()}"
         if not args.no_gene_neighbours:
@@ -1138,6 +1155,7 @@ def main():
     # start, while the training database is built and the training data collected, unless one build at a time.
     final_log = os.path.join(args.outdir, "index_and_package.log")
     final_build = None
+    final_level = ("--compress_level", str(args.final_db_level))
 
     def built(name, job, extra=""):
         """The line of a build that ended."""
@@ -1153,9 +1171,10 @@ def main():
 
     # Training data of every read type (pe, se from its first reads, pb and ont from long reads of the same
     # communities), then an independent test set of another design, both profiled against the training database.
-    def collect_command(out, samples, read_pairs, species, abundance, strains, long_bases, seed):
+    def collect_command(out, samples, read_pairs, species, abundance, strains, long_bases, long_samples, seed):
         command = [sys.executable, COLLECTOR, "--db", training_db, "--genome_table", genome_table, "-o", out,
                    "--protal", args.protal, "--simulator", args.simulator, "--samples", str(samples),
+                   "--long_read_samples", str(long_samples),
                    "--read_pairs", read_pairs, "--read_setups", args.read_setups, "--archaea", str(args.archaea),
                    "--species_per_sample", species, "--seed", str(seed), "-t", str(args.threads),
                    "--taxonomy", taxonomy, "--congeners", str(args.congeners), "--read_types", ",".join(read_types),
@@ -1172,12 +1191,13 @@ def main():
     test = os.path.join(samples_root, "test")
     collections_ = [("training data", collect_command(training, args.samples, args.read_pairs, args.species_per_sample,
                                                       args.abundance, args.strains_per_species, args.long_read_bases,
-                                                      args.seed), os.path.join(args.outdir, "training_data.log"))]
+                                                      args.long_read_samples, args.seed),
+                     os.path.join(args.outdir, "training_data.log"))]
     if args.test_samples > 0:
         collections_.append(("independent test set",
                              collect_command(test, args.test_samples, args.test_read_pairs, args.test_species_per_sample,
                                              args.test_abundance, args.test_strains_per_species,
-                                             args.test_long_read_bases, args.seed + 1000),
+                                             args.test_long_read_bases, args.test_samples, args.seed + 1000),
                              os.path.join(args.outdir, "test_data.log")))
 
     if training_db == db:
@@ -1197,11 +1217,12 @@ def main():
     if final_done:
         pass
     elif training_db != db and not args.one_build_at_a_time:
-        final_build = Job(build_command(args.protal, db, args.threads), final_log, built_final_in_background,
+        final_build = Job(build_command(args.protal, db, args.threads, *final_level), final_log, built_final_in_background,
                           label=f"building {os.path.basename(db)} in the background")
         Steps.done(f"building {os.path.basename(db)} meanwhile, in the background (index_and_package.log)")
     elif training_db == db:
-        job = run(build_command(args.protal, db, args.threads), final_log, built_final, f"building {os.path.basename(db)}")
+        job = run(build_command(args.protal, db, args.threads, *final_level), final_log, built_final,
+                  f"building {os.path.basename(db)}")
         Steps.done(built(db, job, remove_full_reference(db)))
     else:
         Steps.done(f"{os.path.basename(db)} is built after the models (--one-build-at-a-time)")
@@ -1218,9 +1239,10 @@ def main():
         them; says before what it makes and after what its tables hold (present and absent taxa per read type)
         and how much space its samples take. With --scratch, its tables are copied to OUTDIR."""
         opts = collector_args(command[2:])
-        units = collections.Counter(unit["type"] for unit in units_of(opts)[1])
-        Steps.start(f"{what} ({os.path.basename(log)}): {', '.join(f'{n * opts.samples} {t}' for t, n in units.items())} "
-                    f"samples, {opts.samples} per design point")
+        samples = collections.Counter()
+        for unit in units_of(opts)[1]:
+            samples[unit["type"]] += unit["samples"]
+        Steps.start(f"{what} ({os.path.basename(log)}): {', '.join(f'{n} {t}' for t, n in samples.items())} samples")
         if simulations[what].seconds is None:
             Steps.done(f"waiting for its simulations in the background ({os.path.basename(simulations[what].log)})")
             simulations[what].finish()  # its line comes from its on_success
@@ -1291,22 +1313,21 @@ def main():
             shutil.copy(name, logs)
     if "pe" in read_types and training_db != db and os.path.isfile(heldout):
         trace_relatives(training, training_db, heldout, logs, args.outdir)
-    Steps.start(f"adding {models} to {os.path.basename(db)} (final_package*.log)")
+    Steps.start(f"adding {models} to {os.path.basename(db)} (final_package.log)")
     if final_build is not None:
         if final_build.seconds is None:
             Steps.done(f"waiting for {os.path.basename(db)}'s build in the background (index_and_package.log)")
         final_build.finish()  # its line comes from built_final_in_background
     elif training_db != db and not final_done:
         Steps.done(f"building {os.path.basename(db)} first (index_and_package.log)")
-        job = run(build_command(args.protal, db, args.threads), final_log, built_final, f"building {os.path.basename(db)}")
+        job = run(build_command(args.protal, db, args.threads, *final_level), final_log, built_final,
+                  f"building {os.path.basename(db)}")
         Steps.done(built(db, job, remove_full_reference(db)))
     # The trained models replace the shipped one and the placeholders in database.protal; --add_model checks
-    # each and copies the other parts as they are.
+    # each and rewrites the database once, with the other parts copied as they are.
     began = time.time()
-    for t in read_types:
-        run([args.protal, "--add_model", prefixes[t] + ".xml", "--read_type", t, "--db", db, "-t", str(args.threads)],
-            os.path.join(args.outdir, "final_package" + ("" if t == "pe" else "_" + t) + ".log"),
-            label=f"adding the {t} model")
+    run([args.protal, "--add_model", ",".join(prefixes[t] + ".xml" for t in read_types), "--read_type", ",".join(read_types),
+         "--db", db, "-t", str(args.threads)], os.path.join(args.outdir, "final_package.log"), label=f"adding {models}")
     Steps.done(f"added in {clock(time.time() - began)}{db_size(db)}")
     with open(os.path.join(db, "build_metadata.tsv"), "w") as fh:
         fh.write("".join(f"{k}\t{v}\n" for k, v in provenance(args, release, genome_table, heldout, n_heldout,

@@ -226,9 +226,9 @@ one differs.
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
 | `--features` | `normalized+adjacency` | `normalized+adjacency`: `NORMALIZED_FEATURES` and `ADJACENCY_FEATURES`; `normalized`: only `NORMALIZED_FEATURES`, to test the gene neighbour features; `all`: every feature column of the dump |
 | `--reference-pmml` | | train on the input fields of an existing model instead |
-| `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 128, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves) |
+| `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 256, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves; at GTDB r226 512 leaves gave a lower log loss than 128 at the same F1) |
 | `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |
-| `--depth-knobs` | off | also choose a knob per depth bin of the sample and store them in the model ([below](#knobs-by-sample-depth)); `build_gtdb_database.py` passes it for PacBio and ONT (`--depth-knob-read-types`) |
+| `--depth-knobs` | off | also fit a knob curve over the sample's depth and store it in the model ([below](#knobs-by-sample-depth)); `build_gtdb_database.py` passes it for every read type (`--depth-knob-read-types`) |
 | `--folds` | 5 | folds of the held-out evaluations |
 | `--evaluation` | `full` | `basic`: the held-out evaluations only; `none`: fit and export only |
 | `--previous-procedure` | off | also compare with the procedure this trainer used before (below), unless `--evaluation none`; `--no-previous-procedure` is the default |
@@ -305,6 +305,16 @@ species of their genus (they hold its reads), and for the other absent taxa: whe
 carry, in this training data, what a relative the database lacks does to its congeners' genes (on
 a GTDB build, real genomes).
 
+The section "Strains" (and the same for the test set) is about present species simulated from
+another genome than the database's representative (the collector's `meta_rep_genome` 0: a strain, as
+most species of real samples are): how often they are missed against those simulated from the
+representative, by the taxon's fragments (1-10, 11-100, more), the identity of the strains found and
+missed, and the conservation features of the missed strains next to the absent taxa that hold a
+held-out congener's reads. A missed strain should look like a found one there, not like a missing
+species' congener; at GTDB r226, 79% of the paired-end model's misses were strains, all those with
+more than 10 fragments, at a median identity of 0.959
+([report](claude/2026-10-02-r226-build-evaluation/README.md)). The summary gives their FN rate.
+
 `check_model_parity.py` re-profiles saved training samples (`--profile_only` on the SAMs a
 `collect_training_data.py` folder keeps) with a model and checks that protal's probabilities are
 the model file's, and that protal computes the features as it did when the training data was
@@ -338,28 +348,35 @@ held-out species as negatives. Choose `--knob` on held-out samples like the ones
 ### Knobs by sample depth
 
 A taxon's features say how much evidence it has, but not how deep its sample is, and the threshold
-that calls best differs with depth: on long reads, which vary most in depth between samples, the
-best threshold of a shallow sample is not that of a deep one. With `--depth-knobs` the trainer bins
-the samples by their fragments over all their taxa (rows), by the digits of that number less one,
-2 to 6 (2: fewer than 1,000; 3: 1,000 to 9,999; ... 6: a million or more), and for each bin with
-more than 50 taxa and 10 present ones picks the threshold (0.05 to 0.95, in steps of 0.01) with the
-highest F1 on species held out. The report's section "Knobs by sample depth" lists them with the
-F1 of each bin at `--knob` and at its own knob; on the test set (`--test-file`) it gives the F1 and
-the errors at the depth knobs, as protal calls by default, next to those at `--knob`. They go into
-the model's header as `<Extension name="protal_depth_knobs" value="2:0.31,4:0.42"/>`.
+that calls best differs with depth: a deep sample holds many more absent taxa with a few reads
+(at GTDB r226 they grew as depth^0.84 while the present ones levelled off), so its best threshold
+is higher. With `--depth-knobs` the trainer fits a knob curve over the sample's depth, log10 of its
+fragments over all its taxa (rows): a point per half decade where the training samples are, placed
+at the median depth of that half decade's samples, its knob the threshold (0.05 to 0.95, in steps of
+0.01) with the highest F1 on species held out of the samples within half a decade of it (so that
+neighbouring points share samples and the curve does not follow each bin's noise), where they have
+more than 50 taxa and 10 present ones. The report's section "Knobs by sample depth" lists the points
+with their F1 at `--knob` and at their knob; on the test set (`--test-file`) it gives the F1 and the
+errors at the curve, as protal calls by default, next to those at `--knob`. The curve goes into the
+model's header as `<Extension name="protal_depth_knob_curve" value="1.300:0.12,4.320:0.92"/>`.
 
 protal sums each sample's fragments over its taxa in the same way and reports the sample's taxa at
-the knob of its bin; a bin without one keeps `--knob`'s default, and `--knob` on the command line
-applies to every sample instead. The log lists a model's knobs and each sample's
-(`Sample S: N fragments, knob K (the model's for depth bin B)`); the training dump's `prediction`,
-the statistics and, unless `--msa_knob` is given, which samples enter the strain MSAs follow the
-sample's knob. Chosen on 0.7.1's long-read training tables, they raised the F1 of that pipeline's
-own test set by 0.007 (PacBio) and 0.015 (ONT)
-([report](claude/2026-10-01-f1-opportunities/README.md)), but on the v0.7.1 benchmark's samples
-they cost PacBio 0.007 to 0.016 and helped Nanopore not at all
-([report](claude/2026-10-01-features-depth-knobs/README.md)): a bin's knob rests on a few training
-samples (the PacBio model's shallowest bin on 5 with 32 absent taxa, which put it at 0.13), and
-samples near a bin edge switch between two knobs. `build_gtdb_database.py` gives them to the PacBio
-and ONT models (`--depth-knob-read-types`), to be tested again with the new database build, whose
-training design differs; `--depth-knob-read-types ""` turns them off. Knobs that change smoothly with
-depth, shrunk towards `--knob` where a depth has few samples, may fare better; not tried.
+the curve's knob for that depth: linear in log10 of the fragments between the points, and the first
+or last point's knob beyond them, so a sample deeper than any trained keeps the deepest knob (train
+at the depths you profile: `build_gtdb_database.py` has points up to 10M read pairs and 6 Gb of long
+reads). `--knob` on the command line applies to every sample instead. The log lists a model's curve
+and each sample's knob (`Sample S: N fragments, knob K (the model's for that depth)`); the training
+dump's `prediction`, the statistics and, unless `--msa_knob` is given, which samples enter the strain
+MSAs follow the sample's knob. At GTDB r226 (0.7.0's features, design points up to 500,000 read
+pairs) the best threshold went from ~0.1 at 1,000-5,000 read pairs to ~0.9 at 500,000, and thresholds
+by depth chosen on the training rows raised the test sets' F1 out of sample by 0.006 (pe; 59% fewer
+false positives), 0.009 (se), 0.033 (PacBio) and 0.013 (ONT)
+([report](claude/2026-10-02-r226-build-evaluation/README.md)). `build_gtdb_database.py` gives every
+model a curve (`--depth-knob-read-types`; `""` turns them off).
+
+Models of 0.7.2 have knobs by whole decade instead (`protal_depth_knobs`, bins 2-6: the digits of the
+fragments less one), which protal still reads: a sample in a bin without a knob keeps `--knob`'s
+default (`Sample S: N fragments, knob K (the model's for depth bin B)`). On the v0.7.1 benchmark those
+cost PacBio 0.007 to 0.016 and helped Nanopore not at all
+([report](claude/2026-10-01-features-depth-knobs/README.md)): a bin's knob rested on a few training
+samples, and samples near a bin edge switched between two knobs, which the curve avoids.

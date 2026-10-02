@@ -789,16 +789,18 @@ namespace protal {
                 continue;
             }
             // The sample's threshold, on this thread's copy of the model: --knob if given, else the model's knob for the
-            // sample's depth (its fragments over all taxa) if it has depth knobs (the trainer's, for long reads), else
-            // --knob's default. Its taxa enter the strain MSAs at --msa_knob if given, else at the same.
+            // sample's depth (its fragments over all taxa) if it has depth knobs (the trainer's), else --knob's default.
+            // Its taxa enter the strain MSAs at --msa_knob if given, else at the same.
             filter.SetKnob(options.GetKnob());
-            if (!options.KnobGiven() && !filter.DepthKnobs().empty()) {
+            if (!options.KnobGiven() && filter.HasDepthKnobs()) {
                 size_t const fragments = profile.Fragments();
                 if (auto const depth_knob = filter.DepthKnob(fragments)) {
                     filter.SetKnob(*depth_knob);
                     #pragma omp critical(print)
-                    std::cout << "Sample " << sample_name << ": " << fragments << " fragments, knob " << *depth_knob
-                              << " (the model's for depth bin " << profiler::DepthKnobBin(fragments) << ")" << std::endl;
+                    std::cout << "Sample " << sample_name << ": " << fragments << " fragments, knob "
+                              << profiler::FeatureString(*depth_knob) << " (the model's "
+                              << (filter.GetDepthKnobCurve().empty() ? "for depth bin " + std::to_string(profiler::DepthKnobBin(fragments))
+                                                                     : std::string("for that depth")) << ")" << std::endl;
                 }
             }
             double const msa_knob = options.MSAKnobGiven() ? options.GetMSAKnob() : filter.GetKnob();
@@ -2166,8 +2168,8 @@ namespace protal {
         return pages * page_size;
     }
 
-    // Loads the PMML presence model and its depth knobs (ParseDepthKnobs) and checks that protal can use it
-    // (ModelContractProblemInXml); exits 2 if not.
+    // Loads the PMML presence model and its depth knobs (ParseDepthKnobCurve, or an older model's ParseDepthKnobs) and
+    // checks that protal can use it (ModelContractProblemInXml); exits 2 if not.
     static profiler::TaxonFilterObj LoadModel(db::DbFile const& file, double knob) {
         std::string read_error;
         auto const xml = file.ReadAll(read_error);
@@ -2183,13 +2185,20 @@ namespace protal {
             exit(2);
         }
         std::map<int, double> depth_knobs;
+        profiler::DepthKnobCurve depth_knob_curve;
         auto problem = profiler::ModelContractProblemInXml(model.value(), *xml);
         if (problem.empty()) problem = profiler::ParseDepthKnobs(*xml, depth_knobs);
+        if (problem.empty()) problem = profiler::ParseDepthKnobCurve(*xml, depth_knob_curve);
+        if (problem.empty() && !depth_knobs.empty() && !depth_knob_curve.empty()) {
+            problem = "it has depth knobs twice, as bins (" + std::string(profiler::kDepthKnobsExtension) + ") and as a curve (" +
+                      std::string(profiler::kDepthKnobCurveExtension) + ")";
+        }
         if (!problem.empty()) {
             std::cerr << "Cannot use the model " << file.Name() << ": " << problem << std::endl;
             exit(2);
         }
         model->SetDepthKnobs(std::move(depth_knobs));
+        model->SetDepthKnobCurve(std::move(depth_knob_curve));
         if (profiler::IsPlaceholderModel(*xml)) {
             std::cerr << "WARNING: " << file.Name() << " is a placeholder, not a trained model: it scores every taxon 0, so "
                       << "no species is reported (--knob 0 lists every taxon with reads). Train a model for this read type "
@@ -2245,8 +2254,12 @@ namespace protal {
             else if (options.DecompressDbMode()) protal::build::DecompressDatabase(options);
             else if (options.UnpackDbMode()) protal::build::UnpackDatabase(options);
             else {
-                LoadModel(db::DbFile::OnDisk(options.GetAddModel()), options.GetKnob());  // exits 2 if unusable
-                protal::build::AddModel(options, options.GetAddModel(), Info(options.AddModelReadType()).model_file);
+                std::vector<std::pair<std::string, std::string>> models;  // file, member
+                for (auto const& [file, read_type] : options.AddModels()) {
+                    LoadModel(db::DbFile::OnDisk(file), options.GetKnob());  // exits 2 if unusable, before anything is written
+                    models.emplace_back(file, Info(read_type).model_file);
+                }
+                protal::build::AddModel(options, models);
             }
             return RunStatus::Get().Finish();
         }
@@ -2311,7 +2324,15 @@ namespace protal {
                     auto const model_file = options.ModelDbFile(info.type);
                     std::cout << "Model of " << info.name << " reads: " << model_file.Name() << std::endl;
                     auto const& model = models[static_cast<size_t>(info.type)].emplace(LoadModel(model_file, options.GetKnob()));
-                    if (!model.DepthKnobs().empty()) {
+                    if (!model.GetDepthKnobCurve().empty()) {
+                        std::string knobs;
+                        for (auto const& [x, knob] : model.GetDepthKnobCurve()) {
+                            knobs += (knobs.empty() ? "" : ", ") + profiler::FeatureString(x) + ": " + profiler::FeatureString(knob);
+                        }
+                        std::cout << "  knobs by sample depth (log10 of the sample's fragments: knob; linear between, the "
+                                     "ends' beyond): " << knobs << (options.KnobGiven() ? "; not used, --knob is given" : "")
+                                  << std::endl;
+                    } else if (!model.DepthKnobs().empty()) {
                         std::string knobs;
                         for (auto const& [bin, knob] : model.DepthKnobs()) {
                             knobs += (knobs.empty() ? "" : ", ") + std::to_string(bin) + ": " + profiler::FeatureString(knob);

@@ -63,21 +63,25 @@ private:
     CommunityProfileDesigner designer_;
     std::mt19937_64 rng_;
 
+    // A sample's design (its assignments), prepared (prepare_sample); its reads are written later.
     SampleOutput simulate_single(
         const ProfileDesignOptions& profile_options,
         const std::string& sample_name,
-        const std::filesystem::path& output_dir,
         const std::unordered_map<std::string, std::uint64_t>& genome_lengths,
-        std::uint64_t paired_read_length,
-        bool skip_reads,
-        bool keep_tmp);
+        std::uint64_t paired_read_length);
 
-    void render_sample(
-        SampleOutput& sample,
-        const std::filesystem::path& output_dir,
-        std::uint64_t paired_read_length,
-        bool skip_reads,
-        bool keep_tmp);
+    // Draws each assignment's ART seed from rng_, as many as a run draws in the same order whether or not it writes
+    // reads, and its coverage: everything of a sample that depends on rng_, so that write_reads can run on threads.
+    void prepare_sample(SampleOutput& sample, std::uint64_t paired_read_length);
+
+    // Runs ART for each assignment of a prepared sample and appends its reads to the sample's _R1.fq.gz and
+    // _R2.fq.gz, BGZF-compressed as they arrive (the same bytes as compressing the whole files); each genome's
+    // temporary files go once appended, unless keep_tmp. With skip_reads, empty placeholder files.
+    void write_reads(SampleOutput& sample, const std::filesystem::path& output_dir, bool skip_reads, bool keep_tmp) const;
+
+    // write_reads for all samples, art_.options().threads of them at a time (each one thread: ART is one).
+    void write_all_reads(std::vector<SampleOutput>& samples, const std::filesystem::path& output_dir, bool skip_reads,
+                         bool keep_tmp) const;
 };
 
 }  // namespace protal::sim

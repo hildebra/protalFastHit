@@ -71,7 +71,8 @@ def parse_args(argv=None):
     p.add_argument("--simulator", default="simulate_metagenomes", help="simulate_metagenomes binary")
     p.add_argument("--samples", type=int, default=4, help="samples per design point (default: 4)")
     p.add_argument("--read_pairs", default="1000,5000,20000,100000,500000",
-                   help="comma-separated read pairs per sample, one design point each")
+                   help="comma-separated read pairs per sample, one design point each; DEPTH:SAMPLES gives a point other "
+                        "samples than --samples (e.g. 10000000:2 for deep samples)")
     p.add_argument("--read_setups", default="100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50",
                    help="comma-separated LENGTH:ART_PROFILE:FRAGMENT_MEAN:FRAGMENT_SD, one design point each "
                         "(HSXt: HiSeq X, the closest of ART's profiles to NovaSeq; file=R1.txt+R2.txt: quality "
@@ -91,8 +92,12 @@ def parse_args(argv=None):
     p.add_argument("--read_types", default="pe",
                    help="comma-separated read types to collect: pe, se, pb, ont (default pe)")
     p.add_argument("--long_read_bases", default="300000,1500000,6000000,30000000,150000000",
-                   help="bases per long-read sample (pb, ont), one design point each; point i replays the "
-                        "communities of paired-end point i (default: about the paired-end points' bases)")
+                   help="bases per long-read sample (pb, ont), one design point each, DEPTH:SAMPLES for other samples "
+                        "than --long_read_samples; point i replays the communities of the paired-end points of the i-th "
+                        "--read_pairs depth, of every read setup in turn (default: about the paired-end points' bases)")
+    p.add_argument("--long_read_samples", type=int, default=0,
+                   help="samples per long-read design point (default: --samples); at most the samples of the paired-end "
+                        "points whose communities it replays")
     p.add_argument("--pb_setup", default="hifi:15000:3000:3",
                    help="PacBio reads: hifi:LENGTH_MEAN:LENGTH_SD:Q_SD, HiFi reads by hifi_reads.py, their quality by "
                         "their length and Q_SD around it (default), or a pbsim3 setup as --ont_setup's")
@@ -298,14 +303,31 @@ def run_protal(command, log, samples):
 # paired-end point (se profiles its first reads); pb and ont units have points of their own, whose samples
 # replay the communities of a paired-end point.
 
+def depths_and_samples(text, what):
+    """A comma-separated list of DEPTH or DEPTH:SAMPLES (--read_pairs, --long_read_bases) -> [(depth as given,
+    samples, or None where a depth gives none)]: deep points can have fewer samples than the others."""
+    out = []
+    for item in text.split(","):
+        depth, _, n = item.strip().partition(":")
+        try:
+            if float(depth) <= 0 or (n and int(n) <= 0):
+                raise ValueError
+        except ValueError:
+            sys.exit(f"{what} {text!r}: expected DEPTH or DEPTH:SAMPLES, comma-separated, both positive")
+        out.append((depth, int(n) if n else None))
+    return out
+
+
 def design_points(opts):
-    """Paired-end design points: read setups x depths. A setup's ART profile is a built-in one (-ss) or
-    file=R1.txt+R2.txt (or file=P.txt for both reads): quality profiles art_profiler_illumina made from real
-    reads, which ART uses instead of the built-in one."""
+    """Paired-end design points: read setups x depths, each depth with its samples (--read_pairs DEPTH[:SAMPLES],
+    --samples by default). A setup's ART profile is a built-in one (-ss) or file=R1.txt+R2.txt (or file=P.txt for
+    both reads): quality profiles art_profiler_illumina made from real reads, which ART uses instead of the
+    built-in one."""
     setups = [s.split(":") for s in opts.read_setups.split(",")]
     if any(len(s) != 4 for s in setups):
         sys.exit(f"--read_setups {opts.read_setups!r}: expected LENGTH:ART_PROFILE:FRAGMENT_MEAN:FRAGMENT_SD, comma-separated")
-    depths = opts.read_pairs.split(",")
+    depth_samples = [(d, n or opts.samples) for d, n in depths_and_samples(opts.read_pairs, "--read_pairs")]
+    depths = [d for d, _ in depth_samples]
     for what, values in (("--read_setups", [":".join(s) for s in setups]), ("--read_pairs", depths)):
         twice = sorted(v for v, n in collections.Counter(values).items() if n > 1)
         if twice:  # their points would share a folder
@@ -318,9 +340,10 @@ def design_points(opts):
         tag = "" if lengths[length] == 1 else "_" + (f"custom{i}" if profile.startswith("file=") else profile)
         if profiles[(length, profile)] > 1 and not profile.startswith("file="):
             tag += f"_f{fragment_mean}-{fragment_sd}"
-        for pairs in depths:
+        for depth_index, (pairs, samples) in enumerate(depth_samples):
             points.append({"name": f"rl{length}{tag}_p{pairs}", "read_length": length, "sequencer": profile,
-                           "fragment_mean": fragment_mean, "fragment_sd": fragment_sd, "read_pairs": pairs})
+                           "fragment_mean": fragment_mean, "fragment_sd": fragment_sd, "read_pairs": pairs,
+                           "samples": samples, "depth_index": depth_index})
     return points
 
 
@@ -362,24 +385,47 @@ def parse_long_setup(text):
 
 
 def units_of(opts):
-    """The units to collect, in table order."""
+    """The units to collect, in table order. A unit has its samples (a paired-end point's for pe and se); a long-read
+    point replays communities of the paired-end points of the depth at its own place in the lists (modulo their
+    number), of every read setup in turn, so that it can have more samples than one paired-end point
+    (--long_read_samples, DEPTH:SAMPLES in --long_read_bases)."""
     pe_points = design_points(opts)
     units = []
     for read_type in opts.read_types:
         if read_type in ("pe", "se"):
-            units += [{"type": read_type, "point": p, "name": p["name"] + ("_se" if read_type == "se" else "")}
-                      for p in pe_points]
+            units += [{"type": read_type, "point": p, "name": p["name"] + ("_se" if read_type == "se" else ""),
+                       "samples": p["samples"]} for p in pe_points]
         else:
             setup = parse_long_setup(opts.pb_setup if read_type == "pb" else opts.ont_setup)
-            long_depths = opts.long_read_bases.split(",")
-            if len(set(long_depths)) != len(long_depths):  # their points would share a folder
+            long_depths = depths_and_samples(opts.long_read_bases, "--long_read_bases")
+            if len({d for d, _ in long_depths}) != len(long_depths):  # their points would share a folder
                 sys.exit(f"--long_read_bases {opts.long_read_bases!r} lists a depth more than once")
-            for i, bases in enumerate(long_depths):
+            n_depths = max(p["depth_index"] for p in pe_points) + 1
+            for i, (bases, given) in enumerate(long_depths):
                 name = f"{read_type}_b{bases}"
+                communities = [p for p in pe_points if p["depth_index"] == i % n_depths]
+                available = sum(p["samples"] for p in communities)
+                # --long_read_samples (or --samples) where the communities allow it; DEPTH:SAMPLES exactly.
+                samples = given or min(opts.long_read_samples or opts.samples, available)
+                if samples > available:
+                    sys.exit(f"{name}: {samples} long-read samples, but the paired-end points it replays the communities "
+                             f"of ({', '.join(p['name'] for p in communities)}) have {available} samples: give fewer "
+                             "(DEPTH:SAMPLES in --long_read_bases) or more paired-end samples")
                 units.append({"type": read_type, "name": name, "setup": setup, "bases": int(float(bases)),
-                              "community": pe_points[i % len(pe_points)],
+                              "samples": samples, "communities": communities,
                               "point": {"name": name, "read_length": str(setup["length_mean"]), "read_pairs": bases}})
     return pe_points, units
+
+
+def unit_communities(unit, opts):
+    """The community samples a long-read unit replays, in order: [(paired-end point, its sample name)], the first
+    unit["samples"] of its community points' samples, point after point (from their manifests)."""
+    out = []
+    for point in unit["communities"]:
+        for sample in dict.fromkeys(row["sample"] for row in manifest_rows(point_dirs(point, opts)[0])):
+            if len(out) < unit["samples"]:
+                out.append((point, sample))
+    return out
 
 
 def point_dirs(point, opts):
@@ -464,7 +510,7 @@ def simulation_key(point, index, opts, clades):
 def simulation_command(point, index, opts, threads, clades):
     """The simulator's command for a design point, and None, or why there is none."""
     base, sim, profiles = point_dirs(point, opts)
-    command = [opts.simulator, "--genome_table", opts.genome_table, "-o", sim, "-n", str(opts.samples),
+    command = [opts.simulator, "--genome_table", opts.genome_table, "-o", sim, "-n", str(point["samples"]),
                "--sample_prefix", point["name"] + "_s", "--total_read_pairs", point["read_pairs"],
                "--species_per_sample", opts.species_per_sample, "--read_length", point["read_length"],
                *art_profile_args(point["sequencer"]), "--fragment_mean", point["fragment_mean"],
@@ -632,6 +678,7 @@ def long_read_sample(task):
         if reads != len(names):
             return f"{task['sample']}: hifi_reads.py made {reads} reads of {len(names)} templates"
         os.replace(task["out"] + ".partial", task["out"])
+        shutil.rmtree(tmp, ignore_errors=True)  # its templates: ~6 GB for a 6 Gb sample, not kept for the point's others
         return None
     prefix = os.path.join(tmp, "r")
     command = [task["pbsim"], "--strategy", "templ", "--method", setup["method"], f"--{setup['method']}", task["model"],
@@ -661,30 +708,33 @@ def long_read_sample(task):
     if reads != len(names) or lines % 4:
         return f"{task['sample']}: pbsim made {reads} reads of {len(names)} templates; see {log_path}"
     os.replace(task["out"] + ".partial", task["out"])
+    shutil.rmtree(tmp, ignore_errors=True)  # its templates and pbsim3's reads, not kept for the point's other samples
     return None
 
 
 def simulate_long(points, opts, jobs, keys=None):
-    """Long reads (pb, ont) of design points [(index, unit)] with pbsim3: each sample replays the community of a
-    sample of the unit's paired-end point (from its manifest), each genome weighted by relative abundance times
-    length (long_read_sample). The samples of all the points are simulated `jobs` at a time; once a point's
+    """Long reads (pb, ont) of design points [(index, unit)]: each sample replays the community of a sample of the
+    unit's paired-end points (unit_communities, from their manifests), each genome weighted by relative abundance
+    times length (long_read_sample). The samples of all the points are simulated `jobs` at a time; once a point's
     are done, its sim/samples.tsv (sample, reads, truth, community sample) is written, and keys[name] to its
     simulated.json, so that an interrupted point is simulated again. -> {point name: why it failed}."""
     started, tasks, points_of = time.time(), [], {}
     for index, unit in points:
         sim = point_dirs(unit["point"], opts)[1]
-        community_dir = point_dirs(unit["community"], opts)[0]
-        _, pe_rows, _ = map_rows(os.path.join(community_dir, "sim", "protal.meta"))
-        truth = {row["SAMPLEID"]: row["PROFILE_TRUTH"] for row in pe_rows}
-        by_sample = collections.OrderedDict()
-        for row in manifest_rows(community_dir):
-            by_sample.setdefault(row["sample"], []).append(row)
+        truth, genomes_of = {}, collections.defaultdict(list)
+        for point in unit["communities"]:
+            community_dir = point_dirs(point, opts)[0]
+            _, pe_rows, _ = map_rows(os.path.join(community_dir, "sim", "protal.meta"))
+            truth.update({row["SAMPLEID"]: row["PROFILE_TRUTH"] for row in pe_rows})
+            for row in manifest_rows(community_dir):
+                genomes_of[row["sample"]].append(row)
         model = pbsim_model(opts, unit["setup"]["model"]) if unit["setup"]["method"] in PBSIM_METHODS else None
         shutil.rmtree(os.path.join(sim, "tmp"), ignore_errors=True)
         os.makedirs(os.path.join(sim, "reads"), exist_ok=True)
         rows = []
-        for s, (community, genomes) in enumerate(by_sample.items()):
-            sample = f"{unit['name']}_s_{community.rsplit('_', 1)[-1]}"
+        for s, (_, community) in enumerate(unit_communities(unit, opts)):
+            genomes = genomes_of[community]
+            sample = f"{unit['name']}_s_{s + 1}"
             out = os.path.join(sim, "reads", sample + ".fq.gz")
             rows.append((sample, out, truth[community], community))
             tasks.append(({"sample": sample, "out": out, "bases": unit["bases"], "setup": unit["setup"], "model": model,
@@ -823,7 +873,11 @@ def community_of(unit, sample, opts):
         next(fh)
         for name, _, _, community in (line.rstrip("\n").split("\t") for line in fh if line.strip()):
             if name == sample:
-                return unit["community"], community
+                # The simulator names a point's samples <point>_s_<n>.
+                point = next((p for p in unit["communities"] if community.rsplit("_s_", 1)[0] == p["name"]), None)
+                if point is None:
+                    sys.exit(f"{sample}: its community {community} is of none of {unit['name']}'s paired-end points")
+                return point, community
     sys.exit(f"{sample}: not in the samples of {unit['name']}")
 
 
@@ -916,7 +970,7 @@ def main(argv=None):
     # Paired-end simulation, which every read type needs (se reads it, pb and ont replay its communities): ART
     # simulates one genome at a time, so design points run in parallel.
     needed = {u["point"]["name"] for u in units if u["type"] in ("pe", "se")} | \
-             {u["community"]["name"] for u in units if u["type"] in LONG_READ_TYPES}
+             {p["name"] for u in units if u["type"] in LONG_READ_TYPES for p in u["communities"]}
     keys = {p["name"]: simulation_key(p, i, opts, clades) for i, p in enumerate(pe_points) if p["name"] in needed}
     pending = []
     for i, p in enumerate(pe_points):
@@ -930,22 +984,31 @@ def main(argv=None):
             shutil.rmtree(base)
         pending.append((i, p))
     if pending:
+        # The costliest points (samples x read pairs) first, each with threads in proportion to its share of the cost,
+        # at least one and at most its samples (simulate_metagenomes writes that many samples at a time): a deep
+        # point's samples are then simulated side by side, not one after the other while the shallow points are done.
+        cost = {p["name"]: p["samples"] * float(p["read_pairs"]) for _, p in pending}
+        total = sum(cost.values()) or 1.0
+        pending.sort(key=lambda ip: -cost[ip[1]["name"]])
+        threads_of = {p["name"]: max(1, min(p["samples"], round(opts.threads * cost[p["name"]] / total))) for _, p in pending}
         workers = max(1, min(jobs, len(pending)))
-        threads = max(1, opts.threads // workers)
-        print(f"simulating {len(pending)} paired-end design points, {workers} at a time", flush=True)
+        more = [f"{name} {n}" for name, n in threads_of.items() if n > 1]
+        print(f"simulating {len(pending)} paired-end design points, {workers} at a time"
+              + (f" (threads: {', '.join(more)}, the others 1)" if more else ""), flush=True)
         started = time.time()
 
         def simulate_point(ip):
             began = time.time()
-            return simulate(ip[1], ip[0], opts, threads, clades, keys[ip[1]["name"]]), time.time() - began
+            return simulate(ip[1], ip[0], opts, threads_of[ip[1]["name"]], clades, keys[ip[1]["name"]]), time.time() - began
 
         failures = []
         with concurrent.futures.ThreadPoolExecutor(workers) as executor:
-            futures = {executor.submit(simulate_point, ip): ip[1]["name"] for ip in pending}
+            futures = {executor.submit(simulate_point, ip): ip[1] for ip in pending}
             for done, future in enumerate(concurrent.futures.as_completed(futures), 1):
                 failure, seconds = future.result()
                 failures += [failure] if failure else []
-                print(f"{futures[future]} {'failed' if failure else 'simulated'} ({opts.samples} samples) in "
+                point = futures[future]
+                print(f"{point['name']} {'failed' if failure else 'simulated'} ({point['samples']} samples) in "
                       f"{clock(seconds)}: {done} of {len(pending)} design points, {clock(time.time() - started)} in all",
                       flush=True)
         if failures:
@@ -956,7 +1019,8 @@ def main(argv=None):
     for i, unit in enumerate(long_units):
         base = point_dirs(unit["point"], opts)[0]
         pbsim = unit["setup"]["method"] in PBSIM_METHODS
-        keys[unit["name"]] = {"community": keys[unit["community"]["name"]], "setup": unit["setup"], "bases": unit["bases"],
+        keys[unit["name"]] = {"communities": [keys[p["name"]] for p in unit["communities"]], "samples": unit["samples"],
+                              "setup": unit["setup"], "bases": unit["bases"],
                               "index": i, "seed": opts.seed, "pbsim": identity(opts.pbsim) if pbsim else None,
                               "model": identity(pbsim_model(opts, unit["setup"]["model"])) if pbsim else hifi_model(),
                               "reads": LONG_READS}
@@ -966,7 +1030,7 @@ def main(argv=None):
         if not simulated(unit, opts):
             pending.append((i, unit))
     if pending:
-        print(f"simulating {len(pending)} long-read design points with pbsim3 ({len(pending) * opts.samples} samples, "
+        print(f"simulating {len(pending)} long-read design points ({sum(u['samples'] for _, u in pending)} samples, "
               f"{jobs} at a time)", flush=True)
         failures = simulate_long(pending, opts, jobs, keys)
         if failures:
@@ -981,7 +1045,7 @@ def main(argv=None):
         folder = profile_dir(unit, opts)
         key = {"simulated": keys[unit["point"]["name"] if unit["type"] in ("pe", "se") else unit["name"]],
                "db": db, "protal": protal, "read_type": unit["type"]}
-        if same_key(os.path.join(folder, "profiled.json"), key) and len(dumps_of(unit, opts)) >= opts.samples:
+        if same_key(os.path.join(folder, "profiled.json"), key) and len(dumps_of(unit, opts)) >= unit["samples"]:
             continue
         if not same_key(os.path.join(folder, "profiling.json"), key):  # else a stopped run's: go on with it
             if dumps_of(unit, opts):
@@ -997,8 +1061,8 @@ def main(argv=None):
             folder = profile_dir(unit, opts)
             os.replace(os.path.join(folder, "profiling.json"), os.path.join(folder, "profiled.json"))
     for unit in units:
-        if len(dumps_of(unit, opts)) != opts.samples:
-            sys.exit(f"{unit['name']}: expected {opts.samples} training dumps in {profile_dir(unit, opts)}, "
+        if len(dumps_of(unit, opts)) != unit["samples"]:
+            sys.exit(f"{unit['name']}: expected {unit['samples']} training dumps in {profile_dir(unit, opts)}, "
                      f"found {len(dumps_of(unit, opts))}")
 
     context = (domains, novel, reps, db_lineages, sim_lineages)

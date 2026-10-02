@@ -845,10 +845,10 @@ class DepthKnobsTest(WorkDir):
     """A model with knobs by sample depth (random_forest_cmdline.py --depth-knobs, in its header): a sample's taxa are
     reported at the knob of its depth bin unless --knob is given."""
 
-    def model(self, name, value):
+    def model(self, name, value, extension="protal_depth_knobs", more=""):
         with open(db_file("model_pe.xml")) as fh:
             xml = fh.read()
-        xml, n = re.subn(r"(<Header\b[^>]*[^/]>)", r'\1\n  <Extension name="protal_depth_knobs" value="' + value + '"/>',
+        xml, n = re.subn(r"(<Header\b[^>]*[^/]>)", r'\1\n  <Extension name="' + extension + '" value="' + value + '"/>' + more,
                          xml, count=1)
         self.assertEqual(n, 1, "the model has a header")
         path = self.path(name)
@@ -883,6 +883,27 @@ class DepthKnobsTest(WorkDir):
         rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "bad", "--model", model)
         self.assertEqual(rc, 2, log[-3000:])
         self.assertIn("its depth knobs are malformed ('9:0.4'", log)
+
+    def test_a_knob_curve(self):
+        # The trainer's knob curve (since 0.7.3): read at the sample's depth, linear between its points and the ends'
+        # beyond them, so that every depth has a knob of the model's.
+        curve = "protal_depth_knob_curve"
+        model = self.model("curve.xml", "0.000:0,12.000:0", curve)
+        log, curved = self.profile("curved", "--model", model)
+        self.assertIn("knobs by sample depth (log10 of the sample's fragments: knob; linear between, the ends' beyond): "
+                      "0: 0, 12: 0", log)
+        self.assertRegex(log, r"Sample sa: \d+ fragments, knob 0 \(the model's for that depth\)")
+        _, at_zero = self.profile("at_zero_curve", "--knob", "0")
+        self.assertEqual(curved, at_zero)
+        log, given = self.profile("curve_given", "--model", model, "--knob", "0.5")
+        self.assertIn("; not used, --knob is given", log)
+        self.assertEqual(given, self.profile("curve_default")[1])
+        for name, value, more, problem in (
+                ("curve_bad.xml", "3:0.2,2:0.4", "", "its depth knob curve is malformed ('2:0.4'"),
+                ("both.xml", "2:0.2", '\n  <Extension name="protal_depth_knobs" value="2:0.3"/>', "it has depth knobs twice")):
+            rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name[:-4], "--model", self.model(name, value, curve, more))
+            self.assertEqual(rc, 2, log[-3000:])
+            self.assertIn(problem, log)
 
 
 class BuildUniquenessTest(WorkDir):
@@ -1641,6 +1662,35 @@ class ReadTypeModelTest(WorkDir):
             self.assertTrue({line.split("\t")[1] for line in pe if "s__" in line} <= reported)
         rc, log = self.profile_only("out_pe_again")
         self.assertNotIn("placeholder", log, "the paired-end model is not one")
+
+    def test_several_models_at_once(self):
+        # --add_model A,B --read_type se,pb: every model checked first, the database rewritten once.
+        pe = db_file("model_pe.xml")
+        rc, log = run(self.work, "--add_model", f"{pe},{pe}", "--read_type", "se,pb", "--db", self.db, "-t", "2")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn(f"Stored {pe} as model_se.xml in {self.bundle}", log)
+        self.assertIn(f"Stored {pe} as model_PB.xml in {self.bundle}", log)
+        self.assertEqual(log.count("Models for read types:"), 1, "one rewrite")
+        self.assertRegex(log, r"Models for read types: [^\n]*\bse\b[^\n]*\bpb\b")
+        rc, log = run(self.work, "--unpack_db", "--db", self.bundle, "--unpack_dir", self.path("unpacked_two"))
+        self.assertEqual(rc, 0, log[-3000:])
+        for member in ("model_se.xml", "model_PB.xml"):
+            self.assertTrue(filecmp.cmp(self.path("unpacked_two", member), pe, shallow=False), member)
+        # Their read types one each, and every model usable, else nothing is written.
+        with open(self.bundle, "rb") as fh:
+            before = fh.read()
+        bad = self.path("bad_second.xml")
+        with open(bad, "w") as fh:
+            fh.write("<PMML>\n")
+        for extra, code, problem in (((f"{pe},{pe}", "se"), 30, "--add_model gives 2 models: --read_type must give as many"),
+                                     ((f"{pe},{pe}", "se,se"), 30, "--read_type names se twice for --add_model"),
+                                     ((pe, "se,pb"), 30, "--read_type gives 2 read types for --add_model's 1 model"),
+                                     ((f"{pe},{bad}", "se,ont"), 2, "Cannot load the model " + bad)):
+            rc, log = run(self.work, "--add_model", extra[0], "--read_type", extra[1], "--db", self.db)
+            self.assertEqual(rc, code, log[-3000:])
+            self.assertIn(problem, log)
+            with open(self.bundle, "rb") as fh:
+                self.assertEqual(fh.read(), before, "the database is unchanged")
 
     def test_an_unusable_model_is_not_added(self):
         with open(self.bundle, "rb") as fh:
@@ -2558,6 +2608,42 @@ class SimulatorTest(WorkDir):
             self.assertGreaterEqual(found.count("d__A"), 2, sample)
         # The four species drawn at random are d__A 4 times in 34, so about 2.5 d__A per sample, not 6.
         self.assertLess(sum(f.count("d__A") for f in domains.values()) / len(domains), 3.5)
+
+    def test_samples_on_threads_are_the_same(self):
+        # -t: samples written side by side (their designs and ART seeds drawn first, in order), each sample's reads
+        # BGZF-compressed as each genome's are appended: the same files byte for byte on 1 and 3 threads, and no
+        # temporary files left.
+        if not os.access(SIMULATE, os.X_OK):
+            self.skipTest(f"simulate_metagenomes not found at {SIMULATE}")
+        if shutil.which("art_illumina") is None:
+            self.skipTest("art_illumina not found")
+        with open(self.path("genomes.tsv"), "w") as table:
+            for sp in range(6):
+                fasta = self.path(f"t{sp}.fa.gz")
+                rng = random.Random(sp)
+                with gzip.open(fasta, "wt") as fh:
+                    fh.write(">c1\n" + "".join(rng.choice("ACGT") for _ in range(6000)) + "\n")
+                table.write(f"t{sp}\td__B;p__P;c__C;o__O;f__F;g__G;s__G sp{sp}\t{fasta}\n")
+        outputs = {}
+        for threads in ("1", "3"):
+            out = f"sim_t{threads}"
+            rc, log = run(self.work, "--genome_table", "genomes.tsv", "--seed", "4", "--samples", "4",
+                          "--total_read_pairs", "600", "--species_per_sample", "3", "--read_length", "100",
+                          "--sequencer", "HS20", "--fragment_mean", "300", "--fragment_stdev", "30", "-t", threads,
+                          "--output_dir", out, binary=SIMULATE, timeout=300)
+            self.assertEqual(rc, 0, log[-3000:])
+            files = sorted(os.listdir(self.path(out, "reads")))
+            self.assertEqual(files, [f"sample_{i}_R{r}.fq.gz" for i in range(1, 5) for r in (1, 2)])
+            self.assertEqual([f for f in os.listdir(self.path(out)) if f.endswith("_tmp")], [], "temporary files left")
+            outputs[threads] = {}
+            for f in files:
+                with open(self.path(out, "reads", f), "rb") as fh:
+                    outputs[threads][f] = fh.read()
+            with open(self.path(out, "manifest.tsv")) as fh:
+                outputs[threads]["manifest"] = re.sub(re.escape(out), "OUT", fh.read()).encode()
+        self.assertEqual(outputs["1"], outputs["3"])
+        with gzip.open(self.path("sim_t1", "reads", "sample_1_R1.fq.gz"), "rt") as fh:
+            self.assertEqual(sum(1 for _ in fh) // 4, 600)
 
 
 class PhasingTest(WorkDir):

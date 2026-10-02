@@ -468,42 +468,47 @@ namespace protal::build {
                   << " uses these files (" << options.GetBundle()->Path() << " can be removed)" << std::endl;
     }
 
-    // --add_model (the model checked already): stores the PMML file model as member or file `name` of
-    // the database, replacing the one there. database.protal is rewritten via database.protal.partial
-    // with its other members' frames copied as they are (db::Write checks it); in a folder of separate
-    // files the model is copied next to them.
-    static void AddModel(protal::Options const& options, std::string const& model, std::string const& name) {
+    // --add_model (the models checked already): stores each PMML file of `models` (file, member name) as member or
+    // file of the database, replacing the one there. database.protal is rewritten once, via database.protal.partial,
+    // with its other members' frames copied as they are (db::Write checks it); in a folder of separate files each
+    // model is copied next to them.
+    static void AddModel(protal::Options const& options, std::vector<std::pair<std::string, std::string>> const& models) {
         namespace fs = std::filesystem;
         std::error_code ec;
         if (!options.IsBundle()) {
-            std::string const target = (fs::path(options.GetLocation().dir) / name).string();
-            bool const replaces = fs::exists(target, ec);
-            std::string const partial = target + ".partial";
-            fs::copy_file(model, partial, fs::copy_options::overwrite_existing, ec);
-            std::ifstream a(model, std::ios::binary), b(partial, std::ios::binary);
-            bool const same = !ec && std::equal(std::istreambuf_iterator<char>(a), std::istreambuf_iterator<char>(),
-                                                std::istreambuf_iterator<char>(b), std::istreambuf_iterator<char>());
-            if (same) fs::rename(partial, target, ec);
-            if (!same || ec) {
-                std::cerr << "Writing " << target << " failed" << (ec ? ": " + ec.message() : "") << std::endl;
-                fs::remove(partial, ec);
-                exit(8);
+            for (auto const& [model, name] : models) {
+                std::string const target = (fs::path(options.GetLocation().dir) / name).string();
+                bool const replaces = fs::exists(target, ec);
+                std::string const partial = target + ".partial";
+                fs::copy_file(model, partial, fs::copy_options::overwrite_existing, ec);
+                std::ifstream a(model, std::ios::binary), b(partial, std::ios::binary);
+                bool const same = !ec && std::equal(std::istreambuf_iterator<char>(a), std::istreambuf_iterator<char>(),
+                                                    std::istreambuf_iterator<char>(b), std::istreambuf_iterator<char>());
+                if (same) fs::rename(partial, target, ec);
+                if (!same || ec) {
+                    std::cerr << "Writing " << target << " failed" << (ec ? ": " + ec.message() : "") << std::endl;
+                    fs::remove(partial, ec);
+                    exit(8);
+                }
+                std::cout << "Stored " << model << " as " << target << (replaces ? " (replaced the previous one)" : "") << std::endl;
             }
-            std::cout << "Stored " << model << " as " << target << (replaces ? " (replaced the previous one)" : "") << std::endl;
             return;
         }
         auto const& bundle = *options.GetBundle();
         std::vector<db::Source> sources;
-        bool replaces = false;
+        std::set<std::string> replaced;
         for (auto const& member : bundle.Members()) {
-            if (member.name == name) {
-                sources.push_back({name, model});
-                replaces = true;
+            auto const it = std::find_if(models.begin(), models.end(), [&member](auto const& m) { return m.second == member.name; });
+            if (it != models.end()) {
+                sources.push_back({member.name, it->first});
+                replaced.insert(member.name);
             } else {
                 sources.push_back({member.name, bundle.Path(), member.frames});
             }
         }
-        if (!replaces) sources.push_back({name, model});
+        for (auto const& [model, name] : models) {
+            if (!replaced.contains(name)) sources.push_back({name, model});
+        }
         std::string error;
         auto const written = db::Write(bundle.Path(), sources, options.CompressionParams(), error);
         if (!written) {
@@ -512,8 +517,12 @@ namespace protal::build {
         }
         std::vector<std::string> names;
         for (auto const& source : sources) names.push_back(source.name);
-        std::cout << "Stored " << model << " as " << name << " in " << bundle.Path() << (replaces ? " (replaced the previous one)" : "")
-                  << "; " << HumanBytes(*written) << ". Models for read types: " << ModelCoverage(names).first << std::endl;
+        for (auto const& [model, name] : models) {
+            std::cout << "Stored " << model << " as " << name << " in " << bundle.Path()
+                      << (replaced.contains(name) ? " (replaced the previous one)" : "") << std::endl;
+        }
+        std::cout << bundle.Path() << ": " << HumanBytes(*written) << ". Models for read types: " << ModelCoverage(names).first
+                  << std::endl;
     }
 
     // --compress_db: rewrites an existing database's index and reference compressed, without
