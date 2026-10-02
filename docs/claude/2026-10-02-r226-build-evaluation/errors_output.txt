@@ -1,0 +1,266 @@
+
+=================== pe, species held out (31186 taxa, 180 samples)
+F1 0.9518  TP 10095 FP 632 FN 390
+
+FP by source x deepest rank shared with a simulated species:
+meta_relative_rank         class  domain  family  genus  order  phylum  All
+source                                                                     
+near a species the db has      7       0      48    121     14       3  193
+near held-out class            0       2       0      0      0       0    2
+near held-out family           1       3       0      0      7       3   14
+near held-out genus            3       3       2      0      1       0    9
+near held-out order            6       3       0      0      0       0    9
+near held-out phylum           0       1       0      0      0       0    1
+near held-out species          9       0      38    327     21       9  404
+All                           26      12      88    448     43      15  632
+
+FP by source x fragments:
+fragments                    1   2  3-5  6-10  11-100  >100  All
+source                                                          
+near a species the db has  147  31   11     3       1     0  193
+near held-out class          2   0    0     0       0     0    2
+near held-out family        11   0    1     2       0     0   14
+near held-out genus          7   0    2     0       0     0    9
+near held-out order          8   0    1     0       0     0    9
+near held-out phylum         1   0    0     0       0     0    1
+near held-out species      173  41   57    36      87    10  404
+All                        349  72   72    41      88    10  632
+FP with a read identical to the taxon's gene (top_identity 1): 349 of 632; near a species the db has: 76 of 193
+
+FN by simulated from the representative (1) or another genome (0) x fragments:
+fragments          1   2  3-5  6-10  11-100  >100  All
+meta_rep_genome                                       
+0.0              170  47   35    21      31     4  308
+1.0               72   7    3     0       0     0   82
+All              242  54   38    21      31     4  390
+present taxa simulated from another genome, identity quantiles 5/25/50%: found [0.969  0.9789 0.9865] | missed [0.9413 0.9575 0.9679]
+FN with more than 10 fragments: 35, from another genome 35, median identity 0.9590, median top_identity 0.9960
+
+=================== pe, independent test set (14987 taxa, 71 samples)
+F1 0.9478  TP 4304 FP 283 FN 191
+
+FP by source x deepest rank shared with a simulated species:
+meta_relative_rank         class  domain  family  genus  order  phylum  All
+source                                                                     
+near a species the db has      3       0      23     66      3       3   98
+near held-out family           1       0       0      0      2       1    4
+near held-out genus            0       0       3      0      0       0    3
+near held-out phylum           0       2       0      0      0       0    2
+near held-out species          2       0      21    145      5       3  176
+All                            6       2      47    211     10       7  283
+
+pe, species held out, by depth:
+ depth  samples  FP_per_sample   F1_0.5  best_threshold  F1_best
+  1000       36       0.166667 0.933144            0.12 0.963563
+  5000       36       0.750000 0.947986            0.10 0.960477
+ 20000       36       2.666667 0.954072            0.40 0.957209
+100000       36       5.333333 0.958904            0.74 0.963259
+500000       36       8.638889 0.946334            0.92 0.972130
+
+pe, test set, by depth:
+  depth  samples  FP_per_sample   F1_0.5  best_threshold  F1_best
+    500       11       0.000000 0.871795            0.10 0.965517
+   2000       12       0.083333 0.942197            0.10 0.964770
+  10000       12       1.333333 0.945122            0.22 0.954455
+  50000       12       3.416667 0.950893            0.40 0.953168
+ 200000       12       6.250000 0.953131            0.66 0.955105
+1000000       12      12.500000 0.944606            0.88 0.967962
+
+pe, test set with the training's threshold per depth (interpolated): F1 0.9541 (TP 4205, FP 115, FN 290) against 0.9478 (TP 4304, FP 283, FN 191) at 0.5
+
+=================== se, species held out (26745 taxa, 180 samples)
+F1 0.9469  TP 9780 FP 634 FN 463
+
+FP by source x deepest rank shared with a simulated species:
+meta_relative_rank         class  domain  family  genus  order  phylum  All
+source                                                                     
+near a species the db has      9       0      43    128     14       3  197
+near held-out class            0       1       0      0      0       0    1
+near held-out family           1       2       0      0      7       2   12
+near held-out genus            4       2       4      0      1       0   11
+near held-out order            5       2       0      0      0       0    7
+near held-out phylum           0       1       0      0      0       0    1
+near held-out species          9       0      33    336     19       8  405
+All                           28       8      80    464     41      13  634
+
+FP by source x fragments:
+fragments                    1   2  3-5  6-10  11-100  >100  All
+source                                                          
+near a species the db has  151  25   15     4       2     0  197
+near held-out class          1   0    0     0       0     0    1
+near held-out family         9   0    2     1       0     0   12
+near held-out genus          9   0    2     0       0     0   11
+near held-out order          6   0    1     0       0     0    7
+near held-out phylum         1   0    0     0       0     0    1
+near held-out species      183  47   52    42      73     8  405
+All                        360  72   72    47      75     8  634
+FP with a read identical to the taxon's gene (top_identity 1): 310 of 634; near a species the db has: 77 of 197
+
+FN by simulated from the representative (1) or another genome (0) x fragments:
+fragments          1   2  3-5  6-10  11-100  >100  All
+meta_rep_genome                                       
+0.0              198  69   45    21      31     3  367
+1.0               84   9    3     0       0     0   96
+All              282  78   48    21      31     3  463
+present taxa simulated from another genome, identity quantiles 5/25/50%: found [0.9731 0.9827 0.9895] | missed [0.9456 0.9615 0.9717]
+FN with more than 10 fragments: 34, from another genome 34, median identity 0.9635, median top_identity 0.9952
+
+=================== se, independent test set (12895 taxa, 71 samples)
+F1 0.9466  TP 4195 FP 278 FN 195
+
+FP by source x deepest rank shared with a simulated species:
+meta_relative_rank         class  domain  family  genus  order  phylum  All
+source                                                                     
+near a species the db has      2       0      19     58      8       2   89
+near held-out class            0       1       0      0      0       0    1
+near held-out family           3       0       0      0      2       0    5
+near held-out genus            0       0       2      0      0       0    2
+near held-out order            0       0       0      0      0       1    1
+near held-out phylum           0       2       0      0      0       0    2
+near held-out species          3       0      23    146      4       2  178
+All                            8       3      44    204     14       5  278
+
+se, species held out, by depth:
+ depth  samples  FP_per_sample   F1_0.5  best_threshold  F1_best
+  1000       36       0.111111 0.927302            0.12 0.964992
+  5000       36       0.944444 0.934183            0.14 0.956981
+ 20000       36       2.500000 0.946136            0.24 0.950936
+100000       36       5.277778 0.956086            0.60 0.960637
+500000       36       8.777778 0.944575            0.84 0.970931
+
+se, test set, by depth:
+  depth  samples  FP_per_sample   F1_0.5  best_threshold  F1_best
+    500       11       0.181818 0.885714            0.10 0.918919
+   2000       12       0.166667 0.944262            0.10 0.953560
+  10000       12       1.083333 0.945770            0.12 0.961498
+  50000       12       3.416667 0.945371            0.34 0.948864
+ 200000       12       5.916667 0.952589            0.52 0.952799
+1000000       12      12.416667 0.943922            0.84 0.966553
+
+se, test set with the training's threshold per depth (interpolated): F1 0.9551 (TP 4154, FP 155, FN 236) against 0.9466 (TP 4195, FP 278, FN 195) at 0.5
+
+=================== pb, species held out (5989 taxa, 60 samples)
+F1 0.9167  TP 3586 FP 202 FN 450
+
+FP by source x deepest rank shared with a simulated species:
+meta_relative_rank         class  domain  family  genus  order  phylum  All
+source                                                                     
+near a species the db has      1       0      16     29      5       2   53
+near held-out family           1       0       0      0      1       0    2
+near held-out genus            0       0       0      0      1       0    1
+near held-out order            4       0       0      0      0       0    4
+near held-out species          3       1      11    119      4       4  142
+All                            9       1      27    148     11       6  202
+
+FP by source x fragments:
+fragments                   1   2  3-5  6-10  11-100  All
+source                                                   
+near a species the db has  32  14    7     0       0   53
+near held-out family        0   2    0     0       0    2
+near held-out genus         0   0    0     0       1    1
+near held-out order         4   0    0     0       0    4
+near held-out species      28  27   43    25      19  142
+All                        64  43   50    25      20  202
+FP with a read identical to the taxon's gene (top_identity 1): 66 of 202; near a species the db has: 24 of 53
+
+FN by simulated from the representative (1) or another genome (0) x fragments:
+fragments          1   2  3-5  6-10  11-100  >100  All
+meta_rep_genome                                       
+0.0              199  42   33     9      10     1  294
+1.0              118  26   11     0       1     0  156
+All              317  68   44     9      11     1  450
+present taxa simulated from another genome, identity quantiles 5/25/50%: found [0.9596 0.9705 0.9776] | missed [0.9355 0.9505 0.9608]
+FN with more than 10 fragments: 12, from another genome 11, median identity 0.9522, median top_identity 0.9853
+
+=================== pb, independent test set (2951 taxa, 20 samples)
+F1 0.8862  TP 1717 FP 83 FN 358
+
+FP by source x deepest rank shared with a simulated species:
+meta_relative_rank         class  domain  family  genus  order  phylum  All
+source                                                                     
+near a species the db has      1       0       5     15      2       1   24
+near held-out phylum           0       1       0      0      0       0    1
+near held-out species          6       0       3     47      2       0   58
+All                            7       1       8     62      4       1   83
+
+pb, species held out, by depth:
+    depth  samples  FP_per_sample   F1_0.5  best_threshold  F1_best
+   300000       12       2.083333 0.857401            0.18 0.917685
+  1500000       12       2.083333 0.873127            0.10 0.910201
+  6000000       12       3.583333 0.909703            0.32 0.925229
+ 30000000       12       3.750000 0.942496            0.36 0.945736
+150000000       12       5.333333 0.953709            0.68 0.962113
+
+pb, test set, by depth:
+    depth  samples  FP_per_sample   F1_0.5  best_threshold  F1_best
+   150000        4           0.25 0.782274            0.10 0.926448
+  1000000        4           3.00 0.862191            0.22 0.923738
+  5000000        4           4.50 0.868966            0.18 0.912060
+ 25000000        4           6.75 0.917471            0.40 0.920335
+250000000        4           6.25 0.954064            0.46 0.955607
+
+pb, test set with the training's threshold per depth (interpolated): F1 0.9186 (TP 1895, FP 156, FN 180) against 0.8862 (TP 1717, FP 83, FN 358) at 0.5
+
+=================== ont, species held out (7388 taxa, 60 samples)
+F1 0.9246  TP 3803 FP 237 FN 383
+
+FP by source x deepest rank shared with a simulated species:
+meta_relative_rank         class  domain  family  genus  order  phylum  All
+source                                                                     
+near a species the db has      2       0      19     35     11       0   67
+near held-out family           3       0       0      0      2       0    5
+near held-out genus            2       1       0      0      1       1    5
+near held-out order            3       0       0      0      0       0    3
+near held-out species          3       1      11    128      9       5  157
+All                           13       2      30    163     23       6  237
+
+FP by source x fragments:
+fragments                   1   2  3-5  6-10  11-100  >100  All
+source                                                         
+near a species the db has  47   8   12     0       0     0   67
+near held-out family        2   1    2     0       0     0    5
+near held-out genus         4   0    0     1       0     0    5
+near held-out order         3   0    0     0       0     0    3
+near held-out species      36  30   38    27      24     2  157
+All                        92  39   52    28      24     2  237
+FP with a read identical to the taxon's gene (top_identity 1): 60 of 237; near a species the db has: 24 of 67
+
+FN by simulated from the representative (1) or another genome (0) x fragments:
+fragments          1   2  3-5  6-10  11-100  All
+meta_rep_genome                                 
+0.0              147  46   27    16      10  246
+1.0               96  23   14     4       0  137
+All              243  69   41    20      10  383
+present taxa simulated from another genome, identity quantiles 5/25/50%: found [0.9338 0.9539 0.9657] | missed [0.8873 0.9171 0.94  ]
+FN with more than 10 fragments: 10, from another genome 10, median identity 0.9353, median top_identity 0.9841
+
+=================== ont, independent test set (3525 taxa, 20 samples)
+F1 0.9038  TP 1856 FP 118 FN 277
+
+FP by source x deepest rank shared with a simulated species:
+meta_relative_rank         class  domain  family  genus  order  phylum  All
+source                                                                     
+near a species the db has      3       0      10     19      4       1   37
+near held-out class            0       2       0      0      0       0    2
+near held-out genus            2       1       0      0      0       0    3
+near held-out order            0       1       0      0      0       0    1
+near held-out species          4       0       5     58      6       2   75
+All                            9       4      15     77     10       3  118
+
+ont, species held out, by depth:
+    depth  samples  FP_per_sample   F1_0.5  best_threshold  F1_best
+   300000       12       0.916667 0.898701            0.28 0.928105
+  1500000       12       3.250000 0.891522            0.26 0.904274
+  6000000       12       4.583333 0.913361            0.44 0.918557
+ 30000000       12       5.000000 0.941700            0.52 0.943228
+150000000       12       6.000000 0.951960            0.72 0.968109
+
+ont, test set, by depth:
+    depth  samples  FP_per_sample   F1_0.5  best_threshold  F1_best
+   150000        4           1.25 0.845361            0.12 0.925419
+  1000000        4           4.00 0.894397            0.10 0.925024
+  5000000        4           5.75 0.897536            0.22 0.925121
+ 25000000        4          10.25 0.917965            0.42 0.921348
+250000000        4           8.25 0.943221            0.60 0.948235
+
+ont, test set with the training's threshold per depth (interpolated): F1 0.9173 (TP 1919, FP 132, FN 214) against 0.9038 (TP 1856, FP 118, FN 277) at 0.5

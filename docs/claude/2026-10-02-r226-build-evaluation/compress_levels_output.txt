@@ -1,0 +1,20 @@
+total 3429008
+drwxr-xr-x 2 falk falk       4096 Oct  2 10:17 .
+drwxr-xr-x 3 falk falk       4096 Oct  2 10:17 ..
+-rw-r--r-- 1 falk falk       2386 Oct  2 10:17 gene_conservation.tsv
+-rw-r--r-- 1 falk falk 3402394224 Oct  2 10:17 index.prx
+-rw-r--r-- 1 falk falk      65884 Oct  2 10:17 internal_taxonomy.dmp
+-rw-r--r-- 1 falk falk    1019141 Oct  2 10:17 model_ONT.xml
+-rw-r--r-- 1 falk falk     884321 Oct  2 10:17 model_PB.xml
+-rw-r--r-- 1 falk falk    2726351 Oct  2 10:17 model_pe.xml
+-rw-r--r-- 1 falk falk    3054171 Oct  2 10:17 model_se.xml
+-rw-r--r-- 1 falk falk   95021506 Oct  2 10:17 reference.fna
+-rw-r--r-- 1 falk falk    2114209 Oct  2 10:17 reference.map
+-rw-r--r-- 1 falk falk    3993517 Oct  2 10:17 unique_kmers.tsv
+raw files: 3511275710 bytes, index.prx 3402394224 bytes
+level  3: database.protal 128881107 bytes, 0.037 of the raw files, 58.3 s
+level  6: database.protal 120158428 bytes, 0.034 of the raw files, 80.3 s
+level  9: database.protal 118442053 bytes, 0.034 of the raw files, 45.2 s
+level 12: database.protal 117798645 bytes, 0.034 of the raw files, 90.8 s
+level 15: database.protal 116961531 bytes, 0.033 of the raw files, 260.7 s
+level 19: database.protal 106797396 bytes, 0.030 of the raw files, 320.6 s

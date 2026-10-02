@@ -116,3 +116,15 @@ command; `--from_db` reads either and writes the copy the same way; `protal --bu
 of r226 would be ~7 GB, written in ~3 minutes on 8 threads, and each pass of a build over it
 decompresses in ~2 minutes; GTDB's real ratio is not measured (the converter's log gives the
 size).
+
+## Follow-up: measured on the r226 build (2026-10-02)
+
+SLURM job 23865669 (scripts `ff57266`, 16 threads, `--scratch` on the node's SSD with 157.4 GB
+free; logs in `local/protal0.7_r226_v1/`, see
+[2026-10-02-r226-build-evaluation](../2026-10-02-r226-build-evaluation/README.md)): the run took at
+most **23.7 GB** on scratch (the estimate above: ~40 GB, up to ~55), and the samples left at the end
+took 15.5 GB (estimate ~18-23 GB): 9.6 GB of training and 5.8 GB of test samples. GTDB r226's
+`full_reference.fna.zst` was **5.32 GB for 79,520,648 sequences** (16x smaller than the 86 GB of
+the plain file in the run before), the training database's copy 5.0 GB; both were removed after
+their builds. The job read 2.4 TB and wrote 0.99 TB in all (sacct), most of it the simulator
+reading every genome of the table at each design point (fixed in `c40cec3`).
