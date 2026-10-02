@@ -15,9 +15,12 @@ cmake --build build --target simulate_metagenomes     # or: just simulate
 ## Input
 
 A tab-separated genome table with three columns and no header: genome name (accession), GTDB
-taxonomy string, and the path to the genome FASTA (`.gz` works). `scripts/build_gtdb_database.py`
-writes one for a GTDB release (`OUTDIR/genomes.tsv`), and the synthetic releases of the mini
-database have one in `simulation/genomes.tsv`.
+taxonomy string, and the path to the genome FASTA (`.gz` works); optionally a fourth, the genome's
+length (its letters outside header lines). Without the lengths the simulator reads every genome of
+the table for its length at the start of each run (~20 ms per genome of GTDB's size), whichever it
+simulates. `scripts/build_gtdb_database.py` writes one for a GTDB release, with the lengths
+(`OUTDIR/genomes.tsv`), and the synthetic releases of the mini database have one in
+`simulation/genomes.tsv`.
 
 ## A run
 

@@ -279,8 +279,8 @@ with only one of them it either kept 2 false positives per sample or missed a fi
   always represented by the same two. A species with MAGs only keeps its best MAGs. The
   representatives are GTDB's, the database's references, whatever their quality. The download
   prints how many strains are isolates, at which assembly level, and how many are long-read
-  assemblies (`download.json` keeps the counts). Contigs under 100 bases are dropped from a genome
-  before pbsim3 simulates long reads from it, since pbsim3 stops at them.
+  assemblies (`download.json` keeps the counts). Long reads come from the contigs of 100 bases or
+  more only.
 - **Species the database lacks.** The samples are profiled against a training database
   (`training_db/`) that leaves species out; their reads land on relatives, as those of species GTDB
   lacks do in real samples. The finished database has all species, and the model trained so (the
@@ -315,7 +315,9 @@ from the same communities: paired-end reads (ART); their first reads alone, prof
 reads; and PacBio and Nanopore reads simulated with [pbsim3](https://github.com/yukiteruono/pbsim3)
 (`--pb-setup`: HiFi-like reads of the Sequel error model at 99.9% accuracy, 15 kb; `--ont-setup`:
 the high-quality ONT model at 97%, 8 kb), `--long-read-bases` per sample, about as many bases as the
-paired-end depths. All samples are profiled in one protal run, each with its read type's settings,
+paired-end depths. The collector draws each long-read sample's reads (genome, length, start, strand;
+[model-training.md](model-training.md#training-data)) and pbsim3 adds its errors, in one run per
+sample. All samples are profiled in one protal run, each with its read type's settings,
 and the models are trained in parallel. The pb and ont models also get knobs by sample depth (the
 trainer's `--depth-knobs`, [model-training.md](model-training.md#knobs-by-sample-depth);
 `--depth-knob-read-types`, default `pb,ont`, `""` for none), which `build_metadata.tsv` records
@@ -376,7 +378,7 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--seed` | 1 | |
 | `--ntree`, `--maxnodes` | 64, 128 | random forest size (more trees did not score better, see [model-training.md](model-training.md#training)) |
 | `--evaluation` | `full` | how much the trainer evaluates: `full`, `basic` or `none` |
-| `--progress-every` | 600 | seconds between the status lines of the stages running (below); 0 for none |
+| `--progress-every` | 0 | seconds between status lines of the stages running, besides each step's start and end (below); 0 for none |
 | `--scratch` | | a node's own disk for the simulated samples (below) |
 
 With the defaults that is 3 read setups x 5 depths x 12 samples = 180 paired-end samples of 20-200
@@ -393,6 +395,13 @@ builds at once (about 50-60 GB each at GTDB scale before the genes were held at 
 base, which takes ~14 GB off each; estimated), or of one build and the collection's protal
 runs. `--one-build-at-a-time` builds it after the training instead.
 
+The simulations need no database. Both collections simulate from the moment the species to leave
+out are chosen, in the background and at a lower priority (`nice` 10) than the builds
+(`collect_training_data.py --simulate_only`; `training_data_simulation.log`,
+`test_data_simulation.log`), so that they use what the builds leave of the cores; each collection
+then profiles its samples once the training database is built. The genome table has each genome's
+length as a fourth column, so the simulator does not read every genome for it at each design point.
+
 Both builds read a `full_reference.fna.zst` (the marker genes of every genome; the training
 database's without the species it leaves out), and nothing reads it afterwards: the script removes
 each once its build is done, and a rerun that finds a build done removes one an earlier version
@@ -402,46 +411,79 @@ left (an uncompressed `full_reference.fna`, too). The training database's copy i
 ### What it prints
 
 Each stage writes its output to its own log (listed below). On the console, every line starts
-with the time and how long the run has taken so far (`[14:03:22 +1:25:00]`). A stage says when it
-starts, with its log, and when it ends: how long it took, the peak memory of the largest process
-it ran, and for a build the size of `database.protal`; after a collection, the rows of each table,
-present and absent. Every `--progress-every` seconds (10 minutes by default) each stage still
-running gets a status line: how long it has run, the memory it and the commands it started use
-now (Linux only), and the last line of its log. The collector's log (`training_data.log`,
-`test_data.log`), which such a line shows, says when each design point is simulated, how many
-are done, and which sample protal is aligning, then how many it has profiled. All this reads
-`/proc` and the end of the logs once per status line (and with `--scratch` the free space of its
-file system every 5 s), which costs nothing next to the stages.
+with the time and how long the run has taken so far (`[14:03:22 +1:25:00]`). The run has eight
+steps (seven without a test set): the genome table, the release, the databases, the training data,
+the test set, the models, the parity check and packing the models. A step says when it starts,
+numbered and with its log (`4/8 training data (training_data.log): ...`), and on indented lines how
+it went: how long it took, the peak memory of the largest process it ran, and a few numbers of what
+it made (for a build the size of `database.protal`; for a collection the present and absent taxa of
+each read type's table; for the models their F1 with species held out and on the test set). The
+finished database's build in the background gets its indented line when it ends, whatever step the
+run is at.
 
-From the end-to-end test (a 26-species release, `--scratch SCRATCH`, a status line every 5 s):
+With `--progress-every N` each stage still running also gets a status line every N seconds: how
+long it has run, the memory it and the commands it started use now (Linux only), and the last line
+of its log. The collector's log (`training_data.log`, `test_data.log`), which such a line shows,
+says when each design point is simulated, how many are done, and which sample protal is aligning,
+then how many it has profiled. All this reads `/proc` and the end of the logs once per status line
+(and with `--scratch` the free space of its file system every 5 s), which costs nothing next to
+the stages.
+
+From a small build of the tuning world (765 species, one sample per design point, two depths,
+`--scratch SCRATCH`; the summary table at the end left out):
 
 ```
-[13:28:15 +0:00:40] Built OUT/training_db in 0:00:35, peak memory 3.5 GB; database.protal 9 MB
-[13:28:15 +0:00:40] Collecting the training data (pe, se): 4 pe, 4 se samples, 2 per design point (OUT/training_data.log)
-[13:28:20 +0:00:45] building protal_db in the background: 0:00:40 so far, 3.4 GB in memory; index_and_package.log: Write OUT/protal_db/index.prx.zst (zstd level 19, columns in 64.00 MB chunks, verified, 2 thread(s))
-[13:28:20 +0:00:45] collecting the training data (pe, se): 0:00:05 so far, 1.2 GB in memory; training_data.log: profiling 8 samples (4 pe, 4 se) of 4 design points in one protal run
-[13:28:20 +0:00:45] scratch SCRATCH: 170 MB in use by the run (at most 170 MB so far), 981.9 GB free
-[13:28:22 +0:00:47] Collected the training data (pe, se) in 0:00:07, peak memory 3.3 GB; 5 MB in SCRATCH/training; scratch SCRATCH: 177 MB in use by the run (at most 177 MB so far), 981.9 GB free
-  106 taxa in SCRATCH/training/training_data.tsv: 14 present, 92 absent, from 4 samples
-  93 taxa in SCRATCH/training/training_data_se.tsv: 14 present, 79 absent, from 4 samples
+[02:48:16 +0:00:01] A protal database of GTDB r226 in OUT, with 4 threads; each step logs to a file there; the simulated samples go to SCRATCH (883.6 GB free)
+[02:48:18 +0:00:02] 1/8 genome table (genomes.tsv, genome_table.txt): 2295 genomes of 765 species (Archaea 61, Bacteria 704); a simulated species is another genome than its representative 66.7% of the time
+[02:48:18 +0:00:02] 2/8 converting GTDB r226 (convert.log)
+[02:48:21 +0:00:05]     converted in 0:00:01, peak memory 174 MB; the genes' neighbours found in 0:00:02, peak memory 203 MB (gene_neighbours.log)
+[02:48:21 +0:00:05] 3/8 training database (training_db, training_db_index.log): 296 species left out, 2 phylum, 4 class, 6 order, 8 family, 12 genus clades (179 species) and 117 species alone (model_logs/holdout.txt)
+[02:48:21 +0:00:06]     simulating the training data and the independent test set meanwhile, in the background (training_data_simulation.log, test_data_simulation.log)
+[02:48:21 +0:00:06]     building protal_db meanwhile, in the background (index_and_package.log)
+[02:48:35 +0:00:20]     built training_db in 0:00:14, peak memory 4.1 GB; database.protal 83 MB; full_reference.fna.zst removed (14 MB); its files written in 0:00:01, peak memory 174 MB (training_db.log)
+[02:48:35 +0:00:20] 4/8 training data (training_data.log): 2 pe, 2 se, 2 pb, 2 ont samples, 1 per design point
+[02:48:35 +0:00:20]     waiting for its simulations in the background (training_data_simulation.log)
+[02:48:41 +0:00:25]     simulated the training data in the background in 0:00:19, peak memory 41 MB
+[02:48:44 +0:00:29]     collected in 0:00:03, peak memory 3.6 GB; taxa present/absent: pe 139/108, se 139/87, pb 79/7, ont 110/20; 25 MB in SCRATCH/training; scratch: 404 MB in use by the run (at most 404 MB), 883.2 GB free
+[02:48:44 +0:00:29] 5/8 independent test set (test_data.log): 1 pe, 1 se, 1 pb, 1 ont samples, 1 per design point
+[02:48:44 +0:00:29]     waiting for its simulations in the background (test_data_simulation.log)
+[02:48:45 +0:00:30]     simulated the independent test set in the background in 0:00:24, peak memory 35 MB
+[02:48:46 +0:00:31]     collected in 0:00:02, peak memory 3.6 GB; taxa present/absent: pe 140/37, se 130/27, pb 31/5, ont 47/6; 6 MB in SCRATCH/test; scratch: 307 MB in use by the run (at most 404 MB), 883.3 GB free
+[02:48:46 +0:00:31] 6/8 training the pe, se, pb, ont models (classifier_training*.log) in parallel, 1 thread each
+[02:48:48 +0:00:33]     trained in 0:00:02 (pe 0:00:02, se 0:00:02, pb 0:00:02, ont 0:00:02); F1 with species held out/on the test set: pe 0.986/0.771, se 0.993/0.860, pb 0.981/0.951, ont 0.995/0.894
+[02:48:48 +0:00:33] 7/8 checking that protal scores the models as the trainer does (parity*.log)
+[02:48:52 +0:00:37]     pe, se, pb, ont: the same probabilities and features, checked in 0:00:04
+[02:48:52 +0:00:37]     the held-out species' reads by gene conservation, in 0:00:00: model_logs/relatives_by_gene_conservation.txt
+[02:48:52 +0:00:37] 8/8 adding the pe, se, pb, ont models to protal_db (final_package*.log)
+[02:48:52 +0:00:37]     waiting for protal_db's build in the background (index_and_package.log)
+[02:49:56 +0:01:41]     built protal_db in the background in 0:01:35, peak memory 4.6 GB; database.protal 108 MB; full_reference.fna.zst removed (23 MB)
+[02:49:57 +0:01:42]     added in 0:00:01; database.protal 108 MB
+...
+[02:49:57 +0:01:42] The run took at most 489 MB on SCRATCH; the simulated samples there (38 MB) are left for a rerun
+[02:49:57 +0:01:42] Ready protal database: OUT/protal_db; database.protal 108 MB; model evaluation: OUT/model_logs (start with trained_model.report.txt, and trained_model_<read type>.report.txt)
 ```
+
+(The scratch figures count everything written to that file system during the run, other jobs'
+too.)
 
 ### Local scratch
 
 The collection makes many files and deletes them again: the simulator writes a plain copy of
 each genome of a sample and ART's reads of each genome before it compresses the sample, and for
-long reads the collector copies every genome of every sample for pbsim3, which writes three files
-per contig. With the defaults that is about 470 GB of temporary writes in millions of files,
-which a network file system is slow at (the collector then waits in state D). `--scratch DIR`
+long reads the collector writes each sample's reads as templates for pbsim3 (until 2026-10-02 it
+copied every genome of every sample for pbsim3, which wrote three files per contig). With the
+defaults that is about 240 GB of temporary writes in ~150,000 files (estimated; 470 GB in millions
+of files before), which a network file system is slow at (the collector then waits in state D).
+`--scratch DIR`
 makes the training and test samples on a node's own disk, in `DIR/training` and `DIR/test`, and
 copies their tables to `OUTDIR/training` and `OUTDIR/test`. The samples take ~20 GB at the end and
 about 40 GB at the peak (up to ~55 GB), while the test set's paired-end samples are simulated next
 to the training samples; give it 60 GB at least, 100 GB to be safe (estimated from measured bytes
 per read: [docs/claude/2026-10-01-scratch-space](claude/2026-10-01-scratch-space/README.md)). The
-status lines and the line after each collection say how much the run takes on DIR (what its file
-system holds more than at the start), and the last line the most it took. A rerun reuses the
-samples only from the same DIR; on a node-local disk that is gone after the job, the collection
-starts again (the builds are still kept in OUTDIR).
+line after each collection (and the status lines, with `--progress-every`) says how much the run
+takes on DIR (what its file system holds more than at the start), and the last line the most it
+took. A rerun reuses the samples only from the same DIR; on a node-local disk that is gone after
+the job, the collection starts again (the builds are still kept in OUTDIR).
 
 ### Stopping and rerunning
 
@@ -476,10 +518,10 @@ The output root holds:
 | Path | |
 |---|---|
 | `protal_db/database.protal` | the finished database, and `protal_db/build_metadata.tsv`: GTDB release, date, protal version and binary, the scripts' git commit, the command, seed, genome table, what the training database leaves out, the training design, and each model's F1 on species held out and on the test set |
-| `genomes.tsv`, `genome_table.txt` | the genome table used for the simulations, and what it holds (species by domain, how often a simulated species is not its representative) |
+| `genomes.tsv`, `genome_table.txt` | the genome table used for the simulations (accession, GTDB taxonomy, FASTA path, genome length; a rerun counts only the genomes changed since), and what it holds (species by domain, how often a simulated species is not its representative) |
 | `training_db/`, `heldout_species.txt` | the training database and the species it leaves out (species, the rank they were held out at, the clade); the `full_reference.fna.zst` of both databases is removed once their builds are done |
 | `training/`, `test/` | the simulated samples, their profiles and one table per read type (`training_data.tsv` for pe, `training_data_se.tsv`, `_pb`, `_ont`); a rerun reuses the design points simulated and profiled from the same inputs (below). With `--scratch`, only the tables; the samples are in the scratch folder |
 | `.stages/` | the inputs of the conversion and the two builds that completed, for a rerun (below) | 
 | `trained_model.*`, `trained_model_se.*`, `_pb.*`, `_ont.*` | the models and the trainer's outputs ([model-training.md](model-training.md#training)) |
 | `model_logs/` | what tells whether the models are good, in one folder: `summary.txt` (per read type: TP, FP, TN, FN, sensitivity, specificity, precision, F1 and false positives per sample, with species held out and on the test set; also printed at the end), each read type's training report and its numbers (`trained_model*.report.txt`, `.metrics.json`), per-taxon predictions (also on the test set), the threshold table, feature importances, the parity checks with protal (`parity*.txt`), `genome_table.txt`, what the training database leaves out (`holdout.txt`, `heldout_species.txt`), the collection logs and `build_metadata.tsv`; and what the conservation features rest on, on the release's real genomes: `gene_congeners.tsv` (the finished database's, see above) and `relatives_by_gene_conservation.txt` and `.tsv` (`scripts/trace_relatives.py`: the paired-end reads of the species held out of the training database followed to the genes they align to, per unit coverage against a species' own reads, before and after the MAPQ filter, by the genes' factors; a failure there is reported and does not stop the build) |
-| `*.log` | one log per stage: `convert`, `training_db`, `index_and_package`, `training_db_index`, `training_data`, `test_data`, `classifier_training*`, `parity*`, `final_package*` |
+| `*.log` | one log per stage: `convert`, `training_db`, `index_and_package`, `training_db_index`, `training_data_simulation`, `training_data`, `test_data_simulation`, `test_data`, `classifier_training*`, `parity*`, `final_package*` |

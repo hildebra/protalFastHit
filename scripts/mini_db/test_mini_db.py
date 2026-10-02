@@ -823,6 +823,30 @@ class MiniDbTest(unittest.TestCase):
         self.assertEqual(build.parse_clades("phylum:2,class:4"), {"phylum": 2, "class": 4})
         self.assertEqual(build.parse_clades("none"), {})
 
+    def test_genome_table_lengths(self):
+        # build_gtdb_database.py gives the simulator each genome's length (it would read every genome for it at
+        # each design point): letters outside header lines, gzipped or not; a given table without lengths gets a
+        # copy with them, one with them is taken as it is.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import build_gtdb_database as build
+        root = os.path.join(self.tmp.name, "lengths")
+        os.makedirs(root)
+        plain, zipped = os.path.join(root, "a.fna"), os.path.join(root, "b.fna.gz")
+        text = ">a one 123 ACGT\r\nACGTNNacgt\r\n\r\nRYK-*\n>second\nAC GT\n"  # 10 + 3 + 4 letters
+        with open(plain, "w", newline="") as fh:
+            fh.write(text)
+        with gzip.open(zipped, "wt", newline="") as fh:
+            fh.write(text * 2)
+        self.assertEqual(build.genome_length(plain), 17)
+        self.assertEqual(build.genome_length(zipped), 34)
+        given = os.path.join(root, "given.tsv")
+        with open(given, "w") as fh:
+            fh.write(f"name\ttaxonomy\tfasta_path\nGA\td__B;s__A\t{plain}\nGB\td__B;s__B\t{zipped}\n")
+        copy = build.with_lengths(given, os.path.join(root, "genomes.tsv"), 2)
+        with open(copy) as fh:
+            self.assertEqual(fh.read(), f"GA\td__B;s__A\t{plain}\t17\nGB\td__B;s__B\t{zipped}\t34\n")
+        self.assertEqual(build.with_lengths(copy, os.path.join(root, "other.tsv"), 2), copy)
+
     def test_collector_designs(self):
         # Read setups (built-in and custom ART profiles), abundance models, long-read setups and units.
         sys.path.insert(0, os.path.join(HERE, ".."))
@@ -861,20 +885,37 @@ class MiniDbTest(unittest.TestCase):
                          ["rl150_HSXt_p1000", "rl150_HSXt_p5000", "rl150_custom1_p1000"])
         self.assertEqual(units[6]["name"], "rl150_HSXt_p1000_se")
 
+    @staticmethod
+    def fake_templ_pbsim(path):
+        """A stand-in for pbsim3 --strategy templ: one read per template, its sequence as it is, named r_<n>
+        after its place in the file, into <prefix>.fq.gz; it fails without --strategy templ."""
+        with open(path, "w") as fh:
+            fh.write("#!" + sys.executable + "\nimport gzip, sys\na = sys.argv[1:]\nget = lambda k: a[a.index(k) + 1]\n"
+                     "if get('--strategy') != 'templ': sys.exit(2)\n"
+                     "seqs = [l.strip() for l in open(get('--template')) if not l.startswith('>')]\n"
+                     "with gzip.open(get('--prefix') + '.fq.gz', 'wt') as out:\n"
+                     "    for i, s in enumerate(seqs, 1):\n"
+                     "        out.write('@%s_%d\\n%s\\n+\\n%s\\n' % (get('--id-prefix'), i, s, 'I' * len(s)))\n")
+        os.chmod(path, 0o755)
+
     def test_long_read_replay(self):
-        # pb/ont samples replay a paired-end point's communities: each genome gets its share of the bases by
-        # relative abundance times length (a stand-in pbsim writes depth x length / 1000 reads of 1 kb).
+        # pb/ont samples replay a paired-end point's communities: the collector draws the reads (a genome by
+        # relative abundance times length, a start uniform, either strand) until the sample's bases, and pbsim3
+        # makes one read of each (a stand-in here, which keeps the sequence).
         sys.path.insert(0, os.path.join(HERE, ".."))
         import argparse
+        import random
         import collect_training_data as collect
         root = os.path.join(self.tmp.name, "longreads")
         point = os.path.join(root, "points", "rl150_p1000")
         os.makedirs(os.path.join(point, "sim"))
-        genomes = {}
+        genomes, sequences = {}, {}
+        rng = random.Random(5)
         for name, length in (("GA", 20000), ("GB", 40000)):
             genomes[name] = os.path.join(root, name + ".fna.gz")
+            sequences[name] = "".join(rng.choice("ACGT") for _ in range(length))
             with gzip.open(genomes[name], "wt") as fh:
-                fh.write(f">{name}_contig\n" + "ACGT" * (length // 4) + "\n")
+                fh.write(f">{name}_contig\n" + "\n".join(sequences[name][i:i + 70] for i in range(0, length, 70)) + "\n")
         with open(os.path.join(point, "sim", "manifest.tsv"), "w") as fh:
             fh.write("sample\tgenome\tspecies\ttaxonomy\tgenome_length\tread_pairs\tvertical_coverage\trelative_abundance"
                      "\tfastq_r1\tfastq_r2\tfasta_path\tart_seed\n")
@@ -887,54 +928,63 @@ class MiniDbTest(unittest.TestCase):
                      "#SAMPLEID\tFIRST\tSECOND\tSAM\tPREFIX\tPROFILE\tPROFILE_TRUTH\n"
                      "rl150_p1000_s_1\ta\tb\tc\td\te\t/truth/1\nrl150_p1000_s_2\ta\tb\tc\td\te\t/truth/2\n")
         fake = os.path.join(root, "pbsim")
-        with open(fake, "w") as fh:
-            fh.write("#!" + sys.executable + "\nimport sys\na = sys.argv[1:]\nget = lambda k: a[a.index(k) + 1]\n"
-                     "seq = ''.join(l.strip() for l in open(get('--genome')) if not l.startswith('>'))\n"
-                     "n = round(float(get('--depth')) * len(seq) / 1000)\n"
-                     "with open(get('--prefix') + '_0001.fastq', 'w') as out:\n"
-                     "    for i in range(n):\n"
-                     "        out.write('@%s1_%d\\n%s\\n+\\n%s\\n' % (get('--id-prefix'), i, seq[:1000], 'I' * 1000))\n")
-        os.chmod(fake, 0o755)
+        self.fake_templ_pbsim(fake)
         models = os.path.join(root, "models")
         os.makedirs(models)
         open(os.path.join(models, "FAKE.model"), "w").close()
         opts = argparse.Namespace(out=root, seed=1, pbsim=fake, pbsim_models=models, samples=2)
-        unit = {"type": "ont", "name": "ont_b60000", "bases": 60000,
+        unit = {"type": "ont", "name": "ont_b300000", "bases": 300000,
                 "setup": collect.parse_long_setup("qshmm:FAKE:1000:0:0.97"), "community": {"name": "rl150_p1000"},
-                "point": {"name": "ont_b60000", "read_length": "1000", "read_pairs": "60000"}}
-        self.assertIsNone(collect.simulate_long(unit, 0, opts, 2))
+                "point": {"name": "ont_b300000", "read_length": "1000", "read_pairs": "300000"}}
+        keys = {"ont_b300000": {"a": 1}}
+        self.assertEqual(collect.simulate_long([(0, unit)], opts, 2, keys), {})
+        self.assertTrue(collect.same_key(os.path.join(root, "points", "ont_b300000", "simulated.json"), keys["ont_b300000"]))
+        self.assertFalse(os.path.exists(os.path.join(root, "points", "ont_b300000", "sim", "tmp")))
         rows, _ = collect.unit_map_rows(unit, opts)
-        self.assertEqual([r["SAMPLEID"] for r in rows], ["ont_b60000_s_1", "ont_b60000_s_2"])
+        self.assertEqual([r["SAMPLEID"] for r in rows], ["ont_b300000_s_1", "ont_b300000_s_2"])
         self.assertEqual([r["PROFILE_TRUTH"] for r in rows], ["/truth/1", "/truth/2"])
         self.assertEqual({r["READ_TYPE"] for r in rows} | {r["SECOND"] for r in rows}, {"ont", "-"})
+        complement = str.maketrans("ACGT", "TGCA")
+        first = {}
         for row, (a, b) in zip(rows, ((0.5, 0.5), (0.8, 0.2))):
-            names = [line.strip() for i, line in enumerate(gzip.open(row["FIRST"], "rt")) if i % 4 == 0]
+            with gzip.open(row["FIRST"], "rt") as fh:
+                lines = fh.read().splitlines()
+            first[row["SAMPLEID"]] = lines
+            names, reads = lines[0::4], lines[1::4]
             self.assertEqual(len(names), len(set(names)), "read names must be unique within a sample")
-            counts = {g: sum(n.startswith(f"@g{g}x") for n in names) for g in (0, 1)}
+            # The reads' bases reach the sample's; a read is 1 kb (the setup's mean, SD 0) or shorter at a
+            # contig's end, from either strand of its genome.
+            self.assertGreaterEqual(sum(map(len, reads)), 300000)
+            self.assertLess(sum(map(len, reads)), 300000 + 1000)
+            self.assertTrue(all(100 <= len(r) <= 1000 for r in reads))
+            strands = collections.Counter()
+            for name, read in zip(names, reads):
+                genome = sequences["GA" if name.startswith("@g0x_") else "GB"]
+                strands["+" if read in genome else "-" if read.translate(complement)[::-1] in genome else "?"] += 1
+            self.assertEqual(strands["?"], 0)
+            self.assertGreater(min(strands["+"], strands["-"]), len(reads) / 3)
+            counts = {g: sum(n.startswith(f"@g{g}x_") for n in names) for g in (0, 1)}
             share_a = a * 20000 / (a * 20000 + b * 40000)
-            self.assertAlmostEqual(counts[0], round(60 * share_a), delta=1)
-            self.assertAlmostEqual(counts[1], round(60 * (1 - share_a)), delta=1)
+            self.assertEqual(counts[0] + counts[1], len(names))
+            self.assertAlmostEqual(counts[0] / len(names), share_a, delta=0.1)
         self.assertTrue(collect.simulated(unit, opts))
+        # The same seed, the same reads.
+        self.assertEqual(collect.simulate_long([(0, unit)], opts, 1), {})
+        for row in rows:
+            with gzip.open(row["FIRST"], "rt") as fh:
+                self.assertEqual(fh.read().splitlines(), first[row["SAMPLEID"]])
 
-    def test_long_read_short_contigs(self):
-        # pbsim3 stops at a reference sequence under 100 bases ("Reference is too short"), as assemblies of
-        # metagenomes have: it gets the longer sequences only, and a failure says why.
+    def test_long_read_templates(self):
+        # A long-read sample's reads come from the contigs of 100 bases or more (pbsim3's shortest read; it stops
+        # at a shorter reference sequence), have the setup's lengths, and a failure says why.
         sys.path.insert(0, os.path.join(HERE, ".."))
+        import random
         import collect_training_data as collect
-        root = os.path.join(self.tmp.name, "shortcontigs")
+        root = os.path.join(self.tmp.name, "templates")
         os.makedirs(root)
-        fake = os.path.join(root, "pbsim")
-        with open(fake, "w") as fh:
-            fh.write("#!" + sys.executable + "\nimport sys\na = sys.argv[1:]\nlengths = []\n"
-                     "for l in open(a[a.index('--genome') + 1]):\n"
-                     "    if l.startswith('>'): lengths.append(0)\n"
-                     "    else: lengths[-1] += len(l.strip())\n"
-                     "if min(lengths) < 100:\n"
-                     "    print('ERROR: Reference is too short. Acceptable length >= 100.')\n"
-                     "    sys.exit(255)\n"
-                     "open(a[a.index('--prefix') + 1] + '_0001.fastq', 'w').write('@r\\nACGT\\n+\\nIIII\\n')\n")
-        os.chmod(fake, 0o755)
-        records = [(">a one", "ACGT" * 75), (">short", "ACGT" * 24 + "ACG"), (">exact", "A" * 100), (">tiny", "ACGT")]
+        rng = random.Random(3)
+        records = [(">a one", "".join(rng.choice("acgt") for _ in range(3000))), (">short", "C" * 99),
+                   (">exact", "G" * 100), (">tiny", "ACGT")]
         text = "".join(f"{header}\r\n" + "\r\n".join(seq[i:i + 60] for i in range(0, len(seq), 60)) + "\r\n\r\n"
                        for header, seq in records)
         plain, zipped = os.path.join(root, "plain.fna"), os.path.join(root, "zipped.fna.gz")
@@ -942,35 +992,53 @@ class MiniDbTest(unittest.TestCase):
             fh.write(text)
         with gzip.open(zipped, "wt", newline="") as fh:
             fh.write(text)
+        expected = [seq.upper().encode() for _, seq in records]
+        self.assertEqual(collect.read_contigs(plain), expected)
+        self.assertEqual(collect.read_contigs(zipped), expected)
+        fake = os.path.join(root, "pbsim")
+        self.fake_templ_pbsim(fake)
 
-        def task(name, fasta, pbsim=fake):
-            return {"genome": name, "fasta": fasta, "tmp": os.path.join(root, "tmp", name), "pbsim": pbsim,
-                    "setup": collect.parse_long_setup("qshmm:FAKE:1000:0:0.97"), "model": "FAKE", "depth": 1.0,
-                    "seed": 1, "id_prefix": "g0x"}
+        def task(name, fasta, pbsim=fake, bases=50000, setup="qshmm:FAKE:1000:0:0.97"):
+            return {"sample": name, "out": os.path.join(root, name + ".fq.gz"), "bases": bases, "pbsim": pbsim,
+                    "setup": collect.parse_long_setup(setup), "model": "FAKE", "seed": 1, "tmp": os.path.join(root, "tmp", name),
+                    "genomes": [{"genome": "G", "fasta": fasta, "weight": 1.0}]}
 
+        long_one, exact = records[0][1].upper(), records[2][1]
         for name, fasta in (("plain", plain), ("zipped", zipped)):
-            fastqs, error = collect.long_read_genome(task(name, fasta))
-            self.assertIsNone(error)
-            self.assertEqual(len(fastqs), 1)
-            with open(os.path.join(root, "tmp", name, "genome.fna")) as fh:
-                kept = [line.strip() for line in fh if line.startswith(">")]
-            self.assertEqual(kept, [">a one", ">exact"])
-        # What the fix is for: pbsim3 fails on the file as it is.
-        self.assertEqual(subprocess.run([fake, "--genome", plain, "--prefix", os.path.join(root, "x")],
-                                        capture_output=True).returncode, 255)
-        # Only short sequences: nothing to simulate from. A pbsim failure carries its last line of output.
+            self.assertIsNone(collect.long_read_sample(task(name, fasta)))
+            with gzip.open(os.path.join(root, name + ".fq.gz"), "rt") as fh:
+                reads = fh.read().splitlines()[1::4]
+            self.assertTrue(reads)
+            for read in reads:  # from "a one" (up to 1 kb, cut at its end) or the whole of "exact", either strand
+                back = read.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+                self.assertTrue(read in long_one or back in long_one or exact in (read, back), read[:20])
+                self.assertTrue(100 <= len(read) <= 1000)
+        # Only short sequences: nothing to simulate from. A pbsim failure carries its last line of output, and
+        # a pbsim that makes fewer reads than templates is caught.
         short = os.path.join(root, "short.fna")
         with open(short, "w") as fh:
-            fh.write(">tiny\nACGT\n")
-        _, error = collect.long_read_genome(task("short", short))
-        self.assertIn("no sequence of 100 bases or more", error)
+            fh.write(">tiny\nACGT\n>short\n" + "A" * 99 + "\n")
+        self.assertIn("no sequence of 100 bases or more", collect.long_read_sample(task("short", short)))
         failing = os.path.join(root, "failing")
         with open(failing, "w") as fh:
             fh.write("#!/bin/sh\necho 'ERROR: out of ideas'\nexit 3\n")
         os.chmod(failing, 0o755)
-        _, error = collect.long_read_genome(task("failing", plain, failing))
+        error = collect.long_read_sample(task("failing", plain, failing))
         self.assertIn("pbsim failed (3)", error)
         self.assertIn("ERROR: out of ideas", error)
+        lossy = os.path.join(root, "lossy")
+        with open(lossy, "w") as fh:
+            fh.write("#!" + sys.executable + "\nimport gzip, sys\na = sys.argv[1:]\n"
+                     "with gzip.open(a[a.index('--prefix') + 1] + '.fq.gz', 'wt') as out:\n"
+                     "    out.write('@r_1\\nACGT\\n+\\nIIII\\n')\n")
+        os.chmod(lossy, 0o755)
+        self.assertIn("pbsim made 1 reads of", collect.long_read_sample(task("lossy", plain, lossy)))
+        # Read lengths: the setup's gamma distribution between 100 and 1,000,000; the mean when the SD is 0.
+        rng = random.Random(1)
+        lengths = [collect.read_length(rng, 8000, 6000) for _ in range(20000)]
+        self.assertTrue(all(100 <= n <= 1000000 for n in lengths))
+        self.assertAlmostEqual(sum(lengths) / len(lengths), 8000, delta=200)
+        self.assertEqual(collect.read_length(rng, 1000, 0), 1000)
 
     def test_relation_to_novel_species(self):
         # An absent taxon is put down to a species the database lacks when that species is at least as close to
@@ -1162,6 +1230,28 @@ class GeneNeighboursTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.tmp.cleanup()
+
+    def test_genome_index_finds_what_find_finds(self):
+        # place() looks genes up in an index of the genome's k-mers at a stride instead of scanning the genome with
+        # find: it must find every occurrence find does, overlapping ones and those at contig ends too.
+        sys.path.insert(0, os.path.join(HERE))
+        import gene_neighbours as gn
+        rng = random.Random(9)
+        contigs = [bytes(rng.choice(b"ACGT") for _ in range(n)) for n in (5000, 2000, 37, 3000)]
+        genes = [contigs[0][100:1100], contigs[0][4900 - 63:], contigs[1][:63], contigs[1][5:67], contigs[3][17:3000],
+                 contigs[2], b"A" * 40, contigs[0][2000:2062]]
+        repeat = contigs[0][300:420]
+        contigs[1] = contigs[1][:500] + repeat + repeat[:60] + repeat + contigs[1][500 + 300:]  # repeated, overlapping
+        contigs[3] = contigs[3][:1000] + b"A" * 100 + contigs[3][1100:]
+        genes += [repeat, repeat[:60] + repeat[:60], b"A" * 70, b"A" * 100]
+        genome = gn.SEPARATOR.join(contigs)
+        index = gn.GenomeIndex(genome)
+        for seq in genes + [s.translate(gn.COMPLEMENT)[::-1] for s in genes] + [b"C" * 80, genes[0][:-1] + b"T"]:
+            expected, pos = [], genome.find(seq)
+            while pos >= 0:
+                expected.append(pos)
+                pos = genome.find(seq, pos + 1)
+            self.assertEqual(index.occurrences(seq), expected, seq[:20])
 
     def table(self, name, key_columns):
         with open(os.path.join(self.db, name) if not os.path.isabs(name) else name) as fh:
@@ -1411,8 +1501,8 @@ class GtdbBuildTest(unittest.TestCase):
         for path in ("protal_db/full_reference.fna", "training_db/full_reference.fna"):
             for name in (path, path + ".zst"):
                 self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out", name)), name)
-        self.assertRegex(first.stdout, r"Removed \S+protal_db/full_reference\.fna" + (r"\.zst" if shutil.which("zstd") else "")
-                         + r" \([\d.]+ [MG]B\)")
+        self.assertRegex(first.stdout, r"\n\[[^]]+\]     built protal_db in the background in \d+:\d\d:\d\d.*; full_reference\.fna"
+                         + (r"\.zst" if shutil.which("zstd") else "") + r" removed \([\d.]+ [MG]B\)")
         # The genes' conservation factors are in the database, and their summary in build_metadata.tsv.
         metadata = dict(line.rstrip("\n").split("\t", 1) for line in open(os.path.join(self.tmp.name, "out", "protal_db",
                                                                                        "build_metadata.tsv")))
@@ -1422,15 +1512,42 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(metadata["gene_congeners"], r"^\d+ pairs of species of \d+ genera")
         for name in ("gene_congeners.tsv", "relatives_by_gene_conservation.txt"):
             self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", "model_logs", name)), name)
-        # Each stage says when it ended and how long it took, one running for a while (5 s here) how it is doing,
-        # and the collector how far the simulations and protal are.
-        self.assertRegex(first.stdout, r"\[\d\d:\d\d:\d\d \+\d+:\d\d:\d\d\] Collected the training data \(pe, se\) in "
-                                       r"\d+:\d\d:\d\d")
-        self.assertRegex(first.stdout, r"\n  \d+ taxa in \S+training_data_se.tsv: \d+ present, \d+ absent, from 4 samples")
+        # Each step says when it starts and, indented, when it ended, how long it took and what it made; a stage
+        # running for a while (5 s here, --progress-every) how it is doing; the collector how far the simulations
+        # and protal are.
+        self.assertRegex(first.stdout, r"\[\d\d:\d\d:\d\d \+\d+:\d\d:\d\d\] 4/8 training data \(training_data\.log\): "
+                                       r"4 pe, 4 se samples, 2 per design point\n")
+        self.assertRegex(first.stdout, r"\n\[[^]]+\]     collected in \d+:\d\d:\d\d.*; taxa present/absent: pe \d+/\d+, "
+                                       r"se \d+/\d+;")
+        self.assertRegex(first.stdout, r"\n\[[^]]+\] 8/8 adding the pe, se models to protal_db")
         self.assertRegex(first.stdout, r": \d+:\d\d:\d\d so far")
+        # Both collections simulate in the background from the holdout on, during the builds, and profile after.
+        self.assertRegex(first.stdout, r"\n\[[^]]+\]     simulating the training data and the independent test set "
+                                       r"meanwhile, in the background \(training_data_simulation\.log, "
+                                       r"test_data_simulation\.log\)\n")
+        self.assertLess(first.stdout.index("simulating the training data and"), first.stdout.index("built training_db in"))
+        self.assertRegex(first.stdout, r"\n\[[^]]+\]     simulated the training data in the background in \d+:\d\d:\d\d")
+        simulation = self.text("out", "training_data_simulation.log")
+        self.assertRegex(simulation, r"2 of 2 design points, \d+:\d\d:\d\d in all")
+        self.assertIn("profiling left to a run without --simulate_only", simulation)
+        self.assertNotIn("protal profiled", simulation)
         collection = self.text("out", "training_data.log")
-        self.assertRegex(collection, r"2 of 2 design points, \d+:\d\d:\d\d in all")
+        self.assertNotRegex(collection, "simulating")
         self.assertRegex(collection, r"protal profiled 8 samples in \d+:\d\d:\d\d")
+        # The genome table has each genome's length, as the simulator counts it when the table has none.
+        with open(os.path.join(self.tmp.name, "out", "genomes.tsv")) as fh:
+            table = [line.rstrip("\n").split("\t") for line in fh]
+        self.assertTrue(table and all(len(f) == 4 and f[3].isdigit() for f in table))
+        three = os.path.join(self.tmp.name, "three_columns.tsv")
+        with open(three, "w") as fh:
+            fh.write("".join("\t".join(f[:3]) + "\n" for f in table))
+        subprocess.run([os.environ["SIMULATE"], "--genome_table", three, "-o", os.path.join(self.tmp.name, "lengths"),
+                        "-n", "3", "--total_read_pairs", "100", "--species_per_sample", "6", "--seed", "4", "--test"],
+                       check=True, capture_output=True)
+        with open(os.path.join(self.tmp.name, "lengths", "manifest.tsv")) as fh:
+            counted = {row["genome"]: row["genome_length"] for row in csv.DictReader(fh, delimiter="\t")}
+        self.assertTrue(counted)
+        self.assertEqual(counted, {f[0]: f[3] for f in table if f[0] in counted})
         self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", "training", "training_data_se.tsv")))
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out", "training", "points")))
         self.assertTrue(os.path.isdir(os.path.join(self.tmp.name, "scratch", "training", "points")))
@@ -1441,7 +1558,8 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stdout[-3000:])
         self.assertIn("protal_db was built by an earlier run from the same release and protal; kept", again.stdout)
         self.assertIn("training_db was built by an earlier run with the same species left out; kept", again.stdout)
-        self.assertNotIn("Built ", again.stdout)
+        self.assertNotRegex(again.stdout, r"built (protal|training)_db")
+        self.assertNotRegex(self.text("out", "training_data_simulation.log"), "simulating")
         self.assertNotRegex(self.text("out", "training_data.log"), "simulating|profiling")
 
         # Other species held out (another seed): only the training database is built again, from the release
@@ -1450,10 +1568,10 @@ class GtdbBuildTest(unittest.TestCase):
         other = self.build("out", "--seed", "2", *scratch)
         self.assertEqual(other.returncode, 0, other.stdout[-3000:])
         self.assertIn("protal_db was built by an earlier run from the same release and protal; kept", other.stdout)
-        self.assertRegex(other.stdout, r"Built \S+training_db in \d+:\d\d:\d\d")
-        self.assertNotRegex(other.stdout, r"Built \S+protal_db")
+        self.assertRegex(other.stdout, r"built training_db in \d+:\d\d:\d\d")
+        self.assertNotRegex(other.stdout, r"built protal_db")
         self.assertIn("was simulated from other inputs (or by an older collector): simulating it again",
-                      self.text("out", "training_data.log"))
+                      self.text("out", "training_data_simulation.log"))
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out", ".converted")))
 
     def test_b_a_failed_background_build_stops_the_run(self):
@@ -1468,12 +1586,12 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Command failed (3)", result.stdout)
         self.assertIn("index_and_package.log", result.stdout)
-        self.assertNotIn("Collected the training data", result.stdout)
+        self.assertNotIn("collected in", result.stdout)
         self.assertLess(time.time() - started, 600)
 
     def test_c_sigterm_stops_every_command(self):
         run_ = self.build("out_term", wait=False)
-        log = os.path.join(self.tmp.name, "out_term", "training_data.log")
+        log = os.path.join(self.tmp.name, "out_term", "training_data_simulation.log")
         deadline = time.time() + 900
         while not os.path.exists(log) and run_.poll() is None and time.time() < deadline:
             time.sleep(1)

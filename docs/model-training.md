@@ -46,16 +46,21 @@ profiles them against a database, and joins all dumps into `training_data.tsv`:
 
 With `--read_types`, it collects other reads of the same communities too: `se`, the paired-end
 samples' first reads alone, profiled as single-end reads (no new simulation); `pb` and `ont`,
-long reads simulated with pbsim3 from each paired-end sample's manifest, every genome given its
-share of `--long_read_bases` by abundance times length (point i of the long reads replays the
-communities of paired-end point i; contigs under 100 bases are left out of a genome before pbsim3
-reads it, since pbsim3 stops at them). All samples are profiled in one protal run, each with its read
+long reads of each paired-end sample's community (from its manifest; point i of the long reads
+replays the communities of paired-end point i). The collector draws a long-read sample's reads as
+they arise until they hold `--long_read_bases`: each read's genome by abundance times genome length,
+its length from a gamma distribution of the setup's mean and SD (100 bp to 1 Mb, as pbsim3's), its
+start uniform over the genome's contigs of 100 bases or more, cut where its contig ends, either
+strand; pbsim3 (`--strategy templ`) then makes one read of each with the setup's error model, in one
+run per sample. (pbsim3's own sampling, once per genome, cut every contig's last read to that
+contig's share of the bases, so that shallow samples were mostly 100 bp reads, one per contig,
+[report](claude/2026-10-01-build-profiling/README.md).) All samples are profiled in one protal run, each with its read
 type's model and settings (the map's `READ_TYPE` column), and each read type gets its table:
 `training_data.tsv` (pe), `training_data_se.tsv`, `training_data_pb.tsv`, `training_data_ont.tsv`.
 
 | Option | Default | |
 |---|---|---|
-| `--db`, `--genome_table`, `-o` | required | database, simulator genome table (accession, GTDB taxonomy, FASTA path), output directory |
+| `--db`, `--genome_table`, `-o` | required | database, simulator genome table (accession, GTDB taxonomy, FASTA path, optionally the genome's length, which spares the simulator reading every genome for it), output directory |
 | `--protal`, `--simulator` | on `$PATH` | the binaries |
 | `--samples` | 4 | samples per design point |
 | `--read_pairs` | `1000,5000,20000,100000,500000` | depths, one design point each |
@@ -73,10 +78,11 @@ type's model and settings (the map's `READ_TYPE` column), and each read type get
 | `--novel_clades` | 0 | species of held-out clades (ranks above species in `--novel_species`) in every sample, per rank: each design point takes one clade of each rank, in turn |
 | `--taxonomy` | | the database's `internal_taxonomy.dmp`, for `meta_rep_genome`, `meta_relative_rank`, `meta_novel_level` and `meta_neighbour_rank` |
 | `-t`, `--seed` | 4, 1 | threads of the protal run; seed |
-| `--jobs` | `-t` | design points (and long-read genomes) simulated at a time (ART and pbsim3 simulate one genome at a time) |
+| `--jobs` | `-t` | paired-end design points, and long-read samples, simulated at a time (ART simulates one genome at a time) |
+| `--simulate_only` | | simulate and stop; a run without it profiles (the simulations need no database, so they can run while it is built; `build_gtdb_database.py` does so) |
 
-The design points are simulated in parallel, then all their samples are profiled in one protal run,
-which loads the database once. A rerun resumes: a design point already simulated from the same
+The paired-end design points are simulated in parallel, then the long-read samples, then all the
+samples are profiled in one protal run, which loads the database once. A rerun resumes: a design point already simulated from the same
 inputs (simulator, genome table, seed and design) and profiled against the same database with the
 same protal is skipped; one made from other inputs is simulated or profiled again (its folder holds
 the key of what made it, `simulated.json` and `profiled.json`). Columns it adds start with

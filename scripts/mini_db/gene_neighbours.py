@@ -118,15 +118,52 @@ def read_contigs(path):
     return contigs
 
 
+KMER, STRIDE = 32, 32  # GenomeIndex: the genome's k-mers at every STRIDE-th position
+
+
+class GenomeIndex:
+    """Where a sequence occurs in a genome, from the genome's k-mers at every STRIDE-th position: an occurrence
+    at any position p holds the genome's indexed k-mer at the next multiple of STRIDE, as the sequence's own
+    k-mer at offset j = -p mod STRIDE, if the sequence has KMER + STRIDE - 1 bases or more; each hit is checked
+    against the whole sequence. So every occurrence is found, as with bytes.find, without a scan of the genome
+    per gene (a few per gene with find: 1.45 s per GTDB-sized genome). Shorter sequences are looked for with
+    find."""
+
+    def __init__(self, genome):
+        self.genome = genome
+        self.index = {}
+        for p in range(0, len(genome) - KMER + 1, STRIDE):
+            self.index.setdefault(genome[p:p + KMER], []).append(p)
+
+    def occurrences(self, seq):
+        """The positions where seq starts in the genome, ascending (overlapping occurrences too)."""
+        genome, n = self.genome, len(seq)
+        if n < KMER + STRIDE - 1:
+            found, pos = [], genome.find(seq)
+            while pos >= 0:
+                found.append(pos)
+                pos = genome.find(seq, pos + 1)
+            return found
+        found = set()
+        for j in range(STRIDE):
+            for p in self.index.get(seq[j:j + KMER], ()):
+                if p >= j and genome[p - j:p - j + n] == seq:
+                    found.add(p - j)
+        return sorted(found)
+
+
 def place(item):
     """One species: its genes found in its genome. -> (taxid, accession, contigs [(name, length)],
-    placements [(gene id, contig, start, end, strand)], genes looked for, genes found more than once)."""
+    placements [(gene id, contig, start, end, strand)], genes looked for, genes found more than once).
+    A gene is placed at its first occurrence on the forward strand, else at its first on the reverse; it is
+    repeated if that strand has another."""
     taxid, accession, fasta, reference, genes = item
     try:
         contigs = read_contigs(fasta)
     except (OSError, EOFError) as error:
         return taxid, accession, None, str(error), len(genes), 0
     genome = SEPARATOR.join(seq for _, seq in contigs)
+    index = GenomeIndex(genome)
     offsets, at = [], 0
     for _, seq in contigs:
         offsets.append(at)
@@ -138,13 +175,13 @@ def place(item):
             seq = fh.readline().strip().upper()
             if not seq:
                 continue
-            strand, pos = "+", genome.find(seq)
-            if pos < 0:
-                strand, pos = "-", genome.find(seq.translate(COMPLEMENT)[::-1])
-            if pos < 0:
+            strand, found = "+", index.occurrences(seq)
+            if not found:
+                strand, found = "-", index.occurrences(seq.translate(COMPLEMENT)[::-1])
+            if not found:
                 continue
-            other = seq if strand == "+" else seq.translate(COMPLEMENT)[::-1]
-            repeated += genome.find(other, pos + 1) >= 0
+            pos = found[0]
+            repeated += len(found) > 1
             contig = bisect.bisect_right(offsets, pos) - 1
             local = pos - offsets[contig]
             placements.append((gene, contig, local, local + len(seq), strand))

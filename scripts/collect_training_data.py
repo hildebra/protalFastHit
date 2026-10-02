@@ -14,24 +14,29 @@ the database's reference). Train on it with
 
 Read types (--read_types): pe, the paired-end samples above; se, the same samples' first reads
 alone, profiled as single-end reads; pb and ont, long reads of the same communities simulated with
-pbsim3 (--pb_setup, --ont_setup), --long_read_bases per sample, one design point each. Every read
-type gets its table: training_data.tsv (pe), training_data_se.tsv, training_data_pb.tsv,
-training_data_ont.tsv; protal profiles each sample with that read type's model and settings.
+pbsim3 (--pb_setup, --ont_setup), --long_read_bases per sample, one design point each. The collector
+draws a long-read sample's reads (each read's genome by abundance times length, its length from the
+setup's gamma distribution, its start uniform, cut where its contig ends) and pbsim3 turns them into
+reads with its error model (--strategy templ), in one run per sample. Every read type gets its table:
+training_data.tsv (pe), training_data_se.tsv, training_data_pb.tsv, training_data_ont.tsv; protal
+profiles each sample with that read type's model and settings.
 
 A genome table with species the database lacks gives the negatives that matter most: a relative
 the database has picks up their reads. When whole genera, families, orders, classes or phyla are
 missing (--novel_species with ranks, --novel_clades), the relatives are distant: meta_novel_level
 marks the absent taxa closest to such species, meta_neighbour_rank how close a present taxon's
 nearest other species in the sample is. Archaea (--archaea) have fewer marker genes than bacteria
-and need to be in the training data, too. Design points are simulated in parallel (--jobs; ART and
-pbsim3 simulate one genome at a time), then the samples of all read types are profiled in one
-protal run, which loads the database once. Points already simulated or profiled are skipped, so a
-run can be resumed.
+and need to be in the training data, too. Paired-end design points are simulated in parallel, and
+then the long-read samples (--jobs at a time; ART simulates one genome at a time), then the samples
+of all read types are profiled in one protal run, which loads the database once. Points already
+simulated or profiled are skipped, so a run can be resumed; --simulate_only stops before profiling,
+so that the simulations can run while the database is built.
 
 usage: collect_training_data.py --db DB --genome_table genomes.tsv -o OUT [options]
 """
 
 import argparse
+import bisect
 import collections
 import concurrent.futures
 import csv
@@ -95,7 +100,10 @@ def parse_args(argv=None):
     p.add_argument("--pbsim_models", help="folder of pbsim3's .model files (default: found next to the binary)")
     p.add_argument("-t", "--threads", type=int, default=4, help="threads of the protal run (default 4)")
     p.add_argument("--jobs", type=int, default=0,
-                   help="design points (and long-read genomes) simulated at a time (default: --threads)")
+                   help="paired-end design points, and long-read samples, simulated at a time (default: --threads)")
+    p.add_argument("--simulate_only", action="store_true",
+                   help="simulate the design points and stop: a later run without it profiles them (the simulations "
+                        "need no database, so they can run while it is built; --db is not read)")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--novel_species",
                    help="species the database lacks, one per line, optionally with the rank they were held out at "
@@ -499,25 +507,76 @@ def pbsim_model(opts, name):
     sys.exit(f"pbsim3 model {name} not found in {', '.join(folders) or 'no folder'} (--pbsim_models)")
 
 
-PBSIM_MIN_LENGTH = 100  # pbsim3's --length-min: it stops with "Reference is too short" at a shorter sequence
+# How the long reads are made, part of a long-read point's key: points simulated otherwise (by pbsim3 per
+# genome, which cut every contig's last read to its quota) are simulated again.
+LONG_READS = "reads drawn by the collector, one pbsim3 --strategy templ run per sample"
+PBSIM_MIN_LENGTH = 100  # pbsim3's --length-min: its shortest read (and the shortest sequence it takes)
+PBSIM_MAX_LENGTH = 1000000  # its --length-max
+COMPLEMENT = bytes.maketrans(b"ACGTN", b"TGCAN")
 
 
-def long_contigs(fasta, out):
-    """Copies the sequences of a FASTA (plain or gzipped) that pbsim3 takes, those of PBSIM_MIN_LENGTH bases or
-    more, to `out`; how many. Assemblies of metagenomes have shorter contigs, which fail the whole genome."""
-    kept, record, length = 0, [], 0
-    with (gzip.open(fasta, "rt", errors="replace") if fasta.endswith(".gz") else open(fasta, errors="replace")) as fin, \
-            open(out, "w") as fout:
-        for line in itertools.chain(fin, [">"]):  # the last ">" ends the last sequence
-            if line.startswith(">"):
-                if length >= PBSIM_MIN_LENGTH:
-                    fout.writelines(record)
-                    kept += 1
-                record, length = [line.rstrip("\r\n") + "\n"], 0
-            elif record and line.strip():
-                record.append(line.strip() + "\n")
-                length += len(line.strip())
-    return kept
+def read_contigs(fasta):
+    """The sequences of a FASTA (plain or gzipped) as upper-case bytes, in file order."""
+    with open(fasta, "rb") as fh:
+        data = fh.read()
+    if data[:2] == b"\x1f\x8b":
+        data = gzip.decompress(data)
+    return [b"".join(record.partition(b"\n")[2].split()).upper() for record in (b"\n" + data).split(b"\n>")[1:]]
+
+
+def read_length(rng, mean, sd):
+    """A long read's length: from a gamma distribution of the setup's mean and SD between PBSIM_MIN_LENGTH and
+    PBSIM_MAX_LENGTH, as pbsim3 draws them (its read-length table is that gamma density over that range); the
+    mean if the SD is 0."""
+    if sd <= 0:
+        return min(max(int(mean), PBSIM_MIN_LENGTH), PBSIM_MAX_LENGTH)
+    shape, scale = (mean / sd) ** 2, sd * sd / mean
+    while True:
+        length = int(round(rng.gammavariate(shape, scale)))
+        if PBSIM_MIN_LENGTH <= length <= PBSIM_MAX_LENGTH:
+            return length
+
+
+def long_read_templates(task):
+    """The reads of a long-read sample, drawn as they arise in sequencing, until their bases reach the sample's:
+    a read's genome by relative abundance times genome length (task["genomes"]: fasta, weight), its length by
+    read_length, its start uniform over the genome's contigs of PBSIM_MIN_LENGTH bases or more (a read ends
+    where its contig does), either strand. Written to task["templates"] as FASTA, the reads of a genome
+    together (each genome is read once per round of drawing: the cuts at contigs' ends leave a few bases to
+    draw again), named g<genome>x_<n>. -> (the names in file order, None), or (None, why it failed)."""
+    rng = random.Random(task["seed"])
+    genomes, setup = task["genomes"], task["setup"]
+    cumulative, total = [], 0.0
+    for genome in genomes:
+        total += genome["weight"]
+        cumulative.append(total)
+    if total <= 0:
+        return None, "no genome with reads to simulate (relative abundances and lengths are 0)"
+    names, bases = [], 0
+    with open(task["templates"], "wb") as out:
+        while bases < task["bases"]:
+            planned, need = collections.defaultdict(list), task["bases"] - bases
+            while need > 0:
+                g = bisect.bisect_right(cumulative, rng.random() * total)
+                length = read_length(rng, setup["length_mean"], setup["length_sd"])
+                planned[g].append(length)
+                need -= length
+            for g in sorted(planned):
+                contigs = [c for c in read_contigs(genomes[g]["fasta"]) if len(c) >= PBSIM_MIN_LENGTH]
+                if not contigs:
+                    return None, f"{genomes[g]['genome']}: no sequence of {PBSIM_MIN_LENGTH} bases or more in {genomes[g]['fasta']}"
+                starts = list(itertools.accumulate(len(c) - PBSIM_MIN_LENGTH + 1 for c in contigs))
+                for length in planned[g]:
+                    at = rng.randrange(starts[-1])
+                    k = bisect.bisect_right(starts, at)
+                    start = at - (starts[k - 1] if k else 0)
+                    seq = contigs[k][start:start + length]
+                    if rng.random() < 0.5:
+                        seq = seq.translate(COMPLEMENT)[::-1]
+                    names.append(f"g{g}x_{len(names) + 1}")
+                    out.write(b">" + names[-1].encode() + b"\n" + seq + b"\n")
+                    bases += len(seq)
+    return names, None
 
 
 def last_line(path, limit=300):
@@ -532,76 +591,115 @@ def last_line(path, limit=300):
     return next((line.strip() for line in reversed(tail.replace("\r", "\n").split("\n")) if line.strip()), "")[:limit]
 
 
-def long_read_genome(task):
-    """pbsim3 reads of one genome of a long-read sample (task: dict); the FASTQ files it wrote."""
+def long_read_sample(task):
+    """One long-read sample (task: dict): its reads drawn as templates (long_read_templates), then one pbsim3
+    run with --strategy templ, which makes one read of each template, with the model's errors and qualities,
+    and names it <id prefix>_<n> after the template's place n in the file; the reads are renamed after their
+    templates (g<genome>x_<n>) into task["out"]. -> None, or why it failed."""
     tmp = task["tmp"]
     os.makedirs(tmp, exist_ok=True)
-    fasta = os.path.join(tmp, "genome.fna")
-    if not long_contigs(task["fasta"], fasta):
-        return None, f"{task['genome']}: no sequence of {PBSIM_MIN_LENGTH} bases or more in {task['fasta']}"
+    task = {**task, "templates": os.path.join(tmp, "templates.fa")}
+    names, error = long_read_templates(task)
+    if error:
+        return f"{task['sample']}: {error}"
     setup = task["setup"]
     prefix = os.path.join(tmp, "r")
-    command = [task["pbsim"], "--strategy", "wgs", "--method", setup["method"], f"--{setup['method']}", task["model"],
-               "--genome", fasta, "--depth", f"{task['depth']:.6g}", "--length-mean", str(setup["length_mean"]),
-               "--length-sd", str(setup["length_sd"]), "--accuracy-mean", str(setup["accuracy"]),
-               "--seed", str(task["seed"]), "--prefix", prefix, "--id-prefix", task["id_prefix"]]
+    command = [task["pbsim"], "--strategy", "templ", "--method", setup["method"], f"--{setup['method']}", task["model"],
+               "--template", task["templates"], "--accuracy-mean", str(setup["accuracy"]), "--seed", str(task["seed"]),
+               "--prefix", prefix, "--id-prefix", "r"]
     if setup.get("ratio"):
         command += ["--difference-ratio", setup["ratio"]]
     log_path = os.path.join(tmp, "pbsim.log")
     with open(log_path, "w") as log:
         rc = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT).returncode
     if rc != 0:
-        return None, f"pbsim failed ({rc}) for {task['genome']}: {last_line(log_path)}; see {log_path}"
-    return sorted(glob.glob(prefix + "_*.fastq*") + glob.glob(prefix + "_*.fq*")), None
-
-
-def simulate_long(unit, index, opts, jobs):
-    """Long reads (pb, ont) of a design point with pbsim3: the communities of its paired-end point (from its
-    manifest), each genome given its share of the sample's bases, by relative abundance times length. Writes
-    sim/samples.tsv (sample, reads, truth, community sample) last, so an interrupted point is simulated again."""
-    base, sim, _ = point_dirs(unit["point"], opts)
-    community_dir = point_dirs(unit["community"], opts)[0]
-    _, pe_rows, _ = map_rows(os.path.join(community_dir, "sim", "protal.meta"))
-    truth = {row["SAMPLEID"]: row["PROFILE_TRUTH"] for row in pe_rows}
-    by_sample = collections.OrderedDict()
-    for row in manifest_rows(community_dir):
-        by_sample.setdefault(row["sample"], []).append(row)
-    model = pbsim_model(opts, unit["setup"]["model"])
-    tasks, samples = [], []
-    for s, (community, genomes) in enumerate(by_sample.items()):
-        sample = f"{unit['name']}_s_{community.rsplit('_', 1)[-1]}"
-        weight = [float(g["relative_abundance"]) * float(g["genome_length"]) for g in genomes]
-        total = sum(weight) or 1.0
-        samples.append((sample, community, len(genomes)))
-        for g, genome in enumerate(genomes):
-            bases = unit["bases"] * weight[g] / total
-            tasks.append({"sample": sample, "genome": genome["genome"], "fasta": genome["fasta_path"],
-                          "depth": bases / max(1.0, float(genome["genome_length"])), "setup": unit["setup"],
-                          "model": model, "pbsim": opts.pbsim, "seed": (opts.seed * 1000003 + index * 1009 + s) * 101 + g,
-                          "id_prefix": f"g{g}x", "tmp": os.path.join(sim, "tmp", sample, str(g))})
-    with concurrent.futures.ThreadPoolExecutor(max(1, jobs)) as executor:
-        results = list(executor.map(long_read_genome, tasks))
-    failures = [error for _, error in results if error]
-    if failures:
-        return "\n".join(failures[:5])
-    reads = os.path.join(sim, "reads")
-    os.makedirs(reads, exist_ok=True)
-    files = collections.defaultdict(list)
-    for task, (fastqs, _) in zip(tasks, results):
-        files[task["sample"]] += fastqs
-    rows = []
-    for sample, community, _ in samples:
-        out = os.path.join(reads, sample + ".fq.gz")
-        with gzip.open(out, "wb", compresslevel=1) as fout:
-            for path in files[sample]:
-                with (gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")) as fin:
-                    shutil.copyfileobj(fin, fout, 1 << 22)
-        rows.append((sample, out, truth[community], community))
-    shutil.rmtree(os.path.join(sim, "tmp"), ignore_errors=True)
-    with open(os.path.join(sim, "samples.tsv.partial"), "w") as fh:
-        fh.write("sample\treads\ttruth\tcommunity\n" + "".join("\t".join(r) + "\n" for r in rows))
-    os.replace(os.path.join(sim, "samples.tsv.partial"), os.path.join(sim, "samples.tsv"))
+        return f"{task['sample']}: pbsim failed ({rc}): {last_line(log_path)}; see {log_path}"
+    fastqs = sorted(set(glob.glob(prefix + ".fq*") + glob.glob(prefix + ".fastq*")))
+    if len(fastqs) != 1:
+        return f"{task['sample']}: pbsim wrote {len(fastqs)} FASTQ files ({prefix}.fq.gz expected); see {log_path}"
+    reads, lines = 0, 0
+    with (gzip.open(fastqs[0], "rb") if fastqs[0].endswith(".gz") else open(fastqs[0], "rb")) as fin, \
+            gzip.open(task["out"] + ".partial", "wb", compresslevel=1) as fout:
+        for line in fin:
+            if lines % 4 == 0:
+                reads += 1
+                if reads > len(names):
+                    break
+                line = b"@" + names[reads - 1].encode() + b"\n"
+            fout.write(line)
+            lines += 1
+    if reads != len(names) or lines % 4:
+        return f"{task['sample']}: pbsim made {reads} reads of {len(names)} templates; see {log_path}"
+    os.replace(task["out"] + ".partial", task["out"])
     return None
+
+
+def simulate_long(points, opts, jobs, keys=None):
+    """Long reads (pb, ont) of design points [(index, unit)] with pbsim3: each sample replays the community of a
+    sample of the unit's paired-end point (from its manifest), each genome weighted by relative abundance times
+    length (long_read_sample). The samples of all the points are simulated `jobs` at a time; once a point's
+    are done, its sim/samples.tsv (sample, reads, truth, community sample) is written, and keys[name] to its
+    simulated.json, so that an interrupted point is simulated again. -> {point name: why it failed}."""
+    started, tasks, points_of = time.time(), [], {}
+    for index, unit in points:
+        sim = point_dirs(unit["point"], opts)[1]
+        community_dir = point_dirs(unit["community"], opts)[0]
+        _, pe_rows, _ = map_rows(os.path.join(community_dir, "sim", "protal.meta"))
+        truth = {row["SAMPLEID"]: row["PROFILE_TRUTH"] for row in pe_rows}
+        by_sample = collections.OrderedDict()
+        for row in manifest_rows(community_dir):
+            by_sample.setdefault(row["sample"], []).append(row)
+        model = pbsim_model(opts, unit["setup"]["model"])
+        shutil.rmtree(os.path.join(sim, "tmp"), ignore_errors=True)
+        os.makedirs(os.path.join(sim, "reads"), exist_ok=True)
+        rows = []
+        for s, (community, genomes) in enumerate(by_sample.items()):
+            sample = f"{unit['name']}_s_{community.rsplit('_', 1)[-1]}"
+            out = os.path.join(sim, "reads", sample + ".fq.gz")
+            rows.append((sample, out, truth[community], community))
+            tasks.append(({"sample": sample, "out": out, "bases": unit["bases"], "setup": unit["setup"], "model": model,
+                           "pbsim": opts.pbsim, "seed": (opts.seed * 1000003 + index * 1009 + s) * 101,
+                           "tmp": os.path.join(sim, "tmp", sample),
+                           "genomes": [{"genome": g["genome"], "fasta": g["fasta_path"],
+                                        "weight": float(g["relative_abundance"]) * float(g["genome_length"])}
+                                       for g in genomes]}, unit["name"]))
+        points_of[unit["name"]] = {"unit": unit, "sim": sim, "rows": rows, "left": len(rows), "errors": []}
+    failures, done = {}, 0
+    with concurrent.futures.ThreadPoolExecutor(max(1, jobs)) as executor:
+        futures = {executor.submit(long_read_sample, task): (name, task["sample"]) for task, name in tasks}
+        for future in concurrent.futures.as_completed(futures):
+            if future.cancelled():
+                continue
+            name, sample = futures[future]
+            point = points_of[name]
+            try:
+                error = future.result()
+            except Exception as exc:  # a genome that cannot be read, say: the point fails, and says why
+                error = f"{sample}: {type(exc).__name__}: {exc}"
+            if error:
+                point["errors"].append(error)
+                for other in futures:  # a failed point stops the collection: no new samples
+                    other.cancel()
+            point["left"] -= 1
+            if point["left"]:
+                continue
+            sim = point["sim"]
+            done += 1
+            if point["errors"]:
+                failures[name] = "\n".join(point["errors"][:5])
+                continue
+            shutil.rmtree(os.path.join(sim, "tmp"), ignore_errors=True)
+            with open(os.path.join(sim, "samples.tsv.partial"), "w") as fh:
+                fh.write("sample\treads\ttruth\tcommunity\n" + "".join("\t".join(r) + "\n" for r in point["rows"]))
+            os.replace(os.path.join(sim, "samples.tsv.partial"), os.path.join(sim, "samples.tsv"))
+            if keys is not None:
+                write_key(os.path.join(point_dirs(point["unit"]["point"], opts)[0], "simulated.json"), keys[name])
+            print(f"{name} simulated ({len(point['rows'])} samples): {done} of {len(points)} long-read design points, "
+                  f"{clock(time.time() - started)} in all", flush=True)
+    for name, point in points_of.items():
+        if point["errors"] and name not in failures:
+            failures[name] = "\n".join(point["errors"][:5])
+    return failures
 
 
 def simulated(unit, opts):
@@ -822,25 +920,28 @@ def main(argv=None):
                       flush=True)
         if failures:
             sys.exit("\n".join(failures))
-    # Long reads: pbsim3 simulates one genome at a time, so the genomes of a point run in parallel.
+    # Long reads: one pbsim3 run per sample (long_read_sample), the samples of all points `jobs` at a time.
     long_units = [u for u in units if u["type"] in LONG_READ_TYPES]
+    pending = []
     for i, unit in enumerate(long_units):
         base = point_dirs(unit["point"], opts)[0]
         keys[unit["name"]] = {"community": keys[unit["community"]["name"]], "setup": unit["setup"], "bases": unit["bases"],
                               "index": i, "seed": opts.seed, "pbsim": identity(opts.pbsim),
-                              "model": identity(pbsim_model(opts, unit["setup"]["model"]))}
+                              "model": identity(pbsim_model(opts, unit["setup"]["model"])), "reads": LONG_READS}
         if simulated(unit, opts) and not same_key(os.path.join(base, "simulated.json"), keys[unit["name"]]):
             print(f"{unit['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
             shutil.rmtree(base)
         if not simulated(unit, opts):
-            print(f"simulating {unit['name']} with pbsim3", flush=True)
-            began = time.time()
-            failure = simulate_long(unit, i, opts, jobs)
-            if failure:
-                sys.exit(f"{unit['name']}: {failure}")
-            write_key(os.path.join(base, "simulated.json"), keys[unit["name"]])
-            print(f"{unit['name']} simulated ({opts.samples} samples) in {clock(time.time() - began)}: long-read design "
-                  f"point {i + 1} of {len(long_units)}", flush=True)
+            pending.append((i, unit))
+    if pending:
+        print(f"simulating {len(pending)} long-read design points with pbsim3 ({len(pending) * opts.samples} samples, "
+              f"{jobs} at a time)", flush=True)
+        failures = simulate_long(pending, opts, jobs, keys)
+        if failures:
+            sys.exit("\n".join(f"{name}: {why}" for name, why in failures.items()))
+    if opts.simulate_only:
+        print("simulated every design point; profiling left to a run without --simulate_only", flush=True)
+        return
     # Profiling: every unit not yet profiled against this database with this protal, in one protal run.
     db, protal = db_identity(opts.db), identity(opts.protal)
     unprofiled = []
