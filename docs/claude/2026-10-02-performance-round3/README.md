@@ -4,6 +4,7 @@
 - **Code**: branch `audit-fixes` at `aeb7bf4` (the one binary of `96d9c3d`).
   - Committed from this round, with identical outputs: `f343113`.
   - Not committed: long reads aligned through their chain, branch `long-reads-through-chain` (`scripts/long_reads_through_chain.patch`, on `f343113`). It changes long-read alignments, so it waits for a decision.
+  - **Later the same day**: merged as `29369eb`, at the user's request once the other sessions had finished, after unit (295) and e2e (128) tests passed on it from a clean tree (as `35d46f1`, on 0.7.3).
 - **Machine**: WSL2 Ubuntu 24.04 on an Intel Core Ultra 7 258V (4 fast and 4 low-power cores, 6 vCPUs), GCC 13.3.
   - Other sessions kept the load at 6–9 for most of the time.
   - Instruction counts (callgrind, one thread) are the measure. Whole runs were timed only for the long-read benchmark, with the two builds alternated.
