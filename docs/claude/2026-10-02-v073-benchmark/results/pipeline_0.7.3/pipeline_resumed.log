@@ -1,0 +1,37 @@
+[14:48:53 +0:00:01] Note: protal (/home/falk/bench071/bin/protal-0.7.3) does not say which commit it was built from (not built in a git checkout), so it is not checked against the source
+[14:48:53 +0:00:01] Note: the simulator (/home/falk/bench071/bin/simulate_metagenomes) --version gives no version (1: Error parsing arguments: Option ‘version’ does not exist), so it is older than these scripts: build it from /home/falk/bench071/src/0.7.3 (docs/installation.md) (--no-binary-check: run anyway)
+[14:48:53 +0:00:01] A protal database of GTDB r226 in /home/falk/bench071/V073, with 6 threads; each step logs to a file there
+[14:48:53 +0:00:01] 1/8 genome table (genomes.tsv, genome_table.txt): 2295 genomes of 765 species (Archaea 92, Bacteria 673); a simulated species is another genome than its representative 66.7% of the time
+[14:48:53 +0:00:01] 2/8 the release: /home/falk/bench071/V073/protal_db was built by an earlier run from the same release and protal; kept
+[14:48:53 +0:00:01] 3/8 training database (training_db, training_db_index.log): 290 species left out, 2 phylum, 4 class, 6 order, 8 family, 12 genus clades (171 species) and 119 species alone (model_logs/holdout.txt)
+[14:48:53 +0:00:01]     /home/falk/bench071/V073/training_db was built by an earlier run with the same species left out; kept
+[14:48:53 +0:00:01]     simulating the training data and the independent test set meanwhile, in the background (training_data_simulation.log, test_data_simulation.log)
+[14:48:53 +0:00:01] 4/8 training data (training_data.log): 36 pe, 36 se, 12 pb, 12 ont samples
+[14:48:53 +0:00:01]     waiting for its simulations in the background (training_data_simulation.log)
+[14:48:53 +0:00:01]     simulated the training data in the background in 0:00:00, peak memory 42 MB
+[14:48:54 +0:00:02]     collected in 0:00:01, peak memory 49 MB; taxa present/absent: pe 2371/5412, se 2340/4798, pb 521/349, ont 562/561; 2.0 GB in /home/falk/bench071/V073/training
+[14:48:54 +0:00:02] 5/8 independent test set (test_data.log): 18 pe, 18 se, 6 pb, 6 ont samples
+[14:48:54 +0:00:02]     waiting for its simulations in the background (test_data_simulation.log)
+[14:48:54 +0:00:02]     simulated the independent test set in the background in 0:00:01, peak memory 43 MB
+[14:48:55 +0:00:03]     collected in 0:00:01, peak memory 49 MB; taxa present/absent: pe 1522/2273, se 1487/2077, pb 414/144, ont 437/226; 1.8 GB in /home/falk/bench071/V073/test
+[14:48:55 +0:00:03] 6/8 training the pe, se, pb, ont models (classifier_training*.log) in parallel, 1 thread each
+[14:50:17 +0:01:25]     trained in 0:01:22 (pe 0:01:22, se 0:01:15, pb 0:00:15, ont 0:00:20); F1 with species held out/on the test set: pe 0.983/0.973, se 0.981/0.969, pb 0.990/0.983, ont 0.987/0.983
+[14:50:17 +0:01:25] 7/8 checking that protal scores the models as the trainer does (parity*.log)
+[14:50:25 +0:01:33]     pe, se, pb, ont: the same probabilities and features, checked in 0:00:09
+[14:50:29 +0:01:38]     the held-out species' reads by gene conservation, in 0:00:04: model_logs/relatives_by_gene_conservation.txt
+[14:50:29 +0:01:38] 8/8 adding the pe, se, pb, ont models to protal_db (final_package.log)
+[14:50:33 +0:01:42]     added in 0:00:04; database.protal 113 MB
+
+Presence models of /home/falk/bench071/V073/protal_db, taxa scored at knob 0.5: TP present and called, FP absent and called, TN absent and not called, FN present and not called. species held out: each taxon scored by forests that did not see its species; independent test set: samples of another design, scored by the final model. Details: trained_model*.report.txt
+
+read type  evaluated on          taxa  TP    FP  TN    FN  sensitivity  specificity  precision  F1      FP/sample
+pe         species held out      7783  2324  35  5377  47  0.9802       0.9935       0.9852     0.9827  0.97
+pe         independent test set  3795  1453  13  2260  69  0.9547       0.9943       0.9911     0.9726  0.72
+se         species held out      7138  2290  37  4761  50  0.9786       0.9923       0.9841     0.9814  1.03
+se         independent test set  3564  1409  13  2064  78  0.9475       0.9937       0.9909     0.9687  0.72
+pb         species held out      870   512   1   348   9   0.9827       0.9971       0.9981     0.9903  0.08
+pb         independent test set  558   401   1   143   13  0.9686       0.9931       0.9975     0.9828  0.17
+ont        species held out      1123  551   4   557   11  0.9804       0.9929       0.9928     0.9866  0.33
+ont        independent test set  663   426   4   222   11  0.9748       0.9823       0.9907     0.9827  0.67
+
+[14:50:34 +0:01:42] Ready protal database: /home/falk/bench071/V073/protal_db; database.protal 113 MB; model evaluation: /home/falk/bench071/V073/model_logs (start with trained_model.report.txt, and trained_model_<read type>.report.txt)

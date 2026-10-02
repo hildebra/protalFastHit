@@ -1,0 +1,4 @@
+trained_model: protal_depth_knob_curve" value="2.449:0.26,2.521:0.26,3.806:0.66,4.814:0.71"
+trained_model_se: protal_depth_knob_curve" value="2.391:0.4,3.725:0.52,4.742:0.82"
+trained_model_pb: protal_depth_knob_curve" value="1.802:0.18,2.039:0.18,3.196:0.27,4.227:0.43"
+trained_model_ont: protal_depth_knob_curve" value="1.863:0.13,3.185:0.35,4.199:0.63"

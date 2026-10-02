@@ -1,0 +1,3 @@
+model /home/falk/bench071/V073/trained_model_se.xml (se reads): 64 trees, 37 features
+re-profiled 8 samples of rl100_p1000, rl250_p200000: 1412 taxa
+protal's probabilities equal the model file's (and so scikit-learn's) for every taxon; the features equal those of the training data

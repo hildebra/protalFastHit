@@ -1,0 +1,3 @@
+model /home/falk/bench071/V073/trained_model_ont.xml (ont reads): 64 trees, 37 features
+re-profiled 8 samples of ont_b300000, ont_b60000000: 685 taxa
+protal's probabilities equal the model file's (and so scikit-learn's) for every taxon; the features equal those of the training data

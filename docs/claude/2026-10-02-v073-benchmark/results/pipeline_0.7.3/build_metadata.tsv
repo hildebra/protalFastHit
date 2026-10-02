@@ -1,0 +1,36 @@
+gtdb_release	r226
+built	2026-10-02 14:50:34
+protal_version	protal v0.7.3
+protal_binary	/home/falk/bench071/bin/protal-0.7.3
+simulator_version	unknown (older than 0.7.3)
+scripts_commit	unknown (not a git checkout)
+command	/home/falk/bench071/src/0.7.3/scripts/build_gtdb_database.py --gtdb /home/falk/bench071/world/release_p --outdir /home/falk/bench071/V073 --protal /home/falk/bench071/bin/protal-0.7.3 --simulator /home/falk/bench071/bin/simulate_metagenomes -t 6 --seed 1 --extra-genomes /home/falk/bench071/world/full/simulation/genomes_nonreps --samples 4 --read-pairs 1000,20000,200000 --test-samples 2 --test-read-pairs 500,10000,500000 --long-read-bases 300000,6000000,60000000 --test-long-read-bases 150000,3000000,90000000 --long-read-samples 4 --pbsim /home/falk/micromamba/envs/protal-db-build/bin/pbsim --no-binary-check
+seed	1
+genome_table	2295 genomes of 765 species
+gene_conservation	factors 0.25-3.1 for 168 genes, from 765 species (248551 copies compared)
+gene_neighbours	372295 rules of 1014 clades from 2295 genomes, neighbours up to 3000 bases apart (gene_neighbours.tsv), stored in the database
+gene_positions	248091 genes (161189 placed by their k-mer trace) in 2295 genomes of 765 species, 0 read as circular (gene_positions.tsv), stored in the database, not read by queries
+gene_congeners	1634 pairs of species of 111 genera (600 species); the genes' divergence between congeners correlates 1.00 with their factors (Spearman, 168 genes); genes of factor below 1: between-species factor 0.62, the nearest congener's copy identical in 0.1% of species, nearer than 0.01 in 3.4%; the other genes: 1.42, 0.0%, 0.0%
+classifier_features	normalized+adjacency
+classifier_trees	64
+classifier_max_leaves	256
+classifier_evaluation	full
+classifier_previous_procedure	not compared
+classifier_training_species_left_out	290
+classifier_training_phylum_clades_left_out	2
+classifier_training_class_clades_left_out	4
+classifier_training_order_clades_left_out	6
+classifier_training_family_clades_left_out	8
+classifier_training_genus_clades_left_out	12
+classifier_training_samples	4 per design point
+classifier_training_design	read pairs 1000,20000,200000; read setups 100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50; species per sample 20-200; strains 0.3,0.1; abundance default
+classifier_read_types	pe,se,pb,ont
+classifier_depth_knobs	pe,se,pb,ont
+model_pe	species held out F1 0.9826638477801268, FP per sample 0.9722222222222222; independent test F1 0.9725568942436412, FP per sample 0.7222222222222222
+model_pe_depth_knobs	log10 fragments:knob 2.449:0.26,2.521:0.26,3.806:0.66,4.814:0.71; independent test F1 at them 0.9715242881072027
+model_se	species held out F1 0.981358474394686, FP per sample 1.0277777777777777; independent test F1 0.9687177724303885, FP per sample 0.7222222222222222
+model_se_depth_knobs	log10 fragments:knob 2.391:0.4,3.725:0.52,4.742:0.82; independent test F1 at them 0.9658031088082901
+model_pb	species held out F1 0.9903288201160542, FP per sample 0.08333333333333333; independent test F1 0.9828431372549019, FP per sample 0.16666666666666666
+model_pb_depth_knobs	log10 fragments:knob 1.802:0.18,2.039:0.18,3.196:0.27,4.227:0.43; independent test F1 at them 0.9840881272949816
+model_ont	species held out F1 0.9865711727842436, FP per sample 0.3333333333333333; independent test F1 0.9826989619377162, FP per sample 0.6666666666666666
+model_ont_depth_knobs	log10 fragments:knob 1.863:0.13,3.185:0.35,4.199:0.63; independent test F1 at them 0.9826989619377162
