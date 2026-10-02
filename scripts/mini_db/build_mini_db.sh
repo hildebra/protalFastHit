@@ -29,7 +29,8 @@ rm -rf "$gtdb" "$db"
 
 "$python" "$here/simulate_gtdb_release.py" --outdir "$gtdb" --release 226 "$@"
 "$python" "$here/gtdb_to_protal_db.py" --gtdb "$gtdb" --outdir "$db"
-# Which marker genes lie next to which in the representatives' genomes (gene_neighbours.tsv, packed by --build).
+# How often which marker genes lie next to which in the genomes, per clade, and where each gene lies in each
+# (gene_neighbours.tsv, gene_positions.tsv; --build packs both).
 "$python" "$here/gene_neighbours.py" --db "$db" --genome_table "$gtdb/simulation/genomes.tsv" > "$out/gene_neighbours.log"
 
 # --no_profile: without it, build mode falls through to profiling an empty sample list.

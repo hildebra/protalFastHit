@@ -649,9 +649,10 @@ class GeneConservationTest(WorkDir):
 
 class GeneNeighboursTest(WorkDir):
     """A database of a synthetic release whose markers lie in operon-like clusters (simulate_gtdb_release.py
-    --operons), with the gene neighbours of its genomes (gene_neighbours.py), which --build checks and packs; read
-    pairs drawn from the genomes span neighbouring genes. protal pairs mates across them (a proper pair on two
-    references) and gives the adjacency features; --no_gene_neighbours does neither."""
+    --operons), with the gene neighbours of its genomes (gene_neighbours.py: the per-clade frequencies and where
+    each gene lies in each genome), which --build checks and packs; read pairs drawn from the genomes span
+    neighbouring genes. protal pairs mates across them (a proper pair on two references) and gives the adjacency
+    features, from database.protal alone; --no_gene_neighbours does neither."""
 
     @classmethod
     def setUpClass(cls):
@@ -672,6 +673,8 @@ class GeneNeighboursTest(WorkDir):
         python(os.path.join(scripts, "gene_neighbours.py"), "--db", cls.db, "--genome_table", genomes)
         with open(os.path.join(cls.db, "gene_neighbours.tsv")) as fh:
             cls.table = fh.read()
+        with open(os.path.join(cls.db, "gene_positions.tsv")) as fh:
+            cls.positions = fh.read()
         cls.inputs = os.path.join(cls.work, "inputs")  # the converted files, for builds of their own
         shutil.copytree(cls.db, cls.inputs)
         rc, cls.build_log = run(cls.work, "--build", "--no_profile", "-t", "2", "--db", cls.db,
@@ -690,11 +693,11 @@ class GeneNeighboursTest(WorkDir):
             next(fh)
             cls.species = [r[0] for r in (line.split("\t") for line in fh) if r[4] == "species"]
 
-    def profile(self, name, *extra):
+    def profile(self, name, *extra, db=None):
         truth = self.path("truth.tsv")
         with open(truth, "w") as fh:
             fh.write("\n".join(self.species) + "\n")
-        rc, log = run(self.work, "--db", self.db, "-1", self.path("s_R1.fq"), "-2", self.path("s_R2.fq"), "--prefix", "s",
+        rc, log = run(self.work, "--db", db or self.db, "-1", self.path("s_R1.fq"), "-2", self.path("s_R2.fq"), "--prefix", "s",
                       "-o", name, "-t", "2", "--no_strains", "--profile_truth", truth, *extra)
         self.assertEqual(rc, 0, log[-3000:])
         records = sam_records(find_sams(self.path(name, "s*.sam"))[0])
@@ -711,11 +714,28 @@ class GeneNeighboursTest(WorkDir):
     def test_the_build_checks_and_packs_the_neighbours(self):
         self.assertIn("Gene neighbours: ", self.build_log)
         self.assertIn("stored in the database", self.build_log)
+        # Each species' representative is one sequence: read as circular.
+        n = len(self.species)
+        self.assertIn(f"in {n} genomes of {n} species, {n} read as circular (gene_positions.tsv), stored in the database, "
+                      "not read by queries", self.build_log)
         unpacked = self.path("unpacked")
         rc, log = run(self.work, "--unpack_db", "--db", self.db, "--unpack_dir", unpacked, "-t", "2")
         self.assertEqual(rc, 0, log[-3000:])
         with open(os.path.join(unpacked, "gene_neighbours.tsv")) as fh:
             self.assertEqual(fh.read(), self.table)
+        with open(os.path.join(unpacked, "gene_positions.tsv")) as fh:
+            self.assertEqual(fh.read(), self.positions)
+
+    def test_bad_positions_stop_the_build(self):
+        db = self.path("bad_positions")
+        shutil.copytree(self.inputs, db)
+        line = self.positions.splitlines()[-1].split("\t")
+        with open(os.path.join(db, "gene_positions.tsv"), "a") as fh:
+            fh.write("\t".join(line[:5] + ["999"] + line[6:]) + "\n")
+        rc, log = run(self.work, "--build", "--no_profile", "--no_bundle", "-t", "2", "--db", db,
+                      "--reference", os.path.join(db, "reference.fna"))
+        self.assertEqual(rc, 8, log[-3000:])
+        self.assertIn(f"species {line[1]} has no gene 999 in the database", log)
 
     def test_a_bad_table_stops_the_build(self):
         db = self.path("bad")
@@ -751,6 +771,21 @@ class GeneNeighboursTest(WorkDir):
         self.assertTrue(present)
         self.assertTrue(all(float(row["adjacent_expected_share"]) > 0.9 for row in present), present)
 
+        # The database file alone, in a folder of its own: the same.
+        alone = self.path("bundle_only")
+        os.makedirs(alone)
+        shutil.copy(os.path.join(self.db, "database.protal"), alone)
+        log_alone, records_alone, rows_alone = self.profile("alone", db=alone)
+        self.assertEqual(os.listdir(alone), ["database.protal"])  # nothing unpacked or written next to it
+        self.assertIn(f"Gene neighbours: {paired} fragments paired across two neighbouring genes", log_alone)
+        self.assertEqual([sorted(r) for r in rows_alone], [sorted(r) for r in rows])
+        for a, b in zip(rows_alone, rows):  # the same, but for the last digits of sums the threads add in their order
+            for key, value in b.items():
+                try:
+                    self.assertAlmostEqual(float(a[key]), float(value), delta=1e-9 * max(1.0, abs(float(value))), msg=key)
+                except ValueError:
+                    self.assertEqual(a[key], value, key)
+
         log, records, rows = self.profile("without", "--no_gene_neighbours")
         self.assertIn("Gene neighbours: not used (--no_gene_neighbours)", log)
         self.assertEqual(self.across(records), [])
@@ -774,8 +809,9 @@ class ModelContractTest(WorkDir):
             fields = set(re.findall(r'<DataField name="([^"]+)"', fh.read())) - {"truth"}
         self.assertEqual(sorted(fields - set(header)), [], "every model input is in the training dump")
         sys.path.insert(0, os.path.join(ROOT, "scripts"))
-        from model_features import NORMALIZED_FEATURES
-        self.assertEqual([f for f in NORMALIZED_FEATURES if f not in header], [], "the trainer's features are dumped")
+        from model_features import ADJACENCY_FEATURES, NORMALIZED_FEATURES
+        self.assertEqual([f for f in NORMALIZED_FEATURES + ADJACENCY_FEATURES if f not in header], [],
+                         "the trainer's default features are dumped")
         self.assertTrue(rows)
         conservation = os.path.exists(db_file("gene_conservation.tsv"))
         for row in rows:

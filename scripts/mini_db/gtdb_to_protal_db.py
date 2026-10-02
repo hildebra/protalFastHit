@@ -289,9 +289,11 @@ def species_taxids(taxonomy_rows, names, what):
 
 # The files of a database folder this script writes besides reference.fna, reference.map and
 # full_reference.fna, and those build_gtdb_database.py puts beside them: the models (model_pmml.MODEL_FILES)
-# and gene_neighbours.tsv (gene_neighbours.py; per clade, so it holds for a copy without some species).
+# and gene_neighbours.tsv (gene_neighbours.py; per clade). A copy without some species derives
+# gene_neighbours.tsv anew from gene_positions.tsv, without their genomes, when the folder has one.
 CONVERTED_FILES = ("internal_taxonomy.dmp", "gene2geneid.tsv", "genome2tiid.tsv", "gene_neighbours.tsv",
                    "model_pe.xml", "model_se.xml", "model_PB.xml", "model_ONT.xml")
+GENE_POSITIONS = "gene_positions.tsv"
 # What protal --build writes into the folder (and leaves there when stopped: .partial files), stale once
 # the folder's reference is written anew; it would stop the next build (unique_kmers.tsv of other genes)
 # or shadow the new files (database.protal).
@@ -392,6 +394,17 @@ def exclude_from_db(src, dst, names, threads=1):
             shutil.copyfile(os.path.join(src, name), os.path.join(dst, name))
         elif os.path.isfile(os.path.join(dst, name)):
             os.remove(os.path.join(dst, name))
+    if os.path.isfile(os.path.join(src, GENE_POSITIONS)):
+        # The gene neighbours of the genomes of the species kept: the left-out species' gene order is not known
+        # to the copy, as an organism the database lacks is not.
+        import gene_neighbours  # here: it imports this module
+        lines, genomes, kept_species = gene_neighbours.derive(
+            os.path.join(src, GENE_POSITIONS), os.path.join(dst, "internal_taxonomy.dmp"),
+            os.path.join(dst, gene_neighbours.FILE_NAME), {int(t) for t in drop}, os.path.join(dst, GENE_POSITIONS))
+        sys.stderr.write(f"{gene_neighbours.FILE_NAME} derived from the {genomes} genomes of {kept_species} species "
+                         f"kept: {lines} lines\n")
+    elif os.path.isfile(os.path.join(dst, GENE_POSITIONS)):
+        os.remove(os.path.join(dst, GENE_POSITIONS))
 
     def records(path):
         with open(path) as fh:

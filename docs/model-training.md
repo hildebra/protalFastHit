@@ -168,20 +168,32 @@ On simulated data it finds about a third of the archaea present, with probabilit
   cross-validated F1 rose too ([report](claude/2026-10-01-f1-opportunities/README.md)). A dump of
   an older protal lacks them.
 
-The dump also has `adjacent_expected_share` and `adjacent_unlikely_share`: of the genes next to
-each other on a taxon's reads (a pair's mates on two genes, a long read's consecutive genes within
-3 kb of each other on the read; every read's best records, also those the filters leave out), the
-shares whose ends face each other in the taxon's clade and that never do there, by the database's
-gene neighbours ([running.md](running.md#options-the-website-does-not-list); both 0 without them).
-They are not among the normalised features the models train on: reads of a congener the database
-lacks pair across the same genes as the species' own, and `linked_share`, which they refine,
-lowered the paired-end F1 when it was tried ([report](claude/2026-10-01-gene-neighbours-run/README.md)).
+The dump also has `adjacent_expected_share`, `adjacent_unlikely_share` and `adjacent_support`: of
+the genes next to each other on a taxon's reads (a pair's mates on two genes, a long read's
+consecutive genes within 3 kb of each other on the read; every read's best records, also those the
+filters leave out), the shares whose ends are expected neighbours in the taxon's clades (facing each
+other in 20% of their species or more, a sparse clade leaning on those above it) and unlikely ones
+(5% or less), by the database's gene neighbours
+([running.md](running.md#options-the-website-does-not-list); both 0 without them); and the mean
+frequency of their pairings there, pulled towards 0.5 by one pairing ((sum of the frequencies + 0.5)
+/ (pairings judged + 1); 0.5 without gene neighbours or reads across genes).
+The models train on them by default (`ADJACENCY_FEATURES`, with `NORMALIZED_FEATURES` the trainer's
+`--features normalized+adjacency`). On a synthetic world they changed the test F1 within noise
+(paired-end +0.0025, PacBio −0.0026, Nanopore +0.0015 over three seeds;
+[report](claude/2026-10-01-gene-neighbours-run/README.md),
+[2026-10-02](claude/2026-10-02-gene-neighbour-frequencies/README.md)): reads of a congener the
+database lacks pair across the same genes as the species' own. Whether they help where gene order is
+real, a build tells with `--features normalized` (without them) against the default, and every
+`--evaluation full` training compares the feature sets with species held out ("Feature sets" in the
+report). A model trained with them, used with `--no_gene_neighbours` or on a database without gene
+neighbours, sees every taxon as one without reads across genes (0, 0 and 0.5).
 
 protal writes the alternatives as the `ZA` tag of a read's best record (`ZA:Z:<taxid>:<edits
 more>,...`, the other taxa among the read's aligned candidates with at most 5 edits more, or `*`);
 a SAM file of an older protal lacks it, protal warns, and the two fit shares are then 0, so such
 files are aligned again (`--force`) for a model that uses them. A dump of an older protal lacks the
-five columns, and the trainer stops with `--features normalized`.
+five columns, and the trainer stops with `--features normalized`; one without the gene neighbour
+features stops with the default and trains with `--features normalized`.
 
 ## Training
 
@@ -199,13 +211,14 @@ one differs.
 | Option | Default | |
 |---|---|---|
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
-| `--features` | `normalized` | `normalized`: only `NORMALIZED_FEATURES`; `all`: every feature column of the dump |
+| `--features` | `normalized+adjacency` | `normalized+adjacency`: `NORMALIZED_FEATURES` and `ADJACENCY_FEATURES`; `normalized`: only `NORMALIZED_FEATURES`, to test the gene neighbour features; `all`: every feature column of the dump |
 | `--reference-pmml` | | train on the input fields of an existing model instead |
 | `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 128, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves) |
 | `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |
 | `--depth-knobs` | off | also choose a knob per depth bin of the sample and store them in the model ([below](#knobs-by-sample-depth)); `build_gtdb_database.py` passes it for PacBio and ONT (`--depth-knob-read-types`) |
 | `--folds` | 5 | folds of the held-out evaluations |
 | `--evaluation` | `full` | `basic`: the held-out evaluations only; `none`: fit and export only |
+| `--previous-procedure` | off | also compare with the procedure this trainer used before (below), unless `--evaluation none`; `--no-previous-procedure` is the default |
 | `--taxonomy` | | the database's `internal_taxonomy.dmp`: domains the table's `meta_domain` lacks, and the lineages for holding out whole clades |
 | `--test-file` | | an independent test table (the collector with another design and seed), scored by the fitted forest: the report's section "Independent test set" (metrics, FN and FP rates by depth and by rank, the threshold with the highest F1 there), `<prefix>.test_predictions.tsv.gz`, and a warning when it scores clearly worse than cross-validation |
 | `--seed`, `--threads` | 1, 4 | |
@@ -221,9 +234,14 @@ training. With `--taxonomy` it also holds out whole genera, families, orders, cl
 that saw no taxon of the row's clade): how far the model carries to parts of the tree the training
 data barely cover. The report also compares with the model that profiled the training samples (the dump's
 `probability`, e.g. the shipped model), and `--evaluation full` adds studies of whether the data
-and settings suffice: the other feature set; the procedure this trainer used before (a grid search
-over `max_features`, then a 512-tree forest on only the top features, judged on random rows); the
-number of leaves and of trees; and a learning curve with fewer training samples.
+and settings suffice: the other feature set; the number of leaves and of trees; and a learning curve
+with fewer training samples. `--previous-procedure` also compares with the procedure this trainer
+used before: a grid search over `max_features`, then a 512-tree forest on only the top features,
+judged on random rows and on species held out. Its grid search took 82% of the training time
+([report](claude/2026-10-01-build-profiling/README.md)), so it is off by default and cheaper than
+the procedure's own: every second value of `max_features` and then the two next to the best, 3
+folds instead of 5, and at most 20,000 rows (whole samples, drawn at random); the forests it then
+judges are the procedure's.
 
 | Output | |
 |---|---|

@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 
 import numpy as np
@@ -130,6 +131,21 @@ class ForestExportTest(unittest.TestCase):
 
 
 @unittest.skipIf(RandomForestClassifier is None, "needs scikit-learn")
+class FeatureSetsTest(unittest.TestCase):
+    """The trainer's default features are the normalised ones and the gene neighbours'; normalized leaves those out."""
+
+    def test_default_set_has_the_gene_neighbour_features(self):
+        import model_features as mf
+        import random_forest_cmdline
+        columns = ["truth", "taxon", "meta_sample"] + mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + ["other"]
+        self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET), mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES)
+        self.assertEqual(mf.feature_columns(columns, "normalized"), mf.NORMALIZED_FEATURES)
+        with self.assertRaisesRegex(RuntimeError, "adjacent_support"):  # a table of an older protal
+            mf.feature_columns([c for c in columns if c != "adjacent_support"], mf.DEFAULT_FEATURE_SET)
+        opts = random_forest_cmdline.parse_args(["--truth-file", "t.tsv", "--output-prefix", "p"])
+        self.assertEqual(opts.features, "normalized+adjacency")
+
+
 class TrainerDepthKnobsTest(unittest.TestCase):
     """random_forest_cmdline.py --depth-knobs on a table of shallow samples (hundreds of fragments, depth bin 2) and
     deep ones (tens of thousands, bin 4), where a present taxon's evidence grows with depth."""
@@ -199,6 +215,39 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         near = classes["absent, congener of a held-out species"]["conserved_fast_record_ratio"][1]
         other = classes["absent, other"]["conserved_fast_record_ratio"][1]
         self.assertGreater(near, other + 1)
+
+    def test_previous_procedure_only_when_asked(self):
+        # Off by default. Asked for, its grid takes every second value of max_features (and the last), then the two
+        # next to the best, 3 folds and up to PREVIOUS_GRID_ROWS rows; this procedure's side is the evaluation's own
+        # forests with species held out.
+        _, metrics = self.train("no_previous")
+        self.assertNotIn("previous_procedure", metrics)
+        _, metrics = self.train("no_previous_said", "--no-previous-procedure")
+        self.assertNotIn("previous_procedure", metrics)
+        _, metrics = self.train("previous", "--previous-procedure")
+        previous = metrics["previous_procedure"]
+        self.assertEqual(previous["grid_folds"], 3)
+        self.assertEqual(previous["grid_rows"], 40 * 30)
+        values = previous["grid_values"]
+        coarse = sorted(set(range(values[0], values[-1] + 1, 2)) | {values[-1]})
+        self.assertTrue(set(coarse) <= set(values))
+        self.assertLessEqual(len(values) - len(coarse), 2)
+        self.assertIn(previous["mtry"], values)
+        this = next(r for r in previous["results"] if r["procedure"] == "this one")
+        self.assertEqual(this["judged on"], "species held out")
+        self.assertAlmostEqual(this["AP"], metrics["evaluation"]["species"]["AP"])
+
+    def test_previous_procedure_grid_on_whole_samples(self):
+        frame = pd.DataFrame({"meta_sample": [f"s{i // 30}" for i in range(1200)]})
+        opts = types.SimpleNamespace(seed=1)
+        self.assertEqual(len(self.trainer.grid_rows(frame, opts)), 1200)
+        limit = self.trainer.PREVIOUS_GRID_ROWS
+        try:
+            self.trainer.PREVIOUS_GRID_ROWS = 100
+            rows = self.trainer.grid_rows(frame, opts)
+        finally:
+            self.trainer.PREVIOUS_GRID_ROWS = limit
+        self.assertEqual(sorted(frame["meta_sample"].iloc[rows].value_counts().tolist()), [30, 30, 30])  # a 4th: 120
 
 
 if __name__ == "__main__":

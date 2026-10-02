@@ -20,20 +20,25 @@ using gene_neighbours::End;
 using gene_neighbours::Verdict;
 
 namespace {
-    // Species 1 (family 100, order 200), species 2 (family 101, order 200), species 3 (family 102, order 200).
-    // Family 100: of 4 species, gene 1's 3' end faces gene 2's 5' end in 2 (10-30 bases apart, median 20), in the
-    // other 2 nothing; gene 2's 5' end faces gene 1's 3' end. Family 101: gene 1's 3' end informative in one species,
-    // with nothing there. Order 200: gene 1's 3' end faces gene 2's 5' end in 3 of 9, gene 3's 5' end in 1.
+    // Species 1 (family 100, order 200), species 2 (family 101, order 200), species 3 (family 102, order 200),
+    // species 5 (family 103, order 200). Family 100: of 6 species, gene 1's 3' end faces gene 2's 5' end in 3 (10-30
+    // bases apart, median 20), in the other 3 nothing; gene 2's 5' end, informative in 3 species (fewer than
+    // kMinInformative), faces gene 1's 3' end. Family 101: gene 1's 3' end informative in one species, with nothing
+    // there. Family 103: gene 1's 3' end faces gene 2's 5' end in 29 of 30, gene 4's in 1. Order 200 (these families
+    // and others): gene 1's 3' end faces gene 2's 5' end in 36 of 45, gene 3's in 4, gene 4's in 1, nothing in 4.
     std::string const kTable =
-            "# protal gene neighbours: genomes=13 max_gap=3000 ranks=family,order\n"
+            "# protal gene neighbours: genomes=60 species=45 max_gap=3000 ranks=family,order\n"
             "clade\tgene\tend\tpartner\tpartner_end\tspecies\tinformative\tgap_median\tgap_min\tgap_max\n"
-            "100\t1\t3\t2\t5\t2\t4\t20\t10\t30\n"
-            "100\t1\t3\t0\t0\t2\t4\t0\t0\t0\n"
-            "100\t2\t5\t1\t3\t2\t2\t20\t10\t30\n"
+            "100\t1\t3\t2\t5\t3\t6\t20\t10\t30\n"
+            "100\t1\t3\t0\t0\t3\t6\t0\t0\t0\n"
+            "100\t2\t5\t1\t3\t3\t3\t20\t10\t30\n"
             "101\t1\t3\t0\t0\t1\t1\t0\t0\t0\n"
-            "200\t1\t3\t2\t5\t3\t9\t20\t10\t30\n"
-            "200\t1\t3\t3\t5\t1\t9\t50\t50\t50\n"
-            "200\t1\t3\t0\t0\t5\t9\t0\t0\t0\n";
+            "103\t1\t3\t2\t5\t29\t30\t20\t10\t30\n"
+            "103\t1\t3\t4\t5\t1\t30\t40\t40\t40\n"
+            "200\t1\t3\t2\t5\t36\t45\t20\t10\t30\n"
+            "200\t1\t3\t3\t5\t4\t45\t50\t50\t50\n"
+            "200\t1\t3\t4\t5\t1\t45\t40\t40\t40\n"
+            "200\t1\t3\t0\t0\t4\t45\t0\t0\t0\n";
 
     gene_neighbours::Table Table() {
         gene_neighbours::Table table;
@@ -42,6 +47,7 @@ namespace {
         table.SetLineage(1, { 1, 100, 200, 300 });
         table.SetLineage(2, { 2, 101, 200, 300 });
         table.SetLineage(3, { 3, 102, 200, 300 });
+        table.SetLineage(5, { 5, 103, 200, 300 });
         return table;
     }
 
@@ -123,11 +129,11 @@ namespace {
 
 TEST(GeneNeighbours, ReadsTheTableAndItsComment) {
     auto const table = Table();
-    EXPECT_EQ(table.Rules(), 7u);
-    EXPECT_EQ(table.Clades(), 3u);
-    EXPECT_EQ(table.Genomes(), 13u);
+    EXPECT_EQ(table.Rules(), 10u);
+    EXPECT_EQ(table.Clades(), 4u);
+    EXPECT_EQ(table.Genomes(), 60u);
     EXPECT_EQ(table.MaxGap(), 3000u);
-    EXPECT_EQ(table.BoundSpecies(), 3u);  // clade 300 has no rules, so each lineage is cut to the clades with some
+    EXPECT_EQ(table.BoundSpecies(), 4u);  // clade 300 has no rules, so each lineage is cut to the clades with some
     EXPECT_TRUE(gene_neighbours::Table().Empty());
 }
 
@@ -148,34 +154,81 @@ TEST(GeneNeighbours, StopsAtTheFirstBadLine) {
     EXPECT_EQ(Problem("100\t1\t3\t2\t5\t2\t4\t-4\t-8\t-1\n"), "");
 }
 
-TEST(GeneNeighbours, TheNearestCladeWithDataDecides) {
+TEST(GeneNeighbours, AFewSpeciesLeanOnTheCladesAbove) {
     auto const table = Table();
-    // Species 1: its family saw gene 1's 3' end face gene 2's 5' end.
+    // A clade's share pulled towards its parent's by kPriorSpecies pseudo-species.
+    auto smoothed = [](double species, double informative, double parent) {
+        return (species + gene_neighbours::kPriorSpecies * parent) / (informative + gene_neighbours::kPriorSpecies);
+    };
+    double const order2 = 36.0 / 45, order3 = 4.0 / 45, order4 = 1.0 / 45;
+    // Species 1: its family saw gene 1's 3' end face gene 2's 5' end in 3 of 6 species, the order in 36 of 45.
     auto expected = table.Assess(1, 1, End::Three, 2, End::Five);
     EXPECT_EQ(expected.verdict, Verdict::Expected);
     EXPECT_EQ(expected.clade, 100u);
+    EXPECT_NEAR(expected.share, smoothed(3, 6, order2), 1e-12);  // 0.6
     ASSERT_NE(expected.rule, nullptr);
     EXPECT_EQ(expected.rule->gap_median, 20);
-    // ... never gene 3's, with the end informative in 4 species: unlikely, though the order saw it.
-    EXPECT_EQ(table.Assess(1, 1, End::Three, 3, End::Five).verdict, Verdict::Unlikely);
+    // ... never gene 3's, which the order has in 4 of 45: unlikely, by the order's gaps.
+    auto const never = table.Assess(1, 1, End::Three, 3, End::Five);
+    EXPECT_EQ(never.verdict, Verdict::Unlikely);
+    EXPECT_EQ(never.clade, 100u);
+    EXPECT_NEAR(never.share, smoothed(0, 6, order3), 1e-12);  // 0.03
+    ASSERT_NE(never.rule, nullptr);
+    EXPECT_EQ(never.rule->gap_median, 50);
     // The other end of gene 2, or another of gene 2's partners: no clade has data on that end.
     EXPECT_EQ(table.Assess(1, 1, End::Five, 2, End::Five).verdict, Verdict::Unknown);
-    // Species 2: its family has the end informative in one species only, so the order decides.
+    EXPECT_EQ(table.Assess(1, 1, End::Five, 2, End::Five).clade, 0u);
+    // Gene 2's 5' end: informative in 3 species of the family, and no clade above has data. Too few to call a
+    // pairing unlikely: gene 1's 3' end there is expected, another partner unknown.
+    auto const sparse = table.Assess(1, 2, End::Five, 1, End::Three);
+    EXPECT_EQ(sparse.verdict, Verdict::Expected);
+    EXPECT_EQ(sparse.clade, 100u);
+    EXPECT_DOUBLE_EQ(sparse.share, 1.0);
+    EXPECT_EQ(table.Assess(1, 2, End::Five, 3, End::Three).verdict, Verdict::Unknown);
+    EXPECT_EQ(table.Assess(1, 2, End::Five, 3, End::Three).clade, 0u);
+    // Species 2: its family has the end informative in one species, which has no gene there; the order says
+    // most: gene 3 in 4 of 45 is rare for it, though unlikely for species 1, whose family of 6 never has it.
     auto const order = table.Assess(2, 1, End::Three, 3, End::Five);
-    EXPECT_EQ(order.verdict, Verdict::Expected);
-    EXPECT_EQ(order.clade, 200u);
-    // Species 3: its family has no data; the order has.
+    EXPECT_EQ(order.verdict, Verdict::Rare);
+    EXPECT_EQ(order.clade, 101u);
+    EXPECT_NEAR(order.share, smoothed(0, 1, order3), 1e-12);  // 0.067
+    EXPECT_NEAR(table.Assess(2, 1, End::Three, 2, End::Five).share, smoothed(0, 1, order2), 1e-12);
+    EXPECT_EQ(table.Assess(2, 1, End::Three, 2, End::Five).verdict, Verdict::Expected);  // 0.6
+    EXPECT_EQ(table.Assess(2, 1, End::Three, 4, End::Five).verdict, Verdict::Unlikely);  // 0.017
+    // Species 3: its family has no data; the order's share is its own.
     EXPECT_EQ(table.Assess(3, 1, End::Three, 2, End::Five).clade, 200u);
+    EXPECT_NEAR(table.Assess(3, 1, End::Three, 2, End::Five).share, order2, 1e-12);
     EXPECT_EQ(table.Assess(3, 1, End::Three, 2, End::Three).verdict, Verdict::Unlikely);
+    // Species 5: a family of 30 species, one of which has gene 4 there: its own share counts most; unlikely.
+    auto const once = table.Assess(5, 1, End::Three, 4, End::Five);
+    EXPECT_EQ(once.verdict, Verdict::Unlikely);
+    ASSERT_NE(once.rule, nullptr);
+    EXPECT_EQ(once.rule->gap_median, 40);
+    EXPECT_NEAR(once.share, smoothed(1, 30, order4), 1e-12);  // 0.032
+    EXPECT_EQ(table.Assess(5, 1, End::Three, 2, End::Five).verdict, Verdict::Expected);
     // A species of no clade with rules.
     EXPECT_EQ(table.Assess(4, 1, End::Three, 2, End::Five).verdict, Verdict::Unknown);
-    // Partners: those of the nearest clade with data, none included.
-    auto const partners = table.Partners(1, 1, End::Three);
-    ASSERT_EQ(partners.size(), 2u);
-    EXPECT_EQ(partners[0].partner, 0u);
-    EXPECT_EQ(partners[1].partner, 2u);
-    EXPECT_EQ(table.Partners(2, 1, End::Three).size(), 1u);  // its family's rule decides even with one species
-    EXPECT_TRUE(table.Partners(1, 3, End::Three).empty());
+    // Partners: those of all the species' clades, its family's first, each with the nearest clade's rule and its
+    // smoothed share.
+    std::vector<gene_neighbours::Partner> partners;
+    table.Partners(1, 1, End::Three, partners);
+    ASSERT_EQ(partners.size(), 4u);
+    std::vector<uint32_t> ids;
+    for (auto const& p : partners) ids.push_back(p.rule->partner);
+    EXPECT_EQ(ids, (std::vector<uint32_t>{ 0, 2, 3, 4 }));
+    EXPECT_EQ(partners[1].rule->informative, 6u);   // the family's rule
+    EXPECT_NEAR(partners[1].share, smoothed(3, 6, order2), 1e-12);
+    EXPECT_EQ(partners[1].verdict, Verdict::Expected);
+    EXPECT_EQ(partners[2].rule->informative, 45u);  // seen by the order only
+    EXPECT_EQ(partners[2].verdict, Verdict::Unlikely);
+    table.Partners(5, 1, End::Three, partners);
+    ASSERT_EQ(partners.size(), 4u);
+    EXPECT_NEAR(partners[1].share, smoothed(1, 30, order4), 1e-12);  // gene 4, by the family's rule
+    table.Partners(1, 2, End::Five, partners);
+    ASSERT_EQ(partners.size(), 1u);
+    EXPECT_EQ(partners[0].verdict, Verdict::Expected);
+    table.Partners(1, 3, End::Three, partners);
+    EXPECT_TRUE(partners.empty());
     // Two genes of a read whose ends may face either way.
     EXPECT_EQ(table.AssessGenes(1, 1, 2), Verdict::Expected);
     EXPECT_EQ(table.AssessGenes(1, 1, 3), Verdict::Unlikely);
@@ -338,6 +391,12 @@ TEST(MicrobialProfile, AdjacentGenesOfLinkedReads) {
     for (auto const& [name, value] : profiler::TaxonFeatures(taxon)) features[name] = value;
     EXPECT_DOUBLE_EQ(features.at("adjacent_expected_share"), 3.0 / 4);
     EXPECT_DOUBLE_EQ(features.at("adjacent_unlikely_share"), 1.0 / 4);
+    // The mean smoothed share of the four links' pairings (gene 2's 0.6 three times, gene 3's 0.03), with one link
+    // of 0.5 more.
+    double const to2 = (3 + gene_neighbours::kPriorSpecies * 36.0 / 45) / (6 + gene_neighbours::kPriorSpecies);
+    double const to3 = (0 + gene_neighbours::kPriorSpecies * 4.0 / 45) / (6 + gene_neighbours::kPriorSpecies);
+    EXPECT_NEAR(taxon.AdjacentSupport(), (to2 + to3 + to2 + to2 + 0.5) / 5, 1e-12);
+    EXPECT_DOUBLE_EQ(features.at("adjacent_support"), taxon.AdjacentSupport());
 
     // Without gene neighbours both are 0.
     ThreeGenes plain(false);
@@ -352,4 +411,5 @@ TEST(MicrobialProfile, AdjacentGenesOfLinkedReads) {
     without.ApplyRecordEvidence();
     EXPECT_DOUBLE_EQ(without.GetTaxa().at(1).AdjacentExpectedShare(), 0);
     EXPECT_DOUBLE_EQ(without.GetTaxa().at(1).AdjacentUnlikelyShare(), 0);
+    EXPECT_DOUBLE_EQ(without.GetTaxa().at(1).AdjacentSupport(), 0.5);
 }

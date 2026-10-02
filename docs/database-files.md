@@ -12,7 +12,8 @@ neighbours, and models of other kinds of reads:
 | `unique_kmers.tsv` | per species and gene, counts of the k-mers unique to it in the database; the uniqueness features of the model |
 | `gene_conservation.tsv` | optional: per gene id, how fast the gene diverges within species compared with the species' other genes (1 for a typical gene, below 1 for conserved ones), which `--build` estimates from `full_reference.fna` ([building-a-database.md](building-a-database.md#2-build-the-index)); every query reads it for the model's conservation features (`conserved_fast_depth_ratio`, `conserved_hit_share`), and `--gene_conservation db` also scales `--depth_identity_margin` per gene by it, which is not the default. A database of an earlier version, or built from one genome per species, has none (the features are then 0 and 0.5) |
 | `gene_congeners.tsv` | not part of the database: a report `--build` writes beside it, how each gene differs between congeneric species against within species ([building-a-database.md](building-a-database.md#2-build-the-index)); queries do not read it, and `database.protal` does not hold it |
-| `gene_neighbours.tsv` | optional: per clade (family up to domain), which end of which gene faces which end of another gene within 3 kb in the representative genomes of its species, how often and how far apart; from whole genomes by `scripts/mini_db/gene_neighbours.py` ([building-a-database.md](building-a-database.md#gene-neighbours)). protal uses it to pair mates and follow long reads over neighbouring genes ([running.md](running.md#options-the-website-does-not-list)). A database of an earlier version, or built without genomes, has none |
+| `gene_neighbours.tsv` | optional: per clade (family up to domain), how often each end of each gene faces which end of another gene within 3 kb in the genomes of its species (of how many species in which that end is informative), and how far apart; from whole genomes, representatives and other strains, by `scripts/mini_db/gene_neighbours.py` ([building-a-database.md](building-a-database.md#gene-neighbours)). protal uses it to pair mates and follow long reads over neighbouring genes, and for the profile's `adjacent_*` features ([running.md](running.md#options-the-website-does-not-list)). A database of an earlier version, or built without genomes, has none |
+| `gene_positions.tsv` | optional, with `gene_neighbours.tsv`: where each gene lies in each of those genomes (contig, contig length, circular, start, end, strand, placed exactly or by its k-mer trace, the share of its k-mers that hit). `gene_neighbours.tsv` is derived from it; a run does not load it. `gtdb_to_protal_db.py --from_db` derives the frequencies of a copy without some species from it |
 | `model_pe.xml` | the presence model (a random forest in PMML) of paired-end reads, see [model-training.md](model-training.md); `model.xml` in databases of earlier versions |
 | `model_se.xml` | optional: the presence model of single-end reads; without it, single-end samples need `--model_se` ([running.md](running.md#single-end-reads)) |
 | `model_PB.xml`, `model_ONT.xml` | optional: the presence models of PacBio and Nanopore reads (`--model_pb`, `--model_ont` without them) |
@@ -33,8 +34,11 @@ parent. `reference.map` and `unique_kmers.tsv` list at least one gene. `gene_con
 line `geneid<TAB>factor<TAB>species` per gene (the header line and the species column may be left
 out), factors above 0. `gene_neighbours.tsv` has ten numbers per line (`clade gene end partner
 partner_end species informative gap_median gap_min gap_max`; ends 5 or 3, partner 0 for no gene
-within 3 kb), every clade in the taxonomy and every gene in `reference.map`; `--build` checks it
-before packing it. protal stops at the first problem, with the file and line.
+within 3 kb), every clade in the taxonomy and every gene in `reference.map`. `gene_positions.tsv`
+has eleven columns per line (`accession taxid contig contig_length circular gene start end strand
+placed kmer_share`; circular 0 or 1, 1 <= start <= end <= contig_length, strand + or -, placed
+`exact` or `trace`, kmer_share from 0 to 1), every gene one of its species in `reference.map`.
+`--build` checks both before packing them. protal stops at the first problem, with the file and line.
 
 ## Compression
 

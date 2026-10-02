@@ -445,7 +445,9 @@ namespace protal {
             size_t other_genus_fit = 0;  // a species of another genus does
             size_t adjacent = 0;  // genes next to each other on its reads (MicrobialProfile::NoteLinkedRecord)
             size_t adjacent_expected = 0;  // of these, whose ends face each other in its clade (gene_neighbours::Verdict::Expected)
-            size_t adjacent_unlikely = 0;  // that never do in a clade with data on them (Verdict::Unlikely)
+            size_t adjacent_unlikely = 0;  // that hardly ever or never do in a clade with data on them (Verdict::Unlikely)
+            size_t adjacent_judged = 0;    // that a clade has data on
+            double adjacent_support = 0;   // the sum of their pairings' shares there (gene_neighbours::Assessment::share)
             std::vector<float> excess;  // each record's ReadExcess (records with base qualities)
             uint64_t conserved_bases = 0;  // reference bases of the records on genes of factor below 1 (gene_conservation.tsv)
             uint64_t fast_bases = 0;       // on the other genes; both 0 without factors
@@ -458,6 +460,8 @@ namespace protal {
                 adjacent += other.adjacent;
                 adjacent_expected += other.adjacent_expected;
                 adjacent_unlikely += other.adjacent_unlikely;
+                adjacent_judged += other.adjacent_judged;
+                adjacent_support += other.adjacent_support;
                 excess.insert(excess.end(), other.excess.begin(), other.excess.end());
                 conserved_bases += other.conserved_bases;
                 fast_bases += other.fast_bases;
@@ -760,9 +764,16 @@ namespace protal {
             double LinkedShare() const { return m_links == 0 ? 0 : m_linked / static_cast<double>(m_links); }
             // Of the genes next to each other on the taxon's reads (a pair's mates on two genes, a long read's consecutive
             // genes; MicrobialProfile::NoteLinkedRecord), the share whose ends face each other in the taxon's clade, and
-            // the share whose never do there; both 0 without the database's gene neighbours.
+            // the share whose hardly ever or never do there; both 0 without the database's gene neighbours.
             double AdjacentExpectedShare() const { return m_records.adjacent == 0 ? 0 : m_records.adjacent_expected / static_cast<double>(m_records.adjacent); }
             double AdjacentUnlikelyShare() const { return m_records.adjacent == 0 ? 0 : m_records.adjacent_unlikely / static_cast<double>(m_records.adjacent); }
+            // How often the taxon's clade has the genes next to each other on its reads so: the mean of their pairings'
+            // shares in the clade that judges them (gene_neighbours::Assessment::share), drawn towards 0.5 as by one
+            // link of share 0.5, so that few links say little: 0.5 without any (or without gene neighbours), near 1
+            // for many links its clade's genomes show, near 0 for many they never do.
+            double AdjacentSupport() const {
+                return (m_records.adjacent_support + 0.5) / (static_cast<double>(m_records.adjacent_judged) + 1.0);
+            }
 
 
             size_t GetGenomeGeneNumber() const {
@@ -1451,6 +1462,7 @@ namespace protal {
             // are; reads of genes that crossed from elsewhere are not.
             f.emplace_back("adjacent_expected_share", taxon.AdjacentExpectedShare());
             f.emplace_back("adjacent_unlikely_share", taxon.AdjacentUnlikelyShare());
+            f.emplace_back("adjacent_support", taxon.AdjacentSupport());
             // How far its reads differ from the reference beyond their base qualities' errors (ReadExcess: the median,
             // and the share above kHighExcess), and the depth of its conserved hit genes against its fast ones
             // (ConservationPattern): a relative's reads exceed their errors and align best on the conserved genes
@@ -1774,11 +1786,15 @@ namespace protal {
                         auto const end_a = EndAhead(a.forward);
                         auto const end_b = EndAhead(m_link_paired ? b.forward : !b.forward);
                         auto credit = [&](uint32_t taxid) {
-                            auto const verdict = table.Assess(taxid, a.gene, end_a, b.gene, end_b).verdict;
+                            auto const assessment = table.Assess(taxid, a.gene, end_a, b.gene, end_b);
                             auto& e = m_counts[taxid];
                             e.adjacent++;
-                            e.adjacent_expected += verdict == gene_neighbours::Verdict::Expected;
-                            e.adjacent_unlikely += verdict == gene_neighbours::Verdict::Unlikely;
+                            e.adjacent_expected += assessment.verdict == gene_neighbours::Verdict::Expected;
+                            e.adjacent_unlikely += assessment.verdict == gene_neighbours::Verdict::Unlikely;
+                            if (assessment.clade != 0) {
+                                e.adjacent_judged++;
+                                e.adjacent_support += assessment.share;
+                            }
                         };
                         credit(a.taxid);
                         if (b.taxid != a.taxid) credit(b.taxid);

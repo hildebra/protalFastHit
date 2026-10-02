@@ -200,10 +200,12 @@ namespace protal {
         genomes.SetScaleDepthMargin(scale);
     }
 
-    // The database's gene neighbours (gene_neighbours.tsv, GeneNeighbours.h: which marker gene lies next to which
-    // in a clade's genomes), for mate guidance past a gene's end, pairs of mates on neighbouring genes, the genes
-    // next to a long read's genes and the profiler's adjacency features; none without the file or with
-    // --no_gene_neighbours. Every species of the taxonomy gets the clades of its lineage. Exits 8 if the file
+    // The database's gene neighbours (gene_neighbours.tsv, GeneNeighbours.h: how often each marker gene end faces
+    // which other in a clade's genomes), for mate guidance past a gene's end, pairs of mates on neighbouring genes,
+    // the genes next to a long read's genes and the profiler's adjacency features; none without the file or with
+    // --no_gene_neighbours. Only these per-clade frequencies are loaded: the per-genome positions they were counted
+    // from (gene_positions.tsv) stay in the database unread. Every species of the taxonomy gets the clades of its
+    // lineage. Exits 8 if the file
     // cannot be read.
     static void LoadGeneNeighbours(Options const& options, ProtalDB& db) {
         auto const file = options.GeneNeighboursDbFile();

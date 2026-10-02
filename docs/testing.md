@@ -91,8 +91,10 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
   breaking some up with `--operon_breaks`, 0.25: read pairs and long reads then span neighbouring
   genes, as in real genomes; without it each species' markers are shuffled and about 1.2 kb apart).
   `simulation/marker_positions.tsv` says where each gene lies.
-- `gene_neighbours.py` finds the database's genes in the representatives' genomes and writes
-  `gene_neighbours.tsv` (which genes lie next to which, per clade;
+- `gene_neighbours.py` finds the database's genes in every genome of their species (the
+  representative's by their sequence, other strains' by their k-mer trace) and writes
+  `gene_neighbours.tsv` (how often which genes lie next to which, per clade) and
+  `gene_positions.tsv` (where each gene lies in each genome;
   [building-a-database.md](building-a-database.md#gene-neighbours)); `build_mini_db.sh` runs it.
 - `gtdb_like_lineages.py` writes lineages shaped like GTDB's for `--lineages`: up to 999 species,
   most genera with one species and a few with many, unique names, a share of archaea. It makes the

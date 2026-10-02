@@ -97,6 +97,7 @@ import lineages  # noqa: E402
 from gtdb_to_protal_db import (clear_build_outputs, full_reference_path, normalize_accession,  # noqa: E402
                                read_representatives, remove_full_reference as remove_full_reference_files)
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
+from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS  # noqa: E402
 from collect_training_data import TABLES, clock, last_line, units_of, parse_args as collector_args  # noqa: E402
 
 STARTED = time.time()
@@ -579,17 +580,28 @@ def trace_relatives(training, training_db, heldout, logs, outdir):
     say(f"    the held-out species' reads by gene conservation, in {clock(time.time() - began)}: {first}")
 
 
-def gene_neighbours_summary(build_log):
-    """What protal --build said of the gene neighbours it packed (its "Gene neighbours:" line), for
-    build_metadata.tsv."""
+def gene_neighbours_summary(build_log, what="Gene neighbours:"):
+    """What protal --build said of the gene neighbours it packed (its "Gene neighbours:" line, or that of
+    `what`: "Gene positions:"), for build_metadata.tsv."""
     try:
         with open(build_log) as fh:
-            lines = [line.strip() for line in fh if line.startswith("Gene neighbours:")]
+            lines = [line.strip() for line in fh if line.startswith(what)]
     except OSError:
         return "unknown (no build log)"
     if not lines:
         return "none (this protal does not pack them)"
-    return lines[-1].removeprefix("Gene neighbours:").strip()
+    return lines[-1].removeprefix(what).strip()
+
+
+def genes_placed(log):
+    """gene_neighbours.py's count of the genes it placed, from its log: "in N genomes (X exactly, Y by their
+    k-mer trace)", or "" if the log has none."""
+    try:
+        with open(log) as fh:
+            m = re.search(r"Genes placed: (\d+) exactly and (\d+) by their k-mer trace in the (\d+) genomes used", fh.read())
+    except OSError:
+        return ""
+    return f" in {m.group(3)} genomes ({m.group(1)} exactly, {m.group(2)} by their k-mer trace)" if m else ""
 
 
 def provenance(args, release, genome_table, heldout, n_heldout, read_types, prefixes):
@@ -617,9 +629,14 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
             ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, "index_and_package.log"))),
+            ("gene_positions", gene_neighbours_summary(os.path.join(args.outdir, "index_and_package.log"),
+                                                       "Gene positions:")),
             ("gene_congeners", gene_congeners_summary(os.path.join(args.outdir, "index_and_package.log"))),
-            ("classifier_features", "normalized"), ("classifier_trees", args.ntree),
-            ("classifier_max_leaves", args.maxnodes), ("classifier_training_species_left_out", n_heldout)]
+            ("classifier_features", args.features), ("classifier_trees", args.ntree),
+            ("classifier_max_leaves", args.maxnodes), ("classifier_evaluation", args.evaluation),
+            ("classifier_previous_procedure",
+             "compared" if args.previous_procedure and args.evaluation != "none" else "not compared"),
+            ("classifier_training_species_left_out", n_heldout)]
     rows += [(f"classifier_training_{rank}_clades_left_out", clade_counts[rank]) for rank in CLADE_RANKS
              if clade_counts.get(rank)]
     rows += [("classifier_training_samples", f"{args.samples} per design point"),
@@ -922,6 +939,14 @@ def main():
                         "them (placeholder_models.py)")
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
+    p.add_argument("--features", choices=FEATURE_SETS, default=DEFAULT_FEATURE_SET,
+                   help="the models' features (random_forest_cmdline.py --features): normalized+adjacency (default), "
+                        "the normalised features and the gene neighbours'; normalized: without the gene neighbour "
+                        "features, to test them on real data; all: every feature of the training dumps")
+    p.add_argument("--previous-procedure", action=argparse.BooleanOptionalAction, default=False,
+                   help="the trainer also compares with its previous procedure (random_forest_cmdline.py "
+                        "--previous-procedure): for the first builds of a release; off by default, as it takes "
+                        "most of the training time")
     p.add_argument("--depth-knob-read-types", default="pb,ont",
                    help="read types (comma-separated) whose models also get knobs by sample depth "
                         "(random_forest_cmdline.py --depth-knobs; default pb,ont, '' for none). On the v0.7.1 benchmark "
@@ -1028,11 +1053,14 @@ def main():
         shutil.copyfile(os.path.join(into, "internal_taxonomy.dmp"), taxonomy)
         took = f"converted in {job.took()}"
         if not args.no_gene_neighbours:
-            # Which marker genes lie next to which, from the representatives among the genomes to simulate from
-            # (gene_neighbours.tsv, which --build packs; a copy without some species keeps it, per clade).
+            # Which marker genes lie next to which in every genome to simulate from (their genes placed by
+            # their sequence or k-mer trace): gene_neighbours.tsv, the frequencies per clade, and
+            # gene_positions.tsv, which --build both pack; the training database's copy derives the frequencies
+            # anew from the positions, without the species it leaves out.
+            log = os.path.join(args.outdir, "gene_neighbours.log")
             job = run([sys.executable, GENE_NEIGHBOURS, "--db", into, "--genome_table", genome_table, "-t", str(args.threads)],
-                      os.path.join(args.outdir, "gene_neighbours.log"), label="finding the genes' neighbours")
-            took += f"; the genes' neighbours found in {job.took()} (gene_neighbours.log)"
+                      log, label="finding the genes' neighbours")
+            took += f"; the genes placed{genes_placed(log)} and their neighbours counted in {job.took()} (gene_neighbours.log)"
         if not args.no_placeholder_models:
             for read_type in ("se", "pb", "ont"):
                 write_placeholder(os.path.join(into, MODEL_FILES[read_type]), read_type)
@@ -1221,9 +1249,11 @@ def main():
     trainers = {}
     for t in read_types:
         command = [sys.executable, TRAINER, "--truth-file", os.path.join(training, TABLES[t]),
-                   "--output-prefix", prefixes[t], "--features", "normalized", "--ntree", str(args.ntree),
+                   "--output-prefix", prefixes[t], "--features", args.features, "--ntree", str(args.ntree),
                    "--maxnodes", str(args.maxnodes), "--seed", str(args.seed), "--threads", str(trainer_threads),
                    "--taxonomy", taxonomy, "--evaluation", args.evaluation]
+        if args.previous_procedure:
+            command += ["--previous-procedure"]
         if t in depth_knob_types(args):
             command += ["--depth-knobs"]
         if args.test_samples > 0 and os.path.isfile(os.path.join(test, TABLES[t])):

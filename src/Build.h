@@ -242,8 +242,9 @@ namespace protal::build {
     // index (index.prx.zst in the column format, frames copied as they are), the reference (a
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
     // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv,
-    // gene_conservation.tsv if the build wrote one, gene_neighbours.tsv if the folder has one (written by
-    // scripts/mini_db/gene_neighbours.py, checked by CheckGeneNeighbours), and every presence model there is (AllModelFiles in
+    // gene_conservation.tsv if the build wrote one, gene_neighbours.tsv and gene_positions.tsv if the folder has them
+    // (written by scripts/mini_db/gene_neighbours.py, checked by CheckGeneNeighbours and CheckGenePositions; a run
+    // reads only the first), and every presence model there is (AllModelFiles in
     // ReadType.h: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml, and model.xml /
     // random_forest.xml of older databases).
     static std::vector<db::Source> BundleSources(protal::Options const& options) {
@@ -256,6 +257,7 @@ namespace protal::build {
         if (fs::exists(options.GetUniqueKmersFile())) sources.push_back({Options::PROTAL_UNIQUE_KMER_FILE, options.GetUniqueKmersFile()});
         if (fs::exists(options.GetGeneConservationFile())) sources.push_back({Options::PROTAL_GENE_CONSERVATION_FILE, options.GetGeneConservationFile()});
         if (fs::exists(options.GetGeneNeighboursFile())) sources.push_back({Options::PROTAL_GENE_NEIGHBOURS_FILE, options.GetGeneNeighboursFile()});
+        if (fs::exists(options.GetGenePositionsFile())) sources.push_back({Options::PROTAL_GENE_POSITIONS_FILE, options.GetGenePositionsFile()});
         for (auto const& model : AllModelFiles()) {
             std::string const path = (fs::path(options.GetLocation().dir) / model).string();
             if (fs::exists(path)) sources.push_back({model, path});
@@ -692,6 +694,71 @@ namespace protal::build {
         std::cout << "Gene neighbours: " << table.Rules() << " rules of " << table.Clades() << " clades from "
                   << table.Genomes() << " genomes, neighbours up to " << table.MaxGap() << " bases apart ("
                   << Options::PROTAL_GENE_NEIGHBOURS_FILE << "), stored in the database" << std::endl;
+    }
+
+    // gene_positions.tsv, which scripts/mini_db/gene_neighbours.py writes beside gene_neighbours.tsv: where each gene
+    // was placed in each genome the neighbours were counted from (accession, taxid, contig, contig_length, circular,
+    // gene, start, end, strand, placed, kmer_share). A run does not read it; the database keeps it, checked line by
+    // line against the database's genes, so that the frequencies can be traced back to the genomes and derived anew.
+    // Exits 8 at the first problem; says so if there is none.
+    static void CheckGenePositions(protal::Options const& options, GenomeLoader& genomes) {
+        std::string const path = options.GetGenePositionsFile();
+        if (!std::filesystem::exists(path)) return;
+        auto fail = [&path](size_t number, std::string const& what) {
+            std::cerr << "Invalid gene positions " << path << ": line " << number << ": " << what << std::endl;
+            exit(8);
+        };
+        std::ifstream is(path);
+        if (!is) fail(0, "cannot open the file");
+        std::string line;
+        size_t number = 0, placements = 0, traced = 0;
+        tsl::sparse_set<std::string> genome_names, circular;
+        tsl::sparse_set<uint32_t> species;
+        std::vector<std::string_view> f;
+        while (std::getline(is, line)) {
+            number++;
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty() || line[0] == '#' || line.rfind("accession", 0) == 0) continue;
+            f.clear();
+            for (size_t at = 0;;) {
+                size_t const tab = line.find('\t', at);
+                f.emplace_back(std::string_view(line).substr(at, tab == std::string::npos ? std::string::npos : tab - at));
+                if (tab == std::string::npos) break;
+                at = tab + 1;
+            }
+            if (f.size() != 11) fail(number, "expected 11 fields (accession, taxid, contig, contig_length, circular, gene, start, "
+                                             "end, strand, placed, kmer_share)");
+            auto number_of = [&](std::string_view field, char const* what) {
+                uint64_t v = 0;
+                auto const r = std::from_chars(field.data(), field.data() + field.size(), v);
+                if (r.ec != std::errc() || r.ptr != field.data() + field.size()) fail(number, std::string(what) + " must be a number");
+                return v;
+            };
+            uint64_t const taxid = number_of(f[1], "taxid"), length = number_of(f[3], "contig_length");
+            uint64_t const gene = number_of(f[5], "gene"), start = number_of(f[6], "start"), end = number_of(f[7], "end");
+            if (f[0].empty() || f[2].empty()) fail(number, "accession and contig must not be empty");
+            if (f[4] != "0" && f[4] != "1") fail(number, "circular must be 0 or 1");
+            if (start < 1 || start > end || end > length) fail(number, "expected 1 <= start <= end <= contig_length");
+            if (f[8] != "+" && f[8] != "-") fail(number, "strand must be + or -");
+            if (f[9] != "exact" && f[9] != "trace") fail(number, "placed must be exact or trace");
+            double share = -1;
+            auto const r = std::from_chars(f[10].data(), f[10].data() + f[10].size(), share);
+            if (r.ec != std::errc() || share < 0 || share > 1) fail(number, "kmer_share must be a number from 0 to 1");
+            if (taxid > UINT32_MAX || gene > UINT32_MAX ||
+                !genomes.HasGene(static_cast<uint32_t>(taxid), static_cast<uint32_t>(gene))) {
+                fail(number, "species " + std::to_string(taxid) + " has no gene " + std::to_string(gene) + " in the database");
+            }
+            placements++;
+            traced += f[9] == "trace";
+            genome_names.insert(std::string(f[0]));
+            if (f[4] == "1") circular.insert(std::string(f[0]));
+            species.insert(static_cast<uint32_t>(taxid));
+        }
+        if (is.bad()) fail(number, "read error");
+        std::cout << "Gene positions: " << placements << " genes (" << traced << " placed by their k-mer trace) in "
+                  << genome_names.size() << " genomes of " << species.size() << " species, " << circular.size()
+                  << " read as circular (" << Options::PROTAL_GENE_POSITIONS_FILE
+                  << "), stored in the database, not read by queries" << std::endl;
     }
 
     static gene_conservation::Estimate WriteGeneConservation(protal::Options const& options, GenomeLoader& genomes,
@@ -1251,6 +1318,7 @@ namespace protal::build {
                                                         options.GetGeneConservationFile());
         WriteGeneCongeners(options, genomes, conservation.table);
         CheckGeneNeighbours(options, genomes);
+        CheckGenePositions(options, genomes);
 
         std::cout << "Save unique kmer info: \n" << options.GetUniqueKmersFile() << std::endl;
         Benchmark bm_statistics("Unique k-mer statistics");

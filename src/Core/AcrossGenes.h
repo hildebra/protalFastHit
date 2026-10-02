@@ -15,17 +15,22 @@
 namespace protal::across_genes {
     using gene_neighbours::End;
 
-    // The neighbours that species taxid's nearest clade with data on end `end` of `gene` has there, the most common
-    // first, at most `max` of them, among the genes the species has in the database.
+    // The expected neighbours of species taxid at end `end` of `gene` (Table::Partners: their share smoothed over
+    // its clades), the most common first, at most `max` of them, among the genes the species has in the database:
+    // the rules of the nearest clades that saw them.
     inline void Neighbours(GenomeLoader const& genomes, uint32_t taxid, uint32_t gene, End end, size_t max,
                            std::vector<gene_neighbours::Rule const*>& out) {
+        static thread_local std::vector<gene_neighbours::Partner> partners;
         out.clear();
         auto const& table = genomes.GetGeneNeighbours();
         if (table.Empty()) return;
-        for (auto const& rule : table.Partners(taxid, gene, end)) {
-            if (rule.HasPartner() && genomes.HasGene(taxid, rule.partner)) out.push_back(&rule);
+        table.Partners(taxid, gene, end, partners);
+        std::stable_sort(partners.begin(), partners.end(), [](auto const& a, auto const& b) { return a.share > b.share; });
+        for (auto const& p : partners) {
+            if (p.rule->HasPartner() && p.verdict == gene_neighbours::Verdict::Expected && genomes.HasGene(taxid, p.rule->partner)) {
+                out.push_back(p.rule);
+            }
         }
-        std::stable_sort(out.begin(), out.end(), [](auto const* a, auto const* b) { return a->species > b->species; });
         if (out.size() > max) out.resize(max);
     }
 
@@ -60,9 +65,10 @@ namespace protal::across_genes {
     }
 
     // Whether mates aligned to two genes of one taxon (a1 of mate 1, a2 of mate 2) are one fragment across the genes'
-    // facing ends: each mate runs towards the end of its gene that faces the other gene, the nearest clade with data
-    // on a1's end has those ends facing each other (Verdict::Expected), and the fragment, from the start of one mate
-    // over the clade's shortest gap (less kGapSlack) to the start of the other, is at most max_fragment long.
+    // facing ends: each mate runs towards the end of its gene that faces the other gene, those ends are expected
+    // neighbours in the taxon's clades (Table::Assess), and the fragment, from the start of one mate over the
+    // shortest gap of the nearest clade that saw them (less kGapSlack) to the start of the other, is at most
+    // max_fragment long.
     inline bool PairAcrossNeighbours(AlignmentResult const& a1, AlignmentResult const& a2, GenomeLoader& genomes, int64_t max_fragment) {
         if (a1.Taxid() != a2.Taxid() || a1.GeneId() == a2.GeneId()) return false;
         auto const& table = genomes.GetGeneNeighbours();

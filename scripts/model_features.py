@@ -23,6 +23,13 @@ conserved_fast_record_ratio, is the same depth ratio over every best record befo
 of a relative's reads on conserved genes (they fit several congeners equally): the drop from conserved to fast genes
 shows there, and blurs after the filter; conserved_fast_kept_ratio is the ratio of the records the filters keep, so the
 two together say how much of the conserved genes' reads were ambiguous.
+
+ADJACENCY_FEATURES, by the database's gene neighbours (docs/claude/2026-10-02-gene-neighbour-frequencies): of the genes
+next to each other on a taxon's reads (a pair's mates on two genes, a long read's consecutive genes), the shares that
+are expected and unlikely neighbours in the taxon's clade, and the mean frequency of their pairings there. The
+trainer's default set (DEFAULT_FEATURE_SET) is the normalized features and these; "normalized" leaves them out, to
+test them on real data: on a synthetic world they changed test F1 within noise. Without gene neighbours in the
+database (or with protal --no_gene_neighbours) they are 0, 0 and 0.5, as for a taxon with no reads across genes.
 """
 
 # Columns of the dump that describe the row, not the taxon's evidence; columns that
@@ -55,14 +62,22 @@ NORMALIZED_FEATURES = [
 ]
 
 
+ADJACENCY_FEATURES = ["adjacent_expected_share", "adjacent_unlikely_share", "adjacent_support"]
+
+FEATURE_SETS = ("normalized", "normalized+adjacency", "all")
+DEFAULT_FEATURE_SET = "normalized+adjacency"
+
+
 def feature_columns(columns, feature_set="all"):
-    """The feature columns among `columns`: all of them, or the normalized ones."""
+    """The feature columns among `columns`: all of them, the normalized ones, or those and the adjacency ones."""
     available = [c for c in columns if c not in NON_FEATURE_COLUMNS and not c.startswith("meta_")]
     if feature_set == "all":
         return available
-    if feature_set == "normalized":
-        missing = [c for c in NORMALIZED_FEATURES if c not in available]
-        if missing:
-            raise RuntimeError("the training data lacks normalized features (written by an older protal?): " + ", ".join(missing))
-        return list(NORMALIZED_FEATURES)
-    raise ValueError(f"unknown feature set {feature_set!r}")
+    chosen = {"normalized": NORMALIZED_FEATURES, "normalized+adjacency": NORMALIZED_FEATURES + ADJACENCY_FEATURES}
+    if feature_set not in chosen:
+        raise ValueError(f"unknown feature set {feature_set!r}")
+    missing = [c for c in chosen[feature_set] if c not in available]
+    if missing:
+        raise RuntimeError(f"the training data lacks {feature_set} features (written by an older protal?): " +
+                           ", ".join(missing))
+    return list(chosen[feature_set])

@@ -195,8 +195,13 @@ and aligned in part if it runs past the gene's end. The log reports how many mat
 Marker genes often lie next to each other (the ribosomal protein operons, rpoB and rpoC, ...), so a
 fragment or a long read can span two of them. A database built with gene neighbours
 (`gene_neighbours.tsv`, [building-a-database.md](building-a-database.md#gene-neighbours)) knows,
-for each clade, which gene's end faces which other gene's end and how far apart they are. With it:
-- mates on two genes of one taxon that each run towards the end facing the other gene, as one
+for each clade, how often each gene's end faces which other gene's end in its species' genomes and
+how far apart they are. For a taxon, a pairing's share in its family leans on the clades above it, the
+more the fewer species the family has
+([building-a-database.md](building-a-database.md#gene-neighbours)): ends that face each other in
+20% or more are expected, in 5% or less unlikely. With it:
+- mates on two genes of one taxon that each run towards the end facing the other gene (expected
+  neighbours), as one
   fragment of at most 1,000 bases would, are paired like mates on one gene: written as a proper
   pair (flag 2) on two references (RNEXT the other gene, TLEN 0);
 - a guiding mate whose fragment reaches past its gene's end also looks for the other mate on the
@@ -205,9 +210,10 @@ for each clade, which gene's end faces which other gene's end and how far apart 
   that gene's neighbour, for the neighbour if no part of the read has it: a candidate of it beyond
   the longest is aligned, and a gene too divergent to be seeded is placed by its 12-mers (one that
   was aligned already and did not pass is not tried again);
-- the profile gets `adjacent_expected_share` and `adjacent_unlikely_share`: of the genes next to each
-  other on a taxon's reads, the shares whose ends face each other in the taxon's clade, and that
-  never do ([model-training.md](model-training.md)).
+- the profile gets `adjacent_expected_share`, `adjacent_unlikely_share` and `adjacent_support`: of
+  the genes next to each other on a taxon's reads, the shares that are expected and unlikely
+  neighbours in the taxon's clade, and the mean frequency of their pairings there
+  ([model-training.md](model-training.md)).
 
 The log says what the database has (`Gene neighbours: ... rules of ... clades`) and how many
 fragments and genes were found so. Gene order is much the same across bacteria, so this helps to

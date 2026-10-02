@@ -1,22 +1,27 @@
-// GeneNeighbours.h - which marker gene lies next to which in the genomes of a clade, end to end, and how far
-// apart: gene_neighbours.tsv, written by scripts/mini_db/gene_neighbours.py from the representative genomes
-// at hand when the database is built (those downloaded to simulate training data), counted per clade
-// (family, order, class, phylum, domain), and packed into the database by --build. A database without it
-// works as before.
+// GeneNeighbours.h - how often each marker gene end faces which other in the genomes of a clade, and how far
+// apart: gene_neighbours.tsv, a gene-by-gene frequency table per clade (family, order, class, phylum,
+// domain), counted by scripts/mini_db/gene_neighbours.py from every genome at hand when the database is built
+// (the representatives and other strains downloaded to simulate training data: genes placed by their exact
+// sequence or k-mer trace; complete replicons, and representatives in one sequence, read as circular, across
+// the origin), and packed into the database by --build. The database also holds where each gene lies in each
+// of those genomes (kPositionsFileName), which a run does not load: the frequencies are derived from it, and a
+// copy without some species derives them anew. A database without them works as before.
 //
 // Gene order is conserved across bacteria (the ribosomal protein operons, rpoBC, ...), so this helps to
 // follow a fragment or a long read from one gene into the next; it does not tell congeners apart. A run
 // uses it to look for a mate past the end of its guiding mate's gene, on the gene there (MateGuidance.h),
 // to pair mates on two neighbouring genes (classify::JoinAlignmentPairs), to look on a long read for the
-// genes its genes are next to (LongReads.h), and for the profiler's adjacent_expected_share and
-// adjacent_unlikely_share (Profiler.h). --no_gene_neighbours turns all of it off.
+// genes its genes are next to (LongReads.h), and for the profiler's adjacent_expected_share,
+// adjacent_unlikely_share and adjacent_support (Profiler.h). --no_gene_neighbours turns all of it off.
 //
 // Each gene has two ends in its coding orientation: 5' (position 0) and 3' (its last base). A line
 //   clade gene end partner partner_end species informative gap_median gap_min gap_max
-// says that in `species` of the clade's `informative` species (those whose genome goes on for the
-// build's max_gap past that end), the end faces partner's partner_end gap bases away (negative: they
-// overlap); partner 0 (partner_end 0): no marker within max_gap. A species' rules are those of its nearest
-// clade that has any for the gene's end (Table::Partners, Table::Assess).
+// says that in `species` of the clade's `informative` species (those whose genomes go on for the build's
+// max_gap past that end), the end faces partner's partner_end gap bases away (negative: they overlap): the
+// observed frequency species / informative (Rule::Share); partner 0 (partner_end 0): no marker within
+// max_gap. For a species, a pairing's share is that of its nearest clade with data on the gene's end, each
+// clade's share smoothed towards its parent's: a clade with few species leans on the clades above it, the
+// fewer the more (Table::Assess, Table::Partners).
 #pragma once
 
 #include <algorithm>
@@ -33,6 +38,9 @@
 
 namespace protal::gene_neighbours {
     inline const std::string kFileName = "gene_neighbours.tsv";
+    // Where each gene lies in each genome the frequencies were counted from (gene_neighbours.py), kept in the
+    // database (checked and packed by --build) but not read by a run.
+    inline const std::string kPositionsFileName = "gene_positions.tsv";
 
     // A gene's end in its coding orientation.
     enum class End : uint8_t { Five = 5, Three = 3 };
@@ -81,23 +89,42 @@ namespace protal::gene_neighbours {
         int32_t gap_max = 0;
 
         bool HasPartner() const { return partner != 0; }
+        // The share of the clade's species informative at this end that have this partner there.
+        double Share() const { return informative == 0 ? 0 : static_cast<double>(species) / informative; }
     };
 
+    // A pairing's share in a species' clades, from the top down: the top clade with data on the gene's end has
+    // its own share; each one below has (species + kPriorSpecies * its parent's share) / (informative +
+    // kPriorSpecies), so that a clade with the end informative in kPriorSpecies species counts as much as the
+    // clades above it, one with fewer less, one with many more. The nearest clade's share says: expected from
+    // kExpectedShare, unlikely up to kUnlikelyShare (0: never seen), rare in between. If even the top clade has
+    // the end informative in fewer than kMinInformative species, too few to call a pairing they lack unlikely,
+    // a pairing seen in one of them is expected and another unknown.
+    inline constexpr double kPriorSpecies = 3;
+    inline constexpr uint32_t kMinInformative = 5;
+    inline constexpr double kExpectedShare = 0.2;
+    inline constexpr double kUnlikelyShare = 0.05;
+
     enum class Verdict : uint8_t {
-        Unknown,   // no clade of the species has enough data on this end
-        Expected,  // the nearest clade with data has the two ends facing each other in a species
-        Unlikely,  // it has the end informative in kMinInformative species or more, never facing that one
+        Unknown,   // no clade of the species has data on this end, or too little
+        Expected,  // the two ends face each other in kExpectedShare of the species' clades or more (smoothed)
+        Unlikely,  // in kUnlikelyShare or fewer (none: never seen)
+        Rare,      // in between
     };
 
     struct Assessment {
         Verdict verdict = Verdict::Unknown;
-        Rule const* rule = nullptr;  // with Expected
-        uint32_t clade = 0;
+        Rule const* rule = nullptr;  // the nearest clade's rule for the pairing among those that saw it (with Expected)
+        uint32_t clade = 0;          // the nearest clade with data on the end
+        double share = 0;            // the pairing's smoothed share there
     };
 
-    // "Never seen" counts only with the end informative in at least this many of a clade's species; with fewer,
-    // the next clade up decides.
-    inline constexpr uint32_t kMinInformative = 3;
+    // A partner of one end of a gene in a species (Table::Partners).
+    struct Partner {
+        Rule const* rule = nullptr;  // that of the nearest of the species' clades that saw it
+        double share = 0;            // smoothed, as Assessment::share
+        Verdict verdict = Verdict::Unknown;
+    };
     // Bases of leeway on a clade's gap range, for a species whose genes are a little further or closer.
     inline constexpr int64_t kGapSlack = 100;
 
@@ -211,37 +238,69 @@ namespace protal::gene_neighbours {
             m_chain_of[species] = it->second;
         }
 
-        // The rules of one end of a gene of species `taxid`: those of its nearest clade that has any for that end
-        // (each with the clade's informative species), partner 0 among them; empty if none has. Sorted by partner.
-        std::span<Rule const> Partners(uint32_t taxid, uint32_t gene, End end) const {
+        // The partners that species taxid's clades saw at end `end` of `gene`, none (partner 0) among them, each
+        // with the rule of the nearest clade that saw it and its smoothed share and verdict (Assess); empty if no
+        // clade has data on that end. The nearest clade's partners first.
+        void Partners(uint32_t taxid, uint32_t gene, End end, std::vector<Partner>& out) const {
+            out.clear();
             auto const* chain = ChainOf(taxid);
-            if (!chain) return {};
+            if (!chain) return;
             for (auto const clade : *chain) {
-                auto const range = Range(clade, gene, end);
-                if (!range.empty()) return range;
+                for (auto const& rule : Range(clade, gene, end)) {
+                    bool const known = std::any_of(out.begin(), out.end(), [&rule](Partner const& p) {
+                        return p.rule->partner == rule.partner && p.rule->partner_end == rule.partner_end;
+                    });
+                    if (!known) out.push_back({ &rule });
+                }
             }
-            return {};
+            for (auto& p : out) {
+                auto const assessment = Assess(taxid, gene, end, p.rule->partner, p.rule->partner_end);
+                p.share = assessment.share;
+                p.verdict = assessment.verdict;
+            }
         }
 
-        // Whether, in species taxid, end `end` of `gene` faces end partner_end of `partner`: Expected if the nearest
-        // clade with data on that end saw it in a species (with that clade's rule), Unlikely if it never did with
-        // kMinInformative species or more informative there, else as the next clade up says; Unknown if none says.
+        // Whether, in species taxid, end `end` of `gene` faces end partner_end of `partner`: by the pairing's
+        // share smoothed over the species' clades (kPriorSpecies), at the nearest clade with data on that end
+        // (Expected, Rare, Unlikely: kExpectedShare, kUnlikelyShare); if the top clade with data has the end
+        // informative in fewer than kMinInformative species, Expected if a clade saw it, else Unknown. Unknown
+        // if no clade has data.
         Assessment Assess(uint32_t taxid, uint32_t gene, End end, uint32_t partner, End partner_end) const {
             auto const* chain = ChainOf(taxid);
             if (!chain) return {};
-            for (auto const clade : *chain) {
-                auto const range = Range(clade, gene, end);
+            Assessment a;
+            bool populated = false;
+            for (auto clade = chain->rbegin(); clade != chain->rend(); ++clade) {  // from the top
+                auto const range = Range(*clade, gene, end);
                 if (range.empty()) continue;
+                Rule const* seen = nullptr;
                 for (auto const& rule : range) {
-                    if (rule.partner == partner && rule.partner_end == partner_end) return { Verdict::Expected, &rule, clade };
+                    if (rule.partner == partner && rule.partner_end == partner_end) seen = &rule;
                 }
-                if (range.front().informative >= kMinInformative) return { Verdict::Unlikely, nullptr, clade };
+                double const species = seen ? seen->species : 0.0;
+                double const informative = range.front().informative;
+                if (a.clade == 0) {
+                    a.share = species / informative;
+                    populated = range.front().informative >= kMinInformative;
+                } else {
+                    a.share = (species + kPriorSpecies * a.share) / (informative + kPriorSpecies);
+                }
+                a.clade = *clade;
+                if (seen) a.rule = seen;
             }
-            return {};
+            if (a.clade == 0) return {};
+            if (!populated) {
+                if (!a.rule) return {};
+                a.verdict = Verdict::Expected;
+                return a;
+            }
+            a.verdict = a.share >= kExpectedShare ? Verdict::Expected
+                      : a.share <= kUnlikelyShare ? Verdict::Unlikely : Verdict::Rare;
+            return a;
         }
 
         // As Assess, for two genes of a read whose ends may face either way: Expected if any of their four end
-        // pairings is, Unlikely if every pairing that a clade has data on is, else Unknown.
+        // pairings is, Unlikely if one is and none is expected, else Unknown.
         Verdict AssessGenes(uint32_t taxid, uint32_t gene, uint32_t partner) const {
             bool unlikely = false;
             for (End a : { End::Five, End::Three }) {

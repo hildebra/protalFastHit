@@ -426,6 +426,44 @@ counts, and stops the run by SIGTERM while the simulations run. On `5c7d64c` wit
 scripts and its binaries: the mini-database suite, 36 tests OK (80 s), `GtdbBuildTest` among them
 (3 tests, 67 s).
 
+## Follow-up 2 (2026-10-02): fix 4, the previous procedure cheaper and off by default
+
+`random_forest_cmdline.py` and `build_gtdb_database.py` take `--previous-procedure` (and
+`--no-previous-procedure`, the default): the comparison with the trainer's previous procedure runs only when
+asked, with any `--evaluation` but `none`, and `build_metadata.tsv` records it (`classifier_previous_procedure`:
+`compared` or `not compared`). For the first builds of a release, `build_gtdb_database.py ...
+--previous-procedure`.
+
+When it runs it is cheaper. Its grid search takes every second value of `max_features` (6, 8, ..., 24 and 25),
+then the two next to the best (the same folds and forest seeds), with 3 folds instead of 5, on at most 20,000 rows
+(whole samples drawn at random, `PREVIOUS_GRID_ROWS`); and the current procedure's side of the comparison is the
+evaluation's own forests with species held out instead of 5 more. What it judges (a forest of 512 trees on the top
+features, on a random 20% of rows and with species held out) is the procedure's as before.
+
+Measured with [`previous_procedure_cost.sh`](scripts/previous_procedure_cost.sh) on the paired-end training table
+of an operon-world build (`~/opw/b_gn2`, 72 samples, the gene neighbour report of the same day) and on that table
+five times over (`enlarge_table.sh`), `--evaluation full`, 4 threads, the trainer before against after; the study's
+CPU is the training's less that of a training without it. Another session's benchmark ran meanwhile (load 6-7 on 6
+cores during the before and after runs, ~2 during those without the study), so the seconds are inflated and the
+ratios are what counts:
+
+| rows | trainer | grid | study, wall s | training, CPU s | the study, CPU s | its `max_features` | its F1, species held out | the current procedure's F1 |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| 4,883 | before | 20 values × 5 folds, all rows | 62 | 167 | 146 | 7 | 0.9954 | 0.9979 |
+| 4,883 | after | 12 values × 3 folds, all rows | 35 | 90 | 69 | 6 | 0.9954 | 0.9979 |
+| 24,415 | before | 20 values × 5 folds, all rows | 194 | 833 | 722 | 7 | 0.9970 | 0.9976 |
+| 24,415 | after | 12 values × 3 folds, 19,998 rows | 51 | 291 | 181 | 7 | 0.9972 | 0.9976 |
+
+The study costs 2.1 times less CPU at 4,883 rows and 4.0 times less at 24,415; above 20,000 rows its grid stays
+at the cost of 20,000, so at the ~70,000 rows estimated for an r226 paired-end table (above) it is about 12 times
+less on the grid (100 forests on 56,000 rows against 36 on 13,300, and more for the trainer's rows^1.3). The
+result is the same: the previous procedure chose 7 (or 6) features and did no better with species held out than
+the current one. Every second value alone (11 values, before the step to the neighbours) chose 6 at 24,415 rows,
+where every value chooses 7, and lost 0.003 F1 there (0.9940); every value with 3 folds on 20,000 rows chose 7
+(0.9972) for about three times the grid time of every second value. Tests: `test_model_pmml.py` (the study only
+when asked, both flags, the grid's values, folds and rows, the reused predictions; whole samples up to the row
+limit), the mini-database `GtdbBuildTest` (`classifier_previous_procedure` `not compared` by default).
+
 ## Reproducing
 
 All scripts take their inputs from WSL `~/tune` (the tuning world and its V3 build) and write to
@@ -449,4 +487,6 @@ bash scripts/check_lengths.sh REPO/scripts ~/bprof/lengths2
 bash scripts/check_gene_neighbours.sh REPO/scripts/mini_db/gene_neighbours.py ~/bprof/gncheck 4
 bash scripts/collect_real_size.sh ~/bprof/c2 4 && bash scripts/long_read_stats.sh ~/bprof/c2/collect
 BIN=... SCRIPTS=... bash scripts/build_real_size.sh ~/bprof/b2 4 && bash scripts/build_summary.sh ~/bprof/b2
+# follow-up 2 (BEFORE: a copy of the scripts with the trainer before the change)
+bash scripts/previous_procedure_cost.sh ~/opw/b_gn2/training/training_data.tsv BEFORE REPO/scripts ~/bprof/prev/run
 ```

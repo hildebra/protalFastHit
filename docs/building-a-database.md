@@ -62,33 +62,70 @@ use, train a model on it, or use the one-command route below.
 
 ### Gene neighbours
 
-Optional, between conversion and build: which marker genes lie next to which in the genomes. GTDB's
-marker files hold the accession and nothing about where a gene lies, so this needs whole genomes;
-the representatives' genomes among those downloaded to simulate training data are enough:
+Optional, between conversion and build: how often each marker gene end faces which other in the
+genomes of each clade. GTDB's marker files hold the accession and nothing about where a gene lies,
+so this needs whole genomes: all those downloaded to simulate training data, the representatives
+and the other strains:
 
 ```bash
 python3 scripts/mini_db/gene_neighbours.py --db /data/protal_r226_db --genome_table genomes.tsv -t 16
 ```
 
 The genome table is the simulator's (accession, GTDB taxonomy, FASTA path; `build_gtdb_database.py`
-writes one as `OUT_DIR/genomes.tsv`). Each database gene is a gene call of its representative genome,
-so it is found there by its exact sequence on either strand; one genome per species counts (the
-representative's), so that species with many genomes do not outweigh the others. For each gene's
-two ends (5' and 3' in its coding orientation) the script records the next marker within
-`--max_gap` (3000) bases, which end of it faces this one and how far apart they are, or that there
-is none; an end within `--max_gap` of its contig's end says nothing. Counted per clade
-(`--ranks`, default family, order, class, phylum, domain), this is `gene_neighbours.tsv`
-([database-files.md](database-files.md)), which `--build` checks and packs. protal takes a species'
-rules from the nearest clade with data on that gene's end: a gene end seen facing the other in a
-species of the clade is expected there; one never seen with the end informative in 3 or more species
-is unlikely ([running.md](running.md#options-the-website-does-not-list) says what a run does with
-it). `--positions FILE` writes where each gene was found.
+writes one as `OUT_DIR/genomes.tsv`).
 
-The script prints a summary: genes found, the share of gene ends with a neighbour and the gaps, and
-for each rank how alike its clades' species are (the share of species that have the most common
-partner of a gene end). Gene order changes little within families, so a family's rules hold for its
-species without genomes; `--min_placed` (0.8) skips a genome in which fewer of its species' genes
-are found (another assembly version). A training database made with `--from_db` keeps the file.
+**Placing.** Each database gene is a gene call of its species' representative, so it is found there
+by its exact sequence on either strand. In another strain it differs by the strain's mutations and is
+found by its k-mer trace: the gene's 24-mers are looked up among the genome's 24-mers at every 16th
+position; the band of near diagonals (32 bases) with the most hits places the gene if it holds 10% or
+more of the gene's k-mers that can hit there, and 3 at least (genes up to about 9% different).
+`--min_placed` (0.8) skips a genome in which fewer of its species' genes are placed (another
+assembly version).
+
+**Counting.** For each gene's two ends (5' and 3' in its coding orientation) the script records, in
+each genome, the next placed marker within `--max_gap` (3000) bases, which end of it faces this one
+and how far apart they are, or that there is none. An end within `--max_gap` of its contig's end says
+nothing: a fragmented assembly is no evidence that a gene has no neighbour. A circular sequence has
+no ends: its last gene faces its first across the origin, and every gene end on it counts. A sequence
+is read as circular if its header marks it a whole replicon (NCBI's "complete genome" or "complete
+sequence", `topology=circular`), or if it is the whole genome of a species representative (a
+representative in one sequence is a closed chromosome). A species counts once, so that species with
+many genomes do not outweigh the others: at each gene end, the partner most of its genomes show
+there (the representative's on a tie), and the end counts if it does in any of its genomes, so that
+another strain's assembly fills in where the representative's contigs end. Per clade (`--ranks`,
+default family, order, class, phylum, domain) this gives, for each gene end and partner, in how many
+of the clade's species the end faces that partner, of how many in which the end counts (it is
+*informative*): the observed frequency.
+
+The script writes two files into the folder ([database-files.md](database-files.md)), which
+`--build` checks and packs:
+- `gene_neighbours.tsv`, the frequencies per clade, which a run loads;
+- `gene_positions.tsv`, where each gene lies in each genome (contig, its length, whether circular,
+  start, end, strand, placed exactly or by its trace, the share of its k-mers that hit), which a run
+  does not load. The frequencies are derived from it: `--from_positions FILE` does so without
+  counting the genomes again, and `gtdb_to_protal_db.py --from_db` does so for a training database,
+  without the species it leaves out, as a database does not know the gene order of an organism it
+  lacks.
+
+**Use.** A clade with few species says little on its own, so for a species a clade's share of a
+pairing leans on the clades above it, the more the fewer species it has: from the top clade with data
+on the gene end down to the species' family, each clade's share is (species + 3 × its parent's share)
+/ (informative + 3). A family with the end informative in 3 species counts as much as its order, one
+with 1 a quarter, one with 30 nine tenths. At the nearest clade, two ends that face each other in 20%
+or more are expected, in 5% or less unlikely (never seen included), and rare in between. If even the
+top clade has the end informative in fewer than 5 species, a pairing seen is expected and another
+unknown. Mates are paired and looked for, and long reads followed, only over expected neighbours;
+[running.md](running.md#options-the-website-does-not-list) says what a run does with them. Leaving a
+sparse clade out altogether, and letting the next clade with 5 species decide, was tried and lost a
+species' own gene order where its family is small: on a synthetic world a quarter of the true
+neighbours of species in such families came out unlikely, and a species' own pairs were barely more
+often expected than a relative's ([report](claude/2026-10-02-gene-neighbour-frequencies/README.md)).
+
+The script prints a summary: the genes placed exactly and by their trace, the genomes read as
+circular, the share of gene ends with a neighbour and the gaps, and for each rank how alike its
+clades' species are (the share of species that have the most common partner of a gene end) and how
+many of its gene ends are informative in fewer than 3 species, leaning mostly on the rank above. Gene order changes little within families, so a
+family's frequencies hold for its species without genomes.
 
 ### 2. Build the index
 
@@ -183,10 +220,11 @@ the reduced database, or check its calls on simulated samples first.
 
 ## Build and train in one command
 
-`scripts/build_gtdb_database.py` runs the converter, records the gene neighbours from the
-representatives among its genomes ([above](#gene-neighbours); `OUT_DIR/gene_neighbours.log`,
+`scripts/build_gtdb_database.py` runs the converter, records the gene neighbours from all its
+genomes ([above](#gene-neighbours); `OUT_DIR/gene_neighbours.log`,
 `--no-gene-neighbours` to leave them out), builds and packs the index, simulates training
-data from whole genomes, trains a random forest per read type on the normalised features, and adds
+data from whole genomes, trains a random forest per read type on the normalised features and the
+gene neighbours' (`--features`), and adds
 the trained models to the database (`model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml`). Its inputs come from `scripts/download_gtdb.py`, the one step that
 needs the internet, so it can run on a download node:
 
@@ -377,7 +415,9 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases` | `500,2000,10000,50000,200000,1000000`, `10-300`, `lognormal:2.0`, `0.5,0.2`, `150000,1000000,5000000,25000000,250000000` | the test set's design |
 | `--seed` | 1 | |
 | `--ntree`, `--maxnodes` | 64, 128 | random forest size (more trees did not score better, see [model-training.md](model-training.md#training)) |
+| `--features` | `normalized+adjacency` | the models' features ([model-training.md](model-training.md#features)): `normalized` leaves the gene neighbour features out, to test them on real data; `build_metadata.tsv` records the set |
 | `--evaluation` | `full` | how much the trainer evaluates: `full`, `basic` or `none` |
+| `--previous-procedure` | off | the trainer also compares each model with its previous procedure ([model-training.md](model-training.md#training)), for the first builds of a release; `build_metadata.tsv` says whether it did |
 | `--progress-every` | 0 | seconds between status lines of the stages running, besides each step's start and end (below); 0 for none |
 | `--scratch` | | a node's own disk for the simulated samples (below) |
 
@@ -465,6 +505,12 @@ From a small build of the tuning world (765 species, one sample per design point
 
 (The scratch figures count everything written to that file system during the run, other jobs'
 too.)
+
+The conversion's line now also says how the genes were placed for the gene neighbours, which takes
+longer since every genome counts, e.g. on an operon-like world of the same 2,295 genomes:
+`converted in 0:00:03, peak memory 177 MB; the genes placed in 2295 genomes (86236 exactly, 168006 by
+their k-mer trace) and their neighbours counted in 0:00:23, peak memory 176 MB (gene_neighbours.log)`
+([report](claude/2026-10-02-gene-neighbour-frequencies/README.md)).
 
 ### Local scratch
 

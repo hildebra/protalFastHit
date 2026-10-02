@@ -32,8 +32,12 @@ Written to PREFIX.*:
   joblib              the fitted scikit-learn forest
 
 --evaluation full adds studies that tell whether the training set and the settings suffice: other
-feature sets, the procedure this script used before (grid search over max_features, then only the
-top features, 512 trees), forest sizes and tree counts, and fewer training samples.
+feature sets, forest sizes and tree counts, and fewer training samples. --previous-procedure (off by
+default) also compares with the procedure this script used before: a grid search over max_features, then
+a forest of 512 trees on only the top features. Its grid, which took most of the training time
+(docs/claude/2026-10-01-build-profiling), is cheaper than the procedure's own: every second value of
+max_features and then the two next to the best, 3 folds, and at most PREVIOUS_GRID_ROWS rows (whole
+samples, drawn at random); the forests it then judges are the procedure's.
 
 --depth-knobs also chooses a knob per depth of the sample: for each bin of the samples' fragments over
 all their taxa (the digits of their number less one, 2 to 6), the threshold with the highest F1 on
@@ -66,12 +70,15 @@ from sklearn.model_selection import GridSearchCV, GroupKFold, StratifiedKFold
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lineages  # noqa: E402
-from model_features import feature_columns  # noqa: E402
+from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_columns  # noqa: E402
 from model_pmml import PmmlForest, format_depth_knobs, read_depth_knobs, write_forest  # noqa: E402
 
 # Clades held out in cross-validation (with --taxonomy): each row is scored by forests that saw no taxon of
 # its genus, family, order, class or phylum.
 CLADE_SCHEMES = ("genus", "family", "order", "class", "phylum")
+# --previous-procedure: the rows its grid search over max_features is run on at most, and its folds.
+PREVIOUS_GRID_ROWS = 20_000
+PREVIOUS_GRID_FOLDS = 3
 NOVEL_RANKS = ("species", "genus", "family", "order", "class", "phylum")
 
 # Main features written next to the predictions, when the table has them.
@@ -96,9 +103,10 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--truth-file", required=True, help="training table (collect_training_data.py) or one training dump")
     p.add_argument("--output-prefix", required=True)
-    p.add_argument("--features", choices=["normalized", "all"], default="normalized",
-                   help="normalized: the features that do not depend on database, domain, depth and read length "
-                        "(model_features.py; default); all: every feature column of the table")
+    p.add_argument("--features", choices=FEATURE_SETS, default=DEFAULT_FEATURE_SET,
+                   help="normalized+adjacency (default): the features that do not depend on database, domain, depth "
+                        "and read length, and those of the gene neighbours (model_features.py); normalized: without "
+                        "the gene neighbour features, to test them; all: every feature column of the table")
     p.add_argument("--reference-pmml", help="train on the inputs of this PMML model instead of --features")
     p.add_argument("--ntree", type=int, default=64, help="trees (default 64)")
     p.add_argument("--maxnodes", type=int, default=128, help="leaves per tree at most, 0 for no limit (default 128)")
@@ -112,6 +120,10 @@ def parse_args(argv=None):
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="full: also the studies (see above); basic: out of bag, by sample and by species; "
                         "none: fit and export only")
+    p.add_argument("--previous-procedure", action=argparse.BooleanOptionalAction, default=False,
+                   help="also compare with the procedure this script used before (grid search over max_features, "
+                        "512 trees on the top features), unless --evaluation none; off by default, as it takes "
+                        "most of the training time")
     p.add_argument("--taxonomy", help="internal_taxonomy.dmp of the database, for the taxa's domains when the "
                                       "table has no meta_domain column")
     p.add_argument("--test-file", help="an independent test table (collect_training_data.py with another design and "
@@ -744,8 +756,12 @@ def study_threshold(report, y, p, opts, prefix):
 def study_features(report, df, y, opts, cols):
     report.section("Feature sets (held out by rows and by species)")
     report.add("A feature set that does much better on rows than on species has learned the training species.")
-    sets = {"normalized": feature_columns(df.columns, "normalized"), "all": feature_columns(df.columns, "all")}
-    sets = {k: [c for c in v if c not in ("domain",)] for k, v in sets.items()}
+    sets = {}
+    for name in FEATURE_SETS:
+        try:
+            sets[name] = [c for c in feature_columns(df.columns, name) if c != "domain"]
+        except RuntimeError as error:  # a table of an older protal
+            report.add(f"{name}: not compared ({error})")
     rows = []
     for name, set_cols in sets.items():
         check_features(df, set_cols)
@@ -759,18 +775,55 @@ def study_features(report, df, y, opts, cols):
     report.data["feature_sets"] = [dict(**label, **m) for label, m in rows]
 
 
-def study_old_procedure(report, df, y, opts, cols):
-    """The procedure of this script before: a grid search over max_features on all rows, then a forest of 512
-    trees on the top max_features features by importance, judged on a random 20% of the rows."""
+def grid_rows(df, opts):
+    """The rows of the previous procedure's grid search: all, or whole samples drawn at random until
+    PREVIOUS_GRID_ROWS (rows of one sample share its reads)."""
+    if len(df) <= PREVIOUS_GRID_ROWS:
+        return np.arange(len(df))
+    if "meta_sample" not in df.columns:
+        return np.sort(np.random.RandomState(opts.seed).choice(len(df), PREVIOUS_GRID_ROWS, replace=False))
+    samples = df["meta_sample"].astype(str).to_numpy()
+    names = np.unique(samples)
+    np.random.RandomState(opts.seed).shuffle(names)
+    sizes = pd.Series(samples).value_counts()
+    chosen, rows = set(), 0
+    for name in names:
+        if rows and rows + sizes[name] > PREVIOUS_GRID_ROWS:
+            break
+        chosen.add(name)
+        rows += sizes[name]
+    return np.flatnonzero(np.isin(samples, list(chosen)))
+
+
+def study_old_procedure(report, df, y, opts, cols, p_new):
+    """The procedure of this script before: a grid search over max_features (here every second value and the
+    neighbours of the best, 3 folds, at most PREVIOUS_GRID_ROWS rows; it searched every value with 5 folds on all
+    rows), then a forest of 512 trees on the top max_features features by importance, judged on a random 20% of the
+    rows; against this one (p_new: its probabilities with species held out)."""
     report.section("The previous procedure (grid search, top features only, 512 trees) against this one")
     X = df[cols].to_numpy(dtype=np.float64)
     t0 = time.time()
     end = min(25, len(cols))
     start = 1 if end < 6 else 6
-    grid = GridSearchCV(RandomForestClassifier(**forest_params(opts, n_estimators=128, n_jobs=1,
-                                                               class_weight="balanced_subsample")),
-                        {"max_features": list(range(start, end + 1))}, cv=5, n_jobs=opts.threads)
-    grid.fit(X, y)
+    sub = grid_rows(df, opts)
+    folds_n = min(PREVIOUS_GRID_FOLDS, int(np.bincount(y[sub]).min()))
+
+    def search(candidates):  # the same folds and forests' seeds for every candidate
+        grid = GridSearchCV(RandomForestClassifier(**forest_params(opts, n_estimators=128, n_jobs=1,
+                                                                   class_weight="balanced_subsample")),
+                            {"max_features": candidates}, cv=folds_n, n_jobs=opts.threads)
+        return grid.fit(X[sub], y[sub])
+
+    # Every second value, then the neighbours of the best.
+    values = sorted(set(range(start, end + 1, 2)) | {end})
+    grid = search(values)
+    best = int(grid.best_params_["max_features"])
+    near = [v for v in (best - 1, best + 1) if start <= v <= end and v not in values]
+    if near:
+        values = sorted(values + near)
+        closer = search(near)
+        if closer.best_score_ > grid.best_score_:
+            grid = closer
     mtry = int(grid.best_params_["max_features"])
     importance = pd.Series(grid.best_estimator_.feature_importances_, index=cols).sort_values(ascending=False)
     top = importance.index[:mtry].tolist()
@@ -797,13 +850,16 @@ def study_old_procedure(report, df, y, opts, cols):
         rows.append(({"procedure": "previous", "judged on": "species held out"}, metrics(y, p_old, df, opts.knob)))
         rows.append(({"procedure": f"previous, its knob {own_t:.3f}", "judged on": "species held out"},
                      metrics(y, p_old, df, own_t)))
-        p_new = predict_out_of_fold(X, y, splits, forest_params(opts))
+        if p_new is None:
+            p_new = predict_out_of_fold(X, y, splits, forest_params(opts))
         rows.append(({"procedure": "this one", "judged on": "species held out"}, metrics(y, p_new, df, opts.knob)))
-    report.add(f"grid search: {end - start + 1} values of max_features x 5 folds in {grid_s:.1f} s (128 trees each); "
-               f"chose {mtry}, so the forest used only these {mtry} of {len(cols)} features: {', '.join(top)}")
+    report.add(f"grid search: {len(values)} values of max_features ({', '.join(map(str, values))}) x {folds_n} folds on "
+               f"{len(sub)} of {len(df)} rows in {grid_s:.1f} s (128 trees each); chose {mtry}, so the forest used only "
+               f"these {mtry} of {len(cols)} features: {', '.join(top)}")
     report.add(f"its forest: {nodes} nodes, fitted in {fit_s:.1f} s")
     report.table(metrics_table(rows))
-    report.data["previous_procedure"] = {"grid_seconds": grid_s, "mtry": mtry, "features": top, "nodes": nodes,
+    report.data["previous_procedure"] = {"grid_seconds": grid_s, "grid_values": values, "grid_folds": folds_n,
+                                         "grid_rows": int(len(sub)), "mtry": mtry, "features": top, "nodes": nodes,
                                          "knob_from_its_test_rows": own_t,
                                          "results": [dict(**label, **m) for label, m in rows]}
 
@@ -929,14 +985,18 @@ def main(argv=None):
         study_by_rank(report, df, y, p, opts)
         study_feature_classes(report, df)
         timing["evaluation"] = time.time() - t0
+    studies = []
     if opts.evaluation == "full":
-        for name, study in (("feature_sets", lambda: study_features(report, df, y, opts, cols)),
-                            ("previous_procedure", lambda: study_old_procedure(report, df, y, opts, cols)),
-                            ("capacity", lambda: study_capacity(report, df, X, y, opts)),
-                            ("learning_curve", lambda: study_learning_curve(report, df, X, y, opts))):
-            t0 = time.time()
-            study()
-            timing[name] = time.time() - t0
+        studies += [("feature_sets", lambda: study_features(report, df, y, opts, cols))]
+    if opts.previous_procedure and opts.evaluation != "none":
+        studies += [("previous_procedure", lambda: study_old_procedure(report, df, y, opts, cols, p.get("species")))]
+    if opts.evaluation == "full":
+        studies += [("capacity", lambda: study_capacity(report, df, X, y, opts)),
+                    ("learning_curve", lambda: study_learning_curve(report, df, X, y, opts))]
+    for name, study in studies:
+        t0 = time.time()
+        study()
+        timing[name] = time.time() - t0
     depth_knobs = {}
     if opts.depth_knobs:
         t0 = time.time()
