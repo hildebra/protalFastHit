@@ -17,6 +17,7 @@
 #include "protal_config.h"
 #include "SamFile.h"
 #include "RunStatus.h"
+#include "BuildInfo.h"
 
 #include <atomic>
 #include <iomanip>
@@ -2212,10 +2213,7 @@ namespace protal {
     static int Run(int argc, char *argv[]) {
         auto options = protal::Options::OptionsFromArguments(argc, argv);
         if (options.ShowVersion()) {
-            std::cout << "protal v" << 
-                protal_VERSION_MAJOR << "." <<
-                protal_VERSION_MINOR << "." <<
-                protal_VERSION_PATCH << std::endl;
+            std::cout << "protal " << protal::VersionText() << std::endl;
             exit(0);
         }
     

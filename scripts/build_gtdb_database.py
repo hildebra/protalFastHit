@@ -56,7 +56,10 @@ gene_congeners.tsv (protal --build: how each gene differs between congeners
 against within species) and relatives_by_gene_conservation.txt (trace_relatives.py:
 where the reads of the held-out species land, by the genes' factors).
 
-The tools the run needs are checked before it starts. A run that stops (a failure,
+The tools the run needs are checked before it starts, and protal and the simulator
+must be of the source these scripts are at: of its version and (as their --version
+says since 0.7.3) built from its commit, with nothing changed since in src/, lib/
+or the build files (--no-binary-check runs them anyway). A run that stops (a failure,
 SIGTERM, Ctrl-C) stops every command it started, and one that fails in the
 background (the finished database's build) stops the run within seconds. A rerun
 into the same OUTDIR resumes: the conversion and the two index builds are skipped
@@ -94,6 +97,9 @@ TRAINER = os.path.join(HERE, "random_forest_cmdline.py")
 COLLECTOR = os.path.join(HERE, "collect_training_data.py")
 PARITY = os.path.join(HERE, "check_model_parity.py")
 TRACE = os.path.join(HERE, "trace_relatives.py")
+SOURCE = os.path.dirname(HERE)  # the checkout these scripts are part of
+# What protal and the simulator are built from (protal_commit.cmake marks a build of uncommitted changes to them).
+BUILD_SOURCES = ("src", "lib", "CMakeLists.txt", "protal_config.h.in", "protal_commit.cmake")
 ACCESSION = re.compile(r"(?:RS_|GB_)?(GC[AF]_\d{9}\.\d+)")
 sys.path.insert(0, os.path.join(HERE, "mini_db"))
 sys.path.insert(0, HERE)
@@ -616,6 +622,7 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
         except (OSError, subprocess.SubprocessError):
             return ""
     version = output([args.protal, "--version"]).splitlines()
+    simulator_version = output([args.simulator, "--version"]).splitlines()
     commit = output(["git", "-C", HERE, "rev-parse", "HEAD"])
     if commit and output(["git", "-C", HERE, "status", "--porcelain", "--", "."]):
         commit += " (scripts changed since)"
@@ -629,6 +636,7 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
     clade_counts = collections.Counter(rank for rank, _ in set(read_holdout(heldout).values())) if n_heldout else {}
     rows = [("gtdb_release", f"r{release}"), ("built", time.strftime("%Y-%m-%d %H:%M:%S")),
             ("protal_version", version[-1] if version else "unknown"), ("protal_binary", args.protal),
+            ("simulator_version", simulator_version[-1] if simulator_version else "unknown (older than 0.7.3)"),
             ("scripts_commit", commit or "unknown (not a git checkout)"), ("command", " ".join(sys.argv)),
             ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, "index_and_package.log"))),
@@ -807,10 +815,74 @@ def release_identity(gtdb, release):
     return items
 
 
+def source_version(source=SOURCE):
+    """The protal version of the source these scripts are part of (CMakeLists.txt), or None outside a checkout."""
+    try:
+        with open(os.path.join(source, "CMakeLists.txt")) as fh:
+            found = re.search(r"project\(protal VERSION ([0-9.]+)\)", fh.read())
+    except OSError:
+        return None
+    return found.group(1) if found else None
+
+
+def build_check(command, name, source=SOURCE):
+    """Whether the binary `command` (protal or the simulator) was built from the source these scripts are at, from
+    its --version (the version, and since 0.7.3 the commit it was built from): (problem, note), either of them None.
+    A binary of another version, of a commit the checkout lacks, or of a commit whose source has changed since is a
+    problem: with it the run would fail hours in (the r226 run of 2026-10-02 collected its training data with an
+    older protal, whose dump lacked the trainer's features). One that cannot say is only noted."""
+    rebuild = f"build it from {source} (docs/installation.md)"
+    try:
+        result = subprocess.run([command, "--version"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"{name} ({command}) --version failed ({e}): {rebuild}", None
+    lines = result.stdout.strip().splitlines()
+    found = re.fullmatch(r"\S+ v([0-9.]+)(?: \(commit ([0-9a-f]{40})(, with uncommitted changes)?\))?", lines[-1]) \
+        if lines else None
+    if result.returncode or not found:
+        said = (result.stdout + result.stderr).strip()[-200:]
+        return f"{name} ({command}) --version gives no version ({result.returncode}: {said}), so it is older than " \
+               f"these scripts: {rebuild}", None
+    version, commit, modified = found.groups()
+    wanted = source_version(source)
+    if wanted and version != wanted:
+        return f"{name} ({command}) is v{version}, these scripts v{wanted}: {rebuild}", None
+    if not commit:
+        return None, f"{name} ({command}) does not say which commit it was built from (not built in a git checkout), " \
+                     "so it is not checked against the source"
+    if modified:
+        return None, f"{name} ({command}) was built with uncommitted changes to its source, so it is not checked " \
+                     "against the source"
+
+    def git(*arguments):
+        return subprocess.run(["git", "-C", source, *arguments], capture_output=True, text=True)
+    try:
+        checkout = git("rev-parse", "--git-dir").returncode == 0
+    except OSError:
+        checkout = False
+    if not checkout:
+        return None, f"{source} is no git checkout (or there is no git), so {name} is not checked against the source"
+    if git("cat-file", "-e", commit + "^{commit}").returncode:
+        return f"{name} ({command}) was built from commit {commit[:10]}, which {source} does not have: {rebuild}", None
+    changed = git("diff", "--quiet", commit, "--", *BUILD_SOURCES).returncode
+    if changed == 1:
+        commits = git("rev-list", "--count", f"{commit}..HEAD", "--", *BUILD_SOURCES).stdout.strip() or "?"
+        since = [f"{commits} commit{'' if commits == '1' else 's'}"] if commits != "0" else []
+        if git("diff", "--quiet", "HEAD", "--", *BUILD_SOURCES).returncode == 1:
+            since.append("uncommitted changes")
+        detail = " and ".join(since) if since else "the checkout is at another commit"
+        return f"{name} ({command}) was built from commit {commit[:10]}, and src/, lib/ or the build files have " \
+               f"changed since ({detail}): rebuild it (cmake --build <build dir> --target protal " \
+               "simulate_metagenomes)", None
+    if changed:
+        return None, f"git cannot compare {source} with commit {commit[:10]}, so {name} is not checked against it"
+    return None, None
+
+
 def check_tools(args, read_types):
-    """What the run needs later, checked before it starts: a missing tool would otherwise stop it after the
-    conversion, the builds or the collection."""
-    problems = []
+    """What the run needs later, checked before it starts: a missing tool, or protal or the simulator of an older
+    source, would otherwise stop it after the conversion, the builds or the collection."""
+    problems, notes = [], []
 
     def executable(command, what, hint):
         if shutil.which(command) or (os.path.isfile(command) and os.access(command, os.X_OK)):
@@ -818,11 +890,20 @@ def check_tools(args, read_types):
         problems.append(f"{what} ({command}) is not there: {hint}")
         return False
 
+    def built_here(command, name):
+        problem, note = build_check(command, name)
+        if problem and args.no_binary_check:
+            problem, note = None, problem + " (--no-binary-check: run anyway)"
+        if problem:
+            problems.append(problem + ", or pass --no-binary-check")
+        if note:
+            notes.append(note)
+
     if executable(args.protal, "protal", "build it (docs/installation.md), or pass --protal"):
-        version = subprocess.run([args.protal, "--version"], capture_output=True, text=True)
-        if version.returncode:
-            problems.append(f"{args.protal} --version failed ({version.returncode}): {version.stdout[-300:]}{version.stderr[-300:]}")
-    executable(args.simulator, "the simulator", "it is built with protal (target simulate_metagenomes), or pass --simulator")
+        built_here(args.protal, "protal")
+    if executable(args.simulator, "the simulator", "it is built with protal (target simulate_metagenomes), or pass "
+                                                   "--simulator"):
+        built_here(args.simulator, "the simulator")
     executable("art_illumina", "ART", "the simulator simulates the Illumina reads with it: install ART (conda: art, "
                                       "envs/protal-db-build.yaml)")
     pbsim_types = [t for t in read_types if t == "ont" or (t == "pb" and not args.pb_setup.startswith("hifi:"))]
@@ -837,6 +918,8 @@ def check_tools(args, read_types):
                         "script with a Python that has them")
     if problems:
         sys.exit("Cannot start:\n  " + "\n  ".join(problems))
+    for note in notes:
+        say("Note: " + note)
     if not shutil.which("zstd"):
         say("Note: no zstd command (envs/protal-db-build.yaml has it): the conversion writes full_reference.fna "
             "uncompressed, 86 GB at r226")
@@ -890,6 +973,10 @@ def main():
                         "among all ~130,000 GTDB species the few with downloaded strains would hardly be drawn")
     p.add_argument("--protal", default="protal", help="protal executable")
     p.add_argument("--simulator", default="simulate_metagenomes", help="simulate_metagenomes executable")
+    p.add_argument("--no-binary-check", action="store_true",
+                   help="run protal and the simulator even when they were not built from the source these scripts are "
+                        "at (another version, or a commit whose source has changed since): the check at the start "
+                        "then only notes it")
     p.add_argument("-t", "--threads", type=int, default=8)
     p.add_argument("--samples", type=int, default=12,
                    help="samples per design point (default 12; on a GTDB-like world the model still improved "

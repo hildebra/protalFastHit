@@ -1712,6 +1712,103 @@ class TraceRelativesTest(unittest.TestCase):
             self.assertIn("Not traced: the training database has no gene conservation factors", result.stdout)
 
 
+class BinaryCheckTest(unittest.TestCase):
+    """The commit a build records for --version (protal_commit.cmake), and build_gtdb_database.py's check at its start
+    that protal and the simulator were built from the source its scripts are at, on a throwaway checkout."""
+
+    def setUp(self):
+        if not shutil.which("git"):
+            self.skipTest("no git")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.source = os.path.join(self.tmp.name, "checkout")
+        os.makedirs(os.path.join(self.source, "src"))
+        self.write("CMakeLists.txt", "project(protal VERSION 0.7.3)\n")
+        self.write("src/a.h", "int a;\n")
+        self.git("init", "-q")
+        self.commit("one")
+        self.built = self.git("rev-parse", "HEAD")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, path, text, mode="w"):
+        with open(os.path.join(self.source, path), mode) as fh:
+            fh.write(text)
+
+    def git(self, *arguments):
+        return subprocess.run(["git", "-C", self.source, "-c", "user.name=test", "-c", "user.email=test@example.org",
+                               *arguments], check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, message):
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+
+    def check(self, said, code=0):
+        # A stand-in binary that says `said` to --version.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import build_gtdb_database as build
+        binary = os.path.join(self.tmp.name, "protal")
+        with open(binary, "w") as fh:
+            fh.write(f"#!/bin/sh\necho '{said}'\nexit {code}\n")
+        os.chmod(binary, 0o755)
+        return build.build_check(binary, "protal", self.source)
+
+    def test_the_commit_in_the_build(self):
+        if not shutil.which("cmake"):
+            self.skipTest("no cmake")
+        header = os.path.join(self.tmp.name, "protal_commit.h")
+
+        def written():
+            subprocess.run(["cmake", f"-DSOURCE_DIR={self.source}", f"-DOUTPUT={header}", "-P",
+                            os.path.join(HERE, "..", "..", "protal_commit.cmake")], check=True, capture_output=True)
+            with open(header) as fh:
+                return fh.read()
+
+        def expected(commit, modified):
+            return f'#pragma once\n#define PROTAL_GIT_COMMIT "{commit}"\n#define PROTAL_GIT_MODIFIED {modified}\n'
+
+        self.assertEqual(written(), expected(self.built, 0))
+        self.write("README.md", "docs\n")  # not what the binaries are built from
+        self.assertEqual(written(), expected(self.built, 0))
+        self.write("src/b.h", "int b;\n")  # a new file in src/ is
+        self.assertEqual(written(), expected(self.built, 1))
+        shutil.rmtree(os.path.join(self.source, ".git"))
+        self.assertEqual(written(), expected("", 0))
+
+    def test_binaries_of_another_source_stop_the_run(self):
+        self.assertEqual(self.check(f"protal v0.7.3 (commit {self.built})"), (None, None))
+        # Commits that leave src/, lib/ and the build files alone keep the binary current.
+        self.write("README.md", "docs\n")
+        self.commit("docs")
+        self.assertEqual(self.check(f"protal v0.7.3 (commit {self.built})"), (None, None))
+        problem, _ = self.check("protal v0.7.1")
+        self.assertIn("is v0.7.1, these scripts v0.7.3", problem)
+        problem, _ = self.check("unknown option(s): --version", 1)  # simulate_metagenomes before 0.7.3
+        self.assertIn("--version gives no version (1: unknown option", problem)
+        problem, _ = self.check(f"protal v0.7.3 (commit {'0' * 40})")
+        self.assertIn(f"was built from commit 0000000000, which {self.source} does not have", problem)
+        self.write("src/a.h", "int a2;\n")
+        problem, _ = self.check(f"protal v0.7.3 (commit {self.built})")
+        self.assertIn(f"was built from commit {self.built[:10]}, and src/, lib/ or the build files have changed since "
+                      "(uncommitted changes): rebuild it", problem)
+        self.commit("two")
+        problem, _ = self.check(f"protal v0.7.3 (commit {self.built})")
+        self.assertIn("have changed since (1 commit): rebuild it", problem)
+        self.assertIsNone(self.check(f"protal v0.7.3 (commit {self.git('rev-parse', 'HEAD')})")[0])
+
+    def test_binaries_that_cannot_say_are_noted(self):
+        problem, note = self.check("protal v0.7.3")
+        self.assertIsNone(problem)
+        self.assertIn("does not say which commit it was built from", note)
+        problem, note = self.check(f"protal v0.7.3 (commit {self.built}, with uncommitted changes)")
+        self.assertIsNone(problem)
+        self.assertIn("was built with uncommitted changes to its source", note)
+        shutil.rmtree(os.path.join(self.source, ".git"))
+        problem, note = self.check(f"protal v0.7.3 (commit {self.built})")
+        self.assertIsNone(problem)
+        self.assertIn("is no git checkout", note)
+
+
 class GtdbBuildTest(unittest.TestCase):
     """build_gtdb_database.py end to end, on a synthetic GTDB-like release of 60 species downloaded from a
     fake GTDB mirror and a fake NCBI: the database is built and its pe and se models trained; a rerun skips

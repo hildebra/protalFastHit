@@ -22,6 +22,13 @@ if (EXISTS ${PROJECT_SOURCE_DIR}/src/protal_config.h)
 	file(REMOVE ${PROJECT_SOURCE_DIR}/src/protal_config.h)
 	message(STATUS "Removed stale generated src/protal_config.h")
 endif()
+# The commit the source is at, for --version (protal_commit.cmake), looked up at every build: build_gtdb_database.py
+# checks that the binaries it runs were built from the source its scripts are at.
+add_custom_target(protal_commit
+		COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -DOUTPUT=${PROJECT_BINARY_DIR}/generated/protal_commit.h
+			-P ${PROJECT_SOURCE_DIR}/protal_commit.cmake
+		BYPRODUCTS ${PROJECT_BINARY_DIR}/generated/protal_commit.h
+		VERBATIM)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -105,6 +112,8 @@ target_link_libraries(simulate_metagenomes PRIVATE protal_lib dl isa_baseline)
 target_link_libraries(simulate_metagenomes_static PRIVATE protal_lib_static dl isa_baseline)
 
 add_subdirectory(src/)
+add_dependencies(protal_lib protal_commit)
+add_dependencies(protal_lib_static protal_commit)
 
 # Unit tests (GoogleTest): cmake -DPROTAL_BUILD_TESTS=ON ..., then ctest --test-dir <build dir>
 option(PROTAL_BUILD_TESTS "Build the GoogleTest unit tests" OFF)

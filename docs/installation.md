@@ -55,7 +55,9 @@ cmake --build build --target protal simulate_metagenomes -j 8
 ```
 
 A default build is `Release`; `-DCMAKE_BUILD_TYPE=Debug` builds without optimisation and with
-`assert()` checks on.
+`assert()` checks on. `--version` names the commit the binaries were built from (`protal v0.7.3 (commit ...)`,
+with `, with uncommitted changes` when `src/`, `lib/` or the build files had them); `build_gtdb_database.py` checks
+it against its own checkout.
 
 | Target | Binary | |
 |---|---|---|

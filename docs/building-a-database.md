@@ -419,6 +419,7 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--training-db-level` | 3 | zstd level of the training database (only read while training; level 19 would take about half its build) |
 | `--final-db-level` | 9 | zstd level of the finished database: at r226 level 19 made the index 2.7% smaller than level 3 for 21 more minutes |
 | `--protal`, `--simulator` | `protal`, `simulate_metagenomes` | the binaries |
+| `--no-binary-check` | | run the binaries even if they were not built from the script's source (version, commit) |
 | `-t, --threads` | 8 | |
 | `--samples` | 12 | samples per design point |
 | `--congeners` | 0 | species of one genus in every sample of a design point |
@@ -570,7 +571,12 @@ the job, the collection starts again (the builds are still kept in OUTDIR).
 ### Stopping and rerunning
 
 The script checks before it starts that protal, the simulator, `art_illumina` (and pbsim3 for ont,
-and pb with a pbsim3 setup) are there and that its Python can import what the trainer needs. Each command it runs is
+and pb with a pbsim3 setup) are there and that its Python can import what the trainer needs. protal and the
+simulator must be built from the source the script is at: of its version and, as their `--version` says since
+0.7.3 (`protal v0.7.3 (commit ...)`), of its commit, with nothing changed since in `src/`, `lib/` or the build
+files; otherwise it stops at once with what to rebuild (`--no-binary-check` runs them anyway). A binary built
+outside a git checkout, or of uncommitted changes, is only noted. (A run of 2026-10-02 collected its training data
+with an older protal and failed two hours in, when the trainer found its features missing.) Each command it runs is
 stopped with the processes it started when the script stops, whether a command failed, a Python
 error, or `SIGTERM`, `SIGINT` (Ctrl-C) or `SIGHUP` stopped it; a rerun never races a build left
 running. The build in the background is looked at every few seconds: when it fails, the run stops

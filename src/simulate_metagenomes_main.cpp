@@ -15,6 +15,7 @@
 
 #include <cxxopts.hpp>
 #include "RandomForest/MetagenomeSimulator.h"
+#include "Utilities/BuildInfo.h"
 
 namespace fs = std::filesystem;
 using protal::sim::AbundanceDistribution;
@@ -263,6 +264,7 @@ static cxxopts::Options build_cxxopts() {
         ("test",            "Generate profiles/manifests but skip read simulation (fast dry run)")
         ("keep_tmp",        "Keep the individual per-genome reads")
         ("plot_png",        "Generate barplot PNG of species abundances")
+        ("v,version",       "Print the version (and the commit it was built from).")
         ("h,help",          "Print help.");
 
     return options;
@@ -280,6 +282,10 @@ static CliOptions parse_cli(int argc, char** argv) {
 
     if (result.count("help")) {
         std::cout << cxx.help({"I/O", "Sampling", "ART", "General"}) << std::endl;
+        std::exit(0);
+    }
+    if (result.count("version")) {
+        std::cout << "simulate_metagenomes " << protal::VersionText() << std::endl;
         std::exit(0);
     }
 

@@ -41,6 +41,8 @@ set(PROTAL_LIB_SOURCES
         Utilities/LineSplitter.h
         Utilities/Compressor.h
         Utilities/RunStatus.h
+        Utilities/BuildInfo.h
+        Utilities/BuildInfo.cpp
         Utilities/ReferenceFingerprint.h
         SequenceUtils/SeqReader.h
         SequenceUtils/FastaBatches.h

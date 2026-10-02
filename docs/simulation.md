@@ -78,6 +78,7 @@ negatives per sample and writes `<profile>.truth_annotated`.
 | `-t, --threads` | 1 | samples simulated at a time, each on one thread (ART and the compression); the samples are the same for any number (their designs and ART seeds are drawn first, in order) |
 | `--test` | off | write the design, manifests and truth, but no reads |
 | `--keep_tmp` | off | keep the reads of each genome |
+| `-v, --version` | | the version and the commit it was built from (as `protal --version`) |
 
 ### Strain sharing across samples
 

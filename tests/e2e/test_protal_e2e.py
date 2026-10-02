@@ -2582,6 +2582,21 @@ class OntTest(WorkDir):
             self.assertIn("@CO\tprotal read type: ont\n", fh.read())
 
 
+class VersionTest(unittest.TestCase):
+    """--version of protal and the simulator: the version of CMakeLists.txt, and the commit they were built from when
+    built in a git checkout (build_gtdb_database.py checks the binaries it runs by it)."""
+
+    def test_both_say_the_version_and_commit(self):
+        with open(os.path.join(ROOT, "CMakeLists.txt")) as fh:
+            version = re.search(r"project\(protal VERSION ([0-9.]+)\)", fh.read()).group(1)
+        for binary, name in ((PROTAL, "protal"), (SIMULATE, "simulate_metagenomes")):
+            if not os.access(binary, os.X_OK):
+                self.skipTest(f"{name} not found at {binary}")
+            said = subprocess.run([binary, "--version"], capture_output=True, text=True, check=True).stdout
+            self.assertRegex(said, rf"^{name} v{re.escape(version)}"
+                                   r"( \(commit [0-9a-f]{40}(, with uncommitted changes)?\))?\n$")
+
+
 class SimulatorTest(WorkDir):
     def test_too_few_read_pairs_fails_fast(self):
         if not os.access(SIMULATE, os.X_OK):
