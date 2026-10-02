@@ -1,0 +1,40 @@
+--- a/src/SequenceUtils/SeqReader.h
++++ b/src/SequenceUtils/SeqReader.h
+@@ -5,12 +5,19 @@
+ #pragma once
+ 
+ #include <cstdint>
++#include <cstdlib>
+ #include <iostream>
+ #include <string>
+ #include "FastxReader.h"
+ #include "omp.h"
+ 
+ namespace protal {
++    // EXPERIMENT ONLY (input-path audit): the batch of records a reader takes per lock, from PROTAL_EXPERIMENT_BATCH.
++    inline size_t ExperimentBatch() {
++        static size_t const batch = [] { char const* v = std::getenv("PROTAL_EXPERIMENT_BATCH"); return v ? std::strtoul(v, nullptr, 10) : size_t{32}; }();
++        return batch;
++    }
++
+ 
+     class SeqReader {
+     private:
+@@ -65,7 +72,7 @@
+     // With a maximum length, the first read longer than it ends reading and fails it (TooLong).
+     class SeqReaderSE {
+     private:
+-        const size_t m_record_count = 32;
++        const size_t m_record_count = ExperimentBatch();
+         BufferedFastxReader m_reader;
+         bool m_valid_block = true;
+         std::istream& m_is;
+@@ -133,7 +140,7 @@
+     private:
+ //        const size_t m_block_size = (10 * 1024 * 1024);
+         const size_t m_block_size = (1024);
+-        const size_t m_record_count = 32;
++        const size_t m_record_count = ExperimentBatch();
+         BufferedFastxReader m_reader_1;
+         BufferedFastxReader m_reader_2;
+ 

@@ -1,0 +1,14 @@
+20,824,088,463 (100.0%)  PROGRAM TOTALS
+13,213,869,449 (63.45%)  ???:void protal::profiler::Profiler<protal::ScoreAlignments>::CollectGroups
+ 5,855,899,485 (28.12%)  ???:protal::SamReader::Advance(protal::SamEntry&) 
+ 3,505,709,958 (16.83%)  ???:protal::profiler::Taxon::AddSam(unsigned int, protal::SamEntry const&, double, bool, unsigned long, bool, protal::profiler::ReadEvidence const&) 
+ 3,082,893,005 (14.80%)  ???:protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long) 
+ 2,968,621,279 (14.26%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ
+ 2,377,583,303 (11.42%)  ???:SequenceRangeHandler::CoveredPortion(unsigned int) const 
+ 2,335,947,983 (11.22%)  ???:void protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long)::{lambda(unsigned long)#1}>(unsigned long, unsigned long, protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long)::{lambda(unsigned long)#1}&&) 
+ 2,335,922,645 (11.22%)  ???:protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long)::{lambda(unsigned long)#1}::operator()(unsigned long) const 
+ 2,327,420,391 (11.18%)  ???:ZSTD_decompressStream [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 1,302,509,804 ( 6.25%)  ???:protal::NormalizeCigar(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, unsigned long, unsigned int*, unsigned int*) 
+ 1,234,128,674 ( 5.93%)  ???:protal::LineSplitter::Split(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > >&) 
+ 1,015,999,352 ( 4.88%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ
+   656,625,741 ( 3.15%)  ???:protal::SamFromTokens(std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > > const&, protal::SamEntry&) 

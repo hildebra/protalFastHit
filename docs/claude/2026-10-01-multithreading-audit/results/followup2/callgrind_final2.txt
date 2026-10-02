@@ -1,0 +1,12 @@
+16,806,340,860 (100.0%)  PROGRAM TOTALS
+ 9,193,976,142 (54.71%)  ???:void protal::profiler::Profiler<protal::ScoreAlignments>::CollectGroups
+ 3,824,396,281 (22.76%)  ???:protal::SamReader::Advance(protal::SamEntry&) 
+ 3,082,696,500 (18.34%)  ???:protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long) 
+ 2,948,114,362 (17.54%)  ???:protal::profiler::Taxon::AddSam(unsigned int, protal::SamEntry const&, double, bool, unsigned long, bool, protal::profiler::ReadEvidence const&) 
+ 2,377,543,282 (14.15%)  ???:SequenceRangeHandler::CoveredPortion(unsigned int) const 
+ 2,335,774,712 (13.90%)  ???:void protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long)::{lambda(unsigned long)#1}>(unsigned long, unsigned long, protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long)::{lambda(unsigned long)#1}&&) 
+ 2,335,749,374 (13.90%)  ???:protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long)::{lambda(unsigned long)#1}::operator()(unsigned long) const 
+ 2,327,420,554 (13.85%)  ???:ZSTD_decompressStream [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 1,540,572,146 ( 9.17%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ
+   693,667,043 ( 4.13%)  ???:protal::SamFromTokens(std::vector<std::basic_string_view<char, std::char_traits<char> >, std::allocator<std::basic_string_view<char, std::char_traits<char> > > > const&, protal::SamEntry&) 
+   387,524,469 ( 2.31%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ

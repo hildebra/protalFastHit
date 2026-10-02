@@ -1,0 +1,4 @@
+ctest: 100% tests passed, 0 tests failed out of 270
+e2e: Ran 121 tests in 164.944s  OK 
+OK lock: unit and e2e passed
+LOCK CHECK DONE

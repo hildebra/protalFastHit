@@ -1,0 +1,7 @@
+bgzf	3	3.37M	1.48	4.12
+bgzf_R2R2	3	3.23M	1.55	4.57
+gzip	3	1.99M	2.51	6.13
+gzip_R2R2	3	1.83M	2.73	7.12
+input	runs	pairs_per_s	wall_s	cpu_s
+plain	3	3.71M	1.35	1.72
+plain_R2R2	3	3.32M	1.51	1.88

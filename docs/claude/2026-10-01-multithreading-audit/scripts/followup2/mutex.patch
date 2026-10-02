@@ -1,0 +1,128 @@
+diff --git a/src/SequenceUtils/SeqReader.h b/src/SequenceUtils/SeqReader.h
+index bdb0be1..2d72656 100755
+--- a/src/SequenceUtils/SeqReader.h
++++ b/src/SequenceUtils/SeqReader.h
+@@ -6,12 +6,23 @@
+ 
+ #include <cstdint>
+ #include <iostream>
++#include <mutex>
+ #include <string>
+ #include "FastxReader.h"
+ #include "omp.h"
+ 
+ namespace protal {
+ 
++    // The lock under which a reader takes the next block or batch of records from its shared stream,
++    // one for all readers. Not an OpenMP critical section: libgomp's waiters spin before they sleep
++    // (300k rounds by default when there are no more OpenMP threads than cores), while the holder may
++    // be waiting for the stream's inflating thread, which the spinning threads then keep off the
++    // cores. A std::mutex's waiters sleep.
++    inline std::mutex& ReaderMutex() {
++        static std::mutex mutex;
++        return mutex;
++    }
++
+     class SeqReader {
+     private:
+         // Bytes each thread takes from the shared stream per critical section (then up to the end of
+@@ -33,10 +44,8 @@ namespace protal {
+                 m_is(other.m_is) {};
+ 
+         inline void LoadBlockOMP(std::istream& is) {
+-#pragma omp critical(reader)
+-            {
+-                m_valid_block = m_reader.LoadBlock(is, m_block_size);
+-            }
++            std::lock_guard<std::mutex> lock(ReaderMutex());
++            m_valid_block = m_reader.LoadBlock(is, m_block_size);
+         }
+ 
+         bool operator() (FastxRecord &record) {
+@@ -116,8 +125,8 @@ namespace protal {
+                 m_success = false;
+                 return false;
+             }
+-#pragma omp critical(reader)
+             {
++                std::lock_guard<std::mutex> lock(ReaderMutex());
+                 m_valid_block = m_reader.LoadBatch(m_is, m_record_count);
+             }
+             if (m_valid_block && Next(record)) return true;
+@@ -181,23 +190,19 @@ namespace protal {
+         }
+ 
+         inline void LoadBlockOMP() {
+-#pragma omp critical(reader)
+-            {
+-//                m_valid_block_1 = m_reader_1.LoadBlock(m_is1, m_block_size);
+-//                m_valid_block_2 = m_reader_2.LoadBlock(m_is2, m_block_size);
+-                m_valid_block_1 = m_reader_1.LoadBatch(m_is1, m_record_count);
+-                m_valid_block_2 = m_reader_2.LoadBatch(m_is2, m_record_count);
+-            }
++            std::lock_guard<std::mutex> lock(ReaderMutex());
++//            m_valid_block_1 = m_reader_1.LoadBlock(m_is1, m_block_size);
++//            m_valid_block_2 = m_reader_2.LoadBlock(m_is2, m_block_size);
++            m_valid_block_1 = m_reader_1.LoadBatch(m_is1, m_record_count);
++            m_valid_block_2 = m_reader_2.LoadBatch(m_is2, m_record_count);
+         }
+ 
+         inline void LoadBlockOMP(bool first) {
+-#pragma omp critical(reader)
+-            {
+-                if (first)
+-                    m_valid_block_1 = m_reader_1.LoadBlock(m_is1, m_block_size);
+-                else
+-                    m_valid_block_2 = m_reader_2.LoadBlock(m_is2, m_block_size);
+-            }
++            std::lock_guard<std::mutex> lock(ReaderMutex());
++            if (first)
++                m_valid_block_1 = m_reader_1.LoadBlock(m_is1, m_block_size);
++            else
++                m_valid_block_2 = m_reader_2.LoadBlock(m_is2, m_block_size);
+         }
+ 
+         bool Success() const {
+diff --git a/tests/test_ReaderAndTimers.cpp b/tests/test_ReaderAndTimers.cpp
+index ceb6c40..42ce764 100644
+--- a/tests/test_ReaderAndTimers.cpp
++++ b/tests/test_ReaderAndTimers.cpp
+@@ -340,6 +340,38 @@ TEST(ThreadedGzStream, ThreadsTakeEveryPairOnceInStep) {
+     EXPECT_FALSE(is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed());
+ }
+ 
++// The single-end readers, in batches of records (SeqReaderSE) and in blocks of bytes (SeqReader),
++// share the reader lock as the pairs do: each read once, on more threads than cores too.
++TEST(ThreadedGzStream, ThreadsTakeEverySingleEndReadOnce) {
++    ScratchDir dir;
++    size_t const n = 30000;
++    auto const path = dir.Gzip("se.fq.gz", Fastq(n, "se"));
++    for (bool const batches : { true, false }) {
++        SCOPED_TRACE(batches ? "SeqReaderSE" : "SeqReader");
++        ThreadedGzIstream is(path.c_str());
++        SeqReaderSE batch_global{ is };
++        SeqReader block_global{ is };
++        std::vector<std::string> ids;
++#pragma omp parallel num_threads(8) shared(batch_global, block_global, ids, batches) default(none)
++        {
++            SeqReaderSE batch_reader{ batch_global };
++            SeqReader block_reader{ block_global };
++            FastxRecord record;
++            std::vector<std::string> mine;
++            while (batches ? batch_reader(record) : block_reader(record)) mine.push_back(record.id);
++#pragma omp critical(test_ids)
++            {
++                ids.insert(ids.end(), mine.begin(), mine.end());
++                batch_global.UpdateSuccess(batch_reader);
++            }
++        }
++        EXPECT_TRUE(batch_global.Success());
++        EXPECT_EQ(ids.size(), n);
++        EXPECT_EQ(std::set<std::string>(ids.begin(), ids.end()).size(), n);
++        EXPECT_FALSE(is.rdbuf()->read_failed());
++    }
++}
++
+ TEST(ThreadedGzStream, TakeLinesCutsWholeLinesAcrossBlocks) {
+     ScratchDir dir;
+     // Short, empty and CRLF lines, one longer than a block, and a last line without its '\n'.

@@ -1,0 +1,47 @@
+== parsing commit alone (25d457e + rb_A): build, unit tests
+ctest: 100% tests passed, 0 tests failed out of 264
+OK (unit only)
+== both commits: reference build, full check, comparison
+OK build hb
+ctest: 100% tests passed, 0 tests failed out of 267
+e2e: Ran 121 tests in 1816.762s  OK 
+OK rbfull: unit and e2e passed
+SAME FULL.pe10k.base FULL.pe10k.par1 (292 files, LOGS DIFFER)
+SAME FULL.pe10k.base FULL.pe10k.par6 (292 files, LOGS DIFFER)
+SAME FULL.pe10k.base FULL.pe10k.par8 (292 files, LOGS DIFFER)
+SAME FULL.pb90M.base FULL.pb90M.par1 (298 files, LOGS DIFFER)
+SAME FULL.pb90M.base FULL.pb90M.par6 (298 files, LOGS DIFFER)
+SAME FULL.pb90M.base FULL.pb90M.par8 (298 files, LOGS DIFFER)
+SAME FULL.se500k.base FULL.se500k.par1 (300 files, LOGS DIFFER)
+SAME FULL.se500k.base FULL.se500k.par6 (300 files, LOGS DIFFER)
+SAME FULL.se500k.base FULL.se500k.par8 (300 files, LOGS DIFFER)
+SAME FULL.pe5M.base FULL.pe5M.par1 (696 files, LOGS DIFFER)
+SAME FULL.pe5M.base FULL.pe5M.par6 (696 files, LOGS DIFFER)
+SAME FULL.pe5M.base FULL.pe5M.par8 (696 files, LOGS DIFFER)
+SAME FULL.ont90M.base FULL.ont90M.par1 (322 files, LOGS DIFFER)
+SAME FULL.ont90M.base FULL.ont90M.par6 (322 files, LOGS DIFFER)
+SAME FULL.ont90M.base FULL.ont90M.par8 (322 files, LOGS DIFFER)
+SAME FULL.pe1k.base FULL.pe1k.par1 (135 files, LOGS DIFFER)
+SAME FULL.pe1k.base FULL.pe1k.par6 (135 files, LOGS DIFFER)
+SAME FULL.pe1k.base FULL.pe1k.par8 (135 files, LOGS DIFFER)
+SAME FULL.pe500k150.base FULL.pe500k150.par1 (313 files, LOGS DIFFER)
+SAME FULL.pe500k150.base FULL.pe500k150.par6 (313 files, LOGS DIFFER)
+SAME FULL.pe500k150.base FULL.pe500k150.par8 (313 files, LOGS DIFFER)
+SAME FULL.pe500k100.base FULL.pe500k100.par1 (604 files, LOGS DIFFER)
+SAME FULL.pe500k100.base FULL.pe500k100.par6 (604 files, LOGS DIFFER)
+SAME FULL.pe500k100.base FULL.pe500k100.par8 (604 files, LOGS DIFFER)
+SAME FULL.all.base FULL.all.par6 (3543 files, LOGS DIFFER)
+SAME FULL.all.base FULL.all.par16 (3543 files, LOGS DIFFER)
+SAME MISSING.se500k.base MISSING.se500k.par1 (324 files, LOGS DIFFER)
+SAME MISSING.se500k.base MISSING.se500k.par6 (324 files, LOGS DIFFER)
+SAME MISSING.se500k.base MISSING.se500k.par8 (324 files, LOGS DIFFER)
+SAME MISSING.ont90M.base MISSING.ont90M.par1 (275 files, LOGS DIFFER)
+SAME MISSING.ont90M.base MISSING.ont90M.par6 (275 files, LOGS DIFFER)
+SAME MISSING.ont90M.base MISSING.ont90M.par8 (275 files, LOGS DIFFER)
+SAME MISSING.pe500k150.base MISSING.pe500k150.par1 (335 files, LOGS DIFFER)
+SAME MISSING.pe500k150.base MISSING.pe500k150.par6 (335 files, LOGS DIFFER)
+SAME MISSING.pe500k150.base MISSING.pe500k150.par8 (335 files, LOGS DIFFER)
+SAME MISSING.all.base MISSING.all.par6 (647 files, LOGS DIFFER)
+SAME MISSING.all.base MISSING.all.par16 (647 files, LOGS DIFFER)
+done
+ALL DONE
