@@ -1,0 +1,21 @@
+# Long reads' chains and flanks (scripts/lrdbg.sh, scripts/flk.sh; v0.7.1 benchmark database, 3 Mb samples, -t 1)
+
+## Aligned candidates (the through-chain prototype without re-seeding, lrdbg.patch)
+ont_b3000000: 6467 aligned candidates; links per candidate 4.6; gene before the first link 421 bases, after the last 442
+  (means); links span 38% of the gene, cover 24%; the same read+gene+strand aligned again: 256 of 6467
+  longer flank (gene part): median 498, p75 1041, p90 1682
+pb_b3000000: 5978 aligned candidates; links per candidate 5.4; gene before the first link 399, after the last 387;
+  links span 41% of the gene, cover 24%; aligned again: 236 of 5978
+  longer flank (gene part): median 408, p75 932, p90 1557
+
+## All anchors of a read (candidates), per read+gene+strand
+ont_b3000000: 62500 anchors; read+gene+strand 58666, anchors each 1.07, with more than one 5%; span of the longest
+  anchor 30%, of all anchors together 32% of the gene
+pb_b3000000: 53484 anchors; read+gene+strand 49943, anchors each 1.07, with more than one 6%; span of the longest
+  anchor 33%, of all anchors together 35% of the gene
+
+## Flanks after re-seeding (Nanopore 3 Mb, flk.sh)
+with re-seeding: 6414 anchored alignments; links 12.0; left flank: read 180 gene 86 (free read 101); right flank:
+  read 184 gene 90 (free read 101); window gene 741 (means); gene bases in a flank: median 16, p75 40, p90 204, p99 1238
+without: links 4.6; left flank: read 268 gene 175; right flank: read 270 gene 178; gene bases in a flank: median 48,
+  p75 188, p90 516, p99 1469

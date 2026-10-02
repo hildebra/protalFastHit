@@ -1,0 +1,9 @@
+scenario         F1 ref    F1 lr   BC r-l   same  align ref   align lr   user ref    user lr
+ont_b3000000     0.6693   0.6693   0.0032    0/4        1.0        1.1       10.7        8.3
+pb_b3000000      0.5349   0.5349   0.0000    3/4        0.8        0.6        9.4        6.4
+ont_b90000000    0.8893   0.8893   0.0005    0/4       39.1       37.3      146.0      124.7
+pb_b90000000     0.8703   0.8703   0.0000    1/4       26.4       21.2       98.2       77.8
+ont_b3000000   0.7.2's runs, F1 as lr_score.pl: 0.6693 (4 samples)
+pb_b3000000    0.7.2's runs, F1 as lr_score.pl: 0.5349 (4 samples)
+ont_b90000000  0.7.2's runs, F1 as lr_score.pl: 0.8893 (4 samples)
+pb_b90000000   0.7.2's runs, F1 as lr_score.pl: 0.8703 (4 samples)

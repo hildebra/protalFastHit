@@ -1,0 +1,82 @@
+== ont3M.cl2 self
+25,487,061,928   PROGRAM TOTALS
+6,645,524,950   ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3] 
+4,257,807,814   ???:wavefront_extend_matches_packed_endsfree 
+2,823,611,047   ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+2,497,776,947   ???:wavefront_heuristic_wfadaptive 
+1,717,068,749   ???:wavefront_termination_endsfree 
+1,660,727,203   ???:wavefront_compute_affine_idm 
+  468,927,906   ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  379,847,815   ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  360,690,013   ???:wavefront_slab_reap_repurpose 
+  325,575,213   ???:protal::gene_neighbours::Table::Assess const 
+  218,994,915   ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  198,712,167   ???:wavefront_compute_init_ends 
+  181,477,580   ???:std::enable_if<std::__or_<std::__or_<std::is_same<std::remove_cv<long>::type, signed char>, std::is_same<std::remove_cv<long>::typ
+  176,975,912   ???:wavefront_compute_process_ends 
+  167,992,313   ???:protal::gene_neighbours::Table::Read[abi:cxx11] 
+  156,549,938   ???:0x00000000000aa2bd [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  136,479,829   ???:wavefront_compute_fetch_input 
+  123,016,049   ???:protal::KmerLookupSM::GetFromLookup [clone .arch_x86_64_v3] 
+  122,866,687   ???:inflate_fast_avx2 
+  119,217,636   ???:0x00000000000a9e00 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  118,641,927   ???:0x00000000000a5980 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   98,025,496   ???:wavefront_slab_allocate 
+   98,018,573   ???:protal::packed::PackAvx2 
+   95,275,127   ???:wavefront_compute_affine 
+   92,863,530   ./string/../sysdeps/x86_64/multiarch/memchr-avx2.S:__memchr_avx2 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   92,161,016   ???:wavefront_compute_allocate_output 
+   90,330,221   ???:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2 
+   86,913,394   ???:protal::AlignmentInfo::GetInstructionCountsAndCompress 
+   86,435,302   ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::ExtendAnchor 
+   82,208,626   ???:wavefront_heuristic_cufoff 
+   79,846,833   ???:wavefront_extend_endsfree 
+   73,013,463   ???:KmerUtils::ReverseComplementInto 
+   64,818,643   ???:void std::__introsort_loop<__gnu_cxx::__normal_iterator<protal::LookupResult*, std::vector<protal::LookupResult, std::allocator<pr
+   56,433,329   ???:0x0000000000027bb0 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   55,155,762   ???:wavefront_init 
+   48,898,287   ???:protal::zstd::ParallelFor<protal::gene_table::ParsePiece<protal::GenomeLoader::LoadUniqueKmers::Row, protal::GenomeLoader::LoadUni
+   47,524,358   ???:std::enable_if<std::__or_<std::__or_<std::is_same<std::remove_cv<unsigned long>::type, signed char>, std::is_same<std::remove_cv<u
+   46,645,153   ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::ExtractAnchor 
+   44,686,899   ???:protal::IsAlignmentValid [clone .constprop.0] 
+== ont3M.cl2 inclusive
+25,487,061,928   PROGRAM TOTALS
+25,356,325,324   ???:0x000000000001f540 [/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2]
+25,353,793,678   ???: 
+25,353,793,666   ./csu/../csu/libc-start.c:__libc_start_main@@GLIBC_2.34 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+25,352,397,448   ./csu/../sysdeps/nptl/libc_start_call_main.h: [/usr/lib/x86_64-linux-gnu/libc.so.6]
+25,352,364,242   ???:main 
+25,352,347,544   ???:protal::Run 
+23,105,465,321   ???:void protal::RunWrapper<protal::NoBenchmark> 
+13,471,570,066   ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<protal::ClosedSyncmer>, prota
+13,458,464,212   ???:0x000000000011ada0 [???]
+13,458,464,210   ???:GOMP_parallel [/usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0]
+13,458,462,021   ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<protal::ClosedSyncmer>, prota
+13,249,151,360   ???:protal::LongReadAligner<protal::SimpleKmerHandler<protal::ClosedSyncmer>, protal::ChainAnchorFinder<protal::KmerLookupSM> >::oper
+11,961,978,938   ???:protal::LongReadAligner<protal::SimpleKmerHandler<protal::ClosedSyncmer>, protal::ChainAnchorFinder<protal::KmerLookupSM> >::Alig
+11,851,981,783   ???:0x000000000011adc0 [???]
+11,851,968,849   ???:protal::SimpleAlignmentHandler::AlignAnchor [clone .arch_x86_64_v3] 
+11,717,543,794   ???:wfa::WFAligner::alignEndsFree 
+11,717,278,647   ???:wavefront_align 
+11,347,534,450   ???:wavefront_unialign 
+ 9,573,681,535   ???:protal::Seedmap::Load 
+ 9,573,637,193   ???:protal::Seedmap::LoadColumns 
+ 9,573,632,211   ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > protal::zstd::ParallelFor<protal::zstd::ForEachFr
+ 9,573,632,135   ???:protal::zstd::ParallelFor<protal::zstd::ForEachFrame<protal::index_codec::Decode::{lambda#1}>::{lambda#1}>::{lambda#1}::operator 
+ 8,653,121,871   ???:wavefront_extend_endsfree 
+ 6,852,451,866   ???:0x000000000011a500 [???]
+ 6,852,451,762   ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3] 
+ 5,974,876,563   ???:wavefront_extend_matches_packed_endsfree 
+ 3,647,588,407   ???:0x000000000011a9d0 [???]
+ 3,647,588,285   ???:ZSTD_decompressDCtx [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 3,647,586,211   ???:ZSTD_decompress_usingDDict [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 3,647,585,662   ???:0x000000000006d640 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 3,267,965,633   ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 2,962,811,601   ???:protal::zstd::ReadFrame[abi:cxx11] 
+ 2,612,650,881   ???:wavefront_compute_affine 
+ 2,598,398,475   ???:wavefront_heuristic_cufoff 
+ 2,516,189,849   ???:wavefront_heuristic_wfadaptive 
+ 1,717,068,749   ???:wavefront_termination_endsfree 
+ 1,660,727,203   ???:wavefront_compute_affine_idm 
+ 1,041,492,405   ???:protal::GenomeLoader::LoadAllGenomes 
+ 1,016,827,014   ???:protal::zstd::ParallelReadFrames [clone .isra.0] 

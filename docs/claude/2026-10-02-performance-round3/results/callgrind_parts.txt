@@ -1,0 +1,183 @@
+== pe100k.lr4: 26,787,042,275
+16,763,962,087 ???:protal::Statistics protal::classify::RunPairedEnd<protal::SimpleKmerHandler<protal::ClosedSyncmer>, p
+7,008,934,970 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+6,726,654,542 ???:wfa::WFAligner::alignEndsFree
+6,197,513,798 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+4,922,412,248 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+504,018,956 ???:protal::AnchoredAligner::Piece
+371,934,098 ???:wavefront_slab_reap_repurpose
+== pe100k.id: 26,777,419,926
+16,754,041,794 ???:protal::Statistics protal::classify::RunPairedEnd<protal::SimpleKmerHandler<protal::ClosedSyncmer>, p
+7,000,796,250 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+6,726,654,672 ???:wfa::WFAligner::alignEndsFree
+6,197,771,798 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+4,922,411,776 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+539,360,068 ???:protal::AnchoredAligner::Between
+371,934,098 ???:wavefront_slab_reap_repurpose
+== ont_b3000000.ref: 25,487,072,548
+13,471,491,701 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<p
+11,717,492,751 ???:wfa::WFAligner::alignEndsFree
+6,852,451,789 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+360,955,973 ???:wavefront_slab_reap_repurpose
+== ont_b3000000.lr: 22,665,461,334
+10,649,908,789 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<p
+8,881,837,273 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+8,862,497,578 ???:wfa::WFAligner::alignEndsFree
+7,199,041,600 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+6,852,452,708 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+1,107,237,357 ???:protal::AnchoredAligner::Gap [clone .isra.0]
+1,099,271,308 ???:wavefront_slab_reap_repurpose
+555,808,579 ???:protal::AnchoredAligner::Between
+== ont_b3000000.reseed: 22,846,020,932
+10,830,661,497 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<p
+8,259,799,653 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+8,200,376,134 ???:wfa::WFAligner::alignEndsFree
+6,852,453,221 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+4,289,293,865 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+2,085,592,993 ???:protal::AnchoredAligner::Gap [clone .isra.0]
+1,968,658,330 ???:wavefront_slab_reap_repurpose
+1,034,160,424 ???:protal::AnchoredAligner::Between
+825,038,564 ???:protal::AnchoredAligner::Reseed [clone .isra.0]
+== ont_b3000000.noreseed2: 22,271,920,074
+10,256,346,051 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<p
+8,484,660,869 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+7,206,818,110 ???:wfa::WFAligner::alignEndsFree
+7,199,072,984 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+6,852,451,709 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+1,260,464,935 ???:protal::AnchoredAligner::Piece
+1,258,774,837 ???:wfa::WFAligner::alignEnd2End
+875,735,931 ???:wavefront_slab_reap_repurpose
+418,879,466 ???:protal::AnchoredAligner::Between
+== ont_b3000000.reseed2: 21,445,859,524
+9,430,465,463 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+6,859,513,697 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+6,852,452,368 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+5,098,531,350 ???:wfa::WFAligner::alignEndsFree
+4,289,293,029 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+1,706,291,985 ???:protal::AnchoredAligner::Piece
+1,702,520,444 ???:wfa::WFAligner::alignEnd2End
+825,038,560 ???:protal::AnchoredAligner::Reseed [clone .isra.0]
+811,095,476 ???:wavefront_slab_reap_repurpose
+522,304,380 ???:protal::AnchoredAligner::Between
+== ont_b3000000.noreseed3: 22,045,351,247
+10,029,777,627 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<p
+8,258,057,097 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+8,253,051,755 ???:protal::AnchoredAligner::AlignThrough
+6,865,877,677 ???:wfa::WFAligner::alignEndsFree
+6,857,101,506 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+6,852,451,709 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+1,358,730,295 ???:protal::AnchoredAligner::Piece
+1,356,972,807 ???:wfa::WFAligner::alignEnd2End
+887,114,685 ???:wavefront_slab_reap_repurpose
+== ont_b3000000.reseed3: 21,707,174,014
+9,691,780,193 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+6,852,643,436 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+6,852,452,368 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+6,022,567,005 ???:protal::AnchoredAligner::AlignThrough
+5,188,750,259 ???:wfa::WFAligner::alignEndsFree
+4,109,917,262 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+1,866,061,088 ???:protal::AnchoredAligner::Piece
+1,862,464,005 ???:wfa::WFAligner::alignEnd2End
+957,162,379 ???:wavefront_slab_reap_repurpose
+825,038,415 ???:protal::AnchoredAligner::Reseed [clone .isra.0]
+== ont_b3000000.lr4: 19,401,790,866
+9,316,360,082 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+6,745,262,432 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+4,984,579,015 ???:wfa::WFAligner::alignEndsFree
+4,922,411,572 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+4,176,159,960 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+1,706,291,544 ???:protal::AnchoredAligner::Piece
+1,702,519,883 ???:wfa::WFAligner::alignEnd2End
+825,038,533 ???:protal::AnchoredAligner::Reseed [clone .isra.0]
+702,248,011 ???:wavefront_slab_reap_repurpose
+== pb_b3000000.ref: 22,664,338,977
+10,709,513,725 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<p
+9,302,295,218 ???:wfa::WFAligner::alignEndsFree
+6,852,452,708 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+235,291,707 ???:wavefront_slab_reap_repurpose
+== pb_b3000000.lr: 19,733,537,470
+7,778,711,403 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+6,852,452,708 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+6,361,511,129 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+6,341,835,573 ???:wfa::WFAligner::alignEndsFree
+4,808,117,812 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+1,119,610,030 ???:protal::AnchoredAligner::Gap [clone .isra.0]
+862,796,478 ???:wavefront_slab_reap_repurpose
+417,506,782 ???:protal::AnchoredAligner::Between
+== pb_b3000000.reseed: 19,769,152,119
+7,814,358,259 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+6,852,451,706 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+6,344,017,569 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+5,428,037,395 ???:wfa::WFAligner::alignEndsFree
+2,871,050,454 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+1,845,851,573 ???:protal::AnchoredAligner::Gap [clone .isra.0]
+1,535,144,706 ???:wavefront_slab_reap_repurpose
+930,590,557 ???:protal::AnchoredAligner::Reseed [clone .isra.0]
+673,116,108 ???:protal::AnchoredAligner::Between
+== pb_b3000000.noreseed2: 19,328,097,964
+7,373,243,370 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+6,852,451,709 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+5,952,787,034 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+4,812,030,893 ???:wfa::WFAligner::alignEndsFree
+4,808,120,498 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+1,123,271,443 ???:protal::AnchoredAligner::Piece
+1,121,400,677 ???:wfa::WFAligner::alignEnd2End
+607,939,721 ???:wavefront_slab_reap_repurpose
+303,242,599 ???:protal::AnchoredAligner::Between
+== pb_b3000000.reseed2: 18,685,087,924
+6,852,453,221 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+6,730,447,167 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+5,259,877,896 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+2,927,507,278 ???:wfa::WFAligner::alignEndsFree
+2,871,083,577 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+1,421,957,885 ???:protal::AnchoredAligner::Piece
+1,417,555,138 ???:wfa::WFAligner::alignEnd2End
+930,590,661 ???:protal::AnchoredAligner::Reseed [clone .isra.0]
+608,973,919 ???:wavefront_slab_reap_repurpose
+375,402,859 ???:protal::AnchoredAligner::Between
+== pb_b3000000.noreseed3: 19,044,040,542
+7,089,185,961 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+6,852,451,709 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+5,665,906,631 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+5,660,870,940 ???:protal::AnchoredAligner::AlignThrough
+4,126,832,544 ???:wfa::WFAligner::alignEndsFree
+4,117,939,920 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+1,516,419,451 ???:protal::AnchoredAligner::Piece
+1,514,329,651 ???:wfa::WFAligner::alignEnd2End
+726,653,245 ???:wavefront_slab_reap_repurpose
+== pb_b3000000.reseed3: 18,827,975,765
+6,873,335,416 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+6,852,453,221 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+5,309,683,446 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+4,374,031,077 ???:protal::AnchoredAligner::AlignThrough
+2,763,341,744 ???:wfa::WFAligner::alignEndsFree
+2,611,203,246 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+1,723,333,274 ???:protal::AnchoredAligner::Piece
+1,718,832,309 ???:wfa::WFAligner::alignEnd2End
+930,591,060 ???:protal::AnchoredAligner::Reseed [clone .isra.0]
+719,480,039 ???:wavefront_slab_reap_repurpose
+== pb_b3000000.lr4: 16,694,222,688
+6,669,535,629 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+5,199,145,390 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+4,922,412,491 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+2,867,000,931 ???:wfa::WFAligner::alignEndsFree
+2,811,191,277 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+1,421,957,451 ???:protal::AnchoredAligner::Piece
+1,417,554,535 ???:wfa::WFAligner::alignEnd2End
+930,590,884 ???:protal::AnchoredAligner::Reseed [clone .isra.0]
+552,182,839 ???:wavefront_slab_reap_repurpose
+== hifi3M.ref: 21,771,139,568
+9,739,766,142 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+7,703,300,961 ???:wfa::WFAligner::alignEndsFree
+6,852,452,428 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+187,567,035 ???:wavefront_slab_reap_repurpose
+== hifi3M.lr4: 16,253,783,354
+6,152,550,755 ???:protal::Statistics protal::classify::RunLongReads<protal::LongReadAligner<protal::SimpleKmerHandler<pr
+4,922,412,211 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+4,086,565,987 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+2,525,337,709 ???:wfa::WFAligner::alignEndsFree
+2,502,740,326 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+779,308,536 ???:protal::AnchoredAligner::Reseed [clone .isra.0]
+764,487,532 ???:protal::AnchoredAligner::Piece
+761,973,143 ???:wfa::WFAligner::alignEnd2End
+277,105,148 ???:wavefront_slab_reap_repurpose

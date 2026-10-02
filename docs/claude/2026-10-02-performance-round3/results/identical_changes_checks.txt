@@ -1,0 +1,20 @@
+OK build perf3-id
+[       OK ] IndexCodec.LongRunsOfEmptyBlocks (632 ms)
+9308 aligned, 10692 failed, 16421 flanks without WFA2
+[       OK ] AnchoredAlignment.UngappedFlanksAreWhatWFA2Gives (78 ms)
+[  PASSED  ] 2 tests.
+ctest: 100% tests passed, 0 tests failed out of 276
+100k pairs -t 1: SAM text same
+500k pairs -t 6: sorted SAM same
+500k pairs: profile DIFFERS from the reference's on its SAM
+single-end 500k -t 1: SAM text same
+ont_b3000000 -t 1: SAM text same
+pb_b3000000 -t 1: SAM text same
+HiFi 3 Mb -t 1: SAM text same
+== pe100k.id: 26,777,419,926
+16,754,041,794 ???:protal::Statistics protal::classify::RunPairedEnd<protal::SimpleKmerHandler<protal::ClosedS
+7,000,796,250 ???:protal::AnchoredAligner::Align [clone .arch_x86_64_v3]
+6,726,654,672 ???:wfa::WFAligner::alignEndsFree
+6,197,771,798 ???:protal::AnchoredAligner::Flank [clone .arch_x86_64_v3]
+4,922,411,776 ???:protal::index_codec::detail::DecodeChunk[abi:cxx11] [clone .arch_x86_64_v3]
+ID DONE

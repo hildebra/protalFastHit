@@ -1,0 +1,80 @@
+--------------------------------------------------------------------------------
+Profile data file '/home/falk/mt-work/onebcg/cg.pe100k.cl2' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 5227907958
+Trigger: Program termination
+Profiled target:  /home/falk/mt-work/oneb/src/build/protal --db /home/falk/bench071/V071/protal_db -1 /home/falk/mt-work/isacg/r1.fq -2 /home/falk/mt-work/isacg/r2.fq --no_profile --prefix s -o /home/falk/mt-work/onebcg/out.pe100k.cl2 -t 1 --no_qcmsa (PID 3991345, part 1)
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       100
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                      
+--------------------------------------------------------------------------------
+28,995,888,970 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                      file:function
+--------------------------------------------------------------------------------
+6,645,524,888 (22.92%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsigned long*) [clone .arch_x86_64_v3] [/home/falk/mt-work/oneb/src/build/protal]
+2,823,611,047 ( 9.74%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+1,109,826,821 ( 3.83%)  ???:wavefront_extend_matches_packed_endsfree [/home/falk/mt-work/oneb/src/build/protal]
+  828,103,102 ( 2.86%)  ???:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&) [/home/falk/mt-work/oneb/src/build/protal]
+  702,144,104 ( 2.42%)  ???:wavefront_compute_affine_idm [/home/falk/mt-work/oneb/src/build/protal]
+  646,140,297 ( 2.23%)  ???:wavefront_heuristic_wfadaptive [/home/falk/mt-work/oneb/src/build/protal]
+  564,513,303 ( 1.95%)  ???:protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&) [clone .arch_x86_64_v3] [/home/falk/mt-work/oneb/src/build/protal]
+  511,528,252 ( 1.76%)  ???:wavefront_compute_init_ends [/home/falk/mt-work/oneb/src/build/protal]
+  488,727,978 ( 1.69%)  ???:wavefront_slab_reap_repurpose [/home/falk/mt-work/oneb/src/build/protal]
+  462,112,095 ( 1.59%)  ???:protal::IsAlignmentValid(protal::AlignmentInfo const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, int, bool) [clone .constprop.0] [/home/falk/mt-work/oneb/src/build/protal]
+  454,843,532 ( 1.57%)  ???:wavefront_compute_process_ends [/home/falk/mt-work/oneb/src/build/protal]
+  448,919,376 ( 1.55%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  447,377,330 ( 1.54%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  441,128,734 ( 1.52%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::ExtendAnchor(protal::ChainAlignmentAnchor&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::GeneSequence const&) [/home/falk/mt-work/oneb/src/build/protal]
+  409,890,075 ( 1.41%)  ???:wavefront_termination_endsfree [/home/falk/mt-work/oneb/src/build/protal]
+  405,497,162 ( 1.40%)  ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  391,256,448 ( 1.35%)  ???:protal::AlignmentInfo::GetInstructionCountsAndCompress() [/home/falk/mt-work/oneb/src/build/protal]
+  388,887,064 ( 1.34%)  ???:wavefront_compute_fetch_input [/home/falk/mt-work/oneb/src/build/protal]
+  384,564,779 ( 1.33%)  ???:protal::gene_neighbours::Table::Assess(unsigned int, unsigned int, protal::gene_neighbours::End, unsigned int, protal::gene_neighbours::End) const [/home/falk/mt-work/oneb/src/build/protal]
+  377,791,285 ( 1.30%)  ???:0x0000000000027bb0 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  355,923,612 ( 1.23%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::FindSeeds(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&) [/home/falk/mt-work/oneb/src/build/protal]
+  302,800,171 ( 1.04%)  ???:protal::SimpleKmerHandler<protal::ClosedSyncmer>::Bases16(unsigned char const*, unsigned long, bool) [/home/falk/mt-work/oneb/src/build/protal]
+  279,412,231 ( 0.96%)  ???:0x000000000001fdf0 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  278,858,152 ( 0.96%)  ???:wavefront_compute_affine [/home/falk/mt-work/oneb/src/build/protal]
+  252,383,357 ( 0.87%)  ???:wavefront_backtrace_affine [/home/falk/mt-work/oneb/src/build/protal]
+  245,801,894 ( 0.85%)  ???:KmerUtils::ReverseComplementInto(std::basic_string_view<char, std::char_traits<char> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [/home/falk/mt-work/oneb/src/build/protal]
+  242,440,049 ( 0.84%)  ???:wavefront_extend_endsfree [/home/falk/mt-work/oneb/src/build/protal]
+  237,282,430 ( 0.82%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::ExtractAnchor(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, unsigned long) [/home/falk/mt-work/oneb/src/build/protal]
+  229,980,910 ( 0.79%)  ???:wavefront_slab_allocate [/home/falk/mt-work/oneb/src/build/protal]
+  227,287,398 ( 0.78%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::FindPairs(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, unsigned long) [/home/falk/mt-work/oneb/src/build/protal]
+  226,800,052 ( 0.78%)  ???:BufferedFastxReader::FinishFastq(FastxRecord&, std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<char> >) [/home/falk/mt-work/oneb/src/build/protal]
+  226,416,718 ( 0.78%)  ???:wavefront_compute_allocate_output [/home/falk/mt-work/oneb/src/build/protal]
+  200,853,420 ( 0.69%)  ???:protal::ExtractSNPs(protal::SamEntry const&, std::basic_string_view<char, std::char_traits<char> >, std::vector<protal::SNP, std::allocator<protal::SNP> >&, int, int, int) [clone .constprop.0] [clone .isra.0] [/home/falk/mt-work/oneb/src/build/protal]
+  199,814,865 ( 0.69%)  ./malloc/./malloc/malloc.c:_int_free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  197,637,768 ( 0.68%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .arch_x86_64_v3] [/home/falk/mt-work/oneb/src/build/protal]
+  186,928,417 ( 0.64%)  ???:protal::NextCompressedCigar(int&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int&, char&) [/home/falk/mt-work/oneb/src/build/protal]
+  183,715,666 ( 0.63%)  ???:protal::AnchoredAligner::Align(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, std::vector<protal::ChainLink, std::allocator<protal::ChainLink> > const&, protal::AlignmentWindow const&, protal::WFA2Wrapper2&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .arch_x86_64_v3] [/home/falk/mt-work/oneb/src/build/protal]
+  181,477,580 ( 0.63%)  ???:std::enable_if<std::__or_<std::__or_<std::is_same<std::remove_cv<long>::type, signed char>, std::is_same<std::remove_cv<long>::type, short>, std::is_same<std::remove_cv<long>::type, int>, std::is_same<std::remove_cv<long>::type, long>, std::is_same<std::remove_cv<long>::type, long long> >, std::__or_<std::is_same<std::remove_cv<long>::type, unsigned char>, std::is_same<std::remove_cv<long>::type, unsigned short>, std::is_same<std::remove_cv<long>::type, unsigned int>, std::is_same<std::remove_cv<long>::type, unsigned long>, std::is_same<std::remove_cv<long>::type, unsigned long long> >, std::is_same<char, std::remove_cv<long>::type> >::value, std::from_chars_result>::type std::from_chars<long>(char const*, char const*, long&, int) [clone .constprop.0] [/home/falk/mt-work/oneb/src/build/protal]
+  167,992,313 ( 0.58%)  ???:protal::gene_neighbours::Table::Read[abi:cxx11](std::istream&) [/home/falk/mt-work/oneb/src/build/protal]
+  158,410,512 ( 0.55%)  ???:wavefront_heuristic_cufoff [/home/falk/mt-work/oneb/src/build/protal]
+  156,549,938 ( 0.54%)  ???:0x00000000000aa2bd [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  155,348,971 ( 0.54%)  ???:protal::AlignmentEdits(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) [/home/falk/mt-work/oneb/src/build/protal]
+  153,295,078 ( 0.53%)  ./string/../sysdeps/x86_64/multiarch/memchr-avx2.S:__memchr_avx2 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  152,588,312 ( 0.53%)  ???:wavefront_heuristic_xdrop [/home/falk/mt-work/oneb/src/build/protal]
+  149,480,680 ( 0.52%)  ./malloc/./malloc/malloc.c:malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  141,173,640 ( 0.49%)  ???:protal::mate_guidance::BestDiagonal(std::basic_string_view<char, std::char_traits<char> >, std::basic_string_view<char, std::char_traits<char> >, long, unsigned long) [/home/falk/mt-work/oneb/src/build/protal]
+  133,681,500 ( 0.46%)  ???:wavefront_compute_allocate_output_null [/home/falk/mt-work/oneb/src/build/protal]
+  129,725,195 ( 0.45%)  ???:protal::SimpleAlignmentHandler::AlignAnchor(protal::ChainAlignmentAnchor&, protal::AlignmentResult&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .arch_x86_64_v3] [/home/falk/mt-work/oneb/src/build/protal]
+  129,364,542 ( 0.45%)  ???:wavefront_init [/home/falk/mt-work/oneb/src/build/protal]
+  127,431,258 ( 0.44%)  ???:wavefront_unialign [/home/falk/mt-work/oneb/src/build/protal]
+  125,004,322 ( 0.43%)  ???:protal::AnchoredAligner::Flank(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, unsigned long, unsigned long, unsigned long, unsigned long, bool, int, int, int, protal::WFA2Wrapper2&, int&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .arch_x86_64_v3] [/home/falk/mt-work/oneb/src/build/protal]
+  119,217,636 ( 0.41%)  ???:0x00000000000a9e00 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  118,641,927 ( 0.41%)  ???:0x00000000000a5980 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  117,122,183 ( 0.40%)  ???:protal::LookupResult::SortByReadComparator(protal::LookupResult const&, protal::LookupResult const&) [/home/falk/mt-work/oneb/src/build/protal]
+  116,810,488 ( 0.40%)  ???:BufferedFastxReader::NextFastq(FastxRecord&) [/home/falk/mt-work/oneb/src/build/protal]

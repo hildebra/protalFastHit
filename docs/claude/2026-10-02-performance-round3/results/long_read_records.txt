@@ -1,0 +1,48 @@
+== ont_b3000000 noreseed vs ref
+records: ref 1564, exp 1564, both 1563, only ref 1, only exp 1
+common: same CIGAR 62.1%, same MAPQ 97.3%, same POS 98.3%; penalty exp-ref: lower 5, higher 5 (mean +10.0 where higher), total -40 of 240882 (-0.02%)
+== ont_b3000000 reseed vs ref
+records: ref 1564, exp 1564, both 1563, only ref 1, only exp 1
+common: same CIGAR 62.4%, same MAPQ 97.5%, same POS 98.4%; penalty exp-ref: lower 2, higher 2 (mean +12.0 where higher), total -10 of 240882 (-0.00%)
+== pb_b3000000 noreseed vs ref
+records: ref 1103, exp 1103, both 1103, only ref 0, only exp 0
+common: same CIGAR 55.2%, same MAPQ 99.8%, same POS 99.8%; penalty exp-ref: lower 1, higher 0 (mean +0.0 where higher), total -8 of 146940 (-0.01%)
+== pb_b3000000 reseed vs ref
+records: ref 1103, exp 1103, both 1103, only ref 0, only exp 0
+common: same CIGAR 53.6%, same MAPQ 99.5%, same POS 99.8%; penalty exp-ref: lower 0, higher 0 (mean +0.0 where higher), total +0 of 146940 (+0.00%)
+== ont_b3000000 noreseed2: 22,271,920,074
+== ont_b3000000 reseed2: 21,445,859,524
+== pb_b3000000 noreseed2: 19,328,097,964
+== pb_b3000000 reseed2: 18,685,087,924
+short reads: SAM text same
+== ont_b3000000 reseed, middle first, vs ref
+records: ref 1564, exp 1564, both 1563, only ref 1, only exp 1
+common: same CIGAR 62.4%, same MAPQ 97.5%, same POS 98.4%; penalty exp-ref: lower 2, higher 2 (mean +12.0 where higher), total -10 of 240882 (-0.00%)
+   same SAM as before the reorder
+== pb_b3000000 reseed, middle first, vs ref
+records: ref 1103, exp 1103, both 1103, only ref 0, only exp 0
+common: same CIGAR 53.6%, same MAPQ 99.5%, same POS 99.8%; penalty exp-ref: lower 0, higher 0 (mean +0.0 where higher), total +0 of 146940 (+0.00%)
+   same SAM as before the reorder
+== ont_b3000000 noreseed3: 22,045,351,247
+== ont_b3000000 reseed3: 21,707,174,014
+== pb_b3000000 noreseed3: 19,044,040,542
+== pb_b3000000 reseed3: 18,827,975,765
+100k pairs -t 1: SAM text same
+500k pairs -t 6: sorted SAM same
+500k pairs -t 6: outputs DIFFER
+== ont_b3000000
+records: ref 1564, exp 1564, both 1563, only ref 1, only exp 1
+common: same CIGAR 62.4%, same MAPQ 97.5%, same POS 98.4%; penalty exp-ref: lower 2, higher 2 (mean +12.0 where higher), total -10 of 240882 (-0.00%)
+== pb_b3000000
+records: ref 1103, exp 1103, both 1103, only ref 0, only exp 0
+common: same CIGAR 53.6%, same MAPQ 99.5%, same POS 99.8%; penalty exp-ref: lower 0, higher 0 (mean +0.0 where higher), total +0 of 146940 (+0.00%)
+== hifi3M
+records: ref 1242, exp 1242, both 1242, only ref 0, only exp 0
+common: same CIGAR 92.5%, same MAPQ 100.0%, same POS 100.0%; penalty exp-ref: lower 0, higher 0 (mean +0.0 where higher), total +0 of 111418 (+0.00%)
+== pe100k.lr4: 26,787,042,275
+== ont_b3000000.ref: 25,487,072,548
+== ont_b3000000.lr4: 19,401,790,866
+== pb_b3000000.ref: 22,664,338,977
+== pb_b3000000.lr4: 16,694,222,688
+== hifi3M.ref: 21,771,139,568
+== hifi3M.lr4: 16,253,783,354

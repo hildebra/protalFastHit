@@ -1,0 +1,54 @@
+== pe500k base
+stage	seconds	threads	seconds_per_thread
+Seeding	2.482661	1	2.482661
+Sorting Seeds	0.914763	1	0.914763
+Pairing	0.481115	1	0.481115
+Sorting Anchors	0.107529	1	0.107529
+Extending Anchors	0.902007	1	0.902007
+Sequence reader	0.532358	1	0.532358
+Retrieve k-mers	0.741069	1	0.741069
+Seed- and Anchor-finding	5.265211	1	5.265211
+Anchor recovery	0.284203	1	0.284203
+Alignment handler	4.327733	1	4.327733
+Joining alignment pairs and sorting	1.179113	1	1.179113
+Output handler	1.011280	1	1.011280
+== pe500k cl
+stage	seconds	threads	seconds_per_thread
+Seeding	2.663798	1	2.663798
+Sorting Seeds	1.353614	1	1.353614
+Pairing	0.553719	1	0.553719
+Sorting Anchors	0.126678	1	0.126678
+Extending Anchors	1.062830	1	1.062830
+Sequence reader	0.503409	1	0.503409
+Retrieve k-mers	0.888019	1	0.888019
+Seed- and Anchor-finding	6.230238	1	6.230238
+Anchor recovery	0.339987	1	0.339987
+Alignment handler	5.450205	1	5.450205
+Joining alignment pairs and sorting	1.822052	1	1.822052
+Output handler	1.278709	1	1.278709
+== ont90M base
+stage	seconds	threads	seconds_per_thread
+Seeding	1.714385	1	1.714385
+Sorting Seeds	1.072649	1	1.072649
+Pairing	0.272434	1	0.272434
+Sorting Anchors	0.044124	1	0.044124
+Extending Anchors	0.550214	1	0.550214
+Sequence reader	0.301966	1	0.301966
+Seed- and Anchor-finding	0.000000	0	0.000000
+Anchor recovery	0.000000	0	0.000000
+Alignment handler	25.654762	1	25.654762
+Joining alignment pairs and sorting	0.000000	0	0.000000
+Output handler	0.293172	1	0.293172
+== ont90M cl
+stage	seconds	threads	seconds_per_thread
+Seeding	1.695708	1	1.695708
+Sorting Seeds	0.975409	1	0.975409
+Pairing	0.288181	1	0.288181
+Sorting Anchors	0.040788	1	0.040788
+Extending Anchors	0.560452	1	0.560452
+Sequence reader	0.229198	1	0.229198
+Seed- and Anchor-finding	0.000000	0	0.000000
+Anchor recovery	0.000000	0	0.000000
+Alignment handler	24.764852	1	24.764852
+Joining alignment pairs and sorting	0.000000	0	0.000000
+Output handler	0.265908	1	0.265908

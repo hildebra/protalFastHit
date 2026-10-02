@@ -1,0 +1,51 @@
+== ref
+calls to wavefront_align: 
+4,257,807,814 (16.71%) ???:wavefront_extend_matches_packed_endsfree
+2,497,776,947 ( 9.80%) ???:wavefront_heuristic_wfadaptive
+1,717,068,749 ( 6.74%) ???:wavefront_termination_endsfree
+1,660,727,203 ( 6.52%) ???:wavefront_compute_affine_idm
+468,928,508 ( 1.84%) ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_
+360,690,013 ( 1.42%) ???:wavefront_slab_reap_repurpose
+218,939,162 ( 0.86%) ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_
+198,712,167 ( 0.78%) ???:wavefront_compute_init_ends
+176,975,912 ( 0.69%) ???:wavefront_compute_process_ends
+136,479,829 ( 0.54%) ???:wavefront_compute_fetch_input
+98,025,496 ( 0.38%) ???:wavefront_slab_allocate
+95,275,127 ( 0.37%) ???:wavefront_compute_affine
+92,161,016 ( 0.36%) ???:wavefront_compute_allocate_output
+82,208,626 ( 0.32%) ???:wavefront_heuristic_cufoff
+79,846,833 ( 0.31%) ???:wavefront_extend_endsfree
+== lr
+calls to wavefront_align: 
+2,745,981,448 (12.12%) ???:wavefront_extend_matches_packed_endsfree
+1,608,797,826 ( 7.10%) ???:wavefront_heuristic_wfadaptive
+1,120,347,710 ( 4.94%) ???:wavefront_compute_affine_idm
+1,102,422,217 ( 4.86%) ???:wavefront_termination_endsfree
+1,098,903,155 ( 4.85%) ???:wavefront_slab_reap_repurpose
+468,989,716 ( 2.07%) ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_
+219,885,103 ( 0.97%) ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_
+199,207,981 ( 0.88%) ???:wavefront_compute_init_ends
+168,388,007 ( 0.74%) ???:wavefront_compute_process_ends
+130,878,473 ( 0.58%) ???:wavefront_compute_fetch_input
+91,755,225 ( 0.40%) ???:wavefront_compute_affine
+91,495,466 ( 0.40%) ???:wavefront_slab_allocate
+86,550,832 ( 0.38%) ???:wavefront_compute_allocate_output
+77,324,461 ( 0.34%) ???:wavefront_extend_endsfree
+69,134,837 ( 0.31%) ???:wavefront_heuristic_cufoff
+== reseed
+calls to wavefront_align: 35508
+2,134,866,590 ( 9.34%) ???:wavefront_extend_matches_packed_endsfree
+1,968,088,782 ( 8.61%) ???:wavefront_slab_reap_repurpose
+1,244,806,247 ( 5.45%) ???:wavefront_heuristic_wfadaptive
+890,117,791 ( 3.90%) ???:wavefront_compute_affine_idm
+855,111,518 ( 3.74%) ???:wavefront_termination_endsfree
+469,319,720 ( 2.05%) ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_
+219,804,062 ( 0.96%) ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_
+186,063,633 ( 0.81%) ???:wavefront_compute_init_ends
+159,095,797 ( 0.70%) ???:wavefront_compute_process_ends
+121,777,101 ( 0.53%) ???:wavefront_compute_fetch_input
+85,775,080 ( 0.38%) ???:wavefront_compute_affine
+82,530,218 ( 0.36%) ???:wavefront_slab_allocate
+78,656,063 ( 0.34%) ???:wavefront_compute_allocate_output
+72,690,557 ( 0.32%) ???:wavefront_extend_endsfree
+58,554,710 ( 0.26%) ???:wavefront_heuristic_cufoff
