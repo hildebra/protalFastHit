@@ -466,6 +466,32 @@ TEST(Options, ReadTypesOfSamples) {
     EXPECT_NE(warnings[0].find("pe.sam holds paired-end reads; profiled as single-end reads"), std::string::npos) << warnings[0];
 }
 
+// Without a read type, a single read file's first reads decide (ReadTypeDetection.h) for the samples of the run, with
+// a note; a read type given wins, and the reads of samples outside the run are not looked at.
+TEST(Options, TheReadTypeOfASingleReadFileFromItsReads) {
+    ScratchDir dir;
+    std::string reads;
+    for (int i = 0; i < 50; i++) reads += "@r" + std::to_string(i) + "\n" + std::string(4000, 'A') + "\n+\n" + std::string(4000, '3') + "\n";
+    std::string const ont = dir.Write("ont.fq", reads);
+    OptionsData data;
+    data.first_list = { ont, ont, ont };
+    data.second_list = { "", "", "" };
+    data.prefix_list = { "a", "b", "c" };
+    data.read_type_list = { "", "se", "" };
+    data.range = { 0, 1 };
+    Options options(data);
+    std::vector<std::string> warnings, notes;
+    options.ResolveReadTypes(warnings, &notes);
+    EXPECT_EQ(options.GetReadType(0), ReadType::ONT);
+    EXPECT_EQ(options.GetReadType(1), ReadType::Single);  // given
+    EXPECT_EQ(options.GetReadType(2), ReadType::Single);  // not in the run
+    ASSERT_EQ(notes.size(), 1u);
+    EXPECT_NE(notes[0].find("Sample a: ONT reads (the first 50 reads up to 4.0 kb long, median 4.0 kb, median read quality Q18.0"),
+              std::string::npos) << notes[0];
+    EXPECT_NE(notes[0].find("aligned and profiled as such; --read_type (or a map's READ_TYPE) sets the kind of reads"), std::string::npos);
+    EXPECT_TRUE(warnings.empty());
+}
+
 TEST(MicrobialProfile, RejectsRecordsOutsideTheDatabase) {
     TinyReference ref;
     profiler::MicrobialProfile profile(*ref.loader);

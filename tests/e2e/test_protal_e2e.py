@@ -2416,7 +2416,7 @@ class PacBioTest(WorkDir):
         rc, log = run(self.work, "--db", self.db, "-1", self.reads["la"], "--prefix", "la", "-o", "rerun", "-t", "2",
                       "--no_qcmsa")
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("holds PacBio reads (its header says), so they are profiled as such, not as single-end reads", log)
+        self.assertIn("Note: Sample la: PacBio reads", log)  # their names say so, as the SAM's header
         self.assertIn("Model of PacBio reads: " + os.path.join(self.db, "model_PB.xml"), log)
         with open(self.path("rerun", "la.profile")) as again, open(self.path("out", "la.profile")) as first:
             self.assertEqual(again.read(), first.read())
@@ -2427,8 +2427,29 @@ class PacBioTest(WorkDir):
         self.assertIn("holds PacBio reads; profiled as ONT reads (ont, --read_type or READ_TYPE; --force aligns them again)", log)
         self.assertIn("Model of ONT reads: " + self.model, log)
 
+    def test_long_reads_without_a_read_type_are_taken_for_what_they_are(self):
+        # PacBio names (movie/ZMW): PacBio reads, with a note, and aligned as such.
+        rc, log = run(self.work, "--db", self.db, "-1", self.reads["lb"], "--prefix", "lb_auto", "-o", "out_auto", "-t", "2",
+                      "--no_qcmsa", "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Note: Sample lb_auto: PacBio reads (the first ", log)
+        self.assertIn("named as PacBio names reads", log)
+        with open_sam(self.path("out_auto", "lb_auto.sam")) as fh:
+            self.assertIn("@CO\tprotal read type: pb\n", fh.read())
+        # Other names: by their quality, Q17 here (the ONT-like reads of OntReadsTest): ONT reads.
+        ont = self.path("ont_like.fq")
+        simulate_long_reads(ont, 10, seed=31, error=0.02, indels=0.7, read_name="read_{}", quality="2")
+        rc, log = run(self.work, "--db", self.db, "-1", ont, "--prefix", "ont_auto", "-o", "out_auto", "-t", "2", "--no_qcmsa",
+                      "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("Note: Sample ont_auto: ONT reads (the first 10 reads", log)
+        self.assertIn("median read quality Q17.0 (PacBio from Q25, ONT below)", log)
+        with open_sam(self.path("out_auto", "ont_auto.sam")) as fh:
+            self.assertIn("@CO\tprotal read type: ont\n", fh.read())
+
     def test_long_reads_given_as_short_ones_stop(self):
-        rc, log = run(self.work, "--db", self.db, "-1", self.reads["lb"], "-o", "out_short", "-t", "1", "--no_qcmsa")
+        rc, log = run(self.work, "--db", self.db, "-1", self.reads["lb"], "--read_type", "se", "-o", "out_short", "-t", "1",
+                      "--no_qcmsa")
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("too long for short reads: give --read_type pb", log)
 

@@ -4,7 +4,10 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
+#include <optional>
+#include <random>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -14,6 +17,8 @@
 #include "SequenceUtils/KmerUtils.h"
 #include "Taxonomy/Taxonomy.h"
 #include "Utilities/ReferenceFingerprint.h"
+#include "SequenceUtils/ReadTypeDetection.h"
+#include "gzstream/gzstream.h"
 
 namespace fs = std::filesystem;
 
@@ -422,4 +427,106 @@ TEST(UniqueKmers, AGenomeWithoutUniqueKmersHasNoHittableGene) {
     EXPECT_FALSE(loader.GetGenome(2).IsGeneHittable(1));
     EXPECT_TRUE(loader.GetGenome(2).GetHittableGenes().empty());
     EXPECT_EQ(loader.GetGenome(2).GeneNum(), 0u);
+}
+
+namespace {
+    // n reads of `length` random bases in FASTQ (or FASTA without quality), named name(i), every base of quality q
+    // (Phred+33 character) but every tenth of quality low where low is given.
+    std::string Reads(size_t n, size_t length, char q, std::function<std::string(size_t)> const& name, bool fasta = false, char low = 0) {
+        std::mt19937 rng(5);
+        std::string out;
+        for (size_t i = 0; i < n; i++) {
+            std::string seq(length, 'A'), qual(length, q);
+            for (auto& c : seq) c = "ACGT"[rng() % 4];
+            if (low) for (size_t k = 0; k < length; k += 10) qual[k] = low;
+            out += (fasta ? ">" : "@") + name(i) + "\n" + seq + "\n";
+            if (!fasta) out += "+\n" + qual + "\n";
+        }
+        return out;
+    }
+    std::string Plain(size_t i) { return "read" + std::to_string(i); }
+
+    std::optional<protal::ReadTypeGuess> Guess(std::string const& path) {
+        return protal::GuessReadType(protal::SampleReads(path), 1000);
+    }
+}
+
+// The kind of reads in a single read file, from its first reads (ReadTypeDetection.h).
+TEST(ReadTypeDetection, ShortAndLongReadsByLength) {
+    ScratchDir dir;
+    auto const short_reads = Guess(dir.Write("short.fq", Reads(300, 150, 'I', Plain)));
+    ASSERT_TRUE(short_reads);
+    EXPECT_EQ(short_reads->type, protal::ReadType::Single);
+    // A stray long read among short ones leaves them short reads (the reader then stops at it).
+    auto const stray = Guess(dir.Write("stray.fq", Reads(150, 150, 'I', Plain) + Reads(1, 2000, 'I', Plain) + Reads(150, 150, 'I', Plain)));
+    ASSERT_TRUE(stray);
+    EXPECT_EQ(stray->type, protal::ReadType::Single);
+    // Nothing to read: no guess (a missing file, or a pipe, whose reads would be lost to the alignment).
+    EXPECT_FALSE(Guess((dir.path / "missing.fq").string()));
+    EXPECT_FALSE(Guess(dir.Write("empty.fq", "")));
+}
+
+TEST(ReadTypeDetection, LongReadsByTheirQuality) {
+    ScratchDir dir;
+    auto const ont = Guess(dir.Write("q18.fq", Reads(50, 4000, '3', Plain)));  // Q18
+    ASSERT_TRUE(ont);
+    EXPECT_EQ(ont->type, protal::ReadType::ONT);
+    EXPECT_NE(ont->evidence.find("median read quality Q18.0"), std::string::npos) << ont->evidence;
+    EXPECT_NE(ont->evidence.find("the first 50 reads up to 4.0 kb long, median 4.0 kb"), std::string::npos) << ont->evidence;
+    auto const hifi = Guess(dir.Write("q35.fq", Reads(50, 4000, 'D', Plain)));  // Q35
+    ASSERT_TRUE(hifi);
+    EXPECT_EQ(hifi->type, protal::ReadType::PacBio);
+    // A read's quality is its bases' mean error probability: a tenth of the bases at Q5 make Q40 reads Q15 (the mean of
+    // the Phred values would be Q36.5).
+    auto const mixed = Guess(dir.Write("mixed.fq", Reads(50, 4000, 'I', Plain, false, '&')));
+    ASSERT_TRUE(mixed);
+    EXPECT_EQ(mixed->type, protal::ReadType::ONT);
+    EXPECT_NE(mixed->evidence.find("Q15.0"), std::string::npos) << mixed->evidence;
+    // Without qualities: PacBio, and the evidence says why.
+    auto const fasta = Guess(dir.Write("long.fa", Reads(50, 4000, 'I', Plain, true)));
+    ASSERT_TRUE(fasta);
+    EXPECT_EQ(fasta->type, protal::ReadType::PacBio);
+    EXPECT_NE(fasta->evidence.find("without base qualities"), std::string::npos) << fasta->evidence;
+    // Q0 at every base means unknown (pbsim3's PacBio reads): as without qualities.
+    auto const q0 = Guess(dir.Write("q0.fq", Reads(50, 4000, '!', Plain)));
+    ASSERT_TRUE(q0);
+    EXPECT_EQ(q0->type, protal::ReadType::PacBio);
+    EXPECT_NE(q0->evidence.find("(FASTA, or Q0 throughout)"), std::string::npos) << q0->evidence;
+    // Gzipped reads read as plain ones.
+    std::string const gz = (dir.path / "q18.fq.gz").string();
+    {
+        ogzstream os(gz.c_str());
+        os << Reads(50, 4000, '3', Plain);
+    }
+    auto const zipped = Guess(gz);
+    ASSERT_TRUE(zipped);
+    EXPECT_EQ(zipped->type, protal::ReadType::ONT);
+}
+
+TEST(ReadTypeDetection, NamesBeforeQualities) {
+    ScratchDir dir;
+    // MinKNOW: a UUID, and runid=; dorado: a UUID. ONT reads, whatever their quality (duplex reads reach Q30).
+    auto minknow = [](size_t i) {
+        char id[64];
+        std::snprintf(id, sizeof id, "%08zx-1c2d-4e5f-8a9b-0123456789ab runid=6f3a ch=12 start_time=2024-01-01T00:00:00Z", i);
+        return std::string(id);
+    };
+    auto const ont = Guess(dir.Write("minknow.fq", Reads(40, 3000, 'D', minknow)));
+    ASSERT_TRUE(ont);
+    EXPECT_EQ(ont->type, protal::ReadType::ONT);
+    EXPECT_NE(ont->evidence.find("named as MinKNOW and dorado name reads"), std::string::npos) << ont->evidence;
+    // PacBio: movie/ZMW, also with one underscore in the movie name and more after the ZMW.
+    auto const ccs = Guess(dir.Write("ccs.fq", Reads(40, 3000, '0', [](size_t i) { return "m64011_190830_220126/" + std::to_string(i) + "/ccs"; })));
+    ASSERT_TRUE(ccs);
+    EXPECT_EQ(ccs->type, protal::ReadType::PacBio);
+    auto const revio = Guess(dir.Write("revio.fq", Reads(40, 3000, '0', [](size_t i) { return "m84011_220902_175841_s1/" + std::to_string(i) + "/ccs/fwd"; })));
+    ASSERT_TRUE(revio);
+    EXPECT_EQ(revio->type, protal::ReadType::PacBio);
+    auto const one_underscore = Guess(dir.Write("m.fq", Reads(40, 3000, '0', [](size_t i) { return "m64001_000000/" + std::to_string(i) + "/ccs"; })));
+    ASSERT_TRUE(one_underscore);
+    EXPECT_EQ(one_underscore->type, protal::ReadType::PacBio);
+    // Names like neither: by quality ('0' is Q15).
+    auto const other = Guess(dir.Write("other.fq", Reads(40, 3000, '0', [](size_t i) { return "m_" + std::to_string(i); })));
+    ASSERT_TRUE(other);
+    EXPECT_EQ(other->type, protal::ReadType::ONT);
 }

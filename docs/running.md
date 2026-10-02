@@ -108,11 +108,31 @@ A sample fails (exit 1, no SAM file) when its reads are not FASTQ or FASTA, when
 incomplete, has no `+` line or has more or fewer qualities than bases, when a gzip file is
 truncated or corrupt (whatever follows a gzip member must be another member: a damaged member
 header is an error, not the end of the file), when paired files hold different numbers of reads,
-or when a single-end read is longer than 1,000 bp: long reads need `--read_type pb` or `ont`.
-protal checks the first 100 reads of each single-end file for that before aligning (not in a
-pipe), and the reader stops at the first long read after them. A sample without reads, and pairs
+or when a single-end read is longer than 1,000 bp (below). A sample without reads, and pairs
 whose mates' names differ (other than in a last `1` and `2`, as in `r/1` and `r/2`), get a
 warning: the files of a pair may not be in the same order.
+
+## The kind of reads
+
+`--read_type` (or a map's `READ_TYPE` column) names the kind of a sample's reads: `pe`, `se`, `pb`
+or `ont`. Without it, a sample with a second read file has paired-end reads, and for a single read
+file protal looks at its first 200 reads (at most 5 Mb):
+
+- At most a quarter of them longer than 1,000 bp: single-end reads. A longer read later in the
+  file stops the sample (exit 1), as any long read does in a sample given as `se`, whose first
+  100 reads protal checks before aligning.
+- Else long reads: ONT reads if most of them are named as MinKNOW and dorado name reads (a UUID;
+  MinKNOW adds `runid=`), PacBio reads if named by movie and ZMW (`m64011_190830_220126/123/ccs`).
+  Else their median read quality decides, each read's quality being that of its bases' mean error
+  probability: PacBio from Q25 on (HiFi reads are Q30 and better), ONT below (about Q12-25). Long
+  reads without qualities named neither way are taken for PacBio reads: FASTA, or Q0 at every
+  base, which means unknown (pbsim3 writes it for its PacBio reads).
+
+protal says what it found, e.g. `Note: Sample s: ONT reads (the first 200 reads up to 48.1 kb
+long, median 6.3 kb, median read quality Q18.4 (PacBio from Q25, ONT below) in s.fq.gz), aligned
+and profiled as such`, and the sample is aligned and profiled with that kind's settings and model.
+Reads in a pipe are not looked at (they would be lost to the alignment): give `--read_type` for
+long reads read through a pipe.
 
 ## Single-end reads
 

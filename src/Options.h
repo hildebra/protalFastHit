@@ -27,6 +27,7 @@
 #include "SamFile.h"
 #include "ReadType.h"
 #include "SequenceUtils/SeqReader.h"
+#include "SequenceUtils/ReadTypeDetection.h"
 #include "SequenceUtils/GeneConservation.h"
 #include "SequenceUtils/GeneNeighbours.h"
 #include "gzstream/gzstream.h"
@@ -80,7 +81,7 @@ namespace protal {
                 ("db", "Path to the protal database: a single-file database (database.protal, as --build writes it), or a folder holding one or the database's separate files. If not given, it is taken from the environment variable $" + PROTAL_DB_ENV_VARIABLE + ".", cxxopts::value<std::string>())
                 ("1,first", "Comma separated list of read files: the first-in-pair files of paired-end reads (the second-in-pair files go to -2/--second), or single-end reads when -2/--second is not given.", cxxopts::value<std::string>()->default_value(""))
                 ("2,second", "Comma separated list of second-in-pair read files, one per file given via -1/--first. Leave it out for single-end reads.", cxxopts::value<std::string>()->default_value(""))
-                ("read_type", "The reads of -1/--first: pe (paired-end reads, with -2/--second), se (single-end reads), pb (PacBio long reads, e.g. HiFi), ont (Oxford Nanopore long reads). Without it, pe with -2/--second and se without. A map gives it per sample in a READ_TYPE column. With --profile_only, the SAM's header names its reads, and --read_type replaces that (e.g. to profile a SAM with another read type's model); with --add_model, it names the model's reads (pe if not given).", cxxopts::value<std::string>()->default_value(""))
+                ("read_type", "The reads of -1/--first: pe (paired-end reads, with -2/--second), se (single-end reads), pb (PacBio long reads, e.g. HiFi), ont (Oxford Nanopore long reads). Without it, pe with -2/--second; with one read file, its first reads decide, and protal says what it found: se for short reads, for long reads pb or ont by their names (PacBio movie/ZMW, the UUIDs of MinKNOW and dorado), else by their median read quality (pb from Q25 on, ont below; pb without qualities). A map gives it per sample in a READ_TYPE column. With --profile_only, the SAM's header names its reads, and --read_type replaces that (e.g. to profile a SAM with another read type's model); with --add_model, it names the model's reads (pe if not given).", cxxopts::value<std::string>()->default_value(""))
                 ("prefix", "Comma separated list of output prefixes (optional). If not specified, output file prefixes are generated from the input file names: the longest common prefix of the two files of paired-end reads (which must then be in the same folder), the file name without its FASTQ/FASTA and compression extensions for single-end reads.", cxxopts::value<std::string>()->default_value(""))
                 ("o,outdir", "Overwrites #OUTPUT_DIR in map and needs to be defined if #OUTPUT_DIR is not defined in the map. If not otherwise specified in the map file, sam files, profiles, msas, and other miscellaneous files will be stored in the subfolders to this directory 'alignments', 'profiles', 'strains', and 'misc'.", cxxopts::value<std::string>())
                 
@@ -1687,20 +1688,34 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
         }
 
         // The kind of reads of each sample: the one its READ_TYPE (or --read_type) names, else
-        // single-end without a second read file and paired-end with one. With --profile_only, from
+        // paired-end with a second read file, and without one what the first reads of the file show
+        // (ReadTypeDetection.h: single-end for short reads, PacBio or ONT for long ones, by their names
+        // or qualities), noted in note_log for samples of this run. With --profile_only, from
         // the SAM: the kind its header names (protal writes it), else single-end if its alignments
         // are unpaired (no 0x1); a SAM without usable alignments, or that cannot be read (reported
         // when it is profiled), counts as paired-end. A kind given for a SAM wins over its own, e.g. to
         // profile it with another read type's model, with a warning if they differ. A rerun that
         // profiles the SAM an earlier run wrote (it exists, no --force) takes the kind its header
         // names in the same way.
-        void ResolveReadTypes(std::vector<std::string>& warning_log) {
+        void ResolveReadTypes(std::vector<std::string>& warning_log, std::vector<std::string>* note_log = nullptr) {
             m_read_types.assign(m_prefix_list.size(), ReadType::Paired);
             for (size_t i = 0; i < m_read_types.size(); i++) {
                 auto const given = i < m_read_type_list.size() ? ReadTypeFromToken(m_read_type_list[i]) : std::nullopt;
                 if (!m_profile_only) {
                     bool const single = i < m_second_list.size() && m_second_list[i].empty();
                     m_read_types[i] = given ? *given : single ? ReadType::Single : ReadType::Paired;
+                    bool const in_run = std::find(m_range.begin(), m_range.end(), i) != m_range.end();
+                    if (!given && single && in_run && i < m_first_list.size()) {
+                        auto const guess = GuessReadType(SampleReads(m_first_list[i]), MAX_SHORT_READ_LENGTH);
+                        if (guess && guess->type != ReadType::Single) {
+                            m_read_types[i] = guess->type;
+                            if (note_log) {
+                                note_log->emplace_back("Sample " + (i < m_sampleid_list.size() ? m_sampleid_list[i] : m_prefix_list[i]) + ": " + ReadTypeName(guess->type) +
+                                                       " reads (" + guess->evidence + " in " + m_first_list[i] + "), aligned and profiled as such; "
+                                                       "--read_type (or a map's READ_TYPE) sets the kind of reads");
+                            }
+                        }
+                    }
                     if (m_force || i >= m_sam_list.size()) continue;
                     // As RunProtal picks the SAM it skips the alignment for.
                     std::string sam = m_sam_list[i];
@@ -1768,11 +1783,12 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
         bool PrepareAndCheckValidity(bool force_read_check=false) {
             std::vector<std::string> error_log;
             std::vector<std::string> warning_log;
+            std::vector<std::string> note_log;
 
             ResolveDatabase(error_log);
             bool const add_model = !m_add_model.empty();
             bool const db_mode = m_compress_db || m_decompress_db || m_unpack_db || add_model;
-            if (!m_build && !db_mode) ResolveReadTypes(warning_log);
+            if (!m_build && !db_mode) ResolveReadTypes(warning_log, &note_log);
             if (int(m_compress_db) + int(m_decompress_db) + int(m_unpack_db) + int(add_model) + int(m_build) > 1) {
                 error_log.emplace_back("--build, --compress_db, --decompress_db, --unpack_db and --add_model cannot be combined "
                                        "(--build compresses unless --no_compress)");
@@ -2084,6 +2100,9 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                 }
             }
 
+            for (auto& line : note_log) {
+                std::cerr << "Note: " << line << std::endl;
+            }
             for (auto& line : warning_log) {
                 std::cerr << "Warning: " << line << std::endl;
             }
