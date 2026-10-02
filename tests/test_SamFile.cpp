@@ -265,9 +265,13 @@ TEST(SamFile, AFileCutAtABlockOrFrameBoundaryIsIncomplete) {
     fs::resize_file(zst, last.compressed_offset + last.compressed_size);
     EXPECT_NE(SamInput(zst).Problem(), "");
 
-    // Cut inside a block or frame, the gzip reader and zstd notice while reading.
+    // Cut inside a block or frame, the gzip reader and zstd notice while reading. The zstd file is cut in the middle of
+    // its middle frame: the threads write many small frames, and half its size fell on a frame's end now and then (a
+    // whole frame read, then the end of the file: Problem() above tells that the seek table is missing).
+    auto const& middle = table->frames[table->frames.size() / 2];
+    ASSERT_GE(middle.compressed_size, 2u);
     for (auto const& path : { gz, zst }) {
-        fs::resize_file(path, fs::file_size(path) / 2);
+        fs::resize_file(path, path == zst ? middle.compressed_offset + middle.compressed_size / 2 : fs::file_size(path) / 2);
         SamInput input(path);
         ReadAll(input.Stream());
         EXPECT_TRUE(input.ReadFailed()) << path;
