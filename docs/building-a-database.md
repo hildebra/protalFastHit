@@ -280,7 +280,7 @@ connections at once in a test). `--connections 0` uses `datasets` only. On one t
 | `--mirror`, `--datasets`, `--batch`, `-t` | | GTDB server, NCBI CLI, genomes per `datasets` request (500), parallel compression of what `datasets` delivers (8) |
 
 It needs, besides a built `protal` and `simulate_metagenomes`: `art_illumina` on
-`$PATH` (for the simulations; pbsim3 for PacBio and Nanopore reads), Python 3 with numpy, pandas, joblib and scikit-learn for the
+`$PATH` (for the simulations; pbsim3 for Nanopore reads), Python 3 with numpy, pandas, joblib and scikit-learn for the
 training (no Java: the trainer writes the PMML itself), and NCBI's `datasets` for strain genomes.
 The conda environment [`envs/protal-db-build.yaml`](../envs/protal-db-build.yaml) has them all,
 with the compilers to build protal ([installation.md](installation.md#tools-to-build-a-database)).
@@ -350,21 +350,23 @@ negative rates by rank (see [model-training.md](model-training.md#species-and-cl
 
 `--read-types` (default `pe,se,pb,ont`) trains a model for each kind of reads protal profiles,
 from the same communities: paired-end reads (ART); their first reads alone, profiled as single-end
-reads; and PacBio and Nanopore reads simulated with [pbsim3](https://github.com/yukiteruono/pbsim3)
-(`--pb-setup`: HiFi-like reads of the Sequel error model at 99.9% accuracy, 15 kb; `--ont-setup`:
-the high-quality ONT model at 97%, 8 kb), `--long-read-bases` per sample, about as many bases as the
-paired-end depths. The collector draws each long-read sample's reads (genome, length, start, strand;
-[model-training.md](model-training.md#training-data)) and pbsim3 adds its errors, in one run per
-sample. All samples are profiled in one protal run, each with its read type's settings,
+reads; PacBio HiFi reads (`--pb-setup`: 15 kb, their quality by their length, Q50 at 5 kb to Q30 at
+25 kb and Q20 at 50 kb, by `scripts/hifi_reads.py`); and Nanopore reads simulated with
+[pbsim3](https://github.com/yukiteruono/pbsim3) (`--ont-setup`: the high-quality ONT model at 97%,
+8 kb), `--long-read-bases` per sample, about as many bases as the paired-end depths. The collector
+draws each long-read sample's reads (genome, length, start, strand;
+[model-training.md](model-training.md#training-data)) and `hifi_reads.py` or pbsim3 adds the errors
+and qualities, in one run per sample. (Until 2026-10-02 pbsim3 made the PacBio reads too, with
+quality 0 at every base; [report](claude/2026-10-02-pacbio-hifi-reads/README.md).) All samples are profiled in one protal run, each with its read type's settings,
 and the models are trained in parallel. The pb and ont models also get knobs by sample depth (the
 trainer's `--depth-knobs`, [model-training.md](model-training.md#knobs-by-sample-depth);
 `--depth-knob-read-types`, default `pb,ont`, `""` for none), which `build_metadata.tsv` records
 (`classifier_depth_knobs`, `model_<type>_depth_knobs`). On the v0.7.1 benchmark they cost PacBio F1
 ([report](claude/2026-10-01-features-depth-knobs/README.md)); they are to be tested again with this
 build's training design. pbsim3
-must be installed for pb and ont (it is in
+must be installed for ont (it is in
 `envs/protal-db-build.yaml`; `micromamba install -c conda-forge -c bioconda pbsim3`); without it,
-leave them out of `--read-types`, and they keep placeholder models.
+leave ont out of `--read-types`, and it keeps a placeholder model.
 
 ### An independent test set
 
@@ -409,8 +411,9 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--archaea` | 2 | archaeal species per sample |
 | `--read-types` | `pe,se,pb,ont` | the read types to train a model for |
 | `--long-read-bases` | `300000,1500000,6000000,30000000,150000000` | bases per pb and ont sample, one design point each |
-| `--pb-setup`, `--ont-setup` | `errhmm:ERRHMM-SEQUEL:15000:3000:0.999`, `qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36` | pbsim3 method : model : length mean : length SD : accuracy (: substitution/insertion/deletion mix, for qshmm) |
-| `--pbsim`, `--pbsim-models` | `pbsim`, found next to it | pbsim3 and its models |
+| `--pb-setup` | `hifi:15000:3000:3` | `hifi` : length mean : length SD : SD of the reads' quality around their length's (`hifi_reads.py`, [model-training.md](model-training.md#training-data)); or a pbsim3 setup as `--ont-setup`'s |
+| `--ont-setup` | `qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36` | pbsim3 method : model : length mean : length SD : accuracy (: substitution/insertion/deletion mix, for qshmm) |
+| `--pbsim`, `--pbsim-models` | `pbsim`, found next to it | pbsim3 and its models (for ont, and pb with a pbsim3 setup) |
 | `--test-samples` | 4 | samples per design point of the independent test set; 0 for none |
 | `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases` | `500,2000,10000,50000,200000,1000000`, `10-300`, `lognormal:2.0`, `0.5,0.2`, `150000,1000000,5000000,25000000,250000000` | the test set's design |
 | `--seed` | 1 | |
@@ -533,8 +536,8 @@ the job, the collection starts again (the builds are still kept in OUTDIR).
 
 ### Stopping and rerunning
 
-The script checks before it starts that protal, the simulator, `art_illumina` (and pbsim3 for pb
-and ont) are there and that its Python can import what the trainer needs. Each command it runs is
+The script checks before it starts that protal, the simulator, `art_illumina` (and pbsim3 for ont,
+and pb with a pbsim3 setup) are there and that its Python can import what the trainer needs. Each command it runs is
 stopped with the processes it started when the script stops, whether a command failed, a Python
 error, or `SIGTERM`, `SIGINT` (Ctrl-C) or `SIGHUP` stopped it; a rerun never races a build left
 running. The build in the background is looked at every few seconds: when it fails, the run stops

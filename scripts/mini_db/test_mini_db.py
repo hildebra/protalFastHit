@@ -877,6 +877,8 @@ class MiniDbTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             collect.abundance_args("gamma:1")
         self.assertEqual(collect.parse_long_setup("qshmm:QSHMM-ONT-HQ:8000:6000:0.97")["length_mean"], 8000)
+        hifi = collect.parse_long_setup("hifi:15000:3000:3")
+        self.assertEqual((hifi["method"], hifi["length_mean"], hifi["length_sd"], hifi["q_sd"]), ("hifi", 15000, 3000, 3.0))
         with self.assertRaises(SystemExit):
             collect.parse_long_setup("art:x:1:1:1")
         _, units = collect.units_of(opts)
@@ -1039,6 +1041,56 @@ class MiniDbTest(unittest.TestCase):
         self.assertTrue(all(100 <= n <= 1000000 for n in lengths))
         self.assertAlmostEqual(sum(lengths) / len(lengths), 8000, delta=200)
         self.assertEqual(collect.read_length(rng, 1000, 0), 1000)
+        # A hifi setup makes the reads with hifi_reads.py, no pbsim3 needed: one of each template, named after it,
+        # with qualities of HiFi reads.
+        missing = os.path.join(root, "no_pbsim")
+        self.assertIsNone(collect.long_read_sample(task("hifi", plain, missing, setup="hifi:1000:0:3")))
+        with gzip.open(os.path.join(root, "hifi.fq.gz"), "rt") as fh:
+            lines = fh.read().splitlines()
+        with open(os.path.join(root, "tmp", "hifi", "templates.fa")) as fh:
+            names = [line[1:].strip() for line in fh if line.startswith(">")]
+        self.assertEqual([line[1:] for line in lines[0::4]], names)
+        quality = [ord(c) - 33 for line in lines[3::4] for c in line]
+        self.assertGreater(sorted(quality)[len(quality) // 2], 25)
+        for bad in ("hifi:1000:0", "hifi:1000:0:30:3", "hifi:a:0:3"):
+            with self.assertRaises(SystemExit):
+                collect.parse_long_setup(bad)
+
+    def test_hifi_reads(self):
+        # hifi_reads.py: a read of each template whose qualities say how many errors it has (their expected errors
+        # are its errors, overall), reads of Q50 at 5 kb, Q30 at 25 kb and Q20 at 50 kb (SD 3 around), only indels in
+        # homopolymers, the same reads for the same seed.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import numpy as np
+        import hifi_reads
+        self.assertEqual(list(hifi_reads.length_quality([1000, 5000, 15000, 25000, 37500, 50000, 75000])),
+                         [50, 50, 40, 30, 25, 20, 10])
+        rng = np.random.default_rng(3)
+        seqs, groups = [], []
+        for length, count in ((5000, 100), (15000, 100), (25000, 100), (50000, 40)):
+            for _ in range(count):  # runs of random bases, a tenth of them homopolymers of 3 to 8
+                runs = np.where(rng.random(length) < 0.9, rng.geometric(0.6, length), rng.integers(3, 9, length))
+                seqs.append(np.repeat(np.frombuffer(b"ACGT", np.uint8)[rng.integers(0, 4, length)], runs)[:length].tobytes())
+                groups.append(length)
+        groups = np.array(groups)
+        reads, stats = hifi_reads.mutate(seqs, np.random.default_rng(1), 3)
+        self.assertEqual(len(reads), len(seqs))
+        self.assertAlmostEqual(stats["events"].sum() / stats["expected"].sum(), 1.0, delta=0.08)
+        self.assertGreaterEqual(stats["q"].min(), hifi_reads.Q_MIN)
+        for length, q in ((5000, 50), (15000, 40), (25000, 30), (50000, 20)):
+            self.assertAlmostEqual(float(stats["q"][groups == length].mean()), q, delta=1.5, msg=length)
+            self.assertAlmostEqual(float(stats["q"][groups == length].std()), 3, delta=1.0, msg=length)
+        self.assertEqual(stats["homopolymer_substitutions"], 0)
+        for (read, quality), seq in zip(reads, seqs):
+            self.assertEqual(len(read), len(quality))
+            self.assertLess(abs(len(read) - len(seq)), 0.05 * len(seq))
+            self.assertTrue(34 <= min(quality) and max(quality) <= 126)  # Q1 to Q93
+        again, _ = hifi_reads.mutate(seqs, np.random.default_rng(1), 3)
+        self.assertEqual(again, reads)
+        # A read's errors follow its quality: about 10^(-Q/10) per base.
+        errors = stats["events"] / np.array([len(s) for s in seqs])
+        for length, q in ((25000, 30), (50000, 20)):
+            self.assertAlmostEqual(float(np.median(errors[groups == length])), 10 ** (-q / 10), delta=0.4 * 10 ** (-q / 10))
 
     def test_relation_to_novel_species(self):
         # An absent taxon is put down to a species the database lacks when that species is at least as close to

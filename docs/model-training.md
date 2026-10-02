@@ -51,9 +51,16 @@ replays the communities of paired-end point i). The collector draws a long-read 
 they arise until they hold `--long_read_bases`: each read's genome by abundance times genome length,
 its length from a gamma distribution of the setup's mean and SD (100 bp to 1 Mb, as pbsim3's), its
 start uniform over the genome's contigs of 100 bases or more, cut where its contig ends, either
-strand; pbsim3 (`--strategy templ`) then makes one read of each with the setup's error model, in one
-run per sample. (pbsim3's own sampling, once per genome, cut every contig's last read to that
-contig's share of the bases, so that shallow samples were mostly 100 bp reads, one per contig,
+strand. One read is made of each: PacBio HiFi reads by `scripts/hifi_reads.py`, Nanopore reads by
+pbsim3 (`--strategy templ`) with the setup's quality model, in one run per sample. pbsim3 does not
+simulate HiFi reads (it simulates the subreads of several passes, for PacBio's `ccs`), and its reads of
+one pass with an error model have quality 0 throughout, which made protal's `excess_median` about
+−1 for every PacBio taxon until 2026-10-02. `hifi_reads.py` gives each read a quality by its length,
+Q50 up to 5 kb, Q30 at 25 kb, linearly between, Q20 at 50 kb and less beyond (and normal noise of the
+setup's SD, 3), errors mostly as indels in homopolymers, and base qualities that say how likely each
+base is wrong (calibrated: a read's differences are what its qualities expect)
+([report](claude/2026-10-02-pacbio-hifi-reads/README.md)). (pbsim3's own sampling, once per genome,
+cut every contig's last read to that contig's share of the bases, so that shallow samples were mostly 100 bp reads, one per contig,
 [report](claude/2026-10-01-build-profiling/README.md).) All samples are profiled in one protal run, each with its read
 type's model and settings (the map's `READ_TYPE` column), and each read type gets its table:
 `training_data.tsv` (pe), `training_data_se.tsv`, `training_data_pb.tsv`, `training_data_ont.tsv`.
@@ -70,8 +77,9 @@ type's model and settings (the map's `READ_TYPE` column), and each read type get
 | `--abundance` | the simulator's (Poisson-lognormal, sigma 1.3) | `lognormal:SIGMA`, `powerlaw:ALPHA` or `negbin:R:P` |
 | `--read_types` | `pe` | `pe`, `se`, `pb`, `ont`, comma-separated |
 | `--long_read_bases` | `300000,1500000,6000000,30000000,150000000` | bases per long-read sample, one design point each |
-| `--pb_setup`, `--ont_setup` | `errhmm:ERRHMM-SEQUEL:15000:3000:0.999`, `qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36` | pbsim3 method : model : length mean : length SD : accuracy mean (: error mix, for qshmm) |
-| `--pbsim`, `--pbsim_models` | `pbsim`, its data folder | pbsim3 and the folder of its `.model` files |
+| `--pb_setup` | `hifi:15000:3000:3` | `hifi` : length mean : length SD : SD of the reads' quality around their length's (`hifi_reads.py`); or a pbsim3 setup as `--ont_setup`'s |
+| `--ont_setup` | `qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36` | pbsim3 method : model : length mean : length SD : accuracy mean (: error mix, for qshmm) |
+| `--pbsim`, `--pbsim_models` | `pbsim`, its data folder | pbsim3 and the folder of its `.model` files (for ont, and pb with a pbsim3 setup) |
 | `--archaea` | 0 | archaeal species per sample |
 | `--congeners` | 0 | species of one genus in every sample of a design point (the genus drawn per point): relatives share real samples, but hardly ever uniform draws from many genera |
 | `--novel_species` | | species the database lacks (e.g. those a training database leaves out), optionally with the rank they were held out at and the clade (`heldout_species.txt`), for `meta_novel_*` |

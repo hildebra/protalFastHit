@@ -821,10 +821,11 @@ def check_tools(args, read_types):
     executable(args.simulator, "the simulator", "it is built with protal (target simulate_metagenomes), or pass --simulator")
     executable("art_illumina", "ART", "the simulator simulates the Illumina reads with it: install ART (conda: art, "
                                       "envs/protal-db-build.yaml)")
-    if any(t in ("pb", "ont") for t in read_types):
-        executable(args.pbsim, "pbsim3", "pb and ont reads are simulated with it: install it (e.g. micromamba install "
-                                         "-c conda-forge -c bioconda pbsim3), pass --pbsim, or leave pb and ont out of "
-                                         "--read-types")
+    pbsim_types = [t for t in read_types if t == "ont" or (t == "pb" and not args.pb_setup.startswith("hifi:"))]
+    if pbsim_types:
+        executable(args.pbsim, "pbsim3", f"{' and '.join(pbsim_types)} reads are simulated with it: install it (e.g. "
+                                         "micromamba install -c conda-forge -c bioconda pbsim3), pass --pbsim, or "
+                                         "leave them out of --read-types")
     imports = subprocess.run([sys.executable, "-c", "import joblib, numpy, pandas, sklearn"], capture_output=True, text=True)
     if imports.returncode:
         problems.append(f"{sys.executable} cannot import what the trainer needs ({imports.stderr.strip().splitlines()[-1]}): "
@@ -905,15 +906,18 @@ def main():
                         "(default: the simulator's, Poisson-lognormal with sigma 1.3)")
     p.add_argument("--read-types", default="pe,se,pb,ont",
                    help="the read types to train a model for (default pe,se,pb,ont): se from the paired-end "
-                        "samples' first reads, pb and ont from long reads of the same communities (pbsim3). The "
+                        "samples' first reads, pb and ont from long reads of the same communities (HiFi reads by "
+                        "hifi_reads.py, Nanopore reads by pbsim3). The "
                         "models are trained in parallel; read types left out keep placeholders")
     p.add_argument("--long-read-bases", default="300000,1500000,6000000,30000000,150000000",
                    help="bases per long-read sample, one design point each (collect_training_data.py)")
-    p.add_argument("--pb-setup", default="errhmm:ERRHMM-SEQUEL:15000:3000:0.999",
-                   help="pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN of PacBio reads")
+    p.add_argument("--pb-setup", default="hifi:15000:3000:3",
+                   help="PacBio reads: hifi:LENGTH_MEAN:LENGTH_SD:Q_SD, HiFi reads by hifi_reads.py, their quality by "
+                        "their length (Q50 at 5 kb to Q30 at 25 kb, Q20 at 50 kb) and Q_SD around it (default), or a "
+                        "pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN")
     p.add_argument("--ont-setup", default="qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36",
                    help="pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN of Nanopore reads")
-    p.add_argument("--pbsim", default="pbsim", help="pbsim3 executable, for pb and ont")
+    p.add_argument("--pbsim", default="pbsim", help="pbsim3 executable, for ont (and pb with a pbsim3 setup)")
     p.add_argument("--pbsim-models", help="folder of pbsim3's .model files (default: found next to the executable)")
     p.add_argument("--test-samples", type=int, default=4,
                    help="samples per design point of the independent test set (default 4; 0: none). The test set "

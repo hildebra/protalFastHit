@@ -13,11 +13,13 @@ the database's reference). Train on it with
     python3 scripts/random_forest_cmdline.py --truth-file OUT/training_data.tsv --output-prefix OUT/model
 
 Read types (--read_types): pe, the paired-end samples above; se, the same samples' first reads
-alone, profiled as single-end reads; pb and ont, long reads of the same communities simulated with
-pbsim3 (--pb_setup, --ont_setup), --long_read_bases per sample, one design point each. The collector
-draws a long-read sample's reads (each read's genome by abundance times length, its length from the
-setup's gamma distribution, its start uniform, cut where its contig ends) and pbsim3 turns them into
-reads with its error model (--strategy templ), in one run per sample. Every read type gets its table:
+alone, profiled as single-end reads; pb and ont, long reads of the same communities (--pb_setup,
+--ont_setup), --long_read_bases per sample, one design point each. The collector draws a long-read
+sample's reads (each read's genome by abundance times length, its length from the setup's gamma
+distribution, its start uniform, cut where its contig ends); PacBio HiFi reads are made of them by
+hifi_reads.py (errors mostly in homopolymers, calibrated qualities, Q50 for 5 kb reads to Q30 for 25 kb
+and Q20 for 50 kb: pbsim3 simulates no HiFi reads, and its one-pass reads have quality 0 throughout),
+Nanopore reads by pbsim3 with its quality model (--strategy templ), in one run per sample. Every read type gets its table:
 training_data.tsv (pe), training_data_se.tsv, training_data_pb.tsv, training_data_ont.tsv; protal
 profiles each sample with that read type's model and settings.
 
@@ -91,9 +93,9 @@ def parse_args(argv=None):
     p.add_argument("--long_read_bases", default="300000,1500000,6000000,30000000,150000000",
                    help="bases per long-read sample (pb, ont), one design point each; point i replays the "
                         "communities of paired-end point i (default: about the paired-end points' bases)")
-    p.add_argument("--pb_setup", default="errhmm:ERRHMM-SEQUEL:15000:3000:0.999",
-                   help="pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN of PacBio reads (default: HiFi-like "
-                        "reads from the Sequel error model)")
+    p.add_argument("--pb_setup", default="hifi:15000:3000:3",
+                   help="PacBio reads: hifi:LENGTH_MEAN:LENGTH_SD:Q_SD, HiFi reads by hifi_reads.py, their quality by "
+                        "their length and Q_SD around it (default), or a pbsim3 setup as --ont_setup's")
     p.add_argument("--ont_setup", default="qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36",
                    help="pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN of Nanopore reads")
     p.add_argument("--pbsim", default="pbsim", help="pbsim3 binary (default: pbsim on PATH)")
@@ -333,13 +335,27 @@ def art_profile_args(profile):
     return ["--sequencer", "HS25", "--extra_art_args", f"-1 {files[0]} -2 {files[-1]}"]
 
 
+PBSIM_METHODS = ("qshmm", "errhmm")
+
+
 def parse_long_setup(text):
-    """pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN[:SUB/INS/DEL]; the last, for qshmm only, is
+    """hifi:LENGTH_MEAN:LENGTH_SD:Q_SD (hifi_reads.py: the SD of the reads' quality around their length's, Phred), or
+    pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN[:SUB/INS/DEL]; the last, for qshmm only, is
     pbsim3's --difference-ratio (it recommends 39/24/36 for ONT, 22/45/33 for Sequel)."""
     parts = text.split(":")
+    if parts[0] == "hifi":
+        try:
+            if len(parts) != 4:
+                raise ValueError
+            length_mean, length_sd, q_sd = (float(v) for v in parts[1:])
+        except ValueError:
+            sys.exit(f"long-read setup {text!r}: expected hifi:LENGTH_MEAN:LENGTH_SD:Q_SD")
+        return {"method": "hifi", "model": None, "length_mean": int(length_mean), "length_sd": int(length_sd),
+                "q_sd": q_sd, "ratio": ""}
     if len(parts) not in (5, 6) or parts[0] not in ("qshmm", "errhmm") or (len(parts) == 6 and parts[0] != "qshmm"):
-        sys.exit(f"long-read setup {text!r}: expected METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN, METHOD "
-                 "qshmm or errhmm, and for qshmm optionally :SUB/INS/DEL")
+        sys.exit(f"long-read setup {text!r}: expected hifi:LENGTH_MEAN:LENGTH_SD:Q_SD, or "
+                 "METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN with METHOD qshmm or errhmm, and for qshmm "
+                 "optionally :SUB/INS/DEL")
     return {"method": parts[0], "model": parts[1], "length_mean": int(float(parts[2])),
             "length_sd": int(float(parts[3])), "accuracy": float(parts[4]),
             "ratio": parts[5].replace("/", ":") if len(parts) == 6 else ""}
@@ -510,6 +526,12 @@ def pbsim_model(opts, name):
 # How the long reads are made, part of a long-read point's key: points simulated otherwise (by pbsim3 per
 # genome, which cut every contig's last read to its quota) are simulated again.
 LONG_READS = "reads drawn by the collector, one pbsim3 --strategy templ run per sample"
+
+
+def hifi_model():
+    """hifi_reads.MODEL, which says how hifi_reads.py makes its reads."""
+    import hifi_reads
+    return hifi_reads.MODEL
 PBSIM_MIN_LENGTH = 100  # pbsim3's --length-min: its shortest read (and the shortest sequence it takes)
 PBSIM_MAX_LENGTH = 1000000  # its --length-max
 COMPLEMENT = bytes.maketrans(b"ACGTN", b"TGCAN")
@@ -592,10 +614,11 @@ def last_line(path, limit=300):
 
 
 def long_read_sample(task):
-    """One long-read sample (task: dict): its reads drawn as templates (long_read_templates), then one pbsim3
-    run with --strategy templ, which makes one read of each template, with the model's errors and qualities,
-    and names it <id prefix>_<n> after the template's place n in the file; the reads are renamed after their
-    templates (g<genome>x_<n>) into task["out"]. -> None, or why it failed."""
+    """One long-read sample (task: dict): its reads drawn as templates (long_read_templates), then a read of
+    each, named after its template (g<genome>x_<n>), into task["out"]: by hifi_reads.py for a hifi setup, else
+    by one pbsim3 run with --strategy templ, which makes one read of each template, with the model's errors
+    and qualities, and names it <id prefix>_<n> after the template's place n in the file. -> None, or why it
+    failed."""
     tmp = task["tmp"]
     os.makedirs(tmp, exist_ok=True)
     task = {**task, "templates": os.path.join(tmp, "templates.fa")}
@@ -603,6 +626,13 @@ def long_read_sample(task):
     if error:
         return f"{task['sample']}: {error}"
     setup = task["setup"]
+    if setup["method"] == "hifi":
+        import hifi_reads  # numpy: only long-read collections need it
+        reads = hifi_reads.simulate(task["templates"], task["out"] + ".partial", setup["q_sd"], task["seed"])
+        if reads != len(names):
+            return f"{task['sample']}: hifi_reads.py made {reads} reads of {len(names)} templates"
+        os.replace(task["out"] + ".partial", task["out"])
+        return None
     prefix = os.path.join(tmp, "r")
     command = [task["pbsim"], "--strategy", "templ", "--method", setup["method"], f"--{setup['method']}", task["model"],
                "--template", task["templates"], "--accuracy-mean", str(setup["accuracy"]), "--seed", str(task["seed"]),
@@ -649,7 +679,7 @@ def simulate_long(points, opts, jobs, keys=None):
         by_sample = collections.OrderedDict()
         for row in manifest_rows(community_dir):
             by_sample.setdefault(row["sample"], []).append(row)
-        model = pbsim_model(opts, unit["setup"]["model"])
+        model = pbsim_model(opts, unit["setup"]["model"]) if unit["setup"]["method"] in PBSIM_METHODS else None
         shutil.rmtree(os.path.join(sim, "tmp"), ignore_errors=True)
         os.makedirs(os.path.join(sim, "reads"), exist_ok=True)
         rows = []
@@ -925,9 +955,11 @@ def main(argv=None):
     pending = []
     for i, unit in enumerate(long_units):
         base = point_dirs(unit["point"], opts)[0]
+        pbsim = unit["setup"]["method"] in PBSIM_METHODS
         keys[unit["name"]] = {"community": keys[unit["community"]["name"]], "setup": unit["setup"], "bases": unit["bases"],
-                              "index": i, "seed": opts.seed, "pbsim": identity(opts.pbsim),
-                              "model": identity(pbsim_model(opts, unit["setup"]["model"])), "reads": LONG_READS}
+                              "index": i, "seed": opts.seed, "pbsim": identity(opts.pbsim) if pbsim else None,
+                              "model": identity(pbsim_model(opts, unit["setup"]["model"])) if pbsim else hifi_model(),
+                              "reads": LONG_READS}
         if simulated(unit, opts) and not same_key(os.path.join(base, "simulated.json"), keys[unit["name"]]):
             print(f"{unit['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
             shutil.rmtree(base)
