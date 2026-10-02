@@ -1,0 +1,20 @@
+12.99 12.14 8.36 9/252 3652714
+bytes	100000	sync_first	0	write_s	0.001	collapse_s	0.002	result	ok
+bytes	100000	sync_first	1	write_s	0.011	collapse_s	0.000	result	ok
+bytes	40000000	sync_first	0	write_s	0.029	collapse_s	0.152	result	ok
+bytes	40000000	sync_first	1	write_s	0.178	collapse_s	0.002	result	ok
+bytes	400000000	sync_first	0	write_s	0.286	collapse_s	1.538	result	ok
+bytes	400000000	sync_first	1	write_s	1.875	collapse_s	0.018	result	ok
+bytes	100000	sync_first	0	write_s	0.001	collapse_s	0.001	result	ok
+bytes	100000	sync_first	1	write_s	0.008	collapse_s	0.005	result	ok
+bytes	40000000	sync_first	0	write_s	0.010	collapse_s	0.163	result	ok
+bytes	40000000	sync_first	1	write_s	0.179	collapse_s	0.002	result	ok
+bytes	400000000	sync_first	0	write_s	0.084	collapse_s	1.578	result	ok
+bytes	400000000	sync_first	1	write_s	0.867	collapse_s	0.017	result	ok
+bytes	100000	sync_first	0	write_s	0.001	collapse_s	0.001	result	ok
+bytes	100000	sync_first	1	write_s	0.014	collapse_s	0.000	result	ok
+bytes	40000000	sync_first	0	write_s	0.011	collapse_s	0.026	result	ok
+bytes	40000000	sync_first	1	write_s	0.037	collapse_s	0.003	result	ok
+bytes	400000000	sync_first	0	write_s	0.080	collapse_s	0.449	result	ok
+bytes	400000000	sync_first	1	write_s	0.239	collapse_s	0.019	result	ok
+COLLAPSE DONE

@@ -37,8 +37,8 @@ What limits a run on many threads is the work that runs on **one** thread:
    BGZF, binding from about 50 and 75 threads; where the input nears its limit, aligners spinning on the reader
    lock keep the inflating threads off the cores.)
 3. Smaller serial pieces are the index load (0.7–1 s at 6 threads), copying the SAM records behind the header
-   (1.4–1.7 s at 6 threads), and the profiling of several samples, whose static schedule balances unevenly sized
-   samples poorly.
+   (1.4–1.7 s at 6 threads; 0.1–0.24 s when measured again in follow-up 3), and the profiling of several
+   samples, whose static schedule balances unevenly sized samples poorly.
 
 ## The locks and hand-offs
 
@@ -177,6 +177,9 @@ schedule. With more samples than threads and samples of different depth, a threa
 ones. `schedule(dynamic, 1)` fixes that and leaves the outputs unchanged.
 
 ### The SAM's records behind its header
+
+(Follow-up 3 measured this step again: 0.10–0.24 s for the same SAM in nine runs, the copy itself 0.07–0.22 s.
+The times below do not reproduce, and a `.sam.zst` no longer copies its records.)
 
 `SamOutput::Finish` copies the records file behind the header once the alignment is done (1.4–1.7 s at 6
 threads, 2.1 s at 1), because the header lists only the genes the records name. Profiling could read the records
@@ -584,28 +587,29 @@ Time against `critical(reader)` in the same series:
   22.8 s and 23.6 s in the other two. For BGZF and uncompressed input the differences are within the runs'
   spread.
 
-`reader_lock.patch` (on `a212559`, not committed) is that lock: `ReaderLock` in `SeqReader.h` with 2,000 tries,
-used by `SeqReader`, `SeqReaderSE` and `SeqReaderPE` in place of `critical(reader)`, and a unit test that
-single-end readers on 8 threads take every read once (`ThreadsTakeEverySingleEndReadOnce`). On a clean tree it
-passes the unit tests (270/270) and the e2e tests (121/121) (`reader_lock_check.txt`). ThreadSanitizer was not
-run on it: the readers run on OpenMP threads, and libgomp is not instrumented.
+`reader_lock.patch` (on `a212559`; committed as `88f20d4`) is that lock: `ReaderLock` in `SeqReader.h` with
+2,000 tries, used by `SeqReader`, `SeqReaderSE` and `SeqReaderPE` in place of `critical(reader)`, and a unit
+test that single-end readers on 8 threads take every read once (`ThreadsTakeEverySingleEndReadOnce`). On a clean
+tree it passes the unit tests (270/270) and the e2e tests (121/121) (`reader_lock_check.txt`). ThreadSanitizer was
+not run on it: the readers run on OpenMP threads, and libgomp is not instrumented.
 
 #### What more parallel input would buy
 
 A whole 5M-pair run on N threads, from the parts measured here and in the first audit: index load 0.8 s, the
-SAM records behind the header 1.4 s (serial), profiling about max(0.8 s, 15 CPU s / N) + 0.3 s (the reader path
-at 2.1 GB/s, the CPU of 6 threads, the serial steps), and aligning at 36k pairs/s per thread (BGZF at 6
-threads), but not faster than the input ceiling (gzip 1.7M, BGZF 2.7M, the reader at least 3.8M pairs/s). That
-per-thread rate is the laptop's at 6 threads; on a server with many cores it is likely lower, which moves the
-ceilings to more threads.
+SAM's header and records 0.01 s (corrected in follow-up 3: this table first took the first audit's 1.4 s,
+which does not reproduce, and a `.sam.zst` no longer copies its records), profiling about
+max(0.8 s, 15 CPU s / N) + 0.3 s (the reader path at 2.1 GB/s, the CPU of 6 threads, the serial steps), and
+aligning at 36k pairs/s per thread (BGZF at 6 threads), but not faster than the input ceiling (gzip 1.7M,
+BGZF 2.7M, the reader at least 3.8M pairs/s). That per-thread rate is the laptop's at 6 threads; on a server
+with many cores it is likely lower, which moves the ceilings to more threads.
 
 | N | aligning, no ceiling | run, input without limit | gzip | BGZF |
 |---|---|---|---|---|
-| 16 | 8.7 s | 12.1 s | 12.1 s | 12.1 s |
-| 32 | 4.3 s | 7.6 s | 7.6 s | 7.6 s |
-| 48 | 2.9 s | 6.2 s | 6.2 s | 6.2 s |
-| 64 | 2.2 s | 5.5 s | 6.2 s (+14%) | 5.5 s |
-| 128 | 1.1 s (reader: 1.3 s) | 4.6 s | 6.2 s (+35%) | 5.2 s (+12%) |
+| 16 | 8.7 s | 10.7 s | 10.7 s | 10.7 s |
+| 32 | 4.3 s | 6.3 s | 6.3 s | 6.3 s |
+| 48 | 2.9 s | 4.8 s | 4.9 s | 4.8 s |
+| 64 | 2.2 s | 4.1 s | 4.9 s (+19%) | 4.1 s |
+| 128 | 1.1 s (reader: 1.3 s) | 3.2 s | 4.9 s (+50%) | 3.8 s (+16%) |
 
 These are the ceilings with cores to spare. Inside protal the inflating threads share the aligners' cores: on
 these 6 vCPUs gzip then delivered 0.95M pairs/s (mini database, 6 threads), and 1.24M with 4 aligners or with
@@ -618,15 +622,17 @@ So:
   faster** on this database; on GTDB, where a pair costs more to align, it would take more threads still.
 - **What does help now is how the aligners wait for the reader lock**: with gzip input, the usual case for
   real reads, a lock whose waiters sleep after a short try aligns about 6% faster at `-t` equal to the cores
-  (about 5% of a whole run), and up to 23% where the input is the limit (`reader_lock.patch`, not committed).
-- **From about 64 threads, a run with gzip input would be 11–26% shorter** if R2 were inflated faster.
+  (about 5% of a whole run), and up to 23% where the input is the limit (`reader_lock.patch`; committed as
+  `88f20d4`, follow-up 3).
+- **From about 64 threads, a run with gzip input would be 16–33% shorter** if R2 were inflated faster.
   Standard gzip cannot be split; a faster inflater (ISA-L, declined earlier for portability) or speculative
   parallel decoding (as rapidgzip does) would be needed. BGZF can be inflated block by block on several
   threads (as the `.sam.zst` frames now are), which helps only above about 75 threads, up to the reader's
   3.8M pairs/s or more.
 - **Larger batches** buy nothing measurable at any of the demands tested.
-- At 32 threads and more, the serial copy of the SAM records behind the header (1.4 s, a fifth of a 32-thread
-  run) costs more than the input path does.
+- This follow-up first said here that the serial copy of the SAM records behind the header (1.4 s, from the
+  first audit) cost more at 32 threads than the input path. It does not: the copy takes 0.1–0.2 s, and a
+  `.sam.zst` no longer makes it (follow-up 3).
 
 ### How it was run
 
@@ -651,3 +657,116 @@ bash scripts/followup2/check.sh lock scripts/followup2/reader_lock.patch a212559
 decompression threads was settable. The work folder is `~/mt-work` in WSL; the uncompressed and pigz copies of
 the sample are the first audit's, in `~/mt-audit/plain`. `summary2.sh`, `policy_summary.sh`,
 `demand_summary.sh` and `rb_summary.sh` make the `*_summary.tsv` files in `results/followup2` from the runs.
+
+## Follow-up 3: the reader lock committed, and the SAM records no longer copied
+
+2026-10-02, branch `audit-fixes`, the same machine and data. Two commits:
+
+- **`88f20d4`**: the reader lock of follow-up 2 (`reader_lock.patch`): 2,000 tries of `try_lock`, then
+  `std::mutex::lock`, in place of `critical(reader)`.
+- **`8798733`**: a `.sam.zst` takes its records straight into the SAM, behind room for its header.
+
+### The step was not what the audit said
+
+The first audit put "Writing the SAM header and file" at 1.37 s of a 6-thread run (0.7–2.1 s across its runs),
+and follow-up 2 projected it as a fifth of a 32-thread run. Measured again, with `samstep.patch` (the time of
+each part) on `88f20d4`, five runs of the 5M-pair sample at 6 threads (`results/followup3/steps.tsv`):
+
+| part | ms |
+|---|---|
+| the genes, sorted, and the header text | 5–9 |
+| the marker and header, compressed and written | 2–9 |
+| copying the records behind them (`copy_file_range`) | 149–217 |
+| removing the temporary records file | 9–12 |
+| the whole step | 165–243 |
+
+Six more runs of the same build gave 102–413 ms (`real_with_collapse.txt`, `real_first.txt`, `real.txt`). The code
+of this step is the same in 0.7.1, so the first audit's 0.7–2.1 s must have come from the machine at the time;
+this laptop does not reproduce them.
+
+Parallel copying does not help either. `copybench` copies the 400 MB records behind a 2 MB header with
+`copy_file_range` or `pread`/`pwrite` at explicit offsets, on 1–6 threads (`copy.txt`):
+
+| | 1 thread | 2 | 4 | 6 |
+|---|---|---|---|---|
+| `copy_file_range`, records synced and cached | 0.069–0.157 s | 0.069–0.082 s | 0.074–0.079 s | 0.097–0.104 s |
+| `pread`/`pwrite` | 0.101–0.178 s | 0.082–0.098 s | 0.084–0.112 s | 0.091–0.098 s |
+| `copy_file_range`, records just written (as in a run) | 0.066–0.149 s | 0.070–0.097 s | 0.072–0.079 s | |
+
+Beyond the first pass, one thread is as fast as several: the kernel serialises buffered writes to one file. So
+instead of copying in parallel, a `.sam.zst` now skips the copy (chosen among three options: correct the report
+only, skip the copy, or overlap it with the next sample).
+
+### Records straight into the `.sam.zst`
+
+- Without a header given up front, `SamOutput` now opens the SAM itself for a `.sam.zst` and writes the records
+  from an offset `header_room` on, leaving the bytes before it unwritten.
+- `Finish` writes the marker and the header's frames at the start, and a skippable frame (magic 0x184D2A51)
+  from there to the records. The seek table lists it, without content, as it lists the marker. Its content is
+  never written: a hole where the file system has them.
+- A header too large for the room is written as before: the SAM is renamed to the records file and the records
+  are copied behind the header, from the room's end.
+- `.sam.gz` and plain SAM are unchanged. Plain SAM has nothing to pad with; BGZF could pad with empty blocks
+  carrying the padding in their extra field, which was not tried.
+- The room, `sam_zstd::HeaderRoom(genes, input_bytes)`: 8 bytes per gene of the database and no more than 1/16
+  of the read files' size, 16 KB to 1 MB, in whole 4 KB. On the v0.7.1 benchmark's 66 SAMs of the full
+  database, a compressed header took 3.5 bytes per `@SQ` line (127 KB for the 5M-pair sample's 36,529 genes)
+  and at most 3% of the read files (the 1k single-end samples; `header_sizes.tsv`, `header_ratio.tsv`).
+
+Cutting the unused room out of the file was tried first (`FALLOC_FL_COLLAPSE_RANGE`, ext4 and XFS) and dropped.
+Before it shifts the extents, ext4 writes the file's dirty pages to disk and waits (`collapse.txt`):
+
+| freshly written | 100 KB | 40 MB | 400 MB |
+|---|---|---|---|
+| collapse, data dirty | 1–2 ms | 26–163 ms | 0.45–1.58 s |
+| collapse, data synced first | 0–5 ms | 2–3 ms | 17–19 ms |
+
+In a whole run with it, the step of the 1k-pair sample took 1.59 s once, against under 1 ms without
+(`real_with_collapse.txt`): its 100 KB had to reach a disk that other sessions kept busy. So the unused room
+stays: a SAM shows up to the room more in `ls -l` than in `du`.
+
+### Checks
+
+- `--profile_only` is not enough here, since the change is in how the SAM is written. Whole runs (alignment
+  and profiling) at `-t 1`, where the records come in a fixed order, of `88f20d4` and of the change: paired-end
+  500k and 1k pairs and Nanopore 3 Mb give the same SAM text (`zstdcat`) and the same outputs apart from the
+  SAM and the timings (318, 140 and 236 files); `zstd -t` passes on the new SAMs (`real.txt`).
+- The SAMs: 500k pairs 38,350,040 → 38,989,046 bytes (`ls`), 37,452 KB on disk for both (`du`); 1k pairs
+  104,757 → 118,449 bytes, 104 KB on disk; Nanopore 3 Mb 1,005,204 → 1,173,686 bytes, 984 KB on disk.
+- Unit tests 274/274 and e2e 121/121 on a clean tree, on `88f20d4` and again on `5c7d64c`, another session's
+  commit that came in between (`check.txt`). New tests
+  (`tests/test_SamFile.cpp`): the records straight into the SAM, read by both zstd readers and the same text
+  as a copied SAM, with the seek table's frames where they belong; incompressible headers from well inside
+  the room to past it, so that the padding frame fits, fits without content, or cannot fit (1–7 bytes) and
+  the records are copied; a SAM without records; nothing left behind without `Finish`; the room's bounds.
+  The SAM file tests also pass with `TMPDIR` on tmpfs.
+
+### Speed
+
+The 5M-pair sample at 6 threads, `--no_profile`, alternated, twice each (`real.txt`; the first version of the
+change, with 1/32 of the input as the room's bound, gave 7 and 9 ms against 102 and 119 ms, `real_first.txt`):
+
+| | `88f20d4` | the change |
+|---|---|---|
+| "Writing the SAM header and file" | 148 / 125 ms | 9 / 8 ms |
+| the records written to disk | twice (temporary file, SAM) | once |
+| the SAM (`ls`) | 400.5–400.9 MB | 401.0–401.1 MB |
+
+The 0.1 s saved is about 0.5% of a 6-thread run and 2% of a projected 32-thread one. The records reaching the disk
+once instead of twice matters more where writing is slow, such as a network file system.
+
+### How it was run
+
+```bash
+bash scripts/followup3/samstep.sh       # 88f20d4 with samstep.patch: the step's parts, five runs
+bash scripts/followup3/copy_run.sh      # copybench: 1-6 threads, records synced and cached
+bash scripts/followup3/copy_dirty.sh    # copybench: records just written
+bash scripts/followup3/collapse_run.sh  # FALLOC_FL_COLLAPSE_RANGE on files just written, dirty or synced
+bash scripts/followup3/real.sh          # whole runs at -t 1 (identity) and -t 6 (the step), both builds
+bash scripts/followup3/header_sizes.sh  # the headers of the v0.7.1 benchmark's SAMs, plain and zstd -3
+bash scripts/followup3/header_ratio.sh  # the same against their read files' bytes
+bash scripts/followup2/check.sh samroomchk PATCH 88f20d4   # PATCH: git diff 88f20d4 8798733
+```
+
+`real.sh` takes `88f20d4` as the `samstep` build (its SAMSTEP lines go to stderr only) and the change as built by
+`build_wt.sh samroom PATCH 88f20d4 "protal_tests protal"`; both in `~/mt-work` in WSL.

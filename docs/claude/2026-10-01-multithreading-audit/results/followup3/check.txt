@@ -1,0 +1,8 @@
+# on 88f20d4 + the change
+ctest: 100% tests passed, 0 tests failed out of 274
+e2e: Ran 121 tests in 146.889s  OK 
+OK samroomchk: unit and e2e passed
+# on 5c7d64c + the change (the commit's parent)
+ctest: 100% tests passed, 0 tests failed out of 274
+e2e: Ran 121 tests in 142.140s  OK 
+OK samroomhead: unit and e2e passed

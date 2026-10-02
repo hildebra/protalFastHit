@@ -1,0 +1,17 @@
+SAME SAM text pe500k
+SAME outputs pe500k (318 files)
+zstd -t OK pe500k
+pe500k sizes: base 38350040 bytes, room 38989046 bytes, disk 37452 / 37452 KB; step 11ms / 1ms
+SAME SAM text pe1k
+SAME outputs pe1k (140 files)
+zstd -t OK pe1k
+pe1k sizes: base 104757 bytes, room 118449 bytes, disk 104 / 104 KB; step less than 1ms / less than 1ms
+SAME SAM text ont3M
+SAME outputs ont3M (236 files)
+zstd -t OK ont3M
+ont3M sizes: base 1005204 bytes, room 1087670 bytes, disk 984 / 984 KB; step 1ms / less than 1ms
+deep base rep 1: 18s 645ms; SAM step 102ms; wall 19.35 s; 400559035 bytes
+deep room rep 1: 19s 430ms; SAM step 7ms; wall 20.01 s; 401169399 bytes
+deep base rep 2: 24s 597ms; SAM step 119ms; wall 25.38 s; 400713636 bytes
+deep room rep 2: 23s 541ms; SAM step 9ms; wall 24.19 s; 401122959 bytes
+REAL DONE

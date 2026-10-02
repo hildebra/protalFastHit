@@ -1,0 +1,73 @@
+b6/s1.sam.zst	SQ	36529	plain	786588	zstd3	126568	sam	400556579
+v071.full.ont.ont_b3000000_s_1/ont_b3000000_s_1.sam.zst	SQ	1453	plain	31481	zstd3	7580	sam	1009601
+v071.full.ont.ont_b3000000_s_2/ont_b3000000_s_2.sam.zst	SQ	773	plain	16677	zstd3	4044	sam	937964
+v071.full.ont.ont_b3000000_s_3/ont_b3000000_s_3.sam.zst	SQ	1281	plain	27672	zstd3	6692	sam	1146316
+v071.full.ont.ont_b3000000_s_4/ont_b3000000_s_4.sam.zst	SQ	1194	plain	25771	zstd3	6015	sam	1076380
+v071.full.ont.ont_b90000000_s_1/ont_b90000000_s_1.sam.zst	SQ	11248	plain	242439	zstd3	48540	sam	27875525
+v071.full.ont.ont_b90000000_s_2/ont_b90000000_s_2.sam.zst	SQ	3496	plain	75186	zstd3	15770	sam	27507354
+v071.full.ont.ont_b90000000_s_3/ont_b90000000_s_3.sam.zst	SQ	8706	plain	187601	zstd3	38915	sam	29443660
+v071.full.ont.ont_b90000000_s_4/ont_b90000000_s_4.sam.zst	SQ	13601	plain	292834	zstd3	58410	sam	28708087
+v071.full.pb.pb_b3000000_s_1/pb_b3000000_s_1.sam.zst	SQ	1047	plain	22629	zstd3	5544	sam	366814
+v071.full.pb.pb_b3000000_s_2/pb_b3000000_s_2.sam.zst	SQ	610	plain	13154	zstd3	3252	sam	306307
+v071.full.pb.pb_b3000000_s_3/pb_b3000000_s_3.sam.zst	SQ	900	plain	19381	zstd3	4788	sam	357394
+v071.full.pb.pb_b3000000_s_4/pb_b3000000_s_4.sam.zst	SQ	885	plain	19127	zstd3	4665	sam	367652
+v071.full.pb.pb_b90000000_s_1/pb_b90000000_s_1.sam.zst	SQ	8960	plain	192893	zstd3	39418	sam	8104741
+v071.full.pb.pb_b90000000_s_2/pb_b90000000_s_2.sam.zst	SQ	2712	plain	58284	zstd3	12377	sam	7112378
+v071.full.pb.pb_b90000000_s_3/pb_b90000000_s_3.sam.zst	SQ	7135	plain	153588	zstd3	32349	sam	8283735
+v071.full.pb.pb_b90000000_s_4/pb_b90000000_s_4.sam.zst	SQ	11142	plain	239614	zstd3	48658	sam	8637330
+v071.full.pe.rl100_p10000_s_1/rl100_p10000_s_1.sam.zst	SQ	1839	plain	39720	zstd3	8595	sam	996419
+v071.full.pe.rl100_p10000_s_2/rl100_p10000_s_2.sam.zst	SQ	2860	plain	62139	zstd3	14123	sam	951785
+v071.full.pe.rl100_p10000_s_3/rl100_p10000_s_3.sam.zst	SQ	3013	plain	65400	zstd3	14579	sam	1039078
+v071.full.pe.rl100_p10000_s_4/rl100_p10000_s_4.sam.zst	SQ	2026	plain	43878	zstd3	9703	sam	1099589
+v071.full.pe.rl100_p1000_s_1/rl100_p1000_s_1.sam.zst	SQ	412	plain	8982	zstd3	2300	sam	104592
+v071.full.pe.rl100_p1000_s_2/rl100_p1000_s_2.sam.zst	SQ	395	plain	8638	zstd3	2226	sam	99698
+v071.full.pe.rl100_p1000_s_3/rl100_p1000_s_3.sam.zst	SQ	299	plain	6510	zstd3	1651	sam	81268
+v071.full.pe.rl100_p1000_s_4/rl100_p1000_s_4.sam.zst	SQ	411	plain	8971	zstd3	2361	sam	95256
+v071.full.pe.rl100_p500000_s_1/rl100_p500000_s_1.sam.zst	SQ	26029	plain	562183	zstd3	99909	sam	47796145
+v071.full.pe.rl100_p500000_s_2/rl100_p500000_s_2.sam.zst	SQ	18643	plain	402580	zstd3	73740	sam	51230529
+v071.full.pe.rl100_p500000_s_3/rl100_p500000_s_3.sam.zst	SQ	30418	plain	657045	zstd3	112925	sam	49198847
+v071.full.pe.rl100_p500000_s_4/rl100_p500000_s_4.sam.zst	SQ	29581	plain	638916	zstd3	109697	sam	49012583
+v071.full.pe.rl150_p10000_s_1/rl150_p10000_s_1.sam.zst	SQ	3184	plain	69092	zstd3	15386	sam	1056081
+v071.full.pe.rl150_p10000_s_2/rl150_p10000_s_2.sam.zst	SQ	1298	plain	28128	zstd3	6434	sam	1012117
+v071.full.pe.rl150_p10000_s_3/rl150_p10000_s_3.sam.zst	SQ	2311	plain	50200	zstd3	11526	sam	1108054
+v071.full.pe.rl150_p10000_s_4/rl150_p10000_s_4.sam.zst	SQ	3704	plain	80399	zstd3	18096	sam	1065345
+v071.full.pe.rl150_p1000_s_1/rl150_p1000_s_1.sam.zst	SQ	462	plain	10087	zstd3	2645	sam	108073
+v071.full.pe.rl150_p1000_s_2/rl150_p1000_s_2.sam.zst	SQ	341	plain	7431	zstd3	1919	sam	94800
+v071.full.pe.rl150_p1000_s_3/rl150_p1000_s_3.sam.zst	SQ	420	plain	9110	zstd3	2360	sam	112160
+v071.full.pe.rl150_p1000_s_4/rl150_p1000_s_4.sam.zst	SQ	456	plain	9941	zstd3	2527	sam	110624
+v071.full.pe.rl150_p5000000_s_1/rl150_p5000000_s_1.sam.zst	SQ	36529	plain	786588	zstd3	126568	sam	400658600
+v071.full.pe.rl150_p5000000_s_2/rl150_p5000000_s_2.sam.zst	SQ	35223	plain	758446	zstd3	120711	sam	368285078
+v071.full.pe.rl150_p500000_s_1/rl150_p500000_s_1.sam.zst	SQ	8890	plain	191247	zstd3	36857	sam	41980416
+v071.full.pe.rl150_p500000_s_2/rl150_p500000_s_2.sam.zst	SQ	17029	plain	367362	zstd3	66961	sam	46154263
+v071.full.pe.rl150_p500000_s_3/rl150_p500000_s_3.sam.zst	SQ	13418	plain	289312	zstd3	53825	sam	45910289
+v071.full.pe.rl150_p500000_s_4/rl150_p500000_s_4.sam.zst	SQ	15495	plain	334148	zstd3	59484	sam	38964543
+v071.full.se.rl100_p10000_s_1/rl100_p10000_s_1.sam.zst	SQ	1625	plain	35212	zstd3	7770	sam	495628
+v071.full.se.rl100_p10000_s_2/rl100_p10000_s_2.sam.zst	SQ	2436	plain	53041	zstd3	12208	sam	480399
+v071.full.se.rl100_p10000_s_3/rl100_p10000_s_3.sam.zst	SQ	2610	plain	56785	zstd3	12761	sam	527845
+v071.full.se.rl100_p10000_s_4/rl100_p10000_s_4.sam.zst	SQ	1803	plain	39113	zstd3	8768	sam	557792
+v071.full.se.rl100_p1000_s_1/rl100_p1000_s_1.sam.zst	SQ	343	plain	7504	zstd3	1968	sam	51756
+v071.full.se.rl100_p1000_s_2/rl100_p1000_s_2.sam.zst	SQ	346	plain	7580	zstd3	1980	sam	51770
+v071.full.se.rl100_p1000_s_3/rl100_p1000_s_3.sam.zst	SQ	245	plain	5343	zstd3	1394	sam	41309
+v071.full.se.rl100_p1000_s_4/rl100_p1000_s_4.sam.zst	SQ	328	plain	7190	zstd3	1926	sam	47803
+v071.full.se.rl100_p500000_s_1/rl100_p500000_s_1.sam.zst	SQ	24438	plain	528608	zstd3	96326	sam	22999509
+v071.full.se.rl100_p500000_s_2/rl100_p500000_s_2.sam.zst	SQ	17926	plain	387688	zstd3	72391	sam	24460967
+v071.full.se.rl100_p500000_s_3/rl100_p500000_s_3.sam.zst	SQ	28802	plain	622957	zstd3	109850	sam	23853970
+v071.full.se.rl100_p500000_s_4/rl100_p500000_s_4.sam.zst	SQ	28168	plain	609264	zstd3	107154	sam	23735534
+v071.full.se.rl150_p10000_s_1/rl150_p10000_s_1.sam.zst	SQ	2767	plain	60159	zstd3	13510	sam	497013
+v071.full.se.rl150_p10000_s_2/rl150_p10000_s_2.sam.zst	SQ	1172	plain	25421	zstd3	5891	sam	480700
+v071.full.se.rl150_p10000_s_3/rl150_p10000_s_3.sam.zst	SQ	2052	plain	44637	zstd3	10320	sam	522165
+v071.full.se.rl150_p10000_s_4/rl150_p10000_s_4.sam.zst	SQ	3181	plain	69189	zstd3	15637	sam	504240
+v071.full.se.rl150_p1000_s_1/rl150_p1000_s_1.sam.zst	SQ	396	plain	8659	zstd3	2321	sam	52095
+v071.full.se.rl150_p1000_s_2/rl150_p1000_s_2.sam.zst	SQ	292	plain	6384	zstd3	1711	sam	45337
+v071.full.se.rl150_p1000_s_3/rl150_p1000_s_3.sam.zst	SQ	357	plain	7760	zstd3	2055	sam	53093
+v071.full.se.rl150_p1000_s_4/rl150_p1000_s_4.sam.zst	SQ	381	plain	8335	zstd3	2157	sam	52567
+v071.full.se.rl150_p500000_s_1/rl150_p500000_s_1.sam.zst	SQ	9484	plain	204358	zstd3	39203	sam	19509093
+v071.full.se.rl150_p500000_s_2/rl150_p500000_s_2.sam.zst	SQ	16616	plain	358914	zstd3	66952	sam	20833992
+v071.full.se.rl150_p500000_s_3/rl150_p500000_s_3.sam.zst	SQ	13209	plain	285177	zstd3	53954	sam	20726341
+v071.full.se.rl150_p500000_s_4/rl150_p500000_s_4.sam.zst	SQ	15363	plain	331698	zstd3	60274	sam	17814887
+db genes: 168
+build_metadata.tsv
+database.protal
+gene2geneid.tsv
+genome2tiid.tsv
+unpacked

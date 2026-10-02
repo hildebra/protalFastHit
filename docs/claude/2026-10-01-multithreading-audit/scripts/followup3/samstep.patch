@@ -1,0 +1,88 @@
+diff --git a/src/IO/SamFile.h b/src/IO/SamFile.h
+index ac1ac44..cfd2d7e 100644
+--- a/src/IO/SamFile.h
++++ b/src/IO/SamFile.h
+@@ -24,6 +24,7 @@
+ 
+ #include <algorithm>
+ #include <cerrno>
++#include <chrono>
+ #include <cstdint>
+ #include <cstdio>
+ #include <cstring>
+@@ -45,6 +46,14 @@
+ #include "Zstd.h"
+ 
+ namespace protal {
++    // EXPERIMENT ONLY (SAM step timing): milliseconds since the last call, printed as SAMSTEP lines.
++    inline void SamStep(char const* what) {
++        static auto last = std::chrono::steady_clock::now();
++        auto const now = std::chrono::steady_clock::now();
++        std::fprintf(stderr, "SAMSTEP\t%s\t%.1f\n", what, std::chrono::duration<double, std::milli>(now - last).count());
++        last = now;
++    }
++
+     enum class SamCompression { None, Gzip, Zstd };
+ 
+     // By the file name: ".gz" is gzip, ".zst" zstd, any other name plain SAM.
+@@ -261,10 +270,16 @@ namespace protal {
+                 return false;
+             }
+             if (!m_header_first) {
++                SamStep("finish_start");
+                 if (!CloseFd()) return Abort();
++                SamStep("close_records");
+                 m_fd = Create(m_path);
+-                if (m_fd < 0 || !WriteHead(header) || !AppendRecords()) return Abort();
++                if (m_fd < 0 || !WriteHead(header)) return Abort();
++                SamStep("create_and_head");
++                if (!AppendRecords()) return Abort();
++                SamStep("append_records");
+                 std::remove(m_records_path.c_str());
++                SamStep("remove_records");
+             }
+             if (m_compression == SamCompression::Gzip) {
+                 WriteAll(reinterpret_cast<char const*>(bgzf::kEof), sizeof(bgzf::kEof));
+@@ -278,7 +293,9 @@ namespace protal {
+                     WriteAll(table.data(), table.size());
+                 }
+             }
++            SamStep("end_marker");
+             if (!CloseFd() || !Ok()) return Abort();
++            SamStep("close_sam");
+             return true;
+         }
+ 
+diff --git a/src/RunProtal.h b/src/RunProtal.h
+index cbbe893..c8ab3b9 100755
+--- a/src/RunProtal.h
++++ b/src/RunProtal.h
+@@ -546,14 +546,19 @@ namespace protal {
+                 }
+                 Benchmark bm_finish_sam("Writing the SAM header and file");
+                 bm_finish_sam.Start();
++                SamStep("aligned");
+                 std::string header;
+                 if (!full_header) {
+                     std::ostringstream os;
+-                    genomes.WriteSamHeader(os, sam_output.Genes());
++                    auto const genes = sam_output.Genes();
++                    SamStep("genes_sorted");
++                    genomes.WriteSamHeader(os, genes);
+                     os << read_type_line;
+                     header = os.str();
++                    SamStep("header_built");
+                 }
+                 bool const written = sam_output.Finish(header);
++                SamStep("finish_done");
+                 bm_finish_sam.Stop();
+                 bm_finish_sam.PrintResults();
+                 if (!written) {
+@@ -561,6 +566,7 @@ namespace protal {
+                     continue;
+                 }
+                 FinishSamFile(options, index, sam_partial);
++                SamStep("renamed");
+             }
+             bm_classify.Stop();
+             bm_classify.PrintResults();
