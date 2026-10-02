@@ -423,10 +423,13 @@ TEST(MicrobialProfile, AdjacentGenesOfLinkedReads) {
     EXPECT_DOUBLE_EQ(features.at("adjacent_expected_share"), 3.0 / 4);
     EXPECT_DOUBLE_EQ(features.at("adjacent_unlikely_share"), 1.0 / 4);
     // The mean smoothed share of the four links' pairings (gene 2's 0.6 three times, gene 3's 0.03), with one link
-    // of 0.5 more.
+    // of 0.5 more; each share summed in units of 2^-32 (profiler::ShareUnits).
     double const to2 = (3 + gene_neighbours::kPriorSpecies * 36.0 / 45) / (6 + gene_neighbours::kPriorSpecies);
     double const to3 = (0 + gene_neighbours::kPriorSpecies * 4.0 / 45) / (6 + gene_neighbours::kPriorSpecies);
-    EXPECT_NEAR(taxon.AdjacentSupport(), (to2 + to3 + to2 + to2 + 0.5) / 5, 1e-12);
+    EXPECT_NEAR(taxon.AdjacentSupport(), (to2 + to3 + to2 + to2 + 0.5) / 5, 1e-9);
+    EXPECT_EQ(profiler::ShareUnits(0), 0u);
+    EXPECT_EQ(profiler::ShareUnits(1), uint64_t{1} << 32);
+    EXPECT_EQ(profiler::ShareUnits(0.5), uint64_t{1} << 31);
     EXPECT_DOUBLE_EQ(features.at("adjacent_support"), taxon.AdjacentSupport());
 
     // Without gene neighbours both are 0.

@@ -16,8 +16,13 @@ features with the dumps written during collection.
 --read_type checks the model of other reads (se, pb, ont: the collection's samples of that read type,
 profiled with protal's option for that model, e.g. --model_se).
 
+A feature that differs in its last digits only (relative difference up to ROUNDING) is noted, not a
+problem: a sum added up in another order (in chunks on more threads, say) can round so, and that
+moves no taxon across a tree's split in practice. protal sums its features so that they come out
+the same on any number of threads, so such a note points to a sum that does not yet.
+
 usage: check_model_parity.py --db DB --model MODEL.xml --training TRAINING_DIR [--read_type pe] [--points 2]
-Exit code 1 if a probability or a feature differs.
+Exit code 1 if a probability or a feature differs (beyond rounding, for a feature).
 """
 
 import argparse
@@ -34,6 +39,8 @@ from model_pmml import PmmlForest  # noqa: E402
 
 # protal's option for each read type's model (ReadType.h).
 MODEL_OPTIONS = {"pe": "--model", "se": "--model_se", "pb": "--model_pb", "ont": "--model_ont"}
+# The largest relative difference of a feature that is rounding (see above): a double's last digits are ~1e-16.
+ROUNDING = 1e-12
 
 
 def parse_args(argv=None):
@@ -88,6 +95,25 @@ def read_dump(path):
     return pd.read_csv(path, sep="\t", float_precision="round_trip")
 
 
+def feature_differences(joined, features):
+    """Of each feature whose values differ between a sample's new dump and its collected one (`joined`: the dumps
+    merged by taxon, the collected columns named <feature>_collected), the largest relative difference."""
+    found = {}
+    for c in features:
+        a, b = joined[c].to_numpy(dtype=float), joined[c + "_collected"].to_numpy(dtype=float)
+        d = np.abs(a - b) / np.maximum(1e-300, np.maximum(np.abs(a), np.abs(b)))
+        if (d > 0).any():
+            found[c] = float(d.max())
+    return found
+
+
+def split_rounding(differences):
+    """The features (name -> largest relative difference) that protal computes differently, and those that differ
+    by rounding only (up to ROUNDING)."""
+    return ({c: d for c, d in differences.items() if d > ROUNDING},
+            {c: d for c, d in differences.items() if d <= ROUNDING})
+
+
 def main(argv=None):
     opts = parse_args(argv)
     marker = "samples.tsv" if opts.read_type in ("pb", "ont") else "protal.meta"
@@ -132,19 +158,21 @@ def main(argv=None):
         joined = new.merge(old, on="taxon", suffixes=("", "_collected"))
         if len(joined) != len(new) or len(new) != len(old):
             problems.append(f"{sample}: {len(new)} taxa now, {len(old)} during collection")
-        for c in model.features:
-            a, b = joined[c].to_numpy(dtype=float), joined[c + "_collected"].to_numpy(dtype=float)
-            d = np.abs(a - b) / np.maximum(1e-300, np.maximum(np.abs(a), np.abs(b)))
-            if (d > 0).any():
-                feature_diff[c] = max(feature_diff.get(c, 0.0), float(d.max()))
-    if feature_diff:
+        for c, d in feature_differences(joined, model.features).items():
+            feature_diff[c] = max(feature_diff.get(c, 0.0), d)
+    differs, rounded = split_rounding(feature_diff)
+    if differs:
         problems.append("protal computes features differently than when the training data was collected (largest "
-                        "relative difference): " + ", ".join(f"{c} {v:.3g}" for c, v in sorted(feature_diff.items())))
+                        "relative difference): " + ", ".join(f"{c} {v:.3g}" for c, v in sorted(differs.items())))
     lines = [f"model {opts.model} ({opts.read_type} reads): {len(model.trees)} trees, {len(model.features)} features",
              f"re-profiled {len(samples)} samples of {', '.join(os.path.basename(p) for p in chosen)}: {rows} taxa"]
     lines += ["PROBLEM: " + p for p in problems] or [
         "protal's probabilities equal the model file's (and so scikit-learn's) for every taxon; "
-        "the features equal those of the training data"]
+        "the features equal those of the training data" + (" but for rounding" if rounded else "")]
+    if rounded:
+        lines.append("Note: features that differ from the training data's in their last digits only, as a sum added "
+                     "up in another order does (largest relative difference): " +
+                     ", ".join(f"{c} {v:.3g}" for c, v in sorted(rounded.items())))
     with open(os.path.join(out, "parity.txt"), "w") as fh:
         fh.write("\n".join(lines) + "\n")
     print("\n".join(lines))

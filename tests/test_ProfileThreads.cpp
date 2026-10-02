@@ -46,13 +46,36 @@ namespace {
                   kSecondary = 0x100, kSupplementary = 0x800;
     constexpr int kTaxa = 5, kGenes = 4, kGeneLength = 300;
 
-    // kTaxa taxa (1..kTaxa) of kGenes genes (1..kGenes) each, of random bases.
+    // Gene neighbours of the taxa (families 100-102, order 200): in each clade gene g's 3' end faces gene g + 1's
+    // 5' end (gene 4's, gene 1's) in some of the species informative there and nothing in the others, so that the
+    // links of the long reads of Sam (their parts on genes g, g + 1, ...) have smoothed shares of many values.
+    gene_neighbours::Table Neighbours() {
+        std::string text = "# protal gene neighbours: genomes=90 species=60 max_gap=3000 ranks=family,order\n"
+                           "clade\tgene\tend\tpartner\tpartner_end\tspecies\tinformative\tgap_median\tgap_min\tgap_max\n";
+        for (int clade : { 100, 101, 102, 200 }) {
+            for (int gene = 1; gene <= kGenes; gene++) {
+                int const informative = 7 + (clade * 3 + gene * 5) % 11;
+                int const species = 1 + (clade + gene * 7) % (informative - 1);
+                std::string const end = std::to_string(clade) + '\t' + std::to_string(gene) + "\t3\t";
+                std::string const of = '\t' + std::to_string(informative);
+                text += end + std::to_string(gene % kGenes + 1) + "\t5\t" + std::to_string(species) + of + "\t20\t10\t30\n";
+                text += end + "0\t0\t" + std::to_string(informative - species) + of + "\t0\t0\t0\n";
+            }
+        }
+        gene_neighbours::Table table;
+        std::istringstream is(text);
+        EXPECT_EQ(table.Read(is), "");
+        for (uint32_t taxid = 1; taxid <= kTaxa; taxid++) table.SetLineage(taxid, { taxid, 100 + (taxid - 1) / 2, 200, 300 });
+        return table;
+    }
+
+    // kTaxa taxa (1..kTaxa) of kGenes genes (1..kGenes) each, of random bases; with_neighbours: with Neighbours().
     struct Reference {
         ScratchDir dir;
         std::map<std::pair<int, int>, std::string> genes;
         std::unique_ptr<GenomeLoader> loader;
 
-        Reference() {
+        explicit Reference(bool with_neighbours = false) {
             Random random(11);
             std::string fna, map;
             for (int taxid = 1; taxid <= kTaxa; taxid++) {
@@ -71,6 +94,7 @@ namespace {
             auto const map_path = dir.Write("reference.map", map);
             loader = std::make_unique<GenomeLoader>(fna_path, map_path);
             loader->LoadAllGenomes();
+            if (with_neighbours) loader->SetGeneNeighbours(Neighbours());
         }
 
         std::string Header() const {
@@ -324,6 +348,28 @@ TEST(ProfileSam, OnSeveralThreadsTheProfileIsTheSame) {
     EXPECT_GT(serial.rejected_reads, 0u);
     EXPECT_NE(serial.log.find("skipped"), std::string::npos);
     EXPECT_EQ(serial.dump.find("taxon"), 0u);
+    for (size_t threads : { 2, 3, 8 }) {
+        for (size_t bytes : { 1, 500, 20000, 0 }) {
+            SCOPED_TRACE("threads " + std::to_string(threads) + ", chunks of " + std::to_string(bytes) + " bytes");
+            ExpectSame(serial, Profile(ref, sam, threads, bytes));
+        }
+    }
+}
+
+TEST(ProfileSam, OnSeveralThreadsTheGeneNeighboursFeaturesAreTheSame) {
+    // adjacent_support sums the smoothed shares of the links of a taxon's reads. On several threads they are summed
+    // chunk by chunk, on one thread read by read: the sum has to come out the same to the last bit, as the GTDB
+    // build's parity check (check_model_parity.py) profiles a training sample alone on all threads, where the
+    // collector had profiled it among other samples on fewer.
+    Reference ref(true);
+    auto const sam = ref.dir.Write("sample.sam", Sam(ref, 3000, 17));
+    auto const serial = Profile(ref, sam, 1);
+    ASSERT_EQ(serial.error, "");
+    size_t judged = 0;
+    for (size_t at = serial.dump.find(" adjacent_support="); at != std::string::npos; at = serial.dump.find(" adjacent_support=", at + 1)) {
+        judged += serial.dump.compare(at, 22, " adjacent_support=0.5 ") != 0;
+    }
+    EXPECT_EQ(judged, static_cast<size_t>(kTaxa));  // every taxon has links the clades judge
     for (size_t threads : { 2, 3, 8 }) {
         for (size_t bytes : { 1, 500, 20000, 0 }) {
             SCOPED_TRACE("threads " + std::to_string(threads) + ", chunks of " + std::to_string(bytes) + " bytes");

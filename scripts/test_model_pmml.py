@@ -155,6 +155,25 @@ class FeatureSetsTest(unittest.TestCase):
         self.assertEqual(opts.features, "normalized+adjacency")
 
 
+@unittest.skipIf(RandomForestClassifier is None, "needs pandas")
+class ParityFeaturesTest(unittest.TestCase):
+    """check_model_parity.py: a feature that differs in its last digits only (a sum added up in another order) is
+    rounding, which the check notes; one that differs more, protal computes differently."""
+
+    def test_last_digits_are_rounding(self):
+        import check_model_parity as cmp
+        joined = pd.DataFrame({"same": [0.0, 0.25], "same_collected": [0.0, 0.25],
+                               "summed": [0.1 + 0.2 + 0.3, 7.0], "summed_collected": [0.1 + (0.2 + 0.3), 7.0],
+                               "changed": [0.5, 1.0], "changed_collected": [0.5, 1.01]})
+        found = cmp.feature_differences(joined, ["same", "summed", "changed"])
+        self.assertEqual(set(found), {"summed", "changed"})
+        self.assertGreater(found["summed"], 0)
+        differs, rounded = cmp.split_rounding(found)
+        self.assertEqual(set(differs), {"changed"})
+        self.assertAlmostEqual(differs["changed"], 0.01 / 1.01)
+        self.assertEqual(set(rounded), {"summed"})
+
+
 class TrainerDepthKnobsTest(unittest.TestCase):
     """random_forest_cmdline.py --depth-knobs on a table of shallow samples (hundreds of fragments, log10 ~2.7) and
     deep ones (tens of thousands, ~4.7), where a present taxon's evidence grows with depth; half the present taxa

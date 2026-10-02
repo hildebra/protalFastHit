@@ -321,7 +321,10 @@ more than 10 fragments, at a median identity of 0.959
 `check_model_parity.py` re-profiles saved training samples (`--profile_only` on the SAMs a
 `collect_training_data.py` folder keeps) with a model and checks that protal's probabilities are
 the model file's, and that protal computes the features as it did when the training data was
-collected (another protal version may not):
+collected (another protal version may not). protal sums its features so that a sample gives the
+same ones on any number of threads, alone or among others; a feature that differs in its last
+digits only (relative difference up to 1e-12, as a sum added up in another order does) is noted in
+`parity.txt`, and does not fail the check:
 
     python3 scripts/check_model_parity.py --db DB --model training/model.xml --training training
 
