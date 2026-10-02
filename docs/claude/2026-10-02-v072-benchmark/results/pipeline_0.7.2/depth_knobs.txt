@@ -1,0 +1,24 @@
+## Knobs by sample depth (species held out)
+ bin   fragments  samples  taxa  present   knob  F1 at 0.5  F1 at the knob
+   2      < 10^3        6   160      123 0.2700     0.9461          0.9644
+   3 10^3 - 10^4        2   184      161 0.2100     0.9649          0.9716
+   4 10^4 - 10^5        4   406      206 0.6000     0.9928          1.0000
+   5 10^5 - 10^6        0     0        0      -          -               -
+   6     >= 10^6        0     0        0      -          -               -
+F1 of species held out: 0.9721 at 0.5, 0.9817 at the depth knobs (2:0.27,3:0.21,4:0.6; bins without one: 0.5). The knobs are chosen on these calls, so the second is optimistic; the test set (--test-file) tells.
+
+## Independent test set (/home/falk/bench071/V072/test/training_data_pb.tsv)
+F1 of species held out: 0.9721 at 0.5, 0.9817 at the depth knobs (2:0.27,3:0.21,4:0.6; bins without one: 0.5). The knobs are chosen on these calls, so the second is optimistic; the test set (--test-file) tells.
+at the depth knobs (2:0.27,3:0.21,4:0.6), as protal calls by default: F1 0.9809, 3 false positives, 12 false negatives (at knob 0.5: F1 0.9809, 3 and 12)
+## Knobs by sample depth (species held out)
+ bin   fragments  samples  taxa  present   knob  F1 at 0.5  F1 at the knob
+   2      < 10^3        4    71       57 0.1300     0.9730          0.9821
+   3 10^3 - 10^4        4   438      299 0.4600     0.9899          0.9933
+   4 10^4 - 10^5        4   614      206 0.7600     0.9903          0.9976
+   5 10^5 - 10^6        0     0        0      -          -               -
+   6     >= 10^6        0     0        0      -          -               -
+F1 of species held out: 0.9884 at 0.5, 0.9937 at the depth knobs (2:0.13,3:0.46,4:0.76; bins without one: 0.5). The knobs are chosen on these calls, so the second is optimistic; the test set (--test-file) tells.
+
+## Independent test set (/home/falk/bench071/V072/test/training_data_ont.tsv)
+F1 of species held out: 0.9884 at 0.5, 0.9937 at the depth knobs (2:0.13,3:0.46,4:0.76; bins without one: 0.5). The knobs are chosen on these calls, so the second is optimistic; the test set (--test-file) tells.
+at the depth knobs (2:0.13,3:0.46,4:0.76), as protal calls by default: F1 0.9758, 7 false positives, 14 false negatives (at knob 0.5: F1 0.9827, 4 and 11)
