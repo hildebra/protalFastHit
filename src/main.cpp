@@ -1,4 +1,4 @@
-// protal 0.7.2. In 0.7 (since 0.6.0a):
+// protal 0.7.3. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -20,6 +20,13 @@
 //   knobs by sample depth in a model (--depth-knobs, for the long-read models); one sample profiled on all threads,
 //   SAM records parsed as views, a .sam.zst decompressed on threads of its own; --build reports how the genes differ
 //   between congeners (gene_congeners.tsv); long training reads drawn by the collector.
+// In 0.7.3: one binary for every CPU (hot functions also as x86-64-v3, chosen at run time); gene neighbours from
+//   every genome, in database.protal, with lines of a species' own gene order; foreign genes left out of depth and
+//   MSA (--keep_foreign_genes); strain rows from long reads (--no_phasing); flanks of one mismatch aligned without
+//   WFA2; a single read file's read type from its first reads; depth counts the bases where a pair's mates overlap
+//   once; knobs as a curve over sample depth for every read type; --add_model with several models; the simulator's
+//   samples on threads, compressed as written; PacBio HiFi training reads; the GTDB build's deeper design points and
+//   faster conversion; --version gives the commit built from, which build_gtdb_database.py checks at its start.
 #include <iostream>
 #include "RunProtal.h"
 
