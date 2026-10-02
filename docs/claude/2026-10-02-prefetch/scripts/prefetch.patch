@@ -1,0 +1,298 @@
+diff --git a/src/Classify.h b/src/Classify.h
+index cce2c5d..6546723 100755
+--- a/src/Classify.h
++++ b/src/Classify.h
+@@ -106,25 +106,41 @@ namespace protal::classify {
+             Utils::Histogram seed_sizes;
+             Utils::Histogram anchor_sizes;
+ 
+-            bm_reader.Start();
+-            while (reader(record)) {
+-                bm_reader.Stop();
+-                thread_statistics.reads++;
+-
+-                kmers.clear();
+-                seeds.clear();
+-                anchors.clear();
+-                alignment_results.clear();
+-
++            // Seeding one read ahead, as RunPairedEnd does it for pairs.
++            constexpr bool seeding_ahead = requires { anchor_finder.PrepareLookups(kmers); anchor_finder.PrefetchKeys(kmers); };
++            FastxRecord next;
++            KmerList next_kmers;
++            auto take_kmers = [&](FastxRecord const& r, KmerList& k) {
++                k.clear();
+                 bm_kmer_extracter.Start();
+-                kmer_handler(std::string_view(record.sequence), kmers);
++                kmer_handler(std::string_view(r.sequence), k);
+                 bm_kmer_extracter.Stop();
+                 if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                     thread_statistics.kmers_total += kmer_handler.TotalKmers();
+-                }
+-                if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                     thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
+                 }
++                if constexpr(seeding_ahead) anchor_finder.PrefetchKeys(k);
++            };
++
++            bm_reader.Start();
++            bool more = reader(record);
++            bm_reader.Stop();
++            if (more) take_kmers(record, kmers);
++            while (more) {
++                thread_statistics.reads++;
++                if constexpr(seeding_ahead) {
++                    bm_anchor_finder.Start(false);
++                    anchor_finder.PrepareLookups(kmers);
++                    bm_anchor_finder.Stop();
++                }
++                bm_reader.Start();
++                more = reader(next);
++                bm_reader.Stop();
++                if (more) take_kmers(next, next_kmers);
++
++                seeds.clear();
++                anchors.clear();
++                alignment_results.clear();
+ 
+                 bm_anchor_finder.Start();
+                 anchor_finder(kmers, seeds, anchors, record.sequence);
+@@ -158,9 +174,9 @@ namespace protal::classify {
+                     thread_core_benchmark(seeds, anchors, alignment_results, record.id);
+                 }
+ 
+-                bm_reader.Start();
++                std::swap(record, next);
++                std::swap(kmers, next_kmers);
+             }
+-            bm_reader.Stop();
+ 
+ #pragma omp critical(statistics)
+             {
+@@ -506,47 +522,63 @@ namespace protal::classify {
+             Utils::Histogram seed_sizes;
+             Utils::Histogram anchor_sizes;
+ 
+-            bm_omp_before_loop_global.Stop();
+-            bm_reader.Start();
+-            while (reader(record1, record2)) {
+-                bm_reader.Stop();
+-                thread_statistics.reads++;
+-
+-                // Clear intermediate storage objects
+-                kmers1.clear();
+-                kmers2.clear();
+-                seeds1.clear();
+-                seeds2.clear();
+-                anchors1.clear();
+-                anchors2.clear();
+-                alignment_results1.clear();
+-                alignment_results2.clear();
+-                paired_alignment_results.clear();
+-
+-
+-                // Retrieve kmers
++            // Seeding one pair ahead (ChainAnchorFinder::PrefetchKeys, PrepareLookups): the next pair is read and its
++            // k-mers taken while the values of this pair's lookups are fetched, and the key map blocks of its k-mers
++            // are fetched while this pair is aligned. The pairs are aligned in the order they are read, as before.
++            constexpr bool seeding_ahead = requires { anchor_finder1.PrepareLookups(kmers1); anchor_finder1.PrefetchKeys(kmers1); };
++            FastxRecord next1;
++            FastxRecord next2;
++            KmerList next_kmers1;
++            KmerList next_kmers2;
++            auto take_kmers = [&](FastxRecord const& r1, FastxRecord const& r2, KmerList& k1, KmerList& k2) {
++                k1.clear();
++                k2.clear();
+                 bm_kmer_extracter.Start();
+-                kmer_handler(std::string_view(record1.sequence), kmers1);
++                kmer_handler(std::string_view(r1.sequence), k1);
+                 bm_kmer_extracter.Stop();
+-
+-
+                 if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                     thread_statistics.kmers_total += kmer_handler.TotalKmers();
+-                }
+-                if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                     thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
+                 }
+-
+                 bm_kmer_extracter.Start();
+-                kmer_handler(std::string_view(record2.sequence), kmers2);
++                kmer_handler(std::string_view(r2.sequence), k2);
+                 bm_kmer_extracter.Stop();
+-
+                 if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                     thread_statistics.kmers_total += kmer_handler.TotalKmers();
+-                }
+-                if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                     thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
+                 }
++                if constexpr(seeding_ahead) {
++                    anchor_finder1.PrefetchKeys(k1);
++                    anchor_finder2.PrefetchKeys(k2);
++                }
++            };
++
++            bm_omp_before_loop_global.Stop();
++            bm_reader.Start();
++            bool more = reader(record1, record2);
++            bm_reader.Stop();
++            if (more) take_kmers(record1, record2, kmers1, kmers2);
++            while (more) {
++                thread_statistics.reads++;
++                if constexpr(seeding_ahead) {
++                    bm_anchor_finder.Start(false);
++                    anchor_finder1.PrepareLookups(kmers1);
++                    anchor_finder2.PrepareLookups(kmers2);
++                    bm_anchor_finder.Stop();
++                }
++                bm_reader.Start();
++                more = reader(next1, next2);
++                bm_reader.Stop();
++                if (more) take_kmers(next1, next2, next_kmers1, next_kmers2);
++
++                // Clear intermediate storage objects (the k-mers are taken ahead)
++                seeds1.clear();
++                seeds2.clear();
++                anchors1.clear();
++                anchors2.clear();
++                alignment_results1.clear();
++                alignment_results2.clear();
++                paired_alignment_results.clear();
+ 
+                 // Calculate Anchors
+ 
+@@ -644,9 +676,11 @@ namespace protal::classify {
+                 }
+                 record_id += options.GetThreads();
+ 
+-                bm_reader.Start();
++                std::swap(record1, next1);
++                std::swap(record2, next2);
++                std::swap(kmers1, next_kmers1);
++                std::swap(kmers2, next_kmers2);
+             }
+-            bm_reader.Stop();
+ 
+ #pragma omp critical(statistics)
+             {
+diff --git a/src/Core/ChainAnchorFinder.h b/src/Core/ChainAnchorFinder.h
+index 690cf6a..ae78cda 100755
+--- a/src/Core/ChainAnchorFinder.h
++++ b/src/Core/ChainAnchorFinder.h
+@@ -62,24 +62,41 @@ namespace protal {
+         using RecoverySet = tsl::robin_set<uint64_t>;
+         RecoverySet m_recovery;
+ 
+-        inline void FindSeeds(KmerList &kmer_list, SeedList& seeds) {
++        // The k-mer lookups miss the caches (the key map is gigabytes, and the values a lookup points to more), and
++        // each one's branches depend on what it loads, so the CPU waits for them one after another unless they are
++        // fetched ahead. While a k-mer is looked up, the key map block of the one kPrefetchKmers ahead is fetched, and
++        // while a lookup's values are read, those of the one kPrefetchLookups ahead (pfbench, 2026-10-02: -24% on its
++        // own; with the read's lookups prepared one read ahead, PrepareLookups, -30%).
++        static constexpr size_t kPrefetchKmers = 8, kPrefetchLookups = 16;
++        bool m_prepared = false;  // m_lookups hold the lookups of the read operator() gets next (PrepareLookups)
++
++        // The lookups of a read's k-mers, in read order (those with values).
++        void LookupKmers(KmerList& kmer_list) {
+             m_lookups.clear();
+-
+-            // Get ranges in values (no seeds yet)
+-            for (auto [mmer, pos] : kmer_list) {
+-                m_kmer_lookup.Get(m_lookups, mmer, pos);
++            size_t const n = kmer_list.size();
++            for (size_t j = 0; j < std::min(kPrefetchKmers, n); j++) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
++            for (size_t j = 0; j < n; j++) {
++                if (j + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[j + kPrefetchKmers].first);
++                m_kmer_lookup.Get(m_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
+             }
++        }
++
++        inline void FindSeeds(KmerList &kmer_list, SeedList& seeds) {
++            // Get ranges in values (no seeds yet), unless they were for this read (PrepareLookups)
++            if (!m_prepared) LookupKmers(kmer_list);
++            m_prepared = false;
+ 
+             // Sort these per core-mer ranges by number of values in range.
+             std::sort(m_lookups.begin(), m_lookups.end(), [](LookupPointer const& a, LookupPointer const& b) {
+                 return a.size < b.size;
+             });
+ 
+-
++            for (size_t i = 0; i < std::min(kPrefetchLookups, m_lookups.size()); i++) KmerLookup::PrefetchValues(m_lookups[i]);
+             uint32_t previous_size = 0;
+             m_successful_lookups = 0;
+             uint32_t total_lookups = 0;
+             for (m_lookup_index = 0; m_lookup_index < m_lookups.size(); m_lookup_index++) {
++                if (m_lookup_index + kPrefetchLookups < m_lookups.size()) KmerLookup::PrefetchValues(m_lookups[m_lookup_index + kPrefetchLookups]);
+                 auto& lookup = m_lookups[m_lookup_index];
+                 m_kmer_lookup.GetFromLookup(seeds, lookup);
+                 total_lookups++;
+@@ -678,6 +695,25 @@ namespace protal {
+         }
+ 
+ 
++        // Seeding one read ahead, as Classify's loops do: the key map blocks of the next read's k-mers fetched while
++        // this read is aligned (PrefetchKeys), then, before its seeds are taken, its lookups made and their values
++        // fetched (PrepareLookups), which the next operator() takes for that read. The same lookups in the same order
++        // as operator() makes itself, so the same seeds.
++        void PrefetchKeys(KmerList const& kmer_list) {
++            for (auto const& [mmer, pos] : kmer_list) m_kmer_lookup.PrefetchKey(mmer);
++        }
++
++        // Timed as part of the read's seeding (and of the operator), not as a read of its own.
++        void PrepareLookups(KmerList& kmer_list) {
++            m_bm_operator.Start(false);
++            m_bm_seeding.Start(false);
++            LookupKmers(kmer_list);
++            for (auto const& lookup : m_lookups) KmerLookup::PrefetchValues(lookup);
++            m_prepared = true;
++            m_bm_seeding.Stop();
++            m_bm_operator.Stop();
++        }
++
+         PROTAL_CLONE_V3 void operator () (KmerList& kmer_list, SeedList& seeds, ChainAnchorList& anchors, std::string& query) {
+             m_error_in_read = false;
+ 
+diff --git a/src/Hash/KmerLookup.h b/src/Hash/KmerLookup.h
+index 3aee32b..1e7d526 100644
+--- a/src/Hash/KmerLookup.h
++++ b/src/Hash/KmerLookup.h
+@@ -192,6 +192,17 @@ namespace protal {
+             m_lookups.clear();
+         }
+ 
++        // What Get and GetFromLookup will read, fetched ahead (Seedmap::PrefetchKey): the key map's block of a
++        // k-mer, and the first cache line of a lookup's values and of its flex cells.
++        inline void PrefetchKey(size_t kmer) {
++            m_sm.PrefetchKey(kmer);
++        }
++
++        static inline void PrefetchValues(LookupPointer const& pointers) {
++            __builtin_prefetch(pointers.values_begin);
++            if (pointers.flex_begin != nullptr) __builtin_prefetch(pointers.flex_begin);
++        }
++
+         inline void Get(std::vector<LookupPointer>& result, size_t &kmer, uint32_t readpos) {
+             size_t flex_key = m_sm.FlexKey(kmer);
+             m_sm.Get(kmer, m_lookup_tmp.values_begin, m_lookup_tmp.values_end, m_lookup_tmp.flex_begin, m_lookup_tmp.flex_end);
+diff --git a/src/Hash/Seedmap.h b/src/Hash/Seedmap.h
+index d424df5..8c452cd 100644
+--- a/src/Hash/Seedmap.h
++++ b/src/Hash/Seedmap.h
+@@ -986,6 +986,15 @@ namespace protal {
+             return (key & m_main_key_mask) >> m_flex_k ; // shift by half of flexbits which is flex_k
+         }
+ 
++        // Asks the CPU to fetch what Get(key, ...) reads of the key map: the key's control block and the next
++        // block's value offset, 32 bytes from the block's start (one or two cache lines). The key map is gigabytes,
++        // so a lookup misses the caches; fetched ahead, a read's lookups wait for memory together, not in turn.
++        void PrefetchKey(uint64_t key) {
++            char const* const block = reinterpret_cast<char const*>(m_keymap + ControlBlockIndex(MainKey(key)));
++            __builtin_prefetch(block);
++            __builtin_prefetch(block + 31);
++        }
++
+         uint64_t FlexKey(uint64_t key) {
+             return ((key & m_flex_key_mask_left) >> (m_main_bits)) | (key & m_flex_key_mask_right) ; // shift by half of flexbits which is flex_k
+         }

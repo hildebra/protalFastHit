@@ -1,0 +1,5 @@
+pe500k	pf	align fastest 15.56 second 16.61 median 17.18	user fastest 17.3 median 19.2	(n=8)
+pe500k	ref	align fastest 16.30 second 16.54 median 17.08	user fastest 17.8 median 18.8	(n=8)
+pe5M	pf	align fastest 33.76 second 34.17 median 34.32	user fastest 201.4 median 204.4	(n=6)
+pe5M	ref	align fastest 35.06 second 35.74 median 35.98	user fastest 207.3 median 214.2	(n=6)
+PF2 DONE

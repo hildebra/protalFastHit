@@ -1,0 +1,44 @@
+OK build pfref
+OK build pf
+100k pairs -t 1: SAM text same
+single-end 500k -t 1: SAM text same
+Nanopore 3 Mb -t 1: SAM text same
+500k pairs -t 6: sorted SAM same
+500k pairs -t 6: profile same
+pe500k	ref	1	9.043	1.454688	10.58	10.09	1.53
+pe500k	pf	1	8.575	0.500176	9.77	9.60	1.45
+se500k	ref	1	3.648	0.709589	4.85	4.45	1.38
+se500k	pf	1	3.483	0.245964	4.68	4.37	1.35
+pe5M	ref	1	19.156	19.683038	19.64	112.04	1.32
+pe5M	pf	1	19.676	7.216950	20.18	115.08	2.44
+pe500k	pf	2	17.142	0.714362	18.47	18.12	3.14
+pe500k	ref	2	11.638	2.002932	13.05	12.78	2.53
+se500k	pf	2	4.193	0.324398	5.54	5.16	2.19
+se500k	ref	2	4.556	1.003366	5.96	5.56	2.10
+pe5M	pf	2	35.882	12.368032	36.48	209.58	2.01
+pe5M	ref	2	34.184	34.965744	34.96	200.07	4.03
+pe500k	ref	3	11.132	1.945500	12.73	12.42	5.16
+pe500k	pf	3	14.759	0.700519	16.08	15.74	4.52
+se500k	ref	3	4.491	0.948288	5.90	5.52	3.74
+se500k	pf	3	4.115	0.274586	5.47	5.08	3.40
+pe5M	ref	3	56.239	45.674735	56.82	329.65	3.21
+pe5M	pf	3	41.604	14.269353	42.62	246.76	5.04
+pe500k	pf	4	17.635	0.951883	21.12	20.08	5.79
+pe500k	ref	4	23.194	3.674168	26.93	25.80	4.56
+se500k	pf	4	7.240	0.449377	9.42	8.81	3.35
+se500k	ref	4	7.130	1.268465	9.10	8.55	2.99
+pe5M	pf	4	35.490	12.357406	36.40	210.75	2.68
+pe5M	ref	4	40.479	40.025995	41.48	240.40	4.46
+pe500k	ref	5	23.838	4.064853	26.62	25.87	5.59
+pe500k	pf	5	18.306	1.005345	21.07	20.40	3.78
+se500k	ref	5	7.173	1.332222	9.45	8.79	2.99
+se500k	pf	5	7.223	0.514892	9.83	8.91	2.68
+pe5M	ref	5	38.722	36.150175	39.70	229.61	2.50
+pe5M	pf	5	52.803	19.540887	53.85	311.72	4.43
+pe500k	pf	align fastest 8.57 median 17.14	seeding fastest 0.50 median 0.71
+pe500k	ref	align fastest 9.04 median 11.64	seeding fastest 1.45 median 2.00
+pe5M	pf	align fastest 19.68 median 35.88	seeding fastest 7.22 median 12.37
+pe5M	ref	align fastest 19.16 median 38.72	seeding fastest 19.68 median 36.15
+se500k	pf	align fastest 3.48 median 4.19	seeding fastest 0.25 median 0.32
+se500k	ref	align fastest 3.65 median 4.56	seeding fastest 0.71 median 1.00
+PF DONE

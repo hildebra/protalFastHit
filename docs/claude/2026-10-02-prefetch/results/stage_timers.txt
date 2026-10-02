@@ -1,0 +1,6 @@
+1	ref	align 12s 432ms	Seeding=2.231061  Seed- and Anchor-finding=4.940119  
+1	pf2	align 13s 367ms	Seeding=1.758243  Seed- and Anchor-finding=4.473522  
+2	pf2	align 11s 468ms	Seeding=1.529749  Seed- and Anchor-finding=3.943972  
+2	ref	align 13s 116ms	Seeding=2.334295  Seed- and Anchor-finding=5.207727  
+3	ref	align 17s 485ms	Seeding=3.172331  Seed- and Anchor-finding=6.940896  
+3	pf2	align 11s 410ms	Seeding=1.532842  Seed- and Anchor-finding=3.926287  
