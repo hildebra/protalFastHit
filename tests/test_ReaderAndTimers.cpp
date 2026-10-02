@@ -340,6 +340,38 @@ TEST(ThreadedGzStream, ThreadsTakeEveryPairOnceInStep) {
     EXPECT_FALSE(is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed());
 }
 
+// The single-end readers, in batches of records (SeqReaderSE) and in blocks of bytes (SeqReader),
+// share the reader lock as the pairs do: each read once, on more threads than cores too.
+TEST(ThreadedGzStream, ThreadsTakeEverySingleEndReadOnce) {
+    ScratchDir dir;
+    size_t const n = 30000;
+    auto const path = dir.Gzip("se.fq.gz", Fastq(n, "se"));
+    for (bool const batches : { true, false }) {
+        SCOPED_TRACE(batches ? "SeqReaderSE" : "SeqReader");
+        ThreadedGzIstream is(path.c_str());
+        SeqReaderSE batch_global{ is };
+        SeqReader block_global{ is };
+        std::vector<std::string> ids;
+#pragma omp parallel num_threads(8) shared(batch_global, block_global, ids, batches) default(none)
+        {
+            SeqReaderSE batch_reader{ batch_global };
+            SeqReader block_reader{ block_global };
+            FastxRecord record;
+            std::vector<std::string> mine;
+            while (batches ? batch_reader(record) : block_reader(record)) mine.push_back(record.id);
+#pragma omp critical(test_ids)
+            {
+                ids.insert(ids.end(), mine.begin(), mine.end());
+                batch_global.UpdateSuccess(batch_reader);
+            }
+        }
+        EXPECT_TRUE(batch_global.Success());
+        EXPECT_EQ(ids.size(), n);
+        EXPECT_EQ(std::set<std::string>(ids.begin(), ids.end()).size(), n);
+        EXPECT_FALSE(is.rdbuf()->read_failed());
+    }
+}
+
 TEST(ThreadedGzStream, TakeLinesCutsWholeLinesAcrossBlocks) {
     ScratchDir dir;
     // Short, empty and CRLF lines, one longer than a block, and a last line without its '\n'.

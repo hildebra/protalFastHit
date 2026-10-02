@@ -6,11 +6,45 @@
 
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include "FastxReader.h"
 #include "omp.h"
 
 namespace protal {
+
+    // The lock under which a reader takes the next block or batch of records from its shared stream,
+    // one for all readers. A waiter tries for a short while, as a holder copying its batch is done in
+    // microseconds, and then sleeps. Not an OpenMP critical section: libgomp's waiters spin far longer
+    // (300k rounds by default when there are no more OpenMP threads than cores), while the holder may
+    // be waiting for the stream's inflating thread, which the spinning threads then keep off the cores.
+    class ReaderLock {
+    public:
+        void lock() {
+            for (int i = 0; i < kTries; i++) {
+                if (m_mutex.try_lock()) return;
+#if defined(__x86_64__) || defined(__i386__)
+                __builtin_ia32_pause();
+#elif defined(__aarch64__)
+                asm volatile("yield");
+#endif
+            }
+            m_mutex.lock();
+        }
+        void unlock() { m_mutex.unlock(); }
+
+    private:
+        // Of 200, 2,000 and 20,000 tries on 4 and 6 threads, 2,000 aligned gzip input fastest on 6 threads
+        // of 6 cores and lost nothing where waits are short; 20,000 is as slow as libgomp's spinning, and
+        // sleeping at once (0) loses ~10% on 4 threads (docs/claude/2026-10-01-multithreading-audit).
+        static constexpr int kTries = 2000;
+        std::mutex m_mutex;
+    };
+
+    inline ReaderLock& ReaderMutex() {
+        static ReaderLock lock;
+        return lock;
+    }
 
     class SeqReader {
     private:
@@ -33,10 +67,8 @@ namespace protal {
                 m_is(other.m_is) {};
 
         inline void LoadBlockOMP(std::istream& is) {
-#pragma omp critical(reader)
-            {
-                m_valid_block = m_reader.LoadBlock(is, m_block_size);
-            }
+            std::lock_guard<ReaderLock> lock(ReaderMutex());
+            m_valid_block = m_reader.LoadBlock(is, m_block_size);
         }
 
         bool operator() (FastxRecord &record) {
@@ -116,8 +148,8 @@ namespace protal {
                 m_success = false;
                 return false;
             }
-#pragma omp critical(reader)
             {
+                std::lock_guard<ReaderLock> lock(ReaderMutex());
                 m_valid_block = m_reader.LoadBatch(m_is, m_record_count);
             }
             if (m_valid_block && Next(record)) return true;
@@ -181,23 +213,19 @@ namespace protal {
         }
 
         inline void LoadBlockOMP() {
-#pragma omp critical(reader)
-            {
-//                m_valid_block_1 = m_reader_1.LoadBlock(m_is1, m_block_size);
-//                m_valid_block_2 = m_reader_2.LoadBlock(m_is2, m_block_size);
-                m_valid_block_1 = m_reader_1.LoadBatch(m_is1, m_record_count);
-                m_valid_block_2 = m_reader_2.LoadBatch(m_is2, m_record_count);
-            }
+            std::lock_guard<ReaderLock> lock(ReaderMutex());
+//            m_valid_block_1 = m_reader_1.LoadBlock(m_is1, m_block_size);
+//            m_valid_block_2 = m_reader_2.LoadBlock(m_is2, m_block_size);
+            m_valid_block_1 = m_reader_1.LoadBatch(m_is1, m_record_count);
+            m_valid_block_2 = m_reader_2.LoadBatch(m_is2, m_record_count);
         }
 
         inline void LoadBlockOMP(bool first) {
-#pragma omp critical(reader)
-            {
-                if (first)
-                    m_valid_block_1 = m_reader_1.LoadBlock(m_is1, m_block_size);
-                else
-                    m_valid_block_2 = m_reader_2.LoadBlock(m_is2, m_block_size);
-            }
+            std::lock_guard<ReaderLock> lock(ReaderMutex());
+            if (first)
+                m_valid_block_1 = m_reader_1.LoadBlock(m_is1, m_block_size);
+            else
+                m_valid_block_2 = m_reader_2.LoadBlock(m_is2, m_block_size);
         }
 
         bool Success() const {
