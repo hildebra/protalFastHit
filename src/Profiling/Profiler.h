@@ -716,6 +716,26 @@ namespace protal {
             // the MAPQ filter then drops most of those reads, as they fit several congeners equally
             // (docs/claude/2026-10-01-conservation-pattern). 0 without factors or without genes of either kind.
             double RecordConservedFastRatio() const {
+                return ConservedFastRatio(m_records.conserved_bases, m_records.fast_bases);
+            }
+
+            // The same after the MAPQ and length filters: the bases of the records the profiler keeps (its genes'
+            // mapped lengths) on its genes of factor below 1 against its other genes, as depths over the summed length of
+            // the taxon's genes of each kind. The filter drops most of a relative's reads on the conserved genes, which
+            // fit several congeners equally: how far this falls below RecordConservedFastRatio tells how ambiguous a
+            // taxon's conserved-gene reads are. 0 without factors or without genes of either kind.
+            double KeptConservedFastRatio() const {
+                if (!m_conservation || m_conservation->Empty()) return 0;
+                uint64_t conserved = 0, fast = 0;
+                for (auto const& [id, gene] : m_genes) {
+                    (m_conservation->Factor(id) < 1 ? conserved : fast) += gene.m_mapped_length;
+                }
+                return ConservedFastRatio(conserved, fast);
+            }
+
+            // log2 of the depth of conserved_bases on the taxon's genes of factor below 1 over that of fast_bases on its
+            // other genes (bases over the kind's summed gene length), each + 0.001; 0 without factors or genes of a kind.
+            double ConservedFastRatio(uint64_t conserved_bases, uint64_t fast_bases) const {
                 if (!m_conservation || m_conservation->Empty()) return 0;
                 size_t conserved_length = 0, fast_length = 0;
                 auto const& genes = m_genome->GetGeneList();
@@ -724,8 +744,8 @@ namespace protal {
                     (m_conservation->Factor(i + 1) < 1 ? conserved_length : fast_length) += genes[i].GetLength();
                 }
                 if (conserved_length == 0 || fast_length == 0) return 0;
-                double const conserved = static_cast<double>(m_records.conserved_bases) / static_cast<double>(conserved_length);
-                double const fast = static_cast<double>(m_records.fast_bases) / static_cast<double>(fast_length);
+                double const conserved = static_cast<double>(conserved_bases) / static_cast<double>(conserved_length);
+                double const fast = static_cast<double>(fast_bases) / static_cast<double>(fast_length);
                 return std::log2((conserved + 1e-3) / (fast + 1e-3));
             }
 
@@ -1443,6 +1463,8 @@ namespace protal {
             // The same depth ratio of every best record, before the MAPQ filter: the drop from conserved to fast genes
             // that a relative's reads show (RecordConservedFastRatio).
             f.emplace_back("conserved_fast_record_ratio", taxon.RecordConservedFastRatio());
+            // And of the records the MAPQ and length filters keep (KeptConservedFastRatio).
+            f.emplace_back("conserved_fast_kept_ratio", taxon.KeptConservedFastRatio());
             return f;
         }
 

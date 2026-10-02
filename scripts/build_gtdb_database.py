@@ -813,10 +813,11 @@ def main():
                         "them (placeholder_models.py)")
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
-    p.add_argument("--depth-knob-read-types", default="",
-                   help="read types (comma-separated, e.g. pb,ont) whose models also get knobs by sample depth "
-                        "(random_forest_cmdline.py --depth-knobs); none by default: on the v0.7.1 benchmark they cost "
-                        "PacBio up to 0.016 F1 (docs/claude/2026-10-01-features-depth-knobs)")
+    p.add_argument("--depth-knob-read-types", default="pb,ont",
+                   help="read types (comma-separated) whose models also get knobs by sample depth "
+                        "(random_forest_cmdline.py --depth-knobs; default pb,ont, '' for none). On the v0.7.1 benchmark "
+                        "they cost PacBio up to 0.016 F1 (docs/claude/2026-10-01-features-depth-knobs); to be tested "
+                        "again with this build's training design")
     p.add_argument("--progress-every", type=float, default=600,
                    help="seconds between the status lines of the stages running: how long each has run, the memory "
                         "it takes and the last line of its log (default 600; 0: none)")

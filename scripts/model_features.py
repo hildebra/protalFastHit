@@ -21,7 +21,8 @@ conserved_hit_share; 0 and 0.5 without it). A relative's reads exceed their erro
 genes, where it differs least from its congeners (docs/claude/2026-10-01-conservation-pattern). The last one,
 conserved_fast_record_ratio, is the same depth ratio over every best record before the MAPQ filter, which drops most
 of a relative's reads on conserved genes (they fit several congeners equally): the drop from conserved to fast genes
-shows there, and blurs after the filter.
+shows there, and blurs after the filter; conserved_fast_kept_ratio is the ratio of the records the filters keep, so the
+two together say how much of the conserved genes' reads were ambiguous.
 """
 
 # Columns of the dump that describe the row, not the taxon's evidence; columns that
@@ -50,7 +51,7 @@ NORMALIZED_FEATURES = [
     "congener_fit_share", "other_genus_fit_share",
     "excess_median", "excess_high_share",
     "conserved_fast_depth_ratio", "conserved_hit_share",
-    "conserved_fast_record_ratio",
+    "conserved_fast_record_ratio", "conserved_fast_kept_ratio",
 ]
 
 

@@ -42,7 +42,8 @@ and protal applies the knob of each sample's bin unless --knob is given (other b
 On the 0.7.1 pipeline's own long-read test sets this raised F1 by 0.007 (PacBio) and 0.015 (ONT)
 (docs/claude/2026-10-01-f1-opportunities), but on the v0.7.1 benchmark's samples it cost PacBio up to 0.016
 and did not help Nanopore: a bin's knob rests on few samples, and samples near a bin edge switch knobs
-(docs/claude/2026-10-01-features-depth-knobs). build_gtdb_database.py does not pass it by default.
+(docs/claude/2026-10-01-features-depth-knobs). build_gtdb_database.py passes it for PacBio and ONT, to be
+tested again with the new database build.
 """
 
 from __future__ import annotations
@@ -85,7 +86,8 @@ DEPTH_KNOB_MIN_PRESENT = 10
 DEPTH_KNOB_GRID = np.round(np.arange(0.05, 0.955, 0.01), 2)
 # The features the report shows by class of taxon (study_feature_classes): what the conservation of the genes a taxon's
 # reads hit, before and after the MAPQ filter, and the divergence beyond the base qualities say of a relative's reads.
-CLASS_FEATURES = ["conserved_fast_record_ratio", "conserved_fast_depth_ratio", "conserved_hit_share", "excess_median"]
+CLASS_FEATURES = ["conserved_fast_record_ratio", "conserved_fast_kept_ratio", "conserved_fast_depth_ratio",
+                  "conserved_hit_share", "excess_median"]
 TAXON_CLASSES = ["present, no congener held out", "present, beside a held-out congener",
                  "absent, congener of a held-out species", "absent, other"]
 
@@ -105,7 +107,7 @@ def parse_args(argv=None):
     p.add_argument("--knob", type=float, default=0.5, help="the threshold protal will use (its --knob, default 0.5)")
     p.add_argument("--depth-knobs", action="store_true",
                    help="also choose a knob per depth bin of the sample, on species held out, and store them in the "
-                        "model, which protal then applies unless --knob is given (see above: not a gain so far)")
+                        "model, which protal then applies unless --knob is given (see above)")
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="full: also the studies (see above); basic: out of bag, by sample and by species; "
@@ -588,7 +590,8 @@ def study_feature_classes(report, df, title="The conservation features by class 
         return
     report.section(title)
     report.add("median (quartiles). conserved_fast_record_ratio: log2 of the depth of all best records (before the "
-               "MAPQ filter) on genes of conservation factor below 1 over that on the others; conserved_fast_depth_ratio "
+               "MAPQ filter) on genes of conservation factor below 1 over that on the others; conserved_fast_kept_ratio: "
+               "the same of the records the filters keep; conserved_fast_depth_ratio "
                "and conserved_hit_share: the same of the hit genes' depths after the filters, and the conserved share of "
                "the hit genes. A species' own reads cover both kinds of genes alike; a relative's align best on the "
                "conserved ones (docs/claude/2026-10-01-conservation-pattern).")

@@ -616,6 +616,7 @@ TEST(Abundance, TheRecordsDepthOnConservedAgainstFastGenes) {
     profiler::MicrobialProfile without(loader);  // no factors: 0
     for (auto const& [name, value] : profiler::TaxonFeatures(fill(without))) features[name] = value;
     EXPECT_EQ(features.at("conserved_fast_record_ratio"), 0.0);
+    EXPECT_EQ(features.at("conserved_fast_kept_ratio"), 0.0);
 
     gene_conservation::Table factors;
     factors.Set(1, 0.4);
@@ -626,8 +627,10 @@ TEST(Abundance, TheRecordsDepthOnConservedAgainstFastGenes) {
     EXPECT_NEAR(taxon.RecordConservedFastRatio(), std::log2(3.001 / 1.001), 1e-9);
     for (auto const& [name, value] : profiler::TaxonFeatures(taxon)) features[name] = value;
     EXPECT_NEAR(features.at("conserved_fast_record_ratio"), std::log2(3.001 / 1.001), 1e-9);
-    // Only the one record the filters keep is a hit: the hit genes' pattern sees gene 1 alone.
+    // Only the one record the filters keep is a hit: the hit genes' pattern sees gene 1 alone, and the kept records'
+    // depth is 1 on gene 1 and 0 on gene 2.
     EXPECT_EQ(taxon.ConservationPattern(), (std::pair<double, double>{ 0.0, 1.0 }));
+    EXPECT_NEAR(features.at("conserved_fast_kept_ratio"), std::log2(1.001 / 0.001), 1e-9);
     std::filesystem::remove_all(dir);
 }
 

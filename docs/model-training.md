@@ -152,7 +152,10 @@ On simulated data it finds about a third of the archaea present, with probabilit
   over the summed length of the taxon's genes of that kind (+ 0.001); 0 without
   `gene_conservation.tsv`. A species' own reads cover both kinds alike; a relative's align as often as
   the species' own on the conserved genes and a fifth as often on the fastest, a drop that the MAPQ
-  filter blurs, since it removes most of the relative's reads on the conserved genes.
+  filter blurs, since it removes most of the relative's reads on the conserved genes;
+- `conserved_fast_kept_ratio`: the same over the records the MAPQ and length filters keep (the
+  taxon's genes' mapped bases); how far it falls below `conserved_fast_record_ratio` tells how many
+  of the taxon's reads on conserved genes fitted several taxa equally.
 
   The four came after 0.7.1: refitted with them on the 0.7.1 benchmark's training tables, the forest
   gained 0.003 (paired-end) and 0.007 (ONT) of test F1, not significant on their own, and the
@@ -194,7 +197,7 @@ one differs.
 | `--reference-pmml` | | train on the input fields of an existing model instead |
 | `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 128, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves) |
 | `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |
-| `--depth-knobs` | off | also choose a knob per depth bin of the sample and store them in the model ([below](#knobs-by-sample-depth)); `build_gtdb_database.py --depth-knob-read-types` passes it, for no read type by default |
+| `--depth-knobs` | off | also choose a knob per depth bin of the sample and store them in the model ([below](#knobs-by-sample-depth)); `build_gtdb_database.py` passes it for PacBio and ONT (`--depth-knob-read-types`) |
 | `--folds` | 5 | folds of the held-out evaluations |
 | `--evaluation` | `full` | `basic`: the held-out evaluations only; `none`: fit and export only |
 | `--taxonomy` | | the database's `internal_taxonomy.dmp`: domains the table's `meta_domain` lacks, and the lineages for holding out whole clades |
@@ -319,6 +322,7 @@ own test set by 0.007 (PacBio) and 0.015 (ONT)
 they cost PacBio 0.007 to 0.016 and helped Nanopore not at all
 ([report](claude/2026-10-01-features-depth-knobs/README.md)): a bin's knob rests on a few training
 samples (the PacBio model's shallowest bin on 5 with 32 absent taxa, which put it at 0.13), and
-samples near a bin edge switch between two knobs. `build_gtdb_database.py` therefore gives them to
-no model by default. Knobs that change smoothly with depth, shrunk towards `--knob` where a depth
-has few samples, may fare better; not tried.
+samples near a bin edge switch between two knobs. `build_gtdb_database.py` gives them to the PacBio
+and ONT models (`--depth-knob-read-types`), to be tested again with the new database build, whose
+training design differs; `--depth-knob-read-types ""` turns them off. Knobs that change smoothly with
+depth, shrunk towards `--knob` where a depth has few samples, may fare better; not tried.
