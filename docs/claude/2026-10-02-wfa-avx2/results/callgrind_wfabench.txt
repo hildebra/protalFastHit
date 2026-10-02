@@ -1,0 +1,19 @@
+# callgrind (cg.sh): wfabench, one round of the mix, both kernels (portable and protal's AVX2) alternated in batches,
+# so each kernel's own line is about half of what one kernel would take; inclusive instructions.
+9,090,522,368 (100.0%)  PROGRAM TOTALS
+8,343,564,704 (91.78%)  wavefront_align
+8,062,145,539 (88.69%)  wavefront_unialign
+4,768,347,251 (52.45%)  wavefront_extend_endsfree
+3,044,581,469 (33.49%)  wavefront_compute_affine
+2,957,079,194 (32.53%)  wavefront_extend_matches_packed_endsfree   (the dispatcher: both kernels)
+1,631,774,853 (17.95%)  wavefront_heuristic_cufoff
+1,502,501,496 (16.53%)  protal_wfa_scalar_extend_endsfree
+1,461,836,568 (16.08%)  wavefront_heuristic_wfadaptive
+1,445,503,190 (15.90%)  protal_wfa_avx2_extend_endsfree
+1,023,780,852 (11.26%)  wavefront_compute_affine_idm
+  860,860,608 ( 9.47%)  wavefront_termination_endsfree
+  566,888,075 ( 6.24%)  wavefront_compute_allocate_output
+  405,113,286 ( 4.46%)  wavefront_compute_init_ends
+  352,807,146 ( 3.88%)  wavefront_compute_process_ends
+  331,105,621 ( 3.64%)  wavefront_slab_allocate
+  303,854,154 ( 3.34%)  wavefront_compute_fetch_input

@@ -1,0 +1,25 @@
+# wfabench with protal's AVX2 kernels (extend_avx2.c: the portable kernels, 32 characters compared per step),
+# thread CPU time, batches alternated. Load 8-11 (other sessions). The mix, then each divergence.
+short reads (20000, batches of 1000): portable 0.122 s, AVX2 0.125 s CPU per round; AVX2/portable 1.022; scores the same
+long reads (300, batches of 20): portable 0.230 s, AVX2 0.230 s CPU per round; AVX2/portable 1.002; scores the same
+divergence 0.01
+short reads (20000, batches of 1000): portable 0.017 s, AVX2 0.017 s CPU per round; AVX2/portable 1.005; scores the same
+long reads (300, batches of 20): portable 0.011 s, AVX2 0.011 s CPU per round; AVX2/portable 1.037; scores the same
+divergence 0.03
+short reads (20000, batches of 1000): portable 0.055 s, AVX2 0.052 s CPU per round; AVX2/portable 0.957; scores the same
+long reads (300, batches of 20): portable 0.040 s, AVX2 0.038 s CPU per round; AVX2/portable 0.942; scores the same
+divergence 0.05
+short reads (20000, batches of 1000): portable 0.097 s, AVX2 0.094 s CPU per round; AVX2/portable 0.973; scores the same
+long reads (300, batches of 20): portable 0.111 s, AVX2 0.097 s CPU per round; AVX2/portable 0.878; scores the same
+divergence 0.10
+short reads (20000, batches of 1000): portable 0.171 s, AVX2 0.176 s CPU per round; AVX2/portable 1.026; scores the same
+long reads (300, batches of 20): portable 0.234 s, AVX2 0.231 s CPU per round; AVX2/portable 0.987; scores the same
+divergence 0.15
+short reads (20000, batches of 1000): portable 0.184 s, AVX2 0.192 s CPU per round; AVX2/portable 1.043; scores the same
+long reads (300, batches of 20): portable 0.411 s, AVX2 0.430 s CPU per round; AVX2/portable 1.047; scores the same
+divergence 0.20
+short reads (20000, batches of 1000): portable 0.172 s, AVX2 0.176 s CPU per round; AVX2/portable 1.022; scores the same
+long reads (300, batches of 20): portable 0.540 s, AVX2 0.552 s CPU per round; AVX2/portable 1.022; scores the same
+divergence 0.30
+short reads (20000, batches of 1000): portable 0.148 s, AVX2 0.157 s CPU per round; AVX2/portable 1.061; scores the same
+long reads (300, batches of 20): portable 0.927 s, AVX2 0.938 s CPU per round; AVX2/portable 1.012; scores the same

@@ -1,0 +1,14 @@
+# isa_compare.sh, stopped after two of five repetitions: load 7-15 from other sessions (see README).
+case	threads	binary	rep	stage_s	wall_s	user_s	load
+pe500k	1	baseline	1	25.543	30.01	19.56	7.43
+pe500k	1	avx2	1	16.740	19.93	18.78	7.54
+pe5M	6	baseline	1	52.563	54.01	172.08	7.00
+pe5M	6	avx2	1	38.801	39.77	145.87	8.84
+ont90M	6	baseline	1	11.970	12.96	48.15	8.70
+ont90M	6	avx2	1	13.190	14.27	50.89	8.78
+pe500k	1	baseline	2	19.309	24.04	20.30	9.06
+pe500k	1	avx2	2	22.368	29.16	19.89	8.06
+pe5M	6	baseline	2	60.753	62.57	174.68	7.87
+pe5M	6	avx2	2	86.552	88.27	182.53	10.07
+ont90M	6	baseline	2	24.446	27.38	51.45	13.69
+ont90M	6	avx2	2	24.045	27.69	51.12	14.88
