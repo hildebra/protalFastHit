@@ -390,9 +390,10 @@ namespace protal {
                 double const max_score_ani = options.GetMaxScoreAni(read_type);
                 SimpleAlignmentHandler alignment_handler(genomes, IsLongReadType(read_type) ? long_read_wfa : aligner, kmer_size,
                                                          options.GetAlignTop(), max_score_ani, options.FastAlign());
-                // Short reads from their anchors' exact matches (AnchoredAligner); long reads, whose
-                // anchors and windows span whole genes, as a whole, as before.
-                alignment_handler.SetAnchoredAlignment(!IsLongReadType(read_type) && !options.WholeReadAlignment());
+                // Reads from their anchors' exact matches (AnchoredAligner); long reads, whose seeds lie on
+                // diagonals that their indels shift, through every link of the chain.
+                alignment_handler.SetAnchoredAlignment(!options.WholeReadAlignment());
+                alignment_handler.SetAnchoredIndels(IsLongReadType(read_type));
 
 
 

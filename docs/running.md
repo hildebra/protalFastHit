@@ -294,8 +294,19 @@ them (and between them), each part anchored at a match, instead of the whole rea
 window. Alignments come out as good as before by the aligner's scoring (in tests never worse; 0.5%
 of SAM records differ, mostly in where a gap sits among equally good places, and about 0.15% of
 pairs get a MAPQ a few points apart) and faster, since anchors on relatives' genes are given up on
-sooner. `--whole_read_alignment` aligns every read as a whole, as protal did
-before, e.g. to reproduce earlier results; long reads are always aligned as a whole.
+sooner.
+
+Long reads (PacBio, ONT) are aligned from their anchor's exact matches too. Their indels shift the
+diagonal along a gene, so the alignment goes through every link of the chain, aligning the bases
+between two links end to end, and since few of the index's k-mers survive their errors (a long
+read's seeds cover a third of its gene or less), it first looks for more exact matches (12 bases,
+unique near the diagonal the neighbouring link leads to) before, between and after the links. On
+the long-read benchmark that left the profiles as they were (the same F1, Bray-Curtis between the
+two 0.0005 or less on 90 Mb samples), took 15-21% less CPU, and gave alignments of the same
+penalty, placing indels differently where several places are as good (in 38-46% of the records of
+simulated ONT and older PacBio reads, 8% of HiFi reads').
+`--whole_read_alignment` aligns every read as a whole, as protal did before, e.g. to reproduce
+earlier results.
 
 ## Environment variables
 

@@ -168,10 +168,17 @@ namespace protal {
                 m_align_top(other.m_align_top),
                 m_max_score_ani(other.m_max_score_ani),
                 m_fastalign(other.m_fastalign),
-                m_anchored(other.m_anchored) {};
+                m_anchored(other.m_anchored) {
+            m_anchored_aligner.AllowIndels(other.m_anchored_aligner.IndelsAllowed());
+        };
 
         void SetAnchoredAlignment(bool anchored) {
             m_anchored = anchored;
+        }
+
+        // Anchored alignment through chains whose links lie on different diagonals (long reads, AnchoredAligner).
+        void SetAnchoredIndels(bool indels) {
+            m_anchored_aligner.AllowIndels(indels);
         }
 
         bool AnchoredAlignment() const {

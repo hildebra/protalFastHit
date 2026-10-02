@@ -240,6 +240,130 @@ TEST(AnchoredAlignment, UngappedFlanksAreWhatWFA2Gives) {
     EXPECT_EQ(wfa.UngappedFlanks(), 0u);
 }
 
+namespace {
+    // A long read's window as LongReadAligner aligns it: 100 random bases, the whole gene with ONT-like errors
+    // (substitutions, deletions and insertions at the given rates), 100 random bases. Returns the read and its
+    // exact runs of at least 20 bases along the true path, on whatever diagonal the indels put them.
+    std::pair<std::string, ChainList> LongReadOf(std::string const& gene, std::mt19937& rng, double sub, double del, double ins) {
+        std::uniform_real_distribution<double> u(0, 1);
+        auto base = [&rng]() { return "ACGT"[rng() % 4]; };
+        std::string read;
+        std::vector<long> gene_of;  // per read base, its gene position, -1 for an inserted or random base
+        for (int i = 0; i < 100; i++) { read += base(); gene_of.push_back(-1); }
+        for (size_t g = 0; g < gene.size(); g++) {
+            double const r = u(rng);
+            if (r < del) continue;
+            if (r < del + ins) { read += base(); gene_of.push_back(-1); }
+            char c = gene[g];
+            if (u(rng) < sub) c = "ACGT"[(std::string("ACGT").find(c) + 1 + rng() % 3) % 4];
+            read += c;
+            gene_of.push_back(static_cast<long>(g));
+        }
+        for (int i = 0; i < 100; i++) { read += base(); gene_of.push_back(-1); }
+        ChainList runs;
+        size_t i = 0;
+        while (i < read.size()) {
+            if (gene_of[i] < 0 || read[i] != gene[gene_of[i]]) { i++; continue; }
+            size_t j = i + 1;
+            while (j < read.size() && gene_of[j] == gene_of[j - 1] + 1 && read[j] == gene[gene_of[j]]) j++;
+            if (j - i >= 20) runs.emplace_back(static_cast<uint32_t>(gene_of[i]), static_cast<uint16_t>(i), static_cast<uint16_t>(j - i));
+            i = j;
+        }
+        return { read, runs };
+    }
+
+    // The runs within 6 diagonals of the first, as the anchor finder chains a long read's seeds
+    // (ChainAnchorFinder::FindAnchorsSingleRef).
+    ChainList AsChained(ChainList const& runs) {
+        ChainList chain;
+        if (runs.empty()) return chain;
+        long const d0 = static_cast<long>(runs.front().genepos) - static_cast<long>(runs.front().readpos);
+        for (auto const& run : runs) {
+            if (std::abs(static_cast<long>(run.genepos) - static_cast<long>(run.readpos) - d0) <= 6) chain.push_back(run);
+        }
+        return chain;
+    }
+
+    // Both methods as protal sets them up for ONT reads (-a 0.85, no X-drop).
+    struct LongReadHandlers {
+        WFA2Wrapper2 aligner{4, 6, 2, 0};
+        SimpleAlignmentHandler whole, anchored;
+        explicit LongReadHandlers(GenomeLoader& loader) :
+                whole(loader, aligner, 31, 3, 0.85, false), anchored(loader, aligner, 31, 3, 0.85, false) {
+            whole.SetAnchoredAlignment(false);
+            anchored.SetAnchoredAlignment(true);
+            anchored.SetAnchoredIndels(true);
+        }
+    };
+}
+
+// Long reads through every link of their chain (AnchoredAligner::AllowIndels): seeds on diagonals their indels shift,
+// a chain that covers part of the gene, more links found in the rest (Reseed). Alignments as good as aligning the
+// whole read into the whole window, and valid.
+TEST(AnchoredAlignment, LongReadsThroughTheirChain) {
+    RandomReference ref;
+    LongReadHandlers h(*ref.loader);
+    std::mt19937 rng(17);
+    size_t cases = 0, both = 0, worse = 0, much_worse = 0;
+    long whole_sum = 0, anchored_sum = 0;
+    for (int n = 0; n < 60; n++) {
+        uint32_t const gene_id = 1 + rng() % kGenes;
+        double const rate = n % 2 ? 0.02 : 0.005;  // ONT-like and HiFi-like reads
+        auto [read, runs] = LongReadOf(ref.genes[gene_id - 1], rng, rate, rate, rate * 0.7);
+        ChainList const chain = AsChained(runs);
+        if (chain.empty()) continue;
+        cases++;
+        auto whole = Align(h.whole, gene_id, read, chain), anchored = Align(h.anchored, gene_id, read, chain);
+        if (anchored.aligned) {
+            EXPECT_EQ(std::count_if(anchored.cigar.begin(), anchored.cigar.end(), [](char c) { return c != 'D'; }),
+                      static_cast<long>(read.size()));
+        }
+        if (!whole.aligned || !anchored.aligned) continue;
+        both++;
+        whole_sum += whole.score;
+        anchored_sum += anchored.score;
+        worse += anchored.score < whole.score;
+        much_worse += anchored.score < whole.score - std::abs(whole.score) / 50;
+    }
+    std::cout << cases << " long reads: both aligned " << both << ", anchored worse " << worse << " (by over 2%: " << much_worse
+              << "), scores " << anchored_sum << " anchored, " << whole_sum << " whole" << std::endl;
+    ASSERT_GE(cases, 50u);
+    EXPECT_GE(both, cases - 2);
+    EXPECT_LE(much_worse, 1u);
+    EXPECT_GE(static_cast<double>(anchored_sum), static_cast<double>(whole_sum) - 0.005 * std::abs(static_cast<double>(whole_sum)));
+    // The window's free ends come from the first link's diagonal (SimpleAlignmentHandler::AlignAnchor). Where the read's
+    // indels moved the diagonal by more than the 9 bases of dovetail by its end, more read bases lie past the gene than are
+    // free there, and the whole-window alignment takes the read, as before (9 of 60 here).
+    EXPECT_EQ(h.anchored.m_anchored_alignments + h.anchored.m_whole_window_alignments, cases);
+    EXPECT_GE(5 * h.anchored.m_anchored_alignments, 4 * cases);
+}
+
+// Links that overlap (exact seeds on two diagonals reach into a homopolymer that lost bases) are cut where they
+// overlap, and the bases between them on different diagonals become the indel.
+TEST(AnchoredAlignment, OverlappingLinksOfALongReadAreCut) {
+    std::mt19937 rng(9);
+    std::string gene(609, 'A');
+    for (auto& c : gene) c = "CGT"[rng() % 3];
+    for (size_t i = 300; i < 309; i++) gene[i] = 'A';           // 9 As
+    std::string const read = gene.substr(0, 303) + gene.substr(306);  // 3 of them lost: 6 As
+    // Exact on diagonal 0 up to the read's 6th A (read 306), and on diagonal 3 from its 1st A (read 300).
+    ChainList chain = { ChainLink(0, 0, 306), ChainLink(303, 300, 306) };
+    for (auto const& link : chain) ASSERT_EQ(read.substr(link.readpos, link.length), gene.substr(link.genepos, link.length));
+    AlignmentWindow w;
+    w.ref_start = 0;
+    w.ref_end = gene.size();
+    w.max_score = 100;
+    WFA2Wrapper2 aligner{4, 6, 2, 0};
+    AnchoredAligner anchored;
+    anchored.AllowIndels(true);
+    std::string ops;
+    ASSERT_EQ(anchored.Align(read, gene, chain, w, aligner, ops), AnchoredAligner::Status::Aligned);
+    EXPECT_EQ(ops, std::string(306, 'M') + "DDD" + std::string(300, 'M'));
+    // Without indels allowed, the same chain is left to the whole-window alignment.
+    AnchoredAligner short_reads;
+    EXPECT_EQ(short_reads.Align(read, gene, chain, w, aligner, ops), AnchoredAligner::Status::NotApplicable);
+}
+
 // Simulated reads as protal meets them: from their gene or a relative (up to 15% divergence), with
 // indels, Ns, and running past gene ends, anchored at an exact run on their diagonal or at several.
 TEST(AnchoredAlignment, AgreesWithTheWholeReadAlignment) {

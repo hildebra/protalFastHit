@@ -98,6 +98,16 @@ namespace protal {
             }
         }
 
+        // End-to-end alignment of the read `query` (text) against `ref` (pattern), both whole, with WFA2's end-to-end
+        // kernels (no ends-free bookkeeping); abandoned at max_score as Alignment is.
+        void EndToEnd(std::string const& query, std::string const& ref, int max_score=INT32_MAX) {
+            m_aligner.setMaxAlignmentSteps(max_score);
+            m_status = m_aligner.alignEnd2End(ref, query);
+            if (m_x_drop > 0 && m_status == WFAligner::StatusAlgCompleted && !CoversText(query.size())) {
+                m_status = WFAligner::StatusAlgPartial;
+            }
+        }
+
         int GetAlignmentScore() {
             return m_aligner.getAlignmentScore();
         }
