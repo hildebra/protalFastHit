@@ -120,8 +120,8 @@ detected with the right abundance (within 0.05) and that aligned reads hit their
 
 `.github/workflows/ci.yml` runs on every push and pull request, on Ubuntu 24.04:
 
-- a Release build of `protal`, `protal_avx2`, `simulate_metagenomes` and the unit tests, the unit
-  tests, and the mini database generator tests;
+- a Release build of `protal`, `simulate_metagenomes` and the unit tests, the unit tests, and the
+  mini database generator tests;
 - the unit tests of a Debug build under AddressSanitizer and UndefinedBehaviorSanitizer.
 
 The end-to-end tests and `just example` are not part of CI; run them before a merge.

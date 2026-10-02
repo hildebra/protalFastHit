@@ -14,6 +14,7 @@
 #include "SNPUtils.h"
 #include "AlignmentUtils.h"
 #include "AnchoredAlignment.h"
+#include "TargetClones.h"
 
 namespace protal {
     struct AlignmentOrientation {
@@ -389,7 +390,7 @@ namespace protal {
         SamEntry sam;
         SNPList snps;
         FastxRecord record;
-        bool AlignAnchor(Anchor& anchor, AlignmentResult& alignment, std::string const& fwd, std::string const& rev, bool allow_heuristic_alignment, std::string& id) {
+        PROTAL_CLONE_V3 bool AlignAnchor(Anchor& anchor, AlignmentResult& alignment, std::string const& fwd, std::string const& rev, bool allow_heuristic_alignment, std::string& id) {
             alignment.GetAlignmentInfo().Reset();
             alignment.Reset();
             m_aligner.Reset();

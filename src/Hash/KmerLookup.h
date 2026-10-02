@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include "Seedmap.h"
 #include "Constants.h"
+#include "TargetClones.h"
 
 namespace protal {
     // KmerPutter is a Metatemplate programming "Interface"  and needs to satisfy the following functions.
@@ -242,7 +243,7 @@ namespace protal {
             }
         }
 
-        inline void GetFromLookup(LookupList& result, LookupPointer& pointers) {
+        PROTAL_CLONE_V3 inline void GetFromLookup(LookupList& result, LookupPointer& pointers) {
             constexpr bool flex_on = true;
             if (pointers.flex_begin != nullptr) {
                 if constexpr(flex_on) {

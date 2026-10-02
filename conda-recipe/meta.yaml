@@ -35,8 +35,6 @@ requirements:
 test:
   commands:
     - protal --version
-    - protal_baseline --version
-    - test -x $PREFIX/bin/protal_avx2
     - simulate_metagenomes --help
     - qcmsa --help
     - protal_map_utils --help

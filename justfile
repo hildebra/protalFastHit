@@ -227,45 +227,42 @@ e2e: mini-db simulate
 example: baseline
     PROTAL={{protal}} bash examples/mini_db/run.sh
 
-# The ISA flags are per-target (isa_baseline / isa_avx2 in CMakeLists.txt), so
-# baseline, avx2 and static binaries all come out of one tree -- no need for
+# The ISA flags are per-target (isa_baseline in CMakeLists.txt), so the
+# dynamic and static binaries both come out of one tree -- no need for
 # separate cmake-build-* dirs.
 # Configure the build tree
 configure:
     cmake -S . -B {{build_dir}} -DCMAKE_BUILD_TYPE=Release
 
-# Baseline (no AVX) build
+# protal: one binary for every x86-64 CPU (x86-64 baseline; the hot functions also
+# for x86-64-v3, chosen at run time)
 baseline: configure
     cmake --build {{build_dir}} --target protal -- -j$(nproc)
-
-# AVX2 build
-avx2: configure
-    cmake --build {{build_dir}} --target protal_avx2 -- -j$(nproc)
 
 # simulate_metagenomes build
 simulate: configure
     cmake --build {{build_dir}} --target simulate_metagenomes -- -j$(nproc)
 
-# Static baseline build: fully static protal + simulate_metagenomes, no AVX/AVX2/AVX512
-# (isa_baseline => -march=x86-64, i.e. SSE2 only, runs on any x86-64 CPU).
+# Static build: fully static protal + simulate_metagenomes (isa_baseline =>
+# -march=x86-64; the x86-64-v3 copies of the hot functions are chosen at run time as in `protal`).
 static: configure
     cmake --build {{build_dir}} --target protal_static simulate_metagenomes_static -- -j$(nproc)
 
 # Build all binaries that `just install` ships
 build-all: configure
-    cmake --build {{build_dir}} --target protal protal_avx2 simulate_metagenomes -- -j$(nproc)
+    cmake --build {{build_dir}} --target protal simulate_metagenomes -- -j$(nproc)
 
 # Always rebuilds first so the installed binaries match the working tree (an
 # out-of-date build dir used to be installed silently).
-# Install protal, protal_avx2, protal_map_utils, protal_launcher, qcmsa and simulate_metagenomes into prefix/bin
+# Install protal, protal_map_utils, protal_profile_utils, qcmsa and simulate_metagenomes into prefix/bin.
+# It also removes protal_baseline and protal_avx2, the two builds that earlier installs ran through a launcher.
 install prefix="$HOME/.local": build-all
     mkdir -p {{prefix}}/bin
-    cp {{build_dir}}/protal                         {{prefix}}/bin/protal_baseline
-    cp {{build_dir}}/protal_avx2                    {{prefix}}/bin/protal_avx2
+    rm -f {{prefix}}/bin/protal_baseline {{prefix}}/bin/protal_avx2
+    cp {{build_dir}}/protal                         {{prefix}}/bin/protal
     cp {{build_dir}}/simulate_metagenomes           {{prefix}}/bin/simulate_metagenomes
     cp scripts/protal_map_utils                     {{prefix}}/bin/protal_map_utils
     cp scripts/protal_profile_utils                 {{prefix}}/bin/protal_profile_utils
-    cp protal_launcher                              {{prefix}}/bin/protal
     cp scripts/qcmsa.py                             {{prefix}}/bin/qcmsa
-    chmod +x {{prefix}}/bin/protal_baseline {{prefix}}/bin/protal_avx2 {{prefix}}/bin/simulate_metagenomes {{prefix}}/bin/protal_map_utils {{prefix}}/bin/protal_profile_utils {{prefix}}/bin/protal {{prefix}}/bin/qcmsa
+    chmod +x {{prefix}}/bin/protal {{prefix}}/bin/simulate_metagenomes {{prefix}}/bin/protal_map_utils {{prefix}}/bin/protal_profile_utils {{prefix}}/bin/qcmsa
     @echo "Installed to {{prefix}}/bin: $({{prefix}}/bin/protal --version)"

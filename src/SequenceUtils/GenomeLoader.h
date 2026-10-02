@@ -5,6 +5,7 @@
 #pragma once
 
 #include <Constants.h>
+#include "TargetClones.h"
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -751,13 +752,13 @@ namespace protal {
             return m_genomes.at(key);
         }
 
-        bool HasGene(GenomeKey taxid, GeneKey gene) const {
+        PROTAL_CLONE_V3 bool HasGene(GenomeKey taxid, GeneKey gene) const {
             auto it = m_genomes.find(taxid);
             return it != m_genomes.end() && it->second.HasGene(gene);
         }
 
         // Length of a gene as reference.map gives it (0 if the gene is not in the map).
-        size_t GeneLength(GenomeKey taxid, GeneKey gene) {
+        PROTAL_CLONE_V3 size_t GeneLength(GenomeKey taxid, GeneKey gene) {
             return HasGene(taxid, gene) ? m_genomes.at(taxid).GetGene(gene).GetLength() : 0;
         }
 
@@ -898,7 +899,7 @@ namespace protal {
             return true;
         }
 
-        Genome& GetGenome(GenomeKey const& key) {
+        PROTAL_CLONE_V3 Genome& GetGenome(GenomeKey const& key) {
             assert(m_genomes.contains(key));
             if (!m_genomes.contains(key)) {
                 std::cout << "Genomes Key: " << key << std::endl;

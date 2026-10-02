@@ -12,6 +12,7 @@
 #include "SamHandler.h"
 #include "Utilities.h"
 #include "Constants.h"
+#include "TargetClones.h"
 #include <tuple>
 
 namespace protal {
@@ -408,7 +409,7 @@ namespace protal {
         }
     };
 
-    static double CigarANI(std::string_view cigar) {
+    PROTAL_CLONE_V3 static double CigarANI(std::string_view cigar) {
         if (cigar.empty()) return 0;
         size_t matches = std::count_if(cigar.begin(), cigar.end(), [](char const &c) {
             return c == 'M';

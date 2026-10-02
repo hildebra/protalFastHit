@@ -17,6 +17,7 @@
 #include "FastxReader.h"
 #include "SamHandler.h"
 #include "SamFile.h"
+#include "TargetClones.h"
 #include "SNP.h"
 #include "AlignmentUtils.h"
 #include "ReadConsensus.h"
@@ -125,7 +126,7 @@ namespace protal {
         return mate_suffix ? id1.substr(0, n-2) : id1;
     }
 
-    static void ArtoSAM(SamEntry &sam, AlignmentResult const& ar, AlignmentInfo &info, FastxRecord &record, std::string const& qname) {
+    PROTAL_CLONE_V3 static void ArtoSAM(SamEntry &sam, AlignmentResult const& ar, AlignmentInfo &info, FastxRecord &record, std::string const& qname) {
         sam.m_qname = qname;
         sam.m_flag = 0;
         sam.m_rname = std::to_string(ar.Taxid()) + "_" + std::to_string(ar.GeneId());
@@ -659,7 +660,7 @@ namespace protal {
             return true;
         }
 
-        void operator () (PairedAlignmentResultList& alignment_results, FastxRecord& record1, FastxRecord& record2, size_t read_id=0, bool first_pair=true) {
+        PROTAL_CLONE_V3 void operator () (PairedAlignmentResultList& alignment_results, FastxRecord& record1, FastxRecord& record2, size_t read_id=0, bool first_pair=true) {
             if (alignment_results.empty()) return;
 
             auto& best = alignment_results.front();

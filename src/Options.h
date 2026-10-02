@@ -907,11 +907,9 @@ namespace protal {
             return m_unpack_dir.empty() ? m_location.dir : m_unpack_dir;
         }
 
-        // The name to show for protal in commands: the launcher's name for its binaries.
+        // The name to show for protal in commands: as it was called.
         std::string ProgramName() const {
             if (m_command_line.empty()) return "protal";
-            auto const name = std::filesystem::path(m_command_line.front()).filename().string();
-            if (name == "protal_avx2" || name == "protal_baseline" || name == "protal_plain") return "protal";
             return m_command_line.front();
         }
 

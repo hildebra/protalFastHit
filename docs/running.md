@@ -246,7 +246,6 @@ before, e.g. to reproduce earlier results; long reads are always aligned as a wh
 |---|---|
 | `PROTAL_DB_PATH` | the database, when `--db` is not given |
 | `PROTAL_QCMSA_SCRIPT` | the qcmsa executable, when it is not next to protal or on `$PATH` |
-| `PROTAL_NO_AVX2` | set to anything: the `protal` launcher runs the baseline build even on AVX2 CPUs |
 
 ## Memory
 

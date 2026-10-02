@@ -19,7 +19,7 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON
 
       - name: Build
-        run: cmake --build build --target protal protal_avx2 simulate_metagenomes protal_tests
+        run: cmake --build build --target protal simulate_metagenomes protal_tests
 
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure

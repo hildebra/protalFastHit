@@ -69,11 +69,12 @@ if (OPENMP_FLAG)
 	list(APPEND PROTAL_COMMON_COMPILE_OPTIONS ${OPENMP_FLAG})
 endif()
 
+# One binary for every x86-64 CPU: plain x86-64 (SSE2), with the hot functions compiled a second time for
+# x86-64-v3 and chosen at run time (PROTAL_CLONE_V3, src/Utilities/TargetClones.h), as are the AVX2
+# kernels of the syncmer scan, sequence packing, zlib-ng, libdeflate and zstd. -ffp-contract=off keeps
+# the x86-64-v3 copies from fusing multiplications and additions (FMA), so that both round alike.
 add_library(isa_baseline INTERFACE)
-target_compile_options(isa_baseline INTERFACE -march=x86-64 -mtune=generic)
-
-add_library(isa_avx2 INTERFACE)
-target_compile_options(isa_avx2 INTERFACE -march=x86-64-v3 -mtune=generic)
+target_compile_options(isa_baseline INTERFACE -march=x86-64 -mtune=generic -ffp-contract=off)
 
 include_directories(src/ lib/)
 
@@ -86,10 +87,6 @@ add_executable(protal_static
 target_compile_options(protal_static PRIVATE ${PROTAL_COMMON_COMPILE_OPTIONS})
 target_link_options(protal_static PRIVATE -static -static-libgcc -static-libstdc++)
 set_target_properties(protal_static PROPERTIES OUTPUT_NAME "protal_${PROJECT_VERSION}_static")
-
-add_executable(protal_avx2
-        src/main.cpp)
-target_compile_options(protal_avx2 PRIVATE ${PROTAL_COMMON_COMPILE_OPTIONS})
 
 add_executable(simulate_metagenomes
         src/simulate_metagenomes_main.cpp)
@@ -104,7 +101,6 @@ target_link_options(simulate_metagenomes_static PRIVATE -static -static-libgcc -
 # Link to cmake file in src
 target_link_libraries(protal PRIVATE protal_lib dl isa_baseline)
 target_link_libraries(protal_static PRIVATE protal_lib_static dl isa_baseline)
-target_link_libraries(protal_avx2 PRIVATE protal_lib dl isa_avx2)
 target_link_libraries(simulate_metagenomes PRIVATE protal_lib dl isa_baseline)
 target_link_libraries(simulate_metagenomes_static PRIVATE protal_lib_static dl isa_baseline)
 

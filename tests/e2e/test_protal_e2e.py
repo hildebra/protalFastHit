@@ -1204,39 +1204,6 @@ class MapUtilsTest(WorkDir):
         self.assertNotEqual(rc, 0, "one format only")
 
 
-class LauncherTest(WorkDir):
-    """The protal launcher runs the binaries installed next to it before any on $PATH."""
-
-    def stub(self, directory, name, text):
-        os.makedirs(directory, exist_ok=True)
-        path = os.path.join(directory, name)
-        with open(path, "w") as fh:
-            fh.write(f'#!/bin/sh\necho {text} "$@"\n')
-        os.chmod(path, 0o755)
-        return path
-
-    def test_own_install_wins_over_path(self):
-        install, other = self.path("install"), self.path("other")
-        os.makedirs(install)
-        launcher = os.path.join(install, "protal")
-        shutil.copy(os.path.join(ROOT, "protal_launcher"), launcher)
-        os.chmod(launcher, 0o755)
-        self.stub(install, "protal_baseline", "own-baseline")
-        self.stub(other, "protal_avx2", "other-avx2")
-        self.stub(other, "protal_baseline", "other-baseline")
-        env = dict(os.environ, PATH=other + os.pathsep + os.environ["PATH"])
-        env.pop("PROTAL_NO_AVX2", None)
-
-        out = subprocess.run([launcher, "--x", "a b"], env=env, stdout=subprocess.PIPE, text=True)
-        self.assertEqual(out.stdout.strip(), "own-baseline --x a b")
-
-        # Without a binary of its own, it falls back to $PATH.
-        os.remove(os.path.join(install, "protal_baseline"))
-        env["PROTAL_NO_AVX2"] = "1"
-        out = subprocess.run([launcher, "--x"], env=env, stdout=subprocess.PIPE, text=True)
-        self.assertEqual(out.stdout.strip(), "other-baseline --x")
-
-
 class RerunTest(WorkDir):
     """Existing SAM files are reused, and --no_profile is honoured when all of them exist."""
 

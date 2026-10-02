@@ -5,6 +5,7 @@
 #pragma once
 #include "ChainingStrategy.h"
 #include "Constants.h"
+#include "TargetClones.h"
 #include "Benchmark.h"
 #include "robin_map.h"
 
@@ -677,7 +678,7 @@ namespace protal {
         }
 
 
-        void operator () (KmerList& kmer_list, SeedList& seeds, ChainAnchorList& anchors, std::string& query) {
+        PROTAL_CLONE_V3 void operator () (KmerList& kmer_list, SeedList& seeds, ChainAnchorList& anchors, std::string& query) {
             m_error_in_read = false;
 
             m_bm_operator.Start();

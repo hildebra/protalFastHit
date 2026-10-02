@@ -74,28 +74,6 @@
             ]
         },
         {
-            "label": "CMake Build Release AVX2",
-            "type": "shell",
-            "command": "cmake",
-            "args": [
-                "--build",
-                "cmake-build-release",
-                "--target",
-                "protal_avx2",
-                "--",
-                "-j",
-                "6"
-            ],
-            "problemMatcher": [],
-            "group": {
-                "kind": "build",
-                "isDefault": false
-            },
-            "dependsOn": [
-                "CMake Configure Release"
-            ]
-        },
-        {
             "label": "Build simulate_metagenomes",
             "type": "shell",
             "command": "cmake --build cmake-build-release --target simulate_metagenomes",

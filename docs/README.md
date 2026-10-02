@@ -6,7 +6,7 @@ worked four-sample example, the map file, and every output file). The pages here
 
 | Page | For | What it covers |
 |---|---|---|
-| [installation.md](installation.md) | users, packagers | bioconda, static binaries, building from source with CMake, `just` or conda-build, the AVX2 launcher, what gets installed |
+| [installation.md](installation.md) | users, packagers | bioconda, static binaries, building from source with CMake, `just` or conda-build, one binary for every CPU, what gets installed |
 | [running.md](running.md) | users | where outputs go in each mode, exit codes, reruns and `--profile_only`, options the website does not list |
 | [database-files.md](database-files.md) | users, database builders | the files of a database, the single-file `database.protal`, compression, converting and unpacking |
 | [building-a-database.md](building-a-database.md) | database builders | a database from a GTDB release, reduced marker sets, the complete build-and-train workflow |

@@ -6,6 +6,7 @@
 #include <string>
 #include "ChainingStrategy.h"
 #include "WFA2Wrapper2.h"
+#include "TargetClones.h"
 
 namespace protal {
 
@@ -41,7 +42,7 @@ namespace protal {
     public:
         enum class Status { Aligned, Failed, NotApplicable };
 
-        Status Align(std::string const& read, std::string_view const gene, ChainList const& chain, AlignmentWindow const& w,
+        PROTAL_CLONE_V3 Status Align(std::string const& read, std::string_view const gene, ChainList const& chain, AlignmentWindow const& w,
                      WFA2Wrapper2& aligner, std::string& ops) {
             ops.clear();
             if (chain.empty() || w.ref_end > gene.size() || w.ref_start > w.ref_end) return Status::NotApplicable;
@@ -110,7 +111,7 @@ namespace protal {
         // (the flank's end for the left flank, its start for the right one) and free at the other
         // end by up to ref_free reference and read_free read bases. The left flank is aligned
         // reversed; its operations come back reversed too, for the caller to turn around.
-        Status Flank(std::string const& read, std::string_view const gene, size_t read_from, size_t read_to, size_t ref_from,
+        PROTAL_CLONE_V3 Status Flank(std::string const& read, std::string_view const gene, size_t read_from, size_t read_to, size_t ref_from,
                      size_t ref_to, bool reversed, int ref_free, int read_free, int max_score, WFA2Wrapper2& aligner,
                      int& used, std::string& out) {
             size_t const r = read_to - read_from, g = ref_to - ref_from;

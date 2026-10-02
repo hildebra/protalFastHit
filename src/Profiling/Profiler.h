@@ -16,6 +16,7 @@
 #include "Taxonomy.h"
 #include "InternalReadAlignment.h"
 #include "Constants.h"
+#include "TargetClones.h"
 #include "SNPUtils.h"
 #include "ScoreAlignments.h"
 #include "gzstream/gzstream.h"
@@ -2947,7 +2948,7 @@ namespace protal {
             // `evidence`, and its records that pass the MAPQ and length filters into `additions` if CheckSam takes them.
             // Returns false if CheckSam rejects one (the read does not fit the database). Reads `profile` only, so that
             // the chunks of a SAM can be prepared on several threads.
-            bool PrepareMAPQ(MicrobialProfile const& profile, AlignmentPair& ap, size_t link, RecordEvidenceCollector& evidence,
+            PROTAL_CLONE_V3 bool PrepareMAPQ(MicrobialProfile const& profile, AlignmentPair& ap, size_t link, RecordEvidenceCollector& evidence,
                              CigarInfo& info1, CigarInfo& info2, std::vector<SamAddition>& additions) const {
                 bool valid_sam = true;
 

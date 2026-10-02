@@ -31,8 +31,8 @@ To build them yourself (needs the static libraries of zstd and libdeflate):
 just static        # -> build/protal_<version>_static, build/simulate_metagenomes_static
 ```
 
-They are compiled for plain x86-64 (SSE2), so they run on any x86-64 CPU (zlib-ng, the gzip
-library, picks faster instructions at run time where the CPU has them).
+They are compiled for plain x86-64 (SSE2), so they run on any x86-64 CPU, and use AVX2 where the CPU
+has it, as `protal` does (see [One binary for every CPU](#one-binary-for-every-cpu)).
 
 ## Building from source
 
@@ -50,7 +50,7 @@ with protal; no system zlib is needed. Then:
 git clone https://github.com/4less/protal.git
 cd protal
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target protal protal_avx2 simulate_metagenomes -j 8
+cmake --build build --target protal simulate_metagenomes -j 8
 ./build/protal --version
 ```
 
@@ -59,29 +59,44 @@ A default build is `Release`; `-DCMAKE_BUILD_TYPE=Debug` builds without optimisa
 
 | Target | Binary | |
 |---|---|---|
-| `protal` | `build/protal` | baseline x86-64 build, runs on any x86-64 CPU |
-| `protal_avx2` | `build/protal_avx2` | built for x86-64-v3 (AVX2, BMI, FMA); same output as the baseline build |
-| `protal_static` | `build/protal_<version>_static` | fully static baseline build |
+| `protal` | `build/protal` | runs on any x86-64 CPU, with AVX2 where the CPU has it ([below](#one-binary-for-every-cpu)) |
+| `protal_static` | `build/protal_<version>_static` | fully static build of `protal` |
 | `simulate_metagenomes` | `build/simulate_metagenomes` | read simulator, see [simulation.md](simulation.md) |
 | `simulate_metagenomes_static` | `build/simulate_metagenomes_static` | static simulator |
 | `protal_tests` | `build/tests/protal_tests` | unit tests; needs `-DPROTAL_BUILD_TESTS=ON` and GoogleTest, see [testing.md](testing.md) |
 
-The [justfile](../justfile) wraps these: `just baseline`, `just avx2`, `just simulate`,
-`just build-all` (the three binaries that get installed), `just static`, and `just clear` to
+The [justfile](../justfile) wraps these: `just baseline` (protal), `just simulate`,
+`just build-all` (the two binaries that get installed), `just static`, and `just clear` to
 delete the build trees.
+
+### One binary for every CPU
+
+`protal` is compiled for plain x86-64 (SSE2), so it runs on any x86-64 CPU. Where the CPU has AVX2
+and the other x86-64-v3 instructions (Intel Core since Haswell, 2013; AMD since 2015), protal runs faster code
+in the places where that was measured to pay. It chooses when it starts, and its output is the
+same on every CPU.
+
+- The syncmer scan and sequence packing have AVX2 kernels of protal's own.
+- zlib-ng, libdeflate and zstd choose their own.
+- The hot functions marked `PROTAL_CLONE_V3` (`src/Utilities/TargetClones.h`) are compiled twice,
+  for x86-64 and for x86-64-v3, and the loader picks one (GCC's `target_clones`). This needs GCC
+  12 or later on Linux with glibc. With other compilers, or with
+  `-DCMAKE_CXX_FLAGS=-DPROTAL_NO_CLONES`, they are compiled once, for x86-64.
+
+WFA2-lib is built for plain x86-64, because its AVX2 kernels were not faster in protal's use
+([report](claude/2026-10-02-wfa-avx2/README.md)).
 
 ### Installing a source build
 
 ```bash
-just install prefix="$HOME/.local"      # default prefix; the binaries go to $prefix/bin
+just install                    # into $HOME/.local/bin; `just install /opt/protal` into /opt/protal/bin
 ```
 
 This rebuilds first and installs the same layout as the conda package:
 
 | Installed as | From |
 |---|---|
-| `protal` | `protal_launcher`: runs `protal_avx2` if the CPU supports it, else `protal_baseline` |
-| `protal_baseline`, `protal_avx2` | the two builds |
+| `protal` | the build |
 | `simulate_metagenomes` | the simulator |
 | `qcmsa` | `scripts/qcmsa.py`, the strain MSA post-filter |
 | `protal_map_utils` | `scripts/protal_map_utils`: `generate` a map from read folders, `merge` or `flatten` maps, `validate` one |
@@ -91,9 +106,8 @@ The conda package also installs the database build and training scripts under
 `share/protal/scripts/` (the layout of `scripts/`); their Python requirements are not part of the
 package, see [Tools to build a database](#tools-to-build-a-database).
 
-The launcher looks for the binaries next to itself before it looks on `$PATH`, so a second
-install on `$PATH` does not interfere. Set `PROTAL_NO_AVX2=1` to force the baseline build. It
-passes all arguments through and returns protal's exit status.
+Up to version 0.7.2, `protal` was a launcher that ran one of two builds, `protal_baseline` or
+`protal_avx2`; `just install` removes those two from the prefix.
 
 protal finds qcmsa next to its own binary, then on `$PATH`, then through the environment variable
 `PROTAL_QCMSA_SCRIPT`, and finally as `scripts/qcmsa.py` of a source checkout; `--qcmsa_script`

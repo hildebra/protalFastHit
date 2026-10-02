@@ -21,6 +21,7 @@
 #pragma once
 
 #include "Zstd.h"
+#include "TargetClones.h"
 
 #include <algorithm>
 #include <atomic>
@@ -105,7 +106,7 @@ namespace protal::index_codec {
         }
 
         // Decodes a chunk payload into the key map cells of its blocks (km) and its value cells (vals).
-        inline std::string DecodeChunk(char const* data, size_t size, Layout const& l, Chunk const& c, uint16_t* km,
+        PROTAL_CLONE_V3 inline std::string DecodeChunk(char const* data, size_t size, Layout const& l, Chunk const& c, uint16_t* km,
                                        uint64_t* vals) {
             uint64_t const cpb = l.CellsPerBlock(), kpb = l.keys_per_block;
             if (size < kChunkHeaderBytes) return "chunk shorter than its header";
