@@ -2,6 +2,10 @@
 
 - **Date**: 2026-10-02.
 - **Code**: branch `audit-fixes` at `f07acb3`; the experiment is `scripts/wfa_avx2.patch` on it (not committed).
+- **Later the same day**: `scripts/wfa_avx2.patch` was removed, as WFA2 stays without AVX2 (the user's decision).
+  It is in the history: `git show 1fced40:docs/claude/2026-10-02-wfa-avx2/scripts/wfa_avx2.patch`. `wfabench.cpp`,
+  `wfabench_run.sh` and `wfa_real.sh` need it. The one binary was done with `target_clones` instead
+  ([report](../2026-10-02-one-binary/README.md)).
 - **Machine**: WSL2 Ubuntu 24.04 on an Intel Core Ultra 7 258V (4 fast and 4 low-power cores, 6 vCPUs), gcc 13.
   Other sessions kept the load at 6–17 for most of the time, which matters for the timings (below).
 - **Questions**: (1) could every AVX2 use of protal be chosen at run time, as the syncmer scan is, so that one
