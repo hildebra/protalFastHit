@@ -1,0 +1,12 @@
+1	<wavefront_extend_matches_packed_end2end>:	tzcnt
+1	<wavefront_extend_matches_packed_end2end_max>:	tzcnt
+1	<wavefront_extend_matches_packed_endsfree>:	tzcnt
+2	<pcigar_unpack_affine>:	tzcnt
+2	<pcigar_unpack_extend>:	tzcnt
+2	<pcigar_unpack_linear>:	tzcnt
+3	<compare256_sse2>:	tzcnt
+3	<longest_match_slow_sse2>:	tzcnt
+3	<longest_match_sse2>:	tzcnt
+1	<bool std::__detail::__from_chars_pow2_base<false, unsigned int>
+1	<bool std::__detail::__from_chars_pow2_base<false, unsigned long>
+lzcnt instructions in the whole binary: 0

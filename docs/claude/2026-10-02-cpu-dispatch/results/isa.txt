@@ -1,0 +1,75 @@
+145	<protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)>: avx(xmm)
+134	<protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)>: avx/avx2
+1	<protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&)>: lzcnt/tzcnt
+81	<protal::SimpleKmerHandler<protal::ClosedSyncmer>::Bases16(unsigned char const*, unsigned long, bool)>: avx(xmm)
+80	<protal::SimpleKmerHandler<protal::ClosedSyncmer>::Bases16(unsigned char const*, unsigned long, bool)>: avx/avx2
+61	<protal::packed::UnpackAvx2(unsigned char const*, unsigned long, char*)>: avx/avx2
+6	<protal::packed::UnpackAvx2(unsigned char const*, unsigned long, char*)>: avx(xmm)
+727	<protal::packed::PackAvx2(char const*, unsigned long, unsigned char*)>: avx(xmm)
+154	<protal::packed::PackAvx2(char const*, unsigned long, unsigned char*)>: avx/avx2
+1	<bool std::__detail::__from_chars_pow2_base<false, unsigned int>(char const*&, char const*, unsigned int&, int)>: lzcnt/tzcnt
+1	<bool std::__detail::__from_chars_pow2_base<false, unsigned long>(char const*&, char const*, unsigned long&, int)>: lzcnt/tzcnt
+21	<adler32_avx512>: avx(xmm)
+18	<adler32_avx512>: avx512
+3	<adler32_avx512>: avx/avx2
+25	<adler32_avx512_vnni>: avx512
+24	<adler32_avx512_vnni>: avx(xmm)
+3	<adler32_avx512_vnni>: avx/avx2
+22	<adler32_fold_copy_avx512>: avx512
+21	<adler32_fold_copy_avx512>: avx(xmm)
+3	<adler32_fold_copy_avx512>: avx/avx2
+1	<adler32_fold_copy_avx512>: bmi
+28	<adler32_fold_copy_avx512_vnni>: avx/avx2
+22	<adler32_fold_copy_avx512_vnni>: avx(xmm)
+3	<adler32_fold_copy_avx512_vnni>: avx512
+1	<adler32_fold_copy_avx512_vnni>: bmi
+41	<adler32_fold_copy_impl.part.0>: avx/avx2
+23	<adler32_fold_copy_impl.part.0>: avx(xmm)
+4	<chunkcopy_safe>: avx(xmm)
+27	<chunkmemset_avx2>: avx/avx2
+20	<chunkmemset_avx2>: avx(xmm)
+30	<chunkmemset_avx512>: avx/avx2
+17	<chunkmemset_avx512>: avx512
+12	<chunkmemset_avx512>: avx(xmm)
+6	<chunkmemset_avx512>: bmi
+6	<compare256_avx2>: avx/avx2
+3	<compare256_avx2>: avx(xmm)
+2	<compare256_avx2>: lzcnt/tzcnt
+9	<compare256_avx512>: avx512
+6	<compare256_avx512>: avx(xmm)
+3	<compare256_sse2>: lzcnt/tzcnt
+164	<crc32_fold_vpclmulqdq>: avx(xmm)
+44	<crc32_fold_vpclmulqdq>: avx512
+126	<crc32_fold_vpclmulqdq_copy>: avx(xmm)
+54	<crc32_fold_vpclmulqdq_copy>: avx512
+29	<crc32_fold_vpclmulqdq_final>: avx(xmm)
+6	<crc32_fold_vpclmulqdq_reset>: avx(xmm)
+7	<crc32_vpclmulqdq>: avx(xmm)
+18	<inflate_fast_avx2>: bmi
+6	<inflate_fast_avx2>: avx(xmm)
+6	<inflate_fast_avx2>: avx/avx2
+19	<inflate_fast_avx512>: bmi
+7	<inflate_fast_avx512>: avx/avx2
+5	<inflate_fast_avx512>: avx(xmm)
+3	<inflate_fast_avx512>: avx512
+6	<longest_match_avx2>: avx/avx2
+2	<longest_match_avx2>: lzcnt/tzcnt
+1	<longest_match_avx2>: avx(xmm)
+9	<longest_match_avx512>: avx512
+2	<longest_match_avx512>: avx(xmm)
+7	<longest_match_slow_avx2>: avx(xmm)
+6	<longest_match_slow_avx2>: avx/avx2
+2	<longest_match_slow_avx2>: lzcnt/tzcnt
+9	<longest_match_slow_avx512>: avx512
+8	<longest_match_slow_avx512>: avx(xmm)
+3	<longest_match_slow_sse2>: lzcnt/tzcnt
+3	<longest_match_sse2>: lzcnt/tzcnt
+37	<partial_fold>: avx(xmm)
+2	<pcigar_unpack_affine>: lzcnt/tzcnt
+2	<pcigar_unpack_extend>: lzcnt/tzcnt
+2	<pcigar_unpack_linear>: lzcnt/tzcnt
+7	<slide_hash_avx2>: avx/avx2
+2	<slide_hash_avx2>: avx(xmm)
+1	<wavefront_extend_matches_packed_end2end>: lzcnt/tzcnt
+1	<wavefront_extend_matches_packed_end2end_max>: lzcnt/tzcnt
+1	<wavefront_extend_matches_packed_endsfree>: lzcnt/tzcnt

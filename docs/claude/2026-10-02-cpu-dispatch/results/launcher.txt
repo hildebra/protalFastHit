@@ -1,0 +1,14 @@
+x86-64-v3 flags                    -> protal_avx2 --version
+without avx                        -> protal_baseline --version
+without avx2                       -> protal_baseline --version
+without bmi1                       -> protal_baseline --version
+without bmi2                       -> protal_baseline --version
+without fma                        -> protal_baseline --version
+without f16c                       -> protal_baseline --version
+without movbe                      -> protal_baseline --version
+without abm                        -> protal_baseline --version
+avx2 only as part of avx512f       -> protal_baseline --version
+no /proc/cpuinfo                   -> protal_baseline --version
+ARM (Features, no flags)           -> protal_baseline --version
+x86-64-v3 flags, PROTAL_NO_AVX2=1  -> protal_baseline --version
+this machine's flags have: avx avx2 bmi1 bmi2 fma f16c movbe abm 
