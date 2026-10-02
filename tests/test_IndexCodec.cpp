@@ -27,25 +27,27 @@ namespace {
     // Keys with c entries take c cells, or c + ceil(c/2) with flex keys (c >= 2); block offsets and
     // per-key offsets are prefix sums, the last control block holds the number of values. The keys
     // of the first single_cell_blocks blocks have 0 or 1 entries, so those blocks have no flex cells.
+    // With empty_runs, the blocks of every second run of that many (from block empty_runs on) are empty.
     struct SmallIndex {
         index_codec::Layout layout;
         std::vector<uint16_t> keymap;
         std::vector<uint64_t> values;
         std::string header = std::string("an index header\0with bytes", 26);
 
-        SmallIndex(uint64_t blocks, unsigned seed, double empty_share, uint64_t single_cell_blocks = 0) {
+        SmallIndex(uint64_t blocks, unsigned seed, double empty_share, uint64_t single_cell_blocks = 0, uint64_t empty_runs = 0) {
             std::mt19937_64 rng(seed);
             layout.blocks = blocks;
             keymap.assign(layout.KeymapCells(), 0);
             uint64_t v = 0;
             for (uint64_t b = 0; b < blocks; b++) {
                 uint16_t* cells = keymap.data() + b * layout.CellsPerBlock();
+                bool const empty_block = empty_runs > 0 && (b / empty_runs) % 2 == 1;
                 std::memcpy(cells, &v, 8);
                 uint64_t local = 0;
                 for (uint64_t j = 0; j < layout.keys_per_block; j++) {
                     cells[4 + j] = static_cast<uint16_t>(local);
                     std::uniform_real_distribution<double> u(0, 1);
-                    uint64_t const c = u(rng) < empty_share ? 0 : b < single_cell_blocks ? 1 : 1 + rng() % (rng() % 4 == 0 ? 40 : 3);
+                    uint64_t const c = empty_block || u(rng) < empty_share ? 0 : b < single_cell_blocks ? 1 : 1 + rng() % (rng() % 4 == 0 ? 40 : 3);
                     uint64_t const n = c >= 2 ? c + (c + 1) / 2 : c;
                     uint64_t const taxid = 1 + rng() % 5000;
                     for (uint64_t i = 0; i < n - c; i++) values.push_back(rng());  // flex cells
@@ -152,6 +154,18 @@ TEST(IndexCodec, RoundTripWithManyChunksAndAnyThreadCount) {
             if (chunk == 4096) EXPECT_GT(container.chunks.size(), 10u);
             EXPECT_EQ(km, index.keymap) << "chunks of " << chunk << ", " << threads << " threads";
             EXPECT_EQ(vals, index.values) << "chunks of " << chunk << ", " << threads << " threads";
+        }
+    }
+}
+
+// Runs of empty blocks shorter and longer than the 64 the decoder fills at once (from a chunk's every 64th block),
+// at many offsets to the chunks' starts, between filled blocks.
+TEST(IndexCodec, LongRunsOfEmptyBlocks) {
+    TempDir tmp;
+    for (uint64_t run : {63, 64, 65, 129, 300}) {
+        SmallIndex index(5000, static_cast<unsigned>(run), 0.3, 0, run);
+        for (uint64_t chunk : {uint64_t{3000}, uint64_t{40000}, uint64_t{4} << 20}) {
+            RoundTrip(index, tmp / ("runs" + std::to_string(run) + "_" + std::to_string(chunk) + ".zst"), chunk);
         }
     }
 }

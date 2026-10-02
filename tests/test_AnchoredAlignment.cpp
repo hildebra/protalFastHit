@@ -190,6 +190,56 @@ TEST(AnchoredAlignment, SeedsThatImplyAnIndelAreAlignedAsAWhole) {
     EXPECT_EQ(h.anchored.m_whole_window_alignments, 1u);
 }
 
+// A flank with at most one mismatch on its link's diagonal is aligned without WFA2 (AnchoredAligner::Flank): the
+// same status and operations as WFA2 gives, for reads starting and ending in or past the window, free ends of either
+// side and budgets down to the edge, with mismatches and Ns anywhere in the flanks.
+TEST(AnchoredAlignment, UngappedFlanksAreWhatWFA2Gives) {
+    std::mt19937 rng(7);
+    auto base = [&rng]() { return "ACGT"[rng() % 4]; };
+    WFA2Wrapper2 aligner{4, 6, 2, 1000};
+    AnchoredAligner fast, wfa;
+    wfa.SetUngappedFlanks(false);
+    size_t aligned = 0, failed = 0;
+    std::string fast_ops, wfa_ops;
+    for (int n = 0; n < 20000; n++) {
+        // The window is gene [20, 20 + length); the gene has 20 bases more at either end, which a read may start or
+        // end in (bases past the window). The link: 15-30 exact bases in the middle of the read.
+        size_t const length = 60 + rng() % 120;
+        std::string gene(length + 40, 'A');
+        for (auto& c : gene) c = base();
+        size_t const start = 20 + rng() % 25 - 12, end = 20 + length + rng() % 25 - 12;
+        std::string read = gene.substr(start, end - start);
+        size_t const link_length = 15 + rng() % 16, link_read = (read.size() - link_length) / 2;
+        for (int i = static_cast<int>(rng() % 5); i > 0; i--) {  // up to 4 changes, in the flanks only
+            size_t const p = rng() % read.size();
+            if (p >= link_read && p < link_read + link_length) continue;
+            read[p] = rng() % 8 == 0 ? 'N' : base();
+        }
+        AlignmentWindow w;
+        w.ref_start = 20;
+        w.ref_end = 20 + length;
+        w.ref_begin_free = static_cast<int>(rng() % 15);
+        w.ref_end_free = static_cast<int>(rng() % 15);
+        w.read_begin_free = static_cast<int>(rng() % 15);
+        w.read_end_free = static_cast<int>(rng() % 15);
+        w.max_score = 1 + static_cast<int>(rng() % 30);
+        ChainList chain = { ChainLink(static_cast<uint32_t>(start + link_read), static_cast<uint16_t>(link_read), static_cast<uint16_t>(link_length)) };
+        auto const a = fast.Align(read, gene, chain, w, aligner, fast_ops);
+        auto const b = wfa.Align(read, gene, chain, w, aligner, wfa_ops);
+        ASSERT_EQ(a, b) << "case " << n << ": " << read;
+        if (a == AnchoredAligner::Status::Aligned) {
+            ASSERT_EQ(fast_ops, wfa_ops) << "case " << n << ": " << read;
+            aligned++;
+        }
+        failed += a == AnchoredAligner::Status::Failed;
+    }
+    std::cout << aligned << " aligned, " << failed << " failed, " << fast.UngappedFlanks() << " flanks without WFA2" << std::endl;
+    EXPECT_GT(aligned, 5000u);
+    EXPECT_GT(failed, 1000u);
+    EXPECT_GT(fast.UngappedFlanks(), 10000u);
+    EXPECT_EQ(wfa.UngappedFlanks(), 0u);
+}
+
 // Simulated reads as protal meets them: from their gene or a relative (up to 15% divergence), with
 // indels, Ns, and running past gene ends, anchored at an exact run on their diagonal or at several.
 TEST(AnchoredAlignment, AgreesWithTheWholeReadAlignment) {

@@ -101,11 +101,17 @@ namespace protal {
             return Status::Aligned;
         }
 
+        // Tests: off, every flank goes to WFA2, which the ungapped flanks are checked against; and how many were.
+        void SetUngappedFlanks(bool on) { m_ungapped_flanks = on; }
+        size_t UngappedFlanks() const { return m_ungapped_count; }
+
     private:
         static constexpr int kMismatch = 4;  // as SimpleAlignmentHandler sets up WFA2Wrapper2 (4, 6, 2)
 
         std::string m_query, m_ref, m_left, m_right;
         Status m_status = Status::Aligned;
+        bool m_ungapped_flanks = true;
+        size_t m_ungapped_count = 0;
 
         // A flank: read [read_from, read_to) against gene [ref_from, ref_to), anchored at the link
         // (the flank's end for the left flank, its start for the right one) and free at the other
@@ -129,9 +135,30 @@ namespace protal {
                 m_query.assign(read, read_from, r);
                 m_ref.assign(gene, ref_from, g);
             }
+            int const read_end_free = std::min<int>(std::max(read_free, 0), static_cast<int>(r));
+            int const ref_end_free = std::min<int>(std::max(ref_free, 0), static_cast<int>(g));
+            // At most one mismatch on the link's diagonal up to the end of the read or the reference, and the bases
+            // left at the other within its free end: that ungapped alignment is the only best one (0 or 4; any other
+            // leaves the diagonal with a gap, 8 or more), so it is the one WFA2 returns, with the bases left over
+            // written as WFA2 writes them (I for the read's, D for the reference's). WFA2 stops at a score of its
+            // max_steps, so it fails where the score reaches the budget.
+            size_t const m = std::min(r, g);
+            if (m_ungapped_flanks && r - m <= static_cast<size_t>(read_end_free) && g - m <= static_cast<size_t>(ref_end_free)) {
+                int mismatches = 0;
+                for (size_t k = 0; k < m && mismatches <= 1; k++) mismatches += m_query[k] != m_ref[k];
+                if (mismatches <= 1) {
+                    if (kMismatch * mismatches >= max_score - used) return m_status = Status::Failed;
+                    out.resize(m);
+                    for (size_t k = 0; k < m; k++) out[k] = m_query[k] == m_ref[k] ? 'M' : 'X';
+                    out.append(r - m, 'I');
+                    out.append(g - m, 'D');
+                    used += kMismatch * mismatches;
+                    m_ungapped_count++;
+                    return m_status = Status::Aligned;
+                }
+            }
             aligner.Reset();
-            aligner.Alignment(m_query, m_ref, 0, std::min<int>(std::max(read_free, 0), static_cast<int>(r)),
-                              0, std::min<int>(std::max(ref_free, 0), static_cast<int>(g)), max_score - used);
+            aligner.Alignment(m_query, m_ref, 0, read_end_free, 0, ref_end_free, max_score - used);
             if (!aligner.Success()) return m_status = Status::Failed;
             used += -aligner.GetAlignmentScore();
             aligner.CigarInto(out);

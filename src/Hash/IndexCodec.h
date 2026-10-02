@@ -105,6 +105,14 @@ namespace protal::index_codec {
             }
         }
 
+        // n (a multiple of 4) empty control blocks of 8 keys from cells: each the value offset v and 8 zero key offsets.
+        inline void FillEmptyBlocks(uint16_t* cells, uint64_t n, uint64_t v) {
+            unsigned char pattern[96] = {};  // 4 blocks of 24 bytes
+            for (int i = 0; i < 4; i++) std::memcpy(pattern + 24 * i, &v, 8);
+            auto* out = reinterpret_cast<unsigned char*>(cells);
+            for (uint64_t i = 0; i < n; i += 4) std::memcpy(out + 24 * i, pattern, sizeof(pattern));
+        }
+
         // Decodes a chunk payload into the key map cells of its blocks (km) and its value cells (vals).
         PROTAL_CLONE_V3 inline std::string DecodeChunk(char const* data, size_t size, Layout const& l, Chunk const& c, uint16_t* km,
                                        uint64_t* vals) {
@@ -143,6 +151,15 @@ namespace protal::index_codec {
             uint64_t v = c.first_value, flex_sum = 0, entry_sum = 0, k = 0;
             for (uint64_t b = 0; b < c.blocks; b++) {
                 uint16_t* cells = km + b * cpb;
+                if (cpb == 12 && (b & 63) == 0 && b + 64 <= c.blocks) {
+                    uint64_t word;
+                    std::memcpy(&word, bitmap + (b >> 3), 8);
+                    if (word == 0) {  // 64 empty blocks (most blocks of a small database): the same 24 bytes each
+                        FillEmptyBlocks(cells, 64, v);
+                        b += 63;
+                        continue;
+                    }
+                }
                 if (!(bitmap[b >> 3] >> (b & 7) & 1)) {
                     if (kpb == 8) {  // the only layout protal uses: one fixed-size store
                         uint16_t block[12] = {};
