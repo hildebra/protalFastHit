@@ -232,6 +232,25 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         self.assertEqual(list(self.trainer.depth_knob_calls(np.array([0.3, 0.6]), np.array([2.0, 4.0]), [], 0.5)),
                          [False, True])
 
+    def test_sparse_depths_join_their_neighbours(self):
+        # A point needs DEPTH_KNOB_MIN_SAMPLES samples in its window: a bin with fewer joins the next deeper one, and
+        # bins left at the deep end the point before, so that a few deep samples set no knob of their own.
+        def points(sample_depths):
+            samples = np.array([f"s{i}" for i, _ in enumerate(sample_depths) for _ in range(3)])
+            depths = np.repeat(np.array(sample_depths, dtype=float), 3)
+            windows = self.trainer.depth_knob_windows(depths, samples, np.ones(len(depths), dtype=bool))
+            return [(x, len(set(samples[in_group])), len(set(samples[window]))) for x, in_group, window in windows]
+
+        self.assertEqual(self.trainer.DEPTH_KNOB_MIN_SAMPLES, 6)
+        self.assertEqual(points([2.2] * 12 + [3.2] * 12), [(2.2, 12, 12), (3.2, 12, 12)])
+        # 3 samples at 1.2 join the 12 at 2.2; 3 at 5.2 and 2 at 5.8 (5 together) join the point at 3.2.
+        self.assertEqual(points([1.2] * 3 + [2.2] * 12 + [3.2] * 12 + [5.2] * 3 + [5.8] * 2),
+                         [(2.2, 15, 15), (3.2, 17, 17)])
+        # 6 deep samples are enough for a point of their own (r226's 10M read pairs: 2 samples of 3 read setups).
+        self.assertEqual(points([2.2] * 12 + [5.2] * 6), [(2.2, 12, 12), (5.2, 6, 6)])
+        # Too few samples in all: one point.
+        self.assertEqual(points([2.2] * 3 + [4.2] * 2), [(2.2, 5, 5)])
+
     def test_depth_knob_curve_in_the_model(self):
         model, metrics = self.train("knobs", "--depth-knobs")
         curve = read_depth_knob_curve(model)

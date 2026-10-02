@@ -91,9 +91,15 @@ FRAGMENT_BINS = [0, 10, 100, 1000, np.inf]
 # a point per DEPTH_KNOB_STEP of it where the training samples are, at the median depth of the bin's samples, its knob the
 # threshold with the highest F1 on species held out of the rows of the samples within DEPTH_KNOB_WINDOW of that depth
 # (neighbouring points share rows, so that the curve does not follow every bin's noise), where they are more than
-# DEPTH_KNOB_MIN_TAXA taxa and DEPTH_KNOB_MIN_PRESENT present; the thresholds tried.
+# DEPTH_KNOB_MIN_TAXA taxa and DEPTH_KNOB_MIN_PRESENT present; the thresholds tried. A window needs
+# DEPTH_KNOB_MIN_SAMPLES samples: a bin with fewer joins the next deeper one, one left at the deep end the point before,
+# as protal keeps the last knob for any deeper sample. At r226 the long-read points of 2 and 4 samples had their best
+# knob anywhere from 0.33 to 0.91 over bootstrap resamples of their samples; the short reads' 10M-pair point, of 6, held
+# at 0.68-0.87, below the 2M point's 0.94, and merging it cost those samples 0.002-0.007 F1
+# (docs/claude/2026-10-02-r226-v3-training/README.md).
 DEPTH_KNOB_STEP = 0.5
 DEPTH_KNOB_WINDOW = 0.5
+DEPTH_KNOB_MIN_SAMPLES = 6
 DEPTH_KNOB_MIN_TAXA = 50
 DEPTH_KNOB_MIN_PRESENT = 10
 DEPTH_KNOB_GRID = np.round(np.arange(0.05, 0.955, 0.01), 2)
@@ -116,8 +122,10 @@ def parse_args(argv=None):
     p.add_argument("--reference-pmml", help="train on the inputs of this PMML model instead of --features")
     p.add_argument("--ntree", type=int, default=64, help="trees (default 64)")
     p.add_argument("--maxnodes", type=int, default=256,
-                   help="leaves per tree at most, 0 for no limit (default 256: at GTDB r226, 512 leaves gave a lower log "
-                        "loss than 128 at the same F1, docs/claude/2026-10-02-r226-build-evaluation)")
+                   help="leaves per tree at most, 0 for no limit (default 256; the GTDB build gives 512 for short reads "
+                        "and 128 for long reads: at r226 512 leaves gave short reads a lower log loss and fewer false "
+                        "positives, 128 long reads a lower log loss at the same F1, "
+                        "docs/claude/2026-10-02-r226-v3-training/README.md)")
     p.add_argument("--min-samples-leaf", type=int, default=1)
     p.add_argument("--max-features", default="sqrt", help="features tried per split: sqrt, log2, a count or a fraction")
     p.add_argument("--knob", type=float, default=0.5, help="the threshold protal will use (its --knob, default 0.5)")
@@ -714,6 +722,33 @@ def depth_knob_calls(p, depths, curve, knob):
     return p >= (knob_at(curve, depths) if curve else knob)
 
 
+def depth_knob_windows(depths, samples, ok):
+    """The knob curve's points before their knobs, shallowest first: [(x, in_group, window)], x the median depth of the
+    group's samples, in_group its rows, window those and the rows within DEPTH_KNOB_WINDOW of x. A group is a bin of
+    DEPTH_KNOB_STEP, or bins joined until the window holds DEPTH_KNOB_MIN_SAMPLES samples: a bin with fewer joins the
+    next deeper one, and bins left at the deep end the group before them."""
+    sample_depth = pd.Series(depths, index=samples).groupby(level=0).first()
+    bins = np.floor(depths / DEPTH_KNOB_STEP)
+
+    def point(group):
+        in_group = ok & np.isin(bins, group)
+        x = round(float(np.median(sample_depth.loc[np.unique(samples[in_group])])), 3)
+        return x, in_group, in_group | (ok & (np.abs(depths - x) <= DEPTH_KNOB_WINDOW))
+
+    groups, current = [], []
+    for b in np.unique(bins[ok]):
+        current.append(b)
+        if len(np.unique(samples[point(current)[2]])) >= DEPTH_KNOB_MIN_SAMPLES:
+            groups.append(current)
+            current = []
+    if current:
+        if groups:
+            groups[-1] += current
+        else:
+            groups.append(current)
+    return [point(group) for group in groups]
+
+
 def f1_of(y, call):
     tp, fp, fn = int((call & (y == 1)).sum()), int((call & (y == 0)).sum()), int((~call & (y == 1)).sum())
     return 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None
@@ -733,14 +768,11 @@ def study_depth_knobs(report, df, X, y, p, opts):
     depths = sample_depths(df)
     ok = ~np.isnan(scores)
     samples = df["meta_sample"].astype(str).to_numpy() if "meta_sample" in df.columns else np.full(len(df), "")
-    sample_depth = pd.Series(depths, index=samples).groupby(level=0).first()
-    bins = np.floor(depths / DEPTH_KNOB_STEP)
     curve, rows = [], []
-    for b in np.unique(bins[ok]):
-        in_bin = ok & (bins == b)
-        x = round(float(np.median(sample_depth.loc[np.unique(samples[in_bin])])), 3)
-        window = ok & (np.abs(depths - x) <= DEPTH_KNOB_WINDOW)
-        row = {"log10 fragments": x, "fragments": int(round(10 ** x)), "samples": len(np.unique(samples[in_bin])),
+    for x, in_group, window in depth_knob_windows(depths, samples, ok):
+        group_depths = depths[in_group]
+        row = {"log10 fragments": x, "fragments": int(round(10 ** x)), "samples": len(np.unique(samples[in_group])),
+               "their log10": f"{group_depths.min():.2f}-{group_depths.max():.2f}",
                "window samples": len(np.unique(samples[window])), "taxa": int(window.sum()), "present": int(y[window].sum()),
                "knob": None, f"F1 at {opts.knob}": f1_of(y[window], scores[window] >= opts.knob), "F1 at the knob": None}
         if row["taxa"] > DEPTH_KNOB_MIN_TAXA and row["present"] >= DEPTH_KNOB_MIN_PRESENT and (not curve or x > curve[-1][0]):
@@ -751,7 +783,9 @@ def study_depth_knobs(report, df, X, y, p, opts):
         rows.append(row)
     report.add(f"A point per {DEPTH_KNOB_STEP} of log10 of the samples' fragments over all their taxa, at the median of "
                f"the bin's samples; its knob the highest F1 of the rows of the samples within {DEPTH_KNOB_WINDOW} of it "
-               f"(the window). protal reads the curve linearly between the points, and at the end points beyond them.")
+               f"(the window). A window of fewer than {DEPTH_KNOB_MIN_SAMPLES} samples joins its bin to the next deeper "
+               "one (at the deep end to the point before). protal reads the curve linearly between the points, and at "
+               "the end points beyond them.")
     report.table(pd.DataFrame(rows))
     at_knob = f1_of(y[ok], scores[ok] >= opts.knob)
     with_knobs = f1_of(y[ok], depth_knob_calls(scores[ok], depths[ok], curve, opts.knob))

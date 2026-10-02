@@ -1712,6 +1712,21 @@ class TraceRelativesTest(unittest.TestCase):
             self.assertIn("Not traced: the training database has no gene conservation factors", result.stdout)
 
 
+class BuildOptionsTest(unittest.TestCase):
+    def test_leaves_per_read_type(self):
+        # build_gtdb_database.py --maxnodes: N for the read types not named, TYPE:N for one; 256 without either.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import build_gtdb_database as build
+        self.assertEqual([build.max_leaves("512,pb:128,ont:128", t) for t in ("pe", "se", "pb", "ont")],
+                         [512, 512, 128, 128])
+        self.assertEqual(build.max_leaves("64", "ont"), 64)
+        self.assertEqual(build.max_leaves("se:32", "se"), 32)
+        self.assertEqual(build.max_leaves("se:32", "pe"), 256)
+        for bad in ("512,xx:4", "pb:", "many"):
+            with self.assertRaises(ValueError):
+                build.max_leaves(bad, "pe")
+
+
 class BinaryCheckTest(unittest.TestCase):
     """The commit a build records for --version (protal_commit.cmake), and build_gtdb_database.py's check at its start
     that protal and the simulator were built from the source its scripts are at, on a throwaway checkout."""
@@ -1911,12 +1926,14 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(first.stdout, r"\[\d\d:\d\d:\d\d \+\d+:\d\d:\d\d\] 4/8 training data \(training_data\.log\): "
                                        r"4 pe, 4 se samples\n")
         # The models go into the database in one rewrite, each with its knob curve over depth (the trainer's
-        # --depth-knobs for every read type), with up to 256 leaves per tree; the converter logs its steps' times.
+        # --depth-knobs for every read type), with up to 512 leaves per tree for short reads (--maxnodes); the
+        # converter logs its steps' times.
         self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", "final_package.log")))
         self.assertEqual(glob.glob(os.path.join(self.tmp.name, "out", "final_package_*.log")), [])
         self.assertEqual(self.text("out", "final_package.log").count("Models for read types:"), 1)
         self.assertEqual(metadata["classifier_depth_knobs"], "pe,se")
-        self.assertEqual(metadata["classifier_max_leaves"], "256")
+        self.assertEqual(metadata["classifier_max_leaves"], "pe:512,se:512")
+        self.assertIn("--maxnodes 512", self.text("out", "classifier_training_se.log"))
         self.assertRegex(self.text("out", "convert.log"), r"spooled the representatives' marker genes \(\d+ species\): [\d.]+ s")
         self.assertRegex(self.text("out", "convert.log"), r"joined them into full_reference\.fna(\.zst)?: [\d.]+ s")
         self.assertRegex(first.stdout, r"\n\[[^]]+\]     collected in \d+:\d\d:\d\d.*; taxa present/absent: pe \d+/\d+, "

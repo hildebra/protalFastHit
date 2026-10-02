@@ -369,8 +369,9 @@ reads; PacBio HiFi reads (`--pb-setup`: 15 kb, their quality by their length, Q5
 25 kb and Q20 at 50 kb, by `scripts/hifi_reads.py`); and Nanopore reads simulated with
 [pbsim3](https://github.com/yukiteruono/pbsim3) (`--ont-setup`: the high-quality ONT model at 97%,
 8 kb), `--long-read-bases` per sample, about as many bases as the paired-end depths, and
-`--long-read-samples` (24) per design point, which replay the communities of the paired-end points of
-the same depth of every read setup (3 x 12 of them). The collector
+`--long-read-samples` (36) per design point, which replay the communities of the paired-end points of
+the same depth of every read setup (3 x 12 of them; at r226 the Nanopore model's learning curve still fell
+at 24 per point). The collector
 draws each long-read sample's reads (genome, length, start, strand;
 [model-training.md](model-training.md#training-data)) and `hifi_reads.py` or pbsim3 adds the errors
 and qualities, in one run per sample. (Until 2026-10-02 pbsim3 made the PacBio reads too, with
@@ -397,7 +398,7 @@ test samples while its own estimate said F1 0.997
 set of another design, `--test-samples` (4) per design point: depths `--test-read-pairs`
 (500 to 5,000,000, the deepest with 2 samples), 10-300 species (`--test-species-per-sample`), more uneven abundances
 (`--test-abundance lognormal:2.0`), more mixed strains (`--test-strains-per-species 0.5,0.2`),
-long-read depths `--test-long-read-bases`, another seed. Each model scores it (the trainer's
+long-read depths `--test-long-read-bases` with `--test-long-read-samples` (8) per point, another seed. Each model scores it (the trainer's
 `--test-file`): the report's section "Independent test set" gives F1, false positives per sample,
 FN and FP rates by depth and by rank, and the threshold with the highest F1 there, and warns when
 the test set scores clearly worse than cross-validation. `--test-samples 0` skips it.
@@ -433,14 +434,16 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--archaea` | 2 | archaeal species per sample |
 | `--read-types` | `pe,se,pb,ont` | the read types to train a model for |
 | `--long-read-bases` | `300000,1500000,6000000,30000000,150000000,1500000000:4,6000000000:2` | bases per pb and ont sample, one design point each, `DEPTH:SAMPLES` as for `--read-pairs` |
-| `--long-read-samples` | 24 | samples per long-read design point, at most the communities of the paired-end points of its depth |
+| `--long-read-samples` | 36 | samples per long-read design point, at most the communities of the paired-end points of its depth |
 | `--pb-setup` | `hifi:15000:3000:3` | `hifi` : length mean : length SD : SD of the reads' quality around their length's (`hifi_reads.py`, [model-training.md](model-training.md#training-data)); or a pbsim3 setup as `--ont-setup`'s |
 | `--ont-setup` | `qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36` | pbsim3 method : model : length mean : length SD : accuracy (: substitution/insertion/deletion mix, for qshmm) |
 | `--pbsim`, `--pbsim-models` | `pbsim`, found next to it | pbsim3 and its models (for ont, and pb with a pbsim3 setup) |
 | `--test-samples` | 4 | samples per design point of the independent test set; 0 for none |
-| `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases` | `500,2000,10000,50000,200000,1000000,5000000:2`, `10-300`, `lognormal:2.0`, `0.5,0.2`, `150000,1000000,5000000,25000000,250000000,3000000000:2` | the test set's design (its long-read points have `--test-samples` samples) |
+| `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases` | `500,2000,10000,50000,200000,1000000,5000000:2`, `10-300`, `lognormal:2.0`, `0.5,0.2`, `150000,1000000,5000000,25000000,250000000,3000000000:2` | the test set's design |
+| `--test-long-read-samples` | 8 | samples per long-read design point of the test set (with 4, the 22 samples of a long-read type could not tell its knob curve from one knob) |
 | `--seed` | 1 | |
-| `--ntree`, `--maxnodes` | 64, 256 | random forest size (more trees did not score better, see [model-training.md](model-training.md#training); at r226 512 leaves gave a lower log loss than 128) |
+| `--ntree` | 64 | trees (more did not score better, see [model-training.md](model-training.md#training)) |
+| `--maxnodes` | `512,pb:128,ont:128` | leaves per tree at most, `N` for the read types not named and `TYPE:N`: at r226 512 leaves gave the short-read models a lower log loss and fewer false positives than 256, and 128 the long-read models a lower log loss at the same F1 ([report](claude/2026-10-02-r226-v3-training/README.md)); `build_metadata.tsv` records each model's |
 | `--features` | `normalized+adjacency` | the models' features ([model-training.md](model-training.md#features)): `normalized` leaves the gene neighbour features out, to test them on real data; `build_metadata.tsv` records the set |
 | `--evaluation` | `full` | how much the trainer evaluates: `full`, `basic` or `none` |
 | `--previous-procedure` | off | the trainer also compares each model with its previous procedure ([model-training.md](model-training.md#training)), for the first builds of a release; `build_metadata.tsv` says whether it did |
@@ -449,8 +452,9 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 
 With the defaults that is 3 read setups x (5 depths x 12 samples + 4 samples of 2M and 2 of 10M read
 pairs) = 198 paired-end samples of 20-200 species, profiled as paired-end and as single-end reads,
-5 x 24 + 4 + 2 = 126 PacBio and as many Nanopore samples of the same communities, and a test set of
-3 x (6 x 4 + 2) = 78 paired-end samples (and their single-end and long-read counterparts), all against
+5 x 36 + 4 + 2 = 186 PacBio and as many Nanopore samples of the same communities, and a test set of
+3 x (6 x 4 + 2) = 78 paired-end samples (and their single-end counterparts, and 5 x 8 + 2 = 42 PacBio and
+Nanopore samples), all against
 the training database. The simulations take most of the compute and disk space, the deep points most
 of the alignment; training and its evaluation take minutes per read type. Whether the samples are
 enough, the training report's learning curve says. The simulator writes a design point's samples on
@@ -559,10 +563,10 @@ copies their tables to `OUTDIR/training` and `OUTDIR/test`; the converter spools
 marker genes there too, before the samples (~35 GB at r226, estimated). The simulator compresses a
 sample's reads as it appends each genome's, and the collector removes a long-read sample's
 templates once its reads are written, so the samples' temporary files stay small. With the 0.7.2
-design the r226 build took at most 23.7 GB there and left 15.5 GB; the deep design points of the
-defaults add about 70 GB of reads (estimated from measured bytes per read,
-[docs/claude/2026-10-01-scratch-space](claude/2026-10-01-scratch-space/README.md)): give it 150 GB,
-or fewer deep samples (`DEPTH:SAMPLES`). The
+design the r226 build took at most 23.7 GB there and left 15.5 GB; with the deep design points it took at
+most 120 GB (24 long-read samples per point; [docs/claude/2026-10-01-scratch-space](claude/2026-10-01-scratch-space/README.md),
+[2026-10-02-r226-v3-training](claude/2026-10-02-r226-v3-training/README.md)), and the 36 long-read samples of the
+defaults add a few GB: give it 150 GB, or fewer deep samples (`DEPTH:SAMPLES`). The
 line after each collection (and the status lines, with `--progress-every`) says how much the run
 takes on DIR (what its file system holds more than at the start), and the last line the most it
 took. A rerun reuses the samples only from the same DIR; on a node-local disk that is gone after

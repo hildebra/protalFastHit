@@ -552,6 +552,21 @@ def gene_conservation_summary(build_log):
     return text.rsplit(": ", 1)[0] if text.endswith("gene_conservation.tsv") else text
 
 
+def max_leaves(spec, read_type):
+    """The leaves per tree of read_type's model from --maxnodes: a TYPE:N for it, else the bare N, else 256 (the
+    trainer's default). ValueError when the list is not of N and TYPE:N."""
+    default, given = 256, {}
+    for item in (i.strip() for i in spec.split(",") if i.strip()):
+        name, _, count = item.rpartition(":")
+        if not count.isdigit() or (name and name not in TABLES):
+            raise ValueError(f"--maxnodes: N or TYPE:N items ({', '.join(TABLES)}), got {item!r}")
+        if name:
+            given[name] = int(count)
+        else:
+            default = int(count)
+    return given.get(read_type, default)
+
+
 def depth_knob_types(args):
     """The read types whose models get knobs by sample depth (--depth-knob-read-types)."""
     return {t.strip() for t in args.depth_knob_read_types.split(",") if t.strip()}
@@ -645,7 +660,8 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
                                                        "Gene positions:")),
             ("gene_congeners", gene_congeners_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("classifier_features", args.features), ("classifier_trees", args.ntree),
-            ("classifier_max_leaves", args.maxnodes), ("classifier_evaluation", args.evaluation),
+            ("classifier_max_leaves", ",".join(f"{t}:{max_leaves(args.maxnodes, t)}" for t in read_types)),
+            ("classifier_evaluation", args.evaluation),
             ("classifier_previous_procedure",
              "compared" if args.previous_procedure and args.evaluation != "none" else "not compared"),
             ("classifier_training_species_left_out", n_heldout)]
@@ -1008,9 +1024,10 @@ def main():
     p.add_argument("--long-read-bases", default="300000,1500000,6000000,30000000,150000000,1500000000:4,6000000000:2",
                    help="bases per long-read sample, one design point each, DEPTH:SAMPLES for other samples than "
                         "--long-read-samples (collect_training_data.py; real HiFi and Nanopore metagenomes are 5-30 Gb)")
-    p.add_argument("--long-read-samples", type=int, default=24,
-                   help="samples per long-read design point (default 24, at most the communities of the paired-end "
-                        "points of its depth: the long-read models' learning curve still fell from 30 to 60 samples)")
+    p.add_argument("--long-read-samples", type=int, default=36,
+                   help="samples per long-read design point (default 36, at most the communities of the paired-end "
+                        "points of its depth, 12 samples of 3 setups by default: at r226 the Nanopore model's learning "
+                        "curve still fell at 126 samples)")
     p.add_argument("--pb-setup", default="hifi:15000:3000:3",
                    help="PacBio reads: hifi:LENGTH_MEAN:LENGTH_SD:Q_SD, HiFi reads by hifi_reads.py, their quality by "
                         "their length (Q50 at 5 kb to Q30 at 25 kb, Q20 at 50 kb) and Q_SD around it (default), or a "
@@ -1028,13 +1045,20 @@ def main():
     p.add_argument("--test-abundance", default="lognormal:2.0", help="(default lognormal:2.0: more uneven than training)")
     p.add_argument("--test-strains-per-species", default="0.5,0.2")
     p.add_argument("--test-long-read-bases", default="150000,1000000,5000000,25000000,250000000,3000000000:2")
+    p.add_argument("--test-long-read-samples", type=int, default=8,
+                   help="samples per long-read design point of the test set (default 8, at most the communities of "
+                        "its paired-end points: with 4, the 22 samples of a long-read type could not tell its knob "
+                        "curve from one knob)")
     p.add_argument("--congeners", type=int, default=0,
                    help="species of one genus in every sample of a design point (collect_training_data.py "
                         "--congeners): relatives that share a sample, as in real samples")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--ntree", type=int, default=64)
-    p.add_argument("--maxnodes", type=int, default=256,
-                   help="leaves per tree at most (random_forest_cmdline.py --maxnodes; default 256)")
+    p.add_argument("--maxnodes", default="512,pb:128,ont:128",
+                   help="leaves per tree at most (random_forest_cmdline.py --maxnodes), N or TYPE:N items, a bare N for "
+                        "the read types not named (default 512,pb:128,ont:128: at r226 512 leaves gave the short-read "
+                        "models a lower log loss and fewer false positives than 256, 128 the long-read models a lower "
+                        "log loss at the same F1)")
     p.add_argument("--no-gene-neighbours", action="store_true",
                    help="do not record which marker genes lie next to which in the genomes to simulate from "
                         "(gene_neighbours.py; protal then pairs no mates across neighbouring genes)")
@@ -1066,13 +1090,17 @@ def main():
                         "profiles and the simulators' temporary files go to SCRATCH/training and SCRATCH/test, and "
                         "only the tables to OUTDIR. A network file system (OUTDIR's, often) is slow at the many "
                         "files the simulators write and delete; the converter spools the release's marker genes there "
-                        "too. With the defaults the run takes up to ~100 GB there (estimated; give it 150 GB, docs/building-a-"
+                        "too. With the defaults the r226 run took up to 120 GB there (give it 150 GB, docs/building-a-"
                         "database.md); a rerun reuses the samples in the same SCRATCH")
     args = p.parse_args()
     Job.progress_every = args.progress_every
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
     if not read_types or any(t not in TABLES for t in read_types):
         p.error(f"--read-types: a comma-separated list of {', '.join(TABLES)}, got {args.read_types!r}")
+    try:
+        max_leaves(args.maxnodes, "pe")
+    except ValueError as e:
+        p.error(str(e))
     check_tools(args, read_types)
     if args.inputs:
         if args.gtdb:
@@ -1284,7 +1312,7 @@ def main():
         collections_.append(("independent test set",
                              collect_command(test, args.test_samples, args.test_read_pairs, args.test_species_per_sample,
                                              args.test_abundance, args.test_strains_per_species,
-                                             args.test_long_read_bases, args.test_samples, args.seed + 1000),
+                                             args.test_long_read_bases, args.test_long_read_samples, args.seed + 1000),
                              os.path.join(args.outdir, "test_data.log")))
 
     if training_db == db:
@@ -1363,7 +1391,8 @@ def main():
     for t in read_types:
         command = [sys.executable, TRAINER, "--truth-file", os.path.join(training, TABLES[t]),
                    "--output-prefix", prefixes[t], "--features", args.features, "--ntree", str(args.ntree),
-                   "--maxnodes", str(args.maxnodes), "--seed", str(args.seed), "--threads", str(trainer_threads),
+                   "--maxnodes", str(max_leaves(args.maxnodes, t)), "--seed", str(args.seed),
+                   "--threads", str(trainer_threads),
                    "--taxonomy", taxonomy, "--evaluation", args.evaluation]
         if args.previous_procedure:
             command += ["--previous-procedure"]

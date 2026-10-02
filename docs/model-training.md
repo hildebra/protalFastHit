@@ -229,7 +229,7 @@ one differs.
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
 | `--features` | `normalized+adjacency` | `normalized+adjacency`: `NORMALIZED_FEATURES` and `ADJACENCY_FEATURES`; `normalized`: only `NORMALIZED_FEATURES`, to test the gene neighbour features; `all`: every feature column of the dump |
 | `--reference-pmml` | | train on the input fields of an existing model instead |
-| `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 256, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves; at GTDB r226 512 leaves gave a lower log loss than 128 at the same F1) |
+| `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 256, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves; `build_gtdb_database.py` gives 512 for short reads and 128 for long reads: at GTDB r226 512 leaves gave short reads a lower log loss and fewer false positives, 128 long reads a lower log loss at the same F1) |
 | `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |
 | `--depth-knobs` | off | also fit a knob curve over the sample's depth and store it in the model ([below](#knobs-by-sample-depth)); `build_gtdb_database.py` passes it for every read type (`--depth-knob-read-types`) |
 | `--folds` | 5 | folds of the held-out evaluations |
@@ -361,7 +361,11 @@ fragments over all its taxa (rows): a point per half decade where the training s
 at the median depth of that half decade's samples, its knob the threshold (0.05 to 0.95, in steps of
 0.01) with the highest F1 on species held out of the samples within half a decade of it (so that
 neighbouring points share samples and the curve does not follow each bin's noise), where they have
-more than 50 taxa and 10 present ones. The report's section "Knobs by sample depth" lists the points
+more than 50 taxa and 10 present ones. A point needs 6 samples there: a half decade with fewer joins
+the next deeper one, and one left at the deep end the point before, as protal keeps the last knob for
+every deeper sample (at r226 the long-read points of 2 and 4 samples had their best knob anywhere from
+0.33 to 0.91 over resamples of their samples, while the short reads' point of 6 at 10M read pairs held
+at 0.68-0.87, below the 2M point's 0.94; [report](claude/2026-10-02-r226-v3-training/README.md)). The report's section "Knobs by sample depth" lists the points
 with their F1 at `--knob` and at their knob; on the test set (`--test-file`) it gives the F1 and the
 errors at the curve, as protal calls by default, next to those at `--knob`. The curve goes into the
 model's header as `<Extension name="protal_depth_knob_curve" value="1.300:0.12,4.320:0.92"/>`.
