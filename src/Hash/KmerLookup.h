@@ -192,6 +192,17 @@ namespace protal {
             m_lookups.clear();
         }
 
+        // What Get and GetFromLookup will read, fetched ahead (Seedmap::PrefetchKey): the key map's block of a
+        // k-mer, and the first cache line of a lookup's values and of its flex cells.
+        inline void PrefetchKey(size_t kmer) {
+            m_sm.PrefetchKey(kmer);
+        }
+
+        static inline void PrefetchValues(LookupPointer const& pointers) {
+            __builtin_prefetch(pointers.values_begin);
+            if (pointers.flex_begin != nullptr) __builtin_prefetch(pointers.flex_begin);
+        }
+
         inline void Get(std::vector<LookupPointer>& result, size_t &kmer, uint32_t readpos) {
             size_t flex_key = m_sm.FlexKey(kmer);
             m_sm.Get(kmer, m_lookup_tmp.values_begin, m_lookup_tmp.values_end, m_lookup_tmp.flex_begin, m_lookup_tmp.flex_end);

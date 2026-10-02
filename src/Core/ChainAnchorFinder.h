@@ -62,24 +62,41 @@ namespace protal {
         using RecoverySet = tsl::robin_set<uint64_t>;
         RecoverySet m_recovery;
 
-        inline void FindSeeds(KmerList &kmer_list, SeedList& seeds) {
-            m_lookups.clear();
+        // The k-mer lookups miss the caches (the key map is gigabytes, and the values a lookup points to more), and
+        // each one's branches depend on what it loads, so the CPU waits for them one after another unless they are
+        // fetched ahead. While a k-mer is looked up, the key map block of the one kPrefetchKmers ahead is fetched, and
+        // while a lookup's values are read, those of the one kPrefetchLookups ahead (pfbench, 2026-10-02: -24% on its
+        // own; with the read's lookups prepared one read ahead, PrepareLookups, -30%).
+        static constexpr size_t kPrefetchKmers = 8, kPrefetchLookups = 16;
+        bool m_prepared = false;  // m_lookups hold the lookups of the read operator() gets next (PrepareLookups)
 
-            // Get ranges in values (no seeds yet)
-            for (auto [mmer, pos] : kmer_list) {
-                m_kmer_lookup.Get(m_lookups, mmer, pos);
+        // The lookups of a read's k-mers, in read order (those with values).
+        void LookupKmers(KmerList& kmer_list) {
+            m_lookups.clear();
+            size_t const n = kmer_list.size();
+            for (size_t j = 0; j < std::min(kPrefetchKmers, n); j++) m_kmer_lookup.PrefetchKey(kmer_list[j].first);
+            for (size_t j = 0; j < n; j++) {
+                if (j + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[j + kPrefetchKmers].first);
+                m_kmer_lookup.Get(m_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
             }
+        }
+
+        inline void FindSeeds(KmerList &kmer_list, SeedList& seeds) {
+            // Get ranges in values (no seeds yet), unless they were for this read (PrepareLookups)
+            if (!m_prepared) LookupKmers(kmer_list);
+            m_prepared = false;
 
             // Sort these per core-mer ranges by number of values in range.
             std::sort(m_lookups.begin(), m_lookups.end(), [](LookupPointer const& a, LookupPointer const& b) {
                 return a.size < b.size;
             });
 
-
+            for (size_t i = 0; i < std::min(kPrefetchLookups, m_lookups.size()); i++) KmerLookup::PrefetchValues(m_lookups[i]);
             uint32_t previous_size = 0;
             m_successful_lookups = 0;
             uint32_t total_lookups = 0;
             for (m_lookup_index = 0; m_lookup_index < m_lookups.size(); m_lookup_index++) {
+                if (m_lookup_index + kPrefetchLookups < m_lookups.size()) KmerLookup::PrefetchValues(m_lookups[m_lookup_index + kPrefetchLookups]);
                 auto& lookup = m_lookups[m_lookup_index];
                 m_kmer_lookup.GetFromLookup(seeds, lookup);
                 total_lookups++;
@@ -677,6 +694,25 @@ namespace protal {
             anchor.UpdateLength();
         }
 
+
+        // Seeding one read ahead, as Classify's loops do: the key map blocks of the next read's k-mers fetched while
+        // this read is aligned (PrefetchKeys), then, before its seeds are taken, its lookups made and their values
+        // fetched (PrepareLookups), which the next operator() takes for that read. The same lookups in the same order
+        // as operator() makes itself, so the same seeds.
+        void PrefetchKeys(KmerList const& kmer_list) {
+            for (auto const& [mmer, pos] : kmer_list) m_kmer_lookup.PrefetchKey(mmer);
+        }
+
+        // Timed as part of the read's seeding (and of the operator), not as a read of its own.
+        void PrepareLookups(KmerList& kmer_list) {
+            m_bm_operator.Start(false);
+            m_bm_seeding.Start(false);
+            LookupKmers(kmer_list);
+            for (auto const& lookup : m_lookups) KmerLookup::PrefetchValues(lookup);
+            m_prepared = true;
+            m_bm_seeding.Stop();
+            m_bm_operator.Stop();
+        }
 
         PROTAL_CLONE_V3 void operator () (KmerList& kmer_list, SeedList& seeds, ChainAnchorList& anchors, std::string& query) {
             m_error_in_read = false;

@@ -986,6 +986,15 @@ namespace protal {
             return (key & m_main_key_mask) >> m_flex_k ; // shift by half of flexbits which is flex_k
         }
 
+        // Asks the CPU to fetch what Get(key, ...) reads of the key map: the key's control block and the next
+        // block's value offset, 32 bytes from the block's start (one or two cache lines). The key map is gigabytes,
+        // so a lookup misses the caches; fetched ahead, a read's lookups wait for memory together, not in turn.
+        void PrefetchKey(uint64_t key) {
+            char const* const block = reinterpret_cast<char const*>(m_keymap + ControlBlockIndex(MainKey(key)));
+            __builtin_prefetch(block);
+            __builtin_prefetch(block + 31);
+        }
+
         uint64_t FlexKey(uint64_t key) {
             return ((key & m_flex_key_mask_left) >> (m_main_bits)) | (key & m_flex_key_mask_right) ; // shift by half of flexbits which is flex_k
         }

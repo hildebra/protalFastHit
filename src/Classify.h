@@ -106,25 +106,41 @@ namespace protal::classify {
             Utils::Histogram seed_sizes;
             Utils::Histogram anchor_sizes;
 
-            bm_reader.Start();
-            while (reader(record)) {
-                bm_reader.Stop();
-                thread_statistics.reads++;
-
-                kmers.clear();
-                seeds.clear();
-                anchors.clear();
-                alignment_results.clear();
-
+            // Seeding one read ahead, as RunPairedEnd does it for pairs.
+            constexpr bool seeding_ahead = requires { anchor_finder.PrepareLookups(kmers); anchor_finder.PrefetchKeys(kmers); };
+            FastxRecord next;
+            KmerList next_kmers;
+            auto take_kmers = [&](FastxRecord const& r, KmerList& k) {
+                k.clear();
                 bm_kmer_extracter.Start();
-                kmer_handler(std::string_view(record.sequence), kmers);
+                kmer_handler(std::string_view(r.sequence), k);
                 bm_kmer_extracter.Stop();
                 if constexpr(KmerStatisticsConcept<KmerHandler>) {
                     thread_statistics.kmers_total += kmer_handler.TotalKmers();
-                }
-                if constexpr(KmerStatisticsConcept<KmerHandler>) {
                     thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
                 }
+                if constexpr(seeding_ahead) anchor_finder.PrefetchKeys(k);
+            };
+
+            bm_reader.Start();
+            bool more = reader(record);
+            bm_reader.Stop();
+            if (more) take_kmers(record, kmers);
+            while (more) {
+                thread_statistics.reads++;
+                if constexpr(seeding_ahead) {
+                    bm_anchor_finder.Start(false);
+                    anchor_finder.PrepareLookups(kmers);
+                    bm_anchor_finder.Stop();
+                }
+                bm_reader.Start();
+                more = reader(next);
+                bm_reader.Stop();
+                if (more) take_kmers(next, next_kmers);
+
+                seeds.clear();
+                anchors.clear();
+                alignment_results.clear();
 
                 bm_anchor_finder.Start();
                 anchor_finder(kmers, seeds, anchors, record.sequence);
@@ -158,9 +174,9 @@ namespace protal::classify {
                     thread_core_benchmark(seeds, anchors, alignment_results, record.id);
                 }
 
-                bm_reader.Start();
+                std::swap(record, next);
+                std::swap(kmers, next_kmers);
             }
-            bm_reader.Stop();
 
 #pragma omp critical(statistics)
             {
@@ -506,15 +522,56 @@ namespace protal::classify {
             Utils::Histogram seed_sizes;
             Utils::Histogram anchor_sizes;
 
+            // Seeding one pair ahead (ChainAnchorFinder::PrefetchKeys, PrepareLookups): the next pair is read and its
+            // k-mers taken while the values of this pair's lookups are fetched, and the key map blocks of its k-mers
+            // are fetched while this pair is aligned. The pairs are aligned in the order they are read, as before.
+            constexpr bool seeding_ahead = requires { anchor_finder1.PrepareLookups(kmers1); anchor_finder1.PrefetchKeys(kmers1); };
+            FastxRecord next1;
+            FastxRecord next2;
+            KmerList next_kmers1;
+            KmerList next_kmers2;
+            auto take_kmers = [&](FastxRecord const& r1, FastxRecord const& r2, KmerList& k1, KmerList& k2) {
+                k1.clear();
+                k2.clear();
+                bm_kmer_extracter.Start();
+                kmer_handler(std::string_view(r1.sequence), k1);
+                bm_kmer_extracter.Stop();
+                if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                    thread_statistics.kmers_total += kmer_handler.TotalKmers();
+                    thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
+                }
+                bm_kmer_extracter.Start();
+                kmer_handler(std::string_view(r2.sequence), k2);
+                bm_kmer_extracter.Stop();
+                if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                    thread_statistics.kmers_total += kmer_handler.TotalKmers();
+                    thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
+                }
+                if constexpr(seeding_ahead) {
+                    anchor_finder1.PrefetchKeys(k1);
+                    anchor_finder2.PrefetchKeys(k2);
+                }
+            };
+
             bm_omp_before_loop_global.Stop();
             bm_reader.Start();
-            while (reader(record1, record2)) {
-                bm_reader.Stop();
+            bool more = reader(record1, record2);
+            bm_reader.Stop();
+            if (more) take_kmers(record1, record2, kmers1, kmers2);
+            while (more) {
                 thread_statistics.reads++;
+                if constexpr(seeding_ahead) {
+                    bm_anchor_finder.Start(false);
+                    anchor_finder1.PrepareLookups(kmers1);
+                    anchor_finder2.PrepareLookups(kmers2);
+                    bm_anchor_finder.Stop();
+                }
+                bm_reader.Start();
+                more = reader(next1, next2);
+                bm_reader.Stop();
+                if (more) take_kmers(next1, next2, next_kmers1, next_kmers2);
 
-                // Clear intermediate storage objects
-                kmers1.clear();
-                kmers2.clear();
+                // Clear intermediate storage objects (the k-mers are taken ahead)
                 seeds1.clear();
                 seeds2.clear();
                 anchors1.clear();
@@ -522,31 +579,6 @@ namespace protal::classify {
                 alignment_results1.clear();
                 alignment_results2.clear();
                 paired_alignment_results.clear();
-
-
-                // Retrieve kmers
-                bm_kmer_extracter.Start();
-                kmer_handler(std::string_view(record1.sequence), kmers1);
-                bm_kmer_extracter.Stop();
-
-
-                if constexpr(KmerStatisticsConcept<KmerHandler>) {
-                    thread_statistics.kmers_total += kmer_handler.TotalKmers();
-                }
-                if constexpr(KmerStatisticsConcept<KmerHandler>) {
-                    thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
-                }
-
-                bm_kmer_extracter.Start();
-                kmer_handler(std::string_view(record2.sequence), kmers2);
-                bm_kmer_extracter.Stop();
-
-                if constexpr(KmerStatisticsConcept<KmerHandler>) {
-                    thread_statistics.kmers_total += kmer_handler.TotalKmers();
-                }
-                if constexpr(KmerStatisticsConcept<KmerHandler>) {
-                    thread_statistics.kmers_accepted += kmer_handler.TotalMinimizers();
-                }
 
                 // Calculate Anchors
 
@@ -644,9 +676,11 @@ namespace protal::classify {
                 }
                 record_id += options.GetThreads();
 
-                bm_reader.Start();
+                std::swap(record1, next1);
+                std::swap(record2, next2);
+                std::swap(kmers1, next_kmers1);
+                std::swap(kmers2, next_kmers2);
             }
-            bm_reader.Stop();
 
 #pragma omp critical(statistics)
             {
