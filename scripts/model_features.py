@@ -47,13 +47,32 @@ reject every taxon beside an abundant congener, so train them on samples with co
 positives by 29% with species held out, yet on the test set at the knob curve they did no better than the four distance
 features (docs/claude/2026-10-03-r226-v5-v6-training).
 
-The trainer's default set (DEFAULT_FEATURE_SET) is "normalized+adjacency+distance": the normalized and adjacency
-features and the four relative_* of RELATIVE_FEATURES, by the distance of the references. At r226 they added 0.004 F1
-(paired-end) on the test set at the knob curve and 0.007 at knob 0.5 over normalized+adjacency, single-end and long reads
-within noise (the same report). A table of a protal before them (be35d15) lacks them: train it with
---features normalized+adjacency. genus_top_fragments, the fragments of the
-taxon's most abundant congener, is an input of the singleton rule (random_forest_cmdline.py --singleton-congener), not a
-feature of these sets: it counts reads.
+SAMPLE_FEATURES ("depth"): the sample's depth, log10 of its fragments over all its taxa, the number protal reads a
+model's knob curve at. Without it no feature says how deep the sample is, and what a taxon of one perfect read is worth
+depends on nothing else: at GTDB r226 half of the paired-end false positives were such reads, equal to true single-read
+species in every feature and apart from them only by the sample's depth. As a feature it halved the false positives at
+knob 0.5 and raised the test F1 by 0.004 (pe) to 0.009 (se) over the distance set, above its knob curve; a knob curve
+fitted on top of it corrects twice and loses, so the trainer fits none when the feature is in the set
+(docs/claude/2026-10-03-false-positive-anatomy).
+
+DIVERGENCE_FEATURES ("divergence", the same report): excess_scaled_median, the reads' divergence beyond their base
+qualities with each read's excess divided by its gene's conservation factor, the genome's divergence from the reference
+as the species definition (95% ANI) measures it rather than the marker genes', which compress it;
+excess_conserved_fast_ratio, log2 of that divergence on the conserved genes over the fast ones (a species' own reads
+follow the factors, a relative's reads that align only where the gene is conserved do not); third_position_share, the
+share of the mismatches at third codon positions (errors fall on all three alike, a strain's differences mostly on the
+third); and mate_lost_share, of the paired fragments whose mate was expected on the taxon (both mates with a record, or
+room for the fragment inside the gene), the share whose mate has no record on it (a relative's read that fits a
+conserved stretch has a mate that fits nowhere). A dump of a protal before them lacks the five columns.
+
+A set's name is its groups joined by "+": normalized, adjacency, relatives or distance, depth, divergence; "all" is
+every feature column of the dump. The trainer's default set (DEFAULT_FEATURE_SET) is
+"normalized+adjacency+distance+depth+divergence". At r226 the distance features added 0.004 F1 (paired-end) on the
+test set at the knob curve and 0.007 at knob 0.5 over normalized+adjacency, single-end and long reads within noise
+(docs/claude/2026-10-03-r226-v5-v6-training); a table of a protal before them (be35d15) needs
+--features normalized+adjacency, one before the depth and divergence features --features
+normalized+adjacency+distance. genus_top_fragments, the fragments of the taxon's most abundant congener, is an input of
+the singleton rule (random_forest_cmdline.py --singleton-congener), not a feature of these sets: it counts reads.
 """
 
 # Columns of the dump that describe the row, not the taxon's evidence; columns that
@@ -96,23 +115,58 @@ RELATIVE_FEATURES = ["genus_skew", "family_skew", "genus_share", "genus_spill", 
 # (docs/claude/2026-10-03-r226-v5-v6-training). In the default set.
 DISTANCE_FEATURES = ["relative_skew", "relative_distance", "relative_spill", "relative_close_share"]
 
-FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance", "all")
-DEFAULT_FEATURE_SET = "normalized+adjacency+distance"
+# The sample's depth (see above): with it in a set, the trainer fits no knob curve.
+SAMPLE_FEATURES = ["sample_log_fragments"]
+
+# The reads' divergence by gene conservation and codon position, and the mates (see above).
+DIVERGENCE_FEATURES = ["excess_scaled_median", "excess_conserved_fast_ratio", "third_position_share", "mate_lost_share"]
+
+# The groups a set's name may join with "+", in the order they are listed.
+FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEATURES, "relatives": RELATIVE_FEATURES,
+                  "distance": DISTANCE_FEATURES, "depth": SAMPLE_FEATURES, "divergence": DIVERGENCE_FEATURES}
+
+# The sets worth naming (--features takes any groups joined by "+", and "all").
+FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
+                "normalized+adjacency+distance+depth", "normalized+adjacency+distance+depth+divergence",
+                "normalized+adjacency+relatives+depth+divergence", "all")
+DEFAULT_FEATURE_SET = "normalized+adjacency+distance+depth+divergence"
+
+
+def feature_set_columns(feature_set):
+    """The columns a set's name stands for, in group order; ValueError for a name that is no groups joined by "+"."""
+    groups = feature_set.split("+")
+    unknown = [g for g in groups if g not in FEATURE_GROUPS]
+    if unknown or len(set(groups)) != len(groups) or "normalized" not in groups:
+        raise ValueError(f"unknown feature set {feature_set!r}: groups joined by '+' from " + ", ".join(FEATURE_GROUPS) +
+                         " (normalized among them), or all")
+    chosen = []
+    for group in FEATURE_GROUPS:
+        if group in groups:
+            chosen += [c for c in FEATURE_GROUPS[group] if c not in chosen]
+    return chosen
+
+
+def feature_set_name(feature_set):
+    """argparse type for --features: the name checked (ValueError, which argparse reports, for an unknown one)."""
+    if feature_set != "all":
+        feature_set_columns(feature_set)
+    return feature_set
+
+
+def has_sample_depth(columns):
+    """Whether the chosen feature columns hold the sample's depth (SAMPLE_FEATURES): then no knob curve is fitted."""
+    return any(c in columns for c in SAMPLE_FEATURES)
 
 
 def feature_columns(columns, feature_set="all"):
-    """The feature columns among `columns`: all of them, the normalized ones, those and the adjacency ones, or those and
-    the relative ones."""
+    """The feature columns among `columns`: all of them, or those of the set's groups (feature_set_columns), which the
+    table must have."""
     available = [c for c in columns if c not in NON_FEATURE_COLUMNS and not c.startswith("meta_")]
     if feature_set == "all":
         return available
-    chosen = {"normalized": NORMALIZED_FEATURES, "normalized+adjacency": NORMALIZED_FEATURES + ADJACENCY_FEATURES,
-              "normalized+adjacency+relatives": NORMALIZED_FEATURES + ADJACENCY_FEATURES + RELATIVE_FEATURES,
-              "normalized+adjacency+distance": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES}
-    if feature_set not in chosen:
-        raise ValueError(f"unknown feature set {feature_set!r}")
-    missing = [c for c in chosen[feature_set] if c not in available]
+    chosen = feature_set_columns(feature_set)
+    missing = [c for c in chosen if c not in available]
     if missing:
         raise RuntimeError(f"the training data lacks {feature_set} features (written by an older protal?): " +
                            ", ".join(missing))
-    return list(chosen[feature_set])
+    return list(chosen)

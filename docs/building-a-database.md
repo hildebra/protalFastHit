@@ -191,14 +191,31 @@ near-identical shares). Queries do not read
 the file, and `database.protal` does not hold it; `build_gtdb_database.py` keeps it in
 `model_logs/` and the summary in `build_metadata.tsv`
 ([report](claude/2026-10-01-conservation-pattern/README.md)).
+
+The build then looks for **suspect gene copies**: it sketches every species' copy of each gene
+(the 128 smallest hashes of its 12-mers) and compares each copy with the other species' copies that
+share one of its 8 smallest hashes. A copy within `--suspect_copy_distance` (0.02, about the share of
+bases that differ) of a copy of a species of another genus, family, order, class, phylum or domain,
+while its nearest congener's copy is 0.02 farther or it has none, is suspect: a contaminating contig in
+a MAG, or a transferred gene. Every present organism with that gene puts a perfect read on such a copy,
+and at GTDB r226 a fifth of the false species calls were reads of a present species of another genus at
+identity 0.99, recurring per reference ([report](claude/2026-10-03-false-positive-anatomy/README.md)). The suspect copies go into the database as
+`suspect_copies.tsv` (taxid, geneid, the partner, the rank shared, the two distances), and a run
+leaves records on them out of the evidence as if the reads had not aligned (`--keep_suspect_copies`
+counts them; the log says how many per sample). Every near pair across genera (within 0.05) is
+reported in `gene_incongruence.tsv` beside the database, with the verdict on each copy, for the
+record and for reporting the references; `build_gtdb_database.py` keeps it in `model_logs/` and the
+summary in `build_metadata.tsv`. The log sums it up (`Suspect copies: N of M gene copies (x%) of S
+species ...`). `--suspect_copy_distance 0` skips the scan. A copy of a conserved gene that a whole
+clade shares nearly unchanged is not suspect: its congeners' copies are as near as the other genus's.
 [database-files.md](database-files.md#build-options-for-the-format) lists the options for
 separate or uncompressed files and for the compression level. Pass `--no_profile`: without it,
 build mode goes on to profile an empty sample list.
 
 Every phase uses `-t` threads: the two passes over `reference.fna` that fill the index (each
 thread owns a range of k-mers, so the index is the same for any `-t`), the value pointers, the
-uniqueness check, the gene conservation (a second pass over `full_reference.fna`), the unique k-mer
-statistics and the compression. The log times each phase (`Pass 1 (count the k-mers) took ...`,
+uniqueness check, the gene conservation (a second pass over `full_reference.fna`), the suspect copies
+(every gene copy sketched and compared), the unique k-mer statistics and the compression. The log times each phase (`Pass 1 (count the k-mers) took ...`,
 `Value pointers`, `Pass 2 (place the values)`, `Uniqueness check`, `Gene conservation`, `Unique k-mer
 statistics`, `Write index`) and counts the uniqueness check's work (k-mers, flex parts compared per
 k-mer, k-mers found under another taxon, entries read back from their genes): at GTDB scale that
@@ -448,8 +465,8 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--seed` | 1 | |
 | `--ntree` | 64 | trees (more did not score better, see [model-training.md](model-training.md#training)) |
 | `--maxnodes` | `512,pb:128,ont:128` | leaves per tree at most, `N` for the read types not named and `TYPE:N`: at r226 512 leaves gave the short-read models a lower log loss and fewer false positives than 256, and 128 the long-read models a lower log loss at the same F1 ([report](claude/2026-10-02-r226-v3-training/README.md)); `build_metadata.tsv` records each model's |
-| `--features` | `normalized+adjacency+distance` | the models' features ([model-training.md](model-training.md#features)): the normalised and gene neighbour features and the four relatives features by the references' distance (at r226 +0.004 paired-end F1 at the knob curve over `normalized+adjacency`, the other read types within noise); `normalized+adjacency` leaves those four out, `normalized+adjacency+relatives` adds all the relatives features (a better ranking, but no better at the knob curve at r226), `normalized` leaves the gene neighbour features out too, to test them on real data; `build_metadata.tsv` records the set |
-| `--call-mode` | `curve` | how protal calls with the models by default: `curve`, the knob curve over depth; `fdr`, the highest-scoring taxa of each sample while their expected share of false calls stays at the trainer's target (`random_forest_cmdline.py --fdr-calls`, [model-training.md](model-training.md#calls-at-a-target-share-of-false-calls); 0.0005-0.004 F1 below the curve on the benchmark world, 0.001-0.007 at r226, [report](claude/2026-10-03-r226-v5-v6-training/README.md)). `build_metadata.tsv` records it (`classifier_call_mode`, `model_<type>_false_calls`) |
+| `--features` | `normalized+adjacency+distance+depth+divergence` | the models' features ([model-training.md](model-training.md#features)), feature groups joined by `+`: the normalised and gene neighbour features, the four relatives features by the references' distance (at r226 +0.004 paired-end F1 at the knob curve over `normalized+adjacency`, the other read types within noise), the sample's depth (`depth`: on the r226 v5 tables false positives halved at knob 0.5, test F1 +0.004 pe / +0.009 se / +0.005 pb over the distance set; no knob curve is fitted with it) and the divergence features (`divergence`: divergence by gene conservation and codon position, lost mates; [report](claude/2026-10-03-false-positive-anatomy/README.md)); `normalized+adjacency+distance` leaves the last two groups out, `normalized+adjacency` the relatives too, `normalized+adjacency+relatives+depth+divergence` takes all the relatives features (a better ranking, but no better at the knob curve at r226), `normalized` leaves the gene neighbour features out too, to test them on real data; `build_metadata.tsv` records the set |
+| `--call-mode` | `curve` | `curve`: the models carry a knob curve over depth where one is fitted (none with the sample's depth as a feature, the default: protal then calls at 0.5 or `--knob`); `fdr`: the models also carry calibrated calls (`random_forest_cmdline.py --fdr-calls`, [model-training.md](model-training.md#calls-at-a-target-share-of-false-calls)), which protal uses only with `--fdr F`: they called 0.0005-0.004 F1 below the curve on the benchmark world and 0.001-0.007 at r226 ([report](claude/2026-10-03-r226-v5-v6-training/README.md)). `build_metadata.tsv` records it (`classifier_call_mode`, `model_<type>_false_calls`) |
 | `--evaluation` | `full` | how much the trainer evaluates: `full`, `basic` or `none` |
 | `--previous-procedure` | off | the trainer also compares each model with its previous procedure ([model-training.md](model-training.md#training)), for the first builds of a release; `build_metadata.tsv` says whether it did |
 | `--progress-every` | 0 | seconds between status lines of the stages running, besides each step's start and end (below); 0 for none |
@@ -620,5 +637,5 @@ The output root holds:
 | `training/`, `test/` | the simulated samples, their profiles and one table per read type (`training_data.tsv` for pe, `training_data_se.tsv`, `_pb`, `_ont`); a rerun reuses the design points simulated and profiled from the same inputs (below). With `--scratch`, only the tables; the samples are in the scratch folder |
 | `.stages/` | the inputs of the conversion and the two builds that completed, for a rerun (below) | 
 | `trained_model.*`, `trained_model_se.*`, `_pb.*`, `_ont.*` | the models and the trainer's outputs ([model-training.md](model-training.md#training)) |
-| `model_logs/` | what tells whether the models are good, in one folder: `summary.txt` (per read type: TP, FP, TN, FN, sensitivity, specificity, precision, F1 and false positives per sample, with species held out and on the test set; also printed at the end), each read type's training report and its numbers (`trained_model*.report.txt`, `.metrics.json`), per-taxon predictions (also on the test set), the threshold table, feature importances, the parity checks with protal (`parity*.txt`), `genome_table.txt`, what the training database leaves out (`holdout.txt`, `heldout_species.txt`), the collection logs and `build_metadata.tsv`; and what the conservation features rest on, on the release's real genomes: `gene_congeners.tsv` (the finished database's, see above) and `relatives_by_gene_conservation.txt` and `.tsv` (`scripts/trace_relatives.py`: the paired-end reads of the species held out of the training database followed to the genes they align to, per unit coverage against a species' own reads, before and after the MAPQ filter, by the genes' factors; a failure there is reported and does not stop the build) |
+| `model_logs/` | what tells whether the models are good, in one folder: `summary.txt` (per read type: TP, FP, TN, FN, sensitivity, specificity, precision, F1 and false positives per sample, with species held out and on the test set; also printed at the end), each read type's training report and its numbers (`trained_model*.report.txt`, `.metrics.json`), per-taxon predictions (also on the test set), the threshold table, feature importances, the parity checks with protal (`parity*.txt`), `genome_table.txt`, what the training database leaves out (`holdout.txt`, `heldout_species.txt`), the collection logs and `build_metadata.tsv`; and what the conservation features rest on, on the release's real genomes: `gene_congeners.tsv` and `gene_incongruence.tsv` (the finished database's, see above) and `relatives_by_gene_conservation.txt` and `.tsv` (`scripts/trace_relatives.py`: the paired-end reads of the species held out of the training database followed to the genes they align to, per unit coverage against a species' own reads, before and after the MAPQ filter, by the genes' factors; a failure there is reported and does not stop the build) |
 | `*.log` | one log per stage: `convert`, `training_db`, `index_and_package`, `training_db_index`, `training_data_simulation`, `training_data`, `test_data_simulation`, `test_data`, `classifier_training*`, `parity*`, `final_package` |

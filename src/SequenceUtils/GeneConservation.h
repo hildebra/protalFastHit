@@ -87,6 +87,54 @@ namespace protal::gene_conservation {
         return kmers;
     }
 
+    // A bijection of 32-bit k-mer codes (lowbias32): k-mers of similar codes get unrelated hashes, so that the
+    // smallest hashes are a random sample of a gene's k-mers.
+    inline uint32_t MixKmer(uint32_t x) {
+        x ^= x >> 16;
+        x *= 0x7feb352dU;
+        x ^= x >> 15;
+        x *= 0x846ca68bU;
+        x ^= x >> 16;
+        return x;
+    }
+
+    // The `size` smallest hashes (MixKmer) of the distinct k-mers of seq (Kmers), sorted; all of them for a shorter
+    // gene: Mash's bottom sketch.
+    inline std::vector<uint32_t> BottomSketch(std::string_view seq, size_t size) {
+        auto const kmers = Kmers(seq);
+        std::vector<uint32_t> hashes;
+        hashes.reserve(kmers.size());
+        for (uint32_t const kmer : kmers) hashes.push_back(MixKmer(kmer));
+        size_t const keep = std::min(size, hashes.size());
+        std::partial_sort(hashes.begin(), hashes.begin() + static_cast<std::ptrdiff_t>(keep), hashes.end());
+        hashes.resize(keep);
+        return hashes;
+    }
+
+    // The Mash distance of two genes from their bottom sketches (BottomSketch): of the s smallest hashes of their
+    // union (s the smaller sketch's size), the share in both estimates their k-mers' Jaccard index j;
+    // -ln(2j / (1 + j)) / k, 1 if they share none, as MashDistance on all k-mers.
+    inline double SketchDistance(std::vector<uint32_t> const& a, std::vector<uint32_t> const& b) {
+        size_t const s = std::min(a.size(), b.size());
+        if (s == 0) return 1;
+        size_t i = 0, j = 0, seen = 0, shared = 0;
+        while (seen < s && i < a.size() && j < b.size()) {
+            if (a[i] < b[j]) {
+                i++;
+            } else if (b[j] < a[i]) {
+                j++;
+            } else {
+                shared++;
+                i++;
+                j++;
+            }
+            seen++;
+        }
+        if (shared == 0) return 1;
+        double const jaccard = static_cast<double>(shared) / static_cast<double>(s);
+        return std::min(1.0, -std::log(2 * jaccard / (1 + jaccard)) / static_cast<double>(kK));
+    }
+
     // The Mash distance of two sorted k-mer sets, an estimate of the share of bases that differ, from
     // their Jaccard index j: -ln(2j / (1 + j)) / k; 1 if they share none.
     inline double MashDistance(std::vector<uint32_t> const& a, std::vector<uint32_t> const& b) {

@@ -1,0 +1,25 @@
+--- a/model_features.py
++++ b/model_features.py
+@@ -88,7 +88,10 @@
+
+ DISTANCE_FEATURES = ["relative_skew", "relative_distance", "relative_spill", "relative_close_share"]
+
+-FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance", "all")
++SAMPLE_FEATURES = ["sample_log_fragments"]
++
++FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
++                "normalized+adjacency+depth", "normalized+adjacency+distance+depth", "all")
+ DEFAULT_FEATURE_SET = "normalized+adjacency"
+
+
+@@ -101,7 +104,9 @@
+         return available
+     chosen = {"normalized": NORMALIZED_FEATURES, "normalized+adjacency": NORMALIZED_FEATURES + ADJACENCY_FEATURES,
+               "normalized+adjacency+relatives": NORMALIZED_FEATURES + ADJACENCY_FEATURES + RELATIVE_FEATURES,
+-              "normalized+adjacency+distance": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES}
++              "normalized+adjacency+distance": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES,
++              "normalized+adjacency+depth": NORMALIZED_FEATURES + ADJACENCY_FEATURES + SAMPLE_FEATURES,
++              "normalized+adjacency+distance+depth": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES + SAMPLE_FEATURES}
+     if feature_set not in chosen:
+         raise ValueError(f"unknown feature set {feature_set!r}")
+     missing = [c for c in chosen[feature_set] if c not in available]

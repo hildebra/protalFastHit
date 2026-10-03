@@ -242,7 +242,7 @@ namespace protal::build {
     // index (index.prx.zst in the column format, frames copied as they are), the reference (a
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
     // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv,
-    // gene_conservation.tsv if the build wrote one, gene_neighbours.tsv and gene_positions.tsv if the folder has them
+    // gene_conservation.tsv and suspect_copies.tsv if the build wrote them, gene_neighbours.tsv and gene_positions.tsv if the folder has them
     // (written by scripts/mini_db/gene_neighbours.py, checked by CheckGeneNeighbours and CheckGenePositions; a run
     // reads only the first), and every presence model there is (AllModelFiles in
     // ReadType.h: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml, and model.xml /
@@ -256,6 +256,7 @@ namespace protal::build {
                 {Options::PROTAL_TAXONOMY_FILE, options.GetInternalTaxonomyFile()}};
         if (fs::exists(options.GetUniqueKmersFile())) sources.push_back({Options::PROTAL_UNIQUE_KMER_FILE, options.GetUniqueKmersFile()});
         if (fs::exists(options.GetGeneConservationFile())) sources.push_back({Options::PROTAL_GENE_CONSERVATION_FILE, options.GetGeneConservationFile()});
+        if (fs::exists(options.GetSuspectCopiesFile())) sources.push_back({Options::PROTAL_SUSPECT_COPIES_FILE, options.GetSuspectCopiesFile()});
         if (fs::exists(options.GetGeneNeighboursFile())) sources.push_back({Options::PROTAL_GENE_NEIGHBOURS_FILE, options.GetGeneNeighboursFile()});
         if (fs::exists(options.GetGenePositionsFile())) sources.push_back({Options::PROTAL_GENE_POSITIONS_FILE, options.GetGenePositionsFile()});
         for (auto const& model : AllModelFiles()) {
@@ -918,6 +919,90 @@ namespace protal::build {
         bm.PrintResults();
     }
 
+    // suspect_copies.tsv in the database and gene_incongruence.tsv beside it (gene_incongruence::Scan): every
+    // species' copy of each gene sketched and compared with the other species' copies; a copy within
+    // --suspect_copy_distance of another genus's copy, and farther from its congeners' or without one, is suspect
+    // (contamination or a transferred gene), and a run leaves its records out (--keep_suspect_copies). The lineages
+    // come from internal_taxonomy.dmp. --suspect_copy_distance 0: no scan, and no file.
+    static void WriteSuspectCopies(protal::Options const& options, GenomeLoader& genomes) {
+        namespace fs = std::filesystem;
+        std::string const target = options.GetSuspectCopiesFile();
+        std::string const report = (fs::path(target).parent_path() / gene_incongruence::kReportFileName).string();
+        std::error_code ec;
+        fs::remove(target, ec);
+        fs::remove(report, ec);
+        double const threshold = options.GetSuspectCopyDistance();
+        if (threshold <= 0) {
+            std::cout << "Suspect copies: not looked for (--suspect_copy_distance 0)" << std::endl;
+            return;
+        }
+        Benchmark bm("Suspect copies");
+        bm.Start();
+        std::unordered_map<uint32_t, gene_incongruence::Lineage> lineages;
+        if (std::string const error = gene_incongruence::LineagesFromTaxonomy(options.GetInternalTaxonomyFile(), lineages); !error.empty()) {
+            std::cerr << "Suspect copies: cannot read the taxonomy " << options.GetInternalTaxonomyFile() << ": " << error << std::endl;
+            exit(8);
+        }
+        std::vector<uint32_t> taxids;
+        for (auto const& [taxid, _] : genomes.GetGenomeMap()) taxids.push_back(static_cast<uint32_t>(taxid));
+        std::sort(taxids.begin(), taxids.end());
+        std::vector<std::vector<gene_incongruence::Copy>> copies;
+        int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        #pragma omp parallel num_threads(threads)
+        {
+            std::vector<std::vector<gene_incongruence::Copy>> mine;
+            #pragma omp for schedule(dynamic, 16)
+            for (size_t t = 0; t < taxids.size(); t++) {
+                auto& genome = genomes.GetGenome(taxids[t]);
+                auto const& list = genome.GetGeneList();
+                for (size_t i = 0; i < list.size(); i++) {
+                    if (!list[i].IsSet()) continue;
+                    auto const seq = genome.GetGeneOMP(i + 1).Sequence();
+                    if (mine.size() <= i + 1) mine.resize(i + 2);
+                    mine[i + 1].push_back({ taxids[t], gene_conservation::BottomSketch(seq.View(), gene_incongruence::kSketchSize) });
+                }
+            }
+            #pragma omp critical(suspect_copies_merge)
+            {
+                if (copies.size() < mine.size()) copies.resize(mine.size());
+                for (size_t g = 0; g < mine.size(); g++) copies[g].insert(copies[g].end(), mine[g].begin(), mine[g].end());
+            }
+        }
+        for (auto& gene : copies) {
+            std::sort(gene.begin(), gene.end(), [](auto const& a, auto const& b) { return a.taxid < b.taxid; });
+        }
+        auto const result = gene_incongruence::Scan(copies, lineages, threshold, threads);
+        gene_incongruence::Table table;
+        for (auto const& suspect : result.suspects) table.Add(suspect);
+        {
+            std::ofstream os(report);
+            gene_incongruence::WriteReport(os, result);
+            os.close();
+            if (!os) {
+                std::cerr << "Writing " << report << " failed" << std::endl;
+                exit(8);
+            }
+        }
+        if (!table.Empty()) {
+            std::ofstream os(target);
+            table.Write(os);
+            os.close();
+            if (!os) {
+                std::cerr << "Writing " << target << " failed" << std::endl;
+                exit(8);
+            }
+        }
+        std::cout << "Suspect copies: " << table.Size() << " of " << result.copies << " gene copies ("
+                  << std::fixed << std::setprecision(2) << 100.0 * static_cast<double>(table.Size()) / std::max<double>(1, static_cast<double>(result.copies))
+                  << std::defaultfloat << "%) of " << table.Species() << " species within " << threshold
+                  << " of another genus's copy and farther from their congeners'"
+                  << (table.Empty() ? std::string(": none") : ": " + target) << "; "
+                  << result.pairs.size() << " near pairs across genera (within " << gene_incongruence::kReportDistance << ") of "
+                  << result.genes << " genes, " << result.candidates << " sketch pairs compared: " << report << std::endl;
+        bm.Stop();
+        bm.PrintResults();
+    }
+
     // A pass over the reference in `threads` threads that updates the index as one thread would
     // (docs/claude/2026-09-29-index-build-parallel.md). The key space is cut into `ranges` ranges of
     // whole control blocks. Each round, one thread reads batches of whole records (FastaBatches);
@@ -1326,6 +1411,7 @@ namespace protal::build {
         auto const conservation = WriteGeneConservation(options, genomes, options.GetFullSequenceFilePath(),
                                                         options.GetGeneConservationFile());
         WriteGeneCongeners(options, genomes, conservation.table);
+        WriteSuspectCopies(options, genomes);
         CheckGeneNeighbours(options, genomes);
         CheckGenePositions(options, genomes);
 

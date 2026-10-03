@@ -201,6 +201,33 @@ namespace protal {
         genomes.SetScaleDepthMargin(scale);
     }
 
+    // The database's suspect gene copies (suspect_copies.tsv, GeneIncongruence.h): records on them are left out of the
+    // evidence unless --keep_suspect_copies. Exits 8 if the file cannot be read.
+    static void LoadSuspectCopies(Options const& options, GenomeLoader& genomes) {
+        auto const file = options.SuspectCopiesDbFile();
+        if (!file.Exists()) {
+            std::cout << "Suspect copies: the database has no " << Options::PROTAL_SUSPECT_COPIES_FILE
+                      << " (built by an earlier protal, or none found): every gene copy counts" << std::endl;
+            return;
+        }
+        std::string error;
+        auto const content = file.ReadAll(error);
+        gene_incongruence::Table table;
+        if (content) {
+            std::istringstream is(*content);
+            error = table.Read(is);
+        }
+        if (!error.empty()) {
+            std::cerr << "Invalid suspect copies " << file.Name() << ": " << error << std::endl;
+            exit(8);
+        }
+        std::cout << "Suspect copies: " << table.Size() << " gene copies of " << table.Species() << " species near-identical to "
+                  << "another genus's copy (" << file.Name() << "), "
+                  << (options.DropSuspectCopies() ? "their records are left out of the evidence (--keep_suspect_copies counts them)"
+                                                  : "kept as evidence (--keep_suspect_copies)") << std::endl;
+        if (options.DropSuspectCopies()) genomes.SetSuspectCopies(std::move(table));
+    }
+
     // The database's gene neighbours (gene_neighbours.tsv, GeneNeighbours.h: how often each marker gene end faces
     // which other in a clade's genomes), for mate guidance past a gene's end, pairs of mates on neighbouring genes,
     // the genes next to a long read's genes and the profiler's adjacency features; none without the file or with
@@ -799,12 +826,13 @@ namespace protal {
             // The sample's threshold, on this thread's copy of the model: --knob if given, else the model's knob for the
             // sample's depth (its fragments over all taxa) if it has depth knobs (the trainer's), else --knob's default.
             // Its taxa enter the strain MSAs at --msa_knob if given, else at the same.
-            // With a model's calibration (random_forest_cmdline.py --fdr-calls), unless --knob or --fdr 0: the knob at
-            // which the sample's expected share of false calls is at most the model's target or --fdr's
-            // (context::FalseCallKnob), over its taxa the singleton rule does not veto.
+            // With --fdr F above 0 and a model's calibration (random_forest_cmdline.py --fdr-calls): the knob at which
+            // the sample's expected share of false calls is at most F (context::FalseCallKnob), over its taxa the
+            // singleton rule does not veto. Without --fdr the calibrated calls are not used: at GTDB r226 they called
+            // 0.001-0.007 F1 below the knob curve for every read type (docs/claude/2026-10-03-r226-v5-v6-training).
             filter.SetKnob(options.GetKnob());
             bool const false_call_mode = !options.KnobGiven() && filter.HasFalseCalls() &&
-                                         (!options.FdrGiven() || options.GetFdr() > 0);
+                                         options.FdrGiven() && options.GetFdr() > 0;
             if (false_call_mode) {
                 profile.ScoreTaxa(filter, threads_per_sample);
                 std::vector<double> scores;
@@ -843,6 +871,11 @@ namespace protal {
                           << " reads have an alignment that does not fit the database (a gene it lacks, a position past "
                              "a gene's end, or bases that differ from the gene); they are left out and listed in "
                           << sam << ".err" << std::endl;
+            }
+            if (size_t const suspect = profile.SuspectRecords(); suspect > 0) {
+                #pragma omp critical(print)
+                std::cout << "Sample " << sample_name << ": " << suspect << " records on suspect gene copies left out of the "
+                          << "evidence (suspect_copies.tsv; --keep_suspect_copies counts them)" << std::endl;
             }
             if (auto const [foreign, foreign_taxa] = profile.ForeignGenes(); foreign > 0) {
                 #pragma omp critical(print)
@@ -2361,13 +2394,13 @@ namespace protal {
                     }
                     if (model.HasFalseCalls()) {
                         auto const& calls = model.FalseCalls();
-                        bool const used = !options.KnobGiven() && (!options.FdrGiven() || options.GetFdr() > 0);
+                        bool const used = !options.KnobGiven() && options.FdrGiven() && options.GetFdr() > 0;
                         std::cout << "  calls at an expected share of false calls of " << profiler::FeatureString(calls.fdr)
                                   << " (calibrated, " << calls.curve.size() << " points; training prior "
                                   << profiler::FeatureString(calls.prior) << ")"
-                                  << (!used ? (options.KnobGiven() ? "; not used, --knob is given" : "; not used, --fdr 0")
-                                            : options.FdrGiven() ? "; at --fdr " + profiler::FeatureString(options.GetFdr())
-                                                                 : std::string("; the depth knobs are not used"))
+                                  << (used ? "; at --fdr " + profiler::FeatureString(options.GetFdr()) + ", the depth knobs are not used"
+                                           : options.KnobGiven() ? std::string("; not used, --knob is given")
+                                                                 : std::string("; not used (--fdr F would use them)"))
                                   << std::endl;
                     }
                     if (!model.GetDepthKnobCurve().empty()) {
@@ -2391,6 +2424,7 @@ namespace protal {
                 }
             }
             LoadGeneConservation(options, db.GetGenomes());
+            LoadSuspectCopies(options, db.GetGenomes());
         }
         if (!options.BuildMode() && (run_alignment || run_profiling)) LoadGeneNeighbours(options, db);
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {

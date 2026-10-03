@@ -158,18 +158,35 @@ class ForestExportTest(unittest.TestCase):
 
 @unittest.skipIf(RandomForestClassifier is None, "needs scikit-learn")
 class FeatureSetsTest(unittest.TestCase):
-    """The trainer's default features are the normalised ones, the gene neighbours' and the four relatives features by the
-    references' distance; normalized+adjacency leaves those four out, normalized the gene neighbours' too, and
+    """The trainer's default features are the normalised ones, the gene neighbours', the four relatives features by the
+    references' distance, the sample's depth and the divergence features; a set's name joins its groups with "+";
+    normalized+adjacency leaves the rest out, normalized the gene neighbours' too, and
     normalized+adjacency+relatives adds all the relatives'."""
 
     def test_default_set_has_the_gene_neighbour_features(self):
         import model_features as mf
         import random_forest_cmdline
         columns = (["truth", "taxon", "meta_sample"] + mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES +
-                   mf.RELATIVE_FEATURES + ["genus_top_fragments", "other"])
+                   mf.RELATIVE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES + ["genus_top_fragments", "other"])
+        self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence")
         self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET),
+                         mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES)
+        self.assertEqual(mf.feature_columns(columns, "normalized+adjacency+distance"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES)
-        self.assertEqual(mf.feature_columns(columns, "normalized+adjacency"), mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES)
+        # Groups in any order, each once, normalized among them; the sample's depth is recognised.
+        self.assertEqual(mf.feature_columns(columns, "depth+normalized"), mf.NORMALIZED_FEATURES + mf.SAMPLE_FEATURES)
+        self.assertTrue(mf.has_sample_depth(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET)))
+        self.assertFalse(mf.has_sample_depth(mf.feature_columns(columns, "normalized+adjacency+distance")))
+        for bad in ("normalized+adjacency+depth+depth", "adjacency", "normalized+ani", ""):
+            with self.assertRaises(ValueError):
+                mf.feature_set_columns(bad)
+        self.assertEqual(mf.feature_set_name("normalized+divergence"), "normalized+divergence")
+        self.assertEqual(mf.feature_set_name("all"), "all")
+        # A table of an older protal lacks the new columns: a clear error, and the older set still works.
+        older = ["truth", "taxon"] + mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.RELATIVE_FEATURES
+        with self.assertRaises(RuntimeError):
+            mf.feature_columns(older, mf.DEFAULT_FEATURE_SET)
+        self.assertEqual(mf.feature_columns(older, "normalized+adjacency"), mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES)
         relatives = mf.feature_columns(columns, "normalized+adjacency+relatives")
         self.assertEqual(relatives, mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.RELATIVE_FEATURES)
         self.assertEqual(mf.feature_columns(columns, "normalized"), mf.NORMALIZED_FEATURES)
@@ -182,7 +199,7 @@ class FeatureSetsTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "em_own_share"):  # a table of protal before the relatives features
             mf.feature_columns([c for c in columns if c != "em_own_share"], "normalized+adjacency+relatives")
         opts = random_forest_cmdline.parse_args(["--truth-file", "t.tsv", "--output-prefix", "p"])
-        self.assertEqual(opts.features, "normalized+adjacency+distance")
+        self.assertEqual(opts.features, mf.DEFAULT_FEATURE_SET)
 
 
 @unittest.skipIf(RandomForestClassifier is None, "needs pandas")
@@ -202,6 +219,12 @@ class ParityFeaturesTest(unittest.TestCase):
         self.assertEqual(set(differs), {"changed"})
         self.assertAlmostEqual(differs["changed"], 0.01 / 1.01)
         self.assertEqual(set(rounded), {"summed"})
+
+
+def metrics_knobs(test, name):
+    """The knob points of the model `name` trained in a TrainerDepthKnobsTest."""
+    with open(os.path.join(test.tmp.name, name + ".metrics.json")) as fh:
+        return json.load(fh)["depth_knobs"]["points"]
 
 
 class TrainerDepthKnobsTest(unittest.TestCase):
@@ -294,6 +317,31 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         plain, metrics = self.train("plain")
         self.assertEqual(read_depth_knob_curve(plain), [])
         self.assertNotIn("depth_knobs", metrics)
+        # A point keeps the knob unless its best knob gains DEPTH_KNOB_MIN_GAIN on its window.
+        self.assertEqual(self.trainer.DEPTH_KNOB_MIN_GAIN, 0.002)
+        for point in metrics_knobs(self, "knobs"):
+            if point["knob"] is not None:
+                self.assertEqual(point["knob"], point["best knob"] if point["gain"] >= 0.002 else 0.5, point)
+
+    def test_no_depth_knob_curve_with_the_samples_depth_as_a_feature(self):
+        # With sample_log_fragments among the features the forest sees the depth itself: no curve is fitted even with
+        # --depth-knobs, and the report says why.
+        table = pd.read_csv(self.table, sep="\t")
+        totals = table.groupby("meta_sample")["fragments"].transform("sum")
+        table["sample_log_fragments"] = np.log10(np.maximum(totals, 1.0))
+        path = os.path.join(self.tmp.name, "with_depth.tsv")
+        table.to_csv(path, sep="\t", index=False)
+        prefix = os.path.join(self.tmp.name, "with_depth")
+        result = subprocess.run([sys.executable, os.path.join(HERE, "random_forest_cmdline.py"), "--truth-file", path,
+                                 "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--evaluation", "basic",
+                                 "--threads", "1", "--depth-knobs"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
+        self.assertEqual(read_depth_knob_curve(prefix + ".xml"), [])
+        with open(prefix + ".metrics.json") as fh:
+            metrics = json.load(fh)
+        self.assertEqual(metrics["depth_knobs"]["curve"], [])
+        self.assertIn("depth is a feature", metrics["depth_knobs"]["skipped"])
+        self.assertIn("No knob curve: the sample's depth is a feature", result.stdout)
 
     def test_strains(self):
         _, metrics = self.train("strains")
@@ -400,6 +448,8 @@ class TrainerFalseCallsTest(unittest.TestCase):
         self.assertLess(adjusted[0], 0.95)
 
     def test_calls_at_a_target_as_protal(self):
+        self.trainer.SINGLETON_CONGENER = 100  # the rule, off by default, vetoes a row here
+        self.addCleanup(setattr, self.trainer, "SINGLETON_CONGENER", 0)
         # context::FalseCallKnob: the highest-scoring taxa while the mean of their 1 - probability is at most the target;
         # every taxon at the last one's score; the singleton rule's taxa never. Checked against that rule sample by sample.
         frame = pd.DataFrame({"meta_sample": ["a"] * 6 + ["b"] * 3,
@@ -439,8 +489,10 @@ class TrainerFalseCallsTest(unittest.TestCase):
         self.assertAlmostEqual(float(np.interp(0.5, xs, ys)), 0.25, delta=0.05)
 
     def test_singleton_rule(self):
-        # Vetoed: one fragment beside a congener of 100 or more, and a read that looks like the congener's (EM share
-        # below 0.5 or identity below 0.95); a minor congener's own read (both high) is kept.
+        # Off by default (protal's --singleton_congener 0). With 100: vetoed is one fragment beside a congener of 100
+        # or more, and a read that looks like the congener's (EM share below 0.5 or identity below 0.95); a minor
+        # congener's own read (both high) is kept.
+        self.assertEqual(self.trainer.SINGLETON_CONGENER, 0)
         frame = pd.DataFrame({"fragments": [1, 1, 2, 1, 1, 1], "genus_top_fragments": [100, 99, 500, 0, 200, 200],
                               "em_own_share": [0.2, 0.2, 0.2, 0.2, 0.98, 0.98], "identity": [0.99, 0.99, 0.99, 0.99, 0.97, 0.93]})
         try:
@@ -453,10 +505,10 @@ class TrainerFalseCallsTest(unittest.TestCase):
             self.trainer.SINGLETON_CONGENER = 100
             self.assertFalse(self.trainer.vetoed(frame.drop(columns="genus_top_fragments")).any(), "an older dump")
         finally:
-            self.trainer.SINGLETON_CONGENER = 100
+            self.trainer.SINGLETON_CONGENER = 0
 
     def test_fdr_calls_in_the_model(self):
-        model, metrics, stdout = self.train("fdr", "--fdr-calls", "--depth-knobs")
+        model, metrics, stdout = self.train("fdr", "--fdr-calls", "--depth-knobs", "--singleton-congener", "100")
         calls = read_false_calls(model)
         self.assertIsNotNone(calls)
         self.assertEqual(calls["fdr"], metrics["false_calls"]["fdr"])

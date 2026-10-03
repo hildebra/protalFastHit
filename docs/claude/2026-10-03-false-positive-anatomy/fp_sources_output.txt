@@ -1,0 +1,231 @@
+-- 1-fragment: mean_mapq bins x grp
+grp         FN   FP     TN   TP
+mean_mapq                      
+(3, 10]     99   77  10179  255
+(10, 20]    27   38   1734  164
+(20, 40]     3   12   1303   34
+(40, 60]    28   27   4126  104
+(60, 80]    12   27   1819  109
+(80, 100]   51   97  14803  152
+(100, 200]  35  121   2322  627
+
+-- 1-fragment: identity bins x grp
+grp             FN   FP     TN   TP
+identity                           
+(0.0, 0.93]     10    0  20862    0
+(0.93, 0.95]    29    2   7034    6
+(0.95, 0.97]    76   49   4676   81
+(0.97, 0.98]    50   67   1689  226
+(0.98, 0.99]    53  135   1307  464
+(0.99, 0.995]   12   50    252  238
+(0.995, 1.001]  25   96    466  430
+
+-- 1-fragment present by meta_rep_genome x grp
+grp               FN   TP
+meta_rep_genome          
+0.0              194  779
+1.0               61  666
+
+-- 1-fragment rows with identity>=0.99 by depth x grp
+grp              FN  FP   TN   TP
+meta_read_pairs                  
+500               0   0    0   20
+1000              3   0    0  123
+2000              1   2    2   54
+5000             12  10    8  310
+10000             4   2    6  113
+20000            15  14   30  121
+50000             6  12   17   87
+100000            4  42   88    6
+200000            9  12   43   12
+500000            0  60  245    0
+1000000           2  17  121    0
+2000000           0  24  155    0
+5000000           0   5   84    0
+10000000          0   3  220    0
+
+-- 1-fragment FP: relative rank x nov
+nov                 class   db  family  genus  order  phylum  species  All
+meta_relative_rank                                                        
+class                   0    8       4      6      3       0       20   41
+domain                  3    0       5      5      4       2        0   19
+family                  0   81       0     11      0       0       61  153
+genus                   0   27       0      0      0       0       78  105
+order                   0   38       2      5      0       0       21   66
+phylum                  0    5       1      1      1       0        7   15
+All                     3  159      12     28      8       2      187  399
+
+==== FP from a present DB species of ANOTHER genus: candidate sources = present species of the sample sharing the deepest shared rank
+FP rows with candidates: 159 ; of these with exactly one candidate: 88
+
+-- (FP taxon, single candidate source) pairs (top 40)
+                                                                       n  fp_identity  fp_frag  source_frag    rank
+fp                               source                                                                            
+s__Paratissierella segnis        s__Tissierella_B sp036844705          3        0.996      3.0         20.0  family
+s__12-FULL-67-14b sp001768615    s__Gp6-AA40 sp001767525               1        1.000      1.0        129.0  family
+s__AG-12 sp027319585             s__JAKABB01 sp021802045               1        0.975      1.0          1.0  family
+s__Acidocella sp021818425        s__Gluconobacter roseus               1        1.000      1.0        288.0  family
+s__Acutalibacter sp944376265     s__Hominenteromicrobium sp002305575   1        0.970      1.0         49.0  family
+s__AAA240-E13 sp000513075        s__Pelagibacter sp902586025           1        0.978      1.0         23.0  family
+s__Atopostipes sp036752205       s__Abiotrophia defectiva              1        0.993      1.0       2424.0   order
+s__B16-G9 sp027011095            s__Sulfidibacterium sp027022105       1        0.990      1.0         85.0  family
+s__C7867-001 sp021812955         s__2-01-FULL-39-28 sp001795735        1        0.988      2.0        511.0   class
+s__CAG-269 sp934167755           s__CAG-465 sp934130325                1        1.000      1.0         63.0   order
+s__CAIMFV01 sp903884425          s__Brevundimonas diminuta_B           1        1.000      1.0         67.0  family
+s__CAITKP01 sp903885085          s__Campylobacter_D peloridis          1        0.980      3.0        267.0   order
+s__CAIUPE01 sp947456435          s__Methylocystis sp000188155          1        0.966      1.0         67.0  family
+s__CAIXPL01 sp903921325          s__2-02-FULL-66-14 sp004298295        1        0.993      1.0         78.0  family
+s__CAIXSE01 sp026392275          s__JACCTU01 sp035718485               1        0.990      1.0        118.0   class
+s__CAJWHX01 sp937127265          s__CAJBNH01 sp903955385               1        0.990      1.0         14.0  phylum
+                                 s__JABFXX01 sp035516595               1        1.000      1.0          9.0  phylum
+s__CAKPSH01 sp022795675          s__UMGS1781 sp004554705               1        1.000      1.0       3391.0  family
+s__CALXXL01 sp023459755          s__UMGS1518 sp937960425               1        0.990      1.0        130.0  family
+s__Chlorobaculum sp035560975     s__Chlorobium sp013334755             1        1.000      1.0       1591.0  family
+s__Colivicinus sp900546285       s__Catenibacterium sp900540665        1        1.000      1.0         38.0   order
+s__Agitococcus sp937920075       s__Acinetobacter calcoaceticus        1        0.989      1.0        433.0  family
+s__Collinsella sp900542365       s__Gordonibacter sp036659115          1        0.987      1.0        111.0   order
+s__Comamonas_C sp021166775       s__UBA5216 sp947486575                1        0.995      1.0          8.0   order
+s__Cryptobacteroides sp017412645 s__Cacconaster sp017443845            1        1.000      1.0         60.0  family
+s__Competibacter_A sp002433805   s__JARSSO01 sp937960715               1        0.990      1.0         28.0  family
+s__ER46 sp903820035              s__CAIYUN01 sp903869665               1        0.980      1.0       1088.0  family
+s__Erythrobacter sp947495555     s__Alteraurantiacibacter sp030424845  1        1.000      1.0        163.0  family
+s__Faecisoma sp000432255         s__RGIG3091 sp934155645               1        0.993      1.0         68.0  family
+s__Cryptobacteroides sp017530725 s__Equibacterium sp017527625          1        0.980      1.0        268.0  family
+s__Flavonifractor avistercoris   s__Enterenecus sp944387095            1        0.982      2.0         54.0  family
+s__GCA-002795985 sp002792395     s__GCA-002790695 sp002780915          1        0.984      1.0          5.0   class
+s__Gemmiger stercoripullorum     s__Faecousia sp028719885              1        0.983      1.0          2.0   order
+s__Haemophilus haemolyticus_K    s__Haemophilus_D parainfluenzae_N     1        0.980      1.0         16.0  family
+s__JAAFHV01 sp016720545          s__JADJKB01 sp015075635               1        0.975      1.0       2812.0  family
+s__JAAYTD01 sp012518115          s__Chlorobium sp903994455             1        0.981      1.0        979.0  phylum
+s__JABEUN01 sp021846265          s__JAJYFT01 sp021790815               1        0.962      1.0        371.0   order
+s__Faecousia sp910589155         s__Lawsonibacter sp900764755          1        1.000      1.0          1.0  family
+s__JACDGB01 sp013815485          s__Rubrobacter_D sp013698525          1        0.980      1.0        837.0  family
+s__JADJPO01 sp016713225          s__Microbacterium sp024623545         1        0.955      1.0          3.0   order
+
+-- how often the same source species appears for a given FP taxon across its FP samples
+                                  n_samples  n_sources  top_source_share
+fp                                                                      
+s__CAIXPL01 sp903921325                   3          7          0.142857
+s__Paratissierella segnis                 3          1          1.000000
+s__Comamonas_C sp021166775                2          3          0.333333
+s__Cryptobacteroides sp017527415          2          3          0.500000
+s__Flavonifractor avistercoris            2          3          0.500000
+s__CAJWHX01 sp937127265                   2          2          0.500000
+s__Metallibacterium sp021794575           2          2          0.666667
+s__Palsa-881 sp903872075                  2          3          0.333333
+s__Paludibacter sp037132235               2          4          0.250000
+s__Pilosibacter sp900066055               2         13          0.076923
+s__RUG472 sp902801845                     2          3          0.333333
+s__SZUA-611 sp014763785                   2          2          0.500000
+s__UMGS1477 sp900552205                   2          3          0.500000
+s__UMGS1519 sp963621885                   2          3          0.500000
+
+-- source_frag distribution for single-candidate pairs (is the source abundant?)
+count      88.000000
+mean      357.636364
+std       765.118895
+min         1.000000
+25%        16.750000
+50%        57.000000
+75%       267.000000
+max      3391.000000
+Name: source_frag, dtype: float64
+
+-- for the top pairs: samples with the source present, in how many does the FP taxon have records, and is it called?
+                                  fp                               source  samples_source_present  fp_has_records  fp_called  med_identity  med_frag
+0          s__Paratissierella segnis         s__Tissierella_B sp036844705                       5               3          3         0.996       3.0
+1      s__12-FULL-67-14b sp001768615              s__Gp6-AA40 sp001767525                       5               1          1         1.000       1.0
+2               s__AG-12 sp027319585              s__JAKABB01 sp021802045                       2               2          1         0.984       1.5
+3          s__Acidocella sp021818425              s__Gluconobacter roseus                       4               1          1         1.000       1.0
+4       s__Acutalibacter sp944376265  s__Hominenteromicrobium sp002305575                       4               2          1         0.978      23.5
+5          s__AAA240-E13 sp000513075          s__Pelagibacter sp902586025                       5               1          1         0.978       1.0
+6         s__Atopostipes sp036752205             s__Abiotrophia defectiva                       5               1          1         0.993       1.0
+7              s__B16-G9 sp027011095      s__Sulfidibacterium sp027022105                       3               1          1         0.990       1.0
+8           s__C7867-001 sp021812955       s__2-01-FULL-39-28 sp001795735                       3               1          1         0.988       2.0
+9             s__CAG-269 sp934167755               s__CAG-465 sp934130325                       4               2          1         0.992       1.0
+10           s__CAIMFV01 sp903884425          s__Brevundimonas diminuta_B                       1               1          1         1.000       1.0
+11           s__CAITKP01 sp903885085         s__Campylobacter_D peloridis                       6               1          1         0.980       3.0
+12           s__CAIUPE01 sp947456435         s__Methylocystis sp000188155                       3               1          1         0.966       1.0
+13           s__CAIXPL01 sp903921325       s__2-02-FULL-66-14 sp004298295                       1               1          1         0.993       1.0
+14           s__CAIXSE01 sp026392275              s__JACCTU01 sp035718485                       2               1          1         0.990       1.0
+15           s__CAJWHX01 sp937127265              s__CAJBNH01 sp903955385                       1               1          1         0.990       1.0
+16           s__CAJWHX01 sp937127265              s__JABFXX01 sp035516595                       3               1          1         1.000       1.0
+17           s__CAKPSH01 sp022795675              s__UMGS1781 sp004554705                       6               1          1         1.000       1.0
+18           s__CALXXL01 sp023459755              s__UMGS1518 sp937960425                       2               1          1         0.990       1.0
+19      s__Chlorobaculum sp035560975            s__Chlorobium sp013334755                       4               1          1         1.000       1.0
+20        s__Colivicinus sp900546285       s__Catenibacterium sp900540665                       3               1          1         1.000       1.0
+21        s__Agitococcus sp937920075       s__Acinetobacter calcoaceticus                       3               1          1         0.989       1.0
+22        s__Collinsella sp900542365         s__Gordonibacter sp036659115                       4               1          1         0.987       1.0
+23        s__Comamonas_C sp021166775               s__UBA5216 sp947486575                       6               1          1         0.995       1.0
+24  s__Cryptobacteroides sp017412645           s__Cacconaster sp017443845                       4               2          1         0.989       7.0
+
+==== rows with >=3 fragments: FP vs TP vs FN vs TN(identity>=0.95) feature quartiles
+fragments                      TP: 12/46/187  FN: 4/8/40.5  FP: 4/12/59  TN: 4/7/18
+identity                       TP: 0.98/0.989/0.994  FN: 0.954/0.963/0.973  FP: 0.963/0.971/0.979  TN: 0.956/0.963/0.973
+top_identity                   TP: 1/1/1  FN: 0.989/0.994/1  FP: 0.993/1/1  TN: 0.987/0.994/1
+ani_est                        TP: 0.999/1/1  FN: 0.972/0.981/0.99  FP: 0.98/0.986/0.993  TN: 0.973/0.983/0.992
+excess_high_share              TP: 0.00441/0.0313/0.0769  FN: 0.3/0.5/0.621  FP: 0.242/0.375/0.5  TN: 0.269/0.449/0.621
+low_identity_share             TP: 0/0/0  FN: 0/0/0.0352  FP: 0/0/0.0308  TN: 0/0/0.0349
+hit_gene_fraction              TP: 0.12/0.366/0.782  FN: 0.0395/0.087/0.303  FP: 0.0506/0.129/0.368  TN: 0.0222/0.0417/0.0857
+gene_presence_ratio            TP: 1/1.03/1.08  FN: 0.836/1.01/1.03  FP: 0.878/1/1.03  TN: 0.338/0.623/0.889
+depth_cv                       TP: 0.455/0.552/0.629  FN: 0.368/0.541/0.67  FP: 0.434/0.563/0.665  TN: 0.204/0.522/0.749
+gene_dispersion                TP: 0.94/1.12/1.34  FN: 0.966/1.28/1.69  FP: 0.992/1.23/1.79  TN: 1.25/2.12/4.69
+conserved_hit_share            TP: 0.263/0.351/0.426  FN: 0.143/0.286/0.379  FP: 0.2/0.333/0.5  TN: 0/0.25/0.5
+conserved_fast_depth_ratio     TP: -0.0235/0.272/0.693  FN: 0/0.04/0.691  FP: 0/0.273/0.883  TN: 0/0/0.681
+conserved_fast_record_ratio    TP: -0.372/-0.0598/0.177  FN: -0.799/-0.214/0.317  FP: -0.487/-0.0184/0.617  TN: -1.12/0.0716/1.31
+conserved_fast_kept_ratio      TP: -0.585/-0.143/0.121  FN: -1.85/-0.608/0.172  FP: -1.12/-0.261/0.421  TN: -3.16/-0.74/1.08
+mean_mapq                      TP: 45/82/101  FN: 13.5/32/61  FP: 27/52/83  TN: 16/30/54
+low_mapq_share                 TP: 0/0.0357/0.255  FN: 0.263/0.667/0.871  FP: 0.0385/0.312/0.7  TN: 0.364/0.714/0.889
+congener_fit_share             TP: 0/0.0141/0.125  FN: 0.141/0.393/0.619  FP: 0.00686/0.195/0.44  TN: 0.25/0.569/0.775
+genus_skew                     TP: 0.506/1.06/1.69  FN: -0.516/-0.0792/0.602  FP: 0/0.454/0.82  TN: -1.88/-1.22/-0.363
+relative_distance              TP: 1/1/1  FN: 0.0756/0.29/1  FP: 1/1/1  TN: 0.0435/0.0651/0.178
+relative_close_share           TP: 1/1/1  FN: 0.848/1/1  FP: 1/1/1  TN: 0.729/1/1.46
+em_own_share                   TP: 1/1/1  FN: 0.897/0.983/1  FP: 0.953/0.996/1  TN: 0.649/0.827/0.977
+variant_sites_per_kb           TP: 0/0/1.21  FN: 0/0/3.82  FP: 0/0/1.71  TN: 0/4.97/19
+p_species                      TP: 0.999/0.999/0.999  FN: 0.119/0.266/0.406  FP: 0.618/0.762/0.904  TN: 0.00296/0.0174/0.0505
+grp
+TP    13288
+TN     5284
+FP      269
+FN      155
+Name: count, dtype: int64
+
+-- >=3 fragments FP: relative rank x nov
+nov                 db  family  genus  order  species  All
+meta_relative_rank                                        
+class                0       1      0      0        3    4
+domain               0       0      0      1        0    1
+family               7       0      1      0        5   13
+genus               13       0      0      0      229  242
+order                2       0      0      0        4    6
+phylum               0       0      1      0        2    3
+All                 22       1      2      1      243  269
+
+-- >=3 fragments FP by identity bin x nov
+nov            db  family  genus  order  species  All
+identity                                             
+(0.0, 0.95]     0       0      0      0        2    2
+(0.95, 0.96]    0       0      0      0       37   37
+(0.96, 0.97]    3       0      0      0       89   92
+(0.97, 0.98]    5       1      1      1       70   78
+(0.98, 0.99]    8       0      1      0       35   44
+(0.99, 1.001]   6       0      0      0       10   16
+All            22       1      2      1      243  269
+-- >=3 fragments TP by identity bin
+identity
+(0.0, 0.95]         2
+(0.95, 0.96]       76
+(0.96, 0.97]      420
+(0.97, 0.98]     2568
+(0.98, 0.99]     4438
+(0.99, 1.001]    5784
+Name: count, dtype: int64
+-- >=3 fragments FN by identity bin
+identity
+(0.0, 0.95]      24
+(0.95, 0.96]     40
+(0.96, 0.97]     41
+(0.97, 0.98]     28
+(0.98, 0.99]     13
+(0.99, 1.001]     9
+Name: count, dtype: int64

@@ -24,6 +24,7 @@
 #include "Zstd.h"
 #include "Database.h"
 #include "SamHandler.h"
+#include "GeneIncongruence.h"
 #include "SamFile.h"
 #include "ReadType.h"
 #include "SequenceUtils/SeqReader.h"
@@ -96,6 +97,7 @@ namespace protal {
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
                 ("no_mate_guidance", "Paired-end reads: do not let a mate that is sure of its alignment guide the other one when they did not align together (to the guiding mate's taxon from the other's own anchor, or on its gene where the fragment can reach, partly if it runs past the gene's end).")
                 ("no_gene_neighbours", "Do not use the database's gene neighbours (gene_neighbours.tsv: how often each marker gene end faces which other in a clade's genomes): no looking for a mate past the end of its guiding mate's gene, no pairs of mates on two neighbouring genes, no looking on a long read for the genes next to its genes, adjacent_expected_share and adjacent_unlikely_share 0 and adjacent_support 0.5.")
+                ("keep_suspect_copies", "Count reads on the database's suspect gene copies (suspect_copies.tsv: a species' copy of a marker gene that is near-identical to the copy of a species of another genus, family, order, class, phylum or domain while its own congeners' copies are farther, which --build finds; a contaminating contig or a transferred gene) as evidence of the species. By default their records are left out as if the reads had not aligned: every present organism with such a gene puts a perfect read on the copy, a fifth of the false species calls at GTDB r226 (docs/claude/2026-10-03-false-positive-anatomy).")
                 ("keep_foreign_genes", "Keep foreign genes in their taxon's depth and strain MSAs. A gene is foreign when the genes next to it on its reads (a pair's mates on two genes, a long read's consecutive genes) are mostly unlikely neighbours in its taxon's clade by the database's gene neighbours (4 or more such links judged, more than half of them unlikely): its reads come from another genome. By default foreign genes are left out of both; .profile.genes.log lists them either way.")
                 ("u,max_key_ubiquity", "Max key ubiquity. Best matching Flexkey count for seed must be lower or equal", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_KEY_UBIQUITY)))
                 ("s,max_seed_size", "Max seed size after which seeding is stopped.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_SEED_SIZE)))
@@ -106,9 +108,9 @@ namespace protal {
         // Profiling options
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
-                ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours. Default 0.5, or, for a model with knobs by depth (random_forest_cmdline.py --depth-knobs; build_gtdb_database.py gives them to its PacBio and ONT models), the model's knob for each sample's depth; a --knob given applies to every sample. For a model with calibrated calls (random_forest_cmdline.py --fdr-calls) neither applies by default: see --fdr.", cxxopts::value<double>()->default_value("0.5"))
-                ("fdr", "Expected share of false calls, 0 to 1, for a model with calibrated calls (random_forest_cmdline.py --fdr-calls; build_gtdb_database.py --call-mode fdr): each sample reports its highest-scoring taxa as long as the mean of their 1 - probability stays at or below this, the model's scores made probabilities by its calibration and adjusted to the share of present taxa among the sample's candidates (a deep sample, with many more absent candidates, needs higher scores). Default: the model's own target, if it has calibrated calls; 0: its knob curve or --knob instead. Not with --knob.", cxxopts::value<double>())
-                ("singleton_congener", "A taxon of a single fragment beside a species of its genus with at least this many fragments in the sample is not reported, whatever its score, if its read looks like that species': the abundance-weighted assignment of the reads' alternatives leaves it less than half of it, or its identity is below 0.95. A few reads of an abundant species land on a congener's reference by chance (on GTDB r226 training data every such call was false); a minor congener's own read fits its own reference and is kept. 0: no such rule. The training dump's prediction column and the trainer (random_forest_cmdline.py --singleton-congener) apply the same rule.", cxxopts::value<size_t>()->default_value("100"))
+                ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours. Default 0.5, or, for a model with knobs by depth (random_forest_cmdline.py --depth-knobs; build_gtdb_database.py gives them to its PacBio and ONT models), the model's knob for each sample's depth; a --knob given applies to every sample. A model's calibrated calls (random_forest_cmdline.py --fdr-calls) are used only with --fdr.", cxxopts::value<double>()->default_value("0.5"))
+                ("fdr", "Expected share of false calls, 0 to 1, for a model with calibrated calls (random_forest_cmdline.py --fdr-calls; build_gtdb_database.py --call-mode fdr): each sample reports its highest-scoring taxa as long as the mean of their 1 - probability stays at or below this, the model's scores made probabilities by its calibration and adjusted to the share of present taxa among the sample's candidates (a deep sample, with many more absent candidates, needs higher scores). Off by default: without --fdr the model's knob curve or --knob applies even to a model with calibrated calls (at GTDB r226 they called 0.001-0.007 F1 below the curve for every read type). --fdr F uses them at F; 0: off. Not with --knob.", cxxopts::value<double>())
+                ("singleton_congener", "A taxon of a single fragment beside a species of its genus with at least this many fragments in the sample is not reported, whatever its score, if its read looks like that species': the abundance-weighted assignment of the reads' alternatives leaves it less than half of it, or its identity is below 0.95. 0 (default): no such rule; on GTDB r226 training data the model called none of the taxa the rule would have vetoed, so it is off (docs/claude/2026-10-03-false-positive-anatomy). The training dump's prediction column and the trainer (random_forest_cmdline.py --singleton-congener) apply the same rule.", cxxopts::value<size_t>()->default_value("0"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is the same on every gene unless --gene_conservation scales it. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
                 ("gene_conservation", "Scale --depth_identity_margin per gene by how fast each gene diverges within species: db for the database's factors (gene_conservation.tsv, which --build estimates from --full_reference and stores in the database), or a file of them (geneid, factor, species; 1 for a gene of typical conservation). A gene's margin is then 0.03 for read errors plus the rest times its factor (0.08: 0.05 at factor 0.4, 0.10 at 1.4). none (default): the same margin on every gene, which did best summed over three simulated worlds, among them one with many congeners missing from the database. The factors (the file's, else the database's) give the model's conservation features (conserved_fast_depth_ratio, conserved_hit_share) whatever this says.", cxxopts::value<std::string>()->default_value("none"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
@@ -151,16 +153,17 @@ namespace protal {
                 ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
-                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
                 ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
-                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
+                ("suspect_copy_distance", "With --build: a species' copy of a gene within this k-mer distance (about the share of bases that differ) of a copy of a species of another genus (or family, order, class, phylum, domain), and 0.02 farther from its nearest congener's copy or without one, is suspect: contamination or a transferred gene. The suspect copies go into the database (suspect_copies.tsv) and a run leaves their records out (see --keep_suspect_copies); every near pair across genera is reported in gene_incongruence.tsv beside the database. 0: no such scan.", cxxopts::value<double>()->default_value("0.02"))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
                 ("build_gene_subset", "Newline-delimited gene ids (>=1) to include during build (subset of marker genes)", cxxopts::value<std::string>()->default_value(""))
                 ("preload_genomes_off", "Do not preload complete reference library (reference.fna and reference.map in protal index folder) and instead do dynamic loading. This usually decreases performance but saves memory. Needs the database as separate files with an uncompressed reference.fna (not reference.fna.zst or database.protal; see --unpack_db).")
@@ -197,6 +200,8 @@ namespace protal {
         bool no_mate_guidance = false;
         bool no_gene_neighbours = false;
         bool keep_foreign_genes = false;
+        bool keep_suspect_copies = false;
+        double suspect_copy_distance = gene_incongruence::kDefaultSuspectDistance;
         bool no_phasing = false;
         bool fastalign = false;
         bool profile_only = false;
@@ -254,8 +259,8 @@ namespace protal {
         std::string add_model;
         double knob = 0.5;
         bool knob_given = false;  // --knob on the command line: the models' depth knobs are not used
-        std::optional<double> fdr;  // --fdr; none: the model's target, if it has one
-        size_t singleton_congener = 100;  // --singleton_congener
+        std::optional<double> fdr;  // --fdr; none: a model's calibrated calls are not used
+        size_t singleton_congener = 0;  // --singleton_congener; 0: no rule
         double depth_identity_margin = 0.08;
         double msa_identity_margin = 0.04;
         std::string gene_conservation = "none";  // --gene_conservation: none, db (the database's), or a file
@@ -304,6 +309,8 @@ namespace protal {
         bool m_no_mate_guidance = false;
         bool m_no_gene_neighbours = false;
         bool m_keep_foreign_genes = false;
+        bool m_keep_suspect_copies = false;  // --keep_suspect_copies
+        double m_suspect_copy_distance = gene_incongruence::kDefaultSuspectDistance;  // --suspect_copy_distance (--build)
         bool m_no_phasing = false;
         bool m_fastalign = false;
         bool m_profile_only = false;
@@ -365,7 +372,7 @@ namespace protal {
         double m_knob = 0.5;
         bool m_knob_given = false;  // --knob
         std::optional<double> m_fdr;  // --fdr
-        size_t m_singleton_congener = 100;  // --singleton_congener
+        size_t m_singleton_congener = 0;  // --singleton_congener; 0: no rule
         double m_depth_identity_margin = 0.08;
         double m_msa_identity_margin = 0.04;
         std::string m_gene_conservation = "none";  // --gene_conservation
@@ -405,6 +412,7 @@ namespace protal {
         static inline const std::string PROTAL_HITTABLE_GENES_FILE = "species_gene_mask.tsv";
         static inline const std::string PROTAL_UNIQUE_KMER_FILE = "unique_kmers.tsv";
         static inline const std::string PROTAL_GENE_CONSERVATION_FILE = gene_conservation::kFileName;
+        static inline const std::string PROTAL_SUSPECT_COPIES_FILE = gene_incongruence::kFileName;
         static inline const std::string PROTAL_GENE_NEIGHBOURS_FILE = gene_neighbours::kFileName;
         static inline const std::string PROTAL_GENE_POSITIONS_FILE = gene_neighbours::kPositionsFileName;
         static inline const std::string PROTAL_TAXONOMY_FILE = "internal_taxonomy.dmp";
@@ -448,6 +456,8 @@ namespace protal {
                 m_no_mate_guidance(d.no_mate_guidance),
                 m_no_gene_neighbours(d.no_gene_neighbours),
                 m_keep_foreign_genes(d.keep_foreign_genes),
+                m_keep_suspect_copies(d.keep_suspect_copies),
+                m_suspect_copy_distance(d.suspect_copy_distance),
                 m_no_phasing(d.no_phasing),
                 m_preload_genomes(d.preload_genomes),
                 m_show_help(d.show_help),
@@ -626,6 +636,7 @@ namespace protal {
             result_str << "msa knob:            " << std::to_string(GetMSAKnob()) << (m_msa_knob ? "" : " (--knob)") << '\n';
             result_str << "phasing:             " << (m_no_phasing ? "no" : "long-read samples") << '\n';
             result_str << "foreign genes:       " << (m_keep_foreign_genes ? "kept" : "left out of depth and MSAs") << '\n';
+            result_str << "suspect gene copies: " << (m_keep_suspect_copies ? "kept" : "left out of the evidence") << '\n';
             result_str << "---- Dev Options ----" << std::string(30, '-') << '\n';
             result_str << "verbose:             " << (m_verbose ? "yes" : "no") << '\n';
             result_str << "benchmark alignment: " << (m_benchmark_alignment ? "yes" : "no") << '\n';
@@ -662,7 +673,7 @@ namespace protal {
         }
 
         // Whether --fdr was given, and its value: the expected share of false calls for a model with calibrated calls
-        // (ProfileWrapper, context::FalseCallKnob); 0 turns them off.
+        // (ProfileWrapper, context::FalseCallKnob), which are used only when it is given and above 0.
         bool FdrGiven() const {
             return m_fdr.has_value();
         }
@@ -760,6 +771,16 @@ namespace protal {
             return !m_keep_foreign_genes;
         }
 
+        // Whether records on the database's suspect gene copies (GeneIncongruence.h) are left out of the evidence.
+        bool DropSuspectCopies() const {
+            return !m_keep_suspect_copies;
+        }
+
+        // --build: the k-mer distance within which another genus's copy makes a gene copy suspect; 0: no scan.
+        double GetSuspectCopyDistance() const {
+            return m_suspect_copy_distance;
+        }
+
         // Whether a long-read sample's strain MSA row is split into its strains' (Haplotypes.h).
         bool Phasing() const {
             return !m_no_phasing;
@@ -840,6 +861,11 @@ namespace protal {
             return m_database_path + "/" + PROTAL_GENE_NEIGHBOURS_FILE;
         }
 
+        // The database's suspect gene copies (--build, GeneIncongruence.h), packed by --build.
+        std::string GetSuspectCopiesFile() const {
+            return m_database_path + "/" + PROTAL_SUSPECT_COPIES_FILE;
+        }
+
         // Where gene_neighbours.py placed each gene in each genome: packed by --build, never read by a run.
         std::string GetGenePositionsFile() const {
             return m_database_path + "/" + PROTAL_GENE_POSITIONS_FILE;
@@ -895,6 +921,11 @@ namespace protal {
         // The database's gene_conservation.tsv (--build); Exists() is false if it has none.
         db::DbFile DatabaseGeneConservationDbFile() const {
             return DbFileNamed(PROTAL_GENE_CONSERVATION_FILE, GetGeneConservationFile());
+        }
+
+        // The database's suspect_copies.tsv (--build); Exists() is false if it has none.
+        db::DbFile SuspectCopiesDbFile() const {
+            return DbFileNamed(PROTAL_SUSPECT_COPIES_FILE, GetSuspectCopiesFile());
         }
 
         // The database's gene_neighbours.tsv (scripts/mini_db/gene_neighbours.py, packed by --build); Exists() is
@@ -2223,6 +2254,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             bool no_mate_guidance = result.count("no_mate_guidance");
             bool no_gene_neighbours = result.count("no_gene_neighbours");
             bool keep_foreign_genes = result.count("keep_foreign_genes");
+            bool keep_suspect_copies = result.count("keep_suspect_copies");
             bool no_phasing = result.count("no_phasing");
             bool build = result.count("build");
             bool preload_genomes_off = result.count("preload_genomes_off");
@@ -2605,6 +2637,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.singleton_congener       = result["singleton_congener"].as<size_t>();
             if (result.count("msa_knob")) d.msa_knob = result["msa_knob"].as<double>();
             d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
+            d.keep_suspect_copies      = keep_suspect_copies;
+            d.suspect_copy_distance    = result["suspect_copy_distance"].as<double>();
             d.msa_identity_margin      = result["msa_identity_margin"].as<double>();
             d.gene_conservation        = result["gene_conservation"].as<std::string>();
             d.model                    = result["model"].as<std::string>();

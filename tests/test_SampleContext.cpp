@@ -397,6 +397,7 @@ TEST(SampleContext, AProfilesTaxaAreJudgedAgainstTheirAbundantRelatives) {
     };
 
     profiler::MicrobialProfile profile(*ref.loader);
+    profile.SetSingletonCongener(100);  // the rule is off by default
     fill(profile, { 1 });
     auto const& s1 = profile.GetTaxa().at(1).GetSampleEvidence();
     auto const& s2 = profile.GetTaxa().at(2).GetSampleEvidence();

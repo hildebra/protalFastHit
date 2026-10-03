@@ -1,0 +1,27 @@
+--- a/model_features.py
++++ b/model_features.py
+@@ -89,9 +89,11 @@
+ DISTANCE_FEATURES = ["relative_skew", "relative_distance", "relative_spill", "relative_close_share"]
+
+ SAMPLE_FEATURES = ["sample_log_fragments"]
++GENUS_FEATURES = ["genus_species"]
+
+ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
+-                "normalized+adjacency+depth", "normalized+adjacency+distance+depth", "all")
++                "normalized+adjacency+depth", "normalized+adjacency+distance+depth",
++                "normalized+adjacency+genus", "normalized+adjacency+depth+genus", "normalized+adjacency+distance+depth+genus", "all")
+ DEFAULT_FEATURE_SET = "normalized+adjacency"
+
+
+@@ -106,7 +108,10 @@
+               "normalized+adjacency+relatives": NORMALIZED_FEATURES + ADJACENCY_FEATURES + RELATIVE_FEATURES,
+               "normalized+adjacency+distance": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES,
+               "normalized+adjacency+depth": NORMALIZED_FEATURES + ADJACENCY_FEATURES + SAMPLE_FEATURES,
+-              "normalized+adjacency+distance+depth": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES + SAMPLE_FEATURES}
++              "normalized+adjacency+distance+depth": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES + SAMPLE_FEATURES,
++              "normalized+adjacency+genus": NORMALIZED_FEATURES + ADJACENCY_FEATURES + GENUS_FEATURES,
++              "normalized+adjacency+depth+genus": NORMALIZED_FEATURES + ADJACENCY_FEATURES + SAMPLE_FEATURES + GENUS_FEATURES,
++              "normalized+adjacency+distance+depth+genus": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES + SAMPLE_FEATURES + GENUS_FEATURES}
+     if feature_set not in chosen:
+         raise ValueError(f"unknown feature set {feature_set!r}")
+     missing = [c for c in chosen[feature_set] if c not in available]

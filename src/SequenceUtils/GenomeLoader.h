@@ -34,6 +34,7 @@
 #include "Benchmark.h"
 #include "PackedSequence.h"
 #include "GeneConservation.h"
+#include "GeneIncongruence.h"
 #include "GeneNeighbours.h"
 
 namespace protal {
@@ -551,6 +552,7 @@ namespace protal {
         gene_conservation::Table m_gene_conservation;  // empty: every gene's factor is 1
         bool m_scale_depth_margin = false;  // the depth identity margin scaled by m_gene_conservation (--gene_conservation)
         gene_neighbours::Table m_gene_neighbours;      // empty: no gene's neighbours are known
+        gene_incongruence::Table m_suspect_copies;     // empty: every gene copy is evidence of its species
 
         int m_threads = 1;  // for reading reference.map
         struct FreeDeleter { void operator()(void* p) const { std::free(p); } };
@@ -601,6 +603,7 @@ namespace protal {
                 m_gene_conservation(other.m_gene_conservation),
                 m_scale_depth_margin(other.m_scale_depth_margin),
                 m_gene_neighbours(other.m_gene_neighbours),
+                m_suspect_copies(other.m_suspect_copies),
                 m_threads(other.m_threads) {
             Open();
             LoadPositionMap(m_map, m_threads);
@@ -628,6 +631,21 @@ namespace protal {
 
         void SetScaleDepthMargin(bool scale) {
             m_scale_depth_margin = scale;
+        }
+
+        // The gene copies that are no evidence of their species (GeneIncongruence.h: near-identical to another genus's
+        // copy, contamination or transfer), whose records a run leaves out; empty unless set (a database without
+        // suspect_copies.tsv, or --keep_suspect_copies).
+        gene_incongruence::Table const& GetSuspectCopies() const {
+            return m_suspect_copies;
+        }
+
+        void SetSuspectCopies(gene_incongruence::Table table) {
+            m_suspect_copies = std::move(table);
+        }
+
+        bool IsSuspectCopy(uint32_t taxid, uint32_t geneid) const {
+            return m_suspect_copies.Contains(taxid, geneid);
         }
 
         // Which genes lie next to which in the species' clades (GeneNeighbours.h); empty unless set (a

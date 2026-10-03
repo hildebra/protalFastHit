@@ -41,52 +41,13 @@ namespace protal::profiler::context {
     inline constexpr size_t kMaxPairs = 200000;    // and compared pairs (~1 kB each); both are recomputed alike
     inline constexpr double kFarDistance = 1;      // two references without kMinSharedGenes shared sketched genes
 
-    // A bijection of 32-bit k-mer codes (lowbias32): k-mers of similar codes get unrelated hashes, so that the
-    // smallest hashes are a random sample of a gene's k-mers.
-    inline uint32_t MixKmer(uint32_t x) {
-        x ^= x >> 16;
-        x *= 0x7feb352dU;
-        x ^= x >> 15;
-        x *= 0x846ca68bU;
-        x ^= x >> 16;
-        return x;
-    }
+    // The hash of a k-mer, a gene's bottom sketch of kSketchSize hashes and the Mash distance of two sketches: the
+    // build's (GeneConservation.h), which GeneIncongruence.h uses too.
+    using gene_conservation::MixKmer;
+    using gene_conservation::SketchDistance;
 
-    // The kSketchSize smallest hashes (MixKmer) of the distinct k-mers of seq (gene_conservation::Kmers, k = 12),
-    // sorted; all of them for a shorter gene.
     inline std::vector<uint32_t> GeneSketch(std::string_view seq) {
-        auto const kmers = gene_conservation::Kmers(seq);
-        std::vector<uint32_t> hashes;
-        hashes.reserve(kmers.size());
-        for (uint32_t const kmer : kmers) hashes.push_back(MixKmer(kmer));
-        size_t const keep = std::min(kSketchSize, hashes.size());
-        std::partial_sort(hashes.begin(), hashes.begin() + static_cast<std::ptrdiff_t>(keep), hashes.end());
-        hashes.resize(keep);
-        return hashes;
-    }
-
-    // The Mash distance of two genes from their sketches (GeneSketch): of the s smallest hashes of their union (s the
-    // smaller sketch's size), the share in both estimates their k-mers' Jaccard index j; -ln(2j / (1 + j)) / k, 1 if
-    // they share none, as gene_conservation::MashDistance on all k-mers.
-    inline double SketchDistance(std::vector<uint32_t> const& a, std::vector<uint32_t> const& b) {
-        size_t const s = std::min(a.size(), b.size());
-        if (s == 0) return 1;
-        size_t i = 0, j = 0, seen = 0, shared = 0;
-        while (seen < s && i < a.size() && j < b.size()) {
-            if (a[i] < b[j]) {
-                i++;
-            } else if (b[j] < a[i]) {
-                j++;
-            } else {
-                shared++;
-                i++;
-                j++;
-            }
-            seen++;
-        }
-        if (shared == 0) return 1;
-        double const jaccard = static_cast<double>(shared) / static_cast<double>(s);
-        return std::min(1.0, -std::log(2 * jaccard / (1 + jaccard)) / static_cast<double>(gene_conservation::kK));
+        return gene_conservation::BottomSketch(seq, kSketchSize);
     }
 
     // A reference's sketches by gene id, ascending.
@@ -217,7 +178,7 @@ namespace protal::profiler::context {
     // with congener groups the rule without the read's condition also removed 2-11 true calls per test set, of minor
     // congeners whose read fits their own reference (identity ~0.975, EM share ~0.98), which the condition keeps
     // (docs/claude/2026-10-03-denoising-implementation).
-    inline constexpr size_t kSingletonCongener = 100;
+    inline constexpr size_t kSingletonCongener = 0;  // off: on r226 training data the model called none of the vetoed taxa
     inline constexpr double kSingletonOwnShare = 0.5;
     inline constexpr double kSingletonIdentity = 0.95;
 

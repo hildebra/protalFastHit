@@ -907,9 +907,9 @@ class DepthKnobsTest(WorkDir):
 
 
 class FalseCallsTest(WorkDir):
-    """A model with calibrated calls (random_forest_cmdline.py --fdr-calls, in its header): a sample reports its
-    highest-scoring taxa while their expected share of false calls stays at the model's target (or --fdr's), unless
-    --knob or --fdr 0."""
+    """A model with calibrated calls (random_forest_cmdline.py --fdr-calls, in its header): with --fdr F a sample
+    reports its highest-scoring taxa while their expected share of false calls stays at F; without --fdr (or with
+    --fdr 0 or --knob) the calls are not used and the knob curve or --knob applies."""
 
     def model(self, name, extensions):
         with open(db_file("model_pe.xml")) as fh:
@@ -932,20 +932,25 @@ class FalseCallsTest(WorkDir):
         with open(self.path(name, "sa.profile")) as fh:
             return log, fh.read()
 
-    def test_calls_at_the_models_target_unless_knob_or_fdr_0(self):
+    def test_calls_only_with_fdr(self):
         model = self.model("calls.xml", self.calls(fdr="0.000001"))
-        log, none = self.profile("none", "--model", model)
+        # Without --fdr the model's calibrated calls are not used, whatever its target: the profile is the default's.
+        log, default_calls = self.profile("none", "--model", model)
         self.assertIn("calls at an expected share of false calls of 1e-06 (calibrated, 2 points; training prior 0.5); "
-                      "the depth knobs are not used", log)
+                      "not used (--fdr F would use them)", log)
+        self.assertNotIn("expected share of false calls of at most", log)
+        self.assertEqual(default_calls, self.profile("default")[1])
+        log, strict = self.profile("strict", "--model", model, "--fdr", "0.000001")
+        self.assertIn("; at --fdr 1e-06, the depth knobs are not used", log)
         self.assertRegex(log, r"Sample sa: \d+ fragments, 0 taxa at an expected share of false calls of at most 1e-06")
-        self.assertEqual(none.strip(), "", "a target no taxon meets calls none")
+        self.assertEqual(strict.strip(), "", "a target no taxon meets calls none")
         log, generous = self.profile("generous", "--model", model, "--fdr", "0.9")
         self.assertIn("; at --fdr 0.9", log)
         self.assertRegex(log, r"Sample sa: \d+ fragments, [1-9]\d* taxa at an expected share of false calls of at most 0.9")
         self.assertNotEqual(generous.strip(), "")
         log, off = self.profile("off", "--model", model, "--fdr", "0")
-        self.assertIn("; not used, --fdr 0", log)
-        self.assertEqual(off, self.profile("default")[1])
+        self.assertIn("; not used (--fdr F would use them)", log)
+        self.assertEqual(off, default_calls)
         log, knob = self.profile("knob", "--model", model, "--knob", "0.5")
         self.assertIn("; not used, --knob is given", log)
         self.assertEqual(knob, off)

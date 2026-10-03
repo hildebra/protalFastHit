@@ -1,0 +1,8 @@
+Presence models of /home/falk/fp_bench/new/protal_db, taxa scored at knob 0.5: TP present and called, FP absent and called, TN absent and not called, FN present and not called. species held out: each taxon scored by forests that did not see its species; independent test set: samples of another design, scored by the final model. Details: trained_model*.report.txt
+
+read type  evaluated on          taxa   TP    FP  TN     FN   sensitivity  specificity  precision  F1      FP/sample
+pe         species held out      19040  4632  28  14336  44   0.9906       0.9981       0.9940     0.9923  0.33
+pe         independent test set  9041   3444  22  5434   141  0.9607       0.9960       0.9937     0.9769  0.52
+se         species held out      17603  4579  52  12922  50   0.9892       0.9960       0.9888     0.9890  0.62
+se         independent test set  8440   3307  21  4918   194  0.9446       0.9957       0.9937     0.9685  0.50
+Suspect copies: 232 of 83978 gene copies (0.28%) of 125 species within 0.02 of another genus's copy and farther from their congeners': /home/falk/fp_bench/new/protal_db/suspect_copies.tsv; 69429 near 

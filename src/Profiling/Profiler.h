@@ -413,19 +413,57 @@ namespace protal {
         inline constexpr MAPQ_t kLowMapq = 10;  // a record below fits another candidate nearly as well
         inline constexpr int kAlternativeFitEdits = 1;  // an alternative this many edits worse fits as well
         inline constexpr double kHighExcess = 0.02;  // a record's divergence beyond its base qualities above this is high
+        inline constexpr uint64_t kMinKindBases = 200;  // aligned bases on conserved and on fast genes for ExcessConservedFastRatio
+        inline constexpr size_t kDefaultMateSpan = 500;  // the fragment length assumed when a sample shows too few (MateSpan)
+        inline constexpr size_t kMinSpans = 50;          // fragments with both mates on one gene for the sample's own length
+        inline constexpr double kMateSpanQuantile = 0.95;  // the fragment length that many of the sample's fragments fit in
 
         // A record's differences per aligned base (X + I + D over M + X + I + D, as AlignmentIdentity counts them) less
         // the mean error probability of its bases by their qualities (10^(-Q/10)): how far its genome differs from the
         // reference beyond what its sequencing errors explain. A relative's reads exceed their errors by several
         // percent, a present species' own reads by about one (docs/claude/2026-10-01-f1-opportunities). None without
         // base qualities ("*") or aligned bases.
-        inline std::optional<float> ReadExcess(SamEntry const& sam) {
+        // The mean probability of a sequencing error over a record's bases, from its base qualities (Phred+33); none
+        // without qualities ("*").
+        inline std::optional<double> MeanErrorProbability(SamEntry const& sam) {
             if (sam.m_qual.empty() || sam.m_qual == "*") return std::nullopt;
             static std::array<double, 256> const error = [] {
                 std::array<double, 256> e{};
                 for (int c = 0; c < 256; c++) e[c] = c < 33 ? 1.0 : std::pow(10.0, -(c - 33) / 10.0);
                 return e;
             }();
+            double expected = 0;
+            for (unsigned char const c : sam.m_qual) expected += error[c];
+            return expected / static_cast<double>(sam.m_qual.size());
+        }
+
+        // A record's mismatches (X) by codon position of the reference, whose genes are coding sequences in frame
+        // (position p, 0-based, is codon position p mod 3): all of them, and those at third positions. The CIGAR is
+        // walked from the record's position (1-based); M, = and X consume reference and query, D (and N) the
+        // reference, I and S the query.
+        inline std::pair<uint64_t, uint64_t> MismatchesByCodonPosition(std::string const& cigar, size_t pos) {
+            uint64_t all = 0, third = 0;
+            size_t ref = pos == 0 ? 0 : pos - 1, run = 0;
+            for (char const c : cigar) {
+                if (c >= '0' && c <= '9') {
+                    run = run * 10 + static_cast<size_t>(c - '0');
+                    continue;
+                }
+                if (c == 'X') {
+                    for (size_t i = 0; i < run; i++) third += (ref + i) % 3 == 2;
+                    all += run;
+                    ref += run;
+                } else if (c == 'M' || c == '=' || c == 'D' || c == 'N') {
+                    ref += run;
+                }
+                run = 0;
+            }
+            return { all, third };
+        }
+
+        inline std::optional<float> ReadExcess(SamEntry const& sam) {
+            auto const expected = MeanErrorProbability(sam);
+            if (!expected) return std::nullopt;
             size_t matches = 0, differences = 0, run = 0;
             for (char const c : sam.m_cigar) {
                 if (c >= '0' && c <= '9') {
@@ -437,10 +475,27 @@ namespace protal {
                 run = 0;
             }
             if (matches + differences == 0) return std::nullopt;
-            double expected = 0;
-            for (unsigned char const c : sam.m_qual) expected += error[c];
-            expected /= static_cast<double>(sam.m_qual.size());
-            return static_cast<float>(static_cast<double>(differences) / static_cast<double>(matches + differences) - expected);
+            return static_cast<float>(static_cast<double>(differences) / static_cast<double>(matches + differences) - *expected);
+        }
+
+        // The room a gene leaves for a record's fragment towards its mate: from the record's start to the gene's end for
+        // a forward read, from the gene's start to the record's end for a reverse one (the mate lies on the other side
+        // of the fragment); 0 for a gene of unknown length.
+        inline size_t MateRoom(SamEntry const& sam, size_t gene_length) {
+            if (gene_length == 0 || sam.m_pos == 0) return 0;
+            size_t const start = static_cast<size_t>(sam.m_pos) - 1;
+            size_t const end = start + static_cast<size_t>(AlignmentLengthRef(sam.m_cigar));
+            if (Flag::IsReverseComplement(sam.m_flag)) return end;
+            return gene_length > start ? gene_length - start : 0;
+        }
+
+        // The span of a fragment whose mates align to one gene: from the first base either covers to the last.
+        inline size_t FragmentSpan(SamEntry const& a, SamEntry const& b) {
+            size_t const start_a = a.m_pos == 0 ? 0 : static_cast<size_t>(a.m_pos) - 1;
+            size_t const start_b = b.m_pos == 0 ? 0 : static_cast<size_t>(b.m_pos) - 1;
+            size_t const end_a = start_a + static_cast<size_t>(AlignmentLengthRef(a.m_cigar));
+            size_t const end_b = start_b + static_cast<size_t>(AlignmentLengthRef(b.m_cigar));
+            return std::max(end_a, end_b) - std::min(start_a, start_b);
         }
 
         // The median of values (the mean of the two middle ones for an even count); 0 if empty.
@@ -513,6 +568,23 @@ namespace protal {
             std::vector<float> excess;  // each record's ReadExcess (records with base qualities)
             uint64_t conserved_bases = 0;  // reference bases of the records on genes of factor below 1 (gene_conservation.tsv)
             uint64_t fast_bases = 0;       // on the other genes; both 0 without factors
+            // Divergence beyond the base qualities by the genes' conservation: each record's ReadExcess over its gene's
+            // factor (gene_conservation.tsv; 1 without), the genome's divergence from the reference as the species
+            // definition measures it rather than the marker gene's; and per kind of gene the records' differences,
+            // aligned bases and expected errors (in ppm of the aligned bases; integers, so that chunks add up alike):
+            // the divergence beyond errors on conserved genes against fast ones.
+            std::vector<float> scaled_excess;
+            uint64_t conserved_differences = 0, conserved_aligned = 0, conserved_error_ppm = 0;
+            uint64_t fast_differences = 0, fast_aligned = 0, fast_error_ppm = 0;
+            // Mismatches (X) by codon position on the reference, whose genes are coding sequences in frame: all, and
+            // those at third positions, which are mostly synonymous (MismatchesByCodonPosition).
+            uint64_t mismatches = 0, third_mismatches = 0;
+            // Mates (MicrobialProfile::PrepareMAPQ): fragments whose two mates both have a record on the taxon, and for
+            // each kept record whose mate has none there, the room from the record to the gene's end in the mate's
+            // direction (bases, capped at 65535): a mate the fragment would have placed inside the gene is a lost mate
+            // once the sample's fragment lengths are known (Taxon::SetRecordEvidence).
+            size_t mates_linked = 0;
+            std::vector<uint16_t> mate_room;
 
             RecordEvidence& operator+=(RecordEvidence const& other) {
                 records += other.records;
@@ -531,6 +603,17 @@ namespace protal {
                 excess.insert(excess.end(), other.excess.begin(), other.excess.end());
                 conserved_bases += other.conserved_bases;
                 fast_bases += other.fast_bases;
+                scaled_excess.insert(scaled_excess.end(), other.scaled_excess.begin(), other.scaled_excess.end());
+                conserved_differences += other.conserved_differences;
+                conserved_aligned += other.conserved_aligned;
+                conserved_error_ppm += other.conserved_error_ppm;
+                fast_differences += other.fast_differences;
+                fast_aligned += other.fast_aligned;
+                fast_error_ppm += other.fast_error_ppm;
+                mismatches += other.mismatches;
+                third_mismatches += other.third_mismatches;
+                mates_linked += other.mates_linked;
+                mate_room.insert(mate_room.end(), other.mate_room.begin(), other.mate_room.end());
                 return *this;
             }
         };
@@ -649,6 +732,10 @@ namespace protal {
             size_t genus_top = 0;          // the most fragments of a congener in the sample
             bool vetoed = false;           // the singleton rule: one fragment beside a congener of many, that looks like the
                                            // congener's (EM share or identity low; context::kSingletonCongener): never reported
+            double sample_log_fragments = 0;  // log10 of the sample's fragments over all its taxa (MicrobialProfile::Fragments,
+                                              // the depth the knob curve reads), at least 0: the forest sees the sample's depth,
+                                              // which decides what a taxon of one perfect read is worth
+                                              // (docs/claude/2026-10-03-false-positive-anatomy)
         };
 
         class Taxon {
@@ -682,6 +769,10 @@ namespace protal {
             bool m_scale_margin = false;  // the depth identity margin scaled by the factors (--gene_conservation db)
             double m_excess_median = 0;  // see ExcessMedian
             double m_excess_high_share = 0;
+            double m_excess_scaled_median = 0;  // see ExcessScaledMedian
+            double m_excess_conserved_fast_ratio = 0;  // see ExcessConservedFastRatio
+            double m_third_position_share = 1.0 / 3;  // see ThirdPositionShare
+            double m_mate_lost_share = 0;  // see MateLostShare
             bool m_drop_foreign_genes = false;  // see SetDropForeignGenes
             bool m_keep_phase_records = false;  // see SetKeepPhaseRecords
             std::vector<haplotypes::ReadRecord> m_phase_records;
@@ -842,11 +933,15 @@ namespace protal {
 
             // Takes the counts of the taxon's best records (MicrobialProfile::ApplyRecordEvidence), and of their excesses
             // only the median and the high share.
-            void SetRecordEvidence(RecordEvidence const& records) {
+            void SetRecordEvidence(RecordEvidence const& records, size_t mate_span = kDefaultMateSpan) {
                 Changed();  // foreign genes leave the depth
                 m_records = records;
                 m_records.excess.clear();
                 m_records.excess.shrink_to_fit();
+                m_records.scaled_excess.clear();
+                m_records.scaled_excess.shrink_to_fit();
+                m_records.mate_room.clear();
+                m_records.mate_room.shrink_to_fit();
                 m_excess_median = 0;
                 m_excess_high_share = 0;
                 if (!records.excess.empty()) {
@@ -855,6 +950,24 @@ namespace protal {
                         [](double v) { return v > kHighExcess; })) / static_cast<double>(values.size());
                     m_excess_median = MedianOf(std::move(values));
                 }
+                m_excess_scaled_median = records.scaled_excess.empty()
+                    ? 0 : MedianOf(std::vector<double>(records.scaled_excess.begin(), records.scaled_excess.end()));
+                m_excess_conserved_fast_ratio = 0;
+                if (records.conserved_aligned >= kMinKindBases && records.fast_aligned >= kMinKindBases) {
+                    auto rate = [](uint64_t differences, uint64_t aligned, uint64_t error_ppm) {
+                        double const beyond = static_cast<double>(differences) - static_cast<double>(error_ppm) / 1e6;
+                        return std::max(0.0, beyond / static_cast<double>(aligned));
+                    };
+                    m_excess_conserved_fast_ratio = std::log2(
+                        (rate(records.conserved_differences, records.conserved_aligned, records.conserved_error_ppm) + 1e-3) /
+                        (rate(records.fast_differences, records.fast_aligned, records.fast_error_ppm) + 1e-3));
+                }
+                m_third_position_share = records.mismatches == 0
+                    ? 1.0 / 3 : static_cast<double>(records.third_mismatches) / static_cast<double>(records.mismatches);
+                size_t const lost = static_cast<size_t>(std::count_if(records.mate_room.begin(), records.mate_room.end(),
+                    [mate_span](uint16_t room) { return room >= mate_span; }));
+                size_t const judged = records.mates_linked + lost;
+                m_mate_lost_share = judged == 0 ? 0 : static_cast<double>(lost) / static_cast<double>(judged);
             }
 
             // What the other taxa of its sample say of it (MicrobialProfile::ApplySampleContext): its relatives'
@@ -873,6 +986,25 @@ namespace protal {
             // kHighExcess; both 0 without base qualities.
             double ExcessMedian() const { return m_excess_median; }
             double ExcessHighShare() const { return m_excess_high_share; }
+            // The median of the records' excesses each divided by its gene's conservation factor (gene_conservation.tsv):
+            // a conserved gene of factor 0.5 shows half the genome's divergence, so this estimates the divergence of the
+            // sample's genome from the reference, which the species boundary (95% ANI) is defined on, rather than that
+            // of the marker genes, which compress it; the median excess without factors. 0 without qualities.
+            double ExcessScaledMedian() const { return m_excess_scaled_median; }
+            // log2 of the records' divergence beyond their base qualities on the taxon's genes of factor below 1 over
+            // that on its other genes, each + 0.001: a species' own reads differ from the reference by the genes' factors
+            // (below 0); a relative's reads that align only where the gene is conserved do not. 0 without factors or
+            // with fewer than kMinKindBases aligned bases on either kind.
+            double ExcessConservedFastRatio() const { return m_excess_conserved_fast_ratio; }
+            // Of the records' mismatches, the share at third codon positions of the reference (MismatchesByCodonPosition):
+            // sequencing errors fall on the three positions alike, a strain's differences mostly on the third (synonymous),
+            // a relative's less so once the third positions saturate; 1/3 without mismatches.
+            double ThirdPositionShare() const { return m_third_position_share; }
+            // Of the taxon's paired fragments whose mate was expected on the taxon (both mates with a record on it, or
+            // one kept record with room for the fragment inside its gene), the share whose mate has no record on the
+            // taxon: a species' own fragments bring both mates; a read of a relative that fits the reference where it is
+            // conserved has a mate that fits nowhere on it. 0 for single-end and long reads, or without such fragments.
+            double MateLostShare() const { return m_mate_lost_share; }
 
             // The conservation pattern of the genes its reads hit, by their factors (gene_conservation.tsv): log2 of the
             // median depth of its hit genes with factor below 1 (conserved) over that of the others, each + 0.001 (0 if
@@ -1658,6 +1790,13 @@ namespace protal {
             f.emplace_back("conserved_fast_record_ratio", taxon.RecordConservedFastRatio());
             // And of the records the MAPQ and length filters keep (KeptConservedFastRatio).
             f.emplace_back("conserved_fast_kept_ratio", taxon.KeptConservedFastRatio());
+            // How far the reads differ from the reference in the genome's units (the excess over the genes' conservation
+            // factors), whether the conserved and the fast genes differ as the factors say, which codon positions the
+            // mismatches fall on, and whether the fragments bring both mates (docs/claude/2026-10-03-false-positive-anatomy).
+            f.emplace_back("excess_scaled_median", taxon.ExcessScaledMedian());
+            f.emplace_back("excess_conserved_fast_ratio", taxon.ExcessConservedFastRatio());
+            f.emplace_back("third_position_share", taxon.ThirdPositionShare());
+            f.emplace_back("mate_lost_share", taxon.MateLostShare());
             // What the other taxa of its sample say (SampleEvidence, MicrobialProfile::ApplySampleContext): how its
             // fragments compare with those of its genus's and family's most abundant species, with what they would spill
             // onto it by rank and by the distance between their references, and how much of its reads an
@@ -1675,6 +1814,9 @@ namespace protal {
             f.emplace_back("relative_close_share", s.relative_close_share);
             f.emplace_back("em_own_share", s.em_own_share);
             f.emplace_back("em_kept_own_share", s.em_kept_own_share);
+            // The sample's depth, log10 of its fragments over all its taxa (what the knob curve reads): a taxon of one
+            // perfect read is a present species in a shallow sample and spill-over in a deep one.
+            f.emplace_back("sample_log_fragments", s.sample_log_fragments);
             // The fragments of its genus's most abundant other species: with fragments, the singleton rule's inputs.
             f.emplace_back("genus_top_fragments", static_cast<double>(s.genus_top));
             return f;
@@ -2106,11 +2248,25 @@ namespace protal {
                 e.differences += differences;
                 e.aligned += aligned;
                 e.low_mapq += sam.m_mapq < kLowMapq;
-                if (auto const excess = ReadExcess(sam)) e.excess.push_back(*excess);
                 auto const& conservation = m_genome_loader->GetGeneConservation();
-                if (!conservation.Empty()) {
-                    (conservation.Factor(geneid) < 1 ? e.conserved_bases : e.fast_bases) += ReferenceBases(sam.m_cigar);
+                double const factor = conservation.Empty() ? 1.0 : conservation.Factor(geneid);
+                if (auto const excess = ReadExcess(sam)) {
+                    e.excess.push_back(*excess);
+                    e.scaled_excess.push_back(static_cast<float>(*excess / factor));
                 }
+                if (!conservation.Empty()) {
+                    bool const conserved = factor < 1;
+                    (conserved ? e.conserved_bases : e.fast_bases) += ReferenceBases(sam.m_cigar);
+                    (conserved ? e.conserved_differences : e.fast_differences) += differences;
+                    (conserved ? e.conserved_aligned : e.fast_aligned) += aligned;
+                    if (auto const error = MeanErrorProbability(sam)) {
+                        (conserved ? e.conserved_error_ppm : e.fast_error_ppm) +=
+                            static_cast<uint64_t>(std::llround(*error * static_cast<double>(aligned) * 1e6));
+                    }
+                }
+                auto const [all_mismatches, third] = MismatchesByCodonPosition(sam.m_cigar, static_cast<size_t>(sam.m_pos));
+                e.mismatches += all_mismatches;
+                e.third_mismatches += third;
                 NoteAmbiguity(taxid, sam.m_alternatives, kept);
                 if (!m_genera) return;
                 auto const genus = GenusOf(taxid);
@@ -2122,6 +2278,43 @@ namespace protal {
                 });
                 e.congener_fit += congener;
                 e.other_genus_fit += other;
+            }
+
+            // A record on a suspect gene copy (GenomeLoader::IsSuspectCopy), left out of the evidence
+            // (MicrobialProfile::PrepareMAPQ).
+            void NoteSuspectRecord() {
+                m_suspect_records++;
+            }
+
+            size_t SuspectRecords() const {
+                return m_suspect_records;
+            }
+
+            // A fragment whose two mates both have a record on taxon taxid (MicrobialProfile::PrepareMAPQ).
+            void NoteMatesLinked(uint32_t taxid) {
+                m_counts[taxid].mates_linked++;
+            }
+
+            // A kept record on taxon taxid whose mate has no record there: the room from the record to the gene's end
+            // in the mate's direction (MateRoom).
+            void NoteMateRoom(uint32_t taxid, size_t room) {
+                m_counts[taxid].mate_room.push_back(static_cast<uint16_t>(std::min<size_t>(room, 65535)));
+            }
+
+            // The span of a fragment whose mates align to one gene (FragmentSpan): the sample's fragment lengths.
+            void NoteSpan(size_t span) {
+                m_spans.push_back(static_cast<uint16_t>(std::min<size_t>(span, 65535)));
+            }
+
+            // The fragment length within which kMateSpanQuantile of the sample's fragments with both mates on one gene
+            // lie, or kDefaultMateSpan with fewer than kMinSpans of them: a kept record with at least this much room
+            // towards its mate, whose mate has no record on its taxon, has lost its mate (Taxon::SetRecordEvidence).
+            size_t MateSpan() const {
+                if (m_spans.size() < kMinSpans) return kDefaultMateSpan;
+                std::vector<uint16_t> spans(m_spans);
+                auto const nth = spans.begin() + static_cast<std::ptrdiff_t>(static_cast<double>(spans.size() - 1) * kMateSpanQuantile);
+                std::nth_element(spans.begin(), nth, spans.end());
+                return *nth;
             }
 
             // See MicrobialProfile::NoteLinkedRecord.
@@ -2188,6 +2381,8 @@ namespace protal {
             void Add(RecordEvidenceCollector const& other) {
                 for (auto const& [taxid, counts] : other.m_counts) m_counts[taxid] += counts;
                 for (auto const& [key, n] : other.m_ambiguity) m_ambiguity[key] += n;
+                m_spans.insert(m_spans.end(), other.m_spans.begin(), other.m_spans.end());
+                m_suspect_records += other.m_suspect_records;
             }
 
             // The counts of taxon taxid, or nullptr if it has none.
@@ -2248,6 +2443,8 @@ namespace protal {
             std::shared_ptr<std::vector<uint32_t> const> m_genera;  // taxid -> genus (0: none)
             std::unordered_map<uint32_t, RecordEvidence> m_counts;
             context::AmbiguityClasses m_ambiguity;  // see NoteAmbiguity
+            std::vector<uint16_t> m_spans;  // the spans of fragments with both mates on one gene (NoteSpan, MateSpan)
+            size_t m_suspect_records = 0;  // records on suspect gene copies, left out (NoteSuspectRecord)
             std::vector<std::pair<uint32_t, uint32_t>> m_alternatives;  // NoteAmbiguity's scratch
             std::vector<LinkRecord> m_link_records;
             size_t m_link = SIZE_MAX;
@@ -2283,9 +2480,10 @@ namespace protal {
             // taxa of the sample say of each (ApplySampleContext), on `threads` threads: once all reads are in.
             void ApplyRecordEvidence(size_t threads = 1) {
                 FinishLink();
+                size_t const mate_span = m_evidence.MateSpan();
                 for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) {
                     auto const* found = m_evidence.Find(static_cast<uint32_t>(it->first));
-                    it.value().SetRecordEvidence(found ? *found : RecordEvidence{});
+                    it.value().SetRecordEvidence(found ? *found : RecordEvidence{}, mate_span);
                 }
                 ApplySampleContext(threads);
             }
@@ -2362,6 +2560,9 @@ namespace protal {
                 std::vector<Entry> entries;
                 entries.reserve(ids.size());
                 for (auto id : ids) entries.push_back({ id, m_taxa.at(id).Fragments(), GenusOf(id), FamilyOf(id) });
+                size_t total_fragments = 0;
+                for (auto const& e : entries) total_fragments += e.n;
+                double const sample_log_fragments = std::log10(static_cast<double>(std::max<size_t>(total_fragments, 1)));
                 // A genus's members by fragments, the most first (ties: lower taxid); a family's fragments by genus.
                 std::map<uint32_t, std::vector<std::pair<size_t, uint32_t>>> by_genus;
                 std::map<uint32_t, std::map<uint32_t, std::pair<size_t, size_t>>> by_family;  // genus -> (sum, max)
@@ -2454,6 +2655,7 @@ namespace protal {
                     s.vetoed = m_singleton_congener > 0 && e.n <= 1 && genus_top >= m_singleton_congener &&
                                (s.em_own_share < context::kSingletonOwnShare ||
                                 m_taxa.at(e.id).BaseIdentity() < context::kSingletonIdentity);
+                    s.sample_log_fragments = sample_log_fragments;
                     m_taxa.at(e.id).SetSampleEvidence(s);
                 }
             }
@@ -2546,6 +2748,24 @@ namespace protal {
                 }
                 if (!m_genome_loader.GetGenome(taxid).IsGeneHittable(geneid)) return SamCheck::kSkip;
                 return SamCheck::kAdd;
+            }
+
+            // Whether a record lies on a suspect gene copy (suspect_copies.tsv, GenomeLoader::IsSuspectCopy): no evidence
+            // of its taxon, left out of the profile as if the read had not aligned (PrepareMAPQ).
+            bool SuspectCopy(SamEntry& sam) const {
+                if (m_genome_loader.GetSuspectCopies().Empty()) return false;
+                auto const [taxid, geneid] = ExtractTaxidGeneid(sam.m_rname);
+                return m_genome_loader.IsSuspectCopy(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid));
+            }
+
+            // The records on suspect gene copies left out of the sample (PrepareMAPQ).
+            size_t SuspectRecords() const {
+                return m_evidence.SuspectRecords();
+            }
+
+            // The length of gene geneid of taxon taxid in the database, 0 if it has none (CheckSam rejects such records).
+            size_t GeneLengthOf(int taxid, int geneid) const {
+                return m_genome_loader.HasGene(taxid, geneid) ? m_genome_loader.GeneLength(taxid, geneid) : 0;
             }
 
             // The taxon `taxid`, made if the profile has none yet.
@@ -3591,6 +3811,19 @@ namespace protal {
                              CigarInfo& info1, CigarInfo& info2, std::vector<SamAddition>& additions) const {
                 bool valid_sam = true;
 
+                // Records on suspect gene copies (suspect_copies.tsv: a copy near-identical to another genus's,
+                // contamination or a transferred gene) are no evidence of their taxon and are left out as if the read
+                // had not aligned, before anything counts them (--keep_suspect_copies).
+                if (ap.HasFirst() && profile.SuspectCopy(ap.First())) {
+                    evidence.NoteSuspectRecord();
+                    ap.first.reset();
+                }
+                if (ap.HasSecond() && profile.SuspectCopy(ap.Second())) {
+                    evidence.NoteSuspectRecord();
+                    ap.second.reset();
+                }
+                if (!ap.HasFirst() && !ap.HasSecond()) return true;
+
                 bool take_first = false;
                 bool take_second = false;
                 if (ap.HasFirst()) CompressedCigarInfo(ap.First().m_cigar, info1);
@@ -3615,6 +3848,27 @@ namespace protal {
                     evidence.NoteLinkedRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, link);
                 }
                 if (!take_first && !take_second) return true;
+                // The mates (MateLostShare): a fragment with both mates on one taxon is linked there (and, on one gene,
+                // tells the sample's fragment length); a kept mate without the other on its taxon notes the room its
+                // gene leaves for the fragment, so that a mate the fragment would have placed inside the gene counts
+                // as lost. Reads without the paired flag (single-end, long) are not judged.
+                if (ap.HasFirst() && ap.HasSecond()) {
+                    auto const [t1, g1] = ExtractTaxidGeneid(ap.First().m_rname);
+                    auto const [t2, g2] = ExtractTaxidGeneid(ap.Second().m_rname);
+                    if (t1 == t2) {
+                        evidence.NoteMatesLinked(static_cast<uint32_t>(t1));
+                        if (g1 == g2) evidence.NoteSpan(FragmentSpan(ap.First(), ap.Second()));
+                    } else {
+                        if (take_first) evidence.NoteMateRoom(static_cast<uint32_t>(t1), MateRoom(ap.First(), profile.GeneLengthOf(static_cast<int>(t1), static_cast<int>(g1))));
+                        if (take_second) evidence.NoteMateRoom(static_cast<uint32_t>(t2), MateRoom(ap.Second(), profile.GeneLengthOf(static_cast<int>(t2), static_cast<int>(g2))));
+                    }
+                } else {
+                    auto& sam = ap.HasFirst() ? ap.First() : ap.Second();
+                    if (Flag::IsPaired(sam.m_flag)) {
+                        auto const [t, g] = ExtractTaxidGeneid(sam.m_rname);
+                        evidence.NoteMateRoom(static_cast<uint32_t>(t), MateRoom(sam, profile.GeneLengthOf(static_cast<int>(t), static_cast<int>(g))));
+                    }
+                }
 
                 auto take = [&](SamEntry& sam, CigarInfo const& info) {
                     auto [tid, geneid] = ExtractTaxidGeneid(sam.m_rname);

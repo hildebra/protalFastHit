@@ -4,10 +4,11 @@ protal decides whether a species is present with a random forest (PMML, `model_p
 database for paired-end reads; `model.xml` in databases of earlier versions). It scores every species with reads, and reports those whose probability of `TRUE` is at
 least `--knob` (0 to 1, default 0.5), or, for a model with knobs by sample depth
 ([below](#knobs-by-sample-depth)), at least the model's knob for the sample's depth unless `--knob`
-is given, or, for a model with calibrated calls ([below](#calls-at-a-target-share-of-false-calls)), the
-sample's highest-scoring species while their expected share of false calls stays at the model's
-target. A species of a single fragment beside a congener of 100 fragments or more is never reported
-when its read looks like the congener's ([the singleton rule](#the-singleton-rule)).
+is given, or, with `--fdr` and a model with calibrated calls ([below](#calls-at-a-target-share-of-false-calls)),
+the sample's highest-scoring species while their expected share of false calls stays at the target.
+With `--singleton_congener N` a species of a single fragment beside a congener of N fragments or more
+is never reported when its read looks like the congener's ([the singleton rule](#the-singleton-rule));
+off by default.
 
 The model's features come from the reads and the database, so a model belongs to the kind of
 database it was trained on. [building-a-database.md](building-a-database.md#build-and-train-in-one-command)
@@ -189,7 +190,7 @@ other in 20% of their species or more, a sparse clade leaning on those above it)
 frequency of their pairings there, pulled towards 0.5 by one pairing ((sum of the frequencies + 0.5)
 / (pairings judged + 1); 0.5 without gene neighbours or reads across genes).
 The models train on them by default (`ADJACENCY_FEATURES`, with `NORMALIZED_FEATURES` the set
-`normalized+adjacency`, in the default `normalized+adjacency+distance`). On a synthetic world they
+`normalized+adjacency`, in the default `normalized+adjacency+distance+depth+divergence`). On a synthetic world they
 changed the test F1 within noise (paired-end +0.0025, PacBio −0.0026, Nanopore +0.0015 over three seeds;
 [report](claude/2026-10-01-gene-neighbours-run/README.md),
 [2026-10-02](claude/2026-10-02-gene-neighbour-frequencies/README.md)): reads of a congener the
@@ -245,14 +246,50 @@ present congener of ten times their fragments); `normalized+adjacency+distance`,
 the larger problem, the four distance features added 0.004 paired-end F1 on the test set at the knob curve
 (0.007 at knob 0.5), single-end and long reads within noise; all the relatives features lowered the
 paired-end log loss by 27% with species held out but did no better at the knob curve
-([report](claude/2026-10-03-r226-v5-v6-training/README.md)). So the trainer's and the build's default is
-`normalized+adjacency+distance`; a table of a protal before them needs `--features normalized+adjacency`.
+([report](claude/2026-10-03-r226-v5-v6-training/README.md)). So the four distance features are in the
+trainer's and the build's default set (`normalized+adjacency+distance+depth+divergence`,
+[below](#the-samples-depth-and-the-divergence-features)); a table of a protal before them needs `--features
+normalized+adjacency`.
 They need training samples whose congeners share a sample (`--congeners SHARE:MIN-MAX`,
 `build_gtdb_database.py`'s default): on the r226 tables, whose species were drawn uniformly, a model
 with the rank features learnt that an abundant congener means absence and missed 69-73% of the present
 species beside a congener ten times as abundant, against 21-29% without them. `genus_top_fragments`
 (the fragments of the genus's most abundant other species) is in the dump for the singleton rule, not
 a feature of these sets.
+
+### The sample's depth and the divergence features
+
+`SAMPLE_FEATURES` (`depth`): `sample_log_fragments`, log10 of the sample's fragments over all its
+taxa, the number protal reads a knob curve at. No other feature says how deep a sample is, and what a
+taxon of one perfect read is worth depends on nothing else: at GTDB r226 half of the paired-end false
+positives were single reads at identity 0.97 or more, equal to true single-read species in every
+feature and apart from them only by the sample's depth (true ones in samples of 50,000 pairs or fewer,
+false ones in samples of 100,000 or more). As a feature it halved the false positives at knob 0.5
+(pe 218 → 122, se 231 → 118) and raised the test F1 by 0.004 (pe) to 0.009 (se) over the distance set,
+above its knob curve, PacBio +0.005, Nanopore the same ([report](claude/2026-10-03-false-positive-anatomy/README.md)). A knob curve fitted on top of
+it corrects twice and loses (pe 0.9653 → 0.9555), so with the feature in the set the trainer fits none
+even with `--depth-knobs`, and protal calls at `--knob` (0.5). The forest cannot extrapolate past the
+deepest training sample any more than the curve could: train at the depths you profile.
+
+`DIVERGENCE_FEATURES` (`divergence`), from the same report: `excess_scaled_median`, the median over
+the reads of their divergence beyond their base qualities divided by their gene's conservation factor
+(`gene_conservation.tsv`; 1 without), the genome's divergence from the reference as the species
+definition (95% ANI) measures it rather than the marker genes', which are the most conserved part of
+the genome and compress a 6-10% divergence into 2-4%; `excess_conserved_fast_ratio`, log2 of that
+divergence on the genes of factor below 1 over the others (a species' own reads differ by the genes'
+factors, a relative's reads that align only where a gene is conserved do not; 0 with fewer than 200
+aligned bases on either kind); `third_position_share`, the share of the mismatches at third codon
+positions of the reference, whose genes are coding sequences in frame (sequencing errors fall on the
+three positions alike, a strain's differences mostly on the third, synonymous one; 1/3 without
+mismatches); and `mate_lost_share`, of the paired fragments whose mate was expected on the taxon
+(both mates with a record on it, or one kept record with room for the fragment inside its gene, the
+room judged against the length within which 95% of the sample's fragments with both mates on one gene
+lie), the share whose mate has no record on the taxon (a read of a relative that fits the reference
+where it is conserved has a mate that fits nowhere on it; 0 for single-end and long reads). The
+`linked_share` of the dump, both mates kept on the taxon whatever the room, stays out of the sets: it
+gained 0.001 on the r226 tables. A dump of a protal before these features lacks the five columns:
+train it with `--features normalized+adjacency+distance`. How they did on the benchmark world is in
+[the implementation report](claude/2026-10-03-false-positive-fixes/README.md).
 
 protal writes the alternatives as the `ZA` tag of a read's best record (`ZA:Z:<taxid>:<edits
 more>,...`, the other taxa among the read's aligned candidates with at most 5 edits more, or `*`);
@@ -277,13 +314,13 @@ one differs.
 | Option | Default | |
 |---|---|---|
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
-| `--features` | `normalized+adjacency+distance` | `normalized+adjacency`: `NORMALIZED_FEATURES` and `ADJACENCY_FEATURES`; `normalized+adjacency+relatives`: and `RELATIVE_FEATURES`; `normalized+adjacency+distance`: and `DISTANCE_FEATURES`, the four `relative_*` of them; `normalized`: only `NORMALIZED_FEATURES`, to test the gene neighbour features; `all`: every feature column of the dump |
+| `--features` | `normalized+adjacency+distance+depth+divergence` | the feature groups joined by `+`, `normalized` among them: `normalized` (`NORMALIZED_FEATURES`), `adjacency` (the gene neighbours'), `relatives` (all `RELATIVE_FEATURES`) or `distance` (the four `relative_*` by the references' distance), `depth` (the sample's depth, `SAMPLE_FEATURES`; no knob curve is fitted with it), `divergence` (`DIVERGENCE_FEATURES`); `all`: every feature column of the dump. A table of an older protal lacks columns: `normalized+adjacency+distance` before the depth and divergence features, `normalized+adjacency` before the relatives features |
 | `--reference-pmml` | | train on the input fields of an existing model instead |
 | `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 256, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves; `build_gtdb_database.py` gives 512 for short reads and 128 for long reads: at GTDB r226 512 leaves gave short reads a lower log loss and fewer false positives, 128 long reads a lower log loss at the same F1) |
 | `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |
-| `--depth-knobs` | off | also fit a knob curve over the sample's depth and store it in the model ([below](#knobs-by-sample-depth)); `build_gtdb_database.py` passes it for every read type (`--depth-knob-read-types`) |
+| `--depth-knobs` | off | also fit a knob curve over the sample's depth and store it in the model ([below](#knobs-by-sample-depth)); `build_gtdb_database.py` passes it for every read type (`--depth-knob-read-types`). Not fitted when the sample's depth is a feature (the default set): the report says so |
 | `--fdr-calls` | off | also calibrate the scores and choose a target share of false calls per sample, and store both in the model ([below](#calls-at-a-target-share-of-false-calls)); `build_gtdb_database.py --call-mode fdr` passes it |
-| `--singleton-congener` | 100 | the singleton rule protal applies (its `--singleton_congener`; 0: none): every call the trainer counts leaves out the rows it vetoes ([below](#the-singleton-rule)) |
+| `--singleton-congener` | 0 | the singleton rule protal applies (its `--singleton_congener`; 0, the default: none): every call the trainer counts leaves out the rows it vetoes ([below](#the-singleton-rule)) |
 | `--folds` | 5 | folds of the held-out evaluations |
 | `--evaluation` | `full` | `basic`: the held-out evaluations only; `none`: fit and export only |
 | `--previous-procedure` | off | also compare with the procedure this trainer used before (below), unless `--evaluation none`; `--no-previous-procedure` is the default |
@@ -417,7 +454,11 @@ more than 50 taxa and 10 present ones. A point needs 6 samples there: a half dec
 the next deeper one, and one left at the deep end the point before, as protal keeps the last knob for
 every deeper sample (at r226 the long-read points of 2 and 4 samples had their best knob anywhere from
 0.33 to 0.91 over resamples of their samples, while the short reads' point of 6 at 10M read pairs held
-at 0.68-0.87, below the 2M point's 0.94; [report](claude/2026-10-02-r226-v3-training/README.md)). The report's section "Knobs by sample depth" lists the points
+at 0.68-0.87, below the 2M point's 0.94; [report](claude/2026-10-02-r226-v3-training/README.md)). A point keeps `--knob` unless its best knob gains
+0.002 of F1 on its window (`DEPTH_KNOB_MIN_GAIN`): knobs that gained less varied between fits and lost
+on test sets ([report](claude/2026-10-03-r226-v4-v2-rerun/README.md)). With the sample's depth among the
+features (the default set, [above](#the-samples-depth-and-the-divergence-features)) no curve is fitted at
+all. The report's section "Knobs by sample depth" lists the points
 with their F1 at `--knob` and at their knob; on the test set (`--test-file`) it gives the F1 and the
 errors at the curve, as protal calls by default, next to those at `--knob`. The curve goes into the
 model's header as `<Extension name="protal_depth_knob_curve" value="1.300:0.12,4.320:0.92"/>`.
@@ -465,11 +506,12 @@ set the report gives F1 and errors at the target, at the knob curve and at `--kn
 The model's header holds `<Extension name="protal_calibration" value="0.0:0.0001,...,1.0:0.99"/>`,
 `protal_prior` and `protal_fdr`.
 
-protal uses them whenever a model has them, ahead of the knob curve: the log says per sample how many taxa it called,
+protal uses them only with `--fdr F`: at GTDB r226 they called 0.001-0.007 F1 below the knob curve for
+every read type ([report](claude/2026-10-03-r226-v5-v6-training/README.md)), so a model's calibrated
+calls are off by default. With `--fdr` the log says per sample how many taxa it called,
 their expected false calls, the adjusted share and the knob that came of it (`Sample S: N fragments, C
 taxa at an expected share of false calls of at most F (E expected; prior adjusted to the sample P),
-knob K`). `--fdr F` calls at another target, `--fdr 0` at the knob curve or `--knob` instead, and
-`--knob` turns them off. `build_gtdb_database.py --call-mode fdr` trains them; its default, `--call-mode curve`, does not: on the
+knob K`). `--fdr 0` and `--knob` leave them off. `build_gtdb_database.py --call-mode fdr` trains them; its default, `--call-mode curve`, does not: on the
 benchmark world they called 0.0005-0.004 F1 below the curve for both read types; on test samples deeper
 than any trained 0.003 below it for paired-end and 0.002 above it for single-end reads; and the chosen target (0.005-0.015) varied between models
 ([report](claude/2026-10-03-denoising-implementation/README.md)). At r226 they were 0.001-0.007 below the curve for all four read
@@ -481,12 +523,14 @@ A species with a single fragment beside a species of its genus with 100 fragment
 same sample is never reported, whatever its score, if its read looks like that congener's: the
 abundance-weighted assignment (`em_own_share`) leaves it less than half of it, or its identity is
 below 0.95, further from the reference than a strain of the species would be (`protal
---singleton_congener`, 0 for none). Of the r226 v3 build's paired-end calls of single fragments beside
+--singleton_congener N`; 0, the default, for none: on the r226 v5 training data the model called none of
+the 5,961 rows the rule vetoed, so it changes nothing there, and where it would, it risks a minor
+congener; [report](claude/2026-10-03-false-positive-anatomy/README.md)). Of the r226 v3 build's paired-end calls of single fragments beside
 such a congener, all 40 (species held out) and all 19 (test set) were false; amplicon denoisers never
 call a single read at all ([report](claude/2026-10-02-amplicon-denoising/README.md)). But on the
 benchmark world's samples with congener groups the rule without the read's condition removed 2-11 true
 calls per test set, of minor congeners whose read fits their own reference (EM share ~0.98, identity
 ~0.975), and with it none ([report](claude/2026-10-03-denoising-implementation/README.md)).
 The training dump's `prediction`, the profiles, the statistics and the strain MSAs follow it; the
-trainer counts it in every call (`--singleton-congener`, the same default), from the dump's
+trainer counts it in every call (`--singleton-congener`, the same default of 0), from the dump's
 `fragments`, `genus_top_fragments`, `em_own_share` and `identity` (a dump without them has no rule).

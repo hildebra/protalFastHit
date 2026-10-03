@@ -84,7 +84,7 @@ from sklearn.model_selection import GridSearchCV, GroupKFold, StratifiedKFold
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lineages  # noqa: E402
-from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_columns  # noqa: E402
+from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_columns, feature_set_name, has_sample_depth  # noqa: E402
 from model_pmml import (PmmlForest, format_depth_knob_curve, read_depth_knob_curve, read_false_calls,  # noqa: E402
                         write_forest)
 
@@ -116,6 +116,7 @@ DEPTH_KNOB_MIN_SAMPLES = 6
 DEPTH_KNOB_MIN_TAXA = 50
 DEPTH_KNOB_MIN_PRESENT = 10
 DEPTH_KNOB_GRID = np.round(np.arange(0.05, 0.955, 0.01), 2)
+DEPTH_KNOB_MIN_GAIN = 0.002  # a point keeps --knob unless its best knob beats it by this much F1 on its window
 # --fdr-calls: the targets tried for a sample's expected share of false calls (choose_false_calls), and the scores of species
 # held out at which the calibration (an isotonic fit of presence on score) is evaluated for the model's curve: quantiles of
 # the scores, so that the curve has its points where the taxa are. protal and false_call_flags read the curve linearly.
@@ -129,8 +130,9 @@ PRIOR_PSEUDO_COUNT = 20  # candidates at the training rate added to every sample
 # The singleton rule (protal --singleton_congener): a taxon of one fragment beside a congener of this many fragments or
 # more whose read looks like the congener's (em_own_share below SINGLETON_OWN_SHARE, or identity below
 # SINGLETON_IDENTITY) is never reported; set from --singleton-congener (0: none). Its inputs are the dump's fragments,
-# genus_top_fragments, em_own_share and identity; a table without them has no rule.
-SINGLETON_CONGENER = 100
+# genus_top_fragments, em_own_share and identity; a table without them has no rule. 0: off, the default (on r226
+# training data the model called none of the taxa the rule vetoed; docs/claude/2026-10-03-false-positive-anatomy).
+SINGLETON_CONGENER = 0
 SINGLETON_OWN_SHARE = 0.5
 SINGLETON_IDENTITY = 0.95
 # The features the report shows by class of taxon (study_feature_classes): what the conservation of the genes a taxon's
@@ -145,7 +147,7 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--truth-file", required=True, help="training table (collect_training_data.py) or one training dump")
     p.add_argument("--output-prefix", required=True)
-    p.add_argument("--features", choices=FEATURE_SETS, default=DEFAULT_FEATURE_SET,
+    p.add_argument("--features", type=feature_set_name, default=DEFAULT_FEATURE_SET, metavar="|".join(FEATURE_SETS[:2] + ("...",)),
                    help="normalized+adjacency+distance (default): the features that do not depend on database, "
                         "domain, depth and read length, those of the gene neighbours, and the four that compare a "
                         "taxon with its sample's relatives by the distance of their references (model_features.py; "
@@ -173,10 +175,10 @@ def parse_args(argv=None):
                         "taxa as long as their mean 1 - probability, the probabilities adjusted to the share of present "
                         "taxa among the sample's candidates, stays at or below it, instead of a knob by depth (see "
                         "choose_false_calls)")
-    p.add_argument("--singleton-congener", type=int, default=100,
-                   help="the singleton rule protal applies (its --singleton_congener, default 100): a taxon of one "
-                        "fragment beside a congener of at least this many fragments is never called; every F1 here "
-                        "counts it so (0: no rule)")
+    p.add_argument("--singleton-congener", type=int, default=0,
+                   help="the singleton rule protal applies (its --singleton_congener, default 0: no rule): a taxon of one "
+                        "fragment beside a congener of at least this many fragments, whose read looks like the "
+                        "congener's, is never called; every F1 here counts it so")
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="full: also the studies (see above); basic: out of bag, by sample and by species; "
@@ -843,15 +845,20 @@ def study_depth_knobs(report, df, X, y, p, opts):
                "knob": None, f"F1 at {opts.knob}": f1_of(y[window], scores[window] >= opts.knob), "F1 at the knob": None}
         if row["taxa"] > DEPTH_KNOB_MIN_TAXA and row["present"] >= DEPTH_KNOB_MIN_PRESENT and (not curve or x > curve[-1][0]):
             f1s = [f1_of(y[window], scores[window] >= t) or 0.0 for t in DEPTH_KNOB_GRID]
-            knob = float(DEPTH_KNOB_GRID[int(np.argmax(f1s))])
+            best = float(DEPTH_KNOB_GRID[int(np.argmax(f1s))])
+            # A point that gains little keeps --knob: such knobs varied between fits and lost on test sets
+            # (docs/claude/2026-10-03-r226-v4-v2-rerun).
+            gain = max(f1s) - (row[f"F1 at {opts.knob}"] or 0.0)
+            knob = best if gain >= DEPTH_KNOB_MIN_GAIN else float(opts.knob)
             curve.append((x, knob))
-            row["knob"], row["F1 at the knob"] = knob, max(f1s)
+            row["knob"], row["F1 at the knob"], row["best knob"], row["gain"] = knob, f1_of(y[window], scores[window] >= knob), best, gain
         rows.append(row)
     report.add(f"A point per {DEPTH_KNOB_STEP} of log10 of the samples' fragments over all their taxa, at the median of "
                f"the bin's samples; its knob the highest F1 of the rows of the samples within {DEPTH_KNOB_WINDOW} of it "
                f"(the window). A window of fewer than {DEPTH_KNOB_MIN_SAMPLES} samples joins its bin to the next deeper "
-               "one (at the deep end to the point before). protal reads the curve linearly between the points, and at "
-               "the end points beyond them.")
+               f"one (at the deep end to the point before). A point keeps {opts.knob} unless its best knob gains "
+               f"{DEPTH_KNOB_MIN_GAIN} of F1 on its window (best knob, gain). protal reads the curve linearly between "
+               "the points, and at the end points beyond them.")
     report.table(pd.DataFrame(rows))
     at_knob = f1_of(y[ok], scores[ok] >= opts.knob)
     with_knobs = f1_of(y[ok], depth_knob_calls(scores[ok], depths[ok], curve, opts.knob))
@@ -1333,7 +1340,13 @@ def main(argv=None):
         study()
         timing[name] = time.time() - t0
     depth_knobs = []
-    if opts.depth_knobs:
+    if opts.depth_knobs and has_sample_depth(cols):
+        report.section("Knobs by sample depth (species held out)")
+        report.add("No knob curve: the sample's depth is a feature (sample_log_fragments), so the forest's score already "
+                   "depends on it, and a curve fitted on top of it corrects twice (on the r226 v5 tables it lost 0.01 of "
+                   "test F1; docs/claude/2026-10-03-false-positive-anatomy). protal calls at --knob.")
+        report.data["depth_knobs"] = {"curve": [], "points": [], "skipped": "the sample's depth is a feature"}
+    elif opts.depth_knobs:
         t0 = time.time()
         depth_knobs = study_depth_knobs(report, df, X, y, p, opts)
         timing["depth_knobs"] = time.time() - t0

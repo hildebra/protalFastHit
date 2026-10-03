@@ -53,8 +53,11 @@ per-taxon predictions, the threshold table, the parity check with protal, the
 genome table summary and build_metadata.tsv (what the database was built from
 and with); and what the model's conservation features rest on, on real genomes:
 gene_congeners.tsv (protal --build: how each gene differs between congeners
-against within species) and relatives_by_gene_conservation.txt (trace_relatives.py:
-where the reads of the held-out species land, by the genes' factors).
+against within species), gene_incongruence.tsv (protal --build: every near pair of
+gene copies across genera, and which copy is suspect, contamination or a transfer; the
+suspect ones go into the database as suspect_copies.tsv and a run leaves their records
+out) and relatives_by_gene_conservation.txt (trace_relatives.py: where the reads of the
+held-out species land, by the genes' factors).
 
 The tools the run needs are checked before it starts, and protal and the simulator
 must be of the source these scripts are at: of its version and (as their --version
@@ -107,7 +110,7 @@ import lineages  # noqa: E402
 from gtdb_to_protal_db import (clear_build_outputs, full_reference_path, normalize_accession,  # noqa: E402
                                read_representatives, remove_full_reference as remove_full_reference_files)
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
-from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS  # noqa: E402
+from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
 from collect_training_data import TABLES, clock, congener_spec, last_line, units_of, parse_args as collector_args  # noqa: E402
 
 
@@ -591,6 +594,21 @@ def gene_congeners_summary(build_log):
     return text.rsplit(": ", 1)[0] if text.endswith("gene_congeners.tsv") else text
 
 
+def suspect_copies_summary(build_log):
+    """What protal --build said of the gene copies near-identical to another genus's (its "Suspect copies:" line, less
+    the files it wrote; suspect_copies.tsv in the database, gene_incongruence.tsv beside it and in model_logs/), for
+    build_metadata.tsv."""
+    try:
+        with open(build_log) as fh:
+            lines = [line.strip() for line in fh if line.startswith("Suspect copies:")]
+    except OSError:
+        return "unknown (no build log)"
+    if not lines:
+        return "none (this protal does not look for them)"
+    text = lines[-1].removeprefix("Suspect copies:").strip()
+    return re.sub(r":? ?\S*(suspect_copies|gene_incongruence)\.tsv", "", text).strip()
+
+
 def trace_relatives(training, training_db, heldout, logs, outdir):
     """model_logs/relatives_by_gene_conservation.txt (trace_relatives.py): where the paired-end reads of the species the
     training database lacks land, by the genes' conservation factors, on real genomes. A failure is reported, and does
@@ -664,6 +682,7 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
             ("gene_positions", gene_neighbours_summary(os.path.join(args.outdir, "index_and_package.log"),
                                                        "Gene positions:")),
             ("gene_congeners", gene_congeners_summary(os.path.join(args.outdir, "index_and_package.log"))),
+            ("suspect_copies", suspect_copies_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("classifier_features", args.features), ("classifier_trees", args.ntree),
             ("classifier_max_leaves", ",".join(f"{t}:{max_leaves(args.maxnodes, t)}" for t in read_types)),
             ("classifier_evaluation", args.evaluation),
@@ -695,6 +714,8 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
         if curve:
             rows.append((f"model_{t}_depth_knobs", "log10 fragments:knob " + ",".join(f"{x:.3f}:{k:g}" for x, k in curve) +
                          f"; independent test F1 at them {metrics.get('test_depth_knobs', {}).get('F1')}"))
+        elif metrics.get("depth_knobs", {}).get("skipped"):
+            rows.append((f"model_{t}_depth_knobs", "none: " + metrics["depth_knobs"]["skipped"] + " (protal calls at --knob)"))
         false_calls = metrics.get("false_calls")
         if false_calls:
             rows.append((f"model_{t}_false_calls", f"target {false_calls['fdr']} per sample; species held out F1 "
@@ -1087,7 +1108,7 @@ def main():
                         "them (placeholder_models.py)")
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
-    p.add_argument("--features", choices=FEATURE_SETS, default=DEFAULT_FEATURE_SET,
+    p.add_argument("--features", type=feature_set_name, default=DEFAULT_FEATURE_SET, metavar="|".join(FEATURE_SETS[:2] + ("...",)),
                    help="the models' features (random_forest_cmdline.py --features): normalized+adjacency+distance "
                         "(default), the normalised features, the gene neighbours' and the four relative_* features "
                         "that compare a taxon with its sample's relatives by the distance of their references (they "
@@ -1487,6 +1508,8 @@ def main():
     shutil.copy(os.path.join(db, "build_metadata.tsv"), logs)
     if os.path.isfile(os.path.join(db, "gene_congeners.tsv")):
         shutil.copy(os.path.join(db, "gene_congeners.tsv"), logs)
+    if os.path.isfile(os.path.join(db, "gene_incongruence.tsv")):
+        shutil.copy(os.path.join(db, "gene_incongruence.tsv"), logs)
     summary = summary_lines(read_types, prefixes, db)
     with open(os.path.join(logs, "summary.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
