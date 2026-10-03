@@ -355,11 +355,12 @@ with the alignment on every core it gained nothing, so it is off by default.
 
 ## Memory
 
-protal keeps the index and the reference genes in memory: about 59 GB for the full r226 database
-and 12 GB for the reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads)),
-figures that predate 2-bit genes (the genes now take a quarter of the memory, about 13 GB less
-for the full database; [database-files.md](database-files.md#genes-in-memory)).
-It prints the machine's total memory at start. The index is read at random, one lookup per k-mer,
+protal keeps the index and the reference genes in memory: about 35 GB for the full r226 database
+(the index's values packed to 42 bits, 27 GB; its key map, 3.2 GB; the genes at two bits per base,
+4.3 GB; [database-files.md](database-files.md#the-index-in-memory)) and correspondingly less for the
+reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads); the figures there,
+59 and 12 GB, predate the 2-bit genes and the packed index).
+It prints the machine's total memory at start and, after loading the index, the memory it takes. The index is read at random, one lookup per k-mer,
 so protal asks Linux for transparent huge pages for it; the usual setting (`madvise` in
 `/sys/kernel/mm/transparent_hugepage/enabled`) grants them, and seeding is about a third faster.
 With THP set to `never` protal uses normal pages. The profiling stage streams each SAM and, once a

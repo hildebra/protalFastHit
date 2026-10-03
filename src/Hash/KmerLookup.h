@@ -123,14 +123,11 @@ namespace protal {
         }
     };
 
-    struct LookupPointer {
-        ValueEntry* values_begin = nullptr;
-        ValueEntry* values_end = nullptr;
-        uint32_t* flex_begin = nullptr;
-        uint32_t* flex_end = nullptr;
+    // A k-mer's values in the index (Seedmap::PackedBlock: where its entries and flex cells lie and how
+    // many), with the k-mer's own flex part and its position in the read.
+    struct LookupPointer : Seedmap::PackedBlock {
         uint32_t flex_key = 0;
         uint32_t read_pos = 0;
-        uint32_t size = 0;
         bool retrieved = false;
 
         std::string ToString() {
@@ -198,29 +195,33 @@ namespace protal {
             m_sm.PrefetchKey(kmer);
         }
 
+        // What GetFromLookup reads first: the flex cells (if the key has them) and the entries.
         static inline void PrefetchValues(LookupPointer const& pointers) {
-            __builtin_prefetch(pointers.values_begin);
-            if (pointers.flex_begin != nullptr) __builtin_prefetch(pointers.flex_begin);
+            if (pointers.flex != nullptr) __builtin_prefetch(pointers.flex);
+            __builtin_prefetch(pointers.entries);
+        }
+
+        // Entry i of a lookup's values as a ValueEntry (Seedmap::EntryValue).
+        inline ValueEntry Entry(LookupPointer const& pointers, uint32_t i) const {
+            ValueEntry entry;
+            entry.value = m_sm.EntryValue(pointers, i);
+            return entry;
         }
 
         inline void Get(std::vector<LookupPointer>& result, size_t &kmer, uint32_t readpos) {
-            size_t flex_key = m_sm.FlexKey(kmer);
-            m_sm.Get(kmer, m_lookup_tmp.values_begin, m_lookup_tmp.values_end, m_lookup_tmp.flex_begin, m_lookup_tmp.flex_end);
-            if (m_lookup_tmp.values_begin == nullptr) return;
-            m_lookup_tmp.flex_key = flex_key;
+            if (!m_sm.GetPacked(kmer, m_lookup_tmp)) return;
+            m_lookup_tmp.flex_key = static_cast<uint32_t>(m_sm.FlexKey(kmer));
             m_lookup_tmp.read_pos = readpos;
-            m_lookup_tmp.size = m_lookup_tmp.values_end - m_lookup_tmp.values_begin;
-            result.emplace_back(std::move(m_lookup_tmp));
+            result.emplace_back(m_lookup_tmp);
         }
 
-        inline void GetFromLoopupSIMD(LookupList& result, LookupPointer& pointers) {
-
-            if (pointers.flex_begin != nullptr) {
+        PROTAL_CLONE_V3 inline void GetFromLookup(LookupList& result, LookupPointer& pointers) {
+            if (pointers.flex != nullptr) {
                 flex_vector.clear();
                 auto max = 0;
                 auto max_count = 0;
-                for (auto begin = pointers.flex_begin; begin < pointers.flex_end; begin++) {
-                    auto sim = Seedmap::Similarity(*begin, pointers.flex_key);
+                for (uint32_t i = 0; i < pointers.size; i++) {
+                    auto sim = Seedmap::Similarity(Seedmap::FlexCell(pointers, i), pointers.flex_key);
                     flex_vector.emplace_back(sim);
                     if (sim > max)  {
                         max = sim;
@@ -230,93 +231,43 @@ namespace protal {
                 }
 
                 if (max_count > m_max_ubiquity) {
-                    //                    std::cout << "No recovery " << max_count << "/" << m_entry_end - m_entry_begin << std::endl;
                     return;
                 }
 
-                //                std::cout << "Recovery" << std::endl;
-                for (auto i = 0; i < flex_vector.size(); i++) {
+                for (uint32_t i = 0; i < flex_vector.size(); i++) {
                     if (flex_vector[i] == max) {
-                        pointers.values_begin[i].Get(m_taxid, m_geneid, m_genepos);
+                        ValueEntry const entry = Entry(pointers, i);
+                        entry.Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
+                        m_unique &= max == m_sm.m_flex_k;
+                        m_unique_dist_two &= max == m_sm.m_flex_k;
 
                         if (m_taxid == 0) {
                             // Debug
-                            std::cout << pointers.values_begin[i].ToString() << std::endl;
+                            std::cout << ValueEntry(entry).ToString() << std::endl;
                             for (auto& e : result) {
                                 std::cout << e.ToString() << std::endl;
                             }
                             continue;
                         }
 
-                        result.emplace_back(LookupResult( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half ));
-                    }
-                }
-            }
-        }
-
-        PROTAL_CLONE_V3 inline void GetFromLookup(LookupList& result, LookupPointer& pointers) {
-            constexpr bool flex_on = true;
-            if (pointers.flex_begin != nullptr) {
-                if constexpr(flex_on) {
-                    flex_vector.clear();
-                    auto max = 0;
-                    auto max_count = 0;
-                    for (auto begin = pointers.flex_begin; begin < pointers.flex_end; begin++) {
-                        auto sim = Seedmap::Similarity(*begin, pointers.flex_key);
-                        flex_vector.emplace_back(sim);
-                        if (sim > max)  {
-                            max = sim;
-                            max_count = 0;
-                        }
-                        max_count += (sim == max);
-                    }
-
-                    if (max_count > m_max_ubiquity) {
-//                    std::cout << "No recovery " << max_count << "/" << m_entry_end - m_entry_begin << std::endl;
-                        return;
-                    }
-
-                    for (auto i = 0; i < flex_vector.size(); i++) {
-                        if (flex_vector[i] == max) {
-                            pointers.values_begin[i].Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
-                            m_unique &= max == m_sm.m_flex_k;
-                            m_unique_dist_two &= max == m_sm.m_flex_k;
-
-                            if (m_taxid == 0) {
-                                // Debug
-                                std::cout << pointers.values_begin[i].ToString() << std::endl;
-                                for (auto& e : result) {
-                                    std::cout << e.ToString() << std::endl;
-                                }
-                                continue;
-                            }
-
-                            result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, m_unique, m_unique_dist_two );
-                        }
-                    }
-                } else {
-                    m_entry_begin = pointers.values_begin;
-                    for (; m_entry_begin < pointers.values_end; m_entry_begin++) {
-                        m_entry_begin->Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
-                        result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, false, false );
+                        result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, m_unique, m_unique_dist_two );
                     }
                 }
             } else {
-                m_entry_begin = pointers.values_begin;
-                for (; m_entry_begin < pointers.values_end; m_entry_begin++) {
-                    m_entry_begin->Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
+                for (uint32_t i = 0; i < pointers.size; i++) {
+                    Entry(pointers, i).Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
                     result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, false, false );
                 }
             }
         }
 
         inline void RecoverFromLookup(LookupList& result, LookupPointer& pointers, RecoverySet& recovery) {
-            for (auto iter = pointers.values_begin; iter < pointers.values_end; iter++) {
-                if (recovery.contains(iter->MaskPosition())) {
-//                    std::cout << "Recovery: " << iter->ToString() << std::endl;
-                    auto [taxid, geneid, genepos] = iter->Get();
+            for (uint32_t i = 0; i < pointers.size; i++) {
+                ValueEntry entry = Entry(pointers, i);
+                if (recovery.contains(entry.MaskPosition())) {
+                    auto [taxid, geneid, genepos] = entry.Get();
                     result.emplace_back(LookupResult(taxid, geneid, genepos, pointers.read_pos + m_flex_k_half));
-                    recovery.erase(recovery.find(iter->MaskPosition()));
+                    recovery.erase(recovery.find(entry.MaskPosition()));
                     return;
                 }
             }
@@ -345,52 +296,14 @@ namespace protal {
             return m_flex_end - m_flex_begin;
         }
 
+        // Get and GetFromLookup in one.
         inline void Get(LookupList& result, size_t &kmer, uint32_t readpos, RecoverySet* choose=nullptr, LookupList* recovered_results=nullptr) {
-            m_sm.Get(kmer, m_entry_begin, m_entry_end, m_flex_begin, m_flex_end);
-
-
-            if (m_entry_begin == nullptr || m_entry_end == nullptr) {
-                return;
-            }
-
-            if (m_flex_begin != nullptr) {
-                size_t flex_key = m_sm.FlexKey(kmer);
-                flex_vector.clear();
-                auto max = 0;
-                auto max_count = 0;
-                for (auto begin = m_flex_begin; begin < m_flex_end; begin++) {
-                    auto sim = Seedmap::Similarity(*begin, flex_key);
-                    flex_vector.emplace_back(sim);
-                    if (sim > max)  {
-                        max = sim;
-                        max_count = 0;
-                    }
-                    max_count += (sim == max);
-                }
-
-                if (max_count > m_max_ubiquity) {
-//                    std::cout << "No recovery " << max_count << "/" << m_entry_end - m_entry_begin << std::endl;
-                    return;
-                }
-
-//                std::cout << "Recovery" << std::endl;
-                for (auto i = 0; i < flex_vector.size(); i++) {
-                    if (flex_vector[i] == max) {
-                        m_entry_begin[i].Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
-                        result.emplace_back( m_taxid, m_geneid, m_genepos, readpos + m_flex_k_half, m_unique, m_unique_dist_two );
-                    }
-//                    // Recovering step.
-//                    if (choose != nullptr && choose->contains(std::pair<uint32_t, uint32_t>(static_cast<uint32_t>(m_taxid), static_cast<uint32_t>(m_geneid)))) {
-//                        recovered_results->emplace_back(LookupResult( m_taxid, m_geneid, m_genepos, readpos + m_flex_k_half ));
-//                    }
-                }
-            } else {
-                for (; m_entry_begin < m_entry_end; m_entry_begin++) {
-                    m_entry_begin->Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
-                    result.emplace_back( m_taxid, m_geneid, m_genepos, readpos + m_flex_k_half, m_unique, m_unique_dist_two );
-                }
-            }
-
+            (void)choose;
+            (void)recovered_results;
+            if (!m_sm.GetPacked(kmer, m_lookup_tmp)) return;
+            m_lookup_tmp.flex_key = static_cast<uint32_t>(m_sm.FlexKey(kmer));
+            m_lookup_tmp.read_pos = readpos;
+            GetFromLookup(result, m_lookup_tmp);
         }
     };
 }

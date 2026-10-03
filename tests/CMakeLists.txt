@@ -6,6 +6,7 @@ add_executable(protal_tests
         test_SamRoundTrip.cpp
         test_Operations.cpp
         test_Index.cpp
+        test_PackedIndex.cpp
         test_InputValidation.cpp
         test_Parsing.cpp
         test_StrainOutput.cpp

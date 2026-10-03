@@ -358,8 +358,13 @@ namespace protal {
             bool const single_frame = !index_file.InBundle() && zstd::IsCompressed(index_file.Path()) && !zstd::IsSeekable(index_file.Path());
             std::cout << "Load index " << index_file.Name() << " (" << load_threads << " thread(s)"
                       << (single_frame ? "; a single zstd frame is read with one" : "") << ")" << std::endl;
-            map.Load(index_file, load_threads);
+            // The values are held packed, in the widths the reference's taxids, gene ids and positions
+            // need (Seedmap::PackedLayout); a position is a k-mer core's, flex_k/2 bases into its gene.
+            auto const [max_taxid, max_gene, max_length] = db.GetGenomes().IndexFieldMaxima();
+            Seedmap::PackedLayout const layout = Seedmap::PackedLayout::For(max_taxid, max_gene, max_length + map.m_flex_k);
+            map.Load(index_file, load_threads, &layout);
             std::cout << "Index features: " << map.FeatureDescription() << std::endl;
+            std::cout << "Index in memory: " << map.MemoryDescription() << std::endl;
             auto const map_file = options.SequenceMapDbFile(), fna_file = options.SequenceDbFile();
             if (map.HasReferenceFingerprint() && !(map.GetReferenceFingerprint() == ReferenceFingerprint::Of(map_file, fna_file))) {
                 std::cerr << "index.prx was built against a different reference: " << map_file.Name() << " or "

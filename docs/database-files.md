@@ -148,6 +148,22 @@ Lowercase letters are read as uppercase, and any other character is stored as `A
   database built that way still works, it holds a few more k-mers. Reads are unchanged: a k-mer of
   a read with an `N` is looked up with the `N` as `A`.
 
+## The index in memory
+
+The index file keeps every value (a k-mer's species, gene and position, two flags) in a 64-bit slot
+and, for a k-mer core with several values, a 32-bit flex cell per value (the k-mer's flanking bases,
+compared with a read's) in a third of the key's slots. A run holds the values **packed**: an entry
+takes the bits its database needs, found from the reference's largest taxid, gene id and gene length
+when the run starts (18 + 8 + 14 bits and 2 flag bits at GTDB r226, 42 instead of 64), the flex
+cells stay 32 bits, and a key's cells and entries lie at bit offsets in a region of 50 bits per slot
+of the file (the least that holds every key; `Seedmap::PackedLayout`). Every entry is still read on
+its own, so the lookups are as before, and the key map, which counts the file's slots, is unchanged.
+At r226 the values take 27 GB instead of 35 GB. `database.protal` and `index.prx.zst` in protal's
+column format are packed as they are decoded, chunk by chunk, so the 64-bit layout is never in
+memory; a raw `index.prx` or an index compressed another way is read as it is and packed after
+(briefly both layouts). A run prints the layout and the memory as `Index in memory:`. `--build`,
+`--compress_db` and `--decompress_db` keep the file's layout in memory; the files are unchanged.
+
 ## Loading genes on demand
 
 `--preload_genomes_off` (loading reference genes on demand) reads single genes from a raw

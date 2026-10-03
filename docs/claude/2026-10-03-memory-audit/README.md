@@ -187,7 +187,7 @@ Savings at r226 from the ~43 GB; results unchanged for all of them.
 
 | # | Change | Saves | Speed | Effort | Notes |
 |---|---|---:|---|---|---|
-| 1 | **42-bit entries in memory**: entries at a fixed bit stride of taxid + gene + position + 2 flag bits, the widths from the index's field maxima (in the header, or found while loading), flex cells a separate 32-bit array; built by `LoadColumns` from the decoded columns; file format unchanged | **−8.2 GB** (values 35.0 → 26.8; section 9) | none measured per lookup (section 5: an entry is a shift and a mask at its bit offset; the flex scan is unchanged) | M-L | the addressing: the key map's per-key 16-bit offsets count 8-byte cells today; with entries and flex cells in two arrays the key's entry index and flex index both follow from the cell offsets (entries e of a key of S cells: e = S − ⌈S/3⌉, as `Get` computes now), so the key map can stay as it is and only the two array indices are derived; `Get`, `GetFromLookup`, `GetExact`, `GetSingleEntry`, `RecoverFromLookup`, `PrefetchValues` adapt; `--build` keeps its 8-byte layout (it runs its own uniqueness check on it and writes the file), so a query run has one layout and a build another; verify with byte-identical SAM and profiles on the 900-species worlds and the e2e tests, speed on `dbdense` and r226 |
+| 1 | **42-bit entries in memory** (implemented, section 10): entries at a fixed bit stride of taxid + gene + position + 2 flag bits, the widths from the index's field maxima (in the header, or found while loading), flex cells a separate 32-bit array; built by `LoadColumns` from the decoded columns; file format unchanged | **−8.2 GB** (values 35.0 → 26.8; section 9) | none measured per lookup (section 5: an entry is a shift and a mask at its bit offset; the flex scan is unchanged) | M-L | the addressing: the key map's per-key 16-bit offsets count 8-byte cells today; with entries and flex cells in two arrays the key's entry index and flex index both follow from the cell offsets (entries e of a key of S cells: e = S − ⌈S/3⌉, as `Get` computes now), so the key map can stay as it is and only the two array indices are derived; `Get`, `GetFromLookup`, `GetExact`, `GetSingleEntry`, `RecoverFromLookup`, `PrefetchValues` adapt; `--build` keeps its 8-byte layout (it runs its own uniqueness check on it and writes the file), so a query run has one layout and a build another; verify with byte-identical SAM and profiles on the 900-species worlds and the e2e tests, speed on `dbdense` and r226 |
 | 2 | **6-byte entries** instead of 42-bit ones (byte-aligned, an unaligned 8-byte load and a mask) | −6.0 GB | none | M | the same two-array rework with simpler indexing; 1 costs little more and saves 2.2 GB more |
 | 3 | Per-key minima and widths (section 4's bit-packed layout) or a flex dictionary on top of 1 | −0.3 GB, or nothing | per-key headers on the lookup path | L | measured at r226: not worth it (section 9) |
 | 3b | Collapse **ubiquitous flex groups** at load (section 6.3) | −0.25 GB (0.73% of the entries) | | S-M | not worth it on its own |
@@ -262,3 +262,40 @@ What this changes against the extrapolation in sections 4 and 7 as first written
 8.2 GB, not 12-17; the dictionary and the per-key headers are not worth having; the ubiquitous
 groups are not either (0.73%). The 6-byte and 42-bit layouts, which keep random access and leave the
 flex scan as it is, are the whole of what is left.
+
+## 10. Implemented: the packed index (2026-10-03)
+
+Option 1 of section 7, in the working tree on top of `6b432dd` and committed with this section.
+
+| | |
+|---|---|
+| `Seedmap::PackedLayout` (`Seedmap.h`) | the widths: `taxid_bits + gene_bits + pos_bits + 2` per entry (`EntryBits`), and `SlotBits() = max(W, ceil(2 (32 + W) / 3))` bits of region per slot of the file, the least that holds every key (a key of S slots has e = S − ⌈S/3⌉ ≤ 2S/3 entries and, from S ≥ 2, e flex cells of 32 bits; S ≡ 1 mod 3 only for S = 1); 50 bits per slot at r226, 43 on the 900-species worlds |
+| `Seedmap::Pack`, `PackBlocks`, `PackKey`, `PutBits` | the 8-byte layout converted in parallel by block ranges; a key's region starts at bit (first slot) × SlotBits, its flex cells first, then its entries; the bytes a range shares with its neighbours (regions end mid-byte) are OR'd atomically, the rest with plain 8-byte read-modify-writes into zeroed memory |
+| `Seedmap::LoadColumns` with a layout | each chunk of the column format is decoded into the thread's own buffer and packed from there, so the 8-byte layout is never in memory; a raw `index.prx`, a seekable raw `.zst` or a single-frame `.zst` is read as before and then packed (both layouts for a moment) |
+| `Seedmap::GetPacked`, `PackedBlock`, `FlexCell`, `EntryValue` | a key's values: where its entries and cells lie (byte address and bit shift) and how many; a cell is one 8-byte load and a shift, an entry a 16-byte load, a shift and a mask, then the fields moved into a `ValueEntry`'s 20/20/20 bits so the rest of the code is unchanged |
+| `KmerLookupSM` (`KmerLookup.h`) | `LookupPointer` derives from `PackedBlock`; `Get`, `GetFromLookup`, `RecoverFromLookup`, `PrefetchValues` read through it; `GetSingleEntry` and `GetExact` (the build's uniqueness check) keep the 8-byte `Get`, which now stops if the index is packed; `GetFromLoopupSIMD` (unused) removed |
+| `GenomeLoader::IndexFieldMaxima`, `RunProtal.h` | a query run takes the widths from the reference's largest taxid, gene id and gene length (+ flex_k for the core's offset) and loads the index packed; it prints `Index in memory: <entries> entries of <W> bits (...) and their 32-bit flex cells, <B> bits per slot of the file: <GB>; key map <GB>`. A value outside the widths stops the run: "holds a value outside the reference's ranges ...: it was built against a different reference" (the fingerprint check comes after the load) |
+| `--build`, `--compress_db`, `--decompress_db`, tests of the raw format | unchanged: they load without a layout and keep the 8-byte layout; the files are unchanged |
+| `tests/test_PackedIndex.cpp` | an index built as `--build` builds it (count, lay out, place; 3,000 cores, 1-300 values each, flags set), packed in 4 threads: every flex cell and entry equal to the 8-byte layout's, and `KmerLookupSM::Get` returns what the stored cells say; the same through `SaveCompressed` (1 MB chunks) and a packed load; a value outside the layout exits 8 with the message; `PutBits` on bytes shared between ranges; the widths and the fit of SlotBits for every S to 4000 |
+| docs | `database-files.md` (The index in memory), `running.md` (Memory: ~35 GB at r226) |
+
+### Verification
+
+Built in WSL from Linux-side copies (`scripts/build_packed.sh`: `HEAD` as the baseline, `HEAD` with
+this change's files as the new tree; Release, Ninja), `scripts/verify_packed.sh`, `scripts/ab_packed.sh`,
+`scripts/ab_followup.sh`:
+
+| | |
+|---|---|
+| Unit tests | 334 of 334 (6 new) |
+| End to end | 131 of 131 on a fresh mini database (`CompressedDatabaseTest` first showed that a zstd read error of the packed load lacked the "(truncated or corrupt file?)" suffix; fixed) |
+| Same outputs, 1 thread | `db900n`, `mix`: all 168 output files byte-identical (the timing tables left out) |
+| Same outputs, 6 threads | `db900n` `mix` (176 files) and `w900` (373), `dbdense` `dense_mix` (132) and `dense_w` (240): every file identical, SAM records compared sorted (the thread order); in `mix` one float's last digit (0.987188 / 0.987187 in `*.profile.gene.log` and `*.profile.genes.log`), a sum in another thread order, as the gene-store report saw |
+| Memory, `db900n` `mix`, 6 threads (`mem_trace.sh`) | RSS while aligning 3528 → **3428 MB**; while loading 3241 → 2761 MB (the 8-byte values are not allocated; the chunk buffers are freed after the load). The values: 213 MB → 143 MB (26.65M slots × 43 bits), the key map 3.2 GB as before |
+| Time, 6 threads, 2 rounds | `w900`: load 0.3-0.5 s both, align 3.4 s both, run 5.1-5.3 s both; `dense_w`: align 6.3-6.5 s baseline, 6.4 s new (one run 8.9 s: the laptop); `mix`: align 2.0 / 2.1 s. Within the noise of this machine, as the microbenchmark predicted |
+
+**At r226** (from section 9's counts): 4,375,430,329 slots × 50 bits = **27.3 GB** of values instead of
+35.0, so a run of about 35 GB instead of 43 (key map 3.2, genes 4.3, tables < 1). The chunk buffers
+of the load add ~50 MB per thread while the index loads. Not measured at that size: the `Index in
+memory:` line of the next r226 run gives the exact figure, and its alignment time against the previous
+run the cost, expected nil.

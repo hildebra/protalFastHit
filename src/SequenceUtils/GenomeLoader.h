@@ -802,6 +802,21 @@ namespace protal {
             return n;
         }
 
+        // The largest taxid (genome key), gene id and gene length of the reference: what the index's
+        // fields hold, and so the widths a query run keeps them in (Seedmap::PackedLayout).
+        std::tuple<uint64_t, uint64_t, uint64_t> IndexFieldMaxima() const {
+            uint64_t taxid = 0, gene = 0, length = 0;
+            for (auto const& [key, genome] : m_genomes) {
+                taxid = std::max<uint64_t>(taxid, key);
+                for (auto const& g : genome.GetGeneList()) {
+                    if (!g.IsSet()) continue;
+                    gene = std::max<uint64_t>(gene, g.GetId());
+                    length = std::max<uint64_t>(length, g.GetLength());
+                }
+            }
+            return { taxid, gene, length };
+        }
+
         // Length of the longest gene of the reference.
         size_t MaxGeneLength() const {
             size_t longest = 0;
