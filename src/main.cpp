@@ -33,6 +33,13 @@
 //   (opt-in); faster read EM and congener sketches with the same outputs; the GTDB build's simulations in one
 //   queue (long reads largest first, deep samples in chunks, beside the paired-end points; a simulated sample's
 //   genomes on threads), the training database on --scratch, and both collections profiled in one protal run.
+//   Against false positives: the sample's depth (sample_log_fragments) and the reads' divergence beyond their
+//   qualities as model features, in the default feature set (the depth replaces the knob curve); gene copies
+//   near-identical to another genus's found at build (suspect_copies.tsv) and left out of the evidence; species
+//   priors from GTDB (species_priors.tsv); a taxon's evidence before the MAPQ filter, the taxa a read seeded on
+//   but did not align to (ZF tag), prevalence across a run's samples; a mixed training design. The index's values
+//   held packed in query runs (42-bit entries at r226, 35 -> 27 GB; the file unchanged). Profiling and alignment
+//   cheaper by the same outputs (coverage as a difference array, 2-3 mismatch flanks without WFA2).
 #include <iostream>
 #include "RunProtal.h"
 
