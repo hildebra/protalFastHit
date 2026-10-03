@@ -992,6 +992,78 @@ class MiniDbTest(unittest.TestCase):
         for row in rows:
             with gzip.open(row["FIRST"], "rt") as fh:
                 self.assertEqual(fh.read().splitlines(), first[row["SAMPLEID"]])
+        # A sample of more bases than --long_read_chunk is simulated in chunks side by side, joined into one gzip
+        # file: every read named once (chunk c of k names every k-th from c + 1), the sample's bases, reads of its
+        # genomes; the same reads on any number of slots, and its chunks' files gone.
+        chunked = argparse.Namespace(**vars(opts), long_read_chunk=70000)
+        self.assertEqual(collect.simulate_long([(0, unit)], chunked, 3), {})
+        for row in rows:
+            with gzip.open(row["FIRST"], "rt") as fh:
+                lines = fh.read().splitlines()
+            names, reads = lines[0::4], lines[1::4]
+            self.assertNotEqual(lines, first[row["SAMPLEID"]])
+            ids = [int(n.split("x_")[1]) for n in names]
+            self.assertEqual(len(set(ids)), len(ids))
+            self.assertEqual({i % 5 for i in ids}, set(range(5)))  # 5 chunks, each its own every 5th name
+            self.assertGreaterEqual(sum(map(len, reads)), 300000)
+            self.assertLess(sum(map(len, reads)), 300000 + 5 * 1000)
+            for name, read in zip(names, reads):
+                genome = sequences["GA" if name.startswith("@g0x_") else "GB"]
+                self.assertTrue(read in genome or read.translate(complement)[::-1] in genome)
+            with gzip.open(row["FIRST"], "rt") as fh:
+                chunked_first = fh.read()
+            self.assertEqual(collect.simulate_long([(0, unit)], chunked, 1), {})
+            with gzip.open(row["FIRST"], "rt") as fh:
+                self.assertEqual(fh.read(), chunked_first)
+        self.assertFalse(os.path.exists(os.path.join(root, "points", "ont_b300000", "sim", "tmp")))
+        tasks = collect.long_read_chunks({"bases": 300000, "seed": 7, "tmp": "/t", "out": "/o"}, 70000)
+        self.assertEqual([t["bases"] for t in tasks], [60000] * 4 + [60000])
+        self.assertEqual(len({t["seed"] for t in tasks}), 5)
+        self.assertEqual(collect.long_read_chunks({"bases": 300000, "seed": 7}, 0)[0]["seed"], 7)
+        self.assertEqual(len(collect.long_read_chunks({"bases": 300000, "seed": 7}, 300000)), 1)
+
+    def test_scheduler(self):
+        # The simulations' queue: the ready job of highest priority first, on its slots; a job waits for those it
+        # comes after; a job's new jobs join; a failure starts nothing more and says why.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import collect_training_data as collect
+        order, lock = [], threading.Lock()
+
+        def job(name, seconds=0.05, new=(), error=None):
+            def run():
+                with lock:
+                    order.append(name)
+                time.sleep(seconds)
+                return error, list(new)
+            return run
+        s = collect.Scheduler(2)
+        s.add("low", job("low"), priority=1)
+        s.add("high", job("high"), priority=5)
+        s.add("big", job("big"), need=2, priority=3)
+        s.add("after", job("after", new=[{"name": "child", "run": job("child")}]), after=["big"], priority=9)
+        self.assertEqual(s.run(), {})
+        self.assertEqual(order[:3], ["high", "low", "big"])  # low fills the slot big cannot use yet
+        self.assertLess(order.index("big"), order.index("after"))
+        self.assertLess(order.index("after"), order.index("child"))
+        self.assertEqual(sorted(order), ["after", "big", "child", "high", "low"])
+        order.clear()
+        s = collect.Scheduler(1)
+        s.add("bad", job("bad", error="it broke"), priority=2)
+        s.add("next", job("next"), priority=1)
+        s.add("waits", job("waits"), after=["bad"])
+        failures = s.run()
+        self.assertEqual(failures, {"bad": "it broke"})
+        self.assertEqual(order, ["bad"])
+        # The paired-end points' threads: all slots between them by their work, at least one each, at most 16 per
+        # sample.
+        points = [(0, {"name": "deep", "read_pairs": "10000000", "read_length": "150", "samples": 2}),
+                  (1, {"name": "shallow", "read_pairs": "1000", "read_length": "150", "samples": 12}),
+                  (2, {"name": "mid", "read_pairs": "500000", "read_length": "150", "samples": 12})]
+        threads = collect.pe_threads(points, 30)
+        self.assertEqual(sum(threads.values()), 30)
+        self.assertGreater(threads["deep"], threads["mid"])
+        self.assertGreaterEqual(threads["shallow"], 1)
+        self.assertEqual(collect.pe_threads(points[:1], 64), {"deep": 32})
 
     def test_long_read_templates(self):
         # A long-read sample's reads come from the contigs of 100 bases or more (pbsim3's shortest read; it stops
@@ -1891,13 +1963,16 @@ class GtdbBuildTest(unittest.TestCase):
         first = self.build("out", *scratch)
         self.assertEqual(first.returncode, 0, first.stdout[-3000:])
         self.assertIn("Ready protal database", first.stdout)
-        for path in ("protal_db/database.protal", "training_db/database.protal", "model_logs/summary.txt",
+        for path in ("protal_db/database.protal", "model_logs/summary.txt",
                      ".stages/convert.json", ".stages/protal_db.json", ".stages/training_db.json"):
             self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", path)), path)
+        # The training database, read only by the collections and the parity check, is built on the scratch disk.
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "scratch", "training_db", "database.protal")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out", "training_db")))
         # full_reference.fna, which only the builds read, is gone once they are done.
-        for path in ("protal_db/full_reference.fna", "training_db/full_reference.fna"):
+        for path in ("out/protal_db/full_reference.fna", "scratch/training_db/full_reference.fna"):
             for name in (path, path + ".zst"):
-                self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out", name)), name)
+                self.assertFalse(os.path.exists(os.path.join(self.tmp.name, name)), name)
         self.assertRegex(first.stdout, r"\n\[[^]]+\]     built protal_db in the background in \d+:\d\d:\d\d.*; full_reference\.fna"
                          + (r"\.zst" if shutil.which("zstd") else "") + r" removed \([\d.]+ [MG]B\)")
         # The genes' conservation factors are in the database, and their summary in build_metadata.tsv.
@@ -1957,12 +2032,17 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertLess(first.stdout.index("simulating the training data and"), first.stdout.index("built training_db in"))
         self.assertRegex(first.stdout, r"\n\[[^]]+\]     simulated the training data in the background in \d+:\d\d:\d\d")
         simulation = self.text("out", "training_data_simulation.log")
-        self.assertRegex(simulation, r"2 of 2 design points, \d+:\d\d:\d\d in all")
+        self.assertRegex(simulation, r"2 of 2 paired-end design points, \d+:\d\d:\d\d in all")
         self.assertIn("profiling left to a run without --simulate_only", simulation)
         self.assertNotIn("protal profiled", simulation)
         collection = self.text("out", "training_data.log")
         self.assertNotRegex(collection, "simulating")
-        self.assertRegex(collection, r"protal profiled 8 samples in \d+:\d\d:\d\d")
+        # The test set's samples (1 pe, 1 se) are profiled in the training data's protal run: the database loads once.
+        self.assertIn("and 2 samples of another collection in one protal run", collection)
+        self.assertRegex(collection, r"protal profiled 10 samples in \d+:\d\d:\d\d")
+        self.assertNotIn("protal profiled", self.text("out", "test_data.log"))
+        self.assertIn("profiling the independent test set's samples in the same protal run", first.stdout)
+        self.assertRegex(self.text("out", "test_data.log"), r"\d+ taxa in \S+training_data\.tsv: \d+ present")
         # The genome table has each genome's length, as the simulator counts it when the table has none.
         with open(os.path.join(self.tmp.name, "out", "genomes.tsv")) as fh:
             table = [line.rstrip("\n").split("\t") for line in fh]

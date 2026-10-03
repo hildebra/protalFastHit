@@ -76,7 +76,7 @@ negatives per sample and writes `<profile>.truth_annotated`.
 | `--sequencer` | `HS25` | ART error profile |
 | `--extra_art_args` | | passed to ART, e.g. `"--qprof1 q1 --qprof2 q2"` |
 | `--art_path` | on `$PATH` | (`--pigz_path` is accepted and ignored: the reads are compressed in process) |
-| `-t, --threads` | 1 | samples simulated at a time, each on one thread (ART and the compression); the samples are the same for any number (their designs and ART seeds are drawn first, in order) |
+| `-t, --threads` | 1 | samples simulated at a time; threads beyond the samples run ART for a sample's genomes side by side (each in its own folder, appended in order). The samples are byte-identical for any number (their designs and ART seeds are drawn first, in order) |
 | `--test` | off | write the design, manifests and truth, but no reads |
 | `--keep_tmp` | off | keep the reads of each genome |
 | `-v, --version` | | the version and the commit it was built from (as `protal --version`) |

@@ -89,11 +89,18 @@ type's model and settings (the map's `READ_TYPE` column), and each read type get
 | `--novel_clades` | 0 | species of held-out clades (ranks above species in `--novel_species`) in every sample, per rank: each design point takes one clade of each rank, in turn |
 | `--taxonomy` | | the database's `internal_taxonomy.dmp`, for `meta_rep_genome`, `meta_relative_rank`, `meta_novel_level` and `meta_neighbour_rank` |
 | `-t`, `--seed` | 4, 1 | threads of the protal run; seed |
-| `--jobs` | `-t` | paired-end design points, and long-read samples, simulated at a time (ART simulates one genome at a time) |
+| `--jobs` | `-t` | cores the simulations share: the paired-end design points take threads in proportion to their work (beyond a point's samples, `simulate_metagenomes` runs a sample's genomes side by side), the long-read samples the rest, the longest first |
+| `--long_read_chunk` | 250,000,000 | long-read samples of more bases are simulated in chunks of at most this many bases side by side, their reads joined into the sample's file (0: one run per sample) |
+| `--prepare_profiling`, `--also_profile MAP` | | write the map of the samples to profile and stop; profile another collection's map (from `--prepare_profiling`) in this collection's protal run, so that two collections load the database once (`build_gtdb_database.py` does so for the training data and the test set) |
 | `--simulate_only` | | simulate and stop; a run without it profiles (the simulations need no database, so they can run while it is built; `build_gtdb_database.py` does so) |
 
-The paired-end design points are simulated in parallel, then the long-read samples, then all the
-samples are profiled in one protal run, which loads the database once. A rerun resumes: a design point already simulated from the same
+All simulations share `--jobs` cores in one queue: the paired-end design points with threads in
+proportion to their estimated work, the long-read samples (or chunks of them) on the cores left and
+freed, the longest first. A long-read point needs only the communities of the paired-end points it
+replays, which a design run (`simulate_metagenomes --test`, the same draws without reads) gives in
+seconds, so long reads do not wait for the paired-end reads (the collector checks that the
+simulated communities are the design's). Then all the samples are profiled in one protal run, which
+loads the database once. A rerun resumes: a design point already simulated from the same
 inputs (simulator, genome table, seed and design) and profiled against the same database with the
 same protal is skipped; one made from other inputs is simulated or profiled again (its folder holds
 the key of what made it, `simulated.json` and `profiled.json`). Columns it adds start with

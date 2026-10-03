@@ -263,7 +263,7 @@ static cxxopts::Options build_cxxopts() {
         ("extra_art_args",  "Extra ART arguments, e.g. \"--qprof1 q1 --qprof2 q2\"", cxxopts::value<std::string>()->default_value(""));
 
     options.add_options("General")
-        ("t,threads",       "Samples simulated at a time (ART and the reads' compression run on one thread each); the samples are the same for any number", cxxopts::value<int>()->default_value("1"))
+        ("t,threads",       "Threads: samples simulated at a time, and threads beyond the samples run the ART calls of a sample's genomes side by side; the samples are the same for any number", cxxopts::value<int>()->default_value("1"))
         ("pigz_path",       "Unused: the reads are compressed in process (kept so that older commands still run)", cxxopts::value<std::string>()->default_value(""))
         ("protal_metafile", "Write a Protal meta file (output_dir/protal.meta) but set OUTPUT_DIR to <path>", cxxopts::value<std::string>())
         ("test",            "Generate profiles/manifests but skip read simulation (fast dry run)")

@@ -21,8 +21,9 @@ harder in two ways than simulating the database's own references:
   metadata and downloads them from NCBI, so that species are simulated from
   other strains, too. OUT_DIR/genome_table.txt says how often.
 - Species the database lacks. The samples are profiled against a training
-  database (OUT_DIR/training_db) that leaves whole clades of every rank
-  (--holdout-clades) and --holdout of the other species out
+  database (OUT_DIR/training_db; SCRATCH/training_db with --scratch) that
+  leaves whole clades of every rank (--holdout-clades) and --holdout of the
+  other species out
   (OUT_DIR/heldout_species.txt): their reads land on relatives, as those of
   organisms GTDB lacks do in real samples, and the model learns to reject those
   relatives. The report gives false positive and false negative rates by rank.
@@ -38,7 +39,8 @@ community sizes, abundances and strain mixes) is profiled and scored by each
 model: cross-validation on the training data cannot show what its design lacks.
 The simulations need no database: both collections simulate in the background,
 at a lower priority than the builds, from the moment the species to leave out
-are chosen, and profile their samples once the training database is built.
+are chosen, and profile their samples once the training database is built:
+both collections (training data and test set) in one protal run.
 The design reaches the depths of real samples (2M and 10M read pairs, 1.5 and
 6 Gb of long reads, a few samples each: DEPTH:SAMPLES), and each model gets a
 knob curve over the sample's depth (--depth-knob-read-types): a deep sample
@@ -1122,10 +1124,11 @@ def main():
     p.add_argument("--scratch",
                    help="a fast local disk (a compute node's own) for the simulated samples: their reads, alignments, "
                         "profiles and the simulators' temporary files go to SCRATCH/training and SCRATCH/test, and "
-                        "only the tables to OUTDIR. A network file system (OUTDIR's, often) is slow at the many "
-                        "files the simulators write and delete; the converter spools the release's marker genes there "
-                        "too. With the defaults the r226 run took up to 120 GB there (give it 150 GB, docs/building-a-"
-                        "database.md); a rerun reuses the samples in the same SCRATCH")
+                        "only the tables to OUTDIR; the training database is built there too (SCRATCH/training_db, "
+                        "~22 GB at r226). A network file system (OUTDIR's, often) is slow at the many files the "
+                        "simulators write and delete, and at writing a database; the converter spools the release's "
+                        "marker genes there too. With the defaults the r226 run took up to 120 GB there, without the training database "
+                        "(give it 175 GB, docs/building-a-database.md); a rerun reuses the samples in the same SCRATCH")
     args = p.parse_args()
     Job.progress_every = args.progress_every
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
@@ -1278,7 +1281,9 @@ def main():
         with open(os.path.join(logs, "holdout.txt"), "w") as fh:
             fh.write("\n".join([f"training database: {n_heldout} species left out ({heldout})"] +
                                describe_holdout(chosen, pool_species(genome_table))) + "\n")
-        training_db = os.path.join(args.outdir, "training_db")
+        # Read only by the collections and the parity check: on --scratch, its build writes and they load it from
+        # the node's disk (writing database.protal to a network file system was 6 of the 15 min of an r226 build).
+        training_db = os.path.join(samples_root, "training_db")
         Steps.start(f"training database ({os.path.basename(training_db)}, training_db_index.log): {n_heldout} species left "
                     f"out, {holdout_brief(chosen)} (model_logs/holdout.txt)")
         training_key = {"convert": convert_key, "heldout": content_hash(heldout), "protal": final_key["protal"],
@@ -1395,6 +1400,19 @@ def main():
         if simulations[what].seconds is None:
             Steps.done(f"waiting for its simulations in the background ({os.path.basename(simulations[what].log)})")
             simulations[what].finish()  # its line comes from its on_success
+        if what == collections_[0][0] and len(collections_) > 1:
+            # The other collection's samples go into this collection's protal run, which loads the database once:
+            # the other collector maps them (--prepare_profiling), and finds them profiled when it runs.
+            other, other_command, other_log = collections_[1]
+            if simulations[other].seconds is None:
+                Steps.done(f"waiting for the {other}'s simulations too, to profile both in one protal run")
+                simulations[other].finish()
+            run(other_command + ["--prepare_profiling"], other_log.removesuffix(".log") + "_map.log",
+                label=f"mapping the {other}'s samples")
+            other_map = os.path.join(collector_args(other_command[2:]).out, "profile_all", "samples.map")
+            if os.path.isfile(other_map):
+                command = command + ["--also_profile", other_map]
+                Steps.done(f"profiling the {other}'s samples in the same protal run")
         job = run(command, log, label=f"collecting {what}")
         type_of = {name: t for t, name in TABLES.items()}
         counts = []

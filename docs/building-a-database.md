@@ -476,9 +476,16 @@ runs. `--one-build-at-a-time` builds it after the training instead.
 The simulations need no database. Both collections simulate from the moment the species to leave
 out are chosen, in the background and at a lower priority (`nice` 10) than the builds
 (`collect_training_data.py --simulate_only`; `training_data_simulation.log`,
-`test_data_simulation.log`), so that they use what the builds leave of the cores; each collection
-then profiles its samples once the training database is built. The genome table has each genome's
-length as a fourth column, so the simulator does not read every genome for it at each design point.
+`test_data_simulation.log`), so that they use what the builds leave of the cores. Within a
+collection, the paired-end points and the long-read samples share the cores in one queue, the long
+reads starting from the paired-end points' communities (a design run of seconds) rather than after
+their reads, the longest samples first and those above 250 Mb in chunks side by side
+(`--long_read_chunk`): at r226 (v5) the long reads had waited for the paired-end points (15 min), and
+the 1.5-6 Gb samples, single runs queued last, ran alone for 27 more minutes. Once the training
+database is built, the test set's samples are profiled in the training data's protal run, which
+loads the database once ([report](claude/2026-10-03-build-profiling-r226/README.md)). The genome
+table has each genome's length as a fourth column, so the simulator does not read every genome for
+it at each design point.
 
 Both builds read a `full_reference.fna.zst` (the marker genes of every genome; the training
 database's without the species it leaves out), and nothing reads it afterwards: the script removes
@@ -571,7 +578,9 @@ templates once its reads are written, so the samples' temporary files stay small
 design the r226 build took at most 23.7 GB there and left 15.5 GB; with the deep design points it took at
 most 120 GB (24 long-read samples per point; [docs/claude/2026-10-01-scratch-space](claude/2026-10-01-scratch-space/README.md),
 [2026-10-02-r226-v3-training](claude/2026-10-02-r226-v3-training/README.md)), and the 36 long-read samples of the
-defaults add a few GB: give it 150 GB, or fewer deep samples (`DEPTH:SAMPLES`). The
+defaults add a few GB. The training database is built there too (`DIR/training_db`, ~22 GB at r226): only the
+collections and the parity check read it, and writing its `database.protal` to the network file system was 6 of
+the 15 minutes of its r226 build. Give it 175 GB, or fewer deep samples (`DEPTH:SAMPLES`). The
 line after each collection (and the status lines, with `--progress-every`) says how much the run
 takes on DIR (what its file system holds more than at the start), and the last line the most it
 took. A rerun reuses the samples only from the same DIR; on a node-local disk that is gone after
