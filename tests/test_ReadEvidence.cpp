@@ -228,3 +228,12 @@ TEST(ReadEvidence, TheSimulatorGivesTheSamplesTheirSigmasInTurn) {
     EXPECT_EQ(protal::sim::SigmaForSample(options, 2), 1.3);
     EXPECT_EQ(protal::sim::SigmaForSample(options, 7), 2.0);
 }
+
+TEST(ReadEvidence, FeatureStringsFlushSubnormalValuesToZero) {
+    // cPMML reads the values back with stod, which throws on underflow: an EM share of 1e-311 made a run crash.
+    EXPECT_EQ(profiler::FeatureString(9.0946131981813e-311), "0");
+    EXPECT_EQ(profiler::FeatureString(-4e-320), "0");
+    EXPECT_EQ(profiler::FeatureString(2.2250738585072014e-308), "2.2250738585072014e-308");  // the smallest normal
+    EXPECT_EQ(profiler::FeatureString(0.25), "0.25");
+    EXPECT_EQ(profiler::FeatureString(-1), "-1");
+}

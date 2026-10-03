@@ -34,6 +34,7 @@
 #include <atomic>
 #include <cmath>
 #include <charconv>
+#include <limits>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -1875,6 +1876,10 @@ namespace protal {
         // A feature value as the model and the dump get it: the shortest text that reads back as
         // the same double (fixed six decimals turned small rates into 0).
         inline std::string FeatureString(double value) {
+            // A subnormal value (an EM share of 1e-311) is written as 0: cPMML reads the values back with stod, which
+            // throws on underflow and would score the taxon as missing the feature. The dump and the scoring see
+            // the same string, so the trainer and protal agree.
+            if (std::fabs(value) < std::numeric_limits<double>::min()) value = 0;
             char buffer[64];
             auto [end, ec] = std::to_chars(buffer, buffer + sizeof(buffer), value);
             return std::string(buffer, end);
