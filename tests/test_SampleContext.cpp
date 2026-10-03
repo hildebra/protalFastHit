@@ -84,6 +84,48 @@ namespace {
     };
 }
 
+namespace {
+    // GeneSketch as first written: every distinct k-mer collected and sorted, hashed, the smallest kept.
+    std::vector<uint32_t> ReferenceGeneSketch(std::string_view seq) {
+        auto const kmers = gene_conservation::Kmers(seq);
+        std::vector<uint32_t> hashes;
+        hashes.reserve(kmers.size());
+        for (uint32_t const kmer : kmers) hashes.push_back(ctx::MixKmer(kmer));
+        size_t const keep = std::min(ctx::kSketchSize, hashes.size());
+        std::partial_sort(hashes.begin(), hashes.begin() + static_cast<std::ptrdiff_t>(keep), hashes.end());
+        hashes.resize(keep);
+        return hashes;
+    }
+}
+
+// Random genes, genes with Ns, short ones, repeats of a few k-mers (fewer distinct than the sketch holds, which sorts
+// everything), half-repeated genes and genes of one base: the same hashes as the reference, in the same order.
+TEST(SampleContext, SketchesEqualTheReferencesToTheLastHash) {
+    std::mt19937 rng(7);
+    std::vector<std::string> genes;
+    for (int i = 0; i < 30; i++) genes.push_back(RandomSequence(200 + rng() % 3000, rng));
+    for (int i = 0; i < 10; i++) {
+        auto gene = RandomSequence(1000, rng);
+        for (int n = 0; n < 20; n++) gene[rng() % gene.size()] = 'N';
+        genes.push_back(gene);
+    }
+    for (size_t length : { 0, 5, 11, 12, 13, 40, 75, 76, 100 }) genes.push_back(RandomSequence(length, rng));
+    std::string const unit = RandomSequence(30, rng);
+    std::string repeated;
+    for (int i = 0; i < 40; i++) repeated += unit;  // 30 distinct k-mers, 1,200 in all
+    genes.push_back(repeated);
+    genes.push_back(repeated.substr(0, 600) + RandomSequence(600, rng));
+    genes.push_back(std::string(500, 'A'));
+    genes.push_back(std::string(500, 'A') + RandomSequence(300, rng));
+    genes.push_back("acgtacgtnnACGT" + RandomSequence(200, rng));
+    for (auto const& gene : genes) {
+        auto const expected = ReferenceGeneSketch(gene);
+        auto const got = ctx::GeneSketch(gene);
+        EXPECT_EQ(got, expected) << "gene of " << gene.size() << " bases";
+    }
+    EXPECT_LT(ctx::GeneSketch(repeated).size(), ctx::kSketchSize);
+}
+
 TEST(SampleContext, SketchesOfIdenticalGenesAreAtDistanceZeroAndOfUnrelatedOnesFar) {
     std::mt19937 rng(1);
     auto const gene = RandomSequence(1000, rng);
@@ -173,7 +215,8 @@ namespace {
     // AbundanceWeightedShares as first written (be35d15): hash maps and a pow per visit. The version in
     // SampleContext.h runs on indices and must give the same shares to the last bit.
     std::unordered_map<uint32_t, ctx::OwnShares> ReferenceShares(ctx::AmbiguityClasses const& classes,
-                                                                 std::map<uint32_t, ctx::RecordCounts> const& counts) {
+                                                                 std::map<uint32_t, ctx::RecordCounts> const& counts,
+                                                                 double tolerance = 1e-10) {
         std::unordered_map<uint32_t, double> plain, weight, ratio;
         for (auto const& [taxid, c] : counts) {
             plain[taxid] = static_cast<double>(c.records);
@@ -215,7 +258,7 @@ namespace {
                 change = std::max(change, std::abs(w - old) / std::max(1.0, old));
             }
             weight = std::move(next);
-            if (change < ctx::kEmTolerance) break;
+            if (change < tolerance) break;
         }
         std::unordered_map<uint32_t, double> own_all, own_kept;
         for (auto const& [key, n] : classes) {
@@ -243,7 +286,8 @@ namespace {
 
 // Random samples: taxa of very different depths and divergences, classes with 0-4 alternatives at 0-5 edits, ties,
 // alternatives the counts lack (a ZA taxon without a best record) and an owner the counts lack; the shares of every
-// taxon equal the reference's exactly (EXPECT_EQ on the doubles), on every sample.
+// taxon equal the reference's exactly (EXPECT_EQ on the doubles), on every sample. Both run every sweep (tolerance
+// 0), as the two stop by different rules (StopsWhenTheSharesAreStable).
 TEST(SampleContext, SharesOnIndicesEqualTheReferenceToTheLastBit) {
     std::mt19937 rng(20261003);
     size_t compared = 0;
@@ -273,8 +317,8 @@ TEST(SampleContext, SharesOnIndicesEqualTheReferenceToTheLastBit) {
             }
             classes[key] += 1 + rng() % 30;
         }
-        auto const expected = ReferenceShares(classes, counts);
-        auto const got = ctx::AbundanceWeightedShares(classes, counts);
+        auto const expected = ReferenceShares(classes, counts, 0);
+        auto const got = ctx::AbundanceWeightedShares(classes, counts, 0);
         ASSERT_EQ(got.size(), expected.size());
         for (auto const& [taxid, s] : expected) {
             ASSERT_TRUE(got.contains(taxid));
@@ -284,6 +328,48 @@ TEST(SampleContext, SharesOnIndicesEqualTheReferenceToTheLastBit) {
         }
     }
     EXPECT_GT(compared, 500u);
+}
+
+// The sweeps stop once no taxon's own share moved by kEmTolerance in a sweep: a sample that converges stops early
+// with the shares of the full 200 sweeps to that tolerance; a taxon that loses its last reads to a taxon which
+// explains them exactly as well (an abundant congener whose weight times its edit factor equals the taxon's reads)
+// loses them ever more slowly and runs to the cap, where both stop alike.
+TEST(SampleContext, StopsWhenTheSharesAreStable) {
+    std::map<uint32_t, ctx::RecordCounts> counts = {
+        { 1, { 1000, 1000, 5000, 150000 } }, { 2, { 50, 50, 250, 7500 } }, { 3, { 30, 30, 150, 4500 } }, { 4, { 20, 20, 100, 3000 } } };
+    ctx::AmbiguityClasses classes;
+    classes[{ 2, 1, 1, 1 }] = 40;
+    classes[{ 2, 1, 3, 0 }] = 10;
+    classes[{ 3, 1, 2, 1, 1, 2 }] = 20;
+    classes[{ 4, 1, 1, 2, 3, 0 }] = 15;
+    classes[{ 1, 1, 2, 3 }] = 100;
+    auto const stopped = ctx::AbundanceWeightedShares(classes, counts);
+    auto const full = ctx::AbundanceWeightedShares(classes, counts, 0);
+    auto const few = ctx::AbundanceWeightedShares(classes, counts, 0, 2);
+    for (auto const& [taxid, s] : full) {
+        EXPECT_NEAR(stopped.at(taxid).all, s.all, 1e-5) << "taxon " << taxid;
+        EXPECT_NEAR(stopped.at(taxid).kept, s.kept, 1e-5) << "taxon " << taxid;
+    }
+    // Two sweeps are not enough on this sample: the rule did not stop that early.
+    bool moved = false;
+    for (auto const& [taxid, s] : full) moved |= std::abs(few.at(taxid).all - s.all) > 1e-5;
+    EXPECT_TRUE(moved);
+
+    // A tie: taxon 6's 10 reads fit taxon 5 two edits worse, and taxon 5's 4,000 records at a factor of 0.05^2 are
+    // 10 effective reads, as many as taxon 6 has. Taxon 6's weight w goes to 10 w / (w + 10): harmonically
+    // (10 / (k + 1) after k sweeps) while it is near 10, then at a rate within 0.2% of standing still (taxon 5
+    // gained up to 5 reads); after 200 sweeps its share is still a few thousandths and moving by more than the
+    // tolerance: the rule runs to the cap, where the shares equal the full run's exactly.
+    std::map<uint32_t, ctx::RecordCounts> tie = { { 5, { 4000, 4000, 0, 0 } }, { 6, { 10, 10, 0, 0 } } };  // ratio kEditRatio
+    ctx::AmbiguityClasses drain;
+    drain[{ 6, 1, 5, 2 }] = 10;
+    auto const capped = ctx::AbundanceWeightedShares(drain, tie);
+    auto const capped_full = ctx::AbundanceWeightedShares(drain, tie, 0);
+    EXPECT_EQ(capped.at(6).all, capped_full.at(6).all);  // both ran every sweep
+    EXPECT_GT(capped.at(6).all, 1e-3);
+    EXPECT_LT(capped.at(6).all, 0.05);
+    auto const capped_half = ctx::AbundanceWeightedShares(drain, tie, 0, 100);
+    EXPECT_GT(std::abs(capped_half.at(6).all - capped.at(6).all), 1e-3);  // still moving at sweep 100
 }
 
 TEST(SampleContext, TheSamplesPriorFollowsItsCandidates) {

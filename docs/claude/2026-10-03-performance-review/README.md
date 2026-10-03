@@ -248,3 +248,112 @@ version as `ReferenceShares`).
   cannot run as such: 13 of its 102 tests there fail before or beside the profiler (symlinks onto model files the
   database already has, a mock species' MSA, `unreported_species.tsv`, knob and depth checks tuned to the mini
   database), which the EM cannot touch; the reference build was not rerun there. Noted so nobody repeats it.
+
+## Follow-up (2026-10-03): items 2-5 implemented, two of the alignment-loop changes dropped
+
+At the user's request, after item 1. Scripts: `scripts/p5_build.sh` (items 3 and 5), `scripts/p4_build.sh` (item 4 on
+top of them), `scripts/em_sweeps2.sh` with `sweeps.pl` (item 2's measurement); results in `results/items_2_to_5.txt`.
+
+### Item 3: the congener sketches (identical outputs)
+
+- `context::GeneSketch` hashes the k-mers as they come, repeats included, selects the 2 × 64 smallest hashes in linear
+  time (`std::nth_element`) and sorts those; whenever they hold 64 distinct values these are the 64 smallest distinct
+  hashes of the gene (every hash outside is at least as large as any inside), else the gene's hashes are all sorted
+  (genes of many repeats). Before, every distinct k-mer was collected and sorted, then hashed, then partially sorted
+  again. `ApplySampleContext` sketches every reference of the sample's congener pairs in one pass over the threads
+  before the pairs are compared (`CongenerDistances::Sketch`), so no sketch is made twice by two pairs at once.
+- Test `SampleContext.SketchesEqualTheReferencesToTheLastHash`: random genes, genes with Ns, short ones, repeats of 30
+  k-mers (fewer distinct than the sketch holds), half-repeated genes, genes of one base: the same hashes as the first
+  version, in the same order.
+- Instructions (callgrind, `--profile_only` on the 500k SAM): `GeneSketch` 4.57 → 2.27 G, the profiling stage 25.3 → 23.0 G.
+  `--profile_only` outputs identical on the five SAMs (`results/items_2_to_5.txt`).
+
+### Item 5: the alignment loop (identical SAM)
+
+Kept, all three verified by SAM text identical to the reference build's at one thread (500k pairs, the same reads as
+single-end, Nanopore 90 Mb, PacBio 90 Mb) and sorted SAM text identical at six threads (500k pairs):
+
+- (a) `IsAlignmentValid` on every alignment → the counts must cover the read and stay inside the gene (every alignment,
+  O(1) from `AlignmentInfo`'s counts), and one alignment in 64 is walked base by base as before. 0.61 G of 17.08 G gone
+  (with the `NextCompressedCigar` it called). The `info.Valid` pass that followed it (a count over the CIGAR) is
+  covered by the same check.
+- (b) `across_genes::Neighbours` keeps each thread's answers by (taxon, gene, end) for the table and database they came
+  from (`gene_neighbours::Table::Generation`, which changes with every `Read` and `SetLineage`): `Table::Partners` and
+  `Assess` (0.43 G, from mate guidance's search on the neighbour genes) gone.
+- (d) `AlignmentEdits(AlignmentInfo const&)` from the counts `GetInstructionCountsAndCompress` took (the only way the
+  compressed CIGAR is made), instead of parsing the compressed CIGAR again for every candidate's ZA entry.
+- Together: `RunPairedEnd` 17.08 → 15.98 G per 100k pairs (−6.5%), the run 28.07 → 26.97 G.
+
+Tried and dropped (both reverted before the commit, measured in `scripts/p5_build.sh`'s build):
+
+- (c) the seeds sorted on one packed 64-bit key: the same order, but computing the key for both elements of every
+  comparison cost more instructions than the three-field comparator's branches save; the anchor finder went 2.79 → 3.09 G
+  and the "Sorting Seeds" timer moved from 0.70 to 0.64 s at one thread. Not worth +1.7% of the loop's instructions.
+- (e) a WFA2 aligner of their own for short reads' flanks: `wavefront_slab_reap_repurpose` and `wavefront_slab_allocate`
+  did not change at all (0.37 and 0.35 G). WFA2's per-call reset walks the wavefronts of the largest alignment the
+  aligner made, and their number follows the score budget, not the sequence lengths, so a flank-sized aligner resets as
+  many as the window's. Round 3's estimate for this item was wrong.
+
+### Item 4: profiling a sample while the next one is aligned (identical outputs, no gain here, opt-in)
+
+- Implemented as `ProfilingAhead` in `RunProtal.h`: `RunWrapper` hands over each sample whose SAM is complete (and each
+  it skips because the SAM exists); a worker thread profiles them one after another on a quarter of the threads with
+  `ProfileSample` (the body of the old `ProfileWrapper` loop, now a function any thread can call for a sample of its
+  own, with `ProfilingContext` holding what the samples share); the profiling stage takes what the worker had not
+  started, on all threads, and waits for it. The last sample is never handed over (no alignment follows it).
+- Outputs: profiles, strain MSAs and per-species statistics identical between the overlapped and the sequential runs
+  of the four-sample map (two rounds) and of a single sample; sorted SAM text identical for every sample. The
+  eight-sample map differed in one value's sixth decimal (`ANISum` of one gene) between the two runs, which happens
+  between any two six-thread runs of the same binary (the SAM's record order varies with the threads; round 3's note).
+- Time, six threads, two rounds each (`results/items_2_to_5.txt`): four samples 13.7 s with the worker against 12.9 s
+  without, then 14.8 against 15.9; eight samples 30.0 against 29.7. The "Processing all samples" stage grew by as
+  much as "Profiling" shrank: on six vCPUs with the alignment on every one of them, the worker's CPU time comes out
+  of the alignment's. After items 1-3 the profiling stage has little serial work left to hide, so there is nothing
+  to gain unless the profiling stage leaves cores idle (many threads, a long tail of one deep sample). Hence
+  **off by default**: `--profile_ahead` (dev option, in `docs/running.md`) turns it on, so that it can be measured on
+  a cluster node with the same binary.
+
+### Item 2: the EM's stopping rule (changes the last digits of the `em_*` features)
+
+Measured first (`scripts/em_sweeps2.sh` inserts `scripts/sweeps_insert.cpp`; `results/em_sweeps.txt`): per sweep, the
+largest relative weight change (the first rule's measure) and the largest change of any taxon's own share.
+
+| SAM | sweeps | relative weight change at sweep 10 / 50 / 100 / last | own-share change at sweep 50 / 100 / last |
+|---|---|---|---|
+| 500k pairs | 200 (cap) | 0.046 / 0.0029 / 0.00046 / 0.00047 | 0.0029 / 0.00024 / 0.00023 |
+| 5M pairs | 197 | 0.065 / 0.00039 / 2.2e-6 / 9.2e-11 | 0.00028 / 1.5e-6 / 6.6e-11 |
+| Nanopore 90 Mb | 200 (cap) | 0.053 / 0.00027 / 0.00027 / 0.00026 | 0.00027 / 0.00026 / 0.00026 |
+| PacBio 90 Mb | 200 (cap) | 0.036 / 0.00073 / 8.3e-5 / 1.2e-5 | 0.00062 / 8.3e-5 / 1.2e-5 |
+
+- The 5M sample converges geometrically: the shares are stable to 1e-6 by sweep 100; the first rule (relative weight
+  change below 1e-10) let it run to 197.
+- The other three plateau: from sweep 50 on, some taxon's share moves by nearly the same 1e-5–2e-4 every sweep (the
+  500k sample's change shrinks by 2.5% over sweeps 100–200: a geometric drain at a rate within 3e-4 per sweep of
+  standing still). That is a taxon whose reads a congener explains about as well: the congener's weight times its
+  edit factor is within a fraction of a percent of the taxon's reads, so each sweep moves only that fraction. No
+  tolerance above the noise ends it within 200 sweeps; such taxa run to the cap under any rule, and their feature is
+  whatever the cap leaves (as before).
+- **The rule now**: stop when no taxon's own share (its reads left to it over its records, the feature the EM is for)
+  changed by `kEmTolerance` = 1e-6 in the last sweep; `kEmIterations` = 200 stays. The `own` sum per sweep comes from
+  the same products the weights are updated with, so the sweeps' arithmetic is unchanged. Samples that hit the cap are
+  bit-identical to before (every sweep runs, as before); converging samples stop at about half the sweeps with shares
+  within 1e-6 of the full run's. The exactness test now runs both versions with tolerance 0 (every sweep);
+  `SampleContext.StopsWhenTheSharesAreStable` checks the early stop and the harmonic case.
+- Effect on the outputs (`scripts/final_build.sh`, `results/items_2_to_5.txt`): none visible. The `--profile_only` outputs of the
+  final build are identical to the EM build's on all five SAMs, the 5M-pair one included (its sweeps now end at about
+  105 instead of 197: the shares differ by less than the features' printed precision); the four-sample map's profiles have
+  the same calls as the reference build's, no taxon's `Predicted` or `Probability` differs, and the strain MSAs are identical.
+
+### Times, final build against the references (alternated rounds; `scripts/fin2.sh`, `results/items_2_to_5.txt`)
+
+The machine had slowed by 1.5–2× for these runs (the reference build's four-sample map took 30 s against 15.2 s in
+the morning), so only the ratios within a round mean anything:
+
+| run | reference | final | |
+|---|---|---|---|
+| `--profile_only`, 5M pairs, 6 threads, 3 rounds | 12.8 / 11.5 / 13.1 s (EM build) | 11.1 / 9.5 / 10.1 s | −14% (items 2 and 3 on top of item 1) |
+| 500k pairs, whole run, 1 thread, 2 rounds | 22.9 / 23.0 s (27423c6) | 18.7 / 18.4 s | −19%; profiling 7.1 / 7.3 → 2.4 / 2.8 s, aligning the same |
+| four-sample map, 6 threads, 2 rounds | 29.9 / 30.6 s (27423c6) | 29.1 / 24.5 s | profiling 8.7 / 9.1 → 6.8 / 3.7 s; the rest noise |
+
+Against 27423c6 on the 500k-pair run at one thread the profiling stage is now a third of what it was (items 1–3); the
+alignment stage gains −6.5% of its instructions (item 5), too little to see in wall time here.

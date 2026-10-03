@@ -141,6 +141,7 @@ namespace protal {
         // chain it does not handle); joined over threads like the benchmarks.
         size_t m_anchored_alignments = 0;
         size_t m_whole_window_alignments = 0;
+        size_t m_validity_checks = 0;  // alignments so far: one in 64 is walked base by base (AlignAnchor)
 
 //        AlignmentInfo m_info;
 
@@ -575,9 +576,14 @@ namespace protal {
                 info.UpdateScore();
                 alignment.Set(anchor.taxid, anchor.geneid, info.gene_alignment_start, anchor.forward, anchor.unique, anchor.unique_best_two);
 
-                // Safety net: reject an alignment whose CIGAR does not fit the sequences. Lock-free
+                // Safety net: reject an alignment whose CIGAR does not fit the sequences. Its counts must cover the
+                // read and stay inside the gene (every alignment, from the counts alone); one alignment in 64 is also
+                // walked base by base against the sequences (IsAlignmentValid), as every one was before. Lock-free
                 // on the common, valid path; the rare diagnostics below are serialised.
-                bool valid = IsAlignmentValid(info, read, geneseq, 0, true);
+                bool const covers = static_cast<size_t>(info.matches) + info.mismatches + info.insertions + info.softclips == read.length() &&
+                                    info.gene_alignment_start >= 0 &&
+                                    static_cast<size_t>(info.gene_alignment_start) + info.matches + info.mismatches + info.deletions <= geneseq.size();
+                bool const valid = covers && ((++m_validity_checks & 63) != 0 || IsAlignmentValid(info, read, geneseq, 0, true));
                 if (!valid) {
 #pragma omp critical (invalid_align)
                     {
@@ -598,10 +604,7 @@ namespace protal {
                     return false;
                 }
 
-                if (info.Valid(read.length())) {
-                    std::cerr << "Crash in AlignmentStrategy.h 526" << std::endl;
-                    exit(90);
-                }
+                // (The operations cover the read: `covers` above checked it from the counts.)
             }
             bm_alignment.Stop();
             return true;

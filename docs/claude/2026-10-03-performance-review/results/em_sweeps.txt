@@ -1,0 +1,57 @@
+== 500k
+[sweep] 1 change 0.999431 max_own_reads_change 0 max_own_relative_change 0
+[sweep] 2 change 0.806052 max_own_reads_change 60.3175 max_own_relative_change 1.22218
+[sweep] 3 change 0.469713 max_own_reads_change 7.01025 max_own_relative_change 0.686806
+[sweep] 5 change 0.261545 max_own_reads_change 0.295273 max_own_relative_change 0.199488
+[sweep] 10 change 0.0461482 max_own_reads_change 0.0376379 max_own_relative_change 0.0376379
+[sweep] 20 change 0.0278614 max_own_reads_change 0.0257548 max_own_relative_change 0.0257548
+[sweep] 30 change 0.0135065 max_own_reads_change 0.0137145 max_own_relative_change 0.0119861
+[sweep] 50 change 0.00290672 max_own_reads_change 0.00289028 max_own_relative_change 0.00225798
+[sweep] 75 change 0.000460949 max_own_reads_change 0.000370115 max_own_relative_change 0.000282631
+[sweep] 100 change 0.000463467 max_own_reads_change 0.000240943 max_own_relative_change 0.000216789
+[sweep] 150 change 0.000468457 max_own_reads_change 0.000237928 max_own_relative_change 0.000211795
+[sweep] 197 change 0.000469978 max_own_reads_change 0.000235022 max_own_relative_change 0.000207159
+[sweep] 200 change 0.000469602 max_own_reads_change 0.000234834 max_own_relative_change 0.000206865
+Warning: 1 species in 1 sample profile(s) score below their sample's knob (0.5, or the model's for the sample's depth) and are not reported, although their own reads are strong evidence (depth 1x or more, reads on 90% of their genes, best reads 98% identical or more); they are listed in /home/falk/mt-work/perf4/sw.500k/misc/unreported_species.tsv. Their samples enter the strain MSAs if they score that knob or more.
+== 5M
+[sweep] 1 change 0.99704 max_own_reads_change 0 max_own_relative_change 0
+[sweep] 2 change 0.730441 max_own_reads_change 138.802 max_own_relative_change 1.59591
+[sweep] 3 change 0.549534 max_own_reads_change 28.5666 max_own_relative_change 0.381499
+[sweep] 5 change 0.268771 max_own_reads_change 1.26639 max_own_relative_change 0.172868
+[sweep] 10 change 0.0646938 max_own_reads_change 0.0589112 max_own_relative_change 0.0440705
+[sweep] 20 change 0.0116322 max_own_reads_change 0.00826735 max_own_relative_change 0.00826735
+[sweep] 30 change 0.00338282 max_own_reads_change 0.00242624 max_own_relative_change 0.00242624
+[sweep] 50 change 0.000388924 max_own_reads_change 0.000279984 max_own_relative_change 0.000279984
+[sweep] 75 change 2.8769e-05 max_own_reads_change 2.07204e-05 max_own_relative_change 2.07204e-05
+[sweep] 100 change 2.15099e-06 max_own_reads_change 1.54926e-06 max_own_relative_change 1.54926e-06
+[sweep] 150 change 1.20443e-08 max_own_reads_change 8.67506e-09 max_own_relative_change 8.67506e-09
+[sweep] 197 change 9.20595e-11 max_own_reads_change 6.63068e-11 max_own_relative_change 6.63068e-11
+Warning: 1 species in 1 sample profile(s) score below their sample's knob (0.5, or the model's for the sample's depth) and are not reported, although their own reads are strong evidence (depth 1x or more, reads on 90% of their genes, best reads 98% identical or more); they are listed in /home/falk/mt-work/perf4/sw.5M/misc/unreported_species.tsv. Their samples enter the strain MSAs if they score that knob or more.
+== ont90M
+[sweep] 1 change 0.99595 max_own_reads_change 0 max_own_relative_change 0
+[sweep] 2 change 0.421664 max_own_reads_change 1.16938 max_own_relative_change 0.656228
+[sweep] 3 change 0.350604 max_own_reads_change 0.597546 max_own_relative_change 0.504501
+[sweep] 5 change 0.279292 max_own_reads_change 0.227415 max_own_relative_change 0.227415
+[sweep] 10 change 0.0529972 max_own_reads_change 0.0443931 max_own_relative_change 0.0443931
+[sweep] 20 change 0.00463939 max_own_reads_change 0.0039228 max_own_relative_change 0.0039228
+[sweep] 30 change 0.000524146 max_own_reads_change 0.00051993 max_own_relative_change 0.00051993
+[sweep] 50 change 0.00026805 max_own_reads_change 0.000265366 max_own_relative_change 0.000265366
+[sweep] 75 change 0.000267513 max_own_reads_change 0.000264835 max_own_relative_change 0.000264835
+[sweep] 100 change 0.000266884 max_own_reads_change 0.000264213 max_own_relative_change 0.000264213
+[sweep] 150 change 0.000265355 max_own_reads_change 0.0002627 max_own_relative_change 0.0002627
+[sweep] 197 change 0.000263597 max_own_reads_change 0.000260959 max_own_relative_change 0.000260959
+[sweep] 200 change 0.000263474 max_own_reads_change 0.000260838 max_own_relative_change 0.000260838
+== pb90M
+[sweep] 1 change 0.99739 max_own_reads_change 0 max_own_relative_change 0
+[sweep] 2 change 0.354085 max_own_reads_change 0.499681 max_own_relative_change 0.424893
+[sweep] 3 change 0.254477 max_own_reads_change 0.231433 max_own_relative_change 0.231433
+[sweep] 5 change 0.128583 max_own_reads_change 0.10401 max_own_relative_change 0.10401
+[sweep] 10 change 0.0359656 max_own_reads_change 0.0300534 max_own_relative_change 0.0300534
+[sweep] 20 change 0.00865002 max_own_reads_change 0.00733218 max_own_relative_change 0.00733218
+[sweep] 30 change 0.00331503 max_own_reads_change 0.00282132 max_own_relative_change 0.00282132
+[sweep] 50 change 0.000732432 max_own_reads_change 0.000624848 max_own_relative_change 0.000624848
+[sweep] 75 change 0.000160539 max_own_reads_change 0.000160539 max_own_relative_change 0.000160539
+[sweep] 100 change 8.3007e-05 max_own_reads_change 8.3007e-05 max_own_relative_change 8.3007e-05
+[sweep] 150 change 2.90534e-05 max_own_reads_change 2.90534e-05 max_own_relative_change 2.90534e-05
+[sweep] 197 change 1.24949e-05 max_own_reads_change 1.24949e-05 max_own_relative_change 1.24949e-05
+[sweep] 200 change 1.18682e-05 max_own_reads_change 1.18682e-05 max_own_relative_change 1.18682e-05

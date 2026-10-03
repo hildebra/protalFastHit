@@ -155,6 +155,13 @@ namespace protal {
         return edits;
     }
 
+    // The same from the counts that GetInstructionCountsAndCompress took of the alignment's CIGAR (the only way
+    // AlignmentInfo::compressed_cigar is made): no pass over it.
+    static int AlignmentEdits(AlignmentInfo const& info) {
+        return static_cast<int>(info.mismatches) + static_cast<int>(info.insertions) + static_cast<int>(info.deletions) +
+               static_cast<int>(info.softclips);
+    }
+
     inline constexpr int kAlternativeMaxEdits = 5;  // alternatives with more edits than the best are not listed
     inline constexpr size_t kAlternativesListed = 4;
 
@@ -190,7 +197,7 @@ namespace protal {
         out.reserve(results.size());
         for (auto const& r : results) {
             AlignmentResult const* ar = pick(r);
-            if (ar && ar->IsSet()) out.emplace_back(ar->Taxid(), AlignmentEdits(ar->GetAlignmentInfo().compressed_cigar));
+            if (ar && ar->IsSet()) out.emplace_back(ar->Taxid(), AlignmentEdits(ar->GetAlignmentInfo()));
         }
         return out;
     }
@@ -458,7 +465,7 @@ namespace protal {
                 Flag::SetNotPrimaryAlignment(m_sam.m_flag, !first);
                 m_sam.m_mapq = first ? mapq : 0;
                 m_sam.m_tlen = 0;
-                if (first) m_sam.m_alternatives = AlternativesTag(ar.Taxid(), AlignmentEdits(ar.GetAlignmentInfo().compressed_cigar), candidates);
+                if (first) m_sam.m_alternatives = AlternativesTag(ar.Taxid(), AlignmentEdits(ar.GetAlignmentInfo()), candidates);
 
                 auto const reference = ReferenceOf(m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()), m_sam);
                 if (!ExtractSNPs(m_sam, reference, snps, ar.Taxid(), ar.GeneId(), 0)) {
@@ -628,9 +635,9 @@ namespace protal {
 
             ArtoSAM(m_sam1, ar1, ar1.GetAlignmentInfo(), record1, qname);
             ArtoSAM(m_sam2, ar2, ar2.GetAlignmentInfo(), record2, qname);
-            m_sam1.m_alternatives = AlternativesTag(ar1.Taxid(), AlignmentEdits(ar1.GetAlignmentInfo().compressed_cigar),
+            m_sam1.m_alternatives = AlternativesTag(ar1.Taxid(), AlignmentEdits(ar1.GetAlignmentInfo()),
                                                     CandidateEdits(results, [](auto const& r) { return &r.first; }));
-            m_sam2.m_alternatives = AlternativesTag(ar2.Taxid(), AlignmentEdits(ar2.GetAlignmentInfo().compressed_cigar),
+            m_sam2.m_alternatives = AlternativesTag(ar2.Taxid(), AlignmentEdits(ar2.GetAlignmentInfo()),
                                                     CandidateEdits(results, [](auto const& r) { return &r.second; }));
             SNPList snps;
             if (!ExtractSNPs(m_sam1, ReferenceOf(m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()), m_sam1), snps, ar1.Taxid(), ar1.GeneId(), 0) ||
@@ -734,7 +741,7 @@ namespace protal {
                     alignment_length += info.alignment_length;
                     alignment_score += info.Score();
                     m_sam1.m_mapq = first ? mapq : 0;
-                    if (first) m_sam1.m_alternatives = AlternativesTag(ar1.Taxid(), AlignmentEdits(info.compressed_cigar), candidates1);
+                    if (first) m_sam1.m_alternatives = AlternativesTag(ar1.Taxid(), AlignmentEdits(info), candidates1);
 
                     valid1 = ExtractSNPs(m_sam1, ReferenceOf(m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()), m_sam1), snps, ar1.Taxid(), ar1.GeneId(), 0);
                 }
@@ -765,7 +772,7 @@ namespace protal {
                     alignment_length += info.alignment_length;
                     alignment_score += info.alignment_score;
                     m_sam2.m_mapq = first ? mapq : 0;
-                    if (first) m_sam2.m_alternatives = AlternativesTag(ar2.Taxid(), AlignmentEdits(info.compressed_cigar), candidates2);
+                    if (first) m_sam2.m_alternatives = AlternativesTag(ar2.Taxid(), AlignmentEdits(info), candidates2);
 
                     valid2 = ExtractSNPs(m_sam2, ReferenceOf(m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()), m_sam2), snps, ar2.Taxid(), ar2.GeneId(), 0);
                 }

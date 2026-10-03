@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 #include "AlignmentUtils.h"
 #include "GeneNeighbours.h"
@@ -18,19 +19,45 @@ namespace protal::across_genes {
     // The expected neighbours of species taxid at end `end` of `gene` (Table::Partners: their share smoothed over
     // its clades), the most common first, at most `max` of them, among the genes the species has in the database:
     // the rules of the nearest clades that saw them.
+    //
+    // The answer for a (taxon, gene, end) is the same through a run and is asked for over and over (every guided
+    // fragment, every gene of every long read), while Table::Partners walks the species' clades and assesses each
+    // partner each time: each thread keeps the answers it has made, for the table and database they came from
+    // (Table::Generation changes whenever a table is read or given lineages), at most kCachedNeighbours of them.
+    inline constexpr size_t kCachedNeighbours = size_t{1} << 16;
+
     inline void Neighbours(GenomeLoader const& genomes, uint32_t taxid, uint32_t gene, End end, size_t max,
                            std::vector<gene_neighbours::Rule const*>& out) {
+        struct Cache {
+            uint64_t generation = 0;
+            GenomeLoader const* genomes = nullptr;
+            std::unordered_map<uint64_t, std::vector<gene_neighbours::Rule const*>> answers;
+        };
+        static thread_local Cache cache;
         static thread_local std::vector<gene_neighbours::Partner> partners;
         out.clear();
         auto const& table = genomes.GetGeneNeighbours();
         if (table.Empty()) return;
-        table.Partners(taxid, gene, end, partners);
-        std::stable_sort(partners.begin(), partners.end(), [](auto const& a, auto const& b) { return a.share > b.share; });
-        for (auto const& p : partners) {
-            if (p.rule->HasPartner() && p.verdict == gene_neighbours::Verdict::Expected && genomes.HasGene(taxid, p.rule->partner)) {
-                out.push_back(p.rule);
-            }
+        if (cache.generation != table.Generation() || cache.genomes != &genomes) {
+            cache.answers.clear();
+            cache.generation = table.Generation();
+            cache.genomes = &genomes;
         }
+        uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | (static_cast<uint64_t>(gene) << 3) | (static_cast<uint64_t>(end) & 7);
+        auto found = cache.answers.find(key);
+        if (found == cache.answers.end()) {
+            if (cache.answers.size() >= kCachedNeighbours) cache.answers.clear();
+            std::vector<gene_neighbours::Rule const*> rules;
+            table.Partners(taxid, gene, end, partners);
+            std::stable_sort(partners.begin(), partners.end(), [](auto const& a, auto const& b) { return a.share > b.share; });
+            for (auto const& p : partners) {
+                if (p.rule->HasPartner() && p.verdict == gene_neighbours::Verdict::Expected && genomes.HasGene(taxid, p.rule->partner)) {
+                    rules.push_back(p.rule);
+                }
+            }
+            found = cache.answers.emplace(key, std::move(rules)).first;
+        }
+        out.assign(found->second.begin(), found->second.end());
         if (out.size() > max) out.resize(max);
     }
 

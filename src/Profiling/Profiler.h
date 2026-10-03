@@ -2595,6 +2595,19 @@ namespace protal {
                 pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
                 if (!pairs.empty() && !m_distances) m_distances = std::make_shared<context::CongenerDistances>(m_genome_loader);
                 std::vector<double> pair_distance(pairs.size(), context::kFarDistance);
+                // The references sketched first, each once, over the threads; the pairs then only compare sketches
+                // (two pairs sharing a reference would otherwise sketch it twice at the same time, one copy wasted).
+                std::vector<uint32_t> to_sketch;
+                to_sketch.reserve(pairs.size() * 2);
+                for (auto const& [a, b] : pairs) {
+                    to_sketch.push_back(a);
+                    to_sketch.push_back(b);
+                }
+                std::sort(to_sketch.begin(), to_sketch.end());
+                to_sketch.erase(std::unique(to_sketch.begin(), to_sketch.end()), to_sketch.end());
+                sam_chunks::ParallelFor(to_sketch.size(), std::max<size_t>(threads, 1), [&](size_t t) {
+                    m_distances->Sketch(to_sketch[t]);
+                });
                 sam_chunks::ParallelFor(pairs.size(), std::max<size_t>(threads, 1), [&](size_t p) {
                     pair_distance[p] = m_distances->Between(pairs[p].first, pairs[p].second);
                 });

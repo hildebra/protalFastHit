@@ -98,6 +98,12 @@ namespace protal::profiler::context {
             return Compared(a, b)->distance;
         }
 
+        // Makes the sketch of taxid now if the run has none yet (SketchOf): for one pass over a sample's taxa on
+        // all its threads before their pairs are compared, each sketch once.
+        void Sketch(uint32_t taxid) {
+            SketchOf(taxid);
+        }
+
         // The two references gene by gene (PairDistances).
         std::shared_ptr<PairDistances const> Compared(uint32_t a, uint32_t b) {
             uint64_t const key = (static_cast<uint64_t>(std::min(a, b)) << 32) | std::max(a, b);
@@ -198,8 +204,14 @@ namespace protal::profiler::context {
     inline constexpr double kEditRatio = 0.05;
     inline constexpr double kMinDivergence = 0.002;
     inline constexpr double kMaxDivergence = 0.2;
+    // The sweeps stop when no taxon's own share (its reads left to it over its records, the feature the EM is for)
+    // changed by kEmTolerance or more in the last sweep, or after kEmIterations. The first rule was a relative change
+    // of any weight below 1e-10, which a sample that converges reached at about twice the sweeps (a 5M-pair sample:
+    // 197 against 105) for the same shares to 1e-6; a taxon whose reads a congener explains about as well (its weight
+    // times its edit factor close to the taxon's reads) loses them at a rate within 1e-4 per sweep of standing still
+    // and runs to the cap under either rule (docs/claude/2026-10-03-performance-review).
     inline constexpr size_t kEmIterations = 200;
-    inline constexpr double kEmTolerance = 1e-10;
+    inline constexpr double kEmTolerance = 1e-6;
 
     // A taxon's best records (all, and those the filters keep) and their differences and aligned bases, for
     // AbundanceWeightedShares.
@@ -238,18 +250,23 @@ namespace protal::profiler::context {
     // so the shares are the same to the last bit (test ReferenceShares) at a small fraction of the instructions
     // (docs/claude/2026-10-03-performance-review). A taxon without records (an alternative the counts lack) has
     // weight 0 throughout, as it had no entry before.
+    //
+    // `tolerance` and `max_sweeps` are kEmTolerance and kEmIterations (tests pass others: 0 runs every sweep).
     inline std::unordered_map<uint32_t, OwnShares> AbundanceWeightedShares(AmbiguityClasses const& classes,
-                                                                           std::map<uint32_t, RecordCounts> const& counts) {
+                                                                           std::map<uint32_t, RecordCounts> const& counts,
+                                                                           double tolerance = kEmTolerance,
+                                                                           size_t max_sweeps = kEmIterations) {
         // Indices: the taxa of the counts first, then any other taxon a class names, in class order.
         std::unordered_map<uint32_t, uint32_t> index;
         index.reserve(counts.size() * 2);
-        std::vector<double> plain, weight, ratio;
+        std::vector<double> plain, weight, ratio, records;
         auto index_of = [&](uint32_t taxid) {
             auto const [it, added] = index.emplace(taxid, static_cast<uint32_t>(plain.size()));
             if (added) {
                 plain.push_back(0);
                 weight.push_back(0);
                 ratio.push_back(0);
+                records.push_back(0);
             }
             return it->second;
         };
@@ -258,6 +275,7 @@ namespace protal::profiler::context {
             plain[i] = static_cast<double>(c.records);
             weight[i] = static_cast<double>(c.records);
             ratio[i] = EditRatio(c);
+            records[i] = static_cast<double>(c.records);
         }
 
         // The classes, resolved: own index, reads, kept flag, and the alternatives' (index, factor).
@@ -305,23 +323,28 @@ namespace protal::profiler::context {
             }
             for (auto& s : shares) s /= total;
         };
-        std::vector<double> next;
-        for (size_t iteration = 0; iteration < kEmIterations && !resolved.empty(); iteration++) {
+        std::vector<double> next, own(plain.size(), 0.0), previous_share(plain.size(), 0.0);
+        for (size_t iteration = 0; iteration < max_sweeps && !resolved.empty(); iteration++) {
             next = plain;
+            std::fill(own.begin(), own.end(), 0.0);
             for (auto const& c : resolved) {
                 posterior(c);
-                next[c.own] += c.n * shares[0];
+                double const to_own = c.n * shares[0];
+                next[c.own] += to_own;
+                own[c.own] += to_own;
                 for (uint32_t k = 0; k < c.count; k++) {
                     if (shares[1 + k] > 0) next[alternatives[c.first + k].index] += c.n * shares[1 + k];
                 }
             }
+            // The sweep's largest change of any taxon's own share: converged when below the tolerance.
             double change = 0;
-            for (size_t i = 0; i < next.size(); i++) {
-                double const old = weight[i];
-                change = std::max(change, std::abs(next[i] - old) / std::max(1.0, old));
+            for (size_t i = 0; i < own.size(); i++) {
+                double const share = (plain[i] + own[i]) / std::max(1.0, records[i]);
+                if (iteration > 0) change = std::max(change, std::abs(share - previous_share[i]));
+                previous_share[i] = share;
             }
             weight.swap(next);
-            if (change < kEmTolerance) break;
+            if (iteration > 0 && change < tolerance) break;
         }
 
         std::vector<double> own_all(plain.size(), 0.0), own_kept(plain.size(), 0.0);
