@@ -675,8 +675,11 @@ namespace protal {
 
         if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
         auto& taxonomy = db.GetTaxonomy();
-        // Which of a read's alternatives (ZA) are congeners of its taxon.
+        // Which of a read's alternatives (ZA) are congeners of its taxon; and the taxa's families and the distances of
+        // their references, for what the other taxa of a sample say of each (MicrobialProfile::ApplySampleContext).
         auto const genera = profiler::GeneraOf(taxonomy);
+        auto const families = profiler::FamiliesOf(taxonomy);
+        auto const distances = std::make_shared<profiler::context::CongenerDistances>(genomes);
 
         // Each thread scores with its own copy (firstprivate): scoring reuses a buffer. Copies share
         // the loaded model.
@@ -772,6 +775,9 @@ namespace protal {
             profile.SetName(sample_name);
             profile.SetReadType(read_type);
             profile.SetGenera(genera);
+            profile.SetFamilies(families);
+            profile.SetCongenerDistances(distances);
+            profile.SetSingletonCongener(options.GetSingletonCongener());
             profile.SetDropForeignGenes(options.DropForeignGenes());
             // A long-read sample's strains get strain MSA rows of their own (Haplotypes.h).
             profile.SetKeepPhaseRecords(!options.NoStrains() && options.Phasing() && IsLongReadType(read_type));
@@ -793,8 +799,29 @@ namespace protal {
             // The sample's threshold, on this thread's copy of the model: --knob if given, else the model's knob for the
             // sample's depth (its fragments over all taxa) if it has depth knobs (the trainer's), else --knob's default.
             // Its taxa enter the strain MSAs at --msa_knob if given, else at the same.
+            // With a model's calibration (random_forest_cmdline.py --fdr-calls), unless --knob or --fdr 0: the knob at
+            // which the sample's expected share of false calls is at most the model's target or --fdr's
+            // (context::FalseCallKnob), over its taxa the singleton rule does not veto.
             filter.SetKnob(options.GetKnob());
-            if (!options.KnobGiven() && filter.HasDepthKnobs()) {
+            bool const false_call_mode = !options.KnobGiven() && filter.HasFalseCalls() &&
+                                         (!options.FdrGiven() || options.GetFdr() > 0);
+            if (false_call_mode) {
+                profile.ScoreTaxa(filter, threads_per_sample);
+                std::vector<double> scores;
+                for (auto const& [_, taxon] : profile.GetTaxa()) {
+                    if (!taxon.Vetoed()) scores.push_back(filter.Score(taxon));
+                }
+                auto const& model = filter.FalseCalls();
+                double const fdr = options.FdrGiven() ? options.GetFdr() : model.fdr;
+                auto const calls = profiler::context::FalseCallKnob(std::move(scores), model.curve, model.prior, fdr);
+                filter.SetKnob(calls.knob);
+                #pragma omp critical(print)
+                std::cout << "Sample " << sample_name << ": " << profile.Fragments() << " fragments, " << calls.called
+                          << " taxa at an expected share of false calls of at most " << profiler::FeatureString(fdr)
+                          << " (" << profiler::FeatureString(std::round(calls.expected_false * 100) / 100)
+                          << " expected; prior adjusted to the sample " << profiler::FeatureString(calls.sample_prior)
+                          << "), knob " << profiler::FeatureString(calls.knob) << std::endl;
+            } else if (!options.KnobGiven() && filter.HasDepthKnobs()) {
                 size_t const fragments = profile.Fragments();
                 if (auto const depth_knob = filter.DepthKnob(fragments)) {
                     filter.SetKnob(*depth_knob);
@@ -894,12 +921,12 @@ namespace protal {
 
             for (auto const& [taxid, taxon] : profile.GetTaxa()) {
                 double const score = filter.Score(taxon);
-                if (score >= filter.GetKnob() || !profiler::StrongOwnEvidence(taxon)) continue;
+                if (filter.Calls(taxon, filter.GetKnob()) || !profiler::StrongOwnEvidence(taxon)) continue;
                 std::string const species = taxonomy.Get(taxid).scientific_name;
                 std::ostringstream line;
                 line << options.GetSampleId(i) << '\t' << species << '\t' << taxid << '\t' << score << '\t'
                      << taxon.VerticalCoverage() << '\t' << taxon.HitGeneFraction() << '\t' << taxon.TopIdentity() << '\t'
-                     << taxon.LowIdentityShare() << '\t' << (score >= msa_knob ? "yes" : "no");
+                     << taxon.LowIdentityShare() << '\t' << (filter.Calls(taxon, msa_knob) ? "yes" : "no");
                 unreported_slots[idx].push_back({ species, line.str() });
             }
 
@@ -1135,9 +1162,10 @@ namespace protal {
     using SimilarityMatrix = DoubleMatrix;
 
     // Whether `taxon` of `profile` enters the strain MSAs: the model `filter` scores it at the profile's MSA knob or more
-    // (--msa_knob, else the threshold the sample was reported at: --knob, or its model's knob for its depth).
+    // (--msa_knob, else the threshold the sample was reported at: --knob, or its model's knob for its depth or its
+    // share of false calls), and the singleton rule does not veto it.
     static bool EntersMSA(profiler::TaxonFilterObj const& filter, Profile const& profile, profiler::Taxon const& taxon) {
-        return filter.Score(taxon) >= profile.MSAKnob();
+        return filter.Calls(taxon, profile.MSAKnob());
     }
 
     // Taxa in at least `min_samples` profiles (entering the MSAs by `filter`, if given), the most frequent first.
@@ -2188,9 +2216,11 @@ namespace protal {
         }
         std::map<int, double> depth_knobs;
         profiler::DepthKnobCurve depth_knob_curve;
+        profiler::FalseCallModel false_calls;
         auto problem = profiler::ModelContractProblemInXml(model.value(), *xml);
         if (problem.empty()) problem = profiler::ParseDepthKnobs(*xml, depth_knobs);
         if (problem.empty()) problem = profiler::ParseDepthKnobCurve(*xml, depth_knob_curve);
+        if (problem.empty()) problem = profiler::ParseFalseCalls(*xml, false_calls);
         if (problem.empty() && !depth_knobs.empty() && !depth_knob_curve.empty()) {
             problem = "it has depth knobs twice, as bins (" + std::string(profiler::kDepthKnobsExtension) + ") and as a curve (" +
                       std::string(profiler::kDepthKnobCurveExtension) + ")";
@@ -2201,6 +2231,7 @@ namespace protal {
         }
         model->SetDepthKnobs(std::move(depth_knobs));
         model->SetDepthKnobCurve(std::move(depth_knob_curve));
+        model->SetFalseCalls(std::move(false_calls));
         if (profiler::IsPlaceholderModel(*xml)) {
             std::cerr << "WARNING: " << file.Name() << " is a placeholder, not a trained model: it scores every taxon 0, so "
                       << "no species is reported (--knob 0 lists every taxon with reads). Train a model for this read type "
@@ -2323,6 +2354,22 @@ namespace protal {
                     auto const model_file = options.ModelDbFile(info.type);
                     std::cout << "Model of " << info.name << " reads: " << model_file.Name() << std::endl;
                     auto const& model = models[static_cast<size_t>(info.type)].emplace(LoadModel(model_file, options.GetKnob()));
+                    if (options.FdrGiven() && options.GetFdr() > 0 && !model.HasFalseCalls()) {
+                        std::cerr << "--fdr needs a model with a calibration (random_forest_cmdline.py --fdr-calls); "
+                                  << model_file.Name() << " has none" << std::endl;
+                        exit(2);
+                    }
+                    if (model.HasFalseCalls()) {
+                        auto const& calls = model.FalseCalls();
+                        bool const used = !options.KnobGiven() && (!options.FdrGiven() || options.GetFdr() > 0);
+                        std::cout << "  calls at an expected share of false calls of " << profiler::FeatureString(calls.fdr)
+                                  << " (calibrated, " << calls.curve.size() << " points; training prior "
+                                  << profiler::FeatureString(calls.prior) << ")"
+                                  << (!used ? (options.KnobGiven() ? "; not used, --knob is given" : "; not used, --fdr 0")
+                                            : options.FdrGiven() ? "; at --fdr " + profiler::FeatureString(options.GetFdr())
+                                                                 : std::string("; the depth knobs are not used"))
+                                  << std::endl;
+                    }
                     if (!model.GetDepthKnobCurve().empty()) {
                         std::string knobs;
                         for (auto const& [x, knob] : model.GetDepthKnobCurve()) {
@@ -2415,7 +2462,7 @@ namespace protal {
                         if (!taxa.contains(taxid)) continue;
 
                         auto& taxon = taxa.at(taxid);
-                        bool accepted = filter.Score(taxon) >= profile.Knob();
+                        bool accepted = filter.Calls(taxon, profile.Knob());
                         stats.PrintLine(os, profile.GetName(), taxon.VerticalCoverage(), taxon.TotalHits(), taxon.TotalLength(), taxon.GetMeanANI(), taxon.GetMeanMAPQ(), accepted);
                     }
                     os.close();

@@ -85,10 +85,13 @@ def parse_args(argv=None):
                    help="abundance model: lognormal:SIGMA, powerlaw:ALPHA or negbin:R:P (default: the simulator's, "
                         "Poisson-lognormal with sigma 1.3)")
     p.add_argument("--archaea", type=int, default=0, help="archaeal species per sample (default: 0)")
-    p.add_argument("--congeners", type=int, default=0,
-                   help="species of one genus in every sample of a design point, the genus drawn per point among "
-                        "those with that many species (default: 0). Species are otherwise drawn uniformly, so among "
-                        "many genera relatives hardly ever share a sample, while in real samples they often do")
+    p.add_argument("--congeners", default="0", type=congener_spec,
+                   help="relatives that share a sample. SHARE:MIN-MAX (e.g. 0.25:2-5): about SHARE of each sample's "
+                        "species come in groups of MIN to MAX species of one genus, the genera drawn per sample "
+                        "(simulate_metagenomes --congener_groups); N: N species of one genus in every sample of a "
+                        "design point, the genus drawn per point among those with that many species; 0 (default): "
+                        "none. Species are otherwise drawn uniformly, so among many genera relatives hardly ever "
+                        "share a sample, while in real samples they often do, at very different abundances")
     p.add_argument("--read_types", default="pe",
                    help="comma-separated read types to collect: pe, se, pb, ont (default pe)")
     p.add_argument("--long_read_bases", default="300000,1500000,6000000,30000000,150000000",
@@ -148,6 +151,25 @@ META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pai
 TABLES = {"pe": "training_data.tsv", "se": "training_data_se.tsv", "pb": "training_data_pb.tsv",
           "ont": "training_data_ont.tsv"}
 MAP_COLUMNS = ["SAMPLEID", "FIRST", "SECOND", "SAM", "PREFIX", "PROFILE", "PROFILE_TRUTH", "READ_TYPE"]
+
+
+def congener_spec(text):
+    """--congeners: ("groups", "SHARE:MIN-MAX") for congener groups in every sample, ("genus", N) for N species of one
+    genus per design point, or ("genus", 0) for none."""
+    text = str(text).strip()
+    if ":" in text:
+        share, _, sizes = text.partition(":")
+        lo, _, hi = sizes.partition("-")
+        try:
+            ok = 0 <= float(share) <= 1 and lo.isdigit() and hi.isdigit() and 2 <= int(lo) <= int(hi)
+        except ValueError:
+            ok = False
+        if not ok:
+            raise argparse.ArgumentTypeError(f"{text!r}: expected SHARE:MIN-MAX (a share 0-1, 2 <= MIN <= MAX), or N")
+        return ("groups", f"{float(share):g}:{int(lo)}-{int(hi)}")
+    if not text.isdigit():
+        raise argparse.ArgumentTypeError(f"{text!r}: expected SHARE:MIN-MAX (e.g. 0.25:2-5) or a number of species")
+    return ("genus", int(text))
 
 
 def large_genera(genome_table, size):
@@ -524,13 +546,16 @@ def simulation_command(point, index, opts, threads, clades):
         taxa += [f"{clades[rank][index % len(clades[rank])]}:{opts.novel_clades}" for rank in sorted(clades)]
     if taxa:
         command += ["--taxon", ",".join(taxa)]
-    if opts.congeners > 0:
-        genera = large_genera(opts.genome_table, opts.congeners)
+    kind, congeners = opts.congeners
+    if kind == "genus" and congeners > 0:
+        genera = large_genera(opts.genome_table, congeners)
         if not genera:
-            return command, f"no genus in {opts.genome_table} has {opts.congeners} species (--congeners)"
-        command += ["--genus", "g__" + random.Random(opts.seed * 1000 + index).choice(genera) + f":{opts.congeners}"]
-    if taxa or opts.congeners > 0:
+            return command, f"no genus in {opts.genome_table} has {congeners} species (--congeners)"
+        command += ["--genus", "g__" + random.Random(opts.seed * 1000 + index).choice(genera) + f":{congeners}"]
+    if taxa or (kind == "genus" and congeners > 0):
         command += ["--pick_random_demand_if_fail"]
+    if kind == "groups":
+        command += ["--congener_groups", congeners]
     return command, None
 
 

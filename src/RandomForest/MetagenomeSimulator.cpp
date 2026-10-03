@@ -334,6 +334,38 @@ std::unordered_map<std::string, std::size_t> parse_taxon_selection(const std::st
     return taxon_counts;
 }
 
+void parse_congener_groups(const std::string& text, ProfileDesignOptions& options) {
+    if (text.empty()) return;
+    auto const fail = [&text]() {
+        throw std::runtime_error("Invalid --congener_groups (expected SHARE:MIN-MAX, a share of the sample's species "
+                                 "0-1 and 2 <= MIN <= MAX species per genus, e.g. 0.25:2-5): " + text);
+    };
+    auto const colon = text.find(':');
+    auto const dash = text.find('-', colon == std::string::npos ? 0 : colon);
+    if (colon == std::string::npos || dash == std::string::npos) fail();
+    double share = -1;
+    std::size_t lo = 0, hi = 0;
+    try {
+        std::size_t used = 0;
+        share = std::stod(text.substr(0, colon), &used);
+        if (used != colon) fail();
+        std::string const lo_text = text.substr(colon + 1, dash - colon - 1), hi_text = text.substr(dash + 1);
+        if (lo_text.empty() || hi_text.empty() ||
+            lo_text.find_first_not_of("0123456789") != std::string::npos ||
+            hi_text.find_first_not_of("0123456789") != std::string::npos) fail();
+        lo = static_cast<std::size_t>(std::stoull(lo_text));
+        hi = static_cast<std::size_t>(std::stoull(hi_text));
+    } catch (const std::invalid_argument&) {
+        fail();
+    } catch (const std::out_of_range&) {
+        fail();
+    }
+    if (!(share >= 0 && share <= 1) || lo < 2 || hi < lo) fail();
+    options.congener_share = share;
+    options.congener_min = lo;
+    options.congener_max = hi;
+}
+
 // fasta_path and art_seed are appended after the historical columns, never inserted
 // between them: downstream consumers read manifests by column name, so growing the
 // header on the right keeps every existing reader working.

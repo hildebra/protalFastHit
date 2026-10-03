@@ -21,7 +21,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from model_pmml import (PmmlForest, float32_split, format_depth_knob_curve, format_depth_knobs,  # noqa: E402
-                        read_depth_knob_curve, read_depth_knobs, write_forest)
+                        read_depth_knob_curve, read_depth_knobs, read_false_calls, write_forest)
 
 try:
     import pandas as pd
@@ -133,6 +133,23 @@ class ForestExportTest(unittest.TestCase):
         self.assertEqual(read_depth_knob_curve(path), [])
         self.assertEqual(format_depth_knobs({6: 0.05, 3: 0.5}), "3:0.5,6:0.05")
 
+    def test_false_calls(self):
+        # The calibration, prior and target as Extensions (profiler::ParseFalseCalls), each number as its double's
+        # shortest text, read back exactly; none without them.
+        rf = RandomForestClassifier(n_estimators=2, random_state=1).fit(self.X, self.y)
+        path = os.path.join(self.tmp.name, "calls.xml")
+        calls = {"curve": [(0.0, 0.0001), (0.1 + 0.2, 0.25), (1.0, 0.99)], "prior": 0.2137, "fdr": 0.05}
+        write_forest(rf, self.features, path, false_calls=calls, depth_knob_curve=[(2.0, 0.5)])
+        with open(path) as fh:
+            xml = fh.read()
+        self.assertIn('<Extension name="protal_calibration" value="0.0:0.0001,0.30000000000000004:0.25,1.0:0.99"/>', xml)
+        self.assertIn('<Extension name="protal_prior" value="0.2137"/>', xml)
+        self.assertIn('<Extension name="protal_fdr" value="0.05"/>', xml)
+        self.assertEqual(read_false_calls(path), calls)
+        self.assertEqual(read_depth_knob_curve(path), [(2.0, 0.5)])
+        write_forest(rf, self.features, path)
+        self.assertIsNone(read_false_calls(path))
+
     def test_rejects_other_classes(self):
         rf = RandomForestClassifier(n_estimators=2, random_state=1).fit(self.X, np.where(self.y == 1, "yes", "no"))
         with self.assertRaises(ValueError):
@@ -141,16 +158,26 @@ class ForestExportTest(unittest.TestCase):
 
 @unittest.skipIf(RandomForestClassifier is None, "needs scikit-learn")
 class FeatureSetsTest(unittest.TestCase):
-    """The trainer's default features are the normalised ones and the gene neighbours'; normalized leaves those out."""
+    """The trainer's default features are the normalised ones and the gene neighbours'; normalized leaves those out, and
+    normalized+adjacency+relatives adds the relatives'."""
 
     def test_default_set_has_the_gene_neighbour_features(self):
         import model_features as mf
         import random_forest_cmdline
-        columns = ["truth", "taxon", "meta_sample"] + mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + ["other"]
+        columns = (["truth", "taxon", "meta_sample"] + mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES +
+                   mf.RELATIVE_FEATURES + ["genus_top_fragments", "other"])
         self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET), mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES)
+        relatives = mf.feature_columns(columns, "normalized+adjacency+relatives")
+        self.assertEqual(relatives, mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.RELATIVE_FEATURES)
         self.assertEqual(mf.feature_columns(columns, "normalized"), mf.NORMALIZED_FEATURES)
+        self.assertEqual(mf.feature_columns(columns, "normalized+adjacency+distance"),
+                         mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES)
+        self.assertTrue(set(mf.DISTANCE_FEATURES) <= set(mf.RELATIVE_FEATURES))
+        self.assertNotIn("genus_top_fragments", relatives)  # it counts reads
         with self.assertRaisesRegex(RuntimeError, "adjacent_support"):  # a table of an older protal
             mf.feature_columns([c for c in columns if c != "adjacent_support"], mf.DEFAULT_FEATURE_SET)
+        with self.assertRaisesRegex(RuntimeError, "em_own_share"):  # a table of protal before the relatives features
+            mf.feature_columns([c for c in columns if c != "em_own_share"], "normalized+adjacency+relatives")
         opts = random_forest_cmdline.parse_args(["--truth-file", "t.tsv", "--output-prefix", "p"])
         self.assertEqual(opts.features, "normalized+adjacency")
 
@@ -314,6 +341,131 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         finally:
             self.trainer.PREVIOUS_GRID_ROWS = limit
         self.assertEqual(sorted(frame["meta_sample"].iloc[rows].value_counts().tolist()), [30, 30, 30])  # a 4th: 120
+
+
+@unittest.skipIf(RandomForestClassifier is None, "needs numpy, pandas and scikit-learn")
+class TrainerFalseCallsTest(unittest.TestCase):
+    """random_forest_cmdline.py --fdr-calls and the singleton rule: the calibration, the prior adjusted to each sample
+    and the calls at a target share of false calls, as protal makes them (context::FalseCallKnob)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import random_forest_cmdline
+        cls.trainer = random_forest_cmdline
+        cls.tmp = tempfile.TemporaryDirectory()
+        rng = np.random.default_rng(11)
+        rows = []
+        for sample in range(40):
+            deep = sample % 2 == 1
+            absent = 60 if deep else 10  # a deep sample has many more absent candidates
+            for taxon in range(8 + absent):
+                present = taxon < 8
+                fragments = float(rng.integers(500, 3000) if deep else rng.integers(5, 30)) if present else \
+                    float(1 if taxon % 3 == 0 else rng.integers(1, 20))
+                rows.append({"truth": int(present), "taxon": 100 + (taxon + sample) % 90, "taxon_name": "t",
+                             "meta_sample": f"s{sample}", "meta_read_pairs": 100000 if deep else 1000,
+                             "fragments": fragments, "x": 1.2 * present + rng.normal(0, 0.6), "y": rng.normal(0, 1),
+                             "genus_top_fragments": 500.0 if (not present and taxon % 3 == 0) else 0.0,
+                             "em_own_share": 0.3 if (not present and taxon % 3 == 0) else 1.0,
+                             "identity": 0.93 if not present else 0.99})
+        cls.table = os.path.join(cls.tmp.name, "training.tsv")
+        pd.DataFrame(rows).to_csv(cls.table, sep="\t", index=False)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def train(self, name, *extra):
+        prefix = os.path.join(self.tmp.name, name)
+        result = subprocess.run([sys.executable, os.path.join(HERE, "random_forest_cmdline.py"), "--truth-file", self.table,
+                                 "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--evaluation", "basic",
+                                 "--threads", "1", "--test-file", self.table, *extra], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
+        with open(prefix + ".metrics.json") as fh:
+            return prefix + ".xml", json.load(fh), result.stdout
+
+    def test_prior_adjustment_as_protal(self):
+        # Probabilities whose mean is the prior stay; many unlikely candidates lower the sample's rate and every
+        # probability (context::SampleAdjusted).
+        q = np.array([0.9, 0.1, 0.5, 0.5])
+        adjusted, rate = self.trainer.sample_adjusted(q, 0.5)
+        self.assertAlmostEqual(rate, 0.5)
+        np.testing.assert_allclose(adjusted, q, atol=1e-9)
+        deep = np.concatenate([[0.95, 0.9], np.full(198, 0.05)])
+        adjusted, rate = self.trainer.sample_adjusted(deep, 0.3)
+        self.assertLess(rate, 0.1)
+        self.assertLess(adjusted[0], 0.95)
+
+    def test_calls_at_a_target_as_protal(self):
+        # context::FalseCallKnob: the highest-scoring taxa while the mean of their 1 - probability is at most the target;
+        # every taxon at the last one's score; the singleton rule's taxa never. Checked against that rule sample by sample.
+        frame = pd.DataFrame({"meta_sample": ["a"] * 6 + ["b"] * 3,
+                              "fragments": [5, 5, 5, 5, 1, 5, 5, 5, 5], "genus_top_fragments": [0, 0, 0, 0, 500, 0, 0, 0, 0],
+                              "em_own_share": [1, 1, 1, 1, 0.2, 1, 1, 1, 1], "identity": [0.99] * 9})
+        p = np.array([0.99, 0.95, 0.95, 0.4, 0.98, 0.1, 0.9, 0.2, 0.05])
+        y = np.array([1, 1, 0, 0, 0, 0, 1, 0, 0])
+        curve = [(0.0, 0.0), (1.0, 1.0)]
+        prepared = self.trainer.FalseCallSamples(frame, y, p, curve, 0.5)
+        for fdr in (0.001, 0.03, 0.1, 0.3, 0.6):
+            calls = prepared.calls(fdr)
+            self.assertFalse(calls[4], "the singleton rule's taxon")
+            for sample in ("a", "b"):
+                rows = np.flatnonzero((frame["meta_sample"] == sample).to_numpy() & (frame["fragments"] > 1).to_numpy())
+                scores = np.sort(p[rows])[::-1]
+                adjusted, _ = self.trainer.sample_adjusted(np.interp(scores, *zip(*curve)), 0.5)
+                means = np.cumsum(1 - adjusted) / np.arange(1, len(scores) + 1)
+                n = int((means <= fdr).sum())
+                knob = scores[n - 1] if n else np.inf
+                np.testing.assert_array_equal(calls[rows], p[rows] >= knob, f"fdr {fdr}, sample {sample}")
+            tp, fp = prepared.counts(fdr)
+            self.assertEqual((tp, fp), (int((calls & (y == 1)).sum()), int((calls & (y == 0)).sum())))
+        self.assertEqual(prepared.calls(0.3)[1], prepared.calls(0.3)[2], "tied scores are called together")
+
+    def test_calibration(self):
+        rng = np.random.default_rng(3)
+        p = rng.random(5000)
+        y = (rng.random(5000) < p ** 2).astype(int)
+        curve, prior = self.trainer.fit_calibration(y, p)
+        xs, ys = zip(*curve)
+        self.assertEqual(xs[0], 0.0)
+        self.assertEqual(xs[-1], 1.0)
+        self.assertTrue(all(b > a for a, b in zip(xs, xs[1:])))
+        self.assertTrue(all(b >= a for a, b in zip(ys, ys[1:])))
+        self.assertLessEqual(len(curve), self.trainer.CALIBRATION_POINTS + 2)
+        self.assertAlmostEqual(prior, y.mean())
+        self.assertAlmostEqual(float(np.interp(0.5, xs, ys)), 0.25, delta=0.05)
+
+    def test_singleton_rule(self):
+        # Vetoed: one fragment beside a congener of 100 or more, and a read that looks like the congener's (EM share
+        # below 0.5 or identity below 0.95); a minor congener's own read (both high) is kept.
+        frame = pd.DataFrame({"fragments": [1, 1, 2, 1, 1, 1], "genus_top_fragments": [100, 99, 500, 0, 200, 200],
+                              "em_own_share": [0.2, 0.2, 0.2, 0.2, 0.98, 0.98], "identity": [0.99, 0.99, 0.99, 0.99, 0.97, 0.93]})
+        try:
+            self.trainer.SINGLETON_CONGENER = 100
+            np.testing.assert_array_equal(self.trainer.vetoed(frame), [True, False, False, False, False, True])
+            np.testing.assert_array_equal(self.trainer.call_scores(frame, np.full(6, 0.9)) >= 0.5,
+                                          [False, True, True, True, True, False])
+            self.trainer.SINGLETON_CONGENER = 0
+            self.assertFalse(self.trainer.vetoed(frame).any())
+            self.trainer.SINGLETON_CONGENER = 100
+            self.assertFalse(self.trainer.vetoed(frame.drop(columns="genus_top_fragments")).any(), "an older dump")
+        finally:
+            self.trainer.SINGLETON_CONGENER = 100
+
+    def test_fdr_calls_in_the_model(self):
+        model, metrics, stdout = self.train("fdr", "--fdr-calls", "--depth-knobs")
+        calls = read_false_calls(model)
+        self.assertIsNotNone(calls)
+        self.assertEqual(calls["fdr"], metrics["false_calls"]["fdr"])
+        self.assertIn(calls["fdr"], [float(v) for v in self.trainer.FDR_GRID])
+        self.assertEqual([tuple(c) for c in metrics["false_calls"]["curve"]], calls["curve"])
+        self.assertIn("test_false_calls", metrics)
+        self.assertIn("singleton rule (one fragment beside a congener of 100 or more", stdout)
+        self.assertIn("FP fdr", metrics["test_by_depth"][0])
+        _, plain, _ = self.train("no_fdr")
+        self.assertNotIn("false_calls", plain)
+        self.assertIsNone(read_false_calls(os.path.join(self.tmp.name, "no_fdr.xml")))
+
 
 
 if __name__ == "__main__":

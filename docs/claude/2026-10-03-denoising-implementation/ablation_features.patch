@@ -1,0 +1,26 @@
+--- a/model_features.py	2026-10-03 02:27:00.483338400 +0100
++++ b/model_features.py	2026-10-03 02:27:00.641067600 +0100
+@@ -88,7 +88,10 @@
+ # (docs/claude/2026-10-03-denoising-implementation).
+ DISTANCE_FEATURES = ["relative_skew", "relative_distance", "relative_spill", "relative_close_share"]
+ 
+-FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance", "all")
++EM_FEATURES = ["em_own_share", "em_kept_own_share"]
++RANK_FEATURES = ["genus_skew", "family_skew", "genus_share", "genus_spill"]
++FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
++                "na+em", "na+distance", "na+rank", "all")
+ DEFAULT_FEATURE_SET = "normalized+adjacency"
+ 
+ 
+@@ -100,7 +103,10 @@
+         return available
+     chosen = {"normalized": NORMALIZED_FEATURES, "normalized+adjacency": NORMALIZED_FEATURES + ADJACENCY_FEATURES,
+               "normalized+adjacency+relatives": NORMALIZED_FEATURES + ADJACENCY_FEATURES + RELATIVE_FEATURES,
+-              "normalized+adjacency+distance": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES}
++              "normalized+adjacency+distance": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES,
++              "na+em": NORMALIZED_FEATURES + ADJACENCY_FEATURES + EM_FEATURES,
++              "na+distance": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES,
++              "na+rank": NORMALIZED_FEATURES + ADJACENCY_FEATURES + RANK_FEATURES}
+     if feature_set not in chosen:
+         raise ValueError(f"unknown feature set {feature_set!r}")
+     missing = [c for c in chosen[feature_set] if c not in available]

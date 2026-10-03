@@ -33,6 +33,12 @@ DEPTH_KNOB_CURVE_EXTENSION = "protal_depth_knob_curve"
 # An older model's knobs by sample depth (profiler::kDepthKnobsExtension): "2:0.31,3:0.42", bin of the sample's
 # fragments (the digits of their number less one, 2 to 6) : knob. protal still reads them.
 DEPTH_KNOBS_EXTENSION = "protal_depth_knobs"
+# A model's calls at a target share of false calls (random_forest_cmdline.py --fdr-calls; profiler::ParseFalseCalls, read by
+# context::FalseCallKnob): the calibration "0.02:0.001,0.5:0.31" (score : probability, linear between the points, the ends'
+# beyond them), the share of present taxa among the rows it was fitted on, and the target.
+CALIBRATION_EXTENSION = "protal_calibration"
+PRIOR_EXTENSION = "protal_prior"
+FDR_EXTENSION = "protal_fdr"
 
 
 def write_placeholder(path, read_type):
@@ -78,11 +84,11 @@ def float32_split(threshold):
     return middle if even else float(np.nextafter(middle, -np.inf))
 
 
-def write_forest(forest, features, path, annotations=(), depth_knob_curve=None):
+def write_forest(forest, features, path, annotations=(), depth_knob_curve=None, false_calls=None):
     """Write a fitted RandomForestClassifier with classes 0/1 (or False/True), trained on the
     columns `features` in this order, as PMML for protal. `annotations` go into the header, and
     `depth_knob_curve` ([(log10 fragments, knob)], see DEPTH_KNOB_CURVE_EXTENSION), if any, as an Extension
-    protal reads."""
+    protal reads; so do `false_calls`, {"curve": [(score, probability)], "prior": p, "fdr": f} (CALIBRATION_EXTENSION)."""
     try:
         classes = [int(c) for c in forest.classes_]
     except (TypeError, ValueError):
@@ -97,6 +103,10 @@ def write_forest(forest, features, path, annotations=(), depth_knob_curve=None):
     w(' <Header description="protal presence model: probability that a taxon is present">\n')
     if depth_knob_curve:
         w(f'  <Extension name="{DEPTH_KNOB_CURVE_EXTENSION}" value="{format_depth_knob_curve(depth_knob_curve)}"/>\n')
+    if false_calls:
+        w(f'  <Extension name="{CALIBRATION_EXTENSION}" value="{format_calibration(false_calls["curve"])}"/>\n')
+        w(f'  <Extension name="{PRIOR_EXTENSION}" value="{float(false_calls["prior"])!r}"/>\n')
+        w(f'  <Extension name="{FDR_EXTENSION}" value="{float(false_calls["fdr"])!r}"/>\n')
     w('  <Application name="protal scripts/random_forest_cmdline.py"/>\n')
     for note in annotations:
         w(f'  <Annotation>{_text(note)}</Annotation>\n')
@@ -152,6 +162,23 @@ def read_depth_knob_curve(path):
     """The depth knob curve ([(log10 fragments, knob)]) in the header of the PMML model at `path`; [] without one."""
     value = _header_extension(path, DEPTH_KNOB_CURVE_EXTENSION)
     return [(float(x), float(k)) for x, k in (item.split(":") for item in (value or "").split(",") if item)]
+
+
+def format_calibration(curve):
+    """[(score, probability)] as the calibration extension's value, each number as the shortest text of its double (repr),
+    so that protal interpolates the points the trainer evaluated."""
+    return ",".join(f"{float(x)!r}:{float(y)!r}" for x, y in curve)
+
+
+def read_false_calls(path):
+    """The calls at a target share of false calls in the header of the PMML model at `path`: {"curve", "prior", "fdr"}, or
+    None without them."""
+    curve = _header_extension(path, CALIBRATION_EXTENSION)
+    if curve is None:
+        return None
+    points = [(float(x), float(y)) for x, y in (item.split(":") for item in curve.split(",") if item)]
+    return {"curve": points, "prior": float(_header_extension(path, PRIOR_EXTENSION)),
+            "fdr": float(_header_extension(path, FDR_EXTENSION))}
 
 
 def format_depth_knobs(knobs):

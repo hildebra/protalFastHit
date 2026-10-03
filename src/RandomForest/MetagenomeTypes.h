@@ -62,6 +62,13 @@ struct ProfileDesignOptions {
     std::vector<double> strain_probabilities;  // probabilities for adding 2nd, 3rd, ... strain of a species
     std::unordered_map<std::string, std::size_t> taxon_species_counts;  // requested species counts per taxon token
     bool pick_random_demand_if_fail{false};  // if true, cap genus/taxon demands to species_per_sample instead of failing
+    // Congener groups (--congener_groups SHARE:MIN-MAX): about SHARE of each sample's species come in groups of MIN to
+    // MAX species of one genus, the genera drawn per sample among those with MIN species or more. Without them
+    // (SHARE 0) the species are drawn uniformly, and among thousands of genera congeners hardly ever share a sample,
+    // while in real samples they often do, at very different abundances.
+    double congener_share{0.0};
+    std::size_t congener_min{2};
+    std::size_t congener_max{5};
 
     // Cross-sample strain sharing: consumed by MetagenomeSimulator before the per-sample loop.
     std::vector<StrainSharingSpec> strain_sharing;

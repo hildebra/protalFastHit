@@ -1,0 +1,161 @@
+=== F1 (and CV F1, AP, best-threshold F1) ===
+reads trained on     features tested on  CV F1  F1 0.5  F1 curve  F1 fdr     AP  best F1   fdr
+   pe       base           na      base 0.9872  0.9772    0.9762  0.9751 0.9943   0.9790 0.010
+   pe       base na+relatives      base 0.9889  0.9764    0.9741  0.9719 0.9955   0.9793 0.010
+   pe        new           na      base 0.9877  0.9757    0.9760  0.9719 0.9945   0.9792 0.005
+   pe        new  na+distance      base 0.9892  0.9771    0.9794  0.9778 0.9944   0.9800 0.010
+   pe        new        na+em      base 0.9884  0.9770    0.9773  0.9722 0.9948   0.9814 0.005
+   pe        new      na+rank      base 0.9889  0.9764    0.9749  0.9785 0.9947   0.9801 0.010
+   pe        new na+relatives      base 0.9891  0.9753    0.9743  0.9748 0.9952   0.9801 0.010
+   pe       base           na       new 0.9872  0.9784    0.9781  0.9765 0.9951   0.9811 0.010
+   pe       base na+relatives       new 0.9889  0.9772    0.9755  0.9707 0.9963   0.9809 0.010
+   pe        new           na       new 0.9877  0.9784    0.9788  0.9766 0.9947   0.9801 0.005
+   pe        new  na+distance       new 0.9892  0.9791    0.9805  0.9794 0.9962   0.9816 0.010
+   pe        new        na+em       new 0.9884  0.9780    0.9786  0.9747 0.9955   0.9812 0.005
+   pe        new      na+rank       new 0.9889  0.9788    0.9770  0.9786 0.9959   0.9811 0.010
+   pe        new na+relatives       new 0.9891  0.9754    0.9742  0.9757 0.9964   0.9812 0.010
+   pe    shallow           na       new 0.9862  0.9779    0.9801  0.9775 0.9946   0.9810 0.010
+   pe    shallow na+relatives       new 0.9885  0.9775    0.9738  0.9745 0.9964   0.9818 0.010
+   se       base           na      base 0.9811  0.9682    0.9700  0.9674 0.9928   0.9704 0.015
+   se       base na+relatives      base 0.9827  0.9689    0.9673  0.9647 0.9936   0.9743 0.010
+   se        new           na      base 0.9852  0.9703    0.9672  0.9656 0.9926   0.9722 0.010
+   se        new  na+distance      base 0.9860  0.9708    0.9679  0.9677 0.9935   0.9733 0.010
+   se        new        na+em      base 0.9864  0.9699    0.9667  0.9666 0.9937   0.9738 0.010
+   se        new      na+rank      base 0.9864  0.9688    0.9637  0.9640 0.9935   0.9723 0.010
+   se        new na+relatives      base 0.9877  0.9702    0.9657  0.9641 0.9941   0.9739 0.010
+   se       base           na       new 0.9811  0.9740    0.9736  0.9714 0.9951   0.9743 0.015
+   se       base na+relatives       new 0.9827  0.9704    0.9676  0.9655 0.9955   0.9771 0.010
+   se        new           na       new 0.9852  0.9728    0.9708  0.9703 0.9948   0.9772 0.010
+   se        new  na+distance       new 0.9860  0.9727    0.9683  0.9706 0.9956   0.9759 0.010
+   se        new        na+em       new 0.9864  0.9727    0.9692  0.9690 0.9952   0.9749 0.010
+   se        new      na+rank       new 0.9864  0.9724    0.9636  0.9675 0.9953   0.9768 0.010
+   se        new na+relatives       new 0.9877  0.9690    0.9665  0.9659 0.9957   0.9774 0.010
+   se    shallow           na       new 0.9819  0.9732    0.9713  0.9731 0.9943   0.9769 0.015
+   se    shallow na+relatives       new 0.9853  0.9696    0.9642  0.9641 0.9957   0.9771 0.010
+
+=== errors and minor congeners missed at 0.5 ===
+reads trained on     features tested on  FP 0.5  FN 0.5  minor  minor missed 0.5
+   pe       base           na      base      29     119    331                15
+   pe       base na+relatives      base      25     128    331                30
+   pe        new           na      base      27     130    331                20
+   pe        new  na+distance      base      24     124    331                25
+   pe        new        na+em      base      22     127    331                20
+   pe        new      na+rank      base      24     129    331                33
+   pe        new na+relatives      base      25     135    331                35
+   pe       base           na       new      34     119    407                17
+   pe       base na+relatives       new      31     130    407                39
+   pe        new           na       new      29     124    407                19
+   pe        new  na+distance       new      26     122    407                26
+   pe        new        na+em       new      33     123    407                21
+   pe        new      na+rank       new      28     122    407                36
+   pe        new na+relatives       new      35     139    407                44
+   pe    shallow           na       new      30     126    407                18
+   pe    shallow na+relatives       new      34     125    407                35
+   se       base           na      base      44     158    331                27
+   se       base na+relatives      base      37     160    331                47
+   se        new           na      base      38     151    331                28
+   se        new  na+distance      base      32     153    331                38
+   se        new        na+em      base      33     158    331                35
+   se        new      na+rank      base      37     161    331                44
+   se        new na+relatives      base      30     159    331                46
+   se       base           na       new      44     136    397                31
+   se       base na+relatives       new      44     160    397                63
+   se        new           na       new      43     145    397                29
+   se        new  na+distance       new      40     148    397                47
+   se        new        na+em       new      41     147    397                36
+   se        new      na+rank       new      39     151    397                55
+   se        new na+relatives       new      41     172    397                65
+   se    shallow           na       new      42     143    397                31
+   se    shallow na+relatives       new      42     167    397                62
+
+=== errors and minor congeners missed at curve ===
+reads trained on     features tested on  FP curve  FN curve  minor  minor missed curve
+   pe       base           na      base        24       130    331                  20
+   pe       base na+relatives      base        24       143    331                  35
+   pe        new           na      base        22       133    331                  28
+   pe        new  na+distance      base        26       108    331                  27
+   pe        new        na+em      base        20       127    331                  27
+   pe        new      na+rank      base        19       143    331                  39
+   pe        new na+relatives      base        22       144    331                  42
+   pe       base           na       new        25       130    407                  20
+   pe       base na+relatives       new        26       147    407                  51
+   pe        new           na       new        27       123    407                  22
+   pe        new  na+distance       new        28       110    407                  27
+   pe        new        na+em       new        25       126    407                  29
+   pe        new      na+rank       new        24       138    407                  44
+   pe        new na+relatives       new        27       155    407                  64
+   pe    shallow           na       new        28       113    407                  20
+   pe    shallow na+relatives       new        21       163    407                  55
+   se       base           na      base        46       145    331                  34
+   se       base na+relatives      base        37       170    331                  51
+   se        new           na      base        28       179    331                  41
+   se        new  na+distance      base        29       174    331                  54
+   se        new        na+em      base        28       182    331                  51
+   se        new      na+rank      base        23       205    331                  67
+   se        new na+relatives      base        28       188    331                  61
+   se       base           na       new        52       131    397                  33
+   se       base na+relatives       new        39       183    397                  72
+   se        new           na       new        36       165    397                  41
+   se        new  na+distance       new        33       184    397                  74
+   se        new        na+em       new        41       171    397                  52
+   se        new      na+rank       new        27       221    397                  94
+   se        new na+relatives       new        32       197    397                  80
+   se    shallow           na       new        34       163    397                  35
+   se    shallow na+relatives       new        39       206    397                  91
+
+=== errors and minor congeners missed at fdr ===
+reads trained on     features tested on  FP fdr  FN fdr  minor  minor missed fdr
+   pe       base           na      base      22     139    331                17
+   pe       base na+relatives      base      18     163    331                45
+   pe        new           na      base      20     161    331                23
+   pe        new  na+distance      base      29     115    331                19
+   pe        new        na+em      base      19     160    331                24
+   pe        new      na+rank      base      32     108    331                30
+   pe        new na+relatives      base      31     132    331                35
+   pe       base           na       new      26     140    407                21
+   pe       base na+relatives       new      16     189    407                64
+   pe        new           na       new      24     141    407                21
+   pe        new  na+distance       new      36     110    407                24
+   pe        new        na+em       new      24     154    407                31
+   pe        new      na+rank       new      39     113    407                34
+   pe        new na+relatives       new      35     137    407                47
+   pe    shallow           na       new      29     130    407                19
+   pe    shallow na+relatives       new      31     149    407                48
+   se       base           na      base      42     165    331                27
+   se       base na+relatives      base      24     198    331                60
+   se        new           na      base      31     186    331                33
+   se        new  na+distance      base      30     174    331                42
+   se        new        na+em      base      34     177    331                38
+   se        new      na+rank      base      30     197    331                58
+   se        new na+relatives      base      26     200    331                61
+   se       base           na       new      45     152    397                30
+   se       base na+relatives       new      33     203    397                81
+   se        new           na       new      34     170    397                33
+   se        new  na+distance       new      34     168    397                53
+   se        new        na+em       new      39     174    397                46
+   se        new      na+rank       new      29     193    397                74
+   se        new na+relatives       new      31     202    397                76
+   se    shallow           na       new      44     142    397                28
+   se    shallow na+relatives       new      30     215    397                82
+
+=== depth extrapolation (trained on samples of up to 200,000 read pairs) ===
+shallow_normalized-adjacency-relatives_new
+       500: present  534 absent   112 | FN/FP 0.5  41/  9, curve  32/ 10, fdr  44/ 11
+     10000: present 1321 absent   903 | FN/FP 0.5  73/ 14, curve 105/  5, fdr  80/ 13
+    100000: present 1215 absent  2462 | FN/FP 0.5  10/  8, curve  21/  5, fdr  14/  7
+   1000000: present  515 absent  2006 | FN/FP 0.5   1/  3, curve   5/  1, fdr  11/  0
+shallow_normalized-adjacency-relatives_new_se
+       500: present  481 absent    91 | FN/FP 0.5  37/  9, curve  28/ 13, fdr  42/  9
+     10000: present 1290 absent   760 | FN/FP 0.5 105/ 20, curve 109/ 20, fdr 116/ 14
+    100000: present 1215 absent  2195 | FN/FP 0.5  21/  9, curve  49/  6, fdr  37/  7
+   1000000: present  515 absent  1909 | FN/FP 0.5   4/  4, curve  20/  0, fdr  20/  0
+shallow_normalized-adjacency_new
+       500: present  534 absent   112 | FN/FP 0.5  53/  5, curve  31/ 10, fdr  60/  5
+     10000: present 1321 absent   903 | FN/FP 0.5  60/ 12, curve  65/  9, fdr  54/ 14
+    100000: present 1215 absent  2462 | FN/FP 0.5  12/  9, curve  15/  6, fdr  12/  9
+   1000000: present  515 absent  2006 | FN/FP 0.5   1/  4, curve   2/  3, fdr   4/  1
+shallow_normalized-adjacency_new_se
+       500: present  481 absent    91 | FN/FP 0.5  45/  7, curve  35/ 10, fdr  53/  5
+     10000: present 1290 absent   760 | FN/FP 0.5  77/ 21, curve  91/ 16, fdr  70/ 21
+    100000: present 1215 absent  2195 | FN/FP 0.5  18/ 11, curve  31/  7, fdr  16/ 15
+   1000000: present  515 absent  1909 | FN/FP 0.5   3/  3, curve   6/  1, fdr   3/  3

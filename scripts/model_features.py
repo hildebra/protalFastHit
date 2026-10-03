@@ -30,6 +30,23 @@ are expected and unlikely neighbours in the taxon's clade, and the mean frequenc
 trainer's default set (DEFAULT_FEATURE_SET) is the normalized features and these; "normalized" leaves them out, to
 test them on real data: on a synthetic world they changed test F1 within noise. Without gene neighbours in the
 database (or with protal --no_gene_neighbours) they are 0, 0 and 0.5, as for a taxon with no reads across genes.
+
+RELATIVE_FEATURES, from the other taxa of the taxon's sample (protal's MicrobialProfile::ApplySampleContext,
+docs/claude/2026-10-02-amplicon-denoising): how its fragments compare with its genus's and family's most abundant other
+species (genus_skew, family_skew, genus_share), against the fragments they would spill onto it by rank (genus_spill) and
+by the distance between their references (relative_skew, relative_distance, relative_spill), how its reads lie on the
+genes where its reference and the likeliest source's are most alike (relative_close_share), and the share of its reads an
+abundance-weighted assignment over the reads' alternatives leaves to it (em_own_share, em_kept_own_share). They let a
+model call a thin taxon with no relative in the sample and reject one beside an abundant congener whose reads it holds;
+trained on samples whose species are drawn uniformly, where congeners hardly ever share a sample, the model learns to
+reject every taxon beside an abundant congener, so train them on samples with congener groups
+(collect_training_data.py --congeners SHARE:MIN-MAX, build_gtdb_database.py's default). They are the set
+"normalized+adjacency+relatives", not the default: on the benchmark world they raised cross-validated F1, AP and log
+loss, but cost 0.001-0.004 of the test sets' F1 at the knobs protal calls with, and missed more minor congeners
+(docs/claude/2026-10-03-denoising-implementation); whether they help at GTDB scale, where false positives are the larger
+problem, an r226 build with --features normalized+adjacency+relatives tells. genus_top_fragments, the fragments of the
+taxon's most abundant congener, is an input of the singleton rule (random_forest_cmdline.py --singleton-congener), not a
+feature of these sets: it counts reads.
 """
 
 # Columns of the dump that describe the row, not the taxon's evidence; columns that
@@ -64,16 +81,26 @@ NORMALIZED_FEATURES = [
 
 ADJACENCY_FEATURES = ["adjacent_expected_share", "adjacent_unlikely_share", "adjacent_support"]
 
-FEATURE_SETS = ("normalized", "normalized+adjacency", "all")
+RELATIVE_FEATURES = ["genus_skew", "family_skew", "genus_share", "genus_spill", "relative_skew", "relative_distance",
+                     "relative_spill", "relative_close_share", "em_own_share", "em_kept_own_share"]
+# Of them, those by the distance of the references: on the benchmark world the best paired-end set at every knob
+# (+0.001 to +0.006 test F1 over normalized+adjacency), single-end within noise, but more minor congeners missed
+# (docs/claude/2026-10-03-denoising-implementation).
+DISTANCE_FEATURES = ["relative_skew", "relative_distance", "relative_spill", "relative_close_share"]
+
+FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance", "all")
 DEFAULT_FEATURE_SET = "normalized+adjacency"
 
 
 def feature_columns(columns, feature_set="all"):
-    """The feature columns among `columns`: all of them, the normalized ones, or those and the adjacency ones."""
+    """The feature columns among `columns`: all of them, the normalized ones, those and the adjacency ones, or those and
+    the relative ones."""
     available = [c for c in columns if c not in NON_FEATURE_COLUMNS and not c.startswith("meta_")]
     if feature_set == "all":
         return available
-    chosen = {"normalized": NORMALIZED_FEATURES, "normalized+adjacency": NORMALIZED_FEATURES + ADJACENCY_FEATURES}
+    chosen = {"normalized": NORMALIZED_FEATURES, "normalized+adjacency": NORMALIZED_FEATURES + ADJACENCY_FEATURES,
+              "normalized+adjacency+relatives": NORMALIZED_FEATURES + ADJACENCY_FEATURES + RELATIVE_FEATURES,
+              "normalized+adjacency+distance": NORMALIZED_FEATURES + ADJACENCY_FEATURES + DISTANCE_FEATURES}
     if feature_set not in chosen:
         raise ValueError(f"unknown feature set {feature_set!r}")
     missing = [c for c in chosen[feature_set] if c not in available]

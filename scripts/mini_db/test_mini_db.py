@@ -1905,7 +1905,17 @@ class GtdbBuildTest(unittest.TestCase):
                                                                                        "build_metadata.tsv")))
         self.assertRegex(metadata["gene_conservation"], r"^factors [0-9.]+-[0-9.]+ for \d+ genes, from \d+ species")
         self.assertEqual(metadata["classifier_previous_procedure"], "not compared")  # without --previous-procedure
-        self.assertEqual(metadata["classifier_features"], "normalized+adjacency")   # the gene neighbours' too
+        # The gene neighbours' features too (not the relatives', by default), trained on samples with congener groups,
+        # the models calling at their knob curves (the other seed's build below trains the relatives features and the
+        # calls at a target share of false calls).
+        self.assertEqual(metadata["classifier_features"], "normalized+adjacency")
+        self.assertIn("; congeners 0.25:2-5", metadata["classifier_training_design"])
+        commands = [open(p).read() for p in glob.glob(os.path.join(self.tmp.name, "**", "run_params.tsv"), recursive=True)]
+        self.assertTrue(commands, "the simulators' run_params.tsv")  # beside the samples, in --scratch
+        self.assertTrue(all("--congener_groups 0.25:2-5" in c for c in commands))
+        self.assertEqual(metadata["classifier_call_mode"], "curve")
+        self.assertNotIn("model_pe_false_calls", metadata)
+        self.assertNotIn("--fdr-calls", self.text("out", "classifier_training.log"))
         # What the conservation features rest on, on the release's genomes: how the genes differ between congeners
         # (protal --build), and where the held-out species' reads land (trace_relatives.py).
         self.assertRegex(metadata["gene_congeners"], r"^\d+ pairs of species of \d+ genera")
@@ -1984,7 +1994,10 @@ class GtdbBuildTest(unittest.TestCase):
         # Other species held out (another seed): only the training database is built again, from the release
         # converted anew (the finished database's build consumed the converted files), and every point is
         # simulated and profiled again rather than mixed into the table.
-        other = self.build("out", "--seed", "2", *scratch)
+        # Its models with the relatives features and calls at a target share of false calls: trained, checked for
+        # parity with protal, and in the database.
+        other = self.build("out", "--seed", "2", "--features", "normalized+adjacency+relatives", "--call-mode", "fdr",
+                           *scratch)
         self.assertEqual(other.returncode, 0, other.stdout[-3000:])
         self.assertIn("protal_db was built by an earlier run from the same release and protal; kept", other.stdout)
         self.assertRegex(other.stdout, r"built training_db in \d+:\d\d:\d\d")
@@ -1992,6 +2005,15 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn("was simulated from other inputs (or by an older collector): simulating it again",
                       self.text("out", "training_data_simulation.log"))
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out", ".converted")))
+        metadata = dict(line.rstrip("\n").split("\t", 1) for line in open(os.path.join(self.tmp.name, "out", "protal_db",
+                                                                                       "build_metadata.tsv")))
+        self.assertEqual(metadata["classifier_features"], "normalized+adjacency+relatives")
+        self.assertEqual(metadata["classifier_call_mode"], "fdr")
+        for t in ("pe", "se"):
+            self.assertRegex(metadata[f"model_{t}_false_calls"], r"^target [0-9.]+ per sample; species held out F1 [0-9.]+")
+            log = self.text("out", "classifier_training" + ("" if t == "pe" else "_se") + ".log")
+            self.assertIn("--fdr-calls", log)
+            self.assertIn("em_own_share", log)  # among the model's features
 
     def test_b_a_failed_background_build_stops_the_run(self):
         # The finished database's build fails in the background, 2 s in: the run stops then, not after the

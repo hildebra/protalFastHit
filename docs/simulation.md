@@ -69,6 +69,7 @@ negatives per sample and writes `<profile>.truth_annotated`.
 | `--include_species` | | species to put in every sample |
 | `--genus`, `--taxon` | | fixed designs: `g__A:10,g__B:2` species from those genera, `d__Archaea:10` from any taxon; the rest of the sample is drawn from all species |
 | `--pick_random_demand_if_fail` | off | if `--genus`/`--taxon` ask for more species than exist, cap and fill randomly instead of failing |
+| `--congener_groups` | none | `SHARE:MIN-MAX`, e.g. `0.25:2-5`: about SHARE of each sample's species come in groups of MIN to MAX species of one genus, the genera drawn per sample at random among those with MIN species or more, after `--genus` and `--taxon`; the rest of the sample is drawn from all species. Without it congeners hardly ever share a sample, which real samples often do, at very different abundances (`collect_training_data.py --congeners`) |
 | `--strain_sharing_file` | | cross-sample strain sharing, below |
 | `--seed` | random | RNG seed |
 | `--read_length`, `--fragment_mean`, `--fragment_stdev` | 150, 350, 50 | ART read and fragment sizes |

@@ -139,6 +139,7 @@ struct CliOptions {
     std::string include_species;
     std::string genus_counts;
     std::string taxon_counts;
+    std::string congener_groups;
     ArtIlluminaOptions art;
     std::optional<std::uint64_t> seed;
     bool plot_png{false};
@@ -242,6 +243,10 @@ static cxxopts::Options build_cxxopts() {
         ("genus",               "Comma-separated genus:count pairs, e.g. \"g__A:10,g__B:2\"", cxxopts::value<std::string>()->default_value(""))
         ("taxon",               "Comma-separated taxon:count pairs, e.g. \"d__Archaea:10\"", cxxopts::value<std::string>()->default_value(""))
         ("pick_random_demand_if_fail", "If --genus/--taxon demand more species than available, cap and fill randomly instead of failing")
+        ("congener_groups",     "SHARE:MIN-MAX, e.g. 0.25:2-5: about SHARE of each sample's species come in groups of MIN "
+                                "to MAX species of one genus, genera drawn per sample among those with MIN species or "
+                                "more (after --genus and --taxon). Default: none, every species drawn from all species, "
+                                "so that congeners hardly ever share a sample", cxxopts::value<std::string>()->default_value(""))
         ("strain_sharing_file", "TSV file for cross-sample strain sharing. Columns (tab-separated): "
                                 "SPECIES  SAMPLE_FRACTION  N_STRAINS  MIN_OCCURRENCE  MIN_VCOV  CONSPECIFIC_STRAINS. "
                                 "Lines starting with # are ignored. MIN_VCOV and CONSPECIFIC_STRAINS are optional. "
@@ -331,7 +336,12 @@ static CliOptions parse_cli(int argc, char** argv) {
     opts.include_species   = result["include_species"].as<std::string>();
     opts.genus_counts      = result["genus"].as<std::string>();
     opts.taxon_counts      = result["taxon"].as<std::string>();
-    opts.threads           = result["threads"].as<int>();
+    opts.congener_groups   = result["congener_groups"].as<std::string>();
+    {
+        ProfileDesignOptions check;  // fails before any genome is read
+        protal::sim::parse_congener_groups(opts.congener_groups, check);
+    }
+    opts.threads          = result["threads"].as<int>();
     opts.test_mode         = result.count("test") > 0;
     opts.keep_tmp          = result.count("keep_tmp") > 0;
     opts.plot_png          = result.count("plot_png") > 0;
@@ -423,6 +433,7 @@ static std::vector<protal::sim::SampleOutput> design_and_simulate(
     profile.include_species = protal::sim::parse_species_list(cli.include_species);
     profile.genus_species_counts = protal::sim::parse_genus_selection(cli.genus_counts);
     profile.taxon_species_counts = protal::sim::parse_taxon_selection(cli.taxon_counts);
+    protal::sim::parse_congener_groups(cli.congener_groups, profile);
     profile.total_read_pairs = cli.total_read_pairs;
     profile.pick_random_demand_if_fail = cli.pick_random_demand_if_fail;
     if (!cli.strain_sharing_file.empty()) {
