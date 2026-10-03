@@ -64,7 +64,7 @@ negatives per sample and writes `<profile>.truth_annotated`.
 | `--sample_prefix` | `sample` | sample names are `<prefix>_<n>` |
 | `--total_read_pairs` | 100000 | read pairs per sample |
 | `--species_per_sample` | 10 | a number or an inclusive range, e.g. `20-80` |
-| `--distribution` | `poisson_lognormal` | abundance model: `power_law` (`--alpha`), `negative_binomial` (`--nb_r`, `--nb_p`), `poisson_lognormal` (`--pln_mu`, `--pln_sigma`) |
+| `--distribution` | `poisson_lognormal` | abundance model: `power_law` (`--alpha`), `negative_binomial` (`--nb_r`, `--nb_p`), `poisson_lognormal` (`--pln_mu`, `--pln_sigma`; several comma-separated sigmas are given to the samples in turn, sample 1 the first, sample 2 the second, ..., so that one run mixes abundance distributions) |
 | `--strains_per_species` | none | probabilities of a 2nd, 3rd, ... strain of a species, e.g. `0.4,0.2,0.1` |
 | `--include_species` | | species to put in every sample |
 | `--genus`, `--taxon` | | fixed designs: `g__A:10,g__B:2` species from those genera, `d__Archaea:10` from any taxon; the rest of the sample is drawn from all species |

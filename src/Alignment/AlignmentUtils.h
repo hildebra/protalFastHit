@@ -5,6 +5,8 @@
 #pragma once
 
 
+#include <algorithm>
+#include <iterator>
 #include <climits>
 #include <iostream>
 #include <stdexcept>
@@ -353,6 +355,28 @@ namespace protal {
     };
 
 
+
+    // The taxa a read seeded on strongly enough to be aligned against (the handler's Attempted()) but has no
+    // alignment to: sorted, each once. Written as the read's ZF tag (SamEntry::m_failed): a read of a relative the
+    // database lacks seeds on its nearest species and fails there.
+    inline std::vector<uint32_t> FailedCandidates(std::vector<uint32_t> attempted, std::vector<uint32_t> aligned) {
+        std::sort(attempted.begin(), attempted.end());
+        attempted.erase(std::unique(attempted.begin(), attempted.end()), attempted.end());
+        std::sort(aligned.begin(), aligned.end());
+        std::vector<uint32_t> failed;
+        std::set_difference(attempted.begin(), attempted.end(), aligned.begin(), aligned.end(), std::back_inserter(failed));
+        return failed;
+    }
+
+    // The ZF tag of failed candidates: "<taxid>,<taxid>", empty for none.
+    inline std::string FailedTag(std::vector<uint32_t> const& failed) {
+        std::string tag;
+        for (uint32_t const taxid : failed) {
+            if (!tag.empty()) tag += ',';
+            tag += std::to_string(taxid);
+        }
+        return tag;
+    }
 
     struct AlignmentPair {
         std::optional<SamEntry> first;

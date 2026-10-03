@@ -86,7 +86,8 @@ def parse_args(argv=None):
                         "(simulate_metagenomes --strains_per_species; default: one strain each)")
     p.add_argument("--abundance", default="",
                    help="abundance model: lognormal:SIGMA, powerlaw:ALPHA or negbin:R:P (default: the simulator's, "
-                        "Poisson-lognormal with sigma 1.3)")
+                        "Poisson-lognormal with sigma 1.3); lognormal:S1,S2,... gives a design point's samples the "
+                        "sigmas in turn, so that a model does not learn one sigma's prior")
     p.add_argument("--archaea", type=int, default=0, help="archaeal species per sample (default: 0)")
     p.add_argument("--congeners", default="0", type=congener_spec,
                    help="relatives that share a sample. SHARE:MIN-MAX (e.g. 0.25:2-5): about SHARE of each sample's "

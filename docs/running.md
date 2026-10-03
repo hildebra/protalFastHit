@@ -106,6 +106,17 @@ species with their companion and the rank the two share (`recurrent_calls.tsv`; 
 such copies in advance where another genus's copy is in the database (`suspect_copies.tsv`,
 `--keep_suspect_copies`); the script finds what it could not ([report](claude/2026-10-03-false-positive-anatomy/README.md)).
 
+The samples of one study share species, and a species present in most of them is likelier present in
+the one at hand than the model's training prior says. `scripts/prevalence_calls.py OUTPUT_DIR` reads a
+run's `*.profile.log` files and moves each taxon's probability in a sample by the odds ratio of its
+prevalence in the other samples to the base rate (a Bayesian update; the sample itself never counts),
+then calls at `--knob` (`prevalence_calls.tsv`; `--profiles DIR` writes adjusted `.profile` files). By
+default (`--direction up`) only the boosts of prevalent species are applied; `--direction both` adds the
+cuts of species seen nowhere else, the full update, which is right only when the samples do share
+species: on 42 simulated samples drawn independently it removed a quarter of the calls, nearly all
+true, while the default changed nothing. Use `--check` to see how far the probabilities moved and how
+many calls flipped, and validate on a study with a truth first ([report](claude/2026-10-03-false-positive-fixes/README.md)).
+
 ## Read files
 
 Read files are FASTQ or FASTA, plain, gzip or BGZF; bases are read as uppercase. Other
@@ -292,7 +303,13 @@ align and pair reads; it does not tell a species from its congeners.
 
 Each read's best record carries `ZA:Z:<taxid>:<edits more>,...`: its other candidates in other
 taxa (at most 5 edits more than the best, or `*`), from which the profiler counts the reads that a
-congener fits as well ([model-training.md](model-training.md)).
+congener fits as well ([model-training.md](model-training.md)). A read's first record carries
+`ZF:Z:<taxid>,...` when the read seeded on taxa strongly enough to be aligned against them (the
+align-top anchors) but did not align to them; a read that seeded on taxa and aligned nowhere gets a
+minimal unmapped record (flag 4, no sequence) with the tag, and nothing else is written for unaligned
+reads. The profiler counts per taxon the reads that failed on it (`failed_candidate_rate`): a relative
+the database lacks seeds on its nearest species and fails there, a present species' reads align
+([report](claude/2026-10-03-false-positive-fixes/README.md)). Profiling a SAM of an older protal, without these, gives the feature 0.
 
 ### Developer options
 

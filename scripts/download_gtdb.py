@@ -177,6 +177,11 @@ def release_files(md5sums, number, rep_genomes):
         if not genomes:
             sys.exit(f"GTDB r{number} has no genomic_files_reps/gtdb_genomes_reps_r{number}.tar.gz")
         wanted.append((genomes, True))
+    # The species clusters (each representative's ANI circumscription radius, its cluster's intra-species ANI and
+    # size): optional, for the converter's species_priors.tsv.
+    clusters = one_of(f"auxillary_files/sp_clusters_r{number}.tsv", f"auxillary_files/sp_clusters_r{number}.tsv.gz")
+    if clusters:
+        wanted.append((clusters, False))
     if "VERSION.txt" in md5sums:
         wanted.append(("VERSION.txt", False))
     return [(name, md5sums[name], extract) for name, extract in wanted]

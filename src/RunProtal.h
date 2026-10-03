@@ -234,6 +234,32 @@ namespace protal {
         if (options.DropSuspectCopies()) genomes.SetSuspectCopies(std::move(table));
     }
 
+    // The species' priors (species_priors.tsv, SpeciesPriors.h: duplicated markers in the representative, CheckM
+    // quality, the GTDB cluster's ANI radius and width), for the model's prior features. Exits 8 if the file cannot be
+    // read.
+    static void LoadSpeciesPriors(Options const& options, GenomeLoader& genomes) {
+        auto const file = options.SpeciesPriorsDbFile();
+        if (!file.Exists()) {
+            std::cout << "Species priors: the database has no " << Options::PROTAL_SPECIES_PRIORS_FILE
+                      << " (converted by an earlier protal): every species' priors are unknown (-1)" << std::endl;
+            return;
+        }
+        std::string error;
+        auto const content = file.ReadAll(error);
+        species_priors::Table table;
+        if (content) {
+            std::istringstream is(*content);
+            error = table.Read(is);
+        }
+        if (!error.empty()) {
+            std::cerr << "Invalid species priors " << file.Name() << ": " << error << std::endl;
+            exit(8);
+        }
+        std::cout << "Species priors: " << table.Size() << " species (" << file.Name() << "), " << table.Informative()
+                  << " with a duplicated marker, CheckM quality or a species cluster known" << std::endl;
+        genomes.SetSpeciesPriors(std::move(table));
+    }
+
     // The database's gene neighbours (gene_neighbours.tsv, GeneNeighbours.h: how often each marker gene end faces
     // which other in a clade's genomes), for mate guidance past a gene's end, pairs of mates on neighbouring genes,
     // the genes next to a long read's genes and the profiler's adjacency features; none without the file or with
@@ -2575,6 +2601,7 @@ namespace protal {
             }
             LoadGeneConservation(options, db.GetGenomes());
             LoadSuspectCopies(options, db.GetGenomes());
+            LoadSpeciesPriors(options, db.GetGenomes());
         }
         if (!options.BuildMode() && (run_alignment || run_profiling)) LoadGeneNeighbours(options, db);
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {

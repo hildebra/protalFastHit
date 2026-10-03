@@ -167,9 +167,13 @@ class FeatureSetsTest(unittest.TestCase):
         import model_features as mf
         import random_forest_cmdline
         columns = (["truth", "taxon", "meta_sample"] + mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES +
-                   mf.RELATIVE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES + ["genus_top_fragments", "other"])
-        self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence")
+                   mf.RELATIVE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES +
+                   mf.PRIORS_FEATURES + ["genus_top_fragments", "other"])
+        self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence+unfiltered+priors")
         self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET),
+                         mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
+                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.PRIORS_FEATURES)
+        self.assertEqual(mf.feature_columns(columns, "normalized+adjacency+distance+depth+divergence"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES)
         self.assertEqual(mf.feature_columns(columns, "normalized+adjacency+distance"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES)

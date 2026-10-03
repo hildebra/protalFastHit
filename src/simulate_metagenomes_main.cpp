@@ -135,6 +135,7 @@ struct CliOptions {
     double nb_p{0.5};
     double pln_mu{0.0};
     double pln_sigma{1.3};
+    std::vector<double> pln_sigmas;  // --pln_sigma with several values: the samples' in turn
     std::string strain_probabilities;
     std::string include_species;
     std::string genus_counts;
@@ -237,7 +238,7 @@ static cxxopts::Options build_cxxopts() {
         ("nb_r",                "Negative binomial r", cxxopts::value<int>()->default_value("5"))
         ("nb_p",                "Negative binomial p", cxxopts::value<double>()->default_value("0.5"))
         ("pln_mu",              "Poisson-lognormal mean (log-scale)", cxxopts::value<double>()->default_value("0.0"))
-        ("pln_sigma",           "Poisson-lognormal sigma (log-scale)", cxxopts::value<double>()->default_value("1.3"))
+        ("pln_sigma",           "Poisson-lognormal sigma (log-scale); several comma-separated values are given to the samples in turn (sample 1 the first, sample 2 the second, ...), so that one run mixes abundance distributions", cxxopts::value<std::string>()->default_value("1.3"))
         ("strains_per_species", "Probabilities for adding 2nd, 3rd, ... strains per species, e.g. \"0.4,0.2,0.1\"", cxxopts::value<std::string>()->default_value(""))
         ("include_species",     "Comma-separated species to force-include in each sample", cxxopts::value<std::string>()->default_value(""))
         ("genus",               "Comma-separated genus:count pairs, e.g. \"g__A:10,g__B:2\"", cxxopts::value<std::string>()->default_value(""))
@@ -331,7 +332,21 @@ static CliOptions parse_cli(int argc, char** argv) {
     opts.nb_r              = result["nb_r"].as<int>();
     opts.nb_p              = result["nb_p"].as<double>();
     opts.pln_mu            = result["pln_mu"].as<double>();
-    opts.pln_sigma         = result["pln_sigma"].as<double>();
+    {
+        const std::string sigma_arg = result["pln_sigma"].as<std::string>();
+        std::stringstream ss(sigma_arg);
+        std::string item;
+        while (std::getline(ss, item, ',')) {
+            if (item.empty()) continue;
+            opts.pln_sigmas.push_back(std::stod(item));
+        }
+        if (opts.pln_sigmas.empty()) throw std::runtime_error("--pln_sigma needs a value");
+        for (double s : opts.pln_sigmas) {
+            if (!(s > 0)) throw std::runtime_error("--pln_sigma values must be positive: " + sigma_arg);
+        }
+        opts.pln_sigma = opts.pln_sigmas.front();
+        if (opts.pln_sigmas.size() == 1) opts.pln_sigmas.clear();
+    }
     opts.strain_probabilities = result["strains_per_species"].as<std::string>();
     opts.include_species   = result["include_species"].as<std::string>();
     opts.genus_counts      = result["genus"].as<std::string>();
@@ -429,6 +444,7 @@ static std::vector<protal::sim::SampleOutput> design_and_simulate(
     profile.negative_binomial_p = cli.nb_p;
     profile.pln_mu = cli.pln_mu;
     profile.pln_sigma = cli.pln_sigma;
+    profile.pln_sigmas = cli.pln_sigmas;
     profile.strain_probabilities = protal::sim::parse_strain_probabilities(cli.strain_probabilities);
     profile.include_species = protal::sim::parse_species_list(cli.include_species);
     profile.genus_species_counts = protal::sim::parse_genus_selection(cli.genus_counts);

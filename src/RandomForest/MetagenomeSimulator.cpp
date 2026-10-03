@@ -792,6 +792,7 @@ std::vector<SampleOutput> MetagenomeSimulator::simulate_samples(
         name << sample_prefix << "_" << (i + 1);
 
         ProfileDesignOptions per_sample_opts = profile_options;
+        per_sample_opts.pln_sigma = SigmaForSample(profile_options, i);  // the samples' sigmas in turn
         if (profile_options.species_per_sample_min > 0 &&
             profile_options.species_per_sample_min < profile_options.species_per_sample) {
             per_sample_opts.species_per_sample = std::uniform_int_distribution<std::size_t>(

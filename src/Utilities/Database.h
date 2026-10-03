@@ -1,6 +1,6 @@
 // Database.h - where protal finds its database files: a directory of files (index.prx(.zst),
-// reference.fna(.zst), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv
-// and suspect_copies.tsv (optional), one presence model per read type: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml,
+// reference.fna(.zst), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv,
+// suspect_copies.tsv and species_priors.tsv (optional), one presence model per read type: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml,
 // see ReadType.h), or the single-file database database.protal, which holds all of them as members.
 //
 // database.protal is a seekable zstd file (Zstd.h):

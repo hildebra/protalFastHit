@@ -165,9 +165,16 @@ namespace protal::classify {
                 alignment_handler(anchors, alignment_results, record.sequence, anchor_finder.ReverseComplement(), options.GetAlignTop(), record.id);
                 bm_alignment.Stop();
                 thread_statistics.total_alignments += alignment_results.size();
+                // The taxa the read seeded on but did not align to, for its ZF tag.
+                std::vector<uint32_t> failed;
+                if constexpr (requires { alignment_handler.Attempted(); }) {
+                    std::vector<uint32_t> aligned;
+                    for (auto const& ar : alignment_results) aligned.push_back(static_cast<uint32_t>(ar.Taxid()));
+                    failed = FailedCandidates(alignment_handler.Attempted(), std::move(aligned));
+                }
 
                 bm_output.Start();
-                output_handler(alignment_results, record);
+                output_handler(alignment_results, record, failed);
                 bm_output.Stop();
 
                 if constexpr (benchmark_active) {
@@ -303,7 +310,7 @@ namespace protal::classify {
                 for (auto const& segment : segments) thread_statistics.total_alignments += segment.hits.size();
 
                 bm_output.Start();
-                output_handler(segments, record);
+                output_handler(segments, record, aligner.FailedTaxa(segments));
                 bm_output.Stop();
 
                 bm_reader.Start();
@@ -625,8 +632,13 @@ namespace protal::classify {
 
                 // Do Alignment
                 bm_alignment.Start();
+                std::vector<uint32_t> attempted;
                 alignment_handler(anchors1, alignment_results1, record1.sequence, anchor_finder1.ReverseComplement(), options.GetAlignTop() + recover1, record1.id);
+                if constexpr (requires { alignment_handler.Attempted(); }) attempted = alignment_handler.Attempted();
                 alignment_handler(anchors2, alignment_results2, record2.sequence, anchor_finder2.ReverseComplement(), options.GetAlignTop() + recover2, record2.id);
+                if constexpr (requires { alignment_handler.Attempted(); }) {
+                    attempted.insert(attempted.end(), alignment_handler.Attempted().begin(), alignment_handler.Attempted().end());
+                }
                 bm_alignment.Stop();
 
                 thread_statistics.total_alignments += alignment_results1.size();
@@ -653,9 +665,18 @@ namespace protal::classify {
                 }
                 bm_alignment_join_sort.Stop();
 
+                // The taxa either mate seeded on but neither aligned to (after the mate guidance), for the fragment's
+                // ZF tag.
+                std::vector<uint32_t> aligned;
+                for (auto const& [ar1, ar2] : paired_alignment_results) {
+                    if (ar1.IsSet()) aligned.push_back(static_cast<uint32_t>(ar1.Taxid()));
+                    if (ar2.IsSet()) aligned.push_back(static_cast<uint32_t>(ar2.Taxid()));
+                }
+                auto const failed = FailedCandidates(std::move(attempted), std::move(aligned));
+
                 // Output alignments
                 bm_output.Start();
-                output_handler(paired_alignment_results, record1, record2, record_id);
+                output_handler(paired_alignment_results, record1, record2, record_id, true, failed);
                 bm_output.Stop();
 
                 if constexpr (benchmark_active) {

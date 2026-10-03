@@ -856,7 +856,8 @@ def release_identity(gtdb, release):
     """The release's files the converter reads, as part of a key: the taxonomy and metadata files, and the
     marker gene folders (whose modification time changes with the files in them)."""
     items = []
-    for folder in (gtdb, os.path.join(gtdb, "genomic_files_reps"), os.path.join(gtdb, "genomic_files_all")):
+    for folder in (gtdb, os.path.join(gtdb, "genomic_files_reps"), os.path.join(gtdb, "genomic_files_all"),
+                   os.path.join(gtdb, "auxillary_files")):
         for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else ():
             path = os.path.join(folder, name)
             if f"_r{release}" in name and (os.path.isfile(path) or "_marker_genes_" in name):
@@ -989,9 +990,11 @@ def main():
     p.add_argument("--extra-genomes", action="append", default=[],
                    help="folder of more whole genomes of GTDB species, found by the accession in their file names "
                         "(e.g. the NCBI genomes of download_gtdb.py); repeatable")
-    p.add_argument("--holdout", type=float, default=0.2,
+    p.add_argument("--holdout", type=float, default=0.3,
                    help="fraction of the species (of those the genome table can simulate and no clade of "
-                        "--holdout-clades took) left out of a separate training database (default 0.2): their "
+                        "--holdout-clades took) left out of a separate training database (default 0.3; 0.2 until "
+                        "2026-10-03: more species missing from the database give the model more of the false "
+                        "positives it must learn to reject, docs/claude/2026-10-03-false-positive-fixes): their "
                         "reads land on relatives, as those of species GTDB lacks do in real samples, and they are "
                         "the false positives the model must learn to reject. 0 with --holdout-clades none trains "
                         "on the database itself")
@@ -1032,9 +1035,11 @@ def main():
     p.add_argument("--samples", type=int, default=12,
                    help="samples per design point (default 12; on a GTDB-like world the model still improved "
                         "from 60 to 120 samples)")
-    p.add_argument("--read-pairs", default="1000,5000,20000,100000,500000,2000000:4,10000000:2",
+    p.add_argument("--read-pairs", default="1000,5000,20000,100000,500000,2000000:4,10000000:2,30000000:1",
                    help="read pairs per sample, one design point each, DEPTH:SAMPLES for other samples than --samples "
-                        "(default 1000,5000,20000,100000,500000,2000000:4,10000000:2: without the shallowest, a model "
+                        "(default 1000,5000,20000,100000,500000,2000000:4,10000000:2,30000000:1: the deepest point "
+                        "because a model with the sample's depth as a feature cannot extrapolate past the deepest "
+                        "sample it saw, and real metagenomes reach it; without the shallowest, a model "
                         "missed 8%% of the present taxa of samples of 1000 read pairs; at GTDB r226 the absent taxa per "
                         "sample grew as depth^0.84 to 500,000, and real samples are often 5-50M)")
     p.add_argument("--read-setups", default="100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50",
@@ -1048,9 +1053,12 @@ def main():
     p.add_argument("--strains-per-species", default="0.3,0.1",
                    help="probabilities of a second, third, ... strain of a species in a sample (default 0.3,0.1): "
                         "real samples often mix strains, which changes the allele-frequency features")
-    p.add_argument("--abundance", default="",
-                   help="abundance model of the training samples: lognormal:SIGMA, powerlaw:ALPHA or negbin:R:P "
-                        "(default: the simulator's, Poisson-lognormal with sigma 1.3)")
+    p.add_argument("--abundance", default="lognormal:1.3,2.0",
+                   help="abundance model of the training samples: lognormal:SIGMA, powerlaw:ALPHA or negbin:R:P; "
+                        "lognormal:S1,S2,... gives a design point's samples the sigmas in turn (default "
+                        "lognormal:1.3,2.0: half the samples with the former sigma 1.3, half with the test set's 2.0, "
+                        "so that the model's depth prior does not rest on one abundance distribution, "
+                        "docs/claude/2026-10-03-false-positive-fixes)")
     p.add_argument("--read-types", default="pe,se,pb,ont",
                    help="the read types to train a model for (default pe,se,pb,ont): se from the paired-end "
                         "samples' first reads, pb and ont from long reads of the same communities (HiFi reads by "

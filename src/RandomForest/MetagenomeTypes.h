@@ -57,6 +57,9 @@ struct ProfileDesignOptions {
     double negative_binomial_p{0.5};
     double pln_mu{0.0};
     double pln_sigma{1.3};
+    std::vector<double> pln_sigmas;            // if not empty: the samples' sigmas in turn (sample i gets the i-th,
+                                               // cyclically), so that one design mixes abundance distributions and a
+                                               // model does not learn one sigma's prior (SigmaForSample)
     std::vector<std::string> include_species;  // species that must be present in each sample
     std::unordered_map<std::string, std::size_t> genus_species_counts;  // requested species counts per genus
     std::vector<double> strain_probabilities;  // probabilities for adding 2nd, 3rd, ... strain of a species
@@ -79,6 +82,13 @@ struct ProfileDesignOptions {
     // Maps species key -> minimum relative abundance floor derived from min_vcov.
     std::unordered_map<std::string, double> species_min_abundance;
 };
+
+// The Poisson-lognormal sigma of sample `index` (0-based) of a design: the index-th of pln_sigmas, cyclically, or
+// pln_sigma when none are given.
+inline double SigmaForSample(ProfileDesignOptions const& options, std::size_t index) {
+    if (options.pln_sigmas.empty()) return options.pln_sigma;
+    return options.pln_sigmas[index % options.pln_sigmas.size()];
+}
 
 struct ArtIlluminaOptions {
     std::string art_path{"art_illumina"};

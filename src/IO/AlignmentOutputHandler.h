@@ -142,7 +142,31 @@ namespace protal {
         sam.m_uniques = ar.Uniques();
         sam.m_uniques_two = ar.UniquesTwo();
         sam.m_alternatives.clear();  // set on the read's best record only (AlternativesTag)
+        sam.m_failed.clear();        // set on the read's first record only (FailedTag)
         if (!ar.Forward()) reverse(sam.m_qual.begin(), sam.m_qual.end());
+    }
+
+    // A minimal unmapped record (flag 4, no sequence) for a read that seeded on taxa (`failed`, its ZF tag) but
+    // aligned nowhere, so that the profiler can count the reads that fail on each taxon; nothing for a read without
+    // failed candidates. The header lists no gene for it.
+    inline bool UnmappedRecord(SamEntry& sam, std::string const& qname, std::vector<uint32_t> const& failed) {
+        if (failed.empty()) return false;
+        sam.m_qname = qname;
+        sam.m_flag = static_cast<FLAG_t>(0x4);  // unmapped
+        sam.m_rname = "*";
+        sam.m_pos = 0;
+        sam.m_mapq = 0;
+        sam.m_cigar = "*";
+        sam.m_rnext = "*";
+        sam.m_pnext = 0;
+        sam.m_tlen = 0;
+        sam.m_seq = "*";
+        sam.m_qual = "*";
+        sam.m_uniques = 0;
+        sam.m_uniques_two = 0;
+        sam.m_alternatives.clear();
+        sam.m_failed = FailedTag(failed);
+        return true;
     }
 
     // The edits of an alignment: mismatches, inserted and deleted bases and soft-clipped read bases.
@@ -431,12 +455,24 @@ namespace protal {
             results = std::move(distinct);
         }
 
-        void operator () (AlignmentResultList& alignment_results, FastxRecord& record) {
-            if (alignment_results.empty()) return;
+        // Writes a read's unmapped record if it has failed candidates (UnmappedRecord).
+        void WriteUnmapped(FastxRecord& record, std::vector<uint32_t> const& failed) {
+            if (!UnmappedRecord(m_sam, ReadQName(record.id), failed)) return;
+            if (!m_sam_output.Write(m_sam.ToString())) Flush();
+        }
+
+        // failed: the taxa the read seeded on but did not align to (FailedCandidates), its ZF tag; on the read's first
+        // record, or on an unmapped record when the read has no record.
+        void operator () (AlignmentResultList& alignment_results, FastxRecord& record, std::vector<uint32_t> const& failed = {}) {
+            if (alignment_results.empty()) {
+                WriteUnmapped(record, failed);
+                return;
+            }
             RankCandidates(alignment_results);
 
             auto& best = alignment_results.front();
             if (CigarANI(best.Cigar()) < m_min_cigar_ani) {
+                WriteUnmapped(record, failed);
                 return;
             }
 
@@ -466,6 +502,7 @@ namespace protal {
                 m_sam.m_mapq = first ? mapq : 0;
                 m_sam.m_tlen = 0;
                 if (first) m_sam.m_alternatives = AlternativesTag(ar.Taxid(), AlignmentEdits(ar.GetAlignmentInfo()), candidates);
+                if (first) m_sam.m_failed = FailedTag(failed);
 
                 auto const reference = ReferenceOf(m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()), m_sam);
                 if (!ExtractSNPs(m_sam, reference, snps, ar.Taxid(), ar.GeneId(), 0)) {
@@ -490,7 +527,9 @@ namespace protal {
             // All candidates of the read go into the buffer as one unit, so a flush cannot let another
             // thread's records land between them: readers take adjacent records with one name as one
             // read's candidates.
-            if (!read_records.empty() && !m_sam_output.Write(std::move(read_records))) {
+            if (read_records.empty()) {
+                WriteUnmapped(record, failed);
+            } else if (!m_sam_output.Write(std::move(read_records))) {
                 Flush();
             }
         }
@@ -624,7 +663,8 @@ namespace protal {
         // single-mate candidates against each other instead gave MAPQ ~0 and lost the fragment. Returns
         // false, writing nothing, when only one mate aligned or an alignment is unusable; the caller then
         // writes the candidates as usual. Only these two primary records are written, also with -m > 1.
-        bool WriteSplitMates(PairedAlignmentResultList& results, FastxRecord& record1, FastxRecord& record2, std::string const& qname) {
+        bool WriteSplitMates(PairedAlignmentResultList& results, FastxRecord& record1, FastxRecord& record2, std::string const& qname,
+                             std::vector<uint32_t> const& failed = {}) {
             auto best1 = BestOfMate(results, true);
             auto best2 = BestOfMate(results, false);
             if (best1.index == SIZE_MAX || best2.index == SIZE_MAX) return false;
@@ -639,6 +679,7 @@ namespace protal {
                                                     CandidateEdits(results, [](auto const& r) { return &r.first; }));
             m_sam2.m_alternatives = AlternativesTag(ar2.Taxid(), AlignmentEdits(ar2.GetAlignmentInfo()),
                                                     CandidateEdits(results, [](auto const& r) { return &r.second; }));
+            m_sam1.m_failed = FailedTag(failed);  // the fragment's failed candidates, on its first record
             SNPList snps;
             if (!ExtractSNPs(m_sam1, ReferenceOf(m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()), m_sam1), snps, ar1.Taxid(), ar1.GeneId(), 0) ||
                 !ExtractSNPs(m_sam2, ReferenceOf(m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()), m_sam2), snps, ar2.Taxid(), ar2.GeneId(), 0)) {
@@ -667,8 +708,20 @@ namespace protal {
             return true;
         }
 
-        PROTAL_CLONE_V3 void operator () (PairedAlignmentResultList& alignment_results, FastxRecord& record1, FastxRecord& record2, size_t read_id=0, bool first_pair=true) {
-            if (alignment_results.empty()) return;
+        // Writes a fragment's unmapped record if it has failed candidates (UnmappedRecord).
+        void WriteUnmapped(FastxRecord& record1, FastxRecord& record2, std::vector<uint32_t> const& failed) {
+            if (!UnmappedRecord(m_sam1, PairQName(record1.id, record2.id), failed)) return;
+            if (!m_sam_output.Write(m_sam1.ToString())) Flush();
+        }
+
+        // failed: the taxa either mate seeded on but neither aligned to (FailedCandidates), the fragment's ZF tag; on
+        // its first record, or on an unmapped record when the fragment has no record.
+        PROTAL_CLONE_V3 void operator () (PairedAlignmentResultList& alignment_results, FastxRecord& record1, FastxRecord& record2, size_t read_id=0, bool first_pair=true,
+                                          std::vector<uint32_t> const& failed = {}) {
+            if (alignment_results.empty()) {
+                WriteUnmapped(record1, record2, failed);
+                return;
+            }
 
             auto& best = alignment_results.front();
 
@@ -677,11 +730,12 @@ namespace protal {
             // an empty CIGAR has identity 0.)
             auto const& anchor = best.first.IsSet() ? best.first : best.second;
             if (CigarANI(anchor.Cigar()) < m_min_cigar_ani) {
+                WriteUnmapped(record1, record2, failed);
                 return;
             }
 
             auto const qname = PairQName(record1.id, record2.id);
-            if (!(best.first.IsSet() && best.second.IsSet()) && WriteSplitMates(alignment_results, record1, record2, qname)) {
+            if (!(best.first.IsSet() && best.second.IsSet()) && WriteSplitMates(alignment_results, record1, record2, qname, failed)) {
                 return;
             }
 
@@ -823,6 +877,8 @@ namespace protal {
                     continue;
                 }
 
+                // The fragment's failed candidates on its first record.
+                if (first) (ar1.IsSet() ? m_sam1 : m_sam2).m_failed = FailedTag(failed);
                 first = false;
                 alignments++;
                 if (!read_records.empty()) read_records += '\n';
@@ -841,7 +897,9 @@ namespace protal {
             // All candidates of the read go into the buffer as one unit, so a flush cannot let another
             // thread's records land between them: readers pair a read1 record with the line that
             // follows, and take adjacent records with one name as one read's candidates.
-            if (!read_records.empty() && !m_sam_output.Write(std::move(read_records))) {
+            if (read_records.empty()) {
+                WriteUnmapped(record1, record2, failed);
+            } else if (!m_sam_output.Write(std::move(read_records))) {
                 Flush();
             }
         }

@@ -131,6 +131,11 @@ namespace protal {
 
     public:
         size_t total_alignments = 0;
+        // The taxa of the anchors the last call tried to align (the align-top anchors and their ties), in order and
+        // with repeats; with the alignments' taxa this gives the read's failed candidates (FailedCandidates in
+        // AlignmentUtils.h).
+        std::vector<uint32_t> m_attempted;
+        std::vector<uint32_t> const& Attempted() const { return m_attempted; }
         size_t total_tail_alignments = 0;
         size_t total_tail_length = 0;
         Benchmark bm_alignment{ "Alignment", 0, Benchmark::kPerRead};
@@ -632,11 +637,13 @@ namespace protal {
             int take_top = align_top;
 
             Anchor* last_anchor = nullptr;
+            m_attempted.clear();
 
             for (auto& anchor : anchors) {
                 if (--take_top < 0 && (last_anchor && last_anchor->total_length != anchor.total_length)) {
                     break;
                 }
+                m_attempted.push_back(static_cast<uint32_t>(anchor.taxid));
 
                 auto& read = anchor.forward ? fwd : rev;
 

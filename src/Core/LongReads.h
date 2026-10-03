@@ -462,6 +462,19 @@ namespace protal {
         SimpleAlignmentHandler& GetAlignmentHandler() { return m_alignment_handler; }
         GenomeLoader& GetGenomes() { return m_genomes; }
 
+        // The taxa of the last read's candidates that were aligned against but have no hit in any of its segments
+        // (FailedCandidates): the read seeded on them and failed there.
+        std::vector<uint32_t> FailedTaxa(LongReadSegments const& segments) const {
+            std::vector<uint32_t> attempted, aligned;
+            for (size_t i = 0; i < m_candidates.size() && i < m_aligned.size(); i++) {
+                if (m_aligned[i]) attempted.push_back(static_cast<uint32_t>(m_candidates[i].anchor.taxid));
+            }
+            for (auto const& segment : segments) {
+                for (auto const& hit : segment.hits) aligned.push_back(static_cast<uint32_t>(hit.alignment.Taxid()));
+            }
+            return FailedCandidates(std::move(attempted), std::move(aligned));
+        }
+
         // Seeds and anchors of the last read, and reads that were seeded in chunks.
         size_t LastSeeds() const { return m_last_seeds; }
         size_t LastAnchors() const { return m_last_anchors; }
@@ -582,6 +595,7 @@ namespace protal {
         sam.m_uniques = ar.Uniques();
         sam.m_uniques_two = ar.UniquesTwo();
         sam.m_alternatives.clear();  // set on a segment's best record only
+        sam.m_failed.clear();        // set on the read's first record only
         Flag::SetReadReverseComplement(sam.m_flag, !ar.Forward());
     }
 
@@ -636,8 +650,20 @@ namespace protal {
             Flush();
         }
 
-        void operator () (LongReadSegments& segments, FastxRecord& record) {
-            if (segments.empty()) return;
+        // Writes a read's unmapped record if it has failed candidates (UnmappedRecord).
+        void WriteUnmapped(FastxRecord& record, std::vector<uint32_t> const& failed) {
+            SamEntry sam;
+            if (!UnmappedRecord(sam, ReadQName(record.id), failed)) return;
+            if (!m_sam_output.Write(sam.ToString())) Flush();
+        }
+
+        // failed: the taxa the read seeded on but did not align to (LongReadAligner::FailedTaxa), its ZF tag; on the
+        // read's first record, or on an unmapped record when the read has no record.
+        void operator () (LongReadSegments& segments, FastxRecord& record, std::vector<uint32_t> const& failed = {}) {
+            if (segments.empty()) {
+                WriteUnmapped(record, failed);
+                return;
+            }
             // The best segment first, then the others in read order.
             std::stable_sort(segments.begin(), segments.end(), [](LongReadSegment const& a, LongReadSegment const& b) {
                 return a.hits.front().aligned.start < b.hits.front().aligned.start;
@@ -674,6 +700,7 @@ namespace protal {
                     Flag::SetSupplementaryAlignment(sam.m_flag, first && primary_written);
                     sam.m_mapq = first ? segment.mapq : 0;
                     sam.m_cigar = LongReadCigar(hit);
+                    if (read_records.empty()) sam.m_failed = FailedTag(failed);  // the read's first record
                     if (!read_records.empty()) read_records += '\n';
                     read_records += sam.ToString();
                     // ZR:i:1: the best hit is the read's consensus taxon's, which the gene alone could not tell;

@@ -1983,7 +1983,7 @@ class GtdbBuildTest(unittest.TestCase):
         # The gene neighbours' features and the relatives' four by the references' distance (not all of them, by
         # default), trained on samples with congener groups, the models calling at their knob curves (the other seed's build below trains the relatives features and the
         # calls at a target share of false calls).
-        self.assertEqual(metadata["classifier_features"], "normalized+adjacency+distance+depth+divergence")
+        self.assertEqual(metadata["classifier_features"], "normalized+adjacency+distance+depth+divergence+unfiltered+priors")
         self.assertIn("gene copies", metadata["suspect_copies"])  # the build looked for suspect copies
         self.assertIn("; congeners 0.25:2-5", metadata["classifier_training_design"])
         commands = [open(p).read() for p in glob.glob(os.path.join(self.tmp.name, "**", "run_params.tsv"), recursive=True)]

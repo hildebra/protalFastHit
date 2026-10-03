@@ -7,6 +7,7 @@
 
 
 #include <algorithm>
+#include <unordered_map>
 #include <cctype>
 #include <charconv>
 #include <cstdint>
@@ -184,6 +185,10 @@ namespace protal {
         // "<taxid>:<edits more than this one>" comma-separated (AlternativesTag), or "*" for none. Empty:
         // not written (secondary records, SAM files of older protal versions).
         std::string m_alternatives;
+        // ZF tag of a read's first record (or of its unmapped record, flag 4, when nothing aligned): the taxa the read
+        // seeded on strongly enough to be aligned against but did not align to, "<taxid>,<taxid>" (FailedTag); a read of
+        // a relative the database lacks seeds on its nearest species and fails there. Empty: none, or not written.
+        std::string m_failed;
 
         [[nodiscard]] std::string ToString() const {
             return  m_qname + '\t'
@@ -199,7 +204,8 @@ namespace protal {
                     + m_qual + '\t'
                     + "ZU:i:" + std::to_string(m_uniques) + '\t'
                     + "ZT:i:" + std::to_string(m_uniques_two)
-                    + (m_alternatives.empty() ? std::string() : "\tZA:Z:" + m_alternatives);
+                    + (m_alternatives.empty() ? std::string() : "\tZA:Z:" + m_alternatives)
+                    + (m_failed.empty() ? std::string() : "\tZF:Z:" + m_failed);
         }
 
         // Strand of THIS record (0x10), for read1 and read2 alike; 0x20 is the mate's strand.
@@ -380,6 +386,23 @@ namespace protal {
         sam.m_uniques = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZU").value_or(0), UINT16_MAX));
         sam.m_uniques_two = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZT").value_or(0), UINT16_MAX));
         sam.m_alternatives = sam_detail::StringTag(tokens, "ZA").value_or(std::string_view());
+        sam.m_failed = sam_detail::StringTag(tokens, "ZF").value_or(std::string_view());
+    }
+
+    // Calls on_taxid(taxid) for each entry of a ZF tag ("12,40"; empty or "*": none).
+    template<typename F>
+    inline void ForEachFailedCandidate(std::string const& tag, F&& on_taxid) {
+        if (tag.empty() || tag == "*") return;
+        size_t start = 0;
+        while (start <= tag.size()) {
+            size_t end = tag.find(',', start);
+            if (end == std::string::npos) end = tag.size();
+            uint64_t taxid = 0;
+            if (end > start && sam_detail::ParseUnsigned(std::string_view(tag).substr(start, end - start), taxid) && taxid <= UINT32_MAX) {
+                on_taxid(static_cast<uint32_t>(taxid));
+            }
+            start = end + 1;
+        }
     }
 
     // Why the profiler cannot use a parsed record, or nullptr if it can. Normalizes the CIGAR.
@@ -414,6 +437,8 @@ namespace protal {
         size_t m_primary_records = 0;  // not secondary (0x100)
         size_t m_primary_without_alternatives = 0;  // of those, without a ZA tag
         std::map<std::string, size_t> m_skipped;
+        std::unordered_map<uint32_t, size_t> m_failed_candidates;  // per taxon, the unmapped records' ZF entries (reads that
+                                                                   // seeded on the taxon and aligned nowhere)
         std::function<void(std::string const&)> m_on_header;  // sees every header line
 
         // The next line, without its newline (as getline reads it); false at the end.
@@ -450,6 +475,10 @@ namespace protal {
                 }
                 if (auto reason = UnusableRecord(sam)) {
                     m_skipped[reason]++;
+                    // An unmapped record protal wrote for a read that seeded on taxa but aligned nowhere carries them.
+                    if (!sam.m_failed.empty() && (Flag::IsUnmapped(sam.m_flag) || sam.m_rname == "*")) {
+                        ForEachFailedCandidate(sam.m_failed, [this](uint32_t taxid) { m_failed_candidates[taxid]++; });
+                    }
                     continue;
                 }
                 m_records++;
@@ -511,6 +540,8 @@ namespace protal {
         // Primary and supplementary records without ZA: all of them in a SAM file of an older protal.
         size_t PrimaryRecordsWithoutAlternatives() const { return m_primary_without_alternatives; }
         std::map<std::string, size_t> const& Skipped() const { return m_skipped; }
+        // Per taxon, the reads whose unmapped record names it as a failed candidate (ZF).
+        std::unordered_map<uint32_t, size_t> const& FailedCandidates() const { return m_failed_candidates; }
     };
 
     // The reads a SAM stream holds: the kind its header names (kSamReadTypeComment, as protal writes it),

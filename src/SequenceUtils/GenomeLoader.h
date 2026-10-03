@@ -36,6 +36,7 @@
 #include "GeneConservation.h"
 #include "GeneIncongruence.h"
 #include "GeneNeighbours.h"
+#include "SpeciesPriors.h"
 
 namespace protal {
     // The database's gene tables (reference.map, unique_kmers.tsv), one line per gene (16.6M at GTDB
@@ -553,6 +554,7 @@ namespace protal {
         bool m_scale_depth_margin = false;  // the depth identity margin scaled by m_gene_conservation (--gene_conservation)
         gene_neighbours::Table m_gene_neighbours;      // empty: no gene's neighbours are known
         gene_incongruence::Table m_suspect_copies;     // empty: every gene copy is evidence of its species
+        species_priors::Table m_species_priors;        // empty: every species' priors unknown
 
         int m_threads = 1;  // for reading reference.map
         struct FreeDeleter { void operator()(void* p) const { std::free(p); } };
@@ -604,6 +606,7 @@ namespace protal {
                 m_scale_depth_margin(other.m_scale_depth_margin),
                 m_gene_neighbours(other.m_gene_neighbours),
                 m_suspect_copies(other.m_suspect_copies),
+                m_species_priors(other.m_species_priors),
                 m_threads(other.m_threads) {
             Open();
             LoadPositionMap(m_map, m_threads);
@@ -646,6 +649,17 @@ namespace protal {
 
         bool IsSuspectCopy(uint32_t taxid, uint32_t geneid) const {
             return m_suspect_copies.Contains(taxid, geneid);
+        }
+
+        // What GTDB knows of each species before any read (SpeciesPriors.h: duplicated markers, CheckM quality, the
+        // cluster's ANI radius and width), for the model's prior features; empty unless set (a database without
+        // species_priors.tsv), and then every species' values are unknown.
+        species_priors::Table const& GetSpeciesPriors() const {
+            return m_species_priors;
+        }
+
+        void SetSpeciesPriors(species_priors::Table table) {
+            m_species_priors = std::move(table);
         }
 
         // Which genes lie next to which in the species' clades (GeneNeighbours.h); empty unless set (a

@@ -65,14 +65,33 @@ third); and mate_lost_share, of the paired fragments whose mate was expected on 
 room for the fragment inside the gene), the share whose mate has no record on it (a relative's read that fits a
 conserved stretch has a mate that fits nowhere). A dump of a protal before them lacks the five columns.
 
-A set's name is its groups joined by "+": normalized, adjacency, relatives or distance, depth, divergence; "all" is
-every feature column of the dump. The trainer's default set (DEFAULT_FEATURE_SET) is
-"normalized+adjacency+distance+depth+divergence". At r226 the distance features added 0.004 F1 (paired-end) on the
-test set at the knob curve and 0.007 at knob 0.5 over normalized+adjacency, single-end and long reads within noise
-(docs/claude/2026-10-03-r226-v5-v6-training); a table of a protal before them (be35d15) needs
+UNFILTERED_FEATURES ("unfiltered", docs/claude/2026-10-03-false-positive-fixes): fragments_all, the taxon's reads
+with a best record before the MAPQ and length filters (a pair or a long read once); em_fragments, of them what the
+abundance-weighted assignment leaves to the taxon (em_own_share x fragments_all: the fragments a divergent strain
+would have had, had its reads not tied with a congener's reference and fallen to MAPQ 0, which is where 159 of the
+328 r226 misses lost their evidence); and failed_candidate_rate, of the reads that seeded on the taxon strongly
+enough to be aligned against it, the share that did not align to it (protal's ZF tag, also on an unmapped record
+when a read aligned nowhere: a relative the database lacks seeds on its nearest species and fails there, a present
+species' reads align).
+
+PRIORS_FEATURES ("priors", the same report): per-species constants from GTDB, written by the converter
+(species_priors.tsv, protal's SpeciesPriors.h; -1 unknown): the share of the representative's single-copy markers
+found twice (rep_duplicate_share, CheckM's contamination signature: a contaminating contig's genes put every
+present organism's reads on the species), its CheckM completeness and contamination, and from GTDB's species
+clusters the ANI circumscription radius, mean and minimum intra-species ANI and the cluster's size (log10): a wide
+or crowded cluster makes a cloud of reads a few percent from the reference a strain rather than a sister species.
+On a synthetic world they are all unknown and do nothing.
+
+A set's name is its groups joined by "+": normalized, adjacency, relatives or distance, depth, divergence,
+unfiltered, priors; "all" is every feature column of the dump. The trainer's default set (DEFAULT_FEATURE_SET) is
+"normalized+adjacency+distance+depth+divergence+unfiltered+priors". At r226 the distance features added 0.004 F1
+(paired-end) on the test set at the knob curve and 0.007 at knob 0.5 over normalized+adjacency, single-end and long
+reads within noise (docs/claude/2026-10-03-r226-v5-v6-training); a table of a protal before them (be35d15) needs
 --features normalized+adjacency, one before the depth and divergence features --features
-normalized+adjacency+distance. genus_top_fragments, the fragments of the taxon's most abundant congener, is an input of
-the singleton rule (random_forest_cmdline.py --singleton-congener), not a feature of these sets: it counts reads.
+normalized+adjacency+distance, one before the unfiltered and priors features
+--features normalized+adjacency+distance+depth+divergence. genus_top_fragments, the fragments of the taxon's most
+abundant congener, is an input of the singleton rule (random_forest_cmdline.py --singleton-congener), not a feature
+of these sets: it counts reads.
 """
 
 # Columns of the dump that describe the row, not the taxon's evidence; columns that
@@ -121,15 +140,25 @@ SAMPLE_FEATURES = ["sample_log_fragments"]
 # The reads' divergence by gene conservation and codon position, and the mates (see above).
 DIVERGENCE_FEATURES = ["excess_scaled_median", "excess_conserved_fast_ratio", "third_position_share", "mate_lost_share"]
 
+# The reads before the filters and the reads that failed on the taxon (see above).
+UNFILTERED_FEATURES = ["fragments_all", "em_fragments", "failed_candidate_rate"]
+
+# What GTDB knows of the species before any read (see above).
+PRIORS_FEATURES = ["rep_duplicate_share", "rep_completeness", "rep_contamination", "cluster_ani_radius", "cluster_mean_ani",
+                   "cluster_min_ani", "cluster_genomes_log10"]
+
 # The groups a set's name may join with "+", in the order they are listed.
 FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEATURES, "relatives": RELATIVE_FEATURES,
-                  "distance": DISTANCE_FEATURES, "depth": SAMPLE_FEATURES, "divergence": DIVERGENCE_FEATURES}
+                  "distance": DISTANCE_FEATURES, "depth": SAMPLE_FEATURES, "divergence": DIVERGENCE_FEATURES,
+                  "unfiltered": UNFILTERED_FEATURES, "priors": PRIORS_FEATURES}
 
 # The sets worth naming (--features takes any groups joined by "+", and "all").
 FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
                 "normalized+adjacency+distance+depth", "normalized+adjacency+distance+depth+divergence",
-                "normalized+adjacency+relatives+depth+divergence", "all")
-DEFAULT_FEATURE_SET = "normalized+adjacency+distance+depth+divergence"
+                "normalized+adjacency+distance+divergence+unfiltered+priors",
+                "normalized+adjacency+distance+depth+divergence+unfiltered+priors",
+                "normalized+adjacency+relatives+depth+divergence+unfiltered+priors", "all")
+DEFAULT_FEATURE_SET = "normalized+adjacency+distance+depth+divergence+unfiltered+priors"
 
 
 def feature_set_columns(feature_set):

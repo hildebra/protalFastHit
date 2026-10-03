@@ -60,6 +60,23 @@ The default `model_pe.xml` is the model shipped with protal. It was trained on o
 does not call archaea reliably ([model-training.md](model-training.md)); for a database you will
 use, train a model on it, or use the one-command route below.
 
+### Species priors
+
+The converter also writes `species_priors.tsv`, what GTDB knows of each species before any read, for
+the model's prior features ([model-training.md](model-training.md#reads-before-the-filters-and-the-species-priors)):
+per species its taxid and representative, the marker genes found in the representative and how many of
+them twice (the converter keeps a genome's first copy of a single-copy marker; a second copy is CheckM's
+contamination signature), the representative's CheckM completeness and contamination from the
+metadata (`checkm2_*` where the release has them, else `checkm_*`), and from GTDB's species clusters
+file, `auxillary_files/sp_clusters_r226.tsv` (GTDB's spelling; `download_gtdb.py` fetches it when the
+release lists it), the cluster's ANI circumscription radius, mean and minimum intra-species ANI and
+number of genomes. -1 stands for unknown: a release without the clusters file or the quality columns
+gives those columns -1, and a database converted by an earlier protal has no table at all, which a run
+reports (`Species priors: the database has no species_priors.tsv`). `--build` packs the table into
+`database.protal` ([database-files.md](database-files.md)). The log line says how many representatives
+have a duplicated marker and how many species have quality and cluster values
+([report](claude/2026-10-03-false-positive-fixes/README.md)).
+
 ### Gene neighbours
 
 Optional, between conversion and build: how often each marker gene end faces which other in the
@@ -432,7 +449,7 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--genome-table` | built from the release | genomes to simulate from |
 | `--extra-genomes` | | folder of more genomes of GTDB species (by accession in the file names); repeatable |
 | `--simulate-species` | all | file of the species to simulate from |
-| `--holdout` | 0.2 | share of the species to simulate (that no held-out clade took) left out of the training database |
+| `--holdout` | 0.3 | share of the species to simulate (that no held-out clade took) left out of the training database (0.2 until 2026-10-03: more missing species give the model more of the false positives it must reject) |
 | `--holdout-clades` | `phylum:2,class:4,order:6,family:8,genus:12` | whole clades left out of the training database, `RANK:COUNT` for phylum, class, order, family, genus; `none` for single species only (with `--holdout 0`: train on the database itself) |
 | `--holdout-max-share` | 0.02 | largest share of the database's species a held-out clade may have |
 | `--novel-clades-per-sample` | 1 | species of held-out clades in every sample, per rank |
@@ -447,11 +464,11 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--congeners` | `0.25:2-5` | relatives that share a sample, in the training data and the test set: `SHARE:MIN-MAX`, about SHARE of each sample's species in groups of MIN to MAX species of one genus, the genera drawn per sample; `N`, N species of one genus per design point; `0`, none (uniform draws, which hardly ever put congeners together). The relatives features need them: trained without, a model learns that an abundant congener means absence ([model-training.md](model-training.md#features)); `build_metadata.tsv` records the setting in `classifier_training_design` |
 | `--no-placeholder-models` | | leave out the placeholder models of read types not trained (below) |
 | `--no-gene-neighbours` | | do not record the gene neighbours ([above](#gene-neighbours)); protal then pairs no mates over neighbouring genes |
-| `--read-pairs` | `1000,5000,20000,100000,500000,2000000:4,10000000:2` | depths, one design point each, `DEPTH:SAMPLES` for other samples than `--samples` (without the shallowest, a model missed 8% of the present taxa of 1000-pair samples; the deepest are as deep as real samples) |
+| `--read-pairs` | `1000,5000,20000,100000,500000,2000000:4,10000000:2,30000000:1` | depths, one design point each, `DEPTH:SAMPLES` for other samples than `--samples` (the deepest point because a model with the sample's depth as a feature cannot extrapolate past the deepest sample it saw; without the shallowest, a model missed 8% of the present taxa of 1000-pair samples; the deepest are as deep as real samples) |
 | `--read-setups` | `100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | read length : ART profile (or `file=R1.txt+R2.txt`) : fragment mean : fragment SD, one design point each |
 | `--species-per-sample` | `20-200` | drawn per sample |
 | `--strains-per-species` | `0.3,0.1` | probabilities of a second, third, ... strain of a species |
-| `--abundance` | the simulator's | `lognormal:SIGMA`, `powerlaw:ALPHA` or `negbin:R:P` |
+| `--abundance` | `lognormal:1.3,2.0` | `lognormal:SIGMA`, `powerlaw:ALPHA` or `negbin:R:P`; `lognormal:S1,S2,...` gives a design point's samples the sigmas in turn, half 1.3 and half the test set's 2.0 by default, so that the model's depth prior does not rest on one abundance distribution |
 | `--archaea` | 2 | archaeal species per sample |
 | `--read-types` | `pe,se,pb,ont` | the read types to train a model for |
 | `--long-read-bases` | `300000,1500000,6000000,30000000,150000000,1500000000:4,6000000000:2` | bases per pb and ont sample, one design point each, `DEPTH:SAMPLES` as for `--read-pairs` |
@@ -465,7 +482,7 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--seed` | 1 | |
 | `--ntree` | 64 | trees (more did not score better, see [model-training.md](model-training.md#training)) |
 | `--maxnodes` | `512,pb:128,ont:128` | leaves per tree at most, `N` for the read types not named and `TYPE:N`: at r226 512 leaves gave the short-read models a lower log loss and fewer false positives than 256, and 128 the long-read models a lower log loss at the same F1 ([report](claude/2026-10-02-r226-v3-training/README.md)); `build_metadata.tsv` records each model's |
-| `--features` | `normalized+adjacency+distance+depth+divergence` | the models' features ([model-training.md](model-training.md#features)), feature groups joined by `+`: the normalised and gene neighbour features, the four relatives features by the references' distance (at r226 +0.004 paired-end F1 at the knob curve over `normalized+adjacency`, the other read types within noise), the sample's depth (`depth`: on the r226 v5 tables false positives halved at knob 0.5, test F1 +0.004 pe / +0.009 se / +0.005 pb over the distance set; no knob curve is fitted with it) and the divergence features (`divergence`: divergence by gene conservation and codon position, lost mates; [report](claude/2026-10-03-false-positive-anatomy/README.md)); `normalized+adjacency+distance` leaves the last two groups out, `normalized+adjacency` the relatives too, `normalized+adjacency+relatives+depth+divergence` takes all the relatives features (a better ranking, but no better at the knob curve at r226), `normalized` leaves the gene neighbour features out too, to test them on real data; `build_metadata.tsv` records the set |
+| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+priors` | the models' features ([model-training.md](model-training.md#features)), feature groups joined by `+`: the normalised and gene neighbour features, the four relatives features by the references' distance (at r226 +0.004 paired-end F1 at the knob curve over `normalized+adjacency`, the other read types within noise), the sample's depth (`depth`: on the r226 v5 tables false positives halved at knob 0.5, test F1 +0.004 pe / +0.009 se / +0.005 pb over the distance set; no knob curve is fitted with it), the divergence features (`divergence`: divergence by gene conservation and codon position, lost mates; [report](claude/2026-10-03-false-positive-anatomy/README.md)), the reads before the filters and the failed candidates (`unfiltered`) and what GTDB knows of the species (`priors`, [report](claude/2026-10-03-false-positive-fixes/README.md)); `normalized+adjacency+distance+depth+divergence` leaves the last two groups out, `normalized+adjacency+distance` the depth and divergence features too, `normalized+adjacency` the relatives too, `normalized+adjacency+relatives+depth+divergence+unfiltered+priors` takes all the relatives features (a better ranking, but no better at the knob curve at r226), `normalized` leaves the gene neighbour features out too, to test them on real data; `build_metadata.tsv` records the set |
 | `--call-mode` | `curve` | `curve`: the models carry a knob curve over depth where one is fitted (none with the sample's depth as a feature, the default: protal then calls at 0.5 or `--knob`); `fdr`: the models also carry calibrated calls (`random_forest_cmdline.py --fdr-calls`, [model-training.md](model-training.md#calls-at-a-target-share-of-false-calls)), which protal uses only with `--fdr F`: they called 0.0005-0.004 F1 below the curve on the benchmark world and 0.001-0.007 at r226 ([report](claude/2026-10-03-r226-v5-v6-training/README.md)). `build_metadata.tsv` records it (`classifier_call_mode`, `model_<type>_false_calls`) |
 | `--evaluation` | `full` | how much the trainer evaluates: `full`, `basic` or `none` |
 | `--previous-procedure` | off | the trainer also compares each model with its previous procedure ([model-training.md](model-training.md#training)), for the first builds of a release; `build_metadata.tsv` says whether it did |

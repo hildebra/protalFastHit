@@ -585,6 +585,17 @@ namespace protal {
             // once the sample's fragment lengths are known (Taxon::SetRecordEvidence).
             size_t mates_linked = 0;
             std::vector<uint16_t> mate_room;
+            // Reads with a best record on the taxon before the MAPQ and length filters, a pair or a long read once
+            // (MicrobialProfile::PrepareMAPQ): with the share the abundance-weighted assignment leaves to the taxon
+            // (SampleEvidence::em_own_share), the fragments it would have had without the filters. A divergent strain's
+            // reads tie with a congener's reference and fall to MAPQ 0, so `fragments` undercounts it; the EM gives them
+            // back (docs/claude/2026-10-03-false-positive-fixes).
+            size_t fragments_all = 0;
+            size_t last_fragment_link = SIZE_MAX;  // the read fragments_all last counted (not merged)
+            // Reads that seeded on the taxon strongly enough to be aligned against it but did not align to it (the
+            // ZF tags of the sample's records, and of its unmapped records): a relative the database lacks seeds on
+            // its nearest species and fails there, a present species' reads align.
+            size_t failed_candidates = 0;
 
             RecordEvidence& operator+=(RecordEvidence const& other) {
                 records += other.records;
@@ -614,6 +625,8 @@ namespace protal {
                 third_mismatches += other.third_mismatches;
                 mates_linked += other.mates_linked;
                 mate_room.insert(mate_room.end(), other.mate_room.begin(), other.mate_room.end());
+                fragments_all += other.fragments_all;
+                failed_candidates += other.failed_candidates;
                 return *this;
             }
         };
@@ -766,6 +779,7 @@ namespace protal {
             Genome* m_genome;  // the database's genome, shared by all samples
             size_t m_genome_gene_count = 0;
             gene_conservation::Table const* m_conservation = nullptr;  // none: every gene's factor is 1
+            species_priors::Table const* m_priors = nullptr;  // the species' priors (SpeciesPriors.h), or nullptr
             bool m_scale_margin = false;  // the depth identity margin scaled by the factors (--gene_conservation db)
             double m_excess_median = 0;  // see ExcessMedian
             double m_excess_high_share = 0;
@@ -782,9 +796,16 @@ namespace protal {
 
             // conservation: the genes' conservation factors (GenomeLoader::GetGeneConservation), for the features and,
             // with scale_margin, to scale the depth identity margin per gene.
-            Taxon(Genome& genome, gene_conservation::Table const* conservation = nullptr, bool scale_margin = false) :
+            Taxon(Genome& genome, gene_conservation::Table const* conservation = nullptr, bool scale_margin = false,
+                  species_priors::Table const* priors = nullptr) :
                     m_genome(&genome), m_genome_gene_count(genome.GeneNum()), m_conservation(conservation),
-                    m_scale_margin(scale_margin) {}
+                    m_scale_margin(scale_margin), m_priors(priors) {}
+
+            // What GTDB knows of the species before any read (SpeciesPriors.h); unknown values without the table.
+            species_priors::Row const& Priors() const {
+                static species_priors::Row const unknown;
+                return m_priors ? m_priors->Get(static_cast<uint32_t>(m_id)) : unknown;
+            }
 
             // Drops what is computed from the reads, when a read is added.
             void Changed() {
@@ -1000,6 +1021,16 @@ namespace protal {
             // sequencing errors fall on the three positions alike, a strain's differences mostly on the third (synonymous),
             // a relative's less so once the third positions saturate; 1/3 without mismatches.
             double ThirdPositionShare() const { return m_third_position_share; }
+            // The taxon's reads with a best record before the MAPQ and length filters, a pair or a long read once
+            // (RecordEvidence::fragments_all); `fragments` counts those the filters keep.
+            size_t FragmentsAll() const { return m_records.fragments_all; }
+            // The reads that seeded on the taxon strongly enough to be aligned against it but did not align to it
+            // (RecordEvidence::failed_candidates), and their share of those plus the reads with a record.
+            size_t FailedCandidates() const { return m_records.failed_candidates; }
+            double FailedCandidateRate() const {
+                size_t const all = m_records.failed_candidates + m_records.fragments_all;
+                return all == 0 ? 0 : static_cast<double>(m_records.failed_candidates) / static_cast<double>(all);
+            }
             // Of the taxon's paired fragments whose mate was expected on the taxon (both mates with a record on it, or
             // one kept record with room for the fragment inside its gene), the share whose mate has no record on the
             // taxon: a species' own fragments bring both mates; a read of a relative that fits the reference where it is
@@ -1817,6 +1848,25 @@ namespace protal {
             // The sample's depth, log10 of its fragments over all its taxa (what the knob curve reads): a taxon of one
             // perfect read is a present species in a shallow sample and spill-over in a deep one.
             f.emplace_back("sample_log_fragments", s.sample_log_fragments);
+            // The taxon's reads before the filters, and of them what the abundance-weighted assignment leaves to the
+            // taxon: the fragments a divergent strain would have had, had its reads not tied with a congener's reference.
+            f.emplace_back("fragments_all", static_cast<double>(taxon.FragmentsAll()));
+            f.emplace_back("em_fragments", s.em_own_share * static_cast<double>(taxon.FragmentsAll()));
+            // Of the reads that seeded on the taxon strongly enough to be aligned against it, the share that did not
+            // align to it: a relative the database lacks seeds on its nearest species and fails there.
+            f.emplace_back("failed_candidate_rate", taxon.FailedCandidateRate());
+            // What GTDB knows of the species before any read (SpeciesPriors.h; -1 unknown): the share of its
+            // representative's single-copy markers found twice (a contaminating contig), its CheckM completeness and
+            // contamination, and its cluster's ANI radius, mean and minimum intra-species ANI and size (a wide or
+            // crowded cluster makes a cloud of reads a few percent from the reference a strain rather than a sister).
+            auto const& prior = taxon.Priors();
+            f.emplace_back("rep_duplicate_share", prior.markers > 0 ? prior.duplicate_markers / prior.markers : species_priors::kUnknown);
+            f.emplace_back("rep_completeness", prior.completeness);
+            f.emplace_back("rep_contamination", prior.contamination);
+            f.emplace_back("cluster_ani_radius", prior.ani_radius);
+            f.emplace_back("cluster_mean_ani", prior.mean_intra_ani);
+            f.emplace_back("cluster_min_ani", prior.min_intra_ani);
+            f.emplace_back("cluster_genomes_log10", prior.clustered_genomes > 0 ? std::log10(prior.clustered_genomes) : species_priors::kUnknown);
             // The fragments of its genus's most abundant other species: with fragments, the singleton rule's inputs.
             f.emplace_back("genus_top_fragments", static_cast<double>(s.genus_top));
             return f;
@@ -2288,6 +2338,26 @@ namespace protal {
 
             size_t SuspectRecords() const {
                 return m_suspect_records;
+            }
+
+            // A record's ZF tag (SamEntry::m_failed, on a read's first record): the taxa the read seeded on but did not
+            // align to, each counted once for the read (MicrobialProfile::PrepareMAPQ).
+            void NoteFailedCandidates(std::string const& tag) {
+                ForEachFailedCandidate(tag, [this](uint32_t taxid) { m_counts[taxid].failed_candidates++; });
+            }
+
+            // The reads whose unmapped record names each taxon as a failed candidate (SamReader::FailedCandidates).
+            void AddFailedCandidates(std::unordered_map<uint32_t, size_t> const& counts) {
+                for (auto const& [taxid, n] : counts) m_counts[taxid].failed_candidates += n;
+            }
+
+            // A read (link: the read across its records) with a best record on taxon taxid, before the filters: counted
+            // once per read (MicrobialProfile::PrepareMAPQ).
+            void NoteFragment(uint32_t taxid, size_t link) {
+                auto& e = m_counts[taxid];
+                if (link == e.last_fragment_link) return;
+                e.last_fragment_link = link;
+                e.fragments_all++;
             }
 
             // A fragment whose two mates both have a record on taxon taxid (MicrobialProfile::PrepareMAPQ).
@@ -2786,7 +2856,8 @@ namespace protal {
                 if (!m_taxa.contains(taxid)) {
                     auto &genome = m_genome_loader.GetGenome(taxid);
 
-                    m_taxa.insert( { taxid, Taxon(genome, &m_genome_loader.GetGeneConservation(), m_genome_loader.ScaleDepthMargin()) } );
+                    m_taxa.insert( { taxid, Taxon(genome, &m_genome_loader.GetGeneConservation(), m_genome_loader.ScaleDepthMargin(),
+                                                   &m_genome_loader.GetSpeciesPriors()) } );
                     m_taxa.at(taxid).SetId(taxid);
                     m_taxa.at(taxid).SetDepthIdentityMargin(m_depth_identity_margin);
                     m_taxa.at(taxid).SetDropForeignGenes(m_drop_foreign_genes);
@@ -3261,6 +3332,7 @@ namespace protal {
             size_t m_min_mapq = 4;
             double m_depth_identity_margin = 1;
             size_t m_reads = 0;
+            std::unordered_map<uint32_t, size_t> m_failed_candidates;  // the last ReadSamGroups' unmapped records' ZF entries per taxon
             size_t m_rejected_reads = 0;
 
             // Variants are recorded with or without --no_strains: the model's allele features come
@@ -3494,6 +3566,7 @@ namespace protal {
 
                 SamRecordCounts counts;
                 counts.Add(reader);
+                m_failed_candidates = reader.FailedCandidates();  // for the profile (ProfileSam)
                 ReportSamRecords(file_path, counts);
                 return {};
             }
@@ -3858,7 +3931,9 @@ namespace protal {
                     if (!sam) continue;
                     auto const [taxid, geneid] = ExtractTaxidGeneid(sam->m_rname);
                     evidence.NoteRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, kept);
+                    evidence.NoteFragment(static_cast<uint32_t>(taxid), link);
                     evidence.NoteLinkedRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, link);
+                    if (!sam->m_failed.empty()) evidence.NoteFailedCandidates(sam->m_failed);
                 }
                 if (!take_first && !take_second) return true;
                 // The mates (MateLostShare): a fragment with both mates on one taxon is linked there (and, on one gene,
@@ -4035,6 +4110,7 @@ namespace protal {
                 out.links = out.reads.empty() ? 0 : link + 1;
                 out.lines = reader.Lines();
                 out.counts.Add(reader);
+                out.evidence.AddFailedCandidates(reader.FailedCandidates());
                 std::string().swap(chunk.text);  // the records hold their own copies
             }
 
@@ -4286,6 +4362,7 @@ namespace protal {
                     }
                 });
                 if (!error.empty()) return error;
+                profile.Evidence().AddFailedCandidates(m_failed_candidates);  // the unmapped records' failed candidates
 
                 m_reads = read_id;
                 profile.ApplyRecordEvidence(threads);

@@ -197,7 +197,7 @@ other in 20% of their species or more, a sparse clade leaning on those above it)
 frequency of their pairings there, pulled towards 0.5 by one pairing ((sum of the frequencies + 0.5)
 / (pairings judged + 1); 0.5 without gene neighbours or reads across genes).
 The models train on them by default (`ADJACENCY_FEATURES`, with `NORMALIZED_FEATURES` the set
-`normalized+adjacency`, in the default `normalized+adjacency+distance+depth+divergence`). On a synthetic world they
+`normalized+adjacency`, in the default `normalized+adjacency+distance+depth+divergence+unfiltered+priors`). On a synthetic world they
 changed the test F1 within noise (paired-end +0.0025, PacBio −0.0026, Nanopore +0.0015 over three seeds;
 [report](claude/2026-10-01-gene-neighbours-run/README.md),
 [2026-10-02](claude/2026-10-02-gene-neighbour-frequencies/README.md)): reads of a congener the
@@ -254,7 +254,7 @@ the larger problem, the four distance features added 0.004 paired-end F1 on the 
 (0.007 at knob 0.5), single-end and long reads within noise; all the relatives features lowered the
 paired-end log loss by 27% with species held out but did no better at the knob curve
 ([report](claude/2026-10-03-r226-v5-v6-training/README.md)). So the four distance features are in the
-trainer's and the build's default set (`normalized+adjacency+distance+depth+divergence`,
+trainer's and the build's default set (`normalized+adjacency+distance+depth+divergence+unfiltered+priors`,
 [below](#the-samples-depth-and-the-divergence-features)); a table of a protal before them needs `--features
 normalized+adjacency`.
 They need training samples whose congeners share a sample (`--congeners SHARE:MIN-MAX`,
@@ -298,6 +298,30 @@ gained 0.001 on the r226 tables. A dump of a protal before these features lacks 
 train it with `--features normalized+adjacency+distance`. How they did on the benchmark world is in
 [the implementation report](claude/2026-10-03-false-positive-fixes/README.md).
 
+### Reads before the filters, and the species' priors
+
+`UNFILTERED_FEATURES` (`unfiltered`, [the same report](claude/2026-10-03-false-positive-fixes/README.md)): `fragments_all`, the taxon's reads with a
+best record before the MAPQ and length filters (a pair or a long read once); `em_fragments`, of them what
+the abundance-weighted assignment leaves to the taxon (`em_own_share` × `fragments_all`), the fragments a
+divergent strain would have had, had its reads not tied with a congener's reference and fallen to MAPQ 0,
+which is where half of the r226 misses lost their evidence (159 of 328 had half or more of their records
+below MAPQ 10 while the EM gave them nearly all); and `failed_candidate_rate`, of the reads that seeded on
+the taxon strongly enough to be aligned against it, the share that did not align to it (protal's `ZF` tag,
+[running.md](running.md#options-the-website-does-not-list)): a relative the database lacks seeds on its
+nearest species and fails there, a present species' reads align.
+
+`PRIORS_FEATURES` (`priors`): per-species constants from GTDB, which the converter writes
+(`species_priors.tsv`, [building-a-database.md](building-a-database.md#species-priors); -1 unknown): the
+share of the representative's single-copy markers found twice (`rep_duplicate_share`, CheckM's
+contamination signature: a contaminating contig's genes put every present organism's reads on the
+species), its CheckM completeness and contamination (`rep_completeness`, `rep_contamination`), and from
+GTDB's species clusters the ANI circumscription radius, the mean and minimum intra-species ANI and the
+cluster's size (`cluster_ani_radius`, `cluster_mean_ani`, `cluster_min_ani`, `cluster_genomes_log10`): a
+wide or crowded cluster makes a cloud of reads a few percent from the reference a strain rather than a
+sister species. On a synthetic world they are all unknown and do nothing; at r226 the next build tells.
+Both groups are in the default set; a dump of a protal before them needs `--features
+normalized+adjacency+distance+depth+divergence`.
+
 protal writes the alternatives as the `ZA` tag of a read's best record (`ZA:Z:<taxid>:<edits
 more>,...`, the other taxa among the read's aligned candidates with at most 5 edits more, or `*`);
 a SAM file of an older protal lacks it, protal warns, and the two fit shares are then 0, so such
@@ -321,7 +345,7 @@ one differs.
 | Option | Default | |
 |---|---|---|
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
-| `--features` | `normalized+adjacency+distance+depth+divergence` | the feature groups joined by `+`, `normalized` among them: `normalized` (`NORMALIZED_FEATURES`), `adjacency` (the gene neighbours'), `relatives` (all `RELATIVE_FEATURES`) or `distance` (the four `relative_*` by the references' distance), `depth` (the sample's depth, `SAMPLE_FEATURES`; no knob curve is fitted with it), `divergence` (`DIVERGENCE_FEATURES`); `all`: every feature column of the dump. A table of an older protal lacks columns: `normalized+adjacency+distance` before the depth and divergence features, `normalized+adjacency` before the relatives features |
+| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+priors` | the feature groups joined by `+`, `normalized` among them: `normalized` (`NORMALIZED_FEATURES`), `adjacency` (the gene neighbours'), `relatives` (all `RELATIVE_FEATURES`) or `distance` (the four `relative_*` by the references' distance), `depth` (the sample's depth, `SAMPLE_FEATURES`; no knob curve is fitted with it), `divergence` (`DIVERGENCE_FEATURES`), `unfiltered` (the reads before the filters and the failed candidates), `priors` (what GTDB knows of the species); `all`: every feature column of the dump. A table of an older protal lacks columns: `normalized+adjacency+distance+depth+divergence` before the unfiltered and priors features, `normalized+adjacency+distance` before the depth and divergence features, `normalized+adjacency` before the relatives features |
 | `--reference-pmml` | | train on the input fields of an existing model instead |
 | `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 256, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves; `build_gtdb_database.py` gives 512 for short reads and 128 for long reads: at GTDB r226 512 leaves gave short reads a lower log loss and fewer false positives, 128 long reads a lower log loss at the same F1) |
 | `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |

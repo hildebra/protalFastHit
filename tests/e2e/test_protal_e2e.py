@@ -1972,7 +1972,9 @@ class SamInputTest(WorkDir):
         sam = self.write_sam("edited", edited, final_newline=False)
         rc, log = self.profile_only(sam)
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("skipped 1 record(s): unmapped", log)
+        # The added unmapped record, and those protal wrote itself for reads that seeded on taxa but aligned nowhere.
+        own_unmapped = sum(1 for r in self.records if int(r.split("\t")[1]) & 0x4)
+        self.assertIn(f"skipped {own_unmapped + 1} record(s): unmapped", log)
         self.assertIn("skipped 1 record(s): reference is not a protal gene", log)
         with open(self.path("out_edited.sam", "edited.profile")) as fh:
             self.assertEqual(fh.read(), self.profile_text)
@@ -2081,6 +2083,8 @@ class CompressedSamOutputTest(WorkDir):
         for line in lines:
             if not line.startswith("@"):
                 fields = line.split("\t")
+                if fields[2] == "*":  # an unmapped record (a read that seeded on taxa but aligned nowhere): no gene
+                    continue
                 named.add(fields[2])
                 if fields[6] not in ("=", "*"):
                     named.add(fields[6])
@@ -2196,7 +2200,14 @@ class SingleEndTest(WorkDir):
         self.assertNotIn("Model of paired-end reads", self.log)
 
     def test_records_are_unpaired_reads(self):
-        records = sam_records(self.path("out", "sa.sam"))
+        all_records = sam_records(self.path("out", "sa.sam"))
+        # Unmapped records (flag 4, no gene, no sequence) stand for reads that seeded on taxa but aligned nowhere;
+        # they carry the taxa as a ZF tag and nothing else.
+        unmapped = [r for r in all_records if int(r[1]) & 0x4]
+        for r in unmapped:
+            self.assertEqual((r[2], r[3], r[5], r[9], r[10]), ("*", "0", "*", "*", "*"), r)
+            self.assertTrue(any(f.startswith("ZF:Z:") and f[5:] for f in r[11:]), f"an unmapped record names its failed candidates: {r}")
+        records = [r for r in all_records if not int(r[1]) & 0x4]
         self.assertTrue(records)
         self.assertEqual([r[1] for r in records if int(r[1]) & 0xCD], [], "no pair, mate or unmapped flags")
         self.assertEqual(len({r[0] for r in records}), len(records), "one record per read (-m 1)")
@@ -2424,7 +2435,7 @@ class PacBioTest(WorkDir):
     def test_records_hold_their_aligned_bases(self):
         seqs, names = self.read_seqs("la")
         read_of = dict(zip(names, seqs))
-        records = sam_records(self.path("out", "la.sam"))
+        records = [r for r in sam_records(self.path("out", "la.sam")) if not int(r[1]) & 0x4]  # not the unmapped ones (ZF)
         self.assertTrue(records)
         for r in records:
             flag, ops, read = int(r[1]), cigar_ops(r[5]), read_of[r[0]]

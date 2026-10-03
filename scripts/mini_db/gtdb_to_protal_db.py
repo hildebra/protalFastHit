@@ -127,6 +127,75 @@ def read_taxonomy(gtdb, rel):
     return lineage
 
 
+def read_quality(gtdb, rel):
+    """-> {accession: (completeness, contamination)} from the metadata's CheckM columns (checkm2_* where the release has
+    them, else checkm_*; a missing or empty value is None), or {} without metadata or columns."""
+    quality = {}
+    for mset in MARKER_SETS:
+        path = find_one(gtdb, f"{mset}_metadata_r{rel}")
+        if not path:
+            continue
+        with open_text(path) as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            if "accession" not in header:
+                continue
+            acc_col = header.index("accession")
+            cols = []
+            for what in ("completeness", "contamination"):
+                col = next((header.index(c) for c in (f"checkm2_{what}", f"checkm_{what}") if c in header), None)
+                cols.append(col)
+            if all(c is None for c in cols):
+                continue
+            for line in fh:
+                fields = line.rstrip("\n").split("\t")
+                if len(fields) <= acc_col:
+                    continue
+                values = []
+                for col in cols:
+                    try:
+                        values.append(float(fields[col]) if col is not None and fields[col] not in ("", "none", "N/A", "NA") else None)
+                    except (ValueError, IndexError):
+                        values.append(None)
+                quality[normalize_accession(fields[acc_col])] = tuple(values)
+    return quality
+
+
+SP_CLUSTERS_COLUMNS = {"radius": "ANI circumscription radius", "mean_ani": "Mean intra-species ANI",
+                       "min_ani": "Min intra-species ANI", "genomes": "No. clustered genomes"}
+
+
+def read_sp_clusters(gtdb, rel):
+    """-> {representative accession: {radius, mean_ani, min_ani, genomes}} from GTDB's sp_clusters_r<rel>.tsv (in
+    auxillary_files/, GTDB's spelling, or beside the metadata), None where a value is N/A; {} without the file."""
+    path = None
+    for folder in (os.path.join(gtdb, "auxillary_files"), os.path.join(gtdb, "auxiliary_files"), gtdb):
+        path = find_one(folder, f"sp_clusters_r{rel}") if os.path.isdir(folder) else None
+        if path:
+            break
+    if not path:
+        return {}
+    clusters = {}
+    with open_text(path) as fh:
+        header = [h.strip() for h in fh.readline().rstrip("\n").split("\t")]
+        try:
+            acc_col = header.index("Representative genome")
+            cols = {key: header.index(name) for key, name in SP_CLUSTERS_COLUMNS.items()}
+        except ValueError:
+            sys.exit(f"{path} lacks the columns 'Representative genome', " + ", ".join(f"'{n}'" for n in SP_CLUSTERS_COLUMNS.values()))
+        for line in fh:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) <= max(cols.values()):
+                continue
+            row = {}
+            for key, col in cols.items():
+                try:
+                    row[key] = float(fields[col]) if fields[col] not in ("", "N/A", "NA", "none") else None
+                except ValueError:
+                    row[key] = None
+            clusters[normalize_accession(fields[acc_col])] = row
+    return clusters
+
+
 def read_representatives(gtdb, rel):
     """-> set of representative accessions from the metadata, or None if there is none."""
     reps, found = set(), False
@@ -198,11 +267,11 @@ def _parallel(threads, function, items):
 
 def _spool_representatives(item):
     """One marker: the representatives' records of all its files (a genome's first copy), spooled
-    to rep_<gene id>.tsv; -> (marker, their accessions, skipped counts)."""
+    to rep_<gene id>.tsv; -> (marker, their accessions, skipped counts, the genomes with more copies)."""
     marker, paths = item
     lineage, reps = _WORK["lineage"], _WORK["reps"]
     counts = {"not in taxonomy": 0, "not a representative": 0, "duplicate": 0}
-    kept, accessions = set(), []
+    kept, accessions, duplicated = set(), [], set()
     with open(os.path.join(_WORK["tmp"], f"rep_{_WORK['gene_ids'][marker]}.tsv"), "w", newline="\n") as out:
         for path in paths:
             for header, seq in read_fasta(path):
@@ -213,11 +282,12 @@ def _spool_representatives(item):
                     counts["not a representative"] += 1
                 elif acc in kept:
                     counts["duplicate"] += 1
+                    duplicated.add(acc)  # a single-copy marker twice in one genome: CheckM's contamination signature
                 else:
                     kept.add(acc)
                     accessions.append(acc)
                     out.write(f"{acc}\t{seq.upper()}\n")
-    return marker, accessions, counts
+    return marker, accessions, counts, sorted(duplicated)
 
 
 def _write_gene(marker):
@@ -296,7 +366,7 @@ def species_taxids(taxonomy_rows, names, what):
 # and gene_neighbours.tsv (gene_neighbours.py; per clade). A copy without some species derives
 # gene_neighbours.tsv anew from gene_positions.tsv, without their genomes, when the folder has one.
 CONVERTED_FILES = ("internal_taxonomy.dmp", "gene2geneid.tsv", "genome2tiid.tsv", "gene_neighbours.tsv",
-                   "model_pe.xml", "model_se.xml", "model_PB.xml", "model_ONT.xml")
+                   "species_priors.tsv", "model_pe.xml", "model_se.xml", "model_PB.xml", "model_ONT.xml")
 GENE_POSITIONS = "gene_positions.tsv"
 # What protal --build writes into the folder (and leaves there when stopped: .partial files), stale once
 # the folder's reference is written anew; it would stop the next build (unique_kmers.tsv of other genes)
@@ -548,7 +618,8 @@ def main():
     for marker, path in rep_files:
         by_marker.setdefault(marker, []).append(path)
     species_rep = {}       # species name -> rep accession
-    for marker, accessions, counts in _parallel(args.threads, _spool_representatives, list(by_marker.items())):
+    markers_of = {}        # rep accession -> markers found, markers with more than one copy
+    for marker, accessions, counts, duplicated in _parallel(args.threads, _spool_representatives, list(by_marker.items())):
         for key, n in counts.items():
             skipped[key] += n
         for acc in accessions:
@@ -556,7 +627,12 @@ def main():
             other = species_rep.setdefault(species, acc)
             if other != acc:
                 sys.exit(f"Species {species} has two representatives with marker genes: {other}, {acc}")
+            markers_of.setdefault(acc, [0, 0])[0] += 1
+        for acc in duplicated:
+            markers_of.setdefault(acc, [0, 0])[1] += 1
     phase(f"spooled the representatives' marker genes ({len(species_rep)} species)")
+    quality = read_quality(args.gtdb, args.release)
+    clusters = read_sp_clusters(args.gtdb, args.release)
 
     species_lineage = {sp: lineage[acc] for sp, acc in species_rep.items()}
     for sp, lin in species_lineage.items():
@@ -578,6 +654,29 @@ def main():
         fh.write("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n")
         for row in rows:
             fh.write("\t".join(map(str, row)) + "\n")
+
+    # species_priors.tsv: what GTDB knows of each species' representative and cluster before any read, for the
+    # model's prior features (protal's SpeciesPriors.h; -1: unknown). Duplicated single-copy markers in the
+    # representative are CheckM's contamination signature; a contaminating contig's genes put every present
+    # organism's reads on the species (docs/claude/2026-10-03-false-positive-anatomy).
+    def number(v):
+        return "-1" if v is None else (f"{v:g}" if isinstance(v, float) else str(v))
+    with_dups = with_quality = with_cluster = 0
+    with open(out("species_priors.tsv"), "w", newline="\n") as fh:
+        fh.write("taxid\trep_genome\tmarkers\tduplicate_markers\tcheckm_completeness\tcheckm_contamination"
+                 "\tani_radius\tmean_intra_ani\tmin_intra_ani\tclustered_genomes\n")
+        for sp in sorted(taxid, key=lambda s: taxid[s]):
+            acc = species_rep[sp]
+            found, dups = markers_of.get(acc, [0, 0])
+            comp, cont = quality.get(acc, (None, None))
+            cl = clusters.get(acc, {})
+            with_dups += dups > 0
+            with_quality += comp is not None
+            with_cluster += bool(cl)
+            fh.write("\t".join([str(taxid[sp]), acc, str(found), str(dups), number(comp), number(cont), number(cl.get("radius")),
+                                 number(cl.get("mean_ani")), number(cl.get("min_ani")), number(cl.get("genomes"))]) + "\n")
+    phase(f"species priors ({with_dups} representatives with a duplicated marker, CheckM quality for {with_quality}, "
+          f"species clusters for {with_cluster} of {len(taxid)} species" + ("" if clusters else "; no sp_clusters file") + ")")
 
     # Each gene's records, sorted by taxid, then all genes in gene id order (--order gene), or merged
     # by taxid, then gene (--order genome).
