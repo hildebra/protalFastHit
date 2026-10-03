@@ -1,0 +1,21 @@
+## pe, v3 against v4
+rows: 55694 and 55694; samples 198 and 198
+rows on both keys: 55694; only in A 0, only in B 0
+samples with rows only in A: {}
+adjacent_support: 1 rows differ, largest relative 1.97e-09, median 1.97e-09
+conserved_fast_depth_ratio: 4979 rows differ, largest relative 4.24e+300, median 0.28
+conserved_hit_share: 3892 rows differ, largest relative 1e+300, median 0.1
+conserved_fast_record_ratio: 52928 rows differ, largest relative 833, median 0.00794
+conserved_fast_kept_ratio: 52928 rows differ, largest relative 955, median 0.00611
+## pe, v4 against v2-new
+rows: 55694 and 55694; samples 198 and 198
+rows on both keys: 55694; only in A 0, only in B 0
+samples with rows only in A: {}
+## ont, v4 against v2-new
+rows: 11241 and 15354; samples 126 and 186
+rows on both keys: 11241; only in A 0, only in B 4113
+samples with rows only in A: {}
+## ont test, v4 against v2-new
+rows: 2507 and 3787; samples 22 and 42
+rows on both keys: 2507; only in A 0, only in B 1280
+samples with rows only in A: {}
