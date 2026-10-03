@@ -53,7 +53,7 @@
    flagged copies' share of all copies, which the build log states (`Suspect copies: N of M gene copies ...`); at
    r226 the within-genus report found 0.5% of species with an identical congener copy of a conserved gene, so the
    cross-genus share should be well below 1%. On the benchmark world (synthetic genomes, no contamination) the scan
-   flags TBD of TBD copies. The r226 number comes with the next build.
+   flags 7 of 83,978 copies (0.01%; its first rule 232, see below). The r226 number comes with the next build.
 
 ## What changed
 
@@ -113,9 +113,53 @@ pe and se; 8 samples per point at 1,000 to 1M read pairs, 4 test samples per poi
 `--depth-knobs` (fitted only without the depth feature), scored on its test set ([`bench_eval.sh`](bench_eval.sh),
 [`ablation_output.txt`](ablation_output.txt)):
 
-TBD_ABLATION_TABLE
+Test-set F1 at knob 0.5 (what protal calls with for a model without a curve) / at the model's knob curve where one was
+fitted / at the best test threshold; false positives and misses at 0.5; `nad` = `normalized+adjacency+distance`:
 
-TBD_ABLATION_TEXT
+| read type | features | species held out | test 0.5 / curve / best | FP / FN at 0.5 | FP / FN at the curve | log loss |
+|---|---|---:|---|---|---|---:|
+| pe | `nad` | 0.9893 | 0.9795 / 0.9748 / 0.9814 | 26 / 119 | 18 / 159 | 0.0676 |
+| pe | `nad` + divergence | 0.9903 | **0.9807** / 0.9818 / 0.9827 | 25 / 112 | 28 / 101 | 0.0620 |
+| pe | `nad` + depth | 0.9895 | 0.9748 / — / 0.9813 | 21 / 156 | — | 0.0719 |
+| pe | `nad` + depth + divergence (default) | 0.9913 | 0.9775 / — / **0.9835** | 20 / 139 | — | **0.0637** |
+| se | `nad` | 0.9866 | 0.9732 / 0.9707 / 0.9765 | 37 / 148 | 26 / 175 | 0.0752 |
+| se | `nad` + divergence | 0.9881 | **0.9734** / 0.9752 / 0.9786 | 35 / 148 | 46 / 126 | 0.0705 |
+| se | `nad` + depth | 0.9888 | 0.9664 / — / 0.9781 | 25 / 204 | — | 0.0807 |
+| se | `nad` + depth + divergence (default) | 0.9901 | 0.9676 / — / **0.9791** | 23 / 198 | — | 0.0779 |
+
+(The pipeline's own models, `normalized+adjacency+distance+depth+divergence` without a curve, score 0.9775 pe and
+0.9676 se on its test set, [`bench_summary.txt`](bench_summary.txt). About ±0.003 of F1 is noise here; the first
+pipeline, with the scan's first rule, gave 0.9769 and 0.9685, [`bench_summary_first_rule.txt`](bench_summary_first_rule.txt),
+and its ablation the same picture, [`ablation_first_rule_output.txt`](ablation_first_rule_output.txt).)
+
+- **The divergence features gain a little here and rank better**: +0.001 (pe) and +0.000 (se) at knob 0.5, the log
+  loss down 8% and 6%, misses down (pe 119 → 112) with the false positives unchanged. Positive, within noise on this
+  world; `excess_scaled_median` is the forest's top feature on it (importance 0.12 for pe and se, ahead of the
+  unique-k-mer rates and `identity`), `mate_lost_share` and `third_position_share` are not in the top eight.
+- **The depth feature loses here**: −0.005 (pe) and −0.007 (se) at knob 0.5, through misses in the deep test samples
+  (pe 119 → 156, 37 of them single fragments), while the false positives, few to begin with on this world (26 of
+  9,068 test taxa), fall by 5. Its ranking is the best of the sets (best-threshold F1 0.9835 against 0.9814, the lowest
+  log loss with the divergence features), so the forest learnt the depth right and the threshold wrong: the training
+  design (abundances of σ 1.3) has fewer rare species in deep samples than the test design (σ 2.0), and the forest
+  with the depth feature learnt that prior, which the knob curve, fitted on the same training samples, had learnt
+  too (it also loses here: pe 0.9795 → 0.9748) but applied more coarsely. On the r226 v5 tables, with the same two
+  designs, the depth feature gained +0.004 (pe) and +0.009 (se) at knob 0.5 and halved the false positives
+  ([the anatomy report](../2026-10-03-false-positive-anatomy/README.md)): there the database has 8,000 species and
+  the absent single-read taxa of a deep sample outnumber the present ones 60 to 1 at identity ≥ 0.99, here 765
+  species and few false positives, so the same prior pays there and costs here. **The default follows the r226
+  result, as the user decided, and the next r226 build decides**; if it loses there too, `--features
+  normalized+adjacency+distance+divergence`, or a training design whose abundances match the test's (σ 2.0, or rare
+  species added to the deep points), which would let the forest learn the right prior for both.
+- **Suspect copies**: the scan's first rule (a copy of a singleton genus suspect whenever another genus's copy is
+  within 0.02) flagged 232 of 83,978 copies (0.28%) of 125 species on this world, 227 of them in singleton genera
+  (165 of its 276 genera), on its slowest genes: a slow gene a young family shares, not contamination. The rule now
+  asks such a copy to lie inside the other genus's cluster by the margin, and flags 7 copies (0.01%) of 5 species,
+  two genera of one family whose gene 1 copies are at 0.011 while their congeners' are at 0.035 (the synthetic
+  taxonomy disagreeing with that gene). 69,429 near pairs across genera within 0.05 are reported either way
+  (`gene_incongruence.tsv`). The scan took 7.7 s for 84k copies on 6 threads; at r226 (18M copies) expect minutes.
+  This world has no contamination, so the scan's benefit is not measurable here; the first run's 232 dropped
+  copies changed the pipeline's test F1 by −0.0006 (pe) and +0.0009 (se) against the second's 7, within noise: the
+  cost of flagging 0.3% of copies is small, the gain at r226 is the open question.
 
 ## What is open
 

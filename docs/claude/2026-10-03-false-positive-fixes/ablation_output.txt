@@ -1,0 +1,22 @@
+                  held_out_F1  test_05  test_curve  test_best      AP  logloss  FP_05  FN_05  FP_curve  FN_curve  curve_points
+model                                                                                                                         
+nad                    0.9893   0.9795      0.9748     0.9814  0.9957   0.0676     26    119      18.0     159.0             6
+nad_depth              0.9895   0.9748         NaN     0.9813  0.9960   0.0719     21    156       NaN       NaN             0
+nad_depth_div          0.9913   0.9775         NaN     0.9835  0.9967   0.0637     20    139       NaN       NaN             0
+nad_depth_div_se       0.9901   0.9676         NaN     0.9791  0.9962   0.0779     23    198       NaN       NaN             0
+nad_depth_se           0.9888   0.9664         NaN     0.9781  0.9961   0.0807     25    204       NaN       NaN             0
+nad_div                0.9903   0.9807      0.9818     0.9827  0.9962   0.0620     25    112      28.0     101.0             6
+nad_div_se             0.9881   0.9734      0.9752     0.9786  0.9962   0.0705     35    148      46.0     126.0             6
+nad_se                 0.9866   0.9732      0.9707     0.9765  0.9955   0.0752     37    148      26.0     175.0             6
+
+at knob 0.5, by the taxon's fragments on the test set:
+                  FP_1  FP_2  FP_3-9  FP_10-99  FP_>=100  FN_1  FN_2  FN_3-9  FN_10-99  FN_>=100
+model                                                                                           
+nad                  7     1      11         6         1    55    18      22        11        13
+nad_depth            6     1       7         6         1    70    32      31        11        12
+nad_depth_div        5     1       7         5         2    62    23      24        14        16
+nad_depth_div_se     9     2       5         6         1    86    39      36        22        15
+nad_depth_se         9     3       5         6         2    95    35      38        20        16
+nad_div              6     2       9         6         2    51    18      15        14        14
+nad_div_se          16     3       8         7         1    67    20      24        21        16
+nad_se              17     3       9         6         2    68    20      24        21        15

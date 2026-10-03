@@ -1,0 +1,14 @@
+Presence models of /home/falk/fp_bench/new2/protal_db, taxa scored at knob 0.5: TP present and called, FP absent and called, TN absent and not called, FN present and not called. species held out: each taxon scored by forests that did not see its species; independent test set: samples of another design, scored by the final model. Details: trained_model*.report.txt
+
+read type  evaluated on          taxa   TP    FP  TN     FN   sensitivity  specificity  precision  F1      FP/sample
+pe         species held out      19138  4629  34  14428  47   0.9899       0.9976       0.9927     0.9913  0.40
+pe         independent test set  9068   3446  20  5463   139  0.9612       0.9964       0.9942     0.9775  0.48
+se         species held out      17669  4580  43  12997  49   0.9894       0.9967       0.9907     0.9901  0.51
+se         independent test set  8456   3303  23  4932   198  0.9434       0.9954       0.9931     0.9676  0.55
+Suspect copies: 7 of 83978 gene copies (0.01%) of 5 species within 0.02 of another genus's copy and farther from their congeners': /home/falk/fp_bench/new2/protal_db/suspect_copies.tsv; 69429 near pairs across genera (within 0.05) of 168 genes, 11042064 sketch pairs compared: /home/falk/fp_bench/new
+Suspect copies: 3 of 53024 gene copies (0.01%) of 3 species within 0.02 of another genus's copy and farther from their congeners': /home/falk/fp_bench/new2/training_db/suspect_copies.tsv; 31141 near pairs across genera (within 0.05) of 168 genes, 4650814 sketch pairs compared: /home/falk/fp_bench/ne
+suspect_copies	7 of 83978 gene copies (0.01%) of 5 species within 0.02 of another genus's copy and farther from their congeners'; 69429 near pairs across genera (within 0.05) of 168 genes, 11042064 sketch pairs compared
+classifier_features	normalized+adjacency+distance+depth+divergence
+model_pe_depth_knobs	none: the sample's depth is a feature (protal calls at --knob)
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 20:10.79
+	Maximum resident set size (kbytes): 4539452
