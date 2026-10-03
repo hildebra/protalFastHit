@@ -84,6 +84,48 @@ namespace {
     };
 }
 
+namespace {
+    // GeneSketch as first written: every distinct k-mer collected and sorted, hashed, the smallest kept.
+    std::vector<uint32_t> ReferenceGeneSketch(std::string_view seq) {
+        auto const kmers = gene_conservation::Kmers(seq);
+        std::vector<uint32_t> hashes;
+        hashes.reserve(kmers.size());
+        for (uint32_t const kmer : kmers) hashes.push_back(ctx::MixKmer(kmer));
+        size_t const keep = std::min(ctx::kSketchSize, hashes.size());
+        std::partial_sort(hashes.begin(), hashes.begin() + static_cast<std::ptrdiff_t>(keep), hashes.end());
+        hashes.resize(keep);
+        return hashes;
+    }
+}
+
+// Random genes, genes with Ns, short ones, repeats of a few k-mers (fewer distinct than the sketch holds, which sorts
+// everything), half-repeated genes and genes of one base: the same hashes as the reference, in the same order.
+TEST(SampleContext, SketchesEqualTheReferencesToTheLastHash) {
+    std::mt19937 rng(7);
+    std::vector<std::string> genes;
+    for (int i = 0; i < 30; i++) genes.push_back(RandomSequence(200 + rng() % 3000, rng));
+    for (int i = 0; i < 10; i++) {
+        auto gene = RandomSequence(1000, rng);
+        for (int n = 0; n < 20; n++) gene[rng() % gene.size()] = 'N';
+        genes.push_back(gene);
+    }
+    for (size_t length : { 0, 5, 11, 12, 13, 40, 75, 76, 100 }) genes.push_back(RandomSequence(length, rng));
+    std::string const unit = RandomSequence(30, rng);
+    std::string repeated;
+    for (int i = 0; i < 40; i++) repeated += unit;  // 30 distinct k-mers, 1,200 in all
+    genes.push_back(repeated);
+    genes.push_back(repeated.substr(0, 600) + RandomSequence(600, rng));
+    genes.push_back(std::string(500, 'A'));
+    genes.push_back(std::string(500, 'A') + RandomSequence(300, rng));
+    genes.push_back("acgtacgtnnACGT" + RandomSequence(200, rng));
+    for (auto const& gene : genes) {
+        auto const expected = ReferenceGeneSketch(gene);
+        auto const got = ctx::GeneSketch(gene);
+        EXPECT_EQ(got, expected) << "gene of " << gene.size() << " bases";
+    }
+    EXPECT_LT(ctx::GeneSketch(repeated).size(), ctx::kSketchSize);
+}
+
 TEST(SampleContext, SketchesOfIdenticalGenesAreAtDistanceZeroAndOfUnrelatedOnesFar) {
     std::mt19937 rng(1);
     auto const gene = RandomSequence(1000, rng);

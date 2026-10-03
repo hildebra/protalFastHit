@@ -25,6 +25,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <charconv>
 #include <cstdint>
 #include <istream>
@@ -132,6 +133,9 @@ namespace protal::gene_neighbours {
     public:
         bool Empty() const { return m_rules.empty(); }
         size_t Rules() const { return m_rules.size(); }
+        // Differs between tables and changes with every Read and SetLineage: what a cache of a table's answers
+        // (across_genes::Neighbours) checks before it trusts them.
+        uint64_t Generation() const { return m_generation; }
         size_t Clades() const { return m_clades.size(); }
         size_t Genomes() const { return m_genomes; }   // from the file's comment line, 0 if it has none
         size_t MaxGap() const { return m_max_gap; }
@@ -210,6 +214,7 @@ namespace protal::gene_neighbours {
                            ": the lines of one gene end differ in informative";
                 }
             }
+            m_generation = NextGeneration();
             m_keys.clear();
             m_rules.clear();
             m_clades.clear();
@@ -236,6 +241,7 @@ namespace protal::gene_neighbours {
             auto [it, added] = m_chain_index.try_emplace(chain, static_cast<uint32_t>(m_chains.size()));
             if (added) m_chains.push_back(std::move(chain));
             m_chain_of[species] = it->second;
+            m_generation = NextGeneration();
         }
 
         // The partners that species taxid's clades saw at end `end` of `gene`, none (partner 0) among them, each
@@ -344,6 +350,12 @@ namespace protal::gene_neighbours {
             if (auto const m = value("max_gap=")) m_max_gap = m;
         }
 
+        static uint64_t NextGeneration() {
+            static std::atomic<uint64_t> next{ 1 };
+            return next++;
+        }
+
+        uint64_t m_generation = NextGeneration();
         std::vector<uint64_t> m_keys;   // (clade, gene, end) of each rule, sorted
         std::vector<Rule> m_rules;      // by key, then partner
         std::vector<uint32_t> m_clades; // sorted

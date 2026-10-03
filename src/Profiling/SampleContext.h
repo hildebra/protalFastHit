@@ -52,17 +52,48 @@ namespace protal::profiler::context {
         return x;
     }
 
-    // The kSketchSize smallest hashes (MixKmer) of the distinct k-mers of seq (gene_conservation::Kmers, k = 12),
-    // sorted; all of them for a shorter gene.
+    // The kSketchSize smallest hashes (MixKmer) of the distinct k-mers of seq (gene_conservation::kK bases, 2 bits
+    // each, of its A/C/G/T stretches, as gene_conservation::Kmers takes them), sorted; all of them for a gene with
+    // fewer distinct k-mers.
+    //
+    // The k-mers are hashed as they come, repeats included (MixKmer is a bijection: distinct k-mers are distinct
+    // hashes and a repeat repeats its hash). The 2 x kSketchSize smallest hashes are selected in linear time and
+    // sorted; whenever they hold kSketchSize distinct values, the smallest distinct ones are among them, as every
+    // hash outside is at least as large as any inside. Only a gene of many repeats sorts all its hashes. The first
+    // version collected and sorted every distinct k-mer first (test SketchesEqualTheReferencesToTheLastHash).
     inline std::vector<uint32_t> GeneSketch(std::string_view seq) {
-        auto const kmers = gene_conservation::Kmers(seq);
-        std::vector<uint32_t> hashes;
-        hashes.reserve(kmers.size());
-        for (uint32_t const kmer : kmers) hashes.push_back(MixKmer(kmer));
-        size_t const keep = std::min(kSketchSize, hashes.size());
-        std::partial_sort(hashes.begin(), hashes.begin() + static_cast<std::ptrdiff_t>(keep), hashes.end());
-        hashes.resize(keep);
-        return hashes;
+        thread_local std::vector<uint32_t> hashes;
+        hashes.clear();
+        uint32_t constexpr mask = (uint32_t{1} << (2 * gene_conservation::kK)) - 1;
+        uint32_t code = 0;
+        size_t run = 0;
+        for (char const c : seq) {
+            uint32_t base = 0;
+            switch (c) {
+                case 'A': case 'a': base = 0; break;
+                case 'C': case 'c': base = 1; break;
+                case 'G': case 'g': base = 2; break;
+                case 'T': case 't': base = 3; break;
+                default: run = 0; continue;
+            }
+            code = ((code << 2) | base) & mask;
+            if (++run >= gene_conservation::kK) hashes.push_back(MixKmer(code));
+        }
+        size_t const n = hashes.size();
+        size_t const probe = std::min(n, 2 * kSketchSize);
+        auto const probe_end = hashes.begin() + static_cast<std::ptrdiff_t>(probe);
+        if (probe < n) std::nth_element(hashes.begin(), probe_end, hashes.end());
+        std::sort(hashes.begin(), probe_end);
+        size_t distinct = 0;
+        for (size_t i = 0; i < probe; i++) distinct += i == 0 || hashes[i] != hashes[i - 1];
+        auto end = probe_end;
+        if (distinct < kSketchSize && probe < n) {  // too many repeats among the smallest: all of them, sorted
+            std::sort(hashes.begin(), hashes.end());
+            end = hashes.end();
+        }
+        end = std::unique(hashes.begin(), end);
+        size_t const keep = std::min(kSketchSize, static_cast<size_t>(end - hashes.begin()));
+        return std::vector<uint32_t>(hashes.begin(), hashes.begin() + static_cast<std::ptrdiff_t>(keep));
     }
 
     // The Mash distance of two genes from their sketches (GeneSketch): of the s smallest hashes of their union (s the
@@ -135,6 +166,12 @@ namespace protal::profiler::context {
         double Between(uint32_t a, uint32_t b) {
             if (a == b) return 0;
             return Compared(a, b)->distance;
+        }
+
+        // Makes the sketch of taxid now if the run has none yet (SketchOf): for one pass over a sample's taxa on
+        // all its threads before their pairs are compared, each sketch once.
+        void Sketch(uint32_t taxid) {
+            SketchOf(taxid);
         }
 
         // The two references gene by gene (PairDistances).
