@@ -1,0 +1,54 @@
+
+species held out: present species by the fragments of the largest other present congener over their own
+          congener  present  missed base  missed rel  missed spill
+no larger congener    11169          322         201           277
+              1-3x      314           28          28            31
+             3-10x      144           17          28            26
+            10-30x       27            5          10             5
+           30-100x        5            3           4             4
+             >100x        3            1           2             2
+
+test set: present species by the fragments of the largest other present congener over their own
+          congener  present  missed base  missed rel  missed spill
+no larger congener     4671          142          90           118
+              1-3x      121           10          11            14
+             3-10x       80           12          16            12
+            10-30x       24            2          12             5
+           30-100x       20            4          16             9
+             >100x        8            5           8             5
+
+species held out_se: present species by the fragments of the largest other present congener over their own
+          congener  present  missed base  missed rel  missed spill
+no larger congener    10962          370         223           311
+              1-3x      294           31          30            31
+             3-10x      139           16          29            24
+            10-30x       28            7          12             7
+           30-100x        5            2           3             2
+             >100x        3            2           2             2
+
+test set_se: present species by the fragments of the largest other present congener over their own
+          congener  present  missed base  missed rel  missed spill
+no larger congener     4571          172          94           137
+              1-3x      119           11          17            15
+             3-10x       71            6          15            11
+            10-30x       31            8          21             9
+           30-100x        9            0           6             3
+             >100x        9            6           9             7
+/home/falk/denoise_r226/out/spill.report.txt:F1 of species held out: 0.9622 at 0.5, 0.9694 at the knob curve (0.929:0.19,1.301:0.15,1.653:0.15,2.208:0.19,2.877:0.4,3.243:0.54,3.606:0.74,4.320:0.91,4.874:0.85,5.644:0.71). The knobs are chosen on these calls, so the second is optimistic; the test set (--test-file) tells.
+/home/falk/denoise_r226/out/spill.report.txt:        this one 21327     4924 0.9969 0.9917    0.0582 0.9568       0.9669     0.9469 267  163         3.4231        0.9842         0.9657
+/home/falk/denoise_r226/out/spill.report.txt:at the knob curve (0.929:0.19,1.301:0.15,1.653:0.15,2.208:0.19,2.877:0.4,3.243:0.54,3.606:0.74,4.320:0.91,4.874:0.85,5.644:0.71), as protal calls by default: F1 0.9609, 158 false positives, 224 false negatives (at knob 0.5: F1 0.9568, 267 and 163)
+/home/falk/denoise_r226/out/spill_se.report.txt:F1 of species held out: 0.9586 at 0.5, 0.9656 at the knob curve (0.900:0.05,1.230:0.07,1.748:0.23,2.138:0.26,2.799:0.47,3.444:0.46,3.545:0.46,4.254:0.88,4.799:0.85,5.496:0.74,5.606:0.74). The knobs are chosen on these calls, so the second is optimistic; the test set (--test-file) tells.
+/home/falk/denoise_r226/out/spill_se.report.txt:        this one 18322     4810 0.9962 0.9909    0.0696 0.9543       0.9622     0.9466 261  182         3.3462        0.9807         0.9609
+/home/falk/denoise_r226/out/spill_se.report.txt:at the knob curve (0.900:0.05,1.230:0.07,1.748:0.23,2.138:0.26,2.799:0.47,3.444:0.46,3.545:0.46,4.254:0.88,4.799:0.85,5.496:0.74,5.606:0.74), as protal calls by default: F1 0.9602, 164 false positives, 217 false negatives (at knob 0.5: F1 0.9543, 261 and 182)
+feature	importance
+excess_high_share	0.158230
+identity	0.120954
+lu_per_kb	0.108585
+lsu_gene_rate3	0.097051
+top_identity	0.076144
+excess_median	0.074424
+lsu_per_kb	0.063698
+lsu_gene_rate2	0.059677
+lu_gene_rate3	0.052500
+spill_divergent	0.039016
+lu_gene_rate	0.026533

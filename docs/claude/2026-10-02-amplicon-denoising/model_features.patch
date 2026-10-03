@@ -1,0 +1,25 @@
+--- a/model_features.py
++++ b/model_features.py
+@@ -64,7 +64,10 @@
+ 
+ ADJACENCY_FEATURES = ["adjacent_expected_share", "adjacent_unlikely_share", "adjacent_support"]
+ 
+-FEATURE_SETS = ("normalized", "normalized+adjacency", "all")
++RELATIVE_FEATURES = ["genus_skew", "family_skew", "genus_share", "genus_spill"]
++SPILL_FEATURES = ["spill_divergent"]
++
++FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+spill", "all")
+ DEFAULT_FEATURE_SET = "normalized+adjacency"
+ 
+ 
+@@ -73,7 +76,9 @@
+     available = [c for c in columns if c not in NON_FEATURE_COLUMNS and not c.startswith("meta_")]
+     if feature_set == "all":
+         return available
+-    chosen = {"normalized": NORMALIZED_FEATURES, "normalized+adjacency": NORMALIZED_FEATURES + ADJACENCY_FEATURES}
++    chosen = {"normalized": NORMALIZED_FEATURES, "normalized+adjacency": NORMALIZED_FEATURES + ADJACENCY_FEATURES,
++              "normalized+adjacency+relatives": NORMALIZED_FEATURES + ADJACENCY_FEATURES + RELATIVE_FEATURES,
++              "normalized+adjacency+spill": NORMALIZED_FEATURES + ADJACENCY_FEATURES + SPILL_FEATURES}
+     if feature_set not in chosen:
+         raise ValueError(f"unknown feature set {feature_set!r}")
+     missing = [c for c in chosen[feature_set] if c not in available]

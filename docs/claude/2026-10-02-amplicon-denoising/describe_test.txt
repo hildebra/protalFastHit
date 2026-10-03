@@ -1,0 +1,38 @@
+21327 of 21327 rows joined
+
+TP 4749 FP 281 FN 175
+
+FP by genus_skew bin x source:
+source                 near db species  near held-out  All
+skew_bin                                                  
+<-3                                  3              1    4
+-3..-2                               9              1   10
+-2..-1                              35             11   46
+-1..0 (incl. ties)                  32             46   78
+>0 (largest or alone)               35            108  143
+All                                114            167  281
+
+TP by genus_skew bin; FN by genus_skew bin:
+                         TP   FN   FP
+skew_bin                             
+<-3                       0    0    4
+-3..-2                    3    5   10
+-2..-1                   42    6   46
+-1..0 (incl. ties)      214   45   78
+>0 (largest or alone)  4490  119  143
+
+single-fragment calls: by whether a congener in the sample has >=10 / >=100 fragments
+  congener >=    10: FP   56  TP   11 | no such congener: FP  119  TP  491
+  congener >=   100: FP   19  TP    0 | no such congener: FP  156  TP  502
+  congener >=  1000: FP    7  TP    0 | no such congener: FP  168  TP  502
+
+by depth: FP and TP with genus_skew < -2 (a congener >100x more fragments)
+                  FP  FP_low    TP  TP_low  absent_low  present_low
+meta_read_pairs                                                    
+500                1       0    43       0           0            0
+2000               4       0   175       0           0            0
+10000             13       0   499       0          11            0
+50000             47       0   988       2          23            4
+200000            73       2  1213       1         160            2
+1000000          109       4  1347       0        1121            2
+5000000           34       8   484       0        2294            0

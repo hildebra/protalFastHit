@@ -1,0 +1,10 @@
+
+training: taxa with a congener of >=10x more fragments, medians (quartiles)
+  present                    n=    36  congener_fit_share 0.437 (0.075, 0.787)  identity 0.985 (0.976, 0.989)  excess_median 0.001 (-0.001, 0.005)  low_mapq_share 0.637 (0.201, 0.934)  fragments 7.000 (2.000, 39.000)
+  absent, near db species    n= 12883  congener_fit_share 0.400 (0.000, 0.667)  identity 0.940 (0.920, 0.960)  excess_median 0.043 (0.017, 0.066)  low_mapq_share 0.500 (0.000, 0.857)  fragments 1.000 (1.000, 3.000)
+  absent, near held-out      n=  7894  congener_fit_share 0.478 (0.000, 0.714)  identity 0.930 (0.915, 0.951)  excess_median 0.055 (0.030, 0.073)  low_mapq_share 0.524 (0.000, 0.893)  fragments 1.000 (1.000, 3.000)
+
+test: taxa with a congener of >=10x more fragments, medians (quartiles)
+  present                    n=    56  congener_fit_share 0.234 (0.000, 0.567)  identity 0.985 (0.978, 0.992)  excess_median -0.000 (-0.002, 0.005)  low_mapq_share 0.453 (0.000, 0.737)  fragments 3.000 (1.000, 10.000)
+  absent, near db species    n=  4747  congener_fit_share 0.333 (0.000, 0.667)  identity 0.937 (0.920, 0.959)  excess_median 0.045 (0.019, 0.067)  low_mapq_share 0.480 (0.000, 0.857)  fragments 1.000 (1.000, 3.000)
+  absent, near held-out      n=  2636  congener_fit_share 0.500 (0.000, 0.750)  identity 0.935 (0.918, 0.956)  excess_median 0.049 (0.025, 0.070)  low_mapq_share 0.538 (0.000, 0.971)  fragments 1.000 (1.000, 3.000)
