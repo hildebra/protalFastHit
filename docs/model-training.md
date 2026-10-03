@@ -314,7 +314,9 @@ nearest species and fails there, a present species' reads align.
 (`species_priors.tsv`, [building-a-database.md](building-a-database.md#species-priors); -1 unknown): the
 share of the representative's single-copy markers found twice (`rep_duplicate_share`, CheckM's
 contamination signature: a contaminating contig's genes put every present organism's reads on the
-species), its CheckM completeness and contamination (`rep_completeness`, `rep_contamination`), and from
+species; 0 for every species of a GTDB release, whose marker files hold one copy per genome, so there
+the signal is `rep_contamination`'s), its CheckM completeness and contamination (`rep_completeness`,
+`rep_contamination`), and from
 GTDB's species clusters the ANI circumscription radius, the mean and minimum intra-species ANI and the
 cluster's size (`cluster_ani_radius`, `cluster_mean_ani`, `cluster_min_ani`, `cluster_genomes_log10`): a
 wide or crowded cluster makes a cloud of reads a few percent from the reference a strain rather than a

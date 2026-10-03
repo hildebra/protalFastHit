@@ -1,0 +1,44 @@
+
+# v9 test set (pe, final model)
+cluster size	present taxa	share	absent taxa	share
+1 genome	702	17.2%	12189	57.2%
+2-4	2048	50.2%	5642	26.5%
+5-19	984	24.1%	2578	12.1%
+>=20	346	8.5%	903	4.2%
+
+FN rate of present taxa by cluster size and fragments:
+cluster size	1-2 fragments	3-10	>10
+1 genome	8.1% (10/124)	0.0% (0/137)	0.0% (0/441)
+2-4	7.5% (31/411)	1.9% (8/413)	1.0% (12/1224)
+5-19	12.0% (26/217)	2.6% (5/191)	0.7% (4/576)
+>=20	13.5% (10/74)	3.0% (2/67)	1.5% (3/205)
+
+FP rate of absent taxa by cluster size:
+cluster size	absent	FP	FP rate
+1 genome	12189	24	0.2%
+2-4	5642	48	0.9%
+5-19	2578	39	1.5%
+>=20	903	24	2.7%
+
+# v9 training data (pe, species held out)
+cluster size	present taxa	share	absent taxa	share
+1 genome	1668	16.8%	34692	57.1%
+2-4	4983	50.2%	16971	27.9%
+5-19	2499	25.2%	6858	11.3%
+>=20	776	7.8%	2285	3.8%
+
+FN rate of present taxa by cluster size and fragments:
+cluster size	1-2 fragments	3-10	>10
+1 genome	8.0% (21/264)	0.6% (2/339)	0.1% (1/1065)
+2-4	7.8% (68/874)	2.1% (23/1103)	0.8% (25/3006)
+5-19	11.7% (51/436)	2.0% (11/564)	0.9% (13/1499)
+>=20	19.4% (26/134)	3.6% (6/168)	0.8% (4/474)
+
+FP rate of absent taxa by cluster size:
+cluster size	absent	FP	FP rate
+1 genome	34692	64	0.2%
+2-4	16971	161	0.9%
+5-19	6858	83	1.2%
+>=20	2285	49	2.1%
+
+# species appearing as taxa in the training dump (37978), by cluster size: 1 genome 55.8%, 2-4 28.6%, 5-19 11.8%, >=20 3.8%

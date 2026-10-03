@@ -65,8 +65,10 @@ use, train a model on it, or use the one-command route below.
 The converter also writes `species_priors.tsv`, what GTDB knows of each species before any read, for
 the model's prior features ([model-training.md](model-training.md#reads-before-the-filters-and-the-species-priors)):
 per species its taxid and representative, the marker genes found in the representative and how many of
-them twice (the converter keeps a genome's first copy of a single-copy marker; a second copy is CheckM's
-contamination signature), the representative's CheckM completeness and contamination from the
+them twice (the converter keeps a genome's first copy of a single-copy marker; a second copy would be
+CheckM's contamination signature, but GTDB's marker files carry one copy per genome, GTDB-Tk treating a
+multi-copy marker as missing, so for a GTDB release the count is 0 for every species and the CheckM
+contamination column carries that signal), the representative's CheckM completeness and contamination from the
 metadata (`checkm2_*` where the release has them, else `checkm_*`), and from GTDB's species clusters
 file, `auxillary_files/sp_clusters_r226.tsv` (GTDB's spelling; `download_gtdb.py` fetches it when the
 release lists it), the cluster's ANI circumscription radius, mean and minimum intra-species ANI and

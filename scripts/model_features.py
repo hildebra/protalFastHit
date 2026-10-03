@@ -77,7 +77,8 @@ species' reads align).
 PRIORS_FEATURES ("priors", the same report): per-species constants from GTDB, written by the converter
 (species_priors.tsv, protal's SpeciesPriors.h; -1 unknown): the share of the representative's single-copy markers
 found twice (rep_duplicate_share, CheckM's contamination signature: a contaminating contig's genes put every
-present organism's reads on the species), its CheckM completeness and contamination, and from GTDB's species
+present organism's reads on the species; 0 for every species of a GTDB release, whose marker files hold one copy
+per genome, so there rep_contamination carries the signal), its CheckM completeness and contamination, and from GTDB's species
 clusters the ANI circumscription radius, mean and minimum intra-species ANI and the cluster's size (log10): a wide
 or crowded cluster makes a cloud of reads a few percent from the reference a strain rather than a sister species.
 On a synthetic world they are all unknown and do nothing.
