@@ -1119,14 +1119,20 @@ def main():
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
     p.add_argument("--features", type=feature_set_name, default=DEFAULT_FEATURE_SET, metavar="|".join(FEATURE_SETS[:2] + ("...",)),
-                   help="the models' features (random_forest_cmdline.py --features): normalized+adjacency+distance "
-                        "(default), the normalised features, the gene neighbours' and the four relative_* features "
-                        "that compare a taxon with its sample's relatives by the distance of their references (they "
-                        "need --congeners groups; at r226 +0.004 paired-end F1 at the knob curve, the other read types "
-                        "within noise, docs/claude/2026-10-03-r226-v5-v6-training); normalized+adjacency: without "
-                        "them; normalized+adjacency+relatives: all the relatives features (better ranking, no better "
-                        "at the knob curve there); normalized: without the gene neighbours'; all: every feature of "
-                        "the training dumps")
+                   help="the models' features (random_forest_cmdline.py --features), feature groups joined by '+' "
+                        f"(default {DEFAULT_FEATURE_SET}): normalized, the normalised features; adjacency, the gene "
+                        "neighbours'; distance, the four relative_* features that compare a taxon with its sample's "
+                        "relatives by the distance of their references (they need --congeners groups; at r226 +0.004 "
+                        "paired-end F1 at the knob curve, the other read types within noise, "
+                        "docs/claude/2026-10-03-r226-v5-v6-training), or relatives, all the relatives features (better "
+                        "ranking, no better at the knob curve there); depth, the sample's depth (with it the trainer "
+                        "fits no knob curve and protal calls at --knob; on the r226 v5 tables false positives halved "
+                        "at knob 0.5, docs/claude/2026-10-03-false-positive-anatomy); divergence, divergence by gene "
+                        "conservation and codon position and lost mates; unfiltered, the reads before the MAPQ and "
+                        "length filters and the failed candidates; priors, what GTDB knows of the species "
+                        "(docs/claude/2026-10-03-false-positive-fixes); all: every feature of the training dumps. "
+                        "normalized+adjacency+distance is the set of protal 0.7.3's dumps, normalized+adjacency that "
+                        "of older ones")
     p.add_argument("--call-mode", choices=["curve", "fdr"], default="curve",
                    help="how protal calls with the models by default: curve (default), the knob curve over the "
                         "sample's depth (--depth-knob-read-types); fdr, the highest-scoring taxa of each sample while "
@@ -1145,7 +1151,9 @@ def main():
                    help="read types (comma-separated) whose models also get a knob curve over the sample's depth "
                         "(random_forest_cmdline.py --depth-knobs; default all four, '' for none): at GTDB r226 the best "
                         "threshold went from ~0.1 at 1,000 read pairs to ~0.9 at 500,000, and thresholds by depth raised "
-                        "the test sets' F1 by 0.006-0.033 (docs/claude/2026-10-02-r226-build-evaluation)")
+                        "the test sets' F1 by 0.006-0.033 (docs/claude/2026-10-02-r226-build-evaluation). A model with "
+                        "the sample's depth among its features (--features ... depth, the default) gets no curve: the "
+                        "forest learns the depth itself and protal calls at --knob")
     p.add_argument("--progress-every", type=float, default=0,
                    help="seconds between status lines of the stages running, besides the lines of each step's start "
                         "and end: how long each has run, the memory it takes and the last line of its log (default "
