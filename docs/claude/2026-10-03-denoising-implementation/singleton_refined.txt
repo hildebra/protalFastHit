@@ -1,0 +1,8 @@
+test base pe  count only: vetoed  421 (4 present); of the calls at 0.5 removed 7: 3 false, 4 true
+test base pe  refined   : vetoed  364 (0 present); of the calls at 0.5 removed 0: 0 false, 0 true
+test base _se count only: vetoed  454 (4 present); of the calls at 0.5 removed 5: 3 false, 2 true
+test base _se refined   : vetoed  402 (0 present); of the calls at 0.5 removed 1: 1 false, 0 true
+test new  pe  count only: vetoed  454 (9 present); of the calls at 0.5 removed 10: 2 false, 8 true
+test new  pe  refined   : vetoed  402 (0 present); of the calls at 0.5 removed 0: 0 false, 0 true
+test new  _se count only: vetoed  441 (13 present); of the calls at 0.5 removed 15: 4 false, 11 true
+test new  _se refined   : vetoed  370 (1 present); of the calls at 0.5 removed 4: 4 false, 0 true

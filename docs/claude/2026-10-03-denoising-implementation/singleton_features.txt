@@ -1,0 +1,14 @@
+
+base training: vetoed 1099, present 0
+  absent: identity [0.901, 0.927, 0.967]; top_identity [0.901, 0.931, 0.976]; excess_median [0.012, 0.039, 0.07]; em_own_share [0.143, 0.439, 0.917]; relative_close_share [0.0, 2.217, 2.41]; relative_distance [0.062, 0.085, 0.109]; genus_top_fragments [133.0, 462.0, 2522.0]
+
+base test: vetoed 421, present 4
+  present: identity [0.96, 0.973, 0.978]; top_identity [0.971, 0.973, 0.978]; excess_median [0.018, 0.024, 0.035]; em_own_share [0.837, 0.97, 1.0]; relative_close_share [0.0, 0.0, 1.616]; relative_distance [0.081, 0.094, 0.107]; genus_top_fragments [113.3, 142.0, 142.0]
+  absent: identity [0.901, 0.93, 0.966]; top_identity [0.901, 0.933, 0.98]; excess_median [0.012, 0.04, 0.069]; em_own_share [0.117, 0.432, 0.874]; relative_close_share [0.0, 2.193, 2.403]; relative_distance [0.06, 0.081, 0.109]; genus_top_fragments [142.0, 365.0, 2817.6]
+
+new training: vetoed 1035, present 0
+  absent: identity [0.901, 0.925, 0.967]; top_identity [0.901, 0.93, 0.973]; excess_median [0.011, 0.04, 0.072]; em_own_share [0.145, 0.45, 0.987]; relative_close_share [0.0, 2.224, 2.426]; relative_distance [0.062, 0.085, 0.109]; genus_top_fragments [139.4, 597.0, 2910.0]
+
+new test: vetoed 454, present 9
+  present: identity [0.954, 0.977, 0.989]; top_identity [0.959, 0.984, 1.0]; excess_median [0.01, 0.016, 0.036]; em_own_share [0.696, 0.994, 1.0]; relative_close_share [0.0, 0.0, 2.489]; relative_distance [0.087, 0.099, 0.121]; genus_top_fragments [102.4, 165.0, 1311.0]
+  absent: identity [0.9, 0.925, 0.965]; top_identity [0.9, 0.931, 0.977]; excess_median [0.013, 0.041, 0.07]; em_own_share [0.155, 0.494, 0.986]; relative_close_share [0.0, 2.215, 2.43]; relative_distance [0.06, 0.085, 0.102]; genus_top_fragments [143.0, 477.0, 3189.4]
