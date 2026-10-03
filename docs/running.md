@@ -291,7 +291,7 @@ the database conversions `--compress_db`, `--unpack_db`, `--decompress_db`
 ([database-files.md](database-files.md)), `--profile_truth` for the training dump
 ([model-training.md](model-training.md)), `--benchmark_alignment` (checks alignments against the
 `taxid_geneid` encoded in simulated read names), `--mapq_debug_output`, `--full_sam_header` (every
-gene in the SAM header, see above), and `--whole_read_alignment`.
+gene in the SAM header, see above), `--whole_read_alignment` and `--profile_after_alignment` (both below).
 
 Short reads are aligned from their anchor's exact matches: WFA aligns the read left and right of
 them (and between them), each part anchored at a match, instead of the whole read into the gene
@@ -311,6 +311,13 @@ penalty, placing indels differently where several places are as good (in 38-46% 
 simulated ONT and older PacBio reads, 8% of HiFi reads').
 `--whole_read_alignment` aligns every read as a whole, as protal did before, e.g. to reproduce
 earlier results.
+
+`--profile_ahead` (several samples): a sample is profiled as soon as its SAM file is complete,
+while the next sample's reads are aligned, by a worker on a quarter of the threads; the profiling
+stage after the alignment takes the rest (the last sample, and any the worker is behind with) on
+all threads. A sample's profile depends on its SAM and the database only, so the profiles are the
+same either way. It can only pay where the profiling stage leaves cores idle; on a 6-core machine
+with the alignment on every core it gained nothing, so it is off by default.
 
 ## Environment variables
 

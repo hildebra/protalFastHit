@@ -16,6 +16,12 @@
 #include "ProgressBar.h"
 #include "protal_config.h"
 #include "SamFile.h"
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <deque>
+#include <functional>
+#include <optional>
 #include "RunStatus.h"
 #include "BuildInfo.h"
 
@@ -251,8 +257,12 @@ namespace protal {
         db.GetGenomes().SetGeneNeighbours(std::move(table));
     }
 
+    // Aligns the samples. `sample_done` (if any) is called with a sample's index once its SAM file is complete, or
+    // when the sample is skipped because its SAM exists: Run profiles such samples while the next ones are aligned
+    // (ProfilingAhead).
     template<typename AlignmentBenchmark=NoBenchmark>
-    static void RunWrapper(Options& options, ProtalDB& db, AlignmentBenchmark benchmark=NoBenchmark{}) {
+    static void RunWrapper(Options& options, ProtalDB& db, AlignmentBenchmark benchmark=NoBenchmark{},
+                           std::function<void(size_t)> const& sample_done = {}) {
 
         const size_t mmer_size = 15;
 //        const size_t kmer_size = 27;
@@ -379,6 +389,7 @@ namespace protal {
                     std::cout << "Skip " << sam << " continue" << std::endl;
                     // Profile the file that is there: an earlier run may have left it uncompressed.
                     if (compressed && !std::filesystem::exists(sam)) options.UseUncompressedSamFile(index);
+                    if (sample_done) sample_done(index);
                     continue;
                 }
 
@@ -581,6 +592,7 @@ namespace protal {
                     continue;
                 }
                 FinishSamFile(options, index, sam_partial);
+                if (sample_done) sample_done(index);
             }
             bm_classify.Stop();
             bm_classify.PrintResults();
@@ -667,61 +679,52 @@ namespace protal {
                   << " or more." << std::endl;
     }
 
-    // Profiles the samples, each with the model of its kind of reads. Every taxon's score is then
-    // cached (profile.ReleaseReadData scores all), so that later stages may use any model to tell
-    // which taxa pass: they get the score of the sample's own model.
-    Profiles ProfileWrapper(Options& options, ProtalDB& db, ReadTypeModels const& models) {
-        GenomeLoader& genomes = db.GetGenomes();
+    // What profiling the samples of a run shares: the taxonomy, every taxid's genus and family (which of a read's
+    // alternatives (ZA) are congeners of its taxon, and what the other taxa of a sample say of each:
+    // MicrobialProfile::ApplySampleContext), the distances of the references (made as they are asked for, kept for
+    // the run), the models, and a slot per sample for its profile and for the taxa it leaves out although their own
+    // reads are strong evidence. Made before the alignment when samples are profiled while others are aligned
+    // (ProfilingAhead), else by the profiling stage.
+    struct ProfilingContext {
+        Options& options;
+        GenomeLoader& genomes;
+        taxonomy::IntTaxonomy* taxonomy = nullptr;
+        std::shared_ptr<std::vector<uint32_t> const> genera, families;
+        std::shared_ptr<profiler::context::CongenerDistances> distances;
+        ReadTypeModels const& models;
+        std::vector<size_t> range;  // the samples; a sample's slot is its position here
+        // MicrobialProfile holds a reference member so it is not assignable; a slot is filled in place.
+        std::vector<std::optional<profiler::MicrobialProfile>> profile_slots;
+        std::vector<std::vector<UnreportedTaxon>> unreported_slots;
 
-        if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
-        auto& taxonomy = db.GetTaxonomy();
-        // Which of a read's alternatives (ZA) are congeners of its taxon; and the taxa's families and the distances of
-        // their references, for what the other taxa of a sample say of each (MicrobialProfile::ApplySampleContext).
-        auto const genera = profiler::GeneraOf(taxonomy);
-        auto const families = profiler::FamiliesOf(taxonomy);
-        auto const distances = std::make_shared<profiler::context::CongenerDistances>(genomes);
-
-        // Each thread scores with its own copy (firstprivate): scoring reuses a buffer. Copies share
-        // the loaded model.
-        ReadTypeModels filters = models;
-
-        auto range = options.GetRange();
-
-        // Pre-size so each thread writes to its own index slot — no emplace_back races.
-        // MicrobialProfile holds a reference member so it is not assignable; use optional to allow
-        // in-place construction per slot without requiring assignment.
-        std::vector<std::optional<profiler::MicrobialProfile>> profile_slots(range.size());
-        // Per sample: the taxa its profile leaves out although their own reads are strong evidence.
-        std::vector<std::vector<UnreportedTaxon>> unreported_slots(range.size());
-
-        omp_set_num_threads(options.GetThreads());
-
-        // Samples are profiled in parallel, the largest SAM first, each next one by whichever thread is
-        // free: samples differ in depth, and with the default static schedule one thread could be left
-        // with several deep ones. A sample is profiled on threads in proportion to its SAM's share of
-        // all the samples' bytes, at least one (ProfileSam: the same profile on any number), so that a
-        // deep sample among shallow ones, or alone, is not left to one thread.
-        size_t const threads = std::max<size_t>(options.GetThreads(), 1);
-        std::vector<uintmax_t> sam_bytes(range.size(), 0);
-        for (size_t idx = 0; idx < range.size(); idx++) {
-            std::error_code ec;
-            auto const bytes = std::filesystem::file_size(options.SamFile(range[idx]).first, ec);
-            if (!ec) sam_bytes[idx] = bytes;
+        ProfilingContext(Options& options, ProtalDB& db, ReadTypeModels const& models) :
+                options(options), genomes(db.GetGenomes()), models(models), range(options.GetRange()),
+                profile_slots(range.size()), unreported_slots(range.size()) {
+            if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
+            taxonomy = &db.GetTaxonomy();
+            genera = profiler::GeneraOf(*taxonomy);
+            families = profiler::FamiliesOf(*taxonomy);
+            distances = std::make_shared<profiler::context::CongenerDistances>(genomes);
         }
-        uintmax_t const total_bytes = std::accumulate(sam_bytes.begin(), sam_bytes.end(), uintmax_t{0});
-        std::vector<int> order(range.size());
-        std::iota(order.begin(), order.end(), 0);
-        std::stable_sort(order.begin(), order.end(), [&sam_bytes](int a, int b) { return sam_bytes[a] > sam_bytes[b]; });
-        auto threads_of = [&](int idx) {
-            if (total_bytes == 0) return std::max<size_t>(1, threads / std::max<size_t>(range.size(), 1));
-            double const share = static_cast<double>(sam_bytes[idx]) / static_cast<double>(total_bytes);
-            return std::clamp<size_t>(static_cast<size_t>(std::lround(share * static_cast<double>(threads))), 1, threads);
-        };
-        int const sample_threads = static_cast<int>(std::clamp<size_t>(range.size(), 1, threads));
-        #pragma omp parallel for schedule(dynamic, 1) num_threads(sample_threads) firstprivate(filters) shared(options, cout, taxonomy, profile_slots, genomes, std::cerr)//, bm_read_alignments, bm_profile)
-        for (int k = 0; k < static_cast<int>(range.size()); k++) {
-            int const idx = order[k];
-            size_t const threads_per_sample = threads_of(idx);
+    };
+
+    // Profiles the sample of slot idx with the model of its kind of reads, on threads_per_sample threads, into
+    // ctx.profile_slots[idx] and ctx.unreported_slots[idx]; `filters` is the calling thread's own copy of the
+    // models (scoring reuses a buffer; copies share the loaded model). Every taxon's score is then cached
+    // (profile.ReleaseReadData scores all), so that later stages may use any model to tell which taxa pass: they
+    // get the score of the sample's own model. Any thread may profile a sample of its own: a sample's profile
+    // depends on its SAM and the database only, not on the thread or on the other samples.
+    static void ProfileSample(ProfilingContext& ctx, size_t idx, ReadTypeModels& filters, size_t threads_per_sample) {
+        Options& options = ctx.options;
+        GenomeLoader& genomes = ctx.genomes;
+        auto& taxonomy = *ctx.taxonomy;
+        auto const& genera = ctx.genera;
+        auto const& families = ctx.families;
+        auto const& distances = ctx.distances;
+        auto& profile_slots = ctx.profile_slots;
+        auto& unreported_slots = ctx.unreported_slots;
+        auto const& range = ctx.range;
+        {
             auto i = range[idx];
 
             auto const read_type = options.GetReadType(i);
@@ -729,7 +732,7 @@ namespace protal {
             if (!sample_filter) {  // loaded up front for every kind of reads the samples have
                 RunStatus::Get().Fail("No model loaded for the " + ReadTypeName(read_type) + " reads of sample " + options.GetSampleId(i));
                 profile_slots[idx].emplace(genomes);
-                continue;
+                return;
             }
             auto& filter = *sample_filter;
 
@@ -745,7 +748,7 @@ namespace protal {
             if (!Utils::exists(sam)) {
                 RunStatus::Get().Fail("No SAM file to profile for sample " + options.GetSampleId(i) + ": " + sam);
                 profile_slots[idx].emplace(genomes);
-                continue;
+                return;
             }
 
             Benchmark bm_read_alignments{ "Load read alignments" };
@@ -794,7 +797,7 @@ namespace protal {
             if (!sam_error.empty()) {
                 RunStatus::Get().Fail("Cannot read the SAM file of sample " + options.GetSampleId(i) + " (" + sam + "): " + sam_error);
                 profile_slots[idx].emplace(genomes);
-                continue;
+                return;
             }
             // The sample's threshold, on this thread's copy of the model: --knob if given, else the model's knob for the
             // sample's depth (its fragments over all taxa) if it has depth knobs (the trainer's), else --knob's default.
@@ -937,14 +940,161 @@ namespace protal {
             // Each thread writes to its own pre-allocated slot — no lock needed.
             profile_slots[idx].emplace(std::move(profile));
         }
+    }
+
+    // Profiles samples while others are still being aligned (--profile_ahead). RunWrapper hands over each sample
+    // whose SAM is complete (Submit); a worker thread profiles them one after another on `threads` threads of its
+    // own, beside the alignment's (ProfileSample); the profiling stage then takes whatever the worker had not
+    // started (ProfileWrapper: StopTaking, then Started says which). The profiles are the same as when every
+    // sample is profiled after the alignment: a sample's profile depends on its SAM and the database only. This
+    // can only pay where the profiling stage leaves cores idle (its serial passes, the tail of a cohort): on a
+    // 6-core laptop, with the alignment on every core, the worker's CPU time came out of the alignment's and runs
+    // of 4 and 8 samples took the same time either way (docs/claude/2026-10-03-performance-review), so it is off by
+    // default. The last sample's profile, and any the worker is behind with, follow the alignment on all threads.
+    class ProfilingAhead {
+    public:
+        ProfilingAhead(ProfilingContext& ctx, size_t threads) :
+                m_ctx(ctx), m_threads(std::max<size_t>(threads, 1)), m_filters(ctx.models), m_started(ctx.range.size(), 0) {
+            m_worker = std::thread([this] { Work(); });
+        }
+
+        ~ProfilingAhead() {
+            StopTaking();
+            Join();
+        }
+
+        ProfilingAhead(ProfilingAhead const&) = delete;
+        ProfilingAhead& operator=(ProfilingAhead const&) = delete;
+
+        // The sample of slot idx has its SAM: the worker profiles it when it is free.
+        void Submit(size_t idx) {
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                if (m_stopping) return;
+                m_queue.push_back(idx);
+            }
+            m_wake.notify_one();
+        }
+
+        // No further sample is started; those queued but not started are the caller's (Started).
+        void StopTaking() {
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_stopping = true;
+            }
+            m_wake.notify_all();
+        }
+
+        // Whether the worker has started (or finished) the sample of slot idx. After StopTaking the answer is final.
+        bool Started(size_t idx) {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            return m_started[idx] != 0;
+        }
+
+        size_t Threads() const { return m_threads; }
+
+        // Waits for the worker: after StopTaking, until the sample it is on is profiled.
+        void Join() {
+            if (m_worker.joinable()) m_worker.join();
+        }
+
+    private:
+        void Work() {
+            while (true) {
+                size_t idx;
+                {
+                    std::unique_lock<std::mutex> lock(m_mutex);
+                    m_wake.wait(lock, [this] { return m_stopping || !m_queue.empty(); });
+                    if (m_stopping) return;
+                    idx = m_queue.front();
+                    m_queue.pop_front();
+                    m_started[idx] = 1;
+                }
+                try {
+                    ProfileSample(m_ctx, idx, m_filters, m_threads);
+                } catch (std::exception const& e) {
+                    RunStatus::Get().Fail("Profiling sample " + m_ctx.options.GetSampleId(m_ctx.range[idx]) + " failed: " + e.what());
+                }
+            }
+        }
+
+        ProfilingContext& m_ctx;
+        size_t m_threads;
+        ReadTypeModels m_filters;  // the worker's own copy of the models
+        std::mutex m_mutex;
+        std::condition_variable m_wake;
+        std::deque<size_t> m_queue;
+        std::vector<char> m_started;
+        bool m_stopping = false;
+        std::thread m_worker;
+    };
+
+    // Profiles the samples of ctx that are not yet profiled, each with the model of its kind of reads, and returns
+    // every sample's profile (in the order of the samples). With `ahead`, the samples it profiled or is profiling
+    // while the reads were aligned are left to it, and it is waited for.
+    Profiles ProfileWrapper(ProfilingContext& ctx, ProfilingAhead* ahead = nullptr) {
+        Options& options = ctx.options;
+        auto const& range = ctx.range;
+
+        // Each thread scores with its own copy (firstprivate): scoring reuses a buffer. Copies share
+        // the loaded model.
+        ReadTypeModels filters = ctx.models;
+
+        // The samples profiled here: all of them, or those the worker had not started when the alignment ended.
+        if (ahead) ahead->StopTaking();
+        std::vector<size_t> todo;
+        for (size_t idx = 0; idx < range.size(); idx++) {
+            if (!ahead || !ahead->Started(idx)) todo.push_back(idx);
+        }
+        if (ahead) {
+            std::cout << "Profiled while the reads were aligned (on " << ahead->Threads() << " thread(s)): "
+                      << range.size() - todo.size() << " of " << range.size() << " sample(s); " << todo.size() << " left" << std::endl;
+        }
+
+        omp_set_num_threads(options.GetThreads());
+
+        // Samples are profiled in parallel, the largest SAM first, each next one by whichever thread is
+        // free: samples differ in depth, and with the default static schedule one thread could be left
+        // with several deep ones. A sample is profiled on threads in proportion to its SAM's share of
+        // all the samples' bytes, at least one (ProfileSam: the same profile on any number), so that a
+        // deep sample among shallow ones, or alone, is not left to one thread.
+        size_t const threads = std::max<size_t>(options.GetThreads(), 1);
+        std::vector<uintmax_t> sam_bytes(todo.size(), 0);
+        for (size_t t = 0; t < todo.size(); t++) {
+            std::error_code ec;
+            auto const bytes = std::filesystem::file_size(options.SamFile(range[todo[t]]).first, ec);
+            if (!ec) sam_bytes[t] = bytes;
+        }
+        uintmax_t const total_bytes = std::accumulate(sam_bytes.begin(), sam_bytes.end(), uintmax_t{0});
+        std::vector<int> order(todo.size());
+        std::iota(order.begin(), order.end(), 0);
+        std::stable_sort(order.begin(), order.end(), [&sam_bytes](int a, int b) { return sam_bytes[a] > sam_bytes[b]; });
+        auto threads_of = [&](int t) {
+            if (total_bytes == 0) return std::max<size_t>(1, threads / std::max<size_t>(todo.size(), 1));
+            double const share = static_cast<double>(sam_bytes[t]) / static_cast<double>(total_bytes);
+            return std::clamp<size_t>(static_cast<size_t>(std::lround(share * static_cast<double>(threads))), 1, threads);
+        };
+        int const sample_threads = static_cast<int>(std::clamp<size_t>(todo.size(), 1, threads));
+        #pragma omp parallel for schedule(dynamic, 1) num_threads(sample_threads) firstprivate(filters) shared(ctx, todo, order, threads_of)
+        for (int k = 0; k < static_cast<int>(todo.size()); k++) {
+            int const t = order[k];
+            ProfileSample(ctx, todo[t], filters, threads_of(t));
+        }
+        if (ahead) ahead->Join();
 
         std::vector<profiler::MicrobialProfile> profiles;
-        profiles.reserve(profile_slots.size());
-        for (auto& slot : profile_slots) {
+        profiles.reserve(ctx.profile_slots.size());
+        for (auto& slot : ctx.profile_slots) {
             if (slot.has_value()) profiles.emplace_back(std::move(slot.value()));
         }
-        WriteUnreportedSpecies(options, unreported_slots);
+        WriteUnreportedSpecies(options, ctx.unreported_slots);
         return profiles;
+    }
+
+    // As above, with the context made here (--profile_only, or the profiling stage without samples profiled ahead).
+    Profiles ProfileWrapper(Options& options, ProtalDB& db, ReadTypeModels const& models) {
+        ProfilingContext ctx(options, db, models);
+        return ProfileWrapper(ctx);
     }
 
     static std::pair<bool,bool> SharedSNP(VariantBin& a, VariantBin& b) {
@@ -2411,6 +2561,23 @@ namespace protal {
         /*
          *  READ ALIGNMENT SECTION
          */
+        // With --profile_ahead, a sample is profiled as soon as its SAM is complete, while the next sample's reads
+        // are aligned (ProfilingAhead, on a quarter of the threads beside the alignment's); by default every
+        // sample is profiled after the alignment of all, on all threads.
+        std::optional<ProfilingContext> profiling;
+        std::unique_ptr<ProfilingAhead> ahead;
+        if (run_profiling) profiling.emplace(options, db, models);
+        if (run_alignment && run_profiling && options.ProfileAhead() && !options.BenchmarkAlignment()) {
+            ahead = std::make_unique<ProfilingAhead>(*profiling, std::max<size_t>(1, options.GetThreads() / 4));
+        }
+        auto sample_done = [&](size_t index) {
+            if (!ahead) return;
+            auto const& range = profiling->range;
+            auto const at = std::find(range.begin(), range.end(), index);
+            // Not the last sample: no alignment follows it, so the profiling stage takes it on all threads.
+            if (at != range.end() && at + 1 != range.end()) ahead->Submit(static_cast<size_t>(at - range.begin()));
+        };
+
         // Untangle Template options that need to be written out specifically.
         if (run_alignment) {
             if (options.BenchmarkAlignment()) {
@@ -2418,12 +2585,12 @@ namespace protal {
                 if (!options.GetBenchmarkAlignmentOutputFile().empty()) {
                     alignment_benchmark.SetOutput(options.GetBenchmarkAlignmentOutputFile());
                 }
-                RunWrapper(options, db, alignment_benchmark);
+                RunWrapper(options, db, alignment_benchmark, sample_done);
                 if (!options.GetBenchmarkAlignmentOutputFile().empty()) {
                     alignment_benchmark.DestroyOutput();
                 }
             } else {
-                RunWrapper(options, db);
+                RunWrapper(options, db, NoBenchmark{}, sample_done);
             }
         }
 
@@ -2433,8 +2600,9 @@ namespace protal {
         if (run_profiling) {
             Benchmark bm_profiling("Profiling");
             bm_profiling.Start();
-            
-            auto profiles = ProfileWrapper(options, db, models);
+
+            auto profiles = ProfileWrapper(*profiling, ahead.get());
+            ahead.reset();
             // Which taxa pass, for the statistics and strains: the scores ProfileWrapper cached, each
             // from its sample's model (any model reads them), at each profile's knobs.
             auto const loaded = std::find_if(models.begin(), models.end(), [](auto const& m) { return m.has_value(); });
