@@ -1,0 +1,16 @@
+Flanks AnchoredAligner::Flank sent to WFA2 (HEAD 0e4c5a4 with counters), aligning 100k pairs of the v0.7.3 world, 1 thread.
+mm = mismatches of the flank on its link's diagonal; optimal = WFA2's score equalled 4*mm (the ungapped alignment was optimal);
+cheaper = WFA2 found a gapped alignment of lower cost.
+mm=2 flanks=51001 optimal=51001 cheaper=0
+mm=3 flanks=33143 optimal=33111 cheaper=32
+mm=4 flanks=23226 optimal=23110 cheaper=116
+mm=5 flanks=17260 optimal=17028 cheaper=232
+mm=6 flanks=13324 optimal=12986 cheaper=338
+mm=7 flanks=10328 optimal=9897 cheaper=431
+mm=8 flanks=7994 optimal=7515 cheaper=479
+mm=9 flanks=6448 optimal=5955 cheaper=493
+mm=10 flanks=4979 optimal=4490 cheaper=489
+mm=11 flanks=3992 optimal=3469 cheaper=523
+mm=12 flanks=3025 optimal=2473 cheaper=552
+mm=13 flanks=2342 optimal=1836 cheaper=506
+(0 and 1 mismatch flanks never reach WFA2; the rest, 14 and more, are 4,000 flanks in all.)

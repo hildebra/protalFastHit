@@ -9,6 +9,7 @@ add_executable(protal_tests
         test_InputValidation.cpp
         test_Parsing.cpp
         test_StrainOutput.cpp
+        test_SequenceRange.cpp
         test_Zstd.cpp
         test_IndexCodec.cpp
         test_Database.cpp

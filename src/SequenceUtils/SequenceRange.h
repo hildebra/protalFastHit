@@ -85,18 +85,23 @@ public:
     static constexpr int kBothStrands = -1, kReverse = 0, kForward = 1;
     // With max_divergence, only reads of at most that divergence (ReadInfo::divergence) count.
     CoverageVec CoverageVector(int strand = kBothStrands, uint8_t max_divergence = 255) const {
-        CoverageVec coverage;
-
-        coverage.resize(m_end - m_start, 0);
+        // A difference array and one prefix sum (a read costs two updates, not one per base): the same counts as
+        // adding every read base by base. The vector starts where m_start is, so m_start is the offset; a read lies
+        // within the range.
+        CoverageVec coverage(m_end - m_start + 1, 0);
         for (auto& read : m_read_info) {
             if (strand != kBothStrands && read.forward != (strand == kForward)) continue;
             if (read.divergence > max_divergence) continue;
-            for (auto i = 0; i < read.length; i++) {
-                // vector starts where m_start is, so m_start is the offset.
-                coverage[i+(read.start-m_start)]++;
-            }
+            size_t const from = read.start - m_start;
+            coverage[from]++;
+            coverage[from + read.length]--;
         }
-
+        uint32_t sum = 0;
+        for (auto& c : coverage) {
+            sum += c;
+            c = sum;
+        }
+        coverage.pop_back();
         return coverage;
     }
 

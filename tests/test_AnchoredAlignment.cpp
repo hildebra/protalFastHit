@@ -240,6 +240,64 @@ TEST(AnchoredAlignment, UngappedFlanksAreWhatWFA2Gives) {
     EXPECT_EQ(wfa.UngappedFlanks(), 0u);
 }
 
+// A flank with 2 or 3 mismatches on its link's diagonal is aligned without WFA2 where no alignment with a gap costs as
+// much (AnchoredAligner::NoCheaperGap): the same status and operations as WFA2 gives, with up to 8 changes (Ns
+// included) and sometimes an indel in the read, free ends of either side, budgets down to the edge, and genes of random
+// bases or of short repeats (where a gap can cost the same as the mismatches).
+TEST(AnchoredAlignment, FlanksWithTwoOrThreeMismatchesAreWhatWFA2Gives) {
+    std::mt19937 rng(11);
+    auto base = [&rng]() { return "ACGT"[rng() % 4]; };
+    WFA2Wrapper2 aligner{4, 6, 2, 1000};
+    AnchoredAligner fast, wfa;
+    wfa.SetUngappedFlanks(false);
+    size_t aligned = 0, failed = 0;
+    std::string fast_ops, wfa_ops;
+    for (int n = 0; n < 30000; n++) {
+        size_t const length = 60 + rng() % 120;
+        std::string gene(length + 40, 'A');
+        size_t const unit = rng() % 3 == 0 ? 1 + rng() % 4 : 0;  // a third of the genes repeat a unit of 1-4 bases, with changes
+        for (size_t i = 0; i < gene.size(); i++) gene[i] = unit == 0 || rng() % 10 == 0 ? base() : gene[i - std::min(i, unit)];
+        if (unit > 0) for (size_t i = 0; i < unit; i++) gene[i] = base();
+        std::string read = gene.substr(20, length);  // the window is the gene [20, 20 + length): read and window equal
+        size_t const link_length = 15 + rng() % 16, link_read = (read.size() - link_length) / 2;
+        for (int i = static_cast<int>(rng() % 9); i > 0; i--) {
+            size_t const p = rng() % read.size();
+            if (p >= link_read && p < link_read + link_length) continue;
+            read[p] = rng() % 8 == 0 ? 'N' : base();
+        }
+        size_t link_in_read = link_read;
+        if (rng() % 4 == 0) {  // a deletion from the read, outside the link: the flanks then differ in length or need a gap
+            size_t const p = rng() % read.size();
+            if (p < link_read) { read.erase(p, 1); link_in_read--; }
+            else if (p >= link_read + link_length) read.erase(p, 1);
+        }
+        AlignmentWindow w;
+        w.ref_start = 20;
+        w.ref_end = 20 + length;
+        if (rng() % 2) {
+            w.ref_begin_free = static_cast<int>(rng() % 12);
+            w.ref_end_free = static_cast<int>(rng() % 12);
+            w.read_begin_free = static_cast<int>(rng() % 12);
+            w.read_end_free = static_cast<int>(rng() % 12);
+        }
+        w.max_score = 1 + static_cast<int>(rng() % 40);
+        if (read.size() < link_read + link_length) continue;
+        ChainList chain = { ChainLink(static_cast<uint32_t>(20 + link_read), static_cast<uint16_t>(link_in_read), static_cast<uint16_t>(link_length)) };
+        auto const a = fast.Align(read, gene, chain, w, aligner, fast_ops);
+        auto const b = wfa.Align(read, gene, chain, w, aligner, wfa_ops);
+        ASSERT_EQ(a, b) << "case " << n << ": " << read;
+        if (a == AnchoredAligner::Status::Aligned) {
+            ASSERT_EQ(fast_ops, wfa_ops) << "case " << n << ": " << read;
+            aligned++;
+        }
+        failed += a == AnchoredAligner::Status::Failed;
+    }
+    std::cout << aligned << " aligned, " << failed << " failed, " << fast.UngappedFlanks() << " flanks without WFA2" << std::endl;
+    EXPECT_GT(aligned, 5000u);
+    EXPECT_GT(failed, 1000u);
+    EXPECT_GT(fast.UngappedFlanks(), 20000u);
+}
+
 namespace {
     // A long read's window as LongReadAligner aligns it: 100 random bases, the whole gene with ONT-like errors
     // (substitutions, deletions and insertions at the given rates), 100 random bases. Returns the read and its

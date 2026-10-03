@@ -306,9 +306,14 @@ namespace protal::profiler::context {
         }
         for (auto const& c : resolved) plain[c.own] -= c.n;
 
-        std::vector<double> shares;
+        // A class's shares (own first, then its alternatives'), in a buffer on the stack (ZA lists a few alternatives; a
+        // longer list goes to a vector).
+        constexpr uint32_t kStackShares = 16;
+        double stack_shares[1 + kStackShares];
+        std::vector<double> long_shares;
+        double* shares = stack_shares;
         auto posterior = [&](Class const& c) {
-            shares.assign(1 + c.count, 0.0);
+            shares = c.count <= kStackShares ? stack_shares : (long_shares.resize(1 + c.count), long_shares.data());
             shares[0] = weight[c.own];
             double total = shares[0];
             for (uint32_t k = 0; k < c.count; k++) {
@@ -317,11 +322,11 @@ namespace protal::profiler::context {
                 total += shares[1 + k];
             }
             if (total <= 0) {
-                shares.assign(shares.size(), 0.0);
+                std::fill(shares, shares + 1 + c.count, 0.0);
                 shares[0] = 1;
                 return;
             }
-            for (auto& s : shares) s /= total;
+            for (uint32_t k = 0; k <= c.count; k++) shares[k] /= total;
         };
         std::vector<double> next, own(plain.size(), 0.0), previous_share(plain.size(), 0.0);
         for (size_t iteration = 0; iteration < max_sweeps && !resolved.empty(); iteration++) {

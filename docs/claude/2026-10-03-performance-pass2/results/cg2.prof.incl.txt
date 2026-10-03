@@ -1,0 +1,60 @@
+--------------------------------------------------------------------------------
+Profile data file '/home/falk/perf-pass2/cg2.prof.out' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 4155266064
+Trigger: Program termination
+Profiled target:  /home/falk/perf-pass2/work/build/protal --db /home/falk/bench071/V073/protal_db --profile_only /home/falk/perf-pass2/a.head.1/s.sam.zst --prefix s -o /home/falk/perf-pass2/cgp2 -t 1 --no_qcmsa (PID 1489321, part 1)
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       99
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                      
+--------------------------------------------------------------------------------
+20,037,891,956 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                       file:function
+--------------------------------------------------------------------------------
+20,037,882,307 (100.0%)  ???:0x000000000001f540 [/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2]
+20,035,338,407 (99.99%)  ???:(below main) [/home/falk/perf-pass2/work/build/protal]
+20,035,338,395 (99.99%)  ./csu/../csu/libc-start.c:__libc_start_main@@GLIBC_2.34 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+20,033,940,404 (99.98%)  ./csu/../sysdeps/nptl/libc_start_call_main.h:(below main) [/usr/lib/x86_64-linux-gnu/libc.so.6]
+20,033,903,211 (99.98%)  ???:main [/home/falk/perf-pass2/work/build/protal]
+20,033,886,513 (99.98%)  ???:protal::Run(int, char**) [/home/falk/perf-pass2/work/build/protal]
+16,748,101,497 (83.58%)  ???:protal::ProfileWrapper(protal::ProfilingContext&, protal::ProfilingAhead*) [/home/falk/perf-pass2/work/build/protal]
+16,746,702,721 (83.58%)  ???:0x000000000011aea0 [???]
+16,746,702,719 (83.58%)  ???:GOMP_parallel [/usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0]
+16,746,700,278 (83.58%)  ???:protal::ProfileWrapper(protal::ProfilingContext&, protal::ProfilingAhead*) [clone ._omp_fn.0] [/home/falk/perf-pass2/work/build/protal]
+16,746,676,768 (83.58%)  ???:protal::ProfileSample(protal::ProfilingContext&, unsigned long, std::array<std::optional<protal::profiler::TaxonFilterForest>, 4ul>&, unsigned long) [/home/falk/perf-pass2/work/build/protal]
+15,295,468,135 (76.33%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long) [/home/falk/perf-pass2/work/build/protal]
+10,076,678,765 (50.29%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > protal::profiler::Profiler<protal::ScoreAlignments>::ReadSamGroups<protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}>(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}&&) [/home/falk/perf-pass2/work/build/protal]
+10,050,066,982 (50.16%)  ???:void protal::profiler::Profiler<protal::ScoreAlignments>::CollectGroups<protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}&>(protal::SamReader&, std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&, protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}&) [/home/falk/perf-pass2/work/build/protal]
+ 5,255,312,953 (26.23%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}::operator()(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&) const [/home/falk/perf-pass2/work/build/protal]
+ 4,640,512,793 (23.16%)  ???:protal::profiler::MicrobialProfile::ApplyRecordEvidence(unsigned long) [/home/falk/perf-pass2/work/build/protal]
+ 4,609,254,579 (23.00%)  ???:protal::profiler::MicrobialProfile::ApplySampleContext(unsigned long) [/home/falk/perf-pass2/work/build/protal]
+ 3,948,902,004 (19.71%)  ???:protal::SamReader::Advance(protal::SamEntry&) [/home/falk/perf-pass2/work/build/protal]
+ 2,864,247,460 (14.29%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 2,726,032,690 (13.60%)  ???:0x000000000011ad90 [???]
+ 2,725,571,422 (13.60%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned long, protal::profiler::RecordEvidenceCollector&, protal::CigarInfo&, protal::CigarInfo&, std::vector<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition, std::allocator<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition> >&) const [clone .arch_x86_64_v3] [/home/falk/perf-pass2/work/build/protal]
+ 2,446,096,461 (12.21%)  ???:0x000000000011b1a0 [???]
+ 2,444,400,767 (12.20%)  ???:std::basic_istream<char, std::char_traits<char> >& std::getline<char, std::char_traits<char>, std::allocator<char> >(std::basic_istream<char, std::char_traits<char> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, char) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+ 2,407,134,088 (12.01%)  ???:protal::profiler::Taxon::AddSam(unsigned int, protal::SamEntry const&, double, bool, unsigned long, bool, protal::profiler::ReadEvidence const&) [/home/falk/perf-pass2/work/build/protal]
+ 2,276,850,481 (11.36%)  ???:protal::profiler::context::CongenerDistances::SketchOf(unsigned int) [/home/falk/perf-pass2/work/build/protal]
+ 2,276,709,473 (11.36%)  ???:void protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::ApplySampleContext(unsigned long)::{lambda(unsigned long)#1}>(unsigned long, unsigned long, protal::profiler::MicrobialProfile::ApplySampleContext(unsigned long)::{lambda(unsigned long)#1}&&) [/home/falk/perf-pass2/work/build/protal]
+ 2,276,534,959 (11.36%)  ???:protal::profiler::context::CongenerDistances::MakeSketch(unsigned int) [clone .isra.0] [/home/falk/perf-pass2/work/build/protal]
+ 2,257,689,202 (11.27%)  ???:protal::gene_conservation::BottomSketch(std::basic_string_view<char, std::char_traits<char> >, unsigned long) [/home/falk/perf-pass2/work/build/protal]
+ 2,243,691,758 (11.20%)  ???:protal::profiler::context::AbundanceWeightedShares(std::map<std::vector<unsigned int, std::allocator<unsigned int> >, unsigned long, std::less<std::vector<unsigned int, std::allocator<unsigned int> > >, std::allocator<std::pair<std::vector<unsigned int, std::allocator<unsigned int> > const, unsigned long> > > const&, std::map<unsigned int, protal::profiler::context::RecordCounts, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, protal::profiler::context::RecordCounts> > > const&, double, unsigned long) [/home/falk/perf-pass2/work/build/protal]
+ 2,212,398,634 (11.04%)  ???:protal::zstd::IStreambuf::underflow() [/home/falk/perf-pass2/work/build/protal]
+ 2,212,395,106 (11.04%)  ???:protal::zstd::IStreambuf::Decompress(char*, unsigned long) [/home/falk/perf-pass2/work/build/protal]
+ 2,212,373,244 (11.04%)  ???:0x000000000011aa40 [???]
+ 2,212,372,536 (11.04%)  ???:ZSTD_decompressStream [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 2,032,761,892 (10.14%)  ???:0x000000000006c280 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 2,032,676,081 (10.14%)  ???:ZSTD_decompressContinue [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]

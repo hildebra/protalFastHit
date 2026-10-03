@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstring>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -255,7 +256,10 @@ namespace protal {
                 bool const between_trusted_bases = k > first && k < last;
                 if (k == first) start = rpos;
 
-                if (op == 'M') {
+                if (op == 'M' && std::memcmp(sam.m_seq.data() + qpos, reference.data() + rpos, static_cast<size_t>(count)) == 0 &&
+                    std::memchr(sam.m_seq.data() + qpos, 'N', static_cast<size_t>(count)) == nullptr) {
+                    // An exact run without Ns (nearly every M): nothing to record, nothing to check base by base.
+                } else if (op == 'M') {
                     for (auto i = 0; i < count; i++) {
                         char const base = sam.m_seq[qpos + i];
                         char const ref = reference[rpos + i];

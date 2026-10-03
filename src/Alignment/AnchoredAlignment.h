@@ -141,6 +141,8 @@ namespace protal {
         static constexpr int kMismatch = 4;  // as SimpleAlignmentHandler sets up WFA2Wrapper2 (4, 6, 2)
 
         static constexpr int kGapOpen = 6, kGapExtend = 2;
+        // Flanks with up to this many mismatches on the link's diagonal are aligned without WFA2 where that is certain.
+        static constexpr int kMaxUngapped = 3;
         // Re-seeding: exact matches of kSeedK bases, unique in a band kBand diagonals wide either side, widening by one
         // per kDrift bases from the link the search starts at (indels shift the diagonal), up to kMaxBand. A stretch
         // narrower than kMinStretch in the read or the gene is not searched.
@@ -186,11 +188,14 @@ namespace protal {
             // leaves the diagonal with a gap, 8 or more), so it is the one WFA2 returns, with the bases left over
             // written as WFA2 writes them (I for the read's, D for the reference's). WFA2 stops at a score of its
             // max_steps, so it fails where the score reaches the budget.
+            //
+            // With 2 or 3 mismatches (8 or 12) the ungapped alignment is the only best one when no alignment with a gap
+            // costs that or less: one gap run costs 8 or more and is checked (NoCheaperGap), two cost 16 or more.
             size_t const m = std::min(r, g);
             if (m_ungapped_flanks && r - m <= static_cast<size_t>(read_end_free) && g - m <= static_cast<size_t>(ref_end_free)) {
                 int mismatches = 0;
-                for (size_t k = 0; k < m && mismatches <= 1; k++) mismatches += m_query[k] != m_ref[k];
-                if (mismatches <= 1) {
+                for (size_t k = 0; k < m && mismatches <= kMaxUngapped; k++) mismatches += m_query[k] != m_ref[k];
+                if (mismatches <= 1 || (mismatches <= kMaxUngapped && NoCheaperGap(r, g, mismatches))) {
                     if (kMismatch * mismatches >= max_score - used) return m_status = Status::Failed;
                     out.resize(m);
                     for (size_t k = 0; k < m; k++) out[k] = m_query[k] == m_ref[k] ? 'M' : 'X';
@@ -207,6 +212,37 @@ namespace protal {
             used += -aligner.GetAlignmentScore();
             aligner.CigarInto(out);
             return m_status = Status::Aligned;
+        }
+
+        // Whether every alignment of m_query to m_ref that has a gap costs more than the ungapped alignment with
+        // `mismatches` mismatches (4 each; fewer than the 16 of two gap runs, which are not looked at). One run of a gap
+        // of L bases moves the alignment from the link's diagonal to the one L bases away at some position p, and costs
+        // 6 + 2L and 4 per mismatch of the bases before p on the first and after p on the second diagonal; the bases
+        // that have no partner on the second diagonal are counted as free, which a free end may make true, so a
+        // flank is never wrongly cleared. An alignment of the same cost is not cleared: WFA2 decides between them.
+        bool NoCheaperGap(size_t r, size_t g, int mismatches) const {
+            int const best = kMismatch * mismatches;
+            if (best >= 2 * (kGapOpen + kGapExtend)) return false;
+            size_t const m = std::min(r, g);
+            for (int gap = 1; kGapOpen + kGapExtend * gap <= best; gap++) {
+                for (int sign = -1; sign <= 1; sign += 2) {
+                    // sign > 0: reference base j + gap against read base j (a deletion); else read base j + gap against reference base j.
+                    size_t const n = sign > 0 ? std::min(r, g > static_cast<size_t>(gap) ? g - gap : 0) : std::min(g, r > static_cast<size_t>(gap) ? r - gap : 0);
+                    auto differs = [&](size_t j) { return sign > 0 ? m_query[j] != m_ref[j + gap] : m_query[j + gap] != m_ref[j]; };
+                    int shifted = 0;
+                    for (size_t j = 0; j < n; j++) shifted += differs(j);
+                    // The fewest mismatches over the position p the alignment changes diagonal at: those of the link's
+                    // diagonal before p, and of the other from p on.
+                    int before = 0, behind = shifted, fewest = shifted;
+                    for (size_t p = 0; p < m; p++) {
+                        before += m_query[p] != m_ref[p];
+                        if (p < n) behind -= differs(p);
+                        fewest = std::min(fewest, before + behind);
+                    }
+                    if (kGapOpen + kGapExtend * gap + kMismatch * fewest <= best) return false;
+                }
+            }
+            return true;
         }
 
         // The bases between two links on one diagonal: read [from, to) against as many gene bases

@@ -1,0 +1,80 @@
+--------------------------------------------------------------------------------
+Profile data file '/home/falk/perf-pass2/cg.prof.out' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 4856370671
+Trigger: Program termination
+Profiled target:  /home/falk/perf-pass2/head/build/protal --db /home/falk/bench071/V073/protal_db --profile_only /home/falk/perf-pass2/o.pe500k_t1/s.sam.zst --prefix s -o /home/falk/perf-pass2/cgp -t 1 --no_qcmsa (PID 1470752, part 1)
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       99
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                      
+--------------------------------------------------------------------------------
+24,049,977,539 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                      file:function
+--------------------------------------------------------------------------------
+2,706,035,812 (11.25%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+2,644,314,066 (11.00%)  ???:protal::profiler::context::AbundanceWeightedShares(std::map<std::vector<unsigned int, std::allocator<unsigned int> >, unsigned long, std::less<std::vector<unsigned int, std::allocator<unsigned int> > >, std::allocator<std::pair<std::vector<unsigned int, std::allocator<unsigned int> > const, unsigned long> > > const&, std::map<unsigned int, protal::profiler::context::RecordCounts, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, protal::profiler::context::RecordCounts> > > const&, double, unsigned long) [/home/falk/perf-pass2/head/build/protal]
+2,261,282,070 ( 9.40%)  ???:SequenceRangeHandler::CoveredPortion(unsigned int) const [/home/falk/perf-pass2/head/build/protal]
+1,434,705,191 ( 5.97%)  ???:protal::gene_conservation::BottomSketch(std::basic_string_view<char, std::char_traits<char> >, unsigned long) [/home/falk/perf-pass2/head/build/protal]
+1,301,640,480 ( 5.41%)  ???:protal::VariantHandler::AddAlignment(protal::SamEntry const&, unsigned long, unsigned long, unsigned char, protal::ReadAlleles*) [/home/falk/perf-pass2/head/build/protal]
+1,223,040,345 ( 5.09%)  ???:protal::profiler::RecordEvidenceCollector::NoteRecord(unsigned int, unsigned int, protal::SamEntry const&, bool) [/home/falk/perf-pass2/head/build/protal]
+  751,726,357 ( 3.13%)  ???:SequenceRangeHandler::CalculateCoverageVector2(int, unsigned char) const [/home/falk/perf-pass2/head/build/protal]
+  739,944,028 ( 3.08%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  644,959,540 ( 2.68%)  ???:unsigned int& std::vector<unsigned int, std::allocator<unsigned int> >::emplace_back<unsigned int>(unsigned int&&) [clone .isra.0] [/home/falk/perf-pass2/head/build/protal]
+  456,614,949 ( 1.90%)  ./malloc/./malloc/malloc.c:_int_free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  378,250,590 ( 1.57%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  360,432,518 ( 1.50%)  ./malloc/./malloc/malloc.c:malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  332,422,065 ( 1.38%)  ./string/../sysdeps/x86_64/multiarch/memchr-avx2.S:__memchr_avx2 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  280,380,098 ( 1.17%)  ???:protal::SamReader::Advance(protal::SamEntry&) [/home/falk/perf-pass2/head/build/protal]
+  278,988,677 ( 1.16%)  ???:protal::AlignmentLengthRef(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) [clone .part.0] [/home/falk/perf-pass2/head/build/protal]
+  278,726,314 ( 1.16%)  ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  256,336,123 ( 1.07%)  ./malloc/./malloc/malloc.c:_int_malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  252,434,572 ( 1.05%)  ???:std::enable_if<std::__or_<std::__or_<std::is_same<std::remove_cv<long>::type, signed char>, std::is_same<std::remove_cv<long>::type, short>, std::is_same<std::remove_cv<long>::type, int>, std::is_same<std::remove_cv<long>::type, long>, std::is_same<std::remove_cv<long>::type, long long> >, std::__or_<std::is_same<std::remove_cv<long>::type, unsigned char>, std::is_same<std::remove_cv<long>::type, unsigned short>, std::is_same<std::remove_cv<long>::type, unsigned int>, std::is_same<std::remove_cv<long>::type, unsigned long>, std::is_same<std::remove_cv<long>::type, unsigned long long> >, std::is_same<char, std::remove_cv<long>::type> >::value, std::from_chars_result>::type std::from_chars<long>(char const*, char const*, long&, int) [clone .constprop.0] [/home/falk/perf-pass2/head/build/protal]
+  215,608,045 ( 0.90%)  ???:protal::SamEntry::SamEntry(protal::SamEntry&&) [/home/falk/perf-pass2/head/build/protal]
+  215,328,753 ( 0.90%)  ./malloc/./malloc/malloc.c:free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  203,070,138 ( 0.84%)  ???:protal::gene_neighbours::Table::Read[abi:cxx11](std::istream&) [/home/falk/perf-pass2/head/build/protal]
+  199,652,289 ( 0.83%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::operator=(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&&) [clone .isra.0] [/home/falk/perf-pass2/head/build/protal]
+  186,623,734 ( 0.78%)  ???:protal::CompressedCigarInfo(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::CigarInfo&) [/home/falk/perf-pass2/head/build/protal]
+  185,690,512 ( 0.77%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned long, protal::profiler::RecordEvidenceCollector&, protal::CigarInfo&, protal::CigarInfo&, std::vector<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition, std::allocator<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition> >&) const [clone .arch_x86_64_v3] [/home/falk/perf-pass2/head/build/protal]
+  182,910,316 ( 0.76%)  ???:protal::packed::UnpackAvx2(unsigned char const*, unsigned long, char*) [/home/falk/perf-pass2/head/build/protal]
+  173,907,956 ( 0.72%)  ???:protal::NextCompressedCigar(int&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int&, char&) [/home/falk/perf-pass2/head/build/protal]
+  173,402,501 ( 0.72%)  ???:std::enable_if<std::__or_<std::__or_<std::is_same<std::remove_cv<unsigned long>::type, signed char>, std::is_same<std::remove_cv<unsigned long>::type, short>, std::is_same<std::remove_cv<unsigned long>::type, int>, std::is_same<std::remove_cv<unsigned long>::type, long>, std::is_same<std::remove_cv<unsigned long>::type, long long> >, std::__or_<std::is_same<std::remove_cv<unsigned long>::type, unsigned char>, std::is_same<std::remove_cv<unsigned long>::type, unsigned short>, std::is_same<std::remove_cv<unsigned long>::type, unsigned int>, std::is_same<std::remove_cv<unsigned long>::type, unsigned long>, std::is_same<std::remove_cv<unsigned long>::type, unsigned long long> >, std::is_same<char, std::remove_cv<unsigned long>::type> >::value, std::from_chars_result>::type std::from_chars<unsigned long>(char const*, char const*, unsigned long&, int) [clone .constprop.0] [/home/falk/perf-pass2/head/build/protal]
+  171,913,315 ( 0.71%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_replace(unsigned long, unsigned long, char const*, unsigned long) [/home/falk/perf-pass2/head/build/protal]
+  170,167,647 ( 0.71%)  ???:protal::ExtractTaxidGeneid(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [/home/falk/perf-pass2/head/build/protal]
+  156,472,943 ( 0.65%)  ???:protal::NormalizeCigar(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, unsigned long, unsigned int*, unsigned int*) [/home/falk/perf-pass2/head/build/protal]
+  148,935,742 ( 0.62%)  ???:protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(unsigned long)#1}::operator()(unsigned long) const [/home/falk/perf-pass2/head/build/protal]
+  147,572,208 ( 0.61%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&&) [/home/falk/perf-pass2/head/build/protal]
+  145,790,910 ( 0.61%)  ???:protal::profiler::RecordEvidenceCollector::NoteAmbiguity(unsigned int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, bool) [/home/falk/perf-pass2/head/build/protal]
+  143,393,868 ( 0.60%)  ???:protal::profiler::Gene::GetAlleles(std::vector<unsigned long, std::allocator<unsigned long> >&, unsigned int, unsigned int) const [/home/falk/perf-pass2/head/build/protal]
+  124,805,262 ( 0.52%)  ???:protal::profiler::Taxon::AddSam(unsigned int, protal::SamEntry const&, double, bool, unsigned long, bool, protal::profiler::ReadEvidence const&) [/home/falk/perf-pass2/head/build/protal]
+  122,820,080 ( 0.51%)  ???:operator new(unsigned long) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+  113,701,628 ( 0.47%)  ???:protal::SamFromTokens(std::vector<std::basic_string_view<char, std::char_traits<char> >, std::allocator<std::basic_string_view<char, std::char_traits<char> > > > const&, protal::SamEntry&) [/home/falk/perf-pass2/head/build/protal]
+  109,891,905 ( 0.46%)  ???:protal::AlignmentIdentity(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) [clone .isra.0] [/home/falk/perf-pass2/head/build/protal]
+  102,898,640 ( 0.43%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_mutate(unsigned long, unsigned long, char const*, unsigned long) [/home/falk/perf-pass2/head/build/protal]
+   98,018,573 ( 0.41%)  ???:protal::packed::PackAvx2(char const*, unsigned long, unsigned char*) [/home/falk/perf-pass2/head/build/protal]
+   97,318,542 ( 0.40%)  ???:protal::sam_detail::IntTag(std::vector<std::basic_string_view<char, std::char_traits<char> >, std::allocator<std::basic_string_view<char, std::char_traits<char> > > > const&, std::basic_string_view<char, std::char_traits<char> >) [/home/falk/perf-pass2/head/build/protal]
+   90,503,444 ( 0.38%)  ./stdio-common/./stdio-common/printf_fp.c:__printf_fp_buffer_1.isra.0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   89,031,799 ( 0.37%)  ???:std::basic_istream<char, std::char_traits<char> >& std::getline<char, std::char_traits<char>, std::allocator<char> >(std::basic_istream<char, std::char_traits<char> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, char) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   87,307,804 ( 0.36%)  ???:void std::__sort<__gnu_cxx::__normal_iterator<unsigned int*, std::vector<unsigned int, std::allocator<unsigned int> > >, __gnu_cxx::__ops::_Iter_less_iter>(__gnu_cxx::__normal_iterator<unsigned int*, std::vector<unsigned int, std::allocator<unsigned int> > >, __gnu_cxx::__normal_iterator<unsigned int*, std::vector<unsigned int, std::allocator<unsigned int> > >, __gnu_cxx::__ops::_Iter_less_iter) [clone .isra.0] [/home/falk/perf-pass2/head/build/protal]
+   81,312,691 ( 0.34%)  ???:Variant::AddObservation(unsigned char, bool, unsigned char) [/home/falk/perf-pass2/head/build/protal]
+   76,682,770 ( 0.32%)  ./malloc/./malloc/malloc.c:malloc_consolidate [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   75,801,651 ( 0.32%)  ???:0x00000000000a5980 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   75,151,876 ( 0.31%)  ./string/../sysdeps/x86_64/multiarch/memcmp-avx2-movbe.S:__memcmp_avx2_movbe [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   74,017,544 ( 0.31%)  ???:protal::profiler::context::CongenerDistances::Compared(unsigned int, unsigned int) [/home/falk/perf-pass2/head/build/protal]
+   72,412,690 ( 0.30%)  ???:void protal::profiler::Profiler<protal::ScoreAlignments>::CollectGroups<protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}&>(protal::SamReader&, std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&, protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}&) [/home/falk/perf-pass2/head/build/protal]
+   70,664,181 ( 0.29%)  ???:__popcountdi2 [/usr/lib/x86_64-linux-gnu/libgcc_s.so.1]
+   60,260,610 ( 0.25%)  ???:protal::SamEntry::~SamEntry() [/home/falk/perf-pass2/head/build/protal]
+   57,747,193 ( 0.24%)  ???:protal::VariantHandler::GetVariant(std::vector<Variant, std::allocator<Variant> >&, unsigned int, char, char) [/home/falk/perf-pass2/head/build/protal]
+   56,258,959 ( 0.23%)  ???:0x00000000000200e0 [/usr/lib/x86_64-linux-gnu/libgcc_s.so.1]
+   55,088,230 ( 0.23%)  ???:void std::__introsort_loop<__gnu_cxx::__normal_iterator<unsigned int*, std::vector<unsigned int, std::allocator<unsigned int> > >, long, __gnu_cxx::__ops::_Iter_less_iter>(__gnu_cxx::__normal_iterator<unsigned int*, std::vector<unsigned int, std::allocator<unsigned int> > >, __gnu_cxx::__normal_iterator<unsigned int*, std::vector<unsigned int, std::allocator<unsigned int> > >, long, __gnu_cxx::__ops::_Iter_less_iter) [clone .isra.0]'2 [/home/falk/perf-pass2/head/build/protal]

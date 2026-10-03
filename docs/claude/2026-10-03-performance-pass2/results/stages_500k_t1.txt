@@ -1,0 +1,28 @@
+Preload genomes took 126ms
+Load Index took 1s 643ms
+OMP Loop handler took 8s 807ms
+OMP before loop took less than 1ms
+Sequence reader took 304ms
+Retrieve k-mers took 584ms
+Seed- and Anchor-finding took 3s 135ms
+	Seed-finding operator took 3s 23ms
+		Reverse complementing read took 82ms
+		Seeding took 1s 236ms
+		Sorting Seeds took 707ms
+		Pairing took 360ms
+		Extending Anchors took 629ms
+		Sorting Anchors took 86ms
+		Recovering Anchors took 183ms
+Anchor recovery took 226ms
+Alignment handler took 3s 52ms
+Joining alignment pairs and sorting took 634ms
+Output handler took 692ms
+Alignment took 2s 967ms
+Raw alignment took 2s 554ms
+Aligning reads took 8s 810ms
+Writing the SAM header and file took 1ms
+Processing all samples took 8s 813ms
+Thread 0 Profile sample took 1s 827ms
+Profiling took 2s 143ms
+Strain-level MSAs took less than 1ms
+Run protal took 13s 24ms
