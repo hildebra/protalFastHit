@@ -1,4 +1,4 @@
-// protal 0.7.3. In 0.7 (since 0.6.0a):
+// protal 0.7.4. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -27,6 +27,12 @@
 //   once; knobs as a curve over sample depth for every read type; --add_model with several models; the simulator's
 //   samples on threads, compressed as written; PacBio HiFi training reads; the GTDB build's deeper design points and
 //   faster conversion; --version gives the commit built from, which build_gtdb_database.py checks at its start.
+// In 0.7.4: species calls judged against the sample's congeners (relatives and distance features, distance by
+//   default; a read EM over the reads' alternatives; the singleton rule; opt-in calls at a target share of false
+//   calls); long reads aligned through every link of their chain; k-mer lookups prefetched; --profile_ahead
+//   (opt-in); faster read EM and congener sketches with the same outputs; the GTDB build's simulations in one
+//   queue (long reads largest first, deep samples in chunks, beside the paired-end points; a simulated sample's
+//   genomes on threads), the training database on --scratch, and both collections profiled in one protal run.
 #include <iostream>
 #include "RunProtal.h"
 
