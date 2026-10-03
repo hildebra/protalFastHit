@@ -8,21 +8,22 @@ and a ranked assessment. Follow-up to [Where protal's memory goes](../2026-09-30
 **Question**: audit protal's memory use again and say whether there are meaningful reductions left
 for a full GTDB r226 run, without giving up results or much speed.
 
-**Answer in short.** After the 2-bit genes a full r226 run needs about **43 GB** (estimated, not
-measured at that size): **35 GB of it is the index's values array**, 3.2 GB the key map, 4.3 GB the
-genes, under 1 GB everything else. The values array is the only lever left, and it has slack: every
-value is stored in a full 8-byte slot (plus a 4-byte flex cell when a key has several values) although
-its fields need 42 bits, and the values of one key are related. Measured on three 900-species worlds,
-a **per-key bit-packed layout** (minima and bit widths per key, entries in 23-39 bits, flex cells in a
-per-key dictionary) holds the same values in **54-65%** of the bytes, and a lookup microbenchmark shows
-it **costs nothing measurable per lookup** because every entry stays randomly addressable. At r226 that
-is an estimated **−12 to −17 GB** (43 → 26-31 GB) with identical results. Varint delta coding, the
-earlier report's idea, saves as much but makes lookups on long blocks 2-3× slower, which GTDB-size
-blocks would turn into a real seeding cost, so it is not recommended. A plain 6-byte entry layout is
-the safe half-step (−6 to −7 GB, no speed cost, same engineering of the offsets). Everything else
-(key map, genes, per-thread buffers) is 7% or less of the total, or changes results. The figures
-are extrapolated from 900-species worlds; `scripts/index_layout_db` prints the exact ones from the
-r226 `database.protal` in minutes and should be run before implementing (section 6).
+**Answer in short.** After the 2-bit genes a full r226 run needs about **43 GB**: **35.0 GB of it is
+the index's values array** (measured on the r226 v7 database, section 9), 3.2 GB the key map, 4.3 GB
+the genes, under 1 GB everything else. The values array is the only lever left, and its slack is one
+thing: every entry is stored in a full 8-byte slot although its fields need 42 bits (taxid 18, gene 8,
+position 14, two flags). The other 4 bytes per entry, the flex cell, are incompressible: 82% of the
+cells are distinct within their key, so a per-key dictionary gains nothing and delta coding little.
+**Packing the entries at 42 bits** (widths from the index header, a fixed bit stride, flex cells a plain
+32-bit array, every entry still randomly addressable) holds the values in **26.8 GB, −8.2 GB (−23%)**,
+with identical results and, by a lookup microbenchmark, no measurable cost per lookup; a 6-byte entry
+layout is the simpler variant at −6.0 GB. Varint delta coding, the earlier report's idea, saves 9.2 GB
+but makes lookups on long blocks 2-3× slower, and at r226 70% of the entries sit in keys of 33 or more
+values, so it is out. Everything else (key map at 9% fill, ubiquitous groups at 0.7% of the entries,
+genes, per-thread buffers) is worth 1.5 GB or less, or changes results. So the run goes from 43 to
+**about 35 GB**, and that is the floor of this representation; the 900-species worlds (sections 3-5)
+had suggested more because a 15-mer key there holds a few related values, while at r226 a key mixes 29
+values of different genes and positions whose fields span nearly the whole widths.
 
 ## 1. Setup
 
@@ -101,14 +102,15 @@ The bit widths are set per key by the spread of its values: taxids of one key's 
 one k-mer in homologous genes. The dictionary pays where a key's flex cells repeat, i.e. where congeners
 share the whole 31-mer; on the dense world it is already the best layout.
 
-**At r226.** Entries per key rise (3.1G entries on at most 1.07G keys, so 3 or more per non-empty key
-against 1.8 here), singles fall below a third of the entries, blocks grow to hundreds of entries for
-conserved k-mers (capped at 2047), and a key's species are congeners whose internal taxids are
-adjacent (the converter numbers species in taxonomy order), whose positions differ by indels only and
-whose flex cells are often identical. So per entry: 6-byte layout 10 B (83% of today's 12), bit-packed
-with 32-bit flex ~3 + 4 = 7 B (58%), with the dictionary ~3 + 1 B plus the dictionary (45-55%). On
-35 GB: **−6 GB, −15 GB, −16 to −19 GB**. These are extrapolations; section 6 gives the tool that
-replaces them with r226's own numbers.
+**At r226** (section 9, measured): the picture is different. A key holds 29 entries on average, but
+they are not 29 congeners' copies of one k-mer: a 15-mer core collects k-mers of different genes (gene
+spread 8 bits within a key) at different positions (~12 bits), from species across the taxonomy
+(taxid spread ~17 bits), with flex cells that are 82% distinct. Per-key widths are therefore nearly
+the global ones (about 37 bits + 2 flags against 42), the dictionary does not pay (76.4% against 75.8%
+without it), and delta coding cannot touch the flex cells (73.6%). What remains is the 22 bits of
+padding in every 64-bit entry: **6-byte entries 82.9%, 42-bit entries 76%** of today's bytes, −6.0 and
+−8.2 GB. The extrapolation this section first made from the 900-species worlds (45-65%) was wrong for
+this reason.
 
 ## 5. Layouts: lookup speed
 
@@ -147,11 +149,12 @@ up to 15%, and most of a lookup is the cache miss on the key and its block, whic
 So the bit-packed layouts take the saving of delta coding without its cost: on the whole run,
 seeding being 14-19% of the time, the change is within the noise of a benchmark.
 
-## 6. Measure r226 before building it
+## 6. Measuring r226 (done: section 9)
 
 `scripts/index_layout_db` reads the index out of `database.protal` chunk by chunk and prints section 3
 and 4 for the real database; nothing is held in memory but a few chunks per thread (~75 MB each). On a
-cluster node with the r226 database (18 GB to read, a few minutes with 16 threads):
+cluster node with the r226 database (18 GB to read, a few minutes with 16 threads; the result for the
+v7 database is in section 9):
 
 ```bash
 # in the checkout's root (on WSL from a Linux-side copy: compiling from /mnt/c resolves <zstd.h> to
@@ -184,21 +187,25 @@ Savings at r226 from the ~43 GB; results unchanged for all of them.
 
 | # | Change | Saves | Speed | Effort | Notes |
 |---|---|---:|---|---|---|
-| 1 | **Bit-packed value blocks in memory** (per key: minima, widths, entries in w bits; flex cells as a per-key dictionary or 32 bits), built by `LoadColumns` from the decoded columns; file format unchanged | **−12 to −17 GB** (values 35 → 18-23) | none measured per lookup; the dictionary variant slower at 900 species, likely faster at r226 (section 5) | L | the addressing: per-key 16-bit offsets become byte offsets (a block of 8 keys is ≤ 65536 cells = 512 KB today; compact blocks over 64 KB are rare and need an escape to a side table, or a lower cap at build); `Get`, `GetFromLookup`, `GetExact`, `GetSingleEntry`, `RecoverFromLookup`, `PrefetchValues` adapt; `--build` keeps its 8-byte layout (it runs its own uniqueness check on it and writes the file), so a query run has one layout and a build another; verify with byte-identical SAM and profiles on the 900-species worlds and the e2e tests, speed on `dbdense` |
-| 2 | **6-byte entries + 4-byte flex cells** (the half-step: same addressing rework, trivial decoding) | −6 to −7 GB | none | M-L | if 1 is too much at once; the same offsets work must be done, so 1 is the better use of it |
-| 3 | Collapse **ubiquitous flex groups** at load (section 6.3), on top of 1 | 0 at 900 species, unknown at r226 | neutral or faster (shorter scans) | S-M on top of 1 | only if `index_layout_db` shows a share worth it |
+| 1 | **42-bit entries in memory**: entries at a fixed bit stride of taxid + gene + position + 2 flag bits, the widths from the index's field maxima (in the header, or found while loading), flex cells a separate 32-bit array; built by `LoadColumns` from the decoded columns; file format unchanged | **−8.2 GB** (values 35.0 → 26.8; section 9) | none measured per lookup (section 5: an entry is a shift and a mask at its bit offset; the flex scan is unchanged) | M-L | the addressing: the key map's per-key 16-bit offsets count 8-byte cells today; with entries and flex cells in two arrays the key's entry index and flex index both follow from the cell offsets (entries e of a key of S cells: e = S − ⌈S/3⌉, as `Get` computes now), so the key map can stay as it is and only the two array indices are derived; `Get`, `GetFromLookup`, `GetExact`, `GetSingleEntry`, `RecoverFromLookup`, `PrefetchValues` adapt; `--build` keeps its 8-byte layout (it runs its own uniqueness check on it and writes the file), so a query run has one layout and a build another; verify with byte-identical SAM and profiles on the 900-species worlds and the e2e tests, speed on `dbdense` and r226 |
+| 2 | **6-byte entries** instead of 42-bit ones (byte-aligned, an unaligned 8-byte load and a mask) | −6.0 GB | none | M | the same two-array rework with simpler indexing; 1 costs little more and saves 2.2 GB more |
+| 3 | Per-key minima and widths (section 4's bit-packed layout) or a flex dictionary on top of 1 | −0.3 GB, or nothing | per-key headers on the lookup path | L | measured at r226: not worth it (section 9) |
+| 3b | Collapse **ubiquitous flex groups** at load (section 6.3) | −0.25 GB (0.73% of the entries) | | S-M | not worth it on its own |
 | 4 | `posix_fadvise(POSIX_FADV_DONTNEED)` on the database file after each member is loaded (`Zstd.h` only advises `SEQUENTIAL`) | up to 20 GB of page cache | none | S | matters for cgroup-limited jobs and nodes shared with other jobs; not in RSS |
 | 5 | Cap the index load's per-worker frame buffers (`ForEachFrame` holds a chunk's compressed input and decoded output per worker, ~75 MB; 64 threads ≈ 5 GB on top of the index while loading) | 0.075 GB per thread, at the load peak only | the load uses fewer workers than threads, or frees buffers as it goes | S | or build with `--compress_frame_mb 16` |
 | 6 | Cohort (`--map`) retention per sample after profiling (~0.15 GB per dense sample for the strain MSAs, [earlier report](../2026-09-30-memory-profiling/README.md) §1), unchanged since | 0.15 GB × samples | | S-M | only for runs of hundreds of samples |
 | 7 | Several protal processes on one node each load the index: run the node's samples as one `--map` run instead (one index, one sample on all threads) | N × 43 → 43 GB | | none (usage) | a shared `mmap` of a raw index would do the same with 4 KB pages, at the TLB cost the THP work removed |
 
-Together 1 + 4 (+ 3 if r226 has the groups) bring a full r226 run to about **26-31 GB** of anonymous
-memory, with the database's page cache released as it is read.
+Together 1 + 4 bring a full r226 run from about 43 to about **35 GB** of anonymous memory, with the
+database's page cache released as it is read. Below that the representation itself would have to
+change (fewer values, or values that do not carry the species: both change results).
 
 ### Not worth it
 
-- **Key map** (3.2 GB, 7%): a sparse or two-level map costs a dependent load on every lookup, which is
-  what the THP and prefetch work spent its effort on; only if r226 leaves most of 2^30 keys empty.
+- **Key map** (3.2 GB, 7%): 9.2% of the 2^30 keys are non-empty at r226, but the map's granularity is
+  the block of 8 keys, 54% of which are non-empty at that fill, so a sparse map saves ~1.5 GB at the
+  price of a dependent load (a bitmap and its rank) on every lookup, which is what the THP and prefetch
+  work spent its effort on. Only if memory, not time, is the hard limit.
 - **Genes** (4.3 GB): at 2 bits per base; on demand not viable (96% of the pages are touched);
   decoding windows is done.
 - **Per-thread buffers**: 20 MB per thread.
@@ -215,3 +222,43 @@ bash scripts/bench_run.sh            # bench_lookup_layouts under ASan/UBSan on 
 
 The scripts assume the WSL paths of the performance reports (`~/protal-perf`, `~/bench071`,
 `~/r226-build/build/protal`) and write to `~/protal-mem2`; edit the variables at their top.
+
+## 9. The r226 database, measured
+
+`index_layout_db` on the r226 v7 database (`protal0.7.3_r226_v7/protal_db/database.protal`, built by
+the [v7/v8 run](../2026-10-03-r226-v7-v8-evaluation/README.md); 700 chunks, run on the HPC login
+node, 2026-10-03):
+
+| | r226 v7 |
+|---|---:|
+| non-empty keys | 98.6M (9.2% of 2^30) |
+| value slots | 4,375,430,329 = **35.0 GB** |
+| entries | 2,903,557,366 (29.4 per non-empty key) |
+| single-value keys | 5.2M (0.2% of entries) |
+| entries per multi-value key | 31.0 (45.4M keys pad half a slot) |
+| entries in keys of 33+ / 129+ / 513+ values | 71% / 36% / 11% |
+| field maxima (bits) | taxid 143,614 (18), gene 168 (8), position 12,883 (14); 2 flags = **42 bits** |
+| distinct flex cells among the multi-value keys' entries | **81.6%** |
+| ubiquitous groups (> 256 equal cells in a key) | 46,763 groups, 21.2M entries (0.73%, 254 MB); none > 2048 |
+
+| Layout | GB | B/entry | of now |
+|---|---:|---:|---:|
+| now (8 B slots) | 35.00 | 12.06 | 100% |
+| 6-byte entries + 4 B flex | 29.01 | 9.99 | 82.9% |
+| 42-bit entries (global widths, fixed stride) + 4 B flex, computed: 2.90G × (42/8 + 4) B | 26.8 | 9.25 | 76.6% |
+| bit-packed per key, flex 32 bits | 26.54 | 9.14 | 75.8% |
+| bit-packed per key, flex dictionary | 26.73 | 9.20 | 76.4% |
+| delta varint | 25.76 | 8.87 | 73.6% |
+| 5-byte entries (does not hold 42 bits; for reference) | 26.11 | 8.99 | 74.6% |
+
+Reading: the flex cells are 4 × 2.90G = 11.6 GB and stay 4 bytes in every layout (distinct within
+their key, so neither a dictionary nor XOR deltas shrink them); the entries' 42 bits are 15.2 GB
+against 23.2 GB in 8-byte slots. Per-key widths gain 0.3 GB over the global ones, because a key's
+values span different genes and positions and species across the taxonomy. The entries-per-key
+distribution (71% of the entries in keys of 33 or more values) is also why delta coding's 2-3× on long
+blocks (section 5) would be the common case here.
+
+What this changes against the extrapolation in sections 4 and 7 as first written: the saving is
+8.2 GB, not 12-17; the dictionary and the per-key headers are not worth having; the ubiquitous
+groups are not either (0.73%). The 6-byte and 42-bit layouts, which keep random access and leave the
+flex scan as it is, are the whole of what is left.
