@@ -50,6 +50,18 @@ depth raised the test sets' F1 by 0.006-0.033 for every read type (docs/claude/2
 evaluation); the earlier knobs by whole decade (bins 2-6, other bins at --knob's default), which protal
 still reads, cost PacBio up to 0.016 on the v0.7.1 benchmark (docs/claude/2026-10-01-features-depth-knobs).
 build_gtdb_database.py passes it for every read type.
+
+--fdr-calls calibrates the scores instead (an isotonic fit of presence on the scores of species held out) and
+chooses the target share of false calls per sample with the highest F1 on species held out: protal then reports in
+each sample the highest-scoring taxa while the mean of their 1 - probability, the probabilities adjusted to the
+sample's share of present candidates (Saerens et al. 2002), stays at or below it. A deep sample's many absent
+candidates lower that share and every probability with it, which a knob by depth only stands in for, and it holds
+at depths the training lacked (docs/claude/2026-10-02-amplicon-denoising). The calibration, the prior and the target
+go into the model's header; build_gtdb_database.py passes it unless --call-mode curve.
+
+Every call counted here leaves out the taxa protal's singleton rule vetoes (--singleton-congener, protal's
+--singleton_congener): one fragment beside a congener of 100 fragments or more, whose read looks like the congener's
+(its abundance-weighted EM share below 0.5, or its identity below 0.95).
 """
 
 from __future__ import annotations
@@ -73,7 +85,8 @@ from sklearn.model_selection import GridSearchCV, GroupKFold, StratifiedKFold
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lineages  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_columns  # noqa: E402
-from model_pmml import PmmlForest, format_depth_knob_curve, read_depth_knob_curve, write_forest  # noqa: E402
+from model_pmml import (PmmlForest, format_depth_knob_curve, read_depth_knob_curve, read_false_calls,  # noqa: E402
+                        write_forest)
 
 # Clades held out in cross-validation (with --taxonomy): each row is scored by forests that saw no taxon of
 # its genus, family, order, class or phylum.
@@ -103,6 +116,23 @@ DEPTH_KNOB_MIN_SAMPLES = 6
 DEPTH_KNOB_MIN_TAXA = 50
 DEPTH_KNOB_MIN_PRESENT = 10
 DEPTH_KNOB_GRID = np.round(np.arange(0.05, 0.955, 0.01), 2)
+# --fdr-calls: the targets tried for a sample's expected share of false calls (choose_false_calls), and the scores of species
+# held out at which the calibration (an isotonic fit of presence on score) is evaluated for the model's curve: quantiles of
+# the scores, so that the curve has its points where the taxa are. protal and false_call_flags read the curve linearly.
+FDR_GRID = np.round(np.concatenate([np.arange(0.005, 0.05, 0.005), np.arange(0.05, 0.5001, 0.01)]), 3)
+CALIBRATION_POINTS = 64
+# The calibrated probabilities' clamp and the prior adjustment's iterations, as context::SampleAdjusted.
+MIN_PROBABILITY = 1e-6
+PRIOR_ITERATIONS = 1000
+PRIOR_TOLERANCE = 1e-10
+PRIOR_PSEUDO_COUNT = 20  # candidates at the training rate added to every sample's (context::kPriorPseudoCount)
+# The singleton rule (protal --singleton_congener): a taxon of one fragment beside a congener of this many fragments or
+# more whose read looks like the congener's (em_own_share below SINGLETON_OWN_SHARE, or identity below
+# SINGLETON_IDENTITY) is never reported; set from --singleton-congener (0: none). Its inputs are the dump's fragments,
+# genus_top_fragments, em_own_share and identity; a table without them has no rule.
+SINGLETON_CONGENER = 100
+SINGLETON_OWN_SHARE = 0.5
+SINGLETON_IDENTITY = 0.95
 # The features the report shows by class of taxon (study_feature_classes): what the conservation of the genes a taxon's
 # reads hit, before and after the MAPQ filter, and the divergence beyond the base qualities say of a relative's reads.
 CLASS_FEATURES = ["conserved_fast_record_ratio", "conserved_fast_kept_ratio", "conserved_fast_depth_ratio",
@@ -117,8 +147,10 @@ def parse_args(argv=None):
     p.add_argument("--output-prefix", required=True)
     p.add_argument("--features", choices=FEATURE_SETS, default=DEFAULT_FEATURE_SET,
                    help="normalized+adjacency (default): the features that do not depend on database, domain, depth "
-                        "and read length, and those of the gene neighbours (model_features.py); normalized: without "
-                        "the gene neighbour features, to test them; all: every feature column of the table")
+                        "and read length, and those of the gene neighbours (model_features.py); "
+                        "normalized+adjacency+relatives: also those that compare a taxon with its sample's relatives "
+                        "(train them on samples with congener groups); normalized: without the gene neighbour "
+                        "features, to test them; all: every feature column of the table")
     p.add_argument("--reference-pmml", help="train on the inputs of this PMML model instead of --features")
     p.add_argument("--ntree", type=int, default=64, help="trees (default 64)")
     p.add_argument("--maxnodes", type=int, default=256,
@@ -132,6 +164,17 @@ def parse_args(argv=None):
     p.add_argument("--depth-knobs", action="store_true",
                    help="also choose a knob curve over the sample's depth, on species held out, and store it in the "
                         "model, which protal then applies unless --knob is given (see above)")
+    p.add_argument("--fdr-calls", action="store_true",
+                   help="also calibrate the model's scores (an isotonic fit of presence on the scores of species held "
+                        "out) and choose the expected share of false calls per sample with the highest F1 on species "
+                        "held out, and store both in the model: protal then reports in each sample the highest-scoring "
+                        "taxa as long as their mean 1 - probability, the probabilities adjusted to the share of present "
+                        "taxa among the sample's candidates, stays at or below it, instead of a knob by depth (see "
+                        "choose_false_calls)")
+    p.add_argument("--singleton-congener", type=int, default=100,
+                   help="the singleton rule protal applies (its --singleton_congener, default 100): a taxon of one "
+                        "fragment beside a congener of at least this many fragments is never called; every F1 here "
+                        "counts it so (0: no rule)")
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="full: also the studies (see above); basic: out of bag, by sample and by species; "
@@ -261,11 +304,31 @@ def predict_out_of_fold(X, y, splits, params, fit_rows=None, leaves=None):
 
 # ---- metrics ----------------------------------------------------------------------------------------------
 
+def vetoed(df):
+    """The rows the singleton rule keeps from being called (SINGLETON_CONGENER; protal's Taxon::Vetoed): one fragment
+    beside a congener of SINGLETON_CONGENER fragments or more, whose read looks like the congener's: its abundance-weighted
+    assignment's share below SINGLETON_OWN_SHARE, or its identity below SINGLETON_IDENTITY (context::kSingletonOwnShare,
+    kSingletonIdentity)."""
+    needed = ("fragments", "genus_top_fragments", "em_own_share", "identity")
+    if SINGLETON_CONGENER <= 0 or any(c not in df.columns for c in needed):
+        return np.zeros(len(df), dtype=bool)
+    return ((df["fragments"].to_numpy(dtype=float) <= 1) &
+            (df["genus_top_fragments"].to_numpy(dtype=float) >= SINGLETON_CONGENER) &
+            ((df["em_own_share"].to_numpy(dtype=float) < SINGLETON_OWN_SHARE) |
+             (df["identity"].to_numpy(dtype=float) < SINGLETON_IDENTITY)))
+
+
+def call_scores(df, p):
+    """Scores as calls see them: -inf for the rows the singleton rule vetoes, so that `call_scores(df, p) >= t` is
+    protal's call at threshold t (TaxonFilterForest::Calls)."""
+    return np.where(vetoed(df), -np.inf, p)
+
+
 def metrics(y, p, df, knob):
     ok = ~np.isnan(p)
     y, p = y[ok], p[ok]
     sub = df[ok]
-    call = p >= knob
+    call = call_scores(sub, p) >= knob
     tp, fp = int((call & (y == 1)).sum()), int((call & (y == 0)).sum())
     fn = int((~call & (y == 1)).sum())
     both = len(np.unique(y)) == 2
@@ -443,8 +506,8 @@ def study_breakdown(report, df, y, p, opts):
     report.section("Where the errors are (species held out; collection model for comparison)")
     new = p.get("species", p["out of bag"])
     old = p.get("collection model")
-    call_new = new >= opts.knob
-    call_old = old >= opts.knob if old is not None else None
+    call_new = call_scores(df, new) >= opts.knob
+    call_old = call_scores(df, old) >= opts.knob if old is not None else None
     frame = df.assign(call_new=call_new, call_old=call_old if call_old is not None else np.nan)
     keys = ["domain"] + (["meta_read_pairs"] if "meta_read_pairs" in df.columns else [])
     rows = []
@@ -518,8 +581,8 @@ def study_by_rank(report, df, y, p, opts, title="False positives and false negat
     new = p["species"] if "species" in p else p["out of bag"]
     old = p.get("collection model")
     absent, present = y == 0, y == 1
-    called_new = new >= opts.knob
-    called_old = old >= opts.knob if old is not None else None
+    called_new = call_scores(df, new) >= opts.knob
+    called_old = call_scores(df, old) >= opts.knob if old is not None else None
     data = {}
 
     def counts(mask, positive):
@@ -579,7 +642,7 @@ def study_by_rank(report, df, y, p, opts, title="False positives and false negat
     if schemes:
         rows = []
         for k in schemes:
-            call = p[k] >= opts.knob
+            call = call_scores(df, p[k]) >= opts.knob
             ok = ~np.isnan(p[k])
             fn, fp = int((present & ok & ~call).sum()), int((absent & ok & call).sum())
             m = report.data.get("evaluation", {}).get(k, {})
@@ -656,7 +719,7 @@ def study_strains(report, df, y, scores, opts, title="Strains: species simulated
     present = y == 1
     if not (present & (rep == 0)).any():
         return
-    called = np.nan_to_num(scores, nan=-1.0) >= opts.knob
+    called = np.nan_to_num(call_scores(df, scores), nan=-1.0, neginf=-1.0) >= opts.knob
     report.section(title)
     report.add(f"at knob {opts.knob}; another genome: a strain of the species, not the representative the database "
                "holds")
@@ -767,6 +830,7 @@ def study_depth_knobs(report, df, X, y, p, opts):
         scores = predict_out_of_fold(X, y, splits, forest_params(opts))
     depths = sample_depths(df)
     ok = ~np.isnan(scores)
+    scores = call_scores(df, scores)  # the singleton rule's rows are never called
     samples = df["meta_sample"].astype(str).to_numpy() if "meta_sample" in df.columns else np.full(len(df), "")
     curve, rows = [], []
     for x, in_group, window in depth_knob_windows(depths, samples, ok):
@@ -797,7 +861,136 @@ def study_depth_knobs(report, df, X, y, p, opts):
     return curve
 
 
-def study_test(report, rf, cols, opts, prefix, depth_knobs=None):
+# ---- calls at a target share of false calls (--fdr-calls) -------------------------------------------------
+
+def fit_calibration(y, p):
+    """The curve from score to the probability that a taxon is present: an isotonic fit of truth on score (species held
+    out), evaluated at CALIBRATION_POINTS quantiles of the scores and at 0 and 1, its probabilities not decreasing; and
+    the share of present rows, the prior that SampleAdjusted adjusts to each sample's."""
+    from sklearn.isotonic import IsotonicRegression
+    ok = ~np.isnan(p)
+    iso = IsotonicRegression(y_min=0.0, y_max=1.0, increasing=True, out_of_bounds="clip").fit(p[ok], y[ok])
+    xs = np.unique(np.clip(np.concatenate([[0.0, 1.0], np.quantile(p[ok], np.linspace(0, 1, CALIBRATION_POINTS))]), 0, 1))
+    ys = np.maximum.accumulate(np.clip(iso.predict(xs), 0.0, 1.0))
+    return [(float(x), float(v)) for x, v in zip(xs, ys)], float(np.mean(y[ok]))
+
+
+def calibrated(curve, scores):
+    """The curve at the scores, linear between its points and its end points' beyond them (context::Calibrated)."""
+    xs, ys = zip(*curve)
+    return np.interp(scores, xs, ys)
+
+
+def sample_adjusted(q, prior):
+    """The calibrated probabilities q of a sample's taxa adjusted to the sample's share of present taxa, and that share:
+    the EM of Saerens, Latinne and Decaestecker (2002), as context::SampleAdjusted."""
+    prior = min(max(prior, MIN_PROBABILITY), 1 - MIN_PROBABILITY)
+    q = np.clip(np.asarray(q, dtype=float), MIN_PROBABILITY, 1 - MIN_PROBABILITY)
+    if not len(q):
+        return q, prior
+    rate = prior
+    for _ in range(PRIOR_ITERATIONS):
+        a, b = rate / prior, (1 - rate) / (1 - prior)
+        adjusted = a * q / (a * q + b * (1 - q))
+        following = min(max(float((adjusted.sum() + PRIOR_PSEUDO_COUNT * prior) / (len(q) + PRIOR_PSEUDO_COUNT)),
+                            MIN_PROBABILITY), 1 - MIN_PROBABILITY)
+        done = abs(following - rate) < PRIOR_TOLERANCE
+        rate = following
+        if done:
+            break
+    a, b = rate / prior, (1 - rate) / (1 - prior)
+    return a * q / (a * q + b * (1 - q)), rate
+
+
+class FalseCallSamples:
+    """Each sample's taxa (meta_sample; those the singleton rule does not veto, with a score) prepared for the calls at a
+    target share of false calls (context::FalseCallKnob): by score, the highest first, the running mean of their
+    1 - probability (the probabilities calibrated and adjusted to the sample), and how many are called at a target."""
+
+    def __init__(self, df, y, p, curve, prior):
+        samples = df["meta_sample"].astype(str).to_numpy() if "meta_sample" in df.columns else np.full(len(df), "")
+        ok = ~np.isnan(p) & ~vetoed(df)
+        self.n, self.samples = len(df), []
+        for s in np.unique(samples):
+            rows = np.flatnonzero((samples == s) & ok)
+            if not len(rows):
+                continue
+            order = rows[np.argsort(-p[rows], kind="stable")]
+            scores = p[order]
+            adjusted, rate = sample_adjusted(calibrated(curve, scores), prior)
+            means = np.cumsum(1 - adjusted) / np.arange(1, len(adjusted) + 1)
+            # The taxa a knob at the i-th score calls: through the last of the scores equal to it.
+            last = np.searchsorted(-scores, -scores, side="right") - 1
+            self.samples.append({"rows": order, "scores": scores, "means": means, "last": last, "prior": rate,
+                                 "true": np.cumsum(y[order] == 1)})
+
+    def counts(self, fdr):
+        """TP and FP at a target `fdr`, over all samples."""
+        tp = fp = 0
+        for s in self.samples:
+            n = int(np.searchsorted(s["means"], fdr * (1 + 1e-12), side="right"))
+            if n:
+                called = int(s["last"][n - 1]) + 1
+                tp += int(s["true"][called - 1])
+                fp += called - int(s["true"][called - 1])
+        return tp, fp
+
+    def calls(self, fdr):
+        """Each row's call at a target `fdr`."""
+        call = np.zeros(self.n, dtype=bool)
+        for s in self.samples:
+            n = int(np.searchsorted(s["means"], fdr * (1 + 1e-12), side="right"))
+            if n:
+                call[s["rows"][:int(s["last"][n - 1]) + 1]] = True
+        return call
+
+
+def choose_false_calls(report, df, X, y, p, opts, depth_knobs):
+    """--fdr-calls: the calibration (fit_calibration) on species held out, and the target share of false calls per sample
+    (FDR_GRID) with the highest F1 there; returns {"curve", "prior", "fdr"}, or None if species cannot be held out."""
+    report.section("Calls at a target share of false calls (species held out)")
+    scores = p.get("species")
+    if scores is None:
+        splits = folds(df, y, "species", opts)
+        if splits is None:
+            report.add("the table cannot hold out species: no calibrated calls")
+            return None
+        scores = predict_out_of_fold(X, y, splits, forest_params(opts))
+    curve, prior = fit_calibration(y, scores)
+    ok = ~np.isnan(scores)
+    q = calibrated(curve, scores[ok])
+    report.add(f"calibration: an isotonic fit of presence on the scores of species held out, {len(curve)} points; log loss "
+               f"{log_loss(y[ok], np.clip(scores[ok], 1e-6, 1 - 1e-6)):.4f} of the scores, "
+               f"{log_loss(y[ok], np.clip(q, 1e-6, 1 - 1e-6)):.4f} calibrated; {prior:.4f} of the rows present")
+    prepared = FalseCallSamples(df, y, scores, curve, prior)
+    present = int(y[ok].sum())
+    rows = []
+    for fdr in FDR_GRID:
+        tp, fp = prepared.counts(float(fdr))
+        fn = present - tp
+        rows.append({"target": float(fdr), "F1": 2 * tp / max(1, 2 * tp + fp + fn), "TP": tp, "FP": fp, "FN": fn})
+    best = max(rows, key=lambda r: (r["F1"], -r["target"]))
+    shown = [r for r in rows if r["target"] in (0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5) or r is best]
+    report.add("F1 by the target, each sample calling its highest-scoring taxa while the mean of their 1 - probability "
+               "(calibrated, and adjusted to the sample's share of present taxa) stays at or below it:")
+    report.table(pd.DataFrame(shown))
+    at_knob = f1_of(y[ok], call_scores(df, scores)[ok] >= opts.knob)
+    with_curve = (f1_of(y[ok], depth_knob_calls(call_scores(df, scores)[ok], sample_depths(df)[ok], depth_knobs, opts.knob))
+                  if depth_knobs else None)
+    report.add(f"F1 of species held out: {fmt(at_knob, 4)} at {opts.knob}"
+               + (f", {fmt(with_curve, 4)} at the knob curve" if with_curve is not None else "")
+               + f", {best['F1']:.4f} at a target of {best['target']} (chosen on these calls, so optimistic; the test set "
+                 "tells)")
+    priors = [s["prior"] for s in prepared.samples]
+    if priors:
+        report.add(f"the samples' share of present taxa after adjustment: median {np.median(priors):.3f} "
+                   f"(range {min(priors):.3f}-{max(priors):.3f}; {prior:.3f} over all rows)")
+    report.data["false_calls"] = {"curve": [[x, v] for x, v in curve], "prior": prior, "fdr": best["target"],
+                                  "targets": rows, "F1": best["F1"], "F1_at_knob": at_knob, "F1_at_depth_knobs": with_curve}
+    return {"curve": curve, "prior": prior, "fdr": best["target"]}
+
+
+def study_test(report, rf, cols, opts, prefix, depth_knobs=None, false_calls=None):
     """The fitted forest on an independent test table: samples of another design (depths, community sizes,
     abundance model, strains), which cross-validation on the training data cannot judge. Its probabilities are
     protal's (the PMML is checked to score as the forest does)."""
@@ -813,25 +1006,43 @@ def study_test(report, rf, cols, opts, prefix, depth_knobs=None):
                f"{int(y.sum())} present")
     report.table(metrics_table(rows))
     report.data["test"] = {label["model"]: m for label, m in rows}
-    call = p >= opts.knob
+    cs = call_scores(test, p)  # the singleton rule's rows are never called
+    call = cs >= opts.knob
+    knob_calls = depth_knob_calls(cs, sample_depths(test), depth_knobs, opts.knob) if depth_knobs else None
+    fdr_calls = (FalseCallSamples(test, y, p, false_calls["curve"], false_calls["prior"]).calls(false_calls["fdr"])
+                 if false_calls else None)
     if "meta_read_pairs" in test.columns:
         depth_rows = []
-        for depth, g in test.assign(call=call).groupby("meta_read_pairs"):
+        frame = test.assign(call=call, knob_call=knob_calls if knob_calls is not None else call,
+                            fdr_call=fdr_calls if fdr_calls is not None else call)
+        for depth, g in frame.groupby("meta_read_pairs"):
             pr, ab = g[g.truth == 1], g[g.truth == 0]
-            depth_rows.append({"depth": depth, "samples": g["meta_sample"].nunique() if "meta_sample" in g else 1,
-                               "present": len(pr), "FN": int((~pr.call).sum()), "FN rate": rate(int((~pr.call).sum()), len(pr)),
-                               "absent": len(ab), "FP": int(ab.call.sum()), "FP rate": rate(int(ab.call.sum()), len(ab))})
-        report.add("by depth (read pairs, or bases for long reads):")
+            row = {"depth": depth, "samples": g["meta_sample"].nunique() if "meta_sample" in g else 1,
+                   "present": len(pr), "FN": int((~pr.call).sum()), "FN rate": rate(int((~pr.call).sum()), len(pr)),
+                   "absent": len(ab), "FP": int(ab.call.sum()), "FP rate": rate(int(ab.call.sum()), len(ab))}
+            if knob_calls is not None:
+                row.update({"FN curve": int((~pr.knob_call).sum()), "FP curve": int(ab.knob_call.sum())})
+            if fdr_calls is not None:
+                row.update({"FN fdr": int((~pr.fdr_call).sum()), "FP fdr": int(ab.fdr_call.sum())})
+            depth_rows.append(row)
+        report.add("by depth (read pairs, or bases for long reads); FN/FP at the knob"
+                   + (", at the knob curve" if knob_calls is not None else "")
+                   + (", at the target share of false calls" if fdr_calls is not None else "") + ":")
         report.table(pd.DataFrame(depth_rows))
         report.data["test_by_depth"] = depth_rows
-    if depth_knobs:
-        knob_calls = depth_knob_calls(p, sample_depths(test), depth_knobs, opts.knob)
+    default = "as protal calls by default" if not false_calls else "as protal calls with --fdr 0"
+    if knob_calls is not None:
         fp, fn = int((knob_calls & (y == 0)).sum()), int((~knob_calls & (y == 1)).sum())
-        report.add(f"at the knob curve ({format_depth_knob_curve(depth_knobs)}), as protal calls by default: F1 "
+        report.add(f"at the knob curve ({format_depth_knob_curve(depth_knobs)}), {default}: F1 "
                    f"{fmt(f1_of(y, knob_calls), 4)}, {fp} false positives, {fn} false negatives (at knob {opts.knob}: "
                    f"F1 {fmt(rows[0][1]['F1'], 4)}, {rows[0][1]['FP']} and {rows[0][1]['FN']})")
         report.data["test_depth_knobs"] = {"F1": f1_of(y, knob_calls), "FP": fp, "FN": fn}
-    t, prec, rec, f1 = best_threshold(y, p)
+    if fdr_calls is not None:
+        fp, fn = int((fdr_calls & (y == 0)).sum()), int((~fdr_calls & (y == 1)).sum())
+        report.add(f"at a target share of false calls of {false_calls['fdr']} per sample (calibrated), as protal calls by "
+                   f"default: F1 {fmt(f1_of(y, fdr_calls), 4)}, {fp} false positives, {fn} false negatives")
+        report.data["test_false_calls"] = {"F1": f1_of(y, fdr_calls), "FP": fp, "FN": fn, "fdr": false_calls["fdr"]}
+    t, prec, rec, f1 = best_threshold(y, np.where(np.isfinite(cs), cs, -1.0))
     report.add(f"highest F1 on the test set at threshold {t:.3f} (F1 {f1:.4f}; at knob {opts.knob}: "
                f"{fmt(rows[0][1]['F1'], 4)})")
     report.data["test_best_threshold"] = {"threshold": t, "precision": prec, "sensitivity": rec, "F1": f1}
@@ -849,9 +1060,10 @@ def study_test(report, rf, cols, opts, prefix, depth_knobs=None):
     out.to_csv(prefix + ".test_predictions.tsv.gz", sep="\t", index=False, float_format="%.6g")
 
 
-def study_threshold(report, y, p, opts, prefix):
+def study_threshold(report, df, y, p, opts, prefix):
     report.section("Threshold (species held out)")
     scores = p.get("species", p["out of bag"])
+    scores = np.where(vetoed(df), -1.0, scores)  # the singleton rule's rows are never called
     t, prec, rec, f1 = best_threshold(y, scores)
     table = threshold_table(y, scores)
     table.to_csv(prefix + ".thresholds.tsv", sep="\t", index=False, float_format="%.6f")
@@ -1030,7 +1242,9 @@ def study_learning_curve(report, df, X, y, opts):
 # ---- main -------------------------------------------------------------------------------------------------
 
 def main(argv=None):
+    global SINGLETON_CONGENER
     opts = parse_args(argv)
+    SINGLETON_CONGENER = opts.singleton_congener
     prefix = opts.output_prefix
     os.makedirs(os.path.dirname(os.path.abspath(prefix)), exist_ok=True)
     report = Report()
@@ -1060,6 +1274,14 @@ def main(argv=None):
     y = df["truth"].to_numpy()
     timing["load"] = time.time() - t0
     report.add(f"{len(cols)} features ({source}): {', '.join(cols)}")
+    veto = vetoed(df)
+    if SINGLETON_CONGENER > 0 and ("genus_top_fragments" not in df.columns or "em_own_share" not in df.columns):
+        report.add("singleton rule: the table has no genus_top_fragments or em_own_share (a dump of an older protal), so "
+                   "no row is vetoed")
+    elif SINGLETON_CONGENER > 0:
+        report.add(f"singleton rule (one fragment beside a congener of {SINGLETON_CONGENER} or more, its read the "
+                   f"congener's: EM share below {SINGLETON_OWN_SHARE} or identity below {SINGLETON_IDENTITY}; never "
+                   f"called): {int(veto.sum())} rows, {int((veto & (y == 1)).sum())} of them present")
 
     warnings = study_data(report, df, y, cols) if opts.evaluation != "none" else []
 
@@ -1090,7 +1312,7 @@ def main(argv=None):
                            "(rows are drawn by their class weight) and have no out-of-bag score; left out")
         t0 = time.time()
         p = study_evaluation(report, df, X, y, opts, oob)
-        study_threshold(report, y, p, opts, prefix)
+        study_threshold(report, df, y, p, opts, prefix)
         study_breakdown(report, df, y, p, opts)
         study_by_rank(report, df, y, p, opts)
         study_feature_classes(report, df)
@@ -1113,10 +1335,15 @@ def main(argv=None):
         t0 = time.time()
         depth_knobs = study_depth_knobs(report, df, X, y, p, opts)
         timing["depth_knobs"] = time.time() - t0
+    false_calls = None
+    if opts.fdr_calls:
+        t0 = time.time()
+        false_calls = choose_false_calls(report, df, X, y, p, opts, depth_knobs)
+        timing["false_calls"] = time.time() - t0
     if opts.test_file:
         t0 = time.time()
         rf.n_jobs = 1  # sum the trees in file order, as protal does
-        study_test(report, rf, cols, opts, prefix, depth_knobs)
+        study_test(report, rf, cols, opts, prefix, depth_knobs, false_calls)
         rf.n_jobs = opts.threads
         timing["test"] = time.time() - t0
 
@@ -1132,9 +1359,16 @@ def main(argv=None):
         notes.append(f"species held out: AP {fmt(species['AP'])}, F1 {fmt(species['F1'])} at knob {opts.knob}")
     if depth_knobs:
         notes.append(f"knob curve by sample depth (log10 fragments: knob): {format_depth_knob_curve(depth_knobs)}")
-    write_forest(rf, cols, prefix + ".xml", notes, depth_knobs)
+    if false_calls:
+        notes.append(f"calls at a target share of false calls of {false_calls['fdr']} per sample, calibrated on species "
+                     f"held out (prior {false_calls['prior']:.4f})")
+    notes.append(f"singleton rule as trained: {SINGLETON_CONGENER} (protal --singleton_congener)")
+    write_forest(rf, cols, prefix + ".xml", notes, depth_knobs, false_calls)
     if read_depth_knob_curve(prefix + ".xml") != [(float(f"{x:.3f}"), k) for x, k in depth_knobs]:
         sys.exit(f"{prefix}.xml: the depth knobs read back differ from those written")
+    if read_false_calls(prefix + ".xml") != (false_calls and {"curve": [tuple(c) for c in false_calls["curve"]],
+                                                              "prior": false_calls["prior"], "fdr": false_calls["fdr"]}):
+        sys.exit(f"{prefix}.xml: the calibrated calls read back differ from those written")
     timing["export"] = time.time() - t0
     rf.n_jobs = 1  # sum the trees in file order, as protal does
     sk = rf.predict_proba(X)[:, 1]
@@ -1213,6 +1447,11 @@ def main(argv=None):
         report.add(f"independent test set: F1 {fmt(test['F1'])}, sensitivity {fmt(test['sensitivity'])}, precision "
                    f"{fmt(test['precision'])}, {fmt(test.get('FP_per_sample'), 2)} false positives per sample at knob "
                    f"{opts.knob}; highest F1 at threshold {report.data['test_best_threshold']['threshold']:.3f}")
+        for key, label in (("test_depth_knobs", "at the knob curve"), ("test_false_calls", "at the target share of false calls")):
+            if key in report.data:
+                r = report.data[key]
+                report.add(f"independent test set {label}: F1 {fmt(r['F1'])}, {r['FP']} false positives, {r['FN']} false "
+                           "negatives")
         worst = [r for r in report.data.get("test_by_depth", []) if r["FN rate"] is not None]
         if worst:
             w = max(worst, key=lambda r: r["FN rate"])

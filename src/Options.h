@@ -106,7 +106,9 @@ namespace protal {
         // Profiling options
         options.add_options("Profiling")
                 ("no_profile", "Do NOT perform taxonomic profiling, only output alignments.")
-                ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours. Default 0.5, or, for a model with knobs by depth (random_forest_cmdline.py --depth-knobs; build_gtdb_database.py gives them to its PacBio and ONT models), the model's knob for each sample's depth; a --knob given applies to every sample.", cxxopts::value<double>()->default_value("0.5"))
+                ("knob", "Prediction threshold, 0 to 1: taxa whose model probability is at least this are reported. Lower finds more of the taxa present, higher reports fewer absent ones. How much a change matters depends on the model and the samples, so choose it on data like yours. Default 0.5, or, for a model with knobs by depth (random_forest_cmdline.py --depth-knobs; build_gtdb_database.py gives them to its PacBio and ONT models), the model's knob for each sample's depth; a --knob given applies to every sample. For a model with calibrated calls (random_forest_cmdline.py --fdr-calls) neither applies by default: see --fdr.", cxxopts::value<double>()->default_value("0.5"))
+                ("fdr", "Expected share of false calls, 0 to 1, for a model with calibrated calls (random_forest_cmdline.py --fdr-calls; build_gtdb_database.py --call-mode fdr): each sample reports its highest-scoring taxa as long as the mean of their 1 - probability stays at or below this, the model's scores made probabilities by its calibration and adjusted to the share of present taxa among the sample's candidates (a deep sample, with many more absent candidates, needs higher scores). Default: the model's own target, if it has calibrated calls; 0: its knob curve or --knob instead. Not with --knob.", cxxopts::value<double>())
+                ("singleton_congener", "A taxon of a single fragment beside a species of its genus with at least this many fragments in the sample is not reported, whatever its score, if its read looks like that species': the abundance-weighted assignment of the reads' alternatives leaves it less than half of it, or its identity is below 0.95. A few reads of an abundant species land on a congener's reference by chance (on GTDB r226 training data every such call was false); a minor congener's own read fits its own reference and is kept. 0: no such rule. The training dump's prediction column and the trainer (random_forest_cmdline.py --singleton-congener) apply the same rule.", cxxopts::value<size_t>()->default_value("100"))
                 ("depth_identity_margin", "Reads count towards a species' abundance when their identity is at most this far below that of its best-matching reads (98th percentile). Reads below that, e.g. of a relative the database lacks, still count for detection. The margin is the same on every gene unless --gene_conservation scales it. The default, 0.08, counts the reads of strains up to about 5% from the reference, of which 0.04 dropped up to 40%. 1 lets every read count.", cxxopts::value<double>()->default_value("0.08"))
                 ("gene_conservation", "Scale --depth_identity_margin per gene by how fast each gene diverges within species: db for the database's factors (gene_conservation.tsv, which --build estimates from --full_reference and stores in the database), or a file of them (geneid, factor, species; 1 for a gene of typical conservation). A gene's margin is then 0.03 for read errors plus the rest times its factor (0.08: 0.05 at factor 0.4, 0.10 at 1.4). none (default): the same margin on every gene, which did best summed over three simulated worlds, among them one with many congeners missing from the database. The factors (the file's, else the database's) give the model's conservation features (conserved_fast_depth_ratio, conserved_hit_share) whatever this says.", cxxopts::value<std::string>()->default_value("none"))
                 ("model", "PMML model file: an existing path is used as is, otherwise <name> in the database (<name>.xml without an extension). Default: the database's model of each sample's read type: model_pe.xml (or, in older databases, model.xml) for paired-end, model_se.xml for single-end, model_PB.xml for PacBio and model_ONT.xml for ONT samples; --model replaces all of them unless --model_se, --model_pb or --model_ont is given.", cxxopts::value<std::string>()->default_value(""))
@@ -252,6 +254,8 @@ namespace protal {
         std::string add_model;
         double knob = 0.5;
         bool knob_given = false;  // --knob on the command line: the models' depth knobs are not used
+        std::optional<double> fdr;  // --fdr; none: the model's target, if it has one
+        size_t singleton_congener = 100;  // --singleton_congener
         double depth_identity_margin = 0.08;
         double msa_identity_margin = 0.04;
         std::string gene_conservation = "none";  // --gene_conservation: none, db (the database's), or a file
@@ -360,6 +364,8 @@ namespace protal {
         std::string m_add_model;  // --add_model
         double m_knob = 0.5;
         bool m_knob_given = false;  // --knob
+        std::optional<double> m_fdr;  // --fdr
+        size_t m_singleton_congener = 100;  // --singleton_congener
         double m_depth_identity_margin = 0.08;
         double m_msa_identity_margin = 0.04;
         std::string m_gene_conservation = "none";  // --gene_conservation
@@ -492,6 +498,8 @@ namespace protal {
                 m_add_model(std::move(d.add_model)),
                 m_knob(d.knob),
                 m_knob_given(d.knob_given),
+                m_fdr(d.fdr),
+                m_singleton_congener(d.singleton_congener),
                 m_depth_identity_margin(d.depth_identity_margin),
                 m_msa_identity_margin(d.msa_identity_margin),
                 m_gene_conservation(std::move(d.gene_conservation)),
@@ -651,6 +659,21 @@ namespace protal {
         // (its depth knobs, random_forest_cmdline.py --depth-knobs) where it has one, else --knob's default.
         bool KnobGiven() const {
             return m_knob_given;
+        }
+
+        // Whether --fdr was given, and its value: the expected share of false calls for a model with calibrated calls
+        // (ProfileWrapper, context::FalseCallKnob); 0 turns them off.
+        bool FdrGiven() const {
+            return m_fdr.has_value();
+        }
+
+        double GetFdr() const {
+            return m_fdr.value_or(0);
+        }
+
+        // --singleton_congener: a taxon of one fragment beside a congener of at least this many is not reported; 0: no rule.
+        size_t GetSingletonCongener() const {
+            return m_singleton_congener;
         }
 
         // Whether --msa_knob was given: otherwise each sample's MSA knob is its profile's knob.
@@ -1924,6 +1947,12 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             if (!(m_knob >= 0 && m_knob <= 1)) {
                 error_log.emplace_back("--knob must be between 0 and 1 (a probability)");
             }
+            if (m_fdr && !(*m_fdr >= 0 && *m_fdr < 1)) {
+                error_log.emplace_back("--fdr must be at least 0 and below 1 (an expected share of false calls; 0: off)");
+            }
+            if (m_fdr && *m_fdr > 0 && m_knob_given) {
+                error_log.emplace_back("--fdr and --knob exclude each other (--fdr 0 turns the calibrated calls off)");
+            }
             if (m_msa_min_depth == 0) {
                 error_log.emplace_back("--msa_min_depth must be at least 1");
             }
@@ -2572,6 +2601,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.compress_frame_mb        = result["compress_frame_mb"].as<int>();
             d.knob                     = result["knob"].as<double>();
             d.knob_given               = result.count("knob") > 0;
+            if (result.count("fdr")) d.fdr = result["fdr"].as<double>();
+            d.singleton_congener       = result["singleton_congener"].as<size_t>();
             if (result.count("msa_knob")) d.msa_knob = result["msa_knob"].as<double>();
             d.depth_identity_margin    = result["depth_identity_margin"].as<double>();
             d.msa_identity_margin      = result["msa_identity_margin"].as<double>();

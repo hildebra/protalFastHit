@@ -28,6 +28,7 @@
 #include "RunStatus.h"
 #include "ReadType.h"
 #include "SamChunks.h"
+#include "SampleContext.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -497,6 +498,9 @@ namespace protal {
         // fit another taxon as well have MAPQ near 0 and would never be counted): MicrobialProfile::NoteRecord.
         struct RecordEvidence {
             size_t records = 0;
+            size_t kept = 0;      // that the MAPQ and length filters keep
+            uint64_t differences = 0;  // X, I and D bases of the records (AlignmentIdentity's differences)
+            uint64_t aligned = 0;      // and M, =, X, I and D bases: how far its reads differ from the reference
             size_t low_mapq = 0;  // MAPQ below kLowMapq
             size_t congener_fit = 0;  // another species of the genus fits the read within kAlternativeFitEdits (ZA)
             size_t other_genus_fit = 0;  // a species of another genus does
@@ -512,6 +516,9 @@ namespace protal {
 
             RecordEvidence& operator+=(RecordEvidence const& other) {
                 records += other.records;
+                kept += other.kept;
+                differences += other.differences;
+                aligned += other.aligned;
                 low_mapq += other.low_mapq;
                 congener_fit += other.congener_fit;
                 other_genus_fit += other.other_genus_fit;
@@ -593,6 +600,21 @@ namespace protal {
             return total;
         }
 
+        // The differences (X, I, D) and all aligned bases (M, =, X, I, D) of a CIGAR, as ReadExcess counts them.
+        inline std::pair<uint32_t, uint32_t> DifferencesAndAligned(std::string_view cigar) {
+            uint32_t differences = 0, aligned = 0, n = 0;
+            for (char const c : cigar) {
+                if (c >= '0' && c <= '9') {
+                    n = n * 10 + static_cast<uint32_t>(c - '0');
+                    continue;
+                }
+                if (c == 'X' || c == 'I' || c == 'D') differences += n;
+                if (c == 'M' || c == '=' || c == 'X' || c == 'I' || c == 'D') aligned += n;
+                n = 0;
+            }
+            return { differences, aligned };
+        }
+
         // The read's bases a CIGAR aligns (M, I, =, X).
         inline uint32_t QueryBases(std::string_view cigar) {
             uint32_t total = 0, n = 0;
@@ -606,6 +628,28 @@ namespace protal {
             }
             return total;
         }
+
+        // What a taxon's call takes from the other taxa of its sample (MicrobialProfile::ApplySampleContext,
+        // SampleContext.h). n is the taxon's fragments; a congener is another species of its genus in the sample.
+        struct SampleEvidence {
+            double genus_skew = 0;         // log10((n + 1) / (the congener of most fragments + 1)), UNOISE's skew
+            double family_skew = 0;        // the same against the species of most fragments of another genus of its family
+            double genus_share = 1;        // its share of its genus's fragments in the sample
+            double genus_spill = 0;        // log10((n + 0.5) / (kGenusSpill x congeners' + kFamilySpill x the family's
+                                           // other genera's fragments + 0.5)): seen over expected spill-over, by rank
+            double relative_skew = 0;      // log10((n + 1) / (the likeliest source's fragments + 1)): of the congeners with
+                                           // more fragments (at most kMaxRelatives), the one of most fragments x SpillRate
+            double relative_distance = 1;  // the distance of its reference to that congener's (CongenerDistances); 1: none
+            double relative_spill = 0;     // log10((n + 0.5) / (their fragments x SpillRate(distance), summed, + 0.5))
+            double relative_close_share = 1;  // of its fragments on the genes it shares with that source, the share on
+                                              // the half where the two references are most alike, over that half's share
+                                              // of the genes' length: ~1 for its own reads, up to 2 for spilled-over ones
+            double em_own_share = 1;       // of its best records, the share the abundance-weighted assignment leaves it
+            double em_kept_own_share = 1;  // the same of the records the MAPQ and length filters keep
+            size_t genus_top = 0;          // the most fragments of a congener in the sample
+            bool vetoed = false;           // the singleton rule: one fragment beside a congener of many, that looks like the
+                                           // congener's (EM share or identity low; context::kSingletonCongener): never reported
+        };
 
         class Taxon {
         private:
@@ -641,6 +685,7 @@ namespace protal {
             bool m_drop_foreign_genes = false;  // see SetDropForeignGenes
             bool m_keep_phase_records = false;  // see SetKeepPhaseRecords
             std::vector<haplotypes::ReadRecord> m_phase_records;
+            SampleEvidence m_sample;  // see SetSampleEvidence
 
         public:
 
@@ -811,6 +856,18 @@ namespace protal {
                     m_excess_median = MedianOf(std::move(values));
                 }
             }
+
+            // What the other taxa of its sample say of it (MicrobialProfile::ApplySampleContext): its relatives'
+            // abundance, the abundance-weighted assignment of its reads, the singleton rule.
+            void SetSampleEvidence(SampleEvidence const& evidence) {
+                m_model_score.reset();
+                m_sample = evidence;
+            }
+
+            SampleEvidence const& GetSampleEvidence() const { return m_sample; }
+
+            // Whether the singleton rule keeps it out of every report, whatever its score (SampleEvidence::vetoed).
+            bool Vetoed() const { return m_sample.vetoed; }
 
             // The median ReadExcess of the taxon's best records (all reads, before the filters), and the share above
             // kHighExcess; both 0 without base qualities.
@@ -1601,6 +1658,25 @@ namespace protal {
             f.emplace_back("conserved_fast_record_ratio", taxon.RecordConservedFastRatio());
             // And of the records the MAPQ and length filters keep (KeptConservedFastRatio).
             f.emplace_back("conserved_fast_kept_ratio", taxon.KeptConservedFastRatio());
+            // What the other taxa of its sample say (SampleEvidence, MicrobialProfile::ApplySampleContext): how its
+            // fragments compare with those of its genus's and family's most abundant species, with what they would spill
+            // onto it by rank and by the distance between their references, and how much of its reads an
+            // abundance-weighted assignment leaves to it. A species beside a congener a hundred times as abundant whose
+            // reads fit that congener as well holds the congener's reads; one whose reads fit only itself does not
+            // (docs/claude/2026-10-02-amplicon-denoising).
+            auto const& s = taxon.GetSampleEvidence();
+            f.emplace_back("genus_skew", s.genus_skew);
+            f.emplace_back("family_skew", s.family_skew);
+            f.emplace_back("genus_share", s.genus_share);
+            f.emplace_back("genus_spill", s.genus_spill);
+            f.emplace_back("relative_skew", s.relative_skew);
+            f.emplace_back("relative_distance", s.relative_distance);
+            f.emplace_back("relative_spill", s.relative_spill);
+            f.emplace_back("relative_close_share", s.relative_close_share);
+            f.emplace_back("em_own_share", s.em_own_share);
+            f.emplace_back("em_kept_own_share", s.em_kept_own_share);
+            // The fragments of its genus's most abundant other species: with fragments, the singleton rule's inputs.
+            f.emplace_back("genus_top_fragments", static_cast<double>(s.genus_top));
             return f;
         }
 
@@ -1640,11 +1716,21 @@ namespace protal {
             return k0 + (k1 - k0) * (x - x0) / (x1 - x0);
         }
 
+        // A model's calls at a target share of false calls (random_forest_cmdline.py --fdr-calls; ParseFalseCalls): the
+        // curve from its score to the probability that a taxon is present (an isotonic fit on species held out), the
+        // share of present taxa among the rows it was fitted on, and the target (context::FalseCallKnob).
+        struct FalseCallModel {
+            context::CalibrationCurve curve;
+            double prior = 0;
+            double fdr = 0;
+        };
+
         class TaxonFilterForest {
             cpmml::Model m_model{};
             double m_knob = 0.5;
             std::map<int, double> m_depth_knobs;  // see DepthKnob: an older model's knobs by decade of the sample's fragments
             DepthKnobCurve m_depth_knob_curve;    // see DepthKnob
+            FalseCallModel m_false_calls;         // see FalseCalls
 
             mutable std::unordered_map<std::string, std::string> m_sample;
 
@@ -1658,7 +1744,7 @@ namespace protal {
 
             TaxonFilterForest(const TaxonFilterForest& other) :
                     m_model(other.m_model), m_knob(other.m_knob), m_depth_knobs(other.m_depth_knobs),
-                    m_depth_knob_curve(other.m_depth_knob_curve), m_sample() {
+                    m_depth_knob_curve(other.m_depth_knob_curve), m_false_calls(other.m_false_calls), m_sample() {
             }
 
             TaxonFilterForest(const TaxonFilterForest&& other) :
@@ -1666,6 +1752,7 @@ namespace protal {
                     m_knob(other.m_knob),
                     m_depth_knobs(other.m_depth_knobs),
                     m_depth_knob_curve(other.m_depth_knob_curve),
+                    m_false_calls(other.m_false_calls),
                     m_sample(other.m_sample) {
             }
 
@@ -1692,10 +1779,22 @@ namespace protal {
             }
 
             bool Pass(Taxon const& taxon) const {
-                return Score(taxon) >= m_knob;
+                return Calls(taxon, m_knob);
+            }
+
+            // Whether a taxon is reported at threshold `knob`: its score is at least the knob and the singleton rule
+            // does not veto it (Taxon::Vetoed). Every output that reports taxa asks this.
+            bool Calls(Taxon const& taxon, double knob) const {
+                return !taxon.Vetoed() && Score(taxon) >= knob;
             }
 
             double GetKnob() const { return m_knob; }
+
+            // The model's calibration and target share of false calls (ParseFalseCalls), for calls by
+            // context::FalseCallKnob; none for most models.
+            void SetFalseCalls(FalseCallModel model) { m_false_calls = std::move(model); }
+            FalseCallModel const& FalseCalls() const { return m_false_calls; }
+            bool HasFalseCalls() const { return !m_false_calls.curve.empty(); }
 
             // The threshold Pass compares with: a sample's (ProfileWrapper sets each sample's on its thread's copy).
             void SetKnob(double knob) { m_knob = knob; }
@@ -1837,6 +1936,75 @@ namespace protal {
             return {};
         }
 
+        // A model's calls at a target share of false calls, which scripts/random_forest_cmdline.py --fdr-calls writes into
+        // the header: <Extension name="protal_calibration" value="0.02:0.001,0.5:0.31,0.97:0.995"/> (score : probability,
+        // the score increasing, the probability not decreasing), <Extension name="protal_prior" value="0.21"/> and
+        // <Extension name="protal_fdr" value="0.05"/>.
+        inline constexpr std::string_view kCalibrationExtension = "protal_calibration";
+        inline constexpr std::string_view kPriorExtension = "protal_prior";
+        inline constexpr std::string_view kFdrExtension = "protal_fdr";
+
+        // The value of the header extension `name` of the PMML `xml`: nullopt without one, "" for one without a value.
+        inline std::optional<std::string> HeaderExtension(std::string const& xml, std::string_view name) {
+            auto const header_end = xml.find("</Header>");
+            if (header_end == std::string::npos) return std::nullopt;
+            std::string const attribute = " name=\"" + std::string(name) + "\"";
+            for (size_t pos = xml.find("<Extension ", 0); pos < header_end; pos = xml.find("<Extension ", pos + 1)) {
+                auto const end = xml.find('>', pos);
+                if (end == std::string::npos || end > header_end) break;
+                std::string_view const tag(xml.data() + pos, end - pos + 1);
+                if (tag.find(attribute) == std::string_view::npos) continue;
+                auto const key = tag.find(" value=\"");
+                auto const close = key == std::string_view::npos ? key : tag.find('"', key + 8);
+                if (close == std::string_view::npos) return std::string();
+                return std::string(tag.substr(key + 8, close - key - 8));
+            }
+            return std::nullopt;
+        }
+
+        // Reads a model's calls at a target share of false calls from the header of the PMML `xml` into `model` (empty
+        // without them); an error message if they are malformed: not all three extensions, a curve without points, a
+        // score outside 0-1 or not above the one before, a probability outside 0-1 or below the one before, a prior or
+        // a target outside (0, 1).
+        inline std::string ParseFalseCalls(std::string const& xml, FalseCallModel& model) {
+            model = FalseCallModel{};
+            auto const curve = HeaderExtension(xml, kCalibrationExtension);
+            auto const prior = HeaderExtension(xml, kPriorExtension);
+            auto const fdr = HeaderExtension(xml, kFdrExtension);
+            if (!curve && !prior && !fdr) return {};
+            if (!curve || !prior || !fdr) {
+                return "its calls at a target share of false calls need all of " + std::string(kCalibrationExtension) +
+                       ", " + std::string(kPriorExtension) + " and " + std::string(kFdrExtension);
+            }
+            auto number = [](std::string_view text, double& value) {
+                auto const [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+                return ec == std::errc() && end == text.data() + text.size() && !text.empty();
+            };
+            double p = -1, f = -1;
+            if (!number(*prior, p) || !(p > 0 && p < 1)) return "its prior is malformed (\"" + *prior + "\": a share 0-1)";
+            if (!number(*fdr, f) || !(f > 0 && f < 1)) return "its target share of false calls is malformed (\"" + *fdr + "\": 0-1)";
+            std::string const expected = "score 0-1, increasing : probability 0-1, not decreasing";
+            if (curve->empty()) return "its calibration is malformed (no points: " + expected + ")";
+            context::CalibrationCurve points;
+            std::istringstream items(*curve);
+            std::string item;
+            while (std::getline(items, item, ',')) {
+                auto const colon = item.find(':');
+                double x = -1, y = -1;
+                bool const parsed = colon != std::string::npos && number(std::string_view(item).substr(0, colon), x) &&
+                                    number(std::string_view(item).substr(colon + 1), y);
+                if (!parsed || !(x >= 0 && x <= 1) || !(y >= 0 && y <= 1) ||
+                    (!points.empty() && (x <= points.back().first || y < points.back().second))) {
+                    return "its calibration is malformed ('" + item + "' in \"" + *curve + "\": " + expected + ")";
+                }
+                points.emplace_back(x, y);
+            }
+            model.curve = std::move(points);
+            model.prior = p;
+            model.fdr = f;
+            return {};
+        }
+
         // Why protal cannot use the PMML model `model` parsed from `xml`, or an empty string. The
         // model must take its inputs from TaxonFeatures (a missing one would stop the run after the
         // alignment), predict the label TRUE (its probability is the taxon's score; another label
@@ -1930,15 +2098,20 @@ namespace protal {
             }
 
             // See MicrobialProfile::NoteRecord.
-            void NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam) {
+            void NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, bool kept = true) {
                 auto& e = m_counts[taxid];
                 e.records++;
+                e.kept += kept;
+                auto const [differences, aligned] = DifferencesAndAligned(sam.m_cigar);
+                e.differences += differences;
+                e.aligned += aligned;
                 e.low_mapq += sam.m_mapq < kLowMapq;
                 if (auto const excess = ReadExcess(sam)) e.excess.push_back(*excess);
                 auto const& conservation = m_genome_loader->GetGeneConservation();
                 if (!conservation.Empty()) {
                     (conservation.Factor(geneid) < 1 ? e.conserved_bases : e.fast_bases) += ReferenceBases(sam.m_cigar);
                 }
+                NoteAmbiguity(taxid, sam.m_alternatives, kept);
                 if (!m_genera) return;
                 auto const genus = GenusOf(taxid);
                 bool congener = false, other = false;
@@ -2014,6 +2187,7 @@ namespace protal {
             // Adds the counts of `other`, whose last link is finished (FinishLink).
             void Add(RecordEvidenceCollector const& other) {
                 for (auto const& [taxid, counts] : other.m_counts) m_counts[taxid] += counts;
+                for (auto const& [key, n] : other.m_ambiguity) m_ambiguity[key] += n;
             }
 
             // The counts of taxon taxid, or nullptr if it has none.
@@ -2022,7 +2196,45 @@ namespace protal {
                 return found == m_counts.end() ? nullptr : &found->second;
             }
 
+            // Every taxon's best records, all and those kept, and their differences per aligned base
+            // (context::AbundanceWeightedShares).
+            std::map<uint32_t, context::RecordCounts> RecordCountsByTaxon() const {
+                std::map<uint32_t, context::RecordCounts> counts;
+                for (auto const& [taxid, e] : m_counts) counts[taxid] = { e.records, e.kept, e.differences, e.aligned };
+                return counts;
+            }
+
+            // The best records with alternatives, by kind (NoteAmbiguity).
+            context::AmbiguityClasses const& Ambiguity() const {
+                return m_ambiguity;
+            }
+
         private:
+            // Counts a best record of taxon taxid whose read fits other taxa within ZA's 5 edits (`alternatives`, the ZA
+            // tag) by kind: its taxon, whether it is kept, its alternatives with their edits more, by taxon
+            // (context::AmbiguityKey). The kinds and their counts are the same however a SAM is cut into chunks.
+            void NoteAmbiguity(uint32_t taxid, std::string const& alternatives, bool kept) {
+                if (alternatives.empty() || alternatives == "*") return;
+                m_alternatives.clear();
+                ForEachAlternative(alternatives, [&](uint32_t alternative, int more) {
+                    if (alternative != taxid && more >= 0) m_alternatives.emplace_back(alternative, static_cast<uint32_t>(more));
+                });
+                if (m_alternatives.empty()) return;
+                std::sort(m_alternatives.begin(), m_alternatives.end());
+                m_alternatives.erase(std::unique(m_alternatives.begin(), m_alternatives.end(),
+                                                 [](auto const& a, auto const& b) { return a.first == b.first; }),
+                                     m_alternatives.end());
+                context::AmbiguityKey key;
+                key.reserve(2 + 2 * m_alternatives.size());
+                key.push_back(taxid);
+                key.push_back(kept ? 1 : 0);
+                for (auto const& [alternative, more] : m_alternatives) {
+                    key.push_back(alternative);
+                    key.push_back(more);
+                }
+                m_ambiguity[std::move(key)]++;
+            }
+
             // The best records of the current link, of every taxon (NoteLinkedRecord): taxon, gene, orientation, where on
             // the read they start and end.
             struct LinkRecord {
@@ -2035,6 +2247,8 @@ namespace protal {
             GenomeLoader* m_genome_loader;
             std::shared_ptr<std::vector<uint32_t> const> m_genera;  // taxid -> genus (0: none)
             std::unordered_map<uint32_t, RecordEvidence> m_counts;
+            context::AmbiguityClasses m_ambiguity;  // see NoteAmbiguity
+            std::vector<std::pair<uint32_t, uint32_t>> m_alternatives;  // NoteAmbiguity's scratch
             std::vector<LinkRecord> m_link_records;
             size_t m_link = SIZE_MAX;
             bool m_link_paired = false;  // the current link is a pair's mates, not a long read's genes
@@ -2059,17 +2273,188 @@ namespace protal {
             // whatever the filters later make of it: its MAPQ, its divergence beyond its base qualities, the bases it
             // covers on conserved or fast genes, and whether its alternatives (ZA) hold a congener or a species of
             // another genus within kAlternativeFitEdits. ApplyRecordEvidence hands the counts to the taxa.
-            void NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam) {
-                m_evidence.NoteRecord(taxid, geneid, sam);
+            // kept: whether the MAPQ and length filters keep the record (for the abundance-weighted assignment).
+            void NoteRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, bool kept = true) {
+                m_evidence.NoteRecord(taxid, geneid, sam, kept);
             }
 
             // Gives every taxon the counts NoteRecord collected for it (the features low_mapq_share,
-            // congener_fit_share, other_genus_fit_share); taxa without a counted record keep none.
-            void ApplyRecordEvidence() {
+            // congener_fit_share, other_genus_fit_share); taxa without a counted record keep none. Then what the other
+            // taxa of the sample say of each (ApplySampleContext), on `threads` threads: once all reads are in.
+            void ApplyRecordEvidence(size_t threads = 1) {
                 FinishLink();
                 for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) {
                     auto const* found = m_evidence.Find(static_cast<uint32_t>(it->first));
                     it.value().SetRecordEvidence(found ? *found : RecordEvidence{});
+                }
+                ApplySampleContext(threads);
+            }
+
+            // Every taxid's family (FamiliesOf), for the features against the sample's species of other genera of a
+            // taxon's family; without it a taxon has none.
+            void SetFamilies(std::shared_ptr<std::vector<uint32_t> const> families) {
+                m_families = std::move(families);
+            }
+
+            uint32_t FamilyOf(uint32_t taxid) const {
+                return m_families && taxid < m_families->size() ? (*m_families)[taxid] : 0;
+            }
+
+            // The distances between references the relatives features use, shared by the samples of a run; without
+            // them the profile makes its own.
+            void SetCongenerDistances(std::shared_ptr<context::CongenerDistances> distances) {
+                m_distances = std::move(distances);
+            }
+
+            // The singleton rule (--singleton_congener): a taxon of one fragment beside a congener of at least this many,
+            // whose read looks like the congener's (context::kSingletonOwnShare, kSingletonIdentity), is never reported;
+            // 0: no rule.
+            void SetSingletonCongener(size_t fragments) {
+                m_singleton_congener = fragments;
+            }
+
+            // How `taxon`'s reads lie on the genes its reference shares with a relative's (`pair`, by gene): of its
+            // fragments on those genes, the share on the closer half of them (the genes of lowest distance, at least half
+            // of them by count), over the closer half's share of their summed length. A species' own reads fall on its
+            // genes by their length (about 1); reads spilled over from the relative land where the two references are
+            // most alike (up to 2). 1 without fragments on those genes.
+            static double CloseShare(Taxon const& taxon, context::PairDistances const& pair) {
+                if (pair.genes.empty()) return 1;
+                auto genes = pair.genes;
+                std::sort(genes.begin(), genes.end(), [](auto const& a, auto const& b) {
+                    return a.second != b.second ? a.second < b.second : a.first < b.first;
+                });
+                size_t const close = (genes.size() + 1) / 2;
+                double close_fragments = 0, all_fragments = 0, close_length = 0, all_length = 0;
+                auto const& genome = taxon.GetGenome();
+                for (size_t g = 0; g < genes.size(); g++) {
+                    uint32_t const id = genes[g].first;
+                    if (!genome.HasGene(id)) continue;
+                    double const length = static_cast<double>(genome.GetGeneList()[id - 1].GetLength());
+                    auto const found = taxon.GetGenes().find(id);
+                    double const fragments = found == taxon.GetGenes().end() ? 0 : static_cast<double>(found->second.m_fragments);
+                    all_fragments += fragments;
+                    all_length += length;
+                    if (g < close) {
+                        close_fragments += fragments;
+                        close_length += length;
+                    }
+                }
+                if (all_fragments == 0 || close_length == 0 || all_length == 0) return 1;
+                return (close_fragments / all_fragments) / (close_length / all_length);
+            }
+
+            // What the other taxa of the sample say of each taxon (SampleEvidence, SampleContext.h): its fragments
+            // against its congeners' and its family's other genera's (genus_skew, family_skew, genus_share, genus_spill),
+            // against those of its congeners with more fragments by the distance of their references (relative_*), the
+            // share of its reads an abundance-weighted assignment over the reads' alternatives leaves it (em_*), and the
+            // singleton rule. Taxa and their relatives are visited in taxid order and every distance depends only on
+            // the two references, so the evidence is the same on any number of threads.
+            void ApplySampleContext(size_t threads = 1) {
+                auto const shares = context::AbundanceWeightedShares(m_evidence.Ambiguity(), m_evidence.RecordCountsByTaxon());
+                auto const ids = SortedTaxa();
+                struct Entry {
+                    uint32_t id;
+                    size_t n;
+                    uint32_t genus;
+                    uint32_t family;
+                };
+                std::vector<Entry> entries;
+                entries.reserve(ids.size());
+                for (auto id : ids) entries.push_back({ id, m_taxa.at(id).Fragments(), GenusOf(id), FamilyOf(id) });
+                // A genus's members by fragments, the most first (ties: lower taxid); a family's fragments by genus.
+                std::map<uint32_t, std::vector<std::pair<size_t, uint32_t>>> by_genus;
+                std::map<uint32_t, std::map<uint32_t, std::pair<size_t, size_t>>> by_family;  // genus -> (sum, max)
+                for (auto const& e : entries) {
+                    if (e.genus != 0) by_genus[e.genus].emplace_back(e.n, e.id);
+                    if (e.family != 0) {
+                        auto& [sum, top] = by_family[e.family][e.genus];
+                        sum += e.n;
+                        top = std::max(top, e.n);
+                    }
+                }
+                for (auto& [_, members] : by_genus) {
+                    std::sort(members.begin(), members.end(), [](auto const& a, auto const& b) {
+                        return a.first != b.first ? a.first > b.first : a.second < b.second;
+                    });
+                }
+                // The congeners each taxon is compared with by distance: more fragments, at most kMaxRelatives.
+                std::vector<std::vector<std::pair<size_t, uint32_t>>> relatives(entries.size());
+                std::vector<std::pair<uint32_t, uint32_t>> pairs;
+                for (size_t i = 0; i < entries.size(); i++) {
+                    auto const& e = entries[i];
+                    if (e.genus == 0) continue;
+                    for (auto const& [n, id] : by_genus.at(e.genus)) {
+                        if (n <= e.n || relatives[i].size() >= context::kMaxRelatives) break;
+                        relatives[i].emplace_back(n, id);
+                        pairs.emplace_back(std::min(id, e.id), std::max(id, e.id));
+                    }
+                }
+                std::sort(pairs.begin(), pairs.end());
+                pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
+                if (!pairs.empty() && !m_distances) m_distances = std::make_shared<context::CongenerDistances>(m_genome_loader);
+                std::vector<double> pair_distance(pairs.size(), context::kFarDistance);
+                sam_chunks::ParallelFor(pairs.size(), std::max<size_t>(threads, 1), [&](size_t p) {
+                    pair_distance[p] = m_distances->Between(pairs[p].first, pairs[p].second);
+                });
+                auto distance = [&](uint32_t a, uint32_t b) {
+                    auto const key = std::make_pair(std::min(a, b), std::max(a, b));
+                    auto const it = std::lower_bound(pairs.begin(), pairs.end(), key);
+                    return pair_distance[static_cast<size_t>(it - pairs.begin())];
+                };
+
+                for (size_t i = 0; i < entries.size(); i++) {
+                    auto const& e = entries[i];
+                    double const n = static_cast<double>(e.n);
+                    SampleEvidence s;
+                    size_t genus_sum = e.n, genus_top = 0;
+                    if (e.genus != 0) {
+                        genus_sum = 0;
+                        for (auto const& [m, id] : by_genus.at(e.genus)) {
+                            genus_sum += m;
+                            if (id != e.id) genus_top = std::max(genus_top, m);
+                        }
+                    }
+                    size_t family_other_sum = 0, family_other_top = 0;
+                    if (e.family != 0 && e.genus != 0) {  // a taxon without a genus has no relatives here
+                        for (auto const& [genus, sum_top] : by_family.at(e.family)) {
+                            if (genus == e.genus || genus == 0) continue;
+                            family_other_sum += sum_top.first;
+                            family_other_top = std::max(family_other_top, sum_top.second);
+                        }
+                    }
+                    s.genus_top = genus_top;
+                    s.genus_skew = std::log10((n + 1) / (static_cast<double>(genus_top) + 1));
+                    s.family_skew = std::log10((n + 1) / (static_cast<double>(family_other_top) + 1));
+                    s.genus_share = genus_sum > 0 ? n / static_cast<double>(genus_sum) : 1;
+                    double const rank_expected = context::kGenusSpill * static_cast<double>(genus_sum - e.n) +
+                                                 context::kFamilySpill * static_cast<double>(family_other_sum);
+                    s.genus_spill = std::log10((n + 0.5) / (rank_expected + 0.5));
+                    double expected = 0, best = -1;
+                    size_t best_n = 0;
+                    uint32_t source = 0;
+                    for (auto const& [m, id] : relatives[i]) {
+                        double const d = distance(id, e.id);
+                        double const spill = static_cast<double>(m) * context::SpillRate(d);
+                        expected += spill;
+                        if (spill > best) {
+                            best = spill;
+                            best_n = m;
+                            source = id;
+                            s.relative_distance = d;
+                        }
+                    }
+                    s.relative_skew = std::log10((n + 1) / (static_cast<double>(best_n) + 1));
+                    s.relative_spill = std::log10((n + 0.5) / (expected + 0.5));
+                    if (best >= 0) s.relative_close_share = CloseShare(m_taxa.at(e.id), *m_distances->Compared(source, e.id));
+                    if (auto const found = shares.find(e.id); found != shares.end()) {
+                        s.em_own_share = found->second.all;
+                        s.em_kept_own_share = found->second.kept;
+                    }
+                    s.vetoed = m_singleton_congener > 0 && e.n <= 1 && genus_top >= m_singleton_congener &&
+                               (s.em_own_share < context::kSingletonOwnShare ||
+                                m_taxa.at(e.id).BaseIdentity() < context::kSingletonIdentity);
+                    m_taxa.at(e.id).SetSampleEvidence(s);
                 }
             }
 
@@ -2354,7 +2739,7 @@ namespace protal {
                     auto const& taxon = m_taxa.at(key);
                     double probability = filter.Score(taxon);
                     os << set.contains(key) << '\t'
-                       << (probability >= filter.GetKnob()) << '\t'
+                       << filter.Calls(taxon, filter.GetKnob()) << '\t'
                        << FeatureString(probability) << '\t'
                        << key << '\t'
                        << taxonomy.Get(key).scientific_name;
@@ -2408,7 +2793,7 @@ namespace protal {
                     std::ostringstream out;
                     auto& taxon = m_taxa.at(tax_id);
                     double probability = model.Score(taxon);
-                    bool prediction = probability >= model.GetKnob();
+                    bool prediction = model.Calls(taxon, model.GetKnob());
 
                     auto predicted_vcov = taxon.VerticalCoverage();
                     double const predicted_abundance = prediction && total_vcov > 0 ? predicted_vcov / total_vcov : 0;
@@ -2498,7 +2883,7 @@ namespace protal {
                     // this is necessary as taxon cannot be constant
                     auto& taxon = m_taxa.at(key);
                     double probability = model.Score(taxon);
-                    bool prediction = probability >= model.GetKnob();
+                    bool prediction = model.Calls(taxon, model.GetKnob());
                     lines[k].prediction = prediction;
                     double const vcov = taxon.VerticalCoverage();
                     double const abundance = prediction && total_vcov > 0 ? vcov / total_vcov : 0;
@@ -2577,27 +2962,41 @@ namespace protal {
             bool m_drop_foreign_genes = false;
             bool m_keep_phase_records = false;
             std::shared_ptr<std::vector<uint32_t> const> m_genera;  // taxid -> genus (0: none); see SetGenera
+            std::shared_ptr<std::vector<uint32_t> const> m_families;  // taxid -> family (0: none); see SetFamilies
+            std::shared_ptr<context::CongenerDistances> m_distances;  // see SetCongenerDistances
+            size_t m_singleton_congener = context::kSingletonCongener;  // see SetSingletonCongener
             RecordEvidenceCollector m_evidence;  // NoteRecord, NoteLinkedRecord
         };
 
-        // Every taxon's genus (its taxid; 0 for a taxon without one), for MicrobialProfile::SetGenera.
-        inline std::shared_ptr<std::vector<uint32_t> const> GeneraOf(taxonomy::IntTaxonomy const& taxonomy) {
+        // Every taxon's ancestor of rank `rank` (itself if it is of that rank; its taxid, 0 for a taxon without one).
+        inline std::shared_ptr<std::vector<uint32_t> const> AncestorsOfRank(taxonomy::IntTaxonomy const& taxonomy,
+                                                                              std::string const& rank) {
             size_t max_id = 0;
             for (auto const& [id, node] : taxonomy.map) max_id = std::max<size_t>(max_id, static_cast<size_t>(id));
-            auto genera = std::make_shared<std::vector<uint32_t>>(max_id + 1, 0);
+            auto ancestors = std::make_shared<std::vector<uint32_t>>(max_id + 1, 0);
             for (auto const& [id, node] : taxonomy.map) {
                 int t = static_cast<int>(id);
                 for (int steps = 0; steps < 64 && taxonomy.map.contains(t); steps++) {
                     auto const& n = taxonomy.map.at(t);
-                    if (n.rank == "genus") {
-                        (*genera)[id] = static_cast<uint32_t>(n.id);
+                    if (n.rank == rank) {
+                        (*ancestors)[id] = static_cast<uint32_t>(n.id);
                         break;
                     }
                     if (n.parent_id < 0 || n.parent_id == t) break;
                     t = n.parent_id;
                 }
             }
-            return genera;
+            return ancestors;
+        }
+
+        // Every taxon's genus (its taxid; 0 for a taxon without one), for MicrobialProfile::SetGenera.
+        inline std::shared_ptr<std::vector<uint32_t> const> GeneraOf(taxonomy::IntTaxonomy const& taxonomy) {
+            return AncestorsOfRank(taxonomy, "genus");
+        }
+
+        // Every taxon's family, for MicrobialProfile::SetFamilies.
+        inline std::shared_ptr<std::vector<uint32_t> const> FamiliesOf(taxonomy::IntTaxonomy const& taxonomy) {
+            return AncestorsOfRank(taxonomy, "family");
         }
 
 
@@ -3197,15 +3596,6 @@ namespace protal {
                 if (ap.HasFirst()) CompressedCigarInfo(ap.First().m_cigar, info1);
                 if (ap.HasSecond()) CompressedCigarInfo(ap.Second().m_cigar, info2);
 
-                // Every best record counts for its taxon's MAPQ and alternative evidence, also one the MAPQ filter
-                // below leaves out: a read that fits another taxon as well has MAPQ near 0.
-                for (auto* sam : { ap.HasFirst() ? &ap.First() : nullptr, ap.HasSecond() ? &ap.Second() : nullptr }) {
-                    if (!sam) continue;
-                    auto const [taxid, geneid] = ExtractTaxidGeneid(sam->m_rname);
-                    evidence.NoteRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam);
-                    evidence.NoteLinkedRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, link);
-                }
-
                 // MAPQ is judged per mate: the mates of a pair aligned together share one MAPQ, those
                 // of a fragment split over two genes each have their own.
                 if (ap.HasFirst() && ap.First().m_mapq >= m_min_mapq && info1.clipped_alignment_length > m_min_alignment_length) {
@@ -3213,6 +3603,16 @@ namespace protal {
                 }
                 if (ap.HasSecond() && ap.Second().m_mapq >= m_min_mapq && info2.clipped_alignment_length > m_min_alignment_length) {
                     take_second = true;
+                }
+
+                // Every best record counts for its taxon's MAPQ and alternative evidence, also one the MAPQ filter
+                // leaves out: a read that fits another taxon as well has MAPQ near 0.
+                for (auto [sam, kept] : { std::pair{ ap.HasFirst() ? &ap.First() : nullptr, take_first },
+                                          std::pair{ ap.HasSecond() ? &ap.Second() : nullptr, take_second } }) {
+                    if (!sam) continue;
+                    auto const [taxid, geneid] = ExtractTaxidGeneid(sam->m_rname);
+                    evidence.NoteRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, kept);
+                    evidence.NoteLinkedRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, link);
                 }
                 if (!take_first && !take_second) return true;
 
@@ -3590,7 +3990,7 @@ namespace protal {
                     if (!serial) {
                         if (erroneous_sam_out.has_value()) erroneous_sam_out.value().get() << rejected;
                         if (!error.empty()) return error;
-                        profile.ApplyRecordEvidence();
+                        profile.ApplyRecordEvidence(threads);
                         m_post_process_bm.Start();
                         profile.PostProcessSNPs(snp_min_cov, snp_min_obs_fwdrev, snp_min_af, snp_min_mean_qual, snp_min_phred_sum, snp_require_strand, threads);
                         m_post_process_bm.Stop();
@@ -3621,7 +4021,7 @@ namespace protal {
                 if (!error.empty()) return error;
 
                 m_reads = read_id;
-                profile.ApplyRecordEvidence();
+                profile.ApplyRecordEvidence(threads);
                 m_post_process_bm.Start();
                 profile.PostProcessSNPs(snp_min_cov, snp_min_obs_fwdrev, snp_min_af, snp_min_mean_qual, snp_min_phred_sum, snp_require_strand);
                 m_post_process_bm.Stop();

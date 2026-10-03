@@ -20,6 +20,9 @@ std::vector<double> parse_strain_probabilities(const std::string& text);
 std::vector<std::string> parse_species_list(const std::string& text);
 std::unordered_map<std::string, std::size_t> parse_genus_selection(const std::string& text);
 std::unordered_map<std::string, std::size_t> parse_taxon_selection(const std::string& text);
+// --congener_groups SHARE:MIN-MAX (e.g. "0.25:2-5") into options' congener_share, congener_min and congener_max; ""
+// leaves them (no groups). Throws on a share outside 0-1, a MIN below 2 or above MAX, or another form.
+void parse_congener_groups(const std::string& text, ProfileDesignOptions& options);
 void write_combined_manifest(const std::vector<SampleOutput>& samples, const std::filesystem::path& manifest_path);
 void write_sample_manifest(const SampleOutput& sample, const std::filesystem::path& manifest_path);
 void write_abundance_matrix(const std::vector<SampleOutput>& samples, const std::filesystem::path& matrix_path);

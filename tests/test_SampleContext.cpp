@@ -1,0 +1,333 @@
+// Unit tests for what a taxon's call takes from the other taxa of its sample (SampleContext.h,
+// MicrobialProfile::ApplySampleContext): sketched distances between references, the abundance-weighted assignment of
+// ambiguous reads, the prior adjusted to a sample and the calls at a target share of false calls, the model header that
+// holds them, and the relatives features and the singleton rule on a profile.
+#include <gtest/gtest.h>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <memory>
+#include <random>
+#include <string>
+#include <vector>
+#include <unistd.h>
+#include "Profiling/Profiler.h"
+#include "Profiling/SampleContext.h"
+
+using namespace protal;
+namespace ctx = protal::profiler::context;
+
+namespace {
+    std::string RandomSequence(size_t length, std::mt19937& rng) {
+        static constexpr char kBases[] = "ACGT";
+        std::string seq(length, 'A');
+        for (auto& c : seq) c = kBases[rng() % 4];
+        return seq;
+    }
+
+    // seq with a share `rate` of its bases changed to another base.
+    std::string Mutated(std::string seq, double rate, std::mt19937& rng) {
+        static constexpr char kBases[] = "ACGT";
+        std::bernoulli_distribution change(rate);
+        for (auto& c : seq) {
+            if (!change(rng)) continue;
+            char other = c;
+            while (other == c) other = kBases[rng() % 4];
+            c = other;
+        }
+        return seq;
+    }
+
+    SamEntry MakeSam(uint32_t taxid, uint32_t geneid, std::string seq, POS_t pos, std::string alternatives = "*") {
+        SamEntry sam;
+        sam.m_qname = "read";
+        sam.m_rname = std::to_string(taxid) + "_" + std::to_string(geneid);
+        sam.m_pos = pos;
+        sam.m_mapq = 60;
+        sam.m_cigar = std::to_string(seq.size()) + "M";
+        sam.m_qual = std::string(seq.size(), 'I');
+        sam.m_seq = std::move(seq);
+        sam.m_alternatives = std::move(alternatives);
+        return sam;
+    }
+
+    // A reference of taxa with genes 1..n each: reference.fna and reference.map in a folder of their own.
+    struct Reference {
+        std::filesystem::path dir;
+        std::unique_ptr<GenomeLoader> loader;
+        std::map<uint32_t, std::vector<std::string>> genes;  // taxid -> gene i at [i - 1]
+
+        explicit Reference(std::map<uint32_t, std::vector<std::string>> taxa) : genes(std::move(taxa)) {
+            dir = std::filesystem::temp_directory_path() / ("protal_sample_context_" + std::to_string(::getpid()) + "_" +
+                                                            std::to_string(reinterpret_cast<uintptr_t>(this)));
+            std::filesystem::create_directories(dir);
+            std::ofstream fna(dir / "reference.fna");
+            std::ofstream map(dir / "reference.map");
+            size_t offset = 0;
+            for (auto const& [taxid, seqs] : genes) {
+                for (size_t i = 0; i < seqs.size(); i++) {
+                    std::string const header = ">" + std::to_string(taxid) + "_" + std::to_string(i + 1) + "\n";
+                    fna << header << seqs[i] << '\n';
+                    map << taxid << '\t' << i + 1 << '\t' << offset + header.size() << '\t'
+                        << offset + header.size() + seqs[i].size() << '\n';
+                    offset += header.size() + seqs[i].size() + 1;
+                }
+            }
+            fna.close();
+            map.close();
+            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
+            loader->LoadAllGenomes();
+        }
+        ~Reference() { std::filesystem::remove_all(dir); }
+    };
+}
+
+TEST(SampleContext, SketchesOfIdenticalGenesAreAtDistanceZeroAndOfUnrelatedOnesFar) {
+    std::mt19937 rng(1);
+    auto const gene = RandomSequence(1000, rng);
+    auto const sketch = ctx::GeneSketch(gene);
+    ASSERT_EQ(sketch.size(), ctx::kSketchSize);
+    EXPECT_TRUE(std::is_sorted(sketch.begin(), sketch.end()));
+    EXPECT_EQ(ctx::SketchDistance(sketch, sketch), 0.0);
+    EXPECT_EQ(ctx::SketchDistance(sketch, ctx::GeneSketch(RandomSequence(1000, rng))), 1.0);
+    EXPECT_EQ(ctx::SketchDistance(sketch, {}), 1.0);
+    // 5% of the bases changed: about Mash's distance on all k-mers.
+    auto const mutated = Mutated(gene, 0.05, rng);
+    double const exact = gene_conservation::MashDistance(gene_conservation::Kmers(gene), gene_conservation::Kmers(mutated));
+    double const sketched = ctx::SketchDistance(sketch, ctx::GeneSketch(mutated));
+    EXPECT_NEAR(sketched, exact, 0.025);
+    EXPECT_GT(sketched, 0.02);
+}
+
+TEST(SampleContext, TwoReferencesNeedTenSharedGenesForADistance) {
+    std::mt19937 rng(2);
+    ctx::TaxonSketch a, b;
+    for (uint32_t g = 1; g <= 9; g++) {
+        auto const gene = RandomSequence(300, rng);
+        a.emplace_back(g, ctx::GeneSketch(gene));
+        b.emplace_back(g, ctx::GeneSketch(gene));
+    }
+    auto nine = ctx::SketchedTaxonDistances(a, b);
+    EXPECT_EQ(nine.distance, ctx::kFarDistance);
+    EXPECT_EQ(nine.genes.size(), 9u);
+    auto const gene = RandomSequence(300, rng);
+    a.emplace_back(10, ctx::GeneSketch(gene));
+    b.emplace_back(10, ctx::GeneSketch(gene));
+    b.emplace_back(11, ctx::GeneSketch(RandomSequence(300, rng)));  // only in b: not compared
+    auto ten = ctx::SketchedTaxonDistances(a, b);
+    EXPECT_EQ(ten.distance, 0.0);
+    EXPECT_EQ(ten.genes.size(), 10u);
+}
+
+TEST(SampleContext, SpillRateFallsTenfoldPerDecade) {
+    EXPECT_DOUBLE_EQ(ctx::SpillRate(0), ctx::kSpillAtZero);
+    EXPECT_NEAR(ctx::SpillRate(ctx::kSpillDecade), ctx::kSpillAtZero / 10, 1e-15);
+    EXPECT_NEAR(ctx::SpillRate(2 * ctx::kSpillDecade), ctx::kSpillAtZero / 100, 1e-15);
+}
+
+TEST(SampleContext, TheEditRatioIsTheTaxonsOwnDivergence) {
+    EXPECT_EQ(ctx::EditRatio({ 10, 10, 0, 0 }), ctx::kEditRatio);  // no aligned bases
+    EXPECT_NEAR(ctx::EditRatio({ 10, 10, 2, 100 }), 0.02 / 0.98, 1e-12);
+    EXPECT_NEAR(ctx::EditRatio({ 10, 10, 0, 100 }), ctx::kMinDivergence / (1 - ctx::kMinDivergence), 1e-12);
+    EXPECT_NEAR(ctx::EditRatio({ 10, 10, 90, 100 }), ctx::kMaxDivergence / (1 - ctx::kMaxDivergence), 1e-12);
+}
+
+// A taxon whose reads all fit a congener a hundred times as abundant one edit worse holds the congener's reads; one
+// whose reads fit it five edits worse, or have no alternative, keeps them.
+TEST(SampleContext, AnAbundantCongenerTakesTheReadsItFitsNearlyAsWell) {
+    std::map<uint32_t, ctx::RecordCounts> counts = {
+        { 1, { 1000, 1000, 5000, 150000 } },  // 3.3% divergence: edit ratio 0.034
+        { 2, { 10, 10, 50, 1500 } },
+        { 3, { 10, 10, 50, 1500 } },
+        { 4, { 10, 6, 50, 1500 } } };
+    ctx::AmbiguityClasses classes;
+    classes[{ 2, 1, 1, 1 }] = 10;  // every record of 2 fits 1 one edit worse
+    classes[{ 4, 1, 1, 5 }] = 6;   // the kept records of 4 fit 1 five edits worse
+    auto const shares = ctx::AbundanceWeightedShares(classes, counts);
+    EXPECT_LT(shares.at(2).all, 0.35);
+    EXPECT_EQ(shares.at(2).all, shares.at(2).kept);
+    EXPECT_EQ(shares.at(3).all, 1.0);
+    EXPECT_GT(shares.at(4).kept, 0.99);
+    EXPECT_EQ(shares.at(1).all, 1.0);  // its reads have no alternatives
+    // The same counts give the same shares, whatever order the classes were noted in.
+    auto const again = ctx::AbundanceWeightedShares(classes, counts);
+    EXPECT_EQ(again.at(2).all, shares.at(2).all);
+
+    // A tie (0 edits more) goes almost all to the abundant taxon.
+    ctx::AmbiguityClasses ties;
+    ties[{ 2, 1, 1, 0 }] = 10;
+    EXPECT_LT(ctx::AbundanceWeightedShares(ties, counts).at(2).all, 0.05);
+    // With few reads of its own the congener takes less: two taxa of 10 records share their ties evenly.
+    std::map<uint32_t, ctx::RecordCounts> even = { { 1, { 10, 10, 50, 1500 } }, { 2, { 10, 10, 50, 1500 } } };
+    ctx::AmbiguityClasses both;
+    both[{ 1, 1, 2, 0 }] = 10;
+    both[{ 2, 1, 1, 0 }] = 10;
+    auto const split = ctx::AbundanceWeightedShares(both, even);
+    EXPECT_NEAR(split.at(1).all, 0.5, 1e-9);
+    EXPECT_NEAR(split.at(2).all, 0.5, 1e-9);
+}
+
+TEST(SampleContext, TheSamplesPriorFollowsItsCandidates) {
+    // Probabilities whose mean is the prior are kept.
+    std::vector<double> const q = { 0.9, 0.1, 0.5, 0.5 };
+    double rate = 0;
+    auto const same = ctx::SampleAdjusted(q, 0.5, &rate);
+    EXPECT_NEAR(rate, 0.5, 1e-9);
+    for (size_t i = 0; i < q.size(); i++) EXPECT_NEAR(same[i], q[i], 1e-9);
+    // Many unlikely candidates lower the sample's rate and every probability with it.
+    std::vector<double> deep = { 0.95, 0.9 };
+    deep.resize(200, 0.05);
+    auto const adjusted = ctx::SampleAdjusted(deep, 0.3, &rate);
+    EXPECT_LT(rate, 0.1);
+    EXPECT_LT(adjusted[0], 0.95);
+    EXPECT_LT(adjusted[5], 0.05);
+}
+
+TEST(SampleContext, CallsKeepTheExpectedShareOfFalseOnesAtTheTarget) {
+    ctx::CalibrationCurve const identity = { { 0, 0 }, { 1, 1 } };
+    EXPECT_EQ(ctx::Calibrated(identity, 0.3), 0.3);
+    EXPECT_EQ(ctx::Calibrated({ { 0.2, 0.1 }, { 0.8, 0.7 } }, 0.1), 0.1);  // the end points' beyond them
+    EXPECT_EQ(ctx::Calibrated({ { 0.2, 0.1 }, { 0.8, 0.7 } }, 0.9), 0.7);
+    EXPECT_NEAR(ctx::Calibrated({ { 0.2, 0.1 }, { 0.8, 0.7 } }, 0.5), 0.4, 1e-12);
+
+    std::vector<double> const scores = { 0.99, 0.97, 0.9, 0.6, 0.3, 0.1, 0.05 };
+    size_t last = 0;
+    for (double fdr : { 0.001, 0.01, 0.05, 0.1, 0.2, 0.4 }) {
+        auto const calls = ctx::FalseCallKnob(scores, identity, 0.5, fdr);
+        EXPECT_GE(calls.called, last) << fdr;
+        last = calls.called;
+        EXPECT_LE(calls.expected_false, fdr * static_cast<double>(calls.called) + 1e-12);
+        if (calls.called > 0) EXPECT_EQ(calls.knob, scores[calls.called - 1]);
+    }
+    EXPECT_GE(last, 4u);
+    auto const none = ctx::FalseCallKnob(scores, identity, 0.5, 1e-9);
+    EXPECT_EQ(none.called, 0u);
+    EXPECT_GT(none.knob, 1.0);
+    auto const empty = ctx::FalseCallKnob({}, identity, 0.5, 0.1);
+    EXPECT_EQ(empty.called, 0u);
+    // Tied scores are called together (every taxon at the knob's score).
+    auto const tied = ctx::FalseCallKnob({ 0.95, 0.95, 0.1 }, identity, 0.5, 0.1);
+    EXPECT_EQ(tied.knob, 0.95);
+}
+
+TEST(SampleContext, AModelsCalibratedCallsAreReadFromItsHeader) {
+    auto const header = [](std::string extensions) {
+        return "<PMML><Header description=\"x\">" + extensions + "<Application name=\"a\"/></Header><DataDictionary/></PMML>";
+    };
+    profiler::FalseCallModel model;
+    EXPECT_EQ(profiler::ParseFalseCalls(header(""), model), "");
+    EXPECT_TRUE(model.curve.empty());
+    std::string const ok = "<Extension name=\"protal_calibration\" value=\"0:0.001,0.5:0.2,1:0.99\"/>"
+                           "<Extension name=\"protal_prior\" value=\"0.21\"/><Extension name=\"protal_fdr\" value=\"0.05\"/>";
+    ASSERT_EQ(profiler::ParseFalseCalls(header(ok), model), "");
+    ASSERT_EQ(model.curve.size(), 3u);
+    EXPECT_EQ(model.curve[1], (std::pair<double, double>{ 0.5, 0.2 }));
+    EXPECT_EQ(model.prior, 0.21);
+    EXPECT_EQ(model.fdr, 0.05);
+    // Not all three, a decreasing probability, a score out of order or range, a prior or target outside (0, 1).
+    for (std::string bad : { "<Extension name=\"protal_calibration\" value=\"0:0.1,1:0.9\"/>",
+                             "<Extension name=\"protal_calibration\" value=\"0:0.5,1:0.4\"/><Extension name=\"protal_prior\" value=\"0.2\"/><Extension name=\"protal_fdr\" value=\"0.1\"/>",
+                             "<Extension name=\"protal_calibration\" value=\"0.5:0.1,0.4:0.2\"/><Extension name=\"protal_prior\" value=\"0.2\"/><Extension name=\"protal_fdr\" value=\"0.1\"/>",
+                             "<Extension name=\"protal_calibration\" value=\"0:0.1,1.5:0.2\"/><Extension name=\"protal_prior\" value=\"0.2\"/><Extension name=\"protal_fdr\" value=\"0.1\"/>",
+                             "<Extension name=\"protal_calibration\" value=\"0:0.1,1:0.2\"/><Extension name=\"protal_prior\" value=\"1\"/><Extension name=\"protal_fdr\" value=\"0.1\"/>",
+                             "<Extension name=\"protal_calibration\" value=\"0:0.1,1:0.2\"/><Extension name=\"protal_prior\" value=\"0.2\"/><Extension name=\"protal_fdr\" value=\"0\"/>",
+                             "<Extension name=\"protal_calibration\" value=\"\"/><Extension name=\"protal_prior\" value=\"0.2\"/><Extension name=\"protal_fdr\" value=\"0.1\"/>" }) {
+        EXPECT_NE(profiler::ParseFalseCalls(header(bad), model), "") << bad;
+        EXPECT_TRUE(model.curve.empty()) << bad;
+    }
+}
+
+// Taxa 1 and 2 are congeners (genus 10), their references 1% apart on genes 1-6 and 6% on genes 7-12; taxon 3 is of
+// another genus of the family. Taxon 1 has 200 fragments.
+TEST(SampleContext, AProfilesTaxaAreJudgedAgainstTheirAbundantRelatives) {
+    std::mt19937 rng(5);
+    std::vector<std::string> one, two, three;
+    for (int g = 0; g < 12; g++) {
+        one.push_back(RandomSequence(300, rng));
+        two.push_back(Mutated(one.back(), g < 6 ? 0.01 : 0.06, rng));
+        three.push_back(RandomSequence(300, rng));
+    }
+    Reference ref({ { 1, one }, { 2, two }, { 3, three } });
+    auto genera = std::make_shared<std::vector<uint32_t>>(30, 0);
+    auto families = std::make_shared<std::vector<uint32_t>>(30, 0);
+    (*genera)[1] = (*genera)[2] = 10;
+    (*genera)[3] = 11;
+    (*families)[1] = (*families)[2] = (*families)[3] = 20;
+
+    auto fill = [&](profiler::MicrobialProfile& profile, std::vector<uint32_t> const& two_genes, std::string const& za = "1:1") {
+        profile.SetGenera(genera);
+        profile.SetFamilies(families);
+        int read = 0;
+        for (int f = 0; f < 200; f++) {
+            uint32_t const gene = static_cast<uint32_t>(f % 12) + 1;
+            auto const sam = MakeSam(1, gene, one[gene - 1].substr(10, 100), 11);
+            auto noted = sam;  // the abundant taxon's reads differ from its reference at 3% of their bases
+            noted.m_cigar = "47M3X50M";
+            profile.NoteRecord(1, gene, noted);
+            ASSERT_TRUE(profile.AddSam(1, static_cast<int>(gene), sam, 1.0, true, read++));
+        }
+        for (auto gene : two_genes) {
+            auto const sam = MakeSam(2, gene, two[gene - 1].substr(10, 100), 11, za);
+            profile.NoteRecord(2, gene, sam);
+            ASSERT_TRUE(profile.AddSam(2, static_cast<int>(gene), sam, 1.0, true, read++));
+        }
+        auto const sam = MakeSam(3, 1, three[0].substr(10, 100), 11);
+        profile.NoteRecord(3, 1, sam);
+        ASSERT_TRUE(profile.AddSam(3, 1, sam, 1.0, true, read++));
+        profile.ApplyRecordEvidence();
+    };
+
+    profiler::MicrobialProfile profile(*ref.loader);
+    fill(profile, { 1 });
+    auto const& s1 = profile.GetTaxa().at(1).GetSampleEvidence();
+    auto const& s2 = profile.GetTaxa().at(2).GetSampleEvidence();
+    auto const& s3 = profile.GetTaxa().at(3).GetSampleEvidence();
+    // Taxon 2: one fragment beside a congener of 200, which its read fits one edit worse.
+    EXPECT_TRUE(profile.GetTaxa().at(2).Vetoed());
+    EXPECT_EQ(s2.genus_top, 200u);
+    EXPECT_NEAR(s2.genus_skew, std::log10(2.0 / 201), 1e-12);
+    EXPECT_NEAR(s2.relative_skew, std::log10(2.0 / 201), 1e-12);
+    EXPECT_NEAR(s2.genus_share, 1.0 / 201, 1e-12);
+    EXPECT_GT(s2.relative_distance, 0.005);
+    EXPECT_LT(s2.relative_distance, 0.08);
+    EXPECT_NEAR(s2.relative_spill, std::log10(1.5 / (200 * ctx::SpillRate(s2.relative_distance) + 0.5)), 1e-12);
+    EXPECT_LT(s2.em_own_share, 0.5);
+    // Taxon 1 has no congener with more fragments; taxon 3 none at all, but one of 200 in another genus of its family.
+    EXPECT_FALSE(profile.GetTaxa().at(1).Vetoed());
+    EXPECT_NEAR(s1.genus_share, 200.0 / 201, 1e-12);
+    EXPECT_EQ(s1.relative_distance, 1.0);
+    EXPECT_EQ(s1.relative_close_share, 1.0);
+    EXPECT_EQ(s1.em_own_share, 1.0);
+    EXPECT_FALSE(profile.GetTaxa().at(3).Vetoed());
+    EXPECT_EQ(s3.genus_top, 0u);
+    EXPECT_NEAR(s3.genus_skew, std::log10(2.0), 1e-12);
+    EXPECT_NEAR(s3.family_skew, std::log10(2.0 / 201), 1e-12);
+    EXPECT_EQ(s3.relative_distance, 1.0);
+    // The features carry them.
+    std::map<std::string, double> features;
+    for (auto const& [name, value] : profiler::TaxonFeatures(profile.GetTaxa().at(2))) features[name] = value;
+    EXPECT_EQ(features.at("genus_top_fragments"), 200.0);
+    EXPECT_EQ(features.at("genus_skew"), s2.genus_skew);
+    EXPECT_EQ(features.at("relative_close_share"), s2.relative_close_share);
+
+    // Without the singleton rule nothing is vetoed.
+    profiler::MicrobialProfile no_rule(*ref.loader);
+    no_rule.SetSingletonCongener(0);
+    fill(no_rule, { 1 });
+    EXPECT_FALSE(no_rule.GetTaxa().at(2).Vetoed());
+    // Nor a single read that fits only its own reference (no alternative, identity 1): a minor congener's own read.
+    profiler::MicrobialProfile own(*ref.loader);
+    fill(own, { 1 }, "*");
+    EXPECT_EQ(own.GetTaxa().at(2).GetSampleEvidence().em_own_share, 1.0);
+    EXPECT_FALSE(own.GetTaxa().at(2).Vetoed());
+
+    // Reads on the genes where the two references are most alike: about twice their share of the length; on the others none.
+    profiler::MicrobialProfile close(*ref.loader);
+    fill(close, { 1, 2, 3, 4 });
+    EXPECT_FALSE(close.GetTaxa().at(2).Vetoed());
+    EXPECT_NEAR(close.GetTaxa().at(2).GetSampleEvidence().relative_close_share, 2.0, 1e-9);
+    profiler::MicrobialProfile far(*ref.loader);
+    fill(far, { 8, 9, 10, 11 });
+    EXPECT_NEAR(far.GetTaxa().at(2).GetSampleEvidence().relative_close_share, 0.0, 1e-9);
+}

@@ -906,6 +906,71 @@ class DepthKnobsTest(WorkDir):
             self.assertIn(problem, log)
 
 
+class FalseCallsTest(WorkDir):
+    """A model with calibrated calls (random_forest_cmdline.py --fdr-calls, in its header): a sample reports its
+    highest-scoring taxa while their expected share of false calls stays at the model's target (or --fdr's), unless
+    --knob or --fdr 0."""
+
+    def model(self, name, extensions):
+        with open(db_file("model_pe.xml")) as fh:
+            xml = fh.read()
+        xml, n = re.subn(r"(<Header\b[^>]*[^/]>)", lambda m: m.group(1) + "\n  " + extensions, xml, count=1)
+        self.assertEqual(n, 1, "the model has a header")
+        path = self.path(name)
+        with open(path, "w") as fh:
+            fh.write(xml)
+        return path
+
+    @staticmethod
+    def calls(curve="0:0,1:1", prior="0.5", fdr="0.05"):
+        return (f'<Extension name="protal_calibration" value="{curve}"/><Extension name="protal_prior" value="{prior}"/>'
+                f'<Extension name="protal_fdr" value="{fdr}"/>')
+
+    def profile(self, name, *extra):
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name, "-t", "2", "--no_strains", *extra)
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(self.path(name, "sa.profile")) as fh:
+            return log, fh.read()
+
+    def test_calls_at_the_models_target_unless_knob_or_fdr_0(self):
+        model = self.model("calls.xml", self.calls(fdr="0.000001"))
+        log, none = self.profile("none", "--model", model)
+        self.assertIn("calls at an expected share of false calls of 1e-06 (calibrated, 2 points; training prior 0.5); "
+                      "the depth knobs are not used", log)
+        self.assertRegex(log, r"Sample sa: \d+ fragments, 0 taxa at an expected share of false calls of at most 1e-06")
+        self.assertEqual(none.strip(), "", "a target no taxon meets calls none")
+        log, generous = self.profile("generous", "--model", model, "--fdr", "0.9")
+        self.assertIn("; at --fdr 0.9", log)
+        self.assertRegex(log, r"Sample sa: \d+ fragments, [1-9]\d* taxa at an expected share of false calls of at most 0.9")
+        self.assertNotEqual(generous.strip(), "")
+        log, off = self.profile("off", "--model", model, "--fdr", "0")
+        self.assertIn("; not used, --fdr 0", log)
+        self.assertEqual(off, self.profile("default")[1])
+        log, knob = self.profile("knob", "--model", model, "--knob", "0.5")
+        self.assertIn("; not used, --knob is given", log)
+        self.assertEqual(knob, off)
+
+    def test_fdr_needs_calibrated_calls_and_no_knob(self):
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "uncalibrated", "--fdr", "0.1")
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("--fdr needs a model with a calibration", log)
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "both", "--fdr", "0.1", "--knob", "0.5")
+        self.assertNotEqual(rc, 0, log[-3000:])
+        self.assertIn("--fdr and --knob exclude each other", log)
+        rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", "range", "--fdr", "1")
+        self.assertNotEqual(rc, 0, log[-3000:])
+        self.assertIn("--fdr must be at least 0 and below 1", log)
+
+    def test_malformed_calibration(self):
+        for name, extensions, problem in (
+                ("decreasing.xml", self.calls(curve="0:0.5,1:0.4"), "its calibration is malformed ('1:0.4'"),
+                ("partial.xml", '<Extension name="protal_fdr" value="0.1"/>', "need all of protal_calibration"),
+                ("prior.xml", self.calls(prior="1"), "its prior is malformed")):
+            rc, log = run(self.work, "--db", DB, *reads("sa"), "-o", name[:-4], "--model", self.model(name, extensions))
+            self.assertEqual(rc, 2, log[-3000:])
+            self.assertIn(problem, log)
+
+
 class BuildUniquenessTest(WorkDir):
     """--build checks every k-mer against the full reference, also those whose core occurs once in the index."""
 

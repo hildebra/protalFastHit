@@ -382,6 +382,10 @@ and the models are trained in parallel. Every model also gets a knob curve over 
 (`classifier_depth_knobs`, `model_<type>_depth_knobs`): at GTDB r226 the best threshold went from
 ~0.1 for samples of 1,000-5,000 read pairs to ~0.9 for 500,000, and thresholds by depth raised every
 read type's test F1 (by 0.006 to 0.033; [report](claude/2026-10-02-r226-build-evaluation/README.md)).
+With `--call-mode fdr` (default `curve`) every model also gets calibrated calls at a target share of
+false calls per sample (the trainer's `--fdr-calls`,
+[model-training.md](model-training.md#calls-at-a-target-share-of-false-calls)), which protal uses ahead
+of the curve; the trainer reports both on the test set.
 The deepest design points (2M and 10M read pairs, 1.5 and 6 Gb of long reads, a few samples each)
 are there because real samples are that deep: the absent taxa a sample holds grow with its depth,
 and a knob is only known for depths the training covered. pbsim3
@@ -423,7 +427,7 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--no-binary-check` | | run the binaries even if they were not built from the script's source (version, commit) |
 | `-t, --threads` | 8 | |
 | `--samples` | 12 | samples per design point |
-| `--congeners` | 0 | species of one genus in every sample of a design point |
+| `--congeners` | `0.25:2-5` | relatives that share a sample, in the training data and the test set: `SHARE:MIN-MAX`, about SHARE of each sample's species in groups of MIN to MAX species of one genus, the genera drawn per sample; `N`, N species of one genus per design point; `0`, none (uniform draws, which hardly ever put congeners together). The relatives features need them: trained without, a model learns that an abundant congener means absence ([model-training.md](model-training.md#features)); `build_metadata.tsv` records the setting in `classifier_training_design` |
 | `--no-placeholder-models` | | leave out the placeholder models of read types not trained (below) |
 | `--no-gene-neighbours` | | do not record the gene neighbours ([above](#gene-neighbours)); protal then pairs no mates over neighbouring genes |
 | `--read-pairs` | `1000,5000,20000,100000,500000,2000000:4,10000000:2` | depths, one design point each, `DEPTH:SAMPLES` for other samples than `--samples` (without the shallowest, a model missed 8% of the present taxa of 1000-pair samples; the deepest are as deep as real samples) |
@@ -444,7 +448,8 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--seed` | 1 | |
 | `--ntree` | 64 | trees (more did not score better, see [model-training.md](model-training.md#training)) |
 | `--maxnodes` | `512,pb:128,ont:128` | leaves per tree at most, `N` for the read types not named and `TYPE:N`: at r226 512 leaves gave the short-read models a lower log loss and fewer false positives than 256, and 128 the long-read models a lower log loss at the same F1 ([report](claude/2026-10-02-r226-v3-training/README.md)); `build_metadata.tsv` records each model's |
-| `--features` | `normalized+adjacency` | the models' features ([model-training.md](model-training.md#features)): `normalized` leaves the gene neighbour features out, to test them on real data; `build_metadata.tsv` records the set |
+| `--features` | `normalized+adjacency` | the models' features ([model-training.md](model-training.md#features)): `normalized+adjacency+relatives` adds the relatives features (on the benchmark world they did not help at the knobs protal calls with), `normalized+adjacency+distance` only their four by the references' distance (the best paired-end set there), `normalized` leaves the gene neighbour features out, to test them on real data; `build_metadata.tsv` records the set |
+| `--call-mode` | `curve` | how protal calls with the models by default: `curve`, the knob curve over depth; `fdr`, the highest-scoring taxa of each sample while their expected share of false calls stays at the trainer's target (`random_forest_cmdline.py --fdr-calls`, [model-training.md](model-training.md#calls-at-a-target-share-of-false-calls); 0.0005-0.004 F1 below the curve on the benchmark world). `build_metadata.tsv` records it (`classifier_call_mode`, `model_<type>_false_calls`) |
 | `--evaluation` | `full` | how much the trainer evaluates: `full`, `basic` or `none` |
 | `--previous-procedure` | off | the trainer also compares each model with its previous procedure ([model-training.md](model-training.md#training)), for the first builds of a release; `build_metadata.tsv` says whether it did |
 | `--progress-every` | 0 | seconds between status lines of the stages running, besides each step's start and end (below); 0 for none |

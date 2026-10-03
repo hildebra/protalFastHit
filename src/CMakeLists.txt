@@ -55,6 +55,7 @@ set(PROTAL_LIB_SOURCES
         Profiling/Profiler.h
         Profiling/Strain.h
         Profiling/ProfilerDefinitions.h
+        Profiling/SampleContext.h
         SequenceUtils/GenomeLoader.h
         SequenceUtils/PackedSequence.h
         IO/AlignmentOutputHandler.h

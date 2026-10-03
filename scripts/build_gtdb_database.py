@@ -108,7 +108,12 @@ from gtdb_to_protal_db import (clear_build_outputs, full_reference_path, normali
                                read_representatives, remove_full_reference as remove_full_reference_files)
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS  # noqa: E402
-from collect_training_data import TABLES, clock, last_line, units_of, parse_args as collector_args  # noqa: E402
+from collect_training_data import TABLES, clock, congener_spec, last_line, units_of, parse_args as collector_args  # noqa: E402
+
+
+def congener_text(spec):
+    """A --congeners value (congener_spec) as the collector's option."""
+    return spec[1] if spec[0] == "groups" else str(spec[1])
 
 STARTED = time.time()
 
@@ -670,9 +675,11 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
     rows += [("classifier_training_samples", f"{args.samples} per design point"),
              ("classifier_training_design", f"read pairs {args.read_pairs}; read setups {args.read_setups}; "
                                             f"species per sample {args.species_per_sample}; strains "
-                                            f"{args.strains_per_species or 'one'}; abundance {args.abundance or 'default'}"),
+                                            f"{args.strains_per_species or 'one'}; abundance {args.abundance or 'default'}; "
+                                            f"congeners {congener_text(args.congeners)}"),
              ("classifier_read_types", ",".join(read_types)),
-             ("classifier_depth_knobs", ",".join(t for t in read_types if t in depth_knob_types(args)) or "none")]
+             ("classifier_depth_knobs", ",".join(t for t in read_types if t in depth_knob_types(args)) or "none"),
+             ("classifier_call_mode", args.call_mode)]
     for t in read_types:
         try:
             with open(prefixes[t] + ".metrics.json") as fh:
@@ -688,6 +695,11 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
         if curve:
             rows.append((f"model_{t}_depth_knobs", "log10 fragments:knob " + ",".join(f"{x:.3f}:{k:g}" for x, k in curve) +
                          f"; independent test F1 at them {metrics.get('test_depth_knobs', {}).get('F1')}"))
+        false_calls = metrics.get("false_calls")
+        if false_calls:
+            rows.append((f"model_{t}_false_calls", f"target {false_calls['fdr']} per sample; species held out F1 "
+                                                   f"{false_calls['F1']}; independent test F1 at it "
+                                                   f"{metrics.get('test_false_calls', {}).get('F1')}"))
     return rows
 
 
@@ -1049,9 +1061,16 @@ def main():
                    help="samples per long-read design point of the test set (default 8, at most the communities of "
                         "its paired-end points: with 4, the 22 samples of a long-read type could not tell its knob "
                         "curve from one knob)")
-    p.add_argument("--congeners", type=int, default=0,
-                   help="species of one genus in every sample of a design point (collect_training_data.py "
-                        "--congeners): relatives that share a sample, as in real samples")
+    p.add_argument("--congeners", default="0.25:2-5", type=congener_spec,
+                   help="relatives that share a sample, in the training data and the test set (collect_training_data.py "
+                        "--congeners): SHARE:MIN-MAX, about SHARE of each sample's species in groups of MIN to MAX "
+                        "species of one genus (default 0.25:2-5); N for N species of one genus per design point; 0 for "
+                        "none. Real samples often hold congeners at very different abundances, uniform draws hardly "
+                        "ever; and a model with the relatives features (--features normalized+adjacency+relatives) "
+                        "trained on uniform draws learns that an abundant congener means a taxon is absent: on the "
+                        "r226 tables such a model missed 69-73%% of the present species beside a congener 10 times as "
+                        "abundant (docs/claude/2026-10-02-amplicon-denoising). On the benchmark world the groups left "
+                        "the other models' test F1 within noise (docs/claude/2026-10-03-denoising-implementation)")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--ntree", type=int, default=64)
     p.add_argument("--maxnodes", default="512,pb:128,ont:128",
@@ -1070,8 +1089,20 @@ def main():
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
     p.add_argument("--features", choices=FEATURE_SETS, default=DEFAULT_FEATURE_SET,
                    help="the models' features (random_forest_cmdline.py --features): normalized+adjacency (default), "
-                        "the normalised features and the gene neighbours'; normalized: without the gene neighbour "
-                        "features, to test them on real data; all: every feature of the training dumps")
+                        "the normalised features and the gene neighbours'; normalized+adjacency+relatives: also those "
+                        "that compare a taxon with its sample's relatives (they need --congeners groups; on the "
+                        "benchmark world they did not help at the knobs protal calls with, "
+                        "docs/claude/2026-10-03-denoising-implementation); normalized+adjacency+distance: only the four "
+                        "relative_* of them, the best paired-end set there; normalized: without the gene neighbours'; "
+                        "all: every feature of the training dumps")
+    p.add_argument("--call-mode", choices=["curve", "fdr"], default="curve",
+                   help="how protal calls with the models by default: curve (default), the knob curve over the "
+                        "sample's depth (--depth-knob-read-types); fdr, the highest-scoring taxa of each sample while "
+                        "their expected share of false calls stays at the target the trainer chose "
+                        "(random_forest_cmdline.py --fdr-calls; protal --fdr), which follows the sample's number of "
+                        "candidates at any depth (on the benchmark world 0.0005-0.004 F1 below the curve, "
+                        "docs/claude/2026-10-03-denoising-implementation). With fdr the trainer reports both on the "
+                        "test set")
     p.add_argument("--previous-procedure", action=argparse.BooleanOptionalAction, default=False,
                    help="the trainer also compares with its previous procedure (random_forest_cmdline.py "
                         "--previous-procedure): for the first builds of a release; off by default, as it takes "
@@ -1292,7 +1323,7 @@ def main():
                    "--long_read_samples", str(long_samples),
                    "--read_pairs", read_pairs, "--read_setups", args.read_setups, "--archaea", str(args.archaea),
                    "--species_per_sample", species, "--seed", str(seed), "-t", str(args.threads),
-                   "--taxonomy", taxonomy, "--congeners", str(args.congeners), "--read_types", ",".join(read_types),
+                   "--taxonomy", taxonomy, "--congeners", congener_text(args.congeners), "--read_types", ",".join(read_types),
                    "--long_read_bases", long_bases, "--pb_setup", args.pb_setup, "--ont_setup", args.ont_setup,
                    "--pbsim", args.pbsim]
         command += ["--abundance", abundance] if abundance else []
@@ -1398,6 +1429,8 @@ def main():
             command += ["--previous-procedure"]
         if t in depth_knob_types(args):
             command += ["--depth-knobs"]
+        if args.call_mode == "fdr":
+            command += ["--fdr-calls"]
         if args.test_samples > 0 and os.path.isfile(os.path.join(test, TABLES[t])):
             command += ["--test-file", os.path.join(test, TABLES[t])]
         trainers[t] = Job(command, os.path.join(args.outdir, "classifier_training" + ("" if t == "pe" else "_" + t) + ".log"),

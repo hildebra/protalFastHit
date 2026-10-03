@@ -499,6 +499,44 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
         }
     }
 
+    // Congener groups (congener_share): after the demands, genera in random order among those with congener_min
+    // species or more, each with congener_min to congener_max of its species (as many as it has left), until about
+    // congener_share of the sample's species are in groups or the sample is full. Without groups nothing is drawn
+    // here, so the samples of a run without them are those of earlier versions.
+    if (options.congener_share > 0) {
+        auto const target = static_cast<std::size_t>(std::llround(options.congener_share *
+                                                                  static_cast<double>(options.species_per_sample)));
+        std::vector<std::string> genera;
+        for (const auto& [genus, members] : genus_to_species) {
+            if (genus != "unknown_genus" && members.size() >= options.congener_min) genera.push_back(genus);
+        }
+        std::sort(genera.begin(), genera.end());  // the draw depends on the seed only
+        std::shuffle(genera.begin(), genera.end(), rng);
+        std::size_t grouped_species = 0;
+        for (const auto& genus : genera) {
+            if (grouped_species >= target || selected_species.size() >= options.species_per_sample) break;
+            std::vector<std::string> candidates;
+            for (const auto& species : genus_to_species.at(genus)) {
+                if (selected_set.count(species) == 0 && !grouped.at(species).empty()) candidates.push_back(species);
+            }
+            if (candidates.size() < options.congener_min) continue;
+            std::sort(candidates.begin(), candidates.end());
+            std::shuffle(candidates.begin(), candidates.end(), rng);
+            std::size_t const most = std::min(options.congener_max, candidates.size());
+            std::size_t want = std::uniform_int_distribution<std::size_t>(options.congener_min, most)(rng);
+            want = std::min({ want, target - grouped_species, options.species_per_sample - selected_species.size() });
+            if (want < options.congener_min) break;  // a group needs congener_min species
+            for (std::size_t i = 0; i < want; i++) {
+                auto strains = pick_strains(grouped.at(candidates[i]));
+                if (strains.empty()) continue;
+                selected_species.emplace_back(candidates[i], std::move(strains));
+                selected_set.insert(candidates[i]);
+                reduce_requested_quotas(candidates[i]);
+                grouped_species++;
+            }
+        }
+    }
+
     // Shuffle species order to pick initial strain per species.
     std::vector<std::string> species_order;
     species_order.reserve(grouped.size());
