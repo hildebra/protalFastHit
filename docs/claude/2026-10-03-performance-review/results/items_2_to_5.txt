@@ -1,0 +1,191 @@
+# p5_build.sh: items 3 and 5 (with 5c and 5e, later dropped): tests, SAM identity, profile identity, timers, callgrind
+481 C:/Users/hildebra/AppData/Local/Temp/claude/C--Users-hildebra-Documents-locDev-protal/85c3e3d5-6df2-4cf2-a5bc-63aafb61f818/scratchpad/p5.patch
+OK p5 build
+[----------] Global test environment tear-down
+[==========] 28 tests from 4 test suites ran. (550 ms total)
+[  PASSED  ] 28 tests.
+   ref_pe_t1: 19.75 s wall, 18.12 s user; Aligning reads took 17s 296ms
+   p5_pe_t1: 11.45 s wall, 10.80 s user; Aligning reads took 9s 464ms
+== p5_pe_t1: SAM text identical to ref_pe_t1 (418466 records)
+   ref_se_t1: 5.28 s wall, 4.86 s user; Aligning reads took 3s 952ms
+   p5_se_t1: 5.16 s wall, 4.80 s user; Aligning reads took 3s 824ms
+== p5_se_t1: SAM text identical to ref_se_t1 (207742 records)
+   ref_ont_t1: 28.96 s wall, 28.90 s user; Aligning reads took 27s 667ms
+   p5_ont_t1: 27.68 s wall, 27.64 s user; Aligning reads took 26s 352ms
+== p5_ont_t1: SAM text identical to ref_ont_t1 (34863 records)
+   ref_pb_t1: 35.29 s wall, 34.20 s user; Aligning reads took 32s 524ms
+   p5_pb_t1: 33.92 s wall, 31.87 s user; Aligning reads took 30s 239ms
+== p5_pb_t1: SAM text identical to ref_pb_t1 (24941 records)
+   ref_pe_t6: 5.89 s wall, 21.82 s user; Aligning reads took 4s 900ms
+   p5_pe_t6: 5.16 s wall, 19.31 s user; Aligning reads took 4s 179ms
+== p5_pe_t6: sorted SAM identical to ref_pe_t6
+--- stage timers, 500k pairs, 1 thread (ref | p5):
+   Seeding                              2s 224ms | 1s 328ms
+   Sorting Seeds                        1s 442ms | 644ms
+   Alignment handler                    7s 243ms | 3s 248ms
+   Output handler                       1s 212ms | 716ms
+   Joining alignment pairs and sorting  1s 411ms | 704ms
+   Aligning reads                       17s 296ms | 9s 464ms
+   p5 pe500k_t1 t=1: 4.00 s wall, 3.64 s user; Profiling took 3s 296ms (em build: Profiling took 2s 962ms)
+== pe500k_t1: profile outputs identical to the EM build's
+   p5 pe500k_t6 t=6: 2.40 s wall, 4.19 s user; Profiling took 1s 664ms (em build: Profiling took 1s 387ms)
+== pe500k_t6: profile outputs identical to the EM build's
+   p5 pe5M_t6 t=6: 13.66 s wall, 28.92 s user; Profiling took 12s 240ms (em build: Profiling took 6s 569ms)
+== pe5M_t6: profile outputs identical to the EM build's
+   p5 ont90M_t6 t=6: 1.59 s wall, 2.69 s user; Profiling took 898ms (em build: Profiling took 849ms)
+== ont90M_t6: profile outputs identical to the EM build's
+   p5 pb90M_t6 t=6: 1.38 s wall, 2.14 s user; Profiling took 759ms (em build: Profiling took 743ms)
+== pb90M_t6: profile outputs identical to the EM build's
+--- callgrind aligning 100k pairs (ref | p5):
+   PROGRAM TOTALS                                     28,074,142,460 | 27,271,266,935
+   RunPairedEnd                                       17,084,076,842 | 16,281,471,308
+   SimpleAlignmentHandler::operator                   8,790,352,340 | 8,136,742,945
+   AnchoredAligner::Align                             7,003,095,128 | 7,002,978,414
+   wavefront_align                                    6,716,266,677 | 6,716,287,390
+   ChainAnchorFinder<protal::KmerLookupSM>::operator  2,794,383,110 | 3,089,752,685
+   ProtalPairedOutputHandler                          17,084,076,842 | 16,281,471,308
+   IsAlignmentValid                                   614,428,159 | 
+   gene_neighbours::Table::Assess                     427,420,789 | 
+   wavefront_slab_reap_repurpose                      371,934,098 | 371,932,682
+   wavefront_slab_allocate                            351,099,980 | 351,121,560
+   __introsort_loop                                    | 350,290,113
+   AlignmentEdits                                      | 
+   GeneSketch                                          | 
+
+
+# p4_build.sh: item 4 on top of 3, 5a, 5b, 5d: callgrind of --profile_only (sketches), map runs with and without the worker, single sample, ctest, SAM identity, callgrind of the final alignment loop
+ 10 files changed, 413 insertions(+), 93 deletions(-)
+850 C:/Users/hildebra/AppData/Local/Temp/claude/C--Users-hildebra-Documents-locDev-protal/85c3e3d5-6df2-4cf2-a5bc-63aafb61f818/scratchpad/p4.patch
+OK p4 build
+--- callgrind --profile_only 500k (em build | p4):
+   PROGRAM TOTALS                           25,300,447,107 | 23,004,162,044
+   ApplySampleContext                       7,647,012,393 | 5,347,136,833
+   AbundanceWeightedShares                  2,966,408,061 | 2,966,406,553
+   CongenerDistances::Compared              4,674,593,272 | 
+   GeneSketch                               4,573,136,745 | 2,272,899,732
+   MakeSketch                               4,592,519,742 | 2,292,271,078
+   map4_ahead_1: 13.72 s wall, 67.76 s user; Processing all samples 10s 877ms;Profiling 1s 238ms;Run protal 13s 682ms;
+Profiled while the reads were aligned (on 1 thread(s)): 3 of 4 sample(s); 1 left
+   map4_after_1: 12.87 s wall, 65.12 s user; Processing all samples 9s 113ms;Profiling 2s 241ms;Run protal 12s 837ms;
+   map4_ahead_2: 14.81 s wall, 75.63 s user; Processing all samples 12s 74ms;Profiling 1s 267ms;Run protal 14s 778ms;
+Profiled while the reads were aligned (on 1 thread(s)): 3 of 4 sample(s); 1 left
+   map4_after_2: 15.95 s wall, 82.25 s user; Processing all samples 11s 503ms;Profiling 2s 789ms;Run protal 15s 917ms;
+== map4_ahead_vs_after: OUTPUTS DIFFER
+Binary files /home/falk/mt-work/perf4/m.map4_after_1/a1.sam.zst and /home/falk/mt-work/perf4/m.map4_ahead_1/a1.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map4_after_1/a2.sam.zst and /home/falk/mt-work/perf4/m.map4_ahead_1/a2.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map4_after_1/a3.sam.zst and /home/falk/mt-work/perf4/m.map4_ahead_1/a3.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map4_after_1/a4.sam.zst and /home/falk/mt-work/perf4/m.map4_ahead_1/a4.sam.zst differ
+== map4_ahead2_vs_after: OUTPUTS DIFFER
+Binary files /home/falk/mt-work/perf4/m.map4_after_1/a1.sam.zst and /home/falk/mt-work/perf4/m.map4_ahead_2/a1.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map4_after_1/a2.sam.zst and /home/falk/mt-work/perf4/m.map4_ahead_2/a2.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map4_after_1/a3.sam.zst and /home/falk/mt-work/perf4/m.map4_ahead_2/a3.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map4_after_1/a4.sam.zst and /home/falk/mt-work/perf4/m.map4_ahead_2/a4.sam.zst differ
+   differs or missing: sample 1 profile.gene.log
+   differs or missing: sample 2 profile.gene.log
+   differs or missing: sample 2 profile.genes.log
+   differs or missing: sample 3 profile.gene.log
+   differs or missing: sample 4 profile.gene.log
+   (compared the reference map4's profiles with the ahead run's, sample by sample; any difference is listed above)
+alignments
+misc
+profiles
+a1.profile
+a1.profile.gene.log
+a1.profile.genes.log
+   map8_ahead: 30.01 s wall, 140.70 s user; Processing all samples 21s 772ms;Profiling 2s 951ms;Run protal 29s 955ms;
+Profiled while the reads were aligned (on 1 thread(s)): 6 of 8 sample(s); 2 left
+   map8_after: 29.65 s wall, 135.65 s user; Processing all samples 18s 352ms;Profiling 5s 179ms;Run protal 29s 590ms;
+== map8_ahead_vs_after: OUTPUTS DIFFER
+Binary files /home/falk/mt-work/perf4/m.map8_after/a1.sam.zst and /home/falk/mt-work/perf4/m.map8_ahead/a1.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map8_after/a2.sam.zst and /home/falk/mt-work/perf4/m.map8_ahead/a2.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map8_after/a3.sam.zst and /home/falk/mt-work/perf4/m.map8_ahead/a3.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map8_after/a4.sam.zst and /home/falk/mt-work/perf4/m.map8_ahead/a4.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map8_after/b1.sam.zst and /home/falk/mt-work/perf4/m.map8_ahead/b1.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map8_after/b2.sam.zst and /home/falk/mt-work/perf4/m.map8_ahead/b2.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map8_after/b3.sam.zst and /home/falk/mt-work/perf4/m.map8_ahead/b3.sam.zst differ
+Binary files /home/falk/mt-work/perf4/m.map8_after/b4.sam.zst and /home/falk/mt-work/perf4/m.map8_ahead/b4.sam.zst differ
+   single ahead: 4.26 s wall; Aligning reads 2s 235ms;Profiling 889ms;Run protal 4s 242ms;
+Profiled while the reads were aligned (on 1 thread(s)): 0 of 1 sample(s); 1 left
+   single after: 3.92 s wall; Aligning reads 2s 379ms;Profiling 836ms;Run protal 3s 902ms;
+== single_ahead_vs_after: OUTPUTS DIFFER
+Binary files /home/falk/mt-work/perf4/s1.after/s.sam.zst and /home/falk/mt-work/perf4/s1.ahead/s.sam.zst differ
+ctest: 100% tests passed, 0 tests failed out of 310
+== p4 pe t1: SAM text identical to the reference build's (10.88 s wall; Aligning reads took 8s 357ms)
+== p4 ont t1: SAM text identical to the reference build's (25.14 s wall; Aligning reads took 23s 891ms)
+--- callgrind aligning 100k pairs (ref | p4 final):
+   PROGRAM TOTALS                                     28,074,142,460 | 26,967,669,014
+   RunPairedEnd                                       17,084,076,842 | 15,977,589,404
+   SimpleAlignmentHandler::operator                   8,790,352,340 | 8,136,010,530
+   ChainAnchorFinder<protal::KmerLookupSM>::operator  2,794,383,110 | 2,789,329,107
+   IsAlignmentValid                                   614,428,159 | 
+   gene_neighbours::Table::Assess                     427,420,789 | 
+   AlignmentEdits                                      | 
+   NextCompressedCigar                                 | 
+
+
+# profiles, strains, misc and sorted SAM text of the map runs compared (the .sam.zst files differ in record order between six-thread runs)
+
+# final_build.sh: the final tree (items 2-5; 5c and 5e dropped; item 4 opt-in): SAM identity, --profile_only outputs against the EM build's, the four-sample map against the reference build's, ctest, e2e. The one failing unit test was the new StopsWhenTheSharesAreStable with a tie case that was not a tie; corrected, see fin2 below.
+OK fin build
+
+ 1 FAILED TEST
+== fin pe t1: SAM text identical to the reference build's
+== fin ont t1: SAM text identical to the reference build's
+== pe500k_t1 t=1: 2.59 s wall, 2.26 s user; Profiling took 2s 80ms (EM build: 2s 962ms)
+   outputs identical to the EM build's
+== pe500k_t6 t=6: 1.73 s wall, 2.83 s user; Profiling took 1s 182ms (EM build: 1s 387ms)
+   outputs identical to the EM build's
+== pe5M_t6 t=6: 10.59 s wall, 24.58 s user; Profiling took 9s 377ms (EM build: 6s 569ms)
+   outputs identical to the EM build's
+== ont90M_t6 t=6: 1.26 s wall, 2.52 s user; Profiling took 598ms (EM build: 849ms)
+   outputs identical to the EM build's
+== pb90M_t6 t=6: 1.02 s wall, 1.84 s user; Profiling took 441ms (EM build: 743ms)
+   outputs identical to the EM build's
+== map4 (final): 24.09 s wall, 84.85 s user; Processing all samples 17s 652ms;Profiling 3s 398ms;Run protal 24s 7ms; (reference run: 15.2 s)
+   sample s1 vs the reference build's map4:
+   calls: 43 vs 43; only in A: 0, only in B: 0
+   profile.log: 306 taxa; Predicted differs for 0; max |dProbability| 0.000000; other columns differ for 0; taxa not in A: 0
+   sample s2 vs the reference build's map4:
+   calls: 123 vs 123; only in A: 0, only in B: 0
+   profile.log: 427 taxa; Predicted differs for 0; max |dProbability| 0.000000; other columns differ for 0; taxa not in A: 0
+   sample s3 vs the reference build's map4:
+   calls: 87 vs 87; only in A: 0, only in B: 0
+   profile.log: 366 taxa; Predicted differs for 0; max |dProbability| 0.000000; other columns differ for 0; taxa not in A: 0
+   sample s4 vs the reference build's map4:
+   calls: 86 vs 86; only in A: 0, only in B: 0
+   profile.log: 433 taxa; Predicted differs for 0; max |dProbability| 0.000000; other columns differ for 0; taxa not in A: 0
+   strain MSAs identical to the reference build's
+ctest: 99% tests passed, 1 tests failed out of 311
+e2e (mini database): Ran 131 tests in 281.572s OK 
+
+
+# fin2.sh: the corrected test, ctest, and alternated timings (the machine was in a slow phase: the reference build's four-sample map took 30 s here against 15.2 s in the morning; compare within a round only)
+OK fin2 build
+
+ 1 FAILED TEST
+ctest: 99% tests passed, 1 tests failed out of 311
+--- alternated: --profile_only 5M SAM, 6 threads (EM build | final), 3 rounds
+   round 1 em: 14.73 s wall; Profiling took 12s 769ms
+   round 1 fin: 12.77 s wall; Profiling took 11s 90ms
+   round 2 em: 13.03 s wall; Profiling took 11s 450ms
+   round 2 fin: 11.03 s wall; Profiling took 9s 470ms
+   round 3 em: 14.77 s wall; Profiling took 13s 84ms
+   round 3 fin: 11.64 s wall; Profiling took 10s 89ms
+--- alternated: four-sample map, 6 threads (reference 27423c6 | final), 2 rounds
+   round 1 ref: 29.91 s wall; Processing all samples 17s 292ms;Profiling 8s 717ms;
+   round 1 fin: 29.11 s wall; Processing all samples 17s 705ms;Profiling 6s 770ms;
+   round 2 ref: 30.61 s wall; Processing all samples 17s 299ms;Profiling 9s 89ms;
+   round 2 fin: 24.51 s wall; Processing all samples 15s 975ms;Profiling 3s 680ms;
+--- alternated: 500k pairs, whole run, 1 thread (reference | final), 2 rounds
+   round 1 ref: 22.85 s wall; Aligning reads 12s 654ms;Profiling 7s 89ms;
+   round 1 fin: 18.71 s wall; Aligning reads 13s 256ms;Profiling 2s 371ms;
+   round 2 ref: 23.00 s wall; Aligning reads 12s 881ms;Profiling 7s 296ms;
+   round 2 fin: 18.37 s wall; Aligning reads 12s 283ms;Profiling 2s 784ms;
+
+
+# fin3.sh: the corrected test; all unit tests
+OK fin3 build
+[==========] 12 tests from 1 test suite ran. (171 ms total)
+[  PASSED  ] 12 tests.
+ctest: 100% tests passed, 0 tests failed out of 311
+
