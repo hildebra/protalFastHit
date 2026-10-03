@@ -10,6 +10,7 @@
 #include <memory>
 #include <random>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <unistd.h>
 #include "Profiling/Profiler.h"
@@ -166,6 +167,123 @@ TEST(SampleContext, AnAbundantCongenerTakesTheReadsItFitsNearlyAsWell) {
     auto const split = ctx::AbundanceWeightedShares(both, even);
     EXPECT_NEAR(split.at(1).all, 0.5, 1e-9);
     EXPECT_NEAR(split.at(2).all, 0.5, 1e-9);
+}
+
+namespace {
+    // AbundanceWeightedShares as first written (be35d15): hash maps and a pow per visit. The version in
+    // SampleContext.h runs on indices and must give the same shares to the last bit.
+    std::unordered_map<uint32_t, ctx::OwnShares> ReferenceShares(ctx::AmbiguityClasses const& classes,
+                                                                 std::map<uint32_t, ctx::RecordCounts> const& counts) {
+        std::unordered_map<uint32_t, double> plain, weight, ratio;
+        for (auto const& [taxid, c] : counts) {
+            plain[taxid] = static_cast<double>(c.records);
+            weight[taxid] = static_cast<double>(c.records);
+            ratio[taxid] = ctx::EditRatio(c);
+        }
+        for (auto const& [key, n] : classes) plain[key[0]] -= static_cast<double>(n);
+        std::vector<double> shares;
+        auto posterior = [&](ctx::AmbiguityKey const& key) {
+            shares.assign(1 + (key.size() - 2) / 2, 0.0);
+            auto const own = weight.find(key[0]);
+            shares[0] = own == weight.end() ? 0 : own->second;
+            double total = shares[0];
+            for (size_t i = 2, a = 1; i + 1 < key.size(); i += 2, a++) {
+                auto const found = weight.find(key[i]);
+                shares[a] = found == weight.end() ? 0 : found->second * std::pow(ratio.at(key[i]), static_cast<double>(key[i + 1]));
+                total += shares[a];
+            }
+            if (total <= 0) {
+                shares.assign(shares.size(), 0.0);
+                shares[0] = 1;
+                return;
+            }
+            for (auto& s : shares) s /= total;
+        };
+        for (size_t iteration = 0; iteration < ctx::kEmIterations && !classes.empty(); iteration++) {
+            std::unordered_map<uint32_t, double> next = plain;
+            for (auto const& [key, n] : classes) {
+                posterior(key);
+                next[key[0]] += static_cast<double>(n) * shares[0];
+                for (size_t i = 2, a = 1; i + 1 < key.size(); i += 2, a++) {
+                    if (shares[a] > 0) next[key[i]] += static_cast<double>(n) * shares[a];
+                }
+            }
+            double change = 0;
+            for (auto const& [taxid, w] : next) {
+                auto const before = weight.find(taxid);
+                double const old = before == weight.end() ? 0 : before->second;
+                change = std::max(change, std::abs(w - old) / std::max(1.0, old));
+            }
+            weight = std::move(next);
+            if (change < ctx::kEmTolerance) break;
+        }
+        std::unordered_map<uint32_t, double> own_all, own_kept;
+        for (auto const& [key, n] : classes) {
+            posterior(key);
+            own_all[key[0]] += static_cast<double>(n) * shares[0];
+            if (key[1]) own_kept[key[0]] += static_cast<double>(n) * shares[0];
+        }
+        std::unordered_map<uint32_t, uint64_t> ambiguous_kept;
+        for (auto const& [key, n] : classes) {
+            if (key[1]) ambiguous_kept[key[0]] += n;
+        }
+        std::unordered_map<uint32_t, ctx::OwnShares> result;
+        for (auto const& [taxid, c] : counts) {
+            ctx::OwnShares s;
+            if (c.records > 0) s.all = std::clamp((plain[taxid] + own_all[taxid]) / static_cast<double>(c.records), 0.0, 1.0);
+            if (c.kept > 0) {
+                double const plain_kept = static_cast<double>(c.kept) - static_cast<double>(ambiguous_kept[taxid]);
+                s.kept = std::clamp((plain_kept + own_kept[taxid]) / static_cast<double>(c.kept), 0.0, 1.0);
+            }
+            result[taxid] = s;
+        }
+        return result;
+    }
+}
+
+// Random samples: taxa of very different depths and divergences, classes with 0-4 alternatives at 0-5 edits, ties,
+// alternatives the counts lack (a ZA taxon without a best record) and an owner the counts lack; the shares of every
+// taxon equal the reference's exactly (EXPECT_EQ on the doubles), on every sample.
+TEST(SampleContext, SharesOnIndicesEqualTheReferenceToTheLastBit) {
+    std::mt19937 rng(20261003);
+    size_t compared = 0;
+    for (int sample = 0; sample < 40; sample++) {
+        size_t const taxa = 2 + rng() % 60;
+        std::map<uint32_t, ctx::RecordCounts> counts;
+        for (size_t t = 0; t < taxa; t++) {
+            uint32_t const taxid = 1 + static_cast<uint32_t>(rng() % 200);
+            uint64_t const records = 1 + (rng() % 7 == 0 ? rng() % 20000 : rng() % 50);
+            uint64_t const kept = rng() % (records + 1);
+            uint64_t const aligned = records * 150;
+            uint64_t const differences = static_cast<uint64_t>(static_cast<double>(aligned) * (rng() % 1000) / 1000.0 * 0.1);
+            counts[taxid] = { records, kept, differences, rng() % 5 == 0 ? 0 : aligned };
+        }
+        std::vector<uint32_t> ids;
+        for (auto const& [taxid, _] : counts) ids.push_back(taxid);
+        ctx::AmbiguityClasses classes;
+        size_t const n_classes = rng() % 300;
+        for (size_t k = 0; k < n_classes; k++) {
+            ctx::AmbiguityKey key;
+            key.push_back(rng() % 50 == 0 ? 999 : ids[rng() % ids.size()]);  // now and then an owner without records
+            key.push_back(rng() % 2);
+            size_t const alternatives = rng() % 5;
+            for (size_t a = 0; a < alternatives; a++) {
+                key.push_back(rng() % 20 == 0 ? 998 : ids[rng() % ids.size()]);  // or an alternative without records
+                key.push_back(rng() % 6);
+            }
+            classes[key] += 1 + rng() % 30;
+        }
+        auto const expected = ReferenceShares(classes, counts);
+        auto const got = ctx::AbundanceWeightedShares(classes, counts);
+        ASSERT_EQ(got.size(), expected.size());
+        for (auto const& [taxid, s] : expected) {
+            ASSERT_TRUE(got.contains(taxid));
+            EXPECT_EQ(got.at(taxid).all, s.all) << "sample " << sample << " taxon " << taxid;
+            EXPECT_EQ(got.at(taxid).kept, s.kept) << "sample " << sample << " taxon " << taxid;
+            compared++;
+        }
+    }
+    EXPECT_GT(compared, 500u);
 }
 
 TEST(SampleContext, TheSamplesPriorFollowsItsCandidates) {

@@ -1,0 +1,356 @@
+=== pe500k_t1
+	User time (seconds): 15.98
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:17.00
+	Maximum resident set size (kbytes): 3446216
+Preload genomes took 125ms
+Load Index took 1s 640ms
+OMP Loop handler took 9s 752ms
+OMP before loop took less than 1ms
+Sequence reader took 365ms
+Retrieve k-mers took 581ms
+Seed- and Anchor-finding took 3s 347ms
+	Seed-finding operator took 3s 233ms
+		Reverse complementing read took 73ms
+		Seeding took 1s 373ms
+		Sorting Seeds took 701ms
+		Pairing took 376ms
+		Extending Anchors took 652ms
+		Sorting Anchors took 88ms
+		Recovering Anchors took 192ms
+Anchor recovery took 236ms
+Alignment handler took 3s 283ms
+Joining alignment pairs and sorting took 990ms
+Output handler took 819ms
+Alignment took 3s 314ms
+Raw alignment took 2s 671ms
+Aligning reads took 9s 765ms
+Writing the SAM header and file took 1ms
+Processing all samples took 9s 767ms
+Thread 0 Profile sample took 4s 870ms
+Profiling took 5s 136ms
+Strain-level MSAs took less than 1ms
+Run protal took 16s 988ms
+
+=== pe500k_t6
+	User time (seconds): 19.29
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:05.03
+	Maximum resident set size (kbytes): 3668152
+Preload genomes took 102ms
+Load Index took 343ms
+OMP Loop handler took 2s 218ms
+OMP before loop took less than 1ms (6)
+Sequence reader took 54ms mean over 6 threads
+Retrieve k-mers took 127ms mean over 6 threads
+Seed- and Anchor-finding took 726ms mean over 6 threads
+	Seed-finding operator took 704ms mean over 6 threads
+		Reverse complementing read took 15ms mean over 6 threads
+		Seeding took 279ms mean over 6 threads
+		Sorting Seeds took 139ms mean over 6 threads
+		Pairing took 76ms mean over 6 threads
+		Extending Anchors took 169ms mean over 6 threads
+		Sorting Anchors took 19ms mean over 6 threads
+		Recovering Anchors took 37ms mean over 6 threads
+Anchor recovery took 45ms mean over 6 threads
+Alignment handler took 717ms mean over 6 threads
+Joining alignment pairs and sorting took 215ms mean over 6 threads
+Output handler took 1s 254ms mean over 6 threads
+Alignment took 695ms mean over 6 threads
+Raw alignment took 564ms mean over 6 threads
+Aligning reads took 2s 223ms
+Writing the SAM header and file took 1ms
+Processing all samples took 2s 225ms
+Thread 0 Profile sample took 1s 934ms
+Profiling took 2s 5ms
+Strain-level MSAs took less than 1ms
+Run protal took 5s 16ms
+
+=== pe5M_t6
+	User time (seconds): 148.20
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:34.02
+	Maximum resident set size (kbytes): 3681800
+Preload genomes took 100ms
+Load Index took 296ms
+OMP Loop handler took 20s 207ms
+OMP before loop took less than 1ms (6)
+Sequence reader took 1s 66ms mean over 6 threads
+Retrieve k-mers took 1s 288ms mean over 6 threads
+Seed- and Anchor-finding took 6s 507ms mean over 6 threads
+	Seed-finding operator took 6s 296ms mean over 6 threads
+		Reverse complementing read took 168ms mean over 6 threads
+		Seeding took 2s 627ms mean over 6 threads
+		Sorting Seeds took 1s 246ms mean over 6 threads
+		Pairing took 702ms mean over 6 threads
+		Extending Anchors took 1s 396ms mean over 6 threads
+		Sorting Anchors took 161ms mean over 6 threads
+		Recovering Anchors took 351ms mean over 6 threads
+Anchor recovery took 434ms mean over 6 threads
+Alignment handler took 6s 173ms mean over 6 threads
+Joining alignment pairs and sorting took 2s 449ms mean over 6 threads
+Output handler took 2s 779ms mean over 6 threads
+Alignment took 6s 265ms mean over 6 threads
+Raw alignment took 5s 93ms mean over 6 threads
+Aligning reads took 20s 210ms
+Writing the SAM header and file took 6ms
+Processing all samples took 20s 217ms
+Thread 0 Profile sample took 11s 995ms
+Profiling took 12s 576ms
+Strain-level MSAs took less than 1ms
+Run protal took 33s 984ms
+
+=== ont90M_t6
+	User time (seconds): 33.41
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:06.74
+	Maximum resident set size (kbytes): 3680952
+Preload genomes took 108ms
+Load Index took 622ms
+4196 gene hits fit several taxa (MAPQ < 4); 22438 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 541 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+OMP Loop handler took 4s 733ms
+Sequence reader took 399ms mean over 6 threads
+Alignment handler took 4s 327ms mean over 6 threads
+Output handler took 65ms mean over 6 threads
+Aligning reads took 4s 748ms
+Writing the SAM header and file took 2ms
+Processing all samples took 4s 751ms
+Thread 0 Profile sample took 830ms
+Profiling took 896ms
+Strain-level MSAs took less than 1ms
+Run protal took 6s 724ms
+
+=== pb90M_t6
+	User time (seconds): 25.05
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:04.98
+	Maximum resident set size (kbytes): 3622336
+Preload genomes took 98ms
+Load Index took 407ms
+2589 gene hits fit several taxa (MAPQ < 4); 15148 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 290 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+OMP Loop handler took 3s 404ms
+Sequence reader took 123ms mean over 6 threads
+Alignment handler took 3s 573ms mean over 6 threads
+Output handler took 41ms mean over 6 threads
+Aligning reads took 3s 417ms
+Writing the SAM header and file took 2ms
+Processing all samples took 3s 421ms
+Thread 0 Profile sample took 656ms
+Profiling took 765ms
+Strain-level MSAs took less than 1ms
+Run protal took 4s 972ms
+
+=== pe500k_t1_np
+	User time (seconds): 10.39
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:10.63
+	Maximum resident set size (kbytes): 3434376
+Preload genomes took 119ms
+Load Index took 929ms
+OMP Loop handler took 9s 378ms
+OMP before loop took less than 1ms
+Sequence reader took 290ms
+Retrieve k-mers took 559ms
+Seed- and Anchor-finding took 3s 187ms
+	Seed-finding operator took 3s 75ms
+		Reverse complementing read took 71ms
+		Seeding took 1s 232ms
+		Sorting Seeds took 713ms
+		Pairing took 364ms
+		Extending Anchors took 661ms
+		Sorting Anchors took 89ms
+		Recovering Anchors took 194ms
+Anchor recovery took 237ms
+Alignment handler took 3s 230ms
+Joining alignment pairs and sorting took 958ms
+Output handler took 785ms
+Alignment took 3s 300ms
+Raw alignment took 2s 657ms
+Aligning reads took 9s 380ms
+Writing the SAM header and file took 1ms
+Processing all samples took 9s 382ms
+Run protal took 10s 629ms
+
+=== pe500k_t3_np
+	User time (seconds): 11.74
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:04.18
+	Maximum resident set size (kbytes): 3574676
+Preload genomes took 99ms
+Load Index took 349ms
+OMP Loop handler took 3s 548ms
+OMP before loop took less than 1ms (3)
+Sequence reader took 137ms mean over 3 threads
+Retrieve k-mers took 211ms mean over 3 threads
+Seed- and Anchor-finding took 1s 170ms mean over 3 threads
+	Seed-finding operator took 1s 132ms mean over 3 threads
+		Reverse complementing read took 25ms mean over 3 threads
+		Seeding took 439ms mean over 3 threads
+		Sorting Seeds took 243ms mean over 3 threads
+		Pairing took 128ms mean over 3 threads
+		Extending Anchors took 232ms mean over 3 threads
+		Sorting Anchors took 30ms mean over 3 threads
+		Recovering Anchors took 68ms mean over 3 threads
+Anchor recovery took 83ms mean over 3 threads
+Alignment handler took 1s 310ms mean over 3 threads
+Joining alignment pairs and sorting took 355ms mean over 3 threads
+Output handler took 287ms mean over 3 threads
+Alignment took 1s 206ms mean over 3 threads
+Raw alignment took 977ms mean over 3 threads
+Aligning reads took 3s 549ms
+Writing the SAM header and file took 1ms
+Processing all samples took 3s 551ms
+Run protal took 4s 181ms
+
+=== pe500k_t6_np
+	User time (seconds): 12.49
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:02.50
+	Maximum resident set size (kbytes): 3622536
+Preload genomes took 98ms
+Load Index took 215ms
+OMP Loop handler took 2s 
+OMP before loop took less than 1ms (6)
+Sequence reader took 75ms mean over 6 threads
+Retrieve k-mers took 113ms mean over 6 threads
+Seed- and Anchor-finding took 647ms mean over 6 threads
+	Seed-finding operator took 627ms mean over 6 threads
+		Reverse complementing read took 15ms mean over 6 threads
+		Seeding took 263ms mean over 6 threads
+		Sorting Seeds took 133ms mean over 6 threads
+		Pairing took 73ms mean over 6 threads
+		Extending Anchors took 138ms mean over 6 threads
+		Sorting Anchors took 17ms mean over 6 threads
+		Recovering Anchors took 35ms mean over 6 threads
+Anchor recovery took 43ms mean over 6 threads
+Alignment handler took 651ms mean over 6 threads
+Joining alignment pairs and sorting took 185ms mean over 6 threads
+Output handler took 175ms mean over 6 threads
+Alignment took 693ms mean over 6 threads
+Raw alignment took 571ms mean over 6 threads
+Aligning reads took 2s 1ms
+Writing the SAM header and file took 1ms
+Processing all samples took 2s 4ms
+Run protal took 2s 499ms
+
+=== pe500k_t6_plain
+	User time (seconds): 11.92
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:02.74
+	Maximum resident set size (kbytes): 3570468
+Preload genomes took 101ms
+Load Index took 450ms
+OMP Loop handler took 1s 913ms
+OMP before loop took less than 1ms (6)
+Sequence reader took 74ms mean over 6 threads
+Retrieve k-mers took 120ms mean over 6 threads
+Seed- and Anchor-finding took 632ms mean over 6 threads
+	Seed-finding operator took 612ms mean over 6 threads
+		Reverse complementing read took 13ms mean over 6 threads
+		Seeding took 252ms mean over 6 threads
+		Sorting Seeds took 124ms mean over 6 threads
+		Pairing took 68ms mean over 6 threads
+		Extending Anchors took 141ms mean over 6 threads
+		Sorting Anchors took 16ms mean over 6 threads
+		Recovering Anchors took 33ms mean over 6 threads
+Anchor recovery took 41ms mean over 6 threads
+Alignment handler took 663ms mean over 6 threads
+Joining alignment pairs and sorting took 199ms mean over 6 threads
+Output handler took 154ms mean over 6 threads
+Alignment took 662ms mean over 6 threads
+Raw alignment took 536ms mean over 6 threads
+Aligning reads took 1s 914ms
+Writing the SAM header and file took 70ms
+Processing all samples took 1s 985ms
+Run protal took 2s 736ms
+
+=== map4
+	User time (seconds): 73.02
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:15.23
+	Maximum resident set size (kbytes): 3667996
+Preload genomes took 97ms
+Load Index took 455ms
+OMP Loop handler took 2s 122ms
+OMP before loop took less than 1ms (6)
+Sequence reader took 110ms mean over 6 threads
+Retrieve k-mers took 123ms mean over 6 threads
+Seed- and Anchor-finding took 727ms mean over 6 threads
+	Seed-finding operator took 707ms mean over 6 threads
+		Reverse complementing read took 14ms mean over 6 threads
+		Seeding took 272ms mean over 6 threads
+		Sorting Seeds took 130ms mean over 6 threads
+		Pairing took 70ms mean over 6 threads
+		Extending Anchors took 139ms mean over 6 threads
+		Sorting Anchors took 16ms mean over 6 threads
+		Recovering Anchors took 36ms mean over 6 threads
+Anchor recovery took 44ms mean over 6 threads
+Alignment handler took 718ms mean over 6 threads
+Joining alignment pairs and sorting took 196ms mean over 6 threads
+Output handler took 168ms mean over 6 threads
+Alignment took 680ms mean over 6 threads
+Raw alignment took 553ms mean over 6 threads
+Aligning reads took 2s 123ms
+Writing the SAM header and file took 1ms
+OMP Loop handler took 2s 532ms
+OMP before loop took less than 1ms (6)
+Sequence reader took 248ms mean over 6 threads
+Retrieve k-mers took 127ms mean over 6 threads
+Seed- and Anchor-finding took 898ms mean over 6 threads
+	Seed-finding operator took 875ms mean over 6 threads
+		Reverse complementing read took 22ms mean over 6 threads
+		Seeding took 322ms mean over 6 threads
+		Sorting Seeds took 170ms mean over 6 threads
+		Pairing took 101ms mean over 6 threads
+		Extending Anchors took 194ms mean over 6 threads
+		Sorting Anchors took 19ms mean over 6 threads
+		Recovering Anchors took 54ms mean over 6 threads
+Anchor recovery took 64ms mean over 6 threads
+Alignment handler took 808ms mean over 6 threads
+Joining alignment pairs and sorting took 226ms mean over 6 threads
+Output handler took 203ms mean over 6 threads
+Alignment took 756ms mean over 6 threads
+Raw alignment took 608ms mean over 6 threads
+Aligning reads took 2s 535ms
+Writing the SAM header and file took 3ms
+OMP Loop handler took 2s 363ms
+OMP before loop took less than 1ms (6)
+Sequence reader took 269ms mean over 6 threads
+Retrieve k-mers took 120ms mean over 6 threads
+Seed- and Anchor-finding took 771ms mean over 6 threads
+	Seed-finding operator took 750ms mean over 6 threads
+		Reverse complementing read took 14ms mean over 6 threads
+		Seeding took 271ms mean over 6 threads
+		Sorting Seeds took 176ms mean over 6 threads
+		Pairing took 89ms mean over 6 threads
+		Extending Anchors took 171ms mean over 6 threads
+		Sorting Anchors took 23ms mean over 6 threads
+		Recovering Anchors took 45ms mean over 6 threads
+Anchor recovery took 54ms mean over 6 threads
+Alignment handler took 811ms mean over 6 threads
+Joining alignment pairs and sorting took 236ms mean over 6 threads
+Output handler took 175ms mean over 6 threads
+Alignment took 786ms mean over 6 threads
+Raw alignment took 621ms mean over 6 threads
+Aligning reads took 2s 366ms
+Writing the SAM header and file took 2ms
+OMP Loop handler took 1s 829ms
+OMP before loop took less than 1ms (6)
+Sequence reader took 262ms mean over 6 threads
+Retrieve k-mers took 125ms mean over 6 threads
+Seed- and Anchor-finding took 557ms mean over 6 threads
+	Seed-finding operator took 537ms mean over 6 threads
+		Reverse complementing read took 14ms mean over 6 threads
+		Seeding took 228ms mean over 6 threads
+		Sorting Seeds took 103ms mean over 6 threads
+		Pairing took 58ms mean over 6 threads
+		Extending Anchors took 153ms mean over 6 threads
+		Sorting Anchors took 14ms mean over 6 threads
+		Recovering Anchors took 29ms mean over 6 threads
+Anchor recovery took 37ms mean over 6 threads
+Alignment handler took 607ms mean over 6 threads
+Joining alignment pairs and sorting took 199ms mean over 6 threads
+Output handler took 136ms mean over 6 threads
+Alignment took 598ms mean over 6 threads
+Raw alignment took 483ms mean over 6 threads
+Aligning reads took 1s 842ms
+Writing the SAM header and file took 3ms
+Processing all samples took 8s 881ms
+Thread 2 Profile sample took 3s 366ms
+Thread 0 Profile sample took 3s 418ms
+Thread 3 Profile sample took 4s 324ms
+Thread 1 Profile sample took 4s 513ms
+Profiling took 4s 772ms
+Strain-level MSAs took 555ms
+Run protal took 15s 213ms
+

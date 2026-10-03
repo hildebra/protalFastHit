@@ -1,0 +1,23 @@
+# em_build.sh: HEAD 27423c6 + the EM on indices; SampleContext tests; --profile_only outputs of both builds compared (diff -r); /usr/bin/time
+OK em build
+[----------] 10 tests from SampleContext (125 ms total)
+
+[----------] Global test environment tear-down
+[==========] 10 tests from 1 test suite ran. (125 ms total)
+[  PASSED  ] 10 tests.
+   ref pe500k_t1 t=1: 6.24 s wall, 5.91 s user; Profiling took 5s 705ms
+   em pe500k_t1 t=1: 3.43 s wall, 3.14 s user; Profiling took 2s 962ms
+== pe500k_t1: outputs identical (312 files)
+   ref pe500k_t6 t=6: 2.42 s wall, 5.58 s user; Profiling took 2s 4ms
+   em pe500k_t6 t=6: 1.83 s wall, 5.74 s user; Profiling took 1s 387ms
+== pe500k_t6: outputs identical (312 files)
+   ref pe5M_t6 t=6: 14.15 s wall, 32.18 s user; Profiling took 13s 207ms
+   em pe5M_t6 t=6: 7.46 s wall, 24.20 s user; Profiling took 6s 569ms
+== pe5M_t6: outputs identical (696 files)
+   ref ont90M_t6 t=6: 1.36 s wall, 4.51 s user; Profiling took 890ms
+   em ont90M_t6 t=6: 1.30 s wall, 4.51 s user; Profiling took 849ms
+== ont90M_t6: outputs identical (321 files)
+   ref pb90M_t6 t=6: 1.22 s wall, 4.12 s user; Profiling took 784ms
+   em pb90M_t6 t=6: 1.19 s wall, 4.08 s user; Profiling took 743ms
+== pb90M_t6: outputs identical (298 files)
+

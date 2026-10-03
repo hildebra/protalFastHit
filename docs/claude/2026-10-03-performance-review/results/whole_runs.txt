@@ -1,0 +1,82 @@
+# runs1.sh (whole runs, V073, HEAD 27423c6)
+ 09:39:49 up 1 day,  9:18,  1 user,  load average: 0.37, 0.29, 0.11
+== pe500k_t1 t=1: 	User time (seconds): 15.98;	System time (seconds): 1.25;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:17.00;	Maximum resident set size (kbytes): 3446216;
+== pe500k_t6 t=6: 	User time (seconds): 19.29;	System time (seconds): 1.88;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:05.03;	Maximum resident set size (kbytes): 3668152;
+== pe5M_t6 t=6: 	User time (seconds): 148.20;	System time (seconds): 4.64;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:34.02;	Maximum resident set size (kbytes): 3681800;
+== ont90M_t6 t=6: 	User time (seconds): 33.41;	System time (seconds): 3.49;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:06.74;	Maximum resident set size (kbytes): 3680952;
+== pb90M_t6 t=6: 	User time (seconds): 25.05;	System time (seconds): 1.88;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:04.98;	Maximum resident set size (kbytes): 3622336;
+ 09:40:57 up 1 day,  9:20,  1 user,  load average: 3.49, 1.22, 0.45
+
+
+# runs2.sh
+== pe500k_t6_plain t=6: 	User time (seconds): 11.92;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:02.74;
+Alignment handler took 663ms mean over 6 threads
+Output handler took 154ms mean over 6 threads
+Aligning reads took 1s 914ms
+Run protal took 2s 736ms
+== pe500k_t6_np t=6: 	User time (seconds): 12.49;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:02.50;
+Alignment handler took 651ms mean over 6 threads
+Output handler took 175ms mean over 6 threads
+Aligning reads took 2s 1ms
+Run protal took 2s 499ms
+== pe500k_t3_np t=3: 	User time (seconds): 11.74;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:04.18;
+Alignment handler took 1s 310ms mean over 3 threads
+Output handler took 287ms mean over 3 threads
+Aligning reads took 3s 549ms
+Run protal took 4s 181ms
+== pe500k_t1_np t=1: 	User time (seconds): 10.39;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:10.63;
+Alignment handler took 3s 230ms
+Output handler took 785ms
+Aligning reads took 9s 380ms
+Run protal took 10s 629ms
+== prof5M_t6 t=6: 	User time (seconds): 30.23;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:13.54;
+Thread 0 Profile sample took 12s 108ms
+Profiling took 12s 664ms
+Run protal took 13s 495ms
+== prof5M_t1 t=1: 	User time (seconds): 31.08;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:32.09;
+Thread 0 Profile sample took 29s 81ms
+Profiling took 31s 208ms
+Run protal took 32s 48ms
+== prof500k_t6 t=6: 	User time (seconds): 5.54;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:02.38;
+Thread 0 Profile sample took 1s 896ms
+Profiling took 1s 971ms
+Run protal took 2s 355ms
+SAM records pe500k: 418466  pe5M: 4270584
+
+
+# runs3.sh
+== prof5M_t8 t=8: 	User time (seconds): 29.46;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:13.22;
+Thread 0 Profile sample took 11s 832ms
+Profiling took 12s 395ms
+Run protal took 13s 170ms
+== prof5M_t12 t=12: 	User time (seconds): 29.32;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:12.27;
+Thread 0 Profile sample took 10s 900ms
+Profiling took 11s 490ms
+Run protal took 12s 228ms
+== prof5M_t6b t=6: 	User time (seconds): 29.46;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:13.07;
+Thread 0 Profile sample took 11s 654ms
+Profiling took 12s 226ms
+Run protal took 13s 25ms
+
+
+# runs4.sh (four-sample map)
+== map4 t=6: 	User time (seconds): 73.02;	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:15.23;	Maximum resident set size (kbytes): 3667996;
+Load Index took 455ms
+Aligning reads took 2s 123ms
+Aligning reads took 2s 535ms
+Aligning reads took 2s 366ms
+Aligning reads took 1s 842ms
+Processing all samples took 8s 881ms
+Thread 2 Profile sample took 3s 366ms
+Thread 0 Profile sample took 3s 418ms
+Thread 3 Profile sample took 4s 324ms
+Thread 1 Profile sample took 4s 513ms
+Profiling took 4s 772ms
+Run protal took 15s 213ms
+s__Babelia_rocorii.meta.tsv
+s__Babelia_rocorii.raw.msa.fna
+s__Babelia_rocorii.raw.partition.txt
+s__Babelia_rocorii.snp_stats.tsv
+s__Babelia_wolumous.meta.tsv
+s__Babelia_wolumous.raw.msa.fna
+s__Babelia_wolumous.raw.partition.txt

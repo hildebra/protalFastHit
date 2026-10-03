@@ -1,0 +1,150 @@
+--------------------------------------------------------------------------------
+Profile data file '/home/falk/mt-work/perf4/cg.align.out' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 5066365952
+Trigger: Program termination
+Profiled target:  /home/falk/mt-work/perf4/ref/build/protal --db /home/falk/bench071/V073/protal_db -1 /home/falk/mt-work/perf4/reads/pe100k_R1.fq.gz -2 /home/falk/mt-work/perf4/reads/pe100k_R2.fq.gz --read_type pe --no_
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       99
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                      
+--------------------------------------------------------------------------------
+28,074,142,460 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                       file:function
+--------------------------------------------------------------------------------
+26,950,302,855 (96.00%)  ???:0x000000000001f540 [/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2]
+26,947,772,104 (95.99%)  ???:(below main) [/home/falk/mt-work/perf4/ref/build/protal]
+26,947,772,092 (95.99%)  ./csu/../csu/libc-start.c:__libc_start_main@@GLIBC_2.34 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+26,946,375,957 (95.98%)  ./csu/../sysdeps/nptl/libc_start_call_main.h:(below main) [/usr/lib/x86_64-linux-gnu/libc.so.6]
+26,946,340,052 (95.98%)  ???:main [/home/falk/mt-work/perf4/ref/build/protal]
+26,946,323,354 (95.98%)  ???:protal::Run(int, char**) [/home/falk/mt-work/perf4/ref/build/protal]
+24,474,045,472 (87.18%)  ???:void protal::RunWrapper<protal::NoBenchmark>(protal::Options&, protal::ProtalDB&, protal::NoBenchmark) [/home/falk/mt-work/perf4/ref/build/protal]
+17,084,076,842 (60.85%)  ???:protal::Statistics protal::classify::RunPairedEnd<protal::SimpleKmerHandler<protal::ClosedSyncmer>, protal::ChainAnchorFinder<protal::KmerLookupSM>, protal::SimpleAlignmentHandler, protal::Pr
+17,082,997,024 (60.85%)  ???:0x000000000011ae20 [???]
+17,082,997,022 (60.85%)  ???:GOMP_parallel [/usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0]
+17,082,994,766 (60.85%)  ???:protal::Statistics protal::classify::RunPairedEnd<protal::SimpleKmerHandler<protal::ClosedSyncmer>, protal::ChainAnchorFinder<protal::KmerLookupSM>, protal::SimpleAlignmentHandler, protal::Pr
+ 8,790,352,340 (31.31%)  ???:protal::SimpleAlignmentHandler::operator()(std::vector<protal::ChainAlignmentAnchor, std::allocator<protal::ChainAlignmentAnchor> >&, std::vector<protal::AlignmentResult, std::allocator<prota
+ 8,708,412,219 (31.02%)  ???:0x000000000011ae40 [???]
+ 8,707,926,179 (31.02%)  ???:protal::SimpleAlignmentHandler::AlignAnchor(protal::ChainAlignmentAnchor&, protal::AlignmentResult&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, st
+ 7,334,110,718 (26.12%)  ???:protal::Seedmap::Load(protal::db::DbFile const&, int) [/home/falk/mt-work/perf4/ref/build/protal]
+ 7,334,065,736 (26.12%)  ???:protal::Seedmap::LoadColumns(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<ch
+ 7,334,060,812 (26.12%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > protal::zstd::ParallelFor<protal::zstd::ForEachFrame<protal::index_codec::Decode(std::__cxx11::basic_string<cha
+ 7,334,060,736 (26.12%)  ???:protal::zstd::ParallelFor<protal::zstd::ForEachFrame<protal::index_codec::Decode(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::zstd::SeekTabl
+ 7,003,095,128 (24.95%)  ???:protal::AnchoredAligner::Align(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, std::vector<prota
+ 6,726,654,724 (23.96%)  ???:wfa::WFAligner::alignEndsFree(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int, int, std::__cxx11::basic_string<char, std::char_traits<char>, std::a
+ 6,716,266,677 (23.92%)  ???:wavefront_align [/home/falk/mt-work/perf4/ref/build/protal]
+ 6,202,662,138 (22.09%)  ???:wavefront_unialign [/home/falk/mt-work/perf4/ref/build/protal]
+ 6,198,078,783 (22.08%)  ???:protal::AnchoredAligner::Flank(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, unsigned long, un
+ 4,922,413,107 (17.53%)  ???:0x000000000011a570 [???]
+ 4,922,413,003 (17.53%)  ???:protal::index_codec::detail::DecodeChunk[abi:cxx11](char const*, unsigned long, protal::index_codec::Layout const&, protal::index_codec::Chunk const&, unsigned short*, unsigned long*) [clone 
+ 3,412,999,974 (12.16%)  ???:0x000000000011aa50 [???]
+ 3,412,999,852 (12.16%)  ???:ZSTD_decompressDCtx [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 3,412,997,778 (12.16%)  ???:ZSTD_decompress_usingDDict [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 3,412,997,229 (12.16%)  ???:0x000000000006d640 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 3,113,632,571 (11.09%)  ???:wavefront_compute_affine [/home/falk/mt-work/perf4/ref/build/protal]
+ 3,031,471,881 (10.80%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 2,794,783,110 ( 9.96%)  ???:0x000000000011a980 [???]
+ 2,794,383,110 ( 9.95%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::operator()(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<prota
+ 2,723,705,041 ( 9.70%)  ???:wavefront_extend_endsfree [/home/falk/mt-work/perf4/ref/build/protal]
+ 2,675,139,841 ( 9.53%)  ???:protal::zstd::ReadFrame[abi:cxx11](int, protal::zstd::SeekTable const&, unsigned long, std::vector<char, std::allocator<char> >&, std::vector<char, std::allocator<char> >&, ZSTD_DCtx_s*) [/ho
+ 1,683,669,724 ( 6.00%)  ???:0x000000000011a1e0 [???]
+ 1,683,469,724 ( 6.00%)  ???:protal::ProtalPairedOutputHandler<false>::operator()(std::vector<std::pair<protal::AlignmentResult, protal::AlignmentResult>, std::allocator<std::pair<protal::AlignmentResult, protal::Alignme
+ 1,507,179,745 ( 5.37%)  ???:wavefront_extend_matches_packed_endsfree [/home/falk/mt-work/perf4/ref/build/protal]
+ 1,178,512,435 ( 4.20%)  ???:protal::SimpleKmerHandler<protal::ClosedSyncmer>::operator()(std::basic_string_view<char, std::char_traits<char> > const&, std::vector<std::pair<unsigned long, unsigned long>, std::allocator<
+ 1,167,712,435 ( 4.16%)  ???:protal::SimpleKmerHandler<protal::ClosedSyncmer>::ScanWindowsAvx2(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&) [/home/falk
+ 1,123,839,591 ( 4.00%)  ./nptl/./nptl/pthread_create.c:start_thread [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 1,123,836,199 ( 4.00%)  ???:0x00000000000ecda0 [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+ 1,123,835,949 ( 4.00%)  ???:std::thread::_State_impl<std::thread::_Invoker<std::tuple<void (protal::ThreadedGzStreambuf::*)(), protal::ThreadedGzStreambuf*> > >::_M_run() [/home/falk/mt-work/perf4/ref/build/protal]
+ 1,123,835,933 ( 4.00%)  ???:protal::ThreadedGzStreambuf::Inflate() [/home/falk/mt-work/perf4/ref/build/protal]
+ 1,123,805,126 ( 4.00%)  ???:protal::ThreadedGzStreambuf::FillGzip(char*, unsigned long&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [/home/falk/mt-work/perf4/ref/build/protal]
+ 1,123,763,750 ( 4.00%)  ???:zng_inflate [/home/falk/mt-work/perf4/ref/build/protal]
+ 1,102,940,919 ( 3.93%)  ???:protal::GenomeLoader::LoadAllGenomes(int) [/home/falk/mt-work/perf4/ref/build/protal]
+ 1,080,273,628 ( 3.85%)  ???:inflate_fast_avx2 [/home/falk/mt-work/perf4/ref/build/protal]
+ 1,078,275,223 ( 3.84%)  ???:protal::zstd::ParallelReadFrames(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::zstd::SeekTable const&, int, protal::zstd::Sink&, std::__cxx11
+ 1,078,274,457 ( 3.84%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > protal::zstd::ParallelFor<protal::zstd::ParallelReadFrames(std::__cxx11::basic_string<char, std::char_traits<ch
+ 1,078,274,381 ( 3.84%)  ???:protal::zstd::ParallelFor<protal::zstd::ParallelReadFrames(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::zstd::SeekTable const&, int, protal:
+ 1,078,274,270 ( 3.84%)  ???:protal::zstd::ParallelReadFrames(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::zstd::SeekTable const&, int, protal::zstd::Sink&, std::__cxx11
+   988,854,879 ( 3.52%)  ???:wavefront_heuristic_cufoff [/home/falk/mt-work/perf4/ref/build/protal]
+   817,062,357 ( 2.91%)  ???:protal::SamOutput::Write(char const*, unsigned long, std::vector<unsigned long, std::allocator<unsigned long> >&) [/home/falk/mt-work/perf4/ref/build/protal]
+   810,355,467 ( 2.89%)  ???:protal::sam_zstd::Compress(char const*, unsigned long, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, std::vector<std::pair<unsigned int, unsigned int>, std
+   780,720,915 ( 2.78%)  ???:0x000000000011b0f0 [???]
+   780,720,855 ( 2.78%)  ???:ZSTD_compress2 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   780,718,725 ( 2.78%)  ???:ZSTD_compressStream2_simpleArgs [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   780,717,675 ( 2.78%)  ???:ZSTD_compressStream2 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   779,890,275 ( 2.78%)  ???:0x000000000001e670 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   779,884,997 ( 2.78%)  ???:0x000000000001b580 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   755,920,438 ( 2.69%)  ???:bool protal::GuideMate<protal::SimpleAlignmentHandler>(std::vector<std::pair<protal::AlignmentResult, protal::AlignmentResult>, std::allocator<std::pair<protal::AlignmentResult, protal::Align
+   751,835,464 ( 2.68%)  ???:0x000000000001ad00 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   700,277,496 ( 2.49%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::FindSeeds(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&, std::vector<protal
+   697,496,401 ( 2.48%)  ???:protal::gene_neighbours::Table::Read[abi:cxx11](std::istream&) [/home/falk/mt-work/perf4/ref/build/protal]
+   695,473,592 ( 2.48%)  ???:wavefront_compute_affine_idm [/home/falk/mt-work/perf4/ref/build/protal]
+   666,210,385 ( 2.37%)  ???:wavefront_heuristic_wfadaptive [/home/falk/mt-work/perf4/ref/build/protal]
+   614,428,159 ( 2.19%)  ???:protal::IsAlignmentValid(protal::AlignmentInfo const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<ch
+   601,401,218 ( 2.14%)  ???:wavefront_compute_allocate_output [/home/falk/mt-work/perf4/ref/build/protal]
+   573,299,502 ( 2.04%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::FindPairs(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, std::vector<protal::ChainAlignmentAnchor, std::allocator<
+   567,428,114 ( 2.02%)  ???:0x000000000011a3e0 [???]
+   564,533,750 ( 2.01%)  ???:protal::KmerLookupSM::GetFromLookup(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, protal::LookupPointer&) [clone .arch_x86_64_v3] [/home/falk/mt-work/perf4/ref/bu
+   537,966,823 ( 1.92%)  ???:protal::AnchoredAligner::Between(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::basic_string_view<char, std::char_traits<char> >, unsigned long, 
+   530,674,696 ( 1.89%)  ???:protal::PostProcessAlignment(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::AlignmentInfo&, unsigned long, unsigned long, int, int, int) [clon
+   523,471,069 ( 1.86%)  ???:protal::SeqReaderPE::operator()(FastxRecord&, FastxRecord&) [/home/falk/mt-work/perf4/ref/build/protal]
+   508,398,876 ( 1.81%)  ???:wavefront_compute_init_ends [/home/falk/mt-work/perf4/ref/build/protal]
+   504,018,956 ( 1.80%)  ???:protal::AnchoredAligner::Piece(protal::WFA2Wrapper2&, int, int&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [/home/falk/mt-work/perf4/ref/build/protal]
+   486,727,564 ( 1.73%)  ???:protal::across_genes::Neighbours(protal::GenomeLoader const&, unsigned int, unsigned int, protal::gene_neighbours::End, unsigned long, std::vector<protal::gene_neighbours::Rule const*, std::a
+   477,431,425 ( 1.70%)  ???:protal::ProtalDB::ProtalDB(protal::db::DbFile, protal::db::DbFile, protal::db::DbFile const&, int) [/home/falk/mt-work/perf4/ref/build/protal]
+   468,757,792 ( 1.67%)  ???:protal::gene_neighbours::Table::Partners(unsigned int, unsigned int, protal::gene_neighbours::End, std::vector<protal::gene_neighbours::Partner, std::allocator<protal::gene_neighbours::Partne
+   463,263,663 ( 1.65%)  ???:protal::ProtalPairedOutputHandler<false>::Flush() [/home/falk/mt-work/perf4/ref/build/protal]
+   460,976,391 ( 1.64%)  ???:0x000000000011a580 [???]
+   459,344,161 ( 1.64%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   459,203,167 ( 1.64%)  ???:wavefront_unialign_init [/home/falk/mt-work/perf4/ref/build/protal]
+   459,087,630 ( 1.64%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::ExtendAnchor(protal::ChainAlignmentAnchor&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::Ge
+   451,855,524 ( 1.61%)  ???:wavefront_aligner_init [/home/falk/mt-work/perf4/ref/build/protal]
+   448,090,668 ( 1.60%)  ???:wavefront_compute_process_ends [/home/falk/mt-work/perf4/ref/build/protal]
+   427,420,789 ( 1.52%)  ???:protal::gene_neighbours::Table::Assess(unsigned int, unsigned int, protal::gene_neighbours::End, unsigned int, protal::gene_neighbours::End) const [/home/falk/mt-work/perf4/ref/build/protal]
+   427,175,904 ( 1.52%)  ???:protal::AlignmentInfo::GetInstructionCountsAndCompress() [/home/falk/mt-work/perf4/ref/build/protal]
+   418,608,977 ( 1.49%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::PrepareLookups(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&) [/home/falk/m
+   407,607,490 ( 1.45%)  ???:0x00000000000a7090 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   407,309,423 ( 1.45%)  ???:wavefront_termination_endsfree [/home/falk/mt-work/perf4/ref/build/protal]
+   399,707,250 ( 1.42%)  ???:BufferedFastxReader::NextSequence(FastxRecord&) [/home/falk/mt-work/perf4/ref/build/protal]
+   398,881,906 ( 1.42%)  ???:BufferedFastxReader::NextFastq(FastxRecord&) [/home/falk/mt-work/perf4/ref/build/protal]
+   395,175,982 ( 1.41%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::LookupKmers(std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > >&) [/home/falk/mt-w
+   380,987,039 ( 1.36%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   377,882,127 ( 1.35%)  ???:0x00000000000127b0 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   377,856,847 ( 1.35%)  ???:0x0000000000027bb0 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   374,214,401 ( 1.33%)  ???:wavefront_slab_clear [/home/falk/mt-work/perf4/ref/build/protal]
+   373,936,166 ( 1.33%)  ???:0x00000000000a6320 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+   371,934,098 ( 1.32%)  ???:wavefront_slab_reap_repurpose [/home/falk/mt-work/perf4/ref/build/protal]
+   371,251,672 ( 1.32%)  ???:wavefront_compute_fetch_input [/home/falk/mt-work/perf4/ref/build/protal]
+   366,885,107 ( 1.31%)  ???:0x000000000011a7d0 [???]
+   353,802,000 ( 1.26%)  ???:protal::ProtalPairedOutputHandler<false>::~ProtalPairedOutputHandler() [/home/falk/mt-work/perf4/ref/build/protal]
+   351,099,980 ( 1.25%)  ???:wavefront_slab_allocate [/home/falk/mt-work/perf4/ref/build/protal]
+   347,808,608 ( 1.24%)  ???:0x000000000011a900 [???]
+   346,833,938 ( 1.24%)  ???:operator new(unsigned long) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   343,334,637 ( 1.22%)  ???:protal::ChainAnchorFinder<protal::KmerLookupSM>::ExtractAnchor(std::vector<protal::LookupResult, std::allocator<protal::LookupResult> >&, unsigned long) [/home/falk/mt-work/perf4/ref/build/pr
+   342,614,015 ( 1.22%)  ???:0x000000000011a920 [???]
+   336,075,711 ( 1.20%)  ???:operator delete(void*, unsigned long) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   329,679,553 ( 1.17%)  ???:0x00000000049b8430 [???]
+   325,895,021 ( 1.16%)  ???:protal::SamEntry::ToString[abi:cxx11]() const [/home/falk/mt-work/perf4/ref/build/protal]
+   323,129,110 ( 1.15%)  ???:operator delete(void*) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   316,578,287 ( 1.13%)  ???:0x00000000049b8c60 [???]
+   310,050,082 ( 1.10%)  ./malloc/./malloc/malloc.c:free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   302,801,134 ( 1.08%)  ???:protal::SimpleKmerHandler<protal::ClosedSyncmer>::Bases16(unsigned char const*, unsigned long, bool) [/home/falk/mt-work/perf4/ref/build/protal]
+   294,671,813 ( 1.05%)  ???:0x00000000049b8210 [???]
+   288,868,448 ( 1.03%)  ???:protal::index_codec::detail::FillEmptyBlocks(unsigned short*, unsigned long, unsigned long) [/home/falk/mt-work/perf4/ref/build/protal]
+   288,172,619 ( 1.03%)  ./malloc/./malloc/malloc.c:malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   279,433,391 ( 1.00%)  ???:0x000000000001fdf0 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+
+--------------------------------------------------------------------------------
+The following files chosen for auto-annotation could not be found:
+--------------------------------------------------------------------------------
+  ./csu/../csu/libc-start.c

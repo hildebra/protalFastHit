@@ -1,0 +1,31 @@
+# em_tests.sh: ctest on the em build; the end-to-end suite against the V073 database (not a mini database: 13 of 102 fail on the suite's assumptions)
+ctest: 100% tests passed, 0 tests failed out of 309 
+e2e: Ran 102 tests in 3325.913s FAILED (failures=7, errors=6) 
+ERROR: test_msa_knob_admits_unreported_species (tests.e2e.test_protal_e2e.MSAKnobTest.test_msa_knob_admits_unreported_species)
+ERROR: test_rejected_samples_are_left_out (tests.e2e.test_protal_e2e.MsaSampleSelectionTest.test_rejected_samples_are_left_out)
+ERROR: setUpClass (tests.e2e.test_protal_e2e.OntTest)
+ERROR: setUpClass (tests.e2e.test_protal_e2e.PacBioTest)
+ERROR: setUpClass (tests.e2e.test_protal_e2e.PhasingTest)
+ERROR: setUpClass (tests.e2e.test_protal_e2e.SingleEndTest)
+FAIL: test_the_samples_depth_knob_unless_knob_is_given (tests.e2e.test_protal_e2e.DepthKnobsTest.test_the_samples_depth_knob_unless_knob_is_given)
+FAIL: test_calls_at_the_models_target_unless_knob_or_fdr_0 (tests.e2e.test_protal_e2e.FalseCallsTest.test_calls_at_the_models_target_unless_knob_or_fdr_0)
+FAIL: test_queries_scale_the_margin_only_when_asked (tests.e2e.test_protal_e2e.GeneConservationTest.test_queries_scale_the_margin_only_when_asked)
+FAIL: test_subsampled_depths_scale_with_the_read_count (tests.e2e.test_protal_e2e.LowCoverageAbundanceTest.test_subsampled_depths_scale_with_the_read_count)
+
+
+# em_e2e_mini.sh: the end-to-end suite against the mini database of ~/mt-work/head07c
+database.protal
+full_reference.fna.zst
+gene2geneid.tsv
+gene_congeners.tsv
+genome2tiid.tsv
+e2e mini: Ran 131 tests in 238.919s OK 
+
+
+# cg_em.sh: callgrind, --profile_only on the 500k SAM, em build
+25,300,447,107 (100.0%)  PROGRAM TOTALS
+ 7,647,012,393 (30.22%)  ???:protal::profiler::MicrobialProfile::ApplySampleContext(unsigned long) [/home/falk/mt-work/perf4/em/build/protal]
+ 4,674,636,641 (18.48%)  ???:void protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::ApplySampleContext(unsigned long)::{lambda(unsigned long)#
+ 4,674,593,272 (18.48%)  ???:protal::profiler::context::CongenerDistances::Compared(unsigned int, unsigned int) [/home/falk/mt-work/perf4/em/build/protal]
+ 2,966,408,061 (11.72%)  ???:protal::profiler::context::AbundanceWeightedShares(std::map<std::vector<unsigned int, std::allocator<unsigned int> >, unsigned long
+

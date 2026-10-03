@@ -1,0 +1,95 @@
+# tim_build.sh: wall seconds of the profiler's passes (experiment build of 27423c6 with prints), --profile_only
+== tim 5M t=6
+[tim] parse_and_add_parallel 3.12801
+[tim] finish_link 1.296e-06
+[tim] em_shares 7.50424
+[tim] em_classes 441369
+[tim] congener_distances 1.06474
+[tim] congener_pairs 1315
+[tim] sample_context_total 8.57298
+[tim] record_evidence_total 8.61243
+[tim] post_process_snps 0.264648
+[tim] score_taxa 0.179218
+[tim] write_sparse_profile 0.258146
+[tim] write_gene_profile 0.0578744
+Thread 0 Profile sample took 12s 5ms
+Profiling took 12s 556ms
+Run protal took 13s 369ms
+== tim 5M t=1
+[tim] parse_and_add_serial 8.23785
+[tim] finish_link 9.5e-07
+[tim] em_shares 16.4763
+[tim] em_classes 441369
+[tim] congener_distances 3.25954
+[tim] congener_pairs 1315
+[tim] sample_context_total 19.7392
+[tim] record_evidence_total 19.7793
+[tim] score_taxa 3.179e-06
+[tim] write_sparse_profile 1.77546
+[tim] write_gene_profile 0.271255
+Thread 0 Profile sample took 28s 789ms
+Profiling took 30s 881ms
+Run protal took 31s 705ms
+== tim 500k t=1
+[tim] parse_and_add_serial 0.840473
+[tim] finish_link 9.91e-07
+[tim] em_shares 2.52214
+[tim] em_classes 76028
+[tim] congener_distances 1.31333
+[tim] congener_pairs 641
+[tim] sample_context_total 3.83704
+[tim] record_evidence_total 3.84133
+[tim] score_taxa 2.579e-06
+[tim] write_sparse_profile 0.207198
+[tim] write_gene_profile 0.0316365
+Thread 0 Profile sample took 4s 754ms
+Profiling took 5s 
+Run protal took 5s 405ms
+== tim 500k t=6
+[tim] parse_and_add_parallel 0.348082
+[tim] finish_link 1.433e-06
+[tim] em_shares 1.06095
+[tim] em_classes 76028
+[tim] congener_distances 0.445286
+[tim] congener_pairs 641
+[tim] sample_context_total 1.50783
+[tim] record_evidence_total 1.51201
+[tim] post_process_snps 0.0231218
+[tim] score_taxa 0.0224193
+[tim] write_sparse_profile 0.0289575
+[tim] write_gene_profile 0.00786172
+Thread 0 Profile sample took 1s 883ms
+Profiling took 1s 948ms
+Run protal took 2s 312ms
+== tim ont90M t=6
+[tim] parse_and_add_parallel 0.18726
+[tim] finish_link 1.247e-06
+[tim] em_shares 0.0339177
+[tim] em_classes 2936
+[tim] congener_distances 0.564189
+[tim] congener_pairs 451
+[tim] sample_context_total 0.609989
+[tim] record_evidence_total 0.610674
+[tim] post_process_snps 0.0587487
+[tim] score_taxa 0.0205742
+[tim] write_sparse_profile 0.0265953
+[tim] write_gene_profile 0.00811405
+Thread 0 Profile sample took 856ms
+Profiling took 922ms
+Run protal took 1s 318ms
+
+
+# tim_iters.sh: the EM's iterations (kEmIterations = 200, kEmTolerance = 1e-10)
+== tim2 500k t=1
+[tim] em_iterations 200 change 0.000469602
+[tim] em_shares 2.61632
+[tim] em_classes 76028
+[tim] congener_distances 1.29271
+[tim] congener_pairs 641
+== tim2 5M t=6
+[tim] em_iterations 197 change 9.20595e-11
+[tim] em_shares 7.13866
+[tim] em_classes 441369
+[tim] congener_distances 1.11066
+[tim] congener_pairs 1315
+

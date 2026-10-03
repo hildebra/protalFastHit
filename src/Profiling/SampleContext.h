@@ -269,26 +269,73 @@ namespace protal::profiler::context {
     // the congener's (100 x 0.05^2 = 0.25 against 1 at 5% divergence of the congener's reads), one it fits as well
     // nearly all. The taxa start at their own record counts; reads without alternatives stay with their taxon. Classes
     // are visited in key order and the result depends only on the records, not on the threads that read them.
+    //
+    // The sweeps run on dense vectors: every taxon of the counts or of a class gets an index once, and a class is
+    // resolved once into its taxon's index, its alternatives' indices and their constant factors
+    // EditRatio^(edits more) (the ratio of a taxon does not change between sweeps). A sweep is then a multiply per
+    // alternative and the additions, in the order the first version did them with hash maps and a pow per visit,
+    // so the shares are the same to the last bit (test ReferenceShares) at a small fraction of the instructions
+    // (docs/claude/2026-10-03-performance-review). A taxon without records (an alternative the counts lack) has
+    // weight 0 throughout, as it had no entry before.
     inline std::unordered_map<uint32_t, OwnShares> AbundanceWeightedShares(AmbiguityClasses const& classes,
                                                                            std::map<uint32_t, RecordCounts> const& counts) {
-        std::unordered_map<uint32_t, double> plain, weight, ratio;
+        // Indices: the taxa of the counts first, then any other taxon a class names, in class order.
+        std::unordered_map<uint32_t, uint32_t> index;
+        index.reserve(counts.size() * 2);
+        std::vector<double> plain, weight, ratio;
+        auto index_of = [&](uint32_t taxid) {
+            auto const [it, added] = index.emplace(taxid, static_cast<uint32_t>(plain.size()));
+            if (added) {
+                plain.push_back(0);
+                weight.push_back(0);
+                ratio.push_back(0);
+            }
+            return it->second;
+        };
         for (auto const& [taxid, c] : counts) {
-            plain[taxid] = static_cast<double>(c.records);
-            weight[taxid] = static_cast<double>(c.records);
-            ratio[taxid] = EditRatio(c);
+            auto const i = index_of(taxid);
+            plain[i] = static_cast<double>(c.records);
+            weight[i] = static_cast<double>(c.records);
+            ratio[i] = EditRatio(c);
         }
-        for (auto const& [key, n] : classes) plain[key[0]] -= static_cast<double>(n);
+
+        // The classes, resolved: own index, reads, kept flag, and the alternatives' (index, factor).
+        struct Alternative {
+            uint32_t index;
+            double factor;  // ratio[index] ^ edits more, 0 for a taxon without records (its weight is 0 anyway)
+        };
+        struct Class {
+            uint32_t own;
+            bool kept;
+            uint64_t reads;
+            double n;        // reads, as a double
+            uint32_t first;  // its alternatives in `alternatives`
+            uint32_t count;
+        };
+        std::vector<Class> resolved;
+        std::vector<Alternative> alternatives;
+        resolved.reserve(classes.size());
+        for (auto const& [key, n] : classes) {
+            Class c{ index_of(key[0]), key[1] != 0, n, static_cast<double>(n), static_cast<uint32_t>(alternatives.size()), 0 };
+            for (size_t i = 2; i + 1 < key.size(); i += 2) {
+                auto const a = index_of(key[i]);
+                bool const has_records = counts.contains(key[i]);
+                alternatives.push_back({ a, has_records ? std::pow(ratio[a], static_cast<double>(key[i + 1])) : 0.0 });
+                c.count++;
+            }
+            resolved.push_back(c);
+        }
+        for (auto const& c : resolved) plain[c.own] -= c.n;
 
         std::vector<double> shares;
-        auto posterior = [&](AmbiguityKey const& key) {
-            shares.assign(1 + (key.size() - 2) / 2, 0.0);
-            auto const own = weight.find(key[0]);
-            shares[0] = own == weight.end() ? 0 : own->second;
+        auto posterior = [&](Class const& c) {
+            shares.assign(1 + c.count, 0.0);
+            shares[0] = weight[c.own];
             double total = shares[0];
-            for (size_t i = 2, a = 1; i + 1 < key.size(); i += 2, a++) {
-                auto const found = weight.find(key[i]);
-                shares[a] = found == weight.end() ? 0 : found->second * std::pow(ratio.at(key[i]), static_cast<double>(key[i + 1]));
-                total += shares[a];
+            for (uint32_t k = 0; k < c.count; k++) {
+                auto const& alt = alternatives[c.first + k];
+                shares[1 + k] = weight[alt.index] * alt.factor;
+                total += shares[1 + k];
             }
             if (total <= 0) {
                 shares.assign(shares.size(), 0.0);
@@ -297,42 +344,44 @@ namespace protal::profiler::context {
             }
             for (auto& s : shares) s /= total;
         };
-        for (size_t iteration = 0; iteration < kEmIterations && !classes.empty(); iteration++) {
-            std::unordered_map<uint32_t, double> next = plain;
-            for (auto const& [key, n] : classes) {
-                posterior(key);
-                next[key[0]] += static_cast<double>(n) * shares[0];
-                for (size_t i = 2, a = 1; i + 1 < key.size(); i += 2, a++) {
-                    if (shares[a] > 0) next[key[i]] += static_cast<double>(n) * shares[a];
+        std::vector<double> next;
+        for (size_t iteration = 0; iteration < kEmIterations && !resolved.empty(); iteration++) {
+            next = plain;
+            for (auto const& c : resolved) {
+                posterior(c);
+                next[c.own] += c.n * shares[0];
+                for (uint32_t k = 0; k < c.count; k++) {
+                    if (shares[1 + k] > 0) next[alternatives[c.first + k].index] += c.n * shares[1 + k];
                 }
             }
             double change = 0;
-            for (auto const& [taxid, w] : next) {
-                auto const before = weight.find(taxid);
-                double const old = before == weight.end() ? 0 : before->second;
-                change = std::max(change, std::abs(w - old) / std::max(1.0, old));
+            for (size_t i = 0; i < next.size(); i++) {
+                double const old = weight[i];
+                change = std::max(change, std::abs(next[i] - old) / std::max(1.0, old));
             }
-            weight = std::move(next);
+            weight.swap(next);
             if (change < kEmTolerance) break;
         }
 
-        std::unordered_map<uint32_t, double> own_all, own_kept;
-        for (auto const& [key, n] : classes) {
-            posterior(key);
-            own_all[key[0]] += static_cast<double>(n) * shares[0];
-            if (key[1]) own_kept[key[0]] += static_cast<double>(n) * shares[0];
-        }
-        std::unordered_map<uint32_t, uint64_t> ambiguous_kept;
-        for (auto const& [key, n] : classes) {
-            if (key[1]) ambiguous_kept[key[0]] += n;
+        std::vector<double> own_all(plain.size(), 0.0), own_kept(plain.size(), 0.0);
+        std::vector<uint64_t> ambiguous_kept(plain.size(), 0);
+        for (auto const& c : resolved) {
+            posterior(c);
+            own_all[c.own] += c.n * shares[0];
+            if (c.kept) {
+                own_kept[c.own] += c.n * shares[0];
+                ambiguous_kept[c.own] += c.reads;
+            }
         }
         std::unordered_map<uint32_t, OwnShares> result;
+        result.reserve(counts.size());
         for (auto const& [taxid, c] : counts) {
+            auto const i = index.at(taxid);
             OwnShares s;
-            if (c.records > 0) s.all = std::clamp((plain[taxid] + own_all[taxid]) / static_cast<double>(c.records), 0.0, 1.0);
+            if (c.records > 0) s.all = std::clamp((plain[i] + own_all[i]) / static_cast<double>(c.records), 0.0, 1.0);
             if (c.kept > 0) {
-                double const plain_kept = static_cast<double>(c.kept) - static_cast<double>(ambiguous_kept[taxid]);
-                s.kept = std::clamp((plain_kept + own_kept[taxid]) / static_cast<double>(c.kept), 0.0, 1.0);
+                double const plain_kept = static_cast<double>(c.kept) - static_cast<double>(ambiguous_kept[i]);
+                s.kept = std::clamp((plain_kept + own_kept[i]) / static_cast<double>(c.kept), 0.0, 1.0);
             }
             result[taxid] = s;
         }

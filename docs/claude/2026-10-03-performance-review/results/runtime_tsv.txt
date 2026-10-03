@@ -1,0 +1,73 @@
+=== pe500k_t1
+stage	seconds	threads	seconds_per_thread
+Seeding	1.373402	1	1.373402
+Sorting Seeds	0.701354	1	0.701354
+Pairing	0.376832	1	0.376832
+Sorting Anchors	0.088196	1	0.088196
+Extending Anchors	0.652779	1	0.652779
+Sequence reader	0.365052	1	0.365052
+Retrieve k-mers	0.581685	1	0.581685
+Seed- and Anchor-finding	3.347219	1	3.347219
+Anchor recovery	0.236964	1	0.236964
+Alignment handler	3.283802	1	3.283802
+Joining alignment pairs and sorting	0.990808	1	0.990808
+Output handler	0.819104	1	0.819104
+
+=== pe500k_t6
+stage	seconds	threads	seconds_per_thread
+Seeding	1.677088	6	0.279515
+Sorting Seeds	0.837508	6	0.139585
+Pairing	0.458657	6	0.076443
+Sorting Anchors	0.118718	6	0.019786
+Extending Anchors	1.015704	6	0.169284
+Sequence reader	0.326305	6	0.054384
+Retrieve k-mers	0.762633	6	0.127106
+Seed- and Anchor-finding	4.360434	6	0.726739
+Anchor recovery	0.270377	6	0.045063
+Alignment handler	4.305015	6	0.717502
+Joining alignment pairs and sorting	1.294069	6	0.215678
+Output handler	7.528469	6	1.254745
+
+=== pe5M_t6
+stage	seconds	threads	seconds_per_thread
+Seeding	15.767549	6	2.627925
+Sorting Seeds	7.481566	6	1.246928
+Pairing	4.213963	6	0.702327
+Sorting Anchors	0.968375	6	0.161396
+Extending Anchors	8.376695	6	1.396116
+Sequence reader	6.398827	6	1.066471
+Retrieve k-mers	7.731047	6	1.288508
+Seed- and Anchor-finding	39.046048	6	6.507675
+Anchor recovery	2.606574	6	0.434429
+Alignment handler	37.038962	6	6.173160
+Joining alignment pairs and sorting	14.696203	6	2.449367
+Output handler	16.674248	6	2.779041
+
+=== ont90M_t6
+stage	seconds	threads	seconds_per_thread
+Seeding	1.534188	6	0.255698
+Sorting Seeds	1.291455	6	0.215242
+Pairing	0.346707	6	0.057785
+Sorting Anchors	0.047502	6	0.007917
+Extending Anchors	0.595343	6	0.099224
+Sequence reader	2.396104	6	0.399351
+Seed- and Anchor-finding	0.000000	0	0.000000
+Anchor recovery	0.000000	0	0.000000
+Alignment handler	25.967804	6	4.327967
+Joining alignment pairs and sorting	0.000000	0	0.000000
+Output handler	0.394370	6	0.065728
+
+=== pb90M_t6
+stage	seconds	threads	seconds_per_thread
+Seeding	1.429526	6	0.238254
+Sorting Seeds	1.134701	6	0.189117
+Pairing	0.355599	6	0.059267
+Sorting Anchors	0.055603	6	0.009267
+Extending Anchors	0.606199	6	0.101033
+Sequence reader	0.739087	6	0.123181
+Seed- and Anchor-finding	0.000000	0	0.000000
+Anchor recovery	0.000000	0	0.000000
+Alignment handler	21.441757	6	3.573626
+Joining alignment pairs and sorting	0.000000	0	0.000000
+Output handler	0.251758	6	0.041960
+
