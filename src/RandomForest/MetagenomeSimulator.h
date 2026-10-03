@@ -77,12 +77,15 @@ private:
     // reads, and its coverage: everything of a sample that depends on rng_, so that write_reads can run on threads.
     void prepare_sample(SampleOutput& sample, std::uint64_t paired_read_length);
 
-    // Runs ART for each assignment of a prepared sample and appends its reads to the sample's _R1.fq.gz and
-    // _R2.fq.gz, BGZF-compressed as they arrive (the same bytes as compressing the whole files); each genome's
-    // temporary files go once appended, unless keep_tmp. With skip_reads, empty placeholder files.
-    void write_reads(SampleOutput& sample, const std::filesystem::path& output_dir, bool skip_reads, bool keep_tmp) const;
+    // Runs ART for each assignment of a prepared sample, on up to `threads` threads, and appends its reads in the
+    // assignments' order to the sample's _R1.fq.gz and _R2.fq.gz, BGZF-compressed as they arrive (the same bytes
+    // as compressing the whole files, for any number of threads); each genome's temporary files go once appended,
+    // unless keep_tmp. With skip_reads, empty placeholder files.
+    void write_reads(SampleOutput& sample, const std::filesystem::path& output_dir, bool skip_reads, bool keep_tmp,
+                     std::size_t threads = 1) const;
 
-    // write_reads for all samples, art_.options().threads of them at a time (each one thread: ART is one).
+    // write_reads for all samples, art_.options().threads of them at a time; threads beyond the samples run the
+    // ART calls of a sample's genomes side by side (a deep sample is mostly ART and its reads' compression).
     void write_all_reads(std::vector<SampleOutput>& samples, const std::filesystem::path& output_dir, bool skip_reads,
                          bool keep_tmp) const;
 };

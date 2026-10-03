@@ -28,11 +28,14 @@ the database has picks up their reads. When whole genera, families, orders, clas
 missing (--novel_species with ranks, --novel_clades), the relatives are distant: meta_novel_level
 marks the absent taxa closest to such species, meta_neighbour_rank how close a present taxon's
 nearest other species in the sample is. Archaea (--archaea) have fewer marker genes than bacteria
-and need to be in the training data, too. Paired-end design points are simulated in parallel, and
-then the long-read samples (--jobs at a time; ART simulates one genome at a time), then the samples
-of all read types are profiled in one protal run, which loads the database once. Points already
-simulated or profiled are skipped, so a run can be resumed; --simulate_only stops before profiling,
-so that the simulations can run while the database is built.
+and need to be in the training data, too. All simulations share --jobs cores in one queue: the
+paired-end design points with threads in proportion to their work, the long-read samples (deep ones
+in chunks, --long_read_chunk) on the rest, the longest first, as soon as a design run (the same
+communities without reads, in seconds) has given their communities. Then the samples of all read
+types are profiled in one protal run, which loads the database once (--prepare_profiling and
+--also_profile put two collections into one run). Points already simulated or profiled are skipped,
+so a run can be resumed; --simulate_only stops before profiling, so that the simulations can run
+while the database is built.
 
 usage: collect_training_data.py --db DB --genome_table genomes.tsv -o OUT [options]
 """
@@ -110,7 +113,18 @@ def parse_args(argv=None):
     p.add_argument("--pbsim_models", help="folder of pbsim3's .model files (default: found next to the binary)")
     p.add_argument("-t", "--threads", type=int, default=4, help="threads of the protal run (default 4)")
     p.add_argument("--jobs", type=int, default=0,
-                   help="paired-end design points, and long-read samples, simulated at a time (default: --threads)")
+                   help="cores the simulations share (default: --threads): the paired-end design points take threads in "
+                        "proportion to their work, and the long-read samples, or chunks of them, the rest, the longest first")
+    p.add_argument("--long_read_chunk", type=int, default=LONG_READ_CHUNK,
+                   help=f"long-read samples of more bases are simulated in chunks of at most this many bases side by "
+                        f"side, their reads joined (default {LONG_READ_CHUNK}; 0: one run per sample)")
+    p.add_argument("--prepare_profiling", action="store_true",
+                   help="simulate as needed, then write the map of the samples to profile (OUT/profile_all/samples.map, "
+                        "their folders in samples.map.units) and stop, for a run of another collection to profile them "
+                        "with its own (--also_profile)")
+    p.add_argument("--also_profile", action="append", default=[],
+                   help="the samples.map of another collection (--prepare_profiling), profiled in this collection's protal "
+                        "run against --db, so that the database is loaded once; repeatable")
     p.add_argument("--simulate_only", action="store_true",
                    help="simulate the design points and stop: a later run without it profiles them (the simulations "
                         "need no database, so they can run while it is built; --db is not read)")
@@ -250,9 +264,10 @@ def representatives(taxonomy):
         return {f[name]: f[rep] for f in (line.rstrip("\n").split("\t") for line in fh) if f[rank] == "species"}
 
 
-def manifest_rows(point_dir):
-    """The rows of a paired-end point's manifest (one per sample and genome), as dicts."""
-    with open(os.path.join(point_dir, "sim", "manifest.tsv")) as fh:
+def manifest_rows(folder):
+    """The rows of the manifest.tsv in a paired-end point's sim folder (or its design folder; one row per sample and
+    genome), as dicts."""
+    with open(os.path.join(folder, "manifest.tsv")) as fh:
         header = next(fh).rstrip("\n").split("\t")
         return [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh if line.strip()]
 
@@ -260,7 +275,7 @@ def manifest_rows(point_dir):
 def simulated_genomes(point_dir):
     """sample -> {species name: [genome, ...]} from the simulator's manifest."""
     genomes = {}
-    for row in manifest_rows(point_dir):
+    for row in manifest_rows(os.path.join(point_dir, "sim")):
         species = row["taxonomy"].split(";")[-1]
         genomes.setdefault(row["sample"], {}).setdefault(species, []).append(row["genome"])
     return genomes
@@ -439,12 +454,14 @@ def units_of(opts):
     return pe_points, units
 
 
-def unit_communities(unit, opts):
+def unit_communities(unit, opts, source=None):
     """The community samples a long-read unit replays, in order: [(paired-end point, its sample name)], the first
-    unit["samples"] of its community points' samples, point after point (from their manifests)."""
+    unit["samples"] of its community points' samples, point after point (from their manifests, in their sim
+    folders or source(point))."""
+    source = source or (lambda point: point_dirs(point, opts)[1])
     out = []
     for point in unit["communities"]:
-        for sample in dict.fromkeys(row["sample"] for row in manifest_rows(point_dirs(point, opts)[0])):
+        for sample in dict.fromkeys(row["sample"] for row in manifest_rows(source(point))):
             if len(out) < unit["samples"]:
                 out.append((point, sample))
     return out
@@ -577,6 +594,55 @@ def simulate(point, index, opts, threads, clades, key):
     return None
 
 
+def design(point, index, opts, clades):
+    """A paired-end point's communities without its reads (simulate_metagenomes --test: the same draws, so the same
+    manifest.tsv and protal.meta as the real run), in its design folder, in seconds, for the long reads that replay
+    them. -> (the folder, None or why it failed)."""
+    base, sim, _ = point_dirs(point, opts)
+    folder = os.path.join(base, "design")
+    shutil.rmtree(folder, ignore_errors=True)
+    command, error = simulation_command(point, index, opts, 1, clades)
+    if error:
+        return folder, error
+    command[command.index("-o") + 1] = folder
+    os.makedirs(folder)
+    log = os.path.join(base, "design.log")
+    with open(log, "w") as fh:
+        rc = subprocess.run(command + ["--test"], stdout=fh, stderr=subprocess.STDOUT).returncode
+    return folder, None if rc == 0 else f"{point['name']}: {opts.simulator} --test failed with exit code {rc}; see {log}"
+
+
+def same_design(point, folder, opts):
+    """None if a paired-end point's simulated communities are those of its design run (which the long reads
+    replayed), else why not."""
+    def communities(rows):
+        return [{k: v for k, v in row.items() if k not in ("fastq_r1", "fastq_r2")} for row in rows]
+    sim = point_dirs(point, opts)[1]
+    if communities(manifest_rows(sim)) != communities(manifest_rows(folder)):
+        return (f"{point['name']}: its samples' communities (sim/manifest.tsv) differ from its design run's "
+                f"({folder}/manifest.tsv), which its long reads replay")
+    return None
+
+
+def pe_threads(pending, slots):
+    """Threads of each paired-end point [(index, point)]: all `slots` between them in proportion to their cost
+    (samples x read pairs x read length), at least one each, at most 16 per sample (simulate_metagenomes runs a
+    sample's genomes on the threads beyond its samples). -> {name: threads}."""
+    if not pending:
+        return {}
+    cost = {p["name"]: pe_point_seconds(p, 1) for _, p in pending}
+    cap = {p["name"]: 16 * p["samples"] for _, p in pending}
+    total = sum(cost.values()) or 1.0
+    threads = {n: max(1, min(cap[n], int(slots * c / total))) for n, c in cost.items()}
+    while sum(threads.values()) < slots:  # the rest to the point that takes longest per thread
+        open_ = [n for n in threads if threads[n] < cap[n]]
+        if not open_:
+            break
+        name = max(open_, key=lambda n: cost[n] / threads[n])
+        threads[name] += 1
+    return threads
+
+
 def pbsim_model(opts, name):
     """The path of a pbsim3 model: a file, or a name found in --pbsim_models or in pbsim3's data folder."""
     if os.path.isfile(name):
@@ -636,9 +702,12 @@ def long_read_templates(task):
     read_length, its start uniform over the genome's contigs of PBSIM_MIN_LENGTH bases or more (a read ends
     where its contig does), either strand. Written to task["templates"] as FASTA, the reads of a genome
     together (each genome is read once per round of drawing: the cuts at contigs' ends leave a few bases to
-    draw again), named g<genome>x_<n>. -> (the names in file order, None), or (None, why it failed)."""
+    draw again), named g<genome>x_<n>, n = 1, 2, ... (in a chunk of a sample, every task["name_step"]-th from
+    task["name_offset"] + 1, so that the chunks' names do not meet). -> (the names in file order, None), or (None,
+    why it failed)."""
     rng = random.Random(task["seed"])
     genomes, setup = task["genomes"], task["setup"]
+    step, offset = task.get("name_step", 1), task.get("name_offset", 0)  # chunk `offset` of `step` (long_read_chunks)
     cumulative, total = [], 0.0
     for genome in genomes:
         total += genome["weight"]
@@ -666,7 +735,7 @@ def long_read_templates(task):
                     seq = contigs[k][start:start + length]
                     if rng.random() < 0.5:
                         seq = seq.translate(COMPLEMENT)[::-1]
-                    names.append(f"g{g}x_{len(names) + 1}")
+                    names.append(f"g{g}x_{len(names) * step + offset + 1}")
                     out.write(b">" + names[-1].encode() + b"\n" + seq + b"\n")
                     bases += len(seq)
     return names, None
@@ -737,74 +806,169 @@ def long_read_sample(task):
     return None
 
 
-def simulate_long(points, opts, jobs, keys=None):
-    """Long reads (pb, ont) of design points [(index, unit)]: each sample replays the community of a sample of the
-    unit's paired-end points (unit_communities, from their manifests), each genome weighted by relative abundance
-    times length (long_read_sample). The samples of all the points are simulated `jobs` at a time; once a point's
-    are done, its sim/samples.tsv (sample, reads, truth, community sample) is written, and keys[name] to its
-    simulated.json, so that an interrupted point is simulated again. -> {point name: why it failed}."""
-    started, tasks, points_of = time.time(), [], {}
-    for index, unit in points:
-        sim = point_dirs(unit["point"], opts)[1]
-        truth, genomes_of = {}, collections.defaultdict(list)
-        for point in unit["communities"]:
-            community_dir = point_dirs(point, opts)[0]
-            _, pe_rows, _ = map_rows(os.path.join(community_dir, "sim", "protal.meta"))
-            truth.update({row["SAMPLEID"]: row["PROFILE_TRUTH"] for row in pe_rows})
-            for row in manifest_rows(community_dir):
-                genomes_of[row["sample"]].append(row)
-        model = pbsim_model(opts, unit["setup"]["model"]) if unit["setup"]["method"] in PBSIM_METHODS else None
+# Long-read samples above this many bases are simulated in chunks side by side (--long_read_chunk): a 6 Gb Nanopore
+# sample is ~40 min of one pbsim3 run, which the rest of the collection would otherwise wait for.
+LONG_READ_CHUNK = 250_000_000
+
+
+def long_read_chunks(task, chunk):
+    """A long-read sample's task as the tasks of its chunks: [task] if it has `chunk` bases or fewer (or chunk is 0),
+    else k = ceil(bases / chunk) tasks of a k-th of its bases each, with seeds of their own, the read names of chunk
+    c every k-th from c + 1 (long_read_templates), each into its own file in the sample's tmp folder; join_chunks
+    then writes the sample's reads."""
+    bases = task["bases"]
+    if not chunk or bases <= chunk:
+        return [task]
+    k = -(-bases // chunk)
+    part = bases // k
+    return [{**task, "bases": part if c < k - 1 else bases - part * (k - 1), "seed": task["seed"] * 1009 + c + 1,
+             "out": os.path.join(task["tmp"], f"chunk{c + 1}.fq.gz"), "tmp": os.path.join(task["tmp"], f"c{c + 1}"),
+             "name_step": k, "name_offset": c} for c in range(k)]
+
+
+def join_chunks(task, chunks):
+    """The chunks' reads (gzip files, one after the other: a gzip file of several members) as the sample's reads.
+    -> None, or why it failed."""
+    if len(chunks) == 1:
+        return None
+    try:
+        with open(task["out"] + ".partial", "wb") as out:
+            for chunk in chunks:
+                with open(chunk["out"], "rb") as fh:
+                    shutil.copyfileobj(fh, out, 16 << 20)
+        os.replace(task["out"] + ".partial", task["out"])
+    except OSError as exc:
+        return f"{task['sample']}: joining its chunks: {exc}"
+    shutil.rmtree(task["tmp"], ignore_errors=True)
+    return None
+
+
+def long_read_seconds(task):
+    """A rough estimate of a long-read task's time on one core, to start the longest first (measured 2026-10-03:
+    ~10 s of templates, pbsim3 ~0.4 s and hifi_reads.py ~0.15 s per Mb)."""
+    return 10 + task["bases"] / 1e6 * (0.15 if task["setup"]["method"] == "hifi" else 0.45)
+
+
+def pe_point_seconds(point, threads):
+    """A rough estimate of a paired-end point's time on `threads` threads (measured 2026-10-03: ~85 ms per genome
+    of a sample, ~200 genomes, and ~96 s per million 150 bp pairs)."""
+    per_sample = 20 + float(point["read_pairs"]) * int(point["read_length"]) / 150 * 96e-6
+    return point["samples"] * per_sample / max(1, threads)
+
+
+class Scheduler:
+    """Runs jobs on `slots` slots (cores), the ready job of highest priority first; a job is ready once the jobs it
+    comes after are done. A job: name, run: () -> (None or why it failed, [new jobs as add's keywords]), need: slots
+    (at most all), after: names, priority. A job's new jobs join the queue. Once a job has failed no more start;
+    the running ones end. run() -> {name: why it failed}."""
+
+    def __init__(self, slots):
+        self.slots = max(1, slots)
+        self.pending = []
+
+    def add(self, name, run, need=1, after=(), priority=0.0):
+        self.pending.append({"name": name, "run": run, "need": max(1, min(need, self.slots)), "after": set(after),
+                             "priority": priority})
+
+    def run(self):
+        done, failures, running, free = set(), {}, {}, self.slots
+        with concurrent.futures.ThreadPoolExecutor(self.slots) as executor:
+            while self.pending or running:
+                if not failures:
+                    ready = sorted((j for j in self.pending if j["after"] <= done), key=lambda j: -j["priority"])
+                    for job in ready:  # the first that fits; smaller ones fill what is left
+                        if job["need"] <= free or not running:
+                            self.pending.remove(job)
+                            running[executor.submit(job["run"])] = job
+                            free -= job["need"]
+                if not running:
+                    break  # nothing runs and nothing can start: a job failed, or one waits for a job that never came
+                finished, _ = concurrent.futures.wait(running, return_when=concurrent.futures.FIRST_COMPLETED)
+                for future in finished:
+                    job = running.pop(future)
+                    free += job["need"]
+                    try:
+                        error, new = future.result()
+                    except Exception as exc:  # a genome that cannot be read, say: the job fails, and says why
+                        error, new = f"{type(exc).__name__}: {exc}", []
+                    if error:
+                        failures[job["name"]] = error
+                        continue
+                    done.add(job["name"])
+                    for j in new:
+                        self.add(**j)
+        if not failures:
+            for job in self.pending:
+                failures[job["name"]] = f"waits for {', '.join(sorted(job['after'] - done))}, which never ran"
+        return failures
+
+
+def long_unit_jobs(index, unit, opts, keys, started, counter, source=None):
+    """The jobs of a long-read unit's samples, made once its community points' manifests are there: each sample
+    replays the community of a sample of the unit's paired-end points (unit_communities), each genome weighted by
+    relative abundance times length (long_read_sample), in chunks (long_read_chunks); once all its samples are
+    done, its sim/samples.tsv (sample, reads, truth, community sample) is written, and keys[name] to its
+    simulated.json, so that an interrupted point is simulated again. source(point): the folder whose manifest.tsv
+    and protal.meta describe the point's communities (default: its sim folder; a design run's before its reads
+    are there). The truth files named are the sim folder's either way."""
+    source = source or (lambda point: point_dirs(point, opts)[1])
+    sim = point_dirs(unit["point"], opts)[1]
+    truth, genomes_of = {}, collections.defaultdict(list)
+    for point in unit["communities"]:
+        folder, sim_folder = source(point), point_dirs(point, opts)[1]
+        _, pe_rows, _ = map_rows(os.path.join(folder, "protal.meta"))
+        for row in pe_rows:
+            truth[row["SAMPLEID"]] = row["PROFILE_TRUTH"] if folder == sim_folder else \
+                os.path.join(sim_folder, os.path.relpath(row["PROFILE_TRUTH"], folder))
+        for row in manifest_rows(folder):
+            genomes_of[row["sample"]].append(row)
+    model = pbsim_model(opts, unit["setup"]["model"]) if unit["setup"]["method"] in PBSIM_METHODS else None
+    shutil.rmtree(os.path.join(sim, "tmp"), ignore_errors=True)
+    os.makedirs(os.path.join(sim, "reads"), exist_ok=True)
+    rows, jobs, chunk = [], [], getattr(opts, "long_read_chunk", LONG_READ_CHUNK)
+    need = 2 if unit["setup"]["method"] in PBSIM_METHODS else 1  # pbsim3 keeps about two cores busy
+    for s, (_, community) in enumerate(unit_communities(unit, opts, source)):
+        sample = f"{unit['name']}_s_{s + 1}"
+        out = os.path.join(sim, "reads", sample + ".fq.gz")
+        rows.append((sample, out, truth[community], community))
+        task = {"sample": sample, "out": out, "bases": unit["bases"], "setup": unit["setup"], "model": model,
+                "pbsim": opts.pbsim, "seed": (opts.seed * 1000003 + index * 1009 + s) * 101,
+                "tmp": os.path.join(sim, "tmp", sample),
+                "genomes": [{"genome": g["genome"], "fasta": g["fasta_path"],
+                             "weight": float(g["relative_abundance"]) * float(g["genome_length"])}
+                            for g in genomes_of[community]]}
+        chunks = long_read_chunks(task, chunk)
+        names = [f"long:{sample}:{c + 1}" for c in range(len(chunks))]
+        jobs += [{"name": name, "run": lambda part=part: (long_read_sample(part), []), "need": need,
+                  "priority": long_read_seconds(part)} for name, part in zip(names, chunks)]
+        jobs.append({"name": f"join:{sample}", "run": lambda task=task, chunks=chunks: (join_chunks(task, chunks), []),
+                     "after": names, "priority": 2e9})
+
+    def finish():
         shutil.rmtree(os.path.join(sim, "tmp"), ignore_errors=True)
-        os.makedirs(os.path.join(sim, "reads"), exist_ok=True)
-        rows = []
-        for s, (_, community) in enumerate(unit_communities(unit, opts)):
-            genomes = genomes_of[community]
-            sample = f"{unit['name']}_s_{s + 1}"
-            out = os.path.join(sim, "reads", sample + ".fq.gz")
-            rows.append((sample, out, truth[community], community))
-            tasks.append(({"sample": sample, "out": out, "bases": unit["bases"], "setup": unit["setup"], "model": model,
-                           "pbsim": opts.pbsim, "seed": (opts.seed * 1000003 + index * 1009 + s) * 101,
-                           "tmp": os.path.join(sim, "tmp", sample),
-                           "genomes": [{"genome": g["genome"], "fasta": g["fasta_path"],
-                                        "weight": float(g["relative_abundance"]) * float(g["genome_length"])}
-                                       for g in genomes]}, unit["name"]))
-        points_of[unit["name"]] = {"unit": unit, "sim": sim, "rows": rows, "left": len(rows), "errors": []}
-    failures, done = {}, 0
-    with concurrent.futures.ThreadPoolExecutor(max(1, jobs)) as executor:
-        futures = {executor.submit(long_read_sample, task): (name, task["sample"]) for task, name in tasks}
-        for future in concurrent.futures.as_completed(futures):
-            if future.cancelled():
-                continue
-            name, sample = futures[future]
-            point = points_of[name]
-            try:
-                error = future.result()
-            except Exception as exc:  # a genome that cannot be read, say: the point fails, and says why
-                error = f"{sample}: {type(exc).__name__}: {exc}"
-            if error:
-                point["errors"].append(error)
-                for other in futures:  # a failed point stops the collection: no new samples
-                    other.cancel()
-            point["left"] -= 1
-            if point["left"]:
-                continue
-            sim = point["sim"]
-            done += 1
-            if point["errors"]:
-                failures[name] = "\n".join(point["errors"][:5])
-                continue
-            shutil.rmtree(os.path.join(sim, "tmp"), ignore_errors=True)
-            with open(os.path.join(sim, "samples.tsv.partial"), "w") as fh:
-                fh.write("sample\treads\ttruth\tcommunity\n" + "".join("\t".join(r) + "\n" for r in point["rows"]))
-            os.replace(os.path.join(sim, "samples.tsv.partial"), os.path.join(sim, "samples.tsv"))
-            if keys is not None:
-                write_key(os.path.join(point_dirs(point["unit"]["point"], opts)[0], "simulated.json"), keys[name])
-            print(f"{name} simulated ({len(point['rows'])} samples): {done} of {len(points)} long-read design points, "
-                  f"{clock(time.time() - started)} in all", flush=True)
-    for name, point in points_of.items():
-        if point["errors"] and name not in failures:
-            failures[name] = "\n".join(point["errors"][:5])
-    return failures
+        with open(os.path.join(sim, "samples.tsv.partial"), "w") as fh:
+            fh.write("sample\treads\ttruth\tcommunity\n" + "".join("\t".join(r) + "\n" for r in rows))
+        os.replace(os.path.join(sim, "samples.tsv.partial"), os.path.join(sim, "samples.tsv"))
+        if keys is not None:
+            write_key(os.path.join(point_dirs(unit["point"], opts)[0], "simulated.json"), keys[unit["name"]])
+        counter["long"] += 1
+        print(f"{unit['name']} simulated ({len(rows)} samples): {counter['long']} of {counter['long_total']} long-read "
+              f"design points, {clock(time.time() - started)} in all", flush=True)
+        return None, []
+
+    jobs.append({"name": f"long:{unit['name']}", "run": finish, "after": [f"join:{r[0]}" for r in rows], "priority": 2e9})
+    return jobs
+
+
+def simulate_long(points, opts, jobs, keys=None):
+    """Long reads (pb, ont) of design points [(index, unit)] whose paired-end points are simulated
+    (long_unit_jobs), on `jobs` slots, the longest samples (or chunks of them) first. -> {job: why it failed}."""
+    scheduler, started = Scheduler(jobs), time.time()
+    counter = {"long": 0, "long_total": len(points)}
+    for index, unit in points:
+        scheduler.add(f"units:{unit['name']}", lambda index=index, unit=unit: (
+            None, long_unit_jobs(index, unit, opts, keys, started, counter)), priority=3e9)
+    return scheduler.run()
 
 
 def simulated(unit, opts):
@@ -864,24 +1028,46 @@ def unit_map_rows(unit, opts):
     return rows, dirs
 
 
-def profile(units, opts):
-    """Profiles the samples of all units in one protal run: the database is loaded once, and every sample is
-    profiled as its READ_TYPE says."""
-    folder = os.path.join(opts.out, "profile_all")
-    os.makedirs(folder, exist_ok=True)
+def write_map(path, rows):
+    """A protal map of rows (MAP_COLUMNS, absolute paths)."""
+    with open(path, "w") as fh:
+        fh.write(f"#OUTPUT_DIR\t{os.path.dirname(path)}\n#" + "\t".join(MAP_COLUMNS) + "\n")
+        fh.writelines("\t".join(row[c] for c in MAP_COLUMNS) + "\n" for row in rows)
+
+
+def read_map(path):
+    """The rows of a map write_map wrote, as dicts."""
+    with open(path) as fh:
+        return [dict(zip(MAP_COLUMNS, line.rstrip("\n").split("\t"))) for line in fh
+                if line.strip() and not line.startswith("#")]
+
+
+def profile_map(units, opts, path):
+    """The rows of all units' samples, written as the map `path` (their output folders made). -> the rows."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     rows = []
     for unit in units:
         unit_rows, dirs = unit_map_rows(unit, opts)
         for d in dirs:
             os.makedirs(d, exist_ok=True)
         rows += unit_rows
+    write_map(path, rows)
+    return rows
+
+
+def profile(units, opts, extra=()):
+    """Profiles the samples of all units, and the `extra` map rows (another collection's, --also_profile), in one
+    protal run: the database is loaded once, and every sample is profiled as its READ_TYPE says."""
+    folder = os.path.join(opts.out, "profile_all")
     combined = os.path.join(folder, "samples.map")
-    with open(combined, "w") as fh:
-        fh.write(f"#OUTPUT_DIR\t{folder}\n#" + "\t".join(MAP_COLUMNS) + "\n")
-        fh.writelines("\t".join(row[c] for c in MAP_COLUMNS) + "\n" for row in rows)
+    rows = profile_map(units, opts, combined)
+    if extra:
+        rows += list(extra)
+        write_map(combined, rows)
     kinds = collections.Counter(row["READ_TYPE"] for row in rows)
     print(f"profiling {len(rows)} samples ({', '.join(f'{n} {t}' for t, n in kinds.items())}) of {len(units)} design "
-          "points in one protal run", flush=True)
+          "points" + (f" and {len(extra)} samples of another collection" if extra else "") + " in one protal run",
+          flush=True)
     run_protal([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains", "--no_qcmsa"],
                os.path.join(folder, "protal.log"), len(rows))
 
@@ -990,10 +1176,13 @@ def main(argv=None):
         print("held-out clades in every sample, one per rank and design point: "
               + ", ".join(f"{len(c)} {rank}" for rank, c in sorted(clades.items())), flush=True)
     pe_points, units = units_of(opts)
-    jobs = max(1, opts.jobs or opts.threads)
+    slots = max(1, opts.jobs or opts.threads)
 
-    # Paired-end simulation, which every read type needs (se reads it, pb and ont replay its communities): ART
-    # simulates one genome at a time, so design points run in parallel.
+    # Every read type needs paired-end points: se reads them, pb and ont replay their communities. All simulations
+    # run in one queue on `slots` cores (Scheduler): the paired-end points with all the threads between them, and the
+    # long-read samples (or chunks of them) as cores come free, the longest first. A long-read point needs only the
+    # communities of its paired-end points: a design run (simulate_metagenomes --test, the same communities without
+    # reads) gives them in seconds, so long reads need not wait for the paired-end reads.
     needed = {u["point"]["name"] for u in units if u["type"] in ("pe", "se")} | \
              {p["name"] for u in units if u["type"] in LONG_READ_TYPES for p in u["communities"]}
     keys = {p["name"]: simulation_key(p, i, opts, clades) for i, p in enumerate(pe_points) if p["name"] in needed}
@@ -1008,39 +1197,8 @@ def main(argv=None):
             print(f"{p['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
             shutil.rmtree(base)
         pending.append((i, p))
-    if pending:
-        # The costliest points (samples x read pairs) first, each with threads in proportion to its share of the cost,
-        # at least one and at most its samples (simulate_metagenomes writes that many samples at a time): a deep
-        # point's samples are then simulated side by side, not one after the other while the shallow points are done.
-        cost = {p["name"]: p["samples"] * float(p["read_pairs"]) for _, p in pending}
-        total = sum(cost.values()) or 1.0
-        pending.sort(key=lambda ip: -cost[ip[1]["name"]])
-        threads_of = {p["name"]: max(1, min(p["samples"], round(opts.threads * cost[p["name"]] / total))) for _, p in pending}
-        workers = max(1, min(jobs, len(pending)))
-        more = [f"{name} {n}" for name, n in threads_of.items() if n > 1]
-        print(f"simulating {len(pending)} paired-end design points, {workers} at a time"
-              + (f" (threads: {', '.join(more)}, the others 1)" if more else ""), flush=True)
-        started = time.time()
-
-        def simulate_point(ip):
-            began = time.time()
-            return simulate(ip[1], ip[0], opts, threads_of[ip[1]["name"]], clades, keys[ip[1]["name"]]), time.time() - began
-
-        failures = []
-        with concurrent.futures.ThreadPoolExecutor(workers) as executor:
-            futures = {executor.submit(simulate_point, ip): ip[1] for ip in pending}
-            for done, future in enumerate(concurrent.futures.as_completed(futures), 1):
-                failure, seconds = future.result()
-                failures += [failure] if failure else []
-                point = futures[future]
-                print(f"{point['name']} {'failed' if failure else 'simulated'} ({point['samples']} samples) in "
-                      f"{clock(seconds)}: {done} of {len(pending)} design points, {clock(time.time() - started)} in all",
-                      flush=True)
-        if failures:
-            sys.exit("\n".join(failures))
-    # Long reads: one pbsim3 run per sample (long_read_sample), the samples of all points `jobs` at a time.
     long_units = [u for u in units if u["type"] in LONG_READ_TYPES]
-    pending = []
+    long_pending = []
     for i, unit in enumerate(long_units):
         base = point_dirs(unit["point"], opts)[0]
         pbsim = unit["setup"]["method"] in PBSIM_METHODS
@@ -1049,17 +1207,63 @@ def main(argv=None):
                               "index": i, "seed": opts.seed, "pbsim": identity(opts.pbsim) if pbsim else None,
                               "model": identity(pbsim_model(opts, unit["setup"]["model"])) if pbsim else hifi_model(),
                               "reads": LONG_READS}
+        if opts.long_read_chunk and unit["bases"] > opts.long_read_chunk:  # chunks make other reads
+            keys[unit["name"]]["chunk"] = opts.long_read_chunk
         if simulated(unit, opts) and not same_key(os.path.join(base, "simulated.json"), keys[unit["name"]]):
             print(f"{unit['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
             shutil.rmtree(base)
         if not simulated(unit, opts):
-            pending.append((i, unit))
-    if pending:
-        print(f"simulating {len(pending)} long-read design points ({sum(u['samples'] for _, u in pending)} samples, "
-              f"{jobs} at a time)", flush=True)
-        failures = simulate_long(pending, opts, jobs, keys)
+            long_pending.append((i, unit))
+    if pending or long_pending:
+        scheduler, started = Scheduler(slots), time.time()
+        counter = {"pe": 0, "long": 0, "long_total": len(long_pending)}
+        # The paired-end points share the cores with the long reads by their estimated work, so that both end about
+        # together (the long reads take the cores the paired-end points leave, and those they free).
+        pe_work = sum(pe_point_seconds(p, 1) for _, p in pending)
+        long_work = sum(u["samples"] * long_read_seconds(u) * (2 if u["setup"]["method"] in PBSIM_METHODS else 1)
+                        for _, u in long_pending)
+        threads_of = pe_threads(pending, max(1, round(slots * pe_work / ((pe_work + long_work) or 1))))
+        if pending:
+            more = [f"{p['name']} {threads_of[p['name']]}" for _, p in pending if threads_of[p["name"]] > 1]
+            print(f"simulating {len(pending)} paired-end design points"
+                  + (f" (threads: {', '.join(more)}, the others 1)" if more else ""), flush=True)
+        if long_pending:
+            print(f"simulating {len(long_pending)} long-read design points "
+                  f"({sum(u['samples'] for _, u in long_pending)} samples) as cores come free, the longest samples first"
+                  + (f", those above {opts.long_read_chunk} bases in chunks" if opts.long_read_chunk else ""), flush=True)
+        designed = {}  # paired-end point name -> its design folder, for the long reads until its reads are there
+        for i, p in pending:
+            def simulate_point(i=i, p=p):
+                began = time.time()
+                failure = simulate(p, i, opts, threads_of[p["name"]], clades, keys[p["name"]])
+                if not failure and p["name"] in designed:
+                    failure = same_design(p, designed[p["name"]], opts)
+                counter["pe"] += 1
+                print(f"{p['name']} {'failed' if failure else 'simulated'} ({p['samples']} samples) in "
+                      f"{clock(time.time() - began)}: {counter['pe']} of {len(pending)} paired-end design points, "
+                      f"{clock(time.time() - started)} in all", flush=True)
+                return failure, []
+            # Before any long-read sample (all start at once): the deepest could otherwise wait for long reads.
+            scheduler.add(f"pe:{p['name']}", simulate_point, need=threads_of[p["name"]],
+                          priority=1e9 + pe_point_seconds(p, threads_of[p["name"]]))
+        pending_names = {p["name"] for _, p in pending}
+        for i, p in pending:
+            if any(p in u["communities"] for _, u in long_pending):
+                def design_point(i=i, p=p):
+                    folder, error = design(p, i, opts, clades)
+                    designed[p["name"]] = folder
+                    return error, []
+                scheduler.add(f"design:{p['name']}", design_point, priority=4e9)
+        for i, unit in long_pending:
+            after = [f"design:{p['name']}" for p in unit["communities"] if p["name"] in pending_names]
+            source = lambda point: designed.get(point["name"]) or point_dirs(point, opts)[1]
+            scheduler.add(f"units:{unit['name']}", lambda i=i, unit=unit, source=source: (
+                None, long_unit_jobs(i, unit, opts, keys, started, counter, source)), after=after, priority=3e9)
+        failures = scheduler.run()
         if failures:
-            sys.exit("\n".join(f"{name}: {why}" for name, why in failures.items()))
+            sys.exit("\n".join(f"{name}: {why}" for name, why in list(failures.items())[:10]))
+        for folder in designed.values():
+            shutil.rmtree(folder, ignore_errors=True)
     if opts.simulate_only:
         print("simulated every design point; profiling left to a run without --simulate_only", flush=True)
         return
@@ -1080,11 +1284,31 @@ def main(argv=None):
             os.makedirs(folder)
             write_key(os.path.join(folder, "profiling.json"), key)
         unprofiled.append(unit)
-    if unprofiled:
-        profile(unprofiled, opts)
+    if opts.prepare_profiling:
+        combined = os.path.join(opts.out, "profile_all", "samples.map")
+        for stale in (combined, combined + ".units"):
+            if os.path.exists(stale):
+                os.remove(stale)
+        if unprofiled:
+            rows = profile_map(unprofiled, opts, combined)
+            with open(combined + ".units", "w") as fh:
+                fh.writelines(profile_dir(unit, opts) + "\n" for unit in unprofiled)
+            print(f"{len(rows)} samples of {len(unprofiled)} design points to profile, mapped in {combined} for another "
+                  "collection's protal run (--also_profile)", flush=True)
+        else:
+            print("every design point is profiled", flush=True)
+        return
+    others = [(path, read_map(path)) for path in opts.also_profile]
+    if unprofiled or any(rows for _, rows in others):
+        profile(unprofiled, opts, [row for _, rows in others for row in rows])
         for unit in unprofiled:
             folder = profile_dir(unit, opts)
             os.replace(os.path.join(folder, "profiling.json"), os.path.join(folder, "profiled.json"))
+        for path, _ in others:  # the other collection's run finds them profiled
+            with open(path + ".units") as fh:
+                for folder in (line.rstrip("\n") for line in fh if line.strip()):
+                    os.replace(os.path.join(folder, "profiling.json"), os.path.join(folder, "profiled.json"))
+            os.remove(path + ".units")
     for unit in units:
         if len(dumps_of(unit, opts)) != unit["samples"]:
             sys.exit(f"{unit['name']}: expected {unit['samples']} training dumps in {profile_dir(unit, opts)}, "

@@ -1,0 +1,210 @@
+## pe: out of fold on the called training rows: AUC 0.936, AP 0.218 (base rate 0.015)
+                                              fragments  identity  top_identity  excess_median  genus_spill  em_own_share     p  rows
+absent, genus has a missing species (target)      3.000     0.974         0.996          0.012        0.839         1.000 0.786   176
+absent, other                                     1.000     0.990         1.000          0.002        0.477         1.000 0.895   196
+present, representative                          34.000     0.990         1.000         -0.001        1.796         1.000 0.999  5313
+present, strain                                  31.000     0.986         1.000          0.000        1.752         1.000 0.999  5879
+present, strain, 1-10 fragments                   3.000     0.987         1.000          0.001        0.845         1.000 0.987  1975
+## pe: local/v5, 11564 called training rows (176 absent of a genus with a missing species), 4583 called test rows (88), threshold 0.7 (chosen on the training rows, out of fold)
+                                       training, no conversion  training, out of fold at 0.7  test, no conversion  test at 0.7
+F1                                                      0.9693                        0.9693               0.9642       0.9644
+TP                                                  11192.0000                    11192.0000            4423.0000    4423.0000
+FP                                                    372.0000                      372.0000             160.0000     159.0000
+FN                                                    337.0000                      337.0000             168.0000     168.0000
+converted                                               0.0000                        0.0000               0.0000       1.0000
+converted absent, genus right                           0.0000                        0.0000               0.0000       1.0000
+converted absent, genus wrong                           0.0000                        0.0000               0.0000       0.0000
+converted present (species lost)                        0.0000                        0.0000               0.0000       0.0000
+  of them strains                                       0.0000                        0.0000               0.0000       0.0000
+  of them with a missing congener too                   0.0000                        0.0000               0.0000       0.0000
+genus calls                                             0.0000                        0.0000               0.0000       1.0000
+genus calls right                                       0.0000                        0.0000               0.0000       1.0000
+test: 0.01 species converted per sample (78 samples), 0.01 genus calls; species F1 0.9642 -> 0.9644
+test, by threshold (the chosen one is marked; the others are for the trade-off, not choices):
+          F1  converted  converted absent, genus right  converted absent, genus wrong  converted present (species lost)  genus calls right  genus calls
+0.05  0.9114   673.0000                        79.0000                        45.0000                          549.0000           151.0000     634.0000
+0.1   0.9386   389.0000                        66.0000                        23.0000                          300.0000           109.0000     369.0000
+0.15  0.9518   229.0000                        52.0000                        11.0000                          166.0000            78.0000     221.0000
+0.2   0.9575   146.0000                        40.0000                         5.0000                          101.0000            56.0000     143.0000
+0.25  0.9620    91.0000                        34.0000                         3.0000                           54.0000            43.0000      90.0000
+0.3   0.9626    63.0000                        23.0000                         2.0000                           38.0000            31.0000      63.0000
+0.35  0.9632    38.0000                        14.0000                         1.0000                           23.0000            18.0000      38.0000
+0.4   0.9639    28.0000                        12.0000                         1.0000                           15.0000            14.0000      28.0000
+0.45  0.9644    16.0000                         8.0000                         1.0000                            7.0000             9.0000      16.0000
+0.5   0.9645     7.0000                         4.0000                         1.0000                            2.0000             4.0000       7.0000
+0.55  0.9647     6.0000                         4.0000                         1.0000                            1.0000             4.0000       6.0000
+0.6   0.9645     2.0000                         2.0000                         0.0000                            0.0000             2.0000       2.0000
+0.65  0.9645     2.0000                         2.0000                         0.0000                            0.0000             2.0000       2.0000
+0.7 * 0.9644     1.0000                         1.0000                         0.0000                            0.0000             1.0000       1.0000
+0.75  0.9644     1.0000                         1.0000                         0.0000                            0.0000             1.0000       1.0000
+0.8   0.9642     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.85  0.9642     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.9   0.9642     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.95  0.9642     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+test at the chosen threshold, by depth: converted (absent, genus right / present lost)
+         500:   0 (0 / 0) of 52 called, 2 of them false
+        2000:   0 (0 / 0) of 189 called, 15 of them false
+       10000:   0 (0 / 0) of 551 called, 14 of them false
+       50000:   1 (1 / 0) of 1155 called, 50 of them false
+      200000:   0 (0 / 0) of 792 called, 26 of them false
+     1000000:   0 (0 / 0) of 1159 called, 39 of them false
+     5000000:   0 (0 / 0) of 685 called, 14 of them false
+importance: p 0.153, excess_median 0.124, excess_high_share 0.093, identity 0.052, lu_per_kb 0.047, genus_spill 0.035, genus_skew 0.034, lsu_gene_rate3 0.032
+
+## se: out of fold on the called training rows: AUC 0.918, AP 0.191 (base rate 0.013)
+                                              fragments  identity  top_identity  excess_median  genus_spill  em_own_share     p  rows
+absent, genus has a missing species (target)      2.000     0.980         0.993          0.011        0.699         1.000 0.846   150
+absent, other                                     1.000     0.993         0.993          0.000        0.477         1.000 0.898   183
+present, representative                          30.000     0.993         1.000         -0.001        1.753         1.000 0.999  5219
+present, strain                                  28.000     0.989         1.000          0.000        1.719         1.000 0.999  5687
+present, strain, 1-10 fragments                   3.000     0.990         1.000          0.000        0.845         1.000 0.984  1968
+## se: local/v5, 11239 called training rows (150 absent of a genus with a missing species), 4399 called test rows (67), threshold 0.75 (chosen on the training rows, out of fold)
+                                       training, no conversion  training, out of fold at 0.75  test, no conversion  test at 0.75
+F1                                                      0.9669                         0.9669               0.9593        0.9593
+TP                                                  10906.0000                     10906.0000            4262.0000     4262.0000
+FP                                                    333.0000                       333.0000             137.0000      137.0000
+FN                                                    414.0000                       414.0000             225.0000      225.0000
+converted                                               0.0000                         0.0000               0.0000        0.0000
+converted absent, genus right                           0.0000                         0.0000               0.0000        0.0000
+converted absent, genus wrong                           0.0000                         0.0000               0.0000        0.0000
+converted present (species lost)                        0.0000                         0.0000               0.0000        0.0000
+  of them strains                                       0.0000                         0.0000               0.0000        0.0000
+  of them with a missing congener too                   0.0000                         0.0000               0.0000        0.0000
+genus calls                                             0.0000                         0.0000               0.0000        0.0000
+genus calls right                                       0.0000                         0.0000               0.0000        0.0000
+test: 0.00 species converted per sample (78 samples), 0.00 genus calls; species F1 0.9593 -> 0.9593
+test, by threshold (the chosen one is marked; the others are for the trade-off, not choices):
+           F1  converted  converted absent, genus right  converted absent, genus wrong  converted present (species lost)  genus calls right  genus calls
+0.05   0.9066   591.0000                        53.0000                        36.0000                          502.0000           125.0000     553.0000
+0.1    0.9344   318.0000                        41.0000                        18.0000                          259.0000            79.0000     298.0000
+0.15   0.9472   180.0000                        31.0000                        10.0000                          139.0000            55.0000     173.0000
+0.2    0.9538   104.0000                        25.0000                         5.0000                           74.0000            40.0000     102.0000
+0.25   0.9567    58.0000                        14.0000                         5.0000                           39.0000            22.0000      57.0000
+0.3    0.9574    39.0000                        11.0000                         1.0000                           27.0000            16.0000      38.0000
+0.35   0.9588    25.0000                        11.0000                         0.0000                           14.0000            15.0000      25.0000
+0.4    0.9591    13.0000                         6.0000                         0.0000                            7.0000             9.0000      13.0000
+0.45   0.9592     8.0000                         4.0000                         0.0000                            4.0000             6.0000       8.0000
+0.5    0.9595     2.0000                         2.0000                         0.0000                            0.0000             2.0000       2.0000
+0.55   0.9594     1.0000                         1.0000                         0.0000                            0.0000             1.0000       1.0000
+0.6    0.9593     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.65   0.9593     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.7    0.9593     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.75 * 0.9593     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.8    0.9593     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.85   0.9593     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.9    0.9593     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.95   0.9593     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+test at the chosen threshold, by depth: converted (absent, genus right / present lost)
+         500:   0 (0 / 0) of 47 called, 2 of them false
+        2000:   0 (0 / 0) of 170 called, 14 of them false
+       10000:   0 (0 / 0) of 522 called, 18 of them false
+       50000:   0 (0 / 0) of 1064 called, 30 of them false
+      200000:   0 (0 / 0) of 770 called, 27 of them false
+     1000000:   0 (0 / 0) of 1147 called, 29 of them false
+     5000000:   0 (0 / 0) of 679 called, 17 of them false
+importance: p 0.151, excess_median 0.127, excess_high_share 0.085, identity 0.052, lsu_gene_rate3 0.042, genus_spill 0.040, lu_per_kb 0.036, top_identity 0.031
+
+## pb: out of fold on the called training rows: AUC 0.951, AP 0.261 (base rate 0.017)
+                                              fragments  identity  top_identity  excess_median  genus_spill  em_own_share     p  rows
+absent, genus has a missing species (target)      4.000     0.982         0.996          0.015        0.952         1.000 0.616   134
+absent, other                                     1.000     0.999         1.000          0.002        0.477         1.000 0.872    67
+present, representative                          11.000     1.000         1.000         -0.000        1.359         1.000 0.994  3755
+present, strain                                  10.000     0.998         1.000         -0.000        1.322         1.000 0.993  4156
+present, strain, 1-10 fragments                   3.000     0.999         1.000          0.000        0.845         1.000 0.977  2079
+## pb: local/v5, 8112 called training rows (134 absent of a genus with a missing species), 1707 called test rows (22), threshold 0.8 (chosen on the training rows, out of fold)
+                                       training, no conversion  training, out of fold at 0.8  test, no conversion  test at 0.8
+F1                                                      0.9764                        0.9764               0.9761       0.9761
+TP                                                   7911.0000                     7911.0000            1674.0000    1674.0000
+FP                                                    201.0000                      201.0000              33.0000      33.0000
+FN                                                    182.0000                      182.0000              49.0000      49.0000
+converted                                               0.0000                        0.0000               0.0000       0.0000
+converted absent, genus right                           0.0000                        0.0000               0.0000       0.0000
+converted absent, genus wrong                           0.0000                        0.0000               0.0000       0.0000
+converted present (species lost)                        0.0000                        0.0000               0.0000       0.0000
+  of them strains                                       0.0000                        0.0000               0.0000       0.0000
+  of them with a missing congener too                   0.0000                        0.0000               0.0000       0.0000
+genus calls                                             0.0000                        0.0000               0.0000       0.0000
+genus calls right                                       0.0000                        0.0000               0.0000       0.0000
+test: 0.00 species converted per sample (42 samples), 0.00 genus calls; species F1 0.9761 -> 0.9761
+test, by threshold (the chosen one is marked; the others are for the trade-off, not choices):
+          F1  converted  converted absent, genus right  converted absent, genus wrong  converted present (species lost)  genus calls right  genus calls
+0.05  0.9361   174.0000                        20.0000                         4.0000                          150.0000            37.0000     166.0000
+0.1   0.9520   117.0000                        17.0000                         3.0000                           97.0000            28.0000     112.0000
+0.15  0.9609    79.0000                        14.0000                         1.0000                           64.0000            19.0000      77.0000
+0.2   0.9681    48.0000                        11.0000                         0.0000                           37.0000            15.0000      46.0000
+0.25  0.9717    32.0000                         9.0000                         0.0000                           23.0000            12.0000      32.0000
+0.3   0.9724    24.0000                         6.0000                         0.0000                           18.0000             9.0000      24.0000
+0.35  0.9736    18.0000                         5.0000                         0.0000                           13.0000             7.0000      18.0000
+0.4   0.9737    14.0000                         3.0000                         0.0000                           11.0000             4.0000      14.0000
+0.45  0.9743    10.0000                         2.0000                         0.0000                            8.0000             2.0000      10.0000
+0.5   0.9752     5.0000                         1.0000                         0.0000                            4.0000             1.0000       5.0000
+0.55  0.9755     2.0000                         0.0000                         0.0000                            2.0000             0.0000       2.0000
+0.6   0.9761     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.65  0.9761     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.7   0.9761     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.75  0.9761     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.8 * 0.9761     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.85  0.9761     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.9   0.9761     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.95  0.9761     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+test at the chosen threshold, by depth: converted (absent, genus right / present lost)
+      150000:   0 (0 / 0) of 20 called, 0 of them false
+     1000000:   0 (0 / 0) of 90 called, 3 of them false
+     5000000:   0 (0 / 0) of 237 called, 5 of them false
+    25000000:   0 (0 / 0) of 500 called, 8 of them false
+   250000000:   0 (0 / 0) of 614 called, 15 of them false
+  3000000000:   0 (0 / 0) of 246 called, 2 of them false
+importance: p 0.179, excess_median 0.132, identity 0.086, excess_high_share 0.082, top_identity 0.079, lu_per_kb 0.051, lsu_per_kb 0.036, sample_log_fragments 0.022
+
+## ont: out of fold on the called training rows: AUC 0.938, AP 0.243 (base rate 0.016)
+                                              fragments  identity  top_identity  excess_median  genus_spill  em_own_share     p  rows
+absent, genus has a missing species (target)      2.000     0.955         0.985          0.012        0.699         1.000 0.714   137
+absent, other                                     1.000     0.974         0.980          0.002        0.477         1.000 0.904    74
+present, representative                          10.000     0.972         1.000         -0.001        1.322         1.000 0.994  3844
+present, strain                                  10.000     0.968         1.000         -0.000        1.297         1.000 0.992  4250
+present, strain, 1-10 fragments                   3.000     0.971         0.993         -0.000        0.845         1.000 0.976  2202
+## ont: local/v5, 8305 called training rows (137 absent of a genus with a missing species), 1735 called test rows (25), threshold 0.7 (chosen on the training rows, out of fold)
+                                       training, no conversion  training, out of fold at 0.7  test, no conversion  test at 0.7
+F1                                                      0.9751                        0.9752               0.9696       0.9696
+TP                                                   8094.0000                     8094.0000            1693.0000    1693.0000
+FP                                                    211.0000                      210.0000              42.0000      42.0000
+FN                                                    202.0000                      202.0000              64.0000      64.0000
+converted                                               0.0000                        1.0000               0.0000       0.0000
+converted absent, genus right                           0.0000                        1.0000               0.0000       0.0000
+converted absent, genus wrong                           0.0000                        0.0000               0.0000       0.0000
+converted present (species lost)                        0.0000                        0.0000               0.0000       0.0000
+  of them strains                                       0.0000                        0.0000               0.0000       0.0000
+  of them with a missing congener too                   0.0000                        0.0000               0.0000       0.0000
+genus calls                                             0.0000                        1.0000               0.0000       0.0000
+genus calls right                                       0.0000                        1.0000               0.0000       0.0000
+test: 0.00 species converted per sample (41 samples), 0.00 genus calls; species F1 0.9696 -> 0.9696
+test, by threshold (the chosen one is marked; the others are for the trade-off, not choices):
+          F1  converted  converted absent, genus right  converted absent, genus wrong  converted present (species lost)  genus calls right  genus calls
+0.05  0.9226   197.0000                        19.0000                         5.0000                          173.0000            50.0000     188.0000
+0.1   0.9445   121.0000                        18.0000                         2.0000                          101.0000            37.0000     115.0000
+0.15  0.9537    82.0000                        14.0000                         1.0000                           67.0000            30.0000      81.0000
+0.2   0.9581    56.0000                         9.0000                         0.0000                           47.0000            20.0000      55.0000
+0.25  0.9618    38.0000                         6.0000                         0.0000                           32.0000            13.0000      38.0000
+0.3   0.9639    27.0000                         4.0000                         0.0000                           23.0000             9.0000      27.0000
+0.35  0.9661    16.0000                         2.0000                         0.0000                           14.0000             5.0000      16.0000
+0.4   0.9670    11.0000                         1.0000                         0.0000                           10.0000             4.0000      11.0000
+0.45  0.9681     7.0000                         1.0000                         0.0000                            6.0000             3.0000       7.0000
+0.5   0.9679     6.0000                         0.0000                         0.0000                            6.0000             2.0000       6.0000
+0.55  0.9688     3.0000                         0.0000                         0.0000                            3.0000             1.0000       3.0000
+0.6   0.9696     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.65  0.9696     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.7 * 0.9696     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.75  0.9696     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.8   0.9696     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.85  0.9696     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.9   0.9696     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+0.95  0.9696     0.0000                         0.0000                         0.0000                            0.0000             0.0000       0.0000
+test at the chosen threshold, by depth: converted (absent, genus right / present lost)
+      150000:   0 (0 / 0) of 17 called, 0 of them false
+     1000000:   0 (0 / 0) of 92 called, 4 of them false
+     5000000:   0 (0 / 0) of 254 called, 6 of them false
+    25000000:   0 (0 / 0) of 505 called, 12 of them false
+   250000000:   0 (0 / 0) of 614 called, 11 of them false
+  3000000000:   0 (0 / 0) of 253 called, 9 of them false
+importance: excess_median 0.181, p 0.153, excess_high_share 0.082, top_identity 0.070, lu_per_kb 0.050, lsu_per_kb 0.046, identity 0.035, genus_spill 0.023
+

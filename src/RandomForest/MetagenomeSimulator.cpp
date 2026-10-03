@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <condition_variable>
 #include <exception>
 #include <mutex>
 #include <thread>
@@ -600,7 +601,8 @@ void MetagenomeSimulator::write_reads(
         SampleOutput& sample,
         const fs::path& output_dir,
         bool skip_reads,
-        bool keep_tmp) const
+        bool keep_tmp,
+        std::size_t threads) const
 {
     const std::string& sample_name = sample.sample_name;
     fs::path reads_dir = output_dir / "reads";
@@ -628,21 +630,93 @@ void MetagenomeSimulator::write_reads(
     if (!r1_out.Error().empty() || !r2_out.Error().empty()) {
         throw std::runtime_error("Unable to create output FASTQ files for " + sample_name + ": " + r1_out.Error() + r2_out.Error());
     }
-    for (auto const& assignment : sample.assignments) {
-        fs::path genome_prefix = temp_dir / assignment.genome.name;
-        auto [fq1, fq2] = art_.simulate_read_pairs(
-            assignment.genome, assignment.read_pairs, assignment.genome_length,
-            genome_prefix, static_cast<unsigned int>(*assignment.art_seed), temp_dir);
-        append_fastq(fq1, r1_out);
-        append_fastq(fq2, r2_out);
-        if (!keep_tmp) {
-            // This genome's reads, and its decompressed copy (ArtIlluminaWrapper::ensure_fasta), are not needed again.
-            std::error_code ec;
-            fs::remove(fq1, ec);
-            fs::remove(fq2, ec);
-            if (assignment.genome.fasta_path.extension() == ".gz") fs::remove(temp_dir / assignment.genome.fasta_path.stem(), ec);
+    // ART runs for the genomes in the sample's order, each in a folder of its own (its place in the sample), on up
+    // to `threads` threads (this one included) and at most 2 x threads genomes ahead of the next to append; this
+    // thread appends them in that order, so the files are the same for any number of threads.
+    auto const& assignments = sample.assignments;
+    std::size_t const n = assignments.size();
+    std::size_t const helpers = std::min(std::max<std::size_t>(1, threads), std::max<std::size_t>(1, n)) - 1;
+    std::size_t const window = 2 * (helpers + 1);
+    std::vector<std::pair<fs::path, fs::path>> made(n);
+    std::vector<char> ready(n, 0);
+    std::vector<std::exception_ptr> failed(n);
+    std::size_t next = 0, appended = 0;
+    bool stop = false;
+    std::mutex mutex;
+    std::condition_variable changed;
+    auto genome_dir = [&](std::size_t i) { return temp_dir / std::to_string(i); };
+    auto simulate = [&](std::size_t i) {  // without the lock
+        std::pair<fs::path, fs::path> files;
+        std::exception_ptr error;
+        try {
+            auto const& assignment = assignments[i];
+            fs::create_directories(genome_dir(i));
+            files = art_.simulate_read_pairs(
+                assignment.genome, assignment.read_pairs, assignment.genome_length,
+                genome_dir(i) / assignment.genome.name, static_cast<unsigned int>(*assignment.art_seed), genome_dir(i));
+        } catch (...) {
+            error = std::current_exception();
         }
+        std::lock_guard<std::mutex> lock(mutex);
+        made[i] = std::move(files);
+        failed[i] = error;
+        ready[i] = 1;
+        changed.notify_all();
+    };
+    auto may_start = [&] { return !stop && next < n && next < appended + window; };
+    auto helper = [&] {
+        for (;;) {
+            std::size_t i;
+            {
+                std::unique_lock<std::mutex> lock(mutex);
+                changed.wait(lock, [&] { return stop || next >= n || may_start(); });
+                if (!may_start()) return;
+                i = next++;
+            }
+            simulate(i);
+        }
+    };
+    std::vector<std::thread> pool;
+    for (std::size_t t = 0; t < helpers; t++) pool.emplace_back(helper);
+    auto finish_pool = [&] {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            stop = true;
+            changed.notify_all();
+        }
+        for (auto& thread : pool) thread.join();
+        pool.clear();
+    };
+    try {
+        for (std::size_t j = 0; j < n; j++) {
+            for (;;) {  // until genome j is simulated; this thread simulates the next genome itself meanwhile
+                std::unique_lock<std::mutex> lock(mutex);
+                if (ready[j]) break;
+                if (may_start()) {
+                    std::size_t const i = next++;
+                    lock.unlock();
+                    simulate(i);
+                    continue;
+                }
+                changed.wait(lock, [&] { return ready[j] || may_start(); });
+            }
+            if (failed[j]) std::rethrow_exception(failed[j]);
+            append_fastq(made[j].first, r1_out);
+            append_fastq(made[j].second, r2_out);
+            if (!keep_tmp) {
+                // This genome's reads, and its decompressed copy (ArtIlluminaWrapper::ensure_fasta), are not needed again.
+                std::error_code ec;
+                fs::remove_all(genome_dir(j), ec);
+            }
+            std::lock_guard<std::mutex> lock(mutex);
+            appended = j + 1;
+            changed.notify_all();
+        }
+    } catch (...) {
+        finish_pool();
+        throw;
     }
+    finish_pool();
     if (!r1_out.Close() || !r2_out.Close()) {
         throw std::runtime_error("Unable to finish writing FASTQ files for " + sample_name + ": " + r1_out.Error() + r2_out.Error());
     }
@@ -657,16 +731,20 @@ void MetagenomeSimulator::write_all_reads(
         bool skip_reads,
         bool keep_tmp) const
 {
-    std::size_t const workers = std::min<std::size_t>(samples.size(), static_cast<std::size_t>(std::max(1, art_.options().threads)));
+    // A sample per thread; threads beyond the samples go to their genomes (write_reads), the first samples taking
+    // the remainder.
+    std::size_t const threads = static_cast<std::size_t>(std::max(1, art_.options().threads));
+    std::size_t const workers = std::min<std::size_t>(samples.size(), threads);
     std::atomic<std::size_t> next{0};
     std::vector<std::exception_ptr> errors(samples.size());
     std::mutex print;
-    auto work = [&]() {
+    auto work = [&](std::size_t worker) {
+        std::size_t const genome_threads = workers ? threads / workers + (worker < threads % workers ? 1 : 0) : 1;
         for (std::size_t i = next++; i < samples.size(); i = next++) {
             protal::Benchmark timer("write the reads of " + samples[i].sample_name);
             timer.Start();
             try {
-                write_reads(samples[i], output_dir, skip_reads, keep_tmp);
+                write_reads(samples[i], output_dir, skip_reads, keep_tmp, genome_threads);
             } catch (...) {
                 errors[i] = std::current_exception();
                 next = samples.size();  // no new samples: the run fails
@@ -677,8 +755,8 @@ void MetagenomeSimulator::write_all_reads(
         }
     };
     std::vector<std::thread> pool;
-    for (std::size_t w = 1; w < workers; w++) pool.emplace_back(work);
-    work();
+    for (std::size_t w = 1; w < workers; w++) pool.emplace_back(work, w);
+    work(0);
     for (auto& thread : pool) thread.join();
     for (auto const& error : errors) {
         if (error) std::rethrow_exception(error);
