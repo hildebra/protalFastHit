@@ -163,7 +163,8 @@ namespace protal::gene_conservation {
         }
         if (shared == 0) return 1;
         double const jaccard = static_cast<double>(shared) / static_cast<double>(s);
-        return std::min(1.0, -std::log(2 * jaccard / (1 + jaccard)) / static_cast<double>(kK));
+        // max with 0: identical sketches give -log(1) = -0.0, which the reports would print as "-0".
+        return std::min(1.0, std::max(0.0, -std::log(2 * jaccard / (1 + jaccard)) / static_cast<double>(kK)));
     }
 
     // The Mash distance of two sorted k-mer sets, an estimate of the share of bases that differ, from

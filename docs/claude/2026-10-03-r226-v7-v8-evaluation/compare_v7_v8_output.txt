@@ -1,0 +1,61 @@
+# Independent test set, by read type: v7 vs v8 at knob 0.5 (p of the final model) and the best threshold
+type	version	TP	FP	FN	F1@0.5	best thr	F1@best
+pe	v7	4448	195	143	0.9634	0.52	0.9636
+pe	v8	4418	128	173	0.9671	0.47	0.9680
+se	v7	4330	227	157	0.9575	0.58	0.9582
+se	v8	4320	114	167	0.9685	0.42	0.9696
+pb	v7	1667	39	57	0.9720	0.31	0.9756
+pb	v8	1670	27	54	0.9763	0.37	0.9771
+ont	v7	1699	41	58	0.9717	0.55	0.9719
+ont	v8	1695	32	62	0.9730	0.35	0.9750
+
+# Test set by depth (pe, se): FP and FN at 0.5, v7 -> v8
+
+pe	read pairs	present	absent	FP v7	FP v8	FN v7	FN v8
+	500	53	13	0	1	5	3
+	2000	177	56	6	11	6	4
+	10000	558	229	10	17	28	17
+	50000	1164	804	48	40	61	80
+	200000	800	3032	31	15	20	43
+	1000000	1160	6168	66	33	17	20
+	5000000	679	8736	34	11	6	6
+
+se	read pairs	present	absent	FP v7	FP v8	FN v7	FN v8
+	500	47	9	0	0	4	2
+	2000	159	36	8	10	9	3
+	10000	528	175	15	19	30	15
+	50000	1122	608	39	34	58	70
+	200000	792	2306	42	16	31	46
+	1000000	1159	5110	82	25	18	24
+	5000000	680	7439	41	10	7	7
+
+# Test set (pe): the taxa whose call flipped between v7 and v8 at 0.5, joined with the dump's features
+FP removed: 89; fragments median 1, <=2 fragments 79, strains (other genome than the rep) 0; identity median 0.985; by read pairs {50000: 10, 200000: 18, 1000000: 37, 5000000: 24}
+   novel level of the closest missing species: {'species': 51, '-': 27, 'genus': 5, 'order': 4, 'phylum': 1, 'family': 1}
+TP lost: 51; fragments median 1, <=2 fragments 44, strains (other genome than the rep) 38; identity median 0.983; by read pairs {50000: 24, 200000: 23, 1000000: 4}
+   novel level of the closest missing species: {'-': 51}
+FP added: 22; fragments median 1, <=2 fragments 12, strains (other genome than the rep) 0; identity median 0.972; by read pairs {500: 1, 2000: 5, 10000: 7, 50000: 2, 200000: 2, 1000000: 4, 5000000: 1}
+TP gained: 21; fragments median 1, <=2 fragments 17, strains (other genome than the rep) 16; identity median 0.977; by read pairs {500: 2, 2000: 2, 10000: 11, 50000: 5, 1000000: 1}
+
+# Species held out (pe), p_species at 0.5: v7 vs v8 and the flips
+v7: TP 11220 FP 520 FN 309 F1 0.9644
+v8: TP 11274 FP 330 FN 255 F1 0.9747
+flips: {'FP removed': 245, 'TP gained': 76, 'FP added': 55, 'TP lost': 22}
+
+FN by the present taxon's fragments:
+fragments	present	FN v7	FN v8	strains	FN v8 strains
+1	1101	153	117	604	95
+2	657	41	28	376	24
+3-10	2153	70	65	1187	65
+11-100	4153	32	30	2212	28
+>100	3465	13	15	1799	14
+
+FP by sample depth (and of absent taxa with one fragment):
+read pairs	absent	FP v7	FP v8	absent 1 frag	FP v7 1 frag	FP v8 1 frag
+1000	77	6	11	73	5	10
+5000	440	37	60	328	23	39
+20000	1335	59	67	985	28	33
+100000	4501	137	84	3138	77	27
+500000	15138	203	81	9354	99	1
+2000000	9520	55	19	5179	34	0
+10000000	14197	23	8	6851	9	0

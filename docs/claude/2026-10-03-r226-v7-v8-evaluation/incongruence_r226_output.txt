@@ -1,0 +1,42 @@
+near pairs across genera (within 0.05): 1400361; by the rank shared: {'family': 1387438, 'class': 5728, 'domain': 3131, 'order': 2998, 'phylum': 1059, 'none': 7}
+of them identical (distance 0): 1682: {'family': 1025, 'domain': 226, 'order': 219, 'class': 160, 'phylum': 49, 'none': 3}
+
+suspect copies: 5589 of 2908 species
+by the rank the flagged pair shares: {'family': 2731, 'domain': 1010, 'order': 856, 'class': 730, 'phylum': 257, 'none': 5}
+by distance to the other genus's copy: {'<=0.01': 2035, '<=0.02': 2024, '0': 1530}
+
+species by the number of their genes flagged: [('1', 1938), ('2', 492), ('3-5', 336), ('6-20', 132), ('21-60', 10)]
+
+the 30 species with the most genes flagged (of 120 bac / 53 ar markers), their copies identical to the partner's, and the partner species:
+    32 ( 21 identical)  s__Dorea_A sp019421265                      partners: s__Ruminococcus_B gnavus (31); s__Ruminococcus_B sp900544395 (14)
+    26 (  4 identical)  s__Phocaeicola sp948566455                  partners: s__Bacteroides intestinalis (26); s__Bacteroides intestinalis_A (22)
+    26 (  3 identical)  s__Oliverpabstia tarda                      partners: s__Blautia_A fusiformis (22); s__Blautia_A sp005848555 (22)
+    26 (  1 identical)  s__Phocaeicola sp948579315                  partners: s__Bacteroides caecimuris (25); s__Bacteroides xylanisolvens (23)
+    24 (  9 identical)  s__ELB16-189 sp040216915                    partners: s__CCMP332 sp040218795 (24); s__CCMP332 sp014323545 (12)
+    24 ( 14 identical)  s__JALHMQ01 sp020248785                     partners: s__Rubrivivax sp020248915 (24); s__Rubrivivax sp903828235 (1)
+    24 ( 14 identical)  s__Rubrivivax sp020248915                   partners: s__JALHMQ01 sp020248785 (24)
+    24 ( 12 identical)  s__Phocaeicola sp947574505                  partners: s__Bacteroides acidifaciens (24); s__Bacteroides sp900765785 (19)
+    23 ( 17 identical)  s__Ruminococcus_B gnavus                    partners: s__Dorea_A sp019421265 (23)
+    22 ( 18 identical)  s__CCMP332 sp040218795                      partners: s__ELB16-189 sp040216915 (22)
+    18 (  1 identical)  s__UBA12578 sp030754035                     partners: s__UBA868 sp913031305 (18); s__UBA868 sp018698075 (15)
+    18 (  0 identical)  s__Bacteroides stercoris_A                  partners: s__Phocaeicola dorei (18); s__Phocaeicola vulgatus (17)
+    17 (  0 identical)  s__QEXZ01 sp003601795                       partners: s__QMVO01 sp003661125 (16); s__G60ANME1 sp021159465 (1)
+    17 (  2 identical)  s__Sulfobacillus_C sp023381095              partners: s__Sulfobacillus sp021821465 (12); s__Sulfobacillus benefaciens (5)
+    17 (  9 identical)  s__Bacteroides acidifaciens                 partners: s__Phocaeicola sp947574505 (17); s__Phocaeicola sp948579315 (2)
+    16 (  0 identical)  s__QMVO01 sp003661125                       partners: s__QEXZ01 sp003601795 (16)
+    15 (  4 identical)  s__Nocardioides sp902805925                 partners: s__CADCSY01 sp902805555 (11); s__CADCTF01 sp902805655 (4)
+    15 (  2 identical)  s__Prevotella sp016284635                   partners: s__Fibrobacter sp002210295 (9); s__Fibrobacter sp900142475 (9)
+    15 ( 15 identical)  s__Oryzomicrobium sp021287045               partners: s__CTSOIL-112 sp021287185 (15)
+    15 (  0 identical)  s__Bacteroides sp900759525                  partners: s__Acetatifactor acetigignens (12); s__Acetatifactor hominis (12)
+    14 (  7 identical)  s__Ga0077523 sp040373665                    partners: s__UBA10649 sp903934925 (11); s__Rubrivivax sp903834645 (3)
+    14 (  1 identical)  s__Streptococcus sp963525985                partners: s__Gemella haemolysans (14); s__Gemella haemolysans_A (14)
+    14 ( 12 identical)  s__Caccovivens sp017464845                  partners: s__Avigastranaerophilus sp017467305 (14)
+    14 ( 12 identical)  s__Avigastranaerophilus sp017467305         partners: s__Caccovivens sp017464845 (14)
+    14 (  6 identical)  s__HGM04593 sp017467015                     partners: s__Barnesiella sp017481745 (14)
+    14 (  5 identical)  s__Barnesiella sp017481745                  partners: s__HGM04593 sp017467015 (14); s__HGM04593 sp904502185 (1)
+    14 (  2 identical)  s__Methylobacter_A tundripaludum_A          partners: s__Methyloprofundus sp021736705 (14)
+    14 (  2 identical)  s__Methyloprofundus sp021736705             partners: s__Methylobacter_A tundripaludum_A (14); s__Methylobacter_A sp023229605 (1)
+    14 (  6 identical)  s__Luteimonas sp035444805                   partners: s__XN24 sp035444525 (11); s__DAOMNN01 sp035443825 (3)
+    13 (  1 identical)  s__Pluralibacter sp913775985                partners: s__Pantoea dispersa (13); s__Pantoea dispersa_C (12)
+
+genes by flagged copies: top 10 [('78', 154), ('2', 154), ('99', 153), ('81', 151), ('93', 151), ('115', 149), ('86', 149), ('117', 144), ('120', 137), ('77', 136)]; genes with none flagged: 12
