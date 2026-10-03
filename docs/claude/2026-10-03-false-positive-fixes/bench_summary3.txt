@@ -1,0 +1,13 @@
+Presence models of /home/falk/fp_bench/new3/protal_db, taxa scored at knob 0.5: TP present and called, FP absent and called, TN absent and not called, FN present and not called. species held out: each taxon scored by forests that did not see its species; independent test set: samples of another design, scored by the final model. Details: trained_model*.report.txt
+
+read type  evaluated on          taxa   TP    FP  TN     FN   sensitivity  specificity  precision  F1      FP/sample
+pe         species held out      17475  4015  58  13332  70   0.9829       0.9957       0.9858     0.9843  0.69
+pe         independent test set  8504   3055  31  5282   136  0.9574       0.9942       0.9900     0.9734  0.74
+se         species held out      16222  3945  82  12113  82   0.9796       0.9933       0.9796     0.9796  0.98
+se         independent test set  7975   2949  37  4814   175  0.9440       0.9924       0.9876     0.9653  0.88
+suspect_copies	7 of 83978 gene copies (0.01%) of 5 species within 0.02 of another genus's copy and farther from their congeners'; 69429 near pairs across genera (within 0.05) of 168 genes, 11042064 sketch pairs compared
+classifier_features	normalized+adjacency+distance+depth+divergence+unfiltered+priors
+classifier_training_species_left_out	349
+classifier_training_design	read pairs 1000,20000,200000,1000000:4; read setups 100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50; species per sample 20-200; strains 0.3,0.1; abundance lognormal:1.3,2.0; congeners 0.25:2-5
+model_pe_depth_knobs	none: the sample's depth is a feature (protal calls at --knob)
+species priors (0 representatives with a duplicated marker, CheckM quality for 765, species clusters for 0 of 765 species; no sp_clusters file): 0.0 s

@@ -7,7 +7,10 @@
   (default, no knob curve with it), four divergence features (by gene conservation, by codon position, lost mates),
   suspect gene copies found at build time and left out of the evidence, `--fdr` and the singleton rule off by default,
   knob points that must gain, `scripts/recurrent_calls.py`.
-- **Validation**: 318 unit tests (10 new), 131 e2e tests (the calibrated-calls test rewritten), 24 trainer tests, 49
+- **Round two** (the same day, below): fragments before the filters and the EM's fragments, failed candidates (the
+  ZF tag and minimal unmapped records), species priors from GTDB, a mixed training design, prevalence across samples
+  as a postprocessing step; and a latent bug the parity check found.
+- **Validation**: 325 unit tests (16 new), 131 e2e tests (the calibrated-calls test rewritten), 24 trainer tests, 50
   mini-db tests (the pipeline test with its parity check); a build-and-train pipeline on the benchmark world (WSL
   `~/bench071/world`, 765 species, 135 unknown) with the new protal and defaults, and the feature groups ablated on its
   tables. Scripts here: [`build_fp.sh`](build_fp.sh), [`e2e_fp.sh`](e2e_fp.sh), [`bench_eval.sh`](bench_eval.sh);
@@ -174,6 +177,120 @@ and its ablation the same picture, [`ablation_first_rule_output.txt`](ablation_f
   [genus fallback](../2026-10-03-genus-fallback/README.md)) and species complexes for pairs within 97% ANI.
 - Dropped: genus size as a prior, identity rules against singletons, the singleton rule by default, more skew
   features.
+
+## Round two: the strategies of the F1 list, items 2, 3, 4, 5 and 7
+
+Implemented after the misses were dissected (328 misses of the r226 v5 model: 276 strains, 208 with one or two
+fragments, a median of 41% of their records below MAPQ 10 while the EM gave them nearly all; the list is in the
+memory notes and in the reply of 2026-10-03). Same branch; the tests of round one plus
+[`tests/test_ReadEvidence.cpp`](../../../tests/test_ReadEvidence.cpp) (5 tests).
+
+### 2. Fragments before the filters, and the EM's fragments
+
+`fragments` counts the records the MAPQ and length filters keep; a divergent strain's reads tie with a congener's
+reference and fall to MAPQ 0 before they count. `fragments_all` counts the taxon's reads with a best record before the
+filters (a pair or a long read once, `RecordEvidenceCollector::NoteFragment`), and `em_fragments` is the share the
+abundance-weighted assignment leaves to the taxon times that (`em_own_share × fragments_all`): the fragments the strain
+would have had. Spill-over keeps a low EM share and gains little.
+
+### 3. What GTDB knows of a species before any read
+
+The converter writes `species_priors.tsv` (`gtdb_to_protal_db.py`, `SpeciesPriors.h`): per species the marker genes
+found in the representative and how many of them twice (the converter kept a genome's first copy and dropped the rest
+without counting; a second copy of a single-copy marker is CheckM's contamination signature), the representative's
+CheckM completeness and contamination from the metadata (`checkm2_*`, else `checkm_*`), and from GTDB's
+`auxillary_files/sp_clusters_r226.tsv` (now fetched by `download_gtdb.py` when the release lists it) the cluster's ANI
+circumscription radius, mean and minimum intra-species ANI and size. `--build` bundles it, a run loads it
+(`LoadSpeciesPriors`), and `TaxonFeatures` emits `rep_duplicate_share`, `rep_completeness`, `rep_contamination`,
+`cluster_ani_radius`, `cluster_mean_ani`, `cluster_min_ani`, `cluster_genomes_log10` (-1 unknown). On the synthetic
+worlds every value is unknown (the simulated releases have no duplicated markers, 100/0 quality and no clusters file),
+so the group does nothing there; the r226 build is where it can act, and `build_metadata.tsv`'s converter log line says
+how many species have values.
+
+### 4. Reads that seeded on a taxon but did not align to it
+
+`SimpleAlignmentHandler` records the taxa of the anchors it tries (`Attempted()`); the read paths subtract the taxa of
+the valid alignments (`FailedCandidates`, after the mate guidance for pairs; `LongReadAligner::FailedTaxa` for long
+reads) and hand the rest to the output handlers, which write them as `ZF:Z:<taxid>,...` on the read's first record,
+or on a minimal unmapped record (flag 4, `*` for the sequence) when the read aligned nowhere; reads without failed
+candidates get nothing, as before. The reader parses the tag on mapped records and counts the unmapped records' tags
+per taxon before skipping them (`SamReader::FailedCandidates`); the profiler adds both into
+`RecordEvidence::failed_candidates`, and `failed_candidate_rate` is the share of the reads that seeded on the taxon
+and failed, over those plus the reads with a record. A SAM of an older protal gives 0. The e2e tests that read SAM
+records skip the unmapped ones, and the count of skipped unmapped records in the "edited SAM" test allows for protal's
+own.
+
+### 5. The training design
+
+`simulate_metagenomes --pln_sigma 1.3,2.0`: several sigmas are given to a design point's samples in turn
+(`ProfileDesignOptions::pln_sigmas`, `SigmaForSample`), `collect_training_data.py --abundance lognormal:1.3,2.0`
+passes them through, and `build_gtdb_database.py` defaults to it (half the training samples with the former sigma
+1.3, half with the test set's 2.0), holds out 30% of the species instead of 20%, and adds a design point of 30M read
+pairs (`30000000:1`: three samples) so that a model with the sample's depth as a feature has seen the depth real
+metagenomes reach. The test design is unchanged (σ 2.0, 500 to 5M pairs).
+
+### 7. Prevalence across the samples of a run, as a postprocessing step
+
+`scripts/prevalence_calls.py OUTPUT_DIR`: for every taxon and sample, the odds of the model's probability times the
+odds ratio of the taxon's prevalence in the run's other samples (mean probability, absence counting 0, smoothed by two
+pseudo-samples at the base rate) to the base rate (the model's training prior if given, else the run's mean), capped
+at a factor 4, then calls at the knob; writes `prevalence_calls.tsv` and, with `--profiles`, adjusted `.profile` files.
+On the 42 paired-end test samples of the benchmark pipeline, drawn independently, the full update (`--direction both`)
+removed 24% of the calls (564 of 2,388; 585 without the cap), nearly all of them true, and gained none, as a prevalence
+prior must where samples share no species. So the default is `--direction up`, which only boosts prevalent species
+and changed nothing there; the full update is for the samples of one study, and needs a study with a truth to be
+validated, which the simulator cannot provide until its samples share a species pool. (The probabilities in these
+`.profile.log` files are the collection model's, which the pipeline profiles with; the mechanics, not the F1, are what
+this tested.)
+
+### A latent bug the parity check found
+
+The pipeline's parity check crashed protal on one deep sample: `em_fragments` was 9×10⁻³¹¹ for a taxon beside a
+hugely abundant congener (the EM leaves it next to nothing), the dump wrote the subnormal number, the trainer (whose
+forests take any float) used it, and cPMML, which reads a feature back with `stod`, took the underflow as a missing
+value and threw. `em_own_share` has carried such values since the EM exists; the relatives set, opt-in, would have
+crashed the same way. `FeatureString` now writes a subnormal value as 0, in the dump and at scoring alike, so the
+trainer and protal agree (test `FeatureStringsFlushSubnormalValuesToZero`).
+
+### Validation
+
+325 unit tests (6 new), 24 trainer tests, 131 e2e tests (those reading SAM records skip the unmapped ones), 50
+mini-db tests. A third benchmark-world pipeline with the round-two binary and defaults ([`bench3.sh`](bench3.sh):
+30% of species held out, abundances σ 1.3 and 2.0 in turn, the same 1,000 to 1M read-pair points and test design as
+before; its parity check passes), [`bench_summary3.txt`](bench_summary3.txt), and the groups ablated on its tables
+([`ablation3_output.txt`](ablation3_output.txt)). Its numbers are not comparable with the second pipeline's: with 30%
+of the species held out the test samples score 8,504 taxa against 9,068, with more of their species missing from the
+database. Test-set F1 at knob 0.5 / at the model's knob curve where one was fitted / at the best test threshold:
+
+| read type | features | species held out | test 0.5 / curve / best | FP / FN at 0.5 | AP | log loss |
+|---|---|---:|---|---|---:|---:|
+| pe | `nad` | 0.9809 | 0.9733 / 0.9697 / 0.9755 | 36 / 132 | 0.9928 | 0.0856 |
+| pe | `nad` + divergence | 0.9829 | **0.9750** / 0.9744 / 0.9765 | 29 / 128 | 0.9930 | 0.0831 |
+| pe | `nad` + divergence + unfiltered | 0.9827 | 0.9744 / 0.9749 / 0.9765 | 33 / 128 | 0.9956 | 0.0647 |
+| pe | `nad` + divergence + unfiltered + priors | 0.9841 | 0.9741 / 0.9741 / 0.9765 | 38 / 125 | **0.9958** | **0.0629** |
+| pe | + depth (default) | 0.9843 | 0.9734 / — / 0.9755 | 31 / 136 | 0.9954 | 0.0684 |
+| se | `nad` | 0.9738 | 0.9628 / 0.9576 / 0.9670 | 52 / 176 | 0.9916 | 0.0977 |
+| se | `nad` + divergence | 0.9757 | 0.9663 / 0.9624 / 0.9705 | 37 / 169 | 0.9923 | 0.0961 |
+| se | `nad` + divergence + unfiltered | 0.9782 | 0.9659 / 0.9662 / 0.9703 | 41 / 168 | 0.9939 | 0.0836 |
+| se | `nad` + divergence + unfiltered + priors | 0.9788 | **0.9670** / 0.9662 / 0.9720 | 39 / 163 | **0.9944** | **0.0799** |
+| se | + depth (default) | 0.9796 | 0.9653 / — / 0.9714 | 37 / 175 | 0.9947 | 0.0813 |
+
+- **The unfiltered group ranks far better and calls the same.** The log loss falls by 22% (pe) and 13% (se) and the
+  average precision rises by 0.0026 and 0.0016 on top of the divergence features, while the F1 at knob 0.5 stays
+  within noise (−0.0006, −0.0004) and the misses at one fragment fall from 53 to 50 (pe). The information the MAPQ
+  filter had thrown away is now in the scores; on this world the strains it should rescue are too few, or too far,
+  for the threshold to move. The r226 misses, 159 of 328 with half or more of their records dropped by the filter, are
+  the population it was built for.
+- **The priors do nothing here**, as expected: the synthetic release has no duplicated markers, 100/0 quality for every
+  genome and no clusters file, so every value is unknown. The changes against the row above are noise.
+- **The depth feature's cost shrank to noise with the mixed training design**: −0.0007 (pe) and −0.0017 (se) at knob
+  0.5 against the set without it, where the second pipeline, trained on σ 1.3 alone, lost 0.005 and 0.007. The
+  training prior now spans the test's abundance distribution, which is what the design change was for; the r226
+  gain stays to be shown there.
+- **The failed candidates are plentiful**: a 200,000-pair sample of this world has about 38,000 unmapped records
+  (19% of its fragments seeded on a taxon and aligned nowhere, most of them reads of the 30% of species the database
+  lacks), each a 70-byte line; the SAM grows by a few percent compressed, and the reader skips them in the same pass.
+- Nothing changed in the pipeline's own calls through the parity check once the subnormal values were fixed.
 
 ## Website
 
