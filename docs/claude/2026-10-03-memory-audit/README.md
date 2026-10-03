@@ -154,9 +154,10 @@ and 4 for the real database; nothing is held in memory but a few chunks per thre
 cluster node with the r226 database (18 GB to read, a few minutes with 16 threads):
 
 ```bash
-# from a Linux-side copy of the sources (compiling from /mnt/c resolves <zstd.h> to protal's Zstd.h)
-g++ -O2 -std=c++20 -I SRC/src -I SRC/src/Utilities -I SRC/src/Hash \
-    SRC/docs/claude/2026-10-03-memory-audit/scripts/index_layout_db.cpp -o index_layout_db -lzstd -pthread
+# in the checkout's root (on WSL from a Linux-side copy: compiling from /mnt/c resolves <zstd.h> to
+# protal's Zstd.h); in a conda environment with zstd add -I $CONDA_PREFIX/include -L $CONDA_PREFIX/lib
+g++ -O2 -std=c++20 -I src -I src/Utilities -I src/Hash \
+    docs/claude/2026-10-03-memory-audit/scripts/index_layout_db.cpp -o index_layout_db -lzstd -pthread
 ./index_layout_db /path/to/r226/database.protal 16
 ```
 

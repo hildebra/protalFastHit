@@ -2,8 +2,8 @@
 // decoded chunk by chunk (IndexCodec.h) without holding the index: memory is a few chunks (~64 MB raw
 // each) per thread. For the r226 database on a cluster node: ~18 GB read, minutes. Also takes a
 // seekable index.prx.zst in protal's column format.
-// Build against protal's sources (zstd headers and library needed), e.g.
-//   g++ -O2 -std=c++20 -I SRC/src -I SRC/src/Utilities -I SRC/src/Hash index_layout_db.cpp -o index_layout_db -lzstd -pthread
+// Build in the checkout's root (zstd headers and library needed; in a conda environment add -I $CONDA_PREFIX/include -L $CONDA_PREFIX/lib):
+//   g++ -O2 -std=c++20 -I src -I src/Utilities -I src/Hash docs/claude/2026-10-03-memory-audit/scripts/index_layout_db.cpp -o index_layout_db -lzstd -pthread
 #include "layout_stats.h"
 #include "IndexCodec.h"
 #include "Database.h"
