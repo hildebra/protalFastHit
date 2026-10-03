@@ -1905,10 +1905,10 @@ class GtdbBuildTest(unittest.TestCase):
                                                                                        "build_metadata.tsv")))
         self.assertRegex(metadata["gene_conservation"], r"^factors [0-9.]+-[0-9.]+ for \d+ genes, from \d+ species")
         self.assertEqual(metadata["classifier_previous_procedure"], "not compared")  # without --previous-procedure
-        # The gene neighbours' features too (not the relatives', by default), trained on samples with congener groups,
-        # the models calling at their knob curves (the other seed's build below trains the relatives features and the
+        # The gene neighbours' features and the relatives' four by the references' distance (not all of them, by
+        # default), trained on samples with congener groups, the models calling at their knob curves (the other seed's build below trains the relatives features and the
         # calls at a target share of false calls).
-        self.assertEqual(metadata["classifier_features"], "normalized+adjacency")
+        self.assertEqual(metadata["classifier_features"], "normalized+adjacency+distance")
         self.assertIn("; congeners 0.25:2-5", metadata["classifier_training_design"])
         commands = [open(p).read() for p in glob.glob(os.path.join(self.tmp.name, "**", "run_params.tsv"), recursive=True)]
         self.assertTrue(commands, "the simulators' run_params.tsv")  # beside the samples, in --scratch

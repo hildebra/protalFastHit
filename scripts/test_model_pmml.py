@@ -158,28 +158,31 @@ class ForestExportTest(unittest.TestCase):
 
 @unittest.skipIf(RandomForestClassifier is None, "needs scikit-learn")
 class FeatureSetsTest(unittest.TestCase):
-    """The trainer's default features are the normalised ones and the gene neighbours'; normalized leaves those out, and
-    normalized+adjacency+relatives adds the relatives'."""
+    """The trainer's default features are the normalised ones, the gene neighbours' and the four relatives features by the
+    references' distance; normalized+adjacency leaves those four out, normalized the gene neighbours' too, and
+    normalized+adjacency+relatives adds all the relatives'."""
 
     def test_default_set_has_the_gene_neighbour_features(self):
         import model_features as mf
         import random_forest_cmdline
         columns = (["truth", "taxon", "meta_sample"] + mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES +
                    mf.RELATIVE_FEATURES + ["genus_top_fragments", "other"])
-        self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET), mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES)
+        self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET),
+                         mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES)
+        self.assertEqual(mf.feature_columns(columns, "normalized+adjacency"), mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES)
         relatives = mf.feature_columns(columns, "normalized+adjacency+relatives")
         self.assertEqual(relatives, mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.RELATIVE_FEATURES)
         self.assertEqual(mf.feature_columns(columns, "normalized"), mf.NORMALIZED_FEATURES)
-        self.assertEqual(mf.feature_columns(columns, "normalized+adjacency+distance"),
-                         mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES)
         self.assertTrue(set(mf.DISTANCE_FEATURES) <= set(mf.RELATIVE_FEATURES))
         self.assertNotIn("genus_top_fragments", relatives)  # it counts reads
         with self.assertRaisesRegex(RuntimeError, "adjacent_support"):  # a table of an older protal
             mf.feature_columns([c for c in columns if c != "adjacent_support"], mf.DEFAULT_FEATURE_SET)
+        with self.assertRaisesRegex(RuntimeError, "relative_spill"):  # a table of protal before the relatives features
+            mf.feature_columns([c for c in columns if c != "relative_spill"], mf.DEFAULT_FEATURE_SET)
         with self.assertRaisesRegex(RuntimeError, "em_own_share"):  # a table of protal before the relatives features
             mf.feature_columns([c for c in columns if c != "em_own_share"], "normalized+adjacency+relatives")
         opts = random_forest_cmdline.parse_args(["--truth-file", "t.tsv", "--output-prefix", "p"])
-        self.assertEqual(opts.features, "normalized+adjacency")
+        self.assertEqual(opts.features, "normalized+adjacency+distance")
 
 
 @unittest.skipIf(RandomForestClassifier is None, "needs pandas")

@@ -26,9 +26,9 @@ two together say how much of the conserved genes' reads were ambiguous.
 
 ADJACENCY_FEATURES, by the database's gene neighbours (docs/claude/2026-10-02-gene-neighbour-frequencies): of the genes
 next to each other on a taxon's reads (a pair's mates on two genes, a long read's consecutive genes), the shares that
-are expected and unlikely neighbours in the taxon's clade, and the mean frequency of their pairings there. The
-trainer's default set (DEFAULT_FEATURE_SET) is the normalized features and these; "normalized" leaves them out, to
-test them on real data: on a synthetic world they changed test F1 within noise. Without gene neighbours in the
+are expected and unlikely neighbours in the taxon's clade, and the mean frequency of their pairings there.
+"normalized+adjacency" is the normalized features and these; "normalized" leaves them out, to test them on real data:
+on a synthetic world they changed test F1 within noise. Without gene neighbours in the
 database (or with protal --no_gene_neighbours) they are 0, 0 and 0.5, as for a taxon with no reads across genes.
 
 RELATIVE_FEATURES, from the other taxa of the taxon's sample (protal's MicrobialProfile::ApplySampleContext,
@@ -41,10 +41,17 @@ model call a thin taxon with no relative in the sample and reject one beside an 
 trained on samples whose species are drawn uniformly, where congeners hardly ever share a sample, the model learns to
 reject every taxon beside an abundant congener, so train them on samples with congener groups
 (collect_training_data.py --congeners SHARE:MIN-MAX, build_gtdb_database.py's default). They are the set
-"normalized+adjacency+relatives", not the default: on the benchmark world they raised cross-validated F1, AP and log
-loss, but cost 0.001-0.004 of the test sets' F1 at the knobs protal calls with, and missed more minor congeners
-(docs/claude/2026-10-03-denoising-implementation); whether they help at GTDB scale, where false positives are the larger
-problem, an r226 build with --features normalized+adjacency+relatives tells. genus_top_fragments, the fragments of the
+"normalized+adjacency+relatives", opt-in: on the benchmark world they raised cross-validated F1, AP and log loss, but cost
+0.001-0.004 of the test sets' F1 at the knobs protal calls with, and missed more minor congeners
+(docs/claude/2026-10-03-denoising-implementation); at GTDB r226 they lowered the paired-end log loss by 27% and the false
+positives by 29% with species held out, yet on the test set at the knob curve they did no better than the four distance
+features (docs/claude/2026-10-03-r226-v5-v6-training).
+
+The trainer's default set (DEFAULT_FEATURE_SET) is "normalized+adjacency+distance": the normalized and adjacency
+features and the four relative_* of RELATIVE_FEATURES, by the distance of the references. At r226 they added 0.004 F1
+(paired-end) on the test set at the knob curve and 0.007 at knob 0.5 over normalized+adjacency, single-end and long reads
+within noise (the same report). A table of a protal before them (be35d15) lacks them: train it with
+--features normalized+adjacency. genus_top_fragments, the fragments of the
 taxon's most abundant congener, is an input of the singleton rule (random_forest_cmdline.py --singleton-congener), not a
 feature of these sets: it counts reads.
 """
@@ -85,11 +92,12 @@ RELATIVE_FEATURES = ["genus_skew", "family_skew", "genus_share", "genus_spill", 
                      "relative_spill", "relative_close_share", "em_own_share", "em_kept_own_share"]
 # Of them, those by the distance of the references: on the benchmark world the best paired-end set at every knob
 # (+0.001 to +0.006 test F1 over normalized+adjacency), single-end within noise, but more minor congeners missed
-# (docs/claude/2026-10-03-denoising-implementation).
+# (docs/claude/2026-10-03-denoising-implementation); at r226 +0.004 paired-end at the knob curve, the rest within noise
+# (docs/claude/2026-10-03-r226-v5-v6-training). In the default set.
 DISTANCE_FEATURES = ["relative_skew", "relative_distance", "relative_spill", "relative_close_share"]
 
 FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance", "all")
-DEFAULT_FEATURE_SET = "normalized+adjacency"
+DEFAULT_FEATURE_SET = "normalized+adjacency+distance"
 
 
 def feature_columns(columns, feature_set="all"):

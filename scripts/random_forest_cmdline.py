@@ -146,11 +146,13 @@ def parse_args(argv=None):
     p.add_argument("--truth-file", required=True, help="training table (collect_training_data.py) or one training dump")
     p.add_argument("--output-prefix", required=True)
     p.add_argument("--features", choices=FEATURE_SETS, default=DEFAULT_FEATURE_SET,
-                   help="normalized+adjacency (default): the features that do not depend on database, domain, depth "
-                        "and read length, and those of the gene neighbours (model_features.py); "
-                        "normalized+adjacency+relatives: also those that compare a taxon with its sample's relatives "
-                        "(train them on samples with congener groups); normalized: without the gene neighbour "
-                        "features, to test them; all: every feature column of the table")
+                   help="normalized+adjacency+distance (default): the features that do not depend on database, "
+                        "domain, depth and read length, those of the gene neighbours, and the four that compare a "
+                        "taxon with its sample's relatives by the distance of their references (model_features.py; "
+                        "train them on samples with congener groups); normalized+adjacency: without those four (a "
+                        "table of a protal before them lacks them); normalized+adjacency+relatives: all the relatives "
+                        "features; normalized: without the gene neighbour features, to test them; all: every feature "
+                        "column of the table")
     p.add_argument("--reference-pmml", help="train on the inputs of this PMML model instead of --features")
     p.add_argument("--ntree", type=int, default=64, help="trees (default 64)")
     p.add_argument("--maxnodes", type=int, default=256,

@@ -188,9 +188,9 @@ other in 20% of their species or more, a sparse clade leaning on those above it)
 ([running.md](running.md#options-the-website-does-not-list); both 0 without them); and the mean
 frequency of their pairings there, pulled towards 0.5 by one pairing ((sum of the frequencies + 0.5)
 / (pairings judged + 1); 0.5 without gene neighbours or reads across genes).
-The models train on them by default (`ADJACENCY_FEATURES`, with `NORMALIZED_FEATURES` the trainer's
-`--features normalized+adjacency`). On a synthetic world they changed the test F1 within noise
-(paired-end +0.0025, PacBio −0.0026, Nanopore +0.0015 over three seeds;
+The models train on them by default (`ADJACENCY_FEATURES`, with `NORMALIZED_FEATURES` the set
+`normalized+adjacency`, in the default `normalized+adjacency+distance`). On a synthetic world they
+changed the test F1 within noise (paired-end +0.0025, PacBio −0.0026, Nanopore +0.0015 over three seeds;
 [report](claude/2026-10-01-gene-neighbours-run/README.md),
 [2026-10-02](claude/2026-10-02-gene-neighbour-frequencies/README.md)): reads of a congener the
 database lacks pair across the same genes as the species' own. Whether they help where gene order is
@@ -235,15 +235,18 @@ from every taxon's fragments, the taxonomy and the references:
 
 They let a model call a thin taxon with no relative in the sample and reject one beside an abundant
 congener whose reads it holds (`RELATIVE_FEATURES`, with the normalised and adjacency features the
-set `normalized+adjacency+relatives`; not the default). On the benchmark world they raised cross-validated
+set `normalized+adjacency+relatives`, opt-in). On the benchmark world they raised cross-validated
 F1, AP, log loss and the F1 at each test set's best threshold, but changed the test F1 at the knobs protal
 calls with by +0.003 to −0.005 and missed 1.6-2.3 times as many minor congeners (present species beside a
 present congener of ten times their fragments); `normalized+adjacency+distance`, with only the four
 `relative_*` features by the references' distance, was the best paired-end set at every knob (+0.001 to
 +0.006), single-end within noise, still missing more minor congeners
-([report](claude/2026-10-03-denoising-implementation/README.md)). Whether they help at GTDB scale, where
-false positives are the larger problem, a build with `--features normalized+adjacency+relatives` (or
-`+distance`) tells.
+([report](claude/2026-10-03-denoising-implementation/README.md)). At GTDB r226, where false positives are
+the larger problem, the four distance features added 0.004 paired-end F1 on the test set at the knob curve
+(0.007 at knob 0.5), single-end and long reads within noise; all the relatives features lowered the
+paired-end log loss by 27% with species held out but did no better at the knob curve
+([report](claude/2026-10-03-r226-v5-v6-training/README.md)). So the trainer's and the build's default is
+`normalized+adjacency+distance`; a table of a protal before them needs `--features normalized+adjacency`.
 They need training samples whose congeners share a sample (`--congeners SHARE:MIN-MAX`,
 `build_gtdb_database.py`'s default): on the r226 tables, whose species were drawn uniformly, a model
 with the rank features learnt that an abundant congener means absence and missed 69-73% of the present
@@ -274,7 +277,7 @@ one differs.
 | Option | Default | |
 |---|---|---|
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
-| `--features` | `normalized+adjacency` | `normalized+adjacency`: `NORMALIZED_FEATURES` and `ADJACENCY_FEATURES`; `normalized+adjacency+relatives`: and `RELATIVE_FEATURES`; `normalized+adjacency+distance`: and `DISTANCE_FEATURES`, the four `relative_*` of them; `normalized`: only `NORMALIZED_FEATURES`, to test the gene neighbour features; `all`: every feature column of the dump |
+| `--features` | `normalized+adjacency+distance` | `normalized+adjacency`: `NORMALIZED_FEATURES` and `ADJACENCY_FEATURES`; `normalized+adjacency+relatives`: and `RELATIVE_FEATURES`; `normalized+adjacency+distance`: and `DISTANCE_FEATURES`, the four `relative_*` of them; `normalized`: only `NORMALIZED_FEATURES`, to test the gene neighbour features; `all`: every feature column of the dump |
 | `--reference-pmml` | | train on the input fields of an existing model instead |
 | `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 256, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves; `build_gtdb_database.py` gives 512 for short reads and 128 for long reads: at GTDB r226 512 leaves gave short reads a lower log loss and fewer false positives, 128 long reads a lower log loss at the same F1) |
 | `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |
@@ -469,7 +472,8 @@ knob K`). `--fdr F` calls at another target, `--fdr 0` at the knob curve or `--k
 `--knob` turns them off. `build_gtdb_database.py --call-mode fdr` trains them; its default, `--call-mode curve`, does not: on the
 benchmark world they called 0.0005-0.004 F1 below the curve for both read types; on test samples deeper
 than any trained 0.003 below it for paired-end and 0.002 above it for single-end reads; and the chosen target (0.005-0.015) varied between models
-([report](claude/2026-10-03-denoising-implementation/README.md)).
+([report](claude/2026-10-03-denoising-implementation/README.md)). At r226 they were 0.001-0.007 below the curve for all four read
+types and missed most present species of the shallowest samples ([report](claude/2026-10-03-r226-v5-v6-training/README.md)).
 
 ### The singleton rule
 

@@ -1088,20 +1088,23 @@ def main():
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
     p.add_argument("--features", choices=FEATURE_SETS, default=DEFAULT_FEATURE_SET,
-                   help="the models' features (random_forest_cmdline.py --features): normalized+adjacency (default), "
-                        "the normalised features and the gene neighbours'; normalized+adjacency+relatives: also those "
-                        "that compare a taxon with its sample's relatives (they need --congeners groups; on the "
-                        "benchmark world they did not help at the knobs protal calls with, "
-                        "docs/claude/2026-10-03-denoising-implementation); normalized+adjacency+distance: only the four "
-                        "relative_* of them, the best paired-end set there; normalized: without the gene neighbours'; "
-                        "all: every feature of the training dumps")
+                   help="the models' features (random_forest_cmdline.py --features): normalized+adjacency+distance "
+                        "(default), the normalised features, the gene neighbours' and the four relative_* features "
+                        "that compare a taxon with its sample's relatives by the distance of their references (they "
+                        "need --congeners groups; at r226 +0.004 paired-end F1 at the knob curve, the other read types "
+                        "within noise, docs/claude/2026-10-03-r226-v5-v6-training); normalized+adjacency: without "
+                        "them; normalized+adjacency+relatives: all the relatives features (better ranking, no better "
+                        "at the knob curve there); normalized: without the gene neighbours'; all: every feature of "
+                        "the training dumps")
     p.add_argument("--call-mode", choices=["curve", "fdr"], default="curve",
                    help="how protal calls with the models by default: curve (default), the knob curve over the "
                         "sample's depth (--depth-knob-read-types); fdr, the highest-scoring taxa of each sample while "
                         "their expected share of false calls stays at the target the trainer chose "
                         "(random_forest_cmdline.py --fdr-calls; protal --fdr), which follows the sample's number of "
                         "candidates at any depth (on the benchmark world 0.0005-0.004 F1 below the curve, "
-                        "docs/claude/2026-10-03-denoising-implementation). With fdr the trainer reports both on the "
+                        "docs/claude/2026-10-03-denoising-implementation; at r226 0.001-0.007 below it, missing most "
+                        "species of the shallowest samples, docs/claude/2026-10-03-r226-v5-v6-training). With fdr the "
+                        "trainer reports both on the "
                         "test set")
     p.add_argument("--previous-procedure", action=argparse.BooleanOptionalAction, default=False,
                    help="the trainer also compares with its previous procedure (random_forest_cmdline.py "
