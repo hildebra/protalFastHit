@@ -1,7 +1,9 @@
 // Unit tests for the database and input files protal reads: malformed files must stop with a clear
 // message (exit 8) instead of being half-read, and the index must know which reference it was built for.
 #include <gtest/gtest.h>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -301,13 +303,21 @@ namespace {
     struct BigTables {
         std::string fna, map, unique;
         size_t genes = 60000;
+        // interleaved: the lines gene-major (gene 1 of every genome, then gene 2, ...), so that a genome's rows are
+        // spread over the whole file and every chunk, as protal's tables never are. taxa, per_genome: the table's size.
         BigTables(ScratchDir const& dir, std::map<size_t, std::string> const& map_edits = {},
-                  std::map<size_t, std::string> const& unique_edits = {}) {
+                  std::map<size_t, std::string> const& unique_edits = {}, bool interleaved = false,
+                  int taxa = 600, int per_genome = 100) {
+            genes = static_cast<size_t>(taxa) * static_cast<size_t>(per_genome);
             std::string m, u;
             uint64_t position = 0;
             size_t line = 0;
-            for (int taxid = 1; taxid <= 600; taxid++) {
-                for (int gene = 1; gene <= 100; gene++, line++) {
+            m.reserve(genes * 36);
+            u.reserve(genes * 40);
+            for (size_t index = 0; index < genes; index++, line++) {
+                int const taxid = interleaved ? 1 + static_cast<int>(index % static_cast<size_t>(taxa)) : 1 + static_cast<int>(index / static_cast<size_t>(per_genome));
+                int const gene = interleaved ? 1 + static_cast<int>(index / static_cast<size_t>(taxa)) : 1 + static_cast<int>(index % static_cast<size_t>(per_genome));
+                {
                     uint64_t const length = 900 + (taxid * 7 + gene) % 300;
                     std::string map_line = std::to_string(taxid) + '\t' + std::to_string(gene) + '\t' + std::to_string(position) + '\t' + std::to_string(position + length);
                     std::string unique_line = std::to_string(taxid) + '\t' + std::to_string(gene) + '\t' + std::to_string(gene % 3) + "\t0.1\t" +
@@ -369,6 +379,71 @@ TEST(GeneTables, TheFirstProblemInTheFileIsReportedWithItsLine) {
     EXPECT_EXIT(LoadBig(unknown_gene, 8), testing::ExitedWithCode(8), "line 40001: gene 1_700 is not in reference.map");
     BigTables short_line(dir, {}, { { 59999, "1\t2" } });
     EXPECT_EXIT(LoadBig(short_line, 8), testing::ExitedWithCode(8), "line 60000: expected 9 tab-separated columns, found 2");
+}
+
+// The rows are added by genome, each genome's by one thread (gene_table::AddPieceByGenome). A table whose genomes
+// are spread over the file (gene-major order, which protal never writes) gives every genome a run in every chunk:
+// the same genes as on one thread, and a gene listed twice far from its genome's other rows is still caught.
+TEST(GeneTables, GenomesSpreadOverTheFileAreAddedOnceEach) {
+    ScratchDir dir;
+    BigTables tables(dir, {}, {}, true);
+    auto one = LoadBig(tables, 1);
+    auto eight = LoadBig(tables, 8);
+    EXPECT_EQ(one.GeneCount(), tables.genes);
+    EXPECT_EQ(eight.GeneCount(), tables.genes);
+    for (int taxid = 1; taxid <= 600; taxid += 7) {
+        for (int gene = 1; gene <= 100; gene += 9) {
+            ASSERT_EQ(eight.GeneLength(taxid, gene), one.GeneLength(taxid, gene));
+            ASSERT_EQ(eight.GetGenome(taxid).GetGene(gene).GetStartByte(), one.GetGenome(taxid).GetGene(gene).GetStartByte());
+            ASSERT_EQ(eight.GetGenome(taxid).GetGene(gene).GetUniqueKmerCounts(), one.GetGenome(taxid).GetGene(gene).GetUniqueKmerCounts());
+            ASSERT_EQ(eight.GetGenome(taxid).IsGeneHittable(gene), one.GetGenome(taxid).IsGeneHittable(gene));
+        }
+        ASSERT_EQ(eight.GetGenome(taxid).GetUniqueKmerCounts(), one.GetGenome(taxid).GetUniqueKmerCounts());
+    }
+    // Line 30001 (0-based 30000) is genome 1's gene 51; made a second gene 1_1, far from gene 1_1's own line.
+    BigTables duplicate(dir, { { 30000, "1\t1\t0\t10" } }, {}, true);
+    EXPECT_EXIT(LoadBig(duplicate, 8), testing::ExitedWithCode(8), "line 30001: gene 1_1 is listed twice");
+}
+
+// A bench, not a test: PROTAL_GENE_TABLE_TAXA=N loads tables of N genomes x 168 genes (GTDB r226: 143,614) on 1 and
+// 6 threads and prints the times (docs/claude/2026-10-04-performance-gtdb-scale).
+TEST(GeneTables, BenchLoadOfLargeTables) {
+    char const* taxa_env = std::getenv("PROTAL_GENE_TABLE_TAXA");
+    if (!taxa_env) GTEST_SKIP() << "set PROTAL_GENE_TABLE_TAXA to run";
+    int const taxa = std::atoi(taxa_env);
+    ScratchDir dir;
+    BigTables tables(dir, {}, {}, false, taxa, 168);
+    std::cout << tables.genes << " genes in " << std::filesystem::file_size(tables.map) / (1 << 20) << " MB (map) + "
+              << std::filesystem::file_size(tables.unique) / (1 << 20) << " MB (unique k-mers)" << std::endl;
+    for (int threads : { 1, 6 }) {
+        auto const start = std::chrono::steady_clock::now();
+        protal::GenomeLoader loader(protal::db::DbFile::OnDisk(tables.fna), protal::db::DbFile::OnDisk(tables.map), threads);
+        auto const mapped = std::chrono::steady_clock::now();
+        loader.LoadUniqueKmers(tables.unique, threads);
+        auto const done = std::chrono::steady_clock::now();
+        auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
+        std::cout << threads << " thread(s): reference.map " << ms(start, mapped) << " ms, unique_kmers.tsv " << ms(mapped, done)
+                  << " ms, " << loader.GeneCount() << " genes" << std::endl;
+        EXPECT_EQ(loader.GeneCount(), tables.genes);
+    }
+    // The tables as members of a single-file database (64 MB frames, as protal builds it): the path a run takes.
+    std::string error;
+    auto const bundle_path = (dir.path / "tables.protal").string();
+    ASSERT_TRUE(protal::db::Write(bundle_path, { { "reference.map", tables.map }, { "unique_kmers.tsv", tables.unique } },
+                                  protal::zstd::Params{ 3, 0, 6, uint64_t{64} << 20 }, error)) << error;
+    auto const bundle = protal::db::Bundle::Open(bundle_path, error);
+    ASSERT_TRUE(bundle) << error;
+    for (int threads : { 1, 6 }) {
+        auto const start = std::chrono::steady_clock::now();
+        protal::GenomeLoader loader(protal::db::DbFile::OnDisk(tables.fna), protal::db::DbFile::InBundle(*bundle, "reference.map"), threads);
+        auto const mapped = std::chrono::steady_clock::now();
+        loader.LoadUniqueKmers(protal::db::DbFile::InBundle(*bundle, "unique_kmers.tsv"), threads);
+        auto const done = std::chrono::steady_clock::now();
+        auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
+        std::cout << threads << " thread(s), bundle members: reference.map " << ms(start, mapped) << " ms, unique_kmers.tsv "
+                  << ms(mapped, done) << " ms" << std::endl;
+        EXPECT_EQ(loader.GeneCount(), tables.genes);
+    }
 }
 
 TEST(ModelFeatures, NormalizedFeaturesOfATaxon) {

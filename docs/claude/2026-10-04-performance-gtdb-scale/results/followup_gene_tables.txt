@@ -1,0 +1,25 @@
+# The gene tables' load (GeneTables.BenchLoadOfLargeTables, PROTAL_GENE_TABLE_TAXA=30000: 5.04M rows per table, a fifth of r226),
+# WSL 6 vCPUs: HEAD c76e838 (rows added on one thread, members decompressed on one thread) against this work (rows added per
+# genome in parallel, compressed members decompressed on all threads). Raw files on disk, and the same tables as members of a
+# single-file database with 64 MB frames (the path a run takes).
+OK build
+[  SKIPPED ] GeneTables.BenchLoadOfLargeTables (0 ms)
+[  PASSED  ] 10 tests.
+[  SKIPPED ] 1 test, listed below:
+[  SKIPPED ] GeneTables.BenchLoadOfLargeTables
+== bench on the working tree (parallel adds), 30000 taxa x 168 genes
+5040000 genes in 146 MB (map) + 151 MB (unique k-mers)
+1 thread(s): reference.map 511 ms, unique_kmers.tsv 726 ms, 5040000 genes
+6 thread(s): reference.map 210 ms, unique_kmers.tsv 211 ms, 5040000 genes
+1 thread(s), bundle members: reference.map 524 ms, unique_kmers.tsv 743 ms
+6 thread(s), bundle members: reference.map 207 ms, unique_kmers.tsv 210 ms
+[  PASSED  ] 1 test.
+=== HEAD
+OK head tests
+== bench on HEAD (serial adds), 30000 taxa x 168 genes
+5040000 genes in 146 MB (map) + 151 MB (unique k-mers)
+1 thread(s): reference.map 484 ms, unique_kmers.tsv 664 ms, 5040000 genes
+6 thread(s): reference.map 215 ms, unique_kmers.tsv 281 ms, 5040000 genes
+1 thread(s), bundle members: reference.map 505 ms, unique_kmers.tsv 672 ms
+6 thread(s), bundle members: reference.map 343 ms, unique_kmers.tsv 366 ms
+[  PASSED  ] 1 test.

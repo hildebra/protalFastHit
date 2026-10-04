@@ -449,6 +449,35 @@ SAMs hold the same records.
    alignments and profiles but for item 4a's one HiFi read, on 32 of the node's 84 cores. The alignment stage kept all
    its threads busy in every run, so 84 threads would shorten it further; the fixed costs would not move.
 
+### The gene tables loaded in parallel (`scripts/gene_table_check.sh`, `build_head_tests.sh`; `results/followup_gene_tables.txt`)
+
+`reference.map` and `unique_kmers.tsv` (24M rows each at r226 size) were parsed in parallel chunks but their rows
+were added to the genomes on one thread, and a database member was decompressed on one thread: 6.0 s per run on the
+cluster. Two changes, outputs unchanged (the same genes, lengths, offsets and unique counts; the 10 gene-table tests
+pass, with a new one whose genomes are spread over the whole file):
+
+- `gene_table::AddPieceByGenome`: a piece's rows grouped by genome (a genome's rows are contiguous in protal's tables,
+  so a group is a run, or one per chunk where a chunk cuts it; a table that lists a genome in several places still
+  gives one group), the genomes made on the main thread, then each genome's rows added by one thread; the earliest
+  problem by line is the one reported, as before (test `TheFirstProblemInTheFileIsReportedWithItsLine`).
+- A compressed table (a database member or a `.zst` file) with several threads is decompressed into memory on all of
+  them (`zstd::ParallelRead`, the reader the genome preload uses) and parsed from there; a raw file keeps streaming,
+  which from the page cache is faster than a copy.
+
+The bench (`GeneTables.BenchLoadOfLargeTables`, `PROTAL_GENE_TABLE_TAXA=30000`: 5.04M rows per table, a fifth of r226,
+on this laptop's six vCPUs):
+
+| both tables, 6 threads | `c76e838` | now |
+|---|---|---|
+| members of a single-file database (64 MB frames), the path a run takes | 709 ms | **417 ms** (−41%) |
+| raw files on disk | 496 ms | 421 ms |
+| one thread (either way) | 1.15-1.18 s | 1.24-1.27 s |
+
+What is left at six threads is the parallel parse and adds at about 40 ns per row, and the serial grouping of the
+rows (a few ns per row). On the cluster's 32 threads the 6.0 s should become 1-2 s; the next run tells. **A binary
+table is not needed for that**: the parse it would save is parallel now, the members are 150 MB compressed, and a
+new member kind would touch the build, the packer and `--unpack_db` for perhaps half a second more.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):

@@ -19,6 +19,8 @@
 #include <sparse_map.h>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <utility>
 #include <fstream>
 #include <err.h>
 #include <KmerUtils.h>
@@ -135,25 +137,75 @@ namespace protal {
             });
         }
 
-        // Reads a gene table in pieces, parses each in parallel (ParsePiece) and hands its chunks, in
-        // file order, to add(chunk, lines before the chunk). Returns an error message if the file
-        // cannot be read or decompressed, else empty.
-        template<typename Row, typename Parse, typename Add>
-        std::string ForEachChunk(db::DbFile const& file, int threads, Parse&& parse, Add&& add) {
-            auto input = file.Open();
-            if (!file.Exists() || !input->IsOpen()) return "cannot open the file";
-            std::istream& is = input->Stream();
-            std::string buffer;
+        // Reads a gene table in pieces, parses each in parallel (ParsePiece) and hands each piece's chunks, with the
+        // lines before each chunk, to add_piece(chunks, line_bases). Returns an error message if the file cannot be
+        // read or decompressed, else empty.
+        // The whole content of a table, read and decompressed on `threads` threads (zstd::ParallelRead: a seekable zstd
+        // member frame by frame, a raw file in chunks), for ForEachPiece. The sequential reader decompressed a 1 GB table
+        // on one thread, which with the parsing and the adds parallel was most of the load at GTDB r226 size.
+        class TableSink : public zstd::Sink {
+        public:
+            explicit TableSink(uint64_t size) : m_text(new char[size]), m_size(size) {}  // not zeroed: every byte is written
+            char* Direct(uint64_t offset, size_t size) override {
+                return offset + size <= m_size ? m_text.get() + offset : nullptr;
+            }
+            void Copy(uint64_t offset, char const* data, size_t size) override {
+                if (offset + size > m_size) return;  // more than the member says it holds: ParallelRead reports the size read
+                std::memcpy(m_text.get() + offset, data, size);
+            }
+            std::string_view Text(uint64_t read) const { return { m_text.get(), static_cast<size_t>(std::min<uint64_t>(read, m_size)) }; }
+        private:
+            std::unique_ptr<char[]> m_text;
+            uint64_t m_size;
+        };
+
+        template<typename Row, typename Parse, typename AddPiece>
+        std::string ForEachPiece(db::DbFile const& file, int threads, Parse&& parse, AddPiece&& add_piece) {
+            std::vector<size_t> line_bases;
+            if (!file.Exists()) return "cannot open the file";
             std::vector<Chunk<Row>> chunks;
-            size_t kept = 0;         // bytes of an unfinished last line carried over to the next piece
             size_t line_base = 0;    // lines before this piece
+            auto handle = [&](std::string_view piece_text) {
+                ParsePiece<Row>(piece_text, threads, parse, chunks);
+                line_bases.resize(chunks.size());
+                for (size_t c = 0; c < chunks.size(); c++) {
+                    line_bases[c] = line_base;
+                    line_base += chunks[c].lines;
+                }
+                add_piece(chunks, line_bases);
+            };
+            // A compressed table (a database member, a .zst file) with several threads: decompressed into memory on all
+            // of them (TableSink), then parsed from there in pieces of whole lines. A raw file streams from the page cache
+            // faster than it copies, and one thread has nothing to parallelise: those stream below.
+            if (auto const size = file.Size(); size && threads > 1 && file.Compressed()) {
+                TableSink sink(*size);
+                std::string error;
+                uint64_t const read = file.ParallelRead(threads, sink, error);
+                if (!error.empty()) return "the file cannot be read or decompressed (" + error + ")";
+                std::string_view const text = sink.Text(read);
+                for (size_t pos = 0; pos < text.size();) {
+                    size_t cut = text.size();
+                    if (text.size() - pos > kPieceBytes) {
+                        size_t const newline = text.find('\n', pos + kPieceBytes - 1);  // the first line end at or past the piece's
+                        cut = newline == std::string_view::npos ? text.size() : newline + 1;
+                    }
+                    handle(text.substr(pos, cut - pos));
+                    pos = cut;
+                }
+                return {};
+            }
+            auto input = file.Open();
+            if (!input->IsOpen()) return "cannot open the file";
+            std::istream* is = &input->Stream();
+            std::string buffer;
+            size_t kept = 0;         // bytes of an unfinished last line carried over to the next piece
             size_t piece = kPieceBytes;
             bool end = false;
             while (!end) {
                 buffer.resize(kept + piece);
-                is.read(buffer.data() + kept, static_cast<std::streamsize>(piece));
-                size_t const got = static_cast<size_t>(is.gcount());
-                if (is.bad()) return "the file cannot be read or decompressed (truncated or corrupt file?)";
+                is->read(buffer.data() + kept, static_cast<std::streamsize>(piece));
+                size_t const got = static_cast<size_t>(is->gcount());
+                if (is->bad()) return "the file cannot be read or decompressed (truncated or corrupt file?)";
                 end = got < piece;
                 size_t const size = kept + got;
                 // Whole lines only, but for the end of the file.
@@ -167,16 +219,76 @@ namespace protal {
                     }
                     cut = newline + 1;
                 }
-                ParsePiece<Row>(std::string_view(buffer.data(), cut), threads, parse, chunks);
-                for (auto const& chunk : chunks) {
-                    add(chunk, line_base);
-                    line_base += chunk.lines;
-                }
+                handle(std::string_view(buffer.data(), cut));
                 std::memmove(buffer.data(), buffer.data() + cut, size - cut);
                 kept = size - cut;
                 piece = kPieceBytes;
             }
             return {};
+        }
+
+        // As ForEachPiece, with each chunk handed in file order to add(chunk, lines before the chunk).
+        template<typename Row, typename Parse, typename Add>
+        std::string ForEachChunk(db::DbFile const& file, int threads, Parse&& parse, Add&& add) {
+            return ForEachPiece<Row>(file, threads, parse, [&](std::vector<Chunk<Row>> const& chunks, std::vector<size_t> const& line_bases) {
+                for (size_t c = 0; c < chunks.size(); c++) add(chunks[c], line_bases[c]);
+            });
+        }
+
+        // A piece's rows added by genome, each genome's rows by one thread: a genome's rows are contiguous in
+        // protal's tables, so they form one run per chunk they lie in (a table that lists a genome in several
+        // places gives it several runs; all of a genome's runs go to the one thread, in file order). Adding the
+        // rows one by one on one thread took 6 s per run at GTDB r226 size, 24M rows per table
+        // (docs/claude/2026-10-04-performance-gtdb-scale). prepare(taxid) is called on this thread for each
+        // distinct genome of the piece before the rows are added, in file order (the genome map is changed there,
+        // never in parallel); add(taxid, row) on any thread returns a problem with the row (empty: none). Returns
+        // the earliest problem by line, a row's or a chunk's parse problem, with its line in the file (0: none),
+        // as adding line by line would have met it first.
+        template<typename Row, typename Prepare, typename Add>
+        std::pair<size_t, std::string> AddPieceByGenome(std::vector<Chunk<Row>> const& chunks, std::vector<size_t> const& line_bases,
+                                                        int threads, Prepare&& prepare, Add&& add) {
+            struct Run { size_t chunk, begin, end; };
+            std::vector<std::vector<Run>> groups;
+            std::vector<uint64_t> group_taxid;
+            std::unordered_map<uint64_t, size_t> group_of;
+            for (size_t c = 0; c < chunks.size(); c++) {
+                auto const& rows = chunks[c].rows;
+                for (size_t i = 0; i < rows.size();) {
+                    size_t j = i + 1;
+                    while (j < rows.size() && rows[j].taxid == rows[i].taxid) j++;
+                    auto const [it, made] = group_of.try_emplace(rows[i].taxid, groups.size());
+                    if (made) {
+                        groups.emplace_back();
+                        group_taxid.push_back(rows[i].taxid);
+                        prepare(rows[i].taxid);
+                    }
+                    groups[it->second].push_back({ c, i, j });
+                    i = j;
+                }
+            }
+            std::vector<std::pair<size_t, std::string>> problems(groups.size());  // per genome: its first problem's line
+            zstd::ParallelFor(groups.size(), threads, [&](size_t g, size_t) -> std::string {
+                for (auto const& run : groups[g]) {
+                    auto const& chunk = chunks[run.chunk];
+                    for (size_t i = run.begin; i < run.end; i++) {
+                        std::string problem = add(group_taxid[g], chunk.rows[i]);
+                        if (!problem.empty()) {
+                            problems[g] = { line_bases[run.chunk] + chunk.rows[i].line, std::move(problem) };
+                            return {};
+                        }
+                    }
+                }
+                return {};
+            });
+            std::pair<size_t, std::string> first{ 0, {} };
+            auto consider = [&first](size_t line, std::string const& problem) {
+                if (line > 0 && (first.first == 0 || line < first.first)) first = { line, problem };
+            };
+            for (auto const& [line, problem] : problems) consider(line, problem);
+            for (size_t c = 0; c < chunks.size(); c++) {
+                if (!chunks[c].problem.empty()) consider(line_bases[c] + chunks[c].problem_line, chunks[c].problem);
+            }
+            return first;
         }
     }
 
@@ -727,21 +839,25 @@ namespace protal {
                 return true;
             };
             size_t rows = 0;
-            auto add = [&](gene_table::Chunk<Row> const& chunk, size_t line_base) {
-                rows += chunk.rows.size();
-                for (auto const& row : chunk.rows) {
-                    auto it = m_genomes.find(row.taxid);
-                    if (it == m_genomes.end() || !it->second.HasGene(row.geneid)) {
-                        InvalidUniqueKmers(file, line_base + row.line, "gene " + std::to_string(row.taxid) + "_" + std::to_string(row.geneid) +
-                                                                       " is not in reference.map (rebuild the database with --build)");
-                    }
-                    auto& taxon = it.value();
-                    if (row.short_unique + row.long_unique > 0) taxon.AddHittableGene(row.geneid);
-                    taxon.GetGene(row.geneid).SetUniqueValues(row.short_unique, row.long_unique, row.long_super_unique, row.total);
-                }
-                if (!chunk.problem.empty()) InvalidUniqueKmers(file, line_base + chunk.problem_line, chunk.problem);
+            // Each genome's rows by one thread (gene_table::AddPieceByGenome); the genome map is only read.
+            auto add_piece = [&](std::vector<gene_table::Chunk<Row>> const& chunks, std::vector<size_t> const& line_bases) {
+                for (auto const& chunk : chunks) rows += chunk.rows.size();
+                auto const [line, problem] = gene_table::AddPieceByGenome<Row>(chunks, line_bases, threads,
+                    [](uint64_t) {},
+                    [&](uint64_t taxid, Row const& row) -> std::string {
+                        auto it = m_genomes.find(taxid);
+                        if (it == m_genomes.end() || !it.value().HasGene(row.geneid)) {
+                            return "gene " + std::to_string(row.taxid) + "_" + std::to_string(row.geneid) +
+                                   " is not in reference.map (rebuild the database with --build)";
+                        }
+                        auto& taxon = it.value();
+                        if (row.short_unique + row.long_unique > 0) taxon.AddHittableGene(row.geneid);
+                        taxon.GetGene(row.geneid).SetUniqueValues(row.short_unique, row.long_unique, row.long_super_unique, row.total);
+                        return {};
+                    });
+                if (line > 0) InvalidUniqueKmers(file, line, problem);
             };
-            std::string const error = gene_table::ForEachChunk<Row>(unique_kmers, threads, parse, add);
+            std::string const error = gene_table::ForEachPiece<Row>(unique_kmers, threads, parse, add_piece);
             if (!error.empty()) InvalidUniqueKmers(file, 0, error);
             // Without rows every taxon would fail the model silently.
             if (rows == 0) InvalidUniqueKmers(file, 0, "the file lists no genes (rebuild the database with --build)");
@@ -1000,18 +1116,21 @@ namespace protal {
                 return true;
             };
             size_t rows = 0;
-            auto add = [&](gene_table::Chunk<Row> const& chunk, size_t line_base) {
-                rows += chunk.rows.size();
-                for (auto const& row : chunk.rows) {
-                    auto& genome = AddOrGetGenome(row.taxid);
-                    if (genome.HasGene(row.geneid)) {
-                        InvalidMap(file_path, line_base + row.line, "gene " + std::to_string(row.taxid) + "_" + std::to_string(row.geneid) + " is listed twice");
-                    }
-                    genome.AddGene(row.geneid, row.geneid, row.start, row.end - row.start, m_compressed ? nullptr : &m_is);
-                }
-                if (!chunk.problem.empty()) InvalidMap(file_path, line_base + chunk.problem_line, chunk.problem);
+            // The genomes of a piece are made first, on this thread; then each genome's genes are added by one thread
+            // (gene_table::AddPieceByGenome; the genome map is only read in parallel, and a genome's gene list is its own).
+            auto add_piece = [&](std::vector<gene_table::Chunk<Row>> const& chunks, std::vector<size_t> const& line_bases) {
+                for (auto const& chunk : chunks) rows += chunk.rows.size();
+                auto const [line, problem] = gene_table::AddPieceByGenome<Row>(chunks, line_bases, threads,
+                    [&](uint64_t taxid) { AddOrGetGenome(taxid); },
+                    [&](uint64_t taxid, Row const& row) -> std::string {
+                        auto& genome = m_genomes.find(taxid).value();
+                        if (genome.HasGene(row.geneid)) return "gene " + std::to_string(row.taxid) + "_" + std::to_string(row.geneid) + " is listed twice";
+                        genome.AddGene(row.geneid, row.geneid, row.start, row.end - row.start, m_compressed ? nullptr : &m_is);
+                        return {};
+                    });
+                if (line > 0) InvalidMap(file_path, line, problem);
             };
-            std::string const error = gene_table::ForEachChunk<Row>(map, threads, parse, add);
+            std::string const error = gene_table::ForEachPiece<Row>(map, threads, parse, add_piece);
             if (!error.empty()) InvalidMap(file_path, 0, error);
             if (rows == 0) InvalidMap(file_path, 0, "the file lists no genes");
         }
