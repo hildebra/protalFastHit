@@ -405,6 +405,50 @@ profiling stage; the next `measure_performance.sh` run shows how much.
   "Run protal took" by an object destroyed after the database (`TeardownTimer`). Locally these are 0.1, 0.13 and
   0.005 s; the next cluster run says how the ~8 s of start-up at r226 size divide.
 
+## The third cluster run: `7693f28` (the SAM-read fix, the statistics flag, the start-up timers)
+
+SLURM job 23941225 on `q512n10`, 2026-10-04 21:42, 32 threads, three runs per sample, page cache warm. Files in
+[`results_v3/`](results_v3/).
+
+| | pe1 first run | pe1 second | pe1 third | pb2 first | pb2 second | pb2 third |
+|---|---|---|---|---|---|---|
+| wall (median) | 131.5 s | 106.7 s | **60.9 s** | 103.7 s | 31.9 s | **27.5 s** |
+| user CPU | 2,236 s | 1,485 s | 1,419 s | 2,775 s | 489 s | 486 s |
+| aligning | 61.9 s | 38.7 s | 38.3 s | 83.7 s | 11.8 s | 11.8 s |
+| profiling | 36.0 s | 36.3 s | **6.4 s** | 3.4 s | 3.4 s | **0.5 s** |
+| – reading the SAM | – | 33.8 s | 4.2 s | – | 3.2 s | 0.3 s |
+| taxon statistics files | – | 14.9 s | 0 (off) | – | 1.6 s | 0 (off) |
+| loading the gene tables | – | – | 6.0 s | – | – | 6.1 s |
+| taxonomy, models and tables | – | – | 1.4 s | – | – | 1.3 s |
+| preload genomes + index load | 6.4 s | 6.4 s | 6.4 s | 6.4 s | 6.4 s | 6.4 s |
+| freeing memory | – | – | 0.16 s | – | – | 0.14 s |
+| untimed | 22-26 s | 8.6 s | **0.7 s** | 9 s | 7.5 s | **0.2 s** |
+
+The counts are identical to the second run's, as they must be (nothing in this commit touches the alignment), and the
+SAMs hold the same records.
+
+1. **The profiling stage went from 36.3 to 6.4 s** on the paired-end sample, the SAM reading from 33.8 to 4.2 s: the
+   dense counting of failed candidates did at scale what it did on the synthetic SAM. What is left of the stage is the
+   reading at 4.2 s (47M records on 32 threads, now in line with the local scaling), the record evidence 1.6 s (the EM
+   1.2 s) and the writing 0.5 s. The HiFi stage is 0.5 s.
+2. **Every second of a run is now timed.** The start-up divides into loading the gene tables 6.0 s, the genome
+   preload 3.2 s, the index 3.2 s, and the taxonomy, models and tables 1.4 s: 13.8 s of fixed cost per run, which is
+   half of the 27.5 s HiFi run and a quarter of the paired-end one. Freeing the memory takes 0.15 s, so the teardown
+   is not it, and nothing is left untimed (0.2-0.7 s).
+3. **The gene tables are the one surprise: 6 s.** `GenomeLoader::LoadPositionMap` and `LoadUniqueKmers` parse
+   `reference.map` and `unique_kmers.tsv` (24M lines each at r226 size) in parallel chunks, but add the rows to the
+   genomes in file order on one thread: per row a genome lookup, a duplicate check and a gene insertion, twice over.
+   Adding per genome in parallel (the rows of a genome are contiguous in the file), or a binary table of the genes in
+   the database file, would bring this to about a second. That is the next start-up item; the other 7.8 s are the
+   loads of the sequences and the index, already parallel.
+4. **Where the paired-end run's 61 s go now**: aligning 38.3 s (63%: seeding 20.6 s per thread, extending anchors
+   3.6, sorting seeds 3.2, the alignment handler 3.9, output 1.8, reader 1.0), the fixed costs 13.8 s (23%), profiling
+   6.4 s (11%), the SAM header 1.2 s. The seeding is the lever that is left for throughput; the gene tables for the
+   fixed costs. The HiFi run at 27.5 s is half fixed costs, and the rest is its 11.8 s of aligning.
+5. **Over the day**: the paired-end run from 131 to 61 s (−54%), the HiFi run from 104 to 27 s (−74%), with the same
+   alignments and profiles but for item 4a's one HiFi read, on 32 of the node's 84 cores. The alignment stage kept all
+   its threads busy in every run, so 84 threads would shorten it further; the fixed costs would not move.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):
