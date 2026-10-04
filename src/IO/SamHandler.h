@@ -389,6 +389,15 @@ namespace protal {
         sam.m_failed = sam_detail::StringTag(tokens, "ZF").value_or(std::string_view());
     }
 
+    // Failed candidates counted per taxon in a vector indexed by the taxon (grown as needed): on a GTDB-sized database a
+    // chunk of records names tens of thousands of distinct taxa, and a hash map per chunk, merged chunk by chunk, cost more
+    // than the parsing (docs/claude/2026-10-04-performance-gtdb-scale). Protal's taxids are dense internal ids.
+    using FailedCandidateCounts = std::vector<uint32_t>;
+    inline void CountFailedCandidate(FailedCandidateCounts& counts, uint32_t taxid) {
+        if (taxid >= counts.size()) counts.resize(std::max<size_t>(taxid + 1, counts.size() * 2));
+        counts[taxid]++;
+    }
+
     // Calls on_taxid(taxid) for each entry of a ZF tag ("12,40"; empty or "*": none).
     template<typename F>
     inline void ForEachFailedCandidate(std::string const& tag, F&& on_taxid) {
@@ -437,7 +446,7 @@ namespace protal {
         size_t m_primary_records = 0;  // not secondary (0x100)
         size_t m_primary_without_alternatives = 0;  // of those, without a ZA tag
         std::map<std::string, size_t> m_skipped;
-        std::unordered_map<uint32_t, size_t> m_failed_candidates;  // per taxon, the unmapped records' ZF entries (reads that
+        FailedCandidateCounts m_failed_candidates;  // per taxon, the unmapped records' ZF entries (reads that
                                                                    // seeded on the taxon and aligned nowhere)
         std::function<void(std::string const&)> m_on_header;  // sees every header line
 
@@ -477,7 +486,7 @@ namespace protal {
                     m_skipped[reason]++;
                     // An unmapped record protal wrote for a read that seeded on taxa but aligned nowhere carries them.
                     if (!sam.m_failed.empty() && (Flag::IsUnmapped(sam.m_flag) || sam.m_rname == "*")) {
-                        ForEachFailedCandidate(sam.m_failed, [this](uint32_t taxid) { m_failed_candidates[taxid]++; });
+                        ForEachFailedCandidate(sam.m_failed, [this](uint32_t taxid) { CountFailedCandidate(m_failed_candidates, taxid); });
                     }
                     continue;
                 }
@@ -541,7 +550,7 @@ namespace protal {
         size_t PrimaryRecordsWithoutAlternatives() const { return m_primary_without_alternatives; }
         std::map<std::string, size_t> const& Skipped() const { return m_skipped; }
         // Per taxon, the reads whose unmapped record names it as a failed candidate (ZF).
-        std::unordered_map<uint32_t, size_t> const& FailedCandidates() const { return m_failed_candidates; }
+        FailedCandidateCounts const& FailedCandidates() const { return m_failed_candidates; }
     };
 
     // The reads a SAM stream holds: the kind its header names (kSamReadTypeComment, as protal writes it),

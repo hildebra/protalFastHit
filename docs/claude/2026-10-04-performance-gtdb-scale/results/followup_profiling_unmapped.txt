@@ -1,0 +1,35 @@
+# The profiling stage's SAM reading with 45M unmapped records (WSL, V073 database, --profile_only, binary 50ecb4b + label fix):
+# the deep sample's SAM (4.66M records, 393k unmapped) plain and as protal's .sam.zst; the same with 45M synthetic unmapped records
+# appended, their ZF tags naming 1-4 taxids of 1..760 (big) or 1-8 taxids of 1..140000 (big2, as a GTDB run's).
+-rw-r--r-- 1 falk falk 5717022187 Oct  4 20:41 /home/falk/perf-gtdb/unmapped/big.sam
+5717022187 /home/falk/perf-gtdb/unmapped/big.sam
+972483860 /home/falk/perf-gtdb/unmapped/big.sam.zst
+1751625963 /home/falk/perf-gtdb/unmapped/deep.sam
+deep .sam.zst (protal's) (t=6): 6.07 s wall, 18.05 s user; Profiling sample s took 5.0s: reading the SAM 3.6s, record evidence and sample context 0.9s, read EM 0.6s, congener distances 0.2s, SNP post-processing 0.3s, scoring 0.2s, writing the profile 0.1s
+deep plain .sam (t=6): 5.92 s wall, 17.11 s user; Profiling sample s took 4.9s: reading the SAM 3.5s, record evidence and sample context 0.9s, read EM 0.6s, congener distances 0.2s, SNP post-processing 0.3s, scoring 0.2s, writing the profile 0.1s
+big plain .sam, 45M unmapped (t=6): 8.98 s wall, 29.44 s user; Profiling sample s took 8.0s: reading the SAM 6.7s, record evidence and sample context 0.9s, read EM 0.6s, congener distances 0.2s, SNP post-processing 0.2s, scoring 0.1s, writing the profile 0.1s
+big .sam.zst (zstd -T6, one stream) (t=6): 10.02 s wall, 34.56 s user; Profiling sample s took 9.1s: reading the SAM 7.6s, record evidence and sample context 0.9s, read EM 0.6s, congener distances 0.2s, SNP post-processing 0.2s, scoring 0.1s, writing the profile 0.1s
+big plain .sam (t=1): 22.75 s wall, 21.73 s user; Profiling sample s took 21.7s: reading the SAM 18.1s, record evidence and sample context 1.9s, read EM 0.6s, congener distances 1.1s, SNP post-processing 0.6s, scoring 0.0s, writing the profile 1.2s
+
+
+big plain .sam (t=1): 22.75 s wall, 21.73 s user; Profiling sample s took 21.7s: reading the SAM 18.1s, record evidence and sample context 1.9s, read EM 0.6s, congener distances 1.1s, SNP post-process
+6539768189 /home/falk/perf-gtdb/unmapped/big2.sam
+big2 plain .sam, 45M unmapped, ZF over 140k taxids (t=6): 53.03 s wall, 119.51 s user; Profiling sample s took 52.0s: reading the SAM 50.5s, record evidence and sample context 1.0s, read EM 0.7s, congener di
+big plain .sam, 45M unmapped, ZF over 760 taxids (t=6): 14.23 s wall, 34.56 s user; Profiling sample s took 13.2s: reading the SAM 11.6s, record evidence and sample context 1.0s, read EM 0.7s, congener di
+big2 plain .sam (t=1): 25.36 s wall, 24.72 s user; Profiling sample s took 24.4s: reading the SAM 21.2s, record evidence and sample context 1.9s, read EM 0.7s, congener di
+
+
+## The fix: failed candidates counted densely (vectors by taxid) and folded into the records once; head = 50ecb4b
+# (first attempt, a light hash map per chunk, still merged chunk by chunk: big2 at 6 threads 41.0 s, at 1 thread 38.3 s; this machine was loaded then)
+OK build
+[  PASSED  ] 28 tests.
+deep .sam.zst head (t=6): 8.13 s wall, 25.41 s user; 
+deep .sam.zst work (t=6): 6.76 s wall, 20.72 s user; Profiling sample s took 5.7s: reading the SAM 4.1s, record evidence and sample context 1.0s, read EM 0.7s, con
+    deep profile outputs identical (head vs work, 6 threads)
+deep .sam.zst work (t=1): 13.55 s wall, 12.83 s user; Profiling sample s took 12.6s: reading the SAM 9.4s, record evidence and sample context 1.8s, read EM 0.6s, co
+    deep profile outputs identical (6 vs 1 thread)
+big2 head (t=6): 56.75 s wall, 124.24 s user; 
+big2 work (t=6): 11.70 s wall, 38.76 s user; Profiling sample s took 10.5s: reading the SAM 8.5s, record evidence and sample context 1.3s, read EM 0.9s, co
+    big2 profile outputs identical (head vs work)
+big2 work (t=1): 23.20 s wall, 22.76 s user; Profiling sample s took 22.2s: reading the SAM 18.6s, record evidence and sample context 1.9s, read EM 0.7s, c
+big work (t=6): 20.11 s wall, 27.99 s user; Profiling sample s took 19.1s: reading the SAM 17.6s, record evidence and sample context 1.0s, read EM 0.6s, c

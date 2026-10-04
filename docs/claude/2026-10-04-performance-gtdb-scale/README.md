@@ -288,6 +288,108 @@ compared, and the 500k-pair sample at one thread to show short reads untouched.
   distribution; the option is there for that run (`build_gtdb_database.py` would pass it through `PROTAL_ARGS`-style
   settings, not done here).
 
+## The second cluster run: `50ecb4b` (items 1-4) on the same node, database and samples
+
+SLURM job 23937247 on `q512n10`, 2026-10-04 20:13, 32 threads, three runs per sample as before; the database and the
+reads were in the page cache from the first run (no cold load). Files in [`results_v2/`](results_v2/).
+
+| | pe1 before | pe1 now | pb2 before | pb2 now |
+|---|---|---|---|---|
+| wall (median) | 131.5 s | **106.7 s** (−19%) | 103.7 s | **31.9 s** (−69%) |
+| user CPU | 2,236 s | 1,485 s (−34%) | 2,775 s | 489 s (−82%) |
+| instructions | 26.0 T | 12.6 T (−51%) | 39.3 T | 4.80 T (−88%) |
+| IPC / cache misses | 3.17 / 26.0 G | 2.31 / 25.9 G | 3.85 / 74.7 G | 2.67 / 8.5 G |
+| aligning | 61.9 s | 38.7 s (−37%) | 83.7 s | 11.8 s (−86%) |
+| – alignment handler per thread | 27.2 s | 3.9 s (−86%) | 83.1 s | 11.4 s (−86%) |
+| – seeding per thread (share of aligning) | 20.8 s (34%) | 20.6 s (53%) | 4.5 s (5%) | 4.5 s (38%) |
+| profiling | 36.0 s | 36.3 s | 3.4 s | 3.4 s |
+| – reading the SAM | – | 33.8 s (94%) | – | 3.2 s |
+| taxon statistics files (newly timed) | – | 14.9 s | – | 1.6 s |
+| untimed (Run protal minus the stages) | 22-26 s | 8.6 s | 9 s | 7.5 s |
+| max RSS | 38.0 GB | 38.1 GB | 38.0 GB | 38.0 GB |
+
+The counts line (`runs.tsv`):
+
+| | pe1 | pb2 |
+|---|---|---|
+| reads | 50,607,792 pairs | 497,656 |
+| with an anchor | 79,531,387 mates (of 101.2M) | 497,655 reads |
+| candidate alignments tried | 175,963,654 | 9,679,514 |
+| refused by the k-mer screen | 159,137,128 (**90.4%**) | 9,254,056 (**95.6%**) |
+| WFA2 ran, from the anchor / whole window | 16,764,300 / 62,226 | 424,449 / 1,009 |
+| alignments made (within the ANI floor) | 10,114,232 | 268,742 |
+| records written | 2,221,613 | 103,394 |
+| unmapped records (fragments that failed everywhere) | 44,884,669 (as before) | 430,086 (430,087 before) |
+
+What this says:
+
+1. **The screen was the right lever, and it is exact at scale.** Nine in ten short-read candidates and 96 of 100
+   long-read candidates on these real samples cannot reach 90% identity, and the screen refuses them for a pass over
+   the read and the window. The alignment handler's time fell by 86% for both read types; per read pair the
+   alignment stage now costs 24 µs of CPU (39 before), per HiFi read 0.76 ms (5.4 ms). The outputs are the same by
+   construction, and the run bears it out: the paired-end run writes the same 44,884,669 unmapped records, the same
+   233,255 one-sure-mate fragments and the same 66,966 cross-gene pairs as before. The HiFi run differs in one read
+   (430,086 unmapped records against 430,087) and two settled gene hits (31,260 against 31,258): item 4a's placing of
+   the window's right end, which gave one read an alignment it had lost to a whole-window alignment. Instructions per
+   run fell by half and by 88%; the IPC fell with them, since what is left is the memory-bound seeding.
+2. **The paired-end run is now bound by two things the screen does not touch: the SAM reading in profiling (33.8 s,
+   94% of the stage, 32% of the run) and the seeding (20.6 of 38.7 s per thread of aligning, 53%).** The HiFi run
+   has become short enough that its fixed costs are half of it: index load 3.2 s, genome preload 3.2 s, start-up ~7.5 s,
+   taxon statistics files 1.6 s, profiling 3.4 s, against 11.8 s of aligning.
+3. **The profiling stage's split answers item 3's question: it is the SAM reading, 33.8 of 36.3 s**, with the read EM
+   at 1.3 s and everything else under 0.3 s. The SAM holds 47.1M records, 95% of them the unmapped records of
+   fragments that failed everywhere (each with its `ZF` tag of failed taxa, the evidence the profiler counts per
+   taxon). `ProfileSamParallel` reads and cuts the stream on one thread, parses the chunks on all 32 and adds the
+   records per taxon in parallel; 190 MB/s of SAM text through a pipeline with that much parallelism points at the
+   single reading thread or at what is serial per wave. The experiment below locates it.
+4. **The per-taxon statistics files cost 14.9 s on the paired-end run (14% of it)**, one `misc/<taxon>.statistics.tsv`
+   per taxon with reads, written after profiling: thousands of small files on NFS. They were most of the untimed
+   time of the first run. One table instead of a file per taxon (an output-format change, so a website update), or
+   writing them only for the taxa the profile reports, removes almost all of it. The untimed rest, 7.5-8.6 s, is the
+   start-up (taxonomy, priors, neighbours, suspect copies, conservation, model) and the teardown, now worth its own
+   timers (item 6).
+5. **The next levers, in order**: the SAM reading of profiling (−30 s of 107, once located), the taxon statistics
+   files (−14 s), the seeding at GTDB scale (item 5: 53% of aligning; the k-mer lookups into the 27 GB index), the
+   start-up (item 6), and for HiFi runs the fixed costs. `--long_read_budget` is not needed for this sample: after the
+   screen the long-read alignment is 11.8 s of a 32 s run.
+
+### The SAM reading, located and fixed (`scripts/unmapped.sh`, `unmapped2.sh`, `verify_fold.sh`; `results/followup_profiling_unmapped.txt`)
+
+The cluster's paired-end SAM has 47.1M records, 95% of them unmapped records with `ZF` tags naming the taxa the
+fragment seeded on and failed against. In WSL, the deep sample's SAM (4.66M records, 393k unmapped) with 45M synthetic
+unmapped records appended, `--profile_only` at six threads:
+
+| SAM | records | failed taxa named per record | reading the SAM, 6 threads | 1 thread |
+|---|---|---|---|---|
+| deep sample as is | 4.66M | few (760 taxa in the database) | 3.6 s | – |
+| + 45M unmapped, `ZF` over 760 taxids | 49.7M | 1-4 | 6.7 s | 18.1 s |
+| + 45M unmapped, `ZF` over 140,000 taxids (as r226) | 49.7M | 1-8 | **50.5 s** | **21.2 s** |
+
+The record count alone costs little (3 s for 45M records at six threads). What the GTDB-sized database adds is the
+number of distinct failed taxa: a 1 MB chunk of unmapped records names tens of thousands of them, and for each the
+chunk's `RecordEvidenceCollector` made a full `RecordEvidence` (a `robin_map` and four vectors, ~300 bytes) in an
+`unordered_map`, which the main thread merged chunk by chunk into the profile's collector between waves: 9,000 chunks
+times ~30,000 taxa, serial. Six threads were slower than one. A first repair, a light hash map of counts per chunk
+folded into the records at the end, cut the per-chunk records but kept 200M serial hash-map increments and merges
+(41 s at six threads, 38 s at one, under load). The fix in the commit: the failed candidates are counted in vectors
+indexed by taxid (`FailedCandidateCounts` in `SamHandler.h`, grown as needed; protal's taxids are dense internal
+ids), merged by vector addition and folded into the taxa's records once, before the counts are read
+(`RecordEvidenceCollector::FoldFailedCandidates`, called at the start of `ApplyRecordEvidence`). Per chunk that is
+574 KB at r226 size, 147 MB per wave of 128 chunks at 32 threads.
+
+| | before (`50ecb4b`) | after |
+|---|---|---|
+| 140k-taxid SAM, 6 threads: profiling / reading the SAM | 56.8 s whole run | 11.7 s; 10.5 / 8.5 s |
+| 140k-taxid SAM, 1 thread | – | 23.2 s; 22.2 / 18.6 s |
+| deep sample, 6 threads | 8.1 s whole run | 6.8 s; 5.7 / 4.1 s |
+| deep sample, 1 thread | – | 13.6 s; 12.6 / 9.4 s |
+| profile outputs | | identical to `50ecb4b` on both SAMs, and the same at 1 and 6 threads |
+
+(The whole-run times of this round are 1.3-2× those of the earlier rounds: other work on the machine; compare within
+the round.) The reading now scales from one to six threads as the deep sample's does (2.2×). The 28 profiling,
+evidence and screen tests pass. On the cluster this should take most of the 33.8 s out of the paired-end run's
+profiling stage; the next `measure_performance.sh` run shows how much.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):

@@ -311,14 +311,15 @@ namespace protal {
     }
 
     // One line per sample on the alignment stage's counts, for comparing runs (scripts/measure_performance.sh reads
-    // it): the reads (or read pairs), those with an anchor, the candidate alignments tried (AlignAnchor calls, up to
+    // it): the reads (or read pairs), those with an anchor (of paired reads, the mates), the candidate alignments tried (AlignAnchor calls, up to
     // --align_top per read or mate and the ties, plus the long-read rescues), those the k-mer screen refused before
     // WFA2 (AlignmentScreen.h), those WFA2 ran on from the anchor's exact matches or as a whole window, the
     // alignments made (within the ANI floor) and the records written.
     static void PrintAlignmentCounts(Options const& options, size_t index, ReadType read_type, Statistics const& stats,
                                      SimpleAlignmentHandler const& handler) {
         std::cout << "Sample " << options.GetSampleId(index) << ": " << stats.reads << (read_type == ReadType::Paired ? " read pairs, " : " reads, ")
-                  << stats.at_least_one_anchor << " with an anchor; " << handler.m_attempted_alignments << " candidate alignments tried: "
+                  << stats.at_least_one_anchor << (read_type == ReadType::Paired ? " mates" : "") << " with an anchor; "
+                  << handler.m_attempted_alignments << " candidate alignments tried: "
                   << handler.m_screened_alignments << " refused by the k-mer screen, " << handler.m_anchored_alignments
                   << " aligned from the anchor's exact matches and " << handler.m_whole_window_alignments << " as whole windows; "
                   << stats.total_alignments << " alignments made, " << stats.output_alignments << " records written" << std::endl;

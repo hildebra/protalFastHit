@@ -2347,13 +2347,34 @@ namespace protal {
 
             // A record's ZF tag (SamEntry::m_failed, on a read's first record): the taxa the read seeded on but did not
             // align to, each counted once for the read (MicrobialProfile::PrepareMAPQ).
+            // Counted apart from the taxa's records (m_failed) and folded into them once all records are in
+            // (FoldFailedCandidates): on a GTDB-sized database a chunk's unmapped records name tens of thousands of
+            // distinct taxa, and a RecordEvidence per taxon per chunk (a hash map and four vectors each), merged
+            // chunk by chunk, made the profiling of a 47M-record SAM slower on 32 threads than on one
+            // (docs/claude/2026-10-04-performance-gtdb-scale). The sums are the same either way.
             void NoteFailedCandidates(std::string const& tag) {
-                ForEachFailedCandidate(tag, [this](uint32_t taxid) { m_counts[taxid].failed_candidates++; });
+                ForEachFailedCandidate(tag, [this](uint32_t taxid) { CountFailedCandidate(m_failed, taxid); });
             }
 
             // The reads whose unmapped record names each taxon as a failed candidate (SamReader::FailedCandidates).
-            void AddFailedCandidates(std::unordered_map<uint32_t, size_t> const& counts) {
-                for (auto const& [taxid, n] : counts) m_counts[taxid].failed_candidates += n;
+            void AddFailedCandidates(FailedCandidateCounts const& counts) {
+                AddCounts(m_failed, counts);
+            }
+
+            // a += b, elementwise; a grows to b's size.
+            static void AddCounts(FailedCandidateCounts& a, FailedCandidateCounts const& b) {
+                if (a.size() < b.size()) a.resize(b.size(), 0);
+                for (size_t i = 0; i < b.size(); i++) a[i] += b[i];
+            }
+
+            // Gives every taxon its failed candidates (RecordEvidence::failed_candidates); called once the records are in,
+            // before the counts are read (Find, RecordCountsByTaxon). A taxon with failed candidates only gets a record of
+            // counts as it did when they were counted straight into it.
+            void FoldFailedCandidates() {
+                for (size_t taxid = 0; taxid < m_failed.size(); taxid++) {
+                    if (m_failed[taxid]) m_counts[static_cast<uint32_t>(taxid)].failed_candidates += m_failed[taxid];
+                }
+                FailedCandidateCounts().swap(m_failed);
             }
 
             // A read (link: the read across its records) with a best record on taxon taxid, before the filters: counted
@@ -2455,6 +2476,7 @@ namespace protal {
             // Adds the counts of `other`, whose last link is finished (FinishLink).
             void Add(RecordEvidenceCollector const& other) {
                 for (auto const& [taxid, counts] : other.m_counts) m_counts[taxid] += counts;
+                AddCounts(m_failed, other.m_failed);
                 for (auto const& [key, n] : other.m_ambiguity) m_ambiguity[key] += n;
                 m_spans.insert(m_spans.end(), other.m_spans.begin(), other.m_spans.end());
                 m_suspect_records += other.m_suspect_records;
@@ -2517,6 +2539,7 @@ namespace protal {
             GenomeLoader* m_genome_loader;
             std::shared_ptr<std::vector<uint32_t> const> m_genera;  // taxid -> genus (0: none)
             std::unordered_map<uint32_t, RecordEvidence> m_counts;
+            FailedCandidateCounts m_failed;  // failed candidates per taxon (indexed by taxid), until FoldFailedCandidates
             context::AmbiguityClasses m_ambiguity;  // see NoteAmbiguity
             std::vector<uint16_t> m_spans;  // the spans of fragments with both mates on one gene (NoteSpan, MateSpan)
             size_t m_suspect_records = 0;  // records on suspect gene copies, left out (NoteSuspectRecord)
@@ -2555,6 +2578,7 @@ namespace protal {
             // taxa of the sample say of each (ApplySampleContext), on `threads` threads: once all reads are in.
             void ApplyRecordEvidence(size_t threads = 1) {
                 FinishLink();
+                m_evidence.FoldFailedCandidates();
                 size_t const mate_span = m_evidence.MateSpan();
                 for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) {
                     auto const* found = m_evidence.Find(static_cast<uint32_t>(it->first));
@@ -3345,7 +3369,7 @@ namespace protal {
             size_t m_min_mapq = 4;
             double m_depth_identity_margin = 1;
             size_t m_reads = 0;
-            std::unordered_map<uint32_t, size_t> m_failed_candidates;  // the last ReadSamGroups' unmapped records' ZF entries per taxon
+            FailedCandidateCounts m_failed_candidates;  // the last ReadSamGroups' unmapped records' ZF entries per taxon
             size_t m_rejected_reads = 0;
 
             // Variants are recorded with or without --no_strains: the model's allele features come
