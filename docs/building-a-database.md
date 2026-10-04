@@ -46,7 +46,8 @@ python3 scripts/mini_db/gtdb_to_protal_db.py --gtdb /data/gtdb_r226 --outdir /da
 | `--order` | `gene` | order of `reference.fna`: by gene, then taxon (compresses about 2x better), or `genome` |
 | `-t, --threads` | 1 | marker files read in parallel; the output is the same for any number |
 | `--exclude_species` | | file of species whose marker genes are left out; the taxonomy keeps them with their taxids (a training database) |
-| `--from_db` | | instead of `--gtdb`: copy a folder this script wrote, without the species of `--exclude_species` |
+| `--from_db` | | instead of `--gtdb`: copy a folder this script wrote, without the species of `--exclude_species` and with the genes of `--genes` (a plain copy without either) |
+| `--genes` | | keep only these marker genes, by GTDB marker id or protal gene id ([reduced marker sets](#reduced-marker-sets)) |
 
 It writes `reference.fna`, `reference.map`, `internal_taxonomy.dmp`, `full_reference.fna.zst` (only
 if `genomic_files_all` is there: the marker genes of every genome, 86 GB uncompressed at r226,
@@ -256,18 +257,68 @@ For each sample protal prints the true and false positives and the false negativ
 
 ## Reduced marker sets
 
-The reduced database on the downloads page uses a subset of the marker genes, for about five
-times less memory. Two ways to build one:
+A database of a subset of the marker genes takes less memory (the index holds the subset's
+k-mers only: 12 of the 120 bacterial markers give about a tenth of it; the reduced database on
+the downloads page is one) and detects a genome from fewer of its reads, since only reads of
+those genes hit. Three steps, or one command.
 
-- `--build_gene_subset genes.txt` with `protal --build` indexes only the genes listed, one gene id
-  per line (the ids of `gene2geneid.tsv`, `#` lines are comments). `reference.fna` keeps all genes,
-  but only the listed ones are in the index and can be hit.
-- `scripts/subset_genes.py --ref reference.fna --build_gene_subset genes.txt --out subset.fna`
-  writes a smaller reference; `scripts/index_reference.py subset.fna > reference.map` writes its
-  map. Build from those.
+### Which genes
 
-A model trained on the full marker set sees fewer genes per species with a subset. Train one on
-the reduced database, or check its calls on simulated samples first.
+`scripts/rank_genes.py` ranks the genes of a built database by how distinctive they are:
+prevalence (the share of the database's species whose copy of the gene has k-mers in the index)
+times unique share (the share of a copy's k-mers unique to its species in the database, averaged
+over the species that have the gene; a read of such a gene names its species). It reads the
+separate files of a build (`--no_bundle`, or `protal --unpack_db` of a `database.protal`):
+`reference.map`, `unique_kmers.tsv` and, if there, `gene2geneid.tsv` (the markers' GTDB ids, which
+the converter writes), `gene_congeners.tsv` and `suspect_copies.tsv`, whose numbers the table
+carries so that a subset can be chosen on other grounds too:
+
+```bash
+python3 scripts/rank_genes.py --db /data/protal_r226_files -o gene_ranking.tsv --top 12 --subset genes.txt
+```
+
+`gene_ranking.tsv` has one line per gene, best first (rank, gene id, marker, score, prevalence,
+unique share, species, mean length, the congeners' between-species factor and identical share,
+suspect copies); `genes.txt` lists the 12 best gene ids, one per line with the marker and score
+as comments. Any gene list does for the steps below: GTDB marker ids (`PF00380.20`, `TIGR00001`;
+`PF00380` matches any version) or protal gene ids (the numbers of `gene2geneid.tsv`),
+comma-separated or one per line in a file (its first column, `#` comments).
+
+### A folder of the subset
+
+`gtdb_to_protal_db.py --genes LIST` writes the converted folder with those genes only, from the
+release (`--gtdb`) or from a converted folder before its build (`--from_db`; with
+`--exclude_species` too for a training database). The genes keep their ids; `reference.fna`,
+`reference.map`, the full reference and `gene2geneid.tsv` hold them alone; the taxonomy, the species
+priors and the models are copied as they are; and with `--from_db` the gene neighbours are counted
+anew from `gene_positions.tsv` over the genes kept, since a read of the reduced database meets
+the nearest gene of the subset next, not a gene the database lacks. Build the folder as any other:
+
+```bash
+python3 scripts/mini_db/gtdb_to_protal_db.py --from_db /data/protal_r226 --genes genes.txt --outdir /data/protal_r226_12
+protal --build --no_profile --db /data/protal_r226_12 --reference /data/protal_r226_12/reference.fna \
+    --full_reference /data/protal_r226_12/full_reference.fna -t 16
+```
+
+`protal --build --build_gene_subset genes.txt` (protal gene ids only) is the quick version on a
+full folder: the other genes stay in `reference.fna` (and in memory at run time) but get no
+k-mers, no row of `unique_kmers.tsv` (so no read is placed on them), no conservation factor and
+no suspect copies, and the uniqueness check skips their copies in the full reference. It refuses
+a folder with `gene_neighbours.tsv`, whose neighbours were counted over every gene: derive the
+folder as above, or remove the table and `gene_positions.tsv` from the folder.
+
+### Build and train in one run
+
+`build_gtdb_database.py --n-genes 12` (or `--genes LIST`) does all of it. The release is
+converted whole (`OUTDIR/.converted`, removed at the end); the genes are ranked from a full
+build of the training database (every gene, the species held out left out; `gene_ranking_build.log`,
+`OUTDIR/gene_ranking.tsv`), unless `--gene-ranking FILE` brings the ranking of an earlier full
+build of the release; the 12 best go to `OUTDIR/gene_subset.txt`; both database folders are
+derived for them (`protal_db_files.log`, `training_db.log`); and the models are trained on the
+reduced database, which they must be, since a model of the full marker set expects more genes
+per species. `build_metadata.tsv` records the genes (`marker_genes`). A rerun with the same
+inputs keeps the ranking and both databases; `--genes` with other genes builds both again from
+the samples already simulated.
 
 ## Build and train in one command
 

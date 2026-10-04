@@ -441,9 +441,10 @@ def write_table(path, counts, informative, comment):
     return rows
 
 
-def read_positions(path, exclude=frozenset()):
+def read_positions(path, exclude=frozenset(), genes=None):
     """gene_positions.tsv -> ({species taxid: {accession: placements}} (neighbour_ends' input), {name: value}
-    of its comment line), without the species of `exclude`."""
+    of its comment line), without the species of `exclude`, and of the genes in `genes` only if given (a database
+    of a subset of the marker genes: the genes next to each other in it are the nearest ones of the subset)."""
     species = collections.defaultdict(lambda: collections.defaultdict(list))
     settings = {}
     with open(path) as fh:
@@ -455,18 +456,19 @@ def read_positions(path, exclude=frozenset()):
             if f[0] == "accession" or len(f) < 9:
                 continue
             taxid = int(f[1])
-            if taxid in exclude:
+            if taxid in exclude or (genes is not None and int(f[5]) not in genes):
                 continue
             species[taxid][f[0]].append((int(f[5]), f[2], int(f[3]), f[4] == "1", int(f[6]) - 1, int(f[7]), f[8]))
     return species, settings
 
 
-def derive(positions, taxonomy, output, exclude=frozenset(), positions_out=None):
-    """gene_neighbours.tsv (output) from a gene_positions.tsv without the species of `exclude` (taxids), with the
-    max_gap, ranks and species lines its comment names (species lines if it does not say); and, with positions_out,
-    the positions file without them. -> (lines, genomes, species)."""
+def derive(positions, taxonomy, output, exclude=frozenset(), positions_out=None, genes=None):
+    """gene_neighbours.tsv (output) from a gene_positions.tsv without the species of `exclude` (taxids) and, with
+    `genes` (gene ids), of those genes only, with the max_gap, ranks and species lines its comment names (species
+    lines if it does not say); and, with positions_out, the positions file without them. -> (lines, genomes,
+    species)."""
     nodes, reps = read_taxonomy(taxonomy)
-    species, settings = read_positions(positions, exclude)
+    species, settings = read_positions(positions, exclude, genes)
     max_gap = int(settings.get("max_gap", 3000))
     ranks = settings.get("ranks", "family,order,class,phylum,domain").split(",")
     species_lines = settings.get("species_lines", "1") != "0"
@@ -478,7 +480,8 @@ def derive(positions, taxonomy, output, exclude=frozenset(), positions_out=None)
         with open(positions) as fin, open(positions_out + ".partial", "w", newline="\n") as fout:
             for line in fin:
                 f = line.split("\t")
-                if line.startswith("#") or f[0] == "accession" or len(f) < 2 or int(f[1]) not in exclude:
+                if line.startswith("#") or f[0] == "accession" or len(f) < 2 or \
+                        (int(f[1]) not in exclude and (genes is None or len(f) < 6 or int(f[5]) in genes)):
                     fout.write(line)
         os.replace(positions_out + ".partial", positions_out)
     return rows, genomes, len(species)

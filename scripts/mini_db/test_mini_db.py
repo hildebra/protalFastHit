@@ -40,6 +40,7 @@ GENE_NEIGHBOURS = os.path.join(HERE, "gene_neighbours.py")
 SIMULATE_READS = os.path.join(HERE, "simulate_reads.py")
 LINEAGES = os.path.join(HERE, "gtdb_like_lineages.py")
 DOWNLOAD = os.path.join(HERE, "..", "download_gtdb.py")
+RANK_GENES = os.path.join(HERE, "..", "rank_genes.py")
 
 # A stand-in for NCBI's `datasets`: `download genome accession` writes the list into the zip,
 # `rehydrate` copies the synthetic release's genomes; accessions in $FAKE_SUPPRESSED fail a request, and
@@ -1896,6 +1897,229 @@ class BinaryCheckTest(unittest.TestCase):
         self.assertIn("is no git checkout", note)
 
 
+def read_table(path):
+    """A tab-separated table with a header line (# lines skipped) -> [row dict]."""
+    with open(path) as fh:
+        rows = [line.rstrip("\n").split("\t") for line in fh if not line.startswith("#")]
+    return [dict(zip(rows[0], r)) for r in rows[1:]]
+
+
+class GeneSubsetTest(unittest.TestCase):
+    """A database of a subset of the marker genes. The converter's --genes (with --from_db, and with --gtdb the
+    same files) keeps the genes named, by GTDB marker id or protal gene id, with their ids in reference.fna,
+    reference.map, the full reference and gene2geneid.tsv, and counts the gene neighbours anew over them: a gene
+    whose neighbour in the genome is left out faces the nearest gene kept, as a read of the reduced database
+    meets it. With $PROTAL: protal --build of such a folder lists only its genes in unique_kmers.tsv and
+    gene_conservation.tsv; rank_genes.py ranks a full build's genes and writes a gene list that the converter and
+    --build_gene_subset take; and --build_gene_subset refuses a folder whose neighbours were counted over every
+    gene."""
+
+    MAX_GAP = 3000
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        lineages = os.path.join(cls.tmp.name, "lineages.txt")
+        order = "d__Bacteria;p__Simulatota;c__Simulatia;o__Simulales"
+        with open(lineages, "w") as fh:
+            fh.writelines(f"{order};f__Simulaceae;g__Mockella;s__Mockella s{i}\n" for i in range(4))
+            fh.writelines(f"{order};f__Otheraceae;g__Otherella;s__Otherella s{i}\n" for i in range(2))
+        cls.gtdb = os.path.join(cls.tmp.name, "gtdb")
+        cls.db = os.path.join(cls.tmp.name, "db")
+        run(SIMULATE, "--outdir", cls.gtdb, "--lineages", lineages, "--operons", "--operon_breaks", "0.5",
+            "--genome_length", "200000", "--genomes_per_species", "2", "--contigs", "2")
+        run(CONVERT, "--gtdb", cls.gtdb, "--outdir", cls.db)
+        run(GENE_NEIGHBOURS, "--db", cls.db, "--genome_table", os.path.join(cls.gtdb, "simulation", "genomes.tsv"), "-t", "2")
+        sys.path.insert(0, HERE)
+        from gtdb_to_protal_db import read_gene_ids
+        cls.gene_ids = read_gene_ids(os.path.join(cls.db, "gene2geneid.tsv"))
+        cls.markers = {gid: marker for marker, gid in cls.gene_ids.items()}
+        # The subset: every other gene along the longest contig of one representative (the genes in between are
+        # left out, so their neighbours in the subset's tables are the next genes kept): the first two by their
+        # marker id, the third by the id without its version, the rest by protal gene id.
+        with open(os.path.join(cls.db, "internal_taxonomy.dmp")) as fh:
+            next(fh)
+            cls.nodes = {int(r[0]): r for r in (l.rstrip("\n").split("\t") for l in fh)}
+        cls.taxid, cls.rep = next((t, r[6]) for t, r in cls.nodes.items() if r[3] == "s__Mockella s0")
+        by_contig = collections.defaultdict(list)
+        for r in read_table(os.path.join(cls.db, "gene_positions.tsv")):
+            if r["accession"] == cls.rep:
+                by_contig[r["contig"]].append((int(r["start"]), int(r["gene"])))
+        along = [gene for _, gene in sorted(max(by_contig.values(), key=len))]
+        cls.subset = sorted(along[0:12:2])
+        tokens = [cls.markers[g] for g in cls.subset[:2]] + [cls.markers[cls.subset[2]].split(".")[0]] + \
+            [str(g) for g in cls.subset[3:]]
+        cls.spec = ",".join(tokens)
+        cls.copy = os.path.join(cls.tmp.name, "subset")
+        cls.derived = subprocess.run([sys.executable, CONVERT, "--from_db", cls.db, "--genes", cls.spec, "--outdir", cls.copy],
+                                     check=True, capture_output=True, text=True).stderr
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    @staticmethod
+    def map_rows(folder):
+        with open(os.path.join(folder, "reference.map")) as fh:
+            return [tuple(map(int, line.split("\t"))) for line in fh]
+
+    @staticmethod
+    def records(data):
+        """[(gene id, header, sequence)] of a FASTA's bytes, one sequence line per record."""
+        lines = data.split(b"\n")
+        return [(int(lines[i][1:].split(b"_")[1]), lines[i], lines[i + 1]) for i in range(0, len(lines) - 1, 2)]
+
+    def same_file(self, a, b, name):
+        with open(os.path.join(a, name), "rb") as x, open(os.path.join(b, name), "rb") as y:
+            self.assertEqual(x.read(), y.read(), name)
+
+    def test_the_copy_holds_the_genes_named_with_their_ids(self):
+        self.assertEqual(len(self.subset), 6)
+        rows = self.map_rows(self.copy)
+        self.assertEqual(sorted({r[1] for r in rows}), self.subset)
+        self.assertEqual([r[:2] for r in rows], [r[:2] for r in self.map_rows(self.db) if r[1] in self.subset])
+        with open(os.path.join(self.copy, "reference.fna"), "rb") as fh:
+            data = fh.read()
+        for tid, gid, start, end in rows:
+            self.assertEqual(data[data.rfind(b">", 0, start):start], f">{tid}_{gid}\n".encode())
+            self.assertEqual(data[end:end + 1], b"\n")
+            self.assertRegex(data[start:end].decode(), r"^[ACGT]+$")
+        with open(os.path.join(self.db, "reference.fna"), "rb") as fh:
+            self.assertEqual(self.records(data), [r for r in self.records(fh.read()) if r[0] in self.subset])
+        self.assertEqual(self.records(full_reference(self.copy)),
+                         [r for r in self.records(full_reference(self.db)) if r[0] in self.subset])
+        with open(os.path.join(self.copy, "gene2geneid.tsv")) as fh:
+            kept = {m: int(g) for m, g in (line.rstrip("\n").split("\t") for line in fh)}
+        self.assertEqual(sorted(kept.values()), self.subset)
+        self.assertEqual(kept, {m: g for m, g in self.gene_ids.items() if g in self.subset})
+        for name in ("internal_taxonomy.dmp", "species_priors.tsv", "genome2tiid.tsv"):
+            self.same_file(self.db, self.copy, name)
+        self.assertRegex(self.derived, r"gene_neighbours\.tsv derived from the 12 genomes of 6 species kept: \d+ lines "
+                                       r"\(over the 6 genes kept\)")
+        self.assertIn("without 0 species, 6 genes kept: 36 representative sequences kept", self.derived)
+
+    def test_a_direct_conversion_gives_the_same_files(self):
+        direct = os.path.join(self.tmp.name, "direct")
+        run(CONVERT, "--gtdb", self.gtdb, "--outdir", direct, "--genes", self.spec)
+        for name in ("reference.fna", "reference.map", "gene2geneid.tsv", "internal_taxonomy.dmp", "species_priors.tsv"):
+            self.same_file(direct, self.copy, name)
+        self.assertEqual(full_reference(direct), full_reference(self.copy))
+        # A file lists the genes too (its first column), with or without the species left out.
+        listed = os.path.join(self.tmp.name, "genes.txt")
+        with open(listed, "w") as fh:
+            fh.write("# the subset\n" + "".join(f"{t}\tcomment\n" for t in self.spec.split(",")))
+        excluded = os.path.join(self.tmp.name, "excluded.txt")
+        with open(excluded, "w") as fh:
+            fh.write("s__Otherella s1\n")
+        both = os.path.join(self.tmp.name, "both")
+        run(CONVERT, "--from_db", self.db, "--genes", listed, "--exclude_species", excluded, "--outdir", both)
+        rows = self.map_rows(both)
+        self.assertEqual(sorted({r[1] for r in rows}), self.subset)
+        self.assertEqual(len({r[0] for r in rows}), 5)
+        self.same_file(both, self.copy, "gene2geneid.tsv")
+        for bad in ("PF99999.1", "0", str(max(self.gene_ids.values()) + 1), "#"):
+            with self.assertRaises(subprocess.CalledProcessError, msg=bad):
+                run(CONVERT, "--from_db", self.db, "--genes", bad, "--outdir", os.path.join(self.tmp.name, "bad"))
+
+    def test_neighbours_are_counted_over_the_genes_kept(self):
+        subset = set(self.subset)
+        kept = read_table(os.path.join(self.copy, "gene_neighbours.tsv"))
+        self.assertTrue(kept)
+        self.assertTrue(all(int(r["gene"]) in subset and int(r["partner"]) in subset | {0} for r in kept))
+        positions = read_table(os.path.join(self.copy, "gene_positions.tsv"))
+        self.assertEqual({int(r["gene"]) for r in positions}, subset)
+        self.assertEqual({r["accession"] for r in positions},
+                         {r["accession"] for r in read_table(os.path.join(self.db, "gene_positions.tsv"))})
+        # What the representative's genome gives among the genes kept (neighbour_ends on its placements) is in
+        # the copy's table, under the species or one of its clades; a gene whose neighbour was left out faces the
+        # next gene kept, farther away, where the full table had the gene left out.
+        import gene_neighbours as gn
+        ancestors, node = set(), self.taxid
+        while node not in ancestors:
+            ancestors.add(node)
+            node = int(self.nodes[node][1])
+        species, settings = gn.read_positions(os.path.join(self.db, "gene_positions.tsv"), genes=subset)
+        max_gap = int(settings.get("max_gap", self.MAX_GAP))
+        expected = gn.neighbour_ends(species[self.taxid][self.rep], max_gap)
+        lines = {(int(r["clade"]), int(r["gene"]), int(r["end"]), int(r["partner"]), int(r["partner_end"])) for r in kept}
+        for gene, end, partner, partner_end, gap in expected:
+            self.assertTrue(any((clade, gene, end, partner, partner_end) in lines for clade in ancestors),
+                            f"gene {gene} end {end} facing {partner} (end {partner_end}, {gap} bases)")
+        whole, _ = gn.read_positions(os.path.join(self.db, "gene_positions.tsv"))
+        before = {(g, e): (p, gap) for g, e, p, _, gap in gn.neighbour_ends(whole[self.taxid][self.rep], max_gap)}
+        bridged = [(g, e, p, gap) for g, e, p, _, gap in expected if p and before[(g, e)][0] not in subset]
+        self.assertTrue(bridged, "no gene end faces a gene kept where a gene left out was")
+        self.assertTrue(all(gap > before[(g, e)][1] for g, e, p, gap in bridged))
+
+    def test_protal_builds_the_subset_and_ranks_a_full_build(self):
+        protal = os.environ.get("PROTAL", "")
+        if not os.access(protal, os.X_OK):
+            self.skipTest("$PROTAL names no protal binary")
+        from gtdb_to_protal_db import full_reference_path
+
+        def build(folder, *extra):
+            return subprocess.run([protal, "--build", "--no_profile", "-t", "2", "--no_bundle", "--db", folder, "--reference",
+                                   os.path.join(folder, "reference.fna"), "--full_reference", full_reference_path(folder), *extra],
+                                  capture_output=True, text=True)
+
+        def genes_of(folder, name):
+            with open(os.path.join(folder, name)) as fh:
+                return sorted({int(line.split("\t")[1]) for line in fh if line[0].isdigit() and line.split("\t")[1].isdigit()})
+
+        subset = os.path.join(self.tmp.name, "subset_built")
+        shutil.copytree(self.copy, subset)
+        result = build(subset)
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-2000:])
+        self.assertEqual(genes_of(subset, "unique_kmers.tsv"), self.subset)
+        if os.path.isfile(os.path.join(subset, "gene_conservation.tsv")):  # too few genes per species for factors here
+            self.assertTrue(set(genes_of(subset, "gene_conservation.tsv")) <= set(self.subset))
+        else:
+            self.assertIn("Gene conservation: no factors", result.stdout)
+        self.assertRegex(result.stdout, r"Gene neighbours: \d+ rules of \d+ clades from 12 genomes")
+        # Every gene, built and ranked: a table of all genes, the 3 best as a gene list.
+        every = os.path.join(self.tmp.name, "every_gene")
+        run(CONVERT, "--from_db", self.db, "--outdir", every)
+        self.same_file(every, self.db, "reference.map")
+        result = build(every)
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-2000:])
+        table, listed = os.path.join(self.tmp.name, "ranking.tsv"), os.path.join(self.tmp.name, "best.txt")
+        ranking = subprocess.run([sys.executable, RANK_GENES, "--db", every, "-o", table, "--top", "3", "--subset", listed],
+                                 check=True, capture_output=True, text=True)
+        self.assertRegex(ranking.stderr, r"best\.txt: the 3 best genes, scores [0-9.]+ down to [0-9.]+ \(\S+, \S+, \S+\)")
+        rows = read_table(table)
+        self.assertEqual(len(rows), len({r[1] for r in self.map_rows(every)}))  # the reference's genes (no archaea here)
+        self.assertEqual([int(r["rank"]) for r in rows], list(range(1, len(rows) + 1)))
+        scores = [float(r["score"]) for r in rows]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+        self.assertTrue(all(0 <= float(r[c]) <= 1 for r in rows for c in ("score", "prevalence", "unique_share")))
+        self.assertTrue(all(self.gene_ids[r["marker"]] == int(r["gene_id"]) for r in rows))
+        self.assertTrue(all(int(r["species"]) <= 6 and float(r["mean_length"]) > 0 for r in rows))
+        self.assertGreater(scores[0], 0)
+        best = [int(r["gene_id"]) for r in rows[:3]]
+        with open(listed) as fh:
+            lines = [line.rstrip("\n") for line in fh]
+        self.assertEqual([int(line) for line in lines if not line.startswith("#")], best)
+        self.assertEqual(sum(line.startswith("# rank ") for line in lines), 3)
+        from_list = os.path.join(self.tmp.name, "from_list")
+        run(CONVERT, "--from_db", self.db, "--genes", listed, "--outdir", from_list)
+        self.assertEqual(sorted({r[1] for r in self.map_rows(from_list)}), sorted(best))
+        # protal --build_gene_subset: refused with a neighbours table counted over every gene; without one, the
+        # database gets the listed genes' k-mers, rows and factors only, the other genes stay in reference.fna.
+        with_neighbours = os.path.join(self.tmp.name, "with_neighbours")
+        run(CONVERT, "--from_db", self.db, "--outdir", with_neighbours)
+        result = build(with_neighbours, "--build_gene_subset", listed)
+        self.assertEqual(result.returncode, 8)
+        self.assertIn("Cannot build with --build_gene_subset: the folder has gene_neighbours.tsv", result.stderr)
+        for name in ("gene_neighbours.tsv", "gene_positions.tsv"):
+            os.remove(os.path.join(with_neighbours, name))
+        result = build(with_neighbours, "--build_gene_subset", listed)
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-2000:])
+        self.assertEqual(genes_of(with_neighbours, "unique_kmers.tsv"), sorted(best))
+        if os.path.isfile(os.path.join(with_neighbours, "gene_conservation.tsv")):
+            self.assertTrue(set(genes_of(with_neighbours, "gene_conservation.tsv")) <= set(best))
+        self.assertEqual(self.map_rows(with_neighbours), self.map_rows(self.db))  # every gene is still in the reference
+
+
 class GtdbBuildTest(unittest.TestCase):
     """build_gtdb_database.py end to end, on a synthetic GTDB-like release of 60 species downloaded from a
     fake GTDB mirror and a fake NCBI: the database is built and its pe and se models trained; a rerun skips
@@ -2133,6 +2357,72 @@ class GtdbBuildTest(unittest.TestCase):
             except OSError:
                 pass
         self.assertEqual(left, [], "commands of the stopped run are still running")
+
+    def test_d_a_reduced_database_of_the_most_distinctive_genes(self):
+        # --n-genes 3: the release converted whole into .converted, the genes ranked from a full build of the
+        # training database, both database folders derived for the 3 best, the models trained on them, the
+        # whole conversion gone at the end; a rerun ranks, derives and builds nothing; --genes names the genes
+        # instead, and both databases are built again from the samples already simulated.
+        scratch = ("--scratch", os.path.join(self.tmp.name, "scratch_genes"))
+        first = self.build("out_genes", "--n-genes", "3", *scratch)
+        self.assertEqual(first.returncode, 0, first.stdout[-3000:])
+        self.assertRegex(first.stdout, r"\n\[[^]]+\] 2/9 the release \(convert\.log\): converted whole into \.converted")
+        self.assertRegex(first.stdout, r"\n\[[^]]+\] 3/9 marker genes \(gene_subset\.txt\): the 3 most distinctive by "
+                                       r"prevalence x unique k-mer share\n")
+        self.assertRegex(first.stdout, r"ranked the \d+ genes from a full build of the training database \(every gene, "
+                                       r"\d+ species left out\), built in \d+:\d\d:\d\d[^(]*\(gene_ranking_build\.log\): "
+                                       r"gene_ranking\.tsv")
+        self.assertRegex(first.stdout, r"the 3 best of \d+ \(scores [0-9.]+ down to [0-9.]+\): \S+, \S+, \S+\n")
+        self.assertRegex(first.stdout, r"protal_db's files derived for these genes in \d+:\d\d:\d\d[^(]*\(protal_db_files\.log\)")
+        self.assertRegex(first.stdout, r"\n\[[^]]+\] 4/9 training database ")
+        self.assertIn("Ready protal database", first.stdout)
+        self.assertIn("(marker genes: 3 of ", first.stdout)
+        out = os.path.join(self.tmp.name, "out_genes")
+        for path in ("gene_ranking.tsv", "gene_subset.txt", "gene_ranking_build.log", "gene_ranking_files.log",
+                     "protal_db_files.log", "model_logs/gene_ranking.tsv", "model_logs/gene_subset.txt",
+                     "protal_db/database.protal", ".stages/gene_ranking.json", ".stages/convert.json"):
+            self.assertTrue(os.path.isfile(os.path.join(out, path)), path)
+        self.assertFalse(os.path.exists(os.path.join(out, ".converted")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "scratch_genes", "ranking_db")))
+        with open(os.path.join(out, "gene_subset.txt")) as fh:
+            chosen = [int(line) for line in fh if not line.startswith("#")]
+        self.assertEqual(len(chosen), 3)
+        with open(os.path.join(out, "gene_ranking.tsv")) as fh:
+            ranking = [line.rstrip("\n").split("\t") for line in fh]
+        self.assertEqual(ranking[0][:4], ["rank", "gene_id", "marker", "score"])
+        self.assertEqual([int(r[1]) for r in ranking[1:4]], chosen)
+        with open(os.path.join(out, "protal_db", "build_metadata.tsv")) as fh:
+            metadata = dict(line.rstrip("\n").split("\t", 1) for line in fh)
+        self.assertRegex(metadata["marker_genes"], r"^3 of \d+, the most distinctive by prevalence x unique k-mer share "
+                                                   r"\(scripts/rank_genes\.py, from a full build of the training database\): ")
+        self.assertRegex(self.text("out_genes", "training_db.log"), r"derived from the \d+ genomes of \d+ species kept: "
+                                                                   r"\d+ lines \(over the 3 genes kept\)")
+        self.assertIn(", 3 genes kept: ", self.text("out_genes", "protal_db_files.log"))
+        self.assertNotIn("genes kept", self.text("out_genes", "gene_ranking_files.log"))  # every gene, species left out
+        again = self.build("out_genes", "--n-genes", "3", *scratch)
+        self.assertEqual(again.returncode, 0, again.stdout[-3000:])
+        self.assertIn("ranked by an earlier run from a full build of the training database; kept", again.stdout)
+        self.assertIn("protal_db was built by an earlier run from these genes; kept", again.stdout)
+        self.assertIn("was built by an earlier run with the same species left out and the same genes; kept", again.stdout)
+        self.assertNotRegex(again.stdout, r"built (protal|training|ranking)_db|derived for these genes")
+        self.assertNotRegex(self.text("out_genes", "training_data_simulation.log"), "simulating")
+        # Other genes, named: the 4th and 5th of the ranking by marker id, the best by gene id.
+        spec = ",".join([ranking[4][2], ranking[5][2].split(".")[0], ranking[1][1]])
+        named = self.build("out_genes", "--genes", spec, *scratch)
+        self.assertEqual(named.returncode, 0, named.stdout[-3000:])
+        self.assertRegex(named.stdout, r"\n\[[^]]+\] 3/9 marker genes \(gene_subset\.txt\): the ones listed \(--genes\)\n")
+        self.assertRegex(named.stdout, r"3 of the \d+ marker genes: \S+, \S+, \S+\n")
+        self.assertRegex(named.stdout, r"built training_db in \d+:\d\d:\d\d")
+        self.assertRegex(named.stdout, r"built protal_db in the background in \d+:\d\d:\d\d")
+        self.assertNotIn("ranking", named.stdout)
+        with open(os.path.join(out, "gene_subset.txt")) as fh:
+            self.assertEqual(sorted(int(line) for line in fh if not line.startswith("#")),
+                             sorted(int(ranking[i][1]) for i in (1, 4, 5)))
+        with open(os.path.join(out, "protal_db", "build_metadata.tsv")) as fh:
+            metadata = dict(line.rstrip("\n").split("\t", 1) for line in fh)
+        self.assertRegex(metadata["marker_genes"], r"^3 of \d+ \(--genes\): \S+, \S+, \S+$")
+        self.assertNotRegex(self.text("out_genes", "training_data_simulation.log"), "simulating")
+        self.assertFalse(os.path.exists(os.path.join(out, ".converted")))
 
 
 if __name__ == "__main__":

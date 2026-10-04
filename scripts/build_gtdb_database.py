@@ -61,6 +61,13 @@ suspect ones go into the database as suspect_copies.tsv and a run leaves their r
 out) and relatives_by_gene_conservation.txt (trace_relatives.py: where the reads of the
 held-out species land, by the genes' factors).
 
+A reduced database holds a subset of the marker genes (--n-genes N: the N most
+distinctive by prevalence x unique k-mer share, ranked by scripts/rank_genes.py
+from a full build of the training database, or from --gene-ranking; --genes: the
+genes named). The release is then converted whole into OUTDIR/.converted and both
+database folders are derived from it with the subset (their gene neighbours
+counted over it); OUTDIR/gene_ranking.tsv and gene_subset.txt record the choice.
+
 The tools the run needs are checked before it starts, and protal and the simulator
 must be of the source these scripts are at: of its version and (as their --version
 says since 0.7.3) built from its commit, with nothing changed since in src/, lib/
@@ -102,6 +109,7 @@ TRAINER = os.path.join(HERE, "random_forest_cmdline.py")
 COLLECTOR = os.path.join(HERE, "collect_training_data.py")
 PARITY = os.path.join(HERE, "check_model_parity.py")
 TRACE = os.path.join(HERE, "trace_relatives.py")
+RANKER = os.path.join(HERE, "rank_genes.py")
 SOURCE = os.path.dirname(HERE)  # the checkout these scripts are part of
 # What protal and the simulator are built from (protal_commit.cmake marks a build of uncommitted changes to them).
 BUILD_SOURCES = ("src", "lib", "CMakeLists.txt", "protal_config.h.in", "protal_commit.cmake")
@@ -109,8 +117,10 @@ ACCESSION = re.compile(r"(?:RS_|GB_)?(GC[AF]_\d{9}\.\d+)")
 sys.path.insert(0, os.path.join(HERE, "mini_db"))
 sys.path.insert(0, HERE)
 import lineages  # noqa: E402
-from gtdb_to_protal_db import (clear_build_outputs, full_reference_path, normalize_accession,  # noqa: E402
-                               read_representatives, remove_full_reference as remove_full_reference_files)
+from gtdb_to_protal_db import (clear_build_outputs, full_reference_path, marker_files, normalize_accession,  # noqa: E402
+                               read_gene_ids, read_gene_list, read_representatives,
+                               remove_full_reference as remove_full_reference_files)
+import rank_genes  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
 from collect_training_data import TABLES, clock, congener_spec, last_line, units_of, parse_args as collector_args  # noqa: E402
@@ -654,7 +664,7 @@ def genes_placed(log):
     return f" in {m.group(3)} genomes ({m.group(1)} exactly, {m.group(2)} by their k-mer trace)" if m else ""
 
 
-def provenance(args, release, genome_table, heldout, n_heldout, read_types, prefixes):
+def provenance(args, release, genome_table, heldout, n_heldout, read_types, prefixes, genes="all"):
     """build_metadata.tsv: what the database was built from and with, so that two builds can be compared."""
     def output(command):
         try:
@@ -679,6 +689,7 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
             ("simulator_version", simulator_version[-1] if simulator_version else "unknown (older than 0.7.3)"),
             ("scripts_commit", commit or "unknown (not a git checkout)"), ("command", " ".join(sys.argv)),
             ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
+            ("marker_genes", genes),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("gene_positions", gene_neighbours_summary(os.path.join(args.outdir, "index_and_package.log"),
@@ -1021,6 +1032,20 @@ def main():
                    help="zstd level of the finished database (default 9: at GTDB r226, protal's default 19 made the index "
                         "2.7%% smaller than level 3 for 21 more minutes of a 1:20 build; docs/claude/2026-10-02-r226-build-"
                         "evaluation)")
+    p.add_argument("--n-genes", type=int, metavar="N",
+                   help="build the database from the N most distinctive of the release's marker genes (a reduced "
+                        "database: less memory, fewer hits per genome): the genes ranked by prevalence x unique "
+                        "k-mer share (scripts/rank_genes.py) from a full build of the training database first "
+                        "(OUTDIR/gene_ranking.tsv; --gene-ranking skips that build), the N best in "
+                        "OUTDIR/gene_subset.txt; the training database and the finished database hold those genes "
+                        "only, with their neighbours counted over them, and the models are trained on them")
+    p.add_argument("--genes", metavar="LIST",
+                   help="build the database from these marker genes instead: GTDB marker ids (PF00380.20, "
+                        "TIGR00001; PF00380 matches any version) or protal gene ids (gene2geneid.tsv), "
+                        "comma-separated or one per line in a file (first column, # comments)")
+    p.add_argument("--gene-ranking", metavar="FILE",
+                   help="with --n-genes: a ranking of this release's genes by scripts/rank_genes.py (from an earlier "
+                        "full build), instead of building one")
     p.add_argument("--simulate-species",
                    help="file of the species to simulate from (e.g. simulation_species.txt of download_gtdb.py: "
                         "species with other strains, and some without): the simulator draws species uniformly, so "
@@ -1175,6 +1200,16 @@ def main():
         max_leaves(args.maxnodes, "pe")
     except ValueError as e:
         p.error(str(e))
+    if args.n_genes is not None and args.genes:
+        p.error("give --n-genes or --genes, not both")
+    if args.n_genes is not None and args.n_genes < 1:
+        p.error("--n-genes: at least 1")
+    if args.gene_ranking and args.n_genes is None:
+        p.error("--gene-ranking goes with --n-genes")
+    if args.gene_ranking and not os.path.isfile(args.gene_ranking):
+        p.error(f"--gene-ranking: {args.gene_ranking} is not a file")
+    if args.genes and not os.path.isfile(args.genes) and "," not in args.genes and not re.fullmatch(r"[\w.]+", args.genes):
+        p.error(f"--genes: {args.genes} is neither a file nor a list of marker or gene ids")
     check_tools(args, read_types)
     if args.inputs:
         if args.gtdb:
@@ -1217,8 +1252,16 @@ def main():
         "file there" + (f"; the simulated samples go to {samples_root} "
                             f"({gigabytes(shutil.disk_usage(samples_root).free)} free)" if args.scratch else "") +
         (f"; the stages running are reported every {clock(Job.progress_every)}" if Job.progress_every > 0 else ""))
-    # The steps: genome table, release, databases, training data, test set (if any), models, parity, packing.
-    Steps.total = 7 + (args.test_samples > 0)
+    # The steps: genome table, release, marker genes (with --n-genes or --genes), databases, training data, test
+    # set (if any), models, parity, packing.
+    subset = args.n_genes is not None or bool(args.genes)
+    Steps.total = 7 + (args.test_samples > 0) + subset
+    if args.genes:
+        # The list is checked against the release's marker files before anything is converted (marker ids by
+        # name, gene ids by their range; the ids themselves come from gene2geneid.tsv once it is there).
+        markers = sorted({m for m, _ in marker_files(args.gtdb, "genomic_files_reps", "reps", release)})
+        if markers:
+            read_gene_list(args.genes, {m: i + 1 for i, m in enumerate(markers)})
     genome_table = args.genome_table or os.path.join(args.outdir, "genomes.tsv")
     if not args.genome_table:
         pool = None
@@ -1251,6 +1294,7 @@ def main():
     # --build packs the taxonomy into database.protal; the collector and the trainer read it (domains,
     # representative genomes). The training database has the same taxonomy.
     taxonomy = os.path.join(args.outdir, "internal_taxonomy.dmp")
+    gene_table = os.path.join(args.outdir, "gene2geneid.tsv")  # the markers' gene ids, for --genes and the ranking
 
     def convert(into):
         """The converted files of the release in `into`, with the models of the read types but pe as
@@ -1261,6 +1305,7 @@ def main():
                    str(args.threads)] + (["--tmp", samples_root] if args.scratch else []),
                   os.path.join(args.outdir, "convert.log"), label="converting the release")
         shutil.copyfile(os.path.join(into, "internal_taxonomy.dmp"), taxonomy)
+        shutil.copyfile(os.path.join(into, "gene2geneid.tsv"), gene_table)
         took = f"converted in {job.took()}"
         if not args.no_gene_neighbours:
             # Which marker genes lie next to which in every genome to simulate from (their genes placed by
@@ -1277,7 +1322,35 @@ def main():
         return took
 
     converted = None  # the folder with the converted files, once there
-    if final_done:
+    # With a gene subset the whole release is converted here, and the database folders (the subset's genes,
+    # with or without the species held out) are derived from it; without one, the finished database's folder
+    # holds the conversion and its build consumes it (the folder serves the taxonomy alone otherwise).
+    full = os.path.join(args.outdir, ".converted")
+
+    def ensure_converted():
+        """With a gene subset: the whole release in `full`, kept from an earlier run that stopped before the
+        database folders were derived, or converted now."""
+        nonlocal converted
+        if converted:
+            return
+        if stages.done("convert", convert_key) and os.path.isfile(taxonomy) and os.path.isfile(gene_table) and \
+                all(os.path.isfile(os.path.join(full, f)) for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp")):
+            clear_build_outputs(full)
+            Steps.done(f"{os.path.basename(full)} holds the release converted by an earlier run; not converted again")
+        else:
+            Steps.done("the whole release: " + convert(full))
+            stages.mark("convert", convert_key)
+        converted = full
+
+    if subset:
+        Steps.start(f"the release (convert.log): converted whole into {os.path.basename(full)}, which the database "
+                    "folders of the gene subset are derived from")
+        if not os.path.isfile(taxonomy) or not os.path.isfile(gene_table):
+            ensure_converted()
+        else:
+            Steps.done("its taxonomy and gene ids are there from an earlier run; converted again only if a database "
+                       "folder has to be derived")
+    elif final_done:
         Steps.start(f"the release: {db} was built by an earlier run from the same release and protal; kept" +
                     remove_full_reference(db))  # left by an earlier version of this script
     elif stages.done("convert", convert_key) and os.path.isfile(taxonomy) and \
@@ -1292,9 +1365,9 @@ def main():
         Steps.done(convert(db))
         stages.mark("convert", convert_key)
         converted = db
-    if not os.path.isfile(taxonomy):
-        Steps.done("its taxonomy: " + convert(os.path.join(args.outdir, ".converted")))
-        converted = os.path.join(args.outdir, ".converted")
+    if not subset and not os.path.isfile(taxonomy):
+        Steps.done("its taxonomy: " + convert(full))
+        converted = full
 
     # The training database leaves some species out: the model then sees reads of species the database
     # lacks, which land on relatives, and reads of whole families, classes and phyla it lacks, which land on
@@ -1310,6 +1383,94 @@ def main():
             fh.write("".join(f"{s}\t{rank}\t{clade}\n" for s, (rank, clade) in sorted(chosen.items())))
     elif os.path.exists(heldout):
         os.remove(heldout)
+    # The marker genes of the databases: all of them, or a subset (--n-genes: the N most distinctive by
+    # scripts/rank_genes.py, from a full build of the training database or --gene-ranking; --genes: the ones
+    # named), listed in gene_subset.txt, which the folders are derived with.
+    subset_file = os.path.join(args.outdir, "gene_subset.txt")
+    ranking_file = os.path.join(args.outdir, "gene_ranking.tsv")
+    genes_note = "all"  # build_metadata.tsv: which marker genes, chosen how
+    if subset:
+        gene_ids = read_gene_ids(gene_table)
+        names = {gid: marker for marker, gid in gene_ids.items()}
+        if args.genes:
+            Steps.start("marker genes (gene_subset.txt): the ones listed (--genes)")
+            chosen = read_gene_list(args.genes, gene_ids)
+            if len(chosen) >= len(gene_ids):
+                sys.exit(f"--genes names every one of the release's {len(gene_ids)} marker genes: no subset")
+            with open(subset_file + ".partial", "w", newline="\n") as fh:
+                fh.write(f"# {len(chosen)} of the {len(gene_ids)} marker genes of GTDB r{release} (--genes {args.genes})\n")
+                for gid in chosen:
+                    fh.write(f"# {names[gid]}\n{gid}\n")
+            os.replace(subset_file + ".partial", subset_file)
+            listed = ", ".join(names[g] for g in chosen)
+            genes_note = f"{len(chosen)} of {len(gene_ids)} (--genes): {listed}"
+            Steps.done(f"{len(chosen)} of the {len(gene_ids)} marker genes: {listed}")
+        else:
+            n = args.n_genes
+            Steps.start(f"marker genes (gene_subset.txt): the {n} most distinctive by prevalence x unique k-mer share")
+            if n >= len(gene_ids):
+                sys.exit(f"--n-genes {n}: GTDB r{release} has {len(gene_ids)} marker genes; a subset has fewer")
+            if args.gene_ranking:
+                shutil.copyfile(args.gene_ranking, ranking_file)
+                source = f"--gene-ranking {args.gene_ranking}"
+                Steps.done(f"ranked by {args.gene_ranking} (copied to gene_ranking.tsv)")
+            else:
+                # A full build of the training database (every gene, the species held out left out; separate files,
+                # as rank_genes.py reads them) ranks the genes: its unique k-mer table says how many of each gene's
+                # k-mers name their species. The build costs what the training database's does; the folder goes
+                # once ranked, the ranking stays for a rerun.
+                ranking_key = {"convert": convert_key, "protal": final_key["protal"], "ranker": content_hash(RANKER),
+                               "heldout": content_hash(heldout) if os.path.exists(heldout) else None}
+                if stages.done("gene_ranking", ranking_key) and os.path.isfile(ranking_file):
+                    Steps.done("ranked by an earlier run from a full build of the training database; kept (gene_ranking.tsv)")
+                else:
+                    stages.forget("gene_ranking")
+                    ensure_converted()
+                    ranking_db = os.path.join(samples_root, "ranking_db")
+                    shutil.rmtree(ranking_db, ignore_errors=True)
+                    command = [sys.executable, CONVERTER, "--from_db", converted, "--outdir", ranking_db, "-t", str(args.threads)]
+                    if os.path.exists(heldout):
+                        command += ["--exclude_species", heldout]
+                    run(command, os.path.join(args.outdir, "gene_ranking_files.log"), label="writing the ranking database's files")
+                    job = run(build_command(args.protal, ranking_db, args.threads, "--compress_level", str(args.training_db_level),
+                                            "--no_bundle"),
+                              os.path.join(args.outdir, "gene_ranking_build.log"), label="building the ranking database")
+                    rows = rank_genes.rank(ranking_db)
+                    with open(ranking_file + ".partial", "w", newline="\n") as fh:
+                        fh.write("\t".join(rank_genes.COLUMNS) + "\n" + "".join(rank_genes.format_row(r) + "\n" for r in rows))
+                    os.replace(ranking_file + ".partial", ranking_file)
+                    shutil.rmtree(ranking_db, ignore_errors=True)
+                    stages.mark("gene_ranking", ranking_key)
+                    Steps.done(f"ranked the {len(rows)} genes from a full build of the training database"
+                               f"{' (every gene, ' + str(len(read_holdout(heldout))) + ' species left out)' if os.path.exists(heldout) else ''}"
+                               f", built in {job.took()} (gene_ranking_build.log): gene_ranking.tsv")
+                source = "a full build of the training database"
+            rows = rank_genes.read_ranking(ranking_file)
+            unknown = [str(r[1]) for r in rows if r[1] not in names]
+            if unknown:
+                sys.exit(f"{ranking_file} ranks genes this release lacks ({', '.join(unknown[:5])}): a ranking of another release?")
+            if n > len(rows):
+                sys.exit(f"--n-genes {n}: {ranking_file} ranks {len(rows)} genes")
+            chosen = rank_genes.write_subset(subset_file, rows, n, source)
+            listed = ", ".join(r[2] for r in chosen)
+            genes_note = (f"{n} of {len(gene_ids)}, the most distinctive by prevalence x unique k-mer share "
+                          f"(scripts/rank_genes.py, from {source}): {listed}")
+            Steps.done(f"the {n} best of {len(rows)} (scores {chosen[0][3]:.3f} down to {chosen[-1][3]:.3f}): {listed}")
+        shutil.copy(subset_file, logs)
+        if os.path.isfile(ranking_file):
+            shutil.copy(ranking_file, logs)
+        final_key["genes"] = content_hash(subset_file)
+        final_done = stages.done("protal_db", final_key) and os.path.isfile(os.path.join(db, "database.protal"))
+        if final_done:
+            Steps.done(f"{os.path.basename(db)} was built by an earlier run from these genes; kept" + remove_full_reference(db))
+        else:
+            ensure_converted()
+            stages.forget("protal_db")
+            job = run([sys.executable, CONVERTER, "--from_db", converted, "--genes", subset_file, "--outdir", db,
+                       "-t", str(args.threads)], os.path.join(args.outdir, "protal_db_files.log"),
+                      label=f"deriving {os.path.basename(db)}'s files")
+            Steps.done(f"{os.path.basename(db)}'s files derived for these genes in {job.took()} (protal_db_files.log)")
+
     training_db, training_done = db, False
     n_heldout, files_took = 0, ""
     if os.path.exists(heldout):
@@ -1325,18 +1486,23 @@ def main():
                     f"out, {holdout_brief(chosen)} (model_logs/holdout.txt)")
         training_key = {"convert": convert_key, "heldout": content_hash(heldout), "protal": final_key["protal"],
                         "level": args.training_db_level}
+        if subset:
+            training_key["genes"] = final_key["genes"]
         training_done = stages.done("training_db", training_key) and \
             os.path.isfile(os.path.join(training_db, "database.protal"))
         if training_done:
-            Steps.done(f"{training_db} was built by an earlier run with the same species left out; kept" +
-                       remove_full_reference(training_db))
+            Steps.done(f"{training_db} was built by an earlier run with the same species left out"
+                       f"{' and the same genes' if subset else ''}; kept" + remove_full_reference(training_db))
         else:
             stages.forget("training_db")
-            if converted is None:  # the finished database's build consumed them
-                converted = os.path.join(args.outdir, ".converted")
+            if subset:
+                ensure_converted()
+            elif converted is None:  # the finished database's build consumed them
+                converted = full
                 Steps.done("the release again (the finished database's build took its files): " + convert(converted))
             job = run([sys.executable, CONVERTER, "--from_db", converted, "--exclude_species", heldout, "--outdir",
-                       training_db, "-t", str(args.threads)], os.path.join(args.outdir, "training_db.log"),
+                       training_db, "-t", str(args.threads)] + (["--genes", subset_file] if subset else []),
+                      os.path.join(args.outdir, "training_db.log"),
                       label="leaving the species out")
             files_took = f"; its files written in {job.took()} (training_db.log)"
     if converted and converted != db:
@@ -1538,7 +1704,7 @@ def main():
     Steps.done(f"added in {clock(time.time() - began)}{db_size(db)}")
     with open(os.path.join(db, "build_metadata.tsv"), "w") as fh:
         fh.write("".join(f"{k}\t{v}\n" for k, v in provenance(args, release, genome_table, heldout, n_heldout,
-                                                                  read_types, prefixes)))
+                                                                  read_types, prefixes, genes_note)))
     shutil.copy(os.path.join(db, "build_metadata.tsv"), logs)
     if os.path.isfile(os.path.join(db, "gene_congeners.tsv")):
         shutil.copy(os.path.join(db, "gene_congeners.tsv"), logs)
@@ -1552,8 +1718,9 @@ def main():
         Job.scratch.look()
         say(f"The run took at most {gigabytes(Job.scratch.peak)} on {samples_root}; the simulated samples there "
             f"({gigabytes(tree_size(training) + tree_size(test))}) are left for a rerun")
-    say(f"Ready protal database: {db}{db_size(db)}; model evaluation: {logs} (start with trained_model.report.txt, and "
-        "trained_model_<read type>.report.txt)")
+    say(f"Ready protal database: {db}{db_size(db)}" +
+        (f" (marker genes: {genes_note.split(',')[0].split(' (')[0]}, gene_subset.txt)" if subset else "") +
+        f"; model evaluation: {logs} (start with trained_model.report.txt, and trained_model_<read type>.report.txt)")
 
 
 if __name__ == "__main__":

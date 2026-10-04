@@ -17,7 +17,11 @@ scikit-learn (`$PROTAL_TRAIN_PYTHON`, default the one running the tests): a synt
 60 species, downloaded from a fake GTDB server and a fake NCBI `datasets`, built and trained for
 pe and se; a rerun that skips the conversion and both builds; another seed that rebuilds only the
 training database and collects again; a build failing in the background that stops the run at
-once; and `SIGTERM`, after which no command of the run is left.
+once; `SIGTERM`, after which no command of the run is left; and a reduced database of the three
+most distinctive genes (`--n-genes`, then `--genes`). `GeneSubsetTest` covers the converter's
+`--genes`, the neighbours counted over the genes kept and, with `$PROTAL`, the build of such a
+folder, `rank_genes.py` on a full build and `--build_gene_subset`
+([building-a-database.md](building-a-database.md#reduced-marker-sets)).
 
 ```bash
 PROTAL=build/protal SIMULATE=build/simulate_metagenomes PROTAL_TRAIN_PYTHON=~/protal-train/bin/python \

@@ -46,8 +46,16 @@ themselves (zstd frames, joined as they are), and the log gives each step's time
 
 Usage:
   gtdb_to_protal_db.py --gtdb <release dir> --outdir <db dir> [--release 226] [--model FILE]
-      [--exclude_species FILE]
-  gtdb_to_protal_db.py --from_db <db dir> --exclude_species FILE --outdir <training db dir>
+      [--exclude_species FILE] [--genes LIST]
+  gtdb_to_protal_db.py --from_db <db dir> [--exclude_species FILE] [--genes LIST] --outdir <copy>
+
+--genes keeps a subset of the marker genes (a reduced database: less memory, fewer hits): GTDB
+marker ids (PF00380.20, TIGR00001; PF00380 without its version matches any) or protal gene ids
+(the numbers of gene2geneid.tsv), comma-separated or in a file (one per line, the first column, #
+comments; e.g. the subset file of scripts/rank_genes.py). The genes keep their ids; the other
+genes are left out of reference.fna, reference.map, the full reference and gene2geneid.tsv, and
+the gene neighbours of a --from_db copy are counted anew over the genes kept (from
+gene_positions.tsv: the gene a read meets next is the nearest one of the subset).
 
 --exclude_species leaves the marker genes of those species out and keeps them in the taxonomy
 with their taxids, for a training database: reads of the species left out land on relatives, as
@@ -457,19 +465,70 @@ def clear_build_outputs(folder):
             os.remove(path)
 
 
-def exclude_from_db(src, dst, names, threads=1):
+def read_gene_ids(path):
+    """gene2geneid.tsv of a converted folder -> {marker id: gene id}."""
+    gene_ids = {}
+    with open(path) as fh:
+        for line in fh:
+            f = line.rstrip("\n").split("\t")
+            if len(f) >= 2 and f[1].isdigit():
+                gene_ids[f[0]] = int(f[1])
+    return gene_ids
+
+
+def read_gene_list(spec, gene_ids, what="--genes"):
+    """The gene ids of a --genes value: GTDB marker ids (PF00380.20, TIGR00001; PF00380 without its version
+    matches any) or protal gene ids (the numbers of gene_ids, {marker: gene id}), comma-separated or in a file
+    (one per line, its first tab- or space-separated column, # comments). -> sorted gene ids; exits on an unknown
+    id, an empty list or a marker id that matches several."""
+    if os.path.isfile(spec):
+        items = []
+        with open(spec) as fh:
+            for line in fh:
+                token = line.strip().split("\t")[0].split(" ")[0]
+                if token and not token.startswith("#"):
+                    items.append(token)
+    else:
+        items = [t.strip() for t in spec.split(",") if t.strip()]
+    if not items:
+        sys.exit(f"{what}: no gene ids in {spec}")
+    by_stem = {}
+    for marker, gid in gene_ids.items():
+        by_stem.setdefault(marker.split(".")[0], []).append((marker, gid))
+    genes = set()
+    for token in items:
+        if token.isdigit():
+            if int(token) not in gene_ids.values():
+                sys.exit(f"{what}: gene id {token} is not in gene2geneid.tsv (ids 1-{max(gene_ids.values(), default=0)})")
+            genes.add(int(token))
+        elif token in gene_ids:
+            genes.add(gene_ids[token])
+        elif token in by_stem:
+            if len(by_stem[token]) > 1:
+                sys.exit(f"{what}: {token} matches several markers ({', '.join(m for m, _ in by_stem[token])}): name one")
+            genes.add(by_stem[token][0][1])
+        else:
+            sys.exit(f"{what}: {token} is not a marker of gene2geneid.tsv (a GTDB marker id such as PF00380.20 or "
+                     "TIGR00001, or a protal gene id)")
+    return sorted(genes)
+
+
+def derive_db(src, dst, names=(), genes=None, threads=1):
     """Copy the converted database folder src (before protal --build) to dst, leaving out the marker genes
-    of the species `names` from reference.fna, reference.map and the full reference. The taxonomy keeps
-    them with the same taxids: truth files still name them, and a model trained on dst applies to src.
-    Only the files this script (and build_gtdb_database.py) wrote are copied, not what a build of src
-    wrote or left there; dst's own build outputs are removed."""
+    of the species `names` and, with `genes` (gene ids), every gene but those, from reference.fna, reference.map
+    and the full reference. The taxonomy keeps the species with the same taxids: truth files still name them,
+    and a model trained on dst applies to src; the genes keep their ids (gene2geneid.tsv lists the ones kept).
+    The gene neighbours are counted anew from gene_positions.tsv over the species and genes kept. Only the
+    files this script (and build_gtdb_database.py) wrote are copied, not what a build of src wrote or left
+    there; dst's own build outputs are removed."""
     fna = os.path.join(src, "reference.fna")
     if not os.path.isfile(fna):
-        sys.exit(f"{src} has no reference.fna: exclude species before protal --build packs the database")
+        sys.exit(f"{src} has no reference.fna: derive the copy before protal --build packs the database")
     with open(os.path.join(src, "internal_taxonomy.dmp")) as fh:
         next(fh)
         rows = [(f[0], f[3], f[4]) for f in (line.rstrip("\n").split("\t") for line in fh)]
-    drop = species_taxids(rows, names, "--exclude_species")
+    drop = species_taxids(rows, names, "--exclude_species") if names else set()
+    keep = set(genes) if genes is not None else None
     os.makedirs(dst, exist_ok=True)
     clear_build_outputs(dst)
     for name in CONVERTED_FILES:
@@ -477,15 +536,23 @@ def exclude_from_db(src, dst, names, threads=1):
             shutil.copyfile(os.path.join(src, name), os.path.join(dst, name))
         elif os.path.isfile(os.path.join(dst, name)):
             os.remove(os.path.join(dst, name))
+    if keep is not None and os.path.isfile(os.path.join(src, "gene2geneid.tsv")):
+        with open(os.path.join(src, "gene2geneid.tsv")) as fin, \
+                open(os.path.join(dst, "gene2geneid.tsv"), "w", newline="\n") as fout:
+            for line in fin:
+                f = line.rstrip("\n").split("\t")
+                if len(f) < 2 or not f[1].isdigit() or int(f[1]) in keep:
+                    fout.write(line)
     if os.path.isfile(os.path.join(src, GENE_POSITIONS)):
-        # The gene neighbours of the genomes of the species kept: the left-out species' gene order is not known
-        # to the copy, as an organism the database lacks is not.
+        # The gene neighbours of the genomes of the species kept, among the genes kept: the left-out species'
+        # gene order is not known to the copy, as an organism the database lacks is not; and a read meets the
+        # nearest gene of the subset next, not a gene the copy lacks.
         import gene_neighbours  # here: it imports this module
         lines, genomes, kept_species = gene_neighbours.derive(
             os.path.join(src, GENE_POSITIONS), os.path.join(dst, "internal_taxonomy.dmp"),
-            os.path.join(dst, gene_neighbours.FILE_NAME), {int(t) for t in drop}, os.path.join(dst, GENE_POSITIONS))
+            os.path.join(dst, gene_neighbours.FILE_NAME), {int(t) for t in drop}, os.path.join(dst, GENE_POSITIONS), keep)
         sys.stderr.write(f"{gene_neighbours.FILE_NAME} derived from the {genomes} genomes of {kept_species} species "
-                         f"kept: {lines} lines\n")
+                         f"kept: {lines} lines" + (f" (over the {len(keep)} genes kept)" if keep is not None else "") + "\n")
     elif os.path.isfile(os.path.join(dst, GENE_POSITIONS)):
         os.remove(os.path.join(dst, GENE_POSITIONS))
 
@@ -495,38 +562,47 @@ def exclude_from_db(src, dst, names, threads=1):
                 seq = fh.readline()
                 if not header.startswith(">") or not seq:
                     sys.exit(f"{path}: expected a header and one sequence line per record")
-                yield header, seq, header[1:].split("_", 1)[0]
+                tid, gid = header[1:].rstrip("\n").split("_", 1)
+                yield header, seq, tid, gid
+
+    def wanted(tid, gid):
+        return tid not in drop and (keep is None or int(gid) in keep)
 
     kept = dropped = offset = 0
+    genes_kept = set()
     with open(os.path.join(dst, "reference.fna"), "w", newline="\n") as out, \
             open(os.path.join(dst, "reference.map"), "w", newline="\n") as fmap:
-        for header, seq, tid in records(fna):
-            if tid in drop:
+        for header, seq, tid, gid in records(fna):
+            if not wanted(tid, gid):
                 dropped += 1
                 continue
-            gid = header[1:].rstrip("\n").split("_", 1)[1]
             out.write(header + seq)
             start = offset + len(header)
             fmap.write(f"{tid}\t{gid}\t{start}\t{start + len(seq) - 1}\n")
             offset = start + len(seq)
             kept += 1
+            genes_kept.add(int(gid))
+    if keep is not None and genes_kept != keep:
+        missing = sorted(keep - genes_kept)
+        sys.exit(f"--genes: {fna} has no sequence of gene{'s' if len(missing) > 1 else ''} {', '.join(map(str, missing))}")
     full = full_reference_path(src)
     full_kept = 0
     if full:
-        drop_bytes = {tid.encode() for tid in drop}
         with read_full_reference(full) as fin, full_reference_writer(dst, threads) as out:
             for header in fin:
                 seq = fin.readline()
                 if not header.startswith(b">") or not seq:
                     sys.exit(f"{full}: expected a header and one sequence line per record")
-                if header[1:].split(b"_", 1)[0] not in drop_bytes:
+                tid, gid = header[1:].rstrip(b"\n").split(b"_", 1)
+                if wanted(tid.decode(), gid.decode()):
                     out.write(header)
                     out.write(seq)
                     full_kept += 1
     else:
         remove_full_reference(dst)  # of an earlier copy; protal --build would take it
-    sys.stderr.write(f"{src} -> {dst} without {len(drop)} species: {kept} representative sequences kept, "
-                     f"{dropped} left out; full reference {full_kept} sequences\n")
+    sys.stderr.write(f"{src} -> {dst} without {len(drop)} species" +
+                     (f", {len(keep)} genes kept" if keep is not None else "") +
+                     f": {kept} representative sequences kept, {dropped} left out; full reference {full_kept} sequences\n")
 
 
 def build_taxonomy(species_lineages):
@@ -570,14 +646,23 @@ def main():
     ap.add_argument("--exclude_species", help="file of species (s__Genus species, one per line) whose marker genes "
                                               "are left out; the taxonomy keeps them, with the taxids they have "
                                               "with all species (a training database with species held out)")
+    ap.add_argument("--genes", help="keep only these marker genes (a reduced database): GTDB marker ids (PF00380.20, "
+                                    "TIGR00001; PF00380 matches any version) or protal gene ids, comma-separated or "
+                                    "one per line in a file (first column, # comments). The genes keep their ids; "
+                                    "with --from_db the gene neighbours are counted anew over them")
     args = ap.parse_args()
     if bool(args.gtdb) == bool(args.from_db):
         ap.error("give --gtdb or --from_db")
     exclude = read_species_list(args.exclude_species) if args.exclude_species else set()
     if args.from_db:
-        if not exclude:
-            ap.error("--from_db needs --exclude_species")
-        exclude_from_db(args.from_db, args.outdir, exclude, args.threads)
+        # Without --exclude_species and --genes: a plain copy of the converted files (a folder to build apart).
+        genes = None
+        if args.genes:
+            table = os.path.join(args.from_db, "gene2geneid.tsv")
+            if not os.path.isfile(table):
+                sys.exit(f"--genes: {args.from_db} has no gene2geneid.tsv")
+            genes = read_gene_list(args.genes, read_gene_ids(table))
+        derive_db(args.from_db, args.outdir, exclude, genes, args.threads)
         return
 
     clock = [time.time()]
@@ -604,6 +689,12 @@ def main():
     gene_ids = {}
     for marker, _ in rep_files + all_files:
         gene_ids.setdefault(marker, len(gene_ids) + 1)
+    # --genes: the database holds these genes only, with the ids they have among all markers (a copy of the
+    # full conversion derived with --from_db --genes gives the same files). The representatives' files of
+    # every marker are still read: species_priors.tsv counts the markers found over the whole set.
+    keep = set(read_gene_list(args.genes, gene_ids)) if args.genes else None
+    if keep is not None:
+        all_files = [(marker, path) for marker, path in all_files if gene_ids[marker] in keep]
 
     # The marker files are read in parallel (--threads), one marker at a time per worker, and spooled
     # to a temporary folder (--tmp): the representatives' genes are never all in memory.
@@ -681,7 +772,10 @@ def main():
     # Each gene's records, sorted by taxid, then all genes in gene id order (--order gene), or merged
     # by taxid, then gene (--order genome).
     _WORK.update(taxid=taxid, drop=drop)
-    markers = sorted(by_marker, key=lambda m: gene_ids[m])
+    markers = sorted((m for m in by_marker if keep is None or gene_ids[m] in keep), key=lambda m: gene_ids[m])
+    if keep is not None and len(markers) < len(keep):
+        sys.exit(f"--genes: no representative has gene{'s' if len(keep) - len(markers) > 1 else ''} "
+                 f"{', '.join(str(g) for g in sorted(keep) if g not in {gene_ids[m] for m in markers})}")
     phase("wrote the taxonomy")
     lengths = dict(zip(markers, _parallel(args.threads, _write_gene, markers)))
     n_records = sum(len(v) for v in lengths.values())
@@ -709,7 +803,8 @@ def main():
 
     with open(out("gene2geneid.tsv"), "w", newline="\n") as fh:
         for marker, gid in gene_ids.items():
-            fh.write(f"{marker}\t{gid}\n")
+            if keep is None or gid in keep:
+                fh.write(f"{marker}\t{gid}\n")
 
     with open(out("genome2tiid.tsv"), "w", newline="\n") as fh:
         for acc in sorted(lineage):
@@ -756,7 +851,8 @@ def main():
         f"GTDB r{rel} -> {args.outdir}\n"
         f"  species:            {len(taxid)} (taxids 1..{len(taxid)}, root {root_id})"
         + (f", {len(drop)} without marker genes (--exclude_species)" if drop else "") + "\n"
-        f"  marker genes:       {len(gene_ids)} ids, {n_records} representative sequences\n"
+        f"  marker genes:       {len(markers)} ids" + (f" of {len(gene_ids)} (--genes)" if keep is not None else "")
+        + f", {n_records} representative sequences\n"
         f"  full reference:     {n_full} sequences" +
         (f" ({os.path.basename(full)}, {os.path.getsize(full) / 1e9:.2f} GB)" if full else " (no genomic_files_all)") + "\n"
         f"  skipped rep records: " + ", ".join(f"{k}: {v}" for k, v in skipped.items()) + "\n")

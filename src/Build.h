@@ -662,6 +662,19 @@ namespace protal::build {
                       << "scripts/mini_db/gene_neighbours.py writes from whole genomes, is not in the folder)" << std::endl;
             return;
         }
+        if (options.HasBuildGeneSubset()) {
+            // The table was counted over every gene: a gene's neighbour there may be one the subset lacks, so
+            // the gene a read really meets next (the nearest one of the subset) would be judged unlikely, and
+            // long reads would look for genes that are not in the index. The folder has to be derived for
+            // the subset (the frequencies counted anew from gene_positions.tsv over the subset's genes).
+            std::cerr << "Cannot build with --build_gene_subset: the folder has " << Options::PROTAL_GENE_NEIGHBOURS_FILE
+                      << ", whose neighbours were counted over every gene. Derive a folder of the subset's genes "
+                      << "with scripts/mini_db/gtdb_to_protal_db.py --from_db <folder> --genes <list> --outdir <subset "
+                      << "folder> (its gene neighbours are counted anew from " << Options::PROTAL_GENE_POSITIONS_FILE
+                      << ") and build that, or remove the table (and " << Options::PROTAL_GENE_POSITIONS_FILE
+                      << ") from the folder" << std::endl;
+            exit(8);
+        }
         auto fail = [&path](std::string const& what) {
             std::cerr << "Invalid gene neighbours " << path << ": " << what << std::endl;
             exit(8);
@@ -780,7 +793,8 @@ namespace protal::build {
         for (auto const& [taxid, genome] : genomes.GetGenomeMap()) {
             auto const& genes = genome.GetGeneList();
             for (size_t i = 0; i < genes.size(); i++) {
-                if (genes[i].IsSet()) keys.push_back(gene_conservation::Estimator::Key(taxid, i + 1));
+                // Genes outside --build_gene_subset get no factor: nothing can hit them.
+                if (genes[i].IsSet() && options.BuildGeneAllowed(i + 1)) keys.push_back(gene_conservation::Estimator::Key(taxid, i + 1));
             }
         }
         gene_conservation::Estimator estimator(std::move(keys));
@@ -877,12 +891,12 @@ namespace protal::build {
             bm.Stop();
             return;
         }
-        auto genes_of = [&genomes](uint32_t taxid) {
+        auto genes_of = [&genomes, &options](uint32_t taxid) {
             std::vector<std::pair<uint64_t, std::string>> genes;
             auto& genome = genomes.GetGenome(taxid);
             auto const& list = genome.GetGeneList();
             for (size_t i = 0; i < list.size(); i++) {
-                if (!list[i].IsSet()) continue;
+                if (!list[i].IsSet() || !options.BuildGeneAllowed(i + 1)) continue;  // the subset's genes only
                 auto const seq = genome.GetGeneOMP(i + 1).Sequence();
                 genes.emplace_back(i + 1, std::string(seq.View()));
             }
@@ -957,7 +971,7 @@ namespace protal::build {
                 auto& genome = genomes.GetGenome(taxids[t]);
                 auto const& list = genome.GetGeneList();
                 for (size_t i = 0; i < list.size(); i++) {
-                    if (!list[i].IsSet()) continue;
+                    if (!list[i].IsSet() || !options.BuildGeneAllowed(i + 1)) continue;  // the subset's genes only
                     auto const seq = genome.GetGeneOMP(i + 1).Sequence();
                     if (mine.size() <= i + 1) mine.resize(i + 2);
                     mine[i + 1].push_back({ taxids[t], gene_conservation::BottomSketch(seq.View(), gene_incongruence::kSketchSize) });
@@ -1349,6 +1363,10 @@ namespace protal::build {
             kmer_handler.SetSequence(std::string_view(record.sequence));
 
             auto [taxonomic_id, gene_id] = KmerUtils::ExtractHeaderInformation(record.header);
+            // With --build_gene_subset the database's genes are the subset: a copy of another gene is
+            // not among the sequences a read could come from, so it does not make k-mers non-unique
+            // (nor does it cost time: most of the full reference with a small subset).
+            if (options.HasBuildGeneSubset() && !options.BuildGeneAllowed(gene_id)) continue;
 
             thread_statistics.reads++;
 
