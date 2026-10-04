@@ -214,6 +214,7 @@ namespace protal {
         GenomeLoader& m_genomes;
         size_t m_align_top;
         double m_min_ani;
+        size_t m_budget_margin = 0;  // --long_read_budget: edits past a segment's best hit its other candidates may cost (0: the floor's budget)
         size_t m_max_chunk;
         size_t m_overlap;
 
@@ -262,7 +263,8 @@ namespace protal {
             m_candidates.push_back({ anchor, chunk, gene, window });
         }
 
-        std::optional<LongReadHit> Align(LongReadCandidate const& candidate, FastxRecord const& record) {
+        // max_score_cap: a WFA2 budget below the ANI floor's (the segment's, from its best hit; --long_read_budget).
+        std::optional<LongReadHit> Align(LongReadCandidate const& candidate, FastxRecord const& record, int max_score_cap = INT32_MAX) {
             auto const& read = record.sequence;
             int64_t const read_length = static_cast<int64_t>(read.size());
             auto const& window = candidate.window;
@@ -285,7 +287,7 @@ namespace protal {
 
             AlignmentResult result;
             m_id = record.id;
-            if (!m_alignment_handler.AlignAnchor(anchor, result, m_window, m_window_rev, false, m_id)) return std::nullopt;
+            if (!m_alignment_handler.AlignAnchor(anchor, result, m_window, m_window_rev, false, m_id, max_score_cap)) return std::nullopt;
             auto& info = result.GetAlignmentInfo();
             if (info.GetProxyANI() < m_min_ani) return std::nullopt;
 
@@ -448,6 +450,7 @@ namespace protal {
                 m_genomes(other.m_genomes),
                 m_align_top(other.m_align_top),
                 m_min_ani(other.m_min_ani),
+                m_budget_margin(other.m_budget_margin),
                 m_max_chunk(other.m_max_chunk),
                 m_overlap(other.m_overlap) {}
 
@@ -457,6 +460,8 @@ namespace protal {
         // half a chunk, which a gene of ~29 kb and its margins exceed (none of GTDB's markers).
         bool ChunksHoldEveryGene() const { return m_overlap <= m_max_chunk / 2; }
 
+        // --long_read_budget: see m_budget_margin.
+        void SetBudgetMargin(size_t edits) { m_budget_margin = edits; }
         AnchorFinder& GetAnchorFinder() { return m_anchor_finder; }
         KmerHandler& GetKmerHandler() { return m_kmer_handler; }
         SimpleAlignmentHandler& GetAlignmentHandler() { return m_alignment_handler; }
@@ -520,6 +525,9 @@ namespace protal {
             m_segment_members.clear();
             for (auto& members : LongReadSegmentsOf(m_candidates, read_length)) {
                 LongReadSegment segment;
+                // With --long_read_budget E, once a candidate has aligned, the segment's others may cost at most E edits (as
+                // mismatches, 4 each) more than the best so far, else they fail there and count as failed candidates.
+                int cap = INT32_MAX;
                 int take_top = static_cast<int>(m_align_top);
                 Anchor const* last = nullptr;
                 for (auto i : members) {
@@ -527,7 +535,13 @@ namespace protal {
                     if (--take_top < 0 && last && last->total_length != candidate.anchor.total_length) break;
                     last = &candidate.anchor;
                     m_aligned[i] = true;
-                    if (auto hit = Align(candidate, record)) segment.hits.push_back(std::move(*hit));
+                    if (auto hit = Align(candidate, record, cap)) {
+                        if (m_budget_margin > 0) {
+                            int const penalties = -hit->alignment.GetAlignmentInfo().Score();
+                            cap = std::min(cap, penalties + 4 * static_cast<int>(m_budget_margin) + 1);
+                        }
+                        segment.hits.push_back(std::move(*hit));
+                    }
                 }
                 if (segment.hits.empty()) continue;
                 RankLongReadSegment(segment);

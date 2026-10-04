@@ -1,0 +1,67 @@
+# Items 4a (the window's right end from the last link's diagonal, on) and 4d (--long_read_budget, opt-in): WSL, V073 database,
+# HEAD c94bd0e against the working tree (items 1-3 + 4a) and the working tree with --long_read_budget 20 and 50; 6 threads for long reads.
+OK build
+  k = 8: refused 2083 (20% of the failures; short reads 19%, long-read windows 24%)
+  k = 9: refused 279 (2% of the failures; short reads 2%, long-read windows 4%)
+  k = 10: refused 0 (0% of the failures; short reads 0%, long-read windows 0%)
+4460 candidates, 3527 aligned; the screen refused 278 of 4460 (WFA2 ran 4182 times with it, 4460 without)
+[  PASSED  ] 337 tests.
+[  SKIPPED ] 1 test, listed below:
+[  SKIPPED ] GeneSequence.TheBasesOutsideAWindowAreNotLeftToChance
+== long-read chain test
+60 long reads: both aligned 60, anchored worse 0 (by over 2%: 0), scores -18928 anchored, -18942 whole
+19309 candidates: WFA2 failed 10247 (short reads 7579, long-read windows 2668), the screen refused 4716 (46% of the failures), refused but aligned 0
+4460 candidates, 3527 aligned; the screen refused 278 of 4460 (WFA2 ran 4182 times with it, 4460 without)
+[  PASSED  ] 5 tests.
+== pb 90 Mb, 6 threads
+pb head 1: 6.58 s wall, 31.50 s user; Aligning reads took 4s 691ms; Profiling took 363ms
+    4356 gene hits fit several taxa (MAPQ < 4); 26170 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 539 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+pb work 1: 3.81 s wall, 18.61 s user; Aligning reads took 2s 632ms; Profiling took 342ms
+    4356 gene hits fit several taxa (MAPQ < 4); 26172 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 539 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+    Sample s: 6569 reads, 6495 with an anchor; 134051 candidate alignments tried: 27041 refused by the k-mer screen, 106972 aligned from the anchor's exact matches and 38 as whole windows; 86889 alignments made, 36245 records written
+pb head 2: 5.88 s wall, 31.04 s user; Aligning reads took 4s 712ms; Profiling took 361ms
+    4356 gene hits fit several taxa (MAPQ < 4); 26170 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 539 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+pb work 2: 4.55 s wall, 22.52 s user; Aligning reads took 3s 180ms; Profiling took 362ms
+    4356 gene hits fit several taxa (MAPQ < 4); 26172 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 539 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+    Sample s: 6569 reads, 6495 with an anchor; 134051 candidate alignments tried: 27041 refused by the k-mer screen, 106972 aligned from the anchor's exact matches and 38 as whole windows; 86889 alignments made, 36245 records written
+pb work budget20: 3.50 s wall, 16.83 s user; Aligning reads took 2s 335ms; Profiling took 343ms
+    4356 gene hits fit several taxa (MAPQ < 4); 23590 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 534 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+    Sample s: 6569 reads, 6495 with an anchor; 134041 candidate alignments tried: 61928 refused by the k-mer screen, 72098 aligned from the anchor's exact matches and 15 as whole windows; 59086 alignments made, 36245 records written
+pb work budget50: 5.81 s wall, 29.53 s user; Aligning reads took 4s 330ms; Profiling took 558ms
+    4356 gene hits fit several taxa (MAPQ < 4); 24853 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 539 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+    Sample s: 6569 reads, 6495 with an anchor; 134053 candidate alignments tried: 41918 refused by the k-mer screen, 92119 aligned from the anchor's exact matches and 16 as whole windows; 72738 alignments made, 36245 records written
+    head vs work (4a): SAM differs: 14 records of 36359 differ
+    head vs work (4a): profile identical
+    work vs budget 20: SAM differs: 28759 records of 36359 differ
+    work vs budget 20: profile differs (240 lines)
+    work vs budget 50: SAM differs: 22060 records of 36359 differ
+    work vs budget 50: profile differs (240 lines)
+== ont 90 Mb, 6 threads
+ont head 1: 10.11 s wall, 51.22 s user; Aligning reads took 7s 940ms; Profiling took 592ms
+    4238 gene hits fit several taxa (MAPQ < 4); 22389 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 602 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+ont work 1: 8.17 s wall, 43.68 s user; Aligning reads took 6s 645ms; Profiling took 566ms
+    4232 gene hits fit several taxa (MAPQ < 4); 22398 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 602 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+    Sample s: 12011 reads, 11596 with an anchor; 142877 candidate alignments tried: 0 refused by the k-mer screen, 138876 aligned from the anchor's exact matches and 4001 as whole windows; 84429 alignments made, 34365 records written
+ont head 2: 8.23 s wall, 43.85 s user; Aligning reads took 6s 606ms; Profiling took 581ms
+    4238 gene hits fit several taxa (MAPQ < 4); 22389 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 602 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+ont work 2: 9.07 s wall, 48.13 s user; Aligning reads took 7s 404ms; Profiling took 710ms
+    4232 gene hits fit several taxa (MAPQ < 4); 22398 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 602 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+    Sample s: 12011 reads, 11596 with an anchor; 142877 candidate alignments tried: 0 refused by the k-mer screen, 138876 aligned from the anchor's exact matches and 4001 as whole windows; 84429 alignments made, 34365 records written
+ont work budget20: 8.29 s wall, 42.92 s user; Aligning reads took 6s 424ms; Profiling took 683ms
+    4224 gene hits fit several taxa (MAPQ < 4); 17550 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 589 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+    Sample s: 12011 reads, 11596 with an anchor; 142874 candidate alignments tried: 19727 refused by the k-mer screen, 119386 aligned from the anchor's exact matches and 3761 as whole windows; 57645 alignments made, 34365 records written
+ont work budget50: 7.48 s wall, 39.01 s user; Aligning reads took 5s 852ms; Profiling took 524ms
+    4232 gene hits fit several taxa (MAPQ < 4); 19936 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 596 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+    Sample s: 12011 reads, 11596 with an anchor; 142877 candidate alignments tried: 8392 refused by the k-mer screen, 130603 aligned from the anchor's exact matches and 3882 as whole windows; 70510 alignments made, 34365 records written
+    head vs work (4a): SAM differs: 1605 records of 35747 differ
+    head vs work (4a): profile differs (244 lines)
+    work vs budget 20: SAM differs: 24120 records of 35758 differ
+    work vs budget 20: profile differs (245 lines)
+    work vs budget 50: SAM differs: 17564 records of 35758 differ
+    work vs budget 50: profile differs (245 lines)
+== 500k pairs, 1 thread (short reads unchanged by 4a)
+pe head: 16.42 s wall, 15.70 s user; Aligning reads took 12s 24ms; Profiling took 1s 907ms
+pe work: 12.77 s wall, 12.08 s user; Aligning reads took 8s 610ms; Profiling took 1s 830ms
+    Sample s: 499525 read pairs, 463394 with an anchor; 1423103 candidate alignments tried: 71332 refused by the k-mer screen, 1315512 aligned from the anchor's exact matches and 36259 as whole windows; 1177081 alignments made, 230634 records written
+    SAM identical
+    other outputs identical

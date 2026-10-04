@@ -2623,8 +2623,14 @@ namespace protal {
             // share of its reads an abundance-weighted assignment over the reads' alternatives leaves it (em_*), and the
             // singleton rule. Taxa and their relatives are visited in taxid order and every distance depends only on
             // the two references, so the evidence is the same on any number of threads.
+            // Wall-clock timers of the last ApplySampleContext: the read EM and the congener distances (sketches and pairs).
+            Benchmark m_bm_em{"Profiling: read EM"};
+            Benchmark m_bm_distances{"Profiling: congener distances"};
+
             void ApplySampleContext(size_t threads = 1) {
+                m_bm_em.Start();
                 auto const shares = context::AbundanceWeightedShares(m_evidence.Ambiguity(), m_evidence.RecordCountsByTaxon());
+                m_bm_em.Stop();
                 auto const ids = SortedTaxa();
                 struct Entry {
                     uint32_t id;
@@ -2680,12 +2686,14 @@ namespace protal {
                 }
                 std::sort(to_sketch.begin(), to_sketch.end());
                 to_sketch.erase(std::unique(to_sketch.begin(), to_sketch.end()), to_sketch.end());
+                m_bm_distances.Start();
                 sam_chunks::ParallelFor(to_sketch.size(), std::max<size_t>(threads, 1), [&](size_t t) {
                     m_distances->Sketch(to_sketch[t]);
                 });
                 sam_chunks::ParallelFor(pairs.size(), std::max<size_t>(threads, 1), [&](size_t p) {
                     pair_distance[p] = m_distances->Between(pairs[p].first, pairs[p].second);
                 });
+                m_bm_distances.Stop();
                 auto distance = [&](uint32_t a, uint32_t b) {
                     auto const key = std::make_pair(std::min(a, b), std::max(a, b));
                     auto const it = std::lower_bound(pairs.begin(), pairs.end(), key);
@@ -3350,7 +3358,15 @@ namespace protal {
             SamPairs m_pairs_unique;
             SamPairList m_pairs_nonunique;
             SamPairs m_pairs_nonunique_best;
-            Benchmark m_post_process_bm{"Post-processing"};
+            // Wall-clock timers of the last ProfileSam, for the sample's runtime table (RunProtal::ProfileSample): reading
+            // and parsing the SAM (with the taxa adding their records), the record evidence with the sample context
+            // (MicrobialProfile::m_bm_em, m_bm_distances inside it), and the SNP post-processing.
+            Benchmark m_bm_read{"Profiling: reading the SAM"};
+            Benchmark m_bm_evidence{"Profiling: record evidence and sample context"};
+            Benchmark m_post_process_bm{"Profiling: SNP post-processing"};
+            Benchmark const& ReadTimer() const { return m_bm_read; }
+            Benchmark const& EvidenceTimer() const { return m_bm_evidence; }
+            Benchmark const& SnpTimer() const { return m_post_process_bm; }
 
             // See Taxon::OwnIdentityThreshold.
             void SetDepthIdentityMargin(double margin) {
@@ -4334,11 +4350,15 @@ namespace protal {
                 if (threads > 1) {
                     std::string rejected;
                     bool serial = false;
+                    m_bm_read.Start();
                     auto const error = ProfileSamParallel(file_path, profile, rejected, threads, serial);
+                    m_bm_read.Stop();
                     if (!serial) {
                         if (erroneous_sam_out.has_value()) erroneous_sam_out.value().get() << rejected;
                         if (!error.empty()) return error;
+                        m_bm_evidence.Start();
                         profile.ApplyRecordEvidence(threads);
+                        m_bm_evidence.Stop();
                         m_post_process_bm.Start();
                         profile.PostProcessSNPs(snp_min_cov, snp_min_obs_fwdrev, snp_min_af, snp_min_mean_qual, snp_min_phred_sum, snp_require_strand, threads);
                         m_post_process_bm.Stop();
@@ -4353,6 +4373,7 @@ namespace protal {
                 // record each, which follow each other with the read's name).
                 size_t link = 0;
                 std::string last_qname;
+                m_bm_read.Start();
                 auto error = ReadSamGroups(file_path, [&](std::vector<AlignmentPair>& group) {
                     auto& pair = group.size() == 1 ? group.front() : BestOfGroup(group);
                     auto const& qname = pair.Any().m_qname;
@@ -4366,11 +4387,14 @@ namespace protal {
                         if (pair.second.has_value()) os << pair.second.value().ToString() << '\n';
                     }
                 });
+                m_bm_read.Stop();
                 if (!error.empty()) return error;
                 profile.Evidence().AddFailedCandidates(m_failed_candidates);  // the unmapped records' failed candidates
 
                 m_reads = read_id;
+                m_bm_evidence.Start();
                 profile.ApplyRecordEvidence(threads);
+                m_bm_evidence.Stop();
                 m_post_process_bm.Start();
                 profile.PostProcessSNPs(snp_min_cov, snp_min_obs_fwdrev, snp_min_af, snp_min_mean_qual, snp_min_phred_sum, snp_require_strand);
                 m_post_process_bm.Stop();

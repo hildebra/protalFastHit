@@ -310,6 +310,20 @@ namespace protal {
         db.GetGenomes().SetGeneNeighbours(std::move(table));
     }
 
+    // One line per sample on the alignment stage's counts, for comparing runs (scripts/measure_performance.sh reads
+    // it): the reads (or read pairs), those with an anchor, the candidate alignments tried (AlignAnchor calls, up to
+    // --align_top per read or mate and the ties, plus the long-read rescues), those the k-mer screen refused before
+    // WFA2 (AlignmentScreen.h), those WFA2 ran on from the anchor's exact matches or as a whole window, the
+    // alignments made (within the ANI floor) and the records written.
+    static void PrintAlignmentCounts(Options const& options, size_t index, ReadType read_type, Statistics const& stats,
+                                     SimpleAlignmentHandler const& handler) {
+        std::cout << "Sample " << options.GetSampleId(index) << ": " << stats.reads << (read_type == ReadType::Paired ? " read pairs, " : " reads, ")
+                  << stats.at_least_one_anchor << " with an anchor; " << handler.m_attempted_alignments << " candidate alignments tried: "
+                  << handler.m_screened_alignments << " refused by the k-mer screen, " << handler.m_anchored_alignments
+                  << " aligned from the anchor's exact matches and " << handler.m_whole_window_alignments << " as whole windows; "
+                  << stats.total_alignments << " alignments made, " << stats.output_alignments << " records written" << std::endl;
+    }
+
     // Aligns the samples. `sample_done` (if any) is called with a sample's index once its SAM file is complete, or
     // when the sample is skipped because its SAM exists: Run profiles such samples while the next ones are aligned
     // (ProfilingAhead).
@@ -463,6 +477,7 @@ namespace protal {
                 // diagonals that their indels shift, through every link of the chain.
                 alignment_handler.SetAnchoredAlignment(!options.WholeReadAlignment());
                 alignment_handler.SetAnchoredIndels(IsLongReadType(read_type));
+                alignment_handler.SetAlignmentScreen(!options.NoAlignmentScreen());
 
 
 
@@ -515,6 +530,7 @@ namespace protal {
                     SeqReaderSE reader{ is, FastaQualityChar(read_type) };
                     LongReadAligner<SimpleKmerHandler<ClosedSyncmer>, AnchorFinder> long_read_aligner(
                             iterator, anchor_finder, alignment_handler, genomes, options.GetAlignTop(), max_score_ani);
+                    long_read_aligner.SetBudgetMargin(options.GetLongReadBudget());
                     if (!long_read_aligner.ChunksHoldEveryGene() && !long_genes_told) {
                         long_genes_told = true;
                         std::cerr << "Warning: the database's longest gene has " << genomes.MaxGeneLength() << " bp; with its margins it "
@@ -526,6 +542,7 @@ namespace protal {
                     if (options.Verbose()) {
                         protal_stats.WriteStats();
                     }
+                    PrintAlignmentCounts(options, index, read_type, protal_stats, long_read_aligner.GetAlignmentHandler());
                     reads_read = protal_stats.reads;
                     // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is.rdbuf()->read_failed();
@@ -554,6 +571,7 @@ namespace protal {
                     if (options.Verbose()) {
                         protal_stats.WriteStats();
                     }
+                    PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler);
                     reads_read = protal_stats.reads;
                     // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is.rdbuf()->read_failed();
@@ -601,6 +619,7 @@ namespace protal {
                     if (options.Verbose()) {
                         protal_stats.WriteStats();
                     }
+                    PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler);
                     reads_read = protal_stats.reads;
                     // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed();
@@ -772,6 +791,29 @@ namespace protal {
     // (profile.ReleaseReadData scores all), so that later stages may use any model to tell which taxa pass: they
     // get the score of the sample's own model. Any thread may profile a sample of its own: a sample's profile
     // depends on its SAM and the database only, not on the thread or on the other samples.
+    // A sample's profiling timers (wall clock, ProfileSample): appended to its runtime table beside the alignment
+    // stage's timers (misc/<sample>_runtime.tsv, made by the alignment stage of this run, else here with its header),
+    // and printed in one line, `total` first and the `parts` after it. Each row has the table's columns: a wall-clock
+    // timer ran on one thread, so seconds and seconds per thread are the same.
+    static void WriteProfilingTimes(Options const& options, size_t index, Benchmark const& total, std::vector<Benchmark const*> const& parts) {
+        auto const path = std::filesystem::path(options.GetMiscOutputDir()) / (options.GetSampleId(index) + "_runtime.tsv");
+        bool const fresh = !std::filesystem::exists(path);
+        std::ofstream os(path, std::ios::out | std::ios::app);
+        os << std::fixed << std::setprecision(6);
+        if (fresh) os << "stage\tseconds\tthreads\tseconds_per_thread\n";
+        os << total.GetName() << '\t' << total.Seconds() << '\t' << total.Threads() << '\t' << total.MeanSeconds() << '\n';
+        for (auto const* bm : parts) os << bm->GetName() << '\t' << bm->Seconds() << '\t' << bm->Threads() << '\t' << bm->MeanSeconds() << '\n';
+        std::ostringstream line;
+        line << std::fixed << std::setprecision(1) << "Profiling sample " << options.GetSampleId(index) << " took " << total.Seconds() << "s:";
+        for (size_t p = 0; p < parts.size(); p++) {
+            std::string name = parts[p]->GetName();
+            if (name.rfind("Profiling: ", 0) == 0) name = name.substr(11);
+            line << (p ? ", " : " ") << name << ' ' << parts[p]->Seconds() << 's';
+        }
+        #pragma omp critical(print)
+        std::cout << line.str() << std::endl;
+    }
+
     static void ProfileSample(ProfilingContext& ctx, size_t idx, ReadTypeModels& filters, size_t threads_per_sample) {
         Options& options = ctx.options;
         GenomeLoader& genomes = ctx.genomes;
@@ -811,6 +853,13 @@ namespace protal {
 
             Benchmark bm_read_alignments{ "Load read alignments" };
             Benchmark bm_profile{ "Profile sample" };
+            // Wall-clock timers of this sample's profiling, written to its runtime table beside the alignment's
+            // stage timers (misc/<sample>_runtime.tsv) and printed in one line: the whole, and the scoring and the
+            // writing here; the profiler's own steps (reading the SAM, the evidence, the SNPs) are its timers.
+            Benchmark bm_sample{ "Profiling: sample" };
+            Benchmark bm_score{ "Profiling: scoring" };
+            Benchmark bm_write{ "Profiling: writing the profile" };
+            bm_sample.Start();
 
             profiler::Profiler profiler(genomes);
             profiler.SetDepthIdentityMargin(options.GetDepthIdentityMargin());
@@ -898,7 +947,9 @@ namespace protal {
             profile.SetKnobs(filter.GetKnob(), msa_knob);
 
             // The outputs below score every taxon; on the sample's threads first.
+            bm_score.Start();
             if (threads_per_sample > 1) profile.ScoreTaxa(filter, threads_per_sample);
+            bm_score.Stop();
             if (profiler.RejectedReads() > 0) {
                 #pragma omp critical(print)
                 std::cerr << "Warning: sample " << sample_name << ": " << profiler.RejectedReads() << " of " << profiler.Reads()
@@ -969,6 +1020,7 @@ namespace protal {
                 }
             }
 
+            bm_write.Start();
             std::ofstream os(options.ProfileFile(i), std::ios::out);
             std::ofstream os_total(options.ProfileFile(i) + ".log", std::ios::out);
             std::ofstream os_dismissed(options.ProfileFile(i) + ".gene.log", std::ios::out);
@@ -980,9 +1032,13 @@ namespace protal {
             os_total.close();
             os_dismissed.close();
             os_genes.close();
+            bm_write.Stop();
             if (os.fail() || os_total.fail() || os_dismissed.fail() || os_genes.fail()) {
                 RunStatus::Get().Fail("Writing the profile of sample " + options.GetSampleId(i) + " failed: " + options.ProfileFile(i));
             }
+            bm_sample.Stop();
+            WriteProfilingTimes(options, i, bm_sample, { &profiler.ReadTimer(), &profiler.EvidenceTimer(), &profile.m_bm_em,
+                                                         &profile.m_bm_distances, &profiler.SnpTimer(), &bm_score, &bm_write });
 
             profile.SetName(options.GetSampleId(i));
 
@@ -2676,8 +2732,11 @@ namespace protal {
             bm_profiling.Stop();
             bm_profiling.PrintResults();
 
-            // Per taxon: its statistics in every sample it has reads in.
+            // Per taxon: its statistics in every sample it has reads in (one file per taxon, timed: thousands of
+            // small files on a network file system take seconds).
             {
+                Benchmark bm_statistics("Taxon statistics files");
+                bm_statistics.Start();
                 auto taxids = ExtractTaxa(profiles, {}, 1);
                 auto& taxonomy = db.GetTaxonomy();
 
@@ -2702,6 +2761,8 @@ namespace protal {
                     os.close();
                     if (os.fail()) RunStatus::Get().Fail("Writing the statistics of " + name + " failed: " + options.GetMiscOutputDir() + '/' + name + ".statistics.tsv");
                 }
+                bm_statistics.Stop();
+                bm_statistics.PrintResults();
             }
 
             /*

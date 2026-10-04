@@ -157,7 +157,7 @@ counts from `scripts/strain_test/db_gene_counts.py`.
 | Script | |
 |---|---|
 | `scripts/db_compression_benchmark.sh` | compression ratio and speed per zstd level on a database, and protal's load times ([database-files.md](database-files.md#measuring)) |
-| `scripts/measure_performance.sh OUT_DIR DB TYPE:R1[:R2] ...` | repeated protal runs on read files: wall and CPU time, peak memory, the index load, alignment, profiling and strain times, each run's stage timers (`misc/<prefix>_runtime.tsv`) and, where `perf` works, instructions, cycles and cache misses; medians per sample. For comparing machines, builds and databases; on a cluster, run it on a whole node (`sbatch --exclusive`) |
+| `scripts/measure_performance.sh OUT_DIR DB TYPE:R1[:R2] ...` | repeated protal runs on read files: wall and CPU time, peak memory, the index load, alignment, profiling and strain times, protal's counts of reads, anchors and candidate alignments (tried, refused by the k-mer screen, aligned, made, written), each run's stage timers (`misc/<prefix>_runtime.tsv`: the alignment stage's per thread, the profiling steps' wall times) and, where `perf` works, instructions, cycles and cache misses; medians per sample. For comparing machines, builds and databases; on a cluster, run it on a whole node (`sbatch --exclusive`) |
 | `scripts/protal_profile_utils merge` | merge profiles into one abundance table |
 | `scripts/protal_map_utils` | `generate`, `merge`, `flatten` and `validate` map files |
 | `scripts/plot_abundances.R` | abundance bar plots for `simulate_metagenomes --plot_png` |

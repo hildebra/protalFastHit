@@ -204,8 +204,7 @@ namespace protal::classify {
                 bm_output_global.Join(bm_output);
                 alignment_handler_global.bm_alignment.Join(alignment_handler.bm_alignment);
                 alignment_handler_global.m_bm_alignment.Join(alignment_handler.m_bm_alignment);
-                alignment_handler_global.m_anchored_alignments += alignment_handler.m_anchored_alignments;
-                alignment_handler_global.m_whole_window_alignments += alignment_handler.m_whole_window_alignments;
+                alignment_handler_global.JoinCounts(alignment_handler);
 
                 thread_statistics.output_alignments = output_handler.alignments;
                 statistics.Join(thread_statistics);
@@ -325,6 +324,7 @@ namespace protal::classify {
                 anchor_finder_global.m_bm_processing.Join(anchor_finder.m_bm_processing);
                 anchor_finder_global.m_bm_pairing.Join(anchor_finder.m_bm_pairing);
                 anchor_finder_global.m_bm_sorting_anchors.Join(anchor_finder.m_bm_sorting_anchors);
+                aligner_global.GetAlignmentHandler().JoinCounts(aligner.GetAlignmentHandler());
                 anchor_finder_global.m_bm_extend_anchors.Join(anchor_finder.m_bm_extend_anchors);
                 chunked_reads += aligner.ChunkedReads();
                 ambiguous_segments += aligner.AmbiguousSegments();
@@ -742,8 +742,7 @@ namespace protal::classify {
                 alignment_handler_global.bm_alignment.Join(alignment_handler.bm_alignment);
 
                 alignment_handler_global.m_bm_alignment.Join(alignment_handler.m_bm_alignment);
-                alignment_handler_global.m_anchored_alignments += alignment_handler.m_anchored_alignments;
-                alignment_handler_global.m_whole_window_alignments += alignment_handler.m_whole_window_alignments;
+                alignment_handler_global.JoinCounts(alignment_handler);
 
                 thread_statistics.output_alignments = output_handler.alignments;
                 statistics.Join(thread_statistics);

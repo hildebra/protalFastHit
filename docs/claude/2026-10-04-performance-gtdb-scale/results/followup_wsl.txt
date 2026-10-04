@@ -1,0 +1,104 @@
+# WSL (Core Ultra 7 258V, 6 vCPUs), V073 world database, HEAD c94bd0e against the working tree with items 1-3;
+# the diff blocks of the PacBio SAMs are record order only (identical as sets of records, checked below).
+zstd: can't stat /home/falk/perf-gtdb/d.head.1/s.sam.zst : No such file or directory -- ignored 
+zstd: can't stat /home/falk/perf-gtdb/d.work.1/s.sam.zst : No such file or directory -- ignored 
+zstd: can't stat /home/falk/perf-gtdb/d.work.1/s.sam.zst : No such file or directory -- ignored 
+diff: /home/falk/perf-gtdb/d.head.1: No such file or directory
+diff: /home/falk/perf-gtdb/d.work.1: No such file or directory
+cat: /home/falk/perf-gtdb/d.work.1/misc/s_runtime.tsv: No such file or directory
+OK ] AlignmentScreen.TheHandlerAlignsTheSameWithAndWithoutIt (37 ms)
+[----------] 4 tests from AlignmentScreen (342 ms total)
+
+[----------] Global test environment tear-down
+[==========] 338 tests from 81 test suites ran. (21384 ms total)
+[  PASSED  ] 337 tests.
+[  SKIPPED ] 1 test, listed below:
+[  SKIPPED ] GeneSequence.TheBasesOutsideAWindowAreNotLeftToChance
+== screen tests
+19309 candidates: WFA2 failed 10247 (short reads 7579, long-read windows 2668), the screen refused 4716 (46% of the failures), refused but aligned 0
+  k = 5: refused 3445 (33% of the failures; short reads 40%, long-read windows 15%)
+  k = 6: refused 4564 (44% of the failures; short reads 47%, long-read windows 36%)
+  k = 7: refused 3835 (37% of the failures; short reads 36%, long-read windows 39%)
+  k = 8: refused 2083 (20% of the failures; short reads 19%, long-read windows 24%)
+  k = 9: refused 279 (2% of the failures; short reads 2%, long-read windows 4%)
+  k = 10: refused 0 (0% of the failures; short reads 0%, long-read windows 0%)
+4460 candidates, 3527 aligned; the screen refused 278 of 4460 (WFA2 ran 4182 times with it, 4460 without)
+[  PASSED  ] 4 tests.
+== compare
+pb reads: /home/falk/bench071/samples_lr073/points/pb_b90000000/sim/reads/pb_b90000000_s_1.fq.gz
+== 500k pairs, 1 thread
+head: 12.36 s wall, 11.34 s user, 3403228 KB; Aligning reads took 8s 89ms; Profiling took 1s 715ms
+work: 12.27 s wall, 11.67 s user, 3397692 KB; Aligning reads took 8s 281ms; Profiling took 1s 748ms
+    Sample s: 499525 read pairs, 463394 with an anchor; 1423103 candidate alignments tried: 71332 refused by the k-mer screen, 1315512 aligned from the anchor's exact matches and 36259 as whole windows; 1177081 alignments made, 230634 records written
+    Profiling sample s took 1.7s: reading the SAM 0.9s, record evidence and sample context 0.7s, read EM 0.2s, congener distances 0.5s, SNP post-processing 0.1s, scoring 0.0s, writing the profile 0.1s
+work-noscreen: 11.87 s wall, 11.38 s user, 3403128 KB; Aligning reads took 8s 13ms; Profiling took 1s 720ms
+    Sample s: 499525 read pairs, 463394 with an anchor; 1423103 candidate alignments tried: 0 refused by the k-mer screen, 1386694 aligned from the anchor's exact matches and 36409 as whole windows; 1177081 alignments made, 230634 records written
+    Profiling sample s took 1.7s: reading the SAM 0.9s, record evidence and sample context 0.7s, read EM 0.2s, congener distances 0.5s, SNP post-processing 0.1s, scoring 0.0s, writing the profile 0.1s
+    SAM identical (456293 records)
+    other outputs identical
+    SAM identical (456293 records)
+    other outputs identical
+== PacBio 90 Mb, 6 threads
+head: 4.36 s wall, 22.04 s user, 3613700 KB; Aligning reads took 3s 272ms; Profiling took 282ms
+work: 2.76 s wall, 13.07 s user, 3581072 KB; Aligning reads took 1s 813ms; Profiling took 255ms
+    Sample s: 6569 reads, 6495 with an anchor; 134051 candidate alignments tried: 27043 refused by the k-mer screen, 106908 aligned from the anchor's exact matches and 100 as whole windows; 86884 alignments made, 36245 records written
+    Profiling sample s took 0.3s: reading the SAM 0.1s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.1s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+work-noscreen: 3.77 s wall, 19.31 s user, 3602660 KB; Aligning reads took 2s 845ms; Profiling took 255ms
+    Sample s: 6569 reads, 6495 with an anchor; 134051 candidate alignments tried: 0 refused by the k-mer screen, 133940 aligned from the anchor's exact matches and 111 as whole windows; 86884 alignments made, 36245 records written
+    Profiling sample s took 0.3s: reading the SAM 0.1s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.1s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+    SAM DIFFERS
+    other outputs identical
+    SAM DIFFERS
+    other outputs identical
+== 5M pairs, 6 threads (two rounds)
+head 1: 0.00 s wall, 0.00 s user, 7464 KB; ; 
+work 1: 0.00 s wall, 0.00 s user, 7932 KB; ; 
+head 2: 0.00 s wall, 0.00 s user, 7872 KB; ; 
+work 2: 0.00 s wall, 0.00 s user, 7880 KB; ; 
+    SAM identical (0 records)
+    OUTPUTS DIFFER
+== runtime table of the deep work run
+
+[exited with code 1]
+
+## PacBio SAMs as sets of records, and the deep sample
+pb head vs work: identical as sets of records (36359 records)
+pb head vs work0: identical as sets of records (36359 records)
+deep reads: /home/falk/bench071/samples_deep/points/rl150_p5000000/sim/reads/rl150_p5000000_s_1_R1.fq.gz
+head 1: 24.95 s wall, 124.23 s user, 3630712 KB; Aligning reads took 17s 461ms; Profiling took 6s 97ms
+work 1: 25.86 s wall, 129.64 s user, 3654016 KB; Aligning reads took 18s 298ms; Profiling took 6s 114ms
+    Sample s: 4995812 read pairs, 4738945 with an anchor; 12782429 candidate alignments tried: 720480 refused by the k-mer screen, 11792557 aligned from the anchor's exact matches and 269392 as whole windows; 10456457 alignments made, 2351020 records written
+    Profiling sample s took 6.1s: reading the SAM 4.6s, record evidence and sample context 1.0s, read EM 0.7s, congener distances 0.2s, SNP post-processing 0.2s, scoring 0.2s, writing the profile 0.1s
+head 2: 31.22 s wall, 161.01 s user, 3633420 KB; Aligning reads took 23s 606ms; Profiling took 6s 153ms
+work 2: 31.32 s wall, 160.97 s user, 3633272 KB; Aligning reads took 23s 647ms; Profiling took 6s 157ms
+    Sample s: 4995812 read pairs, 4738945 with an anchor; 12782429 candidate alignments tried: 720480 refused by the k-mer screen, 11792557 aligned from the anchor's exact matches and 269392 as whole windows; 10456457 alignments made, 2351020 records written
+    Profiling sample s took 6.1s: reading the SAM 4.7s, record evidence and sample context 0.9s, read EM 0.6s, congener distances 0.2s, SNP post-processing 0.2s, scoring 0.2s, writing the profile 0.1s
+work-noscreen: 30.94 s wall, 159.63 s user, 3598976 KB; Aligning reads took 23s 361ms; Profiling took 6s 42ms
+    Sample s: 4995812 read pairs, 4738945 with an anchor; 12782429 candidate alignments tried: 0 refused by the k-mer screen, 12511360 aligned from the anchor's exact matches and 271069 as whole windows; 10456457 alignments made, 2351020 records written
+    Profiling sample s took 6.0s: reading the SAM 4.5s, record evidence and sample context 1.0s, read EM 0.6s, congener distances 0.2s, SNP post-processing 0.2s, scoring 0.2s, writing the profile 0.1s
+SAM identical as sets (4663232 records)
+other outputs identical
+== runtime table of the deep work run
+stage	seconds	threads	seconds_per_thread
+Seeding	15.684378	6	2.614063
+Sorting Seeds	7.533598	6	1.255600
+Pairing	3.999847	6	0.666641
+Sorting Anchors	0.922046	6	0.153674
+Extending Anchors	7.287650	6	1.214608
+Sequence reader	5.392519	6	0.898753
+Retrieve k-mers	7.837181	6	1.306197
+Seed- and Anchor-finding	37.367674	6	6.227946
+Anchor recovery	2.765003	6	0.460834
+Alignment handler	35.046982	6	5.841164
+Joining alignment pairs and sorting	9.554205	6	1.592367
+Output handler	12.729909	6	2.121652
+Profiling: sample	6.052351	1	6.052351
+Profiling: reading the SAM	4.554108	1	4.554108
+Profiling: record evidence and sample context	1.015945	1	1.015945
+Profiling: read EM	0.651464	1	0.651464
+Profiling: congener distances	0.234778	1	0.234778
+Profiling: SNP post-processing	0.227823	1	0.227823
+Profiling: scoring	0.153582	1	0.153582
+Profiling: writing the profile	0.099821	1	0.099821
+
+[exited with code 0]

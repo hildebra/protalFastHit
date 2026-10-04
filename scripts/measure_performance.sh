@@ -6,8 +6,10 @@
 #
 # TYPE is protal's --read_type (pe, se, pb, ont); pe takes R1 and R2. Each sample runs REPEATS times
 # on THREADS threads, one sample at a time; protal's outputs are removed after each run (KEEP=1 keeps
-# them). Writes OUT_DIR/environment.txt (machine, protal, database), runs.tsv (one line per run),
-# stages.tsv (each run's misc/<prefix>_runtime.tsv), logs/, and prints medians per sample.
+# them). Writes OUT_DIR/environment.txt (machine, protal, database), runs.tsv (one line per run: times, memory,
+# perf counters, and protal's counts of reads, anchors and candidate alignments), stages.tsv (each run's
+# misc/<prefix>_runtime.tsv: the alignment stage's timers per thread and the profiling steps' wall times), logs/,
+# and prints medians per sample.
 # The first run reads the database from disk unless the page cache holds it, so its load_index_s
 # is the cold load; later runs load from memory.
 #
@@ -66,7 +68,7 @@ took() {
 # The sum of a perf counter over the CPU types that report it (cpu_core and cpu_atom on hybrid CPUs).
 counter() { awk -F, -v e="$1" '$3 ~ e && $1 ~ /^[0-9.]+$/ { s += $1; n++ } END { if (n) printf "%.0f", s; else printf "NA" }' "$2"; }
 
-printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\n' > "$out/runs.tsv"
+printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\n' > "$out/runs.tsv"
 printf 'sample\trep\tstage\tseconds\tthreads\tseconds_per_thread\n' > "$out/stages.tsv"
 n=0
 for spec in "$@"; do
@@ -91,9 +93,13 @@ for spec in "$@"; do
             ins=$(counter instructions "$out/perf.tmp"); cyc=$(counter cycles "$out/perf.tmp"); miss=$(counter cache-misses "$out/perf.tmp")
             [ "$ins" != NA ] && [ "$cyc" != NA ] && ipc=$(awk -v i="$ins" -v c="$cyc" 'BEGIN { printf "%.2f", i / c }')
         fi
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
+        # protal's counts line: "Sample <name>: R reads, A with an anchor; T candidate alignments tried: S refused ..., F aligned
+        # from the anchor's exact matches and W as whole windows; M alignments made, O records written".
+        counts=$(grep -m1 "^Sample $name: .* candidate alignments tried" "$log" | sed 's/^Sample [^:]*: //' | grep -oE '[0-9]+' | paste -sd '\t' -)
+        [ "$(printf '%s' "$counts" | tr -cd '\t' | wc -c)" = 7 ] || counts=$(printf 'NA\tNA\tNA\tNA\tNA\tNA\tNA\tNA')
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
             "$wall" "$user" "$sys" "$rss" "$faults" "$(took 'Load Index' "$log")" "$(took 'Aligning reads' "$log")" \
-            "$(took 'Profiling' "$log")" "$(took 'Strain-level MSAs' "$log")" "$ins" "$cyc" "$miss" "$ipc" >> "$out/runs.tsv"
+            "$(took 'Profiling' "$log")" "$(took 'Strain-level MSAs' "$log")" "$ins" "$cyc" "$miss" "$ipc" "$counts" >> "$out/runs.tsv"
         [ -e "$run/misc/${name}_runtime.tsv" ] && awk -v s="$name" -v r="$rep" 'NR > 1 { print s "\t" r "\t" $0 }' \
             "$run/misc/${name}_runtime.tsv" >> "$out/stages.tsv"
         echo "$name run $rep: ${wall} s"
@@ -115,6 +121,10 @@ awk -F'\t' "$median"'
                 for (r = 1; r <= c[k]; r++) if (v[k, i, r] != "NA") a[++n] = v[k, i, r] + 0
                 printf " %s %s", h[i], n ? sprintf("%.2f", median(a, n)) : "NA" }
             print "" } }' "$out/runs.tsv"
+echo
+# protal's counts (the same in every run of a sample): from the first run.
+awk -F'\t' 'NR == 1 { for (i = 18; i <= NF; i++) h[i] = $i; next }
+    !($1 in seen) { seen[$1] = 1; printf "%s counts:", $1; for (i = 18; i <= NF; i++) printf " %s %s", h[i], $i; print "" }' "$out/runs.tsv"
 echo
 awk -F'\t' "$median"'
     NR > 1 { k = $1 "\t" $3; if (!(k in n)) keys[++m] = k; v[k, ++n[k]] = $6 + 0 }

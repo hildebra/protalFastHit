@@ -1,0 +1,47 @@
+date: 2026-10-04T17:22:07+01:00
+host: q512n10
+job: 23933082
+threads: 32 (CPUs this process may use: 84)
+protal: protal v0.7.5 (commit 281a4baa7ea32ca7516ce49c65bf6b0f3fd40e02)
+database: /hpc-home/hildebra/DB/protal/protal0.7.3_r226_v10/protal_db/database.protal, 27G
+database file system: nfs (ei-hpc-data.hpccluster:/ifs/apricot/EI/PrimaryData/RESEARCH_PROJECTS)
+transparent huge pages: [always] madvise never
+perf stat: yes
+samples: pe:/hpc-home/hildebra/data/raw/Illumina/PEARL_AGE/00_fastq/B10_R1_001.fastq.gz:/hpc-home/hildebra/data/raw/Illumina/PEARL_AGE/00_fastq/B10_R2_001.fastq.gz pb:/hpc-home/hildebra/data/raw/PacBio/Data_Package_B20230626/Falk_Hildebrand_EI_FH_ENQ-5441_A_01_B20230626-Demultiplex_Barcodes/pb_demux_ccs_r64319e_20230622_123341-1_A01/outputs/m64319e_230622_130841.bc1002--bc1002.hifi_reads.fastq.gz
+
+Model name:                              AMD EPYC 9634 84-Core Processor
+Thread(s) per core:                      1
+Core(s) per socket:                      84
+Socket(s):                               1
+CPU max MHz:                             3701.8391
+L3 cache:                                384 MiB (12 instances)
+NUMA node(s):                            1
+
+               total        used        free      shared  buff/cache   available
+Mem:             502          11         395           0          99         491
+Swap:              0           0           0
+
+pe1 run 1: 283.52 s
+pe1 run 2: 128.57 s
+pe1 run 3: 131.46 s
+pb2 run 1: 105.47 s
+pb2 run 2: 103.74 s
+pb2 run 3: 103.54 s
+
+pe1 (median of 3): wall_s 131.46 user_s 2235.91 sys_s 40.91 max_rss_gb 38.00 major_faults 17.00 load_index_s 3.21 aligning_s 61.91 profiling_s 36.03 strains_s 0.00
+pb2 (median of 3): wall_s 103.74 user_s 2775.01 sys_s 28.47 max_rss_gb 38.00 major_faults 0.00 load_index_s 3.20 aligning_s 83.70 profiling_s 3.40 strains_s 0.00
+
+pb2  Alignment handler                           83.09 s per thread
+pb2  Seeding                                      4.51 s per thread
+pb2  Sorting Seeds                                1.32 s per thread
+pb2  Extending Anchors                            1.00 s per thread
+pb2  Sequence reader                              0.49 s per thread
+pb2  Pairing                                      0.15 s per thread
+pe1  Seed- and Anchor-finding                    29.15 s per thread
+pe1  Alignment handler                           27.19 s per thread
+pe1  Seeding                                     20.75 s per thread
+pe1  Extending Anchors                            3.57 s per thread
+pe1  Sorting Seeds                                3.37 s per thread
+pe1  Retrieve k-mers                              1.98 s per thread
+
+Results in /hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5/ (runs.tsv, stages.tsv, environment.txt, logs/).

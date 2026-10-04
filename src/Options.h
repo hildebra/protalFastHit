@@ -149,6 +149,8 @@ namespace protal {
         options.add_options("DevOptions")
                 ("mapq_debug_output", "Output mapq debug info to stderr")
                 ("whole_read_alignment", "Align each short read as a whole into its gene window, as protal did before it aligned from the anchor's exact matches (slower; the results differ in a few alignments). Long reads are always aligned as a whole.")
+                ("no_alignment_screen", "Align every candidate with WFA2, without the k-mer screen that refuses a candidate whose read and gene window share too few k-mers for any alignment within the score budget to exist (AlignmentScreen.h). The screen changes no alignment; this is for measuring it.")
+                ("long_read_budget", "Long reads: once a candidate of a read's gene has aligned, the gene's other candidates are aligned with a budget of this many edits (as mismatches) more than the best so far; one that would cost more fails there and counts as a failed candidate (ZF). Saves WFA2 work on far relatives; MAPQ and the listed alternatives of such genes change, so the models should be retrained with it. 0 (default): every candidate gets the ANI floor's budget.", cxxopts::value<size_t>()->default_value("0"))
                 ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
                 ("serial_index_passes", "With --build: count and place the reference's k-mers and compute the value pointers on one thread, as protal did before these ran in -t threads (slower; the index is the same).")
                 ("profile_ahead", "With several samples: profile each sample whose SAM is complete while the next sample's reads are aligned, on a worker with a quarter of the threads beside the alignment's; the profiling stage after the alignment takes the rest on all threads. The profiles are the same either way. Measured on a 6-core laptop it gained nothing (the worker's CPU time came out of the alignment's); it may pay on a node where the profiling stage leaves cores idle.")
@@ -211,6 +213,8 @@ namespace protal {
         bool verbose = false;
         bool mapq_debug_out = false;
         bool whole_read_alignment = false;
+        bool no_alignment_screen = false;
+        size_t long_read_budget = 0;
         bool full_sam_header = false;
         bool serial_index_passes = false;
         bool profile_ahead = false;
@@ -322,6 +326,8 @@ namespace protal {
 
         bool m_mapq_debug_out = false;
         bool m_whole_read_alignment = false;
+        bool m_no_alignment_screen = false;
+        size_t m_long_read_budget = 0;
         bool m_full_sam_header = false;
         bool m_serial_index_passes = false;
         bool m_profile_ahead = false;
@@ -473,6 +479,8 @@ namespace protal {
                 m_benchmark_alignment_output(std::move(d.benchmark_alignment_output)),
                 m_mapq_debug_out(d.mapq_debug_out),
                 m_whole_read_alignment(d.whole_read_alignment),
+                m_no_alignment_screen(d.no_alignment_screen),
+                m_long_read_budget(d.long_read_budget),
                 m_full_sam_header(d.full_sam_header),
                 m_serial_index_passes(d.serial_index_passes),
                 m_profile_ahead(d.profile_ahead),
@@ -622,6 +630,8 @@ namespace protal {
             result_str << "max score ani:       " << per_read_type(m_max_score_ani, [this](ReadType type) { return GetMaxScoreAni(type); }) << '\n';
             result_str << "x-drop:              " << std::to_string(m_x_drop) << (long_reads ? " (short reads; long reads: none)" : "") << '\n';
             result_str << "short reads aligned: " << (m_whole_read_alignment ? "as a whole" : "from their anchors") << '\n';
+            result_str << "alignment screen:    " << (m_no_alignment_screen ? "off (--no_alignment_screen)" : "k-mers shared with the window before WFA2") << '\n';
+            if (long_reads) result_str << "long read budget:    " << (m_long_read_budget ? std::to_string(m_long_read_budget) + " edits past the best candidate (--long_read_budget)" : "the ANI floor's for every candidate") << '\n';
             result_str << "SAM header lists:    " << (m_full_sam_header ? "every gene" : "the genes aligned to") << '\n';
             result_str << "fastalign:           " << std::to_string(m_fastalign) << '\n';
             result_str << "max out:             " << std::to_string(m_max_out) << '\n';
@@ -1240,6 +1250,16 @@ namespace protal {
         // --whole_read_alignment: short reads aligned as a whole into their window, not from their anchors.
         bool WholeReadAlignment() const {
             return m_whole_read_alignment;
+        }
+
+        // --no_alignment_screen: every candidate aligned with WFA2, without the k-mer screen (AlignmentScreen.h).
+        bool NoAlignmentScreen() const {
+            return m_no_alignment_screen;
+        }
+
+        // --long_read_budget: edits past a segment's best hit its other candidates may cost (0: the ANI floor's budget).
+        size_t GetLongReadBudget() const {
+            return m_long_read_budget;
         }
 
         // --full_sam_header: every gene of the database in the SAM header, not only those aligned to.
@@ -2443,6 +2463,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             bool profile_only = result.count("profile_only");
             bool mapq_debug_output = result.count("mapq_debug_output");
             bool whole_read_alignment = result.count("whole_read_alignment");
+            bool no_alignment_screen = result.count("no_alignment_screen");
+            size_t long_read_budget = result["long_read_budget"].as<size_t>();
             bool full_sam_header = result.count("full_sam_header");
             bool serial_index_passes = result.count("serial_index_passes");
             bool profile_ahead = result.count("profile_ahead");
@@ -2597,6 +2619,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.show_version             = show_version;
             d.mapq_debug_out           = mapq_debug_output;
             d.whole_read_alignment     = whole_read_alignment;
+            d.no_alignment_screen      = no_alignment_screen;
+            d.long_read_budget         = long_read_budget;
             d.full_sam_header          = full_sam_header;
             d.serial_index_passes      = serial_index_passes;
             d.profile_ahead  = profile_ahead;

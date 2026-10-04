@@ -1,0 +1,70 @@
+sample	rep	stage	seconds	threads	seconds_per_thread
+pe1	1	Seeding	666.452160	32	20.826630
+pe1	1	Sorting Seeds	107.223398	32	3.350731
+pe1	1	Pairing	20.912680	32	0.653521
+pe1	1	Sorting Anchors	5.275283	32	0.164853
+pe1	1	Extending Anchors	108.811747	32	3.400367
+pe1	1	Sequence reader	118.426046	32	3.700814
+pe1	1	Retrieve k-mers	63.483568	32	1.983862
+pe1	1	Seed- and Anchor-finding	929.139316	32	29.035604
+pe1	1	Anchor recovery	16.041222	32	0.501288
+pe1	1	Alignment handler	870.425019	32	27.200782
+pe1	1	Joining alignment pairs and sorting	15.847906	32	0.495247
+pe1	1	Output handler	48.556493	32	1.517390
+pe1	2	Seeding	663.575479	32	20.736734
+pe1	2	Sorting Seeds	107.689986	32	3.365312
+pe1	2	Pairing	21.465790	32	0.670806
+pe1	2	Sorting Anchors	5.332262	32	0.166633
+pe1	2	Extending Anchors	114.786726	32	3.587085
+pe1	2	Sequence reader	31.036855	32	0.969902
+pe1	2	Retrieve k-mers	63.237159	32	1.976161
+pe1	2	Seed- and Anchor-finding	933.343763	32	29.166993
+pe1	2	Anchor recovery	16.309736	32	0.509679
+pe1	2	Alignment handler	870.069570	32	27.189674
+pe1	2	Joining alignment pairs and sorting	15.621733	32	0.488179
+pe1	2	Output handler	48.976025	32	1.530501
+pe1	3	Seeding	664.087974	32	20.752749
+pe1	3	Sorting Seeds	107.833419	32	3.369794
+pe1	3	Pairing	21.060615	32	0.658144
+pe1	3	Sorting Anchors	5.625898	32	0.175809
+pe1	3	Extending Anchors	114.244298	32	3.570134
+pe1	3	Sequence reader	31.345895	32	0.979559
+pe1	3	Retrieve k-mers	64.166080	32	2.005190
+pe1	3	Seed- and Anchor-finding	932.954291	32	29.154822
+pe1	3	Anchor recovery	16.535608	32	0.516738
+pe1	3	Alignment handler	862.475841	32	26.952370
+pe1	3	Joining alignment pairs and sorting	15.755784	32	0.492368
+pe1	3	Output handler	49.144504	32	1.535766
+pb2	1	Seeding	144.968066	32	4.530252
+pb2	1	Sorting Seeds	42.267547	32	1.320861
+pb2	1	Pairing	4.672295	32	0.146009
+pb2	1	Sorting Anchors	1.130907	32	0.035341
+pb2	1	Extending Anchors	31.905432	32	0.997045
+pb2	1	Sequence reader	174.131552	32	5.441611
+pb2	1	Seed- and Anchor-finding	0.000000	0	0.000000
+pb2	1	Anchor recovery	0.000000	0	0.000000
+pb2	1	Alignment handler	2674.374130	32	83.574192
+pb2	1	Joining alignment pairs and sorting	0.000000	0	0.000000
+pb2	1	Output handler	1.869414	32	0.058419
+pb2	2	Seeding	143.629857	32	4.488433
+pb2	2	Sorting Seeds	41.684255	32	1.302633
+pb2	2	Pairing	4.586147	32	0.143317
+pb2	2	Sorting Anchors	1.090007	32	0.034063
+pb2	2	Extending Anchors	30.831588	32	0.963487
+pb2	2	Sequence reader	15.571186	32	0.486600
+pb2	2	Seed- and Anchor-finding	0.000000	0	0.000000
+pb2	2	Anchor recovery	0.000000	0	0.000000
+pb2	2	Alignment handler	2647.034630	32	82.719832
+pb2	2	Joining alignment pairs and sorting	0.000000	0	0.000000
+pb2	2	Output handler	1.875262	32	0.058602
+pb2	3	Seeding	144.189466	32	4.505921
+pb2	3	Sorting Seeds	42.495898	32	1.327997
+pb2	3	Pairing	4.697548	32	0.146798
+pb2	3	Sorting Anchors	1.137533	32	0.035548
+pb2	3	Extending Anchors	32.177758	32	1.005555
+pb2	3	Sequence reader	15.278981	32	0.477468
+pb2	3	Seed- and Anchor-finding	0.000000	0	0.000000
+pb2	3	Anchor recovery	0.000000	0	0.000000
+pb2	3	Alignment handler	2658.921060	32	83.091283
+pb2	3	Joining alignment pairs and sorting	0.000000	0	0.000000
+pb2	3	Output handler	1.850490	32	0.057828

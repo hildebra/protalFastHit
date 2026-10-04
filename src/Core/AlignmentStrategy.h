@@ -14,6 +14,7 @@
 #include "SNPUtils.h"
 #include "AlignmentUtils.h"
 #include "AnchoredAlignment.h"
+#include "AlignmentScreen.h"
 #include "TargetClones.h"
 
 namespace protal {
@@ -56,23 +57,32 @@ namespace protal {
         }
 
         void Update(int abs_pos, size_t read_length, size_t gene_length, int max_dove) {
-//            std::cout << "abs_pos: " << abs_pos << std::endl;
-//            std::cout << "read_length: " << read_length << std::endl;
-//            std::cout << "gene_length: " << gene_length << std::endl;
-//            std::cout << "max_dove: " << max_dove << std::endl;
+            Update(abs_pos, abs_pos, read_length, gene_length, max_dove);
+        }
+
+        // As above, with the read's end placed on the gene by a diagonal of its own (abs_pos_right: where read
+        // position 0 would lie by the chain's last link). Chains of long reads hold indels, which shift the
+        // diagonal along the read: by the first link's diagonal, a read's bases past the gene's end can be more
+        // or fewer than there really are, and the alignment either forces the extra bases into the window or
+        // is left to the whole window (docs/claude/2026-10-02-performance-round3, item 7). With one diagonal
+        // the two give the same window.
+        void Update(int abs_pos, int abs_pos_right, size_t read_length, size_t gene_length, int max_dove) {
             // Starts and left dovetails
             query_start = abs_pos < 0 ? -abs_pos : 0;
             query_dove_left = (query_start - max_dove) < 0 ? query_start : max_dove;
             reference_start = std::max(abs_pos, 0);
             reference_dove_left = (reference_start - max_dove) < 0 ? reference_start : max_dove;
 
-            overlap = std::min((gene_length - reference_start), (read_length - query_start));
+            // Ends: where the read's last base lies by the right diagonal, cut at the gene's end.
+            long const read_end_on_gene = static_cast<long>(abs_pos_right) + static_cast<long>(read_length);
+            long const past_end = std::max(0L, read_end_on_gene - static_cast<long>(gene_length));
+            query_end = std::max<int>(query_start, static_cast<int>(static_cast<long>(read_length) - past_end));
+            reference_end = std::max<int>(reference_start, static_cast<int>(std::min<long>(read_end_on_gene, static_cast<long>(gene_length))));
+            overlap = query_end - query_start;
 
-            // Ends and right dovetails
-            query_end = query_start + overlap;
+            // Right dovetails
             query_dove_right = (query_end + max_dove) > read_length ?
                                (read_length - query_end) : max_dove;
-            reference_end = reference_start + overlap;
             reference_dove_right = (reference_end + max_dove) > gene_length ?
                                    (gene_length - reference_end) : max_dove;
 
@@ -107,6 +117,10 @@ namespace protal {
         // allows; off, every read is aligned as a whole into its window (SetAnchoredAlignment).
         bool m_anchored = false;
         AnchoredAligner m_anchored_aligner;
+        // Before either method, a candidate whose read and window share too few k-mers for an alignment within
+        // the budget to exist is refused (AlignmentScreen; off with SetAlignmentScreen(false)).
+        bool m_screen_on = true;
+        AlignmentScreen m_screen;
         std::string m_ops;     // the window's alignment operations, from either method
         std::string m_reverse; // the reverse complement of the read, when the caller has none
         std::string m_window;  // the window's reference bases, for the whole-window alignment
@@ -142,11 +156,22 @@ namespace protal {
         Benchmark m_bm_alignment {"Raw alignment", 0, Benchmark::kPerRead};
         Benchmark bm_seedext{ "Seed Extension", 0, Benchmark::kPerRead};
         size_t dummy = 0;
-        // Anchors aligned from their exact matches, and as a whole (anchored alignment off, or a
-        // chain it does not handle); joined over threads like the benchmarks.
+        // Anchors tried (AlignAnchor calls), of them those the k-mer screen refused before WFA2, those aligned
+        // from their exact matches, and those aligned as a whole (anchored alignment off, or a chain it does not
+        // handle); joined over threads like the benchmarks (JoinCounts).
+        size_t m_attempted_alignments = 0;
+        size_t m_screened_alignments = 0;
         size_t m_anchored_alignments = 0;
         size_t m_whole_window_alignments = 0;
         size_t m_validity_checks = 0;  // alignments so far: one in 64 is walked base by base (AlignAnchor)
+
+        // Adds a thread's copy's counts to this (the global) handler's.
+        void JoinCounts(SimpleAlignmentHandler const& other) {
+            m_attempted_alignments += other.m_attempted_alignments;
+            m_screened_alignments += other.m_screened_alignments;
+            m_anchored_alignments += other.m_anchored_alignments;
+            m_whole_window_alignments += other.m_whole_window_alignments;
+        }
 
 //        AlignmentInfo m_info;
 
@@ -174,12 +199,18 @@ namespace protal {
                 m_align_top(other.m_align_top),
                 m_max_score_ani(other.m_max_score_ani),
                 m_fastalign(other.m_fastalign),
-                m_anchored(other.m_anchored) {
+                m_anchored(other.m_anchored),
+                m_screen_on(other.m_screen_on) {
             m_anchored_aligner.AllowIndels(other.m_anchored_aligner.IndelsAllowed());
         };
 
         void SetAnchoredAlignment(bool anchored) {
             m_anchored = anchored;
+        }
+
+        // The k-mer screen before WFA2 (AlignmentScreen): on by default; off, every candidate is aligned.
+        void SetAlignmentScreen(bool on) {
+            m_screen_on = on;
         }
 
         // Anchored alignment through chains whose links lie on different diagonals (long reads, AnchoredAligner).
@@ -403,10 +434,12 @@ namespace protal {
         SamEntry sam;
         SNPList snps;
         FastxRecord record;
-        PROTAL_CLONE_V3 bool AlignAnchor(Anchor& anchor, AlignmentResult& alignment, std::string const& fwd, std::string const& rev, bool allow_heuristic_alignment, std::string& id) {
+        // max_score_cap: a budget below the ANI floor's (LongReadAligner, --long_read_budget); an alignment that reaches it fails.
+        PROTAL_CLONE_V3 bool AlignAnchor(Anchor& anchor, AlignmentResult& alignment, std::string const& fwd, std::string const& rev, bool allow_heuristic_alignment, std::string& id, int max_score_cap = INT32_MAX) {
             alignment.GetAlignmentInfo().Reset();
             alignment.Reset();
             m_aligner.Reset();
+            m_attempted_alignments++;
 
 //            auto& read = anchor.forward ? fwd : rev;
             auto& read = anchor.forward ? fwd : rev;
@@ -472,9 +505,14 @@ namespace protal {
 
             // Absolute read positioning with respect to gene
             int abs_pos = static_cast<int>(anchor.Front().genepos) - static_cast<int>(anchor.Front().readpos);
+            // Long reads (chains with indels, AnchoredAligner): the read's end is placed by the last link's
+            // diagonal, so that the bases past the gene's end are the free ones by the end's own diagonal
+            // (AlignmentOrientation::Update). Short reads keep the one diagonal of their chain.
+            int const abs_pos_right = m_anchored_aligner.IndelsAllowed() ?
+                    static_cast<int>(anchor.Back().genepos) - static_cast<int>(anchor.Back().readpos) : abs_pos;
 
             size_t max_dove_size = 9;
-            m_alignment_orientation.Update(abs_pos, read.length(), gene.GetLength(), max_dove_size);
+            m_alignment_orientation.Update(abs_pos, abs_pos_right, read.length(), gene.GetLength(), max_dove_size);
 
             assert(m_alignment_orientation.query_start + m_alignment_orientation.query_len <= read.length());
             assert(m_alignment_orientation.reference_start + m_alignment_orientation.reference_len <= gene.GetLength());
@@ -484,12 +522,12 @@ namespace protal {
 
             bool approximate_alignment = allow_heuristic_alignment && anchor_indels == 0;
             bool dove_left_required = anchor.Front().readpos != 0 || abs_pos < 0;
-            bool dove_right_required = anchor.Back().readpos + anchor.Back().length != read.length() || abs_pos + read.length() > gene.GetLength();
+            bool dove_right_required = anchor.Back().readpos + anchor.Back().length != read.length() || abs_pos_right + read.length() > gene.GetLength();
 
             std::string cigar = "";
 
             int allowed_del_left = abs_pos < 0 ? (-1 * abs_pos) + 9 : 0;
-            int allowed_del_right = abs_pos + read.length() > gene.GetLength() ? (abs_pos + read.length() - gene.GetLength()) + 9 : 0;
+            int allowed_del_right = abs_pos_right + read.length() > gene.GetLength() ? (abs_pos_right + read.length() - gene.GetLength()) + 9 : 0;
 
             m_alignment_orientation.reference_start += !dove_left_required * m_alignment_orientation.reference_dove_left;
             m_alignment_orientation.reference_end -= !dove_right_required * m_alignment_orientation.reference_dove_right;
@@ -514,12 +552,23 @@ namespace protal {
             window.ref_end_free = dove_right_required ? m_alignment_orientation.reference_dove_right * 2 : 0;
             window.read_begin_free = allowed_del_left;
             window.read_end_free = allowed_del_right;
-            window.max_score = MaxScore(m_max_score_ani, m_alignment_orientation.overlap);
+            window.max_score = std::min(MaxScore(m_max_score_ani, m_alignment_orientation.overlap), max_score_cap);
 
             // The gene, decoded where the read lies: the window, which holds every link and flank the alignment reads
             // (AnchoredAligner checks that each link is inside it) and where the alignment is checked; it lives to the
             // end of this function. The rest of the gene is not decoded.
             auto const geneseq = gene.Window(window.ref_start, window.ref_end);
+
+            // Too few shared k-mers for any alignment within the budget: the candidate fails here as it would
+            // have in WFA2 (AlignmentScreen), at a pass over the read and the window instead of the whole budget.
+            if (m_screen_on && !m_screen.MayAlign(read, static_cast<size_t>(std::max(window.read_begin_free, 0)),
+                                                  static_cast<size_t>(std::max(window.read_end_free, 0)),
+                                                  geneseq.substr(window.ref_start, window.ref_end - window.ref_start),
+                                                  window.max_score, m_aligner.Mismatch(), m_aligner.GapOpening(),
+                                                  m_aligner.GapExtension())) {
+                m_screened_alignments++;
+                return false;
+            }
 
             bm_alignment.Start();
             if (approximate_alignment) {

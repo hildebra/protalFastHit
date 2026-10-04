@@ -384,16 +384,19 @@ TEST(AnchoredAlignment, LongReadsThroughTheirChain) {
         much_worse += anchored.score < whole.score - std::abs(whole.score) / 50;
     }
     std::cout << cases << " long reads: both aligned " << both << ", anchored worse " << worse << " (by over 2%: " << much_worse
-              << "), scores " << anchored_sum << " anchored, " << whole_sum << " whole" << std::endl;
+              << "), scores " << anchored_sum << " anchored, " << whole_sum << " whole; through the chain "
+              << h.anchored.m_anchored_alignments << ", as whole windows " << h.anchored.m_whole_window_alignments << std::endl;
     ASSERT_GE(cases, 50u);
     EXPECT_GE(both, cases - 2);
     EXPECT_LE(much_worse, 1u);
     EXPECT_GE(static_cast<double>(anchored_sum), static_cast<double>(whole_sum) - 0.005 * std::abs(static_cast<double>(whole_sum)));
-    // The window's free ends come from the first link's diagonal (SimpleAlignmentHandler::AlignAnchor). Where the read's
-    // indels moved the diagonal by more than the 9 bases of dovetail by its end, more read bases lie past the gene than are
-    // free there, and the whole-window alignment takes the read, as before (9 of 60 here).
+    // The window's right end comes from the last link's diagonal for chains with indels (SimpleAlignmentHandler::AlignAnchor,
+    // AlignmentOrientation::Update): the read's bases past the gene's end are free by the end's own diagonal. Before, the first
+    // link's diagonal placed the end, and where the indels had moved it by more than the 9 bases of dovetail the chain's
+    // right flank did not fit and the whole-window alignment took the read (9 of 60 here; 4 now, chains the anchored aligner
+    // does not handle for other reasons).
     EXPECT_EQ(h.anchored.m_anchored_alignments + h.anchored.m_whole_window_alignments, cases);
-    EXPECT_GE(5 * h.anchored.m_anchored_alignments, 4 * cases);
+    EXPECT_GE(10 * h.anchored.m_anchored_alignments, 9 * cases);
 }
 
 // Links that overlap (exact seeds on two diagonals reach into a homopolymer that lost bases) are cut where they

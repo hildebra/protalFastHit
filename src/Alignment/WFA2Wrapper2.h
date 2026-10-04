@@ -61,6 +61,11 @@ namespace protal {
             return m_x_drop;
         }
 
+        // The gap-affine penalties (a match costs 0).
+        int Mismatch() const { return m_mismatch; }
+        int GapOpening() const { return m_gap_opening; }
+        int GapExtension() const { return m_gap_extension; }
+
         // Per-base operations (M, X, I, D) of the last successful alignment.
         inline std::string Cigar() {
             return m_aligner.getAlignment();
