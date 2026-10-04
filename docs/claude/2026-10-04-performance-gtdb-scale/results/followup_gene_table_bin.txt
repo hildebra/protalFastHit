@@ -1,0 +1,132 @@
+# The gene tables at GTDB r226 size (PROTAL_GENE_TABLE_TAXA=143614: 24.1M rows per table), WSL 6 vCPUs, with the split each load prints;
+# the text tables raw and as members of a single-file database, then the binary gene_table.bin in a single-file database.
+24127152 genes in 752 MB (map) + 739 MB (unique k-mers)
+1 thread(s): reference.map 2221 ms, unique_kmers.tsv 2738 ms, 24127152 genes
+  Gene tables: reference.map 24127152 rows: reading 0.14 s, parsing 1.22 s, by genome 0.13 s, adding 0.64 s; unique_kmers.tsv 24127152 rows: reading 0.14 s, parsing 1.87 s, by genome 0.07 s, adding 0.60 s, genome sums 0.05 s
+6 thread(s): reference.map 784 ms, unique_kmers.tsv 915 ms, 24127152 genes
+  Gene tables: reference.map 24127152 rows: reading 0.08 s, parsing 0.32 s, by genome 0.13 s, adding 0.19 s; unique_kmers.tsv 24127152 rows: reading 0.09 s, parsing 0.54 s, by genome 0.08 s, adding 0.19 s, genome sums 0.01 s
+1 thread(s), bundle members: reference.map 2115 ms, unique_kmers.tsv 2516 ms
+  Gene tables: reference.map 24127152 rows: reading 0.76 s, parsing 0.89 s, by genome 0.11 s, adding 0.29 s; unique_kmers.tsv 24127152 rows: reading 0.32 s, parsing 1.55 s, by genome 0.07 s, adding 0.52 s, genome sums 0.05 s
+6 thread(s), bundle members: reference.map 876 ms, unique_kmers.tsv 888 ms
+  Gene tables: reference.map 24127152 rows: reading 0.27 s, parsing 0.28 s, by genome 0.11 s, adding 0.14 s; unique_kmers.tsv 24127152 rows: reading 0.12 s, parsing 0.45 s, by genome 0.08 s, adding 0.19 s, genome sums 0.03 s
+gene_table.bin written in 797 ms, 740 MB
+1 thread(s), bundle with gene_table.bin: 2741 ms
+  Gene tables: gene_table.bin 24127152 genes with unique k-mer counts: reading 1.12 s, genomes 0.11 s, adding 1.50 s
+6 thread(s), bundle with gene_table.bin: 428 ms
+  Gene tables: gene_table.bin 24127152 genes with unique k-mer counts: reading 0.18 s, genomes 0.02 s, adding 0.22 s
+    c: Gene tables: gene_table.bin 83978 genes with unique k-mer counts: reading 0.00 s, genomes 0.00 s, adding 0.00 s
+    s: Gene tables: gene_table.bin 83978 genes with unique k-mer counts: reading 0.00 s, genomes 0.00 s, adding 0.00 s
+    f: Gene tables: reference.map 83978 rows: reading 0.04 s, parsing 0.00 s, by genome 0.00 s, adding 0.00 s; unique_kmers.tsv 83978 rows: reading 0.04 s, parsing 0.01 s, by genome 0.00 s, adding 0.00 s, genome sums 0.00 s
+
+# End to end (scripts/e2e_load.sh, det*.sh): the v0.7.3 world's database.protal upgraded with --compress_db; reference build c94bd0e.
+=== E2E
+== --compress_db on the single file
+---------------------------------------------------
+Wrote /home/falk/perf-gtdb/e2e/db/database.protal.gene_table.bin: 83978 genes, the binary form of reference.map in /home/falk/perf-gtdb/e2e/db/database.protal and unique_kmers.tsv in /home/falk/perf-gtdb/e2e/db/database.protal, which a run from database.protal loads
+Write gene_table.bin took 19ms
+Rewrite /home/falk/perf-gtdb/e2e/db/database.protal with gene_table.bin (the other members' frames copied as they are, the table compressed at zstd level 9; verified)
+/home/falk/perf-gtdb/e2e/db/database.protal: 108.56 MB
+Rewrite database.protal took 219ms
+== again (current: kept)
+/home/falk/perf-gtdb/e2e/db/database.protal is a single-file database with a current gene_table.bin; kept
+== unpack
+Skip gene_table.bin (the binary form of reference.map and unique_kmers.tsv, which a folder does not use; --compress_db writes it again)
+Unpacked /home/falk/perf-gtdb/e2e/db/database.protal into /home/falk/perf-gtdb/e2e/folder; protal --db /home/falk/perf-gtdb/e2e/folder uses these files (/home/f
+gene_conservation.tsv gene_neighbours.tsv gene_positions.tsv index.prx.zst internal_taxonomy.dmp model_ONT.xml model_PB.xml model_pe.xml model_se.xml reference.fna reference.map unique_kmers.tsv 
+== outputs: pe 500k
+head, original file: 3.73 s wall, 15.66 s user; Run protal took 3s 715ms
+work, gene_table.bin, concurrent: 3.35 s wall, 15.71 s user; Run protal took 3s 327ms
+work, gene_table.bin, --sequential_load: 3.99 s wall, 18.60 s user; Run protal took 3s 971ms
+work, unpacked folder: 3.90 s wall, 18.27 s user; Run protal took 3s 878ms
+  head vs c:
+    SAM identical
+    OUTPUTS DIFFER
+diff -r -x '*_runtime.tsv' -x '*.sam.zst' -x '*.statistics.tsv' /home/falk/perf-gtdb/e2e/h/s.profile.gene.log /home/falk/perf-gtdb/e2e/c/s.profile.gene.log
+1439c1439
+< s	176	d__Bacteria;p__Halpraota;c__Cacoia;o__Quiperoales;f__Dotulaceae;g__Miflanaella;s__Miflanaella balemcorensis	176	90	Gene90	26	3471	900	25.932187	2771	0.997392	106.576923	900	1.000000	0	9	0	0	3	6	0	0	0
+---
+> s	176	d__Bacteria;p__Halpraota;c__Cacoia;o__Quiperoales;f__Dotulaceae;g__Miflanaella;s__Miflanaella balemcorensis	176	90	Gene90	26	3471	900	25.932188	2771	0.997392	106.576923	900	1.000000	0	9	0	0	3	6	0	0	0
+  head vs s:
+    SAM identical
+    other outputs identical
+  head vs f:
+    SAM identical
+    other outputs identical
+    c: Loading the gene tables took 4ms
+    c: Gene tables: gene_table.bin 83978 genes with unique k-mer counts: reading 0.00 s, genomes 0.00 s, adding 0.00 s
+    c: Preload genomes took 161ms
+    c: Loading the taxonomy, models and tables took 224ms
+    c: Load Index took 379ms
+    c: Aligning reads took 1s 966ms
+    c: Writing the SAM header and file took 2ms
+    c: Processing all samples took 1s 969ms
+    c: Profiling took 906ms
+    c: Strain-level MSAs took less than 1ms
+    c: Run protal took 3s 327ms
+    c: Freeing memory took 0s 5ms
+    s: Loading the gene tables took 5ms
+    s: Gene tables: gene_table.bin 83978 genes with unique k-mer counts: reading 0.00 s, genomes 0.00 s, adding 0.00 s
+    s: Preload genomes took 116ms
+    s: Loading the taxonomy, models and tables took 140ms
+    s: Load Index took 328ms
+    s: Aligning reads took 2s 414ms
+    s: Writing the SAM header and file took 2ms
+    s: Processing all samples took 2s 417ms
+    s: Profiling took 905ms
+    s: Strain-level MSAs took less than 1ms
+    s: Run protal took 3s 971ms
+    s: Freeing memory took 0s 5ms
+    f: Gene tables: reference.map 83978 rows: reading 0.04 s, parsing 0.00 s, by genome 0.00 s, adding 0.00 s; unique_kmers.tsv 83978 rows: reading 0.04 s, parsing 0.00 s, by genome 0.00 s, adding 0.00 s, genome sums 0.00 s
+  LOGS DIFFER
+76,77c76,77
+< Sample s: 6 foreign genes of 4 taxa (the genes next to them on their reads are mostly unlikely neighbours in the taxon's clade), left out of their depth and strain MSAs; Foreign in /home/falk/perf-gtdb/e2e/s/s.profile.genes.log
+< Output /home/falk/perf-gtdb/e2e/s
+---
+> Sample s: 6 foreign genes of 4 taxa (the genes next to them on their reads are mostly unlikely neighbours in the taxon's clade), left out of their depth and strain MSAs; Foreign in /home/falk/perf-gtdb/e2e/c/s.profile.genes.log
+> Output /home/falk/perf-gtdb/e2e/c
+== outputs: PacBio
+head pb: 5.21 s wall, 26.60 s user; Run protal took 5s 192ms
+work pb concurrent: 3.34 s wall, 17.81 s user; Run protal took 3s 322ms
+    SAM DIFFERS
+    OUTPUTS DIFFER
+diff -r -x '*_runtime.tsv' -x '*.sam.zst' -x '*.statistics.tsv' /home/falk/perf-gtdb/e2e/hp/s.profile.gene.log /home/falk/perf-gtdb/e2e/cp/s.profile.gene.log
+1271c1271
+< s	114	d__Bacteria;p__Corjokaota;c__Zuuria;o__Docacaales;f__Fimicoraceae;g__Halhalnebacter;s__Halhalnebacter urdamyala	114	23	Gene23	2	2292	1146	1.855337	262	0.927669	131.000000	1146	1.000000	32	107	0	0	107	32	0	0	0
+---
+> s	114	d__Bacteria;p__Corjokaota;c__Zuuria;o__Docacaales;f__Fimicoraceae;g__Halhalnebacter;s__Halhalnebacter urdamyala	114	23	Gene23	2	2292	1146	1.855337	262	0.927669	131.000000	1146	1.000000	32	105	0	0	104	33	0	0	0
+1804c1804
+== start-up, 3 alternated rounds (500k pairs, 6 threads, whole runs)
+concurrent 1: Loading the gene tables=5ms;Preload genomes=204ms;Load Index=559ms;Profiling=895ms;Run protal=4s 128ms;
+sequential 1: Loading the gene tables=5ms;Preload genomes=117ms;Load Index=317ms;Profiling=961ms;Run protal=3s 979ms;
+concurrent 2: Loading the gene tables=5ms;Preload genomes=265ms;Load Index=521ms;Profiling=919ms;Run protal=4s 126ms;
+sequential 2: Loading the gene tables=6ms;Preload genomes=112ms;Load Index=325ms;Profiling=890ms;Run protal=3s 896ms;
+concurrent 3: Loading the gene tables=5ms;Preload genomes=299ms;Load Index=408ms;Profiling=909ms;Run protal=3s 787ms;
+sequential 3: Loading the gene tables=5ms;Preload genomes=117ms;Load Index=317ms;Profiling=931ms;Run protal=5s 797ms;
+
+## PacBio: which change moves the 13 records
+(det.sh, PacBio 90 Mb, 6 threads, on the upgraded file)
+head vs sequential1: SAM-DIFF OUT-DIFF
+sequential1 vs sequential2: SAM-same out-same
+concurrent1 vs concurrent2: SAM-same out-same
+concurrent1 vs concurrent3: SAM-same out-same
+sequential1 vs concurrent1: SAM-same out-same
+(det2.sh)
+head vs head again: SAM-same out-same
+head vs work on the original file (text tables): SAM-DIFF OUT-DIFF
+head vs work on the folder (text tables): SAM-DIFF OUT-DIFF
+work original (text) vs work with gene_table.bin: SAM-same out-same
+-> the PacBio difference is item 4a's (50ecb4b, the long-read window's right end; head is c94bd0e), not the binary table or the loading
+== pe determinism
+pe concurrent1 vs concurrent2: SAM-same OUT-DIFF
+pe sequential vs concurrent: SAM-same out-same
+pe head vs head again: SAM-same out-same
+pe head vs sequential: SAM-same out-same
+
+## Paired-end, 500k pairs, 6 threads, 4 runs per mode (det3.sh): outputs compared with sequential run 1 (SAMs and statistics files left out)
+sequential 1 vs 2: DIFF; concurrent 1 vs 2: same; sequential 1 vs concurrent 2: DIFF
+sequential 1 vs 3: same; concurrent 1 vs 3: same; sequential 1 vs concurrent 3: DIFF
+sequential 1 vs 4: same; concurrent 1 vs 4: DIFF; sequential 1 vs concurrent 4: same
+profile-only on one SAM, 4 times at 6 threads: 1 vs 2, 3, 4 all same
+lines that differ from sequential run 1: rs2 1 (s.profile.gene.log), rs3 0, rs4 0, rc1 1, rc2 1, rc3 1, rc4 0 (the same line each time: the last digit of one value)
+-> one value of .profile.gene.log depends on the SAM's record order, which multi-threaded alignment varies between runs; in
+   either loading mode alike, and profiling one SAM again gives the same output. Not a loading effect.

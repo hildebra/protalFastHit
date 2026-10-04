@@ -16,6 +16,7 @@ neighbours, and models of other kinds of reads:
 | `gene_congeners.tsv` | not part of the database: a report `--build` writes beside it, how each gene differs between congeneric species against within species ([building-a-database.md](building-a-database.md#2-build-the-index)); queries do not read it, and `database.protal` does not hold it |
 | `gene_neighbours.tsv` | optional: per clade (family up to domain, and a species of its own where its gene order differs from its clades'), how often each end of each gene faces which end of another gene within 3 kb in the genomes of its species (of how many species in which that end is informative), and how far apart; from whole genomes, representatives and other strains, by `scripts/mini_db/gene_neighbours.py` ([building-a-database.md](building-a-database.md#gene-neighbours)). protal uses it to pair mates and follow long reads over neighbouring genes, and for the profile's `adjacent_*` features ([running.md](running.md#options-the-website-does-not-list)). A database of an earlier version, or built without genomes, has none |
 | `gene_positions.tsv` | optional, with `gene_neighbours.tsv`: where each gene lies in each of those genomes (contig, contig length, circular, start, end, strand, placed exactly or by its k-mer trace, the share of its k-mers that hit). `gene_neighbours.tsv` is derived from it; a run does not load it. `gtdb_to_protal_db.py --from_db` derives the frequencies of a copy without some species from it |
+| `gene_table.bin` | only in `database.protal`: `reference.map` and `unique_kmers.tsv` in binary, by species, with the fingerprint of `reference.map` the index is checked against. The packer writes it from the two text tables (`--build`, `--compress_db`); a run from `database.protal` loads it instead of them, on all threads and without parsing (at GTDB r226, 24M genes, the text tables took 3.4 s of every run on 32 threads). `--unpack_db` leaves it out, as a folder of files uses the text tables, and a table made from other tables than the database's is not used. A database packed by an earlier protal has none; `--compress_db` on its `database.protal` adds it (below) |
 | `model_pe.xml` | the presence model (a random forest in PMML) of paired-end reads, see [model-training.md](model-training.md); `model.xml` in databases of earlier versions |
 | `model_se.xml` | optional: the presence model of single-end reads; without it, single-end samples need `--model_se` ([running.md](running.md#single-end-reads)) |
 | `model_PB.xml`, `model_ONT.xml` | optional: the presence models of PacBio and Nanopore reads (`--model_pb`, `--model_ont` without them) |
@@ -94,8 +95,18 @@ protal --decompress_db --db /path/to/protal-db -t 16    # -> separate raw files,
 ```
 
 `--unpack_db` writes `index.prx.zst` (its frames as they are in `database.protal`), an
-uncompressed `reference.fna`, and the other files, into the folder `database.protal` is in, or into
-`--unpack_dir`. `--decompress_db` writes all files raw and removes the compressed ones
+uncompressed `reference.fna`, and the other files but `gene_table.bin`, into the folder `database.protal` is in, or into
+`--unpack_dir`.
+
+A `database.protal` packed by an earlier protal has no `gene_table.bin`, and its runs parse the two text tables.
+`--compress_db` on the single file adds it, rewriting the file once with its other members' frames copied as they are
+(as `--add_model` does); on one that has a current table it does nothing:
+
+```bash
+protal --compress_db --db /path/to/protal-db/database.protal -t 16 --compress_level 9
+```
+
+`--decompress_db` writes all files raw and removes the compressed ones
 (`index.prx.zst`, `reference.fna.zst` or `database.protal`); the index is byte-identical to one
 built with `--no_compress`, and `--compress_db` on such a folder writes `database.protal`
 byte-identical to the one `--build` wrote. `--compress_db` needs the index in memory.

@@ -424,6 +424,7 @@ TEST(GeneTables, BenchLoadOfLargeTables) {
         auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
         std::cout << threads << " thread(s): reference.map " << ms(start, mapped) << " ms, unique_kmers.tsv " << ms(mapped, done)
                   << " ms, " << loader.GeneCount() << " genes" << std::endl;
+        std::cout << "  " << loader.GeneTableTimes() << std::endl;
         EXPECT_EQ(loader.GeneCount(), tables.genes);
     }
     // The tables as members of a single-file database (64 MB frames, as protal builds it): the path a run takes.
@@ -442,6 +443,35 @@ TEST(GeneTables, BenchLoadOfLargeTables) {
         auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
         std::cout << threads << " thread(s), bundle members: reference.map " << ms(start, mapped) << " ms, unique_kmers.tsv "
                   << ms(mapped, done) << " ms" << std::endl;
+        std::cout << "  " << loader.GeneTableTimes() << std::endl;
+        EXPECT_EQ(loader.GeneCount(), tables.genes);
+    }
+    // The binary gene table (GeneTableFile.h), as a single-file database holds it beside the text tables: what a run loads.
+    std::string const table = (dir.path / protal::gene_table_file::kFileName).string();
+    {
+        protal::GenomeLoader text(protal::db::DbFile::OnDisk(tables.fna), protal::db::DbFile::OnDisk(tables.map), 6);
+        text.LoadUniqueKmers(tables.unique, 6);
+        auto const start = std::chrono::steady_clock::now();
+        ASSERT_EQ(text.WriteGeneTable(table, std::filesystem::file_size(tables.map), std::filesystem::file_size(tables.unique), true), "");
+        std::cout << "gene_table.bin written in " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count()
+                  << " ms, " << std::filesystem::file_size(table) / (1 << 20) << " MB" << std::endl;
+    }
+    auto const with_table = (dir.path / "with_table.protal").string();
+    ASSERT_TRUE(protal::db::Write(with_table, { { "reference.fna", tables.fna }, { "reference.map", tables.map }, { "unique_kmers.tsv", tables.unique },
+                                                { protal::gene_table_file::kFileName, table } },
+                                  protal::zstd::Params{ 3, 0, 6, uint64_t{64} << 20 }, error)) << error;
+    auto const table_bundle = protal::db::Bundle::Open(with_table, error);
+    ASSERT_TRUE(table_bundle) << error;
+    for (int threads : { 1, 6 }) {
+        auto const start = std::chrono::steady_clock::now();
+        auto const unique = protal::db::DbFile::InBundle(*table_bundle, "unique_kmers.tsv");
+        protal::GenomeLoader loader(protal::db::DbFile::InBundle(*table_bundle, "reference.fna"), protal::db::DbFile::InBundle(*table_bundle, "reference.map"),
+                                    threads, protal::db::DbFile::InBundle(*table_bundle, protal::gene_table_file::kFileName), unique.Size());
+        auto const done = std::chrono::steady_clock::now();
+        std::cout << threads << " thread(s), bundle with gene_table.bin: "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(done - start).count() << " ms" << std::endl;
+        std::cout << "  " << loader.GeneTableTimes() << std::endl;
+        EXPECT_TRUE(loader.FromGeneTable());
         EXPECT_EQ(loader.GeneCount(), tables.genes);
     }
 }

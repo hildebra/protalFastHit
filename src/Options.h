@@ -32,6 +32,7 @@
 #include "SequenceUtils/ReadTypeDetection.h"
 #include "SequenceUtils/GeneConservation.h"
 #include "SequenceUtils/GeneNeighbours.h"
+#include "SequenceUtils/GeneTableFile.h"
 #include "gzstream/gzstream.h"
 
 
@@ -151,6 +152,7 @@ namespace protal {
                 ("whole_read_alignment", "Align each short read as a whole into its gene window, as protal did before it aligned from the anchor's exact matches (slower; the results differ in a few alignments). Long reads are always aligned as a whole.")
                 ("no_alignment_screen", "Align every candidate with WFA2, without the k-mer screen that refuses a candidate whose read and gene window share too few k-mers for any alignment within the score budget to exist (AlignmentScreen.h). The screen changes no alignment; this is for measuring it.")
                 ("long_read_budget", "Long reads: once a candidate of a read's gene has aligned, the gene's other candidates are aligned with a budget of this many edits (as mismatches) more than the best so far; one that would cost more fails there and counts as a failed candidate (ZF). Saves WFA2 work on far relatives; MAPQ and the listed alternatives of such genes change, so the models should be retrained with it. 0 (default): every candidate gets the ANI floor's budget.", cxxopts::value<size_t>()->default_value("0"))
+                ("sequential_load", "Load the database's parts one after another, as protal did before 0.7.6, rather than the index beside the genome preload and the single-threaded tables (taxonomy, models, gene conservation, suspect copies, species priors, gene neighbours) each on a thread of its own. For measuring; the run is the same either way.")
                 ("taxon_statistics", "Write misc/<taxon>.statistics.tsv for every taxon with reads: its coverage, reads, ANI and MAPQ in each sample, and whether it is reported. Off by default: a sample on a GTDB-sized database has reads on thousands of taxa, and that many small files took 15 s on a network file system. The profile files (<prefix>.profile, .profile.log, .profile.genes.log) hold the same per sample.")
                 ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
                 ("serial_index_passes", "With --build: count and place the reference's k-mers and compute the value pointers on one thread, as protal did before these ran in -t threads (slower; the index is the same).")
@@ -162,7 +164,7 @@ namespace protal {
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
-                ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory.")
+                ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory. On a single-file database --db: adds the binary gene table (gene_table.bin) a run loads instead of reference.map and unique_kmers.tsv, if it has no current one.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
                 ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
@@ -216,6 +218,7 @@ namespace protal {
         bool whole_read_alignment = false;
         bool no_alignment_screen = false;
         size_t long_read_budget = 0;
+        bool sequential_load = false;
         bool taxon_statistics = false;
         bool full_sam_header = false;
         bool serial_index_passes = false;
@@ -330,6 +333,7 @@ namespace protal {
         bool m_whole_read_alignment = false;
         bool m_no_alignment_screen = false;
         size_t m_long_read_budget = 0;
+        bool m_sequential_load = false;
         bool m_taxon_statistics = false;
         bool m_full_sam_header = false;
         bool m_serial_index_passes = false;
@@ -484,6 +488,7 @@ namespace protal {
                 m_whole_read_alignment(d.whole_read_alignment),
                 m_no_alignment_screen(d.no_alignment_screen),
                 m_long_read_budget(d.long_read_budget),
+                m_sequential_load(d.sequential_load),
                 m_taxon_statistics(d.taxon_statistics),
                 m_full_sam_header(d.full_sam_header),
                 m_serial_index_passes(d.serial_index_passes),
@@ -943,6 +948,13 @@ namespace protal {
             return DbFileNamed(PROTAL_UNIQUE_KMER_FILE, GetUniqueKmersFile());
         }
 
+        // The single-file database's binary gene table (GeneTableFile.h), if it has one; a folder's text tables are read as they are.
+        std::optional<db::DbFile> GeneTableDbFile() const {
+            if (!m_bundle) return std::nullopt;
+            auto file = db::DbFile::InBundle(*m_bundle, gene_table_file::kFileName);
+            return file.Exists() ? std::optional<db::DbFile>(std::move(file)) : std::nullopt;
+        }
+
         // The database's gene_conservation.tsv (--build); Exists() is false if it has none.
         db::DbFile DatabaseGeneConservationDbFile() const {
             return DbFileNamed(PROTAL_GENE_CONSERVATION_FILE, GetGeneConservationFile());
@@ -1264,6 +1276,11 @@ namespace protal {
         // --long_read_budget: edits past a segment's best hit its other candidates may cost (0: the ANI floor's budget).
         size_t GetLongReadBudget() const {
             return m_long_read_budget;
+        }
+
+        // --sequential_load: the database's parts loaded one after another (RunProtal::Run).
+        bool SequentialLoad() const {
+            return m_sequential_load;
         }
 
         // --taxon_statistics: one misc/<taxon>.statistics.tsv per taxon with reads (off by default).
@@ -2474,6 +2491,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             bool whole_read_alignment = result.count("whole_read_alignment");
             bool no_alignment_screen = result.count("no_alignment_screen");
             size_t long_read_budget = result["long_read_budget"].as<size_t>();
+            bool sequential_load = result.count("sequential_load");
             bool taxon_statistics = result.count("taxon_statistics");
             bool full_sam_header = result.count("full_sam_header");
             bool serial_index_passes = result.count("serial_index_passes");
@@ -2631,6 +2649,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.whole_read_alignment     = whole_read_alignment;
             d.no_alignment_screen      = no_alignment_screen;
             d.long_read_budget         = long_read_budget;
+            d.sequential_load          = sequential_load;
             d.taxon_statistics         = taxon_statistics;
             d.full_sam_header          = full_sam_header;
             d.serial_index_passes      = serial_index_passes;

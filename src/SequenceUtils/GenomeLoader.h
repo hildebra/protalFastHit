@@ -8,6 +8,9 @@
 #include "TargetClones.h"
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 #include <cctype>
 #include <charconv>
 #include <cstring>
@@ -31,6 +34,8 @@
 #include "Utilities.h"
 #include "Zstd.h"
 #include "Database.h"
+#include "ReferenceFingerprint.h"
+#include "GeneTableFile.h"
 #include <sysexits.h>
 
 #include "Benchmark.h"
@@ -137,9 +142,18 @@ namespace protal {
             });
         }
 
-        // Reads a gene table in pieces, parses each in parallel (ParsePiece) and hands each piece's chunks, with the
-        // lines before each chunk, to add_piece(chunks, line_bases). Returns an error message if the file cannot be
-        // read or decompressed, else empty.
+        // Where a table's load spends its wall-clock time, in seconds, for the run's log (GenomeLoader::GeneTableTimes):
+        // reading and decompressing, parsing (ParsePiece), the serial grouping by genome with the genomes made
+        // (AddPieceByGenome), the parallel adding, and a pass after the rows (the unique k-mers' sums per genome).
+        struct Times {
+            size_t rows = 0;
+            double read = 0, parse = 0, group = 0, add = 0, after = 0;
+        };
+
+        inline double SecondsSince(std::chrono::steady_clock::time_point start) {
+            return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        }
+
         // The whole content of a table, read and decompressed on `threads` threads (zstd::ParallelRead: a seekable zstd
         // member frame by frame, a raw file in chunks), for ForEachPiece. The sequential reader decompressed a 1 GB table
         // on one thread, which with the parsing and the adds parallel was most of the load at GTDB r226 size.
@@ -159,18 +173,28 @@ namespace protal {
             uint64_t m_size;
         };
 
+        // Reads a gene table in pieces, parses each in parallel (ParsePiece) and hands each piece's chunks, with the
+        // lines before each chunk, to add_piece(chunks, line_bases). Returns an error message if the file cannot be
+        // read or decompressed, else empty. times (if given) gets the reading and parsing time and the rows.
         template<typename Row, typename Parse, typename AddPiece>
-        std::string ForEachPiece(db::DbFile const& file, int threads, Parse&& parse, AddPiece&& add_piece) {
+        std::string ForEachPiece(db::DbFile const& file, int threads, Parse&& parse, AddPiece&& add_piece, Times* times = nullptr,
+                                XXHash64* hash = nullptr) {
             std::vector<size_t> line_bases;
             if (!file.Exists()) return "cannot open the file";
             std::vector<Chunk<Row>> chunks;
             size_t line_base = 0;    // lines before this piece
+            Times ignored;
+            Times& t = times ? *times : ignored;
             auto handle = [&](std::string_view piece_text) {
+                if (hash) hash->add(piece_text.data(), piece_text.size());  // the pieces cover the content in order
+                auto const start = std::chrono::steady_clock::now();
                 ParsePiece<Row>(piece_text, threads, parse, chunks);
+                t.parse += SecondsSince(start);
                 line_bases.resize(chunks.size());
                 for (size_t c = 0; c < chunks.size(); c++) {
                     line_bases[c] = line_base;
                     line_base += chunks[c].lines;
+                    t.rows += chunks[c].rows.size();
                 }
                 add_piece(chunks, line_bases);
             };
@@ -178,9 +202,11 @@ namespace protal {
             // of them (TableSink), then parsed from there in pieces of whole lines. A raw file streams from the page cache
             // faster than it copies, and one thread has nothing to parallelise: those stream below.
             if (auto const size = file.Size(); size && threads > 1 && file.Compressed()) {
+                auto const start = std::chrono::steady_clock::now();
                 TableSink sink(*size);
                 std::string error;
                 uint64_t const read = file.ParallelRead(threads, sink, error);
+                t.read += SecondsSince(start);
                 if (!error.empty()) return "the file cannot be read or decompressed (" + error + ")";
                 std::string_view const text = sink.Text(read);
                 for (size_t pos = 0; pos < text.size();) {
@@ -202,9 +228,11 @@ namespace protal {
             size_t piece = kPieceBytes;
             bool end = false;
             while (!end) {
+                auto const start = std::chrono::steady_clock::now();
                 buffer.resize(kept + piece);
                 is->read(buffer.data() + kept, static_cast<std::streamsize>(piece));
                 size_t const got = static_cast<size_t>(is->gcount());
+                t.read += SecondsSince(start);
                 if (is->bad()) return "the file cannot be read or decompressed (truncated or corrupt file?)";
                 end = got < piece;
                 size_t const size = kept + got;
@@ -246,7 +274,8 @@ namespace protal {
         // as adding line by line would have met it first.
         template<typename Row, typename Prepare, typename Add>
         std::pair<size_t, std::string> AddPieceByGenome(std::vector<Chunk<Row>> const& chunks, std::vector<size_t> const& line_bases,
-                                                        int threads, Prepare&& prepare, Add&& add) {
+                                                        int threads, Prepare&& prepare, Add&& add, Times* times = nullptr) {
+            auto const start = std::chrono::steady_clock::now();
             struct Run { size_t chunk, begin, end; };
             std::vector<std::vector<Run>> groups;
             std::vector<uint64_t> group_taxid;
@@ -267,6 +296,13 @@ namespace protal {
                 }
             }
             std::vector<std::pair<size_t, std::string>> problems(groups.size());  // per genome: its first problem's line
+            auto const grouped = std::chrono::steady_clock::now();
+            if (times) times->group += std::chrono::duration<double>(grouped - start).count();
+            struct AddTime {
+                Times* times;
+                std::chrono::steady_clock::time_point from;
+                ~AddTime() { if (times) times->add += SecondsSince(from); }
+            } add_time{ times, grouped };
             zstd::ParallelFor(groups.size(), threads, [&](size_t g, size_t) -> std::string {
                 for (auto const& run : groups[g]) {
                     auto const& chunk = chunks[run.chunk];
@@ -566,6 +602,11 @@ namespace protal {
             return GeneKeyToIndex(key) < m_genes.size();
         }
 
+        // The gene list as long as `slots` genes (the largest gene id) at once, rather than as genes are added.
+        void ReserveGenes(size_t slots) {
+            if (m_genes.size() < slots) m_genes.resize(slots);
+        }
+
         bool HasGene(GeneKey key) const {
             return key > 0 && GeneKeyToIndex(key) < m_genes.size() && m_genes[GeneKeyToIndex(key)].IsSet();
         }
@@ -669,6 +710,16 @@ namespace protal {
         species_priors::Table m_species_priors;        // empty: every species' priors unknown
 
         int m_threads = 1;  // for reading reference.map
+        gene_table::Times m_map_times, m_unique_times;  // the last loads of reference.map and unique_kmers.tsv (GeneTableTimes)
+        gene_table::Times m_table_times;                // the load of gene_table.bin (GeneTableTimes)
+        bool m_from_gene_table = false;         // the genes came from gene_table.bin (LoadGeneTable), not from reference.map
+        bool m_unique_from_gene_table = false;  // and their unique k-mer counts too
+        // reference.map's fingerprint (xxhash64 of its content, reference.fna's size), as ReferenceFingerprint::Of gives it:
+        // hashed while it is parsed, or recorded in gene_table.bin; the index is checked against it.
+        std::optional<ReferenceFingerprint> m_fingerprint;
+        // The genomes in the order they were made (reference.map's order of first appearance). The genome map's iteration order
+        // follows from it, and some outputs break ties in that order, so gene_table.bin records it and its loader makes them the same.
+        std::vector<GenomeKey> m_genome_order;
         struct FreeDeleter { void operator()(void* p) const { std::free(p); } };
         std::vector<std::unique_ptr<uint8_t[], FreeDeleter>> m_arenas;  // the preloaded genes' packed sequences (Gene::SetPacked)
 
@@ -699,14 +750,184 @@ namespace protal {
     public:
         // reference: reference.fna, a zstd-compressed reference.fna.zst, or the member of a single-file
         // database. The byte offsets in map (reference.map) always refer to the uncompressed reference.
-        // map is read with `threads` threads.
-        GenomeLoader(db::DbFile reference, db::DbFile map, int threads = 1) :
+        // map is read with `threads` threads. gene_table: the database's gene_table.bin (GeneTableFile.h), loaded
+        // instead of map where it was made from these tables (unique_size: the size of the database's
+        // unique_kmers.tsv, nullopt if it has none); UniqueKmersFromGeneTable() tells whether it gave their counts too.
+        GenomeLoader(db::DbFile reference, db::DbFile map, int threads = 1, std::optional<db::DbFile> const& gene_table = std::nullopt,
+                     std::optional<uint64_t> unique_size = std::nullopt) :
                 m_reference(std::move(reference)),
                 m_map(std::move(map)),
                 m_threads(threads) {
             Open();
-            LoadPositionMap(m_map, m_threads);
+            if (!gene_table || !LoadGeneTable(*gene_table, unique_size, m_threads)) LoadPositionMap(m_map, m_threads);
         };
+
+        bool FromGeneTable() const { return m_from_gene_table; }
+        bool UniqueKmersFromGeneTable() const { return m_unique_from_gene_table; }
+
+        // reference.map's ReferenceFingerprint, known once the genes are loaded (nullopt for a loader that has none).
+        std::optional<ReferenceFingerprint> const& MapFingerprint() const { return m_fingerprint; }
+
+        // Loads the genes, and their unique k-mer counts if it has them, from the binary gene table (GeneTableFile.h) if it
+        // was made from this database's tables: its recorded sizes of reference.map, unique_kmers.tsv (unique_size: the
+        // database's, nullopt if it has none) and reference.fna are theirs. Each genome's genes are added by one thread.
+        // Returns false, with nothing loaded, if the table is not this database's or not readable as one (a note says why).
+        bool LoadGeneTable(db::DbFile const& table, std::optional<uint64_t> unique_size, int threads) {
+            namespace gtf = gene_table_file;
+            auto const start = std::chrono::steady_clock::now();
+            auto const table_size = table.Size();
+            auto const map_size = m_map.Size();
+            auto const fna_size = m_reference.Size();
+            auto skip = [&](std::string const& why) {
+                std::cerr << "Note: " << table.Name() << " is not used (" << why << "); the genes are read from "
+                          << m_map.Name() << std::endl;
+                m_genomes.clear();
+                return false;
+            };
+            if (!table.Exists() || !table_size || *table_size < sizeof(gtf::Header)) return skip("it cannot be read");
+            if (!map_size || !fna_size) return false;  // LoadPositionMap says what is wrong
+            gene_table::TableSink sink(*table_size);
+            std::string error;
+            uint64_t const read = table.ParallelRead(std::max(threads, 1), sink, error);
+            if (!error.empty() || read != *table_size) return skip("it cannot be read: " + error);
+            std::string_view const data = sink.Text(read);
+            gtf::Header h;
+            std::memcpy(&h, data.data(), sizeof(h));
+            if (std::memcmp(h.magic, gtf::kMagic, sizeof(gtf::kMagic)) != 0) return skip("it is not a gene table");
+            if (h.version != gtf::kVersion) return skip("it is of format version " + std::to_string(h.version));
+            if (gtf::ExpectedSize(h) != read || h.genomes == 0) return skip("it is truncated or corrupt");
+            if (h.map_size != *map_size || h.fna_size != *fna_size || (h.has_unique != 0) != unique_size.has_value() ||
+                (unique_size && h.unique_size != *unique_size)) {
+                return skip("it was made from other gene tables than the database's");
+            }
+            m_table_times = {};
+            m_table_times.read = gene_table::SecondsSince(start);
+            constexpr uint64_t max_id = (uint64_t{1} << SEEDMAP_TAXID_BITS) - 1;
+            constexpr uint64_t max_gene = (uint64_t{1} << SEEDMAP_GENEID_BITS) - 1;
+            constexpr uint64_t max_length = (uint64_t{1} << SEEDMAP_GENE_POS_BITS) - 1;
+            char const* const genome_records = data.data() + sizeof(gtf::Header);
+            char const* const gene_records = genome_records + h.genomes * sizeof(gtf::Genome);
+            auto genome_at = [&](uint64_t i) { gtf::Genome g; std::memcpy(&g, genome_records + i * sizeof(g), sizeof(g)); return g; };
+            auto gene_at = [&](uint64_t i) { gtf::Gene g; std::memcpy(&g, gene_records + i * sizeof(g), sizeof(g)); return g; };
+
+            // The genomes, on this thread (the map is changed only here), then each one's genes on any thread.
+            auto const genomes_start = std::chrono::steady_clock::now();
+            m_genomes.clear();
+            m_genome_order.clear();
+            uint64_t next = 0;
+            for (uint64_t i = 0; i < h.genomes; i++) {
+                auto const g = genome_at(i);
+                if (g.taxid == 0 || g.taxid > max_id || m_genomes.contains(g.taxid) || g.first != next || g.count == 0 ||
+                    g.count > g.slots || g.slots > max_gene) {
+                    return skip("its genome " + std::to_string(i + 1) + " is corrupt");
+                }
+                next += g.count;
+                AddOrGetGenome(g.taxid);  // in reference.map's order, as LoadPositionMap makes them: the same genome map
+                m_genome_order.push_back(g.taxid);
+            }
+            if (next != h.genes) return skip("its gene count is corrupt");
+            std::vector<Genome*> genomes(h.genomes);
+            for (uint64_t i = 0; i < h.genomes; i++) genomes[i] = &m_genomes.find(genome_at(i).taxid).value();  // stable now
+            m_table_times.group = gene_table::SecondsSince(genomes_start);
+
+            auto const add_start = std::chrono::steady_clock::now();
+            bool const has_unique = h.has_unique != 0;
+            std::atomic<bool> corrupt{ false };
+            std::ifstream* const reader = m_compressed ? nullptr : &m_is;
+            constexpr uint64_t kBlock = 256;
+            zstd::ParallelFor((h.genomes + kBlock - 1) / kBlock, std::max(threads, 1), [&](size_t block, size_t) -> std::string {
+                for (uint64_t i = block * kBlock; i < std::min<uint64_t>(h.genomes, (block + 1) * kBlock) && !corrupt; i++) {
+                    auto const g = genome_at(i);
+                    Genome& genome = *genomes[i];
+                    genome.ReserveGenes(g.slots);
+                    uint64_t last_id = 0;
+                    for (uint64_t k = g.first; k < g.first + g.count; k++) {
+                        auto const r = gene_at(k);
+                        if (r.id == 0 || r.id > g.slots || r.id <= last_id || r.length == 0 || r.length > max_length ||
+                            r.start + r.length > *fna_size) {
+                            corrupt = true;
+                            break;
+                        }
+                        last_id = r.id;
+                        genome.AddGene(r.id, r.id, r.start, r.length, reader);
+                        if (has_unique) {
+                            genome.GetGene(r.id).SetUniqueValues(r.short_unique, r.long_unique, r.long_super_unique, r.total_kmers);
+                            if (r.short_unique + r.long_unique > 0) genome.AddHittableGene(r.id);
+                        }
+                    }
+                    if (has_unique) {
+                        genome.SetHittableGenesKnown();
+                        genome.SetUniqueValues();
+                    }
+                }
+                return {};
+            });
+            if (corrupt) return skip("a gene record is corrupt");
+            m_table_times.add = gene_table::SecondsSince(add_start);
+            m_table_times.rows = h.genes;
+            m_fingerprint = ReferenceFingerprint{ h.map_hash, h.fna_size };
+            m_from_gene_table = true;
+            m_unique_from_gene_table = has_unique;
+            return true;
+        }
+
+        // Writes the genes as this loader holds them as a binary gene table (GeneTableFile.h) at path, recording the sizes
+        // of the reference.map and unique_kmers.tsv they were read from (unique_size: 0 and has_unique false if none) and
+        // reference.map's fingerprint (MapFingerprint, which a load from reference.map computes). Genomes in reference.map's
+        // order, genes by id: the same tables give the same bytes. Returns an error message, empty on success.
+        std::string WriteGeneTable(std::string const& path, uint64_t map_size, uint64_t unique_size, bool has_unique) const {
+            namespace gtf = gene_table_file;
+            if (!m_fingerprint) return "the loader has no reference fingerprint (its genes were not read from reference.map)";
+            if (m_genome_order.size() != m_genomes.size()) return "the order the genomes were made in is not known";
+            std::vector<GenomeKey> const& keys = m_genome_order;  // reference.map's order (see m_genome_order)
+            std::vector<gtf::Genome> genomes;
+            genomes.reserve(keys.size());
+            uint64_t genes = 0;
+            for (auto key : keys) {
+                auto const& list = m_genomes.at(key).GetGeneList();
+                uint64_t count = 0;
+                for (auto const& gene : list) count += gene.IsSet();
+                if (count == 0) continue;
+                genomes.push_back({ key, list.size(), genes, count });
+                genes += count;
+            }
+            gtf::Header h{};
+            std::memcpy(h.magic, gtf::kMagic, sizeof(gtf::kMagic));
+            h.version = gtf::kVersion;
+            h.map_size = map_size;
+            h.unique_size = has_unique ? unique_size : 0;
+            h.has_unique = has_unique ? 1 : 0;
+            h.map_hash = m_fingerprint->map_hash;
+            h.fna_size = m_fingerprint->fna_size;
+            h.genomes = genomes.size();
+            h.genes = genes;
+            std::ofstream os(path, std::ios::binary | std::ios::trunc);
+            if (!os) return "cannot open " + path + " for writing";
+            os.write(reinterpret_cast<char const*>(&h), sizeof(h));
+            os.write(reinterpret_cast<char const*>(genomes.data()), static_cast<std::streamsize>(genomes.size() * sizeof(gtf::Genome)));
+            std::vector<gtf::Gene> buffer;
+            buffer.reserve(size_t{1} << 18);
+            auto flush = [&]() {
+                os.write(reinterpret_cast<char const*>(buffer.data()), static_cast<std::streamsize>(buffer.size() * sizeof(gtf::Gene)));
+                buffer.clear();
+            };
+            for (auto const& g : genomes) {
+                auto const& list = m_genomes.at(g.taxid).GetGeneList();
+                for (auto const& gene : list) {
+                    if (!gene.IsSet()) continue;
+                    if (gene.IsLoaded()) return "the genes are loaded (their start bytes are not kept): write the table before LoadAllGenomes";
+                    auto const [su, lu, lsu, total] = gene.GetUniqueKmerCounts();
+                    buffer.push_back({ gene.GetStartByte(), static_cast<uint32_t>(gene.GetId()), static_cast<uint32_t>(gene.GetLength()),
+                                       static_cast<uint32_t>(su), static_cast<uint32_t>(lu), static_cast<uint32_t>(lsu),
+                                       static_cast<uint32_t>(total) });
+                    if (buffer.size() == buffer.capacity()) flush();
+                }
+            }
+            flush();
+            os.close();
+            if (os.fail()) return "write error on " + path;
+            return {};
+        }
 
         GenomeLoader(std::string genome_path, std::string genome_map) :
                 GenomeLoader(db::DbFile::OnDisk(std::move(genome_path)), db::DbFile::OnDisk(std::move(genome_map))) {}
@@ -807,6 +1028,25 @@ namespace protal {
             LoadUniqueKmers(db::DbFile::OnDisk(file), threads);
         }
 
+        // Where the gene tables' loads spent their time, as one line for the run's log.
+        std::string GeneTableTimes() const {
+            auto part = [](std::string const& name, gene_table::Times const& t, bool sums) {
+                std::ostringstream os;
+                os << std::fixed << std::setprecision(2) << name << " " << t.rows << " rows: reading " << t.read << " s, parsing " << t.parse
+                   << " s, by genome " << t.group << " s, adding " << t.add << " s";
+                if (sums) os << ", genome sums " << t.after << " s";
+                return os.str();
+            };
+            if (m_from_gene_table) {
+                std::ostringstream os;
+                os << std::fixed << std::setprecision(2) << "Gene tables: " << gene_table_file::kFileName << " " << m_table_times.rows
+                   << " genes" << (m_unique_from_gene_table ? " with unique k-mer counts" : "") << ": reading " << m_table_times.read
+                   << " s, genomes " << m_table_times.group << " s, adding " << m_table_times.add << " s";
+                return os.str();
+            }
+            return "Gene tables: " + part("reference.map", m_map_times, false) + "; " + part("unique_kmers.tsv", m_unique_times, true);
+        }
+
         void LoadUniqueKmers(db::DbFile const& unique_kmers, int threads = 1) {
             std::string const& file = unique_kmers.Name();
             struct Row {
@@ -854,18 +1094,28 @@ namespace protal {
                         if (row.short_unique + row.long_unique > 0) taxon.AddHittableGene(row.geneid);
                         taxon.GetGene(row.geneid).SetUniqueValues(row.short_unique, row.long_unique, row.long_super_unique, row.total);
                         return {};
-                    });
+                    }, &m_unique_times);
                 if (line > 0) InvalidUniqueKmers(file, line, problem);
             };
-            std::string const error = gene_table::ForEachPiece<Row>(unique_kmers, threads, parse, add_piece);
+            m_unique_times = {};
+            std::string const error = gene_table::ForEachPiece<Row>(unique_kmers, threads, parse, add_piece, &m_unique_times);
             if (!error.empty()) InvalidUniqueKmers(file, 0, error);
             // Without rows every taxon would fail the model silently.
             if (rows == 0) InvalidUniqueKmers(file, 0, "the file lists no genes (rebuild the database with --build)");
 
-            for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) {
-                it.value().SetHittableGenesKnown();
-                it.value().SetUniqueValues();
-            }
+            // Every genome's sums over its genes, on all threads (one pass over 24M genes at GTDB r226 size).
+            auto const after = std::chrono::steady_clock::now();
+            std::vector<Genome*> genomes;
+            genomes.reserve(m_genomes.size());
+            for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) genomes.push_back(&it.value());
+            zstd::ParallelFor((genomes.size() + 1023) / 1024, threads, [&](size_t block, size_t) -> std::string {
+                for (size_t i = block * 1024; i < std::min(genomes.size(), (block + 1) * 1024); i++) {
+                    genomes[i]->SetHittableGenesKnown();
+                    genomes[i]->SetUniqueValues();
+                }
+                return {};
+            });
+            m_unique_times.after = gene_table::SecondsSince(after);
 
             // PrintHittableGenes();
         }
@@ -1121,18 +1371,25 @@ namespace protal {
             auto add_piece = [&](std::vector<gene_table::Chunk<Row>> const& chunks, std::vector<size_t> const& line_bases) {
                 for (auto const& chunk : chunks) rows += chunk.rows.size();
                 auto const [line, problem] = gene_table::AddPieceByGenome<Row>(chunks, line_bases, threads,
-                    [&](uint64_t taxid) { AddOrGetGenome(taxid); },
+                    [&](uint64_t taxid) {
+                        if (m_genomes.contains(taxid)) return;  // listed again further on: made in an earlier piece
+                        AddOrGetGenome(taxid);
+                        m_genome_order.push_back(taxid);
+                    },
                     [&](uint64_t taxid, Row const& row) -> std::string {
                         auto& genome = m_genomes.find(taxid).value();
                         if (genome.HasGene(row.geneid)) return "gene " + std::to_string(row.taxid) + "_" + std::to_string(row.geneid) + " is listed twice";
                         genome.AddGene(row.geneid, row.geneid, row.start, row.end - row.start, m_compressed ? nullptr : &m_is);
                         return {};
-                    });
+                    }, &m_map_times);
                 if (line > 0) InvalidMap(file_path, line, problem);
             };
-            std::string const error = gene_table::ForEachPiece<Row>(map, threads, parse, add_piece);
+            XXHash64 hash(0);
+            m_map_times = {};
+            std::string const error = gene_table::ForEachPiece<Row>(map, threads, parse, add_piece, &m_map_times, &hash);
             if (!error.empty()) InvalidMap(file_path, 0, error);
             if (rows == 0) InvalidMap(file_path, 0, "the file lists no genes");
+            m_fingerprint = ReferenceFingerprint{ hash.hash(), fna_size };
         }
 
         [[noreturn]] static void InvalidUniqueKmers(std::string const& path, size_t line_no, std::string const& reason) {

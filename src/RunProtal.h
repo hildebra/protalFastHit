@@ -16,6 +16,7 @@
 #include "ProgressBar.h"
 #include "protal_config.h"
 #include "SamFile.h"
+#include <future>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -63,9 +64,18 @@ namespace protal {
     }
 
 
+    // The index as a start-up thread loaded it (Run, beside the genome preload and the tables): the index, what loading it
+    // printed, and its timer, for RunWrapper to print when it takes it.
+    struct LoadedIndex {
+        std::unique_ptr<Seedmap> map;
+        std::string log;
+        Benchmark timer{ "Load Index" };
+    };
+
     class ProtalDB {
         GenomeLoader m_genomes;
         std::optional<taxonomy::IntTaxonomy> m_taxonomy;
+        std::optional<std::future<LoadedIndex>> m_index;  // the index loading beside the other start-up loads (Run)
 
     public:
         // The gene tables (reference.map, unique_kmers.tsv) are read with `threads` threads.
@@ -78,6 +88,26 @@ namespace protal {
                 m_genomes(std::move(sequence_file), std::move(map_file), threads),
                 m_taxonomy() {
             m_genomes.LoadUniqueKmers(unique_kmers_file, threads);
+        }
+
+        // From the single-file database's binary gene table where it has a current one (gene_table, GeneTableFile.h),
+        // else from reference.map and unique_kmers.tsv (if the database has one), with `threads` threads.
+        ProtalDB(db::DbFile sequence_file, db::DbFile map_file, std::optional<db::DbFile> const& unique_kmers_file,
+                 std::optional<db::DbFile> const& gene_table, int threads) :
+                m_genomes(std::move(sequence_file), std::move(map_file), threads, gene_table,
+                          unique_kmers_file ? unique_kmers_file->Size() : std::nullopt),
+                m_taxonomy() {
+            if (unique_kmers_file && !m_genomes.UniqueKmersFromGeneTable()) m_genomes.LoadUniqueKmers(*unique_kmers_file, threads);
+        }
+
+        void SetIndexLoading(std::future<LoadedIndex> index) { m_index = std::move(index); }
+
+        // The index a start-up thread loaded, waiting for it; nullopt if none was started (RunWrapper loads it then).
+        std::optional<LoadedIndex> TakeIndex() {
+            if (!m_index) return std::nullopt;
+            auto loaded = m_index->get();
+            m_index.reset();
+            return loaded;
         }
 
         void LoadTaxonomy(db::DbFile const& file) {
@@ -177,12 +207,12 @@ namespace protal {
     // (conserved_fast_depth_ratio, conserved_hit_share) always, and scale the depth identity margin per gene with
     // --gene_conservation db or FILE; by default (none) every gene keeps the whole margin. Without the file the
     // features are 0 and 0.5. Exits 8 if the file cannot be read.
-    static void LoadGeneConservation(Options const& options, GenomeLoader& genomes) {
+    static void LoadGeneConservation(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
         auto const file = options.GeneConservationDbFile();
         bool const scale = options.ScaleDepthMarginByConservation();
         std::string const same = "the depth identity margin is the same on every gene";
         if (!file.Exists()) {
-            std::cout << "Gene conservation: the database has no " << Options::PROTAL_GENE_CONSERVATION_FILE << " (built by an "
+            out << "Gene conservation: the database has no " << Options::PROTAL_GENE_CONSERVATION_FILE << " (built by an "
                       << "earlier protal, or its --full_reference had no other genomes' copies of the genes): the "
                       << "conservation features are 0 and 0.5, and " << same << std::endl;
             return;
@@ -199,7 +229,7 @@ namespace protal {
             exit(8);
         }
         auto const [low, high] = table.Range();
-        std::cout << "Gene conservation: factors " << std::setprecision(2) << low << "-" << high << std::setprecision(6) << " for "
+        out << "Gene conservation: factors " << std::setprecision(2) << low << "-" << high << std::setprecision(6) << " for "
                   << table.Genes() << " genes (" << file.Name() << "), for the conservation features; "
                   << (scale ? "they scale the depth identity margin per gene"
                             : same + " (--gene_conservation db scales it by them)") << std::endl;
@@ -209,10 +239,10 @@ namespace protal {
 
     // The database's suspect gene copies (suspect_copies.tsv, GeneIncongruence.h): records on them are left out of the
     // evidence unless --keep_suspect_copies. Exits 8 if the file cannot be read.
-    static void LoadSuspectCopies(Options const& options, GenomeLoader& genomes) {
+    static void LoadSuspectCopies(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
         auto const file = options.SuspectCopiesDbFile();
         if (!file.Exists()) {
-            std::cout << "Suspect copies: the database has no " << Options::PROTAL_SUSPECT_COPIES_FILE
+            out << "Suspect copies: the database has no " << Options::PROTAL_SUSPECT_COPIES_FILE
                       << " (built by an earlier protal, or none found): every gene copy counts" << std::endl;
             return;
         }
@@ -227,7 +257,7 @@ namespace protal {
             std::cerr << "Invalid suspect copies " << file.Name() << ": " << error << std::endl;
             exit(8);
         }
-        std::cout << "Suspect copies: " << table.Size() << " gene copies of " << table.Species() << " species near-identical to "
+        out << "Suspect copies: " << table.Size() << " gene copies of " << table.Species() << " species near-identical to "
                   << "another genus's copy (" << file.Name() << "), "
                   << (options.DropSuspectCopies() ? "their records are left out of the evidence (--keep_suspect_copies counts them)"
                                                   : "kept as evidence (--keep_suspect_copies)") << std::endl;
@@ -237,10 +267,10 @@ namespace protal {
     // The species' priors (species_priors.tsv, SpeciesPriors.h: duplicated markers in the representative, CheckM
     // quality, the GTDB cluster's ANI radius and width), for the model's prior features. Exits 8 if the file cannot be
     // read.
-    static void LoadSpeciesPriors(Options const& options, GenomeLoader& genomes) {
+    static void LoadSpeciesPriors(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
         auto const file = options.SpeciesPriorsDbFile();
         if (!file.Exists()) {
-            std::cout << "Species priors: the database has no " << Options::PROTAL_SPECIES_PRIORS_FILE
+            out << "Species priors: the database has no " << Options::PROTAL_SPECIES_PRIORS_FILE
                       << " (converted by an earlier protal): every species' priors are unknown (-1)" << std::endl;
             return;
         }
@@ -255,7 +285,7 @@ namespace protal {
             std::cerr << "Invalid species priors " << file.Name() << ": " << error << std::endl;
             exit(8);
         }
-        std::cout << "Species priors: " << table.Size() << " species (" << file.Name() << "), " << table.Informative()
+        out << "Species priors: " << table.Size() << " species (" << file.Name() << "), " << table.Informative()
                   << " with a duplicated marker, CheckM quality or a species cluster known" << std::endl;
         genomes.SetSpeciesPriors(std::move(table));
     }
@@ -267,16 +297,18 @@ namespace protal {
     // from (gene_positions.tsv) stay in the database unread. Every species of the taxonomy gets the clades of its
     // lineage. Exits 8 if the file
     // cannot be read.
-    static void LoadGeneNeighbours(Options const& options, ProtalDB& db) {
+    // ReadGeneNeighbours reads and checks the table, on any thread (messages to out); BindGeneNeighbours gives every species
+    // of the taxonomy its lineage's clades and hands the table to the genomes, once the taxonomy is loaded.
+    static std::optional<gene_neighbours::Table> ReadGeneNeighbours(Options const& options, std::ostream& out = std::cout) {
         auto const file = options.GeneNeighboursDbFile();
         if (!file.Exists()) {
-            std::cout << "Gene neighbours: the database has none (" << Options::PROTAL_GENE_NEIGHBOURS_FILE << ", from whole "
+            out << "Gene neighbours: the database has none (" << Options::PROTAL_GENE_NEIGHBOURS_FILE << ", from whole "
                       << "genomes by scripts/mini_db/gene_neighbours.py before --build)" << std::endl;
-            return;
+            return std::nullopt;
         }
         if (!options.GeneNeighbours()) {
-            std::cout << "Gene neighbours: not used (--no_gene_neighbours)" << std::endl;
-            return;
+            out << "Gene neighbours: not used (--no_gene_neighbours)" << std::endl;
+            return std::nullopt;
         }
         std::string error;
         auto const content = file.ReadAll(error);
@@ -289,6 +321,11 @@ namespace protal {
             std::cerr << "Invalid gene neighbours " << file.Name() << ": " << error << std::endl;
             exit(8);
         }
+        return table;
+    }
+
+    static void BindGeneNeighbours(Options const& options, ProtalDB& db, gene_neighbours::Table table, std::ostream& out = std::cout) {
+        auto const file = options.GeneNeighboursDbFile();
         if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
         auto& taxonomy = db.GetTaxonomy();
         std::vector<uint32_t> lineage;
@@ -304,10 +341,14 @@ namespace protal {
             }
             table.SetLineage(static_cast<uint32_t>(id), lineage);
         }
-        std::cout << "Gene neighbours: " << table.Rules() << " rules of " << table.Clades() << " clades from " << table.Genomes()
+        out << "Gene neighbours: " << table.Rules() << " rules of " << table.Clades() << " clades from " << table.Genomes()
                   << " genomes (" << file.Name() << "), for " << table.BoundSpecies() << " species: mates looked for past "
                   << "their gene's end, pairs across neighbouring genes, long reads' neighbouring genes" << std::endl;
         db.GetGenomes().SetGeneNeighbours(std::move(table));
+    }
+
+    static void LoadGeneNeighbours(Options const& options, ProtalDB& db) {
+        if (auto table = ReadGeneNeighbours(options)) BindGeneNeighbours(options, db, std::move(*table));
     }
 
     // One line per sample on the alignment stage's counts, for comparing runs (scripts/measure_performance.sh reads
@@ -323,6 +364,36 @@ namespace protal {
                   << handler.m_screened_alignments << " refused by the k-mer screen, " << handler.m_anchored_alignments
                   << " aligned from the anchor's exact matches and " << handler.m_whole_window_alignments << " as whole windows; "
                   << stats.total_alignments << " alignments made, " << stats.output_alignments << " records written" << std::endl;
+    }
+
+    // Loads the database's index, held packed in the widths the reference's fields need (maxima: what
+    // GenomeLoader::IndexFieldMaxima gave, before any thread changes the genes), and checks it against the reference it was
+    // built from: the fingerprint the gene tables gave (GenomeLoader::MapFingerprint), else reference.map read again. Its
+    // messages go to log. Exits 8 if the index was built against another reference.
+    static std::unique_ptr<Seedmap> LoadIndex(Options const& options, std::tuple<uint64_t, uint64_t, uint64_t> maxima,
+                                              std::optional<ReferenceFingerprint> const& fingerprint, std::ostream& log) {
+        auto map = std::make_unique<Seedmap>();
+        auto const index_file = options.IndexDbFile();
+        int const load_threads = static_cast<int>(options.GetThreads());
+        bool const single_frame = !index_file.InBundle() && zstd::IsCompressed(index_file.Path()) && !zstd::IsSeekable(index_file.Path());
+        log << "Load index " << index_file.Name() << " (" << load_threads << " thread(s)"
+            << (single_frame ? "; a single zstd frame is read with one" : "") << ")" << std::endl;
+        // The values are held packed, in the widths the reference's taxids, gene ids and positions
+        // need (Seedmap::PackedLayout); a position is a k-mer core's, flex_k/2 bases into its gene.
+        auto const [max_taxid, max_gene, max_length] = maxima;
+        Seedmap::PackedLayout const layout = Seedmap::PackedLayout::For(max_taxid, max_gene, max_length + map->m_flex_k);
+        map->Load(index_file, load_threads, &layout);
+        log << "Index features: " << map->FeatureDescription() << std::endl;
+        log << "Index in memory: " << map->MemoryDescription() << std::endl;
+        auto const map_file = options.SequenceMapDbFile(), fna_file = options.SequenceDbFile();
+        auto const reference = fingerprint ? *fingerprint : ReferenceFingerprint::Of(map_file, fna_file);
+        if (map->HasReferenceFingerprint() && !(map->GetReferenceFingerprint() == reference)) {
+            std::cerr << "index.prx was built against a different reference: " << map_file.Name() << " or "
+                      << fna_file.Name() << " changed since the index was built. Rebuild the index (--build) or "
+                      << "restore the reference files it was built with." << std::endl;
+            exit(8);
+        }
+        return map;
     }
 
     // Aligns the samples. `sample_done` (if any) is called with a sample's index once its SAM file is complete, or
@@ -363,36 +434,25 @@ namespace protal {
 
         } else {
 
-            // Benchmark Load Time
-            Benchmark bm_load_index("Load Index");
-            bm_load_index.Start();
-            // Load Index
-            Seedmap map;
-            auto const index_file = options.IndexDbFile();
-            int const load_threads = static_cast<int>(options.GetThreads());
-            bool const single_frame = !index_file.InBundle() && zstd::IsCompressed(index_file.Path()) && !zstd::IsSeekable(index_file.Path());
-            std::cout << "Load index " << index_file.Name() << " (" << load_threads << " thread(s)"
-                      << (single_frame ? "; a single zstd frame is read with one" : "") << ")" << std::endl;
-            // The values are held packed, in the widths the reference's taxids, gene ids and positions
-            // need (Seedmap::PackedLayout); a position is a k-mer core's, flex_k/2 bases into its gene.
-            auto const [max_taxid, max_gene, max_length] = db.GetGenomes().IndexFieldMaxima();
-            Seedmap::PackedLayout const layout = Seedmap::PackedLayout::For(max_taxid, max_gene, max_length + map.m_flex_k);
-            map.Load(index_file, load_threads, &layout);
-            std::cout << "Index features: " << map.FeatureDescription() << std::endl;
-            std::cout << "Index in memory: " << map.MemoryDescription() << std::endl;
-            auto const map_file = options.SequenceMapDbFile(), fna_file = options.SequenceDbFile();
-            if (map.HasReferenceFingerprint() && !(map.GetReferenceFingerprint() == ReferenceFingerprint::Of(map_file, fna_file))) {
-                std::cerr << "index.prx was built against a different reference: " << map_file.Name() << " or "
-                          << fna_file.Name() << " changed since the index was built. Rebuild the index (--build) or "
-                          << "restore the reference files it was built with." << std::endl;
-                exit(8);
+            // The index: loaded by a start-up thread beside the genome preload and the tables (Run), or here
+            // (--sequential_load). Either way its messages and "Load Index took" are printed now.
+            std::unique_ptr<Seedmap> index;
+            if (auto loaded = db.TakeIndex()) {
+                std::cout << loaded->log;
+                index = std::move(loaded->map);
+                loaded->timer.PrintResults();
+            } else {
+                Benchmark bm_load_index("Load Index");
+                bm_load_index.Start();
+                index = LoadIndex(options, db.GetGenomes().IndexFieldMaxima(), db.GetGenomes().MapFingerprint(), std::cout);
+                bm_load_index.Stop();
+                bm_load_index.PrintResults();
             }
+            Seedmap& map = *index;
 
             // Seeds must be sampled exactly as when the index was built.
             ClosedSyncmer minimizer{mmer_size, 7, 2, map.UsesFullSyncmerMask()};
             SimpleKmerHandler iterator{kmer_size, mmer_size, minimizer};
-            bm_load_index.Stop();
-            bm_load_index.PrintResults();
 
 
             KmerLookupSM kmer_lookup(map, options.GetMaxKeyUbiquity());
@@ -2604,21 +2664,13 @@ namespace protal {
         TeardownTimer teardown;
         Benchmark bm_gene_tables("Loading the gene tables");
         bm_gene_tables.Start();
-        ProtalDB db = unique_kmers_file.Exists() ?
-            ProtalDB(options.SequenceDbFile(), options.SequenceMapDbFile(), unique_kmers_file, db_threads) :
-            ProtalDB(options.SequenceDbFile(), options.SequenceMapDbFile(), db_threads);
+        // A single-file database's binary gene table (GeneTableFile.h) where it has a current one, else the text tables.
+        auto const unique_kmers = unique_kmers_file.Exists() ? std::optional(unique_kmers_file) : std::nullopt;
+        auto const gene_table = options.GeneTableDbFile();
+        ProtalDB db(options.SequenceDbFile(), options.SequenceMapDbFile(), unique_kmers, gene_table, db_threads);
         bm_gene_tables.Stop();
         bm_gene_tables.PrintResults();
-
-        // Load fasta sequences of reference into RAM (advised)
-        if (options.PreloadGenomes()) {
-            std::cout << "Preload genomes" << std::endl;
-            Benchmark bm_preload_genomes("Preload genomes");
-            bm_preload_genomes.Start();
-            db.GetGenomes().LoadAllGenomes(static_cast<int>(options.GetThreads()));
-            bm_preload_genomes.Stop();
-            bm_preload_genomes.PrintResults();
-        }
+        std::cout << db.GetGenomes().GeneTableTimes() << std::endl;
 
         // Skip alignment if files are present. Do not skip if either files are not there or user specified --force
         auto sam_files = options.SamFiles();
@@ -2633,63 +2685,140 @@ namespace protal {
             run_alignment = false;
         }
         bool const run_profiling = !options.BuildMode() && !options.NoProfile();
+        bool const need_neighbours = !options.BuildMode() && (run_alignment || run_profiling);
+
+        // The rest of the database. By default the index loads on a thread of its own, beside the genome preload (all
+        // threads each) and the single-threaded tables, each on a thread of its own: the taxonomy, the models, gene
+        // conservation, suspect copies, species priors and the gene neighbours' table. --sequential_load loads them one
+        // after another, as before. Their messages are printed in the order they always had; only the timers differ.
+        bool const concurrent = !options.SequentialLoad() && !options.BuildMode();
+        if (concurrent && run_alignment) {
+            // The index's field widths from the genes, before the preload changes them.
+            auto const maxima = db.GetGenomes().IndexFieldMaxima();
+            auto const fingerprint = db.GetGenomes().MapFingerprint();
+            db.SetIndexLoading(std::async(std::launch::async, [&options, maxima, fingerprint]() {
+                LoadedIndex loaded;
+                loaded.timer.Start();
+                std::ostringstream log;
+                loaded.map = LoadIndex(options, maxima, fingerprint, log);
+                loaded.timer.Stop();
+                loaded.log = log.str();
+                return loaded;
+            }));
+        }
+
+        // The model of each kind of reads the samples have, loaded once for all samples.
+        bool const any_sample = std::any_of(kReadTypes.begin(), kReadTypes.end(), [&options](ReadTypeInfo const& t) { return options.AnySample(t.type); });
+        std::vector<ReadTypeInfo> model_types;
+        if (run_profiling) {
+            for (auto const& info : kReadTypes) {
+                if (options.AnySample(info.type) || (info.type == ReadType::Paired && !any_sample)) model_types.push_back(info);
+            }
+        }
+        auto load_models = [&options, &model_types]() {
+            std::vector<profiler::TaxonFilterObj> loaded;
+            for (auto const& info : model_types) loaded.push_back(LoadModel(options.ModelDbFile(info.type), options.GetKnob()));
+            return loaded;
+        };
+        auto preload = [&options, &db]() {
+            if (!options.PreloadGenomes()) return;
+            std::cout << "Preload genomes" << std::endl;
+            Benchmark bm_preload_genomes("Preload genomes");
+            bm_preload_genomes.Start();
+            db.GetGenomes().LoadAllGenomes(static_cast<int>(options.GetThreads()));
+            bm_preload_genomes.Stop();
+            bm_preload_genomes.PrintResults();
+        };
+
+        Benchmark bm_tables("Loading the taxonomy, models and tables");
+        std::vector<profiler::TaxonFilterObj> loaded_models;
+        std::ostringstream conservation_log, suspect_log, priors_log, neighbours_log;
+        std::optional<gene_neighbours::Table> neighbours;
+        if (concurrent) {
+            bm_tables.Start();
+            std::vector<std::future<void>> tables;
+            std::future<std::vector<profiler::TaxonFilterObj>> models_loading;
+            std::future<std::optional<gene_neighbours::Table>> neighbours_loading;
+            if (run_profiling) {
+                tables.push_back(std::async(std::launch::async, [&]() { db.LoadTaxonomy(options.TaxonomyDbFile()); }));
+                models_loading = std::async(std::launch::async, load_models);
+                tables.push_back(std::async(std::launch::async, [&]() { LoadGeneConservation(options, db.GetGenomes(), conservation_log); }));
+                tables.push_back(std::async(std::launch::async, [&]() { LoadSuspectCopies(options, db.GetGenomes(), suspect_log); }));
+                tables.push_back(std::async(std::launch::async, [&]() { LoadSpeciesPriors(options, db.GetGenomes(), priors_log); }));
+            }
+            if (need_neighbours) neighbours_loading = std::async(std::launch::async, [&]() { return ReadGeneNeighbours(options, neighbours_log); });
+            // The tables set their own parts of the genome loader, never its genes, which the preload fills meanwhile.
+            preload();
+            for (auto& t : tables) t.get();
+            if (models_loading.valid()) loaded_models = models_loading.get();
+            if (neighbours_loading.valid()) neighbours = neighbours_loading.get();
+        } else {
+            preload();
+            bm_tables.Start();
+            if (run_profiling) {
+                db.LoadTaxonomy(options.TaxonomyDbFile());
+                loaded_models = load_models();
+            }
+        }
 
         // Checks that would otherwise only fail after hours of alignment.
         std::vector<uint32_t> msa_taxids;
-        Benchmark bm_tables("Loading the taxonomy, models and tables");
-        bm_tables.Start();
-        // Loaded once, for all samples: the model of each kind of reads the samples have.
         ReadTypeModels models;
         if (run_profiling) {
-            db.LoadTaxonomy(options.TaxonomyDbFile());
             msa_taxids = ResolveMSASpecies(options, db.GetTaxonomy());
-            bool const any_sample = std::any_of(kReadTypes.begin(), kReadTypes.end(), [&options](ReadTypeInfo const& t) { return options.AnySample(t.type); });
-            for (auto const& info : kReadTypes) {
-                if (options.AnySample(info.type) || (info.type == ReadType::Paired && !any_sample)) {
-                    auto const model_file = options.ModelDbFile(info.type);
-                    std::cout << "Model of " << info.name << " reads: " << model_file.Name() << std::endl;
-                    auto const& model = models[static_cast<size_t>(info.type)].emplace(LoadModel(model_file, options.GetKnob()));
-                    if (options.FdrGiven() && options.GetFdr() > 0 && !model.HasFalseCalls()) {
-                        std::cerr << "--fdr needs a model with a calibration (random_forest_cmdline.py --fdr-calls); "
-                                  << model_file.Name() << " has none" << std::endl;
-                        exit(2);
+            for (size_t m = 0; m < model_types.size(); m++) {
+                auto const& info = model_types[m];
+                auto const model_file = options.ModelDbFile(info.type);
+                std::cout << "Model of " << info.name << " reads: " << model_file.Name() << std::endl;
+                auto const& model = models[static_cast<size_t>(info.type)].emplace(std::move(loaded_models[m]));
+                if (options.FdrGiven() && options.GetFdr() > 0 && !model.HasFalseCalls()) {
+                    std::cerr << "--fdr needs a model with a calibration (random_forest_cmdline.py --fdr-calls); "
+                              << model_file.Name() << " has none" << std::endl;
+                    exit(2);
+                }
+                if (model.HasFalseCalls()) {
+                    auto const& calls = model.FalseCalls();
+                    bool const used = !options.KnobGiven() && options.FdrGiven() && options.GetFdr() > 0;
+                    std::cout << "  calls at an expected share of false calls of " << profiler::FeatureString(calls.fdr)
+                              << " (calibrated, " << calls.curve.size() << " points; training prior "
+                              << profiler::FeatureString(calls.prior) << ")"
+                              << (used ? "; at --fdr " + profiler::FeatureString(options.GetFdr()) + ", the depth knobs are not used"
+                                       : options.KnobGiven() ? std::string("; not used, --knob is given")
+                                                             : std::string("; not used (--fdr F would use them)"))
+                              << std::endl;
+                }
+                if (!model.GetDepthKnobCurve().empty()) {
+                    std::string knobs;
+                    for (auto const& [x, knob] : model.GetDepthKnobCurve()) {
+                        knobs += (knobs.empty() ? "" : ", ") + profiler::FeatureString(x) + ": " + profiler::FeatureString(knob);
                     }
-                    if (model.HasFalseCalls()) {
-                        auto const& calls = model.FalseCalls();
-                        bool const used = !options.KnobGiven() && options.FdrGiven() && options.GetFdr() > 0;
-                        std::cout << "  calls at an expected share of false calls of " << profiler::FeatureString(calls.fdr)
-                                  << " (calibrated, " << calls.curve.size() << " points; training prior "
-                                  << profiler::FeatureString(calls.prior) << ")"
-                                  << (used ? "; at --fdr " + profiler::FeatureString(options.GetFdr()) + ", the depth knobs are not used"
-                                           : options.KnobGiven() ? std::string("; not used, --knob is given")
-                                                                 : std::string("; not used (--fdr F would use them)"))
-                                  << std::endl;
+                    std::cout << "  knobs by sample depth (log10 of the sample's fragments: knob; linear between, the "
+                                 "ends' beyond): " << knobs << (options.KnobGiven() ? "; not used, --knob is given" : "")
+                              << std::endl;
+                } else if (!model.DepthKnobs().empty()) {
+                    std::string knobs;
+                    for (auto const& [bin, knob] : model.DepthKnobs()) {
+                        knobs += (knobs.empty() ? "" : ", ") + std::to_string(bin) + ": " + profiler::FeatureString(knob);
                     }
-                    if (!model.GetDepthKnobCurve().empty()) {
-                        std::string knobs;
-                        for (auto const& [x, knob] : model.GetDepthKnobCurve()) {
-                            knobs += (knobs.empty() ? "" : ", ") + profiler::FeatureString(x) + ": " + profiler::FeatureString(knob);
-                        }
-                        std::cout << "  knobs by sample depth (log10 of the sample's fragments: knob; linear between, the "
-                                     "ends' beyond): " << knobs << (options.KnobGiven() ? "; not used, --knob is given" : "")
-                                  << std::endl;
-                    } else if (!model.DepthKnobs().empty()) {
-                        std::string knobs;
-                        for (auto const& [bin, knob] : model.DepthKnobs()) {
-                            knobs += (knobs.empty() ? "" : ", ") + std::to_string(bin) + ": " + profiler::FeatureString(knob);
-                        }
-                        std::cout << "  knobs by sample depth (bin b: 10^b to 10^(b+1) fragments, 2 also fewer, 6 also more): "
-                                  << knobs << (options.KnobGiven() ? "; not used, --knob is given"
-                                                                   : "; other depths --knob " + profiler::FeatureString(options.GetKnob()))
-                                  << std::endl;
-                    }
+                    std::cout << "  knobs by sample depth (bin b: 10^b to 10^(b+1) fragments, 2 also fewer, 6 also more): "
+                              << knobs << (options.KnobGiven() ? "; not used, --knob is given"
+                                                               : "; other depths --knob " + profiler::FeatureString(options.GetKnob()))
+                              << std::endl;
                 }
             }
-            LoadGeneConservation(options, db.GetGenomes());
-            LoadSuspectCopies(options, db.GetGenomes());
-            LoadSpeciesPriors(options, db.GetGenomes());
+            if (concurrent) {
+                std::cout << conservation_log.str() << suspect_log.str() << priors_log.str();
+            } else {
+                LoadGeneConservation(options, db.GetGenomes());
+                LoadSuspectCopies(options, db.GetGenomes());
+                LoadSpeciesPriors(options, db.GetGenomes());
+            }
         }
-        if (!options.BuildMode() && (run_alignment || run_profiling)) LoadGeneNeighbours(options, db);
+        if (need_neighbours) {
+            if (!concurrent) neighbours = ReadGeneNeighbours(options);
+            std::cout << neighbours_log.str();
+            if (neighbours) BindGeneNeighbours(options, db, std::move(*neighbours));
+        }
         bm_tables.Stop();
         bm_tables.PrintResults();
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {

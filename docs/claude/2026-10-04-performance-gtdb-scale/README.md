@@ -478,6 +478,76 @@ rows (a few ns per row). On the cluster's 32 threads the 6.0 s should become 1-2
 table is not needed for that**: the parse it would save is parallel now, the members are 150 MB compressed, and a
 new member kind would touch the build, the packer and `--unpack_db` for perhaps half a second more.
 
+## The fourth cluster run (`8c37dd6`), the binary gene table and the concurrent start-up
+
+The fourth run (SLURM job 23943078, [`results_v4/`](results_v4/)): paired-end 60.9 → 58.5 s, HiFi 27.5 → 24.6 s; the gene
+tables 6.0 → 3.4 s, not the 1-2 s expected. The bench at full r226 size (`PROTAL_GENE_TABLE_TAXA=143614`, 24.1M rows per
+table, with the split the loads now print; [`results/followup_gene_table_bin.txt`](results/followup_gene_table_bin.txt))
+showed why, on six threads from a single-file database:
+
+| part (both tables) | 1 thread | 6 threads |
+|---|---|---|
+| reading and decompressing | 1.08 s | 0.39 s |
+| parsing the text | 2.44 s | 0.73 s |
+| grouping by genome, making the genomes (serial) | 0.18 s | 0.19 s |
+| adding the genes | 0.81 s | 0.33 s |
+| whole | 4.63 s | 1.76 s |
+
+Parsing is the largest part and scales about 3× on six threads; with the serial grouping that fits 3.4 s on the cluster's
+32 slower cores. Two more findings: the index load read and decompressed the whole `reference.map` a second time on one
+thread for the reference fingerprint (`ReferenceFingerprint::Of`, inside "Load Index took"), and the start-up's
+single-threaded parts ran one after another.
+
+**The binary gene table** ([`GeneTableFile.h`](../../../src/SequenceUtils/GeneTableFile.h)): `gene_table.bin`, a member of
+`database.protal` beside the two text tables, holding per genome its genes (start byte, id, length, the four unique k-mer
+counts) and the fingerprint of `reference.map`. The packer writes it from the text tables it packs, read and checked as a
+run reads them (`--build`; `--compress_db` on a folder, and on a single-file database without a current one, rewriting it
+once with the other members' frames copied); `--unpack_db` leaves it out. A run from `database.protal` loads it on all
+threads with no parsing and no grouping, and takes the fingerprint from it; a table whose recorded sizes of
+`reference.map`, `unique_kmers.tsv` and `reference.fna` are not the database's, or that is corrupt, is not used (a note
+says why) and the text tables are read. At r226 size it is ~770 MB (an estimated ~250 MB compressed, 1% of the file).
+
+| at r226 size, six threads, from `database.protal` | text tables | `gene_table.bin` |
+|---|---|---|
+| loading the genes and their unique k-mer counts | 1.76 s | **0.43 s** (reading 0.18, genomes 0.02, adding 0.22) |
+| the fingerprint for the index check | `reference.map` read again on one thread | from the table |
+
+The text path also hashes `reference.map` while it parses it, so a folder database does not read it twice either.
+
+One trap found on the way: the genome map's iteration order follows the order genomes are made in, and some outputs
+break ties by it (a run whose map was built in taxid order changed one value of `.profile.gene.log` and 13 PacBio
+alignments). The table therefore keeps `reference.map`'s genome order and its loader makes the genomes in that order, with
+no `reserve`; a test checks that the text and binary loaders iterate the map identically (`TheGenomeMapIsBuiltInTheSameOrder`).
+Where outputs depend on that order is worth finding; it is outside this change.
+
+**Concurrent start-up** (the user's request; `--sequential_load` keeps the old order for comparison): after the gene
+tables, the index loads on a thread of its own beside the genome preload, and the single-threaded tables each on one
+(taxonomy, the models, gene conservation, suspect copies, species priors, the gene neighbours' table; the neighbours bind
+their lineages once the taxonomy is in). The index's field widths are taken from the genes before the preload changes
+them; the tables set their own members of the genome loader, never its genes. Messages are buffered and printed in the
+order they always had; only the timers move.
+
+**Outputs.** Every check identical to the reference build `c94bd0e` but for what earlier commits already changed:
+paired-end SAM and profile from the single file with `gene_table.bin`, sequential and concurrent, and from the unpacked
+folder; PacBio identical between the text and binary tables and between the two loading orders (its difference from
+`c94bd0e` is item 4a's). One value of `.profile.gene.log` varies in its last digit between repeated runs of the same build
+in either loading order (against the first sequential run: one of three other sequential runs, three of four concurrent ones), while profiling one SAM four times gives the
+same output: it depends on the SAM's record order, which multi-threaded alignment varies. That predates this work.
+All 345 unit tests pass (two skipped: the bench and the one skipped before), including 7 new `GeneTableFile` tests.
+
+**Time, locally**: on this database (84k genes, a 3.7 GB index) the start-up is under a second and the two loading orders
+are within the machine's noise (whole runs 3.8-5.8 s either way); the concurrent load can only show at r226 size, where
+the parts it overlaps are the preload (3.2 s), the index (3.2 s) and the tables (1.4 s), at most ~4.6 s together.
+
+**What the next cluster run needs**: add the table to the r226 database once (it rewrites the 27 GB file through
+`database.protal.partial`, so it needs that much free space beside it), then the script twice:
+
+```bash
+protal --compress_db --db /hpc-home/hildebra/DB/protal/protal0.7.3_r226_v10/protal_db/database.protal -t 32 --compress_level 9
+bash scripts/measure_performance.sh Perf0.7.5_v5 $DB pe:...:... pb:...
+PROTAL_ARGS="--sequential_load" bash scripts/measure_performance.sh Perf0.7.5_v5_sequential $DB pe:...:... pb:...
+```
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):

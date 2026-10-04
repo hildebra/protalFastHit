@@ -285,17 +285,50 @@ namespace protal::build {
         return {with, without};
     }
 
+    // Writes the binary gene table (GeneTableFile.h) of these tables at target: reads reference.map and unique_kmers.tsv (if
+    // any) as a run does (GenomeLoader checks them) and records their sizes and reference.map's fingerprint. Exits 8 on failure.
+    static void WriteGeneTableFile(db::DbFile const& fna, db::DbFile const& map, std::optional<db::DbFile> const& unique,
+                                   std::string const& target, int threads) {
+        Benchmark bm("Write " + gene_table_file::kFileName);
+        bm.Start();
+        GenomeLoader loader(fna, map, threads);
+        if (unique) loader.LoadUniqueKmers(*unique, threads);
+        std::string const partial = target + ".partial";
+        auto const error = loader.WriteGeneTable(partial, map.Size().value_or(0), unique ? unique->Size().value_or(0) : 0,
+                                                 unique.has_value());
+        std::error_code ec;
+        if (error.empty()) std::filesystem::rename(partial, target, ec);
+        if (!error.empty() || ec) {
+            std::cerr << "Writing " << target << " failed: " << (error.empty() ? ec.message() : error) << std::endl;
+            std::filesystem::remove(partial, ec);
+            exit(8);
+        }
+        bm.Stop();
+        std::cout << "Wrote " << target << ": " << loader.GeneCount() << " genes, the binary form of " << map.Name()
+                  << (unique ? " and " + unique->Name() : std::string()) << ", which a run from database.protal loads" << std::endl;
+        bm.PrintResults();
+    }
+
     // Packs the database folder into database.protal, checks it (db::Write), and removes the files
     // it now holds; --unpack_db writes them back. The index must be in the column format, as --build
     // and --compress_db write it.
     static void BundleDatabase(protal::Options const& options) {
         namespace fs = std::filesystem;
         std::string const target = (fs::path(options.GetLocation().dir) / db::kFileName).string();
-        auto const sources = BundleSources(options);
+        auto sources = BundleSources(options);
         if (!index_codec::IsSplitIndex(sources.front().path)) {
             std::cerr << "Cannot write " << target << ": the index " << sources.front().path << " is not in protal's column "
                       << "format (protal --compress_db --no_bundle converts it)" << std::endl;
             exit(8);
+        }
+        {
+            // The binary gene table, from the text tables packed with it (GeneTableFile.h); removed with them below.
+            std::string const gene_table = (fs::path(options.GetLocation().dir) / gene_table_file::kFileName).string();
+            auto const unique = fs::exists(options.GetUniqueKmersFile()) ? std::optional(db::DbFile::OnDisk(options.GetUniqueKmersFile()))
+                                                                          : std::nullopt;
+            WriteGeneTableFile(db::DbFile::OnDisk(options.ResolvedSequenceFile()), db::DbFile::OnDisk(options.GetSequenceMapFile()),
+                               unique, gene_table, static_cast<int>(std::max<size_t>(options.GetThreads(), 1)));
+            sources.push_back({ gene_table_file::kFileName, gene_table });
         }
         {
             std::vector<std::string> names;
@@ -414,6 +447,11 @@ namespace protal::build {
         Benchmark bm("Unpack " + db::kFileName);
         bm.Start();
         for (auto const& member : bundle.Members()) {
+            if (member.name == gene_table_file::kFileName) {
+                std::cout << "Skip " << member.name << " (the binary form of reference.map and unique_kmers.tsv, which a folder "
+                          << "does not use; --compress_db writes it again)" << std::endl;
+                continue;
+            }
             bool const index = member.name == Options::PROTAL_INDEX_FILE;
             bool const copy = index && !raw_index;
             std::string const target = (fs::path(dir) / (copy ? member.name + zstd::kExtension : member.name)).string();
@@ -527,6 +565,48 @@ namespace protal::build {
                   << std::endl;
     }
 
+    // --compress_db on a single-file database: gives it the binary gene table (GeneTableFile.h) if it has none, or one made from
+    // other tables, rewriting database.protal once with its other members' frames copied as they are (as AddModel).
+    static void AddGeneTable(protal::Options const& options) {
+        namespace fs = std::filesystem;
+        auto const& bundle = *options.GetBundle();
+        int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        auto const fna = db::DbFile::InBundle(bundle, Options::PROTAL_SEQUENCE_FILE);
+        auto const map = db::DbFile::InBundle(bundle, Options::PROTAL_SEQUENCE_MAP_FILE);
+        auto const unique_file = db::DbFile::InBundle(bundle, Options::PROTAL_UNIQUE_KMER_FILE);
+        auto const unique = unique_file.Exists() ? std::optional(unique_file) : std::nullopt;
+        if (auto const current = db::DbFile::InBundle(bundle, gene_table_file::kFileName); current.Exists()) {
+            GenomeLoader check(fna, map, threads, current, unique ? unique->Size() : std::nullopt);
+            if (check.FromGeneTable()) {
+                std::cout << bundle.Path() << " is a single-file database with a current " << gene_table_file::kFileName << "; kept" << std::endl;
+                return;
+            }
+        }
+        std::string const table = bundle.Path() + "." + gene_table_file::kFileName;  // beside it, removed below
+        WriteGeneTableFile(fna, map, unique, table, threads);
+        std::vector<db::Source> sources;
+        for (auto const& member : bundle.Members()) {
+            if (member.name != gene_table_file::kFileName) sources.push_back({ member.name, bundle.Path(), member.frames });
+        }
+        sources.push_back({ gene_table_file::kFileName, table });
+        auto const params = options.CompressionParams();
+        std::cout << "Rewrite " << bundle.Path() << " with " << gene_table_file::kFileName << " (the other members' frames copied as "
+                  << "they are, the table compressed at zstd level " << params.level << "; verified)" << std::endl;
+        Benchmark bm("Rewrite " + db::kFileName);
+        bm.Start();
+        std::string error;
+        auto const written = db::Write(bundle.Path(), sources, params, error);
+        std::error_code ec;
+        fs::remove(table, ec);
+        if (!written) {
+            std::cerr << "Writing " << bundle.Path() << " failed: " << error << " (the database is unchanged)" << std::endl;
+            exit(8);
+        }
+        bm.Stop();
+        std::cout << bundle.Path() << ": " << HumanBytes(*written) << std::endl;
+        bm.PrintResults();
+    }
+
     // --compress_db: rewrites an existing database's index and reference compressed, without
     // rebuilding it, e.g. a downloaded raw database or one compressed as a single frame: the index
     // in the column format (IndexCodec.h), reference.fna as seekable zstd, all packed into
@@ -534,7 +614,7 @@ namespace protal::build {
     // content before the old file is removed.
     static void CompressDatabase(protal::Options const& options) {
         if (options.IsBundle()) {
-            std::cout << options.GetBundle()->Path() << " is already a single-file database; kept" << std::endl;
+            AddGeneTable(options);
             return;
         }
         auto const params = options.CompressionParams();
