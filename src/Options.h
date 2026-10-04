@@ -151,6 +151,7 @@ namespace protal {
                 ("whole_read_alignment", "Align each short read as a whole into its gene window, as protal did before it aligned from the anchor's exact matches (slower; the results differ in a few alignments). Long reads are always aligned as a whole.")
                 ("no_alignment_screen", "Align every candidate with WFA2, without the k-mer screen that refuses a candidate whose read and gene window share too few k-mers for any alignment within the score budget to exist (AlignmentScreen.h). The screen changes no alignment; this is for measuring it.")
                 ("long_read_budget", "Long reads: once a candidate of a read's gene has aligned, the gene's other candidates are aligned with a budget of this many edits (as mismatches) more than the best so far; one that would cost more fails there and counts as a failed candidate (ZF). Saves WFA2 work on far relatives; MAPQ and the listed alternatives of such genes change, so the models should be retrained with it. 0 (default): every candidate gets the ANI floor's budget.", cxxopts::value<size_t>()->default_value("0"))
+                ("taxon_statistics", "Write misc/<taxon>.statistics.tsv for every taxon with reads: its coverage, reads, ANI and MAPQ in each sample, and whether it is reported. Off by default: a sample on a GTDB-sized database has reads on thousands of taxa, and that many small files took 15 s on a network file system. The profile files (<prefix>.profile, .profile.log, .profile.genes.log) hold the same per sample.")
                 ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
                 ("serial_index_passes", "With --build: count and place the reference's k-mers and compute the value pointers on one thread, as protal did before these ran in -t threads (slower; the index is the same).")
                 ("profile_ahead", "With several samples: profile each sample whose SAM is complete while the next sample's reads are aligned, on a worker with a quarter of the threads beside the alignment's; the profiling stage after the alignment takes the rest on all threads. The profiles are the same either way. Measured on a 6-core laptop it gained nothing (the worker's CPU time came out of the alignment's); it may pay on a node where the profiling stage leaves cores idle.")
@@ -215,6 +216,7 @@ namespace protal {
         bool whole_read_alignment = false;
         bool no_alignment_screen = false;
         size_t long_read_budget = 0;
+        bool taxon_statistics = false;
         bool full_sam_header = false;
         bool serial_index_passes = false;
         bool profile_ahead = false;
@@ -328,6 +330,7 @@ namespace protal {
         bool m_whole_read_alignment = false;
         bool m_no_alignment_screen = false;
         size_t m_long_read_budget = 0;
+        bool m_taxon_statistics = false;
         bool m_full_sam_header = false;
         bool m_serial_index_passes = false;
         bool m_profile_ahead = false;
@@ -481,6 +484,7 @@ namespace protal {
                 m_whole_read_alignment(d.whole_read_alignment),
                 m_no_alignment_screen(d.no_alignment_screen),
                 m_long_read_budget(d.long_read_budget),
+                m_taxon_statistics(d.taxon_statistics),
                 m_full_sam_header(d.full_sam_header),
                 m_serial_index_passes(d.serial_index_passes),
                 m_profile_ahead(d.profile_ahead),
@@ -1260,6 +1264,11 @@ namespace protal {
         // --long_read_budget: edits past a segment's best hit its other candidates may cost (0: the ANI floor's budget).
         size_t GetLongReadBudget() const {
             return m_long_read_budget;
+        }
+
+        // --taxon_statistics: one misc/<taxon>.statistics.tsv per taxon with reads (off by default).
+        bool TaxonStatistics() const {
+            return m_taxon_statistics;
         }
 
         // --full_sam_header: every gene of the database in the SAM header, not only those aligned to.
@@ -2465,6 +2474,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             bool whole_read_alignment = result.count("whole_read_alignment");
             bool no_alignment_screen = result.count("no_alignment_screen");
             size_t long_read_budget = result["long_read_budget"].as<size_t>();
+            bool taxon_statistics = result.count("taxon_statistics");
             bool full_sam_header = result.count("full_sam_header");
             bool serial_index_passes = result.count("serial_index_passes");
             bool profile_ahead = result.count("profile_ahead");
@@ -2621,6 +2631,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.whole_read_alignment     = whole_read_alignment;
             d.no_alignment_screen      = no_alignment_screen;
             d.long_read_budget         = long_read_budget;
+            d.taxon_statistics         = taxon_statistics;
             d.full_sam_header          = full_sam_header;
             d.serial_index_passes      = serial_index_passes;
             d.profile_ahead  = profile_ahead;

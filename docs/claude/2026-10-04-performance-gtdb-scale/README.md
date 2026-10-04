@@ -390,6 +390,21 @@ the round.) The reading now scales from one to six threads as the deep sample's 
 evidence and screen tests pass. On the cluster this should take most of the 33.8 s out of the paired-end run's
 profiling stage; the next `measure_performance.sh` run shows how much.
 
+### The taxon statistics files behind a flag, and the start-up timed (`scripts/check_startup.sh`)
+
+- The per-taxon `misc/<taxon>.statistics.tsv` files (one per taxon with reads: coverage, reads, ANI, MAPQ and whether
+  it is reported, per sample) are written only with `--taxon_statistics`. They cost 14.9 s of the 107 s paired-end
+  run on NFS; the per-sample profile files hold the same. The sample's own `.profile.log`, `.profile.gene.log` and
+  `.profile.genes.log` stay: they are three files per sample and take 0.2 s together ("writing the profile" above),
+  and `.profile.truth_annotated` is written only with a truth file. On the 500k-pair sample, 306 files with the flag
+  and none without; every other output identical (the 6-thread SAMs identical as sets of records). The website's
+  output page lists the statistics files and needs the flag added.
+- Timers for what was untimed: "Loading the gene tables took" (the `ProtalDB` construction: `reference.map`, 24M
+  lines at r226 size, parsed on all threads), "Loading the taxonomy, models and tables took" (taxonomy, the models'
+  XML, gene conservation, suspect copies, species priors, gene neighbours), and "Freeing memory took", printed after
+  "Run protal took" by an object destroyed after the database (`TeardownTimer`). Locally these are 0.1, 0.13 and
+  0.005 s; the next cluster run says how the ~8 s of start-up at r226 size divide.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):

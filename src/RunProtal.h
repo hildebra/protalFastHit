@@ -2513,6 +2513,20 @@ namespace protal {
 
     // Runs protal and returns the process exit code: 0, or 1 if any sample or output failed (see
     // RunStatus). Invalid input and fatal errors still exit directly with their own codes.
+    // Prints how long freeing the run's memory took: the destructors of the database (24M genes and their tables at GTDB
+    // size), the index and the profiles run after "Run protal took". Declared before them in Run, so destroyed after them;
+    // armed when the run is done.
+    struct TeardownTimer {
+        std::chrono::steady_clock::time_point start;
+        bool armed = false;
+        void Arm() { start = std::chrono::steady_clock::now(); armed = true; }
+        ~TeardownTimer() {
+            if (!armed) return;
+            auto const ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+            std::cout << "Freeing memory took " << ms / 1000 << "s " << ms % 1000 << "ms" << std::endl;
+        }
+    };
+
     static int Run(int argc, char *argv[]) {
         auto options = protal::Options::OptionsFromArguments(argc, argv);
         if (options.ShowVersion()) {
@@ -2584,9 +2598,17 @@ namespace protal {
         // (--build always reads the folder's files).
         auto const unique_kmers_file = options.UniqueKmersDbFile();
         int const db_threads = static_cast<int>(options.GetThreads());
+        // The start-up's parts are timed like the stages (docs/claude/2026-10-04-performance-gtdb-scale: ~8 s per run
+        // at r226 size were untimed): the gene tables here, the taxonomy, models and tables below, and freeing the memory
+        // at the end (TeardownTimer, which prints after "Run protal took").
+        TeardownTimer teardown;
+        Benchmark bm_gene_tables("Loading the gene tables");
+        bm_gene_tables.Start();
         ProtalDB db = unique_kmers_file.Exists() ?
             ProtalDB(options.SequenceDbFile(), options.SequenceMapDbFile(), unique_kmers_file, db_threads) :
             ProtalDB(options.SequenceDbFile(), options.SequenceMapDbFile(), db_threads);
+        bm_gene_tables.Stop();
+        bm_gene_tables.PrintResults();
 
         // Load fasta sequences of reference into RAM (advised)
         if (options.PreloadGenomes()) {
@@ -2614,6 +2636,8 @@ namespace protal {
 
         // Checks that would otherwise only fail after hours of alignment.
         std::vector<uint32_t> msa_taxids;
+        Benchmark bm_tables("Loading the taxonomy, models and tables");
+        bm_tables.Start();
         // Loaded once, for all samples: the model of each kind of reads the samples have.
         ReadTypeModels models;
         if (run_profiling) {
@@ -2666,6 +2690,8 @@ namespace protal {
             LoadSpeciesPriors(options, db.GetGenomes());
         }
         if (!options.BuildMode() && (run_alignment || run_profiling)) LoadGeneNeighbours(options, db);
+        bm_tables.Stop();
+        bm_tables.PrintResults();
         if (run_alignment && options.BenchmarkAlignment() && !options.GetRange().empty()) {
             // The benchmark takes each read's true gene from its name; without one it would stop
             // at the first read, deep inside the alignment.
@@ -2733,9 +2759,11 @@ namespace protal {
             bm_profiling.Stop();
             bm_profiling.PrintResults();
 
-            // Per taxon: its statistics in every sample it has reads in (one file per taxon, timed: thousands of
-            // small files on a network file system take seconds).
-            {
+            // Per taxon: its statistics in every sample it has reads in, one file per taxon (misc/<taxon>.statistics.tsv),
+            // with --taxon_statistics: on a GTDB-sized database a sample has reads on thousands of taxa, and that many small
+            // files took 15 s on a network file system (docs/claude/2026-10-04-performance-gtdb-scale); the profile and its
+            // logs hold the same per sample.
+            if (options.TaxonStatistics()) {
                 Benchmark bm_statistics("Taxon statistics files");
                 bm_statistics.Start();
                 auto taxids = ExtractTaxa(profiles, {}, 1);
@@ -2778,6 +2806,7 @@ namespace protal {
 
         bm_total.Stop();
         bm_total.PrintResults();
+        teardown.Arm();
 
         std::cout << std::flush;
         return RunStatus::Get().Finish();
