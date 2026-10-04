@@ -67,6 +67,10 @@ from a full build of the training database, or from --gene-ranking; --genes: the
 genes named). The release is then converted whole into OUTDIR/.converted and both
 database folders are derived from it with the subset (their gene neighbours
 counted over it); OUTDIR/gene_ranking.tsv and gene_subset.txt record the choice.
+Each domain keeps its best genes in the subset (--genes-per-domain), so that
+archaea are covered too. A run with every gene writes the ranking with
+--rank-genes, for the reduced run to take (--gene-ranking); scripts/
+build_gtdb_releases.py chains both for several releases.
 
 The tools the run needs are checked before it starts, and protal and the simulator
 must be of the source these scripts are at: of its version and (as their --version
@@ -1045,7 +1049,17 @@ def main():
                         "comma-separated or one per line in a file (first column, # comments)")
     p.add_argument("--gene-ranking", metavar="FILE",
                    help="with --n-genes: a ranking of this release's genes by scripts/rank_genes.py (from an earlier "
-                        "full build), instead of building one")
+                        "full build, e.g. a run with --rank-genes), instead of building one")
+    p.add_argument("--genes-per-domain", type=int, metavar="M",
+                   help="with --n-genes: how many of the N genes are reserved for the best genes of each domain, "
+                        "bacteria and archaea (default a third of N, at least 1): a gene of the archaeal marker set "
+                        "alone scores low over all species, and without this a small subset would hold no gene "
+                        "archaea have")
+    p.add_argument("--rank-genes", action="store_true",
+                   help="in a run with every gene: rank the genes from the training database once it is built "
+                        "(unpacked on the scratch disk, scripts/rank_genes.py) into OUTDIR/gene_ranking.tsv, for a "
+                        "reduced database of the same release (--n-genes N --gene-ranking OUTDIR/gene_ranking.tsv, "
+                        "which then builds no ranking database)")
     p.add_argument("--simulate-species",
                    help="file of the species to simulate from (e.g. simulation_species.txt of download_gtdb.py: "
                         "species with other strains, and some without): the simulator draws species uniformly, so "
@@ -1210,6 +1224,13 @@ def main():
         p.error(f"--gene-ranking: {args.gene_ranking} is not a file")
     if args.genes and not os.path.isfile(args.genes) and "," not in args.genes and not re.fullmatch(r"[\w.]+", args.genes):
         p.error(f"--genes: {args.genes} is neither a file nor a list of marker or gene ids")
+    if args.genes_per_domain is not None and (args.n_genes is None or args.genes_per_domain < 0 or
+                                              args.genes_per_domain * 2 > args.n_genes):
+        p.error("--genes-per-domain goes with --n-genes, and twice it is at most N")
+    if args.rank_genes and (args.n_genes is not None or args.genes):
+        p.error("--rank-genes is for a run with every gene; a run with --n-genes ranks (or takes) the genes itself")
+    if args.rank_genes and args.holdout <= 0 and args.holdout_clades.strip().lower() == "none" and not args.holdout_species:
+        p.error("--rank-genes ranks from the training database: hold species out")
     check_tools(args, read_types)
     if args.inputs:
         if args.gtdb:
@@ -1435,10 +1456,8 @@ def main():
                     job = run(build_command(args.protal, ranking_db, args.threads, "--compress_level", str(args.training_db_level),
                                             "--no_bundle"),
                               os.path.join(args.outdir, "gene_ranking_build.log"), label="building the ranking database")
-                    rows = rank_genes.rank(ranking_db)
-                    with open(ranking_file + ".partial", "w", newline="\n") as fh:
-                        fh.write("\t".join(rank_genes.COLUMNS) + "\n" + "".join(rank_genes.format_row(r) + "\n" for r in rows))
-                    os.replace(ranking_file + ".partial", ranking_file)
+                    rows = rank_genes.rank(ranking_db, gene_table, taxonomy)
+                    rank_genes.write_table(ranking_file, rows)
                     shutil.rmtree(ranking_db, ignore_errors=True)
                     stages.mark("gene_ranking", ranking_key)
                     Steps.done(f"ranked the {len(rows)} genes from a full build of the training database"
@@ -1446,16 +1465,21 @@ def main():
                                f", built in {job.took()} (gene_ranking_build.log): gene_ranking.tsv")
                 source = "a full build of the training database"
             rows = rank_genes.read_ranking(ranking_file)
-            unknown = [str(r[1]) for r in rows if r[1] not in names]
+            unknown = [str(r["gene_id"]) for r in rows if r["gene_id"] not in names]
             if unknown:
                 sys.exit(f"{ranking_file} ranks genes this release lacks ({', '.join(unknown[:5])}): a ranking of another release?")
             if n > len(rows):
                 sys.exit(f"--n-genes {n}: {ranking_file} ranks {len(rows)} genes")
-            chosen = rank_genes.write_subset(subset_file, rows, n, source)
-            listed = ", ".join(r[2] for r in chosen)
+            # Each domain keeps its best genes (a gene of the archaeal marker set alone scores low over all species).
+            chosen = rank_genes.select(rows, n, args.genes_per_domain)
+            rank_genes.write_subset(subset_file, chosen, len(rows), source)
+            listed = ", ".join(r["marker"] for r in chosen)
+            covered = rank_genes.coverage(chosen)
             genes_note = (f"{n} of {len(gene_ids)}, the most distinctive by prevalence x unique k-mer share "
-                          f"(scripts/rank_genes.py, from {source}): {listed}")
-            Steps.done(f"the {n} best of {len(rows)} (scores {chosen[0][3]:.3f} down to {chosen[-1][3]:.3f}): {listed}")
+                          f"(scripts/rank_genes.py, {args.genes_per_domain or rank_genes.per_domain_default(n)} per domain, "
+                          f"from {source}): {listed}" +
+                          (f"; in half the species or more of {', '.join(f'{d} {c}' for d, c in covered.items())}" if covered else ""))
+            Steps.done(f"the {n} best of {len(rows)}: {rank_genes.describe(chosen)}")
         shutil.copy(subset_file, logs)
         if os.path.isfile(ranking_file):
             shutil.copy(ranking_file, logs)
@@ -1590,6 +1614,31 @@ def main():
                   os.path.join(args.outdir, "training_db_index.log"), lambda: stages.mark("training_db", training_key),
                   f"building {os.path.basename(training_db)}")
         Steps.done(built(training_db, job, remove_full_reference(training_db) + files_took))
+    if args.rank_genes:
+        # The genes ranked from the training database (every gene, the species held out left out), unpacked on
+        # the scratch disk for rank_genes.py: a reduced database of this release takes the ranking
+        # (--gene-ranking) instead of building one.
+        if training_db == db:
+            sys.exit("--rank-genes ranks from the training database: hold species out")
+        ranking_key = {"training": training_key, "ranker": content_hash(RANKER)}
+        if stages.done("gene_ranking", ranking_key) and os.path.isfile(ranking_file):
+            Steps.done("the genes ranked by an earlier run from the training database; kept (gene_ranking.tsv)")
+        else:
+            stages.forget("gene_ranking")
+            unpacked = os.path.join(samples_root, "ranking_files")
+            shutil.rmtree(unpacked, ignore_errors=True)
+            job = run([args.protal, "--unpack_db", "--db", os.path.join(training_db, "database.protal"), "--unpack_dir",
+                       unpacked, "-t", str(args.threads)], os.path.join(args.outdir, "gene_ranking.log"),
+                      label="unpacking the training database to rank its genes")
+            rows = rank_genes.rank(unpacked, gene_table, taxonomy)
+            rank_genes.write_table(ranking_file, rows)
+            shutil.copy(ranking_file, logs)
+            shutil.rmtree(unpacked, ignore_errors=True)
+            stages.mark("gene_ranking", ranking_key)
+            twelve = rank_genes.select(rows, min(12, len(rows)))
+            Steps.done(f"ranked the {len(rows)} genes of {os.path.basename(training_db)} in {job.took()} (--rank-genes, "
+                       f"gene_ranking.log): gene_ranking.tsv; the {len(twelve)} a reduced database would take: "
+                       + rank_genes.describe(twelve))
 
     def collect(what, command, log):
         """Runs the collector once the collection's simulations are done (in the background), so that it profiles

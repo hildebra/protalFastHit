@@ -278,11 +278,20 @@ python3 scripts/rank_genes.py --db /data/protal_r226_files -o gene_ranking.tsv -
 ```
 
 `gene_ranking.tsv` has one line per gene, best first (rank, gene id, marker, score, prevalence,
-unique share, species, mean length, the congeners' between-species factor and identical share,
-suspect copies); `genes.txt` lists the 12 best gene ids, one per line with the marker and score
-as comments. Any gene list does for the steps below: GTDB marker ids (`PF00380.20`, `TIGR00001`;
+unique share, species, mean length, the same prevalence and score for bacteria and for archaea,
+the congeners' between-species factor and identical share, suspect copies); `genes.txt` lists
+the 12 gene ids chosen, one per line with the marker, the scores and what it was chosen for as
+comments. Any gene list does for the steps below: GTDB marker ids (`PF00380.20`, `TIGR00001`;
 `PF00380` matches any version) or protal gene ids (the numbers of `gene2geneid.tsv`),
 comma-separated or one per line in a file (its first column, `#` comments).
+
+**Archaea.** GTDB's bacterial and archaeal marker sets (120 and 53 genes) share five genes, and
+archaea are a few percent of the species, so a gene of the archaeal set alone scores low over all
+species and a subset by the overall score alone would hold no gene archaea have. `--top N` therefore
+reserves `--per-domain M` of the N genes for each domain (default a third of N, at least 1: 4 of
+12): the M best by that domain's score, the rest by the overall score; a gene good for both
+domains counts for both. The ranker says how many of the genes chosen half the species or more of
+each domain have.
 
 ### A folder of the subset
 
@@ -313,12 +322,49 @@ folder as above, or remove the table and `gene_positions.tsv` from the folder.
 converted whole (`OUTDIR/.converted`, removed at the end); the genes are ranked from a full
 build of the training database (every gene, the species held out left out; `gene_ranking_build.log`,
 `OUTDIR/gene_ranking.tsv`), unless `--gene-ranking FILE` brings the ranking of an earlier full
-build of the release; the 12 best go to `OUTDIR/gene_subset.txt`; both database folders are
-derived for them (`protal_db_files.log`, `training_db.log`); and the models are trained on the
-reduced database, which they must be, since a model of the full marker set expects more genes
-per species. `build_metadata.tsv` records the genes (`marker_genes`). A rerun with the same
-inputs keeps the ranking and both databases; `--genes` with other genes builds both again from
-the samples already simulated.
+build of the release; the 12 chosen (`--genes-per-domain M` of them the best of each domain, a
+third by default) go to `OUTDIR/gene_subset.txt`; both database folders are derived for them
+(`protal_db_files.log`, `training_db.log`); and the models are trained on the reduced database,
+which they must be, since a model of the full marker set expects more genes per species.
+`build_metadata.tsv` records the genes (`marker_genes`). A rerun with the same inputs keeps the
+ranking and both databases; `--genes` with other genes builds both again from the samples
+already simulated. A run with every gene writes the same ranking with `--rank-genes` (the
+training database unpacked on the scratch disk once built, `gene_ranking.log`), so that the
+reduced database of the same release builds no ranking database.
+
+## Several releases, full and reduced, in two phases
+
+Two scripts chain the steps above for a list of GTDB releases, each with the full database and
+a reduced one, split so that only the first needs the internet:
+
+```bash
+# on a node with internet: INPUTS/gtdb_r220, INPUTS/gtdb_r226 (download_gtdb.py each; its options pass through)
+python3 scripts/download_gtdb_releases.py -o /shared/protal_inputs --releases 220,226 -t 8 --species 6000
+# on a compute node: OUT/r220_full, OUT/r220_n12, OUT/r226_full, OUT/r226_n12 (build_gtdb_database.py each)
+python3 scripts/build_gtdb_releases.py --inputs /shared/protal_inputs --outdir /data/protal_dbs \
+    --protal build/protal --simulator build/simulate_metagenomes -t 16 --scratch /local/scratch
+```
+
+`download_gtdb_releases.py` runs `download_gtdb.py` per release (a rerun fetches only what is
+missing) and writes `INPUTS/download_summary.tsv`: per release the version, the genomes and the
+species, genera, families, orders, classes and phyla of its taxonomy (species per domain), the
+genomes delivered and missing, the species and strains to simulate from, the marker files, the
+bytes on disk and the time. A release that fails is reported and the others go on.
+
+`build_gtdb_releases.py` runs `build_gtdb_database.py` per release (`--releases`, default every
+release in `INPUTS`) and variant (`--variants`, default `full,n12`; `--n-genes` sets the N of
+`n<N>`): the full database first, with `--rank-genes`, then the reduced one with `--gene-ranking`
+from it, so that no ranking database is built. The options it does not know itself pass through
+(`--samples`, `--read-types`, `--features`, ...); with `--scratch` each database gets a folder
+of its own there. A database already built and trained is kept (`--rerun`). At the end
+`OUT/build_summary.tsv` (a line per database) and `OUT/build_summary.txt` give: the release and
+protal version, the marker genes, the taxa the database holds (species, genera, families, orders,
+classes, phyla, species per domain), the genomes simulated from and the species held out, the
+size of `database.protal`, the time and peak memory of its build and the peak memory of profiling
+the training samples (protal and the collector together), the run's time, and per read type (pe,
+se, pb, ont) the model's F1, false positives per sample, sensitivity and precision on the
+independent test set and its F1 and false positives per sample with species held out in training
+(from `model_logs/summary.txt`).
 
 ## Build and train in one command
 

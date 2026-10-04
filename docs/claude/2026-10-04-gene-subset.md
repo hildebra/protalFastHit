@@ -157,3 +157,44 @@ TIGR00064 (scores 0.828 down to 0.772).
 - The score takes no account of gene length. If the goal is the most sensitivity per gene rather
   than per k-mer, weight by length from the table's `mean_length` column and pass the list with
   `--genes`.
+
+## Follow-up the same day: archaea in the subset, and the two-phase scripts
+
+**Archaea were not covered.** GTDB's bacterial and archaeal marker sets (120 and 53 genes,
+`scripts/mini_db/markers_r226.tsv`) share five genes; archaea are a few percent of the species
+(r226: about 5,000 of 143,000). Prevalence over all species puts every gene of the archaeal set
+alone below 0.05, so the twelve best by the overall score would have been bacterial genes and the
+database would have had no gene of most archaeal genomes. On the test release (120 bacterial, 48
+archaeal-only genes in the reference) the three best by the overall score are indeed bacterial
+only (`GeneSubsetTest` checks it with `--per-domain 0`).
+
+Fix in `rank_genes.py`: the table carries prevalence and score per domain (`bacteria_*`,
+`archaea_*`, from `internal_taxonomy.dmp`), and `--top N` reserves `--per-domain M` of the N
+genes for each domain's best (default a third of N, at least 1: 4 of 12), the rest by the
+overall score, a gene good for both counting for both; the ranker reports how many of the genes
+chosen half or more of each domain's species have. `build_gtdb_database.py --genes-per-domain M`
+passes it on; `--rank-genes` makes a run with every gene write the ranking (the training database
+unpacked once built), for the reduced run to take with `--gene-ranking` (no ranking build then).
+The test release's `--n-genes 3` run now chooses the two best overall and the best archaeal gene;
+`gene_subset.txt` says which was chosen for which domain, and `build_metadata.tsv` how many
+genes each domain has.
+
+**Two phases across releases.** `scripts/download_gtdb_releases.py` (a node with internet) runs
+`download_gtdb.py` per release into `INPUTS/gtdb_r<release>` and writes `download_summary.tsv`:
+version, the taxonomy's genomes and clades per rank and the species per domain, genomes
+delivered and missing, species and strains to simulate from, marker files, bytes, time.
+`scripts/build_gtdb_releases.py` (no internet) runs `build_gtdb_database.py` per release and
+variant (`full` with `--rank-genes`, then `n12` with `--gene-ranking` from it) into
+`OUT/r<release>_<variant>`, keeps what is built, and writes `build_summary.tsv` and `.txt`: protal
+version, marker genes, taxa per rank and per domain (from the database's taxonomy), genomes
+simulated from, species held out, `database.protal` size, the build's time and peak memory, the
+profiling run's peak memory (collector and protal together, from the run's console log), the run's
+time, and per read type the test-set F1, false positives per sample, sensitivity and precision
+and the held-out F1 and false positives per sample (`model_logs/summary.txt`). Both pass the
+options they do not know on to the script they run.
+
+Tests (all on the WSL box, 2026-10-04): `GeneSubsetTest` with two archaeal species added (4
+tests, 30 s), `MiniDbTest.test_download_releases` (the download phase on the fake mirror, with a
+failing release reported), `GtdbBuildTest.test_d` (the archaeal gene among the three chosen) and
+`test_e` (`build_gtdb_releases.py` with `n3,full`: the full database ranked, the reduced one from
+that ranking, the summary's columns, a rerun that keeps both; 82 s). Still no GTDB-scale run.

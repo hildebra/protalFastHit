@@ -17,10 +17,13 @@ scikit-learn (`$PROTAL_TRAIN_PYTHON`, default the one running the tests): a synt
 60 species, downloaded from a fake GTDB server and a fake NCBI `datasets`, built and trained for
 pe and se; a rerun that skips the conversion and both builds; another seed that rebuilds only the
 training database and collects again; a build failing in the background that stops the run at
-once; `SIGTERM`, after which no command of the run is left; and a reduced database of the three
-most distinctive genes (`--n-genes`, then `--genes`). `GeneSubsetTest` covers the converter's
+once; `SIGTERM`, after which no command of the run is left; a reduced database of the three
+most distinctive genes (`--n-genes`, then `--genes`), one of them a gene archaea have; and
+`build_gtdb_releases.py` building the full database (its genes ranked with `--rank-genes`) and
+the reduced one from that ranking, with their summary. `GeneSubsetTest` covers the converter's
 `--genes`, the neighbours counted over the genes kept and, with `$PROTAL`, the build of such a
-folder, `rank_genes.py` on a full build and `--build_gene_subset`
+folder, `rank_genes.py` on a full build (the domains' columns, a gene reserved for archaea) and
+`--build_gene_subset`; `MiniDbTest.test_download_releases` the download phase
 ([building-a-database.md](building-a-database.md#reduced-marker-sets)).
 
 ```bash

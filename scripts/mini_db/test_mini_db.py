@@ -41,6 +41,8 @@ SIMULATE_READS = os.path.join(HERE, "simulate_reads.py")
 LINEAGES = os.path.join(HERE, "gtdb_like_lineages.py")
 DOWNLOAD = os.path.join(HERE, "..", "download_gtdb.py")
 RANK_GENES = os.path.join(HERE, "..", "rank_genes.py")
+RELEASES_DOWNLOAD = os.path.join(HERE, "..", "download_gtdb_releases.py")
+RELEASES_BUILD = os.path.join(HERE, "..", "build_gtdb_releases.py")
 
 # A stand-in for NCBI's `datasets`: `download genome accession` writes the list into the zip,
 # `rehydrate` copies the synthetic release's genomes; accessions in $FAKE_SUPPRESSED fail a request, and
@@ -403,6 +405,61 @@ class MiniDbTest(unittest.TestCase):
             self.assertNotIn("Inputs for GTDB", down.stdout)
             with open(calls) as fh:
                 self.assertEqual(len(fh.readlines()), 5)  # --batch 1: 1 .bit_length() + 4
+
+    def test_download_releases(self):
+        # download_gtdb_releases.py: download_gtdb.py per release into INPUTS/gtdb_r<release>, the options it does
+        # not know passed on, and a summary of what each release's inputs hold.
+        mirror = os.path.join(self.tmp.name, "mirror_releases")
+        gtdb_mirror(self.gtdb, mirror)
+
+        class Quiet(http.server.SimpleHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=mirror))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        datasets = os.path.join(self.tmp.name, "datasets_releases")
+        with open(datasets, "w") as fh:
+            fh.write(FAKE_DATASETS)
+        os.chmod(datasets, 0o755)
+        env = dict(os.environ, FAKE_TABLE=os.path.join(self.gtdb, "simulation", "genomes.tsv"))
+        out = os.path.join(self.tmp.name, "inputs_releases")
+        result = subprocess.run([sys.executable, RELEASES_DOWNLOAD, "-o", out, "--releases", "226", "-t", "2", "--mirror",
+                                 f"http://127.0.0.1:{server.server_port}", "--datasets", datasets, "--species", "2",
+                                 "--per_species", "1", "--rep_only_species", "0", "--batch", "4"],
+                                env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(out, "gtdb_r226", "download.json")))
+        self.assertTrue(os.path.isfile(os.path.join(out, "download_r226.log")))
+        with open(os.path.join(out, "download_summary.tsv")) as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            rows = [dict(zip(header, line.rstrip("\n").split("\t"))) for line in fh]
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual((row["release"], row["version"], row["status"]), ("226", "226.0", "ok"))
+        self.assertEqual(row["folder"], os.path.join(out, "gtdb_r226"))
+        with open(os.path.join(self.gtdb, "bac120_taxonomy_r226.tsv")) as fh:
+            lineages = [line.rstrip("\n").split("\t")[1] for line in fh]
+        self.assertEqual(int(row["genomes_in_taxonomy"]), len(lineages))
+        self.assertEqual(int(row["species"]), len(set(lineages)))
+        self.assertEqual(int(row["genera"]), len({l.rsplit(";", 1)[0] for l in lineages}))
+        self.assertEqual(int(row["phyla"]), len({";".join(l.split(";")[:2]) for l in lineages}))
+        self.assertEqual(int(row["bacteria_species"]) + int(row["archaea_species"]), int(row["species"]))
+        self.assertEqual(int(row["genomes_delivered"]), 4)  # 2 species, a strain and the representative each
+        self.assertEqual(row["genomes_missing"], "0")
+        self.assertEqual(row["simulation_species"], "2")
+        self.assertGreater(int(row["marker_files"]), 0)
+        self.assertRegex(row["size_gb"], r"^\d+\.\d$")
+        self.assertRegex(row["download_time"], r"^\d+:\d\d:\d\d$")
+        self.assertIn("Summary: " + os.path.join(out, "download_summary.tsv"), result.stdout)
+        self.assertRegex(result.stdout, r"\nrelease  version  status  genomes_in_taxonomy")
+        failing = subprocess.run([sys.executable, RELEASES_DOWNLOAD, "-o", out + "_x", "--releases", "999", "--mirror",
+                                  f"http://127.0.0.1:{server.server_port}", "--datasets", datasets, "--no_genomes"],
+                                 env=env, capture_output=True, text=True)
+        self.assertEqual(failing.returncode, 1)
+        self.assertIn("failed: r999", failing.stdout)
 
     def test_download_direct(self):
         # Genomes come straight from the (stand-in) FTP server, in parallel, without datasets; the ones it does
@@ -1924,6 +1981,8 @@ class GeneSubsetTest(unittest.TestCase):
         with open(lineages, "w") as fh:
             fh.writelines(f"{order};f__Simulaceae;g__Mockella;s__Mockella s{i}\n" for i in range(4))
             fh.writelines(f"{order};f__Otheraceae;g__Otherella;s__Otherella s{i}\n" for i in range(2))
+            fh.writelines(f"d__Archaea;p__Archota;c__Archia;o__Archales;f__Archaceae;g__Archella;s__Archella s{i}\n"
+                          for i in range(2))
         cls.gtdb = os.path.join(cls.tmp.name, "gtdb")
         cls.db = os.path.join(cls.tmp.name, "db")
         run(SIMULATE, "--outdir", cls.gtdb, "--lineages", lineages, "--operons", "--operon_breaks", "0.5",
@@ -1944,9 +2003,16 @@ class GeneSubsetTest(unittest.TestCase):
         by_contig = collections.defaultdict(list)
         for r in read_table(os.path.join(cls.db, "gene_positions.tsv")):
             if r["accession"] == cls.rep:
-                by_contig[r["contig"]].append((int(r["start"]), int(r["gene"])))
-        along = [gene for _, gene in sorted(max(by_contig.values(), key=len))]
-        cls.subset = sorted(along[0:12:2])
+                by_contig[r["contig"]].append((int(r["start"]), int(r["end"]), int(r["gene"])))
+        along = sorted(max(by_contig.values(), key=len))
+        # Three genes in a row within the neighbour gap: the first and the third are kept, the middle one left
+        # out, so that in the subset the first faces the third; four more genes from elsewhere on the contig.
+        first = next(i for i in range(len(along) - 2)
+                     if along[i + 1][0] - along[i][1] <= cls.MAX_GAP and along[i + 2][0] - along[i + 1][1] <= cls.MAX_GAP
+                     and along[i + 2][0] - along[i][1] <= cls.MAX_GAP)
+        others = [k for k in range(len(along)) if k not in (first, first + 1, first + 2)]
+        indices = [first, first + 2] + others[::max(1, len(others) // 4)][:4]
+        cls.subset = sorted(along[k][2] for k in indices)
         tokens = [cls.markers[g] for g in cls.subset[:2]] + [cls.markers[cls.subset[2]].split(".")[0]] + \
             [str(g) for g in cls.subset[3:]]
         cls.spec = ",".join(tokens)
@@ -1994,9 +2060,10 @@ class GeneSubsetTest(unittest.TestCase):
         self.assertEqual(kept, {m: g for m, g in self.gene_ids.items() if g in self.subset})
         for name in ("internal_taxonomy.dmp", "species_priors.tsv", "genome2tiid.tsv"):
             self.same_file(self.db, self.copy, name)
-        self.assertRegex(self.derived, r"gene_neighbours\.tsv derived from the 12 genomes of 6 species kept: \d+ lines "
+        # The genomes with a gene kept: the archaea have none of the bacterial genes chosen here.
+        self.assertRegex(self.derived, r"gene_neighbours\.tsv derived from the 1[2-6] genomes of [6-8] species kept: \d+ lines "
                                        r"\(over the 6 genes kept\)")
-        self.assertIn("without 0 species, 6 genes kept: 36 representative sequences kept", self.derived)
+        self.assertRegex(self.derived, r"without 0 species, 6 genes kept: \d+ representative sequences kept")
 
     def test_a_direct_conversion_gives_the_same_files(self):
         direct = os.path.join(self.tmp.name, "direct")
@@ -2015,7 +2082,7 @@ class GeneSubsetTest(unittest.TestCase):
         run(CONVERT, "--from_db", self.db, "--genes", listed, "--exclude_species", excluded, "--outdir", both)
         rows = self.map_rows(both)
         self.assertEqual(sorted({r[1] for r in rows}), self.subset)
-        self.assertEqual(len({r[0] for r in rows}), 5)
+        self.assertEqual(len({r[0] for r in rows}), len({r[0] for r in self.map_rows(self.copy)}) - 1)
         self.same_file(both, self.copy, "gene2geneid.tsv")
         for bad in ("PF99999.1", "0", str(max(self.gene_ids.values()) + 1), "#"):
             with self.assertRaises(subprocess.CalledProcessError, msg=bad):
@@ -2029,7 +2096,7 @@ class GeneSubsetTest(unittest.TestCase):
         positions = read_table(os.path.join(self.copy, "gene_positions.tsv"))
         self.assertEqual({int(r["gene"]) for r in positions}, subset)
         self.assertEqual({r["accession"] for r in positions},
-                         {r["accession"] for r in read_table(os.path.join(self.db, "gene_positions.tsv"))})
+                         {r["accession"] for r in read_table(os.path.join(self.db, "gene_positions.tsv")) if int(r["gene"]) in subset})
         # What the representative's genome gives among the genes kept (neighbour_ends on its placements) is in
         # the copy's table, under the species or one of its clades; a gene whose neighbour was left out faces the
         # next gene kept, farther away, where the full table had the gene left out.
@@ -2075,8 +2142,9 @@ class GeneSubsetTest(unittest.TestCase):
             self.assertTrue(set(genes_of(subset, "gene_conservation.tsv")) <= set(self.subset))
         else:
             self.assertIn("Gene conservation: no factors", result.stdout)
-        self.assertRegex(result.stdout, r"Gene neighbours: \d+ rules of \d+ clades from 12 genomes")
-        # Every gene, built and ranked: a table of all genes, the 3 best as a gene list.
+        self.assertRegex(result.stdout, r"Gene neighbours: \d+ rules of \d+ clades from 1[2-6] genomes")
+        # Every gene, built and ranked: a table of all genes with the domains' columns, the 3 chosen as a gene
+        # list, one of them reserved for archaea (a gene of their marker set alone is rare over all species).
         every = os.path.join(self.tmp.name, "every_gene")
         run(CONVERT, "--from_db", self.db, "--outdir", every)
         self.same_file(every, self.db, "reference.map")
@@ -2085,21 +2153,38 @@ class GeneSubsetTest(unittest.TestCase):
         table, listed = os.path.join(self.tmp.name, "ranking.tsv"), os.path.join(self.tmp.name, "best.txt")
         ranking = subprocess.run([sys.executable, RANK_GENES, "--db", every, "-o", table, "--top", "3", "--subset", listed],
                                  check=True, capture_output=True, text=True)
-        self.assertRegex(ranking.stderr, r"best\.txt: the 3 best genes, scores [0-9.]+ down to [0-9.]+ \(\S+, \S+, \S+\)")
+        self.assertRegex(ranking.stderr, r"best\.txt: 3 genes: \S+, \S+, \S+; scores [0-9.]+ down to [0-9.]+; in half the "
+                                         r"species or more of: bacteria \d, archaea \d")
         rows = read_table(table)
-        self.assertEqual(len(rows), len({r[1] for r in self.map_rows(every)}))  # the reference's genes (no archaea here)
+        self.assertEqual(len(rows), len({r[1] for r in self.map_rows(every)}))  # the reference's genes
         self.assertEqual([int(r["rank"]) for r in rows], list(range(1, len(rows) + 1)))
         scores = [float(r["score"]) for r in rows]
         self.assertEqual(scores, sorted(scores, reverse=True))
-        self.assertTrue(all(0 <= float(r[c]) <= 1 for r in rows for c in ("score", "prevalence", "unique_share")))
+        self.assertTrue(all(0 <= float(r[c]) <= 1 for r in rows
+                            for c in ("score", "prevalence", "unique_share", "bacteria_prevalence", "archaea_prevalence")))
         self.assertTrue(all(self.gene_ids[r["marker"]] == int(r["gene_id"]) for r in rows))
-        self.assertTrue(all(int(r["species"]) <= 6 and float(r["mean_length"]) > 0 for r in rows))
+        self.assertTrue(all(int(r["species"]) <= 8 and float(r["mean_length"]) > 0 for r in rows))
         self.assertGreater(scores[0], 0)
-        best = [int(r["gene_id"]) for r in rows[:3]]
+        archaeal = {int(r["gene_id"]) for r in rows if float(r["archaea_prevalence"]) >= 0.5}
+        bacterial = {int(r["gene_id"]) for r in rows if float(r["bacteria_prevalence"]) >= 0.5}
+        self.assertTrue(archaeal - bacterial, "genes of the archaeal marker set alone")
+        self.assertTrue(all(float(r["score"]) < 0.5 for r in rows if int(r["gene_id"]) in archaeal - bacterial))
         with open(listed) as fh:
             lines = [line.rstrip("\n") for line in fh]
-        self.assertEqual([int(line) for line in lines if not line.startswith("#")], best)
+        best = [int(line) for line in lines if not line.startswith("#")]
+        self.assertEqual(len(best), 3)
+        self.assertTrue(set(best) & archaeal, "a gene archaea have")
+        self.assertTrue(set(best) & bacterial, "a gene bacteria have")
+        self.assertEqual(best, sorted(best, key=lambda g: next(int(r["rank"]) for r in rows if int(r["gene_id"]) == g)))
         self.assertEqual(sum(line.startswith("# rank ") for line in lines), 3)
+        self.assertTrue(any("chosen for archaea" in line for line in lines))
+        # Without the domains' share, the 3 best by the overall score are bacterial genes only.
+        plain = os.path.join(self.tmp.name, "plain.txt")
+        subprocess.run([sys.executable, RANK_GENES, "--db", every, "--top", "3", "--per-domain", "0", "--subset", plain],
+                       check=True, capture_output=True, text=True)
+        with open(plain) as fh:
+            self.assertEqual([int(line) for line in fh if not line.startswith("#")], [int(r["gene_id"]) for r in rows[:3]])
+        self.assertFalse({int(r["gene_id"]) for r in rows[:3]} & (archaeal - bacterial))
         from_list = os.path.join(self.tmp.name, "from_list")
         run(CONVERT, "--from_db", self.db, "--genes", listed, "--outdir", from_list)
         self.assertEqual(sorted({r[1] for r in self.map_rows(from_list)}), sorted(best))
@@ -2372,7 +2457,8 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(first.stdout, r"ranked the \d+ genes from a full build of the training database \(every gene, "
                                        r"\d+ species left out\), built in \d+:\d\d:\d\d[^(]*\(gene_ranking_build\.log\): "
                                        r"gene_ranking\.tsv")
-        self.assertRegex(first.stdout, r"the 3 best of \d+ \(scores [0-9.]+ down to [0-9.]+\): \S+, \S+, \S+\n")
+        self.assertRegex(first.stdout, r"the 3 best of \d+: \S+, \S+, \S+; scores [0-9.]+ down to [0-9.]+; in half the "
+                                       r"species or more of: bacteria [1-3], archaea [1-3]\n")
         self.assertRegex(first.stdout, r"protal_db's files derived for these genes in \d+:\d\d:\d\d[^(]*\(protal_db_files\.log\)")
         self.assertRegex(first.stdout, r"\n\[[^]]+\] 4/9 training database ")
         self.assertIn("Ready protal database", first.stdout)
@@ -2390,11 +2476,19 @@ class GtdbBuildTest(unittest.TestCase):
         with open(os.path.join(out, "gene_ranking.tsv")) as fh:
             ranking = [line.rstrip("\n").split("\t") for line in fh]
         self.assertEqual(ranking[0][:4], ["rank", "gene_id", "marker", "score"])
-        self.assertEqual([int(r[1]) for r in ranking[1:4]], chosen)
+        self.assertIn(int(ranking[1][1]), chosen)  # the best overall, and the best of each domain
+        self.assertTrue(set(chosen) <= {int(r[1]) for r in ranking[1:]})
         with open(os.path.join(out, "protal_db", "build_metadata.tsv")) as fh:
             metadata = dict(line.rstrip("\n").split("\t", 1) for line in fh)
         self.assertRegex(metadata["marker_genes"], r"^3 of \d+, the most distinctive by prevalence x unique k-mer share "
-                                                   r"\(scripts/rank_genes\.py, from a full build of the training database\): ")
+                                                   r"\(scripts/rank_genes\.py, 1 per domain, from a full build of the training "
+                                                   r"database\): \S+, \S+, \S+; in half the species or more of bacteria \d, archaea \d$")
+        # One of the three is a gene archaea have (the archaeal marker set's genes score low over all species).
+        header = ranking[0]
+        archaeal = {int(r[1]) for r in ranking[1:] if float(r[header.index("archaea_prevalence")]) >= 0.5}
+        self.assertTrue(set(chosen) & archaeal, "no gene archaea have among the three chosen")
+        with open(os.path.join(out, "gene_subset.txt")) as fh:
+            self.assertIn("chosen for archaea", fh.read())
         self.assertRegex(self.text("out_genes", "training_db.log"), r"derived from the \d+ genomes of \d+ species kept: "
                                                                    r"\d+ lines \(over the 3 genes kept\)")
         self.assertIn(", 3 genes kept: ", self.text("out_genes", "protal_db_files.log"))
@@ -2423,6 +2517,72 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(metadata["marker_genes"], r"^3 of \d+ \(--genes\): \S+, \S+, \S+$")
         self.assertNotRegex(self.text("out_genes", "training_data_simulation.log"), "simulating")
         self.assertFalse(os.path.exists(os.path.join(out, ".converted")))
+
+    def test_e_releases_full_and_reduced(self):
+        # build_gtdb_releases.py: the full database with --rank-genes (the genes ranked from its training database,
+        # unpacked), then the reduced one from that ranking (no ranking database built), each in its folder, with
+        # the summary of both; a rerun keeps them.
+        root = os.path.join(self.tmp.name, "releases")
+        os.makedirs(root, exist_ok=True)
+        if not os.path.exists(os.path.join(root, "gtdb_r226")):
+            os.symlink(self.inputs, os.path.join(root, "gtdb_r226"))
+        out = os.path.join(self.tmp.name, "dbs")
+        command = [self.python, RELEASES_BUILD, "--inputs", root, "--outdir", out, "--variants", "n3,full", "--n-genes", "3",
+                   "--protal", os.environ["PROTAL"], "--simulator", os.environ["SIMULATE"], "-t", "2",
+                   "--scratch", os.path.join(self.tmp.name, "scratch_releases"),
+                   "--samples", "2", "--read-pairs", "1000,4000", "--read-setups", "100:HS20:300:40",
+                   "--species-per-sample", "6-8", "--archaea", "1", "--holdout-max-share", "0.2",
+                   "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
+                   "--test-read-pairs", "2000", "--ntree", "16", "--evaluation", "basic"]
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=3000)
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:])
+        self.assertLess(result.stdout.index("r226, full: building"), result.stdout.index("r226, n3: building"))
+        full_log, reduced_log = self.text("dbs", "r226_full.log"), self.text("dbs", "r226_n3.log")
+        self.assertRegex(full_log, r"ranked the \d+ genes of training_db in \d+:\d\d:\d\d[^(]*\(--rank-genes, gene_ranking\.log\): "
+                                   r"gene_ranking\.tsv; the 12 a reduced database would take: ")
+        self.assertTrue(os.path.isfile(os.path.join(out, "r226_full", "gene_ranking.tsv")))
+        self.assertTrue(os.path.isfile(os.path.join(out, "r226_full", "model_logs", "gene_ranking.tsv")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "scratch_releases", "r226_full", "ranking_files")))
+        self.assertIn("ranked by " + os.path.join(out, "r226_full", "gene_ranking.tsv"), reduced_log)
+        self.assertNotIn("gene_ranking_build.log", reduced_log)
+        self.assertFalse(os.path.exists(os.path.join(out, "r226_n3.log.partial")))
+        with open(os.path.join(out, "build_summary.tsv")) as fh:
+            rows = [dict(zip(*pair)) for pair in zip([fh.readline().rstrip("\n").split("\t")] * 2,
+                                                     [line.rstrip("\n").split("\t") for line in fh])]
+        self.assertEqual([(r["release"], r["variant"], r["status"]) for r in rows], [("226", "full", "ok"), ("226", "n3", "ok")])
+        full, reduced = rows
+        self.assertEqual(full["genes"], "all")
+        self.assertEqual(reduced["genes"], "3")
+        self.assertIn("1 per domain", reduced["marker_genes"])
+        for row in rows:
+            self.assertRegex(row["protal_version"], r"^protal v[0-9.]+")
+            self.assertEqual(row["species"], "60")  # the release's species, not only those simulated from
+            self.assertTrue(int(row["genera"]) <= int(row["species"]) and int(row["phyla"]) >= 1, row)
+            self.assertEqual(int(row["bacteria_species"]) + int(row["archaea_species"]), 60)
+            self.assertGreater(int(row["archaea_species"]), 0)
+            self.assertRegex(row["genomes_simulated"], r"^\d+ genomes of \d+ species$")
+            self.assertRegex(row["species_held_out"], r"^\d+$")
+            self.assertRegex(row["database_gb"], r"^\d+\.\d\d$")
+            self.assertRegex(row["build_time"], r"^\d+:\d\d:\d\d$")
+            self.assertRegex(row["build_peak_gb"], r"^\d+\.\d+$")
+            self.assertRegex(row["profiling_peak_gb"], r"^\d+\.\d+$")
+            for t in ("pe", "se"):
+                self.assertRegex(row[f"{t}_test_F1"], r"^[0-9.]+$|^-$")
+                self.assertRegex(row[f"{t}_heldout_F1"], r"^[0-9.]+$")
+                self.assertRegex(row[f"{t}_heldout_FP_per_sample"], r"^[0-9.]+$")
+            for t in ("pb", "ont"):
+                self.assertEqual(row[f"{t}_test_F1"], "")
+        self.assertLess(float(reduced["database_gb"]), float(full["database_gb"]) + 0.01)
+        summary = self.text("dbs", "build_summary.txt")
+        self.assertIn("GTDB r226, full: ok; protal", summary)
+        self.assertRegex(summary, r"taxa: 60 species \(\d+ bacteria, \d+ archaea\), \d+ genera, \d+ families, \d+ orders, "
+                                  r"\d+ classes, \d+ phyla")
+        self.assertRegex(summary, r"\n  pe: independent test F1 [0-9.-]+, FP/sample [0-9.-]+, sensitivity [0-9.-]+, "
+                                  r"precision [0-9.-]+; species held out F1 [0-9.]+, FP/sample [0-9.]+")
+        again = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
+        self.assertEqual(again.returncode, 0, again.stdout[-3000:])
+        self.assertEqual(again.stdout.count("is built and trained; kept"), 2)
+        self.assertNotIn("building", again.stdout)
 
 
 if __name__ == "__main__":
