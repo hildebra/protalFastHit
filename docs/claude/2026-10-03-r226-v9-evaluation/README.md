@@ -209,3 +209,16 @@ Did not:
 4. **For the error budget**: the paired-end test set now has 111 misses (64 at one fragment, 87 strains with 1-10
    fragments) and 135 false positives (105 beside a missing species). Both populations are now at the level where the
    next gains need the index (strain alleles) or the simulation (item 2), not features.
+
+## Follow-up (2026-10-04)
+
+Asked which defaults to change before the next build, the choice fell on the prior: the `priors` group left the
+default feature set (`DEFAULT_FEATURE_SET` is `normalized+adjacency+distance+depth+divergence+unfiltered`) and stays
+available with `--features ...+priors` for a database meant for environments GTDB has sampled densely, where the
+cluster-size rule is a fair bet. The reasoning: the gain is a base rate the simulation sets by accident (the species
+pool has strains, so its present species have several genomes) and cannot contradict (a one-genome species has no
+strain to simulate), so the model holds it as a rule rather than weighing it; a general-purpose database should be
+neutral about one-genome species until the simulation can present them as strains (recommendation 2). On v9's
+tables the default without the priors scores 0.9634 (pe) and 0.9598 (se) on the test set against 0.9699 and 0.9668
+with them; the next build's summary will read lower than v9's for that reason and no other. The database still
+carries `species_priors.tsv`, and the dumps the columns, so the opt-in model can be trained from any build's tables.

@@ -197,7 +197,7 @@ other in 20% of their species or more, a sparse clade leaning on those above it)
 frequency of their pairings there, pulled towards 0.5 by one pairing ((sum of the frequencies + 0.5)
 / (pairings judged + 1); 0.5 without gene neighbours or reads across genes).
 The models train on them by default (`ADJACENCY_FEATURES`, with `NORMALIZED_FEATURES` the set
-`normalized+adjacency`, in the default `normalized+adjacency+distance+depth+divergence+unfiltered+priors`). On a synthetic world they
+`normalized+adjacency`, in the default `normalized+adjacency+distance+depth+divergence+unfiltered`). On a synthetic world they
 changed the test F1 within noise (paired-end +0.0025, PacBio −0.0026, Nanopore +0.0015 over three seeds;
 [report](claude/2026-10-01-gene-neighbours-run/README.md),
 [2026-10-02](claude/2026-10-02-gene-neighbour-frequencies/README.md)): reads of a congener the
@@ -254,7 +254,7 @@ the larger problem, the four distance features added 0.004 paired-end F1 on the 
 (0.007 at knob 0.5), single-end and long reads within noise; all the relatives features lowered the
 paired-end log loss by 27% with species held out but did no better at the knob curve
 ([report](claude/2026-10-03-r226-v5-v6-training/README.md)). So the four distance features are in the
-trainer's and the build's default set (`normalized+adjacency+distance+depth+divergence+unfiltered+priors`,
+trainer's and the build's default set (`normalized+adjacency+distance+depth+divergence+unfiltered`,
 [below](#the-samples-depth-and-the-divergence-features)); a table of a protal before them needs `--features
 normalized+adjacency`.
 They need training samples whose congeners share a sample (`--congeners SHARE:MIN-MAX`,
@@ -320,8 +320,15 @@ the signal is `rep_contamination`'s), its CheckM completeness and contamination 
 GTDB's species clusters the ANI circumscription radius, the mean and minimum intra-species ANI and the
 cluster's size (`cluster_ani_radius`, `cluster_mean_ani`, `cluster_min_ani`, `cluster_genomes_log10`): a
 wide or crowded cluster makes a cloud of reads a few percent from the reference a strain rather than a
-sister species. On a synthetic world they are all unknown and do nothing; at r226 the next build tells.
-Both groups are in the default set; a dump of a protal before them needs `--features
+sister species. On a synthetic world they are all unknown and do nothing. At r226 they gained 0.007 to 0.009 of
+test F1, all of it from the cluster size: the model learns that a divergent read cloud on a one-genome species
+is a relative the database lacks, never a strain of that species, because the simulation has no second genome
+to simulate such a strain from. The rule is a fair bet for environments GTDB has sampled densely and rejects
+the strains of single-MAG species elsewhere, so the priors are **not in the default set** (opt-in with
+`--features normalized+adjacency+distance+depth+divergence+unfiltered+priors`;
+[report](claude/2026-10-03-r226-v9-evaluation/README.md)). The unfiltered group is in the default set, for the
+ranking (at r226 `failed_candidate_rate` is the most important feature, the log loss 4% lower, F1 at the knob
+within ±0.002); a dump of a protal before these groups needs `--features
 normalized+adjacency+distance+depth+divergence`.
 
 protal writes the alternatives as the `ZA` tag of a read's best record (`ZA:Z:<taxid>:<edits
@@ -347,7 +354,7 @@ one differs.
 | Option | Default | |
 |---|---|---|
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
-| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+priors` | the feature groups joined by `+`, `normalized` among them: `normalized` (`NORMALIZED_FEATURES`), `adjacency` (the gene neighbours'), `relatives` (all `RELATIVE_FEATURES`) or `distance` (the four `relative_*` by the references' distance), `depth` (the sample's depth, `SAMPLE_FEATURES`; no knob curve is fitted with it), `divergence` (`DIVERGENCE_FEATURES`), `unfiltered` (the reads before the filters and the failed candidates), `priors` (what GTDB knows of the species); `all`: every feature column of the dump. A table of an older protal lacks columns: `normalized+adjacency+distance+depth+divergence` before the unfiltered and priors features, `normalized+adjacency+distance` before the depth and divergence features, `normalized+adjacency` before the relatives features |
+| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered` | the feature groups joined by `+`, `normalized` among them: `normalized` (`NORMALIZED_FEATURES`), `adjacency` (the gene neighbours'), `relatives` (all `RELATIVE_FEATURES`) or `distance` (the four `relative_*` by the references' distance), `depth` (the sample's depth, `SAMPLE_FEATURES`; no knob curve is fitted with it), `divergence` (`DIVERGENCE_FEATURES`), `unfiltered` (the reads before the filters and the failed candidates), `priors` (what GTDB knows of the species; opt-in, [above](#reads-before-the-filters-and-the-species-priors)); `all`: every feature column of the dump. A table of an older protal lacks columns: `normalized+adjacency+distance+depth+divergence` before the unfiltered and priors features, `normalized+adjacency+distance` before the depth and divergence features, `normalized+adjacency` before the relatives features |
 | `--reference-pmml` | | train on the input fields of an existing model instead |
 | `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 256, 1, `sqrt` | the forest (`--maxnodes 0`: no limit on leaves; `build_gtdb_database.py` gives 512 for short reads and 128 for long reads: at GTDB r226 512 leaves gave short reads a lower log loss and fewer false positives, 128 long reads a lower log loss at the same F1) |
 | `--knob` | 0.5 | the threshold protal will use; calls and their errors are counted at it |

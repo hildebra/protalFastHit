@@ -85,7 +85,10 @@ On a synthetic world they are all unknown and do nothing.
 
 A set's name is its groups joined by "+": normalized, adjacency, relatives or distance, depth, divergence,
 unfiltered, priors; "all" is every feature column of the dump. The trainer's default set (DEFAULT_FEATURE_SET) is
-"normalized+adjacency+distance+depth+divergence+unfiltered+priors". At r226 the distance features added 0.004 F1
+"normalized+adjacency+distance+depth+divergence+unfiltered"; the priors are opt-in ("+priors": at r226 +0.007 to
++0.009 of test F1, all of it the cluster size, a bet that a divergent read cloud on a one-genome species is a relative
+the database lacks, which the simulation cannot test; for a database of a densely sampled environment,
+docs/claude/2026-10-03-r226-v9-evaluation). At r226 the distance features added 0.004 F1
 (paired-end) on the test set at the knob curve and 0.007 at knob 0.5 over normalized+adjacency, single-end and long
 reads within noise (docs/claude/2026-10-03-r226-v5-v6-training); a table of a protal before them (be35d15) needs
 --features normalized+adjacency, one before the depth and divergence features --features
@@ -156,10 +159,15 @@ FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEAT
 # The sets worth naming (--features takes any groups joined by "+", and "all").
 FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
                 "normalized+adjacency+distance+depth", "normalized+adjacency+distance+depth+divergence",
+                "normalized+adjacency+distance+depth+divergence+unfiltered",
                 "normalized+adjacency+distance+divergence+unfiltered+priors",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+priors",
                 "normalized+adjacency+relatives+depth+divergence+unfiltered+priors", "all")
-DEFAULT_FEATURE_SET = "normalized+adjacency+distance+depth+divergence+unfiltered+priors"
+# The priors are not in the default set: their gain at r226 (+0.007 to +0.009 of test F1) is the GTDB cluster size
+# alone, a rule that a divergent read cloud on a one-genome species is a relative the database lacks, which the
+# simulation cannot test (a one-genome species has no strain to simulate from) and which rejects the strains of
+# single-MAG species that dominate environments GTDB has sampled sparsely (docs/claude/2026-10-03-r226-v9-evaluation).
+DEFAULT_FEATURE_SET = "normalized+adjacency+distance+depth+divergence+unfiltered"
 
 
 def feature_set_columns(feature_set):
