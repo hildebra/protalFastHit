@@ -384,6 +384,11 @@ namespace protal {
         // need (Seedmap::PackedLayout); a position is a k-mer core's, flex_k/2 bases into its gene.
         auto const [max_taxid, max_gene, max_length] = maxima;
         Seedmap::PackedLayout const layout = Seedmap::PackedLayout::For(max_taxid, max_gene, max_length + map->m_flex_k);
+        // Near the end of the load the threads' frames may hold what the alignment takes beyond the index anyway (its
+        // threads' buffers: 0.95 GB at r226 on 32 threads, ~30 MB a thread), so that more threads decode to the end
+        // without raising the run's peak: the r226 load took 0.67 s longer with one thread's frames allowed.
+        constexpr uint64_t kAlignmentBytesPerThread = uint64_t{24} << 20;
+        map->SetLoadAllowance(static_cast<uint64_t>(load_threads) * kAlignmentBytesPerThread);
         map->Load(index_file, load_threads, &layout);
         log << "Index features: " << map->FeatureDescription() << std::endl;
         log << "Index in memory: " << map->MemoryDescription() << std::endl;
@@ -459,7 +464,7 @@ namespace protal {
             // Near the end of the load the threads stop one by one (zstd::LoadBudget), their buffers freed.
             if (index->ChunksOnFewerThreads() > 0) {
                 std::cout << "Index: its last " << index->ChunksOnFewerThreads() << " chunks decoded on fewer threads, so that "
-                          << "their buffers stay within the index's memory" << std::endl;
+                          << "their buffers stay within the index's memory and what aligning takes beside it" << std::endl;
             }
             protal::build::PrintMemory("loading the index");
             Seedmap& map = *index;

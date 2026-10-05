@@ -297,6 +297,7 @@ namespace protal {
         uint64_t m_packed_bytes = 0;
         uint64_t m_packed_entries = 0;
         size_t m_chunks_on_fewer_threads = 0;  // ChunksOnFewerThreads
+        uint64_t m_load_allowance = 0;         // SetLoadAllowance
         unsigned m_taxon_gene_bits = 0, m_pos_bits = 0, m_entry_bits = 0;
         uint64_t m_genes = 2;           // an entry's taxid and gene are taxid * m_genes + gene
         uint64_t m_slot_bits_32 = 0;    // PackedLayout::SlotBits32
@@ -1150,6 +1151,7 @@ namespace protal {
             // The key map and the packed values become resident as they are written (calloc): near the end of the load
             // fewer threads decode, so that their frames do not sit on top of an index nearly all resident.
             zstd::LoadBudget budget = index_codec::ChunkOutput(container, m_slot_bits_32);
+            budget.allowance = m_load_allowance;
             std::string const error = zstd::ForEachFrame(path, table, 1, threads,
                     [&](size_t frame, char const* data, size_t size, size_t) -> std::string {
                 index_codec::Chunk const& ch = container.chunks[frame - 1];
@@ -1174,6 +1176,9 @@ namespace protal {
         // Of the index's chunks last loaded, those decoded after a loading thread had stopped for memory
         // (zstd::LoadBudget): the end of the load, when the index is nearly all resident.
         size_t ChunksOnFewerThreads() const { return m_chunks_on_fewer_threads; }
+
+        // What the loading threads' buffers may hold beyond the index near the end of a packed load (zstd::LoadBudget::allowance).
+        void SetLoadAllowance(uint64_t bytes) { m_load_allowance = bytes; }
 
         // Header and layout fields of an index written by Save; every size is checked against the
         // layout this build uses. Sets up that layout and returns the number of data bytes (key map

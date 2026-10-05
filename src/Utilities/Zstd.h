@@ -862,6 +862,9 @@ namespace protal::zstd {
     // load ends: its peak.
     struct LoadBudget {
         std::vector<uint64_t> output;
+        // What the workers' buffers may hold beyond that: memory the run takes later anyway (a query run's alignment), so
+        // that buffers this size do not raise its peak. More workers decode to the end.
+        uint64_t allowance = 0;
         size_t frames_on_fewer = 0;  // set by ForEachFrame: the frames started after a worker had stopped for memory
     };
 
@@ -869,11 +872,11 @@ namespace protal::zstd {
     // to `threads` threads (worker in [0, WorkerCount)); handle returns an error message, empty on success; the first
     // failure stops the workers. A worker's buffers (its compressed and decompressed frame) are freed, back to the
     // system, when it stops. With a budget, a worker takes another frame only while the output of the frames not yet
-    // started is at least the buffers of the workers decoding (each counted at the largest frame's, compressed and
-    // decompressed), else it stops: near the end of the load the workers stop one by one, so that what is written and
-    // what is buffered stay within the output's full size, plus one worker's buffers (the last worker always goes
-    // on; the last frame, after which nothing is left to write, starts once the others are done). The frames still
-    // are all handled, each once; only the number decoded at a time changes.
+    // started, plus the budget's allowance, is at least the buffers of the workers decoding (each counted at the
+    // largest frame's, compressed and decompressed), else it stops: near the end of the load the workers stop one by
+    // one, so that what is written and what is buffered stay within the output's full size plus the allowance and one
+    // worker's buffers (the last worker always goes on; the last frame, after which nothing is left to write, starts
+    // once the others are done). The frames still are all handled, each once; only the number decoded at a time changes.
     template<typename Handle>
     std::string ForEachFrame(std::string const& path, SeekTable const& table, size_t first, int threads, Handle&& handle,
                              LoadBudget* budget = nullptr) {
@@ -903,7 +906,7 @@ namespace protal::zstd {
                 size_t i;
                 {
                     std::lock_guard<std::mutex> lock(mutex);
-                    bool const over = budget && active > 1 && active * buffer > rest[next + 1 <= units ? next + 1 : units];
+                    bool const over = budget && active > 1 && active * buffer > rest[next + 1 <= units ? next + 1 : units] + budget->allowance;
                     if (failed || next >= units || over) {
                         active--;
                         break;

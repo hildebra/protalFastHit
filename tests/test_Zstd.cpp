@@ -377,6 +377,36 @@ TEST(ZstdSeekable, ForEachFrameStopsWorkersNearTheEndOfALoad) {
             EXPECT_LT(budget.frames_on_fewer, frames);
         }
     }
+    // With an allowance of four buffers beyond the output (a query run's alignment memory): the frames started beside others
+    // stay within what is left to write plus the allowance, and fewer frames start on fewer workers than without it.
+    {
+        size_t fewer_without = 0;
+        for (uint64_t allowance : {uint64_t{0}, 4 * buffer}) {
+            SCOPED_TRACE(allowance);
+            zstd::LoadBudget budget;
+            budget.output.assign(frames, buffer);
+            budget.allowance = allowance;
+            std::mutex mutex;
+            size_t running = 0;
+            std::vector<size_t> running_at_start(frames, 0);
+            EXPECT_EQ(zstd::ForEachFrame(tmp / "load.zst", *table, 0, 8, [&](size_t frame, char const*, size_t, size_t) {
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    running_at_start[frame] = ++running;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(3));
+                std::lock_guard<std::mutex> lock(mutex);
+                running--;
+                return std::string();
+            }, &budget), "");
+            for (size_t i = 0; i < frames; i++) {
+                uint64_t const rest = (frames - 1 - i) * buffer + allowance;
+                EXPECT_TRUE(running_at_start[i] == 1 || running_at_start[i] * buffer <= rest) << "frame " << i;
+            }
+            if (allowance == 0) fewer_without = budget.frames_on_fewer;
+            else EXPECT_LT(budget.frames_on_fewer, fewer_without);
+        }
+    }
     // Without a budget: the same frames, each once.
     std::atomic<size_t> count{0};
     EXPECT_EQ(zstd::ForEachFrame(tmp / "load.zst", *table, 0, 8, [&](size_t, char const*, size_t, size_t) {
