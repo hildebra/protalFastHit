@@ -63,8 +63,13 @@ qcmsa=${QCMSA:-1}
     echo "perf stat: $([ $use_perf = 1 ] && echo yes || echo "no (not installed or not allowed: perf_event_paranoid $(cat /proc/sys/kernel/perf_event_paranoid 2> /dev/null))")"
     echo "samples: $*"
     if [ $cohort = 1 ]; then
-        q=${PROTAL_QCMSA_SCRIPT:-}; [ -n "$q" ] || q=$(dirname "$protal")/qcmsa; [ -x "$q" ] || q=$(command -v qcmsa || true)
-        echo "cohort: all $# samples, $cohort_repeats run(s), qcMSA $([ "$qcmsa" = 1 ] && echo "on (${q:-qcmsa not found})" || echo off)"
+        # qcmsa as protal finds it (RunProtal.h, FindQCMSAScript): PROTAL_QCMSA_SCRIPT, qcmsa next to protal, qcmsa on
+        # $PATH, then qcmsa.py next to protal, in its scripts/ or in the scripts/ beside its folder (a source checkout).
+        bin=$(dirname "$protal"); q=${PROTAL_QCMSA_SCRIPT:-}
+        [ -n "$q" ] || { [ -x "$bin/qcmsa" ] && q=$bin/qcmsa; }
+        [ -n "$q" ] || q=$(command -v qcmsa || true)
+        for c in "$bin/qcmsa.py" "$bin/scripts/qcmsa.py" "$bin/../scripts/qcmsa.py"; do [ -n "$q" ] || { [ -f "$c" ] && q=$c; }; done
+        echo "cohort: all $# samples, $cohort_repeats run(s), qcMSA $([ "$qcmsa" = 1 ] && echo "on (${q:-qcmsa not found: protal will report it})" || echo off)"
     else
         echo "cohort: none ($([ $# -lt 2 ] && echo "one sample" || echo "COHORT=0"))"
     fi

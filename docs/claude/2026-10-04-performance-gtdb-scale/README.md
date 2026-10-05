@@ -659,6 +659,43 @@ Locally (pe 500k pairs and HiFi 90 Mb from the 765-species world, six threads): 
 4.35 s (one python process per species, one after another): qcMSA is most of the strain stage, and the first thing to
 parallelise there (its species are independent) once the r226 numbers are in.
 
+## The sixth cluster run (2026-10-05): the seeding's counts, the SAM header, the strain stage
+
+SLURM job 23962556, protal v0.7.6 at `959d46c` (with `f29595f`'s counters), the r226 v11 database, 32 threads, three runs
+per sample and one cohort run. Files in [`results_v6/`](results_v6/). Wall times as in the fifth run: paired-end 50.8 s,
+HiFi 18.0 s.
+
+**The seeding** (the "seeding" lines):
+
+| | paired-end (101.2M mates) | HiFi (497,656 reads) |
+|---|---|---|
+| k-mers looked up | 2,242,166,093 (22.2 per mate) | 473,852,030 (952 per read) |
+| cores in the index | 99.2% | 99.2% |
+| blocks scanned | 2,221,730,360: the stop at 128 seeds almost never comes | all |
+| flex cells scanned | 156.4 G, **70.4 per block** | 34.9 G, 74.2 per block |
+| cells in blocks of 16-255 / 256-4095 entries | 55.5% / 40.9% (none larger) | 54.1% / 42.6% |
+| seeds | 4.37 G | 0.96 G |
+| seeding time per thread | 20.5 s: ~295 ns per lookup, ~4 ns per flex cell | 4.6 s |
+
+So the seeding is not only memory latency: every lookup scores ~70 flex cells in a scalar loop that also pushes each
+score into a vector and then passes over it again for the ties, and 96% of the cells are in blocks of 16 to 4,095
+entries. That favours option 3 (one AVX2 pass over the cells) for every lookup, and option 4 (blocks sorted by flex cell,
+the ties found by binary search when the read's 16 bases occur exactly) for the 41% of cells in blocks of 256 or more;
+how often a lookup has an exact flex match is the one count option 4 still needs. Option 2 (`THREADS=84`) stays the
+cheapest test.
+
+**The SAM header** is not the cause of the ~1 s: paired-end 80,168 genes, 1.9 MB of text built in 0.02 s, 371 KB
+compressed, placed in its 1 MB room (no copy); HiFi 13,870 genes, 66 KB. "Writing the SAM header and file" still takes
+1.10 s and 1.07 s. What is left in it is the seek table and closing the file; on NFS `close()` waits for the client to
+write back and commit all the SAM's data written during the alignment, so the second is most likely that. Writing the
+SAM to node-local disk, or closing it on a thread of its own while the next sample aligns, would show and remove it.
+
+**The strain stage** (the cohort run, both samples from their SAMs, 40.1 s): profiling 6.2 s, strain-level MSAs 29.0 s
+for 114 species (114 raw MSAs, 102 kept by qcMSA): building the MSAs 5.4 s and **qcMSA 23.3 s**, one species after
+another (qcMSA a python process each, 0.2 s per species). The species are independent: run the MSAs and the qcMSA
+processes over the threads and the stage should take a few seconds. The environment line's "qcmsa not found" was the
+script's own check, which missed protal's last fallback (`scripts/qcmsa.py` beside a source checkout's `build/`); fixed.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):
