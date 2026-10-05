@@ -1,0 +1,6 @@
+python 3.12.3
+genome read (40 genomes, 3.36 MB of FASTA each): file 0.4 ms, zlib 13.8 ms (GIL released), parse 6.8 ms (GIL held), translate parse 5.0 ms (GIL held; same contigs)
+ultima: 30 Mb, 100134 reads, 258 genome reads (1.29 per genome): templates 6.5 s wall, 6.4 s CPU (genome reads 6.1 s, the rest 3.7 us per read); hifi_reads 6.7 s wall, 6.7 s CPU (67.0 us per read, 223 ms per Mb)
+pb: 60 Mb, 4684 reads, 336 genome reads (1.68 per genome): templates 7.5 s wall, 7.5 s CPU (genome reads 7.3 s, the rest 26.9 us per read); hifi_reads 6.8 s wall, 6.7 s CPU (1440.0 us per read, 112 ms per Mb)
+ont: 30 Mb, 4247 reads, 297 genome reads (1.49 per genome): templates 5.1 s wall, 5.1 s CPU (genome reads 5.0 s, the rest 16.6 us per read); pbsim 8.9 s wall, 17.7 s CPU (591 ms per Mb); renaming 0.9 s wall, 0.9 s CPU (221.9 us per read, 31 ms per Mb)
+host fragments: 2.46 us per fragment (GIL held), 200000 fragments

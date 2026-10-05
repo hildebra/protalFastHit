@@ -144,7 +144,7 @@ At GTDB r226 (143,614 species) the whole pipeline takes:
 | download | 17.7 GB of GTDB files and about 75 GB of genomes to simulate from, on a node with internet |
 | time | about 2.5-3 hours on a 52-64-thread node (conversion 5 min; the r226 build of 2026-10-03 then took 2 h, and 0.7.6's design simulates half as many short-read samples again), and several hours more for the [scenarios](#scenarios-kinds-of-studies) (an estimate; `--scenarios none` leaves them out) |
 | memory | each index build ~35-37 GB with 64 threads (estimated; it was 64 GB before 2026-10-05; its log's `Memory after ...` lines say), up to ~75 GB while both run at once; `--one-build-at-a-time` needs about half |
-| node-local disk | 120-175 GB for the simulated samples (`--scratch`), and roughly 200 GB more for the scenarios' (an estimate) |
+| node-local disk | for the simulated samples (`--scratch`): with `--profile-blocks` (the default) each design point's reads are removed once profiled, and the simulations wait rather than leave less than `--keep-free` GB, so ~150-200 GB is enough; all at once (`--profile-blocks 0`) ~180 GB for the design and ~260 GB more for the default scenarios (measured 2026-10-05) |
 | result | `database.protal`, ~27 GB |
 
 ### Build and train in one command
@@ -399,8 +399,12 @@ communities:
 | `ont` | Nanopore reads by [pbsim3](https://github.com/yukiteruono/pbsim3) (`--ont-setup`: the high-quality model at 97%, 8 kb) |
 
 The long-read samples (`--long-read-bases`, 300 kb to 6 Gb; `--long-read-samples` 36 per point) replay
-the paired-end communities of the same depth. All samples are profiled in one protal run, and the
-models are trained in parallel. Without pbsim3, leave `ont` out; a read type left out gets a
+the paired-end communities of the same depth. Once the training database is built, the samples are
+profiled as they are simulated, in protal runs of at least `--profile-blocks` GB of reads (20; the
+training data's and the test set's runs take turns), and each design point's reads are removed once
+every read type that reads them is profiled (the SAMs, profiles and dumps stay); `--profile-blocks 0`
+profiles both collections in one protal run once all is simulated, and keeps the reads. The models
+are trained in parallel. Without pbsim3, leave `ont` out; a read type left out gets a
 placeholder model that reports nothing and makes protal warn. Replace it later with
 `protal --add_model MODEL --read_type se --db DB`.
 
@@ -469,9 +473,10 @@ How the parts are made:
   the profile only through spurious alignments, and the sample's depth feature counts only what lands
   on taxa.
 
-Scenario samples are deep: with every preset and the default 3 + 2 samples, roughly 200 GB more on
-`--scratch` and several hours more of simulation and profiling on a 64-thread node (an estimate from
-the collector's per-Mb rates, not yet measured on a run). Their rows also weigh in the training: a
+Scenario samples are deep: one sample of every preset takes ~52 GB of reads (gut 15, soil 22,
+soil_shallow 4, host 11; measured per Gb on 2026-10-05), ~260 GB for the default 3 + 2 samples if they
+were all on the disk at once, which `--profile-blocks` avoids, and hours more of simulation and
+profiling on a 64-thread node ([report](claude/2026-10-05-collector-profiling/README.md)). Their rows also weigh in the training: a
 soil sample adds ~10,000 rows, as many as 70 design samples. The section "Scenarios" gives the
 design's samples with species held out beside them, to show what the scenarios cost the rest.
 
@@ -479,9 +484,13 @@ design's samples with species held out beside them, to show what the scenarios c
 
 The simulations write and delete many files, which a network file system is slow at.
 `--scratch DIR` makes the samples, the training database and the converter's temporary files on a
-node's own disk, and copies the tables to `--outdir`. The r226 builds took up to 120 GB there; give
-it 175 GB, or use fewer deep samples (`DEPTH:SAMPLES` in `--read-pairs`). The console says how much
-the run takes there. A rerun reuses the samples only from the same DIR, so on a disk that is cleared
+node's own disk, and copies the tables to `--outdir`. The samples are profiled as they are simulated
+and their reads removed once profiled (`--profile-blocks`), and a simulation that would leave less
+than `--keep-free` GB (30) waits for that, so the disk holds the training database (~24 GB at r226),
+what is simulated but not yet profiled, and the SAMs and profiles; give it 150-200 GB. With
+`--profile-blocks 0` every sample is on the disk at once: the r226 design took up to 120 GB without
+the scenarios (give it 175 GB), the default scenarios ~260 GB more. The console says how much the run
+takes there. A rerun reuses the samples only from the same DIR, so on a disk that is cleared
 after the job, a rerun simulates again (the builds are kept in `--outdir`).
 
 #### Time and memory
@@ -524,6 +533,7 @@ keeps the finished database.
 | `--protal`, `--simulator` | on `$PATH` | the binaries |
 | `-t, --threads` | 8 | |
 | `--scratch` | | a node-local folder for the samples ([above](#local-scratch)) |
+| `--profile-blocks`, `--keep-free` | 20, 30 | profile the samples as they are simulated, in protal runs of at least this many GB of reads, removing the reads profiled (0: one protal run once all is simulated, reads kept); the GB a simulation leaves free on the samples' disk, or it waits |
 | `--seed` | 1 | |
 | `--holdout`, `--holdout-clades`, `--holdout-max-share` | 0.3, `phylum:2,class:4,order:6,family:8,genus:12`, 0.02 | species and clades left out of the training database; `--holdout-clades none` for species only |
 | `--holdout-species` | | a file of the species to leave out instead |
@@ -800,7 +810,12 @@ python3 scripts/collect_training_data.py --db DB --genome_table genomes.tsv -o t
   until 2026-10-02 ([report](claude/2026-10-02-pacbio-hifi-reads/README.md)).
 - **Scheduling**: all simulations share `--jobs` cores in one queue, long reads from the
   communities' design (seconds) rather than after the paired-end reads; then all samples are profiled
-  in one protal run. A rerun skips design points simulated and profiled from the same inputs.
+  in one protal run. A rerun skips design points simulated and profiled from the same inputs. A deep
+  long-read sample is simulated in chunks of `--long_read_chunk` bases; its templates are drawn for
+  all chunks in one pass over its genomes (gzipped until the chunks' reads are made, at most a
+  quarter of `--jobs` samples at once), and the Python work of the long reads and the host's reads
+  runs in worker processes, not on threads that share one interpreter lock
+  ([report](claude/2026-10-05-collector-profiling/README.md)).
 - **Columns** starting with `meta_` say where a row comes from: design point, sample, read type,
   depth, the taxon's domain, the species the database lacks in the sample and whether the taxon
   shares a genus with one (`meta_novel_*`), whether a present species was simulated from its
@@ -830,6 +845,7 @@ features.
 | `--scenarios`, `--scenario_samples`, `--scenario_file`, `--host_genome` | none, 3 | scenarios to collect besides the design, their samples, more or changed scenarios, the host genome |
 | `-t`, `--jobs`, `--seed`, `--long_read_chunk` | 4, `-t`, 1, 250 Mb | threads, cores for the simulations, seed, chunks of deep long-read samples |
 | `--simulate_only`, `--prepare_profiling`, `--also_profile MAP` | | simulate and stop; write the map to profile and stop; profile another collection in the same run |
+| `--follow`, `--profile_block`, `--protal_lock`, `--min_free` | , 20, , 0 | profile as a `--simulate_only` run of the same `-o` simulates, in protal runs of at least this many GB of reads, removing each point's reads once profiled, then write the tables (points it cannot profile once the simulations have ended it simulates itself); a lock file for the protal runs of two followers to take turns; GB a simulation leaves free on the disk, or it waits (for a follower to remove reads) |
 
 ### Training
 

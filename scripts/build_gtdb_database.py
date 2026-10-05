@@ -39,8 +39,11 @@ community sizes, abundances and strain mixes) is profiled and scored by each
 model: cross-validation on the training data cannot show what its design lacks.
 The simulations need no database: both collections simulate in the background,
 at a lower priority than the builds, from the moment the species to leave out
-are chosen, and profile their samples once the training database is built:
-both collections (training data and test set) in one protal run.
+are chosen, and profile their samples once the training database is built: as
+the simulations go on, in protal runs of --profile-blocks GB of reads, each
+design point's reads removed once profiled, so that the samples need not all
+be on the disk at once (--profile-blocks 0: both collections in one protal run
+once all are simulated).
 The design reaches the depths of real samples (2M and 10M read pairs, 1.5 and
 6 Gb of long reads, a few samples each: DEPTH:SAMPLES), and each model gets a
 knob curve over the sample's depth (--depth-knob-read-types): a deep sample
@@ -137,7 +140,7 @@ import rank_genes  # noqa: E402
 import scenarios  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
-from collect_training_data import TABLES, clock, congener_spec, last_line, units_of, parse_args as collector_args  # noqa: E402
+from collect_training_data import TABLES, clock, congener_spec, last_line, simulation_state, units_of, parse_args as collector_args  # noqa: E402
 
 
 def congener_text(spec):
@@ -1330,6 +1333,16 @@ def main():
                         "simulators write and delete, and at writing a database; the converter spools the release's "
                         "marker genes there too. With the defaults the r226 run took up to 120 GB there, without the training database "
                         "(give it 175 GB, docs/databases.md); a rerun reuses the samples in the same SCRATCH")
+    p.add_argument("--profile-blocks", type=float, default=20.0,
+                   help="once the training database is built, profile the simulated samples as their simulations go "
+                        "on, in protal runs of at least this many GB of reads (collect_training_data.py --follow; the "
+                        "two collections' runs take turns), and remove each design point's reads once all its read types "
+                        "are profiled (the SAMs, profiles and dumps are kept): the samples need not all be on the disk "
+                        "at once. 0: profile both collections in one protal run once every sample is simulated, and "
+                        "keep the reads (default 20)")
+    p.add_argument("--keep-free", type=float, default=30.0,
+                   help="with --profile-blocks: GB a simulation leaves free on the disk of the samples (--scratch or "
+                        "OUTDIR), or it waits until profiled reads are removed (default 30)")
     args = p.parse_args()
     Job.progress_every = args.progress_every
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
@@ -1824,10 +1837,13 @@ def main():
                     ("; built by an earlier run, kept" if final_done else ""))
     # The simulations need neither database, only the genome table and the species left out: both collections
     # simulate from here on, in the background and at a lower priority than the builds (collect_training_data.py
-    # --simulate_only), and profile what they simulated once the training database is there (collect()).
+    # --simulate_only), and profile what they simulated once the training database is there (collect(), or with
+    # --profile-blocks follow(): as they simulate, the reads profiled removed, so the simulations keep --keep-free GB
+    # free and wait for that while the disk is full).
     simulations = {}
     for what, command, log in collections_:
-        simulations[what] = Job(command + ["--simulate_only"], log.removesuffix(".log") + "_simulation.log",
+        keep_free = ["--min_free", f"{args.keep_free:g}"] if args.profile_blocks > 0 and args.keep_free > 0 else []
+        simulations[what] = Job(command + ["--simulate_only"] + keep_free, log.removesuffix(".log") + "_simulation.log",
                                 lambda what=what: Steps.done(f"simulated the {what} in the background in "
                                                              f"{simulations[what].took()}"),
                                 label=f"simulating the {what}", nice=10)
@@ -1878,10 +1894,8 @@ def main():
                        f"gene_ranking.log): gene_ranking.tsv; the {len(twelve)} a reduced database would take: "
                        + rank_genes.describe(twelve))
 
-    def collect(what, command, log):
-        """Runs the collector once the collection's simulations are done (in the background), so that it profiles
-        them; says before what it makes and after what its tables hold (present and absent taxa per read type)
-        and how much space its samples take. With --scratch, its tables are copied to OUTDIR."""
+    def announce(what, command, log):
+        """The step of a collection: what it makes. -> the collector's options."""
         opts = collector_args(command[2:])
         samples, in_scenarios = collections.Counter(), collections.Counter()
         for unit in units_of(opts)[1]:
@@ -1890,23 +1904,11 @@ def main():
         Steps.start(f"{what} ({os.path.basename(log)}): {', '.join(f'{n} {t}' for t, n in samples.items())} samples" +
                     (f" (of them in the scenarios {opts.scenarios}: "
                      f"{', '.join(f'{n} {t}' for t, n in in_scenarios.items() if n)})" if +in_scenarios else ""))
-        if simulations[what].seconds is None:
-            Steps.done(f"waiting for its simulations in the background ({os.path.basename(simulations[what].log)})")
-            simulations[what].finish()  # its line comes from its on_success
-        if what == collections_[0][0] and len(collections_) > 1:
-            # The other collection's samples go into this collection's protal run, which loads the database once:
-            # the other collector maps them (--prepare_profiling), and finds them profiled when it runs.
-            other, other_command, other_log = collections_[1]
-            if simulations[other].seconds is None:
-                Steps.done(f"waiting for the {other}'s simulations too, to profile both in one protal run")
-                simulations[other].finish()
-            run(other_command + ["--prepare_profiling"], other_log.removesuffix(".log") + "_map.log",
-                label=f"mapping the {other}'s samples")
-            other_map = os.path.join(collector_args(other_command[2:]).out, "profile_all", "samples.map")
-            if os.path.isfile(other_map):
-                command = command + ["--also_profile", other_map]
-                Steps.done(f"profiling the {other}'s samples in the same protal run")
-        job = run(command, log, label=f"collecting {what}")
+        return opts
+
+    def report(opts, log, job):
+        """What a collection's tables hold (present and absent taxa per read type) and how much space its samples
+        take. With --scratch, its tables are copied to OUTDIR."""
         type_of = {name: t for t, name in TABLES.items()}
         counts = []
         with open(log, errors="replace") as fh:
@@ -1923,8 +1925,55 @@ def main():
                 if os.path.isfile(os.path.join(opts.out, table)):
                     shutil.copy(os.path.join(opts.out, table), keep)
 
-    for what, command, log in collections_:
-        collect(what, command, log)
+    def collect(what, command, log):
+        """Runs the collector once the collection's simulations are done (in the background), so that it profiles
+        them (both collections in one protal run)."""
+        opts = announce(what, command, log)
+        if simulations[what].seconds is None:
+            Steps.done(f"waiting for its simulations in the background ({os.path.basename(simulations[what].log)})")
+            simulations[what].finish()  # its line comes from its on_success
+        if what == collections_[0][0] and len(collections_) > 1:
+            # The other collection's samples go into this collection's protal run, which loads the database once:
+            # the other collector maps them (--prepare_profiling), and finds them profiled when it runs.
+            other, other_command, other_log = collections_[1]
+            if simulations[other].seconds is None:
+                Steps.done(f"waiting for the {other}'s simulations too, to profile both in one protal run")
+                simulations[other].finish()
+            run(other_command + ["--prepare_profiling"], other_log.removesuffix(".log") + "_map.log",
+                label=f"mapping the {other}'s samples")
+            other_map = os.path.join(collector_args(other_command[2:]).out, "profile_all", "samples.map")
+            if os.path.isfile(other_map):
+                command = command + ["--also_profile", other_map]
+                Steps.done(f"profiling the {other}'s samples in the same protal run")
+        report(opts, log, run(command, log, label=f"collecting {what}"))
+
+    def follow_all():
+        """--profile-blocks: a collector per collection profiles its samples as they are simulated
+        (collect_training_data.py --follow), in protal runs that take turns (a lock on the scratch disk), removing the
+        reads profiled, then writes the collection's tables."""
+        lock = os.path.join(samples_root, "protal.lock")
+        followers = {}
+        for what, command, log in collections_:
+            out = collector_args(command[2:]).out
+            # Its simulations must have said that they run and have prepared what they write before simulating (or
+            # have ended): a follower that finds neither simulates what is left itself, which it must not do beside
+            # them.
+            while simulations[what].seconds is None and not (simulation_state(out) or {}).get("prepared"):
+                check_jobs()
+                time.sleep(0.5)
+            followers[what] = Job(command + ["--follow", "--profile_block", f"{args.profile_blocks:g}", "--protal_lock", lock],
+                                  log, label=f"profiling the {what}")
+        for what, command, log in collections_:
+            opts = announce(what, command, log)
+            Steps.done(f"profiled as its simulations go on, in protal runs of {args.profile_blocks:g} GB of reads or "
+                       "more (taking turns with the other collection's); each design point's reads removed once profiled")
+            report(opts, log, followers[what].finish())
+
+    if args.profile_blocks > 0:
+        follow_all()
+    else:
+        for what, command, log in collections_:
+            collect(what, command, log)
 
     # One model per read type, trained in parallel.
     prefixes = {t: os.path.join(args.outdir, "trained_model" + ("" if t == "pe" else "_" + t)) for t in read_types}

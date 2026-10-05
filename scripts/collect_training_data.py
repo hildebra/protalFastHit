@@ -31,8 +31,9 @@ marks the absent taxa closest to such species, meta_neighbour_rank how close a p
 nearest other species in the sample is. Archaea (--archaea) have fewer marker genes than bacteria
 and need to be in the training data, too. All simulations share --jobs cores in one queue: the
 paired-end design points with threads in proportion to their work, the long-read samples (deep ones
-in chunks, --long_read_chunk) on the rest, the longest first, as soon as a design run (the same
-communities without reads, in seconds) has given their communities. Then the samples of all read
+in chunks, --long_read_chunk, whose templates are drawn in one pass over the sample's genomes) on the
+rest, the longest first, as soon as a design run (the same communities without reads, in seconds) has
+given their communities; their Python work runs in worker processes. Then the samples of all read
 types are profiled in one protal run, which loads the database once (--prepare_profiling and
 --also_profile put two collections into one run). Points already simulated or profiled are skipped,
 so a run can be resumed; --simulate_only stops before profiling, so that the simulations can run
@@ -53,12 +54,14 @@ import argparse
 import bisect
 import collections
 import concurrent.futures
+import contextlib
 import csv
 import glob
 import gzip
 import hashlib
 import itertools
 import json
+import multiprocessing
 import os
 import random
 import shutil
@@ -143,6 +146,22 @@ def parse_args(argv=None):
     p.add_argument("--simulate_only", action="store_true",
                    help="simulate the design points and stop: a later run without it profiles them (the simulations "
                         "need no database, so they can run while it is built; --db is not read)")
+    p.add_argument("--follow", action="store_true",
+                   help="profile the design points as a --simulate_only run of this collection (started before, still "
+                        "running or not) simulates them: in protal runs of at least --profile_block GB of reads (all that "
+                        "are ready once the simulations have ended), each point's reads removed once every read type that "
+                        "reads them is profiled (the SAMs, profiles and dumps are kept); then the tables. Points it "
+                        "cannot profile once the simulations have ended (reads removed by an earlier run, say) it "
+                        "simulates itself")
+    p.add_argument("--profile_block", type=float, default=20.0,
+                   help="--follow: the GB of reads that start a protal run while the simulations go on (default 20)")
+    p.add_argument("--protal_lock", help="--follow: a file locked while protal runs, so that the protal runs of two "
+                                         "collections that follow their simulations take turns")
+    p.add_argument("--min_free", type=float, default=0.0,
+                   help="GB to keep free on the output's file system: a simulation that would leave less waits until a "
+                        "--follow run has profiled and removed reads (default 0: no limit); the work in progress may "
+                        "still finish below it")
+    p.add_argument("--poll", type=float, default=30.0, help=argparse.SUPPRESS)  # seconds between looks (tests: less)
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--novel_species",
                    help="species the database lacks, one per line, optionally with the rank they were held out at "
@@ -173,6 +192,9 @@ def parse_args(argv=None):
         p.error(f"--read_types: unknown {', '.join(unknown)} (pe, se, pb, ont)")
     if opts.samples < 0:
         p.error("--samples cannot be negative")
+    if opts.follow and (opts.simulate_only or opts.prepare_profiling or opts.also_profile):
+        p.error("--follow profiles this collection as its --simulate_only run simulates it: not with --simulate_only, "
+                "--prepare_profiling or --also_profile")
     try:
         scenarios.selection(opts.scenarios, opts.scenario_samples, scenarios.definitions(opts.scenario_file))
     except scenarios.ScenarioError as e:
@@ -827,7 +849,9 @@ def host_pe_jobs(point, opts, key, started):
                   "tmp": os.path.join(tmp, f"c{c + 1}"), "r1": os.path.join(tmp, f"c{c + 1}_R1.fq.gz"),
                   "r2": os.path.join(tmp, f"c{c + 1}_R2.fq.gz")} for c in range(k)]
         names = [f"host:{row['SAMPLEID']}:{t['chunk']}" for t in tasks]
-        jobs += [{"name": n, "run": lambda t=t: (scenarios.host_pe_chunk(t), []), "priority": 1.5e9}
+        jobs += [{"name": n, "run": lambda t=t: (Workers.call(scenarios.host_pe_chunk, t), []), "priority": 1.5e9,
+                  # its fragments, ART's plain reads and the gzipped ones
+                  "disk": int(t["pairs"] * (t["fragment_mean"] + 2 * t["length"] * (1 + PE_BYTES))), "opens": False}
                  for n, t in zip(names, tasks)]
 
         def join(row=row, tasks=tasks, tmp=tmp):
@@ -954,60 +978,96 @@ def read_length(rng, mean, sd):
             return length
 
 
-def long_read_templates(task):
-    """The reads of a long-read sample, drawn as they arise in sequencing, until their bases reach the sample's:
-    a read's genome by relative abundance times genome length (task["genomes"]: fasta, weight), its length by
-    read_length, its start uniform over the genome's contigs of PBSIM_MIN_LENGTH bases or more (a read ends
-    where its contig does), either strand. Written to task["templates"] as FASTA, the reads of a genome
-    together (each genome is read once per round of drawing: the cuts at contigs' ends leave a few bases to
-    draw again), named g<genome>x_<n>, n = 1, 2, ... (in a chunk of a sample, every task["name_step"]-th from
-    task["name_offset"] + 1, so that the chunks' names do not meet). A genome with "host" (a prepared host genome's
-    folder, scenarios.Host) is read by memory map instead, its reads drawn at random places. -> (the names in file
-    order, None), or (None, why it failed)."""
-    rng = random.Random(task["seed"])
-    genomes, setup = task["genomes"], task["setup"]
-    step, offset = task.get("name_step", 1), task.get("name_offset", 0)  # chunk `offset` of `step` (long_read_chunks)
+TEMPLATE_BUFFER = 4 << 20  # bytes of templates gathered before a write
+
+
+def draw_templates(tasks):
+    """The reads of a long-read sample, or of the chunks of one (tasks: dicts of the same genomes), drawn as they
+    arise in sequencing, until each task's bases reach its own: a read's genome by relative abundance times genome
+    length (task["genomes"]: fasta, weight), its length by read_length, its start uniform over the genome's contigs
+    of PBSIM_MIN_LENGTH bases or more (a read ends where its contig does), either strand. Written to
+    task["templates"] as FASTA (gzipped if its name ends in .gz), one line of sequence per read, the reads of a
+    genome together, named g<genome>x_<n>, n = 1, 2, ... (in a chunk of a sample, every task["name_step"]-th from
+    task["name_offset"] + 1, so that the chunks' names do not meet).
+
+    Each task draws in rounds with its own random stream (task["seed"]): it plans the reads of the bases it still
+    lacks, then draws them genome by genome in sorted order (the cuts at contigs' ends leave a few bases for another
+    round). The tasks' rounds run side by side, so that a genome is read once per round for all the tasks that draw
+    from it, and each task's reads are those it would draw alone: the 24 chunks of a 6 Gb sample of a soil community
+    read its ~15,000 genomes once, not 24 times. A genome with "host" (a prepared host genome's folder,
+    scenarios.Host) is read by memory map instead, its reads drawn at random places. -> ([reads of each task], None),
+    or (None, why it failed)."""
+    genomes = tasks[0]["genomes"]
     cumulative, total = [], 0.0
     for genome in genomes:
         total += genome["weight"]
         cumulative.append(total)
     if total <= 0:
         return None, "no genome with reads to simulate (relative abundances and lengths are 0)"
-    names, bases = [], 0
-    with open(task["templates"], "wb") as out:
-        while bases < task["bases"]:
-            planned, need = collections.defaultdict(list), task["bases"] - bases
-            while need > 0:
-                g = bisect.bisect_right(cumulative, rng.random() * total)
-                length = read_length(rng, setup["length_mean"], setup["length_sd"])
-                planned[g].append(length)
-                need -= length
-            for g in sorted(planned):
-                if genomes[g].get("host"):  # a host genome (gigabases): drawn by memory map, not read whole
-                    host = scenarios.Host.of(genomes[g]["host"])
+    states = [{"task": task, "rng": random.Random(task["seed"]), "reads": 0, "bases": 0, "buffer": [], "buffered": 0,
+               "step": task.get("name_step", 1), "offset": task.get("name_offset", 0)}  # chunk `offset` of `step`
+              for task in tasks]
+
+    def write(state, name, seq):
+        state["buffer"].append(b">" + name + b"\n" + seq + b"\n")
+        state["buffered"] += len(seq) + len(name) + 3
+        state["bases"] += len(seq)
+        if state["buffered"] >= TEMPLATE_BUFFER:
+            state["out"].write(b"".join(state["buffer"]))
+            state["buffer"], state["buffered"] = [], 0
+
+    with contextlib.ExitStack() as files:
+        for state in states:
+            path = state["task"]["templates"]
+            state["out"] = files.enter_context(gzip.open(path, "wb", compresslevel=1) if path.endswith(".gz")
+                                               else open(path, "wb"))
+        while True:
+            plans = []
+            for state in states:  # this round's reads of each task that still lacks bases: {genome: [length, ...]}
+                task, rng = state["task"], state["rng"]
+                planned, need = collections.defaultdict(list), task["bases"] - state["bases"]
+                while need > 0:
+                    g = bisect.bisect_right(cumulative, rng.random() * total)
+                    length = read_length(rng, task["setup"]["length_mean"], task["setup"]["length_sd"])
+                    planned[g].append(length)
+                    need -= length
+                plans.append(planned)
+            if not any(plans):
+                break
+            for g in sorted(set().union(*plans)):
+                host = genomes[g].get("host")  # a host genome (gigabases): drawn by memory map, not read whole
+                contigs = starts = None
+                for state, planned in zip(states, plans):
+                    if g not in planned:
+                        continue
+                    rng, step, offset = state["rng"], state["step"], state["offset"]
+                    if host:
+                        source = scenarios.Host.of(host)
+                        for length in planned[g]:
+                            seq = source.draw(rng, length)
+                            if rng.random() < 0.5:
+                                seq = seq.translate(COMPLEMENT)[::-1]
+                            write(state, b"g%dx_%d" % (g, state["reads"] * step + offset + 1), seq)
+                            state["reads"] += 1
+                        continue
+                    if contigs is None:
+                        contigs = [c for c in read_contigs(genomes[g]["fasta"]) if len(c) >= PBSIM_MIN_LENGTH]
+                        if not contigs:
+                            return None, (f"{genomes[g]['genome']}: no sequence of {PBSIM_MIN_LENGTH} bases or more in "
+                                          f"{genomes[g]['fasta']}")
+                        starts = list(itertools.accumulate(len(c) - PBSIM_MIN_LENGTH + 1 for c in contigs))
                     for length in planned[g]:
-                        seq = host.draw(rng, length)
+                        at = rng.randrange(starts[-1])
+                        k = bisect.bisect_right(starts, at)
+                        start = at - (starts[k - 1] if k else 0)
+                        seq = contigs[k][start:start + length]
                         if rng.random() < 0.5:
                             seq = seq.translate(COMPLEMENT)[::-1]
-                        names.append(f"g{g}x_{len(names) * step + offset + 1}")
-                        out.write(b">" + names[-1].encode() + b"\n" + seq + b"\n")
-                        bases += len(seq)
-                    continue
-                contigs = [c for c in read_contigs(genomes[g]["fasta"]) if len(c) >= PBSIM_MIN_LENGTH]
-                if not contigs:
-                    return None, f"{genomes[g]['genome']}: no sequence of {PBSIM_MIN_LENGTH} bases or more in {genomes[g]['fasta']}"
-                starts = list(itertools.accumulate(len(c) - PBSIM_MIN_LENGTH + 1 for c in contigs))
-                for length in planned[g]:
-                    at = rng.randrange(starts[-1])
-                    k = bisect.bisect_right(starts, at)
-                    start = at - (starts[k - 1] if k else 0)
-                    seq = contigs[k][start:start + length]
-                    if rng.random() < 0.5:
-                        seq = seq.translate(COMPLEMENT)[::-1]
-                    names.append(f"g{g}x_{len(names) * step + offset + 1}")
-                    out.write(b">" + names[-1].encode() + b"\n" + seq + b"\n")
-                    bases += len(seq)
-    return names, None
+                        write(state, b"g%dx_%d" % (g, state["reads"] * step + offset + 1), seq)
+                        state["reads"] += 1
+        for state in states:
+            state["out"].write(b"".join(state["buffer"]))
+    return [state["reads"] for state in states], None
 
 
 def last_line(path, limit=300):
@@ -1023,30 +1083,49 @@ def last_line(path, limit=300):
 
 
 def long_read_sample(task):
-    """One long-read sample (task: dict): its reads drawn as templates (long_read_templates), then a read of
-    each, named after its template (g<genome>x_<n>), into task["out"]: by hifi_reads.py for a hifi setup (its flow
-    model for an ultima one), else by one pbsim3 run with --strategy templ, which makes one read of each template,
-    with the model's errors and qualities, and names it <id prefix>_<n> after the template's place n in the file.
-    -> None, or why it failed."""
-    tmp = task["tmp"]
-    os.makedirs(tmp, exist_ok=True)
-    task = {**task, "templates": os.path.join(tmp, "templates.fa")}
-    names, error = long_read_templates(task)
+    """One long-read sample (task: dict), or one that is not simulated in chunks: its reads drawn as templates
+    (draw_templates), then made of them (make_reads). -> None, or why it failed."""
+    os.makedirs(task["tmp"], exist_ok=True)
+    task = {**task, "templates": os.path.join(task["tmp"], "templates.fa")}
+    counts, error = draw_templates([task])
     if error:
         return f"{task['sample']}: {error}"
-    setup = task["setup"]
+    return make_reads(task, counts[0])
+
+
+def draw_chunks(chunks):
+    """The templates of all chunks of one sample (long_read_chunks), drawn in one pass over its genomes
+    (draw_templates), each into its chunk's folder. -> ([templates of each chunk], None), or (None, why it failed)."""
+    for chunk in chunks:
+        os.makedirs(chunk["tmp"], exist_ok=True)
+    counts, error = draw_templates(chunks)
+    return counts, (f"{chunks[0]['sample']}: {error}" if error else None)
+
+
+def make_reads(task, count):
+    """A read of each of the `count` templates in task["templates"] (draw_templates), named after it (g<genome>x_<n>),
+    into task["out"]: by hifi_reads.py for a hifi setup (its flow model for an ultima one), else by one pbsim3 run
+    with --strategy templ, which makes one read of each template, with the model's errors and qualities, and names it
+    <id prefix>_<n> after the template's place n in the file (gzipped templates are unpacked for it first). Then
+    task["tmp"] goes (its templates: ~6 GB for a 6 Gb sample, and pbsim3's files). -> None, or why it failed."""
+    tmp, setup, templates = task["tmp"], task["setup"], task["templates"]
     if setup["method"] in ("hifi", "ultima"):
         import hifi_reads  # numpy: only long-read collections need it
-        reads = hifi_reads.simulate(task["templates"], task["out"] + ".partial", setup["q_sd"], task["seed"],
-                                    setup.get("q_mean"))
-        if reads != len(names):
-            return f"{task['sample']}: hifi_reads.py made {reads} reads of {len(names)} templates"
+        reads = hifi_reads.simulate(templates, task["out"] + ".partial", setup["q_sd"], task["seed"], setup.get("q_mean"))
+        if reads != count:
+            return f"{task['sample']}: hifi_reads.py made {reads} reads of {count} templates"
         os.replace(task["out"] + ".partial", task["out"])
-        shutil.rmtree(tmp, ignore_errors=True)  # its templates: ~6 GB for a 6 Gb sample, not kept for the point's others
+        shutil.rmtree(tmp, ignore_errors=True)
         return None
+    if templates.endswith(".gz"):  # pbsim3 reads plain FASTA
+        plain = templates[:-len(".gz")]
+        with gzip.open(templates, "rb") as fin, open(plain, "wb") as fout:
+            shutil.copyfileobj(fin, fout, 16 << 20)
+        os.remove(templates)
+        templates = plain
     prefix = os.path.join(tmp, "r")
     command = [task["pbsim"], "--strategy", "templ", "--method", setup["method"], f"--{setup['method']}", task["model"],
-               "--template", task["templates"], "--accuracy-mean", str(setup["accuracy"]), "--seed", str(task["seed"]),
+               "--template", templates, "--accuracy-mean", str(setup["accuracy"]), "--seed", str(task["seed"]),
                "--prefix", prefix, "--id-prefix", "r"]
     if setup.get("ratio"):
         command += ["--difference-ratio", setup["ratio"]]
@@ -1059,20 +1138,25 @@ def long_read_sample(task):
     if len(fastqs) != 1:
         return f"{task['sample']}: pbsim wrote {len(fastqs)} FASTQ files ({prefix}.fq.gz expected); see {log_path}"
     reads, lines = 0, 0
-    with (gzip.open(fastqs[0], "rb") if fastqs[0].endswith(".gz") else open(fastqs[0], "rb")) as fin, \
+    with open(templates, "rb") as names_in, \
+            (gzip.open(fastqs[0], "rb") if fastqs[0].endswith(".gz") else open(fastqs[0], "rb")) as fin, \
             gzip.open(task["out"] + ".partial", "wb", compresslevel=1) as fout:
+        names = (line[1:] for line in names_in if line.startswith(b">"))  # the templates' names, in file order
         for line in fin:
             if lines % 4 == 0:
                 reads += 1
-                if reads > len(names):
+                if reads > count:
                     break
-                line = b"@" + names[reads - 1].encode() + b"\n"
+                name = next(names, None)
+                if name is None:
+                    return f"{task['sample']}: {templates} has fewer than {count} templates"
+                line = b"@" + name
             fout.write(line)
             lines += 1
-    if reads != len(names) or lines % 4:
-        return f"{task['sample']}: pbsim made {reads} reads of {len(names)} templates; see {log_path}"
+    if reads != count or lines % 4:
+        return f"{task['sample']}: pbsim made {reads} reads of {count} templates; see {log_path}"
     os.replace(task["out"] + ".partial", task["out"])
-    shutil.rmtree(tmp, ignore_errors=True)  # its templates and pbsim3's reads, not kept for the point's other samples
+    shutil.rmtree(tmp, ignore_errors=True)
     return None
 
 
@@ -1084,8 +1168,9 @@ LONG_READ_CHUNK = 250_000_000
 def long_read_chunks(task, chunk):
     """A long-read sample's task as the tasks of its chunks: [task] if it has `chunk` bases or fewer (or chunk is 0),
     else k = ceil(bases / chunk) tasks of a k-th of its bases each, with seeds of their own, the read names of chunk
-    c every k-th from c + 1 (long_read_templates), each into its own file in the sample's tmp folder; join_chunks
-    then writes the sample's reads."""
+    c every k-th from c + 1 (draw_templates), each with its own folder in the sample's tmp folder, its templates
+    there gzipped (draw_chunks writes all chunks' templates at once) and its reads next to them; join_chunks then
+    writes the sample's reads."""
     bases = task["bases"]
     if not chunk or bases <= chunk:
         return [task]
@@ -1093,12 +1178,13 @@ def long_read_chunks(task, chunk):
     part = bases // k
     return [{**task, "bases": part if c < k - 1 else bases - part * (k - 1), "seed": task["seed"] * 1009 + c + 1,
              "out": os.path.join(task["tmp"], f"chunk{c + 1}.fq.gz"), "tmp": os.path.join(task["tmp"], f"c{c + 1}"),
+             "templates": os.path.join(task["tmp"], f"c{c + 1}", "templates.fa.gz"),
              "name_step": k, "name_offset": c} for c in range(k)]
 
 
 def join_chunks(task, chunks):
-    """The chunks' reads (gzip files, one after the other: a gzip file of several members) as the sample's reads.
-    -> None, or why it failed."""
+    """The chunks' reads (gzip files, one after the other: a gzip file of several members) as the sample's reads,
+    each chunk's file removed once it is in (the sample is not on the disk twice). -> None, or why it failed."""
     if len(chunks) == 1:
         return None
     try:
@@ -1106,6 +1192,7 @@ def join_chunks(task, chunks):
             for chunk in chunks:
                 with open(chunk["out"], "rb") as fh:
                     shutil.copyfileobj(fh, out, 16 << 20)
+                os.remove(chunk["out"])
         os.replace(task["out"] + ".partial", task["out"])
     except OSError as exc:
         return f"{task['sample']}: joining its chunks: {exc}"
@@ -1114,12 +1201,19 @@ def join_chunks(task, chunks):
 
 
 def long_read_seconds(task):
-    """A rough estimate of a long-read task's time on one core, to start the longest first (measured 2026-10-03:
+    """A rough estimate of a long-read task's reads on one core, to start the longest first (measured 2026-10-03:
     ~10 s of templates, pbsim3 ~0.4 s and hifi_reads.py ~0.15 s per Mb; short Ultima reads add the drawing of each,
-    a guess of 5 us)."""
+    a guess of 5 us). Its templates' drawing is draw_seconds."""
     setup = task["setup"]
     seconds = 10 + task["bases"] / 1e6 * (0.15 if setup["method"] in ("hifi", "ultima") else 0.45)
     return seconds + (task["bases"] / max(1, setup["length_mean"]) * 5e-6 if setup["method"] == "ultima" else 0)
+
+
+def draw_seconds(task):
+    """A rough estimate of the drawing of a sample's templates on one core (draw_templates; measured 2026-10-05): its
+    genomes read ~1.6 times each at ~21 ms, and each template drawn in ~4 us (Ultima reads) to ~25 us (long reads)."""
+    reads = task["bases"] / max(1, task["setup"]["length_mean"])
+    return len(task.get("genomes", ())) * 0.035 + reads * (4e-6 if task["setup"]["method"] == "ultima" else 25e-6)
 
 
 def pe_point_seconds(point, threads):
@@ -1129,34 +1223,121 @@ def pe_point_seconds(point, threads):
     return point["samples"] * per_sample / max(1, threads)
 
 
+class Workers:
+    """Where the collector's Python work runs (drawing templates, making long reads of them, a host's fragments): in
+    worker processes once started (main: Workers.started), so that it does not share one interpreter lock with the
+    Scheduler's threads, which only wait for it (on threads, 64 slots made ~3 cores of it, 2026-10-05); without them
+    (simulate_long, tests) on the calling thread."""
+    pool = None
+
+    @classmethod
+    def call(cls, function, *args):
+        """function(*args) in a worker process, or here if none are started. -> its result."""
+        if cls.pool is None:
+            return function(*args)
+        return cls.pool.submit(function, *args).result()
+
+    @classmethod
+    @contextlib.contextmanager
+    def started(cls, n):
+        """n worker processes (started as they are needed) for the calls within. forkserver: the Scheduler's threads
+        are running when they start, and a forked copy of a process with threads may hang on a lock one held."""
+        methods = multiprocessing.get_all_start_methods()
+        context = multiprocessing.get_context("forkserver" if "forkserver" in methods else "spawn")
+        with concurrent.futures.ProcessPoolExecutor(max(1, n), mp_context=context) as pool:
+            cls.pool = pool
+            try:
+                yield pool
+            finally:
+                cls.pool = None
+
+
+# Bytes on the disk per base a simulation writes, for the room it needs (Scheduler space; measured 2026-10-05,
+# docs/claude/2026-10-05-collector-profiling): paired-end reads (BGZF) ~0.6-1.0 per base read; drawn reads (gzip)
+# ~1.1, their plain templates 1.0 (gzipped ~0.35), and pbsim3's own files (its reads and alignments) ~1.4 more.
+PE_BYTES, DRAWN_BYTES, TEMPLATE_BYTES, GZIPPED_TEMPLATE_BYTES, PBSIM_BYTES = 0.8, 1.1, 1.0, 0.35, 1.4
+
+
+def drawn_bytes(task, gzipped=False):
+    """The most a long-read task (a sample or chunk) has on the disk: its templates, its reads and pbsim3's files."""
+    pbsim = task["setup"]["method"] in PBSIM_METHODS
+    templates = GZIPPED_TEMPLATE_BYTES + (TEMPLATE_BYTES if pbsim else 0) if gzipped else TEMPLATE_BYTES
+    return int(task["bases"] * (templates + DRAWN_BYTES + (PBSIM_BYTES if pbsim else 0)))
+
+
+# Jobs of a group run at most so many at once (Scheduler limits): a sample whose templates are drawn holds all its
+# chunks' templates on the disk (gzipped, ~0.4 bytes per base) until the chunks' reads are made, and the chunks' reads
+# come first (READS_FIRST), so that drawn templates do not pile up while more samples are drawn.
+DRAW_GROUP = "draw"
+READS_FIRST = 9e8  # a chunk's reads: before any sample's drawing or a sample made whole, after the paired-end points
+
+
+def draw_limit(slots):
+    """Samples drawn at once on `slots` cores (a quarter of them, at least 2): with 64 cores, 16 drawings of ~10 min
+    for a 6 Gb sample of a soil community keep the cores that make their reads busy."""
+    return max(2, slots // 4)
+
+
 class Scheduler:
     """Runs jobs on `slots` slots (cores), the ready job of highest priority first; a job is ready once the jobs it
     comes after are done. A job: name, run: () -> (None or why it failed, [new jobs as add's keywords]), need: slots
-    (at most all), after: names, priority. A job's new jobs join the queue. Once a job has failed no more start;
-    the running ones end. run() -> {name: why it failed}."""
+    (at most all), after: names, priority, group: at most limits[group] of a group's jobs run at once; disk: the bytes
+    it writes, opens: whether it starts new work (a sample) rather than finishing work begun (a chunk's reads). With
+    space = (folder, bytes to keep free), a job starts only while the folder's file system has room for it and for
+    the jobs running, and one that opens new work only if `bytes to keep free` are left besides; otherwise it waits
+    (for a --follow run to remove reads). A job's new jobs join the queue. Once a job has failed no more start; the
+    running ones end. run() -> {name: why it failed}."""
 
-    def __init__(self, slots):
+    def __init__(self, slots, limits=None, space=None):
         self.slots = max(1, slots)
+        self.limits = dict(limits or {})
+        self.space = space
         self.pending = []
 
-    def add(self, name, run, need=1, after=(), priority=0.0):
+    def add(self, name, run, need=1, after=(), priority=0.0, group=None, disk=0, opens=True):
         self.pending.append({"name": name, "run": run, "need": max(1, min(need, self.slots)), "after": set(after),
-                             "priority": priority})
+                             "priority": priority, "group": group, "disk": disk, "opens": opens})
+
+    def room(self, job, running):
+        """Whether the file system has room for the job (always without space)."""
+        if not self.space or not job["disk"]:
+            return True
+        folder, keep = self.space
+        coming = sum(j["disk"] for j in running.values())  # may be written already: the bound errs on the safe side
+        return shutil.disk_usage(folder).free - coming >= job["disk"] + (keep if job["opens"] else 0)
 
     def run(self):
         done, failures, running, free = set(), {}, {}, self.slots
+        said = 0.0
         with concurrent.futures.ThreadPoolExecutor(self.slots) as executor:
             while self.pending or running:
+                waiting = None  # a ready job that waits for room
                 if not failures:
                     ready = sorted((j for j in self.pending if j["after"] <= done), key=lambda j: -j["priority"])
+                    groups = collections.Counter(j["group"] for j in running.values())
                     for job in ready:  # the first that fits; smaller ones fill what is left
+                        if job["group"] in self.limits and groups[job["group"]] >= self.limits[job["group"]]:
+                            continue
                         if job["need"] <= free or not running:
+                            if not self.room(job, running):
+                                waiting = waiting or job
+                                continue
                             self.pending.remove(job)
                             running[executor.submit(job["run"])] = job
                             free -= job["need"]
+                            groups[job["group"]] += 1
+                if waiting and time.time() - said >= 600:
+                    print(f"{waiting['name']} waits for room: {waiting['disk'] / 1e9:.1f} GB of its own and "
+                          f"{self.space[1] / 1e9:.0f} GB to keep free on {self.space[0]}, which has "
+                          f"{shutil.disk_usage(self.space[0]).free / 1e9:.1f} GB free", flush=True)
+                    said = time.time()
                 if not running:
+                    if waiting:  # nothing runs: the room comes from reads that a --follow run removes
+                        time.sleep(30)
+                        continue
                     break  # nothing runs and nothing can start: a job failed, or one waits for a job that never came
-                finished, _ = concurrent.futures.wait(running, return_when=concurrent.futures.FIRST_COMPLETED)
+                finished, _ = concurrent.futures.wait(running, timeout=30 if waiting else None,
+                                                      return_when=concurrent.futures.FIRST_COMPLETED)
                 for future in finished:
                     job = running.pop(future)
                     free += job["need"]
@@ -1218,8 +1399,21 @@ def long_unit_jobs(index, unit, opts, keys, started, counter, source=None):
             task["genomes"].append({"genome": "host", "fasta": "", "host": opts.host_folder, "weight": weight})
         chunks = long_read_chunks(task, chunk)
         names = [f"long:{sample}:{c + 1}" for c in range(len(chunks))]
-        jobs += [{"name": name, "run": lambda part=part: (long_read_sample(part), []), "need": need,
-                  "priority": long_read_seconds(part)} for name, part in zip(names, chunks)]
+        if len(chunks) == 1:  # drawn and made in one job
+            jobs.append({"name": names[0], "run": lambda task=task: (Workers.call(long_read_sample, task), []),
+                         "need": need, "priority": draw_seconds(task) + long_read_seconds(task), "disk": drawn_bytes(task)})
+        else:  # the chunks' templates drawn in one pass over the genomes, then each chunk's reads made on its own
+
+            def draw(chunks=chunks, names=names):
+                counts, error = Workers.call(draw_chunks, chunks)
+                if error:
+                    return error, []
+                return None, [{"name": name, "run": lambda part=part, count=count: (Workers.call(make_reads, part, count), []),
+                               "need": need, "priority": READS_FIRST + long_read_seconds(part),
+                               "disk": drawn_bytes(part, gzipped=True), "opens": False}
+                              for name, part, count in zip(names, chunks, counts)]
+            jobs.append({"name": f"draw:{sample}", "run": draw, "group": DRAW_GROUP, "priority": draw_seconds(task),
+                         "disk": int(task["bases"] * GZIPPED_TEMPLATE_BYTES)})
         jobs.append({"name": f"join:{sample}", "run": lambda task=task, chunks=chunks: (join_chunks(task, chunks), []),
                      "after": names, "priority": 2e9})
 
@@ -1242,7 +1436,7 @@ def long_unit_jobs(index, unit, opts, keys, started, counter, source=None):
 def simulate_long(points, opts, jobs, keys=None):
     """Long reads (pb, ont) of design points [(index, unit)] whose paired-end points are simulated
     (long_unit_jobs), on `jobs` slots, the longest samples (or chunks of them) first. -> {job: why it failed}."""
-    scheduler, started = Scheduler(jobs), time.time()
+    scheduler, started = Scheduler(jobs, {DRAW_GROUP: draw_limit(jobs)}), time.time()
     counter = {"long": 0, "long_total": len(points)}
     for index, unit in points:
         scheduler.add(f"units:{unit['name']}", lambda index=index, unit=unit: (
@@ -1334,10 +1528,11 @@ def profile_map(units, opts, path):
     return rows
 
 
-def profile(units, opts, extra=()):
+def profile(units, opts, extra=(), folder=None):
     """Profiles the samples of all units, and the `extra` map rows (another collection's, --also_profile), in one
-    protal run: the database is loaded once, and every sample is profiled as its READ_TYPE says."""
-    folder = os.path.join(opts.out, "profile_all")
+    protal run: the database is loaded once, and every sample is profiled as its READ_TYPE says. Its map and log go
+    to `folder` (default OUT/profile_all)."""
+    folder = folder or os.path.join(opts.out, "profile_all")
     combined = os.path.join(folder, "samples.map")
     rows = profile_map(units, opts, combined)
     if extra:
@@ -1498,9 +1693,347 @@ def prepare_scenarios(points, units, opts, novel):
                 point["host_key"] = host
 
 
+def long_key(unit, index, opts, keys):
+    """What a long-read unit's samples are made from (its simulated.json): its communities' points' keys, its setup,
+    the seed, pbsim3 and its model (or hifi_reads.py's), the chunks, the host."""
+    pbsim = unit["setup"]["method"] in PBSIM_METHODS
+    key = {"communities": [keys[p["name"]] for p in unit["communities"]], "samples": unit["samples"],
+           "setup": unit["setup"], "bases": unit["bases"], "index": unit.get("seed_index", index), "seed": opts.seed,
+           "pbsim": identity(opts.pbsim) if pbsim else None,
+           "model": identity(pbsim_model(opts, unit["setup"]["model"])) if pbsim else hifi_model(unit["setup"]["method"]),
+           "reads": LONG_READS}
+    if opts.long_read_chunk and unit["bases"] > opts.long_read_chunk:  # chunks make other reads
+        key["chunk"] = opts.long_read_chunk
+    if unit.get("host_share"):
+        key["host"] = {"genome": scenarios.host_identity(opts.host_folder), "share": unit["host_share"]}
+    return key
+
+
+def simulation_of(unit):
+    """The name of what a unit's samples are simulated as (its key in keys): its own point (drawn reads) or its
+    paired-end point (pe, se)."""
+    return unit["name"] if drawn(unit) else unit["point"]["name"]
+
+
+def pe_bytes(point):
+    """What a paired-end point's reads take on the disk (the community's; a host's are added by jobs of their own)."""
+    if point.get("reads") is False:
+        return 0
+    pairs = float(point.get("community_pairs") or point["read_pairs"])
+    return int(point["samples"] * pairs * 2 * int(point["read_length"]) * PE_BYTES)
+
+
+def simulate_all(pe_points, units, opts, keys, clades, slots, needed, force=frozenset()):
+    """Simulates the points not yet simulated from their inputs (and those in `force`, whose reads were removed but
+    are to be profiled again), in one queue on `slots` cores (Scheduler): the paired-end points with all the threads
+    between them, and the long-read samples (or chunks of them) as cores come free, the longest first. A long-read
+    point needs only the communities of its paired-end points: a design run (simulate_metagenomes --test, the same
+    communities without reads) gives them in seconds, so long reads need not wait for the paired-end reads."""
+    pending = []
+    for i, p in enumerate(pe_points):
+        base, sim, _ = point_dirs(p, opts)
+        if p["name"] not in needed:
+            continue
+        if p["name"] in force:
+            print(f"{p['name']}: its reads were removed and are to be profiled again: simulating it again", flush=True)
+            shutil.rmtree(base, ignore_errors=True)
+        elif os.path.isfile(os.path.join(sim, "protal.meta")):
+            if same_key(os.path.join(base, "simulated.json"), keys[p["name"]]):
+                continue
+            print(f"{p['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
+            shutil.rmtree(base)
+        pending.append((i, p))
+    long_pending = []
+    for i, unit in enumerate(u for u in units if drawn(u)):
+        base = point_dirs(unit["point"], opts)[0]
+        if unit["name"] in force:
+            print(f"{unit['name']}: its reads were removed and are to be profiled again: simulating it again", flush=True)
+            shutil.rmtree(base, ignore_errors=True)
+        elif simulated(unit, opts) and not same_key(os.path.join(base, "simulated.json"), keys[unit["name"]]):
+            print(f"{unit['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
+            shutil.rmtree(base)
+        if not simulated(unit, opts):
+            long_pending.append((i, unit))
+    if not pending and not long_pending:
+        return
+    space = (opts.out, opts.min_free * 1e9) if opts.min_free > 0 else None
+    scheduler, started = Scheduler(slots, {DRAW_GROUP: draw_limit(slots)}, space), time.time()
+    counter = {"pe": 0, "long": 0, "long_total": len(long_pending)}
+    # The paired-end points share the cores with the long reads by their estimated work, so that both end about
+    # together (the long reads take the cores the paired-end points leave, and those they free).
+    pe_work = sum(pe_point_seconds(p, 1) for _, p in pending)
+    long_work = sum(u["samples"] * long_read_seconds(u) * (2 if u["setup"]["method"] in PBSIM_METHODS else 1)
+                    for _, u in long_pending)
+    threads_of = pe_threads(pending, max(1, round(slots * pe_work / ((pe_work + long_work) or 1))))
+    if pending:
+        more = [f"{p['name']} {threads_of[p['name']]}" for _, p in pending if threads_of[p["name"]] > 1]
+        print(f"simulating {len(pending)} paired-end design points"
+              + (f" (threads: {', '.join(more)}, the others 1)" if more else ""), flush=True)
+    if long_pending:
+        print(f"simulating {len(long_pending)} long-read design points "
+              f"({sum(u['samples'] for _, u in long_pending)} samples) as cores come free, the longest samples first"
+              + (f", those above {opts.long_read_chunk} bases in chunks" if opts.long_read_chunk else ""), flush=True)
+    if space:
+        print(f"keeping {opts.min_free:g} GB free on {opts.out} ({shutil.disk_usage(opts.out).free / 1e9:.1f} GB free "
+              "now): a simulation that would leave less waits for reads to be profiled and removed (--follow)", flush=True)
+    designed = {}  # paired-end point name -> its design folder, for the long reads until its reads are there
+    for i, p in pending:
+        def simulate_point(i=i, p=p):
+            began = time.time()
+            failure = simulate(p, i, opts, threads_of[p["name"]], clades, keys[p["name"]])
+            if not failure and p["name"] in designed:
+                failure = same_design(p, designed[p["name"]], opts)
+            counter["pe"] += 1
+            print(f"{p['name']} {'failed' if failure else 'simulated'} ({p['samples']} samples) in "
+                  f"{clock(time.time() - began)}: {counter['pe']} of {len(pending)} paired-end design points, "
+                  f"{clock(time.time() - started)} in all", flush=True)
+            if failure or not p.get("host_pairs"):
+                return failure, []
+            return None, host_pe_jobs(p, opts, keys[p["name"]], started)  # then its host's reads
+        # Before any long-read sample (all start at once): the deepest could otherwise wait for long reads.
+        scheduler.add(f"pe:{p['name']}", simulate_point, need=threads_of[p["name"]],
+                      priority=1e9 + pe_point_seconds(p, threads_of[p["name"]]), disk=pe_bytes(p))
+    pending_names = {p["name"] for _, p in pending}
+    for i, p in pending:
+        if any(p in u["communities"] for _, u in long_pending):
+            def design_point(i=i, p=p):
+                folder, error = design(p, i, opts, clades)
+                designed[p["name"]] = folder
+                return error, []
+            scheduler.add(f"design:{p['name']}", design_point, priority=4e9)
+    for i, unit in long_pending:
+        after = [f"design:{p['name']}" for p in unit["communities"] if p["name"] in pending_names]
+        source = lambda point: designed.get(point["name"]) or point_dirs(point, opts)[1]
+        scheduler.add(f"units:{unit['name']}", lambda i=i, unit=unit, source=source: (
+            None, long_unit_jobs(i, unit, opts, keys, started, counter, source)), after=after, priority=3e9)
+    with Workers.started(slots):  # the Python work of the long reads and the host's fragments in processes
+        failures = scheduler.run()
+    if failures:
+        sys.exit("\n".join(f"{name}: {why}" for name, why in list(failures.items())[:10]))
+    for folder in designed.values():
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+# ---- profiling as the simulations go on (--follow) ----------------------------------------------------------
+
+def profile_keys(units, opts, keys):
+    """{unit name: what its profiles are made with (profiled.json)}: its simulation's key, the database's and
+    protal's identity, the read type."""
+    db, protal = db_identity(opts.db), identity(opts.protal)
+    return {u["name"]: {"simulated": keys[simulation_of(u)], "db": db, "protal": protal, "read_type": u["type"]}
+            for u in units}
+
+
+def profiled(unit, opts, key):
+    """Whether a unit is profiled with this key, all its samples' dumps there."""
+    return same_key(os.path.join(profile_dir(unit, opts), "profiled.json"), key) and \
+        len(dumps_of(unit, opts)) >= unit["samples"]
+
+
+def unit_reads(unit, opts):
+    """The read files a unit's samples are profiled from, those of its paired-end point for pe and se (both reads of
+    each pair: they are removed together); [] before its simulation has written them."""
+    sim = point_dirs(unit["point"], opts)[1]
+    if drawn(unit):
+        path = os.path.join(sim, "samples.tsv")
+        if not os.path.isfile(path):
+            return []
+        with open(path) as fh:
+            next(fh)
+            return [line.split("\t")[1] for line in fh if line.strip()]
+    meta = os.path.join(sim, "protal.meta")
+    if not os.path.isfile(meta):
+        return []
+    return [row[c] for row in map_rows(meta)[1] for c in ("FIRST", "SECOND") if row.get(c, "-") not in ("", "-")]
+
+
+def simulation_done(unit, opts, keys):
+    """Whether a unit's simulation has ended (its point's simulated.json, written last, has its key; for drawn
+    reads, their community points' too: their truth files are those the samples name)."""
+    points = [unit["point"]] + (unit["communities"] if drawn(unit) else [])
+    return all(same_key(os.path.join(point_dirs(p, opts)[0], "simulated.json"),
+                        keys[unit["name"] if p is unit["point"] and drawn(unit) else p["name"]]) for p in points)
+
+
+def reads_removed(units, opts, keys, key_of):
+    """The simulations (simulation_of) whose units are to be profiled but whose reads were removed (by a --follow run
+    profiling with another database or protal, say): they are simulated again."""
+    out = set()
+    for unit in units:
+        files = unit_reads(unit, opts)
+        if not profiled(unit, opts, key_of[unit["name"]]) and simulation_done(unit, opts, keys) and \
+                files and not all(os.path.isfile(f) for f in files):
+            out.add(simulation_of(unit))
+    return out
+
+
+def start_profiling(units, opts, key_of):
+    """The profile folders of units about to be profiled: a stopped run's kept (its profiling.json has this key),
+    others emptied and given the key."""
+    for unit in units:
+        folder = profile_dir(unit, opts)
+        key = key_of[unit["name"]]
+        if not same_key(os.path.join(folder, "profiling.json"), key):  # else a stopped run's: go on with it
+            if dumps_of(unit, opts):
+                print(f"{unit['name']} was profiled against another database or with another protal (or by an older "
+                      "collector): profiling it again", flush=True)
+            shutil.rmtree(folder, ignore_errors=True)
+            os.makedirs(folder)
+            write_key(os.path.join(folder, "profiling.json"), key)
+
+
+def end_profiling(units, opts):
+    for unit in units:
+        folder = profile_dir(unit, opts)
+        os.replace(os.path.join(folder, "profiling.json"), os.path.join(folder, "profiled.json"))
+
+
+def remove_profiled_reads(units, opts, key_of):
+    """Removes the reads of every point whose units (the read types that read them) are all profiled; the point's
+    sim/reads_removed.txt lists them. -> bytes freed."""
+    by_reads = collections.defaultdict(list)
+    for unit in units:
+        by_reads[point_dirs(unit["point"], opts)[1]].append(unit)
+    freed = 0
+    for sim, readers in by_reads.items():
+        if not all(profiled(u, opts, key_of[u["name"]]) for u in readers):
+            continue
+        present = [f for f in dict.fromkeys(f for u in readers for f in unit_reads(u, opts)) if os.path.isfile(f)]
+        if not present:
+            continue
+        with open(os.path.join(sim, "reads_removed.txt"), "a") as fh:
+            for f in present:
+                freed += os.path.getsize(f)
+                os.remove(f)
+                fh.write(f + "\n")
+    return freed
+
+
+@contextlib.contextmanager
+def protal_turn(path):
+    """While protal runs: the lock file `path` held (--protal_lock), so that the runs of collections take turns."""
+    if not path:
+        yield
+        return
+    import fcntl
+    with open(path, "a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def simulating_file(opts):
+    return os.path.join(opts.out, "simulating.json")
+
+
+@contextlib.contextmanager
+def simulating(opts):
+    """While a --simulate_only run runs: OUT/simulating.json names its process, for a --follow run to know, and says
+    once it has prepared what the simulations and the keys need (scenario tables, the host genome: mark_prepared)."""
+    import socket
+    write_key(simulating_file(opts), {"pid": os.getpid(), "host": socket.gethostname(), "prepared": False})
+    try:
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(simulating_file(opts))
+
+
+def simulation_state(out):
+    """OUT/simulating.json of a --simulate_only run, or None."""
+    try:
+        with open(os.path.join(out, "simulating.json")) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def mark_prepared(opts):
+    state = simulation_state(opts.out)
+    if state:
+        write_key(simulating_file(opts), {**state, "prepared": True})
+
+
+def simulations_running(opts):
+    """Whether a --simulate_only run of this collection is running (on another host: assumed so while its file is
+    there)."""
+    import socket
+    who = simulation_state(opts.out)
+    if who is None:
+        return False
+    if who.get("host") != socket.gethostname():
+        return True
+    try:
+        os.kill(int(who["pid"]), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
+
+
+def follow(units, opts, keys, simulate_again):
+    """--follow: profiles the units as this collection's --simulate_only run simulates them, in protal runs of at
+    least --profile_block GB of reads, or of all that are ready once the simulations have ended; after each run, the
+    reads of points profiled for every read type that reads them are removed. Units it cannot profile once the
+    simulations have ended (never simulated, or their reads removed) are simulated here: simulate_again(names)."""
+    key_of = profile_keys(units, opts, keys)
+    block, runs, again, began = opts.profile_block * 1e9, 0, set(), time.time()
+    told = time.time()
+    while True:
+        todo = [u for u in units if not profiled(u, opts, key_of[u["name"]])]
+        if not todo:
+            break
+        running = simulations_running(opts)
+        ready, files = [], {}
+        for unit in todo:
+            reads = unit_reads(unit, opts)
+            if simulation_done(unit, opts, keys) and reads and all(os.path.isfile(f) for f in reads):
+                ready.append(unit)
+                files.update(dict.fromkeys(reads))
+        size = sum(os.path.getsize(f) for f in files)
+        if ready and (size >= block or not running):
+            runs += 1
+            start_profiling(ready, opts, key_of)
+            print(f"protal run {runs}: {len(ready)} design points, {size / 1e9:.1f} GB of reads; the simulations "
+                  f"{'go on' if running else 'have ended'}; {len(todo) - len(ready)} design points after these", flush=True)
+            with protal_turn(opts.protal_lock):
+                profile(ready, opts, folder=os.path.join(opts.out, "profile_all", f"run{runs}"))
+            end_profiling(ready, opts)
+            freed = remove_profiled_reads(units, opts, key_of)
+            print(f"protal run {runs} done, {clock(time.time() - began)} in all: {freed / 1e9:.1f} GB of reads removed, "
+                  f"{shutil.disk_usage(opts.out).free / 1e9:.1f} GB free on {opts.out}", flush=True)
+            continue
+        if not running:
+            stuck = {simulation_of(u) for u in todo}
+            if stuck <= again:
+                sys.exit(f"{', '.join(sorted(stuck))}: not simulated, although simulated again here")
+            print(f"the simulations have ended, but {len(stuck)} design points have no reads to profile (never simulated, "
+                  "or their reads were removed): simulating them here", flush=True)
+            simulate_again(stuck)
+            again |= stuck
+            continue
+        if time.time() - told >= 600:
+            print(f"{len(todo)} design points to profile, {len(ready)} of them simulated ({size / 1e9:.1f} GB of reads); "
+                  f"waiting for the simulations, {clock(time.time() - began)} in all", flush=True)
+            told = time.time()
+        time.sleep(opts.poll)
+    print(f"every design point is profiled, in {runs} protal run{'s' if runs != 1 else ''}", flush=True)
+
+
 def main(argv=None):
     opts = parse_args(argv)
     os.makedirs(opts.out, exist_ok=True)
+    with simulating(opts) if opts.simulate_only else contextlib.nullcontext():
+        collect(opts)
+
+
+def collect(opts):
+    if opts.follow:  # what the simulations prepare (scenario tables, the host genome) is theirs to write
+        while simulations_running(opts) and not (simulation_state(opts.out) or {}).get("prepared"):
+            time.sleep(min(opts.poll, 5))
     domains = species_domains(opts.genome_table)
     novel = read_novel(opts.novel_species) if opts.novel_species else {}
     reps = representatives(opts.taxonomy) if opts.taxonomy else {}
@@ -1518,142 +2051,52 @@ def main(argv=None):
     slots = max(1, opts.jobs or opts.threads)
     prepare_scenarios(pe_points, units, opts, novel)
 
-    # Every read type needs paired-end points: se reads them, pb and ont replay their communities. All simulations
-    # run in one queue on `slots` cores (Scheduler): the paired-end points with all the threads between them, and the
-    # long-read samples (or chunks of them) as cores come free, the longest first. A long-read point needs only the
-    # communities of its paired-end points: a design run (simulate_metagenomes --test, the same communities without
-    # reads) gives them in seconds, so long reads need not wait for the paired-end reads.
+    # Every read type needs paired-end points: se reads them, pb and ont replay their communities.
     needed = {u["point"]["name"] for u in units if not drawn(u)} | \
              {p["name"] for u in units if drawn(u) for p in u["communities"]}
     keys = {p["name"]: simulation_key(p, i, opts, clades) for i, p in enumerate(pe_points) if p["name"] in needed}
-    pending = []
-    for i, p in enumerate(pe_points):
-        base, sim, _ = point_dirs(p, opts)
-        if p["name"] not in needed:
-            continue
-        if os.path.isfile(os.path.join(sim, "protal.meta")):
-            if same_key(os.path.join(base, "simulated.json"), keys[p["name"]]):
-                continue
-            print(f"{p['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
-            shutil.rmtree(base)
-        pending.append((i, p))
-    long_units = [u for u in units if drawn(u)]
-    long_pending = []
-    for i, unit in enumerate(long_units):
-        base = point_dirs(unit["point"], opts)[0]
-        pbsim = unit["setup"]["method"] in PBSIM_METHODS
-        keys[unit["name"]] = {"communities": [keys[p["name"]] for p in unit["communities"]], "samples": unit["samples"],
-                              "setup": unit["setup"], "bases": unit["bases"],
-                              "index": unit.get("seed_index", i), "seed": opts.seed,
-                              "pbsim": identity(opts.pbsim) if pbsim else None,
-                              "model": identity(pbsim_model(opts, unit["setup"]["model"])) if pbsim else
-                              hifi_model(unit["setup"]["method"]), "reads": LONG_READS}
-        if opts.long_read_chunk and unit["bases"] > opts.long_read_chunk:  # chunks make other reads
-            keys[unit["name"]]["chunk"] = opts.long_read_chunk
-        if unit.get("host_share"):
-            keys[unit["name"]]["host"] = {"genome": scenarios.host_identity(opts.host_folder), "share": unit["host_share"]}
-        if simulated(unit, opts) and not same_key(os.path.join(base, "simulated.json"), keys[unit["name"]]):
-            print(f"{unit['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
-            shutil.rmtree(base)
-        if not simulated(unit, opts):
-            long_pending.append((i, unit))
-    if pending or long_pending:
-        scheduler, started = Scheduler(slots), time.time()
-        counter = {"pe": 0, "long": 0, "long_total": len(long_pending)}
-        # The paired-end points share the cores with the long reads by their estimated work, so that both end about
-        # together (the long reads take the cores the paired-end points leave, and those they free).
-        pe_work = sum(pe_point_seconds(p, 1) for _, p in pending)
-        long_work = sum(u["samples"] * long_read_seconds(u) * (2 if u["setup"]["method"] in PBSIM_METHODS else 1)
-                        for _, u in long_pending)
-        threads_of = pe_threads(pending, max(1, round(slots * pe_work / ((pe_work + long_work) or 1))))
-        if pending:
-            more = [f"{p['name']} {threads_of[p['name']]}" for _, p in pending if threads_of[p["name"]] > 1]
-            print(f"simulating {len(pending)} paired-end design points"
-                  + (f" (threads: {', '.join(more)}, the others 1)" if more else ""), flush=True)
-        if long_pending:
-            print(f"simulating {len(long_pending)} long-read design points "
-                  f"({sum(u['samples'] for _, u in long_pending)} samples) as cores come free, the longest samples first"
-                  + (f", those above {opts.long_read_chunk} bases in chunks" if opts.long_read_chunk else ""), flush=True)
-        designed = {}  # paired-end point name -> its design folder, for the long reads until its reads are there
-        for i, p in pending:
-            def simulate_point(i=i, p=p):
-                began = time.time()
-                failure = simulate(p, i, opts, threads_of[p["name"]], clades, keys[p["name"]])
-                if not failure and p["name"] in designed:
-                    failure = same_design(p, designed[p["name"]], opts)
-                counter["pe"] += 1
-                print(f"{p['name']} {'failed' if failure else 'simulated'} ({p['samples']} samples) in "
-                      f"{clock(time.time() - began)}: {counter['pe']} of {len(pending)} paired-end design points, "
-                      f"{clock(time.time() - started)} in all", flush=True)
-                if failure or not p.get("host_pairs"):
-                    return failure, []
-                return None, host_pe_jobs(p, opts, keys[p["name"]], started)  # then its host's reads
-            # Before any long-read sample (all start at once): the deepest could otherwise wait for long reads.
-            scheduler.add(f"pe:{p['name']}", simulate_point, need=threads_of[p["name"]],
-                          priority=1e9 + pe_point_seconds(p, threads_of[p["name"]]))
-        pending_names = {p["name"] for _, p in pending}
-        for i, p in pending:
-            if any(p in u["communities"] for _, u in long_pending):
-                def design_point(i=i, p=p):
-                    folder, error = design(p, i, opts, clades)
-                    designed[p["name"]] = folder
-                    return error, []
-                scheduler.add(f"design:{p['name']}", design_point, priority=4e9)
-        for i, unit in long_pending:
-            after = [f"design:{p['name']}" for p in unit["communities"] if p["name"] in pending_names]
-            source = lambda point: designed.get(point["name"]) or point_dirs(point, opts)[1]
-            scheduler.add(f"units:{unit['name']}", lambda i=i, unit=unit, source=source: (
-                None, long_unit_jobs(i, unit, opts, keys, started, counter, source)), after=after, priority=3e9)
-        failures = scheduler.run()
-        if failures:
-            sys.exit("\n".join(f"{name}: {why}" for name, why in list(failures.items())[:10]))
-        for folder in designed.values():
-            shutil.rmtree(folder, ignore_errors=True)
+    for i, unit in enumerate(u for u in units if drawn(u)):
+        keys[unit["name"]] = long_key(unit, i, opts, keys)
     if opts.simulate_only:
-        print("simulated every design point; profiling left to a run without --simulate_only", flush=True)
-        return
-    # Profiling: every unit not yet profiled against this database with this protal, in one protal run.
-    db, protal = db_identity(opts.db), identity(opts.protal)
-    unprofiled = []
-    for unit in units:
-        folder = profile_dir(unit, opts)
-        key = {"simulated": keys[unit["name"] if drawn(unit) else unit["point"]["name"]],
-               "db": db, "protal": protal, "read_type": unit["type"]}
-        if same_key(os.path.join(folder, "profiled.json"), key) and len(dumps_of(unit, opts)) >= unit["samples"]:
-            continue
-        if not same_key(os.path.join(folder, "profiling.json"), key):  # else a stopped run's: go on with it
-            if dumps_of(unit, opts):
-                print(f"{unit['name']} was profiled against another database or with another protal (or by an older "
-                      "collector): profiling it again", flush=True)
-            shutil.rmtree(folder, ignore_errors=True)
-            os.makedirs(folder)
-            write_key(os.path.join(folder, "profiling.json"), key)
-        unprofiled.append(unit)
-    if opts.prepare_profiling:
-        combined = os.path.join(opts.out, "profile_all", "samples.map")
-        for stale in (combined, combined + ".units"):
-            if os.path.exists(stale):
-                os.remove(stale)
-        if unprofiled:
-            rows = profile_map(unprofiled, opts, combined)
-            with open(combined + ".units", "w") as fh:
-                fh.writelines(profile_dir(unit, opts) + "\n" for unit in unprofiled)
-            print(f"{len(rows)} samples of {len(unprofiled)} design points to profile, mapped in {combined} for another "
-                  "collection's protal run (--also_profile)", flush=True)
-        else:
-            print("every design point is profiled", flush=True)
-        return
-    others = [(path, read_map(path)) for path in opts.also_profile]
-    if unprofiled or any(rows for _, rows in others):
-        profile(unprofiled, opts, [row for _, rows in others for row in rows])
-        for unit in unprofiled:
-            folder = profile_dir(unit, opts)
-            os.replace(os.path.join(folder, "profiling.json"), os.path.join(folder, "profiled.json"))
-        for path, _ in others:  # the other collection's run finds them profiled
-            with open(path + ".units") as fh:
-                for folder in (line.rstrip("\n") for line in fh if line.strip()):
-                    os.replace(os.path.join(folder, "profiling.json"), os.path.join(folder, "profiled.json"))
-            os.remove(path + ".units")
+        mark_prepared(opts)
+
+    def simulate_again(force=frozenset()):
+        simulate_all(pe_points, units, opts, keys, clades, slots, needed, force)
+
+    if opts.follow:
+        follow(units, opts, keys, simulate_again)
+    else:
+        key_of = None if opts.simulate_only else profile_keys(units, opts, keys)
+        simulate_again(reads_removed(units, opts, keys, key_of) if key_of else frozenset())
+        if opts.simulate_only:
+            print("simulated every design point; profiling left to a run without --simulate_only", flush=True)
+            return
+        # Profiling: every unit not yet profiled against this database with this protal, in one protal run.
+        unprofiled = [u for u in units if not profiled(u, opts, key_of[u["name"]])]
+        start_profiling(unprofiled, opts, key_of)
+        if opts.prepare_profiling:
+            combined = os.path.join(opts.out, "profile_all", "samples.map")
+            for stale in (combined, combined + ".units"):
+                if os.path.exists(stale):
+                    os.remove(stale)
+            if unprofiled:
+                rows = profile_map(unprofiled, opts, combined)
+                with open(combined + ".units", "w") as fh:
+                    fh.writelines(profile_dir(unit, opts) + "\n" for unit in unprofiled)
+                print(f"{len(rows)} samples of {len(unprofiled)} design points to profile, mapped in {combined} for "
+                      "another collection's protal run (--also_profile)", flush=True)
+            else:
+                print("every design point is profiled", flush=True)
+            return
+        others = [(path, read_map(path)) for path in opts.also_profile]
+        if unprofiled or any(rows for _, rows in others):
+            profile(unprofiled, opts, [row for _, rows in others for row in rows])
+            end_profiling(unprofiled, opts)
+            for path, _ in others:  # the other collection's run finds them profiled
+                with open(path + ".units") as fh:
+                    for folder in (line.rstrip("\n") for line in fh if line.strip()):
+                        os.replace(os.path.join(folder, "profiling.json"), os.path.join(folder, "profiled.json"))
+                os.remove(path + ".units")
     for unit in units:
         if len(dumps_of(unit, opts)) != unit["samples"]:
             sys.exit(f"{unit['name']}: expected {unit['samples']} training dumps in {profile_dir(unit, opts)}, "

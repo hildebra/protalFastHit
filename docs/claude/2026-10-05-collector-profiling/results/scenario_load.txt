@@ -1,0 +1,31 @@
+collection unit                             samples chunks genomes genome reads now  one pass GIL-held CPU h now  one pass all CPU h now  one pass
+training   sc_gut_pb_b6000000000                  3     72     560           85,804     6,778               0.18      0.02          1.07      0.61
+training   sc_gut_ont_b6000000000                 3     72     560           83,632     6,129               0.33      0.18          3.61      3.16
+training   sc_soil_se_ultima_r20000000            3     72    3706          320,064    19,840               0.70      0.10          3.04      1.29
+training   sc_soil_pb_b6000000000                 3     72    3706          272,963    29,901               0.55      0.07          2.16      0.74
+training   sc_soil_ont_b6000000000                3     72    3706          324,897    30,933               0.82      0.23          5.02      3.30
+training   sc_soil_shallow_pb_b1500000000         3     18    3706           65,180    20,476               0.13      0.04          0.52      0.26
+training   sc_soil_shallow_ont_b1500000000        3     18    3706           78,952    22,527               0.20      0.09          1.24      0.91
+training   sc_host_se_ultima_r10000000            3     36      36            2,395       223               0.03      0.02          0.59      0.58
+training   sc_host_pb_b3000000000                 3     36      36            3,771       474               0.01      0.00          0.30      0.28
+training   sc_host_ont_b3000000000                3     36      36            3,645       449               0.09      0.08          1.58      1.56
+test       sc_gut_pb_b6000000000                  2     48     560           53,350     4,358               0.11      0.01          0.69      0.40
+test       sc_gut_ont_b6000000000                 2     48     560           51,719     3,843               0.21      0.12          2.38      2.10
+test       sc_soil_se_ultima_r20000000            2     48    3706          208,481    12,949               0.46      0.07          2.00      0.86
+test       sc_soil_pb_b6000000000                 2     48    3706          178,808    20,078               0.36      0.05          1.42      0.50
+test       sc_soil_ont_b6000000000                2     48    3706          206,089    19,699               0.52      0.15          3.28      2.20
+test       sc_soil_shallow_pb_b1500000000         2     12    3706           44,314    13,940               0.09      0.03          0.35      0.18
+test       sc_soil_shallow_ont_b1500000000        2     12    3706           49,793    14,359               0.13      0.06          0.81      0.60
+test       sc_host_se_ultima_r10000000            2     24      36            1,564       149               0.02      0.01          0.40      0.39
+test       sc_host_pb_b3000000000                 2     24      36            2,408       305               0.01      0.00          0.20      0.19
+test       sc_host_ont_b3000000000                2     24      36            2,313       272               0.06      0.05          1.05      1.04
+training   sc_gut_pe_p20000000                    3            560 paired-end, 60,000,000 pairs
+training   sc_soil_pe_p20000000                   3           3706 paired-end, 60,000,000 pairs
+training   sc_soil_shallow_pe_p5000000            3           3706 paired-end, 15,000,000 pairs
+training   sc_host_pe_p10000000                   3             36 paired-end, 30,000,000 pairs; host pairs 27,000,000: GIL-held 0.02 h, ART 0.41 h
+test       sc_gut_pe_p20000000                    2            560 paired-end, 40,000,000 pairs
+test       sc_soil_pe_p20000000                   2           3706 paired-end, 40,000,000 pairs
+test       sc_soil_shallow_pe_p5000000            2           3706 paired-end, 10,000,000 pairs
+test       sc_host_pe_p10000000                   2             36 paired-end, 20,000,000 pairs; host pairs 18,000,000: GIL-held 0.01 h, ART 0.27 h
+training: 504 chunks, 126.0 Gb drawn; genome reads 1,241,303 now, 137,730 in one pass; GIL-held CPU 3.04 h now (+0.02 h host fragments), 0.83 h in one pass; all CPU 19.13 h now, 12.70 h in one pass (of it reads 11.34 h)
+test: 336 chunks, 84.0 Gb drawn; genome reads 798,839 now, 89,952 in one pass; GIL-held CPU 1.97 h now (+0.01 h host fragments), 0.55 h in one pass; all CPU 12.59 h now, 8.45 h in one pass (of it reads 7.56 h)

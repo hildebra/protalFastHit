@@ -1162,6 +1162,216 @@ class MiniDbTest(unittest.TestCase):
         self.assertGreater(threads["deep"], threads["mid"])
         self.assertGreaterEqual(threads["shallow"], 1)
         self.assertEqual(collect.pe_threads(points[:1], 64), {"deep": 32})
+        # A group runs at most its limit of jobs at once (the long reads' drawings), others fill the slots beside it.
+        busy, most = collections.Counter(), collections.Counter()
+
+        def grouped(name, group):
+            def run():
+                with lock:
+                    busy[group] += 1
+                    most[group] = max(most[group], busy[group])
+                time.sleep(0.05)
+                with lock:
+                    busy[group] -= 1
+                return None, []
+            return run
+        s = collect.Scheduler(4, {"draw": 2})
+        for i in range(5):
+            s.add(f"d{i}", grouped(f"d{i}", "draw"), priority=5, group="draw")
+            s.add(f"o{i}", grouped(f"o{i}", "other"), priority=1)
+        self.assertEqual(s.run(), {})
+        self.assertEqual(most["draw"], 2)
+        self.assertGreaterEqual(most["other"], 2)
+
+    def test_one_pass_and_workers(self):
+        # The chunks of a long-read sample draw their templates in one pass over its genomes (each genome read once
+        # per round for all chunks), and each chunk's templates are those it draws alone; a host genome too. The
+        # collector's Python work in worker processes makes the same reads as on the calling thread.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import random
+        import collect_training_data as collect
+        import scenarios
+        root = os.path.join(self.tmp.name, "onepass")
+        os.makedirs(root)
+        rng = random.Random(9)
+        genomes = []
+        for name, length, contigs in (("GA", 30000, 3), ("GB", 50000, 5), ("GC", 8000, 1)):
+            path = os.path.join(root, name + ".fna.gz")
+            with gzip.open(path, "wt") as fh:
+                for c in range(contigs):
+                    seq = "".join(rng.choice("ACGT") for _ in range(length // contigs))
+                    fh.write(f">{name}_{c}\n" + "\n".join(seq[i:i + 80] for i in range(0, len(seq), 80)) + "\n")
+            genomes.append({"genome": name, "fasta": path, "weight": rng.random() * length})
+        host_fa = os.path.join(root, "host.fa")
+        with open(host_fa, "w") as fh:
+            fh.write(">chr1\n" + "".join(rng.choice("ACGT") for _ in range(20000)) + "\n")
+        genomes.append({"genome": "host", "fasta": "", "host": scenarios.prepare_host(host_fa, os.path.join(root, "host")),
+                        "weight": sum(g["weight"] for g in genomes)})
+        task = {"sample": "s", "out": os.path.join(root, "s.fq.gz"), "bases": 200000, "seed": 3, "pbsim": "none",
+                "setup": collect.parse_long_setup("hifi:1500:600:3"), "model": None, "tmp": os.path.join(root, "tmp"),
+                "genomes": genomes}
+        chunks = collect.long_read_chunks(task, 50000)
+        self.assertEqual(len(chunks), 4)
+        self.assertTrue(all(c["templates"].endswith(".gz") for c in chunks))
+        reads_of = collections.Counter()
+        original = collect.read_contigs
+
+        def counted(path):
+            reads_of[path] += 1
+            return original(path)
+        collect.read_contigs = counted
+        try:
+            counts, error = collect.draw_chunks(chunks)
+            self.assertIsNone(error)
+            together = sum(reads_of.values())
+            reads_of.clear()
+            for c, chunk in enumerate(chunks):
+                alone = dict(chunk, templates=os.path.join(root, f"alone{c}.fa"))
+                n, error = collect.draw_templates([alone])
+                self.assertIsNone(error)
+                self.assertEqual(n, [counts[c]])
+                with gzip.open(chunk["templates"], "rb") as fh, open(alone["templates"], "rb") as other:
+                    self.assertEqual(fh.read(), other.read(), f"chunk {c + 1}'s templates")
+            self.assertLess(together, sum(reads_of.values()))
+        finally:
+            collect.read_contigs = original
+        with gzip.open(chunks[1]["templates"], "rt") as fh:
+            names = [line[1:].strip() for line in fh if line.startswith(">")]
+        self.assertTrue(names and all(int(n.split("x_")[1]) % 4 == 2 for n in names))  # chunk 2 of 4: every 4th from 2
+        self.assertTrue(any(n.startswith("g3x_") for n in names), "reads of the host (genome 3)")
+        # The chunks' reads, inline and in worker processes: the same.
+        made = {}
+        for label, workers in (("inline", None), ("workers", 2)):
+            parts = [dict(c, out=os.path.join(root, f"{label}{i}.fq.gz"), tmp=os.path.join(root, label, f"c{i}"),
+                          templates=os.path.join(root, label, f"c{i}", "templates.fa.gz")) for i, c in enumerate(chunks)]
+            with (collect.Workers.started(workers) if workers else contextlib.nullcontext()):
+                counts, error = collect.Workers.call(collect.draw_chunks, parts)
+                self.assertIsNone(error)
+                for part, count in zip(parts, counts):
+                    self.assertIsNone(collect.Workers.call(collect.make_reads, part, count))
+            made[label] = [gzip.open(p["out"]).read() for p in parts]
+            self.assertFalse(any(os.path.exists(p["tmp"]) for p in parts), "the chunks' templates go once made")
+        self.assertEqual(made["inline"], made["workers"])
+        self.assertIsNone(collect.Workers.pool)
+
+    def test_room_on_the_disk(self):
+        # With space (folder, bytes to keep free), a job starts only while the disk has room for it and the jobs
+        # running, and one that opens new work keeps the bytes free besides; finishing work may use them.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import collect_training_data as collect
+        free, events, lock = [100], [], threading.Lock()
+        usage = collections.namedtuple("usage", "total used free")
+
+        def job(name, seconds, frees=0):
+            def run():
+                with lock:
+                    events.append(("start", name))
+                time.sleep(seconds)
+                with lock:
+                    free[0] += frees
+                    events.append(("end", name))
+                return None, []
+            return run
+        original = shutil.disk_usage
+        shutil.disk_usage = lambda path: usage(1000, 1000 - free[0], free[0])
+        try:
+            s = collect.Scheduler(4, space=(self.tmp.name, 10))
+            s.add("a", job("a", 0.3), disk=50, priority=3)  # 100 free: room for 50 + 10
+            s.add("b", job("b", 0.05), disk=80, priority=2)  # 100 - 50 < 80 + 10: waits for a
+            s.add("c", job("c", 0.05), disk=40, priority=1, opens=False)  # 100 - 50 >= 40: beside a
+            self.assertEqual(s.run(), {})
+        finally:
+            shutil.disk_usage = original
+        self.assertLess(events.index(("start", "c")), events.index(("end", "a")))
+        self.assertLess(events.index(("end", "a")), events.index(("start", "b")))
+
+    def test_follow(self):
+        # --follow: units profiled as their simulations end, while the simulations go on (a protal run as soon as a
+        # point is simulated, here), each point's reads removed once its pe and se units are; once the simulations
+        # have ended, the rest. Profiled again (another protal) with the reads removed: simulated again first.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import argparse
+        import socket
+        import collect_training_data as collect
+        root = os.path.join(self.tmp.name, "follow")
+        os.makedirs(root)
+        runs = os.path.join(root, "runs.txt")
+        protal = os.path.join(root, "protal")
+        with open(protal, "w") as fh:  # a stand-in: a dump of each sample of the map, which needs its reads
+            fh.write("#!" + sys.executable + "\nimport sys\na = sys.argv[1:]\nm = a[a.index('--map') + 1]\n"
+                     "rows = [l.rstrip('\\n').split('\\t') for l in open(m) if not l.startswith('#')]\n"
+                     f"open({runs!r}, 'a').write(' '.join(r[0] for r in rows) + '\\n')\n"
+                     "for r in rows:\n"
+                     "    open(r[1]).close()\n"
+                     "    open(r[5] + '.truth_annotated', 'w').write('taxon_name\\ttruth\\nt\\t1\\n')\n"
+                     "    print('Write truth to: ' + r[5])\n")
+        os.chmod(protal, 0o755)
+        db = os.path.join(root, "db.protal")
+        open(db, "w").close()
+        opts = argparse.Namespace(out=root, db=db, protal=protal, threads=1, profile_block=1e-9, poll=0.05,
+                                  protal_lock=os.path.join(root, "protal.lock"))
+        points = [{"name": f"rl100_p{n}", "read_length": "100", "read_pairs": str(n), "samples": 2} for n in (10, 20)]
+        units = [u for p in points for u in ({"type": "pe", "point": p, "name": p["name"], "samples": 2},
+                                              {"type": "se", "point": p, "name": p["name"] + "_se", "samples": 2})]
+        keys = {p["name"]: {"point": p["name"]} for p in points}
+
+        def simulate(point):
+            base, sim, _ = collect.point_dirs(point, opts)
+            os.makedirs(os.path.join(sim, "reads"), exist_ok=True)
+            with open(os.path.join(sim, "protal.meta"), "w") as fh:
+                fh.write(f"#OUTPUT_DIR\t{base}/protal\n#INPUT_DIR\t{sim}/reads\n"
+                         "#SAMPLEID\tFIRST\tSECOND\tSAM\tPREFIX\tPROFILE\tPROFILE_TRUTH\n")
+                for s in (1, 2):
+                    name = f"{point['name']}_s_{s}"
+                    fh.write(f"{name}\t{name}_R1.fq.gz\t{name}_R2.fq.gz\t{name}.sam.gz\t{name}\t{name}.profile\t/t\n")
+                    for r in (1, 2):
+                        with gzip.open(os.path.join(sim, "reads", f"{name}_R{r}.fq.gz"), "wt") as out:
+                            out.write("@r\nACGT\n+\nIIII\n")
+            collect.write_key(os.path.join(base, "simulated.json"), keys[point["name"]])
+
+        simulator = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+        collect.write_key(collect.simulating_file(opts), {"pid": simulator.pid, "host": socket.gethostname()})
+        try:
+            simulate(points[0])
+            follower = threading.Thread(target=collect.follow, args=(units, opts, keys, None))
+            follower.start()
+            key_of = collect.profile_keys(units, opts, keys)
+            deadline = time.time() + 60
+            while not all(collect.profiled(u, opts, key_of[u["name"]]) for u in units[:2]) and time.time() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(collect.simulations_running(opts))
+            simulate(points[1])  # the second point is simulated after the first is profiled
+        finally:
+            simulator.kill()
+            simulator.wait()
+        os.remove(collect.simulating_file(opts))
+        follower.join(60)
+        self.assertFalse(follower.is_alive())
+        self.assertFalse(collect.simulations_running(opts))
+        with open(runs) as fh:
+            self.assertEqual(fh.read().splitlines(), ["rl100_p10_s_1 rl100_p10_s_2 rl100_p10_s_1_se rl100_p10_s_2_se",
+                                                      "rl100_p20_s_1 rl100_p20_s_2 rl100_p20_s_1_se rl100_p20_s_2_se"])
+        self.assertTrue(all(collect.profiled(u, opts, key_of[u["name"]]) for u in units))
+        self.assertEqual(glob.glob(os.path.join(root, "points", "*", "sim", "reads", "*")), [])
+        with open(os.path.join(root, "points", "rl100_p20", "sim", "reads_removed.txt")) as fh:
+            self.assertEqual(len(fh.read().splitlines()), 4)
+        # Another protal: everything is to be profiled again, but the reads are gone and nothing simulates.
+        with open(protal, "a") as fh:
+            fh.write("# another version\n")
+        again = []
+
+        def simulate_again(names):
+            again.append(sorted(names))
+            for point in points:
+                if point["name"] in names:
+                    simulate(point)
+        collect.follow(units, opts, keys, simulate_again)
+        self.assertEqual(again, [["rl100_p10", "rl100_p20"]])
+        key_of = collect.profile_keys(units, opts, keys)
+        self.assertTrue(all(collect.profiled(u, opts, key_of[u["name"]]) for u in units))
+        self.assertEqual(collect.reads_removed(units, opts, keys, key_of), set())
+        with open(runs) as fh:
+            self.assertEqual(len(fh.read().splitlines()), 3)  # the two points in one run: nothing simulates
 
     def test_long_read_templates(self):
         # A long-read sample's reads come from the contigs of 100 bases or more (pbsim3's shortest read; it stops
@@ -2576,8 +2786,9 @@ class GtdbBuildTest(unittest.TestCase):
             return fh.read()
 
     def test_a_build_and_rerun(self):
-        # The samples are simulated on a scratch disk of their own (--scratch), the tables copied to OUTDIR.
-        scratch = ("--scratch", os.path.join(self.tmp.name, "scratch"))
+        # The samples are simulated on a scratch disk of their own (--scratch), the tables copied to OUTDIR; both
+        # collections profiled in one protal run once all is simulated (--profile-blocks 0; test_g follows them).
+        scratch = ("--scratch", os.path.join(self.tmp.name, "scratch"), "--profile-blocks", "0")
         first = self.build("out", *scratch)
         self.assertEqual(first.returncode, 0, first.stdout[-3000:])
         self.assertIn("Ready protal database", first.stdout)
@@ -2913,15 +3124,14 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertEqual(again.stdout.count("is built and trained; kept"), 2)
         self.assertNotIn("building", again.stdout)
 
-    def test_f_scenarios(self):
-        # The default scenarios (gut, soil, soil_shallow, host; here made small by a --scenario-file of their names),
-        # one with 90% host reads: their hold-in samples in the training data, their hold-out samples in the test set,
-        # each read type's report and the summary scoring both; soil, larger than the genome table holds at 60% held
-        # out, scaled down; the feature sets chosen by the trainers (--features auto, the default) and why.
+    def scenario_inputs(self):
+        """test_f's and test_g's small scenarios (definitions of the presets' names) and host genome. -> their paths."""
         work = os.path.join(self.tmp.name, "scenario_inputs")
+        definitions, host = os.path.join(work, "scenarios.json"), os.path.join(work, "host.fna.gz")
+        if os.path.isfile(definitions):
+            return definitions, host
         os.makedirs(work, exist_ok=True)
         rng = random.Random(9)
-        host = os.path.join(work, "host.fna.gz")
         with gzip.open(host, "wt") as fh:
             for c in (1, 2):
                 seq = "".join(rng.choice("ACGT") for _ in range(150000))
@@ -2929,7 +3139,6 @@ class GtdbBuildTest(unittest.TestCase):
         illumina = {"type": "pe", "length": 100, "profile": "HS20", "fragment_mean": 300, "fragment_sd": 40, "quality": 30}
         ultima = {"type": "se", "setup": "ultima:300:40:25:2"}
         small = {"abundance": "lognormal:1.5", "strains": "0.3", "congeners": "0", "host_share": 0}
-        definitions = os.path.join(work, "scenarios.json")
         with open(definitions, "w") as fh:
             json.dump({"gut": {**small, "species": "5-6", "novel_share": 0.3,
                                "reads": [{**illumina, "depth": 3000}, {**ultima, "depth": 1000}]},
@@ -2937,9 +3146,49 @@ class GtdbBuildTest(unittest.TestCase):
                        "soil_shallow": {**small, "species": "5", "novel_share": 0.3, "reads": [{**illumina, "depth": 1000}]},
                        "host": {**small, "species": "2-3", "novel_share": 0.3, "abundance": "powerlaw:1.0", "strains": "",
                                 "host_share": 0.9, "reads": [{**illumina, "depth": 20000}, {**ultima, "depth": 5000}]}}, fh)
+        return definitions, host
+
+    def test_g_profiled_as_simulated(self):
+        # test_f's build, its samples profiled as they are simulated (--profile-blocks, here a few kB: a protal run as
+        # soon as anything is simulated), the two collections' runs taking turns: the same tables as test_f's one protal
+        # run; every read removed once profiled (the SAMs, profiles and dumps kept); and a rerun has nothing to do.
+        definitions, host = self.scenario_inputs()
+        scratch = os.path.join(self.tmp.name, "follow_scratch")
+        command = ("--scenario-file", definitions, "--scenario-samples", "2", "--scenario-test-samples", "1",
+                   "--host-genome", host, "--scratch", scratch, "--profile-blocks", "0.00001", "--keep-free", "1")
+        result = self.build("scenarios_follow", *command, scenarios=True)
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:])
+        self.assertIn("profiled as its simulations go on, in protal runs of 1e-05 GB of reads or more", result.stdout)
+        for collection in ("training", "test"):
+            for table in ("training_data.tsv", "training_data_se.tsv"):
+                ours = self.text("scenarios_follow", collection, table)
+                self.assertEqual(ours, self.text("scenarios", collection, table), f"{collection}/{table}")
+                self.assertIn("\tsc_", ours)  # the scenarios' rows too
+            points = os.path.join(scratch, collection, "points")
+            self.assertEqual(glob.glob(os.path.join(points, "*", "sim", "reads", "*.f*q.gz")), [])
+            self.assertTrue(glob.glob(os.path.join(points, "*", "sim", "reads_removed.txt")))
+            self.assertTrue(glob.glob(os.path.join(points, "*", "protal*", "alignments", "*.sam*")))
+        log = self.text("scenarios_follow", "training_data.log")
+        self.assertRegex(log, r"protal run 1: \d+ design points, [\d.]+ GB of reads; the simulations (go on|have ended)")
+        self.assertRegex(log, r"every design point is profiled, in \d+ protal runs?")
+        self.assertIn("keeping 1 GB free on", self.text("scenarios_follow", "training_data_simulation.log"))
+        again = self.build("scenarios_follow", *command, scenarios=True)
+        self.assertEqual(again.returncode, 0, again.stdout[-3000:])
+        self.assertIn("every design point is profiled, in 0 protal runs", self.text("scenarios_follow", "training_data.log"))
+        self.assertEqual(self.text("scenarios_follow", "training", "training_data.tsv"),
+                         self.text("scenarios", "training", "training_data.tsv"))
+
+    def test_f_scenarios(self):
+        # The default scenarios (gut, soil, soil_shallow, host; here made small by a --scenario-file of their names),
+        # one with 90% host reads: their hold-in samples in the training data, their hold-out samples in the test set,
+        # each read type's report and the summary scoring both; soil, larger than the genome table holds at 60% held
+        # out, scaled down; the feature sets chosen by the trainers (--features auto, the default) and why. Both
+        # collections profiled in one protal run, their reads kept (--profile-blocks 0; test_g follows them).
+        definitions, host = self.scenario_inputs()
         scratch = os.path.join(self.tmp.name, "scenario_scratch")
         result = self.build("scenarios", "--scenario-file", definitions, "--scenario-samples", "2",
-                            "--scenario-test-samples", "1", "--host-genome", host, "--scratch", scratch, scenarios=True)
+                            "--scenario-test-samples", "1", "--host-genome", host, "--scratch", scratch,
+                            "--profile-blocks", "0", scenarios=True)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
         self.assertRegex(result.stdout, r"    WARNING: scenario soil scaled from 30-40 to \d+(-\d+)? species per sample: at "
                                         r"60% lacking from the database the genome table's \d+ species the training "

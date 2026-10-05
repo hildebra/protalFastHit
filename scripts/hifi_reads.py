@@ -7,7 +7,7 @@ ccs turns into HiFi reads; in one pass with its error model it writes every base
 them for an error. Badread has error and quality models trained on HiFi reads (pacbio2021), but runs in Python
 with alignments along each read, which its README calls slow. So the collector makes its PacBio reads here, one
 read of each template it drew
-(collect_training_data.long_read_templates), with numpy:
+(collect_training_data.draw_templates; plain or gzipped FASTA), with numpy:
 
 - each read's quality R (Phred) falls with its length (QUALITY_BY_LENGTH): Q50 up to 5 kb, Q30 at 25 kb, linearly
   between, Q20 at 50 kb and lower still beyond, at that slope; a read's R is that of its length plus a normal

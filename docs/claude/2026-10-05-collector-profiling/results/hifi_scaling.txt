@@ -1,0 +1,4 @@
+ultima: 6 x 20 Mb: sequential 14.7 s wall, 14.6 s CPU (1.00x); threads 3.9 s wall, 17.9 s CPU (3.76x); processes 5.3 s wall, 30.0 s CPU (2.76x); load 1.4
+pb: 6 x 20 Mb: sequential 14.6 s wall, 14.5 s CPU (1.00x); threads 4.6 s wall, 22.8 s CPU (3.14x); processes 7.1 s wall, 41.0 s CPU (2.06x); load 1.9
+ultima: 6 x 20 Mb: sequential 16.2 s wall, 16.2 s CPU (1.00x); threads 6.8 s wall, 32.0 s CPU (2.37x); processes 6.7 s wall, 38.6 s CPU (2.44x); load 2.5
+pb: 6 x 20 Mb: sequential 12.0 s wall, 11.9 s CPU (1.00x); threads 4.0 s wall, 19.9 s CPU (3.00x); processes 5.1 s wall, 29.5 s CPU (2.35x); load 2.7
