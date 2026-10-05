@@ -188,6 +188,7 @@ namespace protal::classify {
 #pragma omp critical(statistics)
             {
                 anchor_finder_global.m_bm_seeding.Join(anchor_finder.m_bm_seeding);
+                anchor_finder_global.m_seeding.Join(anchor_finder.m_seeding);
                 anchor_finder_global.m_bm_reverse_complement.Join(anchor_finder.m_bm_reverse_complement);
                 anchor_finder_global.m_bm_operator.Join(anchor_finder.m_bm_operator);
                 anchor_finder_global.m_bm_processing.Join(anchor_finder.m_bm_processing);
@@ -321,6 +322,7 @@ namespace protal::classify {
                 auto& anchor_finder_global = aligner_global.GetAnchorFinder();
                 auto& anchor_finder = aligner.GetAnchorFinder();
                 anchor_finder_global.m_bm_seeding.Join(anchor_finder.m_bm_seeding);
+                anchor_finder_global.m_seeding.Join(anchor_finder.m_seeding);
                 anchor_finder_global.m_bm_processing.Join(anchor_finder.m_bm_processing);
                 anchor_finder_global.m_bm_pairing.Join(anchor_finder.m_bm_pairing);
                 anchor_finder_global.m_bm_sorting_anchors.Join(anchor_finder.m_bm_sorting_anchors);
@@ -707,6 +709,8 @@ namespace protal::classify {
             {
                 anchor_finder_global.m_bm_seeding.Join(anchor_finder1.m_bm_seeding);
                 anchor_finder_global.m_bm_seeding.Join(anchor_finder2.m_bm_seeding, false);
+                anchor_finder_global.m_seeding.Join(anchor_finder1.m_seeding);
+                anchor_finder_global.m_seeding.Join(anchor_finder2.m_seeding);
                 anchor_finder_global.m_bm_reverse_complement.Join(anchor_finder1.m_bm_reverse_complement);
                 anchor_finder_global.m_bm_reverse_complement.Join(anchor_finder2.m_bm_reverse_complement, false);
                 anchor_finder_global.m_bm_operator.Join(anchor_finder1.m_bm_operator);

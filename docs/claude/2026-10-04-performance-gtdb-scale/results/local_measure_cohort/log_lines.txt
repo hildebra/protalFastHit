@@ -1,0 +1,17 @@
+SAM header lists:    the genes aligned to
+Strain-level MSAs took 4s 776ms
+Strain-level MSAs of 14 species: 14 raw MSAs, 14 filtered by qcMSA
+Building the strain MSAs took 427ms (14)
+qcMSA took 4s 346ms (14)
+SAM header lists:    the genes aligned to
+Sample pb2 seeding: 17092963 k-mers looked up, 6747858 in the index, 6747858 blocks scanned with 98839843 flex cells (14.6 per block); by block size 1: 41.3% of blocks, 2.8% of cells, 2-15: 43.3% of blocks, 19.2% of cells, 16-255: 14.5% of blocks, 58.0% of cells, 256-4095: 0.9% of blocks, 20.0% of cells, 4096-65535: 0.0% of blocks, 0.0% of cells, >=65536: 0.0% of blocks, 0.0% of cells; 24817217 seeds
+SAM header: 10618 genes, 228649 bytes, written as 45820 (text built in 0.00 s); placed in its room of 675840 bytes before the records
+Strain-level MSAs took 1ms
+Strain-level MSAs of 0 species: 0 raw MSAs, 0 filtered by qcMSA (--no_qcmsa)
+Building the strain MSAs took less than 1ms
+SAM header lists:    the genes aligned to
+Sample pe1 seeding: 22836468 k-mers looked up, 8543501 in the index, 8249314 blocks scanned with 77008210 flex cells (9.3 per block); by block size 1: 43.5% of blocks, 4.7% of cells, 2-15: 42.1% of blocks, 27.1% of cells, 16-255: 14.3% of blocks, 63.6% of cells, 256-4095: 0.1% of blocks, 4.6% of cells, 4096-65535: 0.0% of blocks, 0.0% of cells, >=65536: 0.0% of blocks, 0.0% of cells; 21756534 seeds
+SAM header: 8885 genes, 191143 bytes, written as 36818 (text built in 0.01 s); placed in its room of 675840 bytes before the records
+Strain-level MSAs took less than 1ms
+Strain-level MSAs of 0 species: 0 raw MSAs, 0 filtered by qcMSA (--no_qcmsa)
+Building the strain MSAs took less than 1ms

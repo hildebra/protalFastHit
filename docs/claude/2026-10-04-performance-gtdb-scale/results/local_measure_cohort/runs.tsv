@@ -1,0 +1,3 @@
+sample	type	rep	threads	wall_s	user_s	sys_s	max_rss_gb	major_faults	load_index_s	aligning_s	profiling_s	strains_s	instructions	cycles	cache_misses	ipc	reads	anchored_reads	tried	screened	from_anchors	whole_windows	made	written	sam_finish_s	header_genes	records_copy_s	kmers	kmers_in_index	blocks_scanned	flex_cells	seeds
+pe1	pe	1	6	7.65	28.86	4.52	3.4	0	1.260	4.224	1.887	0.001	NA	NA	NA	NA	499525	463394	1423103	71332	1315512	36259	1177081	230634	0.007	8885	0	22836468	8543501	8249314	77008210	21756534
+pb2	pb	1	6	5.90	26.00	2.59	3.4	0	1.104	4.139	0.518	0.001	NA	NA	NA	NA	6569	6495	134051	27041	106972	38	86889	36245	0.003	10618	0	17092963	6747858	6747858	98839843	24817217

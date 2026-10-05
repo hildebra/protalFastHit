@@ -357,13 +357,15 @@ namespace protal {
     // WFA2 (AlignmentScreen.h), those WFA2 ran on from the anchor's exact matches or as a whole window, the
     // alignments made (within the ANI floor) and the records written.
     static void PrintAlignmentCounts(Options const& options, size_t index, ReadType read_type, Statistics const& stats,
-                                     SimpleAlignmentHandler const& handler) {
+                                     SimpleAlignmentHandler const& handler, SeedingCounts const& seeding) {
         std::cout << "Sample " << options.GetSampleId(index) << ": " << stats.reads << (read_type == ReadType::Paired ? " read pairs, " : " reads, ")
                   << stats.at_least_one_anchor << (read_type == ReadType::Paired ? " mates" : "") << " with an anchor; "
                   << handler.m_attempted_alignments << " candidate alignments tried: "
                   << handler.m_screened_alignments << " refused by the k-mer screen, " << handler.m_anchored_alignments
                   << " aligned from the anchor's exact matches and " << handler.m_whole_window_alignments << " as whole windows; "
                   << stats.total_alignments << " alignments made, " << stats.output_alignments << " records written" << std::endl;
+        // And what the seeding did (SeedingCounts): the k-mer lookups, the value blocks scanned and their sizes.
+        std::cout << "Sample " << options.GetSampleId(index) << " seeding: " << seeding.Text() << std::endl;
     }
 
     // Loads the database's index, held packed in the widths the reference's fields need (maxima: what
@@ -608,7 +610,8 @@ namespace protal {
                     if (options.Verbose()) {
                         protal_stats.WriteStats();
                     }
-                    PrintAlignmentCounts(options, index, read_type, protal_stats, long_read_aligner.GetAlignmentHandler());
+                    PrintAlignmentCounts(options, index, read_type, protal_stats, long_read_aligner.GetAlignmentHandler(),
+                                         long_read_aligner.GetAnchorFinder().m_seeding);
                     reads_read = protal_stats.reads;
                     // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is.rdbuf()->read_failed();
@@ -637,7 +640,7 @@ namespace protal {
                     if (options.Verbose()) {
                         protal_stats.WriteStats();
                     }
-                    PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler);
+                    PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler, anchor_finder.m_seeding);
                     reads_read = protal_stats.reads;
                     // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is.rdbuf()->read_failed();
@@ -685,7 +688,7 @@ namespace protal {
                     if (options.Verbose()) {
                         protal_stats.WriteStats();
                     }
-                    PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler);
+                    PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler, anchor_finder.m_seeding);
                     reads_read = protal_stats.reads;
                     // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
                     truncated = is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed();
@@ -720,16 +723,38 @@ namespace protal {
                 }
                 Benchmark bm_finish_sam("Writing the SAM header and file");
                 bm_finish_sam.Start();
+                auto const header_start = std::chrono::steady_clock::now();
                 std::string header;
+                size_t header_genes = 0;
                 if (!full_header) {
                     std::ostringstream os;
-                    genomes.WriteSamHeader(os, sam_output.Genes());
+                    auto const genes = sam_output.Genes();
+                    header_genes = genes.size();
+                    genomes.WriteSamHeader(os, genes);
                     os << read_type_line;
                     header = os.str();
                 }
+                double const header_seconds = gene_table::SecondsSince(header_start);
                 bool const written = sam_output.Finish(header);
                 bm_finish_sam.Stop();
                 bm_finish_sam.PrintResults();
+                {
+                    // Where that time went (one thread): the header's text, and how Finish placed it: in the room before
+                    // the records, or with the records copied behind it (no room, or a header larger than the room).
+                    auto const& placed = sam_output.Placement();
+                    std::ostringstream line;
+                    line << std::fixed << std::setprecision(2) << "SAM header: " << (full_header ? std::string("every gene of the database")
+                                                                                                : std::to_string(header_genes) + " genes")
+                         << ", " << header.size() << " bytes, written as " << placed.header_bytes << " (text built in " << header_seconds << " s); ";
+                    if (placed.copied) {
+                        line << "the records (" << placed.copied_bytes << " bytes) were copied behind it in " << placed.copy_seconds << " s"
+                             << (placed.room > 0 ? ", as it was larger than its room of " + std::to_string(placed.room) + " bytes" : std::string());
+                    } else {
+                        line << (placed.room > 0 ? "placed in its room of " + std::to_string(placed.room) + " bytes before the records"
+                                                 : std::string("written before the records"));
+                    }
+                    std::cout << line.str() << std::endl;
+                }
                 if (!written) {
                     RunStatus::Get().Fail("Writing the SAM file of sample " + options.GetSampleId(index) + " failed: " + sam_output.Error());
                     continue;
@@ -2470,6 +2495,10 @@ namespace protal {
     static void StrainWrapper2(Options& options, Profiles& profiles, GenomeLoader& loader, taxonomy::IntTaxonomy& taxonomy, std::vector<uint32_t> msa_taxids = {}, std::optional<profiler::TaxonFilterObj> filter={}) {
         Benchmark bm_strain{"Strain-level MSAs"};
         bm_strain.Start();
+        // Its two parts, over all species (scripts/measure_performance.sh reads them): building the MSAs and the qcMSA filter.
+        Benchmark bm_msa{ "Building the strain MSAs" };
+        Benchmark bm_qcmsa{ "qcMSA" };
+        size_t species = 0, raw_msas = 0, filtered_msas = 0;
         std::cout << "Output " << options.GetOutputDir() << std::endl;
         auto dir = std::filesystem::path(options.GetOutputDir());
         if (!std::filesystem::create_directories(dir.string()) && !std::filesystem::exists(dir)) {
@@ -2504,19 +2533,26 @@ namespace protal {
                 WriteDistanceMatrix(taxid, similarities, options, name);
             }
 
+            bm_msa.Start();
             std::ofstream os_meta(options.GetSpeciesMetaOutput(name));
             os_meta << "sample\tgene_id\tvertical_coverage\tcounts_vcov1\tcounts_vcov2\tmulti_allelic\tfiltered\tmulti_rate_vcov1\tfiltered_rate_vcov1\tmulti_rate_vcov2\tfiltered_rate_vcov2\tmedian_vcov\thcov\tgene_length\tmean_vcov_nonzero\tmedian_vcov_nonzero\n";
             GetMSAForTaxon(taxid, name, loader, options, profiles, &os_meta, filter);
             os_meta.close();
             if (os_meta.fail()) RunStatus::Get().Fail("Writing the MSA metadata of " + name + " failed: " + options.GetSpeciesMetaOutput(name));
+            bm_msa.Stop();
 
             if (options.GetRunQCMSA()) {
+                bm_qcmsa.Start();
                 RunQCMSA(options, name);
+                bm_qcmsa.Stop();
             }
             // File names: the MSAs are next to the list.
             auto written = [](std::string const& path) {
                 return std::filesystem::exists(path) ? std::filesystem::path(path).filename().string() : std::string("-");
             };
+            species++;
+            raw_msas += std::filesystem::exists(options.GetMSAOutput(name));
+            filtered_msas += std::filesystem::exists(options.GetStrainOutputDir() + '/' + name + ".msa.fna");
             species_list << name << '\t' << taxid << '\t' << samples << '\t'
                          << written(options.GetMSAOutput(name)) << '\t'
                          << written(options.GetStrainOutputDir() + '/' + name + ".msa.fna") << '\n';
@@ -2528,6 +2564,10 @@ namespace protal {
         if (os_list.fail()) RunStatus::Get().Fail("Writing the list of strain species failed: " + options.GetStrainSpeciesListOutput());
         bm_strain.Stop();
         bm_strain.PrintResults();
+        std::cout << "Strain-level MSAs of " << species << " species: " << raw_msas << " raw MSAs, " << filtered_msas << " filtered by qcMSA"
+                  << (options.GetRunQCMSA() ? "" : " (--no_qcmsa)") << std::endl;
+        bm_msa.PrintResults();
+        if (options.GetRunQCMSA()) bm_qcmsa.PrintResults();
     }
 
 

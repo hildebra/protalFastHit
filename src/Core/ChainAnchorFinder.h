@@ -3,6 +3,10 @@
 //
 
 #pragma once
+
+#include <array>
+#include <iomanip>
+#include <sstream>
 #include "ChainingStrategy.h"
 #include "Constants.h"
 #include "TargetClones.h"
@@ -20,6 +24,63 @@ namespace protal {
     using TaxonCountPairs = std::vector<TaxonCountPair>;
     using TaxonSet = tsl::robin_set<uint32_t>;
     using LookupResultList = std::vector<LookupPointer>;
+
+    // What the seeding did, counted (ChainAnchorFinder::m_seeding, joined over the threads; the run's "seeding" line): the
+    // k-mers looked up, those whose core is in the index (a block of values), the blocks scanned (FindSeeds takes a
+    // read's blocks smallest first and stops once a short read has its seeds), their flex cells, which every lookup scores
+    // one by one (KmerLookupSM::GetFromLookup), by block size in powers of two, and the seeds emitted. At GTDB scale the
+    // seeding is half of the alignment stage (docs/claude/2026-10-04-performance-gtdb-scale); these say whether its time is
+    // the lookups' memory latency (many small blocks) or the scans of large blocks.
+    struct SeedingCounts {
+        uint64_t kmers = 0, found = 0, scanned = 0, cells = 0, seeds = 0;
+        std::array<uint64_t, 33> blocks_by_bits{}, cells_by_bits{};  // by the bit width of the block's size
+
+        void NoteBlock(uint32_t size) {
+            int const bits = size == 0 ? 0 : 32 - __builtin_clz(size);
+            scanned++;
+            cells += size;
+            blocks_by_bits[bits]++;
+            cells_by_bits[bits] += size;
+        }
+
+        void Join(SeedingCounts const& other) {
+            kmers += other.kmers;
+            found += other.found;
+            scanned += other.scanned;
+            cells += other.cells;
+            seeds += other.seeds;
+            for (size_t b = 0; b < blocks_by_bits.size(); b++) {
+                blocks_by_bits[b] += other.blocks_by_bits[b];
+                cells_by_bits[b] += other.cells_by_bits[b];
+            }
+        }
+
+        // "K k-mers looked up, F in the index, S blocks scanned with C flex cells (C/S per block); blocks of 1, 2-15, ...
+        // entries: x% of the blocks, y% of the cells; N seeds".
+        std::string Text() const {
+            auto pct = [](uint64_t part, uint64_t whole) {
+                std::ostringstream os;
+                os << std::fixed << std::setprecision(1) << (whole ? 100.0 * static_cast<double>(part) / static_cast<double>(whole) : 0.0) << '%';
+                return os.str();
+            };
+            std::ostringstream os;
+            os << kmers << " k-mers looked up, " << found << " in the index, " << scanned << " blocks scanned with " << cells
+               << " flex cells (" << std::fixed << std::setprecision(1) << (scanned ? static_cast<double>(cells) / static_cast<double>(scanned) : 0.0)
+               << " per block); by block size";
+            struct Group { char const* name; int from, to; };  // bit widths [from, to]
+            for (auto const& g : { Group{ "1", 1, 1 }, Group{ "2-15", 2, 4 }, Group{ "16-255", 5, 8 }, Group{ "256-4095", 9, 12 },
+                                   Group{ "4096-65535", 13, 16 }, Group{ ">=65536", 17, 32 } }) {
+                uint64_t blocks = 0, in_cells = 0;
+                for (int b = g.from; b <= g.to; b++) {
+                    blocks += blocks_by_bits[static_cast<size_t>(b)];
+                    in_cells += cells_by_bits[static_cast<size_t>(b)];
+                }
+                os << (g.from == 1 ? " " : ", ") << g.name << ": " << pct(blocks, scanned) << " of blocks, " << pct(in_cells, cells) << " of cells";
+            }
+            os << "; " << seeds << " seeds";
+            return os.str();
+        }
+    };
 
     template<typename KmerLookup>
 //    requires KmerLookupConcept<KmerLookup>
@@ -79,6 +140,8 @@ namespace protal {
                 if (j + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[j + kPrefetchKmers].first);
                 m_kmer_lookup.Get(m_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
             }
+            m_seeding.kmers += n;
+            m_seeding.found += m_lookups.size();
         }
 
         inline void FindSeeds(KmerList &kmer_list, SeedList& seeds) {
@@ -95,9 +158,11 @@ namespace protal {
             uint32_t previous_size = 0;
             m_successful_lookups = 0;
             uint32_t total_lookups = 0;
+            size_t const seeds_before = seeds.size();
             for (m_lookup_index = 0; m_lookup_index < m_lookups.size(); m_lookup_index++) {
                 if (m_lookup_index + kPrefetchLookups < m_lookups.size()) KmerLookup::PrefetchValues(m_lookups[m_lookup_index + kPrefetchLookups]);
                 auto& lookup = m_lookups[m_lookup_index];
+                m_seeding.NoteBlock(lookup.size);
                 m_kmer_lookup.GetFromLookup(seeds, lookup);
                 total_lookups++;
                 m_successful_lookups += (seeds.size() > previous_size);
@@ -106,6 +171,7 @@ namespace protal {
                 }
                 previous_size = seeds.size();
             }
+            m_seeding.seeds += seeds.size() - seeds_before;
         }
 
 
@@ -395,6 +461,7 @@ namespace protal {
 
     public:
         size_t dummy = 0;
+        SeedingCounts m_seeding;  // see SeedingCounts; this thread's, or all threads' once joined
         Benchmark m_bm_operator{"Seed-finding operator", 0, Benchmark::kPerRead};
         Benchmark m_bm_reverse_complement{"Reverse complementing read", 0, Benchmark::kPerRead};
         Benchmark m_bm_seeding{"Seeding", 0, Benchmark::kPerRead};

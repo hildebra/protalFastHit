@@ -1,0 +1,22 @@
+date: 2026-10-05T11:56:15+01:00
+host: N160628
+job: none
+threads: 6 (CPUs this process may use: 6)
+protal: protal v0.7.6 
+database: /home/falk/perf-gtdb/e2e/db/database.protal, 109M
+database file system: ext4 (/dev/sdd)
+transparent huge pages: always [madvise] never
+perf stat: no (not installed or not allowed: perf_event_paranoid 2)
+samples: pe:/home/falk/bench071/samples/points/rl150_p500000/sim/reads/rl150_p500000_s_1_R1.fq.gz:/home/falk/bench071/samples/points/rl150_p500000/sim/reads/rl150_p500000_s_1_R2.fq.gz pb:/home/falk/bench071/samples_lr073/points/pb_b90000000/sim/reads/pb_b90000000_s_1.fq.gz
+cohort: all 2 samples, 1 run(s), qcMSA on (qcmsa not found)
+
+Model name:                              Intel(R) Core(TM) Ultra 7 258V
+Thread(s) per core:                      1
+Core(s) per socket:                      6
+Socket(s):                               1
+L3 cache:                                12 MiB (1 instance)
+NUMA node(s):                            1
+
+               total        used        free      shared  buff/cache   available
+Mem:              23           6          14           0           2          17
+Swap:             16           0          15

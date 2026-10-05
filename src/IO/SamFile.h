@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -276,6 +277,16 @@ namespace protal {
             return genes;
         }
 
+        // How Finish placed the header, for the run's log: its size as written (compressed, with zstd's marker), the room
+        // the records were written behind (zstd; 0: none, they collected in the records file), and whether the records
+        // were copied behind the header (no room, or a header too large for it), how many bytes, and in how long.
+        struct HeadPlacement {
+            uint64_t header_bytes = 0, room = 0, copied_bytes = 0;
+            bool copied = false;
+            double copy_seconds = 0;
+        };
+        HeadPlacement const& Placement() const { return m_placement; }
+
         // Completes the SAM after the last Write: the header (unless one was given up front), the
         // records and the format's end (BGZF's end-of-file block, zstd's seek table). The temporary
         // records file is removed. Returns Ok().
@@ -331,6 +342,7 @@ namespace protal {
         std::unordered_set<uint64_t> m_genes;
         sam_zstd::Frames m_head_frames;    // zstd: the marker and the header's frames
         sam_zstd::Frames m_record_frames;  // zstd: the records' frames, in file order
+        HeadPlacement m_placement;
 
         void Fail(std::string const& what) {
             if (m_error.empty()) m_error = what;
@@ -412,6 +424,7 @@ namespace protal {
             }
             bool const plain = m_compression == SamCompression::None;
             m_head_frames = std::move(frames);
+            m_placement.header_bytes = plain ? header.size() : packed.size();
             return WriteAll(plain ? header.data() : packed.data(), plain ? header.size() : packed.size());
         }
 
@@ -433,6 +446,8 @@ namespace protal {
                 Fail("writing " + m_path + " failed: " + std::strerror(errno));
                 return false;
             }
+            m_placement.header_bytes = head.size();
+            m_placement.room = m_room;
             bool const records = static_cast<uint64_t>(end) > m_room;
             if (records && head.size() + sam_zstd::kSkippableHeader > m_room) return MoveRecordsBehind(header);
             // Without records, the header is all there is before the seek table.
@@ -487,6 +502,14 @@ namespace protal {
                 return false;
             }
             auto left = static_cast<uint64_t>(st.st_size) - from;
+            m_placement.copied = true;
+            m_placement.copied_bytes = left;
+            auto const copy_start = std::chrono::steady_clock::now();
+            struct CopyTime {
+                HeadPlacement& placement;
+                std::chrono::steady_clock::time_point start;
+                ~CopyTime() { placement.copy_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(); }
+            } copy_time{ m_placement, copy_start };
 #ifdef __linux__
             while (left > 0) {
                 ssize_t const n = ::copy_file_range(in, nullptr, m_fd, nullptr, left, 0);

@@ -592,6 +592,73 @@ k-mer lookups; item 5); the preload, now the start-up's critical path (3.8 s; th
 database would skip the packing, a format change); the SAM header and file (1.6 s on the paired-end run, up from 0.5 s,
 to be looked at); and the cold start (item 7: parallel reads or a copy to node-local disk).
 
+## The seeding: how a lookup works, and the options (2026-10-05)
+
+**How it works now** (`ChainAnchorFinder::FindSeeds`, `KmerLookupSM::GetFromLookup`, `Seedmap::GetPacked`). Every
+closed syncmer of a read is a k-mer whose 15-base core is looked up in the key map (3.2 GB): its control block, then the
+core's slot range, one or two dependent cache misses. The core's values are a block in the 27 GB value array: first one
+32-bit flex cell per entry (the k-mer's other 16 bases), then the 42-bit entries. The lookup scores every flex cell of
+the block against the read's (`Similarity`: matching bases, a popcount), keeps the entries of the best score, and drops
+the lookup if more than `--max_key_ubiquity` (256) entries tie. A read's lookups are taken smallest block first; a short
+read stops once it has 128 seeds and enough lookups, a long read takes all. The prefetch of `87b857e` fetches key-map
+blocks 8 k-mers ahead, value blocks 16 lookups ahead, and the next read's key-map blocks while this read aligns.
+
+At r226 the seeding is 20.4 s per thread of the paired-end run's 37.9 s of aligning (6.4 µs of one thread per mate), its
+IPC low. What it waits on is the open question: the key map's misses (latency; many small blocks), or the scans of large
+blocks (the cores of conserved genes, shared by thousands of species; a read hits a block in proportion to its size).
+
+**Options, the measurement first:**
+
+| # | option | exact | effort | pays when |
+|---|---|---|---|---|
+| 1 | **Count first** (done, below): k-mers looked up, cores in the index, blocks scanned, flex cells, blocks and cells by block size, seeds | yes | – | decides 3-8 |
+| 2 | **More threads**: the stage is latency-bound and kept all 32 threads busy; the node has 84 cores. `THREADS=84` in the script | yes | none | always; likely the largest single gain |
+| 3 | **The flex scan with AVX2**: one pass instead of two (score, then collect the ties), 8 cells per instruction (equal-base mask, popcount by nibble table); the scalar loop pushes every score into a vector | yes | small | cells per block in the hundreds |
+| 4 | **Blocks sorted by flex cell at load** (a load-time permutation, no database change): a read whose 16 bases occur exactly (the common case for a species in the database) finds its ties by binary search, a contiguous run; only reads without an exact match scan the block. Emitted in the original entry order, so the same seeds | yes | medium | most cells in blocks ≥ 256 |
+| 5 | **Huge pages for the index's arrays**: with 4 KB pages every lookup also misses the TLB (a page walk per miss); THP is `always` on the node, but whether the 30 GB are backed by 2 MB pages is not known (`AnonHugePages` in `/proc/<pid>/smaps` during a run); `madvise(MADV_HUGEPAGE)` on them as on the gene arena | yes | small | latency-bound |
+| 6 | **More misses in flight per thread**: interleave the lookups of 2-4 reads (the prefetch report's in-process bench gave 12-15% on a 3.7 GB index; at 27 GB the latency is longer) | yes | medium | latency-bound |
+| 7 | **Small blocks next to their key** (a load-time layout: blocks of 1-15 entries stored in or beside the control block, flex cells and entries interleaved): one miss instead of two or three | yes | medium-large, more memory | most blocks small |
+| 8 | **Fewer lookups**: sparser syncmers, a lower seed target for short reads, or a cap for long reads | no: sensitivity | small, a benchmark | after 2-7 |
+
+The local check of option 1, on the 765-species world (where the picture is not GTDB's): paired-end 22.8M k-mers, 8.5M
+cores in the index, 9.3 flex cells per block, 64% of the cells in blocks of 16-255 entries; HiFi 14.6 per block. The r226
+run will show the block sizes that matter.
+
+## The SAM header (2026-10-05)
+
+How it is built, and what is parallel:
+
+- During the alignment each thread compresses its own records (zstd, `SamOutput::Write`); under one mutex the genes they
+  name go into a `std::unordered_set` and the compressed bytes into the file. A `.sam.zst` is written with room for the
+  header at its start: up to all of the database's genes at 8 bytes each, at most 1 MB (`sam_zstd::HeaderRoom`).
+- After the alignment, on one thread ("Writing the SAM header and file took"): the set is copied and sorted
+  (`SamOutput::Genes`); `GenomeLoader::WriteSamHeader` writes one `@SQ` line per gene (three hash-map lookups each); the
+  header is compressed in one call; it is written into the room (`PlaceHead`). A header larger than the room makes
+  `MoveRecordsBehind` copy all the records behind it, on one thread.
+- So nothing of it is parallel. Locally it is negligible: 36,522 genes give a 127 KB compressed header (5M pairs), well
+  inside the room. At r226 the room is capped at 1 MB, about 290,000 genes at that compression; a gut sample against
+  14.5M genes may name more, and then the 1.6 s are mostly the copy of a SAM with 47M records. The run now prints which
+  ("SAM header: N genes, B bytes, written as C (text built in T s); the records (R bytes) were copied behind it in X s, as
+  it was larger than its room of M bytes", or "placed in its room"), and `measure_performance.sh` records the genes and
+  the copy's time.
+- If it is the copy: raise the room's cap (it is a hole in the file where the file system has them; at worst its zeros
+  are written once), sized from the genes the run actually names. If it is the text: the per-gene lookups can be done in
+  parallel chunks. Both exact; for the next run's numbers to decide.
+
+## MSA and qcMSA in the measurement (2026-10-05)
+
+The strain stage needs a species in two samples, so the script's single-sample runs never had MSAs to time. Now, with two
+samples or more, it ends with a cohort run: all samples in one protal run from a map whose SAM column names the
+per-sample runs' last SAMs, so protal profiles them again without aligning ("All alignments are present"), then builds
+the strain MSAs and runs qcMSA (on by default; `QCMSA=0` without, `COHORT=0` no cohort, `COHORT_REPEATS` runs).
+`cohort.tsv` records the profiling, the strain stage, building the MSAs and qcMSA separately (new timers in
+`StrainWrapper2`: "Building the strain MSAs took", "qcMSA took", and "Strain-level MSAs of S species: R raw MSAs, F
+filtered by qcMSA"). Each sample's profiling timers from the cohort go to `stages.tsv` as `cohort:<sample>`.
+
+Locally (pe 500k pairs and HiFi 90 Mb from the 765-species world, six threads): 14 species, the MSAs built in 0.43 s, qcMSA
+4.35 s (one python process per species, one after another): qcMSA is most of the strain stage, and the first thing to
+parallelise there (its species are independent) once the r226 numbers are in.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):
