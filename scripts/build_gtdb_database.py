@@ -628,7 +628,7 @@ def suspect_copies_summary(build_log):
     return re.sub(r":? ?\S*(suspect_copies|gene_incongruence)\.tsv", "", text).strip()
 
 
-def trace_relatives(training, training_db, heldout, logs, outdir):
+def trace_relatives(training, training_db, heldout, logs, outdir, threads=1):
     """model_logs/relatives_by_gene_conservation.txt (trace_relatives.py): where the paired-end reads of the species the
     training database lacks land, by the genes' conservation factors, on real genomes. A failure is reported, and does
     not stop the build: the models do not depend on it."""
@@ -637,7 +637,7 @@ def trace_relatives(training, training_db, heldout, logs, outdir):
     began = time.time()
     with open(log, "w") as fh:
         rc = subprocess.run([sys.executable, TRACE, "--points", os.path.join(training, "points"), "--db", training_db,
-                             "--heldout", heldout, "--out", out], stdout=fh, stderr=subprocess.STDOUT).returncode
+                             "--heldout", heldout, "--out", out, "--threads", str(threads)], stdout=fh, stderr=subprocess.STDOUT).returncode
     if rc:
         say(f"    tracing the held-out species' reads failed ({rc}; see {log}); the build goes on")
         return
@@ -1798,7 +1798,7 @@ def main():
         if os.path.isfile(name):
             shutil.copy(name, logs)
     if "pe" in read_types and training_db != db and os.path.isfile(heldout):
-        trace_relatives(training, training_db, heldout, logs, args.outdir)
+        trace_relatives(training, training_db, heldout, logs, args.outdir, args.threads)
     Steps.start(f"adding {models} to {os.path.basename(db)} (final_package.log)")
     if final_build is not None:
         if final_build.seconds is None:

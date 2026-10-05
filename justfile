@@ -202,10 +202,10 @@ mini-db: baseline
     PROTAL={{protal}} bash scripts/mini_db/build_mini_db.sh {{mini_db_dir}}
 
 # Unit checks of the mini DB generator/converter (no protal binary needed; numpy for the long reads and the
-# build script) and of the in-silico strains.
+# build script), of the in-silico strains and of trace_relatives.py.
 mini-db-test:
     python3 -m unittest scripts/mini_db/test_mini_db.py
-    python3 -m unittest scripts/test_insilico_strains.py
+    python3 -m unittest scripts/test_insilico_strains.py scripts/test_trace_relatives.py
 
 # Checks that the presence model's PMML export scores as scikit-learn does (needs numpy, pandas,
 # scikit-learn; no Java).

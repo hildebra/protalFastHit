@@ -2322,6 +2322,10 @@ class GtdbBuildTest(unittest.TestCase):
                                                              r"\d+ species kept")
         for name in ("gene_congeners.tsv", "relatives_by_gene_conservation.txt"):
             self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", "model_logs", name)), name)
+        # The held-out species' reads were traced to genes (through their genomes' contigs; at r226 v10 none was).
+        traced = self.text("out", "model_logs", "relatives_by_gene_conservation.txt")
+        self.assertNotIn("Not traced", traced)
+        self.assertRegex(traced, r"over [1-9]\d* genes")
         # Each step says when it starts and, indented, when it ended, how long it took and what it made; a stage
         # running for a while (5 s here, --progress-every) how it is doing; the collector how far the simulations
         # and protal are.

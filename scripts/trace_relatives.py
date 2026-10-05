@@ -3,9 +3,10 @@
 
 build_gtdb_database.py simulates its training samples from genomes of every species, and aligns them to a training
 database that leaves some species out. The reads of a species left out (whose genus stays) can only land on its
-congeners. This script follows them read by read: a simulated read's name starts with the accession of the genome
-it came from (simulate_metagenomes), and its primary record names the taxon and gene it aligned to (RNAME
-<taxid>_<geneid>). With the genomes being real (GTDB's), it tells how a relative's reads spread over the genes of
+congeners. This script follows them read by read: a simulated read is named after the contig it came from (ART:
+<contig>-<n>), whose genome the genomes' FASTAs in the samples' manifest.tsv tell (their headers, read once per
+genome; GTDB's contigs are named by NCBI, not by their genome), and its primary record names the taxon and gene it
+aligned to (RNAME <taxid>_<geneid>). With the genomes being real (GTDB's), it tells how a relative's reads spread over the genes of
 real congeners, by the genes' conservation factors (gene_conservation.tsv, here from the training database's
 gene_congeners.tsv), which the model's conservation features rest on (docs/claude/2026-10-01-conservation-pattern).
 
@@ -25,6 +26,7 @@ gene). A sample past --max-records records is read only that far.
 """
 import argparse
 import collections
+import concurrent.futures
 import csv
 import glob
 import gzip
@@ -36,6 +38,7 @@ import sys
 
 MIN_MAPQ = 4  # Profiler::m_min_mapq
 CLASSES = [("factor < 0.7", 0, 0.7), ("0.7 - 1", 0.7, 1.0), ("1 - 1.4", 1.0, 1.4), ("factor >= 1.4", 1.4, float("inf"))]
+SHARED = object()  # a contig name of genomes of two species in one sample
 
 
 def parse_args(argv=None):
@@ -46,6 +49,7 @@ def parse_args(argv=None):
     p.add_argument("--heldout", required=True, help="heldout_species.txt: species <tab> rank it was held out at")
     p.add_argument("--out", required=True, help="output prefix: PREFIX.txt and PREFIX.tsv")
     p.add_argument("--max-records", type=int, default=5_000_000, help="records read per sample at most (default 5M)")
+    p.add_argument("--threads", type=int, default=8, help="genome FASTAs read at once for their contig names (default 8)")
     return p.parse_args(argv)
 
 
@@ -97,6 +101,32 @@ def paired_samples(points):
             yield [r for r in rows if r.get("sample") == sample], sample, sam
 
 
+def contig_names(path):
+    """The first words of a genome FASTA's headers (its contigs, as ART names the reads), .gz or plain; an empty
+    list for a file that cannot be read."""
+    try:
+        opener = gzip.open if path.endswith(".gz") else open
+        with opener(path, "rb") as fh:
+            return [line[1:].split(None, 1)[0].decode(errors="replace") for line in fh if line.startswith(b">") and
+                    len(line) > 2]
+    except OSError:
+        return []
+
+
+def genome_contigs(paths, threads):
+    """{FASTA path: [contig names]} of the genomes, read on `threads` processes."""
+    paths = sorted(set(p for p in paths if p))
+    if not paths:
+        return {}
+    with concurrent.futures.ProcessPoolExecutor(max(1, min(threads, len(paths)))) as pool:
+        return dict(zip(paths, pool.map(contig_names, paths, chunksize=16)))
+
+
+def read_contig(name):
+    """The contig a simulated read came from, by its name (ART: <contig>-<n>; the aligner cut a mate's /1 or /2)."""
+    return name.rsplit("-", 1)[0]
+
+
 def trace(opts):
     factor = factors_of(opts.db)
     if not factor:
@@ -116,14 +146,24 @@ def trace(opts):
     counts = collections.defaultdict(collections.Counter)  # (class, gene) -> counts
     spread = collections.defaultdict(collections.Counter)  # (sample, relative genome, gene) -> {taxid: kept records}
     samples = 0
-    for rows, sample, sam in paired_samples(opts.points):
-        source = {}
+    paired = list(paired_samples(opts.points))
+    contigs = genome_contigs([r.get("fasta_path") for rows, _, _ in paired for r in rows], opts.threads)
+    unnamed = ambiguous = 0
+    for rows, sample, sam in paired:
+        source, contig_source = {}, {}
         for r in rows:
             sp = species_of(r.get("taxonomy") or r.get("species", ""))
             cls = "relative" if heldout.get(sp) == "species" else ("own" if sp not in heldout else None)
             if cls:
                 source[r["genome"]] = (cls, r.get("taxonomy", ""))
                 coverage[cls] += float(r.get("vertical_coverage") or 0)
+            for contig in contigs.get(r.get("fasta_path"), []):
+                # Every genome of the sample (those of species held out at other ranks are not compared: class
+                # None). A contig name two genomes share (an in-silico strain of an earlier insilico_strains.py
+                # kept its representative's) is kept if both are of one species, else no read of it is traced.
+                other = contig_source.setdefault(contig, (cls, r.get("taxonomy", ""), r["genome"]))
+                if other is not SHARED and species_of(other[1]) != sp:
+                    contig_source[contig] = SHARED
         if not source:
             continue
         samples += 1
@@ -136,10 +176,22 @@ def trace(opts):
             f = line.split("\t", 5)
             if len(f) < 5 or int(f[1]) & 0x904 or f[2] == "*":
                 continue
-            acc = f[0].split("_contig")[0]
-            if acc not in source:
-                continue
-            cls, src = source[acc]
+            if contig_source:
+                contig = read_contig(f[0])
+                found = contig_source.get(contig)
+                if found is None or found is SHARED:
+                    unnamed += found is None
+                    ambiguous += found is SHARED
+                    continue
+                cls, src, acc = found
+                if cls is None:
+                    continue
+            else:  # a manifest without FASTA paths: simulate_gtdb_release.py names its contigs <accession>_contigN
+                acc = f[0].split("_contig")[0]
+                if acc not in source:
+                    unnamed += 1
+                    continue
+                cls, src = source[acc]
             taxid, _, gene = f[2].partition("_")
             hit = taxon_lineage.get(taxid)
             if hit is None:
@@ -158,6 +210,9 @@ def trace(opts):
     if not coverage["own"] or not coverage["relative"]:
         return None, (f"{samples} paired-end samples, but no reads of species held out at species rank and of species "
                       "in the database to compare")
+    if not counts:
+        return None, (f"{samples} paired-end samples, but none of their aligned records was traced to a genome of "
+                      f"them ({unnamed} records of no contig of their genomes, {ambiguous} of contigs two species share)")
     top = collections.defaultdict(list)
     for (_, _, gene), hits in spread.items():
         top[gene].append(max(hits.values()) / sum(hits.values()))
@@ -174,7 +229,7 @@ def trace(opts):
                           relative_on_congener=share("congener"), relative_mapq_below_4=1 - share("kept"),
                           own_mapq_below_4=1 - o["kept"] / o["records"],
                           relative_on_top_taxon=statistics.mean(top[gene]) if top[gene] else float("nan")))
-    return dict(samples=samples, coverage=coverage, genes=genes), None
+    return dict(samples=samples, coverage=coverage, genes=genes, unnamed=unnamed, ambiguous=ambiguous), None
 
 
 def median(values):
@@ -210,7 +265,9 @@ def report(result):
     lines = ["Where the reads of species held out of the training database land, by the gene's conservation factor",
              "(trace_relatives.py; docs/claude/2026-10-01-conservation-pattern)", "",
              f"{result['samples']} paired-end training samples; source coverage summed: species in the database "
-             f"{cov['own']:.1f}, species held out at species rank {cov['relative']:.1f}. R: the held-out species' "
+             f"{cov['own']:.1f}, species held out at species rank {cov['relative']:.1f}; records of no contig of the "
+             f"sample's genomes {result.get('unnamed', 0)}, of contigs two species share {result.get('ambiguous', 0)}. "
+             "R: the held-out species' "
              "records per unit coverage over a species' own on the same gene; medians over the genes of each class.", "",
              "| gene factor | genes | R, all records | R, MAPQ >= 4 | on a congener | MAPQ < 4 | own MAPQ < 4 | "
              "kept on the most-hit taxon |", "|---|---|---|---|---|---|---|---|"]

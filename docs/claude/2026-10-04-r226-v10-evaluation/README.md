@@ -171,6 +171,15 @@ after the conversion (`--insilico-strains 1`, `--insilico-ani`; docs/building-a-
 - Substitutions only: no indels, rearrangements or gene content differences, which real strains have; the
   marker genes, which carry the features, are what the model of mutation is fitted to.
 
+**Fix after v11's first start (2026-10-05):** the strain step stopped with `IndexError: index 71 is out of bounds` (job
+23954360). Two substitutions in one codon were grouped by the codon's first base only, and where a minus- and a
+plus-strand frame meet, both have a codon starting at one base: their changes were summed into one codon index.
+The synthetic test genome had no such overlap; real genomes do. Codons are now grouped by first base and strand.
+A regression test (`test_codons_of_both_strands_at_one_base`) fails with the old code and passes. A stress
+run on dense genes overlapping on both strands, with N runs and tiny contigs, at 95% ANI also passes. The
+strains' contigs are now named after the strain (`<strain>_<contig>`), so their reads are told from the
+representative's ([2026-10-05-trace-relatives.md](../2026-10-05-trace-relatives.md)).
+
 What the next r226 build (v11) should show: present one-genome species in the test set simulated from in-silico
 strains about half the time; their FN rate by fragments near that of real strains; and, the point of it, the
 priors' gain (`+priors` in the feature-set study) shrinking from +0.005 held out toward 0 if the cluster-size

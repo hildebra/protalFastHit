@@ -86,6 +86,13 @@ class InsilicoStrains(unittest.TestCase):
         self.assertEqual(rows[-1][1], "d__Bacteria;s__Solo one")
         self.assertEqual(int(rows[-1][3]), len(self.genome))
 
+    def test_contig_names(self):
+        # Named after the strain, so that its reads (ART names them by their contig) are told from the
+        # representative's (trace_relatives.py).
+        name = ins.strain_name("GCF_000000001.1")
+        header = ins.read_fasta(os.path.join(self.out, name + ".fna.gz"))[0][0]
+        self.assertTrue(header.startswith(name + "_contig1 "), header)
+
     def test_divergence(self):
         self.assertEqual(len(self.strain), len(self.genome))
         diff = np.frombuffer(self.strain.encode(), np.uint8) != np.frombuffer(self.genome.encode(), np.uint8)
@@ -122,6 +129,24 @@ class InsilicoStrains(unittest.TestCase):
         self.assertAlmostEqual(factors[2], 0.5)
         self.assertAlmostEqual(factors[3], 1.0)
         self.assertEqual(len(ins.strain_divergences(strains)), 5)
+
+    def test_codons_of_both_strands_at_one_base(self):
+        # Where a minus-strand frame (sites 0-299, its first codon read from base 300) meets a plus-strand frame
+        # (from base 300), both have a codon starting at base 300: two substitutions there were summed into one
+        # codon index past 63 (the r226 v11 build's IndexError) and must be judged per codon.
+        rng = np.random.default_rng(5)
+        n = 900
+        owner = np.where(np.arange(n) < 300, 1, 0)
+        minus = owner == 1
+        cpos = np.where(minus, (300 - np.arange(n)) % 3, (np.arange(n) - 300) % 3).astype(np.int8)
+        for seed in range(40):
+            codes = rng.integers(0, 4, n).astype(np.uint8)
+            new, *_ = ins.mutate(codes, owner, cpos, minus, np.full(n, 0.6), 2, np.random.default_rng(seed), 3.0, 0.15)
+            plus = new[300:900].astype(np.int64).reshape(-1, 3)
+            index = 16 * plus[:, 0] + 4 * plus[:, 1] + plus[:, 2]
+            before = codes[300:900].astype(np.int64).reshape(-1, 3)
+            was_stop = ins.STOP[16 * before[:, 0] + 4 * before[:, 1] + before[:, 2]]
+            self.assertFalse((ins.STOP[index] & ~was_stop).any(), seed)
 
     def test_orfs_both_strands(self):
         codes = ins.CODE[np.frombuffer(self.genome.encode(), np.uint8)]

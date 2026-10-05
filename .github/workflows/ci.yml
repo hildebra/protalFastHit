@@ -27,8 +27,8 @@ jobs:
       - name: Mini database generator tests
         run: python3 -m unittest -v scripts/mini_db/test_mini_db.py
 
-      - name: In-silico strain tests
-        run: python3 -m unittest -v scripts/test_insilico_strains.py
+      - name: In-silico strain and trace tests
+        run: python3 -m unittest -v scripts/test_insilico_strains.py scripts/test_trace_relatives.py
 
   sanitizers:
     runs-on: ubuntu-24.04

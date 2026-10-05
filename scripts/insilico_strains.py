@@ -28,10 +28,11 @@ The mutations:
 Substitutions only: the strain has the representative's length and its genes' positions.
 
 Writes OUT_DIR/<name>.fna.gz per strain (name: insilico_ and the representative's accession with '_' for '.', so
-that no accession pattern takes it for the representative), the genome table --output (the input's rows and one
-per strain: name, taxonomy, FASTA, length) and OUT_DIR/insilico_strains.tsv (per strain: representative, species,
-genome and marker divergence drawn, substitutions made, the coding share of the genome, the marker divergence
-reached on the placed genes).
+that no accession pattern takes it for the representative; its contigs <name>_<the representative's contig>, so
+that its reads, which ART names by their contig, are told from the representative's), the genome table --output
+(the input's rows and one per strain: name, taxonomy, FASTA, length) and OUT_DIR/insilico_strains.tsv (per strain:
+representative, species, genome and marker divergence drawn, substitutions made, the coding share of the genome,
+the marker divergence reached on the placed genes).
 
 Usage:
   insilico_strains.py --genome-table genomes.tsv --output genomes_simulated.tsv --out-dir insilico_strains
@@ -266,7 +267,9 @@ def mutate(codes, owner, cpos, minus, rate, n_frames, rng, kappa, omega):
     # Two substitutions in one codon were each judged against the original codon: the codon both make must not be a
     # stop (else neither is made).
     alt_kept = alternative_lookup(idx, alt, kept)
-    _, inverse = np.unique(start[kept], return_inverse=True)
+    # One codon: its first base and strand (a plus- and a minus-strand codon can start at one base where frames on
+    # opposite strands meet).
+    _, inverse = np.unique(2 * start[kept] + mi[kept], return_inverse=True)
     delta = np.bincount(inverse, weights=weight[kept] * (alt_kept.astype(np.int64) - old[kept])).astype(np.int64)
     fine = ~STOP[codon[kept] + delta[inverse]]
     kept, alt_kept = kept[fine], alt_kept[fine]
@@ -333,7 +336,7 @@ def make_strain(job):
             for k, m in enumerate(markers):
                 if counts[k]:
                     reached.append(per_frame[k] / counts[k] / max(factors.get(m[4], 1.0), 1e-9))
-            fh.write(b">" + header.encode() + f" in-silico strain of {acc}".encode() + b"\n")
+            fh.write(f">{strain_name(acc)}_{header} in-silico strain of {acc}\n".encode())
             text = BASES[new].tobytes()
             for i in range(0, len(text), 80):
                 fh.write(text[i:i + 80] + b"\n")
