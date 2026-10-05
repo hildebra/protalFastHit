@@ -292,13 +292,16 @@ namespace protal {
         ValueEntry* m_map = nullptr;
 
         // The packed layout of a query run (PackedLayout, Pack): m_packed holds the values, m_map is
-        // freed. The key map is the same; a key's values start at bit (its first slot) * m_slot_bits.
+        // freed. The key map is the same; a key's values start at bit SlotBit(its first slot).
         uint8_t* m_packed = nullptr;
         uint64_t m_packed_bytes = 0;
         uint64_t m_packed_entries = 0;
         size_t m_chunks_on_fewer_threads = 0;  // ChunksOnFewerThreads
-        unsigned m_taxid_bits = 0, m_gene_bits = 0, m_pos_bits = 0, m_entry_bits = 0, m_slot_bits = 0;
-        uint64_t m_taxid_mask = 0, m_gene_mask = 0, m_pos_mask = 0, m_entry_mask = 0;
+        unsigned m_taxon_gene_bits = 0, m_pos_bits = 0, m_entry_bits = 0;
+        uint64_t m_genes = 2;           // an entry's taxid and gene are taxid * m_genes + gene
+        uint64_t m_slot_bits_32 = 0;    // PackedLayout::SlotBits32
+        uint64_t m_gene_reciprocal = 0;  // taxid = (taxid * m_genes + gene) * m_gene_reciprocal >> 64 (DivideByGenes)
+        uint64_t m_taxon_gene_mask = 0, m_pos_mask = 0, m_entry_mask = 0;
 
         // What this build writes (plus kFeatureReferenceFingerprint once SetReferenceFingerprint is
         // called); replaced by the index's own features on Load.
@@ -372,35 +375,43 @@ namespace protal {
     public:
         // How a query run holds the values (Pack; Load with a layout). The file keeps every entry in a
         // 64-bit slot (taxid, gene and position of 20 bits, 2 flags) and a 32-bit flex cell per entry of a
-        // key with several values, in ceil(S/3) of the key's S slots. In memory an entry takes
-        // taxid_bits + gene_bits + pos_bits + 2 bits, the widths the reference needs (18 + 8 + 14 + 2 at
-        // GTDB r226: 42 of the 64), and the flex cells stay 32 bits. A key's region starts at bit
-        // (first slot) * SlotBits(): its e flex cells (if S >= 2), then its e entries at EntryBits() each,
-        // all at bit offsets, every entry still addressable on its own. The key map is unchanged (its
-        // offsets count the file's slots), so the regions of a load's chunks are known before they are
-        // decoded. SlotBits() = ceil(2 (32 + W) / 3) (at least W) holds every S: a key of S slots has
-        // e = S - ceil(S/3) <= 2S/3 entries. 50 bits per slot at r226: 27.3 GB for the 35 GB of slots
-        // (docs/claude/2026-10-03-memory-audit).
+        // key with several values, in ceil(S/3) of the key's S slots. In memory an entry takes the bits the
+        // reference needs: its taxid and gene as one number, taxid * genes + gene (genes: the largest gene
+        // id + 1), then the position and the 2 flags (25 + 14 + 2 = 41 of the 64 at GTDB r226, where taxid
+        // and gene apart would take 18 + 8), and the flex cells stay 32 bits. A key's region starts at
+        // bit SlotBit(first slot): its e flex cells (if S >= 2), then its e entries at EntryBits() each, all
+        // at bit offsets, every entry still addressable on its own. The key map is unchanged (its offsets
+        // count the file's slots), so the regions of a load's chunks are known before they are decoded.
+        // A slot takes SlotBits32() / 32 bits, the least multiple of 1/32 bit that holds every S: a key of
+        // S >= 2 slots has e = S - ceil(S/3) <= 2S/3 entries, so 2 (32 + W) / 3 bits per slot hold it (at
+        // least W, for S = 1), and a region of S slots spans at least floor(S * SlotBits32() / 32) whole
+        // bits however its start is rounded. 48.69 bits per slot at r226: 26.6 GB for the 35 GB of slots
+        // (docs/claude/2026-10-03-memory-audit, 2026-10-05-index-load-memory).
         struct PackedLayout {
-            unsigned taxid_bits = 20, gene_bits = 20, pos_bits = 20;
+            uint64_t genes = uint64_t{1} << SEEDMAP_GENEID_BITS;  // gene ids 0 to genes - 1
+            unsigned taxon_gene_bits = SEEDMAP_TAXID_BITS + SEEDMAP_GENEID_BITS, pos_bits = SEEDMAP_GENE_POS_BITS;
 
-            unsigned EntryBits() const { return taxid_bits + gene_bits + pos_bits + 2; }
+            unsigned EntryBits() const { return taxon_gene_bits + pos_bits + 2; }
 
-            unsigned SlotBits() const {
-                unsigned const w = EntryBits();
-                return std::max(w, (2 * (32 + w) + 2) / 3);
+            // Bits of region per slot of the file, in 32nds of a bit: ceil(32 * 2 (32 + W) / 3), at least 32 W.
+            uint64_t SlotBits32() const {
+                uint64_t const w = EntryBits();
+                return std::max(32 * w, (64 * (32 + w) + 2) / 3);
             }
 
-            // Bits for values up to `max`: 1 to 20 (the file's field width).
-            static unsigned Bits(uint64_t max) {
+            // Bits for values up to `max`, at least 1 and at most `limit`.
+            static unsigned Bits(uint64_t max, unsigned limit = SEEDMAP_TAXID_BITS) {
                 unsigned b = 1;
-                while (b < SEEDMAP_TAXID_BITS && (max >> b) != 0) b++;
+                while (b < limit && (max >> b) != 0) b++;
                 return b;
             }
 
-            // The layout for a reference whose taxids, gene ids and positions go up to these values.
+            // The layout for a reference whose taxids, gene ids and positions go up to these values (at most
+            // the file's 20-bit fields). At least 2 genes (Seedmap::DivideByGenes; gene ids start at 1).
             static PackedLayout For(uint64_t max_taxid, uint64_t max_gene, uint64_t max_position) {
-                return { Bits(max_taxid), Bits(max_gene), Bits(max_position) };
+                uint64_t const field_max = (uint64_t{1} << SEEDMAP_TAXID_BITS) - 1;
+                uint64_t const taxid = std::min(max_taxid, field_max), genes = std::max<uint64_t>(std::min(max_gene, field_max), 1) + 1;
+                return { genes, Bits(taxid * genes + genes - 1, SEEDMAP_TAXID_BITS + SEEDMAP_GENEID_BITS), Bits(max_position) };
             }
 
             bool operator==(PackedLayout const&) const = default;
@@ -423,7 +434,7 @@ namespace protal {
         }
 
         PackedLayout Layout() const {
-            return { m_taxid_bits, m_gene_bits, m_pos_bits };
+            return { m_genes, m_taxon_gene_bits, m_pos_bits };
         }
 
         uint64_t PackedEntries() const {
@@ -439,9 +450,11 @@ namespace protal {
             };
             std::string s;
             if (IsPacked()) {
-                s = std::to_string(m_packed_entries) + " entries of " + std::to_string(m_entry_bits) + " bits (taxid " +
-                    std::to_string(m_taxid_bits) + ", gene " + std::to_string(m_gene_bits) + ", position " + std::to_string(m_pos_bits) +
-                    ", 2 flags) and their 32-bit flex cells, " + std::to_string(m_slot_bits) + " bits per slot of the file: " + gb(m_packed_bytes);
+                char slot[32];
+                snprintf(slot, sizeof(slot), "%.2f", static_cast<double>(m_slot_bits_32) / 32);
+                s = std::to_string(m_packed_entries) + " entries of " + std::to_string(m_entry_bits) + " bits (taxid * " +
+                    std::to_string(m_genes) + " + gene " + std::to_string(m_taxon_gene_bits) + ", position " + std::to_string(m_pos_bits) +
+                    ", 2 flags) and their 32-bit flex cells, " + slot + " bits per slot of the file: " + gb(m_packed_bytes);
             } else {
                 s = std::to_string(values_size) + " slots of 8 bytes: " + gb(values_size * sizeof(ValueEntry));
             }
@@ -461,10 +474,24 @@ namespace protal {
             __uint128_t x;
             std::memcpy(&x, block.entries + (bit >> 3), 16);
             uint64_t const v = static_cast<uint64_t>(x >> (bit & 7)) & m_entry_mask;
-            uint64_t const taxid = (v >> (m_pos_bits + m_gene_bits)) & m_taxid_mask;
-            uint64_t const gene = (v >> m_pos_bits) & m_gene_mask;
-            uint64_t const flags = v >> (m_pos_bits + m_gene_bits + m_taxid_bits);
+            uint64_t const taxon_gene = (v >> m_pos_bits) & m_taxon_gene_mask;
+            uint64_t const taxid = DivideByGenes(taxon_gene);
+            uint64_t const gene = taxon_gene - taxid * m_genes;
+            uint64_t const flags = v >> (m_pos_bits + m_taxon_gene_bits);
             return taxid << 40 | gene << 20 | (v & m_pos_mask) | flags << 60;
+        }
+
+        // taxon_gene / m_genes, exactly, without a division: the high half of taxon_gene * m_gene_reciprocal, with
+        // m_gene_reciprocal = ceil(2^64 / m_genes) = (2^64 + r) / m_genes, r < m_genes (it fits 64 bits: m_genes >= 2).
+        // That exceeds taxon_gene / m_genes by taxon_gene * r / (m_genes 2^64) < taxon_gene / 2^64 < 2^-24 (taxon_gene <
+        // 2^40), less than 1 / m_genes (m_genes <= 2^20), too little to reach the next integer.
+        inline uint64_t DivideByGenes(uint64_t taxon_gene) const {
+            return static_cast<uint64_t>((static_cast<__uint128_t>(taxon_gene) * m_gene_reciprocal) >> 64);
+        }
+
+        // The first bit of slot `slot`'s region in the packed values (PackedLayout).
+        inline uint64_t SlotBit(uint64_t slot) const {
+            return slot * m_slot_bits_32 >> 5;
         }
 
         // The slots of a key's values in the file's layout: the first and how many; false if none.
@@ -493,7 +520,7 @@ namespace protal {
 
         // The packed values of the key whose slots (in the file's layout) are [start, start + slots), slots >= 1.
         inline void BlockOfSlots(uint64_t start, uint64_t slots, PackedBlock& block) const {
-            uint64_t const bit = start * m_slot_bits;
+            uint64_t const bit = SlotBit(start);
             if (slots >= m_flex_threshold) {
                 uint64_t const entries = slots - FlexBlockSize(slots);
                 block.size = static_cast<uint32_t>(entries);
@@ -513,7 +540,7 @@ namespace protal {
         // The bit of flag `flag` (0: unique, 1: unique at distance two) of entry i of a key's packed values.
         uint64_t FlagBit(PackedBlock const& block, uint32_t i, unsigned flag) const {
             return static_cast<uint64_t>(block.entries - m_packed) * 8 + block.entry_shift + static_cast<uint64_t>(i) * m_entry_bits +
-                   m_taxid_bits + m_gene_bits + m_pos_bits + flag;
+                   m_taxon_gene_bits + m_pos_bits + flag;
         }
 
         // The flags of entry i of a key's packed values, changed atomically a byte at a time: --build's
@@ -616,8 +643,9 @@ namespace protal {
         // layout's fields; false if a field does not fit them.
         bool PackValue(uint64_t v, uint64_t& packed) const {
             uint64_t const taxid = (v >> 40) & 0xfffff, gene = (v >> 20) & 0xfffff, pos = v & 0xfffff, flags = (v >> 60) & 3;
-            if (taxid > m_taxid_mask || gene > m_gene_mask || pos > m_pos_mask) return false;
-            packed = taxid << (m_gene_bits + m_pos_bits) | gene << m_pos_bits | pos | flags << (m_taxid_bits + m_gene_bits + m_pos_bits);
+            uint64_t const taxon_gene = taxid * m_genes + gene;
+            if (gene >= m_genes || taxon_gene > m_taxon_gene_mask || pos > m_pos_mask) return false;
+            packed = taxon_gene << m_pos_bits | pos | flags << (m_taxon_gene_bits + m_pos_bits);
             return true;
         }
 
@@ -646,22 +674,22 @@ namespace protal {
 
     private:
         void SetLayout(PackedLayout const& layout) {
-            m_taxid_bits = layout.taxid_bits;
-            m_gene_bits = layout.gene_bits;
+            m_genes = std::max<uint64_t>(layout.genes, 2);
+            m_taxon_gene_bits = layout.taxon_gene_bits;
             m_pos_bits = layout.pos_bits;
             m_entry_bits = layout.EntryBits();
-            m_slot_bits = layout.SlotBits();
-            m_taxid_mask = (uint64_t{1} << m_taxid_bits) - 1;
-            m_gene_mask = (uint64_t{1} << m_gene_bits) - 1;
+            m_slot_bits_32 = layout.SlotBits32();
+            m_taxon_gene_mask = (uint64_t{1} << m_taxon_gene_bits) - 1;
             m_pos_mask = (uint64_t{1} << m_pos_bits) - 1;
             m_entry_mask = (uint64_t{1} << m_entry_bits) - 1;
+            m_gene_reciprocal = static_cast<uint64_t>(((__uint128_t{1} << 64) + m_genes - 1) / m_genes);
         }
 
         // Zeroed (the packers OR their bits in) and untouched until a thread writes its range, as the
         // genes' arena (GenomeLoader::LoadAllGenomes); 16 bytes more, read past the last entry.
         void AllocatePacked() {
             std::free(m_packed);
-            m_packed_bytes = (values_size * m_slot_bits + 7) / 8;
+            m_packed_bytes = (SlotBit(values_size) + 7) / 8;
             m_packed = static_cast<uint8_t*>(std::calloc(m_packed_bytes + 16, 1));
             if (!m_packed) {
                 std::cerr << "Cannot allocate the index values (" << m_packed_bytes + 16 << " bytes)" << std::endl;
@@ -685,9 +713,9 @@ namespace protal {
                    std::to_string(gene) + ", position " + std::to_string(pos) + "): it was built against a different reference";
         }
 
-        // Packs one key's S slots (at `cells`, the file's layout) into its region at bit slot * m_slot_bits.
+        // Packs one key's S slots (at `cells`, the file's layout) into its region at bit SlotBit(slot).
         bool PackKey(uint64_t slot, uint64_t S, uint64_t const* cells, uint64_t safe_begin, uint64_t safe_end, uint64_t& bad) {
-            uint64_t bit = slot * m_slot_bits;
+            uint64_t bit = SlotBit(slot);
             uint64_t e = S;
             uint64_t const* entries = cells;
             if (S >= m_flex_threshold) {
@@ -716,7 +744,7 @@ namespace protal {
         // packed, or nullopt with `bad` the first value whose fields do not fit the layout.
         std::optional<uint64_t> PackBlocks(uint64_t first_block, uint64_t end_block, uint64_t const* values, uint64_t values_first_slot,
                                            uint64_t range_first_slot, uint64_t range_end_slot, uint64_t& bad) {
-            uint64_t const first_bit = range_first_slot * m_slot_bits, end_bit = range_end_slot * m_slot_bits;
+            uint64_t const first_bit = SlotBit(range_first_slot), end_bit = SlotBit(range_end_slot);
             uint64_t const safe_begin = (first_bit >> 3) + ((first_bit & 7) ? 1 : 0);
             uint64_t const safe_end = end_bit >> 3;
             uint64_t const cpb = m_keys_per_ctrl_block + ctrl_block_cell_size;
@@ -1121,11 +1149,11 @@ namespace protal {
             std::atomic<uint64_t> entries{0};
             // The key map and the packed values become resident as they are written (calloc): near the end of the load
             // fewer threads decode, so that their frames do not sit on top of an index nearly all resident.
-            zstd::LoadBudget budget = index_codec::ChunkOutput(container, m_slot_bits);
+            zstd::LoadBudget budget = index_codec::ChunkOutput(container, m_slot_bits_32);
             std::string const error = zstd::ForEachFrame(path, table, 1, threads,
                     [&](size_t frame, char const* data, size_t size, size_t) -> std::string {
                 index_codec::Chunk const& ch = container.chunks[frame - 1];
-                uint64_t const first_bit = ch.first_value * m_slot_bits, end_bit = (ch.first_value + ch.values) * m_slot_bits;
+                uint64_t const first_bit = SlotBit(ch.first_value), end_bit = SlotBit(ch.first_value + ch.values);
                 Packing packing{ this, &ch, (first_bit >> 3) + ((first_bit & 7) ? 1 : 0), end_bit >> 3 };
                 auto own = sink;
                 own.context = &packing;
@@ -1524,7 +1552,7 @@ namespace protal {
                 // in order, so the first empty entry follows the filled ones (found by bisection; a placed entry is
                 // never 0, its unique flag is set). Bytes shared with the neighbouring keys, which another thread
                 // may be filling, are read and written atomically (GetBits, PutBits).
-                uint64_t const region = key_value_start * m_slot_bits, region_end = key_value_end * m_slot_bits;
+                uint64_t const region = SlotBit(key_value_start), region_end = SlotBit(key_value_end);
                 uint64_t const safe_begin = (region >> 3) + ((region & 7) ? 1 : 0), safe_end = region_end >> 3;
                 uint64_t const entries = key_value_block_size - (is_flex ? flex_block_size : 0);
                 uint64_t const entry_bit = region + (is_flex ? 32 * entries : 0);

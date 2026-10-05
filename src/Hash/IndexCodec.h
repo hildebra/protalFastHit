@@ -552,12 +552,13 @@ namespace protal::index_codec {
     }
 
     // What each chunk of a split index writes when it is decoded: its key map cells (2 bytes each) and its values,
-    // value_bits each (64 in the file's layout, the slot's bits packed), for ForEachFrame's budget (zstd::LoadBudget).
-    inline zstd::LoadBudget ChunkOutput(Container const& c, uint64_t value_bits) {
+    // value_bits_32 / 32 bits each (64 in the file's layout, Seedmap::PackedLayout::SlotBits32 packed), for
+    // ForEachFrame's budget (zstd::LoadBudget).
+    inline zstd::LoadBudget ChunkOutput(Container const& c, uint64_t value_bits_32) {
         zstd::LoadBudget budget;
         budget.output.reserve(c.chunks.size());
         for (Chunk const& ch : c.chunks) {
-            budget.output.push_back(ch.blocks * c.layout.CellsPerBlock() * sizeof(uint16_t) + (ch.values * value_bits + 7) / 8);
+            budget.output.push_back(ch.blocks * c.layout.CellsPerBlock() * sizeof(uint16_t) + ((ch.values * value_bits_32 >> 5) + 7) / 8);
         }
         return budget;
     }
@@ -568,7 +569,7 @@ namespace protal::index_codec {
     inline std::string Decode(std::string const& path, zstd::SeekTable const& table, Container const& c, uint16_t* keymap,
                               uint64_t* values, int threads, size_t* chunks_on_fewer = nullptr) {
         Layout const& l = c.layout;
-        zstd::LoadBudget budget = ChunkOutput(c, 64);
+        zstd::LoadBudget budget = ChunkOutput(c, 64 * 32);
         std::string const error = zstd::ForEachFrame(path, table, 1, threads,
                 [&](size_t frame, char const* data, size_t size, size_t) -> std::string {
             Chunk const& ch = c.chunks[frame - 1];

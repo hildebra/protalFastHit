@@ -125,8 +125,8 @@ TEST(PackedIndex, HoldsEveryFlexCellAndEntryOfTheStoredLayout) {
     Fill(map, values);
     auto const stored = Record(map, values);
     auto const layout = Seedmap::PackedLayout::For(143614, 168, 12883 + 16);
-    EXPECT_EQ(layout.EntryBits(), 42u);
-    EXPECT_EQ(layout.SlotBits(), 50u);
+    EXPECT_EQ(layout.EntryBits(), 41u);       // taxid * 169 + gene in 25 bits, position 14, 2 flags
+    EXPECT_EQ(layout.SlotBits32(), 1558u);    // 48.69 bits per slot
     map.Pack(layout, 4);
     EXPECT_TRUE(map.IsPacked());
     EXPECT_EQ(map.PackedEntries(), values.size());
@@ -319,17 +319,67 @@ TEST(PackedIndex, PutBitsSharesBytesBetweenRanges) {
 
 TEST(PackedIndex, LayoutWidthsFollowTheReference) {
     auto const l = Seedmap::PackedLayout::For(143614, 168, 12883);
-    EXPECT_EQ(l.taxid_bits, 18u);
-    EXPECT_EQ(l.gene_bits, 8u);
+    EXPECT_EQ(l.genes, 169u);
+    EXPECT_EQ(l.taxon_gene_bits, 25u);  // 143614 * 169 + 168 < 2^25; apart, 18 + 8
     EXPECT_EQ(l.pos_bits, 14u);
-    EXPECT_EQ(Seedmap::PackedLayout::For(0, 0, 0).EntryBits(), 5u);
+    EXPECT_EQ(Seedmap::PackedLayout::For(0, 0, 0).EntryBits(), 4u);
+    EXPECT_EQ(Seedmap::PackedLayout::For(1000, 255, 0).taxon_gene_bits, 18u);  // 256 genes: as taxid and gene apart
     EXPECT_EQ(Seedmap::PackedLayout::For(~0ull, ~0ull, ~0ull).EntryBits(), 62u);  // the file's own widths
-    // A key of S slots holds e = S - ceil(S/3) entries and (S >= 2) e flex cells: they must fit S * SlotBits().
-    for (unsigned w : { 5u, 30u, 42u, 50u, 62u }) {
-        Seedmap::PackedLayout layout{ w - 2, 0, 0 };
+    // A key of S slots holds e = S - ceil(S/3) entries and (S >= 2) e flex cells: its region, from bit
+    // floor(a * F / 32) to floor((a + S) * F / 32) for its first slot a and F = SlotBits32(), must hold them whatever
+    // a is (the pattern repeats every 32 slots), and F is the least that does.
+    auto fits = [](uint64_t F, unsigned w) {
         for (uint64_t S = 1; S < 4000; S++) {
             uint64_t const e = S - (S >= 2 ? (S + 2) / 3 : 0);
-            EXPECT_LE((S >= 2 ? 32 * e : 0) + layout.EntryBits() * e, S * layout.SlotBits()) << "W " << w << " S " << S;
+            uint64_t const need = (S >= 2 ? 32 * e : 0) + w * e;
+            for (uint64_t a = 0; a < 32; a++) {
+                if (((a + S) * F >> 5) - (a * F >> 5) < need) return false;
+            }
         }
+        return true;
+    };
+    for (unsigned w : { 4u, 5u, 30u, 41u, 42u, 50u, 62u }) {
+        Seedmap::PackedLayout layout{ 1, w - 3, 1 };
+        ASSERT_EQ(layout.EntryBits(), w);
+        EXPECT_TRUE(fits(layout.SlotBits32(), w)) << "W " << w;
+        EXPECT_FALSE(fits(layout.SlotBits32() - 1, w)) << "W " << w;
+    }
+}
+
+// An entry's taxid and gene are one number, taxid * genes + gene, split again by a multiplication
+// (Seedmap::DivideByGenes): every value comes back for 2 genes (also the layout of a reference whose only gene
+// id is 0), a power of two, r226's 169 and the file's 2^20, with the largest and smallest taxids and genes; and the
+// division is exact over the whole range.
+TEST(PackedIndex, TaxidAndGeneAsOneNumberComeBackForEveryGeneCount) {
+    struct Case { uint64_t max_taxid, max_gene; };
+    for (Case const c : { Case{ 143614, 168 }, Case{ 5, 0 }, Case{ 70000, 1 }, Case{ 1000, 255 }, Case{ 999, 999 },
+                          Case{ (1u << 20) - 1, (1u << 20) - 1 } }) {
+        std::mt19937_64 rng(c.max_taxid ^ c.max_gene);
+        std::vector<SmallValue> values;
+        for (size_t k = 0; k < 400; k++) {
+            uint64_t const core = rng() & ((uint64_t{1} << 30) - 1);
+            size_t const n = k % 5 == 0 ? 1 : 2 + rng() % 40;
+            for (size_t i = 0; i < n; i++) {
+                uint64_t const flex = rng() & 0xffffffffu;
+                uint64_t const taxid = i % 4 == 0 ? c.max_taxid : i % 4 == 1 ? 0 : rng() % (c.max_taxid + 1);
+                uint64_t const gene = i % 3 == 0 ? c.max_gene : i % 3 == 1 ? 0 : rng() % (c.max_gene + 1);
+                values.push_back({ (flex >> 16) << 46 | core << 16 | (flex & 0xffff), taxid, gene, rng() % 12884 });
+            }
+        }
+        Seedmap map;
+        Fill(map, values);
+        auto const stored = Record(map, values);
+        auto const layout = Seedmap::PackedLayout::For(c.max_taxid, c.max_gene, 12883);
+        map.Pack(layout, 2);
+        ExpectPackedEquals(map, values, stored);
+
+        EXPECT_EQ(layout.genes, std::max<uint64_t>(c.max_gene, 1) + 1);
+        uint64_t const genes = layout.genes, end = uint64_t{1} << layout.taxon_gene_bits;
+        size_t wrong = 0;
+        auto check = [&](uint64_t x) { wrong += map.DivideByGenes(x) != x / genes; };
+        for (uint64_t x = 0; x < std::min<uint64_t>(end, 1u << 20); x++) check(x);
+        for (uint64_t x = end - std::min<uint64_t>(end, 1u << 20); x < end; x++) check(x);
+        for (int i = 0; i < 1000000; i++) check(rng() % end);
+        EXPECT_EQ(wrong, 0u) << "genes " << genes;
     }
 }

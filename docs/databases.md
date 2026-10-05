@@ -102,8 +102,9 @@ r226). `--model` and `--model_se` use another model for a run without changing t
   stands for (A C G T order), so alignments, SNP and MSA reference rows show the stored base. `--build`
   leaves k-mers with an ambiguous base out of the index. A SAM of an older protal with an `M` against
   such a base is set aside (`<sam>.err`).
-- **The index** is held packed: each value takes the bits the database needs (42 instead of 64 at
-  r226: 27 GB instead of 35 GB), by a run and, since 2026-10-05, by `--build` too. The files are unchanged.
+- **The index** is held packed: each value takes the bits the database needs, its taxon and gene as
+  one number (41 instead of 64 at r226: 26.6 GB instead of 35 GB), by a run and, since 2026-10-05, by
+  `--build` too. The files are unchanged.
   A run and a build print `Index in memory: ...`.
 - A full r226 run peaks at 38 GB ([running.md](running.md#memory)).
 - `--preload_genomes_off` reads genes on demand from a raw `reference.fna`: less memory, slower, and

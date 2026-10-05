@@ -88,6 +88,39 @@ matters only for runs from SAM files; the flex runs and the sparse key map trade
 memory and are worth it only where memory, not time, is the limit. The next cluster run's `Memory after
 aligning` and `Memory after profiling` lines will tell whether any stage after the load comes near it.
 
+## Implemented: bits per slot as a fraction, taxid and gene as one number
+
+On `60fea63` (the load change above, committed), at the user's request.
+
+- `Seedmap::PackedLayout` holds `genes` (the largest gene id + 1, at least 2), `taxon_gene_bits` (the bits of
+  taxid × genes + gene for the largest of each) and `pos_bits`; an entry is that number, the position and the 2
+  flags. `SlotBits32()` is the slot's width in 32nds of a bit, ⌈64 (32 + W) / 3⌉ (at least 32 W), and a key's
+  region starts at bit `SlotBit(slot)` = ⌊slot × SlotBits32() / 32⌋: a region of S slots spans at least
+  ⌊S × SlotBits32() / 32⌋ whole bits wherever it starts, enough for the e ≤ 2S/3 entries and flex cells of any S
+  (the test checks every S below 4000 from all 32 starting phases, and that one 32nd less fails).
+- `EntryValue` splits the number by `DivideByGenes`: the high 64 bits of taxid_gene × ⌈2^64 / genes⌉, exact for
+  numbers below 2^40 and genes up to 2^20 (the excess is below 2^-24 < 1 / genes; the test checks the first and
+  last 2^20 numbers and 10^6 random ones for 2, 256, 169, 1000 and 2^20 genes). `PackValue` refuses a gene id at
+  or above `genes`, or a number wider than the layout, with the same message as before.
+- `index_codec::ChunkOutput` takes the width in 32nds; the files, the key map and every reader of an entry
+  (through `EntryValue`) are unchanged; `Index in memory:` now reads e.g. `entries of 41 bits (taxid * 169 + gene
+  25, position 14, 2 flags) and their 32-bit flex cells, 48.69 bits per slot of the file`.
+
+**At r226** (4,375,430,329 slots, widths of the ninth cluster run): entries 42 → 41 bits, 50 → 48.69 bits per slot,
+values 27.35 → 26.63 GB, **−0.72 GB** (half from the fraction, half from the joined number). On the local 0.7.5
+world (taxid 10 + gene 8 bits → 17) entries 32 → 31 bits and 43 → 42.00 bits per slot, ~2% of its 0.1 GB.
+
+**Checks** (WSL, `~/zstdreader`, Release): `ctest` 368 of 368 (two tests new or rewritten: the widths and slot
+phases, the joined number for six gene counts); the e2e suite 133 of 133. Outputs against `60fea63`'s build on the
+0.7.5 world, a paired-end sample of 214k pairs (`~/bench071/strains/reads/str_s1`) and a PacBio sample of 215
+reads (`samples_lr073/points/pb_b3000000/sim/reads/pb_b3000000_s_1`): at 1 thread every file identical, SAMs
+included; at 4 threads all identical but the paired-end SAM's record order, which differs between two runs of the
+old build too (the records sorted, and the headers, are identical). Cost: callgrind on 20,000 pairs at 1 thread,
+`RunPairedEnd` 3,348.95 → 3,344.61 M instructions and `ChainAnchorFinder` (the lookups) 629.6 → 627.5 M: the
+multiplication costs nothing measurable. Alternated timings (6 each, 2 threads, `Aligning reads`) say only that
+this machine is noisy: a first version, which divided with a variable 128-bit shift, looked ~5% slower (medians
+3.53 vs 3.31 s, load 7), the final one ~10% faster (2.06 vs 2.29 s, load 3).
+
 ## Reproducing
 
 In WSL, with `protal_before` a build of `2d809cf` and `protal_after` one of this change, and `m_R1.fq`, `m_R2.fq` 2,000

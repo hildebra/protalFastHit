@@ -335,9 +335,10 @@ with the alignment on every core it gained nothing, so it is off by default.
 ## Memory
 
 protal keeps the index and the reference genes in memory: 38 GB peak for a run on the full r226
-database (measured on real paired-end and HiFi samples: the index's values packed to 42 bits,
-27.3 GB; its key map, 3.2 GB; the genes at two bits per base, the tables and the run's buffers, the
-rest; [databases.md](databases.md#the-database-in-memory)) and correspondingly less for the
+database, measured on real paired-end and HiFi samples with 0.7.6, and about 35 GB expected since
+the index load frees its threads' buffers as it ends and the index's values take 41 bits (26.6 GB;
+its key map, 3.2 GB; the genes at two bits per base, the tables and the run's buffers, the rest;
+[databases.md](databases.md#the-database-in-memory)) and correspondingly less for the
 reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads); the figures there,
 59 and 12 GB, predate the 2-bit genes and the packed index).
 It prints the machine's total memory at start and, after loading the index, the memory it takes. The index is read at random, one lookup per k-mer,
