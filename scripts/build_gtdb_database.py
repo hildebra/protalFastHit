@@ -140,7 +140,7 @@ import rank_genes  # noqa: E402
 import scenarios  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
-from collect_training_data import TABLES, clock, congener_spec, last_line, simulation_state, units_of, parse_args as collector_args  # noqa: E402
+from collect_training_data import INSILICO_PREFIX, TABLES, clock, congener_spec, last_line, simulation_state, units_of, parse_args as collector_args  # noqa: E402
 
 
 def congener_text(spec):
@@ -424,13 +424,14 @@ def genome_length(path):
     return letters - sum(len(h.translate(None, NON_LETTERS)) for h in re.findall(rb"^>[^\n]*", data, re.M))
 
 
-def summarize_genome_table(path, reps):
+def summarize_genome_table(path, reps, insilico_to_come=False):
     """What the simulations can draw: genomes and species by domain, and how often a simulated species is
-    not the database's representative genome (the simulator picks a species, then one of its genomes). The
-    lines of genome_table.txt, and the same in one line for the console."""
-    genomes = collections.Counter()
+    not the database's representative genome (the simulator picks a species, then one of its genomes): a real
+    strain, or an in-silico strain (insilico_strains.py; INSILICO_PREFIX). The lines of genome_table.txt, the same
+    in one line for the console, and a warning ("" for none): nearly every simulated species its reference, or most
+    strains in-silico. insilico_to_come: the table before the in-silico strains (step 3), judged after them."""
+    genomes, insilico, rep_count = collections.Counter(), collections.Counter(), collections.Counter()
     domain = {}
-    rep_genomes = 0
     with open(path) as fh:
         for line in fh:
             fields = line.rstrip("\n").split("\t")
@@ -440,25 +441,41 @@ def summarize_genome_table(path, reps):
             species = lineage.split(";")[-1]
             genomes[species] += 1
             domain[species] = lineage.split(";")[0][3:]
-            rep_genomes += reps is not None and normalize_accession(fields[0]) in reps
+            insilico[species] += fields[0].startswith(INSILICO_PREFIX)
+            rep_count[species] += reps is not None and normalize_accession(fields[0]) in reps
     lines = [f"genome table {path}: {sum(genomes.values())} genomes of {len(genomes)} species"]
     for d in sorted(set(domain.values())):
         sp = [s for s in genomes if domain[s] == d]
         lines.append(f"  {d}: {len(sp)} species, {sum(genomes[s] for s in sp)} genomes")
     several = sum(1 for n in genomes.values() if n > 1)
-    other_strain = sum((n - 1) / n for n in genomes.values()) / max(1, len(genomes))
+    # A species' genomes other than its representative (without the representatives known: all but one), real or in silico.
+    real = sum((n - insilico[s] - (rep_count[s] if reps is not None else 1)) / n for s, n in genomes.items())
+    real = max(0.0, real) / max(1, len(genomes))
+    made = sum(insilico[s] / n for s, n in genomes.items()) / max(1, len(genomes))
+    other_strain = real + made
+    split = f" (a real strain {100 * real:.1f}%, an in-silico strain {100 * made:.1f}%)" if made else ""
     lines.append(f"  {several} species have more than one genome; a simulated species is another genome than "
-                 f"its representative {100 * other_strain:.1f}% of the time")
+                 f"its representative {100 * other_strain:.1f}% of the time{split}")
     if reps is not None:
-        lines.append(f"  {rep_genomes} of the genomes are species representatives (the database's references)")
-    warning = ("WARNING: nearly all simulated species will be the database's own reference genome, closer to it "
-               "than real strains are. Add non-representative genomes (scripts/download_gtdb.py, then --inputs) to "
-               "train on real strain divergence.") if other_strain < 0.2 else ""
+        lines.append(f"  {sum(rep_count.values())} of the genomes are species representatives (the database's references)")
+    warning = ""
+    if other_strain < 0.2 and not insilico_to_come:
+        warning = ("WARNING: nearly all simulated species will be the database's own reference genome, closer to it "
+                   "than real strains are. Add non-representative genomes (scripts/download_gtdb.py, then --inputs) to "
+                   "train on real strain divergence.")
+    elif made > real:
+        warning = (f"WARNING: most simulated strains are in-silico ({100 * made:.1f}% of the simulated species against "
+                   f"{100 * real:.1f}% real): the models learn strains mostly from in-silico ones, which they miss less "
+                   "often than real ones (r226 v12: 2.5% against 6.1% with species held out; "
+                   "docs/claude/2026-10-05-r226-v12-scenarios). Download more species with strains (download_gtdb.py "
+                   "--species, then --inputs), or give fewer one-genome species an in-silico strain (--insilico-strains).")
     if warning:
         lines.append("  " + warning)
+    elif insilico_to_come and other_strain < 0.2:
+        lines.append("  the species with one genome get in-silico strains next (step 3)")
     domains = ", ".join(f"{d} {sum(1 for s in genomes if domain[s] == d)}" for d in sorted(set(domain.values())))
     brief = (f"{sum(genomes.values())} genomes of {len(genomes)} species ({domains}); a simulated species is another "
-             f"genome than its representative {100 * other_strain:.1f}% of the time")
+             f"genome than its representative {100 * other_strain:.1f}% of the time{split}")
     return lines, brief, warning
 
 
@@ -1262,8 +1279,8 @@ def main():
                         "its hold-out samples (--scenario-test-samples, another seed) the test set, and every model's "
                         "report gives F1 and FP and FN rates on both (section Scenarios; model_logs/summary.txt). A "
                         "scenario larger than the genome table holds at its share of species the database lacks is "
-                        "scaled down, and the run says so: soil's full size needs a larger pool than the default "
-                        "download's (download_gtdb.py --rep_only_species). host needs the host genome (--host-genome, "
+                        "scaled down, and the run says so: soil's full size needs about 25,000 species to simulate from, "
+                        "the download's default since 2026-10-05 (8,000 before). host needs the host genome (--host-genome, "
                         "or the download's); by default, without one, it is left out with a warning")
     p.add_argument("--scenario-file", help="JSON of scenarios by name, which add to or change the presets (scenarios.py)")
     p.add_argument("--scenario-samples", type=int, default=3,
@@ -1505,7 +1522,8 @@ def main():
     logs = os.path.join(args.outdir, "model_logs")
     os.makedirs(logs, exist_ok=True)
     reps = read_representatives(args.gtdb, release)
-    summary, brief, warning = summarize_genome_table(genome_table, reps)
+    # The share of simulated species that are strains is judged after the in-silico strains (step 3), if any.
+    summary, brief, warning = summarize_genome_table(genome_table, reps, insilico_to_come=args.insilico_strains > 0)
     with open(os.path.join(args.outdir, "genome_table.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
     Steps.start(f"genome table ({os.path.basename(genome_table)}, genome_table.txt): {brief}")
@@ -1635,11 +1653,13 @@ def main():
                                                     f" (no gene_positions.tsv: ANI {args.insilico_ani or INSILICO_FALLBACK_ANI})"))
         insilico_note = last_line(log)
         Steps.done(insilico_note)
-        summary, brief, _ = summarize_genome_table(sim_table, reps)
+        summary, brief, warning = summarize_genome_table(sim_table, reps)
         with open(os.path.join(args.outdir, "genome_table.txt"), "a") as fh:
             fh.write("with the in-silico strains (genomes_simulated.tsv, the genomes simulated from):\n" +
                      "\n".join(summary[1:]) + "\n" + insilico_note + "\n")
         Steps.done(f"simulated from: {brief}")
+        if warning:
+            say(warning)
 
     # The training database leaves some species out: the model then sees reads of species the database
     # lacks, which land on relatives, and reads of whole families, classes and phyla it lacks, which land on

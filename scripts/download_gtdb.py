@@ -23,7 +23,9 @@ Two parts:
   species simulated from their representative only. With --rep_genomes ncbi (the default) the
   representatives of these species come from NCBI too, so the 127 GB archive is not needed. The
   simulator draws a species uniformly, then one of its genomes: a species with k strains is
-  simulated from a strain k/(k+1) of the time.
+  simulated from a strain k/(k+1) of the time. The species are taken in a random order fixed by the
+  seed, and a rerun keeps what the folder has: a larger --species adds strain species (the earlier
+  representative-only ones first) and downloads only their strains.
 
 Which strains of a species (those passing the CheckM2 filters) are taken is not left to chance: the
 best by, in this order, (1) isolate genomes before single-cell and metagenome-assembled ones (GTDB's
@@ -103,11 +105,17 @@ def parse_args(argv=None):
     p.add_argument("--dry_run", action="store_true", help="list GTDB's files to download, with their sizes, and stop")
     p.add_argument("--keep_archives", action="store_true",
                    help="keep the downloaded .tar.gz archives after extracting them (default: removed)")
-    p.add_argument("--species", type=int, default=6000, help="species to download strains of (default 6000)")
+    p.add_argument("--species", type=int, default=16000,
+                   help="species to download strains of (default 16000; 6000 before 2026-10-05, when the r226 v12 build "
+                        "had 6000 such species against 18978 simulated from their representative and an in-silico strain, "
+                        "and its models missed real strains 2.4 times as often as in-silico ones: "
+                        "docs/claude/2026-10-05-r226-v12-scenarios). A rerun with more keeps the species and strains it "
+                        "has, and gives strains to its representative-only species first")
     p.add_argument("--per_species", type=int, default=2, help="strains per species at most (default 2)")
-    p.add_argument("--rep_only_species", type=int, default=2000,
-                   help="further species, simulated from their representative only (default 2000: with the other "
-                        "defaults, a simulated species is another strain about 50%% of the time)")
+    p.add_argument("--rep_only_species", type=int, default=9000,
+                   help="further species, simulated from their representative only (and an in-silico strain, "
+                        "build_gtdb_database.py --insilico-strains) (default 9000: with --species, 25,000 species, what "
+                        "the soil scenarios need at full size; 2000 before 2026-10-05)")
     p.add_argument("--min_completeness", type=float, default=90.0, help="CheckM2 completeness, %% (default 90)")
     p.add_argument("--max_contamination", type=float, default=5.0, help="CheckM2 contamination, %% (default 5)")
     p.add_argument("--tech_candidates", type=int, default=30,
@@ -411,12 +419,40 @@ def read_accessions(path):
         return set(re.findall(r"GC[AF]_\d{9}\.\d+", fh.read()))
 
 
-def pick(genomes, opts, technology=None, allowed=None):
+def previous_choice(out):
+    """What an earlier run into the folder chose: {"strains": {species: [strain accessions delivered]}, "rep_only":
+    {species simulated from their representative only}}, from its genomes.tsv and simulation_species.txt (empty for a
+    new folder)."""
+    strains, pool = collections.defaultdict(list), set()
+    path = os.path.join(out, "genomes.tsv")
+    if os.path.isfile(path):
+        with open(path) as fh:
+            header = next(fh, "").rstrip("\n").split("\t")
+            if "species" in header and "role" in header:
+                species, role, accession = header.index("species"), header.index("role"), header.index("accession")
+                for fields in (line.rstrip("\n").split("\t") for line in fh):
+                    if len(fields) > role and fields[role] == "strain":
+                        strains[fields[species]].append(fields[accession])
+    path = os.path.join(out, "simulation_species.txt")
+    if os.path.isfile(path):
+        with open(path) as fh:
+            pool = {line.strip() for line in fh if line.strip()}
+    return {"strains": dict(strains), "rep_only": pool - set(strains)}
+
+
+def pick(genomes, opts, technology=None, allowed=None, previous=None):
     """(strains [(Genome, sequencing technology)], species with strains, species simulated from their
     representative only, {species: domain}, {species: representative Genome}, {species: candidate strains}).
     technology(accessions) -> {accession: sequencing technology string} is asked for the best candidates of the
-    species that get strains; allowed: accessions, if only these genomes may be strains."""
-    rng = random.Random(opts.seed)
+    species that get strains; allowed: accessions, if only these genomes may be strains.
+
+    Species are taken per domain in one random order of the domain's species (the seed's): the first --species of
+    those with candidate strains, then --rep_only_species of the others. previous (previous_choice): what an earlier
+    run into the folder chose, kept as far as the counts allow: its strain species first, then, for more strain
+    species, its representative-only ones (whose representatives are there), and its strains of a species before the
+    species' other candidates. So a rerun with a larger --species downloads only the new strains, instead of a new
+    draw of every species and genome."""
+    previous = previous or {"strains": {}, "rep_only": set()}
     candidates = collections.defaultdict(list)
     domain, lineage, representative = {}, {}, {}
     for g in genomes:
@@ -430,26 +466,41 @@ def pick(genomes, opts, technology=None, allowed=None):
     without = collections.defaultdict(list)
     for species in sorted(domain):
         (with_strains if candidates.get(species) else without)[domain[species]].append(species)
+    earlier_strains, earlier_rep_only = set(previous["strains"]), set(previous["rep_only"])
     chosen, rep_only = [], []
     for d in sorted(set(domain.values())):
         share = sum(1 for s in domain if domain[s] == d) / len(domain)
-        picked_here = set(rng.sample(with_strains[d], min(len(with_strains[d]), round(opts.species * share))))
+        order = with_strains[d] + without[d]
+        order.sort()
+        random.Random(f"{opts.seed}:{d}").shuffle(order)  # a larger count takes the species after
+        eligible = [s for s in order if candidates.get(s)]
+        # The earlier strain species, then the earlier representative-only ones, then the rest (a stable sort keeps
+        # the random order within each).
+        eligible.sort(key=lambda s: 0 if s in earlier_strains else 1 if s in earlier_rep_only else 2)
+        picked_here = eligible[:min(len(eligible), round(opts.species * share))]
         chosen += sorted(picked_here)
-        rest = [s for s in with_strains[d] if s not in picked_here] + without[d]
-        rep_only += rng.sample(rest, min(len(rest), round(opts.rep_only_species * share)))
-    # Genomes that tie are drawn at random: shuffled once, then sorted by rank, which keeps their order.
-    # A species' shortlist is its best candidates by what the metadata says (category, level); NCBI is asked
-    # for their sequencing technology in one go, then the shortlist is ranked again with it.
-    shortlists = {}
+        taken = set(picked_here)
+        rest = [s for s in order if s not in taken]
+        rest.sort(key=lambda s: 0 if s in earlier_rep_only or s in earlier_strains else 1)
+        rep_only += rest[:min(len(rest), round(opts.rep_only_species * share))]
+    # Genomes that tie are drawn at random: shuffled once (by the species' own seed), then sorted by rank, which keeps
+    # their order. A species' shortlist is its best candidates by what the metadata says (category, level); NCBI is
+    # asked for their sequencing technology in one go, then the shortlist is ranked again with it. An earlier run's
+    # strains of the species come first, while they are still candidates.
+    shortlists, kept = {}, {}
     for species in sorted(chosen):
         options = sorted(candidates[species], key=lambda g: g.accession)
-        rng.shuffle(options)
+        random.Random(f"{opts.seed}:{species}").shuffle(options)
         options.sort(key=lambda g: quality_rank(g)[:2])
         shortlists[species] = options[:max(opts.per_species, opts.tech_candidates)] if technology else options
-    tech = technology(sorted({g.accession for s in shortlists.values() for g in s})) if technology else {}
+        before = set(previous["strains"].get(species, ()))
+        kept[species] = [g for g in candidates[species] if g.accession in before]
+    asked = {g.accession for s in shortlists.values() for g in s} | {g.accession for k in kept.values() for g in k}
+    tech = technology(sorted(asked)) if technology else {}
     picked = []
     for species in sorted(chosen):
         ranked = sorted(shortlists[species], key=lambda g: quality_rank(g, bool(LONG_READS.search(tech.get(g.accession, "")))))
+        ranked = kept[species] + [g for g in ranked if g not in kept[species]]
         picked += [(g, tech.get(g.accession, "")) for g in ranked[:opts.per_species]]
     return picked, sorted(chosen), sorted(rep_only), domain, representative, candidates
 
@@ -689,9 +740,21 @@ def get_genomes(opts, state, release):
         if not allowed:
             sys.exit(f"{opts.progenomes} lists no GCA_/GCF_ accessions: is it proGenomes' pg4_ANI_clustering.tsv.gz?")
         print(f"proGenomes: {len(allowed)} genomes in {opts.progenomes}; strains are taken from these only", flush=True)
+    previous = previous_choice(opts.out)
     strains, chosen, rep_only, domain, representative, candidates = pick(
-        genomes, opts, None if opts.no_tech_lookup else lambda accessions: technologies(opts, accessions), allowed)
+        genomes, opts, None if opts.no_tech_lookup else lambda accessions: technologies(opts, accessions), allowed,
+        previous)
     pool = sorted(chosen + rep_only)
+    eligible = sum(1 for s in domain if candidates.get(s))
+    kept = sum(1 for s in chosen if s in previous["strains"])
+    converted = sum(1 for s in chosen if s in previous["rep_only"])
+    print(f"species: {len(chosen)} with strains (--species {opts.species}; {eligible} of GTDB's {len(domain)} species have "
+          f"a strain passing the filters" + (f"; {kept} kept from the earlier choice, {converted} of its representative-"
+                                             "only species given strains" if previous["strains"] or previous["rep_only"] else "")
+          + f"), {len(rep_only)} from their representative only (--rep_only_species {opts.rep_only_species})", flush=True)
+    if len(chosen) < round(opts.species * 0.99):
+        print(f"  only {len(chosen)} species have strains passing the filters (--min_completeness, --max_contamination"
+              f"{', --progenomes' if allowed else ''}): fewer than --species asks", flush=True)
     # (accession, species, role, lineage, CheckM2 completeness and contamination, category, level, contigs, technology)
     wanted = [(g.accession, g.species, "strain", g.lineage, g.completeness, g.contamination, g.category, g.level,
                "" if g.contigs is None else g.contigs, tech) for g, tech in strains]

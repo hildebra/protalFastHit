@@ -724,6 +724,79 @@ class MiniDbTest(unittest.TestCase):
         picked, *_ = dl.pick(rows, opts, None, allowed={"GCA_3.1", "GCA_9.1", "GCA_5.1"})
         self.assertEqual(sorted(g.accession for g, _ in picked), ["GCA_3.1", "GCA_5.1", "GCA_9.1"])
 
+    def test_species_choice_kept_on_rerun(self):
+        # A rerun with more species with strains keeps the earlier choice (its strain species and their strains) and
+        # takes the new strain species first among the earlier representative-only ones, whose genomes are there.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import argparse
+        import download_gtdb as dl
+        rows = []
+        for i in range(40):
+            name = f"s__S{i:02d}"
+            lineage = f"d__Bacteria;p__P;c__C;o__O;f__F;g__G;{name}"
+            rows.append(dl.Genome(f"GCF_{i}.1", f"GCA_{i}.1", name, lineage, True, 99.0, 1.0, "isolate", "complete genome", 1))
+            if i < 30:  # 30 species with two candidate strains each, the second ranked lower (more contigs)
+                for j in range(2):
+                    rows.append(dl.Genome(f"GCA_{i}0{j}.1", f"GCA_{i}0{j}.1", name, lineage, False, 99.0, 1.0, "isolate",
+                                          "contig", 10 + j))
+        opts = argparse.Namespace(seed=1, species=10, per_species=1, rep_only_species=10, min_completeness=90.0,
+                                  max_contamination=5.0, tech_candidates=3)
+        picked, chosen, rep_only, *_ = dl.pick(rows, opts)
+        self.assertEqual((len(chosen), len(rep_only)), (10, 10))
+        self.assertEqual(dl.pick(rows, opts)[1], chosen)  # the same seed, the same choice
+        # The earlier run took each species' second-ranked strain (a tie broken otherwise, say): it stays.
+        previous = {"strains": {s: [f"GCA_{int(s[4:])}01.1"] for s in chosen}, "rep_only": set(rep_only)}
+        opts.species = 20
+        picked2, chosen2, rep_only2, *_ = dl.pick(rows, opts, None, None, previous)
+        self.assertEqual(len(chosen2), 20)
+        self.assertTrue(set(chosen) <= set(chosen2))
+        self.assertEqual({g.species: g.accession for g, _ in picked2 if g.species in chosen},
+                         {s: previous["strains"][s][0] for s in chosen})
+        eligible_before = {s for s in rep_only if int(s[4:]) < 30}  # earlier representative-only species with strains
+        new = set(chosen2) - set(chosen)
+        self.assertTrue(eligible_before <= new if len(eligible_before) <= 10 else new <= eligible_before)
+        # Its other representative-only species stay so; the pool holds them all still.
+        self.assertTrue((set(rep_only) - set(chosen2)) <= set(rep_only2))
+        # A new folder takes the seed's order: the first of it with strains.
+        self.assertEqual(dl.previous_choice(os.path.join(self.tmp.name, "no_such_folder")), {"strains": {}, "rep_only": set()})
+
+    def test_genome_table_summary(self):
+        # build_gtdb_database.py's genome table summary: how often a simulated species is a real strain or an in-silico
+        # one, and its warnings (judged after the in-silico strains, when they come).
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import build_gtdb_database as build
+        path = os.path.join(self.tmp.name, "summary_genomes.tsv")
+
+        def table(species):  # {name: (real strains, in-silico strains)}, each species with its representative
+            reps = set()
+            with open(path, "w") as fh:
+                for i, (name, (real, made)) in enumerate(species.items()):
+                    lineage = f"d__Bacteria;p__P;c__C;o__O;f__F;g__G;s__{name}"
+                    fh.write(f"GCF_{i:09d}.1\t{lineage}\t/x.fna\t100\n")
+                    reps.add(f"GCF_{i:09d}.1")
+                    for j in range(real):
+                        fh.write(f"GCA_{i:06d}{j:03d}.1\t{lineage}\t/x.fna\t100\n")
+                    for j in range(made):  # insilico_strains.strain_name: the accession with '_' for '.'
+                        fh.write(f"insilico_GCF_{i:09d}_{j + 1}\t{lineage}\t/x.fna\t100\n")
+            return reps
+        # Representatives only: the old warning, unless in-silico strains come next.
+        reps = table({f"A{i}": (0, 0) for i in range(10)})
+        lines, brief, warning = build.summarize_genome_table(path, reps)
+        self.assertIn("nearly all simulated species will be the database's own reference", warning)
+        lines, brief, warning = build.summarize_genome_table(path, reps, insilico_to_come=True)
+        self.assertEqual(warning, "")
+        self.assertIn("  the species with one genome get in-silico strains next (step 3)", lines)
+        # Two species of two real strains, eight one-genome species with an in-silico strain: 13.3% real, 40% in silico.
+        reps = table({**{f"R{i}": (2, 0) for i in range(2)}, **{f"M{i}": (0, 1) for i in range(8)}})
+        lines, brief, warning = build.summarize_genome_table(path, reps)
+        self.assertIn("another genome than its representative 53.3% of the time (a real strain 13.3%, an in-silico strain "
+                      "40.0%)", brief)
+        self.assertIn("WARNING: most simulated strains are in-silico (40.0% of the simulated species against 13.3% real)",
+                      warning)
+        # Mostly real strains: no warning.
+        reps = table({**{f"R{i}": (2, 0) for i in range(8)}, **{f"M{i}": (0, 1) for i in range(2)}})
+        self.assertEqual(build.summarize_genome_table(path, reps)[2], "")
+
     def test_read_metadata_quality_columns(self):
         # GTDB's columns for the quality of a genome (names of metadata_field_desc.tsv), with none, missing
         # and odd values.

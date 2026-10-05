@@ -29,10 +29,10 @@ How the parts are made:
   split, the database's and the held-out ones (--novel_species), and a random part of the other side, so that a
   species drawn uniformly from it (as simulate_metagenomes draws them) is one the database lacks with the scenario's
   share. A sample's share then varies around it (hypergeometrically). The table must have more species than a sample
-  takes: 10,000 species at 60% need 6,000 held-out species and 4,000 others, more than the default download's pool
-  (8,000 species) has. A scenario that does not fit is scaled down to what the table holds (fit_species: the largest
-  sample a TABLE_MARGIN-th of the table), and the collector and the build say so; download more species for the full
-  size (download_gtdb.py --rep_only_species).
+  takes: 10,000 species at 60% need 6,000 held-out species and 4,000 others, which the default download's 25,000
+  species give (since 2026-10-05; 8,000 before). A scenario that does not fit is scaled down to what the table holds
+  (fit_species: the largest sample a TABLE_MARGIN-th of the table), and the collector and the build say so; download
+  more species for the full size (download_gtdb.py --species, --rep_only_species).
 - Illumina reads at a quality: ART's built-in profiles have their own mean base quality (HiSeq X TruSeq: Q40.2 for
   the first reads, Q37.9 for the second). ART shifts every quality, and the errors with it, by -qs and -qs2; the
   shifts that give the target mean (art_shifts) come from a short ART run on a random sequence, kept in

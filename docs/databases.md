@@ -142,7 +142,7 @@ At GTDB r226 (143,614 species) the whole pipeline takes:
 
 | | |
 |---|---|
-| download | 17.7 GB of GTDB files and about 75 GB of genomes to simulate from, on a node with internet |
+| download | 17.7 GB of GTDB files and about 185 GB of genomes to simulate from (estimated for the defaults since 2026-10-05; 75 GB with the earlier 8,000 species), on a node with internet |
 | time | about 2.5-3 hours on a 52-64-thread node (conversion 5 min; the r226 build of 2026-10-03 then took 2 h, and 0.7.6's design simulates half as many short-read samples again), and several hours more for the [scenarios](#scenarios-kinds-of-studies) (an estimate; `--scenarios none` leaves them out) |
 | memory | each index build ~35-37 GB with 64 threads (estimated; it was 64 GB before 2026-10-05; its log's `Memory after ...` lines say), up to ~75 GB while both run at once; `--one-build-at-a-time` needs about half |
 | node-local disk | for the simulated samples (`--scratch`): with `--profile-blocks` (the default) each design point's reads are removed once profiled, and the simulations wait rather than leave less than `--keep-free` GB, so ~150-200 GB is enough; all at once (`--profile-blocks 0`) ~180 GB for the design and ~260 GB more for the default scenarios (measured 2026-10-05) |
@@ -172,15 +172,20 @@ The result is `/data/protal_r226/protal_db/database.protal`, with a model for ea
 - **GTDB's files**: taxonomy, metadata, the species clusters and the marker genes of the
   representatives and of all genomes. They are checked against the release's `MD5SUM.txt` and
   extracted.
-- **Genomes to simulate from**, from NCBI: 6,000 species with up to 2 non-representative genomes
-  each, and 2,000 species with their representative only, about 20,000 genomes. Species are picked
-  per domain in GTDB's proportions.
+- **Genomes to simulate from**, from NCBI: 16,000 species with up to 2 non-representative genomes
+  each, and 9,000 species with their representative only, about 50,000 genomes (estimated; until
+  2026-10-05 6,000 and 2,000). Species are picked per domain in GTDB's proportions, in a random
+  order fixed by the seed. 25,000 species hold the soil scenarios at full size, and most simulated
+  strains are real ones: with 6,000 and 19,000 (r226 v12) three quarters were in-silico, and the
+  models missed real strains 2.4 times as often ([report](claude/2026-10-05-r226-v12-scenarios/README.md)).
 - **The host genome** of the [host scenario](#scenarios-kinds-of-studies): the human T2T-CHM13v2.0
   assembly (`GCF_009914755.1`), kept gzipped as NCBI serves it (0.9 GB, 3.1 GB unpacked). One that
   cannot be fetched is only noted: the other builds do not need it.
 
 The folder serves every later build of that release. A rerun fetches only what is missing, and an
-interrupted download resumes. `--dry_run` lists what it would fetch.
+interrupted download resumes. A rerun with other counts keeps what the folder has as far as they
+allow: a larger `--species` gives strains to its representative-only species first, so only their
+strains are fetched. `--dry_run` lists what it would fetch.
 
 Strains are chosen by quality among those passing the CheckM2 filters, in this order:
 1. isolates before single-cell genomes and MAGs;
@@ -209,7 +214,7 @@ HTTP 503.
 |---|---|---|
 | `-o` | required | the folder |
 | `--release` | 226 | GTDB release (207 or later) or point release |
-| `--species`, `--per_species`, `--rep_only_species` | 6000, 2, 2000 | species with strains, strains each, species simulated from their representative only |
+| `--species`, `--per_species`, `--rep_only_species` | 16000, 2, 9000 | species with strains, strains each, species simulated from their representative only (and an in-silico strain) |
 | `--min_completeness`, `--max_contamination` | 90, 5 | CheckM2 filters for strains |
 | `--rep_genomes` | `ncbi` | where the representatives' genomes come from; `gtdb`: GTDB's archive of all of them (137 GB for r226) |
 | `--tech_candidates`, `--no_tech_lookup` | 30 | candidates per species whose sequencing technology is asked of NCBI; or ask for none |
@@ -345,9 +350,11 @@ the relatives of missing species present. With only one, it either kept 2 false 
 sample or missed a fifth of the strains.
 
 - **Other strains.** Simulated only from the representatives, every species would be the database's
-  own reference, closer to it than real strains are. With the downloaded pool, a simulated species
-  is another genome than its representative about half the time (`genome_table.txt` says how
-  often).
+  own reference, closer to it than real strains are. With the downloaded pool and the in-silico
+  strains below, a simulated species is another genome than its representative more than half the
+  time, mostly a real strain; `genome_table.txt` and the console say how often, real and in-silico
+  apart, and the build warns when in-silico strains outnumber real ones (the models miss real
+  strains more often: download more species with strains, `download_gtdb.py --species`).
 - **In-silico strains** (since 0.7.6). A species with one genome would always be simulated from its
   reference. A model given GTDB's cluster sizes (`+priors`) learned from that to reject a divergent
   read cloud on a one-genome species, which is a rule of the simulation, not of nature. So each such
@@ -451,10 +458,10 @@ How the parts are made:
   that a species drawn uniformly is held out with the scenario's share. A sample's share varies
   around it. The table needs more species than a sample takes, so `soil` (up to 11,000 species, 60%
   held out: 6,600 held-out species and 4,400 others at least) needs a pool of about 25,000 species to
-  simulate from (`download_gtdb.py --rep_only_species 19000`, about 65 GB more genomes), or a larger
-  `--holdout`. A scenario the table cannot hold is scaled down to it, and the run warns (`WARNING:
-  scenario soil scaled from 9000-11000 to ...`, also in `build_metadata.tsv`): its largest sample takes
-  two thirds of the table, its smallest in proportion. With the default download (8,000 species, about
+  simulate from, the default download's since 2026-10-05, or a larger `--holdout`. A scenario the
+  table cannot hold is scaled down to it, and the run warns (`WARNING: scenario soil scaled from
+  9000-11000 to ...`, also in `build_metadata.tsv`): its largest sample takes two thirds of the table,
+  its smallest in proportion. With a download of 8,000 species (the defaults before 2026-10-05, about
   2,600 of them held out) soil and shallow soil hold about 2,400-2,900 species per sample.
 - **Illumina reads at a quality.** ART's profiles have their own mean quality (HiSeq X TruSeq, 150 bp:
   Q40.2 for first reads, Q37.9 for second reads). ART shifts every quality, and draws the errors from
