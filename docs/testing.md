@@ -8,8 +8,9 @@ just mini-db-test  # unit tests of the mini database generator and converter (no
 just model-test    # the presence model's PMML export scores as scikit-learn does (needs scikit-learn)
 ```
 
-The unit tests need GoogleTest (`libgtest-dev` on Ubuntu); the Python tests use the standard
-library only, except `model-test`, which needs numpy, pandas and scikit-learn, as training does.
+The unit tests need GoogleTest (`libgtest-dev` on Ubuntu); the Python tests need numpy
+(`python3-numpy` on Ubuntu: the long reads, the GTDB build script, the in-silico strains), and
+`model-test` also pandas and scikit-learn, as training does.
 
 `mini-db-test` also runs `build_gtdb_database.py` end to end (`GtdbBuildTest`, about 2 minutes) when
 `$PROTAL` and `$SIMULATE` name the binaries and `art_illumina` is on `$PATH`, with a Python that has

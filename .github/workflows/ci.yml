@@ -13,7 +13,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev libzstd-dev libdeflate-dev zstd python3
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev libzstd-dev libdeflate-dev zstd python3 python3-numpy
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON
@@ -26,6 +26,9 @@ jobs:
 
       - name: Mini database generator tests
         run: python3 -m unittest -v scripts/mini_db/test_mini_db.py
+
+      - name: In-silico strain tests
+        run: python3 -m unittest -v scripts/test_insilico_strains.py
 
   sanitizers:
     runs-on: ubuntu-24.04
