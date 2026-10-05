@@ -1,0 +1,4 @@
+#OUTPUT_DIR	/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//run.cohort.1
+#SAMPLEID	FIRST	SECOND	SAM	PREFIX	READ_TYPE
+pe1	/hpc-home/hildebra/data/raw/Illumina/PEARL_AGE/00_fastq/B10_R1_001.fastq.gz	/hpc-home/hildebra/data/raw/Illumina/PEARL_AGE/00_fastq/B10_R2_001.fastq.gz	/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//sams/pe1.sam.zst	pe1	pe
+pb2	/hpc-home/hildebra/data/raw/PacBio/Data_Package_B20230626/Falk_Hildebrand_EI_FH_ENQ-5441_A_01_B20230626-Demultiplex_Barcodes/pb_demux_ccs_r64319e_20230622_123341-1_A01/outputs/m64319e_230622_130841.bc1002--bc1002.hifi_reads.fastq.gz	-	/hpc-home/hildebra/dev/protalFastHit/runs/Perf0.7.5//sams/pb2.sam.zst	pb2	pb

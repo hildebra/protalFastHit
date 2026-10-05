@@ -1,0 +1,23 @@
+date: 2026-10-05T21:35:37+01:00
+host: q512n9
+job: 23983347
+threads: 32 (CPUs this process may use: 84)
+protal: protal v0.7.6 (commit 2093770c364e41ba300e1d4416b1ac72beab7898) 
+database: /hpc-home/hildebra/DB/protal/protal0.7.5_r226_v11/protal_db/database.protal, 27G
+database file system: nfs (ei-hpc-data.hpccluster:/ifs/apricot/EI/PrimaryData/RESEARCH_PROJECTS)
+transparent huge pages: [always] madvise never
+perf stat: yes
+samples: pe:/hpc-home/hildebra/data/raw/Illumina/PEARL_AGE/00_fastq/B10_R1_001.fastq.gz:/hpc-home/hildebra/data/raw/Illumina/PEARL_AGE/00_fastq/B10_R2_001.fastq.gz pb:/hpc-home/hildebra/data/raw/PacBio/Data_Package_B20230626/Falk_Hildebrand_EI_FH_ENQ-5441_A_01_B20230626-Demultiplex_Barcodes/pb_demux_ccs_r64319e_20230622_123341-1_A01/outputs/m64319e_230622_130841.bc1002--bc1002.hifi_reads.fastq.gz
+cohort: all 2 samples, 1 run(s), qcMSA on (build/../scripts/qcmsa.py)
+
+Model name:                              AMD EPYC 9634 84-Core Processor
+Thread(s) per core:                      1
+Core(s) per socket:                      84
+Socket(s):                               1
+CPU max MHz:                             3701.8391
+L3 cache:                                384 MiB (12 instances)
+NUMA node(s):                            1
+
+               total        used        free      shared  buff/cache   available
+Mem:             502          10         169           0         327         492
+Swap:              0           0           0

@@ -979,6 +979,32 @@ yet `60fea63`, another session's unmapping of the frame buffers), 32 threads, no
   outputs identical; `scripts/strain_stage_ab.sh`).
 - **The seed sort** (3.4 s per thread) still shows no gain on Zen 4.
 
+## The eleventh cluster run (2026-10-05): 42 s, 34.2 GB
+
+SLURM job 23983347, `2093770` (with another session's `60fea63`, the index load's workers stopping one by one near its
+end with their frame buffers unmapped, and `b454c97`, the packed slots as a fraction of bits: 26.6 GB of values instead
+of 27.3), 32 threads, node `q512n9` again, v11; [`results_v11/`](results_v11/). Counts as in the tenth run.
+
+| | first (`281a4ba`) | tenth (`2d809cf`) | eleventh (`2093770`) |
+|---|---|---|---|
+| pe1 wall (median) | 131 s | 49.3 s | **42.2 s** (41.7-42.6) |
+| pb2 wall | 104 s | 17.5 s | **15.6 s** |
+| max RSS | 38.1 GB | 36.5 GB | **34.2 GB** |
+| load index | 3.2 s | 2.59 s | 3.26 s |
+| pe1 profiling | 36 s | 5.2 s | 3.9 s (SAM read 1.8, EM 1.2, writing the profile 0.2-0.4) |
+| SAM header and file | | 2.7-5.8 s | 0.7-1.4 s |
+| cohort strain stage | 29.0 s (sixth) | 19.9 s | **3.0 s** |
+
+- **The peak** is now set while aligning (34.2 GB), no longer by the index load (33.3 GB, its last 60 of ~450 chunks
+  decoded on fewer threads); after profiling 7.8 GB resident.
+- **The index load** took 0.67 s longer (2.59 → 3.26 s in every run): the tail's throttle. Start-up waits on the index
+  (the preload ends first), so the runs pay it. But the run's peak is now the alignment's, ~0.9 GB above the loaded
+  index: the load's budget could be the index plus that much (some 12 threads' frames instead of one's) without raising
+  the run's peak, and would give most of the 0.67 s back. The alignment's ~0.9 GB above the index are the threads'
+  buffers (among them the output handlers' 16 MB record buffers, 0.5 GB on 32 threads).
+- **The node's NFS**: the same node as the tenth run, at another time: the strain stage 19.9 → 3.0 s, the SAM's close
+  0.7-1.4 s instead of 2.7-5.8: the tenth run's were the file system's.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):
