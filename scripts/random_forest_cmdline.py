@@ -543,6 +543,10 @@ def study_breakdown(report, df, y, p, opts):
         rep = df["meta_rep_genome"]
         groups["present, simulated from"] = [("the representative", (df.truth == 1) & (rep == 1)),
                                              ("another genome", (df.truth == 1) & (rep == 0))]
+        insilico = insilico_strains_of(df)
+        if insilico is not None:  # the real strains and the in-silico ones (insilico_strains.py) apart
+            groups["present, simulated from"][1:] = [("another genome, real", (df.truth == 1) & (rep == 0) & ~insilico),
+                                                     ("another genome, in silico", (df.truth == 1) & (rep == 0) & insilico)]
     if "meta_novel_congener" in df.columns and (df.loc[df.truth == 0, "meta_novel_congener"] == 1).any():
         congener = df["meta_novel_congener"] == 1
         groups["absent taxa"] = [("congeners of a species the database lacks", (df.truth == 0) & congener),
@@ -710,6 +714,15 @@ def study_feature_classes(report, df, title="The conservation features by class 
     report.data[key] = data
 
 
+def insilico_strains_of(df):
+    """Rows of present taxa simulated from an in-silico strain (collect_training_data.py's meta_insilico_strain 1), as
+    a boolean Series; None if the table has none."""
+    if "meta_insilico_strain" not in df.columns:
+        return None
+    insilico = pd.to_numeric(df["meta_insilico_strain"], errors="coerce").fillna(0).to_numpy() == 1
+    return pd.Series(insilico, index=df.index) if insilico.any() else None
+
+
 def study_strains(report, df, y, scores, opts, title="Strains: species simulated from another genome than the "
                                                       "representative", key="strains"):
     """Present species simulated from another genome than the database's representative (meta_rep_genome 0: a strain
@@ -730,7 +743,13 @@ def study_strains(report, df, y, scores, opts, title="Strains: species simulated
     bins = pd.cut(df["fragments"], [0, 10, 100, np.inf], right=True, labels=["1-10", "11-100", ">100"]).astype(str) \
         if "fragments" in df.columns else pd.Series("all", index=df.index)
     rows = []
-    for label, genome in (("the representative", present & (rep == 1)), ("another genome", present & (rep == 0))):
+    parts = [("the representative", present & (rep == 1)), ("another genome", present & (rep == 0))]
+    insilico = insilico_strains_of(df)
+    if insilico is not None:
+        insilico = insilico.to_numpy()
+        parts += [("another genome, real", present & (rep == 0) & ~insilico),
+                  ("another genome, in silico", present & (rep == 0) & insilico)]
+    for label, genome in parts:
         for b in ("1-10", "11-100", ">100", "all"):
             sel = genome & ((bins == b).to_numpy() if b != "all" else True)
             if sel.any():

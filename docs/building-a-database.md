@@ -467,6 +467,24 @@ with only one of them it either kept 2 false positives per sample or missed a fi
   prints how many strains are isolates, at which assembly level, and how many are long-read
   assemblies (`download.json` keeps the counts). Long reads come from the contigs of 100 bases or
   more only.
+
+  The species simulated from their representative only would always be the database's own
+  reference, and a model given GTDB's cluster sizes (`+priors`) learned from that to reject a
+  divergent read cloud on a one-genome species. So each of them gets an **in-silico strain**
+  (`scripts/insilico_strains.py`, `--insilico-strains SHARE`, default 1, 0 for none): a copy of the
+  representative with substitutions as a strain's, which the simulator draws as often as the
+  representative. Its marker genes differ from the representative's by a divergence drawn from the
+  real strains of the table (each strain's median marker gene, from the k-mer traces in
+  `gene_positions.tsv`), each gene by its conservation factor estimated from the same placements;
+  the rest of the genome by that divergence over 0.45 (marker genes are conserved), at most 5%
+  (95% ANI; `--insilico-ani MIN-MAX` draws the ANI uniformly instead). The substitutions are
+  codon-aware: in the open reading frames (and the placed marker genes) a change keeping the amino
+  acid is always made, one changing it with probability 0.15, none making a stop codon, so most
+  fall on third codon positions, as a strain's do. The strains are `OUTDIR/insilico_strains/`, the
+  table simulated from `OUTDIR/genomes_simulated.tsv`; `genome_table.txt` and
+  `build_metadata.tsv` (`insilico_strains`) say how many and how far. The training table marks the
+  taxa simulated from one (`meta_insilico_strain`), and the training report lists them apart
+  ("another genome, in silico").
 - **Species the database lacks.** The samples are profiled against a training database
   (`training_db/`) that leaves species out; their reads land on relatives, as those of species GTDB
   lacks do in real samples. The finished database has all species, and the model trained so (the
@@ -563,7 +581,9 @@ the test set scores clearly worse than cross-validation. `--test-samples 0` skip
 | `--congeners` | `0.25:2-5` | relatives that share a sample, in the training data and the test set: `SHARE:MIN-MAX`, about SHARE of each sample's species in groups of MIN to MAX species of one genus, the genera drawn per sample; `N`, N species of one genus per design point; `0`, none (uniform draws, which hardly ever put congeners together). The relatives features need them: trained without, a model learns that an abundant congener means absence ([model-training.md](model-training.md#features)); `build_metadata.tsv` records the setting in `classifier_training_design` |
 | `--no-placeholder-models` | | leave out the placeholder models of read types not trained (below) |
 | `--no-gene-neighbours` | | do not record the gene neighbours ([above](#gene-neighbours)); protal then pairs no mates over neighbouring genes |
-| `--read-pairs` | `1000,5000,20000,100000,500000,2000000:4,10000000:2,30000000:1` | depths, one design point each, `DEPTH:SAMPLES` for other samples than `--samples` (the deepest point because a model with the sample's depth as a feature cannot extrapolate past the deepest sample it saw; without the shallowest, a model missed 8% of the present taxa of 1000-pair samples; the deepest are as deep as real samples) |
+| `--read-pairs` | `1000,2000,5000,20000,50000,100000,200000,500000,2000000:4,10000000:2,30000000:1` | depths, one design point each, `DEPTH:SAMPLES` for other samples than `--samples` (the deepest point because a model with the sample's depth as a feature cannot extrapolate past the deepest sample it saw; without the shallowest, a model missed 8% of the present taxa of 1000-pair samples; the deepest are as deep as real samples; 2000, 50000 and 200000 since the r226 v10 build, whose test set had most of its errors at depths between the points trained at, [report](claude/2026-10-04-r226-v10-evaluation/README.md)) |
+| `--insilico-strains` | 1 | the share of the species with one genome given an in-silico strain ([above](#training-data-like-real-samples)); 0: none |
+| `--insilico-ani` | | `MIN-MAX`: the in-silico strains' ANI drawn uniformly, instead of the real strains' divergence |
 | `--read-setups` | `100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | read length : ART profile (or `file=R1.txt+R2.txt`) : fragment mean : fragment SD, one design point each |
 | `--species-per-sample` | `20-200` | drawn per sample |
 | `--strains-per-species` | `0.3,0.1` | probabilities of a second, third, ... strain of a species |
@@ -757,6 +777,7 @@ The output root holds:
 | Path | |
 |---|---|
 | `protal_db/database.protal` | the finished database, and `protal_db/build_metadata.tsv`: GTDB release, date, protal version and binary, the scripts' git commit, the command, seed, genome table, what the training database leaves out, the training design, and each model's F1 on species held out and on the test set |
+| `genomes_simulated.tsv`, `insilico_strains/`, `insilico_strains.log` | the table the collections simulate from: `genomes.tsv` and an in-silico strain of each species with one genome, their FASTAs and `insilico_strains.tsv` (per strain: genome and marker divergence drawn, substitutions, coding share, the marker divergence reached) |
 | `genomes.tsv`, `genome_table.txt` | the genome table used for the simulations (accession, GTDB taxonomy, FASTA path, genome length; a rerun counts only the genomes changed since), and what it holds (species by domain, how often a simulated species is not its representative) |
 | `training_db/`, `heldout_species.txt` | the training database and the species it leaves out (species, the rank they were held out at, the clade); the `full_reference.fna.zst` of both databases is removed once their builds are done |
 | `training/`, `test/` | the simulated samples, their profiles and one table per read type (`training_data.tsv` for pe, `training_data_se.tsv`, `_pb`, `_ont`); a rerun reuses the design points simulated and profiled from the same inputs (below). With `--scratch`, only the tables; the samples are in the scratch folder |

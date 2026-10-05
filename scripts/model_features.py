@@ -45,7 +45,9 @@ reject every taxon beside an abundant congener, so train them on samples with co
 0.001-0.004 of the test sets' F1 at the knobs protal calls with, and missed more minor congeners
 (docs/claude/2026-10-03-denoising-implementation); at GTDB r226 they lowered the paired-end log loss by 27% and the false
 positives by 29% with species held out, yet on the test set at the knob curve they did no better than the four distance
-features (docs/claude/2026-10-03-r226-v5-v6-training).
+features (docs/claude/2026-10-03-r226-v5-v6-training); beside the depth, divergence and unfiltered features
+and without the priors (the r226 v10 tables) they changed the test F1 by +0.0003 (pe), +0.0007 (se), +0.0013 (pb) and 0
+(ont), within noise (docs/claude/2026-10-04-r226-v10-evaluation).
 
 SAMPLE_FEATURES ("depth"): the sample's depth, log10 of its fragments over all its taxa, the number protal reads a
 model's knob curve at. Without it no feature says how deep the sample is, and what a taxon of one perfect read is worth

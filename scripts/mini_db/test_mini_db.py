@@ -2298,6 +2298,13 @@ class GtdbBuildTest(unittest.TestCase):
         commands = [open(p).read() for p in glob.glob(os.path.join(self.tmp.name, "**", "run_params.tsv"), recursive=True)]
         self.assertTrue(commands, "the simulators' run_params.tsv")  # beside the samples, in --scratch
         self.assertTrue(all("--congener_groups 0.25:2-5" in c for c in commands))
+        # The species with one genome (10 of the download are representatives only) got in-silico strains, and the
+        # collections simulated from them, too.
+        self.assertRegex(metadata["insilico_strains"], r"^\d+ in-silico strains of the \d+ species with one genome")
+        self.assertTrue(any(line.startswith("insilico_") for line in self.text("out", "genomes_simulated.tsv").splitlines()))
+        self.assertFalse(any(line.startswith("insilico_") for line in self.text("out", "genomes.tsv").splitlines()))
+        self.assertIn("with the in-silico strains", self.text("out", "model_logs", "genome_table.txt"))
+        self.assertTrue(all("genomes_simulated.tsv" in c for c in commands))
         self.assertEqual(metadata["classifier_call_mode"], "curve")
         self.assertNotIn("model_pe_false_calls", metadata)
         self.assertNotIn("--fdr-calls", self.text("out", "classifier_training.log"))
@@ -2318,7 +2325,7 @@ class GtdbBuildTest(unittest.TestCase):
         # Each step says when it starts and, indented, when it ended, how long it took and what it made; a stage
         # running for a while (5 s here, --progress-every) how it is doing; the collector how far the simulations
         # and protal are.
-        self.assertRegex(first.stdout, r"\[\d\d:\d\d:\d\d \+\d+:\d\d:\d\d\] 4/8 training data \(training_data\.log\): "
+        self.assertRegex(first.stdout, r"\[\d\d:\d\d:\d\d \+\d+:\d\d:\d\d\] 5/9 training data \(training_data\.log\): "
                                        r"4 pe, 4 se samples\n")
         # The models go into the database in one rewrite, each with its knob curve over depth (the trainer's
         # --depth-knobs for every read type), with up to 512 leaves per tree for short reads (--maxnodes); the
@@ -2333,7 +2340,7 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(self.text("out", "convert.log"), r"joined them into full_reference\.fna(\.zst)?: [\d.]+ s")
         self.assertRegex(first.stdout, r"\n\[[^]]+\]     collected in \d+:\d\d:\d\d.*; taxa present/absent: pe \d+/\d+, "
                                        r"se \d+/\d+;")
-        self.assertRegex(first.stdout, r"\n\[[^]]+\] 8/8 adding the pe, se models to protal_db")
+        self.assertRegex(first.stdout, r"\n\[[^]]+\] 9/9 adding the pe, se models to protal_db")
         self.assertRegex(first.stdout, r": \d+:\d\d:\d\d so far")
         # Both collections simulate in the background from the holdout on, during the builds, and profile after.
         self.assertRegex(first.stdout, r"\n\[[^]]+\]     simulating the training data and the independent test set "
@@ -2378,6 +2385,7 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn("protal_db was built by an earlier run from the same release and protal; kept", again.stdout)
         self.assertIn("training_db was built by an earlier run with the same species left out; kept", again.stdout)
         self.assertNotRegex(again.stdout, r"built (protal|training)_db")
+        self.assertIn("made by an earlier run from the same table; kept", again.stdout)
         self.assertNotRegex(self.text("out", "training_data_simulation.log"), "simulating")
         self.assertNotRegex(self.text("out", "training_data.log"), "simulating|profiling")
 

@@ -114,6 +114,9 @@ COLLECTOR = os.path.join(HERE, "collect_training_data.py")
 PARITY = os.path.join(HERE, "check_model_parity.py")
 TRACE = os.path.join(HERE, "trace_relatives.py")
 RANKER = os.path.join(HERE, "rank_genes.py")
+INSILICO = os.path.join(HERE, "insilico_strains.py")
+# --insilico-ani when the conversion left no gene_positions.tsv (--no-gene-neighbours): no real strains to draw from.
+INSILICO_FALLBACK_ANI = "97-99.5"
 SOURCE = os.path.dirname(HERE)  # the checkout these scripts are part of
 # What protal and the simulator are built from (protal_commit.cmake marks a build of uncommitted changes to them).
 BUILD_SOURCES = ("src", "lib", "CMakeLists.txt", "protal_config.h.in", "protal_commit.cmake")
@@ -668,7 +671,7 @@ def genes_placed(log):
     return f" in {m.group(3)} genomes ({m.group(1)} exactly, {m.group(2)} by their k-mer trace)" if m else ""
 
 
-def provenance(args, release, genome_table, heldout, n_heldout, read_types, prefixes, genes="all"):
+def provenance(args, release, genome_table, heldout, n_heldout, read_types, prefixes, genes="all", insilico="none"):
     """build_metadata.tsv: what the database was built from and with, so that two builds can be compared."""
     def output(command):
         try:
@@ -693,6 +696,7 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
             ("simulator_version", simulator_version[-1] if simulator_version else "unknown (older than 0.7.3)"),
             ("scripts_commit", commit or "unknown (not a git checkout)"), ("command", " ".join(sys.argv)),
             ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
+            ("insilico_strains", insilico),
             ("marker_genes", genes),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, "index_and_package.log"))),
@@ -1074,13 +1078,16 @@ def main():
     p.add_argument("--samples", type=int, default=12,
                    help="samples per design point (default 12; on a GTDB-like world the model still improved "
                         "from 60 to 120 samples)")
-    p.add_argument("--read-pairs", default="1000,5000,20000,100000,500000,2000000:4,10000000:2,30000000:1",
+    p.add_argument("--read-pairs", default="1000,2000,5000,20000,50000,100000,200000,500000,2000000:4,10000000:2,30000000:1",
                    help="read pairs per sample, one design point each, DEPTH:SAMPLES for other samples than --samples "
-                        "(default 1000,5000,20000,100000,500000,2000000:4,10000000:2,30000000:1: the deepest point "
-                        "because a model with the sample's depth as a feature cannot extrapolate past the deepest "
+                        "(default 1000,2000,5000,20000,50000,100000,200000,500000,2000000:4,10000000:2,30000000:1: the "
+                        "deepest point because a model with the sample's depth as a feature cannot extrapolate past the deepest "
                         "sample it saw, and real metagenomes reach it; without the shallowest, a model "
                         "missed 8%% of the present taxa of samples of 1000 read pairs; at GTDB r226 the absent taxa per "
-                        "sample grew as depth^0.84 to 500,000, and real samples are often 5-50M)")
+                        "sample grew as depth^0.84 to 500,000, and real samples are often 5-50M; 2000, 50000 and "
+                        "200000 since r226 v10, whose test set had 42%% of its paired-end false positives at 50,000 "
+                        "read pairs and called 15%% of the absent taxa at 2000, depths between the points the model "
+                        "was trained at, docs/claude/2026-10-04-r226-v10-evaluation)")
     p.add_argument("--read-setups", default="100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50",
                    help="LENGTH:ART_PROFILE:FRAGMENT_MEAN:FRAGMENT_SD, one design point each (HSXt: HiSeq X, the "
                         "closest of ART's profiles to NovaSeq; file=R1.txt+R2.txt: profiles art_profiler_illumina "
@@ -1118,6 +1125,18 @@ def main():
                    help="pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN of Nanopore reads")
     p.add_argument("--pbsim", default="pbsim", help="pbsim3 executable, for ont (and pb with a pbsim3 setup)")
     p.add_argument("--pbsim-models", help="folder of pbsim3's .model files (default: found next to the executable)")
+    p.add_argument("--insilico-strains", type=float, default=1.0, metavar="SHARE",
+                   help="give this share of the species with one genome in the genome table an in-silico strain to be "
+                        "simulated from, too (scripts/insilico_strains.py: a copy of the representative with "
+                        "codon-aware substitutions, as far from it as the table's real strains are from theirs, each "
+                        "marker gene by its conservation factor; default 1, 0: none). Without them one-genome species "
+                        "were always simulated from the database's own reference, and a model given the GTDB cluster "
+                        "sizes (+priors) learned to reject divergent reads on them (docs/claude/2026-10-04-r226-v10-"
+                        "evaluation). They go to OUTDIR/insilico_strains, the table simulated from to "
+                        "OUTDIR/genomes_simulated.tsv")
+    p.add_argument("--insilico-ani", metavar="MIN-MAX",
+                   help="draw the in-silico strains' genome ANI uniformly from MIN-MAX (e.g. 95-99) instead of the "
+                        "real strains' marker divergence")
     p.add_argument("--test-samples", type=int, default=4,
                    help="samples per design point of the independent test set (default 4; 0: none). The test set "
                         "has another design than the training data (--test-*), so that the report shows what "
@@ -1276,7 +1295,7 @@ def main():
     # The steps: genome table, release, marker genes (with --n-genes or --genes), databases, training data, test
     # set (if any), models, parity, packing.
     subset = args.n_genes is not None or bool(args.genes)
-    Steps.total = 7 + (args.test_samples > 0) + subset
+    Steps.total = 7 + (args.test_samples > 0) + subset + (args.insilico_strains > 0)
     if args.genes:
         # The list is checked against the release's marker files before anything is converted (marker ids by
         # name, gene ids by their range; the ids themselves come from gene2geneid.tsv once it is there).
@@ -1298,7 +1317,8 @@ def main():
         genome_table = with_lengths(args.genome_table, os.path.join(args.outdir, "genomes.tsv"), args.threads)
     logs = os.path.join(args.outdir, "model_logs")
     os.makedirs(logs, exist_ok=True)
-    summary, brief, warning = summarize_genome_table(genome_table, read_representatives(args.gtdb, release))
+    reps = read_representatives(args.gtdb, release)
+    summary, brief, warning = summarize_genome_table(genome_table, reps)
     with open(os.path.join(args.outdir, "genome_table.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
     Steps.start(f"genome table ({os.path.basename(genome_table)}, genome_table.txt): {brief}")
@@ -1389,6 +1409,50 @@ def main():
     if not subset and not os.path.isfile(taxonomy):
         Steps.done("its taxonomy: " + convert(full))
         converted = full
+
+    # In-silico strains (insilico_strains.py): every species of the table with one genome gets a mutated copy of
+    # its representative (codon-aware substitutions, the divergence of the table's real strains, the genes'
+    # conservation factors), so that it is simulated from a strain as often as a species with two genomes. Without
+    # them a model given GTDB's cluster sizes learns that a divergent read cloud on a one-genome species is a
+    # relative the database lacks (docs/claude/2026-10-04-r226-v10-evaluation). The simulations draw from
+    # genomes_simulated.tsv; the species to leave out and the gene neighbours come from the table itself.
+    sim_table, insilico_note = genome_table, "none (--insilico-strains 0)"
+    if args.insilico_strains > 0:
+        sim_table = os.path.join(args.outdir, "genomes_simulated.tsv")
+        log = os.path.join(args.outdir, "insilico_strains.log")
+        Steps.start("in-silico strains of the species with one genome (insilico_strains.log, genomes_simulated.tsv)")
+        insilico_key = {"script": content_hash(INSILICO), "genome_table": content_hash(genome_table),
+                        "convert": convert_key, "share": args.insilico_strains, "ani": args.insilico_ani,
+                        "seed": args.seed}
+        if stages.done("insilico", insilico_key) and os.path.isfile(sim_table):
+            Steps.done("made by an earlier run from the same table; kept")
+        else:
+            stages.forget("insilico")
+
+            def positions_file():
+                return next((p for p in (os.path.join(f, "gene_positions.tsv") for f in (converted, db, full) if f)
+                             if os.path.isfile(p)), None)
+            if positions_file() is None and subset and not args.no_gene_neighbours:
+                ensure_converted()
+            positions = positions_file()
+            command = [sys.executable, INSILICO, "--genome-table", genome_table, "--output", sim_table, "--out-dir",
+                       os.path.join(args.outdir, "insilico_strains"), "--share", str(args.insilico_strains),
+                       "--seed", str(args.seed), "-t", str(args.threads)]
+            if positions:
+                command += ["--positions", positions, "--taxonomy", taxonomy]
+            if args.insilico_ani or not positions:
+                command += ["--ani", args.insilico_ani or INSILICO_FALLBACK_ANI]
+            job = run(command, log, label="making in-silico strains")
+            stages.mark("insilico", insilico_key)
+            Steps.done(f"made in {job.took()}" + ("" if positions else
+                                                    f" (no gene_positions.tsv: ANI {args.insilico_ani or INSILICO_FALLBACK_ANI})"))
+        insilico_note = last_line(log)
+        Steps.done(insilico_note)
+        summary, brief, _ = summarize_genome_table(sim_table, reps)
+        with open(os.path.join(args.outdir, "genome_table.txt"), "a") as fh:
+            fh.write("with the in-silico strains (genomes_simulated.tsv, the genomes simulated from):\n" +
+                     "\n".join(summary[1:]) + "\n" + insilico_note + "\n")
+        Steps.done(f"simulated from: {brief}")
 
     # The training database leaves some species out: the model then sees reads of species the database
     # lacks, which land on relatives, and reads of whole families, classes and phyla it lacks, which land on
@@ -1553,7 +1617,7 @@ def main():
     # Training data of every read type (pe, se from its first reads, pb and ont from long reads of the same
     # communities), then an independent test set of another design, both profiled against the training database.
     def collect_command(out, samples, read_pairs, species, abundance, strains, long_bases, long_samples, seed):
-        command = [sys.executable, COLLECTOR, "--db", training_db, "--genome_table", genome_table, "-o", out,
+        command = [sys.executable, COLLECTOR, "--db", training_db, "--genome_table", sim_table, "-o", out,
                    "--protal", args.protal, "--simulator", args.simulator, "--samples", str(samples),
                    "--long_read_samples", str(long_samples),
                    "--read_pairs", read_pairs, "--read_setups", args.read_setups, "--archaea", str(args.archaea),
@@ -1753,7 +1817,7 @@ def main():
     Steps.done(f"added in {clock(time.time() - began)}{db_size(db)}")
     with open(os.path.join(db, "build_metadata.tsv"), "w") as fh:
         fh.write("".join(f"{k}\t{v}\n" for k, v in provenance(args, release, genome_table, heldout, n_heldout,
-                                                                  read_types, prefixes, genes_note)))
+                                                                  read_types, prefixes, genes_note, insilico_note)))
     shutil.copy(os.path.join(db, "build_metadata.tsv"), logs)
     if os.path.isfile(os.path.join(db, "gene_congeners.tsv")):
         shutil.copy(os.path.join(db, "gene_congeners.tsv"), logs)

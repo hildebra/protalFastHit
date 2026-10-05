@@ -8,7 +8,8 @@ against a database, knowing the true species. The training dumps of all samples
 joined into one table, with meta_* columns saying where each row comes from (meta_domain from
 the genome table's lineages; with --novel_species and --taxonomy, which rows share a genus with a
 species the database lacks, and which present species were simulated from another genome than
-the database's reference). Train on it with
+the database's reference, and meta_insilico_strain which of them from an in-silico strain of
+insilico_strains.py). Train on it with
 
     python3 scripts/random_forest_cmdline.py --truth-file OUT/training_data.tsv --output-prefix OUT/model
 
@@ -154,7 +155,7 @@ def parse_args(argv=None):
 
 META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pairs", "meta_domain",
                 "meta_novel_species", "meta_novel_congener", "meta_rep_genome", "meta_novel_levels",
-                "meta_novel_level", "meta_relative_rank", "meta_neighbour_rank", "meta_read_type"]
+                "meta_novel_level", "meta_relative_rank", "meta_neighbour_rank", "meta_read_type", "meta_insilico_strain"]
 # meta_read_pairs: the design point's depth, read pairs (pe; reads for se) or bases (pb, ont).
 # meta_novel_levels: the sample's species the database lacks, by the rank they were held out at
 # ("species:2,family:1"). meta_relative_rank: the deepest rank the taxon shares with a species simulated in
@@ -163,6 +164,9 @@ META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pai
 # database lacks, the rank that species was held out at: its reads are the likely source of the taxon's.
 # meta_neighbour_rank: for a present taxon, the deepest rank it shares with another species simulated in the
 # sample (a congener's reads fit it nearly as well, so it may be missed).
+# meta_insilico_strain: for a present taxon, 1 if a genome it was simulated from is an in-silico strain (a mutated copy
+# of a one-genome species' representative, insilico_strains.py; its meta_rep_genome is 0), else 0.
+INSILICO_PREFIX = "insilico_"  # insilico_strains.py's PREFIX: the names of its strains
 TABLES = {"pe": "training_data.tsv", "se": "training_data_se.tsv", "pb": "training_data_pb.tsv",
           "ont": "training_data_ont.tsv"}
 MAP_COLUMNS = ["SAMPLEID", "FIRST", "SECOND", "SAM", "PREFIX", "PROFILE", "PROFILE_TRUTH", "READ_TYPE"]
@@ -1131,8 +1135,11 @@ def write_table(read_type, units, opts, context):
                         is_present = row[truth].lower() in ("1", "true")
                         congener = genus_of(taxon) in novel_genera
                         rep = ""
+                        insilico = ""
                         if is_present and reps.get(taxon) and taxon in in_sample:
                             rep = "1" if all(g == reps[taxon] for g in in_sample[taxon]) else "0"
+                        if is_present and taxon in in_sample:
+                            insilico = str(int(any(g.startswith(INSILICO_PREFIX) for g in in_sample[taxon])))
                         relative, level, neighbour = "", "", ""
                         if is_present:
                             relative = "species"
@@ -1142,7 +1149,7 @@ def write_table(read_type, units, opts, context):
                             relative, level = relation(db_lineages[taxon], sample_lineages, novel)
                         writer.writerow([unit["name"], sample, point["read_length"], point["read_pairs"],
                                          domains.get(taxon, "unknown"), len(novel_here), int(congener), rep,
-                                         novel_levels, level, relative, neighbour, read_type] + row)
+                                         novel_levels, level, relative, neighbour, read_type, insilico] + row)
                         rows += 1
                         present += is_present
                         absent += not is_present

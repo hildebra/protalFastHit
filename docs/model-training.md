@@ -112,7 +112,9 @@ domain (`meta_domain`, from the genome table's lineages; `unknown` for species t
 how many species of `--novel_species` the sample holds (`meta_novel_species`), whether the taxon
 shares a genus with one of them (`meta_novel_congener`: the taxa their reads land on), and whether a
 present species was simulated from its representative, the database's reference, or another
-genome (`meta_rep_genome` 1 or 0). With the ranks in `--novel_species` and `--taxonomy` also: the
+genome (`meta_rep_genome` 1 or 0; `meta_insilico_strain` 1 if that genome is an in-silico strain of
+`insilico_strains.py`, a mutated copy of a one-genome species' representative,
+[building-a-database.md](building-a-database.md#training-data-like-real-samples)). With the ranks in `--novel_species` and `--taxonomy` also: the
 sample's novel species by the rank they were held out at (`meta_novel_levels`, e.g.
 `species:2,family:1`), the deepest rank a taxon shares with a species simulated in the sample
 (`meta_relative_rank`; `species` for those species themselves), and, for an absent taxon whose
@@ -445,7 +447,10 @@ missed, and the conservation features of the missed strains next to the absent t
 held-out congener's reads. A missed strain should look like a found one there, not like a missing
 species' congener; at GTDB r226, 79% of the paired-end model's misses were strains, all those with
 more than 10 fragments, at a median identity of 0.959
-([report](claude/2026-10-02-r226-build-evaluation/README.md)). The summary gives their FN rate.
+([report](claude/2026-10-02-r226-build-evaluation/README.md)). The summary gives their FN rate. With
+in-silico strains in the table, both tables also list the real strains and the in-silico ones apart
+("another genome, real", "another genome, in silico"): an in-silico strain missed far more or far less
+often than a real one at the same fragments is a sign that its mutations are unlike a strain's.
 
 `check_model_parity.py` re-profiles saved training samples (`--profile_only` on the SAMs a
 `collect_training_data.py` folder keeps) with a model and checks that protal's probabilities are
