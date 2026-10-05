@@ -96,6 +96,10 @@ number_after() {
     v=$(grep -m1 -E "$1" "$3" | grep -oE "$2 *[0-9.]+" | head -1 | grep -oE '[0-9.]+$')
     printf '%s' "${v:-NA}"
 }
+# The peak memory protal logged after a stage ("Memory after <stage>: R GB resident, peak P GB"), or NA.
+peak_after() {
+    number_after "^Memory after $1: " 'peak' "$2"
+}
 # Runs a command with its log, under /usr/bin/time (and perf stat with use_perf=1): sets wall user sys rss faults.
 timed() {
     local log=$1 with_perf=$2; shift 2
@@ -112,7 +116,7 @@ timed() {
     return $status
 }
 
-printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\n' > "$out/runs.tsv"
+printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\n' > "$out/runs.tsv"
 printf 'sample\trep\tstage\tseconds\tthreads\tseconds_per_thread\n' > "$out/stages.tsv"
 sams=$out/sams; mkdir -p "$sams"
 cohort_map_rows=()
@@ -144,10 +148,12 @@ for spec in "$@"; do
         seeding=$(printf '%s\t%s\t%s\t%s\t%s' "$(number_after "$seedline" 'seeding:' "$log")" "$(number_after "$seedline" 'looked up,' "$log")" \
                   "$(number_after "$seedline" 'in the index,' "$log")" "$(number_after "$seedline" 'scanned with' "$log")" \
                   "$(grep -m1 -E "$seedline" "$log" | grep -oE '[0-9]+ seeds$' | grep -oE '^[0-9]+' || echo NA)")
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
             "$wall" "$user" "$sys" "$rss" "$faults" "$(took 'Load Index' "$log")" "$(took 'Aligning reads' "$log")" \
             "$(took 'Profiling' "$log")" "$(took 'Strain-level MSAs' "$log")" "$ins" "$cyc" "$miss" "$ipc" "$counts" \
-            "$(took 'Writing the SAM header and file' "$log")" "$header_genes" "$copy_s" "$seeding" >> "$out/runs.tsv"
+            "$(took 'Writing the SAM header and file' "$log")" "$header_genes" "$copy_s" "$seeding" \
+            "$(peak_after 'the genome preload' "$log")" "$(peak_after 'loading the index' "$log")" "$(peak_after aligning "$log")" \
+            "$(peak_after profiling "$log")" >> "$out/runs.tsv"
         [ -e "$run/misc/${name}_runtime.tsv" ] && awk -v s="$name" -v r="$rep" 'NR > 1 { print s "\t" r "\t" $0 }' \
             "$run/misc/${name}_runtime.tsv" >> "$out/stages.tsv"
         echo "$name run $rep: ${wall} s"

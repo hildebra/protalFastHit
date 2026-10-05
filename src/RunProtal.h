@@ -455,6 +455,8 @@ namespace protal {
                 bm_load_index.Stop();
                 bm_load_index.PrintResults();
             }
+            // The run's peak is usually here: the index, its loading threads' buffers and the preloaded genes at once.
+            protal::build::PrintMemory("loading the index");
             Seedmap& map = *index;
 
             // Seeds must be sampled exactly as when the index was built.
@@ -775,6 +777,7 @@ namespace protal {
             }
             bm_classify.Stop();
             bm_classify.PrintResults();
+            protal::build::PrintMemory("aligning");
         }
     }
 
@@ -2854,6 +2857,7 @@ namespace protal {
             bm_preload_genomes.Stop();
             bm_preload_genomes.PrintResults();
             std::cout << db.GetGenomes().PreloadTimes() << std::endl;
+            protal::build::PrintMemory("the genome preload");
         };
 
         Benchmark bm_tables("Loading the taxonomy, models and tables");
@@ -3013,6 +3017,7 @@ namespace protal {
             auto& filter = loaded->value();
             bm_profiling.Stop();
             bm_profiling.PrintResults();
+            protal::build::PrintMemory("profiling");
 
             // Per taxon: its statistics in every sample it has reads in, one file per taxon (misc/<taxon>.statistics.tsv),
             // with --taxon_statistics: on a GTDB-sized database a sample has reads on thousands of taxa, and that many small
