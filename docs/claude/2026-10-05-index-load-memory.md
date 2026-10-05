@@ -64,6 +64,14 @@ fewer threads for the last few dozen chunks, a few tenths of a second (an estima
 The next cluster run's `Memory after loading the index` and the new `Index: its last N chunks ...` line will tell, as
 will whether the index load is still the run's peak (`Memory after aligning`).
 
+**The tenth cluster run** (`2d809cf`, before this change; [its report](2026-10-04-performance-gtdb-scale/README.md),
+`results_v10`; protal's "GB" there are GiB, kB / 1024²): `Memory after loading the index` 34.03 GB resident, peak
+36.53 GB (pe; pb 33.99 / 36.48); after aligning 34.97 (pe) and 35.32 GB (pb) resident, the peak unchanged. So the
+load's buffers were ~2.5 GB over the index, as estimated, and aligning adds ~1-1.3 GB to what the load leaves. With
+this change and the next section's (−0.67 GiB of values) the load should peak near 34 GB and aligning end at about
+the same, from a post-load resident lower by the values and by any frame buffers glibc used to keep: whichever is
+higher is the run's new peak.
+
 ## What else could go
 
 Asked after this change. A run at r226 then holds the index's values (27.3 GB at 50 bits per slot,

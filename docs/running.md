@@ -334,9 +334,10 @@ with the alignment on every core it gained nothing, so it is off by default.
 
 ## Memory
 
-protal keeps the index and the reference genes in memory: 38 GB peak for a run on the full r226
-database, measured on real paired-end and HiFi samples with 0.7.6, and about 35 GB expected since
-the index load frees its threads' buffers as it ends and the index's values take 41 bits (26.6 GB;
+protal keeps the index and the reference genes in memory: 36.5 GB peak for a run on the full r226
+database, measured on real paired-end and HiFi samples (2026-10-05, `2d809cf`, 32 threads), and about
+34 GB expected since the index load frees its threads' buffers as it ends and the index's values take
+41 bits (26.6 GB;
 its key map, 3.2 GB; the genes at two bits per base, the tables and the run's buffers, the rest;
 [databases.md](databases.md#the-database-in-memory)) and correspondingly less for the
 reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads); the figures there,

@@ -106,7 +106,7 @@ r226). `--model` and `--model_se` use another model for a run without changing t
   one number (41 instead of 64 at r226: 26.6 GB instead of 35 GB), by a run and, since 2026-10-05, by
   `--build` too. The files are unchanged.
   A run and a build print `Index in memory: ...`.
-- A full r226 run peaks at 38 GB ([running.md](running.md#memory)).
+- A full r226 run peaked at 36.5 GB, about 34 GB expected now ([running.md](running.md#memory)).
 - `--preload_genomes_off` reads genes on demand from a raw `reference.fna`: less memory, slower, and
   it needs the database as separate files (protal prints the `--unpack_db` command).
 
