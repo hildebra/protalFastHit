@@ -1,4 +1,4 @@
-// protal 0.7.6. In 0.7 (since 0.6.0a):
+// protal 0.7.7. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -48,6 +48,14 @@
 //   depend on the SAM's record order (exact sums, ties broken by taxid). Training: species priors opt-in, reduced
 //   marker sets through every build phase (genes ranked per domain), in-silico strains of one-genome species, denser
 //   training depths, real gene speeds for simulated worlds.
+// In 0.7.7: at r226 a paired-end run 58 -> 42 s and a HiFi run 25 -> 15.6 s, the peak memory 38.1 -> 34.2 GB: the
+//   flex scan with AVX2; the reads that aligned nowhere counted per taxon in the SAM header instead of an unmapped
+//   record each (--write_unmapped_reads writes them); the profiler's SAM read, the preload and the strain stage
+//   (species over the threads) on all threads; seeds sorted as 128-bit keys, and a seed tied with the last one taken
+//   kept for its own diagonal's anchor; the read EM capped at 100 sweeps (200 before); the index packed key by key as
+//   it loads (no 8-byte chunk copies), in fractional-bit slots, its load's tail throttled to the run's own peak;
+//   memory logged per stage. .fq.zst read input; the build's index packed during --build, its simulations in zstd;
+//   training scenarios of real studies.
 #include <iostream>
 #include "RunProtal.h"
 

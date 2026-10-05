@@ -331,7 +331,7 @@ TEST(SampleContext, SharesOnIndicesEqualTheReferenceToTheLastBit) {
 }
 
 // The sweeps stop once no taxon's own share moved by kEmTolerance in a sweep: a sample that converges stops early
-// with the shares of the full 200 sweeps to that tolerance; a taxon that loses its last reads to a taxon which
+// with the shares of all kEmIterations sweeps to that tolerance; a taxon that loses its last reads to a taxon which
 // explains them exactly as well (an abundant congener whose weight times its edit factor equals the taxon's reads)
 // loses them ever more slowly and runs to the cap, where both stop alike.
 TEST(SampleContext, StopsWhenTheSharesAreStable) {
@@ -358,8 +358,8 @@ TEST(SampleContext, StopsWhenTheSharesAreStable) {
     // A tie: taxon 6's 10 reads fit taxon 5 two edits worse, and taxon 5's 4,000 records at a factor of 0.05^2 are
     // 10 effective reads, as many as taxon 6 has. Taxon 6's weight w goes to 10 w / (w + 10): harmonically
     // (10 / (k + 1) after k sweeps) while it is near 10, then at a rate within 0.2% of standing still (taxon 5
-    // gained up to 5 reads); after 200 sweeps its share is still a few thousandths and moving by more than the
-    // tolerance: the rule runs to the cap, where the shares equal the full run's exactly.
+    // gained up to 5 reads); after kEmIterations sweeps its share is still about a hundredth and moving by more than
+    // the tolerance: the rule runs to the cap, where the shares equal the full run's exactly.
     std::map<uint32_t, ctx::RecordCounts> tie = { { 5, { 4000, 4000, 0, 0 } }, { 6, { 10, 10, 0, 0 } } };  // ratio kEditRatio
     ctx::AmbiguityClasses drain;
     drain[{ 6, 1, 5, 2 }] = 10;
@@ -368,8 +368,8 @@ TEST(SampleContext, StopsWhenTheSharesAreStable) {
     EXPECT_EQ(capped.at(6).all, capped_full.at(6).all);  // both ran every sweep
     EXPECT_GT(capped.at(6).all, 1e-3);
     EXPECT_LT(capped.at(6).all, 0.05);
-    auto const capped_half = ctx::AbundanceWeightedShares(drain, tie, 0, 100);
-    EXPECT_GT(std::abs(capped_half.at(6).all - capped.at(6).all), 1e-3);  // still moving at sweep 100
+    auto const capped_half = ctx::AbundanceWeightedShares(drain, tie, 0, ctx::kEmIterations / 2);
+    EXPECT_GT(std::abs(capped_half.at(6).all - capped.at(6).all), 1e-3);  // still moving at half the cap
 }
 
 TEST(SampleContext, TheSamplesPriorFollowsItsCandidates) {

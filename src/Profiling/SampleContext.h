@@ -210,8 +210,11 @@ namespace protal::profiler::context {
     // of any weight below 1e-10, which a sample that converges reached at about twice the sweeps (a 5M-pair sample:
     // 197 against 105) for the same shares to 1e-6; a taxon whose reads a congener explains about as well (its weight
     // times its edit factor close to the taxon's reads) loses them at a rate within 1e-4 per sweep of standing still
-    // and runs to the cap under either rule (docs/claude/2026-10-03-performance-review).
-    inline constexpr size_t kEmIterations = 200;
+    // and runs to the cap under either rule (docs/claude/2026-10-03-performance-review). The cap was 200 sweeps to
+    // 0.7.6; at GTDB r226 a paired-end sample's EM ran to it every time (319k classes, 1.1 s of the profiling), so it
+    // is 100 since 0.7.7: about what a converging sample needs, and half the time for those that do not converge,
+    // whose slowest taxa (reads a congener explains about as well) are left with a somewhat larger share.
+    inline constexpr size_t kEmIterations = 100;
     inline constexpr double kEmTolerance = 1e-6;
 
     // A taxon's best records (all, and those the filters keep) and their differences and aligned bases, for
