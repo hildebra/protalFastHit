@@ -141,9 +141,9 @@ At GTDB r226 (143,614 species) the whole pipeline takes:
 | | |
 |---|---|
 | download | 17.7 GB of GTDB files and about 75 GB of genomes to simulate from, on a node with internet |
-| time | about 2.5-3 hours on a 52-64-thread node (conversion 5 min; the r226 build of 2026-10-03 then took 2 h, and 0.7.6's design simulates half as many short-read samples again) |
+| time | about 2.5-3 hours on a 52-64-thread node (conversion 5 min; the r226 build of 2026-10-03 then took 2 h, and 0.7.6's design simulates half as many short-read samples again), and several hours more for the [scenarios](#scenarios-kinds-of-studies) (an estimate; `--scenarios none` leaves them out) |
 | memory | each index build ~42-44 GB with 64 threads (estimated; it was 64 GB before 2026-10-05; its log's `Memory after ...` lines say), up to ~90 GB while both run at once; `--one-build-at-a-time` needs about half |
-| node-local disk | 120-175 GB for the simulated samples (`--scratch`) |
+| node-local disk | 120-175 GB for the simulated samples (`--scratch`), and roughly 200 GB more for the scenarios' (an estimate) |
 | result | `database.protal`, ~27 GB |
 
 ### Build and train in one command
@@ -173,6 +173,9 @@ The result is `/data/protal_r226/protal_db/database.protal`, with a model for ea
 - **Genomes to simulate from**, from NCBI: 6,000 species with up to 2 non-representative genomes
   each, and 2,000 species with their representative only, about 20,000 genomes. Species are picked
   per domain in GTDB's proportions.
+- **The host genome** of the [host scenario](#scenarios-kinds-of-studies): the human T2T-CHM13v2.0
+  assembly (`GCF_009914755.1`), kept gzipped as NCBI serves it (0.9 GB, 3.1 GB unpacked). One that
+  cannot be fetched is only noted: the other builds do not need it.
 
 The folder serves every later build of that release. A rerun fetches only what is missing, and an
 interrupted download resumes. `--dry_run` lists what it would fetch.
@@ -197,6 +200,7 @@ HTTP 503.
 | `genomes/` | `<accession>.fna.gz`. A rerun that chooses other genomes moves the ones no longer wanted to `genomes_unused/` |
 | `genomes.tsv`, `missing.txt` | the genomes (species, role, lineage, CheckM2, category, assembly level, contigs, sequencing technology), and those NCBI did not deliver |
 | `simulation_species.txt` | the species to simulate from |
+| `host/` | `<accession>.fna.gz`, the host genome |
 | `ncbi_info.tsv`, `download.json` | NCBI's sequencing technologies; the release, options, counts and checksums |
 
 | Option | Default | |
@@ -210,6 +214,7 @@ HTTP 503.
 | `--progenomes` | | a proGenomes ANI-clustering table ([`pg4_ANI_clustering.tsv.gz`](https://progenomes.embl.de/download.cgi)) or any list of accessions: strains only from these |
 | `--no_genomes`, `--dry_run` | | GTDB's files only; list what would be fetched |
 | `--connections`, `--ftp_url` | 8, NCBI's | genomes fetched at once from NCBI's FTP server (0: only through `datasets`) |
+| `--host_genome` | `human` | the host genome: `human`, `ACCESSION_ASSEMBLYNAME` of another NCBI assembly (e.g. `GCF_000001405.40_GRCh38.p14`), or `none` |
 | `--mirror`, `--datasets`, `--batch`, `-t` | | GTDB server, NCBI CLI, genomes per `datasets` request (500), compression threads (8) |
 
 #### 2. Build and train
@@ -230,9 +235,12 @@ numbered line when it starts and indented lines when it ends.
    finished database start in the background here.
 5. **Training data** (`training_data.log`): 309 paired-end samples of 20-200 species each (3 read setups x 103), profiled
    as paired-end and as single-end reads, and 186 PacBio and 186 Nanopore samples of the same
-   communities, all against the training database.
-6. **Independent test set** (`test_data.log`): samples of another design, for an honest score.
-7. **Models** (`classifier_training*.log`): one random forest per read type, trained in parallel.
+   communities, and the hold-in samples of four scenarios of real studies (gut, soil, shallow soil,
+   host-dominated; [below](#scenarios-kinds-of-studies)), all against the training database.
+6. **Independent test set** (`test_data.log`): samples of another design, for an honest score, and
+   the scenarios' hold-out samples.
+7. **Models** (`classifier_training*.log`): one random forest per read type, trained in parallel, each
+   on the feature set its trainer chose (`--features auto`); the console says which won and why.
 8. **Parity check** (`parity*.log`): protal scores each model exactly as the trainer does.
 9. **Packaging** (`final_package.log`): the models go into the finished database.
 
@@ -253,6 +261,10 @@ Each model's full report is `trained_model*.report.txt`. Start with these sectio
 - **False positives and false negatives by taxonomic rank**: how the model handles species and
   clades the database lacks.
 - **Strains**: how often strains are missed, for real and for in-silico strains.
+- **Scenarios**: F1, FP and FN rates per scenario, on its hold-out and hold-in samples;
+  `summary.txt` has a row for each.
+- **Feature set chosen**: each candidate set's F1 with species held out and on every test set (the
+  design's and each scenario's hold-out); `summary.txt` and the console give the winner and why.
 
 [The presence model](#the-presence-model) explains the reports; [features.md](features.md) lists
 what the models use.
@@ -281,7 +293,7 @@ of its log). The run ends with `Ready protal database: ...` and the path of the 
 | Path in `--outdir` | |
 |---|---|
 | `protal_db/database.protal` | the finished database with its models; `protal_db/build_metadata.tsv` records the release, protal version and commit, command, design, held-out species and each model's scores |
-| `model_logs/` | everything to judge the models: `summary.txt`, each read type's report (`trained_model*.report.txt`, `.metrics.json`), predictions, thresholds, feature importances, parity checks, `genome_table.txt`, `holdout.txt`, `build_metadata.tsv`; and what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv`, `relatives_by_gene_conservation.txt` |
+| `model_logs/` | everything to judge the models: `summary.txt`, each read type's report (`trained_model*.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples), thresholds, feature importances, parity checks, `genome_table.txt`, `holdout.txt`, `build_metadata.tsv`; and what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv`, `relatives_by_gene_conservation.txt` |
 | `trained_model*` | the models and the trainer's outputs ([the presence model](#training)) |
 | `genomes.tsv`, `genome_table.txt` | the genomes simulated from (accession, taxonomy, FASTA, length), and a summary |
 | `genomes_simulated.tsv`, `insilico_strains/` | the same with the in-silico strains, their FASTAs and `insilico_strains.tsv` (per strain: divergence drawn and reached, substitutions) |
@@ -399,6 +411,69 @@ F1 0.997 ([report](claude/2026-09-30-clade-holdouts.md)). So every build also pr
 another design: depths of 500 to 5M pairs, 10-300 species, more uneven abundances (sigma 2.0), more
 mixed strains, another seed (`--test-*` options; `--test-samples 0` skips it).
 
+#### Scenarios: kinds of studies
+
+The design spans depths, community sizes and read setups so that one model learns them all; it does
+not say how a model does on one kind of study. So every build also simulates samples of four such
+kinds (`scripts/scenarios.py`; `--scenarios` picks others, `none` leaves them out): each scenario's
+hold-in samples (`--scenario-samples`, 3) join the training data and inform the forests as the
+design's samples do, its hold-out samples (`--scenario-test-samples`, 2, another seed) the test set,
+and each read type's report scores both (section "Scenarios"; `summary.txt` has a row per scenario
+and set). A scenario is a community sequenced by several technologies at the same bases, each
+technology reading the same communities:
+
+| Scenario | Community | Reads |
+|---|---|---|
+| `gut` | 350-450 species, 5% lacking from the database, lognormal abundances (sigma 1.5 and 2.0) | Illumina PE 150 bp at Q35, 20M pairs; PacBio HiFi and Nanopore at 6 Gb |
+| `soil` | 9,000-11,000 species, 60% lacking | Ultima Genomics SE 300 bp at Q25, 20M reads; Illumina PE 150 Q35 at 20M pairs; PacBio and Nanopore at 6 Gb |
+| `soil_shallow` | the soil communities | Illumina PE 150 Q35 at 5M pairs; PacBio and Nanopore at 1.5 Gb |
+| `host` | 90% of the reads human, 2-50 species of power-law abundances (alpha 1: rank-abundance slope -1 on log-log axes), 5% lacking | Illumina PE 150 Q35 at 10M pairs; Ultima at 10M reads; PacBio and Nanopore at 3 Gb |
+
+`--scenarios gut,host` picks some (`all`, the default: every one, `gut:5`: 5 hold-in samples of one);
+`--scenario-file` (JSON of scenarios by name) adds scenarios or changes a preset's fields, e.g.
+`{"soil": {"species": "4000-5000"}}`. A scenario's fields: `species` (N or MIN-MAX), `novel_share`,
+`abundance`, `strains`, `congeners` (as the build's options), `host_share`, and `reads`, one entry per
+read type with its `depth` (read pairs, reads, or bases for long reads): `pe` with `length`,
+`profile`, `fragment_mean`, `fragment_sd` and `quality` (the mean base quality), `se` with an Ultima
+`setup` (`ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD`, default `ultima:300:40:25:2`), `pb` and `ont` with
+an optional `setup` (the build's `--pb-setup` and `--ont-setup` by default).
+
+How the parts are made:
+- **The share the database lacks.** A scenario draws its species from a genome table of its own
+  (`scenarios/<name>/genomes.tsv` beside the samples): every species of the build's table on the side
+  of the split (held out or not) that is short of the share, and a random part of the other side, so
+  that a species drawn uniformly is held out with the scenario's share. A sample's share varies
+  around it. The table needs more species than a sample takes, so `soil` (up to 11,000 species, 60%
+  held out: 6,600 held-out species and 4,400 others at least) needs a pool of about 25,000 species to
+  simulate from (`download_gtdb.py --rep_only_species 19000`, about 65 GB more genomes), or a larger
+  `--holdout`. A scenario the table cannot hold is scaled down to it, and the run warns (`WARNING:
+  scenario soil scaled from 9000-11000 to ...`, also in `build_metadata.tsv`): its largest sample takes
+  two thirds of the table, its smallest in proportion. With the default download (8,000 species, about
+  2,600 of them held out) soil and shallow soil hold about 2,400-2,900 species per sample.
+- **Illumina reads at a quality.** ART's profiles have their own mean quality (HiSeq X TruSeq, 150 bp:
+  Q40.2 for first reads, Q37.9 for second reads). ART shifts every quality, and draws the errors from
+  the shifted ones (`-qs`, `-qs2`); the shifts that give the target come from a short ART run, kept in
+  `scenarios/art_quality.json`.
+- **Ultima reads**: single-end, length from a gamma distribution, errors mostly homopolymer length
+  errors (homopolymers from two bases), base qualities averaging the read's quality, made by
+  `hifi_reads.py`'s flow model from templates drawn like long reads'. They are profiled as
+  single-end reads and train the `se` model.
+- **A host.** The host genome (`--host-genome`, by default the download's) is written once as plain
+  sequence beside the samples (3.1 GB for the human one) and read by memory map. Without one the
+  default scenarios run without `host` and the run warns (rerunning `download_gtdb.py` on an older
+  inputs folder fetches only the host genome); `--scenarios host` without one stops the build. It gives `host_share`
+  of a sample's read pairs (Illumina: the community is simulated at the rest; the host's pairs are made
+  by ART in amplicon mode from fragments drawn from it) or of its bases (Ultima, PacBio, Nanopore:
+  templates drawn among the community's by their share). Host reads are in no truth file; they reach
+  the profile only through spurious alignments, and the sample's depth feature counts only what lands
+  on taxa.
+
+Scenario samples are deep: with every preset and the default 3 + 2 samples, roughly 200 GB more on
+`--scratch` and several hours more of simulation and profiling on a 64-thread node (an estimate from
+the collector's per-Mb rates, not yet measured on a run). Their rows also weigh in the training: a
+soil sample adds ~10,000 rows, as many as 70 design samples. The section "Scenarios" gives the
+design's samples with species held out beside them, to show what the scenarios cost the rest.
+
 #### Local scratch
 
 The simulations write and delete many files, which a network file system is slow at.
@@ -465,7 +540,10 @@ keeps the finished database.
 | `--pb-setup`, `--ont-setup`, `--pbsim`, `--pbsim-models` | | how long reads are made ([above](#one-model-per-read-type)) |
 | `--test-samples` | 4 | test-set samples per design point; 0 for none |
 | `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases`, `--test-long-read-samples` | `500,...,5000000:2`, `10-300`, `lognormal:2.0`, `0.5,0.2`, 150 kb to 3 Gb, 8 | the test set's design |
-| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered` | the models' feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
+| `--scenarios`, `--scenario-file` | `all` | kinds of studies to train on and score ([above](#scenarios-kinds-of-studies)): `gut`, `soil`, `soil_shallow`, `host`, `all`, `NAME:N`, `none`; JSON of more or changed ones |
+| `--scenario-samples`, `--scenario-test-samples` | 3, 2 | each scenario's hold-in samples (training data; 0: scored, not trained on) and hold-out samples (test set) |
+| `--host-genome` | the download's | the host genome of scenarios with host reads |
+| `--features` | `auto` | each trainer chooses its feature set ([below](#training)); or feature groups ([features.md](features.md)), e.g. `normalized+adjacency+distance+depth+divergence+unfiltered` (the set `auto` keeps unless another is better); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--ntree`, `--maxnodes` | 64, `512,pb:128,ont:128` | trees, and leaves per tree by read type |
 | `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
 | `--evaluation`, `--previous-procedure` | `full`, off | how much the trainer evaluates |
@@ -726,8 +804,13 @@ python3 scripts/collect_training_data.py --db DB --genome_table genomes.tsv -o t
   depth, the taxon's domain, the species the database lacks in the sample and whether the taxon
   shares a genus with one (`meta_novel_*`), whether a present species was simulated from its
   representative (`meta_rep_genome`) or an in-silico strain (`meta_insilico_strain`), and how close
-  its relatives in the sample are (`meta_relative_rank`, `meta_neighbour_rank`). The training report
-  breaks its errors down by them.
+  its relatives in the sample are (`meta_relative_rank`, `meta_neighbour_rank`), and which scenario a
+  sample is of (`meta_scenario`, empty for the design's). The training report breaks its errors down
+  by them.
+- **Scenarios** (`--scenarios NAME[:SAMPLES],...`, `--scenario_samples`, `--scenario_file`,
+  `--host_genome`): samples of kinds of studies beside the design's, in the same tables
+  ([above](#scenarios-kinds-of-studies)); `--samples 0` collects them alone. Their folders are
+  `points/sc_*`, which `check_model_parity.py` and `trace_relatives.py` leave out.
 
 What the genome table must hold for a good model: species the database lacks (their reads land on
 relatives, the false positives to learn; build the training database with
@@ -743,6 +826,7 @@ features.
 | `--species_per_sample`, `--archaea`, `--strains_per_species`, `--abundance`, `--congeners` | `5-30`, 0, one, sigma 1.3, 0 | the communities |
 | `--read_types`, `--long_read_bases`, `--pb_setup`, `--ont_setup`, `--pbsim`, `--pbsim_models` | `pe` | other read types and how they are made |
 | `--novel_species`, `--novel_clades`, `--taxonomy` | | the species the database lacks (`heldout_species.txt`), held-out clades per sample, and the taxonomy for the `meta_*` ranks |
+| `--scenarios`, `--scenario_samples`, `--scenario_file`, `--host_genome` | none, 3 | scenarios to collect besides the design, their samples, more or changed scenarios, the host genome |
 | `-t`, `--jobs`, `--seed`, `--long_read_chunk` | 4, `-t`, 1, 250 Mb | threads, cores for the simulations, seed, chunks of deep long-read samples |
 | `--simulate_only`, `--prepare_profiling`, `--also_profile MAP` | | simulate and stop; write the map to profile and stop; profile another collection in the same run |
 
@@ -759,12 +843,12 @@ training row.
 | Option | Default | |
 |---|---|---|
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
-| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered` | feature groups joined by `+` ([features.md](features.md)); `+priors` is opt-in; `all` takes every column. A table of an older protal lacks newer groups: leave them out |
+| `--features` | `auto` | `auto` chooses (below); or feature groups joined by `+` ([features.md](features.md)); `+priors` is opt-in; `all` takes every column. A table of an older protal lacks newer groups: `auto` leaves out the sets it lacks, a set named must leave them out |
 | `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 256, 1, `sqrt` | the forest (the GTDB build gives 512 leaves for short reads, 128 for long reads) |
 | `--knob` | 0.5 | the threshold protal will use; errors are counted at it |
 | `--depth-knobs`, `--fdr-calls`, `--singleton-congener` | off, off, 0 | a knob curve; calibrated calls; the singleton rule the counts follow ([below](#knobs-by-sample-depth)) |
 | `--taxonomy` | | the database's taxonomy: domains, and whole clades held out |
-| `--test-file` | | an independent test table, scored by the final forest |
+| `--test-file` | | an independent test table, scored by the final forest; its scenarios' rows (`meta_scenario`) are their hold-out samples, scored apart |
 | `--evaluation`, `--folds`, `--previous-procedure` | `full`, 5, off | `basic`: held-out scores only; `none`: fit and export only |
 | `--seed`, `--threads` | 1, 4 | |
 
@@ -775,11 +859,42 @@ protal meets were never in training), and with `--taxonomy` with its whole genus
 or phylum held out. `--evaluation full` adds studies: the other feature sets, forest size, and a
 learning curve.
 
+**Scenarios.** For a table with scenarios (`meta_scenario`), the section "Scenarios: hold-in and
+hold-out samples" gives, per scenario, as protal calls by default: TP, FP, FN, sensitivity,
+precision, F1, the FP rate (of the absent taxa, those called), the FN rate (of the present taxa, those
+missed), FP per sample, the false positives whose closest species in the sample is one the database
+lacks, and the highest F1 at any threshold. On the scenario's training samples (hold-in) three times:
+scored by the final forest, which was fitted on them (in sample: how well it fits), with their samples
+held out, and with their species held out; and on its samples in `--test-file` (hold-out), which no
+forest saw. A row for the design's training samples with species held out comes first, for
+comparison. The summary has a line per scenario, and warns when a scenario's hold-out F1 is more than
+0.02 below its hold-in F1 with species held out. The independent test set's section leaves the
+scenarios' rows out.
+
+**`--features auto`** (the default) scores each candidate set with species held out and keeps the one
+of highest F1 at the knob, but `normalized+adjacency+distance+depth+divergence+unfiltered` unless
+another beats it by 0.002 (`AUTO_MIN_GAIN`, the gain below which the depth knobs changed between fits
+at r226). The candidates are the named sets without the priors, and
+`normalized+adjacency+relatives+depth+divergence+unfiltered` (`auto+priors` adds the sets with the
+priors, which win on simulated data for a reason the simulation makes: see
+[features.md](features.md)). The section "Feature set chosen" lists each candidate's F1, AP, log loss
+and errors, and, scored by each candidate's forest fitted on all rows, its F1 on every test set apart:
+the independent test set and each scenario's hold-out samples. These are for comparison only, since a
+set chosen on them would leave them no longer held out. A line then says why the winner won: its F1
+against the other sets' mean and the best of them, the rule that kept or chose it, and its F1 on each
+test set against the other sets' mean (also the summary's last line, `metrics.json`'s
+`features_auto.why`, and the build's console and `summary.txt`). It costs 8 candidates x 5 forests on four fifths of the rows, and one forest
+on all rows each for the held-out tables: at the r226 tables' size (the "Feature sets" study, 11 sets
+x 2 schemes, took 10-170 s per read type, a final fit 1-6 s) roughly 10-100 s per read type, against
+1-8 min for a model's whole training and 2.5-3 h for a build. The evaluation and, with `--evaluation
+full`, the "Feature sets" study reuse the candidates' scores with species held out.
+
 | Output | |
 |---|---|
 | `<prefix>.xml` | the model |
 | `<prefix>.report.txt` | the evaluation (also printed) |
 | `<prefix>.metrics.json`, `.predictions.tsv.gz`, `.thresholds.tsv`, `.varimp.tsv`, `.joblib` | its numbers, every taxon's held-out probability, F1 by threshold, feature importances, the scikit-learn forest |
+| `<prefix>.test_predictions.tsv.gz`, `.scenario_predictions.tsv.gz` | each taxon's probability on the independent test set and on the scenarios' hold-out samples |
 
 `scripts/check_model_parity.py --db DB --model training/model.xml --training training` re-profiles
 saved training samples and checks that protal's probabilities are the model file's and its features

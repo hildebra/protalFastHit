@@ -59,6 +59,12 @@ candidates lower that share and every probability with it, which a knob by depth
 at depths the training lacked (docs/claude/2026-10-02-amplicon-denoising). The calibration, the prior and the target
 go into the model's header; build_gtdb_database.py passes it unless --call-mode curve.
 
+Scenarios (collect_training_data.py --scenarios, meta_scenario): the section "Scenarios" gives F1, false positive and
+false negative rates per scenario as protal calls, on its training samples (hold-in: in sample, and with their samples
+or species held out) and on its samples in --test-file (hold-out), which are kept out of the independent test set's
+section. --features auto chooses the feature set with species held out (choose_feature_set): the forests of each
+candidate set's folds, about what the "Feature sets" study costs per set, which --evaluation full then reuses.
+
 Every call counted here leaves out the taxa protal's singleton rule vetoes (--singleton-congener, protal's
 --singleton_congener): one fragment beside a congener of 100 fragments or more, whose read looks like the congener's
 (its abundance-weighted EM share below 0.5, or its identity below 0.95).
@@ -67,6 +73,7 @@ Every call counted here leaves out the taxa protal's singleton rule vetoes (--si
 from __future__ import annotations
 
 import argparse
+import collections
 import datetime
 import json
 import os
@@ -84,7 +91,8 @@ from sklearn.model_selection import GridSearchCV, GroupKFold, StratifiedKFold
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lineages  # noqa: E402
-from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_columns, feature_set_name, has_sample_depth  # noqa: E402
+from model_features import (AUTO_FEATURE_SETS, AUTO_MIN_GAIN, DEFAULT_FEATURE_SET, FEATURE_SETS,  # noqa: E402
+                            auto_candidates, feature_columns, feature_set_name, has_sample_depth)
 from model_pmml import (PmmlForest, format_depth_knob_curve, read_depth_knob_curve, read_false_calls,  # noqa: E402
                         write_forest)
 
@@ -147,15 +155,20 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--truth-file", required=True, help="training table (collect_training_data.py) or one training dump")
     p.add_argument("--output-prefix", required=True)
-    p.add_argument("--features", type=feature_set_name, default=DEFAULT_FEATURE_SET, metavar="|".join(FEATURE_SETS[:2] + ("...",)),
-                   help="normalized+adjacency+distance (default): the features that do not depend on database, "
+    p.add_argument("--features", type=feature_set_name, default="auto", metavar="auto|" + "|".join(FEATURE_SETS[:2] + ("...",)),
+                   help="auto (default): the set chosen below; or feature groups joined by '+', e.g. "
+                        f"{DEFAULT_FEATURE_SET} (the set auto keeps unless another is better). "
+                        "normalized+adjacency+distance: the features that do not depend on database, "
                         "domain, depth and read length, those of the gene neighbours, and the four that compare a "
                         "taxon with its sample's relatives by the distance of their references (model_features.py; "
                         "train them on samples with congener groups); normalized+adjacency: without those four (a "
                         "table of a protal before them lacks them); normalized+adjacency+relatives: all the relatives "
                         "features; normalized: without the gene neighbour features, to test them; all: every feature "
-                        "column of the table")
-    p.add_argument("--reference-pmml", help="train on the inputs of this PMML model instead of --features")
+                        "column of the table; auto: the set of model_features.AUTO_CANDIDATES with the highest F1 at the "
+                        "knob with species held out, the default unless another beats it by AUTO_MIN_GAIN (auto+priors: "
+                        "the sets with the priors too); see choose_feature_set")
+    p.add_argument("--reference-pmml", help="train on the inputs of this PMML model instead of --features (which it "
+                                            "overrides, auto included)")
     p.add_argument("--ntree", type=int, default=64, help="trees (default 64)")
     p.add_argument("--maxnodes", type=int, default=256,
                    help="leaves per tree at most, 0 for no limit (default 256; the GTDB build gives 512 for short reads "
@@ -190,7 +203,9 @@ def parse_args(argv=None):
     p.add_argument("--taxonomy", help="internal_taxonomy.dmp of the database, for the taxa's domains when the "
                                       "table has no meta_domain column")
     p.add_argument("--test-file", help="an independent test table (collect_training_data.py with another design and "
-                                       "seed): scored with the fitted forest and reported, by depth and by rank")
+                                       "seed): scored with the fitted forest and reported, by depth and by rank; its "
+                                       "scenarios' rows (meta_scenario) are the scenarios' hold-out samples, reported "
+                                       "apart (section Scenarios)")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--threads", type=int, default=4)
     return p.parse_args(argv)
@@ -481,8 +496,9 @@ def study_data(report, df, y, cols):
     return warnings
 
 
-def study_evaluation(report, df, X, y, opts, oob):
-    """Out of fold by rows, samples and species; returns the probabilities by scheme."""
+def study_evaluation(report, df, X, y, opts, oob, known=None):
+    """Out of fold by rows, samples and species; returns the probabilities by scheme. known: probabilities of a
+    scheme already computed with the same folds and forests ({"species": ...} from choose_feature_set)."""
     report.section(f"How well the model does on data it was not trained on (knob {opts.knob})")
     report.add("rows: random rows held out (the samples and species of the held-out rows are in training); "
                "samples: whole samples held out; species: whole species held out (as most GTDB species are when "
@@ -492,6 +508,9 @@ def study_evaluation(report, df, X, y, opts, oob):
     params = forest_params(opts)
     p = {"out of bag": oob}
     for scheme in ("rows", "samples", "species", *CLADE_SCHEMES):
+        if known and scheme in known:
+            p[scheme] = known[scheme]
+            continue
         splits = folds(df, y, scheme, opts)
         if splits is not None:
             p[scheme] = predict_out_of_fold(X, y, splits, params)
@@ -1018,12 +1037,13 @@ def choose_false_calls(report, df, X, y, p, opts, depth_knobs):
     return {"curve": curve, "prior": prior, "fdr": best["target"]}
 
 
-def study_test(report, rf, cols, opts, prefix, depth_knobs=None, false_calls=None):
-    """The fitted forest on an independent test table: samples of another design (depths, community sizes,
-    abundance model, strains), which cross-validation on the training data cannot judge. Its probabilities are
-    protal's (the PMML is checked to score as the forest does)."""
+def study_test(report, rf, cols, opts, prefix, depth_knobs=None, false_calls=None, test=None):
+    """The fitted forest on an independent test table (`test`, the design's rows of --test-file): samples of another
+    design (depths, community sizes, abundance model, strains), which cross-validation on the training data cannot
+    judge. Its probabilities are protal's (the PMML is checked to score as the forest does)."""
     report.section(f"Independent test set ({opts.test_file})")
-    test = load_table(opts.test_file, opts.taxonomy)
+    if test is None:
+        test = load_table(opts.test_file, opts.taxonomy)
     check_features(test, cols)
     y = test["truth"].to_numpy()
     p = rf.predict_proba(test[cols].to_numpy(dtype=np.float64))[:, 1]
@@ -1103,7 +1123,9 @@ def study_threshold(report, df, y, p, opts, prefix):
                                                                                      "sensitivity": rec, "F1": f1}}
 
 
-def study_features(report, df, y, opts, cols):
+def study_features(report, df, y, opts, cols, known=None):
+    """The named feature sets held out by rows and by species. known: {set: probabilities with species held out}
+    that choose_feature_set computed with the same folds and forests (not computed again)."""
     report.section("Feature sets (held out by rows and by species)")
     report.add("A feature set that does much better on rows than on species has learned the training species.")
     sets = {}
@@ -1117,12 +1139,161 @@ def study_features(report, df, y, opts, cols):
         check_features(df, set_cols)
         X = df[set_cols].to_numpy(dtype=np.float64)
         for scheme in ("rows", "species"):
+            if scheme == "species" and known and name in known:
+                rows.append(({"features": f"{name} ({len(set_cols)})", "held out": scheme},
+                             metrics(y, known[name], df, opts.knob)))
+                continue
             splits = folds(df, y, scheme, opts)
             if splits is not None:
                 rows.append(({"features": f"{name} ({len(set_cols)})", "held out": scheme},
                              metrics(y, predict_out_of_fold(X, y, splits, forest_params(opts)), df, opts.knob)))
     report.table(metrics_table(rows))
     report.data["feature_sets"] = [dict(**label, **m) for label, m in rows]
+
+
+def choose_feature_set(report, df, y, opts, held_out=()):
+    """--features auto: each candidate set (model_features.auto_candidates; those the table lacks columns of are left
+    out) scored with species held out (the folds and forests of the evaluation, so that its scores are reused), the
+    one of highest F1 at the knob chosen, but the default set unless another beats it by AUTO_MIN_GAIN (smaller gains
+    changed between fits and test sets at r226, as the depth knobs' did). held_out: [(label, table)] of samples never
+    trained on (the independent test set, the scenarios' hold-out samples), each candidate's forest fitted on all rows
+    scores them for the report; they do not choose, or their scores would no longer be held out. -> (set, its columns,
+    {set: probabilities with species held out})."""
+    report.section(f"Feature set chosen (--features {opts.features}, species held out)")
+    splits = folds(df, y, "species", opts)
+    if splits is None:
+        sys.exit("--features auto scores the feature sets with species held out, and the table has too few species")
+    rows, known, columns = [], {}, {}
+    for name in auto_candidates(opts.features):
+        try:
+            cols = [c for c in feature_columns(df.columns, name) if c != "domain"]
+        except RuntimeError:  # a table of an older protal
+            report.add(f"{name}: not scored (the table lacks its features)")
+            continue
+        bad = [c for c in cols if not np.issubdtype(df[c].dtype, np.number) or not np.isfinite(df[c]).all()]
+        if bad:  # check_features would stop the training; a candidate is only left out
+            report.add(f"{name}: not scored (features that are not finite numbers: {', '.join(bad)})")
+            continue
+        X = df[cols].to_numpy(dtype=np.float64)
+        known[name], columns[name] = predict_out_of_fold(X, y, splits, forest_params(opts)), cols
+        m = metrics(y, known[name], df, opts.knob)
+        row = {"features": name, "n": len(cols), "F1": m["F1"], "AP": m["AP"], "log_loss": m["log_loss"],
+               "sensitivity": m["sensitivity"], "precision": m["precision"], "FP": m["FP"], "FN": m["FN"]}
+        if held_out:
+            rf = RandomForestClassifier(**forest_params(opts)).fit(X, y)
+            for label, table in held_out:
+                ty = table["truth"].to_numpy()
+                tp = rf.predict_proba(table[cols].to_numpy(dtype=np.float64))[:, 1]
+                row[f"F1 {label}"] = metrics(ty, tp, table, opts.knob)["F1"]
+        rows.append(row)
+    if not rows:
+        sys.exit("--features auto: the table has the features of none of its candidate sets (a table of an older protal?)")
+    f1 = {r["features"]: (r["F1"] if r["F1"] is not None else -1.0) for r in rows}
+    best = max(f1, key=lambda name: (f1[name], -[r["n"] for r in rows if r["features"] == name][0]))
+    default = DEFAULT_FEATURE_SET if DEFAULT_FEATURE_SET in f1 else best
+    chosen = best if f1[best] >= f1[default] + AUTO_MIN_GAIN else default
+    frame = pd.DataFrame(rows)
+    frame.insert(0, "", ["chosen" if r["features"] == chosen else "" for r in rows])
+    report.table(frame)
+    # Why, in a line: its F1 against the other sets' (their mean and the best of them), the rule that chose it, and
+    # how the sets did on the samples never trained on (which did not choose).
+    others = [r for r in rows if r["features"] != chosen]
+
+    def against(column):
+        mine = next(r[column] for r in rows if r["features"] == chosen)
+        theirs = [r[column] for r in others if r.get(column) is not None]
+        return mine, (float(np.mean(theirs)) if theirs else None)
+    mine, mean = against("F1")
+    why = f"F1 {fmt(mine, 4)} with species held out"
+    if others:
+        top = max(others, key=lambda r: f1[r["features"]])
+        why += (f", the other {len(others)} sets {fmt(mean, 4)} on average (the best of them {top['features']} "
+                f"{fmt(top['F1'], 4)})")
+    why += ("; the highest" + (f", {f1[chosen] - f1[default]:.4f} above the default set" if chosen != default else "")
+            if chosen == best else f"; the default set, as no other is {AUTO_MIN_GAIN} better")
+    tests = [(label, *against(f"F1 {label}")) for label, _ in held_out]
+    if tests:
+        why += ("; on samples never trained on (not used to choose): " +
+                ", ".join(f"{label} {fmt(m, 4)} (the others {fmt(o, 4)})" for label, m, o in tests))
+    report.add(f"chosen: {chosen} ({len(columns[chosen])} features): {why}." +
+               (" The F1 columns of samples never trained on are scored by each set's forest fitted on all rows, for "
+                "comparison only: they do not choose." if held_out else ""))
+    report.data["features_auto"] = {"candidates": rows, "chosen": chosen, "best": best, "default": default,
+                                    "min_gain": AUTO_MIN_GAIN, "why": why, "others_mean_F1": mean,
+                                    "held_out": {label: {"F1": m, "others_mean_F1": o} for label, m, o in tests}}
+    return chosen, columns[chosen], known
+
+
+def scenario_of(df):
+    """Each row's scenario (meta_scenario; empty for the design's samples and for a table without the column)."""
+    if "meta_scenario" not in df.columns:
+        return np.full(len(df), "", dtype=object)
+    return df["meta_scenario"].fillna("").astype(str).to_numpy()
+
+
+def scenario_row(label, frame, y, p, opts, depth_knobs=None):
+    """A row of the scenario table: the calls protal makes by default (the knob, or the knob curve) on these rows, their
+    errors and rates, the false positives closest to a species the database lacks (meta_novel_level), and the highest
+    F1 at any threshold."""
+    ok = ~np.isnan(p)
+    frame, y, p = frame[ok], y[ok], p[ok]
+    scores = call_scores(frame, p)
+    call = depth_knob_calls(scores, sample_depths(frame), depth_knobs, opts.knob) if depth_knobs else scores >= opts.knob
+    tp, fp, fn = int((call & (y == 1)).sum()), int((call & (y == 0)).sum()), int((~call & (y == 1)).sum())
+    present, absent = int(y.sum()), int((y == 0).sum())
+    samples = frame["meta_sample"].nunique() if "meta_sample" in frame else 1
+    novel = frame["meta_novel_level"].fillna("").astype(str).to_numpy() != "" if "meta_novel_level" in frame else \
+        np.zeros(len(frame), dtype=bool)
+    row = {**label, "samples": samples, "present": present, "absent": absent, "TP": tp, "FP": fp, "FN": fn,
+           "sensitivity": tp / (tp + fn) if tp + fn else None, "precision": tp / (tp + fp) if tp + fp else None,
+           "F1": 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None,
+           "FP rate %": rate(fp, absent), "FN rate %": rate(fn, present), "FP/sample": fp / max(1, samples),
+           "FP near novel": int((call & (y == 0) & novel).sum())}
+    if 0 < present < len(y):
+        t, _, _, best = best_threshold(y, np.where(np.isfinite(scores), scores, -1.0))
+        row.update({"best F1": best, "at": t})
+    return row
+
+
+def study_scenarios(report, df, y, p, fitted, opts, held_out=None, held_out_p=None, depth_knobs=None):
+    """F1, false positive and false negative rates per scenario (collect_training_data.py --scenarios: meta_scenario)
+    and read type, as protal calls: on the scenario's training samples (hold-in), scored by the final forest, which was
+    fitted on them ("in sample"), and by forests that saw neither their sample nor their species (cross-validation);
+    and on its samples in the test table (hold-out), which no forest was trained on. The design's training samples,
+    with species held out, for comparison."""
+    names = scenario_of(df)
+    held_names = scenario_of(held_out) if held_out is not None else np.array([], dtype=object)
+    scenarios = sorted(set(names[names != ""]) | set(held_names[held_names != ""]))
+    if not scenarios:
+        return
+    report.section("Scenarios: hold-in and hold-out samples")
+    report.add(f"At knob {opts.knob}" + (" (the knob curve)" if depth_knobs else "") + ", as protal calls by default. "
+               "hold-in: the scenario's training samples, scored by the final forest (in sample: fitted on them), by "
+               "forests that did not see their sample (samples held out) or their species (species held out); hold-out: "
+               "the scenario's samples of the test set, which no forest saw. FP rate: of the absent taxa, those called; "
+               "FN rate: of the present taxa, those not called; FP near novel: false positives whose closest species in "
+               "the sample is one the database lacks; best F1: at the threshold best for these rows.")
+    rows = []
+    design = names == ""
+    if design.any() and "species" in p:
+        rows.append(scenario_row({"scenario": "(design)", "set": "training, species held out"}, df[design], y[design],
+                                 p["species"][design], opts, depth_knobs))
+    for name in scenarios:
+        mask = names == name
+        if mask.any():
+            for label, scores in (("hold-in, in sample", fitted), ("hold-in, samples held out", p.get("samples")),
+                                  ("hold-in, species held out", p.get("species"))):
+                if scores is not None:
+                    rows.append(scenario_row({"scenario": name, "set": label}, df[mask], y[mask], scores[mask], opts,
+                                             depth_knobs))
+        held = held_names == name
+        if held.any():
+            frame = held_out[held]
+            rows.append(scenario_row({"scenario": name, "set": "hold-out"}, frame, frame["truth"].to_numpy(),
+                                     held_out_p[held], opts, depth_knobs))
+    report.table(pd.DataFrame(rows))
+    report.data["scenarios"] = rows
+    return rows
 
 
 def grid_rows(df, opts):
@@ -1288,19 +1459,37 @@ def main(argv=None):
 
     t0 = time.time()
     df = load_table(opts.truth_file, opts.taxonomy)
+    if df["truth"].nunique() < 2:
+        sys.exit("the training table has only present or only absent taxa")
+    y = df["truth"].to_numpy()
+    # The test table: the design's rows are the independent test set, a scenario's rows its hold-out samples.
+    test_design = test_scenarios = None
+    if opts.test_file:
+        test = load_table(opts.test_file, opts.taxonomy)
+        in_scenario = scenario_of(test) != ""
+        test_design = test[~in_scenario] if (~in_scenario).any() else None
+        test_scenarios = test[in_scenario] if in_scenario.any() else None
+    timing["load"] = time.time() - t0
+    known = {}  # probabilities with species held out by feature set (--features auto), reused by the evaluation
     if opts.reference_pmml:
         cols = PmmlForest(opts.reference_pmml).features
         source = f"the inputs of {opts.reference_pmml}"
+    elif opts.features in AUTO_FEATURE_SETS:
+        t0 = time.time()
+        # Every test set apart: the design's (independent test set) and each scenario's hold-out samples.
+        held = [("test set", test_design)] if test_design is not None else []
+        if test_scenarios is not None:
+            names = scenario_of(test_scenarios)
+            held += [(f"{name} hold-out", test_scenarios[names == name]) for name in sorted(set(names))]
+        chosen, cols, known = choose_feature_set(report, df, y, opts, held)
+        source = f"--features {opts.features}: {chosen}"
+        timing["feature_choice"] = time.time() - t0
     else:
         cols = feature_columns(df.columns, opts.features)
         source = f"--features {opts.features}"
     cols = [c for c in cols if c != "domain"]
     check_features(df, cols)
-    if df["truth"].nunique() < 2:
-        sys.exit("the training table has only present or only absent taxa")
     X = df[cols].to_numpy(dtype=np.float64)
-    y = df["truth"].to_numpy()
-    timing["load"] = time.time() - t0
     report.add(f"{len(cols)} features ({source}): {', '.join(cols)}")
     veto = vetoed(df)
     if SINGLETON_CONGENER > 0 and ("genus_top_fragments" not in df.columns or "em_own_share" not in df.columns):
@@ -1339,7 +1528,8 @@ def main(argv=None):
                 report.add(f"out of bag: {int(never.sum())} rows ({int(y[never].sum())} present) were drawn for every tree "
                            "(rows are drawn by their class weight) and have no out-of-bag score; left out")
         t0 = time.time()
-        p = study_evaluation(report, df, X, y, opts, oob)
+        chosen_set = report.data.get("features_auto", {}).get("chosen")
+        p = study_evaluation(report, df, X, y, opts, oob, {"species": known[chosen_set]} if chosen_set in known else None)
         study_threshold(report, df, y, p, opts, prefix)
         study_breakdown(report, df, y, p, opts)
         study_by_rank(report, df, y, p, opts)
@@ -1348,7 +1538,7 @@ def main(argv=None):
         timing["evaluation"] = time.time() - t0
     studies = []
     if opts.evaluation == "full":
-        studies += [("feature_sets", lambda: study_features(report, df, y, opts, cols))]
+        studies += [("feature_sets", lambda: study_features(report, df, y, opts, cols, known))]
     if opts.previous_procedure and opts.evaluation != "none":
         studies += [("previous_procedure", lambda: study_old_procedure(report, df, y, opts, cols, p.get("species")))]
     if opts.evaluation == "full":
@@ -1374,12 +1564,30 @@ def main(argv=None):
         t0 = time.time()
         false_calls = choose_false_calls(report, df, X, y, p, opts, depth_knobs)
         timing["false_calls"] = time.time() - t0
-    if opts.test_file:
+    if test_design is not None:
         t0 = time.time()
         rf.n_jobs = 1  # sum the trees in file order, as protal does
-        study_test(report, rf, cols, opts, prefix, depth_knobs, false_calls)
+        study_test(report, rf, cols, opts, prefix, depth_knobs, false_calls, test_design)
         rf.n_jobs = opts.threads
         timing["test"] = time.time() - t0
+    elif test_scenarios is not None:
+        report.add("")
+        report.add(f"{opts.test_file} holds the scenarios' hold-out samples only (no independent test set of the design)")
+    if (scenario_of(df) != "").any() or test_scenarios is not None:
+        t0 = time.time()
+        rf.n_jobs = 1
+        fitted = rf.predict_proba(X)[:, 1]
+        held_p = None
+        if test_scenarios is not None:
+            check_features(test_scenarios, cols)
+            held_p = rf.predict_proba(test_scenarios[cols].to_numpy(dtype=np.float64))[:, 1]
+            out = test_scenarios[[c for c in test_scenarios.columns if c.startswith("meta_")] +
+                                 [c for c in ("taxon", "taxon_name", "domain", "truth") if c in test_scenarios]].copy()
+            out["p"] = held_p
+            out.to_csv(prefix + ".scenario_predictions.tsv.gz", sep="\t", index=False, float_format="%.6g")
+        rf.n_jobs = opts.threads
+        study_scenarios(report, df, y, p, fitted, opts, test_scenarios, held_p, depth_knobs)
+        timing["scenarios"] = time.time() - t0
 
     # Export, and check that the file scores as the forest does.
     report.section("Model file")
@@ -1397,6 +1605,9 @@ def main(argv=None):
         notes.append(f"calls at a target share of false calls of {false_calls['fdr']} per sample, calibrated on species "
                      f"held out (prior {false_calls['prior']:.4f})")
     notes.append(f"singleton rule as trained: {SINGLETON_CONGENER} (protal --singleton_congener)")
+    if "features_auto" in report.data:
+        notes.append(f"feature set {report.data['features_auto']['chosen']} (--features {opts.features}: the highest F1 "
+                     f"with species held out, the default unless {AUTO_MIN_GAIN} better)")
     write_forest(rf, cols, prefix + ".xml", notes, depth_knobs, false_calls)
     if read_depth_knob_curve(prefix + ".xml") != [(float(f"{x:.3f}"), k) for x, k in depth_knobs]:
         sys.exit(f"{prefix}.xml: the depth knobs read back differ from those written")
@@ -1494,6 +1705,27 @@ def main(argv=None):
             warnings.append(f"the independent test set scores F1 {test['F1']:.3f} against {species['F1']:.3f} with species "
                             "held out in training: the training design misses what the test set has (see its depth "
                             "table)")
+    auto = report.data.get("features_auto")
+    if auto:
+        report.add(f"feature set (--features {opts.features}): {auto['chosen']}: {auto['why']}")
+    by_scenario = collections.defaultdict(dict)
+    for r in report.data.get("scenarios", []):
+        by_scenario[r["scenario"]][r["set"]] = r
+    for name, sets in by_scenario.items():
+        if name == "(design)":
+            continue
+        parts = []
+        for label, short in (("hold-out", "hold-out"), ("hold-in, species held out", "hold-in with species held out"),
+                             ("hold-in, in sample", "hold-in in sample")):
+            r = sets.get(label)
+            if r:
+                parts.append(f"{short} F1 {fmt(r['F1'])} (FP rate {fmt(r['FP rate %'], 2)}%, FN rate "
+                             f"{fmt(r['FN rate %'], 2)}%, {r['samples']} samples)")
+        report.add(f"scenario {name}: " + "; ".join(parts))
+        held, cv = sets.get("hold-out"), sets.get("hold-in, species held out")
+        if held and cv and held["F1"] is not None and cv["F1"] is not None and held["F1"] < cv["F1"] - 0.02:
+            warnings.append(f"scenario {name}: its hold-out samples score F1 {held['F1']:.3f} against {cv['F1']:.3f} on its "
+                            "training samples with species held out: too few training samples of it, or they differ")
     if diff > 0 or flips:
         warnings.append(f"the PMML file does not score as scikit-learn does (max difference {diff:.3g}): do not use it")
     for w in warnings:

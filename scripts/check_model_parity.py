@@ -117,8 +117,10 @@ def split_rounding(differences):
 def main(argv=None):
     opts = parse_args(argv)
     marker = "samples.tsv" if opts.read_type in ("pb", "ont") else "protal.meta"
+    # The design's points; the scenarios' (sc_*, collect_training_data.SCENARIO_PREFIX) hold deep samples, and the
+    # design's give the same check.
     points = sorted(p for p in glob.glob(os.path.join(opts.training, "points", "*"))
-                    if os.path.isfile(os.path.join(p, "sim", marker))
+                    if os.path.isfile(os.path.join(p, "sim", marker)) and not os.path.basename(p).startswith("sc_")
                     and (opts.read_type not in ("pb", "ont") or os.path.basename(p).startswith(opts.read_type + "_")))
     if not points:
         sys.exit(f"no design points of {opts.read_type} reads in {opts.training}/points")

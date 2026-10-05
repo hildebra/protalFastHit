@@ -89,9 +89,12 @@ def sam_lines(path):
 
 
 def paired_samples(points):
-    """(manifest rows of the point, sample, SAM path) of the paired-end samples under `points`."""
+    """(manifest rows of the point, sample, SAM path) of the paired-end samples under `points`, but those of the
+    collector's scenarios (sc_*: deep samples, host reads not named by a contig)."""
     for manifest in sorted(glob.glob(os.path.join(points, "*", "sim", "manifest.tsv"))):
         point = os.path.dirname(os.path.dirname(manifest))
+        if os.path.basename(point).startswith("sc_"):
+            continue
         with open(manifest) as fh:
             rows = list(csv.DictReader(fh, delimiter="\t"))
         for sam in sorted(glob.glob(os.path.join(point, "protal", "alignments", "*.sam*"))):

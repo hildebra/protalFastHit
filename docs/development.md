@@ -63,7 +63,12 @@ NCBI, it covers:
 - a background build that fails and stops the run;
 - `SIGTERM`, after which no command is left running;
 - a reduced database (`--n-genes`, then `--genes`) with a gene archaea have;
-- `build_gtdb_releases.py` with its summary.
+- `build_gtdb_releases.py` with its summary;
+- the default scenarios, made small by a `--scenario-file` of their names (one with 90% host reads
+  from a random host genome, soil scaled down to the genome table), with Illumina reads at a target
+  quality and Ultima reads, their hold-in and hold-out samples scored in every report and in
+  `summary.txt`, the feature sets the trainers chose and why, and the host scenario left out without
+  a host genome. The other build tests pass `--scenarios none`: the presets have real depths.
 
 ```bash
 PROTAL=build/protal SIMULATE=build/simulate_metagenomes PROTAL_TRAIN_PYTHON=~/protal-train/bin/python \

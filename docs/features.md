@@ -32,7 +32,10 @@ more training depths). 0.6.0a
 shipped one model on absolute counts (genes, k-mers and mates); those columns are still in the dump
 ([below](#in-the-dump-but-in-no-set)) but in no 0.7 set. A training table of an older protal
 lacks the columns of later groups: train it with the groups it has (before 0.7.5
-`normalized+adjacency+distance`, before 0.7.4 `normalized+adjacency`).
+`normalized+adjacency+distance`, before 0.7.4 `normalized+adjacency`). Since 2026-10-05 the trainer
+and the build choose the set themselves by default (`--features auto`): among the named sets without
+the priors, with species held out, keeping the default set unless another is 0.002 of F1 better, and
+saying why ([databases.md](databases.md#training)).
 
 **How to read the importance columns.** The numbers are the forests' Gini importances (scikit-learn's
 `feature_importances_`, which sum to 1 over a model) of the two latest GTDB r226 trainings, read

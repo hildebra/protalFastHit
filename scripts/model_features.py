@@ -170,6 +170,19 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
 # simulation cannot test (a one-genome species has no strain to simulate from) and which rejects the strains of
 # single-MAG species that dominate environments GTDB has sampled sparsely (docs/claude/2026-10-03-r226-v9-evaluation).
 DEFAULT_FEATURE_SET = "normalized+adjacency+distance+depth+divergence+unfiltered"
+# --features auto: the trainer scores each of these sets with species held out and keeps the best, the default unless
+# another beats it by AUTO_MIN_GAIN of F1 at the knob (random_forest_cmdline.choose_feature_set). Without the priors
+# (above) and "all"; auto+priors adds the sets with the priors.
+AUTO_FEATURE_SETS = ("auto", "auto+priors")
+AUTO_CANDIDATES = tuple(s for s in FEATURE_SETS if s != "all" and "priors" not in s.split("+")) + \
+    ("normalized+adjacency+relatives+depth+divergence+unfiltered",)
+AUTO_PRIORS_CANDIDATES = AUTO_CANDIDATES + tuple(s for s in FEATURE_SETS if "priors" in s.split("+"))
+AUTO_MIN_GAIN = 0.002
+
+
+def auto_candidates(feature_set):
+    """The sets --features auto (or auto+priors) chooses among."""
+    return AUTO_PRIORS_CANDIDATES if feature_set == "auto+priors" else AUTO_CANDIDATES
 
 
 def feature_set_columns(feature_set):
@@ -188,7 +201,7 @@ def feature_set_columns(feature_set):
 
 def feature_set_name(feature_set):
     """argparse type for --features: the name checked (ValueError, which argparse reports, for an unknown one)."""
-    if feature_set != "all":
+    if feature_set != "all" and feature_set not in AUTO_FEATURE_SETS:
         feature_set_columns(feature_set)
     return feature_set
 

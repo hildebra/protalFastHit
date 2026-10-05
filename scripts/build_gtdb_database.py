@@ -46,6 +46,12 @@ The design reaches the depths of real samples (2M and 10M read pairs, 1.5 and
 knob curve over the sample's depth (--depth-knob-read-types): a deep sample
 holds many more absent taxa with a few reads, and needs a higher threshold.
 
+Four scenarios of real studies (--scenarios, scenarios.py: gut, soil, shallow
+soil, 90% host reads) add samples of their own: their hold-in samples join the
+training data, their hold-out samples the test set, and every model's report
+scores both. Each trainer chooses its feature set (--features auto) with species
+held out, and the run says which set won and why.
+
 OUT_DIR/model_logs/ collects what tells whether the models are good: summary.txt
 (TP, FP, TN, FN, sensitivity, specificity, precision and F1 of each model), each read
 type's training report (how it does on species and clades it was not trained on,
@@ -128,6 +134,7 @@ from gtdb_to_protal_db import (clear_build_outputs, full_reference_path, marker_
                                read_gene_ids, read_gene_list, read_representatives,
                                remove_full_reference as remove_full_reference_files)
 import rank_genes  # noqa: E402
+import scenarios  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
 from collect_training_data import TABLES, clock, congener_spec, last_line, units_of, parse_args as collector_args  # noqa: E402
@@ -719,13 +726,30 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
                                             f"congeners {congener_text(args.congeners)}"),
              ("classifier_read_types", ",".join(read_types)),
              ("classifier_depth_knobs", ",".join(t for t in read_types if t in depth_knob_types(args)) or "none"),
-             ("classifier_call_mode", args.call_mode)]
+             ("classifier_call_mode", args.call_mode),
+             ("classifier_scenarios", (", ".join(f"{name} {n_in} hold-in (training) and {n_out} hold-out (test) samples"
+                                                 for name, (n_in, n_out) in args.scenario_samples_of.items())
+                                       + (f"; definitions {args.scenario_file}" if args.scenario_file else "")
+                                       + (f"; host genome {args.host_genome}" if args.host_genome else "")
+                                       + "".join(f"; {note}" for note in getattr(args, "scenario_notes", [])))
+              if getattr(args, "scenario_samples_of", None) else
+              "none" + "".join(f"; {note}" for note in getattr(args, "scenario_notes", [])))]
     for t in read_types:
         try:
             with open(prefixes[t] + ".metrics.json") as fh:
                 metrics = json.load(fh)
         except (OSError, ValueError):
             continue
+        if metrics.get("features_auto"):
+            rows.append((f"model_{t}_features", f"{metrics['features_auto']['chosen']} (--features {args.features}: "
+                                                f"{metrics['features_auto'].get('why', '')})"))
+        scenario_rows = [m for m in metrics.get("scenarios", []) if m["scenario"] != "(design)" and
+                         m["set"] in ("hold-out", "hold-in, species held out")]
+        if scenario_rows:
+            num = lambda v, unit="": "-" if v is None else f"{v:.4g}{unit}"
+            rows.append((f"model_{t}_scenarios", "; ".join(
+                f"{m['scenario']} {m['set']} F1 {num(m['F1'])}, FP rate {num(m['FP rate %'], '%')}, FN rate "
+                f"{num(m['FN rate %'], '%')}" for m in scenario_rows)))
         species_cv = metrics.get("evaluation", {}).get("species", {})
         test = metrics.get("test", {}).get("this one", {})
         rows.append((f"model_{t}", f"species held out F1 {species_cv.get('F1')}, FP per sample "
@@ -763,12 +787,58 @@ def model_scores(read_types, prefixes):
     return f"F1 with species held out{'/on the test set' if with_test else ''}: {', '.join(scores)}"
 
 
+def feature_choices(read_types, prefixes):
+    """For each model whose trainer chose its feature set (--features auto), which set won and why (its F1 with
+    species held out against the other sets', the rule, and the sets' F1 on the test sets), from its .metrics.json:
+    [(read type, set, why)]."""
+    out = []
+    for t in read_types:
+        try:
+            with open(prefixes[t] + ".metrics.json") as fh:
+                auto = json.load(fh).get("features_auto")
+        except (OSError, ValueError):
+            continue
+        if auto:
+            out.append((t, auto["chosen"], auto.get("why", "")))
+    return out
+
+
+def scenario_scores(read_types, prefixes, order=()):
+    """The models' F1 per scenario on its hold-out samples (and its hold-in ones with species held out), from their
+    .metrics.json (random_forest_cmdline.py, section Scenarios), in a few words; the scenarios in `order` first, in
+    that order."""
+    found = collections.defaultdict(list)
+    for t in read_types:
+        try:
+            with open(prefixes[t] + ".metrics.json") as fh:
+                rows = json.load(fh).get("scenarios", [])
+        except (OSError, ValueError):
+            continue
+        sets = {(r["scenario"], r["set"]): r for r in rows}
+        for name in dict.fromkeys(r["scenario"] for r in rows if r["scenario"] != "(design)"):
+            held, cv = sets.get((name, "hold-out")), sets.get((name, "hold-in, species held out"))
+            f1 = lambda r: "-" if not r or r.get("F1") is None else f"{r['F1']:.3f}"
+            found[name].append(f"{t} {f1(held)}/{f1(cv)}")
+    names = [n for n in order if n in found] + [n for n in found if n not in order]
+    return ("scenario F1 on the hold-out samples/hold-in with species held out: " +
+            "; ".join(f"{name} {', '.join(found[name])}" for name in names)) if found else "no scenario scores"
+
+
 def summary_lines(read_types, prefixes, db):
     """model_logs/summary.txt: for each read type's model, TP, FP, TN, FN and the rates, with species held
-    out in training (cross-validation) and on the independent test set, from its .metrics.json."""
+    out in training (cross-validation), on the independent test set and, with --scenarios, on each scenario's
+    hold-out and hold-in samples, from its .metrics.json."""
     header = ("read type", "evaluated on", "taxa", "TP", "FP", "TN", "FN", "sensitivity", "specificity",
-              "precision", "F1", "FP/sample")
+              "precision", "F1", "FP rate", "FN rate", "FP/sample")
     rows = []
+    rate = lambda v: "-" if v is None else f"{v:.4f}"
+
+    def row(t, label, tp, fp, tn, fn, per_sample):
+        return (t, label, str(tp + fp + tn + fn), str(tp), str(fp), str(tn), str(fn),
+                rate(tp / (tp + fn) if tp + fn else None), rate(tn / (tn + fp) if tn + fp else None),
+                rate(tp / (tp + fp) if tp + fp else None), rate(2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None),
+                rate(fp / (fp + tn) if fp + tn else None), rate(fn / (tp + fn) if tp + fn else None),
+                "-" if per_sample is None else f"{per_sample:.2f}")
     for t in read_types:
         try:
             with open(prefixes[t] + ".metrics.json") as fh:
@@ -778,20 +848,26 @@ def summary_lines(read_types, prefixes, db):
             continue
         for label, m in (("species held out", metrics.get("evaluation", {}).get("species")),
                          ("independent test set", metrics.get("test", {}).get("this one"))):
-            if not m:
-                continue
-            tp, fn, fp = m["present"] - m["FN"], m["FN"], m["FP"]
-            tn = m["taxa"] - m["present"] - fp
-            rate = lambda v: "-" if v is None else f"{v:.4f}"
-            rows.append((t, label, str(m["taxa"]), str(tp), str(fp), str(tn), str(fn), rate(m.get("sensitivity")),
-                         rate(tn / (tn + fp) if tn + fp else None), rate(m.get("precision")), rate(m.get("F1")),
-                         "-" if m.get("FP_per_sample") is None else f"{m['FP_per_sample']:.2f}"))
+            if m:
+                fp = m["FP"]
+                rows.append(row(t, label, m["present"] - m["FN"], fp, m["taxa"] - m["present"] - fp, m["FN"],
+                                m.get("FP_per_sample")))
+        # The scenarios: their hold-out samples, and their hold-in ones with species held out and in sample.
+        for m in metrics.get("scenarios", []):
+            if m["scenario"] != "(design)" and m["set"] in ("hold-out", "hold-in, species held out", "hold-in, in sample"):
+                rows.append(row(t, f"{m['scenario']}: {m['set']}", m["TP"], m["FP"], m["absent"] - m["FP"], m["FN"],
+                                m["FP/sample"]))
     widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))]
     table = ["  ".join(str(v).ljust(w) for v, w in zip(r, widths)).rstrip() for r in [header, *rows]]
+    choices = feature_choices(read_types, prefixes)
+    if choices:  # --features auto: the set each trainer chose, and why
+        table += ["", "Feature sets chosen (--features auto):"] + [f"  {t}: {name}: {why}" for t, name, why in choices]
     return [f"Presence models of {db}, taxa scored at knob 0.5: TP present and called, FP absent and called, TN "
-            "absent and not called, FN present and not called. species held out: each taxon scored by forests "
-            "that did not see its species; independent test set: samples of another design, scored by the "
-            "final model. Details: trained_model*.report.txt", ""] + table
+            "absent and not called, FN present and not called; FP rate FP / (FP + TN), FN rate FN / (TP + FN). "
+            "species held out: each taxon scored by forests that did not see its species; independent test set: "
+            "samples of another design, scored by the final model; <scenario>: hold-out: the scenario's samples of "
+            "the test set (never trained on), hold-in: its training samples, scored with species held out, or in "
+            "sample (by the final model, fitted on them). Details: trained_model*.report.txt", ""] + table
 
 
 def remove_full_reference(folder):
@@ -1150,6 +1226,31 @@ def main():
                    help="samples per long-read design point of the test set (default 8, at most the communities of "
                         "its paired-end points: with 4, the 22 samples of a long-read type could not tell its knob "
                         "curve from one knob)")
+    p.add_argument("--scenarios", default=None,
+                   help="scenarios to train on and score the models on, besides the design (default: all four; none "
+                        "for none; scenarios.py): gut (~400 "
+                        "species, 5%% lacking from the database, Illumina PE 150 Q35 at 20M pairs, PacBio and Nanopore "
+                        "at the same bases), soil (~10,000 species, 60%% lacking, Ultima SE 300 Q25 at 20M reads, "
+                        "Illumina, PacBio and Nanopore at the same bases), soil_shallow (the soil communities at 5M "
+                        "Illumina pairs, PacBio and Nanopore at 1.5 Gb), host (90%% human reads, 2-50 species of "
+                        "power-law abundances, all four read types at 10M pairs or reads or 3 Gb), or those of "
+                        "--scenario-file; comma-separated, NAME:N for N hold-in samples of one, all for every one. Each "
+                        "scenario's hold-in samples (--scenario-samples) join the training data, as the design's do, "
+                        "its hold-out samples (--scenario-test-samples, another seed) the test set, and every model's "
+                        "report gives F1 and FP and FN rates on both (section Scenarios; model_logs/summary.txt). A "
+                        "scenario larger than the genome table holds at its share of species the database lacks is "
+                        "scaled down, and the run says so: soil's full size needs a larger pool than the default "
+                        "download's (download_gtdb.py --rep_only_species). host needs the host genome (--host-genome, "
+                        "or the download's); by default, without one, it is left out with a warning")
+    p.add_argument("--scenario-file", help="JSON of scenarios by name, which add to or change the presets (scenarios.py)")
+    p.add_argument("--scenario-samples", type=int, default=3,
+                   help="hold-in samples per scenario, in the training data (default 3; 0: the scenarios are scored, "
+                        "not trained on)")
+    p.add_argument("--scenario-test-samples", type=int, default=2,
+                   help="hold-out samples per scenario, in the test set (default 2)")
+    p.add_argument("--host-genome",
+                   help="FASTA (gzipped or not) of the host genome for scenarios with host reads (default: the human "
+                        "genome download_gtdb.py fetched into --inputs)")
     p.add_argument("--congeners", default="0.25:2-5", type=congener_spec,
                    help="relatives that share a sample, in the training data and the test set (collect_training_data.py "
                         "--congeners): SHARE:MIN-MAX, about SHARE of each sample's species in groups of MIN to MAX "
@@ -1176,9 +1277,11 @@ def main():
                         "them (placeholder_models.py)")
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
-    p.add_argument("--features", type=feature_set_name, default=DEFAULT_FEATURE_SET, metavar="|".join(FEATURE_SETS[:2] + ("...",)),
-                   help="the models' features (random_forest_cmdline.py --features), feature groups joined by '+' "
-                        f"(default {DEFAULT_FEATURE_SET}): normalized, the normalised features; adjacency, the gene "
+    p.add_argument("--features", type=feature_set_name, default="auto", metavar="auto|" + "|".join(FEATURE_SETS[:2] + ("...",)),
+                   help="the models' features (random_forest_cmdline.py --features): auto (default), each trainer "
+                        "chooses its set (below); or feature groups joined by '+' "
+                        f"(the set auto keeps unless another is better: {DEFAULT_FEATURE_SET}): normalized, the "
+                        "normalised features; adjacency, the gene "
                         "neighbours'; distance, the four relative_* features that compare a taxon with its sample's "
                         "relatives by the distance of their references (they need --congeners groups; at r226 +0.004 "
                         "paired-end F1 at the knob curve, the other read types within noise, "
@@ -1190,7 +1293,10 @@ def main():
                         "length filters and the failed candidates; priors, what GTDB knows of the species "
                         "(docs/claude/2026-10-03-false-positive-fixes); all: every feature of the training dumps. "
                         "normalized+adjacency+distance is the set of protal 0.7.3's dumps, normalized+adjacency that "
-                        "of older ones")
+                        "of older ones. auto: each model's set chosen by its trainer, the one of highest F1 with "
+                        "species held out among those without the priors (auto+priors: with them), the default set "
+                        "unless another is 0.002 better (random_forest_cmdline.py choose_feature_set); the run says "
+                        "which won and why, and each set's F1 on the test sets")
     p.add_argument("--call-mode", choices=["curve", "fdr"], default="curve",
                    help="how protal calls with the models by default: curve (default), the knob curve over the "
                         "sample's depth (--depth-knob-read-types); fdr, the highest-scoring taxa of each sample while "
@@ -1250,7 +1356,27 @@ def main():
         p.error("--rank-genes is for a run with every gene; a run with --n-genes ranks (or takes) the genes itself")
     if args.rank_genes and args.holdout <= 0 and args.holdout_clades.strip().lower() == "none" and not args.holdout_species:
         p.error("--rank-genes ranks from the training database: hold species out")
+    # The scenarios (scenarios.py): their names, and what they need beyond the design, checked before anything runs.
+    if args.scenario_samples < 0 or args.scenario_test_samples < 0:
+        p.error("--scenario-samples and --scenario-test-samples cannot be negative")
+    scenarios_given = args.scenarios is not None  # by default all four, the host scenario only with a host genome
+    if not scenarios_given:
+        args.scenarios = ",".join(scenarios.PRESETS)
+    try:
+        scenario_defs = scenarios.definitions(args.scenario_file)
+        # A scenario's hold-in samples (NAME:N in --scenarios, else --scenario-samples) and hold-out samples.
+        chosen_scenarios = scenarios.selection(args.scenarios, args.scenario_samples, scenario_defs, keep_zero=True)
+    except scenarios.ScenarioError as e:
+        p.error(str(e))
+    hold_in = {name: n for name, n in chosen_scenarios if n > 0}
+    hold_out = {name: args.scenario_test_samples for name, _ in chosen_scenarios} if args.scenario_test_samples else {}
+    selected = [name for name, _ in chosen_scenarios if name in hold_in or name in hold_out]
+    args.scenario_samples_of = {name: (hold_in.get(name, 0), hold_out.get(name, 0)) for name in selected}  # provenance
+    if selected and not any(r["type"] in read_types for name in selected for r in scenario_defs[name]["reads"]):
+        p.error(f"--scenarios {args.scenarios}: none of their read types is among --read-types {args.read_types}")
+    hosted = [name for name in selected if scenario_defs[name]["host_share"] > 0]
     check_tools(args, read_types)
+    state = {}
     if args.inputs:
         if args.gtdb:
             p.error("give --inputs or --gtdb, not both")
@@ -1269,6 +1395,23 @@ def main():
             args.simulate_species = os.path.join(args.inputs, "simulation_species.txt")
     elif not args.gtdb:
         p.error("give --inputs (a folder of download_gtdb.py) or --gtdb")
+    scenario_notes = []  # what the run changed of the scenarios asked for, for its console and build_metadata.tsv
+    if hosted:
+        if not args.host_genome and state.get("host", {}).get("path"):
+            args.host_genome = os.path.join(args.inputs, state["host"]["path"])
+        if args.host_genome and os.path.isfile(args.host_genome):
+            args.host_genome = os.path.abspath(args.host_genome)
+        elif scenarios_given:
+            p.error(f"scenario {', '.join(hosted)}: its host reads need the host genome: --host-genome FASTA, or an "
+                    "--inputs folder whose download fetched it (download_gtdb.py, --host_genome)")
+        else:  # the default scenarios: the others run, and the run says why this one does not
+            scenario_notes.append(f"{', '.join(hosted)} left out: no host genome (--host-genome, or rerun download_gtdb.py "
+                                  "on its --inputs folder, which fetches only what is missing)")
+            hold_in = {n: k for n, k in hold_in.items() if n not in hosted}
+            hold_out = {n: k for n, k in hold_out.items() if n not in hosted}
+            selected = [n for n in selected if n not in hosted]
+            args.scenario_samples_of = {n: v for n, v in args.scenario_samples_of.items() if n not in hosted}
+            args.host_genome = None
     os.makedirs(args.outdir, exist_ok=True)
     db = os.path.join(args.outdir, "protal_db")
     os.makedirs(db, exist_ok=True)
@@ -1295,7 +1438,8 @@ def main():
     # The steps: genome table, release, marker genes (with --n-genes or --genes), databases, training data, test
     # set (if any), models, parity, packing.
     subset = args.n_genes is not None or bool(args.genes)
-    Steps.total = 7 + (args.test_samples > 0) + subset + (args.insilico_strains > 0)
+    has_test = args.test_samples > 0 or bool(hold_out)  # a test collection: the design's test set, the scenarios' hold-out
+    Steps.total = 7 + has_test + subset + (args.insilico_strains > 0)
     if args.genes:
         # The list is checked against the release's marker files before anything is converted (marker ids by
         # name, gene ids by their range; the ids themselves come from gene2geneid.tsv once it is there).
@@ -1468,6 +1612,29 @@ def main():
             fh.write("".join(f"{s}\t{rank}\t{clade}\n" for s, (rank, clade) in sorted(chosen.items())))
     elif os.path.exists(heldout):
         os.remove(heldout)
+    for note in scenario_notes:
+        say(f"    WARNING: scenario {note}")
+    if selected:
+        # A scenario's share of species the database lacks comes from the species held out: enough of them, and of
+        # the others, for its largest sample (scenarios.table_split), or the scenario is scaled down to what they hold
+        # (scenarios.fit_species), as its collections do it.
+        novel = read_holdout(heldout) if os.path.exists(heldout) else {}
+        pool = pool_species(sim_table)
+        known, lacking = sum(s not in novel for s in pool), sum(s in novel for s in pool)
+        notes = []
+        for name in selected:
+            try:
+                d, scaled = scenarios.fit_species(scenario_defs[name], known, lacking)
+            except scenarios.ScenarioError as e:
+                sys.exit(f"scenario {name}: {e}")
+            k, n = scenarios.table_split(known, lacking, d["novel_share"])
+            notes.append(f"{name} {k + n} species ({n} the training database lacks) for samples of {d['species']}")
+            if scaled:
+                scenario_notes.append(f"{name} {scaled}")
+                say(f"    WARNING: scenario {name} {scaled}")
+        say(f"    scenarios: {', '.join(f'{name} {hold_in.get(name, 0)} hold-in and {hold_out.get(name, 0)} hold-out samples' for name in selected)}"
+            f"; their genome tables: {', '.join(notes)}")
+    args.scenario_notes = scenario_notes  # build_metadata.tsv
     # The marker genes of the databases: all of them, or a subset (--n-genes: the N most distinctive by
     # scripts/rank_genes.py, from a full build of the training database or --gene-ranking; --genes: the ones
     # named), listed in gene_subset.txt, which the folders are derived with.
@@ -1616,7 +1783,9 @@ def main():
 
     # Training data of every read type (pe, se from its first reads, pb and ont from long reads of the same
     # communities), then an independent test set of another design, both profiled against the training database.
-    def collect_command(out, samples, read_pairs, species, abundance, strains, long_bases, long_samples, seed):
+    def collect_command(out, samples, read_pairs, species, abundance, strains, long_bases, long_samples, seed,
+                        scenario_samples=None):
+        """The collector's command; scenario_samples: {scenario: samples} collected beside the design."""
         command = [sys.executable, COLLECTOR, "--db", training_db, "--genome_table", sim_table, "-o", out,
                    "--protal", args.protal, "--simulator", args.simulator, "--samples", str(samples),
                    "--long_read_samples", str(long_samples),
@@ -1630,19 +1799,24 @@ def main():
         command += ["--pbsim_models", args.pbsim_models] if args.pbsim_models else []
         if n_heldout:
             command += ["--novel_species", heldout, "--novel_clades", str(args.novel_clades_per_sample)]
+        if scenario_samples:
+            command += ["--scenarios", ",".join(f"{name}:{n}" for name, n in scenario_samples.items())]
+            command += ["--scenario_file", os.path.abspath(args.scenario_file)] if args.scenario_file else []
+            command += ["--host_genome", args.host_genome] if args.host_genome else []
         return command
 
     training = os.path.join(samples_root, "training")
     test = os.path.join(samples_root, "test")
     collections_ = [("training data", collect_command(training, args.samples, args.read_pairs, args.species_per_sample,
                                                       args.abundance, args.strains_per_species, args.long_read_bases,
-                                                      args.long_read_samples, args.seed),
+                                                      args.long_read_samples, args.seed, hold_in),
                      os.path.join(args.outdir, "training_data.log"))]
-    if args.test_samples > 0:
-        collections_.append(("independent test set",
+    if has_test:  # the scenarios' hold-out samples are of another seed, as the test set's design is
+        collections_.append(("independent test set" if args.test_samples > 0 else "scenarios' hold-out samples",
                              collect_command(test, args.test_samples, args.test_read_pairs, args.test_species_per_sample,
                                              args.test_abundance, args.test_strains_per_species,
-                                             args.test_long_read_bases, args.test_long_read_samples, args.seed + 1000),
+                                             args.test_long_read_bases, args.test_long_read_samples, args.seed + 1000,
+                                             hold_out),
                              os.path.join(args.outdir, "test_data.log")))
 
     if training_db == db:
@@ -1709,10 +1883,13 @@ def main():
         them; says before what it makes and after what its tables hold (present and absent taxa per read type)
         and how much space its samples take. With --scratch, its tables are copied to OUTDIR."""
         opts = collector_args(command[2:])
-        samples = collections.Counter()
+        samples, in_scenarios = collections.Counter(), collections.Counter()
         for unit in units_of(opts)[1]:
             samples[unit["type"]] += unit["samples"]
-        Steps.start(f"{what} ({os.path.basename(log)}): {', '.join(f'{n} {t}' for t, n in samples.items())} samples")
+            in_scenarios[unit["type"]] += unit["samples"] if unit.get("scenario") else 0
+        Steps.start(f"{what} ({os.path.basename(log)}): {', '.join(f'{n} {t}' for t, n in samples.items())} samples" +
+                    (f" (of them in the scenarios {opts.scenarios}: "
+                     f"{', '.join(f'{n} {t}' for t, n in in_scenarios.items() if n)})" if +in_scenarios else ""))
         if simulations[what].seconds is None:
             Steps.done(f"waiting for its simulations in the background ({os.path.basename(simulations[what].log)})")
             simulations[what].finish()  # its line comes from its on_success
@@ -1768,13 +1945,17 @@ def main():
             command += ["--depth-knobs"]
         if args.call_mode == "fdr":
             command += ["--fdr-calls"]
-        if args.test_samples > 0 and os.path.isfile(os.path.join(test, TABLES[t])):
+        if has_test and os.path.isfile(os.path.join(test, TABLES[t])):
             command += ["--test-file", os.path.join(test, TABLES[t])]
         trainers[t] = Job(command, os.path.join(args.outdir, "classifier_training" + ("" if t == "pe" else "_" + t) + ".log"),
                           label=f"training the {t} model")
     seconds = max(job.finish().seconds for job in trainers.values())
     each = f" ({', '.join(f'{t} {clock(job.seconds)}' for t, job in trainers.items())})" if len(trainers) > 1 else ""
     Steps.done(f"trained in {clock(seconds)}{each}; {model_scores(read_types, prefixes)}")
+    for t, name, why in feature_choices(read_types, prefixes):
+        Steps.done(f"{t} model's features: {name}: {why}")
+    if selected:
+        Steps.done(scenario_scores(read_types, prefixes, selected))
     # protal must score as the trainer does, and compute the features as it did during collection.
     Steps.start("checking that protal scores the models as the trainer does (parity*.log)")
     began = time.time()
@@ -1788,7 +1969,8 @@ def main():
         prefix = prefixes[t]
         parity = os.path.join(training, "parity" if t == "pe" else "parity_" + t, "parity.txt")
         for name in (prefix + ".report.txt", prefix + ".metrics.json", prefix + ".thresholds.tsv", prefix + ".varimp.tsv",
-                     prefix + ".predictions.tsv.gz", prefix + ".test_predictions.tsv.gz"):
+                     prefix + ".predictions.tsv.gz", prefix + ".test_predictions.tsv.gz",
+                     prefix + ".scenario_predictions.tsv.gz"):
             if os.path.isfile(name):
                 shutil.copy(name, logs)
         if os.path.isfile(parity):

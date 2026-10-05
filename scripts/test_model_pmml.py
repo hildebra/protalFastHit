@@ -207,8 +207,10 @@ class FeatureSetsTest(unittest.TestCase):
             mf.feature_columns([c for c in columns if c != "relative_spill"], mf.DEFAULT_FEATURE_SET)
         with self.assertRaisesRegex(RuntimeError, "em_own_share"):  # a table of protal before the relatives features
             mf.feature_columns([c for c in columns if c != "em_own_share"], "normalized+adjacency+relatives")
+        # The trainer chooses its set by default, the default set among the candidates.
         opts = random_forest_cmdline.parse_args(["--truth-file", "t.tsv", "--output-prefix", "p"])
-        self.assertEqual(opts.features, mf.DEFAULT_FEATURE_SET)
+        self.assertEqual(opts.features, "auto")
+        self.assertIn(mf.DEFAULT_FEATURE_SET, mf.auto_candidates("auto"))
 
 
 @unittest.skipIf(RandomForestClassifier is None, "needs pandas")
@@ -529,6 +531,120 @@ class TrainerFalseCallsTest(unittest.TestCase):
         _, plain, _ = self.train("no_fdr")
         self.assertNotIn("false_calls", plain)
         self.assertIsNone(read_false_calls(os.path.join(self.tmp.name, "no_fdr.xml")))
+
+
+@unittest.skipIf(RandomForestClassifier is None, "needs numpy, pandas and scikit-learn")
+class TrainerScenariosTest(unittest.TestCase):
+    """random_forest_cmdline.py on tables with scenarios (meta_scenario): the hold-in rows of the training table and
+    the hold-out rows of the test table reported per scenario, apart from the independent test set; and --features
+    auto, which chooses among the named sets with species held out."""
+
+    @classmethod
+    def setUpClass(cls):
+        import model_features
+        cls.features = model_features
+        cls.tmp = tempfile.TemporaryDirectory()
+        columns = [c for name in model_features.AUTO_CANDIDATES for c in model_features.feature_set_columns(name)]
+        columns = list(dict.fromkeys(columns))
+
+        def table(path, samples, seed, scenario_of):
+            rng = np.random.default_rng(seed)
+            rows = []
+            for sample in range(samples):
+                scenario = scenario_of(sample)
+                for taxon in range(20):
+                    present = taxon < 6
+                    row = {c: rng.normal(0, 1) for c in columns}
+                    # the signal in a normalized feature and in the depth feature's group, so that the sets differ
+                    row["hit_gene_fraction"] = 1.2 * present + rng.normal(0, 0.6)
+                    row["sample_log_fragments"] = 0.8 * present + rng.normal(0, 0.6)
+                    row.update({"truth": int(present), "taxon": 100 + (taxon + 3 * sample) % 50, "taxon_name": "t",
+                                "meta_sample": f"{scenario or 'design'}{seed}_{sample}", "fragments": 10.0,
+                                "meta_scenario": scenario, "meta_novel_level": "species" if taxon in (7, 8) else "",
+                                "identity": 0.98})
+                    rows.append(row)
+            pd.DataFrame(rows).to_csv(path, sep="\t", index=False)
+        cls.training = os.path.join(cls.tmp.name, "training.tsv")
+        cls.test = os.path.join(cls.tmp.name, "test.tsv")
+        # Training: 30 design samples, 6 of scenario gut. Test: 8 design samples, 4 of gut, 3 of host (hold-out only).
+        table(cls.training, 36, 1, lambda s: "gut" if s >= 30 else "")
+        table(cls.test, 15, 2, lambda s: "gut" if 8 <= s < 12 else "host" if s >= 12 else "")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def train(self, name, features, test=None):
+        """The trainer on the training table, with --features `features` (None: its default)."""
+        prefix = os.path.join(self.tmp.name, name)
+        result = subprocess.run([sys.executable, os.path.join(HERE, "random_forest_cmdline.py"), "--truth-file",
+                                 self.training, "--output-prefix", prefix, *(["--features", features] if features else []),
+                                 "--ntree", "16", "--evaluation", "basic", "--threads", "1", "--test-file", test or self.test],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
+        with open(prefix + ".metrics.json") as fh:
+            return prefix, json.load(fh), result.stdout
+
+    def test_scenarios_hold_in_and_hold_out(self):
+        prefix, metrics, stdout = self.train("scenarios", "normalized")
+        rows = {(r["scenario"], r["set"]): r for r in metrics["scenarios"]}
+        self.assertEqual(set(rows), {("(design)", "training, species held out"), ("gut", "hold-in, in sample"),
+                                     ("gut", "hold-in, samples held out"), ("gut", "hold-in, species held out"),
+                                     ("gut", "hold-out"), ("host", "hold-out")})
+        self.assertEqual((rows[("gut", "hold-in, in sample")]["samples"], rows[("gut", "hold-out")]["samples"],
+                          rows[("host", "hold-out")]["samples"]), (6, 4, 3))
+        for r in metrics["scenarios"]:
+            self.assertEqual(r["TP"] + r["FN"], r["present"])
+            self.assertAlmostEqual(r["FN rate %"], 100 * r["FN"] / r["present"])
+            self.assertAlmostEqual(r["FP rate %"], 100 * r["FP"] / r["absent"])
+            self.assertLessEqual(r["FP near novel"], r["FP"])
+        self.assertEqual(rows[("gut", "hold-out")]["present"], 4 * 6)
+        # The independent test set is the test table's design samples alone; the scenarios' rows are scored apart.
+        self.assertEqual(metrics["test"]["this one"]["taxa"], 8 * 20)
+        self.assertIn("## Scenarios: hold-in and hold-out samples", stdout)
+        self.assertRegex(stdout, r"scenario gut: hold-out F1 [0-9.]+ \(FP rate [0-9.]+%, FN rate [0-9.]+%, 4 samples\); "
+                                 r"hold-in with species held out F1")
+        self.assertRegex(stdout, r"scenario host: hold-out F1 [0-9.]+")
+        predictions = pd.read_csv(prefix + ".scenario_predictions.tsv.gz", sep="\t")
+        self.assertEqual(sorted(predictions["meta_scenario"].unique()), ["gut", "host"])
+        self.assertEqual(len(predictions), 7 * 20)
+        # A test table of the scenarios' hold-out samples alone: no independent test set, the scenarios reported.
+        only = os.path.join(self.tmp.name, "only_scenarios.tsv")
+        frame = pd.read_csv(self.test, sep="\t")
+        frame[frame["meta_scenario"].fillna("") != ""].to_csv(only, sep="\t", index=False)
+        _, metrics, stdout = self.train("only", "normalized", only)
+        self.assertNotIn("test", metrics)
+        self.assertIn("holds the scenarios' hold-out samples only", stdout)
+        self.assertIn(("host", "hold-out"), {(r["scenario"], r["set"]) for r in metrics["scenarios"]})
+
+    def test_features_auto(self):
+        prefix, metrics, stdout = self.train("auto", "auto")
+        auto = metrics["features_auto"]
+        scored = [r["features"] for r in auto["candidates"]]
+        self.assertEqual(scored, list(self.features.AUTO_CANDIDATES))  # the table has every candidate's features
+        self.assertFalse(any("priors" in name for name in scored))
+        f1 = {r["features"]: r["F1"] for r in auto["candidates"]}
+        best, default = max(f1, key=f1.get), self.features.DEFAULT_FEATURE_SET
+        self.assertEqual(auto["chosen"], best if f1[best] >= f1[default] + self.features.AUTO_MIN_GAIN else default)
+        # Each candidate's forest also scored the samples never trained on, every test set apart, for comparison.
+        self.assertTrue(all({"F1 test set", "F1 gut hold-out", "F1 host hold-out"} <= set(r) for r in auto["candidates"]))
+        others = [r for r in auto["candidates"] if r["features"] != auto["chosen"]]
+        self.assertAlmostEqual(auto["others_mean_F1"], float(np.mean([r["F1"] for r in others])))
+        self.assertEqual(set(auto["held_out"]), {"test set", "gut hold-out", "host hold-out"})
+        self.assertAlmostEqual(auto["held_out"]["host hold-out"]["others_mean_F1"],
+                               float(np.mean([r["F1 host hold-out"] for r in others])))
+        # Why, in a line: its F1 against the other sets', the rule, the test sets.
+        self.assertRegex(auto["why"], rf"^F1 [0-9.]+ with species held out, the other {len(others)} sets [0-9.]+ on average "
+                                      r"\(the best of them \S+ [0-9.]+\); (the highest|the default set, as no other is "
+                                      r"0.002 better)[^;]*; on samples never trained on \(not used to choose\): test set "
+                                      r"[0-9.]+ \(the others [0-9.]+\), gut hold-out [0-9.]+ \(the others [0-9.]+\), host hold-out")
+        # The model takes the chosen set's features, and the evaluation scored that set; auto is the default.
+        self.assertEqual(PmmlForest(prefix + ".xml").features, self.features.feature_set_columns(auto["chosen"]))
+        self.assertIn("## Feature set chosen (--features auto, species held out)", stdout)
+        self.assertIn(f"feature set (--features auto): {auto['chosen']}: {auto['why']}", stdout)
+        self.assertAlmostEqual(metrics["evaluation"]["species"]["F1"], f1[auto["chosen"]])
+        _, by_default, _ = self.train("default", None)
+        self.assertEqual(by_default["features_auto"]["chosen"], auto["chosen"])
 
 
 

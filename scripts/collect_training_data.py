@@ -38,6 +38,14 @@ types are profiled in one protal run, which loads the database once (--prepare_p
 so a run can be resumed; --simulate_only stops before profiling, so that the simulations can run
 while the database is built.
 
+Scenarios (--scenarios, scenarios.py): samples like those of one kind of study (gut, soil, shallow soil,
+host-dominated samples, or one defined in --scenario_file), simulated and profiled beside the design's
+and joined into the same tables, with meta_scenario naming the scenario. A scenario's communities are
+drawn from a genome table of its own that gives the share of species the database lacks, and each of
+its read types (Illumina at a mean base quality, Ultima single-end reads, PacBio, Nanopore; a host
+genome's share of the reads, --host_genome) sequences the same communities. --samples 0 collects the
+scenarios alone.
+
 usage: collect_training_data.py --db DB --genome_table genomes.tsv -o OUT [options]
 """
 
@@ -60,9 +68,13 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lineages  # noqa: E402
+import scenarios  # noqa: E402
 
 READ_TYPES = ("pe", "se", "pb", "ont")
 LONG_READ_TYPES = ("pb", "ont")
+# The folders of the scenarios' points start with this (check_model_parity.py and trace_relatives.py leave them out:
+# their samples are deep, and the design's points judge what those check).
+SCENARIO_PREFIX = "sc_"
 
 
 def parse_args(argv=None):
@@ -73,7 +85,8 @@ def parse_args(argv=None):
     p.add_argument("-o", "--out", required=True, help="output directory")
     p.add_argument("--protal", default="protal", help="protal binary (default: protal on PATH)")
     p.add_argument("--simulator", default="simulate_metagenomes", help="simulate_metagenomes binary")
-    p.add_argument("--samples", type=int, default=4, help="samples per design point (default: 4)")
+    p.add_argument("--samples", type=int, default=4,
+                   help="samples per design point (default: 4; 0: no design points, only the scenarios)")
     p.add_argument("--read_pairs", default="1000,5000,20000,100000,500000",
                    help="comma-separated read pairs per sample, one design point each; DEPTH:SAMPLES gives a point other "
                         "samples than --samples (e.g. 10000000:2 for deep samples)")
@@ -145,17 +158,32 @@ def parse_args(argv=None):
     p.add_argument("--taxonomy", help="internal_taxonomy.dmp of the database: meta_rep_genome says whether a present "
                                       "species was simulated from its representative genome (the database's "
                                       "reference, 1) or from another strain (0)")
+    p.add_argument("--scenarios", default="",
+                   help="scenarios to collect besides the design, NAME[:SAMPLES] comma-separated (gut, soil, soil_shallow, "
+                        "host, those of --scenario_file; all: every one), each with --scenario_samples samples unless it "
+                        "gives its own (scenarios.py)")
+    p.add_argument("--scenario_samples", type=int, default=3, help="samples per scenario (default 3)")
+    p.add_argument("--scenario_file", help="JSON of scenarios by name, which add to or change the presets")
+    p.add_argument("--host_genome", help="FASTA (gzipped or not) of the host genome of scenarios with a host share, "
+                                         "e.g. the human genome download_gtdb.py fetches")
     opts = p.parse_args(argv)
     opts.read_types = [t.strip() for t in opts.read_types.split(",") if t.strip()]
     unknown = [t for t in opts.read_types if t not in READ_TYPES]
     if unknown:
         p.error(f"--read_types: unknown {', '.join(unknown)} (pe, se, pb, ont)")
+    if opts.samples < 0:
+        p.error("--samples cannot be negative")
+    try:
+        scenarios.selection(opts.scenarios, opts.scenario_samples, scenarios.definitions(opts.scenario_file))
+    except scenarios.ScenarioError as e:
+        p.error(str(e))
     return opts
 
 
 META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pairs", "meta_domain",
                 "meta_novel_species", "meta_novel_congener", "meta_rep_genome", "meta_novel_levels",
-                "meta_novel_level", "meta_relative_rank", "meta_neighbour_rank", "meta_read_type", "meta_insilico_strain"]
+                "meta_novel_level", "meta_relative_rank", "meta_neighbour_rank", "meta_read_type", "meta_insilico_strain",
+                "meta_scenario"]
 # meta_read_pairs: the design point's depth, read pairs (pe; reads for se) or bases (pb, ont).
 # meta_novel_levels: the sample's species the database lacks, by the rank they were held out at
 # ("species:2,family:1"). meta_relative_rank: the deepest rank the taxon shares with a species simulated in
@@ -166,6 +194,7 @@ META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pai
 # sample (a congener's reads fit it nearly as well, so it may be missed).
 # meta_insilico_strain: for a present taxon, 1 if a genome it was simulated from is an in-silico strain (a mutated copy
 # of a one-genome species' representative, insilico_strains.py; its meta_rep_genome is 0), else 0.
+# meta_scenario: the scenario the sample is of (--scenarios), empty for the design's samples.
 INSILICO_PREFIX = "insilico_"  # insilico_strains.py's PREFIX: the names of its strains
 TABLES = {"pe": "training_data.tsv", "se": "training_data_se.tsv", "pb": "training_data_pb.tsv",
           "ont": "training_data_ont.tsv"}
@@ -259,6 +288,60 @@ def relation(taxon_lineage, in_sample, novel):
             best_present = max(best_present, d)
     rank = lineages.RANKS[best_any] if best_any >= 0 else "none"
     return rank, (level if best_novel >= 0 and best_novel >= best_present else "")
+
+
+def lineage_prefixes(lineage):
+    """The prefixes of a lineage from the domain down, each a tuple of names, as far as it has every rank: two lineages
+    share rank r (shared_rank) when they share the prefix of r."""
+    out, names = [], []
+    for r in lineages.RANKS:
+        if r not in lineage:
+            break
+        names.append(lineage[r])
+        out.append(tuple(names))
+    return out
+
+
+class SampleRelations:
+    """relation() for every taxon of one sample at once: the sample's simulated species ({species: lineage}, in
+    order) by their lineages' prefixes, counted, the database's and the novel ones apart, with the held-out rank of
+    the first novel species of each prefix. A taxon then costs its own seven prefixes instead of a comparison with
+    every species of the sample (10,000 in a soil scenario)."""
+
+    def __init__(self, in_sample, novel):
+        self.count, self.present, self.first_novel, self.own = collections.Counter(), set(), {}, {}
+        for species, lineage in in_sample.items():
+            prefixes = lineage_prefixes(lineage)
+            self.own[species] = set(prefixes)
+            for prefix in prefixes:
+                self.count[prefix] += 1
+                if species in novel:
+                    self.first_novel.setdefault(prefix, novel[species][0])
+                else:
+                    self.present.add(prefix)
+
+    def relation(self, lineage):
+        """relation(lineage, in_sample, novel): (meta_relative_rank, meta_novel_level)."""
+        best_any = best_present = best_novel = -1
+        level = ""
+        for depth, prefix in enumerate(lineage_prefixes(lineage)):
+            if self.count[prefix]:
+                best_any = depth
+            if prefix in self.present:
+                best_present = depth
+            if prefix in self.first_novel:
+                best_novel, level = depth, self.first_novel[prefix]
+        rank = lineages.RANKS[best_any] if best_any >= 0 else "none"
+        return rank, (level if best_novel >= 0 and best_novel >= best_present else "")
+
+    def neighbour(self, lineage, species):
+        """relation(lineage, the sample's species but `species`, {})[0]: the deepest rank shared with another one."""
+        own = self.own.get(species, set())
+        best = -1
+        for depth, prefix in enumerate(lineage_prefixes(lineage)):
+            if self.count[prefix] - (prefix in own) > 0:
+                best = depth
+        return lineages.RANKS[best] if best >= 0 else "none"
 
 
 def representatives(taxonomy):
@@ -389,15 +472,24 @@ def design_points(opts):
     return points
 
 
-def art_profile_args(profile):
-    """simulate_metagenomes options for a read setup's ART profile (see design_points)."""
+def art_profile_args(profile, extra=""):
+    """simulate_metagenomes options for a read setup's ART profile (see design_points), and `extra` ART options
+    (a scenario's quality shifts)."""
     if not profile.startswith("file="):
-        return ["--sequencer", profile]
+        return ["--sequencer", profile] + (["--extra_art_args", extra] if extra else [])
     files = profile[len("file="):].split("+")
     for f in files:
         if not os.path.isfile(f):
             sys.exit(f"ART quality profile {f} not found (read setup {profile})")
-    return ["--sequencer", "HS25", "--extra_art_args", f"-1 {files[0]} -2 {files[-1]}"]
+    return ["--sequencer", "HS25", "--extra_art_args", f"-1 {files[0]} -2 {files[-1]}" + (f" {extra}" if extra else "")]
+
+
+def art_options(profile):
+    """art_illumina's own options for a read setup's ART profile: -ss PROFILE, or -1 R1 -2 R2 of a file= profile."""
+    if not profile.startswith("file="):
+        return ["-ss", profile]
+    files = profile[len("file="):].split("+")
+    return ["-1", files[0], "-2", files[-1]]
 
 
 PBSIM_METHODS = ("qshmm", "errhmm")
@@ -406,8 +498,19 @@ PBSIM_METHODS = ("qshmm", "errhmm")
 def parse_long_setup(text):
     """hifi:LENGTH_MEAN:LENGTH_SD:Q_SD (hifi_reads.py: the SD of the reads' quality around their length's, Phred), or
     pbsim3 METHOD:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN[:SUB/INS/DEL]; the last, for qshmm only, is
-    pbsim3's --difference-ratio (it recommends 39/24/36 for ONT, 22/45/33 for Sequel)."""
+    pbsim3's --difference-ratio (it recommends 39/24/36 for ONT, 22/45/33 for Sequel). And
+    ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD, the Ultima Genomics single-end reads of scenarios (hifi_reads.py's flow
+    model: a mean base quality of Q_MEAN per read, SD Q_SD)."""
     parts = text.split(":")
+    if parts[0] == "ultima":
+        try:
+            if len(parts) != 5:
+                raise ValueError
+            length_mean, length_sd, q_mean, q_sd = (float(v) for v in parts[1:])
+        except ValueError:
+            sys.exit(f"read setup {text!r}: expected ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD")
+        return {"method": "ultima", "model": None, "length_mean": int(length_mean), "length_sd": int(length_sd),
+                "q_mean": q_mean, "q_sd": q_sd, "ratio": ""}
     if parts[0] == "hifi":
         try:
             if len(parts) != 4:
@@ -426,14 +529,70 @@ def parse_long_setup(text):
             "ratio": parts[5].replace("/", ":") if len(parts) == 6 else ""}
 
 
+def drawn(unit):
+    """Whether a unit's reads are drawn from templates of its communities' genomes (long reads, a scenario's Ultima
+    reads: the unit has a setup and a point of its own), not simulated by ART for a paired-end point (pe, and se of its
+    first reads)."""
+    return "setup" in unit
+
+
+def scenario_units(opts):
+    """The points and units of --scenarios, after the design's: per scenario a community point, sc_<name>_pe_p<pairs>
+    when it has paired-end reads (simulated at the community's part of the read pairs, the host's added later), else
+    sc_<name>_community (its communities without reads, simulate_metagenomes --test); its pe unit; and its units of
+    reads drawn from those communities (se: Ultima reads, pb, ont), each the scenario's samples. Read types not
+    collected (--read_types) are left out. -> (points, units)."""
+    if not getattr(opts, "scenarios", ""):
+        return [], []
+    defs = scenarios.definitions(getattr(opts, "scenario_file", None))
+    points, units = [], []
+    for name, samples in scenarios.selection(opts.scenarios, opts.scenario_samples, defs):
+        d = defs[name]
+        reads = {r["type"]: r for r in d["reads"] if r["type"] in opts.read_types}
+        if not reads:
+            continue
+        pe, host = reads.get("pe"), d["host_share"]
+        common = {"samples": samples, "depth_index": None, "scenario": name, "definition": d}
+        if pe:
+            community = max(1, round(pe["depth"] * (1 - host)))
+            point = {**common, "name": f"{SCENARIO_PREFIX}{name}_pe_p{pe['depth']}", "read_length": str(pe["length"]),
+                     "sequencer": pe["profile"], "fragment_mean": str(pe["fragment_mean"]),
+                     "fragment_sd": str(pe["fragment_sd"]), "read_pairs": str(pe["depth"]), "quality": pe.get("quality"),
+                     "reads": True, "community_pairs": str(community), "host_pairs": pe["depth"] - community}
+        else:  # the read pairs only spread over the genomes, every one with one at least
+            point = {**common, "name": f"{SCENARIO_PREFIX}{name}_community", "read_length": "150", "sequencer": "HS25",
+                     "fragment_mean": "350", "fragment_sd": "50", "read_pairs": "0", "quality": None, "reads": False,
+                     "community_pairs": str(100 * scenarios.species_bounds(d["species"])[1]), "host_pairs": 0}
+        points.append(point)
+        if pe:
+            units.append({"type": "pe", "point": point, "name": point["name"], "samples": samples, "scenario": name})
+        for kind in ("se", "pb", "ont"):
+            if kind not in reads:
+                continue
+            given = reads[kind]
+            setup = parse_long_setup(given.get("setup") or (opts.pb_setup if kind == "pb" else opts.ont_setup))
+            if kind == "se":  # Ultima reads: the depth in reads, drawn as bases of the setup's mean length
+                unit_name, bases = f"{SCENARIO_PREFIX}{name}_se_ultima_r{given['depth']}", given["depth"] * setup["length_mean"]
+            else:
+                unit_name, bases = f"{SCENARIO_PREFIX}{name}_{kind}_b{given['depth']}", given["depth"]
+            units.append({"type": kind, "name": unit_name, "setup": setup, "bases": bases, "samples": samples,
+                          "communities": [point], "scenario": name, "host_share": host,
+                          # its samples' seeds do not depend on the design's long-read points
+                          "seed_index": 1_000_000 + scenarios.seed_of(0, f"{name}:{kind}") % 1_000_000,
+                          "point": {"name": unit_name, "read_length": str(setup["length_mean"]),
+                                    "read_pairs": str(given["depth"])}})
+    return points, units
+
+
 def units_of(opts):
     """The units to collect, in table order. A unit has its samples (a paired-end point's for pe and se); a long-read
     point replays communities of the paired-end points of the depth at its own place in the lists (modulo their
     number), of every read setup in turn, so that it can have more samples than one paired-end point
-    (--long_read_samples, DEPTH:SAMPLES in --long_read_bases)."""
-    pe_points = design_points(opts)
+    (--long_read_samples, DEPTH:SAMPLES in --long_read_bases). The scenarios' points and units follow
+    (scenario_units)."""
+    pe_points = design_points(opts) if opts.samples > 0 else []
     units = []
-    for read_type in opts.read_types:
+    for read_type in opts.read_types if pe_points else ():
         if read_type in ("pe", "se"):
             units += [{"type": read_type, "point": p, "name": p["name"] + ("_se" if read_type == "se" else ""),
                        "samples": p["samples"]} for p in pe_points]
@@ -456,7 +615,8 @@ def units_of(opts):
                 units.append({"type": read_type, "name": name, "setup": setup, "bases": int(float(bases)),
                               "samples": samples, "communities": communities,
                               "point": {"name": name, "read_length": str(setup["length_mean"]), "read_pairs": bases}})
-    return pe_points, units
+    scenario_points, more = scenario_units(opts)
+    return pe_points + scenario_points, units + more
 
 
 def unit_communities(unit, opts, source=None):
@@ -480,7 +640,7 @@ def point_dirs(point, opts):
 def profile_dir(unit, opts):
     """Where protal writes a unit's SAMs, profiles and dumps."""
     base = point_dirs(unit["point"], opts)[0]
-    return os.path.join(base, "protal_se" if unit["type"] == "se" else "protal")
+    return os.path.join(base, "protal_se" if unit["type"] == "se" and not drawn(unit) else "protal")
 
 
 def dumps_of(unit, opts):
@@ -547,12 +707,57 @@ def simulation_key(point, index, opts, clades):
     table's content and the simulator binary."""
     command, _ = simulation_command(point, index, opts, 1, clades)
     at = command.index("-t")
-    return {"command": command[:at] + command[at + 2:], "genome_table": content_hash(opts.genome_table),
-            "simulator": identity(opts.simulator)}
+    key = {"command": command[:at] + command[at + 2:], "genome_table": content_hash(point_table(point, opts)),
+           "simulator": identity(opts.simulator)}
+    if point.get("host_pairs"):  # the host's reads, added to the community's (host_pe_jobs)
+        key["host"] = {"genome": point["host_key"], "pairs": point["host_pairs"], "chunk": scenarios.HOST_PAIRS_CHUNK,
+                       "art": identity("art_illumina")}
+    return key
+
+
+def scenario_table_path(name, opts):
+    """Where a scenario's genome table is (scenarios.scenario_table)."""
+    return os.path.join(opts.out, "scenarios", name, "genomes.tsv")
+
+
+def point_table(point, opts):
+    """The genome table a paired-end point draws its communities from: a scenario's own, or --genome_table."""
+    return scenario_table_path(point["scenario"], opts) if point.get("scenario") else opts.genome_table
+
+
+def scenario_command(point, opts, threads):
+    """The simulator's command for a scenario's community point (scenario_units): its own genome table, species,
+    abundances, strains, congeners and seed; the community's part of the read pairs, at the quality shifts
+    prepare_scenarios found (point["art_shift"]); no reads (--test) for a point only of communities."""
+    d = point["definition"]
+    _, sim, profiles = point_dirs(point, opts)
+    table = point_table(point, opts)
+    command = [opts.simulator, "--genome_table", table, "-o", sim, "-n", str(point["samples"]),
+               "--sample_prefix", point["name"] + "_s", "--total_read_pairs", point["community_pairs"],
+               "--species_per_sample", d["species"], "--read_length", point["read_length"],
+               *art_profile_args(point["sequencer"], point.get("art_shift", "")), "--fragment_mean", point["fragment_mean"],
+               "--fragment_stdev", point["fragment_sd"], "--seed", str(scenarios.seed_of(opts.seed, point["scenario"])),
+               "-t", str(threads), "--protal_metafile", profiles, *abundance_args(d["abundance"])]
+    if d["strains"]:
+        command += ["--strains_per_species", d["strains"]]
+    kind, congeners = congener_spec(d["congeners"])
+    if kind == "groups":
+        command += ["--congener_groups", congeners]
+    elif congeners > 0:
+        genera = large_genera(table, congeners) if os.path.isfile(table) else []
+        if not genera:
+            return command, f"no genus in {table} has {congeners} species (scenario {point['scenario']}'s congeners)"
+        command += ["--genus", "g__" + random.Random(scenarios.seed_of(opts.seed, point["scenario"])).choice(genera) +
+                    f":{congeners}", "--pick_random_demand_if_fail"]
+    if not point["reads"]:
+        command += ["--test"]
+    return command, None
 
 
 def simulation_command(point, index, opts, threads, clades):
     """The simulator's command for a design point, and None, or why there is none."""
+    if point.get("scenario"):
+        return scenario_command(point, opts, threads)
     base, sim, profiles = point_dirs(point, opts)
     command = [opts.simulator, "--genome_table", opts.genome_table, "-o", sim, "-n", str(point["samples"]),
                "--sample_prefix", point["name"] + "_s", "--total_read_pairs", point["read_pairs"],
@@ -583,7 +788,8 @@ def simulation_command(point, index, opts, threads, clades):
 
 def simulate(point, index, opts, threads, clades, key):
     """Simulates the samples of a design point; None, or why it failed. clades: {rank: [held-out clade, ...]},
-    of which one per rank goes into every sample (--novel_clades)."""
+    of which one per rank goes into every sample (--novel_clades). The key of a point with host reads is written once
+    they are added (host_pe_jobs)."""
     base, sim, _ = point_dirs(point, opts)
     command, error = simulation_command(point, index, opts, threads, clades)
     if error:
@@ -595,8 +801,54 @@ def simulate(point, index, opts, threads, clades, key):
     if rc != 0:
         shutil.rmtree(sim, ignore_errors=True)  # no protal.meta: simulated again on a rerun
         return f"{point['name']}: {opts.simulator} failed with exit code {rc}; see {log}"
-    write_key(os.path.join(base, "simulated.json"), key)
+    if not point.get("host_pairs"):
+        write_key(os.path.join(base, "simulated.json"), key)
     return None
+
+
+def host_pe_jobs(point, opts, key, started):
+    """The jobs that add a scenario point's host read pairs to its samples' reads, once the community's are simulated:
+    point["host_pairs"] per sample in chunks of scenarios.HOST_PAIRS_CHUNK side by side (scenarios.host_pe_chunk: ART
+    in amplicon mode on fragments of the host, the point's profile and quality shifts), then each sample's chunks
+    appended to its read files (gzip members one after the other), and the point's key written (simulated.json), so
+    that a point stopped before is simulated again."""
+    base, sim, _ = point_dirs(point, opts)
+    _, rows, _ = map_rows(os.path.join(sim, "protal.meta"))
+    art = shutil.which("art_illumina") or "art_illumina"
+    art_args = art_options(point["sequencer"]) + point.get("art_shift", "").split()
+    jobs, joins = [], []
+    for s, row in enumerate(rows):
+        tmp = os.path.join(sim, "tmp_host", row["SAMPLEID"])
+        k = -(-point["host_pairs"] // scenarios.HOST_PAIRS_CHUNK)
+        tasks = [{"sample": row["SAMPLEID"], "host": opts.host_folder, "chunk": c + 1, "art": art, "art_args": art_args,
+                  "pairs": point["host_pairs"] // k + (1 if c < point["host_pairs"] % k else 0),
+                  "length": int(point["read_length"]), "fragment_mean": float(point["fragment_mean"]),
+                  "fragment_sd": float(point["fragment_sd"]), "seed": scenarios.seed_of(opts.seed, point["name"]) + s * 1009 + c,
+                  "tmp": os.path.join(tmp, f"c{c + 1}"), "r1": os.path.join(tmp, f"c{c + 1}_R1.fq.gz"),
+                  "r2": os.path.join(tmp, f"c{c + 1}_R2.fq.gz")} for c in range(k)]
+        names = [f"host:{row['SAMPLEID']}:{t['chunk']}" for t in tasks]
+        jobs += [{"name": n, "run": lambda t=t: (scenarios.host_pe_chunk(t), []), "priority": 1.5e9}
+                 for n, t in zip(names, tasks)]
+
+        def join(row=row, tasks=tasks, tmp=tmp):
+            for column, read in (("FIRST", "r1"), ("SECOND", "r2")):
+                with open(row[column], "ab") as out:
+                    for t in tasks:
+                        with open(t[read], "rb") as fh:
+                            shutil.copyfileobj(fh, out, 16 << 20)
+            shutil.rmtree(tmp, ignore_errors=True)
+            return None, []
+        joins.append(f"hostjoin:{row['SAMPLEID']}")
+        jobs.append({"name": joins[-1], "run": join, "after": names, "priority": 2e9})
+
+    def finish():
+        shutil.rmtree(os.path.join(sim, "tmp_host"), ignore_errors=True)
+        write_key(os.path.join(base, "simulated.json"), key)
+        print(f"{point['name']}: {point['host_pairs']} host read pairs added to each of its {len(rows)} samples, "
+              f"{clock(time.time() - started)} in all", flush=True)
+        return None, []
+    jobs.append({"name": f"host:{point['name']}", "run": finish, "after": joins, "priority": 2e9})
+    return jobs
 
 
 def design(point, index, opts, clades):
@@ -613,7 +865,8 @@ def design(point, index, opts, clades):
     os.makedirs(folder)
     log = os.path.join(base, "design.log")
     with open(log, "w") as fh:
-        rc = subprocess.run(command + ["--test"], stdout=fh, stderr=subprocess.STDOUT).returncode
+        rc = subprocess.run(command + ([] if "--test" in command else ["--test"]), stdout=fh,
+                            stderr=subprocess.STDOUT).returncode
     return folder, None if rc == 0 else f"{point['name']}: {opts.simulator} --test failed with exit code {rc}; see {log}"
 
 
@@ -670,10 +923,10 @@ def pbsim_model(opts, name):
 LONG_READS = "reads drawn by the collector, one pbsim3 --strategy templ run per sample"
 
 
-def hifi_model():
-    """hifi_reads.MODEL, which says how hifi_reads.py makes its reads."""
+def hifi_model(method="hifi"):
+    """hifi_reads.MODEL (FLOW_MODEL for Ultima reads), which says how hifi_reads.py makes its reads."""
     import hifi_reads
-    return hifi_reads.MODEL
+    return hifi_reads.FLOW_MODEL if method == "ultima" else hifi_reads.MODEL
 PBSIM_MIN_LENGTH = 100  # pbsim3's --length-min: its shortest read (and the shortest sequence it takes)
 PBSIM_MAX_LENGTH = 1000000  # its --length-max
 COMPLEMENT = bytes.maketrans(b"ACGTN", b"TGCAN")
@@ -708,8 +961,9 @@ def long_read_templates(task):
     where its contig does), either strand. Written to task["templates"] as FASTA, the reads of a genome
     together (each genome is read once per round of drawing: the cuts at contigs' ends leave a few bases to
     draw again), named g<genome>x_<n>, n = 1, 2, ... (in a chunk of a sample, every task["name_step"]-th from
-    task["name_offset"] + 1, so that the chunks' names do not meet). -> (the names in file order, None), or (None,
-    why it failed)."""
+    task["name_offset"] + 1, so that the chunks' names do not meet). A genome with "host" (a prepared host genome's
+    folder, scenarios.Host) is read by memory map instead, its reads drawn at random places. -> (the names in file
+    order, None), or (None, why it failed)."""
     rng = random.Random(task["seed"])
     genomes, setup = task["genomes"], task["setup"]
     step, offset = task.get("name_step", 1), task.get("name_offset", 0)  # chunk `offset` of `step` (long_read_chunks)
@@ -729,6 +983,16 @@ def long_read_templates(task):
                 planned[g].append(length)
                 need -= length
             for g in sorted(planned):
+                if genomes[g].get("host"):  # a host genome (gigabases): drawn by memory map, not read whole
+                    host = scenarios.Host.of(genomes[g]["host"])
+                    for length in planned[g]:
+                        seq = host.draw(rng, length)
+                        if rng.random() < 0.5:
+                            seq = seq.translate(COMPLEMENT)[::-1]
+                        names.append(f"g{g}x_{len(names) * step + offset + 1}")
+                        out.write(b">" + names[-1].encode() + b"\n" + seq + b"\n")
+                        bases += len(seq)
+                    continue
                 contigs = [c for c in read_contigs(genomes[g]["fasta"]) if len(c) >= PBSIM_MIN_LENGTH]
                 if not contigs:
                     return None, f"{genomes[g]['genome']}: no sequence of {PBSIM_MIN_LENGTH} bases or more in {genomes[g]['fasta']}"
@@ -760,10 +1024,10 @@ def last_line(path, limit=300):
 
 def long_read_sample(task):
     """One long-read sample (task: dict): its reads drawn as templates (long_read_templates), then a read of
-    each, named after its template (g<genome>x_<n>), into task["out"]: by hifi_reads.py for a hifi setup, else
-    by one pbsim3 run with --strategy templ, which makes one read of each template, with the model's errors
-    and qualities, and names it <id prefix>_<n> after the template's place n in the file. -> None, or why it
-    failed."""
+    each, named after its template (g<genome>x_<n>), into task["out"]: by hifi_reads.py for a hifi setup (its flow
+    model for an ultima one), else by one pbsim3 run with --strategy templ, which makes one read of each template,
+    with the model's errors and qualities, and names it <id prefix>_<n> after the template's place n in the file.
+    -> None, or why it failed."""
     tmp = task["tmp"]
     os.makedirs(tmp, exist_ok=True)
     task = {**task, "templates": os.path.join(tmp, "templates.fa")}
@@ -771,9 +1035,10 @@ def long_read_sample(task):
     if error:
         return f"{task['sample']}: {error}"
     setup = task["setup"]
-    if setup["method"] == "hifi":
+    if setup["method"] in ("hifi", "ultima"):
         import hifi_reads  # numpy: only long-read collections need it
-        reads = hifi_reads.simulate(task["templates"], task["out"] + ".partial", setup["q_sd"], task["seed"])
+        reads = hifi_reads.simulate(task["templates"], task["out"] + ".partial", setup["q_sd"], task["seed"],
+                                    setup.get("q_mean"))
         if reads != len(names):
             return f"{task['sample']}: hifi_reads.py made {reads} reads of {len(names)} templates"
         os.replace(task["out"] + ".partial", task["out"])
@@ -850,8 +1115,11 @@ def join_chunks(task, chunks):
 
 def long_read_seconds(task):
     """A rough estimate of a long-read task's time on one core, to start the longest first (measured 2026-10-03:
-    ~10 s of templates, pbsim3 ~0.4 s and hifi_reads.py ~0.15 s per Mb)."""
-    return 10 + task["bases"] / 1e6 * (0.15 if task["setup"]["method"] == "hifi" else 0.45)
+    ~10 s of templates, pbsim3 ~0.4 s and hifi_reads.py ~0.15 s per Mb; short Ultima reads add the drawing of each,
+    a guess of 5 us)."""
+    setup = task["setup"]
+    seconds = 10 + task["bases"] / 1e6 * (0.15 if setup["method"] in ("hifi", "ultima") else 0.45)
+    return seconds + (task["bases"] / max(1, setup["length_mean"]) * 5e-6 if setup["method"] == "ultima" else 0)
 
 
 def pe_point_seconds(point, threads):
@@ -915,8 +1183,11 @@ def long_unit_jobs(index, unit, opts, keys, started, counter, source=None):
     done, its sim/samples.tsv (sample, reads, truth, community sample) is written, and keys[name] to its
     simulated.json, so that an interrupted point is simulated again. source(point): the folder whose manifest.tsv
     and protal.meta describe the point's communities (default: its sim folder; a design run's before its reads
-    are there). The truth files named are the sim folder's either way."""
+    are there). The truth files named are the sim folder's either way. A scenario's unit with a host share draws
+    that share of its bases from the host genome (opts.host_folder), its weight that share of all."""
     source = source or (lambda point: point_dirs(point, opts)[1])
+    index = unit.get("seed_index", index)
+    host = unit.get("host_share", 0)
     sim = point_dirs(unit["point"], opts)[1]
     truth, genomes_of = {}, collections.defaultdict(list)
     for point in unit["communities"]:
@@ -942,6 +1213,9 @@ def long_unit_jobs(index, unit, opts, keys, started, counter, source=None):
                 "genomes": [{"genome": g["genome"], "fasta": g["fasta_path"],
                              "weight": float(g["relative_abundance"]) * float(g["genome_length"])}
                             for g in genomes_of[community]]}
+        if host > 0:
+            weight = sum(g["weight"] for g in task["genomes"]) * host / (1 - host)
+            task["genomes"].append({"genome": "host", "fasta": "", "host": opts.host_folder, "weight": weight})
         chunks = long_read_chunks(task, chunk)
         names = [f"long:{sample}:{c + 1}" for c in range(len(chunks))]
         jobs += [{"name": name, "run": lambda part=part: (long_read_sample(part), []), "need": need,
@@ -977,9 +1251,9 @@ def simulate_long(points, opts, jobs, keys=None):
 
 
 def simulated(unit, opts):
-    """Whether a unit's reads are there: the paired-end map (pe, se), or the long-read samples table."""
+    """Whether a unit's reads are there: the paired-end map (pe, se), or the samples table of drawn reads."""
     sim = point_dirs(unit["point"], opts)[1]
-    return os.path.isfile(os.path.join(sim, "samples.tsv" if unit["type"] in LONG_READ_TYPES else "protal.meta"))
+    return os.path.isfile(os.path.join(sim, "samples.tsv" if drawn(unit) else "protal.meta"))
 
 
 # ---- profiling --------------------------------------------------------------------------------------------
@@ -1009,7 +1283,7 @@ def map_rows(meta):
 
 def unit_map_rows(unit, opts):
     """The rows of a unit in the combined map (MAP_COLUMNS, absolute paths) and the folders they write to."""
-    if unit["type"] in ("pe", "se"):
+    if not drawn(unit):
         _, rows, dirs = map_rows(os.path.join(point_dirs(unit["point"], opts)[1], "protal.meta"))
         if unit["type"] == "pe":
             return [{**{c: row.get(c, "-") for c in MAP_COLUMNS}, "READ_TYPE": "pe"} for row in rows], dirs
@@ -1083,7 +1357,7 @@ def community_of(unit, sample, opts):
     """The paired-end point and sample whose community a unit's sample holds."""
     if unit["type"] == "pe":
         return unit["point"], sample
-    if unit["type"] == "se":
+    if unit["type"] == "se" and not drawn(unit):
         return unit["point"], sample[:-len("_se")]
     with open(os.path.join(point_dirs(unit["point"], opts)[1], "samples.tsv")) as fh:
         next(fh)
@@ -1121,6 +1395,7 @@ def write_table(read_type, units, opts, context):
                 novel_levels = ",".join(f"{rank}:{levels[rank]}" for rank in ("species", *reversed(lineages.RANKS[1:-1]))
                                         if levels.get(rank))
                 sample_lineages = {s: sim_lineages.get(s, {}) for s in in_sample}
+                relations = SampleRelations(sample_lineages, novel)
                 with open(dump, newline="") as fh:
                     reader = csv.reader(fh, delimiter="\t")
                     dump_header = next(reader)
@@ -1143,13 +1418,13 @@ def write_table(read_type, units, opts, context):
                         relative, level, neighbour = "", "", ""
                         if is_present:
                             relative = "species"
-                            others = {s: lin for s, lin in sample_lineages.items() if s != taxon}
-                            neighbour = relation(db_lineages.get(taxon) or sim_lineages.get(taxon, {}), others, {})[0]
+                            neighbour = relations.neighbour(db_lineages.get(taxon) or sim_lineages.get(taxon, {}), taxon)
                         elif taxon in db_lineages:
-                            relative, level = relation(db_lineages[taxon], sample_lineages, novel)
+                            relative, level = relations.relation(db_lineages[taxon])
                         writer.writerow([unit["name"], sample, point["read_length"], point["read_pairs"],
                                          domains.get(taxon, "unknown"), len(novel_here), int(congener), rep,
-                                         novel_levels, level, relative, neighbour, read_type, insilico] + row)
+                                         novel_levels, level, relative, neighbour, read_type, insilico,
+                                         unit.get("scenario", "")] + row)
                         rows += 1
                         present += is_present
                         absent += not is_present
@@ -1165,6 +1440,62 @@ def write_table(read_type, units, opts, context):
     os.replace(table + ".partial", table)
     print(f"{rows} taxa in {table}: {totals['present']} present, {totals['absent']} absent, from {totals['samples']} "
           f"sample{'s' if totals['samples'] != 1 else ''}", flush=True)
+
+
+def prepare_scenarios(points, units, opts, novel):
+    """What the scenarios' simulations need before their keys can be made: each scenario's genome table
+    (scenarios.scenario_table, OUT/scenarios/<name>/genomes.tsv), the ART quality shifts of its paired-end reads
+    (scenarios.art_shifts, point["art_shift"]) and, for a host share, the host genome as plain sequence
+    (opts.host_folder, OUT/host; point["host_key"]). Stops with why a scenario cannot be simulated."""
+    opts.host_folder = None
+    scenario_points = [p for p in points if p.get("scenario")]
+    if not scenario_points:
+        return
+    pool = scenarios.species_of_table(opts.genome_table)
+    known, lacking = sum(s not in novel for s in pool), sum(s in novel for s in pool)
+    for point in scenario_points:
+        name, d = point["scenario"], point["definition"]
+        if d["novel_share"] > 0 and not novel:
+            sys.exit(f"scenario {name}: {d['novel_share']:.0%} of its species lack from the database, which needs the "
+                     "species the database lacks (--novel_species)")
+        try:
+            # A scenario larger than the genome table holds at its share is scaled down to it (scenarios.fit_species);
+            # the point's definition is that of its units too.
+            d, scaled = scenarios.fit_species(d, known, lacking)
+            point["definition"] = d
+            note = scenarios.scenario_table(opts.genome_table, novel, name, d, opts.seed, scenario_table_path(name, opts))
+        except scenarios.ScenarioError as e:
+            sys.exit(f"scenario {name}: {e}")
+        if scaled:
+            print(f"scenario {name}: {scaled}", flush=True)
+        if point["reads"] and point.get("quality") is not None:
+            if not shutil.which("art_illumina"):
+                sys.exit(f"scenario {name}: its Illumina reads' quality is set with art_illumina, which is not on PATH")
+            try:
+                qs1, qs2, means = scenarios.art_shifts("art_illumina", art_options(point["sequencer"]), point["read_length"],
+                                                       point["fragment_mean"], point["fragment_sd"], point["quality"],
+                                                       os.path.join(opts.out, "scenarios", "art_quality.json"))
+            except scenarios.ScenarioError as e:
+                sys.exit(f"scenario {name}: {e}")
+            point["art_shift"] = f"-qs {qs1} -qs2 {qs2}"
+            note += (f"; Illumina reads at Q{point['quality']:g} (ART {point['sequencer']}: Q{means[0]:.1f} and "
+                     f"Q{means[1]:.1f}, shifted by {qs1:+d} and {qs2:+d})")
+        if d["host_share"] > 0:
+            note += f"; {d['host_share']:.0%} of the reads from the host"
+        print(f"scenario {name} ({point['samples']} samples): {note}", flush=True)
+    if any(p["definition"]["host_share"] > 0 for p in scenario_points):
+        named = ", ".join(sorted({p["scenario"] for p in scenario_points if p["definition"]["host_share"] > 0}))
+        if not opts.host_genome:
+            sys.exit(f"scenario {named}: its host's reads need the host genome (--host_genome)")
+        try:
+            opts.host_folder = scenarios.prepare_host(opts.host_genome, os.path.join(opts.out, "host"))
+        except (OSError, scenarios.ScenarioError) as e:
+            sys.exit(f"scenario {named}: host genome {opts.host_genome}: {e}")
+        host = scenarios.host_identity(opts.host_folder)
+        print(f"host genome {opts.host_genome}: {host['bases']} bases in {opts.host_folder}", flush=True)
+        for point in scenario_points:
+            if point.get("host_pairs"):
+                point["host_key"] = host
 
 
 def main(argv=None):
@@ -1185,14 +1516,15 @@ def main(argv=None):
               + ", ".join(f"{len(c)} {rank}" for rank, c in sorted(clades.items())), flush=True)
     pe_points, units = units_of(opts)
     slots = max(1, opts.jobs or opts.threads)
+    prepare_scenarios(pe_points, units, opts, novel)
 
     # Every read type needs paired-end points: se reads them, pb and ont replay their communities. All simulations
     # run in one queue on `slots` cores (Scheduler): the paired-end points with all the threads between them, and the
     # long-read samples (or chunks of them) as cores come free, the longest first. A long-read point needs only the
     # communities of its paired-end points: a design run (simulate_metagenomes --test, the same communities without
     # reads) gives them in seconds, so long reads need not wait for the paired-end reads.
-    needed = {u["point"]["name"] for u in units if u["type"] in ("pe", "se")} | \
-             {p["name"] for u in units if u["type"] in LONG_READ_TYPES for p in u["communities"]}
+    needed = {u["point"]["name"] for u in units if not drawn(u)} | \
+             {p["name"] for u in units if drawn(u) for p in u["communities"]}
     keys = {p["name"]: simulation_key(p, i, opts, clades) for i, p in enumerate(pe_points) if p["name"] in needed}
     pending = []
     for i, p in enumerate(pe_points):
@@ -1205,18 +1537,21 @@ def main(argv=None):
             print(f"{p['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
             shutil.rmtree(base)
         pending.append((i, p))
-    long_units = [u for u in units if u["type"] in LONG_READ_TYPES]
+    long_units = [u for u in units if drawn(u)]
     long_pending = []
     for i, unit in enumerate(long_units):
         base = point_dirs(unit["point"], opts)[0]
         pbsim = unit["setup"]["method"] in PBSIM_METHODS
         keys[unit["name"]] = {"communities": [keys[p["name"]] for p in unit["communities"]], "samples": unit["samples"],
                               "setup": unit["setup"], "bases": unit["bases"],
-                              "index": i, "seed": opts.seed, "pbsim": identity(opts.pbsim) if pbsim else None,
-                              "model": identity(pbsim_model(opts, unit["setup"]["model"])) if pbsim else hifi_model(),
-                              "reads": LONG_READS}
+                              "index": unit.get("seed_index", i), "seed": opts.seed,
+                              "pbsim": identity(opts.pbsim) if pbsim else None,
+                              "model": identity(pbsim_model(opts, unit["setup"]["model"])) if pbsim else
+                              hifi_model(unit["setup"]["method"]), "reads": LONG_READS}
         if opts.long_read_chunk and unit["bases"] > opts.long_read_chunk:  # chunks make other reads
             keys[unit["name"]]["chunk"] = opts.long_read_chunk
+        if unit.get("host_share"):
+            keys[unit["name"]]["host"] = {"genome": scenarios.host_identity(opts.host_folder), "share": unit["host_share"]}
         if simulated(unit, opts) and not same_key(os.path.join(base, "simulated.json"), keys[unit["name"]]):
             print(f"{unit['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
             shutil.rmtree(base)
@@ -1250,7 +1585,9 @@ def main(argv=None):
                 print(f"{p['name']} {'failed' if failure else 'simulated'} ({p['samples']} samples) in "
                       f"{clock(time.time() - began)}: {counter['pe']} of {len(pending)} paired-end design points, "
                       f"{clock(time.time() - started)} in all", flush=True)
-                return failure, []
+                if failure or not p.get("host_pairs"):
+                    return failure, []
+                return None, host_pe_jobs(p, opts, keys[p["name"]], started)  # then its host's reads
             # Before any long-read sample (all start at once): the deepest could otherwise wait for long reads.
             scheduler.add(f"pe:{p['name']}", simulate_point, need=threads_of[p["name"]],
                           priority=1e9 + pe_point_seconds(p, threads_of[p["name"]]))
@@ -1280,7 +1617,7 @@ def main(argv=None):
     unprofiled = []
     for unit in units:
         folder = profile_dir(unit, opts)
-        key = {"simulated": keys[unit["point"]["name"] if unit["type"] in ("pe", "se") else unit["name"]],
+        key = {"simulated": keys[unit["name"] if drawn(unit) else unit["point"]["name"]],
                "db": db, "protal": protal, "read_type": unit["type"]}
         if same_key(os.path.join(folder, "profiled.json"), key) and len(dumps_of(unit, opts)) >= unit["samples"]:
             continue

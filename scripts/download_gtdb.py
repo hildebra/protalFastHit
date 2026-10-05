@@ -51,6 +51,9 @@ Written to OUT/:
   ncbi_info.tsv           the sequencing technology NCBI gives for the candidate strains (kept for reruns)
   simulation_species.txt  the species to simulate from (build_gtdb_database.py --simulate-species)
   missing.txt             accessions NCBI did not deliver
+  host/                   <accession>.fna.gz, the host genome of the scenarios with host reads
+                          (build_gtdb_database.py --scenarios host): by default the human genome
+                          (T2T-CHM13v2.0, 0.9 GB), kept gzipped as NCBI serves it (3.1 GB unpacked)
   download.json           the release, the options, the counts and the checksums of what is there
 """
 
@@ -81,6 +84,10 @@ USER_AGENT = "protal-download_gtdb (https://protal.earlham.ac.uk)"
 ATTEMPTS = 5  # tries of a genome before it is given up on
 RETRY_WAIT = 2.0  # seconds before the second try of a genome, doubled for each further try (or the server's Retry-After)
 FAILS_IN_A_ROW = 25  # direct fetches that fail in a row (not counting missing files) stop the direct fetching
+# Host genomes by name (--host_genome): NCBI accession and assembly name. The human one is the complete T2T assembly
+# (every centromere and the rDNA arrays, no alternative haplotypes, chrY of HG002), whose reads are what a host-
+# dominated sample holds, rather than GRCh38's, whose gaps and alternative loci are not.
+HOST_GENOMES = {"human": ("GCF_009914755.1", "T2T-CHM13v2.0")}
 
 
 def parse_args(argv=None):
@@ -113,6 +120,10 @@ def parse_args(argv=None):
                    help="a proGenomes ANI-clustering table (pg4_ANI_clustering.tsv.gz of progenomes.embl.de/download.cgi: "
                         "a cluster and the GenBank accessions of its genomes), or any file listing accessions: "
                         "only strains it lists are taken")
+    p.add_argument("--host_genome", default="human",
+                   help="the host genome of the scenarios with host reads (build_gtdb_database.py --scenarios host), "
+                        "into OUT/host, gzipped: human (default: T2T-CHM13v2.0, GCF_009914755.1, 0.9 GB), "
+                        "ACCESSION_ASSEMBLYNAME of another NCBI assembly (e.g. GCF_000001405.40_GRCh38.p14), or none")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--connections", type=int, default=8,
                    help="genomes fetched at a time straight from NCBI's FTP server (default 8: NCBI answered HTTP 503 "
@@ -767,6 +778,52 @@ def get_genomes(opts, state, release):
           "strains (left as GTDB's references)", flush=True)
 
 
+def get_host(opts, state):
+    """The host genome (--host_genome) as OUT/host/<accession>.fna.gz: from NCBI's FTP server, kept gzipped as it is
+    served (and checked through gzip), or through datasets, whose plain FASTA is gzipped here. Kept from an earlier run
+    when there. state["host"]: accession, assembly, path (relative to OUT) and size."""
+    spec = (opts.host_genome or "").strip()
+    if spec.lower() in ("", "none"):
+        return
+    if spec in HOST_GENOMES:
+        accession, name = HOST_GENOMES[spec]
+    else:
+        m = re.fullmatch(r"(GC[AF]_\d{9}\.\d+)_(.+)", spec)
+        if not m:
+            sys.exit(f"--host_genome {spec!r}: one of {', '.join(HOST_GENOMES)}, ACCESSION_ASSEMBLYNAME (e.g. "
+                     "GCF_000001405.40_GRCh38.p14), or none")
+        accession, name = m.groups()
+    folder = os.path.join(opts.out, "host")
+    os.makedirs(folder, exist_ok=True)
+    dest = os.path.join(folder, accession + ".fna.gz")
+    if os.path.isfile(dest):
+        print(f"host genome: {dest} is there ({os.path.getsize(dest) / 1e9:.2f} GB)", flush=True)
+    else:
+        why = "no FTP server (--ftp_url)"
+        if opts.connections > 0 and opts.ftp_url:
+            url = ftp_url(opts.ftp_url.rstrip("/"), accession, name)
+            print(f"host genome: fetching {accession} ({name}) from {url}", flush=True)
+            why = fetch_file(url, dest)
+        if why and shutil.which(opts.datasets):
+            print(f"host genome: not fetched directly ({why}); asking datasets", flush=True)
+            work = os.path.join(opts.out, "host_batch")
+            found, error = ncbi_batch(opts, [accession], work)
+            if accession in found:
+                gzip_into(found[accession], dest)
+                why = ""
+            else:
+                why = error or f"{why}; datasets did not deliver it either"
+            shutil.rmtree(work, ignore_errors=True)
+        if why:  # the GTDB inputs serve every build without it: only the scenarios with host reads need it
+            print(f"host genome {accession}: not downloaded ({why}). Only the scenarios with host reads "
+                  "(build_gtdb_database.py --scenarios host) need it: rerun, or give the build --host-genome", flush=True)
+            state.pop("host", None)
+            return
+        print(f"host genome: {dest} ({os.path.getsize(dest) / 1e9:.2f} GB)", flush=True)
+    state["host"] = {"name": spec, "accession": accession, "assembly": name,
+                     "path": os.path.relpath(dest, opts.out), "bytes": os.path.getsize(dest)}
+
+
 # ---- main -------------------------------------------------------------------------------------------------
 
 def load_state(opts):
@@ -793,6 +850,7 @@ def main(argv=None):
     save_state(opts, state)
     if not opts.no_genomes:
         get_genomes(opts, state, release)
+        get_host(opts, state)
     state["updated"] = datetime.datetime.now().isoformat(timespec="seconds")
     save_state(opts, state)
     print(f"Inputs for GTDB r{release}: {opts.out} (build_gtdb_database.py --inputs {opts.out})", flush=True)

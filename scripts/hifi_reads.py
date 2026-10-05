@@ -22,7 +22,13 @@ read of each template it drew
   follows: the qualities say how likely each base is wrong, as calibrated HiFi qualities do, so that the
   differences of a read from its genome are, on average, what its qualities expect.
 
-    python3 scripts/hifi_reads.py --templates templates.fa --out reads.fq.gz [--q_sd 3 --seed 1]
+The flow model (q_mean given: the Ultima Genomics single-end reads of the collector's scenarios, scenarios.py) makes
+reads of a mean base quality instead: a read's quality R is q_mean plus a normal deviation of q_sd, and its bases'
+qualities are R less 10 log10 of their weight over the read's geometric mean weight, so that they average R (where
+they are not clipped); homopolymers count from two bases (FLOW_HOMOPOLYMER), so that an error in a run of two is a
+run length error too, as flow-based sequencing makes them.
+
+    python3 scripts/hifi_reads.py --templates templates.fa --out reads.fq.gz [--q_sd 3 --seed 1] [--q_mean 25]
 """
 
 import argparse
@@ -33,6 +39,10 @@ import numpy as np
 # Identifies this model in a design point's key (collect_training_data.py): points made by another are simulated again.
 MODEL = ("hifi_reads.py v2: read Q by length (Q50 to 5 kb, Q30 at 25 kb, Q20 at 50 kb) + normal SD, base weights "
          "(n/2)^2 in homopolymers of 3+ and lognormal 1, mix 30:35:35")
+# Identifies the flow model (q_mean given) in a design point's key.
+FLOW_MODEL = ("hifi_reads.py flow v1: read mean base quality Q + normal SD, base weights (n/2)^2 in homopolymers of 2+ "
+              "and lognormal 1 over their geometric mean, mix 30:35:35")
+FLOW_HOMOPOLYMER = 2            # runs of this many bases or more are homopolymers in the flow model
 # A read's mean quality (Phred) by its length: (length, Q) points, linear between them, flat before the first,
 # and on at the last two's slope after the last.
 QUALITY_BY_LENGTH = ((5_000, 50.0), (25_000, 30.0), (50_000, 20.0))
@@ -61,10 +71,12 @@ def length_quality(lengths):
     return q
 
 
-def mutate(seqs, rng, q_sd):
-    """HiFi reads of templates seqs [bytes] (each of at least one base). -> ([(read, qualities as Phred+33)],
-    {"events": errors per read, "expected": the expected errors of each read by its qualities, "q": each read's
-    drawn quality, "homopolymer_substitutions": substitutions in homopolymers (none)})."""
+def mutate(seqs, rng, q_sd, q_mean=None):
+    """HiFi reads of templates seqs [bytes] (each of at least one base); with q_mean, reads of the flow model (a mean
+    base quality of q_mean, SD q_sd, per read). -> ([(read, qualities as Phred+33)], {"events": errors per read,
+    "expected": the expected errors of each read by its qualities, "q": each read's drawn quality,
+    "homopolymer_substitutions": substitutions in homopolymers (none)})."""
+    flow = q_mean is not None
     lengths = np.fromiter((len(s) for s in seqs), dtype=np.int64, count=len(seqs))
     a = np.frombuffer(b"".join(seqs), dtype=np.uint8)
     n = a.size
@@ -78,12 +90,18 @@ def mutate(seqs, rng, q_sd):
     run_start = np.flatnonzero(first)
     run_length = np.diff(np.append(run_start, n))
     run = np.repeat(run_length, run_length)
-    homopolymer = run >= HOMOPOLYMER
+    homopolymer = run >= (FLOW_HOMOPOLYMER if flow else HOMOPOLYMER)
 
     weight = np.where(homopolymer, (run / 2.0) ** 2, 1.0) * rng.lognormal(0.0, CONFIDENCE_SIGMA, n)
-    q_read = np.clip(length_quality(lengths) + rng.normal(0.0, q_sd, len(seqs)), Q_MIN, Q_MAX)
-    scale = 10.0 ** (-q_read / 10.0) * lengths / np.add.reduceat(weight, starts)
-    p = np.minimum(weight * scale[read_of], P_MAX)
+    if flow:  # the bases' Phred average R: R less 10 log10 of each weight over the read's geometric mean weight
+        q_read = np.clip(q_mean + rng.normal(0.0, q_sd, len(seqs)), Q_MIN, Q_MAX)
+        log_weight = np.log10(weight)
+        phred = q_read[read_of] - 10.0 * (log_weight - (np.add.reduceat(log_weight, starts) / lengths)[read_of])
+        p = np.minimum(10.0 ** (-phred / 10.0), P_MAX)
+    else:
+        q_read = np.clip(length_quality(lengths) + rng.normal(0.0, q_sd, len(seqs)), Q_MIN, Q_MAX)
+        scale = 10.0 ** (-q_read / 10.0) * lengths / np.add.reduceat(weight, starts)
+        p = np.minimum(weight * scale[read_of], P_MAX)
 
     error = rng.random(n) < p
     kind = rng.random(n)
@@ -130,16 +148,16 @@ def read_fasta(path):
         yield name, b"".join(parts)
 
 
-def simulate(templates, out, q_sd=3.0, seed=1):
-    """A HiFi read of each template of the FASTA `templates`, named after it, into the gzipped FASTQ `out`, in
-    file order. -> the number of reads."""
+def simulate(templates, out, q_sd=3.0, seed=1, q_mean=None):
+    """A HiFi read (with q_mean: a read of the flow model) of each template of the FASTA `templates`, named after it,
+    into the gzipped FASTQ `out`, in file order. -> the number of reads."""
     rng = np.random.default_rng(seed)
     reads = 0
     with gzip.open(out, "wb", compresslevel=1) as fh:
         chunk, bases = [], 0
 
         def flush():
-            made, _ = mutate([s for _, s in chunk], rng, q_sd)
+            made, _ = mutate([s for _, s in chunk], rng, q_sd, q_mean)
             fh.write(b"".join(b"@" + name.encode() + b"\n" + seq + b"\n+\n" + qual + b"\n"
                               for (name, _), (seq, qual) in zip(chunk, made)))
             return len(made)
@@ -163,8 +181,9 @@ def main():
     ap.add_argument("--out", required=True, help="gzipped FASTQ")
     ap.add_argument("--q_sd", type=float, default=3.0, help="the SD of reads' qualities around their length's")
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--q_mean", type=float, help="the flow model: the reads' mean base quality (Phred)")
     args = ap.parse_args()
-    print(f"{simulate(args.templates, args.out, args.q_sd, args.seed)} reads written to {args.out}")
+    print(f"{simulate(args.templates, args.out, args.q_sd, args.seed, args.q_mean)} reads written to {args.out}")
 
 
 if __name__ == "__main__":

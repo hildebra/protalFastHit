@@ -330,7 +330,7 @@ class MiniDbTest(unittest.TestCase):
         out = os.path.join(self.tmp.name, "inputs")
         command = [sys.executable, DOWNLOAD, "-o", out, "--mirror", f"http://127.0.0.1:{server.server_port}",
                    "--datasets", datasets, "--species", "3", "--per_species", "1", "--rep_only_species", "0",
-                   "--batch", "4", "-t", "2"]
+                   "--batch", "4", "-t", "2", "--host_genome", "none"]
         first = subprocess.run(command, env=env, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
 
@@ -428,7 +428,7 @@ class MiniDbTest(unittest.TestCase):
         out = os.path.join(self.tmp.name, "inputs_releases")
         result = subprocess.run([sys.executable, RELEASES_DOWNLOAD, "-o", out, "--releases", "226", "-t", "2", "--mirror",
                                  f"http://127.0.0.1:{server.server_port}", "--datasets", datasets, "--species", "2",
-                                 "--per_species", "1", "--rep_only_species", "0", "--batch", "4"],
+                                 "--per_species", "1", "--rep_only_species", "0", "--batch", "4", "--host_genome", "none"],
                                 env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(os.path.isfile(os.path.join(out, "gtdb_r226", "download.json")))
@@ -472,6 +472,11 @@ class MiniDbTest(unittest.TestCase):
                 folder = os.path.join(mirror, "ftp", a[:3], a[4:7], a[7:10], a[10:13], assembly_folder(a))
                 os.makedirs(folder)
                 shutil.copy(row["fasta_path"], os.path.join(folder, assembly_folder(a) + "_genomic.fna.gz"))
+        # The host genome (the human one by default) where NCBI keeps it, a small stand-in.
+        host = os.path.join(mirror, "ftp", "GCF", "009", "914", "755", "GCF_009914755.1_T2T-CHM13v2.0")
+        os.makedirs(host)
+        with gzip.open(os.path.join(host, "GCF_009914755.1_T2T-CHM13v2.0_genomic.fna.gz"), "wt") as fh:
+            fh.write(">NC_060925.1 chromosome 1\n" + "ACGTTGCA" * 400 + "\n")
 
         class Quiet(http.server.SimpleHTTPRequestHandler):
             def log_message(self, *args):
@@ -511,10 +516,23 @@ class MiniDbTest(unittest.TestCase):
             with open(os.path.join(out, "genomes", r["accession"] + ".fna.gz"), "rb") as a, open(source[r["accession"]], "rb") as b:
                 self.assertEqual(a.read(), b.read())
         with open(os.path.join(out, "download.json")) as fh:
-            self.assertEqual(json.load(fh)["genomes"]["fetched_directly"], 6)
+            state = json.load(fh)
+        self.assertEqual(state["genomes"]["fetched_directly"], 6)
+        # The host genome, gzipped as served, for the scenarios with host reads (build_gtdb_database.py finds it).
+        self.assertEqual(state["host"]["path"], os.path.join("host", "GCF_009914755.1.fna.gz"))
+        with gzip.open(os.path.join(out, state["host"]["path"]), "rt") as fh:
+            self.assertTrue(fh.readline().startswith(">NC_060925.1"))
         again = download(out, "--datasets", "/nonexistent/datasets", "--no_tech_lookup")
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
         self.assertIn("6 already there, 0 to download", again.stdout)
+        self.assertIn("host genome: " + os.path.join(out, "host", "GCF_009914755.1.fna.gz") + " is there", again.stdout)
+        # A host the server lacks, without datasets, is only noted: the GTDB inputs serve every build without it.
+        missing_host = download(out + "_nohost", "--datasets", "/nonexistent/datasets", "--no_tech_lookup",
+                                "--host_genome", "GCF_000000001.1_none")
+        self.assertEqual(missing_host.returncode, 0, missing_host.stdout + missing_host.stderr)
+        self.assertIn("host genome GCF_000000001.1: not downloaded (not found)", missing_host.stdout)
+        with open(os.path.join(out + "_nohost", "download.json")) as fh:
+            self.assertNotIn("host", json.load(fh))
 
         # A genome the server lacks (404) goes through datasets, and the others do not.
         lacking = next(r["accession"] for r in rows if r["role"] == "strain")
@@ -1259,6 +1277,240 @@ class MiniDbTest(unittest.TestCase):
         # a present taxon's closest other species (meta_neighbour_rank)
         self.assertEqual(collect.relation(taxon, {"s__H c": in_sample["s__H c"]}, {})[0], "class")
         self.assertEqual(collect.relation(taxon, {}, {})[0], "none")
+
+    def test_sample_relations_as_relation(self):
+        # SampleRelations gives what relation() gives, for every taxon of a sample at once (a soil scenario's 10,000
+        # species would otherwise cost each taxon 10,000 comparisons).
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import collect_training_data as collect
+        import lineages
+        rng = random.Random(4)
+
+        def lineage():
+            names = [f"d__D{rng.randrange(2)}"]
+            for prefix in "pcofg":
+                names.append(f"{prefix}__{prefix.upper()}{rng.randrange(3)}")
+            names.append(f"s__S{rng.randrange(4)}")
+            if rng.random() < 0.1:  # a lineage without a rank
+                del names[rng.randrange(1, 6)]
+            return lineages.from_string(";".join(names))
+        for _ in range(30):
+            in_sample = {}
+            for _ in range(rng.randrange(0, 25)):
+                lin = lineage()
+                in_sample.setdefault(lin.get("species", f"s__x{len(in_sample)}") + f" {len(in_sample)}", lin)
+            names = list(in_sample)
+            novel = {s: (rng.choice(["species", "genus", "family"]), "c") for s in names if rng.random() < 0.4}
+            relations = collect.SampleRelations(in_sample, novel)
+            for _ in range(20):
+                taxon = lineage()
+                self.assertEqual(relations.relation(taxon), collect.relation(taxon, in_sample, novel))
+            for name in names:
+                others = {s: lin for s, lin in in_sample.items() if s != name}
+                self.assertEqual(relations.neighbour(in_sample[name], name), collect.relation(in_sample[name], others, {})[0])
+
+    def test_scenario_definitions_and_tables(self):
+        # The scenarios' presets, the selection of them, a file that changes or adds some, and a scenario's genome
+        # table, which gives its share of species the database lacks.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import scenarios
+        defs = scenarios.definitions()
+        self.assertEqual(list(defs), ["gut", "soil", "soil_shallow", "host"])
+        types = {name: [r["type"] for r in d["reads"]] for name, d in defs.items()}
+        self.assertEqual(types, {"gut": ["pe", "pb", "ont"], "soil": ["se", "pe", "pb", "ont"],
+                                 "soil_shallow": ["pe", "pb", "ont"], "host": ["pe", "se", "pb", "ont"]})
+        self.assertEqual((defs["gut"]["species"], defs["gut"]["novel_share"], defs["soil"]["novel_share"]),
+                         ("350-450", 0.05, 0.6))
+        self.assertEqual((defs["host"]["host_share"], defs["host"]["abundance"], defs["host"]["species"]),
+                         (0.9, "powerlaw:1.0", "2-50"))
+        for name, d in defs.items():  # every technology at the paired-end reads' bases
+            reads = {r["type"]: r for r in d["reads"]}
+            pe = reads["pe"]
+            self.assertEqual((pe["length"], pe["profile"], pe["quality"]), (150, "HSXt", 35))
+            bases = pe["depth"] * 2 * pe["length"]
+            for kind in ("pb", "ont"):
+                self.assertEqual(reads[kind]["depth"], bases, (name, kind))
+            if "se" in reads:
+                self.assertEqual(reads["se"]["setup"], "ultima:300:40:25:2")
+                self.assertEqual(reads["se"]["depth"] * 300, bases)
+        self.assertEqual(scenarios.selection("gut,soil:5", 3, defs), [("gut", 3), ("soil", 5)])
+        self.assertEqual([n for n, _ in scenarios.selection("all", 2, defs)], list(defs))
+        self.assertEqual(scenarios.selection("gut:0,host", 2, defs), [("host", 2)])
+        self.assertEqual(scenarios.selection("gut:0,host", 2, defs, keep_zero=True), [("gut", 0), ("host", 2)])
+        self.assertEqual(scenarios.selection("none", 2, defs), [])
+        for bad in ("gut,gut", "mars", "gut:x"):
+            with self.assertRaises(scenarios.ScenarioError):
+                scenarios.selection(bad, 1, defs)
+        path = os.path.join(self.tmp.name, "scenarios.json")
+        with open(path, "w") as fh:
+            json.dump({"soil": {"species": "40-50"},
+                       "tiny": {"species": "3", "novel_share": 0.5, "abundance": "", "strains": "", "congeners": "0",
+                                "host_share": 0, "reads": [{"type": "pe", "length": 100, "profile": "HS20",
+                                                            "depth": 1000}]}}, fh)
+        # A scenario larger than its table can hold is scaled down to it: its largest sample a TABLE_MARGIN-th of the
+        # table, its smallest in proportion; one that fits is kept.
+        soil = defs["soil"]
+        self.assertEqual(scenarios.table_split(5400, 2600, 0.6), (1733, 2600))
+        scaled, why = scenarios.fit_species(soil, 5400, 2600)
+        self.assertEqual(scaled["species"], f"{round(9000 * 2888 / 11000)}-2888")  # 4333 / 1.5
+        self.assertIn("scaled from 9000-11000 to 2363-2888 species per sample", why)
+        self.assertEqual({k: v for k, v in scaled.items() if k != "species"}, {k: v for k, v in soil.items() if k != "species"})
+        self.assertEqual(scenarios.fit_species(soil, 20000, 9000), (soil, None))
+        self.assertEqual(scenarios.fit_species(defs["gut"], 2, 1)[0]["species"], "1")
+        with self.assertRaises(scenarios.ScenarioError):
+            scenarios.fit_species(soil, 100, 0)
+        changed = scenarios.definitions(path)
+        self.assertEqual((changed["soil"]["species"], changed["soil"]["novel_share"]), ("40-50", 0.6))
+        self.assertEqual(changed["tiny"]["reads"][0], {**scenarios.ILLUMINA, "length": 100, "profile": "HS20",
+                                                       "depth": 1000})
+        for wrong in ({"species": "3"}, {**changed["tiny"], "colour": 1}, {**changed["tiny"], "novel_share": 2},
+                      {**changed["tiny"], "host_share": 1}, {**changed["tiny"], "reads": [{"type": "se", "depth": 9,
+                                                                                         "setup": "hifi:1:1:1"}]},
+                      {**changed["tiny"], "reads": [{"type": "pe", "depth": 9}] * 2}):
+            with self.assertRaises(scenarios.ScenarioError):
+                scenarios.check_definition("x", wrong)
+        # The table's species: all of the side short of the share, enough of the other.
+        self.assertEqual(scenarios.table_plan(1000, 100, 0.05, 400), (1000, 53))
+        self.assertEqual(scenarios.table_plan(1000, 100, 0.6, 150), (67, 100))
+        self.assertEqual(scenarios.table_plan(1000, 100, 0.0, 400), (1000, 0))
+        with self.assertRaises(scenarios.ScenarioError) as raised:
+            scenarios.table_plan(1000, 100, 0.6, 400)
+        self.assertIn("--rep_only_species", str(raised.exception))
+        # A genome table of 40 species, 2 genomes each, 10 of them held out: a table of 20% held out takes the 30 the
+        # database has and 30 x 0.2 / 0.8 = 7.5, 8, of the 10.
+        table = os.path.join(self.tmp.name, "scenario_genomes.tsv")
+        with open(table, "w") as fh:
+            for s in range(40):
+                for g in range(2):
+                    fh.write(f"G{s}_{g}\td__Bacteria;p__P;c__C;o__O;f__F;g__G{s % 7};s__G{s % 7} sp{s}\t/x/{s}_{g}.fna\t1000\n")
+        novel = {f"s__G{s % 7} sp{s}": ("species", "") for s in range(10)}
+        out = os.path.join(self.tmp.name, "scenario_tables", "t.tsv")
+        d = {**defs["gut"], "species": "10-20", "novel_share": 0.2}
+        note = scenarios.scenario_table(table, novel, "t", d, 1, out)
+        self.assertIn("38 species (8 the database lacks", note)
+        with open(out) as fh:
+            lines = fh.read().splitlines()
+        species = collections.Counter(line.split("\t")[1].split(";")[-1] for line in lines)
+        self.assertEqual(len(species), 38)
+        self.assertEqual(set(species.values()), {2})  # every genome of a species taken
+        self.assertEqual(sum(s in novel for s in species), 8)
+        before = os.stat(out).st_mtime_ns
+        time.sleep(0.01)
+        scenarios.scenario_table(table, novel, "t", d, 1, out)  # the same: not written again
+        self.assertEqual(os.stat(out).st_mtime_ns, before)
+        with self.assertRaises(scenarios.ScenarioError):
+            scenarios.scenario_table(table, novel, "t", {**d, "species": "60"}, 1, out)
+
+    def test_flow_reads(self):
+        # hifi_reads.py's flow model (Ultima reads of the scenarios): a read's bases average its quality (q_mean, SD
+        # q_sd), its errors are what its qualities expect, homopolymers count from two bases and take no
+        # substitution.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import numpy as np
+        import hifi_reads
+        rng = np.random.default_rng(2)
+        seqs = []
+        for _ in range(3000):
+            runs = np.where(rng.random(300) < 0.85, 1, rng.integers(2, 7, 300))
+            seqs.append(np.repeat(np.frombuffer(b"ACGT", np.uint8)[rng.integers(0, 4, 300)], runs)[:300].tobytes())
+        reads, stats = hifi_reads.mutate(seqs, np.random.default_rng(1), 2.0, q_mean=25.0)
+        self.assertEqual(len(reads), len(seqs))
+        self.assertAlmostEqual(float(stats["q"].mean()), 25, delta=0.2)
+        self.assertAlmostEqual(float(stats["q"].std()), 2, delta=0.2)
+        mean_phred = np.array([np.mean(np.frombuffer(q, np.uint8).astype(float) - 33) for _, q in reads])
+        self.assertLess(abs(float(np.median(mean_phred - stats["q"]))), 0.5)  # the bases average the read's quality
+        self.assertAlmostEqual(stats["events"].sum() / stats["expected"].sum(), 1.0, delta=0.08)
+        self.assertEqual(stats["homopolymer_substitutions"], 0)
+        self.assertNotEqual(hifi_reads.FLOW_MODEL, hifi_reads.MODEL)
+
+    def test_host_genome(self):
+        # A host genome as plain sequence, read by memory map: templates from its contigs of 1 kb or more; and its
+        # paired-end reads by ART in amplicon mode, from fragments of it.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import scenarios
+        rng = random.Random(7)
+        chromosomes = {"chr1": "".join(rng.choice("ACGT") for _ in range(30000)),
+                       "short": "ACGT" * 100, "chr2": "".join(rng.choice("acgt") for _ in range(20000))}
+        fasta = os.path.join(self.tmp.name, "host.fna.gz")
+        with gzip.open(fasta, "wt") as fh:
+            for name, seq in chromosomes.items():
+                fh.write(f">{name} a chromosome\n" + "\n".join(seq[i:i + 80] for i in range(0, len(seq), 80)) + "\n")
+        folder = scenarios.prepare_host(fasta, os.path.join(self.tmp.name, "host"))
+        self.assertEqual(scenarios.host_identity(folder)["bases"], 50000)  # "short" left out
+        host = scenarios.Host.of(folder)
+        self.assertIs(host, scenarios.Host.of(folder))
+        draws = random.Random(1)
+        upper = {k: v.upper() for k, v in chromosomes.items()}
+        for _ in range(200):
+            seq = host.draw(draws, 500).decode()
+            self.assertTrue(seq in upper["chr1"] or seq in upper["chr2"])
+            self.assertTrue(100 <= len(seq) <= 500)  # never a few bases at a contig's end
+        self.assertTrue(all(len(host.draw(draws, 15000)) >= 100 for _ in range(500)))
+        before = os.stat(os.path.join(folder, "host.seq")).st_mtime_ns
+        scenarios.prepare_host(fasta, folder)  # the same FASTA: kept
+        self.assertEqual(os.stat(os.path.join(folder, "host.seq")).st_mtime_ns, before)
+        if not shutil.which("art_illumina"):
+            self.skipTest("no art_illumina for the host's paired-end reads")
+        tmp = os.path.join(self.tmp.name, "host_chunk")
+        task = {"sample": "s", "host": folder, "chunk": 1, "art": "art_illumina", "art_args": ["-ss", "HS20"],
+                "pairs": 500, "length": 100, "fragment_mean": 300.0, "fragment_sd": 40.0, "seed": 3,
+                "tmp": os.path.join(tmp, "c1"), "r1": os.path.join(tmp, "r1.fq.gz"), "r2": os.path.join(tmp, "r2.fq.gz")}
+        self.assertIsNone(scenarios.host_pe_chunk(task))
+        with gzip.open(task["r1"], "rt") as a, gzip.open(task["r2"], "rt") as b:
+            first, second = a.read().splitlines(), b.read().splitlines()
+        self.assertEqual((len(first) // 4, len(second) // 4), (500, 500))
+        self.assertEqual([n.split("/")[0] for n in first[0::4]], [n.split("/")[0] for n in second[0::4]])
+        self.assertTrue(all(len(r) == 100 for r in first[1::4]))
+        self.assertFalse(os.path.exists(task["tmp"]))
+        both = "".join(upper[c] for c in ("chr1", "chr2"))
+        back = str.maketrans("ACGT", "TGCA")
+        near = sum(r[:30] in both or r[:30].translate(back)[::-1] in both for r in first[1::4])
+        self.assertGreater(near, 400)  # reads of the host, but for their errors
+
+    def test_collector_scenario_units(self):
+        # The scenarios' points and units after the design's: a community point per scenario (its paired-end reads
+        # at the community's part of the depth, the host's added later), and the units that draw their reads from
+        # its communities, each of its own seed.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import argparse
+        import collect_training_data as collect
+        opts = argparse.Namespace(read_setups="150:HSXt:350:50", read_pairs="1000", read_types=["pe", "se", "pb", "ont"],
+                                  samples=2, long_read_samples=0, pb_setup="hifi:15000:3000:3",
+                                  ont_setup="qshmm:QSHMM-ONT-HQ:8000:6000:0.97", long_read_bases="1e6",
+                                  scenarios="host,gut:1", scenario_samples=3, scenario_file=None)
+        points, units = collect.units_of(opts)
+        self.assertEqual([p["name"] for p in points], ["rl150_p1000", "sc_host_pe_p10000000", "sc_gut_pe_p20000000"])
+        host = points[1]
+        self.assertEqual((host["community_pairs"], host["host_pairs"], host["samples"]), ("1000000", 9000000, 3))
+        names = [u["name"] for u in units if u.get("scenario")]
+        self.assertEqual(names, ["sc_host_pe_p10000000", "sc_host_se_ultima_r10000000", "sc_host_pb_b3000000000",
+                                 "sc_host_ont_b3000000000", "sc_gut_pe_p20000000", "sc_gut_pb_b6000000000",
+                                 "sc_gut_ont_b6000000000"])
+        ultima = units[names.index("sc_host_se_ultima_r10000000") + len(units) - len(names)]
+        self.assertTrue(collect.drawn(ultima))
+        self.assertEqual((ultima["type"], ultima["bases"], ultima["setup"]["method"], ultima["host_share"]),
+                         ("se", 3_000_000_000, "ultima", 0.9))
+        self.assertEqual(collect.profile_dir(ultima, argparse.Namespace(out="/o")), "/o/points/sc_host_se_ultima_r10000000/protal")
+        self.assertFalse(collect.drawn(units[1]))  # the design's se: the first reads of its paired-end point
+        self.assertEqual(collect.parse_long_setup("ultima:300:40:25:2"),
+                         {"method": "ultima", "model": None, "length_mean": 300, "length_sd": 40, "q_mean": 25.0,
+                          "q_sd": 2.0, "ratio": ""})
+        # Without paired-end reads collected, a scenario's communities come from a point without reads.
+        _, units = collect.units_of(argparse.Namespace(**{**vars(opts), "read_types": ["pb"], "scenarios": "gut"}))
+        community = [u for u in units if u.get("scenario")][0]["communities"][0]
+        self.assertEqual((community["name"], community["reads"]), ("sc_gut_community", False))
+        # --samples 0: the scenarios alone.
+        points, units = collect.units_of(argparse.Namespace(**{**vars(opts), "samples": 0}))
+        self.assertTrue(all(u.get("scenario") for u in units) and all(p.get("scenario") for p in points))
+        command, error = collect.simulation_command(host, 0, argparse.Namespace(**{**vars(opts), "out": "/o", "seed": 1,
+                                                                                 "simulator": "sim", "genome_table": "g"}),
+                                                    4, {})
+        self.assertIsNone(error)
+        self.assertEqual(command[command.index("--genome_table") + 1], "/o/scenarios/host/genomes.tsv")
+        self.assertEqual(command[command.index("--total_read_pairs") + 1], "1000000")
+        self.assertEqual(command[command.index("--species_per_sample") + 1], "2-50")
+        self.assertIn("power_law", command)
+        self.assertNotIn("--test", command)
 
     def test_gtdb_like_lineages(self):
         text = subprocess.run([sys.executable, LINEAGES, "--species", "300", "--archaea", "0.1", "--seed", "3"],
@@ -2274,7 +2526,8 @@ class GtdbBuildTest(unittest.TestCase):
         cls.inputs = os.path.join(work, "inputs")
         subprocess.run([sys.executable, DOWNLOAD, "-o", cls.inputs, "--mirror", f"http://127.0.0.1:{server.server_port}",
                         "--datasets", datasets, "--species", "15", "--per_species", "2", "--rep_only_species", "10",
-                        "--batch", "8", "-t", "2"], env=dict(os.environ, FAKE_TABLE=os.path.join(gtdb, "simulation", "genomes.tsv")),
+                        "--batch", "8", "-t", "2", "--host_genome", "none"],
+                       env=dict(os.environ, FAKE_TABLE=os.path.join(gtdb, "simulation", "genomes.tsv")),
                        check=True, capture_output=True)
         server.shutdown()
         server.server_close()
@@ -2283,14 +2536,15 @@ class GtdbBuildTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def build(self, out, *extra, protal=None, wait=True):
+    def build(self, out, *extra, protal=None, wait=True, scenarios=False):
+        # The default scenarios (scenarios.py) have the depths of real studies; test_f_scenarios defines small ones.
         command = [self.python, BUILD, "--inputs", self.inputs, "--outdir", os.path.join(self.tmp.name, out),
                    "--protal", protal or os.environ["PROTAL"], "--simulator", os.environ["SIMULATE"], "-t", "2",
                    "--samples", "2", "--read-pairs", "1000,4000", "--read-setups", "100:HS20:300:40",
                    "--species-per-sample", "6-8", "--archaea", "1", "--holdout-max-share", "0.2",
                    "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
                    "--test-read-pairs", "2000", "--ntree", "16", "--evaluation", "basic", "--progress-every", "5",
-                   *extra]
+                   *([] if scenarios else ["--scenarios", "none"]), *extra]
         if not wait:
             return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         return subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=3000)
@@ -2322,10 +2576,17 @@ class GtdbBuildTest(unittest.TestCase):
                                                                                        "build_metadata.tsv")))
         self.assertRegex(metadata["gene_conservation"], r"^factors [0-9.]+-[0-9.]+ for \d+ genes, from \d+ species")
         self.assertEqual(metadata["classifier_previous_procedure"], "not compared")  # without --previous-procedure
-        # The gene neighbours' features and the relatives' four by the references' distance (not all of them, by
-        # default), trained on samples with congener groups, the models calling at their knob curves (the other seed's build below trains the relatives features and the
+        # Each trainer chose its feature set (--features auto, the default): one of the candidates, the default set
+        # (the gene neighbours' features and the relatives' four by the references' distance) unless another was
+        # better; the run says which and why (the other seed's build below trains the relatives features and the
         # calls at a target share of false calls).
-        self.assertEqual(metadata["classifier_features"], "normalized+adjacency+distance+depth+divergence+unfiltered")
+        self.assertEqual(metadata["classifier_features"], "auto")
+        for t in ("pe", "se"):
+            self.assertRegex(metadata[f"model_{t}_features"], r"^normalized\S* \(--features auto: F1 [0-9.]+ with species "
+                                                             r"held out, the other \d+ sets [0-9.]+ on average")
+            self.assertRegex(first.stdout, rf"     {t} model's features: normalized\S*: F1 [0-9.]+ with species held out")
+        self.assertIn("Feature sets chosen (--features auto):", self.text("out", "model_logs", "summary.txt"))
+        self.assertEqual(metadata["classifier_scenarios"], "none")
         self.assertIn("gene copies", metadata["suspect_copies"])  # the build looked for suspect copies
         self.assertIn("; congeners 0.25:2-5", metadata["classifier_training_design"])
         commands = [open(p).read() for p in glob.glob(os.path.join(self.tmp.name, "**", "run_params.tsv"), recursive=True)]
@@ -2496,8 +2757,9 @@ class GtdbBuildTest(unittest.TestCase):
         scratch = ("--scratch", os.path.join(self.tmp.name, "scratch_genes"))
         first = self.build("out_genes", "--n-genes", "3", *scratch)
         self.assertEqual(first.returncode, 0, first.stdout[-3000:])
-        self.assertRegex(first.stdout, r"\n\[[^]]+\] 2/9 the release \(convert\.log\): converted whole into \.converted")
-        self.assertRegex(first.stdout, r"\n\[[^]]+\] 3/9 marker genes \(gene_subset\.txt\): the 3 most distinctive by "
+        # 10 steps: the gene subset's and the in-silico strains' (3/10) besides the 8 of every build with a test set.
+        self.assertRegex(first.stdout, r"\n\[[^]]+\] 2/10 the release \(convert\.log\): converted whole into \.converted")
+        self.assertRegex(first.stdout, r"\n\[[^]]+\] 4/10 marker genes \(gene_subset\.txt\): the 3 most distinctive by "
                                        r"prevalence x unique k-mer share\n")
         self.assertRegex(first.stdout, r"ranked the \d+ genes from a full build of the training database \(every gene, "
                                        r"\d+ species left out\), built in \d+:\d\d:\d\d[^(]*\(gene_ranking_build\.log\): "
@@ -2505,7 +2767,7 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(first.stdout, r"the 3 best of \d+: \S+, \S+, \S+; scores [0-9.]+ down to [0-9.]+; in half the "
                                        r"species or more of: bacteria [1-3], archaea [1-3]\n")
         self.assertRegex(first.stdout, r"protal_db's files derived for these genes in \d+:\d\d:\d\d[^(]*\(protal_db_files\.log\)")
-        self.assertRegex(first.stdout, r"\n\[[^]]+\] 4/9 training database ")
+        self.assertRegex(first.stdout, r"\n\[[^]]+\] 5/10 training database ")
         self.assertIn("Ready protal database", first.stdout)
         self.assertIn("(marker genes: 3 of ", first.stdout)
         out = os.path.join(self.tmp.name, "out_genes")
@@ -2549,7 +2811,7 @@ class GtdbBuildTest(unittest.TestCase):
         spec = ",".join([ranking[4][2], ranking[5][2].split(".")[0], ranking[1][1]])
         named = self.build("out_genes", "--genes", spec, *scratch)
         self.assertEqual(named.returncode, 0, named.stdout[-3000:])
-        self.assertRegex(named.stdout, r"\n\[[^]]+\] 3/9 marker genes \(gene_subset\.txt\): the ones listed \(--genes\)\n")
+        self.assertRegex(named.stdout, r"\n\[[^]]+\] 4/10 marker genes \(gene_subset\.txt\): the ones listed \(--genes\)\n")
         self.assertRegex(named.stdout, r"3 of the \d+ marker genes: \S+, \S+, \S+\n")
         self.assertRegex(named.stdout, r"built training_db in \d+:\d\d:\d\d")
         self.assertRegex(named.stdout, r"built protal_db in the background in \d+:\d\d:\d\d")
@@ -2578,7 +2840,7 @@ class GtdbBuildTest(unittest.TestCase):
                    "--samples", "2", "--read-pairs", "1000,4000", "--read-setups", "100:HS20:300:40",
                    "--species-per-sample", "6-8", "--archaea", "1", "--holdout-max-share", "0.2",
                    "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
-                   "--test-read-pairs", "2000", "--ntree", "16", "--evaluation", "basic"]
+                   "--test-read-pairs", "2000", "--ntree", "16", "--evaluation", "basic", "--scenarios", "none"]
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=3000)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
         self.assertLess(result.stdout.index("r226, full: building"), result.stdout.index("r226, n3: building"))
@@ -2628,6 +2890,127 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stdout[-3000:])
         self.assertEqual(again.stdout.count("is built and trained; kept"), 2)
         self.assertNotIn("building", again.stdout)
+
+    def test_f_scenarios(self):
+        # The default scenarios (gut, soil, soil_shallow, host; here made small by a --scenario-file of their names),
+        # one with 90% host reads: their hold-in samples in the training data, their hold-out samples in the test set,
+        # each read type's report and the summary scoring both; soil, larger than the genome table holds at 60% held
+        # out, scaled down; the feature sets chosen by the trainers (--features auto, the default) and why.
+        work = os.path.join(self.tmp.name, "scenario_inputs")
+        os.makedirs(work, exist_ok=True)
+        rng = random.Random(9)
+        host = os.path.join(work, "host.fna.gz")
+        with gzip.open(host, "wt") as fh:
+            for c in (1, 2):
+                seq = "".join(rng.choice("ACGT") for _ in range(150000))
+                fh.write(f">chr{c}\n" + "\n".join(seq[i:i + 80] for i in range(0, len(seq), 80)) + "\n")
+        illumina = {"type": "pe", "length": 100, "profile": "HS20", "fragment_mean": 300, "fragment_sd": 40, "quality": 30}
+        ultima = {"type": "se", "setup": "ultima:300:40:25:2"}
+        small = {"abundance": "lognormal:1.5", "strains": "0.3", "congeners": "0", "host_share": 0}
+        definitions = os.path.join(work, "scenarios.json")
+        with open(definitions, "w") as fh:
+            json.dump({"gut": {**small, "species": "5-6", "novel_share": 0.3,
+                               "reads": [{**illumina, "depth": 3000}, {**ultima, "depth": 1000}]},
+                       "soil": {**small, "species": "30-40", "novel_share": 0.6, "reads": [{**illumina, "depth": 2000}]},
+                       "soil_shallow": {**small, "species": "5", "novel_share": 0.3, "reads": [{**illumina, "depth": 1000}]},
+                       "host": {**small, "species": "2-3", "novel_share": 0.3, "abundance": "powerlaw:1.0", "strains": "",
+                                "host_share": 0.9, "reads": [{**illumina, "depth": 20000}, {**ultima, "depth": 5000}]}}, fh)
+        scratch = os.path.join(self.tmp.name, "scenario_scratch")
+        result = self.build("scenarios", "--scenario-file", definitions, "--scenario-samples", "2",
+                            "--scenario-test-samples", "1", "--host-genome", host, "--scratch", scratch, scenarios=True)
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:])
+        self.assertRegex(result.stdout, r"    WARNING: scenario soil scaled from 30-40 to \d+(-\d+)? species per sample: at "
+                                        r"60% lacking from the database the genome table's \d+ species the training "
+                                        r"database lacks and \d+ it has make a table of \d+")
+        self.assertRegex(result.stdout, r"    scenarios: gut 2 hold-in and 1 hold-out samples, soil 2 hold-in and 1 hold-out "
+                                        r"samples, soil_shallow 2 hold-in and 1 hold-out samples, host 2 hold-in and 1 "
+                                        r"hold-out samples; their genome tables: gut \d+ species")
+        self.assertRegex(result.stdout, r"5/9 training data \(training_data\.log\): 12 pe, 8 se samples \(of them in the "
+                                        r"scenarios gut:2,soil:2,soil_shallow:2,host:2: 8 pe, 4 se\)")
+        self.assertRegex(result.stdout, r"scenario F1 on the hold-out samples/hold-in with species held out: gut pe "
+                                        r"[0-9.-]+/[0-9.-]+, se [0-9.-]+/[0-9.-]+; soil pe [0-9.-]+/[0-9.-]+; soil_shallow pe")
+        # The winning feature set of each model on the console, and why: its F1 against the other sets', and every
+        # test set's F1 (the design's, each scenario's hold-out).
+        for t in ("pe", "se"):
+            self.assertRegex(result.stdout, rf"     {t} model's features: normalized\S*: F1 [0-9.]+ with species held out, "
+                                            rf"the other \d+ sets [0-9.]+ on average \(the best of them normalized\S* [0-9.]+\);"
+                                            rf"[^\n]*; on samples never trained on \(not used to choose\): test set [0-9.-]+ "
+                                            rf"\(the others [0-9.-]+\), gut hold-out [0-9.-]+ \(the others [0-9.-]+\)")
+        simulation = self.text("scenarios", "training_data_simulation.log")
+        self.assertRegex(simulation, r"scenario gut \(2 samples\): \d+ species \(\d+ the database lacks, [\d.]+%; \d+ it "
+                                     r"has\) for samples of 5-6; Illumina reads at Q30 \(ART HS20: Q[\d.]+ and Q[\d.]+, "
+                                     r"shifted by [-+]\d+ and [-+]\d+\)")
+        self.assertIn("sc_host_pe_p20000: 18000 host read pairs added to each of its 2 samples", simulation)
+        # A host sample: the community's 2,000 read pairs and the host's 18,000; its Ultima reads, 90% of them host's.
+        points = os.path.join(scratch, "training", "points")
+        for reads in glob.glob(os.path.join(points, "sc_host_pe_p20000", "sim", "reads", "*_R1.fq.gz")):
+            with gzip.open(reads, "rt") as fh:
+                names = fh.read().splitlines()[0::4]
+            self.assertEqual(sum(n.startswith("@h") for n in names), 18000)  # exactly the host's
+            self.assertAlmostEqual(len(names), 20000, delta=20)  # ART makes about the community's 2,000
+        with gzip.open(glob.glob(os.path.join(points, "sc_host_se_ultima_r5000", "sim", "reads", "*.fq.gz"))[0], "rt") as fh:
+            lines = fh.read().splitlines()
+        lengths = [len(r) for r in lines[1::4]]
+        self.assertAlmostEqual(sum(lengths) / len(lengths), 300, delta=15)
+        quality = [ord(c) - 33 for q in lines[3::4] for c in q]
+        self.assertAlmostEqual(sum(quality) / len(quality), 25, delta=1.5)
+        # Its tables: the scenarios' rows beside the design's, in the training data (which the forests are fitted on)
+        # and in the test set.
+        for collection, n in (("training", 2), ("test", 1)):
+            for table, names in (("training_data.tsv", ("gut", "soil", "soil_shallow", "host")),
+                                 ("training_data_se.tsv", ("gut", "host"))):
+                with open(os.path.join(self.tmp.name, "scenarios", collection, table)) as fh:
+                    rows = list(csv.DictReader(fh, delimiter="\t"))
+                samples = collections.defaultdict(set)
+                for row in rows:
+                    samples[row["meta_scenario"]].add(row["meta_sample"])
+                self.assertEqual({k: len(v) for k, v in samples.items() if k}, {name: n for name in names})
+                self.assertIn("", samples)
+        # Each model's report scores the scenarios, hold-in and hold-out, and every candidate feature set on every test
+        # set; and so does the summary.
+        for t, names in (("", ("gut", "soil", "soil_shallow", "host")), ("_se", ("gut", "host"))):
+            report = self.text("scenarios", "model_logs", f"trained_model{t}.report.txt")
+            self.assertIn("## Scenarios: hold-in and hold-out samples", report)
+            self.assertIn("## Feature set chosen (--features auto, species held out)", report)
+            self.assertRegex(report, r"scenario host: hold-out F1 [0-9.-]+ \(FP rate [0-9.-]+%, FN rate [0-9.-]+%, "
+                                     r"1 samples\); hold-in with species held out F1")
+            with open(os.path.join(self.tmp.name, "scenarios", "model_logs", f"trained_model{t}.metrics.json")) as fh:
+                metrics = json.load(fh)
+            sets = {(r["scenario"], r["set"]) for r in metrics["scenarios"]}
+            for name in names:
+                self.assertTrue({(name, "hold-out"), (name, "hold-in, in sample"),
+                                 (name, "hold-in, species held out")} <= sets, sets)
+            auto = metrics["features_auto"]
+            self.assertIn(auto["chosen"], [r["features"] for r in auto["candidates"]])
+            self.assertEqual(set(auto["held_out"]), {"test set"} | {f"{name} hold-out" for name in names})
+            self.assertTrue(all(f"F1 {name} hold-out" in r for r in auto["candidates"] for name in names))
+        summary = self.text("scenarios", "model_logs", "summary.txt")
+        for label, count in (("gut: hold-out", 2), ("gut: hold-in, species held out", 2), ("host: hold-in, in sample", 2),
+                             ("soil: hold-out", 1), ("soil_shallow: hold-out", 1)):
+            self.assertEqual(summary.count(label), count, label)
+        self.assertIn("FP rate  FN rate", summary)
+        self.assertRegex(summary, r"Feature sets chosen \(--features auto\):\n  pe: normalized\S*: F1 ")
+        with open(os.path.join(self.tmp.name, "scenarios", "protal_db", "build_metadata.tsv")) as fh:
+            metadata = dict(line.rstrip("\n").split("\t", 1) for line in fh)
+        self.assertTrue(metadata["classifier_scenarios"].startswith(
+            "gut 2 hold-in (training) and 1 hold-out (test) samples, soil 2 hold-in (training) and 1 hold-out"))
+        self.assertIn("; soil scaled from 30-40 to ", metadata["classifier_scenarios"])
+        self.assertRegex(metadata["model_pe_features"], r"^normalized\S* \(--features auto: F1 ")
+        self.assertRegex(metadata["model_se_scenarios"], r"gut hold-out F1 ([0-9.]+|-), FP rate ([0-9.]+%|-)")
+        # Without the host genome, the default scenarios run without host and say so; asked for, host stops the build
+        # before anything runs.
+        default = self.build("scenarios_default_nohost", "--scenario-file", definitions, scenarios=True, wait=False)
+        seen = ""
+        for line in default.stdout:
+            seen += line
+            if "left out: no host genome" in line:
+                break
+        default.send_signal(signal.SIGTERM)
+        default.communicate(timeout=120)
+        self.assertIn("WARNING: scenario host left out: no host genome (--host-genome, or rerun download_gtdb.py", seen)
+        stopped = self.build("scenarios_nohost", "--scenarios", "host", "--scenario-file", definitions, scenarios=True)
+        self.assertNotEqual(stopped.returncode, 0)
+        self.assertIn("its host reads need the host genome", stopped.stdout)
 
 
 if __name__ == "__main__":
