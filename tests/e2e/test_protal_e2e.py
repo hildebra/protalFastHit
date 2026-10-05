@@ -332,7 +332,14 @@ class OutputFilesTest(WorkDir):
         self.assertNotIn("Truth: 0", self.log)
 
     def test_statistics_for_a_single_sample(self):
-        stats = glob.glob(self.path("out", "misc", "*.statistics.tsv"))
+        # The per-taxon files are written only with --taxon_statistics (since 0.7.6), then with one sample, too.
+        self.assertEqual(glob.glob(self.path("out", "misc", "*.statistics.tsv")), [], "not written by default")
+        sample_map = self.path("samples_statistics.map")
+        with open(self.path("samples.map")) as fh, open(sample_map, "w") as out:
+            out.write(fh.read().replace(self.path("out"), self.path("out_statistics"), 1))
+        rc, log = run(self.work, "--db", DB, "--map", sample_map, "-t", "2", "--no_qcmsa", "--taxon_statistics")
+        self.assertEqual(rc, 0, log[-3000:])
+        stats = glob.glob(self.path("out_statistics", "misc", "*.statistics.tsv"))
         self.assertTrue(stats, "written with one sample, too")
         _, rows = read_table(stats[0])
         self.assertEqual([row[0] for row in rows], ["sample_a"])
@@ -874,7 +881,9 @@ class DepthKnobsTest(WorkDir):
 
         log, given = self.profile("given", "--model", model, "--knob", "0.5")
         self.assertIn("; not used, --knob is given", log)
-        self.assertNotIn("Sample sa: ", log)
+        # No knob chosen for the sample ("Sample sa: N fragments, knob ..."); its alignment counts start with
+        # "Sample sa: " too.
+        self.assertNotRegex(log, r"Sample sa: \d+ fragments, ")
         _, default = self.profile("default")
         self.assertEqual(given, default)
 
@@ -1547,9 +1556,14 @@ class CompressedDatabaseTest(WorkDir):
                 self.assertFalse(os.path.lexists(os.path.join(self.dbs["bundle"], variant)), f"{variant} is packed")
         head = subprocess.run(["zstd", "-dc", self.bundle], stdout=subprocess.PIPE).stdout[:8]
         self.assertEqual(head, b"PROTALDB", "the file starts with its directory")
+        # A single file with a current gene table (--compress_db packs one in) is left as it is.
+        with open(self.bundle, "rb") as fh:
+            before = fh.read()
         rc, log = run(self.work, "--compress_db", "--db", self.dbs["bundle"], "-t", "2")
         self.assertEqual(rc, 0, log[-3000:])
-        self.assertIn("already a single-file database; kept", log)
+        self.assertIn("is a single-file database with a current gene_table.bin; kept", log)
+        with open(self.bundle, "rb") as fh:
+            self.assertEqual(fh.read(), before)
         rc, log = run(self.work, "--unpack_db", "--db", self.dbs["seekable"])
         self.assertEqual(rc, 30, log[-3000:])
         self.assertIn("--unpack_db needs a single-file database", log)
