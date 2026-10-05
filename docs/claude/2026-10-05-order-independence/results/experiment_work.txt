@@ -1,0 +1,35 @@
+== unit tests
+[  SKIPPED ] 2 tests, listed below:
+[  SKIPPED ] GeneTables.BenchLoadOfLargeTables
+[  SKIPPED ] GeneSequence.TheBasesOutsideAWindowAreNotLeftToChance
+done work
+done work-reorder
+done base-reorder
+TEST: genome map with a scrambling hash, made in descending taxid order; it iterates 56 112 168 224 336 448 681 737 ...
+TEST: genome map with a scrambling hash, made in descending taxid order; it iterates 56 112 168 224 336 448 681 737 ...
+work pe run 1 vs 2: SAM same, outputs same
+work pe run 1 vs 3: SAM same, outputs same
+work pe run 1 vs 4: SAM same, outputs same
+work pe run 1 vs scrambled maps run 1: SAM same, outputs same
+work pe run 1 vs scrambled maps run 2: SAM same, outputs same
+base pe run 1 vs scrambled maps run 1: SAM same, outputs same
+base pe run 1 vs scrambled maps run 2: SAM same, outputs DIFF (2 lines in 1 files)
+base pe run 1 vs work run 1: SAM same, outputs DIFF (2 lines in 1 files)
+base pe run 2 vs work run 1: SAM same, outputs same
+base pe run 3 vs work run 1: SAM same, outputs DIFF (2 lines in 1 files)
+base pe run 4 vs work run 1: SAM same, outputs same
+records: 456293 in, 456293 shuffled; same set: yes
+work pe: profile of the shuffled SAM same
+work pb run 1 vs 2: SAM same, outputs same
+work pb run 1 vs 3: SAM same, outputs same
+work pb run 1 vs 4: SAM same, outputs same
+work pb run 1 vs scrambled maps run 1: SAM same, outputs same
+work pb run 1 vs scrambled maps run 2: SAM same, outputs same
+base pb run 1 vs scrambled maps run 1: SAM same, outputs same
+base pb run 1 vs scrambled maps run 2: SAM same, outputs same
+base pb run 1 vs work run 1: SAM same, outputs same
+base pb run 2 vs work run 1: SAM same, outputs same
+base pb run 3 vs work run 1: SAM same, outputs same
+base pb run 4 vs work run 1: SAM same, outputs same
+records: 36359 in, 36359 shuffled; same set: yes
+work pb: profile of the shuffled SAM same

@@ -520,6 +520,10 @@ alignments). The table therefore keeps `reference.map`'s genome order and its lo
 no `reserve`; a test checks that the text and binary loaders iterate the map identically (`TheGenomeMapIsBuiltInTheSameOrder`).
 Where outputs depend on that order is worth finding; it is outside this change.
 
+Follow-up 2026-10-05 ([order independence](../2026-10-05-order-independence/README.md)): the genome map iterates in
+taxid order whatever the insertion order (identity hash, dense taxids), and no output depended on it; the varying
+`.profile.gene.log` value was a double sum in SAM record order, now exact.
+
 **Concurrent start-up** (the user's request; `--sequential_load` keeps the old order for comparison): after the gene
 tables, the index loads on a thread of its own beside the genome preload, and the single-threaded tables each on one
 (taxonomy, the models, gene conservation, suspect copies, species priors, the gene neighbours' table; the neighbours bind

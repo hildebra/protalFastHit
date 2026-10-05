@@ -717,8 +717,9 @@ namespace protal {
         // reference.map's fingerprint (xxhash64 of its content, reference.fna's size), as ReferenceFingerprint::Of gives it:
         // hashed while it is parsed, or recorded in gene_table.bin; the index is checked against it.
         std::optional<ReferenceFingerprint> m_fingerprint;
-        // The genomes in the order they were made (reference.map's order of first appearance). The genome map's iteration order
-        // follows from it, and some outputs break ties in that order, so gene_table.bin records it and its loader makes them the same.
+        // The genomes in the order they were made (reference.map's order of first appearance), which gene_table.bin keeps (the same
+        // tables give the same bytes) and its loader makes them in. No output depends on it, nor on the genome map's iteration
+        // order (docs/claude/2026-10-05-order-independence).
         std::vector<GenomeKey> m_genome_order;
         struct FreeDeleter { void operator()(void* p) const { std::free(p); } };
         std::vector<std::unique_ptr<uint8_t[], FreeDeleter>> m_arenas;  // the preloaded genes' packed sequences (Gene::SetPacked)
@@ -822,7 +823,7 @@ namespace protal {
                     return skip("its genome " + std::to_string(i + 1) + " is corrupt");
                 }
                 next += g.count;
-                AddOrGetGenome(g.taxid);  // in reference.map's order, as LoadPositionMap makes them: the same genome map
+                AddOrGetGenome(g.taxid);  // in reference.map's order, as LoadPositionMap makes them
                 m_genome_order.push_back(g.taxid);
             }
             if (next != h.genes) return skip("its gene count is corrupt");
@@ -1194,14 +1195,26 @@ namespace protal {
             return longest;
         }
 
+        // The genome map iterates in an order of its own (its buckets'), which nothing should depend on: code whose
+        // result depends on the order of the genomes goes over SortedKeys() instead.
         GenomeMap& GetGenomeMap() {
             return m_genomes;
         }
 
+        // The genomes' taxids in ascending order.
+        std::vector<GenomeKey> SortedKeys() const {
+            std::vector<GenomeKey> keys;
+            keys.reserve(m_genomes.size());
+            for (auto const& [key, _] : m_genomes) keys.push_back(key);
+            std::sort(keys.begin(), keys.end());
+            return keys;
+        }
+
+        // The header for every gene of the database (--full_sam_header), by taxid and gene id.
         void WriteSamHeader(std::ostream& os=std::cout) {
             os << "@HD\tVN:1.6\n";
-            for (auto& [key, genome] : m_genomes) {
-                auto& genes = genome.GetGeneList();
+            for (auto const key : SortedKeys()) {
+                auto& genes = m_genomes.at(key).GetGeneList();
                 for (auto i = 0; i < genes.size(); i++) {
                     if (genes[i].IsSet()) {
 
@@ -1236,11 +1249,7 @@ namespace protal {
         // chunks, other zstd files in one stream), and each piece is copied, uppercased, into the
         // genes it overlaps. Large reads instead of one seek per gene, which matters on network storage.
         void LoadAllGenomes(int threads = 1) {
-            std::vector<GenomeKey> keys;
-            for (auto& pair : m_genomes) {
-                keys.emplace_back(pair.first);
-            }
-            std::sort(keys.begin(), keys.end());
+            auto const keys = SortedKeys();
 
             std::vector<Gene*> genes;
             for (auto& key : keys) {

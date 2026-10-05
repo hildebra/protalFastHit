@@ -1,6 +1,7 @@
 // Profiling a SAM on several threads (Profiler::ProfileSam, SamChunks.h): the chunks a SAM is cut into, and
 // a profile that is the same as on one thread, taxon for taxon and gene for gene, in the order of the maps.
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -202,7 +203,7 @@ namespace {
             os << '\n';
             for (auto const& [geneid, gene] : taxon.GetGenes()) {
                 os << " gene " << geneid << ' ' << gene.m_mapped_reads << ' ' << gene.m_mapped_length << ' '
-                   << profiler::FeatureString(gene.m_identity_bases) << ' ' << profiler::FeatureString(gene.m_ani_sum) << ' '
+                   << profiler::FeatureString(gene.m_identity_bases.Value()) << ' ' << profiler::FeatureString(gene.m_ani_sum.Value()) << ' '
                    << gene.m_fragments << " identities";
                 for (auto const& [identity, length] : gene.m_read_identities) os << ' ' << identity << ':' << length;
                 os << "\n  coverage";
@@ -217,8 +218,36 @@ namespace {
         return os.str();
     }
 
+    // The profile with no trace of the order of the reads: taxa by taxid, genes by id (the map's order), each gene's
+    // read identities sorted and its variant sites by position. A SAM with its reads in another order gives the same.
+    std::string OrderFreeDump(profiler::MicrobialProfile const& profile) {
+        std::ostringstream os;
+        for (auto const taxid : profile.SortedTaxa()) {
+            auto const& taxon = profile.GetTaxa().at(taxid);
+            os << "taxon " << taxid << " hits " << taxon.TotalHits() << " fragments " << taxon.Fragments() << '\n';
+            for (auto const& [name, value] : profiler::TaxonFeatures(taxon)) os << ' ' << name << '=' << profiler::FeatureString(value);
+            os << '\n';
+            for (auto const& [geneid, gene] : taxon.GetGenes()) {
+                os << " gene " << geneid << ' ' << gene.m_mapped_reads << ' ' << gene.m_mapped_length << ' '
+                   << profiler::FeatureString(gene.m_identity_bases.Value()) << ' ' << profiler::FeatureString(gene.m_ani_sum.Value()) << ' '
+                   << gene.m_fragments << " identities";
+                auto identities = gene.m_read_identities;
+                std::sort(identities.begin(), identities.end());
+                for (auto const& [identity, length] : identities) os << ' ' << identity << ':' << length;
+                os << "\n  coverage";
+                for (auto c : gene.GetStrainLevel().GetSequenceRangeHandler().CalculateCoverageVector2()) os << ' ' << c;
+                std::map<size_t, std::string> sites;
+                for (auto const& [pos, bin] : gene.GetStrainLevel().GetVariantHandler().GetVariants()) sites[pos] = VariantHandler::VariantBinToString(bin);
+                os << "\n  variants";
+                for (auto const& [pos, text] : sites) os << ' ' << pos << ':' << text;
+                os << '\n';
+            }
+        }
+        return os.str();
+    }
+
     struct Profiled {
-        std::string error, rejected, log, dump;
+        std::string error, rejected, log, dump, order_free;
         size_t reads = 0, rejected_reads = 0;
     };
 
@@ -241,6 +270,7 @@ namespace {
         out.reads = profiler.Reads();
         out.rejected_reads = profiler.RejectedReads();
         out.dump = Dump(profile);
+        out.order_free = OrderFreeDump(profile);
         return out;
     }
 
@@ -490,5 +520,47 @@ TEST(ProfileSam, OnSeveralThreadsTheErrorsAreTheSame) {
         auto const serial = Profile(ref, path, 1);
         for (size_t bytes : { 1, 300, 0 }) ExpectSame(serial, Profile(ref, path, 3, bytes));
         if (name == "broken.sam") EXPECT_NE(serial.error.find("line "), std::string::npos) << serial.error;
+    }
+}
+
+TEST(ProfileSam, TheProfileDoesNotDependOnTheOrderOfTheReads) {
+    // Multi-threaded alignment writes a sample's reads in another order each run. Sums over the records (the genes' ANI
+    // and identity sums), the gene map's order (insertion order, in the depth vectors and their variance) and the
+    // alleles' order at a site (first seen) followed it, and a value of .profile.gene.log changed in its last digit
+    // between runs. Each read's records stay together and in their order; the reads are shuffled.
+    Reference ref(true);
+    auto const text = Sam(ref, 3000, 23, false);
+    std::string header;
+    std::vector<std::string> reads;
+    std::string last;
+    for (size_t at = 0; at < text.size();) {
+        size_t end = text.find('\n', at);
+        end = end == std::string::npos ? text.size() : end + 1;
+        std::string const line = text.substr(at, end - at);
+        at = end;
+        if (line[0] == '@') {
+            header += line;
+            continue;
+        }
+        auto const name = sam_chunks::RecordName(line.data(), line.data() + line.size() - 1);
+        if (reads.empty() || (name && std::string(*name) != last)) reads.emplace_back();
+        if (name) last = std::string(*name);
+        reads.back() += line;
+    }
+    ASSERT_GT(reads.size(), 2900u);
+    auto const original = ref.dir.Write("original.sam", header + [&] { std::string s; for (auto const& r : reads) s += r; return s; }());
+    Random random(29);
+    for (size_t i = reads.size() - 1; i > 0; i--) std::swap(reads[i], reads[random.Next(static_cast<uint32_t>(i + 1))]);
+    auto const shuffled = ref.dir.Write("shuffled.sam", header + [&] { std::string s; for (auto const& r : reads) s += r; return s; }());
+
+    auto const a = Profile(ref, original, 1);
+    ASSERT_EQ(a.error, "");
+    for (size_t threads : { 1, 3 }) {
+        SCOPED_TRACE("threads " + std::to_string(threads));
+        auto const b = Profile(ref, shuffled, threads, threads > 1 ? 500 : 0);
+        EXPECT_EQ(b.error, "");
+        EXPECT_EQ(a.reads, b.reads);
+        EXPECT_EQ(a.rejected_reads, b.rejected_reads);
+        EXPECT_EQ(a.order_free, b.order_free);
     }
 }

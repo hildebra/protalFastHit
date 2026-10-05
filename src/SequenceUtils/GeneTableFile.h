@@ -14,8 +14,8 @@
 //   Header   magic "PRGENES1", version, the sizes of the reference.map and unique_kmers.tsv members it was made from
 //            (unique_kmers.tsv: 0 if there was none), whether it holds the unique k-mer counts, the ReferenceFingerprint
 //            (xxhash64 of reference.map, size of reference.fna), the number of genomes and of genes
-//   Genomes  in the order reference.map lists them (first appearance; the genome map is built in that order, and some
-//            outputs break ties by its iteration order): taxid, gene slots (the largest gene id), the index of its first gene, its number of genes
+//   Genomes  in the order reference.map lists them (first appearance; the loader makes the genomes in that order, as the
+//            text loader does): taxid, gene slots (the largest gene id), the index of its first gene, its number of genes
 //   Genes    by genome, by gene id: start byte in reference.fna, gene id, length, the four unique k-mer counts
 #pragma once
 

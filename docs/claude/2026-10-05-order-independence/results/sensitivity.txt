@@ -1,0 +1,19 @@
+18:        double m_units = 0;
+[       OK ] ProfileSam.ALongReadsGenesAreOneLinkedRead (39 ms)
+[       OK ] ProfileSam.OnSeveralThreadsTheProfileIsTheSame (561 ms)
+[       OK ] ProfileSam.OnSeveralThreadsTheGeneNeighboursFeaturesAreTheSame (581 ms)
+[       OK ] ProfileSam.OnSeveralThreadsTheCompressedSamsGiveTheSameProfile (221 ms)
+[       OK ] ProfileSam.AZstdSamOfManyFramesIsDecompressedOnThreadsOfItsOwn (191 ms)
+[       OK ] ProfileSam.ATaxonLeftWithoutRecordsIsProfiledAsOnOneThread (41 ms)
+[       OK ] ProfileSam.OnSeveralThreadsTheErrorsAreTheSame (63 ms)
+[  FAILED  ] ProfileSam.TheProfileDoesNotDependOnTheOrderOfTheReads (89 ms)
+[  FAILED  ] ExactSum.TheSumIsTheSameInAnyOrderWhereADoubleSumIsNot (0 ms)
+[  FAILED  ] ExactSum.PartsAddUpToTheWhole (0 ms)
+[  FAILED  ] ExactSum.SmallSumsAreExact (0 ms)
+[  PASSED  ] 7 tests.
+[  FAILED  ] 4 tests, listed below:
+[  FAILED  ] ProfileSam.TheProfileDoesNotDependOnTheOrderOfTheReads
+[  FAILED  ] ExactSum.TheSumIsTheSameInAnyOrderWhereADoubleSumIsNot
+[  FAILED  ] ExactSum.PartsAddUpToTheWhole
+[  FAILED  ] ExactSum.SmallSumsAreExact
+ 4 FAILED TESTS

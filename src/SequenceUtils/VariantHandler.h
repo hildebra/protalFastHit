@@ -399,7 +399,7 @@ namespace protal {
             }
 
             std::stable_sort(bin.begin(), bin.end(), [](Variant const& a, Variant const& b) {
-                return a.Observations() > b.Observations();
+                return a.Observations() != b.Observations() ? a.Observations() > b.Observations() : a.AlleleBefore(b);
             });
             FilterSNPs(bin, forward + reverse, min_observations, min_observations_fwdrev, min_frequency, min_avg_quality, min_phred_sum, require_strand);
         }

@@ -34,7 +34,9 @@ PROTAL=build/protal SIMULATE=build/simulate_metagenomes PROTAL_TRAIN_PYTHON=~/pr
 ## Unit tests
 
 `tests/test_*.cpp` cover SNP calling, the SAM round trip, index building and lookup, the index
-column codec, zstd and the single-file database, input validation, parsing, and strain output.
+column codec, zstd and the single-file database, input validation, parsing, and strain output; and
+that a SAM's profile is the same on any number of threads and in any order of its reads
+(`test_ProfileThreads.cpp`: multi-threaded alignment writes the reads in another order each run).
 They build as one binary:
 
 ```bash

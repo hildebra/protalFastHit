@@ -29,6 +29,7 @@
 #include "ReadType.h"
 #include "SamChunks.h"
 #include "SampleContext.h"
+#include "ExactSum.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -128,7 +129,10 @@ namespace protal {
         struct Gene;
         struct Taxon;
 
-        using GeneMap = tsl::sparse_map<uint32_t, Gene>;
+        // A taxon's genes by gene id: everything that goes over them (depth vectors and their variance, sums over the genes,
+        // the outputs) does so in id order, not in the order the SAM's records first named them, which multi-threaded
+        // alignment varies from run to run.
+        using GeneMap = std::map<uint32_t, Gene>;
         using TaxonMap = tsl::sparse_map<uint32_t, Taxon>;
         using GeneRef = protal::Gene;
 
@@ -184,13 +188,13 @@ namespace protal {
             size_t m_unique_two_mers = 0;
             size_t m_unique_mer_reads = 0;
             size_t m_unique_two_mer_reads = 0;
-            double m_ani_sum = 0;
+            ExactSum m_ani_sum;  // the records' ANIs; exact, so the same in any order of the records (ExactSum.h)
 
             size_t m_gene_length = 0;
             StrainLevelContainer m_strain_level;
             // Identity and fragment bases (below) of every read, for depth from a taxon's own reads.
             std::vector<std::pair<float, uint32_t>> m_read_identities;
-            double m_identity_bases = 0;  // aligned reference bases times their read's identity
+            ExactSum m_identity_bases;  // aligned reference bases times their read's identity
             size_t m_fragments = 0;       // reads, a pair counting once
             size_t m_last_read = SIZE_MAX;
             // The reference bases of the gene its fragments cover, each base of a fragment once: where a pair's mates
@@ -284,9 +288,9 @@ namespace protal {
                 s += std::to_string(m_mapped_reads) + '\t';
                 s += std::to_string(cov_sum) + '\t';
                 s += std::to_string(m_gene_length) + '\t';
-                s += std::to_string(m_ani_sum) + '\t';
+                s += std::to_string(m_ani_sum.Value()) + '\t';
                 s += std::to_string(m_mapq_sum) + '\t';
-                s += std::to_string(m_ani_sum/static_cast<double>(m_mapped_reads)) + '\t';
+                s += std::to_string(m_ani_sum.Value()/static_cast<double>(m_mapped_reads)) + '\t';
                 s += std::to_string(m_mapq_sum/static_cast<double>(m_mapped_reads)) + '\t';
                 s += std::to_string(m_strain_level.GetSequenceRangeHandler().CoveredPortion()) + '\t';
                 s += std::to_string(m_strain_level.GetSequenceRangeHandler().CoveredPortion()/static_cast<double>(m_gene_length)) + '\t';
@@ -395,7 +399,7 @@ namespace protal {
                 std::string str = "{";
                 str += std::to_string(m_mapped_reads) + ",";
                 str += std::to_string(static_cast<double>(m_mapq_sum)/m_mapped_reads) + ",";
-                str += std::to_string(m_ani_sum/m_mapped_reads) + "}";
+                str += std::to_string(m_ani_sum.Value()/m_mapped_reads) + "}";
 
 
                 return str;
@@ -405,7 +409,7 @@ namespace protal {
                 std::string str;
                 str += std::to_string(m_mapped_reads) + "\t";
                 str += std::to_string(static_cast<double>(m_mapq_sum)/m_mapped_reads) + "\t";
-                str += std::to_string(m_ani_sum/m_mapped_reads) + "\t";
+                str += std::to_string(m_ani_sum.Value()/m_mapped_reads) + "\t";
 //                str += std::to_string(m_snps.size());
                 return str;
             }
@@ -766,7 +770,7 @@ namespace protal {
             size_t m_unique_mers = 0;
             size_t m_unique_mer_reads = 0;
             size_t m_unique_hits = 0;
-            double m_ani_sum = 0;
+            ExactSum m_ani_sum;  // the records' scores (ANIs), the same in any order of the records
             size_t m_mapq_sum = 0;
             mutable double m_vcov = -1;  // cached by VerticalCoverage
             mutable double m_low_identity_share = 0;
@@ -817,14 +821,15 @@ namespace protal {
 
             void AddHit(GeneId geneid, GenePos genepos, double ani, bool unique) {
                 Changed();
-                if (!m_genes.contains(geneid)) {
+                auto it = m_genes.find(geneid);
+                if (it == m_genes.end()) {
                     auto& g = m_genome->GetGene(geneid);
                     m_genome->LoadGeneOMP(geneid);
-                    m_genes.insert( { geneid, profiler::Gene(g) } );
-                    m_genes.at(geneid).SetLength(m_genome->GetGene(geneid).GetLength());
+                    it = m_genes.emplace(geneid, profiler::Gene(g)).first;
+                    it->second.SetLength(g.GetLength());
                 }
 
-                m_genes.at(geneid).AddRead(genepos);
+                it->second.AddRead(genepos);
                 m_total_hits++;
                 m_ani_sum += ani;
                 m_unique_hits += unique;
@@ -859,20 +864,21 @@ namespace protal {
             bool AddSam(GeneId geneid, SamEntry const& sam, double score, bool unique, size_t read_id, bool no_strain=true,
                         ReadEvidence const& evidence = {}) {
                 Changed();
-                bool const new_gene = !m_genes.contains(geneid);
+                auto it = m_genes.find(geneid);  // one lookup per record
+                bool const new_gene = it == m_genes.end();
                 if (new_gene) {
                     auto& g = m_genome->GetGene(geneid);
                     m_genome->LoadGeneOMP(geneid);
-                    m_genes.insert( { geneid, profiler::Gene(g) } );
-                    m_genes.at(geneid).SetLength(m_genome->GetGene(geneid).GetLength());
+                    it = m_genes.emplace(geneid, profiler::Gene(g)).first;
+                    it->second.SetLength(g.GetLength());
                 }
 
                 ReadAlleles read_alleles;
                 ReadAlleles* alleles = m_keep_phase_records && !no_strain ? &read_alleles : nullptr;
-                bool success = m_genes.at(geneid).AddSam(sam, read_id, score, no_strain, alleles);
+                bool success = it->second.AddSam(sam, read_id, score, no_strain, alleles);
                 if (!success) {
                     // A gene is present only with at least one read.
-                    if (new_gene) m_genes.erase(geneid);
+                    if (new_gene) m_genes.erase(it);
                     return false;
                 }
                 if (alleles) {
@@ -1167,7 +1173,7 @@ namespace protal {
             }
 
             double GetMeanANI() const {
-                return m_total_hits == 0 ? 0 : m_ani_sum/m_total_hits;
+                return m_total_hits == 0 ? 0 : m_ani_sum.Value()/m_total_hits;
             }
 
             double GetMeanMAPQ() const {
@@ -1180,7 +1186,7 @@ namespace protal {
             }
 
             size_t TotalLength() const {
-                return std::accumulate(m_genes.begin(), m_genes.end(), size_t{0}, [](size_t acc, std::pair<uint32_t, Gene> const& pair){
+                return std::accumulate(m_genes.begin(), m_genes.end(), size_t{0}, [](size_t acc, auto const& pair){
                     return acc + pair.second.m_mapped_length;
                 });
             }
@@ -1298,7 +1304,7 @@ namespace protal {
             void ReleaseReadData(bool keep_strain_data) {
                 VerticalCoverage();
                 for (auto it = m_genes.begin(); it != m_genes.end(); ++it) {
-                    auto& gene = it.value();
+                    auto& gene = it->second;
                     std::vector<std::pair<float, uint32_t>>{}.swap(gene.m_read_identities);
                     if (!keep_strain_data) gene.GetStrainLevel().Clear();
                 }
@@ -1369,13 +1375,13 @@ namespace protal {
             // Aligned bases weighted by their read's identity, over all aligned bases: identity with
             // indels as differences (GetMeanANI counts them as matches).
             double BaseIdentity() const {
-                double weighted = 0;
+                ExactSum weighted;
                 size_t bases = 0;
                 for (auto const& [id, gene] : m_genes) {
                     weighted += gene.m_identity_bases;
                     bases += gene.m_mapped_length;
                 }
-                return bases == 0 ? 0 : weighted / static_cast<double>(bases);
+                return bases == 0 ? 0 : weighted.Value() / static_cast<double>(bases);
             }
 
             // `count` per 1000 aligned bases.
@@ -1552,7 +1558,7 @@ namespace protal {
                 str += "HittableGenes: " + std::to_string(m_genome->GeneNum()) + ", ";
                 str += "Total Hits: " + std::to_string(m_total_hits) + ", ";
                 str += "Total MGenome: " + std::to_string(total_gene_length) + ", ";
-                str += "MeanANI: " + std::to_string(m_ani_sum/(double)m_total_hits) + ", ";
+                str += "MeanANI: " + std::to_string(m_ani_sum.Value()/(double)m_total_hits) + ", ";
                 str += "MeanMAPQ: " + std::to_string(GetMeanMAPQ()) + ", ";
                 str += "VCOV: " + std::to_string(VerticalCoverage()) + ", ";
                 str += " }";
@@ -3034,7 +3040,7 @@ namespace protal {
                     str += " (Filtered)";
                 }
                 str += '\n';
-                for (auto const& [id, _] : m_taxa) {
+                for (auto const id : SortedTaxa()) {
                     auto& taxon = m_taxa.at(id);
                     if (filter.has_value() && !filter->Pass(taxon)) continue;
                     taxon.VerticalCoverage();
@@ -3051,7 +3057,7 @@ namespace protal {
 
                 str += m_name + '\t';
                 str += std::to_string(m_taxa.size());
-                for (auto const& [id, _] : m_taxa) {
+                for (auto const id : SortedTaxa()) {
                     str += m_taxa.at(id).ToString() + '\n';
                 }
 
@@ -3102,10 +3108,11 @@ namespace protal {
                 return ids;
             }
 
-            // Summed depth of the taxa that pass the model: abundances are fractions of it.
+            // Summed depth of the taxa that pass the model: abundances are fractions of it. Summed in taxid order, not in
+            // the map's, which follows the order of the SAM's records.
             double PassingDepth(TaxonFilterObj const& filter) {
                 double total = 0;
-                for (auto const& [id, _] : m_taxa) {
+                for (auto const id : SortedTaxa()) {
                     auto& taxon = m_taxa.at(id);
                     if (filter.Pass(taxon)) total += taxon.VerticalCoverage();
                 }
@@ -3165,7 +3172,7 @@ namespace protal {
                             << gene.m_unique_two_mers << '\t'
                             << gene.m_unique_mer_reads << '\t'
                             << gene.m_unique_two_mer_reads << '\t'
-                            << (reads > 0 ? gene.m_ani_sum / reads : 0) << '\t'
+                            << (reads > 0 ? gene.m_ani_sum.Value() / reads : 0) << '\t'
                             << vcov << '\t'
                             << expected_vcov << '\t'
                             << expected_hcov << '\t'

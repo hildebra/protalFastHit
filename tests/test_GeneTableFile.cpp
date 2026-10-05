@@ -247,7 +247,8 @@ TEST(GeneTableFile, ASingleFileDatabaseLoadsIt) {
 }
 
 // The genome map is built in the order reference.map lists the genomes, from the text tables and from the binary one alike:
-// its iteration order is the same, which some outputs depend on (ties), and so are the runs' outputs.
+// its iteration order is the same. No output depends on that order (docs/claude/2026-10-05-order-independence); the two
+// loaders are kept alike all the same.
 TEST(GeneTableFile, TheGenomeMapIsBuiltInTheSameOrder) {
     TempDir dir;
     Tables t(dir, 300, 30, "", true);  // 300 is not a multiple of 7: every taxid once

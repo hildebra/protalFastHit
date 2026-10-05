@@ -1,0 +1,21 @@
+done base
+done base-reorder
+base pe run 1 vs 2: SAM same, outputs DIFF (2 lines in 1 files)
+base pe run 1 vs 3: SAM same, outputs same
+base pe run 1 vs 4: SAM same, outputs DIFF (2 lines in 1 files)
+base pe run 1 vs reordered genome map run 1: SAM same, outputs DIFF (2 lines in 1 files)
+base pe run 1 vs reordered genome map run 2: SAM same, outputs same
+records: 456293 in, 456293 shuffled; same set: yes
+base pe: profile of the shuffled SAM DIFFERS
+diff -r -x '*_runtime.tsv' -x '*.statistics.tsv' /home/falk/det-order/runs/base/shuffled_pe/p.in/s.profile.gene.log /home/falk/det-order/runs/base/shuffled_pe/p.shuffled/s.profile.gene.log
+1439c1439
+< s	176	d__Bacteria;p__Halpraota;c__Cacoia;o__Quiperoales;f__Dotulaceae;g__Miflanaella;s__Miflanaella balemcorensis	176	90	Gene90	26	3471	900	25.932187	2771	0.997392	106.576923	900	1.000000	0	9	0	0	3	6	0	0	0
+---
+> s	176	d__Bacteria;p__Halpraota;c__Cacoia;o__Quiperoales;f__Dotulaceae;g__Miflanaella;s__Miflanaella balemcorensis	176	90	Gene90	26	3471	900	25.932188	2771	0.997392	106.576923	900	1.000000	0	9	0	0	3	6	0	0	0
+base pb run 1 vs 2: SAM same, outputs same
+base pb run 1 vs 3: SAM same, outputs same
+base pb run 1 vs 4: SAM same, outputs same
+base pb run 1 vs reordered genome map run 1: SAM same, outputs same
+base pb run 1 vs reordered genome map run 2: SAM same, outputs same
+records: 36359 in, 36359 shuffled; same set: yes
+base pb: profile of the shuffled SAM same

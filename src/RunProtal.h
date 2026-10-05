@@ -1103,7 +1103,9 @@ namespace protal {
 
             profile.SetName(options.GetSampleId(i));
 
-            for (auto const& [taxid, taxon] : profile.GetTaxa()) {
+            // In taxid order: the map's follows the order of the SAM's records.
+            for (auto const taxid : profile.SortedTaxa()) {
+                auto const& taxon = profile.GetTaxa().at(taxid);
                 double const score = filter.Score(taxon);
                 if (filter.Calls(taxon, filter.GetKnob()) || !profiler::StrongOwnEvidence(taxon)) continue;
                 std::string const species = taxonomy.Get(taxid).scientific_name;
@@ -1521,8 +1523,10 @@ namespace protal {
             }
         }
 
+        // Ties by taxid: the counts' map iterates in the order the taxa were met.
         std::sort(taxid_list.begin(), taxid_list.end(), [&taxid_counts](uint32_t const& t1, uint32_t const& t2) {
-            return taxid_counts.at(t1) > taxid_counts.at(t2);
+            auto const c1 = taxid_counts.at(t1), c2 = taxid_counts.at(t2);
+            return c1 != c2 ? c1 > c2 : t1 < t2;
         });
 
         return taxid_list;

@@ -964,6 +964,7 @@ namespace protal::build {
         }
         std::vector<std::vector<uint32_t>> genera;
         for (auto& [_, members] : by_genus) {
+            std::sort(members.begin(), members.end());  // by taxid, not in the genome map's order
             if (members.size() >= 2) genera.push_back(std::move(members));
         }
         if (genera.empty()) {

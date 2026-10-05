@@ -14,10 +14,12 @@
 #include <string_view>
 
 namespace protal {
-    // Alleles ranked as calls: by observations, then by quality sum.
+    // Alleles ranked as calls: by observations, then by quality sum, then by the allele itself (Variant::AlleleBefore),
+    // not by the order the reads first showed them in.
     static bool RanksBefore(Variant const& a, Variant const& b) {
         if (a.Observations() != b.Observations()) return a.Observations() > b.Observations();
-        return a.QualitySum() > b.QualitySum();
+        if (a.QualitySum() != b.QualitySum()) return a.QualitySum() > b.QualitySum();
+        return a.AlleleBefore(b);
     }
 
     // The call at a site from its base alleles (the reference, SNPs, a deletion; not insertions,

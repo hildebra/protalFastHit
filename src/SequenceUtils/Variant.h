@@ -262,6 +262,16 @@ public:
         return variant_type == VariantType::DEL;
     }
 
+    // Alleles of one site in an order of what they are: bases (the reference's and SNPs') before deletions before
+    // insertions, then by base or by the inserted/deleted bases. Sorts break ties with it, so that a site's alleles do
+    // not stay in the order the reads first showed them, which follows the order of the SAM's records.
+    bool AlleleBefore(Variant const& other) const {
+        auto const kind = [](Variant const& v) { return v.IsINS() ? 2 : v.IsDEL() ? 1 : 0; };
+        if (kind(*this) != kind(other)) return kind(*this) < kind(other);
+        if (!IsINDEL()) return variant < other.variant;
+        return *structural < *other.structural;
+    }
+
     bool Match(VariantPos pos, Base base, Base ref) const {
         return pos == position &&
             base == variant && ref == reference;

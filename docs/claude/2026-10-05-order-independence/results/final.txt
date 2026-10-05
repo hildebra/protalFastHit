@@ -1,0 +1,49 @@
+OK build work
+[  PASSED  ] 349 tests.
+base/pe1: 25.932187
+base/pe2: 25.932188
+base/pe3: 25.932187
+base/pe4: 25.932188
+work/pe1: 25.932188
+work/pe2: 25.932188
+done work
+work pe run 1 vs 2: SAM same, outputs same
+work pe run 1 vs 3: SAM same, outputs same
+work pe run 1 vs 4: SAM same, outputs same
+work pe run 1 vs scrambled maps run 1 (built before the single lookup): SAM same, outputs same
+base pe run 1 vs work run 1: SAM same, outputs DIFF (2 lines in 1 files)
+base pe run 2 vs work run 1: SAM same, outputs same
+base pe run 3 vs work run 1: SAM same, outputs DIFF (2 lines in 1 files)
+base pe run 4 vs work run 1: SAM same, outputs same
+records: 456293 in, 456293 shuffled; same set: yes
+work pe: profile of the shuffled SAM same
+work pb run 1 vs 2: SAM same, outputs same
+work pb run 1 vs 3: SAM same, outputs same
+work pb run 1 vs 4: SAM same, outputs same
+work pb run 1 vs scrambled maps run 1 (built before the single lookup): SAM same, outputs same
+base pb run 1 vs work run 1: SAM same, outputs same
+base pb run 2 vs work run 1: SAM same, outputs same
+base pb run 3 vs work run 1: SAM same, outputs same
+base pb run 4 vs work run 1: SAM same, outputs same
+records: 36359 in, 36359 shuffled; same set: yes
+work pb: profile of the shuffled SAM same
+pe base 1 878ms
+pe work 1 883ms
+pe base 2 950ms
+pe work 2 847ms
+pe base 3 828ms
+pe work 3 815ms
+pe base 4 824ms
+pe work 4 841ms
+pe base 5 826ms
+pe work 5 822ms
+pb base 1 271ms
+pb work 1 271ms
+pb base 2 273ms
+pb work 2 296ms
+pb base 3 279ms
+pb work 3 278ms
+pb base 4 278ms
+pb work 4 276ms
+pb base 5 280ms
+pb work 5 279ms
