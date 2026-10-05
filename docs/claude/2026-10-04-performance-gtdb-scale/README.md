@@ -923,6 +923,32 @@ records and counts identical; 17 long-read `profile.genes.log` files differ by o
 `UniqueTwoMers` (a seed once dropped now counts in another anchor). Wall time the same within noise. The simulated
 world's genes have few internal repeats; r226's real ones are where it shows, in the next cluster run's counts.
 
+## The index load's buffers (2026-10-05)
+
+At r226 the index loads in ~450 chunks of ~64 MB decoded (the default frame size), one per thread at a time, and each of
+the 32 threads held, until the load ended: the compressed frame, the decompressed (column-encoded) chunk, and the chunk's
+~6.4M value cells in the 8-byte file layout (~50 MB), from which `PackBlocks` packed them into the 50-bit slots. An
+estimate per thread: compressed ~25 MB, decompressed ~46 MB (7 bytes an entry at taxid 3, gene 1, position 2 bytes and
+the flags; 8 a flex cell), values 51 MB: some 3.9 GB on 32 threads, of which the values 1.6 GB.
+
+**The values are now packed key by key as the chunk is decoded** (`index_codec::detail::ValueSink`: `DecodeChunk` hands
+each key's cells, already composed in its 64k-cell batches, to `Seedmap::PackKey`; a chunk stored raw, rare, is packed
+from an aligned copy of it). No thread holds a chunk's values any more: −1.6 GB expected at r226 (38.1 → ~36.5 GB), the
+next run's `Memory after loading the index` line will tell. **Runtime: none lost, some gained**: the 8-byte copy (23 GB
+written and read again at r226) is gone. Locally (e2e database, whose index has only 0.1 GB of values beside its 3.2 GB
+key map, so its memory hardly changes): `Load Index` pe 0.67/0.78/0.59 → 0.58/0.40/0.40 s at 6 threads, 1.95 → 1.31 s
+at 1; PacBio alike; the SAM records identical in all 16 runs (sorted; the files' record order varies run to run), the
+other outputs identical; 363 tests (a new one: a value outside the layout stops the column load as before).
+
+What is left, ~2.3 GB on 32 threads, is the frames themselves. Two ways to lower it, both with a cost:
+
+- **Smaller frames**: the chunks follow the frame size of the database (`--compress_frame_mb`, 64 by default). A database
+  written with 16 MB frames would hold a quarter of it (~0.6 GB): at load time no slower (4× the frames, each a quarter
+  of the work), but the database must be written again (`--unpack_db`, then `--compress_db --compress_frame_mb 16`) and
+  its index compresses somewhat worse (independent frames of a quarter the size).
+- **Fewer loading threads**: 16 instead of 32 halve it (−1.2 GB), but the index load (2.8 s at 32) is the start-up's
+  critical path now that the preload ends first; roughly +1-1.5 s wall per run.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):

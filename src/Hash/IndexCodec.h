@@ -136,12 +136,24 @@ namespace protal::index_codec {
         }
 
         inline std::string const kValuesDiffer = "its values differ from the index";
+        inline std::string const kSinkRefused = "its values were refused";
+
+        // Takes a chunk's value cells as DecodeChunk makes them, instead of an array of them: `key` each key's n cells
+        // (its flex cells, then its entries, as the 8-byte file layout has them) from its first slot, `range` all cells
+        // of a chunk stored raw. False refuses them (DecodeChunk returns kSinkRefused). Seedmap packs the cells as they
+        // come, without the chunk's ~50 MB of 8-byte cells on each loading thread (1.6 GB on 32 threads at r226).
+        struct ValueSink {
+            using Take = bool (*)(void* context, uint64_t first_slot, uint64_t const* cells, uint64_t n);
+            Take key = nullptr, range = nullptr;
+            void* context = nullptr;
+        };
 
         // Decodes a chunk payload into the key map cells of its blocks (km) and its value cells (vals). With
         // `expected` (vals unused) the value cells are compared with the index's cells instead (kValuesDiffer if
         // any differs): a check of a chunk against the index needs no copy of its values (~50 MB per chunk at r226).
+        // With `sink` (vals unused) they go to it (ValueSink).
         PROTAL_CLONE_V3 inline std::string DecodeChunk(char const* data, size_t size, Layout const& l, Chunk const& c, uint16_t* km,
-                                       uint64_t* vals, Cells const* expected = nullptr) {
+                                       uint64_t* vals, Cells const* expected = nullptr, ValueSink const* sink = nullptr) {
             uint64_t const cpb = l.CellsPerBlock(), kpb = l.keys_per_block;
             if (size < kChunkHeaderBytes) return "chunk shorter than its header";
             auto const* u = reinterpret_cast<unsigned char const*>(data);
@@ -155,6 +167,11 @@ namespace protal::index_codec {
                     std::vector<uint64_t> buffer;
                     uint64_t const* const want = expected->Range(c.first_value, c.values, buffer);
                     return std::memcmp(want, raw_values, 8 * c.values) == 0 ? "" : kValuesDiffer;
+                }
+                if (c.values > 0 && sink) {  // rare (a chunk the split form does not give exactly): an aligned copy
+                    std::vector<uint64_t> cells(c.values);
+                    std::memcpy(cells.data(), raw_values, 8 * c.values);
+                    return sink->range(sink->context, c.first_value, cells.data(), c.values) ? "" : kSinkRefused;
                 }
                 if (c.values > 0) std::memcpy(vals, raw_values, 8 * c.values);
                 return "";
@@ -226,11 +243,18 @@ namespace protal::index_codec {
             constexpr uint64_t kBatch = 1 << 16;
             std::vector<uint64_t> tmp_flex, tmp_entries;
             uint64_t* dst = vals;
-            uint64_t want = c.first_value;  // the first slot of the next key to compare
+            uint64_t want = c.first_value;  // the first slot of the next key to compare or hand to the sink
             std::vector<uint64_t> buffer;
-            // A key's f flex cells and n - f entries to the values, or compared with the index's cells of the key.
-            auto put = [&dst, &want, &buffer, expected](uint64_t const* flex_cells, uint64_t f, uint64_t const* entry_cells, uint64_t n) {
-                if (expected) {
+            // A key's f flex cells and n - f entries to the values, compared with the index's cells of the key, or,
+            // side by side in `buffer`, to the sink.
+            auto put = [&dst, &want, &buffer, expected, sink](uint64_t const* flex_cells, uint64_t f, uint64_t const* entry_cells, uint64_t n) {
+                if (sink) {
+                    buffer.resize(n);
+                    if (f) std::memcpy(buffer.data(), flex_cells, f * 8);
+                    std::memcpy(buffer.data() + f, entry_cells, (n - f) * 8);
+                    if (!sink->key(sink->context, want, buffer.data(), n)) return false;
+                    want += n;
+                } else if (expected) {
                     uint64_t const* const key = expected->Key(want, n, buffer);
                     if ((f && std::memcmp(key, flex_cells, f * 8) != 0) || std::memcmp(key + f, entry_cells, (n - f) * 8) != 0) return false;
                     want += n;
@@ -267,7 +291,7 @@ namespace protal::index_codec {
                         if (n == 0) continue;
                         // Keys of one cell have no flex cells, and tmp_flex has no data pointer while it is
                         // empty. n - f >= 1, so tmp_entries is never empty here.
-                        if (!put(f ? tmp_flex.data() + fp : nullptr, f, tmp_entries.data() + ep, n)) return kValuesDiffer;
+                        if (!put(f ? tmp_flex.data() + fp : nullptr, f, tmp_entries.data() + ep, n)) return sink ? kSinkRefused : kValuesDiffer;
                         fp += f;
                         ep += n - f;
                     }

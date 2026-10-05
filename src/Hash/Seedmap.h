@@ -1069,9 +1069,9 @@ namespace protal {
 
         // The column format (IndexCodec.h) in the frames `table` lists in the file at path: the raw
         // header from the container, then the chunks, decoded in parallel into the key map and
-        // values. name is used in messages. With a layout each chunk's values are decoded into a
-        // buffer of the thread's and packed from there (PackBlocks), so the 8-byte layout is never
-        // held: the chunk's region in the packed values follows from its first slot.
+        // values. name is used in messages. With a layout each chunk's values are packed key by key as
+        // they are decoded (PackKey), so the 8-byte layout is never held, not even a chunk of it: the
+        // chunk's region in the packed values follows from its first slot.
         void LoadColumns(std::string const& path, std::string const& name, zstd::SeekTable const& table,
                          index_codec::Container const& container, int threads, PackedLayout const* pack = nullptr) {
             std::istringstream header(container.index_header);
@@ -1091,20 +1091,44 @@ namespace protal {
             }
             SetLayout(*pack);
             AllocatePacked();
-            std::vector<std::vector<uint64_t>> chunk_values(zstd::WorkerCount(container.chunks.size(), threads));
+            // Each key's cells are packed as the chunk is decoded (index_codec::ValueSink): no thread holds its chunk's
+            // values in the 8-byte layout, ~50 MB each at r226. A chunk stored raw is packed from its cells at once.
+            struct Packing {
+                Seedmap* map;
+                index_codec::Chunk const* chunk;
+                uint64_t safe_begin, safe_end;  // the bytes of the chunk's region no other chunk shares (PackBlocks)
+                uint64_t entries = 0;
+                uint64_t bad = 0;
+            };
+            index_codec::detail::ValueSink sink;
+            sink.key = [](void* context, uint64_t slot, uint64_t const* cells, uint64_t n) {
+                auto& p = *static_cast<Packing*>(context);
+                if (!p.map->PackKey(slot, n, cells, p.safe_begin, p.safe_end, p.bad)) return false;
+                p.entries += n >= p.map->m_flex_threshold ? n - p.map->FlexBlockSize(n) : n;
+                return true;
+            };
+            sink.range = [](void* context, uint64_t first_slot, uint64_t const* cells, uint64_t) {
+                auto& p = *static_cast<Packing*>(context);
+                auto const& ch = *p.chunk;
+                auto const n = p.map->PackBlocks(ch.first_block, ch.first_block + ch.blocks, cells, first_slot, ch.first_value,
+                                                 ch.first_value + ch.values, p.bad);
+                if (!n) return false;
+                p.entries += *n;
+                return true;
+            };
             std::atomic<uint64_t> entries{0};
             std::string const error = zstd::ForEachFrame(path, table, 1, threads,
-                    [&](size_t frame, char const* data, size_t size, size_t worker) -> std::string {
+                    [&](size_t frame, char const* data, size_t size, size_t) -> std::string {
                 index_codec::Chunk const& ch = container.chunks[frame - 1];
-                auto& values = chunk_values[worker];
-                values.resize(ch.values);
-                std::string const e = index_codec::detail::DecodeChunk(data, size, l, ch, m_keymap + ch.first_block * l.CellsPerBlock(), values.data());
+                uint64_t const first_bit = ch.first_value * m_slot_bits, end_bit = (ch.first_value + ch.values) * m_slot_bits;
+                Packing packing{ this, &ch, (first_bit >> 3) + ((first_bit & 7) ? 1 : 0), end_bit >> 3 };
+                auto own = sink;
+                own.context = &packing;
+                std::string const e = index_codec::detail::DecodeChunk(data, size, l, ch, m_keymap + ch.first_block * l.CellsPerBlock(),
+                                                                       nullptr, nullptr, &own);
+                if (e == index_codec::detail::kSinkRefused) return BadValueMessage(packing.bad);
                 if (!e.empty()) return "chunk " + std::to_string(frame) + " of " + std::to_string(container.chunks.size()) + ": " + e;
-                uint64_t bad = 0;
-                auto const n = PackBlocks(ch.first_block, ch.first_block + ch.blocks, values.data(), ch.first_value, ch.first_value,
-                                          ch.first_value + ch.values, bad);
-                if (!n) return BadValueMessage(bad);
-                entries += *n;
+                entries += packing.entries;
                 return "";
             });
             // A value outside the layout is the index's content (another reference); anything else is the file.

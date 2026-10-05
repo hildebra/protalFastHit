@@ -278,6 +278,27 @@ TEST(PackedIndex, AValueOutsideTheLayoutStopsTheLoad) {
     EXPECT_EXIT(map.Pack(narrow, 2), testing::ExitedWithCode(8), "outside the reference");
 }
 
+// The column format is packed key by key as its chunks are decoded (index_codec::ValueSink): a value outside the
+// layout stops that load too, with the same message.
+TEST(PackedIndex, AValueOutsideTheLayoutStopsTheColumnLoad) {
+    auto const values = SmallValues(7, 200);
+    Seedmap map;
+    Fill(map, values);
+    auto const dir = std::filesystem::temp_directory_path() / ("protal_packtest_narrow_" + std::to_string(::getpid()));
+    std::filesystem::create_directories(dir);
+    std::string const path = (dir / "index.prx.zst").string();
+    uint64_t written = 0;
+    size_t raw_chunks = 0;
+    protal::zstd::Params params;
+    params.level = 3;
+    params.window_log = 0;
+    params.frame_size = uint64_t{1} << 20;
+    ASSERT_EQ(map.SaveCompressed(path, params, written, raw_chunks), "");
+    auto const narrow = Seedmap::PackedLayout::For(1000, 168, 12883 + 16);
+    EXPECT_EXIT({ Seedmap loaded; loaded.Load(path, 2, &narrow); }, testing::ExitedWithCode(8), "outside the reference");
+    std::filesystem::remove_all(dir);
+}
+
 TEST(PackedIndex, PutBitsSharesBytesBetweenRanges) {
     // Two ranges meet inside byte 6 (bit 53): each writes its fields with the other's bytes unsafe.
     std::vector<uint8_t> bits(32, 0);
