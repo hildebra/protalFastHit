@@ -456,6 +456,11 @@ namespace protal {
                 bm_load_index.PrintResults();
             }
             // The run's peak is usually here: the index, its loading threads' buffers and the preloaded genes at once.
+            // Near the end of the load the threads stop one by one (zstd::LoadBudget), their buffers freed.
+            if (index->ChunksOnFewerThreads() > 0) {
+                std::cout << "Index: its last " << index->ChunksOnFewerThreads() << " chunks decoded on fewer threads, so that "
+                          << "their buffers stay within the index's memory" << std::endl;
+            }
             protal::build::PrintMemory("loading the index");
             Seedmap& map = *index;
 

@@ -13,6 +13,7 @@
 #include <zstd.h>
 
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -660,6 +661,28 @@ namespace protal::zstd {
         return std::max<size_t>(1, std::min<size_t>(static_cast<size_t>(std::max(threads, 1)), units));
     }
 
+    // An allocator of anonymous mappings: memory freed goes back to the system at once (munmap), not into malloc's
+    // arenas, where glibc keeps freed blocks under its mmap threshold resident (in each thread's arena). For the frame
+    // buffers of ForEachFrame's workers, freed when a worker stops before the end of a load.
+    template <typename T>
+    struct MappedAllocator {
+        using value_type = T;
+        MappedAllocator() = default;
+        template <typename U>
+        MappedAllocator(MappedAllocator<U> const&) {}
+        T* allocate(size_t n) {
+            void* p = ::mmap(nullptr, std::max<size_t>(n, 1) * sizeof(T), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (p == MAP_FAILED) throw std::bad_alloc();
+            return static_cast<T*>(p);
+        }
+        void deallocate(T* p, size_t n) { ::munmap(p, std::max<size_t>(n, 1) * sizeof(T)); }
+        template <typename U>
+        bool operator==(MappedAllocator<U> const&) const { return true; }
+        template <typename U>
+        bool operator!=(MappedAllocator<U> const&) const { return false; }
+    };
+    using FrameBuffer = std::vector<char, MappedAllocator<char>>;
+
     // Runs work(unit, worker) for every unit in [0, units) on WorkerCount(units, threads) threads
     // (worker in [0, WorkerCount)); stops at the first failure. work returns an error message,
     // empty on success.
@@ -813,9 +836,9 @@ namespace protal::zstd {
         return total;
     }
 
-    // Decompresses frame `index` of a seekable file (opened as fd) into out.
-    inline std::string ReadFrame(int fd, SeekTable const& table, size_t index, std::vector<char>& input,
-                                 std::vector<char>& out, ZSTD_DCtx* dctx) {
+    // Decompresses frame `index` of a seekable file (opened as fd) into out (vectors of char).
+    template <typename In, typename Out>
+    inline std::string ReadFrame(int fd, SeekTable const& table, size_t index, In& input, Out& out, ZSTD_DCtx* dctx) {
         auto const& frame = table.frames[index];
         std::string const where = "frame " + std::to_string(index + 1) + " of " + std::to_string(table.frames.size());
         input.resize(frame.compressed_size);
@@ -833,35 +856,88 @@ namespace protal::zstd {
         return "";
     }
 
-    // Calls handle(index, data, size, worker) for each frame of a seekable file from `first` on,
-    // decompressed, on up to `threads` threads. handle returns an error message, empty on success.
+    // What the frames of a load write into memory that becomes resident only as it is written (calloc'd arrays: the
+    // index's key map and values), for ForEachFrame to stop workers near the end: output[i] is the bytes frame
+    // first + i writes. Without it, the workers' buffers sit on top of an output that is nearly all resident when the
+    // load ends: its peak.
+    struct LoadBudget {
+        std::vector<uint64_t> output;
+        size_t frames_on_fewer = 0;  // set by ForEachFrame: the frames started after a worker had stopped for memory
+    };
+
+    // Calls handle(index, data, size, worker) for each frame of a seekable file from `first` on, decompressed, on up
+    // to `threads` threads (worker in [0, WorkerCount)); handle returns an error message, empty on success; the first
+    // failure stops the workers. A worker's buffers (its compressed and decompressed frame) are freed, back to the
+    // system, when it stops. With a budget, a worker takes another frame only while the output of the frames not yet
+    // started is at least the buffers of the workers decoding (each counted at the largest frame's, compressed and
+    // decompressed), else it stops: near the end of the load the workers stop one by one, so that what is written and
+    // what is buffered stay within the output's full size, plus one worker's buffers (the last worker always goes
+    // on; the last frame, after which nothing is left to write, starts once the others are done). The frames still
+    // are all handled, each once; only the number decoded at a time changes.
     template<typename Handle>
-    std::string ForEachFrame(std::string const& path, SeekTable const& table, size_t first, int threads, Handle&& handle) {
+    std::string ForEachFrame(std::string const& path, SeekTable const& table, size_t first, int threads, Handle&& handle,
+                             LoadBudget* budget = nullptr) {
         int const fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
         if (fd < 0) return std::string("cannot open the file: ") + std::strerror(errno);
         size_t const units = table.frames.size() > first ? table.frames.size() - first : 0;
-        struct State {
-            ZSTD_DCtx* dctx = nullptr;
-            std::vector<char> input, output;
-            State() = default;
-            State(State const&) = delete;
-            ~State() { if (dctx) ZSTD_freeDCtx(dctx); }
-        };
-        std::vector<State> states(WorkerCount(units, threads));
-        int const window_max = ZSTD_dParam_getBounds(ZSTD_d_windowLogMax).upperBound;
-        std::string const error = ParallelFor(units, threads, [&](size_t i, size_t worker) -> std::string {
-            State& s = states[worker];
-            if (!s.dctx) {
-                s.dctx = ZSTD_createDCtx();
-                if (!s.dctx) return "cannot allocate a zstd decompression context";
-                ZSTD_DCtx_setParameter(s.dctx, ZSTD_d_windowLogMax, window_max);
+        size_t const workers = WorkerCount(units, threads);
+        // rest[i]: the output of the frames from first + i on; buffer: what a decoding worker holds at most.
+        std::vector<uint64_t> rest(units + 1, 0);
+        uint64_t buffer = 0;
+        if (budget) {
+            budget->frames_on_fewer = 0;
+            for (size_t i = units; i-- > 0;) rest[i] = rest[i + 1] + (i < budget->output.size() ? budget->output[i] : 0);
+            for (size_t i = 0; i < units; i++) {
+                buffer = std::max(buffer, table.frames[first + i].compressed_size + table.frames[first + i].decompressed_size);
             }
-            std::string e = ReadFrame(fd, table, first + i, s.input, s.output, s.dctx);
-            if (!e.empty()) return e;
-            return handle(first + i, s.output.data(), s.output.size(), worker);
-        });
+        }
+        int const window_max = ZSTD_dParam_getBounds(ZSTD_d_windowLogMax).upperBound;
+        std::mutex mutex;
+        size_t next = 0, active = workers, fewer = 0;
+        bool failed = false;
+        std::string first_error;
+        auto run = [&](size_t worker) {
+            ZSTD_DCtx* dctx = nullptr;
+            FrameBuffer input, output;  // unmapped when this worker stops
+            while (true) {
+                size_t i;
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    bool const over = budget && active > 1 && active * buffer > rest[next + 1 <= units ? next + 1 : units];
+                    if (failed || next >= units || over) {
+                        active--;
+                        break;
+                    }
+                    if (active < workers) fewer++;
+                    i = next++;
+                }
+                std::string error;
+                try {
+                    if (!dctx) {
+                        dctx = ZSTD_createDCtx();
+                        if (!dctx) error = "cannot allocate a zstd decompression context";
+                        else ZSTD_DCtx_setParameter(dctx, ZSTD_d_windowLogMax, window_max);
+                    }
+                    if (error.empty()) error = ReadFrame(fd, table, first + i, input, output, dctx);
+                    if (error.empty()) error = handle(first + i, output.data(), output.size(), worker);
+                } catch (std::exception const& e) {
+                    error = e.what();
+                }
+                if (!error.empty()) {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    if (first_error.empty()) first_error = error;
+                    failed = true;
+                }
+            }
+            if (dctx) ZSTD_freeDCtx(dctx);
+        };
+        std::vector<std::thread> pool;
+        for (size_t t = 1; t < workers; t++) pool.emplace_back(run, t);
+        run(0);
+        for (auto& t : pool) t.join();
         ::close(fd);
-        return error;
+        if (budget) budget->frames_on_fewer = fewer;
+        return first_error;
     }
 
     // Sequential stream buffer over the frames `table` lists in a file (e.g. one member of a

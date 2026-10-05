@@ -3,8 +3,12 @@
 // with parallel reading (index scatter, genes across frame boundaries), and loading a compressed
 // reference.fna.zst with GenomeLoader.
 #include <gtest/gtest.h>
+#include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstring>
+#include <mutex>
+#include <thread>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -320,6 +324,66 @@ namespace {
         }
         return all;
     }
+}
+
+// ForEachFrame with a budget (a load into memory that becomes resident as it is written): a worker takes another frame
+// only while the output of the frames not yet started holds the buffers of the workers decoding, so near the end the
+// workers stop one by one; every frame is still handled once, with its content. With an ample budget only the last frame
+// waits for the others (nothing is left to write after it); without one, no worker stops early.
+TEST(ZstdSeekable, ForEachFrameStopsWorkersNearTheEndOfALoad) {
+    TempDir tmp;
+    std::string const data = WriteSeekable(tmp / "load.zst", {TestData(size_t{3} << 20, 7)}, size_t{1} << 16);  // 48 frames
+    std::string error;
+    auto const table = zstd::ReadSeekTable(tmp / "load.zst", error);
+    ASSERT_TRUE(table) << error;
+    size_t const frames = table->frames.size();
+    ASSERT_GE(frames, 40u);
+    uint64_t buffer = 0;
+    for (auto const& f : table->frames) buffer = std::max<uint64_t>(buffer, f.compressed_size + f.decompressed_size);
+    for (uint64_t output_per_frame : {buffer, buffer / 3, uint64_t{1} << 40}) {
+        SCOPED_TRACE(output_per_frame);
+        zstd::LoadBudget budget;
+        budget.output.assign(frames, output_per_frame);
+        std::mutex mutex;
+        size_t running = 0;
+        std::vector<size_t> handled(frames, 0), running_at_start(frames, 0);
+        std::string content(data.size(), '\0');
+        std::string const e = zstd::ForEachFrame(tmp / "load.zst", *table, 0, 8, [&](size_t frame, char const* d, size_t n, size_t) {
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                running_at_start[frame] = ++running;
+                handled[frame]++;
+            }
+            std::memcpy(content.data() + table->frames[frame].decompressed_offset, d, n);
+            std::this_thread::sleep_for(std::chrono::milliseconds(3));  // the workers overlap
+            std::lock_guard<std::mutex> lock(mutex);
+            running--;
+            return std::string();
+        }, &budget);
+        EXPECT_EQ(e, "");
+        EXPECT_EQ(content, data);
+        EXPECT_EQ(handled, std::vector<size_t>(frames, 1));
+        for (size_t i = 0; i < frames; i++) {
+            uint64_t const rest = (frames - 1 - i) * output_per_frame;  // the frames after i, started after it
+            EXPECT_TRUE(running_at_start[i] == 1 || running_at_start[i] * buffer <= rest)
+                << "frame " << i << " started beside " << running_at_start[i] - 1 << " others, " << rest << " bytes to come";
+        }
+        if (output_per_frame == (uint64_t{1} << 40)) {
+            // Only the last frame waits for the others: once it starts, nothing is left to write but its own output.
+            EXPECT_LE(budget.frames_on_fewer, 1u);
+        } else {
+            // With a frame's output of one buffer, 8 workers go on until 8 frames are left; of a third, until 24.
+            EXPECT_GE(budget.frames_on_fewer, output_per_frame == buffer ? 4u : 15u);
+            EXPECT_LT(budget.frames_on_fewer, frames);
+        }
+    }
+    // Without a budget: the same frames, each once.
+    std::atomic<size_t> count{0};
+    EXPECT_EQ(zstd::ForEachFrame(tmp / "load.zst", *table, 0, 8, [&](size_t, char const*, size_t, size_t) {
+        count++;
+        return std::string();
+    }), "");
+    EXPECT_EQ(count.load(), frames);
 }
 
 TEST(ZstdSeekable, ParallelFramesAreReadInOrderOnAnyThreadCount) {

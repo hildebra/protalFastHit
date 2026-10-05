@@ -296,6 +296,7 @@ namespace protal {
         uint8_t* m_packed = nullptr;
         uint64_t m_packed_bytes = 0;
         uint64_t m_packed_entries = 0;
+        size_t m_chunks_on_fewer_threads = 0;  // ChunksOnFewerThreads
         unsigned m_taxid_bits = 0, m_gene_bits = 0, m_pos_bits = 0, m_entry_bits = 0, m_slot_bits = 0;
         uint64_t m_taxid_mask = 0, m_gene_mask = 0, m_pos_mask = 0, m_entry_mask = 0;
 
@@ -1085,7 +1086,8 @@ namespace protal {
             AllocateKeymap(keymap_size_total);
             if (!pack) {
                 AllocateValues(values_size);
-                std::string const error = index_codec::Decode(path, table, container, m_keymap, reinterpret_cast<uint64_t*>(m_map), threads);
+                std::string const error = index_codec::Decode(path, table, container, m_keymap, reinterpret_cast<uint64_t*>(m_map),
+                                                              threads, &m_chunks_on_fewer_threads);
                 if (!error.empty()) InvalidIndex(name, error + " (truncated or corrupt file?)");
                 return;
             }
@@ -1117,6 +1119,9 @@ namespace protal {
                 return true;
             };
             std::atomic<uint64_t> entries{0};
+            // The key map and the packed values become resident as they are written (calloc): near the end of the load
+            // fewer threads decode, so that their frames do not sit on top of an index nearly all resident.
+            zstd::LoadBudget budget = index_codec::ChunkOutput(container, m_slot_bits);
             std::string const error = zstd::ForEachFrame(path, table, 1, threads,
                     [&](size_t frame, char const* data, size_t size, size_t) -> std::string {
                 index_codec::Chunk const& ch = container.chunks[frame - 1];
@@ -1130,12 +1135,17 @@ namespace protal {
                 if (!e.empty()) return "chunk " + std::to_string(frame) + " of " + std::to_string(container.chunks.size()) + ": " + e;
                 entries += packing.entries;
                 return "";
-            });
+            }, &budget);
             // A value outside the layout is the index's content (another reference); anything else is the file.
             if (!error.empty()) InvalidIndex(name, error.rfind("holds a value", 0) == 0 ? error : error + " (truncated or corrupt file?)");
             std::memcpy(m_keymap + l.blocks * l.CellsPerBlock(), &l.values, 8);  // final control block
             m_packed_entries = entries;
+            m_chunks_on_fewer_threads = budget.frames_on_fewer;
         }
+
+        // Of the index's chunks last loaded, those decoded after a loading thread had stopped for memory
+        // (zstd::LoadBudget): the end of the load, when the index is nearly all resident.
+        size_t ChunksOnFewerThreads() const { return m_chunks_on_fewer_threads; }
 
         // Header and layout fields of an index written by Save; every size is checked against the
         // layout this build uses. Sets up that layout and returns the number of data bytes (key map

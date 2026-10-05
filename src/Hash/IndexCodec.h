@@ -551,18 +551,33 @@ namespace protal::index_codec {
         return written;
     }
 
-    // Decodes a split index into keymap (l.KeymapCells() cells) and values (l.values cells).
+    // What each chunk of a split index writes when it is decoded: its key map cells (2 bytes each) and its values,
+    // value_bits each (64 in the file's layout, the slot's bits packed), for ForEachFrame's budget (zstd::LoadBudget).
+    inline zstd::LoadBudget ChunkOutput(Container const& c, uint64_t value_bits) {
+        zstd::LoadBudget budget;
+        budget.output.reserve(c.chunks.size());
+        for (Chunk const& ch : c.chunks) {
+            budget.output.push_back(ch.blocks * c.layout.CellsPerBlock() * sizeof(uint16_t) + (ch.values * value_bits + 7) / 8);
+        }
+        return budget;
+    }
+
+    // Decodes a split index into keymap (l.KeymapCells() cells) and values (l.values cells), both memory that becomes
+    // resident as it is written (calloc'd): near the end fewer threads decode (zstd::LoadBudget). chunks_on_fewer, if
+    // given: the chunks decoded after a thread had stopped for memory.
     inline std::string Decode(std::string const& path, zstd::SeekTable const& table, Container const& c, uint16_t* keymap,
-                              uint64_t* values, int threads) {
+                              uint64_t* values, int threads, size_t* chunks_on_fewer = nullptr) {
         Layout const& l = c.layout;
+        zstd::LoadBudget budget = ChunkOutput(c, 64);
         std::string const error = zstd::ForEachFrame(path, table, 1, threads,
                 [&](size_t frame, char const* data, size_t size, size_t) -> std::string {
             Chunk const& ch = c.chunks[frame - 1];
             std::string const e = detail::DecodeChunk(data, size, l, ch, keymap + ch.first_block * l.CellsPerBlock(),
                                                       values + ch.first_value);
             return e.empty() ? e : "chunk " + std::to_string(frame) + " of " + std::to_string(c.chunks.size()) + ": " + e;
-        });
+        }, &budget);
         if (error.empty()) std::memcpy(keymap + l.blocks * l.CellsPerBlock(), &l.values, 8);  // final control block
+        if (chunks_on_fewer) *chunks_on_fewer = budget.frames_on_fewer;
         return error;
     }
 
