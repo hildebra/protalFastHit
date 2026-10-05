@@ -949,6 +949,36 @@ What is left, ~2.3 GB on 32 threads, is the frames themselves. Two ways to lower
 - **Fewer loading threads**: 16 instead of 32 halve it (−1.2 GB), but the index load (2.8 s at 32) is the start-up's
   critical path now that the preload ends first; roughly +1-1.5 s wall per run.
 
+## The tenth cluster run (2026-10-05): peak memory down, the tie fix at r226
+
+SLURM job 23982267, `2d809cf` (the index load without its value buffers, `3565360`; the tied seeds kept, `fdad375`; not
+yet `60fea63`, another session's unmapping of the frame buffers), 32 threads, node `q512n9`, v11;
+[`results_v10/`](results_v10/).
+
+| pe1 | ninth (`c232ebe`) | tenth (`2d809cf`) |
+|---|---|---|
+| wall (median; best) | 46.7 s; 44.8 | 49.3 s; **43.8** |
+| max RSS | 38.1 GB | **36.5 GB** (−1.6 GB, as expected) |
+| load index | 2.77 s | 2.59 s |
+| aligning | 32.3 s | 32.3-33.8 s |
+| profiling: reading the SAM | 2.6 s | **1.8 s** (adding the chunks' counts 0.92 → 0.58 s, rejected reads 0.59 → 0.04 s) |
+| read EM | 1.2 s | 1.2 s (sweeps 1.12 → 1.09 s; 11,333 of 143,614 taxa named by the classes) |
+| SAM header and file, writing the profile | 1.8-4.1 s, 0.9-1.5 s | 2.7-5.8 s, 0.7-1.7 s |
+| cohort strain stage | 9.1 s | 19.9 s |
+
+- **Memory**: the peak falls in the index load (`Memory after loading the index`: 34.0 GB resident after it, peak 36.5);
+  the ~2.5 GB between them are the loading threads' frames, which `60fea63` addresses. After aligning 35 GB, after
+  profiling 8 GB resident (the index freed).
+- **The tie fix at r226**: pe1 mates with an anchor +6,415, candidates tried +82,455 (+0.05%), aligned from anchors
+  +50,415, alignments made +1,845, records written +1,660 (+0.07%); pb2 candidates +7,594, records the same. Real
+  genomes' repeats give the kept tied seeds anchors of their own; whether the extra records help (the alignments choose
+  between the places) needs the r226 evaluation's test samples, which have a truth.
+- **The strain stage and the SAM's close** doubled on this node: building the MSAs (protal) 80 → 171 s and qcMSA (Python)
+  161 → 291 s summed, together, as did closing the SAM (pb2 0.6 → 1.9 s): the node's NFS, not the code. Locally the
+  cohort's strain stage takes the same with `186c8ed` and the current build (0.8-1.0 s, qcMSA 3.2-4.6 s summed, strain
+  outputs identical; `scripts/strain_stage_ab.sh`).
+- **The seed sort** (3.4 s per thread) still shows no gain on Zen 4.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):
