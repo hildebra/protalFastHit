@@ -94,13 +94,21 @@ protal --db data/mini_db/protal_db -1 r1.fq -2 r2.fq -o out/
   Options: `--seed`, `--lineages FILE` (one GTDB lineage per line), `--genomes_per_species`,
   `--genome_length`, `--contigs`, `--marker_loss`, `--strain_divergence`, `--species_divergence`
   (these two take a rate or a range `LOW-HIGH` drawn per genome or species, written to
-  `simulation/divergence.tsv`), `--gene_rates categories` (markers evolve at different speeds by what
-  they do: ribosomal proteins 0.4, translation and transcription 0.8, tRNA synthetases and modification
-  1.1, the rest 1.4, with noise, mean 1; `simulation/gene_rates.tsv`), `--operons` (markers in
+  `simulation/divergence.tsv`), `--gene_rates r226` (each marker evolves at the real GTDB r226 gene's
+  measured speed, `gene_rates_r226.tsv`: strains at its within-species factor, the lineage above them at
+  its between-congener factor, each marker set scaled to a mean of 1; protal's factors estimated on such
+  a world match the real ones at Spearman +0.99, archaea +0.97,
+  [report](claude/2026-10-05-mini-database-genes/README.md); use it for training and benchmark worlds),
+  `--gene_rates categories` (the older guess by what a gene does: ribosomal proteins 0.4, translation and
+  transcription 0.8, tRNA synthetases and modification 1.1, the rest 1.4, with noise, mean 1; Spearman
+  +0.54 with the real speeds, archaea +0.15), both written to `simulation/gene_rates.tsv`, `--operons` (markers in
   clusters of up to 6 genes 0-150 bases apart, in the same order in every species, each family
   breaking some up with `--operon_breaks`, 0.25: read pairs and long reads then span neighbouring
   genes, as in real genomes; without it each species' markers are shuffled and about 1.2 kb apart).
   `simulation/marker_positions.tsv` says where each gene lies.
+- `make_gene_rates.py` writes the table of `--gene_rates r226` from a GTDB build's `gene_congeners.tsv`
+  (`model_logs/` of `build_gtdb_database.py`), its gene ids mapped to markers by the build's
+  `gene2geneid.tsv` or by the converter's order; rerun it on a newer build or release.
 - `gene_neighbours.py` finds the database's genes in every genome of their species (the
   representative's by their sequence, other strains' by their k-mer trace) and writes
   `gene_neighbours.tsv` (how often which genes lie next to which, per clade) and

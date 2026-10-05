@@ -1332,6 +1332,39 @@ class MiniDbTest(unittest.TestCase):
 
         self.assertGreater(similarity("ribosomal"), similarity("other"))
 
+    def test_gene_rates_r226(self):
+        # With --gene_rates r226, every gene evolves at the real r226 gene's speed (gene_rates_r226.tsv): strains at
+        # its within-species factor, the lineage at its between-congener factor, each set's mean 1, archaea included.
+        other = os.path.join(self.tmp.name, "gtdb_gene_rates_r226")
+        run(SIMULATE, "--outdir", other, "--genome_length", "20000", "--gene_rates", "r226")
+        with open(os.path.join(other, "simulation", "gene_rates.tsv")) as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        self.assertEqual(len(rows), 173)  # 120 bac120 and 53 ar53 markers, 5 of them in both sets
+        for mset in ("bac120", "ar53"):
+            for column in ("strain_rate", "branch_rate"):
+                values = [float(r[column]) for r in rows if r["set"] == mset]
+                self.assertAlmostEqual(sum(values) / len(values), 1.0, places=3)
+        strain = {(r["set"], r["name"]): float(r["strain_rate"]) for r in rows}
+        # A ribosomal protein diverges slower than a tRNA synthetase, in bacteria and in archaea (uS9, which
+        # --gene_rates categories took for a fast gene by its name).
+        self.assertLess(strain[("bac120", "Ribosomal_S8")], strain[("bac120", "leuS_bact")])
+        self.assertLess(strain[("ar53", "uS9_arch")], 1.0)
+        # The table's gene ids follow the converter's order: the same as this world's database.
+        sys.path.insert(0, HERE)
+        import make_gene_rates
+        with open(os.path.join(self.db, "gene2geneid.tsv")) as fh:
+            ids = {f[0]: int(f[1]) for f in (line.split() for line in fh)}
+        self.assertEqual(make_gene_rates.converter_ids(make_gene_rates.read_markers(
+            os.path.join(HERE, "markers_r226.tsv"))), ids)
+        # A table without a marker of the set stops the simulation.
+        short = os.path.join(self.tmp.name, "short_rates.tsv")
+        with open(os.path.join(HERE, "gene_rates_r226.tsv")) as fin, open(short, "w") as fout:
+            fout.writelines(line for line in fin if "PF00380.20" not in line)
+        result = subprocess.run([sys.executable, SIMULATE, "--outdir", os.path.join(self.tmp.name, "gtdb_short"),
+                                 "--gene_rates", "r226", "--gene_rate_table", short], capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("lacks 1 markers", result.stderr)
+
     def simulate_reads(self, prefix, community, pairs=400, error_rate="0"):
         path = os.path.join(self.tmp.name, "community.tsv")
         with open(path, "w") as fh:

@@ -157,3 +157,29 @@ build (`build_gtdb_database.py --rank-genes`) can.
 Side observation: `local/v10/model_logs/relatives_by_gene_conservation.txt` traced 0 genes at r226 v10 (Spearman
 "nan"): the trace took a read's genome from the mini worlds' contig names; fixed the same day
 ([2026-10-05-trace-relatives.md](../2026-10-05-trace-relatives.md)).
+
+## Follow-up the same day: recommendation 2 implemented
+
+`simulate_gtdb_release.py --gene_rates r226` reads `scripts/mini_db/gene_rates_r226.tsv`. The table comes from
+`make_gene_rates.py`, run on the r226 v10 `gene_congeners.tsv`, with gene ids mapped through the converter's
+order; that order equals a converted database's `gene2geneid.tsv`, which the tests check. Each gene diverges
+at two real speeds:
+- a genome's divergence from its species at the gene's within-species factor (protal's conservation factor);
+- every branch above it (species, genus, ...) at its between-congener factor.
+
+Each marker set is scaled to a mean of 1, so `--strain_divergence` and `--species_divergence` keep their meaning
+and archaea get their own pattern. `none` and `categories` releases are byte-identical to before.
+
+**Check** ([`scripts/estimated_vs_r226.py`](scripts/estimated_vs_r226.py)): a world of 60 species (25% archaea),
+5 genomes each, strains 1-3%, species 3-6%, built with `protal --build`. Then protal's own factor estimate
+(`gene_conservation.tsv`) was compared with the real r226 factors:
+
+| world | all 168 genes | bac120-only (115) | ar53-only (48) |
+|---|---|---|---|
+| `--gene_rates r226` | +0.986 | +0.996 | +0.970 |
+| `--gene_rates categories` | +0.539 | +0.588 | +0.153 |
+
+A world built with `r226` now shows protal the real genes' conservation pattern, archaea included. Recommendation 1
+(fixing the name rules) is moot. Use `--gene_rates r226` for training and benchmark worlds. Results on the
+0.7.x benchmark world (`categories`) stand for bacteria; for archaea they were measured on a scrambled pattern.
+Recommendation 3 (real gene lengths) is still open.

@@ -31,7 +31,7 @@ Usage:
   simulate_gtdb_release.py --outdir DIR [--release 226] [--seed 42]
       [--lineages FILE] [--genomes_per_species 3] [--genome_length 150000]
       [--contigs 3] [--marker_loss 0.02] [--strain_divergence 0.005]
-      [--species_divergence 0.035] [--gene_rates none|categories]
+      [--species_divergence 0.035] [--gene_rates none|categories|r226]
       [--operons [--operon_breaks 0.25]]
 
 --lineages: one GTDB lineage per line (d__...;s__...); '#' lines are comments.
@@ -40,8 +40,13 @@ drawn uniformly per genome or per species (written to simulation/divergence.tsv)
 Ranges make training data for the presence model harder: strains that differ
 from the representative by up to a few %, and congeneric species close enough
 that a missing one's reads land on the one the database has.
---gene_rates categories lets markers evolve at different speeds, by what they do
-(ribosomal proteins slowest), as real genes do (simulation/gene_rates.tsv).
+--gene_rates lets markers evolve at different speeds, as real genes do (simulation/gene_rates.tsv). r226: at
+each GTDB r226 gene's measured speed (gene_rates_r226.tsv, by make_gene_rates.py from the r226 build's
+gene_congeners.tsv): a genome's divergence from its species at the gene's within-species factor (protal's
+conservation factor), the branches above (species, genus, ...) at its between-congener factor, each marker set's
+factors scaled to a mean of 1, so archaea keep their own pattern. categories: by what the gene does (ribosomal
+proteins slowest), from its name; cruder (Spearman +0.52 with the real speeds, the archaeal ribosomal proteins
+named uS/uL missed; docs/claude/2026-10-05-mini-database-genes).
 --operons lays the markers out in clusters of up to 6 genes 0-150 bases apart, in
 the same order in every species (each family breaks some up, --operon_breaks), as
 in real genomes, where read pairs and long reads span neighbouring markers; without
@@ -51,6 +56,7 @@ default length), and no pair spans two of them.
 
 import argparse
 import contextlib
+import csv
 import gzip
 import io
 import math
@@ -137,6 +143,13 @@ def read_marker_names(path):
             f = line.rstrip("\n").split("\t")
             names.setdefault(f[1], f[2])
     return names
+
+
+def read_gene_rate_table(path):
+    """{(set, marker): (within factor, between factor)} of a make_gene_rates.py table."""
+    with open(path) as fh:
+        rows = csv.DictReader((line for line in fh if not line.startswith("#")), delimiter="\t")
+        return {(r["set"], r["marker"]): (float(r["within_factor"]), float(r["between_factor"])) for r in rows}
 
 
 # --gene_rates categories: how fast a marker evolves, relative to the genome's divergence, by what it does.
@@ -226,7 +239,9 @@ class Simulator:
         self.markers_by_set = markers_by_set
         # Ancestral (root) sequence for every marker of the union of both sets.
         self.root_seq = {m: random_cds(self.rng, lengths[m]) for m in sorted(lengths)}
-        self.gene_rate = self._gene_rates(sorted(lengths))
+        # {(marker set, marker): rate} of a genome's divergence from its species (strain) and of the lineage's
+        # branches above it (branch); the same for both but with --gene_rates r226.
+        self.strain_rate, self.branch_rate = self._gene_rates(sorted(lengths))
         self.node_seq = {}  # (lineage prefix, marker) -> sequence, shared by descendants
         self.species = [self._make_species(i + 1, l) for i, l in enumerate(lineages)]
         self.clusters = self._clusters() if args.operons else {}
@@ -278,17 +293,36 @@ class Simulator:
         return order, strand, after
 
     def _gene_rates(self, markers):
-        """{marker: rate}, which multiplies every branch's divergence at that marker (1 each without
-        --gene_rates). With categories: the category's rate (CATEGORY_RATE) times a gamma draw of mean 1
-        and CV 0.35, scaled to a mean of 1 over all markers (some are in both sets). Drawn with a generator
-        of its own, so the rest of the release is the one without --gene_rates."""
+        """({(set, marker): strain rate}, {(set, marker): branch rate}): what multiplies a genome's divergence from
+        its species, and every branch's above it, at that marker (1 each without --gene_rates). With r226: the
+        gene's within-species and between-congener factors of --gene_rate_table, each scaled to a mean of 1 over
+        its marker set (a species' markers then diverge by --strain_divergence and --species_divergence on average,
+        and archaea keep their own pattern). With categories: the category's rate (CATEGORY_RATE) times a gamma
+        draw of mean 1 and CV 0.35, scaled to a mean of 1 over all markers (some are in both sets), the same for
+        both; drawn with a generator of its own, so the rest of the release is the one without --gene_rates."""
+        keys = [(s, m) for s, ms in sorted(self.markers_by_set.items()) for m in ms]
+        if self.args.gene_rates == "r226":
+            table = read_gene_rate_table(self.args.gene_rate_table)
+            missing = [m for k in keys if k not in table for m in k[1:]]
+            if missing:
+                sys.exit(f"{self.args.gene_rate_table} lacks {len(missing)} markers of {self.args.markers} "
+                         f"({', '.join(missing[:5])})")
+            rates = []
+            for column in (0, 1):
+                mean = {s: sum(table[(s, m)][column] for m in ms) / len(ms)
+                        for s, ms in self.markers_by_set.items() if ms}
+                rates.append({(s, m): table[(s, m)][column] / mean[s] for s, m in keys})
+            return rates[0], rates[1]
         if self.args.gene_rates == "none":
-            return {m: 1.0 for m in markers}
-        names = read_marker_names(self.args.markers)
-        rng = random.Random(self.args.seed + 7919)
-        rate = {m: CATEGORY_RATE[marker_category(names[m])] * rng.gammavariate(8.0, 1 / 8.0) for m in markers}
-        mean = sum(rate.values()) / len(rate)
-        return {m: r / mean for m, r in rate.items()}
+            rate = {m: 1.0 for m in markers}
+        else:
+            names = read_marker_names(self.args.markers)
+            rng = random.Random(self.args.seed + 7919)
+            rate = {m: CATEGORY_RATE[marker_category(names[m])] * rng.gammavariate(8.0, 1 / 8.0) for m in markers}
+            mean = sum(rate.values()) / len(rate)
+            rate = {m: r / mean for m, r in rate.items()}
+        same = {(s, m): rate[m] for s, m in keys}
+        return same, same
 
     def _draw(self, rate):
         """A rate from (low, high); a single rate draws no random number, so that runs without
@@ -312,17 +346,17 @@ class Simulator:
             "set": mset,
             "markers": markers,
             "divergence": divergence,
-            "seqs": {m: self._evolve(ranks, m, divergence) for m in markers},
+            "seqs": {m: self._evolve(ranks, mset, m, divergence) for m in markers},
             "gc": 0.38 + self.rng.random() * 0.26,
         }
 
-    def _evolve(self, ranks, marker, species_divergence):
+    def _evolve(self, ranks, mset, marker, species_divergence):
         """Marker sequence at the species node, evolving (and caching) every ancestor."""
         seq = self.root_seq[marker]
         for depth, rank in enumerate(ranks):
             key = (";".join(ranks[:depth + 1]), marker)
             if key not in self.node_seq:
-                rate = (species_divergence if rank[0] == "s" else BRANCH[rank[0]]) * self.gene_rate[marker]
+                rate = (species_divergence if rank[0] == "s" else BRANCH[rank[0]]) * self.branch_rate[(mset, marker)]
                 self.node_seq[key] = mutate(self.rng, seq, rate)
             seq = self.node_seq[key]
         return seq
@@ -346,7 +380,7 @@ class Simulator:
             genes = {}
             for m in order:
                 if self.rng.random() >= a.marker_loss:
-                    genes[m] = mutate(self.rng, sp["seqs"][m], divergence * self.gene_rate[m])
+                    genes[m] = mutate(self.rng, sp["seqs"][m], divergence * self.strain_rate[(sp["set"], m)])
             bg = [mutate(self.rng, s, divergence, coding=False) for s in background]
             contigs, positions = self._assemble(acc, order, genes, strand, bg)
             yield {
@@ -459,11 +493,16 @@ def main():
     ap.add_argument("--species_divergence", type=parse_rate, default=(BRANCH["s"], BRANCH["s"]),
                     help="per-site substitution rate of each species relative to its genus, "
                          f"or a range LOW-HIGH drawn per species (default {BRANCH['s']})")
-    ap.add_argument("--gene_rates", choices=("none", "categories"), default="none",
+    ap.add_argument("--gene_rates", choices=("none", "categories", "r226"), default="none",
                     help="how fast each marker evolves relative to the genome: none (every marker alike, the "
-                         "default) or categories (ribosomal proteins 0.4, translation and transcription 0.8, "
-                         "tRNA synthetases and modification 1.1, the rest 1.4, each with some noise, mean 1; "
-                         "written to simulation/gene_rates.tsv)")
+                         "default); r226 (each GTDB r226 gene's measured speed from --gene_rate_table: strains at its "
+                         "within-species factor, the lineage above them at its between-congener factor, each marker "
+                         "set scaled to a mean of 1); or categories (ribosomal proteins 0.4, translation and "
+                         "transcription 0.8, tRNA synthetases and modification 1.1, the rest 1.4, by the gene's name, "
+                         "each with some noise, mean 1). Written to simulation/gene_rates.tsv")
+    ap.add_argument("--gene_rate_table", default=os.path.join(SCRIPT_DIR, "gene_rates_r226.tsv"),
+                    help="the genes' factors for --gene_rates r226 (make_gene_rates.py; default gene_rates_r226.tsv "
+                         "next to this script, from the r226 v10 build)")
     ap.add_argument("--operons", action="store_true",
                     help="markers in clusters of 1-6 genes 0-150 bases apart, the same in every species, as the "
                          "ribosomal protein operons are, instead of shuffled per species and spaced evenly")
@@ -498,12 +537,19 @@ def main():
 
     sim_dir = os.path.join(out, "simulation")
     os.makedirs(sim_dir, exist_ok=True)
-    if args.gene_rates != "none":
+    if args.gene_rates == "categories":
         names = read_marker_names(args.markers)
+        rate = {m: r for (_, m), r in sim.strain_rate.items()}
         with open(os.path.join(sim_dir, "gene_rates.tsv"), "w", newline="\n") as fh:
             fh.write("marker\tname\tcategory\trate\n")
-            for m in sorted(sim.gene_rate):
-                fh.write(f"{m}\t{names[m]}\t{marker_category(names[m])}\t{sim.gene_rate[m]:.4f}\n")
+            for m in sorted(rate):
+                fh.write(f"{m}\t{names[m]}\t{marker_category(names[m])}\t{rate[m]:.4f}\n")
+    elif args.gene_rates == "r226":
+        names = read_marker_names(args.markers)
+        with open(os.path.join(sim_dir, "gene_rates.tsv"), "w", newline="\n") as fh:
+            fh.write("set\tmarker\tname\tstrain_rate\tbranch_rate\n")
+            for s, m in sorted(sim.strain_rate):
+                fh.write(f"{s}\t{m}\t{names[m]}\t{sim.strain_rate[(s, m)]:.4f}\t{sim.branch_rate[(s, m)]:.4f}\n")
     reps_db = os.path.join(out, "genomic_files_reps", f"gtdb_genomes_reps_{rel}", "database")
     with open(os.path.join(sim_dir, "genomes.tsv"), "w", newline="\n") as gt, \
          open(os.path.join(sim_dir, "marker_positions.tsv"), "w", newline="\n") as mp, \
