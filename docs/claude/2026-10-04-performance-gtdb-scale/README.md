@@ -829,6 +829,33 @@ What the r226 preload gains needs the next cluster run; the start-up's critical 
 What the next run should show: the SAM's size and its read, the `SAM read:` and `Preload:` lines, the output handler's
 time and the SAM's close.
 
+## The seed sort and the read EM (2026-10-05)
+
+**The seed sort** (3.3 s per thread of the paired-end run's aligning at r226, 1.3 s of HiFi's): a read's seeds are now
+sorted as 128-bit keys holding every field (`LookupResult::SortKey`: taxon, gene, read position, then gene position and
+the flags; `22c445d`). On lists like a paired-end mate's at r226 (~43 seeds on a few taxa and genes;
+[`scripts/seed_sort_bench.cpp`](scripts/seed_sort_bench.cpp)) 39 → 21 ns per seed; e2e PacBio seed sorting −45%. The old
+comparator left seeds equal in taxon, gene and read position (a k-mer's hits at several places of one gene) in an order
+of `std::sort`'s making, and a gene's first seed starts its anchor; the key orders them by gene position, so the order
+no longer depends on the standard library. The e2e pe and PacBio SAM records and profiles came out identical.
+
+**The read EM** (1.2 s of the paired-end profiling at r226): a `Sample <id> read EM:` line now gives its classes,
+alternatives, taxa and sweeps, and the times of the record counts, the set-up, the sweeps and the shares. Locally
+(pe 500k pairs): 76,028 ambiguity classes with 223,181 alternatives on 765 taxa, **200 sweeps (the cap)**, the sweeps
+0.25 s of the 0.27 s; set-up, counts and shares together under 15 ms. Tried and dropped:
+
+- *The sweep on several threads, bit-exact*: each class's reads × shares computed in parts on 6 threads, then summed in
+  class order on one (the same operations in the same order: the shares the same to the last bit, tested at 2-32
+  threads). No gain: the parallel part went 0.155 → 0.095 s, the sums 0.105 → 0.15 s, as the summing thread pulls the
+  2.4 MB of amounts from the other cores every sweep.
+- *Merging classes that differ only in the kept flag* (their posteriors are the same): 76,028 → 71,251 classes, 6%,
+  and the sums would change in the last bits.
+
+What is left needs fewer sweeps, which changes the `em_*` features: an accelerated EM (SQUAREM) or a lower cap stops
+the taxa that converge slowly (those whose reads a congener explains about as well) at another point than the
+200th sweep. That would need the r226 benchmark and maybe retrained models; not done. The rest of the record evidence
+(1.6 s less the EM and the distances) is ~0.15 s.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):

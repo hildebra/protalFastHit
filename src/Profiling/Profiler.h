@@ -2658,10 +2658,26 @@ namespace protal {
             // Wall-clock timers of the last ApplySampleContext: the read EM and the congener distances (sketches and pairs).
             Benchmark m_bm_em{"Profiling: read EM"};
             Benchmark m_bm_distances{"Profiling: congener distances"};
+            context::EmStats m_em_stats;     // the last ApplySampleContext's read EM (EmDetail)
+            double m_em_counts_seconds = 0;  // and the time its record counts by taxon took
+
+            // The read EM of the last ApplySampleContext, in one line.
+            std::string EmDetail() const {
+                auto const& s = m_em_stats;
+                std::ostringstream line;
+                line << std::fixed << std::setprecision(3) << s.classes << " ambiguity classes with " << s.alternatives << " alternatives, "
+                     << s.taxa << " taxa, " << s.sweeps << " sweeps; the record counts by taxon " << m_em_counts_seconds << " s, setting up "
+                     << s.setup << " s, the sweeps " << s.sweeping << " s, the shares " << s.sharing << " s";
+                return line.str();
+            }
 
             void ApplySampleContext(size_t threads = 1) {
                 m_bm_em.Start();
-                auto const shares = context::AbundanceWeightedShares(m_evidence.Ambiguity(), m_evidence.RecordCountsByTaxon());
+                auto const counts_start = std::chrono::steady_clock::now();
+                auto const record_counts = m_evidence.RecordCountsByTaxon();
+                m_em_counts_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - counts_start).count();
+                auto const shares = context::AbundanceWeightedShares(m_evidence.Ambiguity(), record_counts, context::kEmTolerance,
+                                                                     context::kEmIterations, &m_em_stats);
                 m_bm_em.Stop();
                 auto const ids = SortedTaxa();
                 struct Entry {

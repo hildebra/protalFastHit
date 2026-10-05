@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -251,11 +252,26 @@ namespace protal::profiler::context {
     // (docs/claude/2026-10-03-performance-review). A taxon without records (an alternative the counts lack) has
     // weight 0 throughout, as it had no entry before.
     //
+    // What the last AbundanceWeightedShares did, for the run's log (`stats`).
+    struct EmStats {
+        size_t classes = 0, alternatives = 0, taxa = 0, sweeps = 0;
+        double setup = 0, sweeping = 0, sharing = 0;  // seconds: the indices and classes, the sweeps, the shares
+    };
+
     // `tolerance` and `max_sweeps` are kEmTolerance and kEmIterations (tests pass others: 0 runs every sweep).
     inline std::unordered_map<uint32_t, OwnShares> AbundanceWeightedShares(AmbiguityClasses const& classes,
                                                                            std::map<uint32_t, RecordCounts> const& counts,
                                                                            double tolerance = kEmTolerance,
-                                                                           size_t max_sweeps = kEmIterations) {
+                                                                           size_t max_sweeps = kEmIterations,
+                                                                           EmStats* stats = nullptr) {
+        auto clock = std::chrono::steady_clock::now();
+        auto lap = [&clock]() {
+            auto const now = std::chrono::steady_clock::now();
+            double const seconds = std::chrono::duration<double>(now - clock).count();
+            clock = now;
+            return seconds;
+        };
+        size_t sweeps = 0;
         // Indices: the taxa of the counts first, then any other taxon a class names, in class order.
         std::unordered_map<uint32_t, uint32_t> index;
         index.reserve(counts.size() * 2);
@@ -305,6 +321,7 @@ namespace protal::profiler::context {
             resolved.push_back(c);
         }
         for (auto const& c : resolved) plain[c.own] -= c.n;
+        double const setup_seconds = lap();
 
         // A class's shares (own first, then its alternatives'), in a buffer on the stack (ZA lists a few alternatives; a
         // longer list goes to a vector).
@@ -349,9 +366,11 @@ namespace protal::profiler::context {
                 previous_share[i] = share;
             }
             weight.swap(next);
+            sweeps = iteration + 1;
             if (iteration > 0 && change < tolerance) break;
         }
 
+        double const sweep_seconds = lap();
         std::vector<double> own_all(plain.size(), 0.0), own_kept(plain.size(), 0.0);
         std::vector<uint64_t> ambiguous_kept(plain.size(), 0);
         for (auto const& c : resolved) {
@@ -374,6 +393,7 @@ namespace protal::profiler::context {
             }
             result[taxid] = s;
         }
+        if (stats) *stats = { resolved.size(), alternatives.size(), plain.size(), sweeps, setup_seconds, sweep_seconds, lap() };
         return result;
     }
 

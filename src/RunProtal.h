@@ -1145,6 +1145,8 @@ namespace protal {
                 #pragma omp critical(print)
                 std::cout << "Sample " << options.GetSampleId(i) << " SAM read: " << profiler.ReadDetail() << std::endl;
             }
+            #pragma omp critical(print)
+            std::cout << "Sample " << options.GetSampleId(i) << " read EM: " << profile.EmDetail() << std::endl;
 
             profile.SetName(options.GetSampleId(i));
 
