@@ -18,6 +18,8 @@
 #include <omp.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <zstd.h>
+#include <zstd_errors.h>
 #include "gzstream.h"
 #include "IO/ThreadedGzStream.h"
 #include "SequenceUtils/FastaBatches.h"
@@ -121,6 +123,112 @@ namespace {
         std::ifstream is(path, std::ios::binary);
         return std::string((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
     }
+
+    // text as one zstd frame with a checksum (as the zstd command writes it). window_log > 0: streamed
+    // without a size, so that the frame keeps a window of 2^window_log (zstd --long=N writes such frames).
+    std::string ZstdBytes(std::string_view text, int window_log = 0) {
+        ZSTD_CCtx* cctx = ZSTD_createCCtx();
+        ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 3);
+        ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+        std::string out(ZSTD_compressBound(text.size()) + 1024, '\0');
+        size_t written = 0;
+        if (window_log == 0) {
+            written = ZSTD_compress2(cctx, out.data(), out.size(), text.data(), text.size());
+            EXPECT_FALSE(ZSTD_isError(written)) << ZSTD_getErrorName(written);
+        } else {
+            ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, window_log);
+            ZSTD_CCtx_setParameter(cctx, ZSTD_c_enableLongDistanceMatching, 1);
+            ZSTD_outBuffer o{ out.data(), out.size(), 0 };
+            for (size_t from = 0; from < text.size(); from += 100000) {  // in pieces: the size stays unknown
+                ZSTD_inBuffer i{ text.data() + from, std::min<size_t>(100000, text.size() - from), 0 };
+                while (i.pos < i.size) EXPECT_FALSE(ZSTD_isError(ZSTD_compressStream2(cctx, &o, &i, ZSTD_e_continue)));
+            }
+            ZSTD_inBuffer none{ nullptr, 0, 0 };
+            while (ZSTD_compressStream2(cctx, &o, &none, ZSTD_e_end) > 0) {}
+            written = o.pos;
+        }
+        ZSTD_freeCCtx(cctx);
+        out.resize(written);
+        return out;
+    }
+
+    // A skippable zstd frame of n bytes (pzstd and the seekable format write such frames between and after others).
+    std::string SkippableFrame(size_t n) {
+        std::string frame = "\x5a\x2a\x4d\x18";  // magic 0x184D2A5A, little-endian
+        for (int i = 0; i < 4; i++) frame += static_cast<char>((n >> (8 * i)) & 0xff);
+        return frame + std::string(n, 's');
+    }
+}
+
+// A zstd file (by its first bytes, whatever its name) is decompressed with libzstd in the stream's own thread:
+// one frame, several (cat a.zst b.zst), skippable frames among them, an empty frame, and a frame of a window
+// larger than libzstd decodes by default (zstd --long=28 writes it).
+TEST(ThreadedGzStream, ReadsAZstdFile) {
+    ScratchDir dir;
+    auto const content = Fastq(40000, "z");  // ~12 MB, more than all blocks
+    std::string several;
+    for (size_t from = 0; from < content.size(); from += 1000003) several += ZstdBytes(std::string_view(content).substr(from, 1000003));
+    std::string const with_skippable = SkippableFrame(100) + ZstdBytes(content.substr(0, 5000000)) + SkippableFrame(70000) +
+                                       ZstdBytes(content.substr(5000000)) + SkippableFrame(16);
+    std::string const long_window = ZstdBytes(content, 28);
+    {  // libzstd's defaults do not decode it (a window over 2^27)
+        ZSTD_DCtx* dctx = ZSTD_createDCtx();
+        std::string out(1 << 20, '\0');
+        ZSTD_inBuffer i{ long_window.data(), long_window.size(), 0 };
+        ZSTD_outBuffer o{ out.data(), out.size(), 0 };
+        size_t const ret = ZSTD_decompressStream(dctx, &o, &i);
+        ZSTD_freeDCtx(dctx);
+        ASSERT_TRUE(ZSTD_isError(ret));
+        EXPECT_EQ(ZSTD_getErrorCode(ret), ZSTD_error_frameParameter_windowTooLarge) << ZSTD_getErrorName(ret);
+    }
+    std::vector<std::pair<std::string, std::string>> const inputs{
+        { "one.fq.zst", ZstdBytes(content) }, { "several.fq.zst", several }, { "skippable.fq.zst", with_skippable },
+        { "long.fq.zst", long_window }, { "named_as_plain.fq", ZstdBytes(content) } };
+    for (auto const& [name, bytes] : inputs) {
+        SCOPED_TRACE(name);
+        ThreadedGzIstream is(dir.Plain(name, bytes).c_str());
+        EXPECT_EQ(ReadAllOf(is), content);
+        EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+    }
+    ThreadedGzIstream empty(dir.Plain("empty.fq.zst", ZstdBytes("")).c_str());
+    EXPECT_EQ(ReadAllOf(empty), "");
+    EXPECT_FALSE(empty.rdbuf()->read_failed()) << empty.rdbuf()->read_error_message();
+}
+
+// A zstd file cut inside a frame, with a corrupt frame, or with data after its frames that is no frame, reads as
+// a prefix of its content and says why; a cut between frames cannot be told from the end, as with gzip members.
+TEST(ThreadedGzStream, ACutOrCorruptZstdFileIsReported) {
+    ScratchDir dir;
+    auto const first = Fastq(10000, "c"), second = Fastq(10000, "d");
+    std::string const one = ZstdBytes(first), two = ZstdBytes(second);
+    int files = 0;
+    auto read = [&](std::string const& bytes, std::string& error) {
+        ThreadedGzIstream is(dir.Plain("reads" + std::to_string(files++) + ".fq.zst", bytes).c_str());
+        auto const text = ReadAllOf(is);
+        error = is.rdbuf()->read_failed() ? is.rdbuf()->read_error_message() : "";
+        return text;
+    };
+    auto const npos = std::string::npos;
+    std::string error;
+    auto text = read(one + two.substr(0, two.size() / 2), error);
+    EXPECT_NE(error.find("the file ends inside zstd frame 2 (truncated file?)"), npos) << error;
+    EXPECT_EQ(text.compare(0, first.size(), first), 0);
+    EXPECT_LT(text.size(), first.size() + second.size());
+    EXPECT_EQ((first + second).compare(0, text.size(), text), 0);
+
+    text = read(one.substr(0, one.size() - 3), error);  // only the checksum's last bytes missing
+    EXPECT_NE(error.find("the file ends inside zstd frame 1 (truncated file?)"), npos) << error;
+
+    std::string corrupt = two;
+    for (size_t i = corrupt.size() / 2; i < corrupt.size() / 2 + 16; i++) corrupt[i] = static_cast<char>(corrupt[i] ^ 0x5a);
+    text = read(one + corrupt, error);
+    EXPECT_NE(error.find("in zstd frame 2 (corrupt file?)"), npos) << error;
+    EXPECT_EQ(text.compare(0, first.size(), first), 0);
+
+    EXPECT_EQ(read(one + "not a zstd frame", error), first);
+    EXPECT_NE(error.find("in zstd frame 2 (corrupt file?)"), npos) << error;
+    EXPECT_EQ(read(one + two, error), first + second);  // whole frames: a file cut between them reads as complete
+    EXPECT_EQ(error, "");
 }
 
 // gzip that is not BGZF (as sequencers write it) is inflated with zlib-ng, also when protal did not
@@ -231,14 +339,15 @@ TEST(ThreadedGzStream, AFileThatCannotBeReadSaysWhy) {
     }
 }
 
-// A pipe (a FIFO, process substitution) is read from its one descriptor: plain, gzip, or BGZF
-// (which a pipe cannot be peeked at for, so it is read as gzip members).
+// A pipe (a FIFO, process substitution) is read from its one descriptor: plain, gzip, BGZF (which a
+// pipe cannot be peeked at for, so it is read as gzip members), or zstd.
 TEST(ThreadedGzStream, ReadsAPipe) {
     ScratchDir dir;
     std::signal(SIGPIPE, SIG_IGN);  // a reader that stops early fails the test, not the process
     auto const content = Fastq(20000, "f");  // ~6 MB, more than a pipe holds
     std::vector<std::pair<std::string, std::string>> const inputs{
-        { "plain", content }, { "gzip", GzipBytes(content) }, { "bgzf", FileBytes(Bgzf(dir, "reads.fq.gz", content)) } };
+        { "plain", content }, { "gzip", GzipBytes(content) }, { "bgzf", FileBytes(Bgzf(dir, "reads.fq.gz", content)) },
+        { "zstd", ZstdBytes(content) } };
     for (auto const& [name, bytes] : inputs) {
         SCOPED_TRACE(name);
         auto const fifo = (dir.path / (name + ".fifo")).string();
@@ -425,7 +534,8 @@ TEST(SeqReader, FastqRecordsAreTheSameFromAnyStream) {
 
     std::istringstream plain_stream(content);
     ThreadedGzIstream plain(dir.Plain("reads.fq", content).c_str()), gz(dir.Gzip("reads.fq.gz", content).c_str());
-    for (std::istream* is : std::initializer_list<std::istream*>{ &plain_stream, &plain, &gz }) {
+    ThreadedGzIstream zst(dir.Plain("reads.fq.zst", ZstdBytes(content)).c_str());
+    for (std::istream* is : std::initializer_list<std::istream*>{ &plain_stream, &plain, &gz, &zst }) {
         SeqReaderSE reader(*is);
         EXPECT_EQ(Records([&](FastxRecord& r) { return reader(r); }), expected);
         EXPECT_TRUE(reader.Success());

@@ -13,6 +13,7 @@
 #include <sstream>
 #include <string>
 #include <unistd.h>
+#include <zstd.h>
 #include "Hash/Seedmap.h"
 #include "Profiling/Profiler.h"
 #include "SequenceUtils/GenomeLoader.h"
@@ -606,6 +607,13 @@ TEST(ReadTypeDetection, LongReadsByTheirQuality) {
     auto const zipped = Guess(gz);
     ASSERT_TRUE(zipped);
     EXPECT_EQ(zipped->type, protal::ReadType::ONT);
+    // zstd too.
+    std::string const text = Reads(50, 4000, 'D', Plain);
+    std::string zst(ZSTD_compressBound(text.size()), '\0');
+    zst.resize(ZSTD_compress(zst.data(), zst.size(), text.data(), text.size(), 3));
+    auto const zstd = Guess(dir.Write("q35.fq.zst", zst));
+    ASSERT_TRUE(zstd);
+    EXPECT_EQ(zstd->type, protal::ReadType::PacBio);
 }
 
 TEST(ReadTypeDetection, NamesBeforeQualities) {

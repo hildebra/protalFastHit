@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <zlib-ng.h>
+#include <zstd.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -30,16 +31,19 @@ namespace protal {
     // inflated the input, which capped a run at one core's inflate speed (~200k read pairs/s)
     // whatever -t was. Here the lock holder only copies bytes that are already inflated, and the
     // two files of a pair inflate in parallel. A BGZF file (Bgzf.h: bgzip's, protal's) is
-    // inflated block by block with libdeflate; any other file with zlib-ng (lib/zlib-ng.cmake),
-    // which streams (libdeflate cannot).
+    // inflated block by block with libdeflate; any other gzip file with zlib-ng (lib/zlib-ng.cmake),
+    // which streams (libdeflate cannot); a zstd file (its frames, one after the other, skippable ones
+    // too, any window zstd --long writes) with libzstd's streaming decompression. The format is
+    // told from the first bytes, not from the name; a file of none of them is read as it is.
     //
     // As with igzstream, a truncated or corrupt file reads as one that ends early; read_failed()
     // tells the two apart once reading has stopped. A BGZF file must end with its end-of-file
     // block, so a cut at a block boundary is found too (it may go on with gzip members of other
     // kinds, as cat a.bgzf.gz b.gz writes); in other gzip files, what follows a member must be
     // another member (or zero bytes of padding), so a damaged member header is an error rather
-    // than the end. The file is opened once and read from that descriptor only, so
-    // pipes and process substitution (<(zcat ...)) work; only a regular file is checked for BGZF.
+    // than the end; a zstd file must not end inside a frame, and holds zstd frames only. The file
+    // is opened once and read from that descriptor only, so pipes and process substitution
+    // (<(zcat ...)) work; only a regular file is checked for BGZF.
     // The buffer is read by one thread at a time (the reader lock serialises it); its inflating
     // thread is stopped by close().
     class ThreadedGzStreambuf : public std::streambuf {
@@ -111,6 +115,8 @@ namespace protal {
             if (m_thread.joinable()) m_thread.join();
             if (m_zs_open) zng_inflateEnd(&m_zs);
             m_zs_open = false;
+            if (m_zstd) ZSTD_freeDCtx(m_zstd);
+            m_zstd = nullptr;
             ::close(m_fd);
             m_fd = -1;
             setg(nullptr, nullptr, nullptr);
@@ -200,7 +206,7 @@ namespace protal {
                 char* data = m_blocks[index].data();
                 size_t size = 0;
                 std::string error;
-                end = m_bgzf ? FillBgzf(data, size, error) : FillGzip(data, size, error);
+                end = m_bgzf ? FillBgzf(data, size, error) : FillStream(data, size, error);
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
                     if (size > 0) m_ready.emplace_back(index, size);
@@ -246,7 +252,7 @@ namespace protal {
                 if (got < bgzf::kHeaderBytes || !bgzf::IsBlockHeader(block)) {
                     // A gzip member of another kind after the BGZF blocks (cat a.bgzf.gz b.gz): on as gzip.
                     if (got >= 2 && block[0] == 0x1f && block[1] == 0x8b) {
-                        return !StartGzip(got, error) || FillGzip(data, size, error);
+                        return !StartGzip(got, error) || FillStream(data, size, error);
                     }
                     error = got < bgzf::kHeaderBytes ? "the file ends inside a BGZF block header (truncated file?)"
                                                      : "no BGZF block at byte " + std::to_string(m_offset) +
@@ -276,7 +282,7 @@ namespace protal {
             return false;
         }
 
-        // Reads the rest of the file with FillGzip, from its first `got` bytes in m_block_in (read
+        // Reads the rest of the file with FillStream, from its first `got` bytes in m_block_in (read
         // there by FillBgzf, else none); false if zlib-ng cannot start (error then set).
         bool StartGzip(size_t got, std::string& error) {
             m_bgzf = false;
@@ -291,6 +297,25 @@ namespace protal {
                 return false;
             }
             m_zs_open = true;
+            return true;
+        }
+
+        // A zstd frame's magic number, or a skippable frame's (pzstd and the seekable format write them).
+        static bool IsZstdFrame(unsigned char const* in) {
+            return (in[0] == 0x28 && in[1] == 0xb5 && in[2] == 0x2f && in[3] == 0xfd) ||
+                   ((in[0] & 0xf0) == 0x50 && in[1] == 0x2a && in[2] == 0x4d && in[3] == 0x18);
+        }
+
+        // FillZstd's decompression context; false if it cannot be made (error then set).
+        bool StartZstd(std::string& error) {
+            m_zstd = ZSTD_createDCtx();
+            if (!m_zstd) {
+                error = "cannot allocate a zstd decompression context";
+                return false;
+            }
+            // The largest windows (zstd --long up to 2 GB); the memory follows the frame's own.
+            ZSTD_DCtx_setParameter(m_zstd, ZSTD_d_windowLogMax, ZSTD_dParam_getBounds(ZSTD_d_windowLogMax).upperBound);
+            m_zstd_in_frame = false;
             return true;
         }
 
@@ -322,14 +347,14 @@ namespace protal {
             }
         }
 
-        // Inflates gzip members (or copies a file that is not gzip) into data (from size) until the
-        // block is full; true at the end of the file or on an error (then set). After a member, the
-        // file must end, hold zero padding, or go on with another member: anything else is taken
-        // for a damaged member, not ignored as zlib's gzread does.
-        bool FillGzip(char* data, size_t& size, std::string& error) {
+        // Inflates gzip members (decompresses a zstd file, or copies a file that is neither) into data
+        // (from size) until the block is full; true at the end of the file or on an error (then set).
+        // After a gzip member, the file must end, hold zero padding, or go on with another member:
+        // anything else is taken for a damaged member, not ignored as zlib's gzread does.
+        bool FillStream(char* data, size_t& size, std::string& error) {
             while (size < kBlockSize) {
                 if (m_mode == Mode::Look) {
-                    if (!Available(2, error)) return true;
+                    if (!Available(4, error)) return true;
                     size_t const left = m_in_end - m_in_pos;
                     if (left == 0) return true;  // the end of the file
                     unsigned char const* in = m_block_in.data() + m_in_pos;
@@ -337,8 +362,11 @@ namespace protal {
                         if (m_members > 0) zng_inflateReset(&m_zs);
                         m_members++;
                         m_mode = Mode::Gzip;
+                    } else if (m_members == 0 && left >= 4 && IsZstdFrame(in)) {
+                        if (!StartZstd(error)) return true;
+                        m_mode = Mode::Zstd;
                     } else if (m_members == 0) {
-                        m_mode = Mode::Copy;  // not gzip: read as it is
+                        m_mode = Mode::Copy;  // neither gzip nor zstd: read as it is
                     } else {
                         uint64_t const at = m_offset;
                         if (!RestIsZero(error) && error.empty()) {
@@ -348,6 +376,7 @@ namespace protal {
                         return true;
                     }
                 }
+                if (m_mode == Mode::Zstd) return FillZstd(data, size, error);
                 if (m_mode == Mode::Copy) {
                     if (!Available(1, error)) return true;
                     size_t const n = std::min(m_in_end - m_in_pos, kBlockSize - size);
@@ -393,18 +422,55 @@ namespace protal {
             return false;
         }
 
-        enum class Mode { Look, Gzip, Copy };
-        bool m_bgzf = false;                             // read with FillBgzf, else FillGzip
+        // Decompresses zstd frames into data (from size) until the block is full; true at the end of the
+        // file or on an error (then set). ZSTD_decompressStream reads frame after frame, skippable ones
+        // too, and returns 0 where one ends: the file must end there, not inside a frame.
+        bool FillZstd(char* data, size_t& size, std::string& error) {
+            while (size < kBlockSize) {
+                if (!Available(1, error)) return true;
+                size_t const had = m_in_end - m_in_pos;
+                if (had == 0 && !m_zstd_in_frame) return true;  // the end of the file, after a whole frame
+                ZSTD_inBuffer in {m_block_in.data() + m_in_pos, had, 0};
+                ZSTD_outBuffer out {data + size, kBlockSize - size, 0};
+                size_t const ret = ZSTD_decompressStream(m_zstd, &out, &in);
+                m_in_pos += in.pos;
+                m_offset += in.pos;
+                size += out.pos;
+                if (ZSTD_isError(ret)) {
+                    error = std::string(ZSTD_getErrorName(ret)) + " in zstd frame " + std::to_string(m_members + 1) +
+                            " (corrupt file?)";
+                    return true;
+                }
+                if (in.pos == 0 && out.pos == 0) {
+                    // No progress: the frame needs more input than there is unread (or, with none, it is cut).
+                    std::string more;
+                    if (!Available(had + 1, more)) { error = more; return true; }
+                    if (m_in_end - m_in_pos == had) {
+                        error = "the file ends inside zstd frame " + std::to_string(m_members + 1) + " (truncated file?)";
+                        return true;
+                    }
+                    continue;
+                }
+                m_zstd_in_frame = ret != 0;
+                if (ret == 0) m_members++;  // a frame ended
+            }
+            return false;
+        }
+
+        enum class Mode { Look, Gzip, Zstd, Copy };
+        bool m_bgzf = false;                             // read with FillBgzf, else FillStream
         int m_fd = -1;
         std::string m_open_error;
-        std::vector<unsigned char> m_block_in;           // one compressed BGZF block, or FillGzip's input
+        std::vector<unsigned char> m_block_in;           // one compressed BGZF block, or FillStream's input
         uint64_t m_offset = 0;                           // of the next unread byte of the file
-        size_t m_in_pos = 0, m_in_end = 0;               // FillGzip: unread input in m_block_in
-        bool m_in_eof = false;                           // FillGzip: the file has no more bytes
-        size_t m_members = 0;                            // gzip members begun (BGZF blocks read)
+        size_t m_in_pos = 0, m_in_end = 0;               // FillStream: unread input in m_block_in
+        bool m_in_eof = false;                           // FillStream: the file has no more bytes
+        size_t m_members = 0;                            // gzip members begun (BGZF blocks read; zstd frames ended)
         Mode m_mode = Mode::Look;
         zng_stream m_zs {};
         bool m_zs_open = false;
+        ZSTD_DCtx* m_zstd = nullptr;                     // a zstd file's decompression
+        bool m_zstd_in_frame = false;                    // a zstd frame has begun and not ended
         bool m_last_empty = false;                       // the last block read was empty (the EOF marker)
         std::thread m_thread;
         std::vector<std::vector<char>> m_blocks;

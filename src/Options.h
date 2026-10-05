@@ -1900,7 +1900,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             return {};
         }
 
-        // The longest of the first `records` reads of a FASTQ/FASTA file (plain or gzipped); 0 if it
+        // The longest of the first `records` reads of a FASTQ/FASTA file (plain, gzip or zstd); 0 if it
         // cannot be read.
         static size_t LongestRead(std::string const& path, size_t records) {
             if (!std::filesystem::is_regular_file(path)) return 0;

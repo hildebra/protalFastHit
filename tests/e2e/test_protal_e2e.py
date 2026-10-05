@@ -1382,14 +1382,65 @@ class BadInputTest(WorkDir):
         self.assertFalse(glob.glob(self.path(out, "*.sam*")), "no SAM may be written")
 
     def test_reads_that_are_not_fastq_fail_their_sample(self):
-        # e.g. zstd-compressed reads, which protal does not read
+        # e.g. bzip2-compressed reads, which protal does not read (they go through a pipe: <(bzcat ...))
+        for name in ("b_R1.fq.bz2", "b_R2.fq.bz2"):
+            with open(self.path(name), "wb") as fh:
+                fh.write(b"BZh91AY&SY" + random.Random(name).randbytes(4000))
+        rc, log = self.sample("out_bz2", self.path("b_R1.fq.bz2"), self.path("b_R2.fq.bz2"))
+        self.assertEqual(rc, 1, log[-3000:])
+        self.assertIn("Reading the FASTQ files of sample s failed", log)
+        self.assert_no_sam("out_bz2")
+
+    def test_corrupt_zstd_reads_fail_their_sample(self):
         for name in ("z_R1.fq.zst", "z_R2.fq.zst"):
             with open(self.path(name), "wb") as fh:
                 fh.write(b"\x28\xb5\x2f\xfd" + random.Random(name).randbytes(4000))
         rc, log = self.sample("out_zst", self.path("z_R1.fq.zst"), self.path("z_R2.fq.zst"))
         self.assertEqual(rc, 1, log[-3000:])
-        self.assertIn("Reading the FASTQ files of sample s failed", log)
+        self.assertRegex(log, r"The FASTQ files of sample s are truncated or corrupt \(.*zstd frame 1 \((corrupt|truncated) "
+                              r"file\?\)")
         self.assert_no_sam("out_zst")
+
+    def test_zstd_reads(self):
+        # zstd-compressed reads (by their first bytes): two frames one after the other (cat a.zst b.zst), as files and
+        # from pipes, profile as the plain files do.
+        if not shutil.which("zstd"):
+            self.skipTest("needs the zstd command")
+        r1, r2 = self.MATES
+        rc, log = self.sample("out_plain", r1, r2)
+        self.assertEqual(rc, 0, log[-3000:])
+        zst = []
+        for src in (r1, r2):
+            with open(src, "rb") as fh:
+                data = fh.read()
+            half = data.index(b"\n@", len(data) // 2) + 1
+            frames = b"".join(subprocess.run(["zstd", "-q", "-c", "-3"], input=part, check=True, stdout=subprocess.PIPE).stdout
+                              for part in (data[:half], data[half:]))
+            zst.append(frames)
+            with open(self.path(os.path.basename(src) + ".zst"), "wb") as fh:
+                fh.write(frames)
+        rc, log = self.sample("out_zst", *(self.path(os.path.basename(src) + ".zst") for src in (r1, r2)))
+        self.assertEqual(rc, 0, log[-3000:])
+        fifos = [self.path("zpipe_R1.fq.zst"), self.path("zpipe_R2.fq.zst")]
+        for fifo in fifos:
+            os.mkfifo(fifo)
+
+        def feed(data, fifo):
+            with open(fifo, "wb") as fout:
+                fout.write(data)
+
+        writers = [threading.Thread(target=feed, args=(data, fifo), daemon=True) for data, fifo in zip(zst, fifos)]
+        for writer in writers:
+            writer.start()
+        rc, log = self.sample("out_zpipes", *fifos)
+        self.assertEqual(rc, 0, log[-3000:])
+        for writer in writers:
+            writer.join(timeout=10)
+        with open(glob.glob(self.path("out_plain", "*.profile"))[0]) as fh:
+            plain = fh.read()
+        for out in ("out_zst", "out_zpipes"):
+            with open(glob.glob(self.path(out, "*.profile"))[0]) as fh:
+                self.assertEqual(fh.read(), plain, out)
 
     def test_an_unreadable_read_file_stops_protal(self):
         r1, r2 = self.MATES

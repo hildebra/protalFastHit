@@ -95,7 +95,7 @@ namespace protal {
         }
     }
 
-    // The first max_reads reads of a FASTQ or FASTA file (plain or gzipped), or fewer if they hold max_bases
+    // The first max_reads reads of a FASTQ or FASTA file (plain, gzip or zstd), or fewer if they hold max_bases
     // bases. None read (reads 0) if the file is not a regular file (a pipe would lose them) or holds no reads.
     inline ReadSample SampleReads(std::string const& path, size_t max_reads = 200, size_t max_bases = 5'000'000) {
         using namespace read_type_detection;

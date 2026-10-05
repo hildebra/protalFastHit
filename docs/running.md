@@ -94,17 +94,21 @@ many calls flipped, and validate on a study with a truth first ([report](claude/
 
 ## Read files
 
-Read files are FASTQ or FASTA, plain, gzip or BGZF; bases are read as uppercase. Other
-compressions (zstd, bzip2, xz) are read through a pipe, which protal reads as a file, as it does
-process substitution: `-1 <(zstd -dc a_R1.fq.zst) -2 <(zstd -dc a_R2.fq.zst) --prefix a` (give
-`--prefix`: the pipe's name, `/dev/fd/63`, names no sample). A gzip file may hold several members,
-one after the other (`cat a.fq.gz b.fq.gz`, also after BGZF ones), and zero bytes of padding.
+Read files are FASTQ or FASTA, plain, gzip, BGZF or zstd, told apart by their first bytes (not
+their names); bases are read as uppercase. Other compressions (bzip2, xz) are read through a pipe,
+which protal reads as a file, as it does process substitution: `-1 <(xz -dc a_R1.fq.xz) -2 <(xz -dc
+a_R2.fq.xz) --prefix a` (give `--prefix`: the pipe's name, `/dev/fd/63`, names no sample). A gzip
+file may hold several members, one after the other (`cat a.fq.gz b.fq.gz`, also after BGZF ones),
+and zero bytes of padding; a zstd file several frames (`cat a.fq.zst b.fq.zst`, `pzstd`'s and the
+seekable format's skippable frames, any `zstd --long` window). Each file is decompressed in a
+thread of its own, so the alignment threads only copy reads that are already decompressed.
 
 A read file that is missing, a directory or not readable stops protal before the index is loaded.
 A sample fails (exit 1, no SAM file) when its reads are not FASTQ or FASTA, when a record is
-incomplete, has no `+` line or has more or fewer qualities than bases, when a gzip file is
+incomplete, has no `+` line or has more or fewer qualities than bases, when a gzip or zstd file is
 truncated or corrupt (whatever follows a gzip member must be another member: a damaged member
-header is an error, not the end of the file), when paired files hold different numbers of reads,
+header is an error, not the end of the file; a zstd file must not end inside a frame and holds
+zstd frames only), when paired files hold different numbers of reads,
 or when a single-end read is longer than 1,000 bp (below). A sample without reads, and pairs
 whose mates' names differ (other than in a last `1` and `2`, as in `r/1` and `r/2`), get a
 warning: the files of a pair may not be in the same order.

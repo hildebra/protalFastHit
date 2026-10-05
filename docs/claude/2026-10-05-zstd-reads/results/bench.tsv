@@ -1,0 +1,8 @@
+file	wall_s	MB_per_s	cpu_s	bytes	error
+reads.fq	0.057	8439	0.097	477240963	
+reads.bgzf.fq.gz	0.320	1493	0.359	477240963	
+reads.gzip6.fq.gz	0.525	908	0.563	477240963	
+reads.zstd1.fq.zst	0.400	1192	0.440	477240963	
+reads.zstd3.fq.zst	0.405	1179	0.443	477240963	
+reads.zstd9.fq.zst	0.345	1384	0.386	477240963	
+reads.zstd19.fq.zst	0.334	1427	0.375	477240963	

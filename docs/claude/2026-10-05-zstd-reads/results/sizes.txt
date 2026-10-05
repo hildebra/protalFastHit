@@ -1,0 +1,7 @@
+119234166 /home/falk/zstdbench/reads.bgzf.fq.gz
+477240963 /home/falk/zstdbench/reads.fq
+116354099 /home/falk/zstdbench/reads.gzip6.fq.gz
+123812932 /home/falk/zstdbench/reads.zstd1.fq.zst
+89331629 /home/falk/zstdbench/reads.zstd19.fq.zst
+118017221 /home/falk/zstdbench/reads.zstd3.fq.zst
+112960023 /home/falk/zstdbench/reads.zstd9.fq.zst
