@@ -1,7 +1,7 @@
 # Protal
 
-Protal profiles bacterial and archaeal communities from paired-end shotgun metagenomes, and
-resolves strains across samples. It aligns reads to the marker genes of GTDB (the prebuilt
+Protal profiles bacterial and archaeal communities from shotgun metagenomes (paired-end,
+single-end, PacBio HiFi and Nanopore reads), and resolves strains across samples. It aligns reads to the marker genes of GTDB (the prebuilt
 database covers GTDB r226), decides with a random forest which species are present, and writes
 species abundances and per-species multiple sequence alignments for strain phylogenies.
 
@@ -37,11 +37,13 @@ four-sample example and describes every output file.
 
 | Page | What it covers |
 |---|---|
-| [Installation](docs/installation.md) | bioconda, static binaries, building from source, the `protal` launcher |
+| [Installation](docs/installation.md) | bioconda, static binaries, building from source, one binary for every CPU |
 | [Running protal](docs/running.md) | details beyond the website: where outputs go, exit codes, reruns, less common options |
+| [What changed](docs/version_changes.md) | 0.6.0a to 0.7.6: changes and benchmarks of every version |
 | [Database files](docs/database-files.md) | `database.protal`, compression, converting and unpacking a database |
-| [Building a database](docs/building-a-database.md) | a custom database from a GTDB release, marker subsets, the full build-and-train workflow |
-| [Training the model](docs/model-training.md) | the presence model: what protal expects, training data, features, trainers |
+| [Building a database](docs/building-a-database.md) | download, build and train a database from one or several GTDB releases, full or reduced |
+| [Training the model](docs/model-training.md) | the presence model: what protal expects, training data, trainers |
+| [The model's features](docs/features.md) | every feature, its importance per read type, and when it matters |
 | [Strain MSA filtering (qcmsa)](docs/qcmsa.md) | the post-filter of the strain MSAs and how to re-filter without re-running protal |
 | [Simulating metagenomes](docs/simulation.md) | `simulate_metagenomes`: mock communities, strain sharing, reproducible replays |
 | [Testing and development](docs/testing.md) | unit and end-to-end tests, the mini database, CI, the strain test harness |

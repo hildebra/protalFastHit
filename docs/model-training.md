@@ -137,6 +137,10 @@ absent. `scripts/mini_db/simulate_gtdb_release.py --strain_divergence 0.002-0.01
 
 ## Features
 
+[features.md](features.md) lists every feature in a table, with the version it came in, its
+importance per read type in the GTDB r226 models and the situations it matters for; this section
+explains how they are defined.
+
 The shipped model was trained on absolute counts: genes, k-mers and mates. These depend on the
 database, on the domain (archaea have 52 marker genes, bacteria 119), on depth and on read length.
 On simulated data it finds about a third of the archaea present, with probabilities pinned near 0.5.
@@ -328,7 +332,10 @@ is a relative the database lacks, never a strain of that species, because the si
 to simulate such a strain from. The rule is a fair bet for environments GTDB has sampled densely and rejects
 the strains of single-MAG species elsewhere, so the priors are **not in the default set** (opt-in with
 `--features normalized+adjacency+distance+depth+divergence+unfiltered+priors`;
-[report](claude/2026-10-03-r226-v9-evaluation/README.md)). The unfiltered group is in the default set, for the
+[report](claude/2026-10-03-r226-v9-evaluation/README.md)). Since 0.7.6 `build_gtdb_database.py` gives every
+one-genome species an in-silico strain to simulate from ([building-a-database.md](building-a-database.md#training-data-like-real-samples)),
+so that the cluster size no longer stands for "has no strains" in the training data; the next r226 build
+shows what the priors are worth then. The unfiltered group is in the default set, for the
 ranking (at r226 `failed_candidate_rate` is the most important feature, the log loss 4% lower, F1 at the knob
 within ±0.002); a dump of a protal before these groups needs `--features
 normalized+adjacency+distance+depth+divergence`.

@@ -12,7 +12,7 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 | alignments | `DIR/P.sam.zst` | `#SAM_OUTPUT_DIR/<SAM>`, default `#OUTPUT_DIR/alignments/` (without a `SAM` column `<PREFIX>.sam.zst`) |
 | profile and its logs | `DIR/P.profile`, `DIR/P.profile.log`, ... | `#PROFILE_OUTPUT_DIR/<PROFILE>`, default `#OUTPUT_DIR/profiles/` |
 | strain MSAs and tables | `DIR/strains/` | `#STRAIN_OUTPUT_DIR`, default `#OUTPUT_DIR/strains/` |
-| coverage, SNP counts, statistics | `DIR/misc/` | `#MISC_OUTPUT_DIR`, default `#OUTPUT_DIR/misc/` |
+| coverage, SNP counts, timers | `DIR/misc/` | `#MISC_OUTPUT_DIR`, default `#OUTPUT_DIR/misc/` |
 
 - `-o` replaces a map's `#OUTPUT_DIR`, and `--profile_dir` moves the profiles of either mode.
 - Without `--prefix`, the prefix is the longest common prefix of the two read file names, which
@@ -48,7 +48,16 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   summed over threads, the number of threads, and the seconds per thread that `--verbose` prints.
   The stages that run for every read are timed on every 61st call only (reading the clock costs
   10-15% of the alignment time otherwise), so their seconds are estimates: the mean timed interval
-  times the number of calls.
+  times the number of calls. Since 0.7.6 it also has the profiling steps' wall-clock times (reading the
+  SAM, record evidence and sample context, read EM, congener distances, SNPs, scoring, writing), which
+  protal prints in one line per sample too.
+- Every run prints per sample how its reads went: the reads, those with an anchor, the candidate
+  alignments tried, those the k-mer screen refused, those aligned, and the records written. At the
+  end it times loading, freeing memory and every stage, so that a run's wall time adds up.
+- `misc/<taxon>.statistics.tsv` (a taxon's coverage, reads, ANI and MAPQ in each sample) is written
+  only with `--taxon_statistics` since 0.7.6: on a GTDB-sized database a sample has reads on
+  thousands of taxa, and that many small files took 15 s of a run on a network file system. The
+  profile files hold the same numbers per sample.
 
 Strain MSAs are written for the species that pass the model in at least two samples, each with a
 row for every sample in which the species passes. A run of one sample therefore writes no MSAs.
@@ -189,6 +198,10 @@ prefixes come from `--prefix` (one per file) or from the SAM names, and the outp
 or next to each SAM without it. This is the quick way to try another `--knob`, model or
 `--depth_identity_margin`.
 
+Since 0.7.6 a profile does not depend on the order of the SAM's records, which multi-threaded
+alignment varies from run to run: repeated runs on the same reads and database give the same
+profile, to the last digit.
+
 ## Exit status
 
 | Exit code | Meaning |
@@ -248,6 +261,8 @@ calibrated with; change them for experiments, not for production profiles.
 | `-a, --max_score_ani` | 0.9 | give up an alignment once it diverges below about this identity |
 | `-x, --x_drop` | 1000 | X-drop of the alignment of short reads (WFA2), added to its adaptive pruning; 0 turns it off. The default changes no short-read alignment in tests (outputs identical to `-x 0`); `-x 50` loses a few alignments and changes MAPQs. Long reads (`pb`, `ont`) are aligned without X-drop: over their gene-long windows even 1000 lost the own species' alignment of genes an ONT read ends in |
 | `--no_mate_guidance` | off | paired-end reads: do not let a mate that is sure of its alignment (MAPQ 20 or more) guide the other when they did not align together (below) |
+| `--no_alignment_screen` | off | align every candidate with WFA2. By default a candidate whose read and gene window share too few k-mers for any alignment within the score budget is refused before WFA2 (exact: it changes no alignment; at r226 it took the paired-end alignment from 62 to 39 s). For measuring |
+| `--long_read_budget E` | 0 | long reads: once a candidate of a gene has aligned, its other candidates get the best's budget plus E edits. Saves 10-25% of PacBio aligning but changes MAPQs and the alternatives of such genes, so the models would need retraining; off until benchmarked |
 | `--no_gene_neighbours` | off | do not use the database's gene neighbours (below): no mates looked for past their gene's end, no pairs over two neighbouring genes, no genes looked for next to a long read's genes, and the profile's `adjacent_*` features 0. A database without `gene_neighbours.tsv` works as with it |
 
 A read is one organism, so its parts are given one taxon. When the mates of a pair aligned to two
@@ -318,7 +333,9 @@ the database conversions `--compress_db`, `--unpack_db`, `--decompress_db`
 ([database-files.md](database-files.md)), `--profile_truth` for the training dump
 ([model-training.md](model-training.md)), `--benchmark_alignment` (checks alignments against the
 `taxid_geneid` encoded in simulated read names), `--mapq_debug_output`, `--full_sam_header` (every
-gene in the SAM header, see above), `--whole_read_alignment` and `--profile_after_alignment` (both below).
+gene in the SAM header, see above), `--whole_read_alignment` and `--profile_after_alignment` (both below),
+`--sequential_load` (load the database's parts one after another, as before 0.7.6, instead of the
+index beside the genome preload and the small tables each on a thread; the run is the same either way).
 
 Short reads are aligned from their anchor's exact matches: WFA aligns the read left and right of
 them (and between them), each part anchored at a match, instead of the whole read into the gene
@@ -355,9 +372,10 @@ with the alignment on every core it gained nothing, so it is off by default.
 
 ## Memory
 
-protal keeps the index and the reference genes in memory: about 35 GB for the full r226 database
-(the index's values packed to 42 bits, 27 GB; its key map, 3.2 GB; the genes at two bits per base,
-4.3 GB; [database-files.md](database-files.md#the-index-in-memory)) and correspondingly less for the
+protal keeps the index and the reference genes in memory: 38 GB peak for a run on the full r226
+database (measured on real paired-end and HiFi samples: the index's values packed to 42 bits,
+27.3 GB; its key map, 3.2 GB; the genes at two bits per base, the tables and the run's buffers, the
+rest; [database-files.md](database-files.md#the-index-in-memory)) and correspondingly less for the
 reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads); the figures there,
 59 and 12 GB, predate the 2-bit genes and the packed index).
 It prints the machine's total memory at start and, after loading the index, the memory it takes. The index is read at random, one lookup per k-mer,
