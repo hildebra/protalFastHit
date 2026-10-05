@@ -1005,6 +1005,20 @@ of 27.3), 32 threads, node `q512n9` again, v11; [`results_v11/`](results_v11/). 
 - **The node's NFS**: the same node as the tenth run, at another time: the strain stage 19.9 → 3.0 s, the SAM's close
   0.7-1.4 s instead of 2.7-5.8: the tenth run's were the file system's.
 
+## 0.7.7: the index load's allowance and the EM's cap (2026-10-05)
+
+- **The index load's tail** (`836e4a3`): its throttle (`60fea63`) kept the loading threads' frames within the index plus
+  one thread's, which cost 0.67 s of start-up at r226, while the run's peak is the alignment's, ~0.95 GB above the
+  loaded index. `zstd::LoadBudget::allowance` lets the frames hold more; a query run allows 24 MB per loading thread
+  (0.77 GB on 32), below the alignment's, so more threads decode to the end without raising the peak. The next cluster
+  run shows the load time (expected back towards 2.6 s) and the `peak_index_gb` (expected at most the aligning peak).
+- **The read EM capped at 100 sweeps** (`f2bafd9`, with the version 0.7.7): at r226 a paired-end sample ran to the 200
+  cap every time (319k classes, 1.1 s); 100 is about what a converging sample needs. On the 0.7.5 benchmark (160 runs;
+  [`results_em100/`](results_em100/), "0.7.3" there is 200 sweeps, "0.7.5" 100): F1, precision, recall, FP and
+  Bray-Curtis identical in every set, and no `.profile` or `.profile.log` differs. At r226 the slowest taxa (reads a
+  congener explains about as well) keep a somewhat larger `em_*` share; the r226 evaluation would show whether the
+  trained models mind.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):

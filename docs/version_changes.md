@@ -1,7 +1,7 @@
-# What changed from protal 0.6.0a to 0.7.6
+# What changed from protal 0.6.0a to 0.7.7
 
 The shipped 0.6.0a (tag `0.6.0a`, commit `014f4a9`, August 2026) and the 0.7 series (0.7.0 on
-2026-09-30 to 0.7.6 on 2026-10-05, branch `audit-fixes`) are compared here: what changed, and how
+2026-09-30 to 0.7.7 on 2026-10-05, branch `audit-fixes`) are compared here: what changed, and how
 every version scores on the same simulated data in detection, abundance, strains, speed and memory.
 The numbers come from the benchmark and audit reports in [`docs/claude/`](claude/README.md), which
 hold the commands, scripts and raw tables; this page only collects them. Nothing here was run again
@@ -17,6 +17,7 @@ for this page.
 | 0.7.4 | `8b2e376` | 2026-10-03 | 23 | species calls judged against the sample's congeners (relatives, distance, read EM); long reads through their chain; prefetched lookups |
 | 0.7.5 | `b892133` | 2026-10-03 | 17 | against false positives: the sample's depth and the reads' divergence as default features, suspect gene copies, species priors; the index packed in memory |
 | 0.7.6 | `13aac36` | 2026-10-05 | 17 | GTDB-scale speed (paired-end run 131 → 58 s, HiFi 104 → 25 s on r226); outputs independent of record order; species priors opt-in; reduced marker sets; in-silico strains and denser depths in training |
+| 0.7.7 | `f2bafd9` | 2026-10-05 | 33 | GTDB-scale speed and memory (paired-end run 58 → 42 s, HiFi 25 → 15.6 s, peak 38.1 → 34.2 GB on r226): AVX2 flex scan, unaligned reads counted in the SAM header (`--write_unmapped_reads`), the index packed key by key as it loads; read EM capped at 100 sweeps; `.fq.zst` input |
 
 ## Changes since 0.6.0a
 
