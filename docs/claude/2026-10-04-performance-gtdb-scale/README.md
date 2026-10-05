@@ -738,6 +738,40 @@ building's per-gene progress bar is gone too (it wrote to `std::cout` from every
 
 At r226 (114 species, 29 s one after another, 32 threads) the stage should take a few seconds; the next cohort run shows.
 
+## The seventh cluster run (2026-10-05): the AVX2 flex scan and the parallel strain stage at r226
+
+SLURM job 23964803, protal at `cbdb069`, 32 threads, on another node (`q512n8`) and the **r226 v10 database**, which has
+no `gene_table.bin`: its runs parse the text tables again (3.3 s against 0.46 s on v11), about 2.9 s more per run than
+the sixth run's v11. Files in [`results_v7/`](results_v7/). Outputs and counts are those of the sixth run.
+
+| | pe1 sixth (v11) | pe1 seventh (v10) | pb2 sixth (v11) | pb2 seventh (v10) |
+|---|---|---|---|---|
+| wall (median) | 50.8 s | 50.0 s (~47 s with `gene_table.bin`) | 18.0 s | 19.8 s (~17 s with it) |
+| aligning | 38.3 s | **33.3 s** | 11.9 s | **10.7 s** |
+| – seeding per thread | 20.5 s | **15.2 s** (−26%) | 4.6 s | **3.3 s** (−28%) |
+| – seed- and anchor-finding per thread | 28.7 s | 23.6 s | – | – |
+| instructions | 12.45 T | 9.06 T (−27%) | 4.75 T | 4.02 T (−15%) |
+| IPC | 2.41 | 1.96 | 2.70 | 2.40 |
+| gene tables | 0.46 s | 3.37 s (text) | 0.47 s | 3.31 s (text) |
+| SAM header and file | 1.10 s | 1.75 s | 1.07 s | 0.60 s |
+
+**The flex scan** took 5.3 s of the 20.5 s per thread out of the paired-end seeding, and 27% of the run's instructions:
+the scan was about a third of the seeding, not most of it (the bench's 3.6 ns per cell over 70 cells overstated the
+cluster's scalar loop). What is left, ~15 s per thread, ~220 ns per lookup, waits on memory, as the IPC falling from 2.4
+to 2.0 shows: the key-map misses and the stream of each block's cells.
+
+**The strain stage** (cohort of both samples, 111 species): **29.0 → 3.8 s**, the cohort run 40.1 → 17.8 s. The summed
+times grew with 32 species at once (building the MSAs 5.4 → 21.6 s summed, qcMSA 23.3 → 72.1 s summed: each species
+takes 3-4× longer beside 31 others, sharing the cores, memory and the file system), but they overlap. The cohort's log
+went from 1.09 MB to 33 KB.
+
+**Where the paired-end run's ~47 s (on v11) go now**: aligning 33.3 s (seeding 15.2 s per thread, extending anchors 3.7,
+the alignment handler 3.9, sorting seeds 3.3, k-mers 2.0, output 1.3), profiling 6.3 s (reading the SAM 4.2 s), start-up
+4.3 s (the preload 3.9 s its critical path), the SAM header and file 1-1.75 s (the close on NFS). The levers left: the
+seeding's memory waits (more threads; huge pages for the index; several reads' lookups interleaved; blocks sorted by
+flex cell for exact matches; small blocks inline), the profiling's SAM reading (47M records, 4.2 s), the preload, and
+the SAM's close.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):
