@@ -1,0 +1,42 @@
+# The AVX2 flex scan and the parallel strain stage, WSL 6 vCPUs, v0.7.3 world (scripts/flex_strain_check.sh, strain_recheck.sh).
+[  PASSED  ] 356 tests.
+[  SKIPPED ] 3 tests, listed below:
+[  SKIPPED ] GeneTables.BenchLoadOfLargeTables
+[  SKIPPED ] GeneSequence.TheBasesOutsideAWindowAreNotLeftToChance
+[  SKIPPED ] FlexScan.Bench
+== bench
+2880 blocks, 2101 with an exact match
+blocks of 16 cells: scalar 3.42063 ns per cell, AVX2 1.937 ns per cell (1.76594x)
+blocks of 70 cells: scalar 3.60082 ns per cell, AVX2 1.07447 ns per cell (3.35125x)
+blocks of 1000 cells: scalar 3.3154 ns per cell, AVX2 0.999728 ns per cell (3.3163x)
+[  PASSED  ] 3 tests.
+pe avx2 1: seeding 0.40 s per thread; Aligning reads took 3s 175ms Run protal took 5s 959ms 
+pb avx2 1: seeding 0.39 s per thread; Aligning reads took 3s 150ms Run protal took 4s 683ms 
+pe scalar 1: seeding 0.35 s per thread; Aligning reads took 2s 890ms Run protal took 5s 436ms 
+pb scalar 1: seeding 0.43 s per thread; Aligning reads took 3s 896ms Run protal took 5s 525ms 
+pe avx2 2: seeding 0.54 s per thread; Aligning reads took 3s 892ms Run protal took 6s 401ms 
+pb avx2 2: seeding 0.50 s per thread; Aligning reads took 3s 881ms Run protal took 5s 698ms 
+pe scalar 2: seeding 0.51 s per thread; Aligning reads took 3s 893ms Run protal took 6s 299ms 
+pb scalar 2: seeding 0.42 s per thread; Aligning reads took 3s 829ms Run protal took 5s 731ms 
+pe avx2 3: seeding 0.47 s per thread; Aligning reads took 4s 44ms Run protal took 6s 691ms 
+pb avx2 3: seeding 0.45 s per thread; Aligning reads took 3s 522ms Run protal took 5s 145ms 
+pe scalar 3: seeding 0.46 s per thread; Aligning reads took 3s 722ms Run protal took 6s 440ms 
+pb scalar 3: seeding 0.37 s per thread; Aligning reads took 3s 691ms Run protal took 5s 461ms 
+pe AVX2 vs scalar: SAM-same out-same
+pb AVX2 vs scalar: SAM-same out-same
+pe AVX2 run 1 vs 2: SAM-same out-same
+Sample pe seeding: 22836468 k-mers looked up, 8543501 in the index, 8249314 blocks scanned with 77008210 flex cells (9.3
+Sample pe seeding: 22836468 k-mers looked up, 8543501 in the index, 8249314 blocks scanned with 77008210 flex cells (9.3
+== cohort (strain stage) at 6 and 1 threads
+threads 6: 3.09 s wall; All alignments are present. Strain-level MSAs took 873ms Strain-level MSAs of 14 species: 14 raw MSAs, 14 filtered by qcMSA; 6 species at a time, the times below summed over the species Building the strain MSAs took 341ms (14) qcMSA took 4s 12ms (14) 
+threads 1: 12.42 s wall; All alignments are present. Strain-level MSAs of 14 species: 14 raw MSAs, 14 filtered by qcMSA; 1 species at a time, the times below summed over the species Building the strain MSAs took 448ms (14) qcMSA took 6s 741ms (14) 
+strain outputs identical at 6 and 1 threads (113 files)
+other cohort outputs identical
+== log order: species names in the 6-thread log follow the species list
+
+## After qcMSA's output and the MSA progress bars were taken out of the log (the order check above failed on lines glued to progress bars)
+threads 6: 3.17 s wall; threads 1: 11.78 s wall
+strain outputs identical at 6 and 1 threads; species lines in the same order
+t6: strains 0.739 build 0.226 qcmsa 3.428 profiling 1.948
+t1: strains 7.145 build 0.361 qcmsa 6.713 profiling 4.128
+cohort log 124,904 -> 7,724 bytes; 0 [qcmsa] lines on success

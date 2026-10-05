@@ -1710,7 +1710,7 @@ namespace protal {
         return indices;
     }
 
-    static std::vector<uint32_t> SelectGenesForTaxon(uint32_t taxid, std::string name, std::vector<size_t>& selected_profiles, GenomeLoader& loader, Options& options, Profiles& profiles) {
+    static std::vector<uint32_t> SelectGenesForTaxon(uint32_t taxid, std::string name, std::vector<size_t>& selected_profiles, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream& out = std::cout) {
         std::vector<uint32_t> selected_gene_ids;
         // The genes with reads in any of the samples. A gene without unique k-mers has reads, too (its
         // k-mers are shared, not absent); a gene without reads would add only gaps.
@@ -1756,7 +1756,7 @@ namespace protal {
             // std::cout << taxon.GetName() << " -> hittable genes" << gene_ids.size() << std::endl;
             for (auto& gene_id : gene_ids) {
                 if (gene_id >= per_sample_gene_multiallelic_snps[si].size()) {
-                    std::cout << gene_id << " >= " << gene_ids.size() << std::endl;
+                    out << gene_id << " >= " << gene_ids.size() << std::endl;
                     exit(123);
                 }
 
@@ -1889,7 +1889,7 @@ namespace protal {
             return genome.GetGene(gene_id).HasLongUniques();
         });
         if (msa_gene_ids.size() < gene_ids.size()) {
-            std::cout << name << ": " << gene_ids.size() - msa_gene_ids.size() << " of " << gene_ids.size()
+            out << name << ": " << gene_ids.size() - msa_gene_ids.size() << " of " << gene_ids.size()
                       << " genes have no long unique k-mers and are left out of the MSA" << std::endl;
         }
         return msa_gene_ids;
@@ -1970,7 +1970,10 @@ namespace protal {
     // M5 step 4c: invoke the qcmsa post-filter on a species' MSA. A failure does not stop the run --
     // the raw strain outputs protal already wrote remain valid -- but it is reported and makes protal
     // exit non-zero, because the filtered <name>.msa.fna the run was asked for is missing.
-    static void RunQCMSA(Options& options, const std::string& name) {
+    // log: where its messages go. qcmsa's own output (progress bars, its report per species) is not shown: it goes to a file
+    // beside its outputs, which is printed (its last lines, with the command) only if qcmsa fails, and removed. parallel
+    // (the strain stage runs species at once, StrainWrapper2): qcmsa's numerical libraries run on one thread each.
+    static void RunQCMSA(Options& options, const std::string& name, std::ostream& log = std::cerr, bool parallel = false) {
         namespace fs = std::filesystem;
         std::string script = FindQCMSAScript(options);
         if (script.empty() || !fs::exists(script)) {
@@ -1991,8 +1994,8 @@ namespace protal {
         std::string partition = options.GetMSAPartitionOutput(name); // .raw.partition.txt
         std::string meta = options.GetSpeciesMetaOutput(name);
         if (!fs::exists(msa) || !fs::exists(partition) || !fs::exists(meta)) {
-            std::cerr << "[qcmsa] WARNING: missing MSA/partition/meta for " << name
-                      << "; skipping post-filter" << std::endl;
+            log << "[qcmsa] WARNING: missing MSA/partition/meta for " << name
+                << "; skipping post-filter" << std::endl;
             return;
         }
         std::string prefix = options.GetStrainOutputDir() + '/' + name;
@@ -2003,6 +2006,7 @@ namespace protal {
             fs::remove(prefix + ext, ec);
         }
         std::ostringstream cmd;
+        if (parallel) cmd << "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 ";
         cmd << launcher << ShellQuote(script)
             << ' ' << ShellQuote(msa)
             << ' ' << ShellQuote(partition)
@@ -2012,20 +2016,40 @@ namespace protal {
         // User-supplied flags go last so they win over the defaults protal passes
         // above. Forwarded verbatim (unquoted) -- they are a flag list, not a value.
         if (!options.GetQCMSAArgs().empty()) cmd << ' ' << options.GetQCMSAArgs();
-        std::cerr << "[qcmsa] " << cmd.str() << std::endl;
+        std::string const command = cmd.str();
+        std::string const output = prefix + ".qcmsa_output.partial";
+        cmd << " > " << ShellQuote(output) << " 2>&1";
         int const status = std::system(cmd.str().c_str());
+        std::string text;
+        {
+            std::ifstream is(output, std::ios::binary);
+            text.assign(std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>());
+            std::error_code ec;
+            fs::remove(output, ec);
+        }
         if (status != 0) {
             // std::system returns a wait status: 512 means exit code 2.
             std::string const how = status == -1 ? "could not be started"
                                   : WIFEXITED(status) ? "exited with code " + std::to_string(WEXITSTATUS(status))
                                   : WIFSIGNALED(status) ? "was killed by signal " + std::to_string(WTERMSIG(status))
                                   : "failed (status " + std::to_string(status) + ")";
+            // Its last lines (progress bars redraw a line with carriage returns: each redraw is a line here).
+            std::replace(text.begin(), text.end(), '\r', '\n');
+            std::vector<std::string> lines;
+            std::istringstream is(text);
+            for (std::string line; std::getline(is, line);) {
+                if (!line.empty()) lines.push_back(line);
+            }
+            constexpr size_t kShown = 20;
+            log << "[qcmsa] " << name << ": " << command << std::endl;
+            for (size_t i = lines.size() > kShown ? lines.size() - kShown : 0; i < lines.size(); i++) log << "[qcmsa]   " << lines[i] << '\n';
+            log << std::flush;
             RunStatus::Get().Fail("qcmsa " + how + " for " + name +
-                                  " (post-filter skipped; the raw MSA is still in " + msa + ")");
+                                  " (post-filter skipped; the raw MSA is still in " + msa + "; its output above)");
         } else if (!fs::exists(prefix + ".msa.fna")) {
             // Not an error (qcmsa may filter everything out), but no filtered MSA is not a success either.
-            std::cerr << "[qcmsa] WARNING: " << name << ": qcmsa kept no gene or sample, so there is no "
-                      << prefix << ".msa.fna (see its output above; the raw MSA is " << msa << ")" << std::endl;
+            log << "[qcmsa] WARNING: " << name << ": qcmsa kept no gene or sample, so there is no " << prefix
+                << ".msa.fna (the raw MSA is " << msa << "; " << command << " shows why)" << std::endl;
         }
     }
 
@@ -2037,7 +2061,7 @@ namespace protal {
                                    options.GetMSAStatsOutput(name), options.GetSpeciesMetaOutput(name),
                                    options.GetHaplotypesOutput(name),
                                    prefix + ".msa.fna", prefix + ".partition.txt",
-                                   prefix + ".qcmsa_summary.tsv", prefix + ".qc.png" }) {
+                                   prefix + ".qcmsa_summary.tsv", prefix + ".qc.png", prefix + ".qcmsa_output.partial" }) {
             std::error_code ec;
             std::filesystem::remove(stale, ec);
         }
@@ -2099,7 +2123,7 @@ namespace protal {
         }
     }
 
-    static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilterObj> const& filter={}) {
+    static void GetMSAForTaxon (uint32_t taxid, std::string taxon_name, GenomeLoader& loader, Options& options, Profiles& profiles, std::ostream* os_meta=nullptr, std::optional<profiler::TaxonFilterObj> const& filter={}, std::ostream& out = std::cout) {
         auto min_hcov = options.GetMSAMinHCOV();
         auto min_qual_sum = options.GetSNPMinPhredSum();
         auto min_cov = options.GetSNPMinCov();
@@ -2114,7 +2138,7 @@ namespace protal {
 
         auto& genome = loader.GetGenome(taxid);
         if (!genome.IsLoaded()) genome.LoadGenomeOMP();
-        std::vector<uint32_t> selected_genes = SelectGenesForTaxon(taxid, taxon_name, profile_indices, loader, options, profiles);
+        std::vector<uint32_t> selected_genes = SelectGenesForTaxon(taxid, taxon_name, profile_indices, loader, options, profiles, out);
 
         // A long-read sample whose reads show two or more strains gets a row per strain, <sample>_hap1, ... (the
         // most abundant first), each called from the reads of its strain (Haplotypes.h); every other sample one, the
@@ -2167,20 +2191,18 @@ namespace protal {
         size_t partition_start = 0;
         size_t previous_size = 0;
 
-        ProgressBar prog(selected_genes.size());
-
-        std::cout << taxid << ": " << taxon_name << " across samples " << profile_indices.size() << std::endl;
+        out << taxid << ": " << taxon_name << " across samples " << profile_indices.size() << std::endl;
         for (size_t i = 0; i < profile_indices.size(); i++) {
             auto const& p = phasings[i];
             if (!phased[i]) continue;
-            std::cout << "  " << profiles[profile_indices[i]].GetName() << ": " << p.reads << " long reads at " << p.blocks.size()
+            out << "  " << profiles[profile_indices[i]].GetName() << ": " << p.reads << " long reads at " << p.blocks.size()
                       << " blocks of multi-allelic sites (" << p.cut_reads << " cut between unlikely neighbours); ";
             if (p.rows < 2) {
-                std::cout << "one row" << std::endl;
+                out << "one row" << std::endl;
             } else {
-                std::cout << p.rows << " strain rows (shares";
-                for (auto share : p.shares) std::cout << ' ' << share;
-                std::cout << "), " << p.PhasedBlocks() << " of the blocks phased" << std::endl;
+                out << p.rows << " strain rows (shares";
+                for (auto share : p.shares) out << ' ' << share;
+                out << "), " << p.PhasedBlocks() << " of the blocks phased" << std::endl;
             }
         }
         if (std::find(phased.begin(), phased.end(), true) != phased.end()) {
@@ -2233,7 +2255,6 @@ namespace protal {
         };
 
         for (auto& geneid : selected_genes) {
-            prog.UpdateAdd(1);
             auto& gene = genome.GetGene(geneid);
             auto const reference = gene.Sequence();
 
@@ -2339,7 +2360,7 @@ namespace protal {
         }
 
         if (partitions.empty()) {
-            std::cout << "No gene of " << taxon_name << " has enough coverage for an MSA" << std::endl;
+            out << "No gene of " << taxon_name << " has enough coverage for an MSA" << std::endl;
             return;
         }
 
@@ -2352,7 +2373,7 @@ namespace protal {
             return IsRowGood(row, min_hcov);
         });
         if (!any_good) {
-            std::cout << "No good consensus sequences found for species" << std::endl;
+            out << "No good consensus sequences found for species" << std::endl;
             return;
         }
 
@@ -2508,55 +2529,92 @@ namespace protal {
 
         auto taxids = msa_taxids.empty() ? ExtractTaxa(profiles, filter) : msa_taxids;
 
-        auto enable_similarity_matrix = false;
-
         // The species of this run: strain outputs of other species in the directory are an earlier
         // run's (protal leaves them alone, as the directory may be shared).
         std::ostringstream species_list;
         species_list << "species\ttaxid\tsamples\traw_msa\tfiltered_msa\n";
 
-        for (auto& taxid : taxids) {
-            std::cout << taxonomy.Get(taxid).scientific_name << std::endl;
-
-            std::string name = taxonomy.Get(taxid).scientific_name;
-            std::replace(name.begin(), name.end(), ' ', '_');
+        // The species are independent: their MSAs and qcMSA run over the threads, each species on one (at GTDB r226, 114
+        // species took 29 s one after another, 23 s of it qcMSA; docs/claude/2026-10-04-performance-gtdb-scale). A
+        // species' messages and qcMSA's output are held until it is done and printed in species order; the list of species
+        // is written in that order. On one thread everything is printed as it comes, as before.
+        size_t const n = taxids.size();
+        size_t const workers = std::max<size_t>(1, std::min<size_t>(options.GetThreads(), n));
+        bool const parallel = workers > 1;
+        // First, on this thread, the samples each species enters: that scores its taxa with the model (the score is cached
+        // in each taxon), so that the workers only read the profiles.
+        std::vector<std::string> names(n);
+        std::vector<size_t> samples(n);
+        for (size_t i = 0; i < n; i++) {
+            names[i] = taxonomy.Get(taxids[i]).scientific_name;
+            std::replace(names[i].begin(), names[i].end(), ' ', '_');
+            samples[i] = GetProfilesWithTaxon(taxids[i], profiles, options, filter).size();
+        }
+        // File names: the MSAs are next to the list.
+        auto written = [](std::string const& path) {
+            return std::filesystem::exists(path) ? std::filesystem::path(path).filename().string() : std::string("-");
+        };
+        std::vector<std::string> rows(n), outs(n), errs(n);
+        std::vector<char> done(n, 0);
+        std::mutex mutex;
+        size_t next_print = 0;
+        if (options.GetRunQCMSA() && n > 0) {
+            std::string const script = FindQCMSAScript(options);
+            std::cout << "qcMSA: " << (script.empty() ? std::string("not found") : script) << " on each species' raw MSA (its "
+                      << "output is shown only if it fails)" << std::endl;
+        }
+        zstd::ParallelFor(n, static_cast<int>(workers), [&](size_t i, size_t) -> std::string {
+            uint32_t const taxid = taxids[i];
+            std::string const& name = names[i];
+            std::ostringstream out_buffer, err_buffer;
+            std::ostream& out = parallel ? static_cast<std::ostream&>(out_buffer) : std::cout;
+            std::ostream& err = parallel ? static_cast<std::ostream&>(err_buffer) : std::cerr;
+            out << taxonomy.Get(taxid).scientific_name << std::endl;
             RemoveStrainOutputs(options, name);
+            if (samples[i] == 0) err << "[strains] " << name << " (--msa_species) passes in no sample, so it has no MSA" << std::endl;
 
-            size_t const samples = GetProfilesWithTaxon(taxid, profiles, options, filter).size();
-            if (samples == 0) {
-                std::cerr << "[strains] " << name << " (--msa_species) passes in no sample, so it has no MSA" << std::endl;
-            }
-
-            if (enable_similarity_matrix) {
-                auto similarities = GetSimilarityMatrixForTaxon(taxid, options, profiles, filter);
-                if (!similarities.AnySet()) continue;
-                WriteDistanceMatrix(taxid, similarities, options, name);
-            }
-
-            bm_msa.Start();
+            Benchmark msa{ "Building the strain MSAs" }, qc{ "qcMSA" };
+            msa.Start();
             std::ofstream os_meta(options.GetSpeciesMetaOutput(name));
             os_meta << "sample\tgene_id\tvertical_coverage\tcounts_vcov1\tcounts_vcov2\tmulti_allelic\tfiltered\tmulti_rate_vcov1\tfiltered_rate_vcov1\tmulti_rate_vcov2\tfiltered_rate_vcov2\tmedian_vcov\thcov\tgene_length\tmean_vcov_nonzero\tmedian_vcov_nonzero\n";
-            GetMSAForTaxon(taxid, name, loader, options, profiles, &os_meta, filter);
+            GetMSAForTaxon(taxid, name, loader, options, profiles, &os_meta, filter, out);
             os_meta.close();
             if (os_meta.fail()) RunStatus::Get().Fail("Writing the MSA metadata of " + name + " failed: " + options.GetSpeciesMetaOutput(name));
-            bm_msa.Stop();
-
+            msa.Stop();
             if (options.GetRunQCMSA()) {
-                bm_qcmsa.Start();
-                RunQCMSA(options, name);
-                bm_qcmsa.Stop();
+                qc.Start();
+                RunQCMSA(options, name, err, parallel);
+                qc.Stop();
             }
-            // File names: the MSAs are next to the list.
-            auto written = [](std::string const& path) {
-                return std::filesystem::exists(path) ? std::filesystem::path(path).filename().string() : std::string("-");
-            };
+            std::string const raw_msa = options.GetMSAOutput(name);
+            std::string const filtered_msa = options.GetStrainOutputDir() + '/' + name + ".msa.fna";
+            std::ostringstream row;
+            row << name << '\t' << taxid << '\t' << samples[i] << '\t' << written(raw_msa) << '\t' << written(filtered_msa) << '\n';
+            bool const has_raw = std::filesystem::exists(raw_msa), has_filtered = std::filesystem::exists(filtered_msa);
+
+            std::lock_guard<std::mutex> lock(mutex);
+            bm_msa.Join(msa, false);  // the sums over the species (not their wall time: they overlap)
+            bm_msa.AddObservation();
+            if (options.GetRunQCMSA()) {
+                bm_qcmsa.Join(qc, false);
+                bm_qcmsa.AddObservation();
+            }
             species++;
-            raw_msas += std::filesystem::exists(options.GetMSAOutput(name));
-            filtered_msas += std::filesystem::exists(options.GetStrainOutputDir() + '/' + name + ".msa.fna");
-            species_list << name << '\t' << taxid << '\t' << samples << '\t'
-                         << written(options.GetMSAOutput(name)) << '\t'
-                         << written(options.GetStrainOutputDir() + '/' + name + ".msa.fna") << '\n';
-        }
+            raw_msas += has_raw;
+            filtered_msas += has_filtered;
+            rows[i] = row.str();
+            outs[i] = out_buffer.str();
+            errs[i] = err_buffer.str();
+            done[i] = 1;
+            for (; next_print < n && done[next_print]; next_print++) {
+                std::cout << outs[next_print] << std::flush;
+                std::cerr << errs[next_print] << std::flush;
+                std::string().swap(outs[next_print]);
+                std::string().swap(errs[next_print]);
+            }
+            return {};
+        });
+        for (auto const& row : rows) species_list << row;
 
         std::ofstream os_list(options.GetStrainSpeciesListOutput(), std::ios::out);
         os_list << species_list.str();
@@ -2565,7 +2623,8 @@ namespace protal {
         bm_strain.Stop();
         bm_strain.PrintResults();
         std::cout << "Strain-level MSAs of " << species << " species: " << raw_msas << " raw MSAs, " << filtered_msas << " filtered by qcMSA"
-                  << (options.GetRunQCMSA() ? "" : " (--no_qcmsa)") << std::endl;
+                  << (options.GetRunQCMSA() ? "" : " (--no_qcmsa)") << "; " << workers << " species at a time, the times below summed over "
+                  << "the species" << std::endl;
         bm_msa.PrintResults();
         if (options.GetRunQCMSA()) bm_qcmsa.PrintResults();
     }

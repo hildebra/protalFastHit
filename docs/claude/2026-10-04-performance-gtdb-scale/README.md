@@ -696,6 +696,48 @@ another (qcMSA a python process each, 0.2 s per species). The species are indepe
 processes over the threads and the stage should take a few seconds. The environment line's "qcmsa not found" was the
 script's own check, which missed protal's last fallback (`scripts/qcmsa.py` beside a source checkout's `build/`); fixed.
 
+## The AVX2 flex scan and the parallel strain stage (2026-10-05)
+
+Checked locally (WSL, six vCPUs, the 765-species world; [`results/followup_flex_strain.txt`](results/followup_flex_strain.txt)).
+
+**The flex scan** ([`FlexScan.h`](../../../src/Hash/FlexScan.h)): `KmerLookupSM::GetFromLookup` scored each cell of a
+block in a scalar loop that pushed every score into a vector, and passed over it again for the ties. Now
+`flex_scan::Score` scores 8 cells per step with AVX2 (the 8 cells as words shifted by the block's bit offset, the equal
+bases by XOR, popcount by nibble table), writes the scores to a byte array and returns the best score and its count;
+the ties are then taken as before, in entry order. It is chosen at run time where the CPU has AVX2;
+`PROTAL_FLEX_SCAN=scalar` keeps the scalar loop. Exact:
+
+- test `FlexScan.Avx2ScoresAsTheScalarScan`: 2,880 random blocks of 1-5,000 cells at every bit shift, keys matching
+  cells exactly, partly or not at all; the same scores, best and count;
+- runs: SAMs and profiles identical with the AVX2 and the scalar scan (paired-end 500k pairs, PacBio 90 Mb).
+
+The bench (`PROTAL_FLEX_BENCH=1`): 3.60 → 1.07 ns per cell for blocks of 70 cells (r226's mean; 3.4×), 3.32 → 1.00 for
+1,000, 3.42 → 1.94 for 16. If the scalar scan was most of the r226 lookup's ~295 ns (70 cells × ~3.6 ns), the seeding's
+20.5 s per thread could fall by up to half; locally the blocks average 9 cells and the seeding is within noise either
+way. The next cluster run shows it.
+
+**The strain stage** (`StrainWrapper2`): species ran one after another. Now they run over the threads, each species on
+one: its MSA, then qcMSA. The samples each species enters are found first on one thread (which caches the model's
+scores in the taxa, so the workers only read the profiles); each worker writes its species' files; a species' messages
+are held until it and every species before it are done, then printed in species order, and the species list is written
+in its order. The qcmsa processes run with their numerical libraries on one thread each. "Building the strain MSAs took"
+and "qcMSA took" are now sums over the species (they overlap); "Strain-level MSAs took" is the stage's wall time.
+
+| cohort of pe 500k + PacBio 90 Mb, 14 species | 1 thread | 6 threads |
+|---|---|---|
+| strain-level MSAs (wall) | 7.1 s | **0.74 s** |
+| building the MSAs (summed) | 0.36 s | 0.23 s |
+| qcMSA (summed) | 6.7 s | 3.4 s (one library thread per process is cheaper per species) |
+| strain outputs | | identical (113 files) |
+
+**The log**: qcMSA's own output (its progress bars and report, per species) is no longer shown: it goes to a file that is
+printed, its last 20 lines with the command, only if qcmsa fails; the stage says once which qcmsa it runs. The MSA
+building's per-gene progress bar is gone too (it wrote to `std::cout` from every worker). The cohort's log shrank from
+125 KB to 7.7 KB, and protal's own lines start lines again (qcmsa's bars ended without a newline, which hid
+"Strain-level MSAs took" from a line-start search; the script's parser now finds a timer anywhere on a line).
+
+At r226 (114 species, 29 s one after another, 32 threads) the stage should take a few seconds; the next cohort run shows.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):

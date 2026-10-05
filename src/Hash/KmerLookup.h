@@ -7,6 +7,7 @@
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include "Seedmap.h"
+#include "FlexScan.h"
 #include "Constants.h"
 #include "TargetClones.h"
 
@@ -145,7 +146,7 @@ namespace protal {
 //        std::shared_ptr<Seedmap> m_sm;
         Seedmap& m_sm;
 
-        std::vector<uint16_t> flex_vector;
+        std::vector<uint8_t> flex_vector;  // the last block's scores (flex_scan::Score), grown as needed
 
         size_t m_flex_k = 16;
         size_t m_flex_k_half = m_flex_k/2;
@@ -213,24 +214,16 @@ namespace protal {
 
         PROTAL_CLONE_V3 inline void GetFromLookup(LookupList& result, LookupPointer& pointers) {
             if (pointers.flex != nullptr) {
-                flex_vector.clear();
-                auto max = 0;
-                auto max_count = 0;
-                for (uint32_t i = 0; i < pointers.size; i++) {
-                    auto sim = Seedmap::Similarity(Seedmap::FlexCell(pointers, i), pointers.flex_key);
-                    flex_vector.emplace_back(sim);
-                    if (sim > max)  {
-                        max = sim;
-                        max_count = 0;
-                    }
-                    max_count += (sim == max);
-                }
+                // Every cell's score, the best and how many have it (flex_scan::Score: AVX2 where the CPU has it).
+                if (flex_vector.size() < pointers.size) flex_vector.resize(pointers.size);
+                auto const [best, max_count] = flex_scan::Score(pointers, pointers.flex_key, flex_vector.data());
+                uint32_t const max = best;
 
                 if (max_count > m_max_ubiquity) {
                     return;
                 }
 
-                for (uint32_t i = 0; i < flex_vector.size(); i++) {
+                for (uint32_t i = 0; i < pointers.size; i++) {
                     if (flex_vector[i] == max) {
                         ValueEntry const entry = Entry(pointers, i);
                         entry.Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);

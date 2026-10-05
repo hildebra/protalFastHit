@@ -78,9 +78,10 @@ qcmsa=${QCMSA:-1}
 } > "$out/environment.txt"
 cat "$out/environment.txt"; echo
 
-# A stage's seconds from its "<stage> took 1m 2s 345ms" line of the log (NA if it did not run).
+# A stage's seconds from its "<stage> took 1m 2s 345ms" line of the log (NA if it did not run); anywhere on a line, as a
+# message can follow qcmsa's progress bars, which end without a newline.
 took() {
-    grep -m1 "^$1 took" "$2" | sed -e 's/.* took //' -e 's/ (.*//' -e 's/ mean over.*//' | awk '
+    grep -m1 -oE "$1 took .*" "$2" | sed -e "s/^$1 took //" -e 's/ (.*//' -e 's/ mean over.*//' | awk '
         { s = 0; for (i = 1; i <= NF; i++) { v = $i; n = v + 0
               if (v ~ /^[0-9]+ms$/) s += n / 1000; else if (v ~ /^[0-9]+h$/) s += n * 3600
               else if (v ~ /^[0-9]+m$/) s += n * 60; else if (v ~ /^[0-9]+s$/) s += n }
