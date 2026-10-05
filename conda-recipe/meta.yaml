@@ -1,4 +1,4 @@
-{% set version = "0.7.5" %}  # keep in sync with project(... VERSION) in CMakeLists.txt
+{% set version = "0.7.6" %}  # keep in sync with project(... VERSION) in CMakeLists.txt
 
 package:
   name: protal

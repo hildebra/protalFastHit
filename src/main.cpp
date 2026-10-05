@@ -1,4 +1,4 @@
-// protal 0.7.5. In 0.7 (since 0.6.0a):
+// protal 0.7.6. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -40,6 +40,14 @@
 //   but did not align to (ZF tag), prevalence across a run's samples; a mixed training design. The index's values
 //   held packed in query runs (42-bit entries at r226, 35 -> 27 GB; the file unchanged). Profiling and alignment
 //   cheaper by the same outputs (coverage as a difference array, 2-3 mismatch flanks without WFA2).
+// In 0.7.6: at GTDB scale (r226, real samples, 32 threads) a paired-end run 131 -> 58 s and a HiFi run 104 -> 25 s:
+//   a k-mer screen refuses hopeless candidates before WFA2 (exact; --no_alignment_screen), a long read's window ends
+//   at its chain's last link, failed candidates counted in vectors by taxid, the gene tables loaded in parallel and
+//   from a binary member (gene_table.bin), the start-up's loads side by side (--sequential_load), the per-taxon
+//   statistics files only with --taxon_statistics; alignment counts and every stage timed per run. Outputs no longer
+//   depend on the SAM's record order (exact sums, ties broken by taxid). Training: species priors opt-in, reduced
+//   marker sets through every build phase (genes ranked per domain), in-silico strains of one-genome species, denser
+//   training depths, real gene speeds for simulated worlds.
 #include <iostream>
 #include "RunProtal.h"
 
