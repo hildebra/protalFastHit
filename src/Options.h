@@ -155,6 +155,7 @@ namespace protal {
                 ("sequential_load", "Load the database's parts one after another, as protal did before 0.7.6, rather than the index beside the genome preload and the single-threaded tables (taxonomy, models, gene conservation, suspect copies, species priors, gene neighbours) each on a thread of its own. For measuring; the run is the same either way.")
                 ("taxon_statistics", "Write misc/<taxon>.statistics.tsv for every taxon with reads: its coverage, reads, ANI and MAPQ in each sample, and whether it is reported. Off by default: a sample on a GTDB-sized database has reads on thousands of taxa, and that many small files took 15 s on a network file system. The profile files (<prefix>.profile, .profile.log, .profile.genes.log) hold the same per sample.")
                 ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
+                ("write_unmapped_reads", "Write an unmapped record (FLAG 4, no sequence; its ZF tag names the taxa the read seeded on) for every read that seeded on taxa but aligned nowhere, as protal did up to 0.7.6. By default these reads are counted per taxon in the SAM header instead (@CO protal failed candidates of unaligned reads), which is all the profiler takes from them: on a GTDB-sized database they were 95% of a sample's records. --full_sam_header, whose header is written before the reads, writes them too.")
                 ("serial_index_passes", "With --build: count and place the reference's k-mers and compute the value pointers on one thread, as protal did before these ran in -t threads (slower; the index is the same).")
                 ("profile_ahead", "With several samples: profile each sample whose SAM is complete while the next sample's reads are aligned, on a worker with a quarter of the threads beside the alignment's; the profiling stage after the alignment takes the rest on all threads. The profiles are the same either way. Measured on a 6-core laptop it gained nothing (the worker's CPU time came out of the alignment's); it may pay on a node where the profiling stage leaves cores idle.")
                 ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
@@ -221,6 +222,7 @@ namespace protal {
         bool sequential_load = false;
         bool taxon_statistics = false;
         bool full_sam_header = false;
+        bool write_unmapped_reads = false;
         bool serial_index_passes = false;
         bool profile_ahead = false;
         size_t index_batch_kb = 1024;
@@ -336,6 +338,7 @@ namespace protal {
         bool m_sequential_load = false;
         bool m_taxon_statistics = false;
         bool m_full_sam_header = false;
+        bool m_write_unmapped_reads = false;
         bool m_serial_index_passes = false;
         bool m_profile_ahead = false;
         size_t m_index_batch_kb = 1024;
@@ -491,6 +494,7 @@ namespace protal {
                 m_sequential_load(d.sequential_load),
                 m_taxon_statistics(d.taxon_statistics),
                 m_full_sam_header(d.full_sam_header),
+                m_write_unmapped_reads(d.write_unmapped_reads),
                 m_serial_index_passes(d.serial_index_passes),
                 m_profile_ahead(d.profile_ahead),
                 m_index_batch_kb(d.index_batch_kb),
@@ -642,6 +646,7 @@ namespace protal {
             result_str << "alignment screen:    " << (m_no_alignment_screen ? "off (--no_alignment_screen)" : "k-mers shared with the window before WFA2") << '\n';
             if (long_reads) result_str << "long read budget:    " << (m_long_read_budget ? std::to_string(m_long_read_budget) + " edits past the best candidate (--long_read_budget)" : "the ANI floor's for every candidate") << '\n';
             result_str << "SAM header lists:    " << (m_full_sam_header ? "every gene" : "the genes aligned to") << '\n';
+            result_str << "unaligned reads:     " << (WriteUnmappedReads() ? "an unmapped record each" : "counted per taxon in the SAM header") << '\n';
             result_str << "fastalign:           " << std::to_string(m_fastalign) << '\n';
             result_str << "max out:             " << std::to_string(m_max_out) << '\n';
             result_str << "------ Strains ------" << std::string(30, '-') << '\n';
@@ -1291,6 +1296,12 @@ namespace protal {
         // --full_sam_header: every gene of the database in the SAM header, not only those aligned to.
         bool FullSamHeader() const {
             return m_full_sam_header;
+        }
+
+        // --write_unmapped_reads (or --full_sam_header, whose header is written first): an unmapped record for every read that
+        // seeded on taxa but aligned nowhere, rather than their counts per taxon in the SAM header.
+        bool WriteUnmappedReads() const {
+            return m_write_unmapped_reads || m_full_sam_header;
         }
 
         // --serial_index_passes: the index build's passes and value pointers on one thread (build::Run).
@@ -2494,6 +2505,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             bool sequential_load = result.count("sequential_load");
             bool taxon_statistics = result.count("taxon_statistics");
             bool full_sam_header = result.count("full_sam_header");
+            bool write_unmapped_reads = result.count("write_unmapped_reads");
             bool serial_index_passes = result.count("serial_index_passes");
             bool profile_ahead = result.count("profile_ahead");
             size_t index_batch_kb = std::max<size_t>(result["index_batch_kb"].as<size_t>(), 1);
@@ -2652,6 +2664,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.sequential_load          = sequential_load;
             d.taxon_statistics         = taxon_statistics;
             d.full_sam_header          = full_sam_header;
+            d.write_unmapped_reads     = write_unmapped_reads;
             d.serial_index_passes      = serial_index_passes;
             d.profile_ahead  = profile_ahead;
             d.index_batch_kb           = index_batch_kb;

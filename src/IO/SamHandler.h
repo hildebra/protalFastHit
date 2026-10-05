@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 #include "LineSplitter.h"
 #include "ReadType.h"
 #include <iostream>
@@ -400,17 +401,55 @@ namespace protal {
 
     // Calls on_taxid(taxid) for each entry of a ZF tag ("12,40"; empty or "*": none).
     template<typename F>
-    inline void ForEachFailedCandidate(std::string const& tag, F&& on_taxid) {
+    inline void ForEachFailedCandidate(std::string_view tag, F&& on_taxid) {
         if (tag.empty() || tag == "*") return;
         size_t start = 0;
         while (start <= tag.size()) {
             size_t end = tag.find(',', start);
-            if (end == std::string::npos) end = tag.size();
+            if (end == std::string_view::npos) end = tag.size();
             uint64_t taxid = 0;
-            if (end > start && sam_detail::ParseUnsigned(std::string_view(tag).substr(start, end - start), taxid) && taxid <= UINT32_MAX) {
+            if (end > start && sam_detail::ParseUnsigned(tag.substr(start, end - start), taxid) && taxid <= UINT32_MAX) {
                 on_taxid(static_cast<uint32_t>(taxid));
             }
             start = end + 1;
+        }
+    }
+
+    // The reads that seeded on taxa but aligned nowhere, counted per taxon in a SAM header line in place of an unmapped
+    // record each (SamSink::AddFailedCandidates; --write_unmapped_reads writes the records): "taxid:reads", comma-separated,
+    // by taxid. The profiler adds them up as it adds up the records' ZF tags (SamReader::FailedCandidates).
+    inline const std::string kSamFailedCandidatesComment = "@CO\tprotal failed candidates of unaligned reads: ";
+
+    // The header line of `counts` (reads per taxid), with its newline; empty if no taxon has one.
+    inline std::string FailedCandidatesLine(std::vector<uint64_t> const& counts) {
+        std::string line;
+        for (size_t taxid = 0; taxid < counts.size(); taxid++) {
+            if (counts[taxid] == 0) continue;
+            line += line.empty() ? kSamFailedCandidatesComment : std::string(",");
+            line += std::to_string(taxid);
+            line += ':';
+            line += std::to_string(counts[taxid]);
+        }
+        if (!line.empty()) line += '\n';
+        return line;
+    }
+
+    // Adds the counts of a header line (without its newline) that starts with kSamFailedCandidatesComment to `counts`.
+    // Throws SamFormatError if an entry is not "taxid:reads".
+    inline void AddFailedCandidatesLine(std::string_view line, FailedCandidateCounts& counts) {
+        std::string_view rest = line.substr(kSamFailedCandidatesComment.size());
+        while (!rest.empty()) {
+            size_t const comma = rest.find(',');
+            std::string_view const entry = rest.substr(0, comma);
+            rest = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
+            size_t const colon = entry.find(':');
+            uint64_t taxid = 0, reads = 0;
+            if (colon == std::string_view::npos || !sam_detail::ParseUnsigned(entry.substr(0, colon), taxid) || taxid > UINT32_MAX ||
+                !sam_detail::ParseUnsigned(entry.substr(colon + 1), reads)) {
+                throw SamFormatError("the failed candidates' header line has an entry that is not taxid:reads: " + std::string(entry));
+            }
+            if (taxid >= counts.size()) counts.resize(std::max<size_t>(taxid + 1, counts.size() * 2), 0);
+            counts[taxid] = static_cast<uint32_t>(std::min<uint64_t>(counts[taxid] + reads, UINT32_MAX));
         }
     }
 
@@ -446,6 +485,7 @@ namespace protal {
         size_t m_primary_records = 0;  // not secondary (0x100)
         size_t m_primary_without_alternatives = 0;  // of those, without a ZA tag
         std::map<std::string, size_t> m_skipped;
+        size_t* m_unmapped = nullptr;  // m_skipped's count of unmapped records, once there is one (SkipUnmapped)
         FailedCandidateCounts m_failed_candidates;  // per taxon, the unmapped records' ZF entries (reads that
                                                                    // seeded on the taxon and aligned nowhere)
         std::function<void(std::string const&)> m_on_header;  // sees every header line
@@ -465,6 +505,28 @@ namespace protal {
             return true;
         }
 
+        // An unmapped record (FLAG 4), skipped as Advance skips it after SamFromTokens and UnusableRecord, without making
+        // a SamEntry of it: on a GTDB-sized database most of a sample's records are protal's unmapped records, written for
+        // their ZF tag (UnmappedRecord), and taking each apart field by field cost more than the sample's alignments.
+        // False for every other line, and for one SamFromTokens refuses, which then names its problem.
+        bool SkipUnmapped(std::vector<std::string_view> const& tokens) {
+            if (tokens.size() < 11) return false;
+            uint64_t flag, pos, mapq, pnext;
+            int64_t tlen;
+            if (!sam_detail::ParseUnsigned(tokens[1], flag) || flag > UINT16_MAX || !Flag::IsUnmapped(static_cast<FLAG_t>(flag))) return false;
+            if (!sam_detail::ParseUnsigned(tokens[3], pos) || pos > UINT32_MAX) return false;
+            if (!sam_detail::ParseUnsigned(tokens[4], mapq) || mapq > 255) return false;
+            if (!sam_detail::ParseUnsigned(tokens[7], pnext) || pnext > UINT32_MAX) return false;
+            if (!sam_detail::ParseSigned(tokens[8], tlen)) return false;
+            if (!m_unmapped) m_unmapped = &m_skipped["unmapped"];  // a map's elements stay where they are
+            ++*m_unmapped;
+            auto const failed = sam_detail::StringTag(tokens, "ZF");
+            if (failed && !failed->empty()) {
+                ForEachFailedCandidate(*failed, [this](uint32_t taxid) { CountFailedCandidate(m_failed_candidates, taxid); });
+            }
+            return true;
+        }
+
         // Reads up to and including the next usable record.
         bool Advance(SamEntry& sam) {
             std::string_view line;
@@ -473,10 +535,18 @@ namespace protal {
                 if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
                 if (line.empty()) continue;
                 if (line[0] == '@') {
+                    if (line.compare(0, kSamFailedCandidatesComment.size(), kSamFailedCandidatesComment) == 0) {
+                        try {
+                            AddFailedCandidatesLine(line, m_failed_candidates);
+                        } catch (SamFormatError const& e) {
+                            throw SamFormatError("line " + std::to_string(m_line_no) + ": " + e.what());
+                        }
+                    }
                     if (m_on_header) m_on_header(std::string(line));
                     continue;
                 }
                 sam_detail::SplitFields(line, m_tokens);
+                if (SkipUnmapped(m_tokens)) continue;
                 try {
                     SamFromTokens(m_tokens, sam);
                 } catch (SamFormatError const& e) {
@@ -512,6 +582,9 @@ namespace protal {
         // numbers of errors when the text is a part of a file (the profiler's chunks, SamChunks.h).
         SamReader(std::string_view text, std::function<void(std::string const&)> on_header, size_t first_line) :
                 m_text(text), m_line_no(first_line), m_on_header(std::move(on_header)) {}
+
+        SamReader(SamReader const&) = delete;  // m_unmapped points into m_skipped
+        SamReader& operator=(SamReader const&) = delete;
 
         bool Next(SamEntry &sam1, SamEntry &sam2, bool &has_sam1, bool &has_sam2) {
             has_sam1 = false;

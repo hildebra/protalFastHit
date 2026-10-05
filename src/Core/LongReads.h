@@ -633,6 +633,7 @@ namespace protal {
         SamSink& m_sink;
         BufferedStringOutput m_sam_output;
         std::vector<uint64_t> m_genes;  // named by the buffered records (SamGeneKey)
+        std::vector<uint32_t> m_failed;  // the unaligned reads per taxid they seeded on, for the header (SamSink::AddFailedCandidates)
         GenomeLoader& m_genomes;
         size_t m_max_out = 1;
         double m_min_cigar_ani = 0;
@@ -641,6 +642,7 @@ namespace protal {
         void Flush() {
             m_sam_output.Drain([this](char const* data, size_t size) { m_sink.Write(data, size, m_genes); });
             if (!m_genes.empty()) m_sink.Write(nullptr, 0, m_genes);
+            if (!m_failed.empty()) m_sink.AddFailedCandidates(m_failed);
         }
 
     public:
@@ -666,6 +668,11 @@ namespace protal {
 
         // Writes a read's unmapped record if it has failed candidates (UnmappedRecord).
         void WriteUnmapped(FastxRecord& record, std::vector<uint32_t> const& failed) {
+            // Counted for the header instead, unless --write_unmapped_reads.
+            if (!m_sink.WritesUnmappedRecords()) {
+                for (uint32_t const taxid : failed) CountFailedCandidate(m_failed, taxid);
+                return;
+            }
             SamEntry sam;
             if (!UnmappedRecord(sam, ReadQName(record.id), failed)) return;
             if (!m_sam_output.Write(sam.ToString())) Flush();

@@ -565,7 +565,8 @@ namespace protal {
                 std::vector<std::string> read_file_list{ options.GetFirstFile(index) };
                 if (!single_file) read_file_list.push_back(options.GetSecondFile(index));
                 SamOutput sam_output(sam_partial, SamCompressionOf(sam), full_header,
-                                     sam_zstd::HeaderRoom(database_genes, input_bytes(read_file_list)));
+                                     sam_zstd::HeaderRoom(database_genes, input_bytes(read_file_list), options.WriteUnmappedReads() ? 0 : genomes.GetGenomeMap().size()));
+                sam_output.SetUnmappedRecords(options.WriteUnmappedReads());
                 if (!sam_output.Ok()) {
                     RunStatus::Get().Fail("Cannot write the SAM file of sample " + options.GetSampleId(index) + ": " + sam_output.Error());
                     continue;
@@ -726,12 +727,21 @@ namespace protal {
                 auto const header_start = std::chrono::steady_clock::now();
                 std::string header;
                 size_t header_genes = 0;
+                size_t failed_taxa = 0;
+                std::string failed_line;
                 if (!full_header) {
                     std::ostringstream os;
                     auto const genes = sam_output.Genes();
                     header_genes = genes.size();
                     genomes.WriteSamHeader(os, genes);
                     os << read_type_line;
+                    // The reads that aligned nowhere, counted per taxon they seeded on (--write_unmapped_reads: a record each).
+                    if (!options.WriteUnmappedReads()) {
+                        auto const failed = sam_output.FailedCandidates();
+                        failed_taxa = static_cast<size_t>(std::count_if(failed.begin(), failed.end(), [](uint64_t n) { return n > 0; }));
+                        failed_line = FailedCandidatesLine(failed);
+                        os << failed_line;
+                    }
                     header = os.str();
                 }
                 double const header_seconds = gene_table::SecondsSince(header_start);
@@ -746,6 +756,7 @@ namespace protal {
                     line << std::fixed << std::setprecision(2) << "SAM header: " << (full_header ? std::string("every gene of the database")
                                                                                                 : std::to_string(header_genes) + " genes")
                          << ", " << header.size() << " bytes, written as " << placed.header_bytes << " (text built in " << header_seconds << " s); ";
+                    if (failed_taxa > 0) line << "the unaligned reads' failed candidates of " << failed_taxa << " taxa in " << failed_line.size() << " bytes of it; ";
                     if (placed.copied) {
                         line << "the records (" << placed.copied_bytes << " bytes) were copied behind it in " << placed.copy_seconds << " s"
                              << (placed.room > 0 ? ", as it was larger than its room of " + std::to_string(placed.room) + " bytes" : std::string());
@@ -1130,6 +1141,10 @@ namespace protal {
             bm_sample.Stop();
             WriteProfilingTimes(options, i, bm_sample, { &profiler.ReadTimer(), &profiler.EvidenceTimer(), &profile.m_bm_em,
                                                          &profile.m_bm_distances, &profiler.SnpTimer(), &bm_score, &bm_write });
+            if (!profiler.ReadDetail().empty()) {
+                #pragma omp critical(print)
+                std::cout << "Sample " << options.GetSampleId(i) << " SAM read: " << profiler.ReadDetail() << std::endl;
+            }
 
             profile.SetName(options.GetSampleId(i));
 
@@ -2836,6 +2851,7 @@ namespace protal {
             db.GetGenomes().LoadAllGenomes(static_cast<int>(options.GetThreads()));
             bm_preload_genomes.Stop();
             bm_preload_genomes.PrintResults();
+            std::cout << db.GetGenomes().PreloadTimes() << std::endl;
         };
 
         Benchmark bm_tables("Loading the taxonomy, models and tables");

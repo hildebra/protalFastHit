@@ -432,6 +432,10 @@ TEST(SamFile, HeaderRoomIsEightBytesAGeneWithinItsBounds) {
     EXPECT_EQ(sam_zstd::HeaderRoom(1000000000, 1600000), size_t{100} << 10);  // 100,000 bytes, in whole 4 KB
     EXPECT_EQ(sam_zstd::HeaderRoom(1000000000, 1000), size_t{16} << 10);
     EXPECT_EQ(sam_zstd::HeaderRoom(10000, uint64_t{1} << 40), size_t{80} << 10);
+    // 4 bytes more a taxon for the unaligned reads' failed candidates, no more than 1/16 of the input, at most 1 MB more.
+    EXPECT_EQ(sam_zstd::HeaderRoom(10000, 0, 1000), size_t{84} << 10);  // 84,000 bytes, in whole 4 KB
+    EXPECT_EQ(sam_zstd::HeaderRoom(1000000000, 0, 1000000000), size_t{2} << 20);
+    EXPECT_EQ(sam_zstd::HeaderRoom(1000000000, 1600000, 1000000), size_t{196} << 10);  // 200,000 bytes, in whole 4 KB
     // The room is for zstd only: other formats collect the records in the temporary file.
     ScratchDir dir;
     auto const path = dir.File("out.sam.gz");

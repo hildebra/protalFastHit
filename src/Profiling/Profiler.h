@@ -35,6 +35,8 @@
 #include <atomic>
 #include <cmath>
 #include <charconv>
+#include <chrono>
+#include <iomanip>
 #include <limits>
 #include <deque>
 #include <filesystem>
@@ -4098,9 +4100,15 @@ namespace protal {
                 m_decompress_threads = threads;
             }
 
+            // Where the last ProfileSam on several threads spent the time it read the SAM (ProfileSamParallel); empty on one.
+            std::string const& ReadDetail() const {
+                return m_read_detail;
+            }
+
         private:
             size_t m_chunk_bytes = 0;
             std::optional<size_t> m_decompress_threads;
+            std::string m_read_detail;
 
             // A read of a chunk (ProfileSamParallel): its group of candidates, which holds its records, the one of
             // them that counts (BestOfGroup), its link within the chunk, its records to add (SamAdditions
@@ -4277,14 +4285,34 @@ namespace protal {
                     upcoming.reserve(next.size());
                     for (size_t i = 0; i < next.size(); i++) upcoming.emplace_back(profile.Evidence().Empty());
                 };
-                auto parse = [&](size_t i) { ParseChunk(profile, next[i], upcoming[i], !(next[i].last && failed)); };
+                // Where the time goes (ReadDetail): on this thread, and summed over the threads of the parallel parts.
+                using Clock = std::chrono::steady_clock;
+                auto since = [](Clock::time_point& start) {
+                    auto const now = Clock::now();
+                    double const seconds = std::chrono::duration<double>(now - start).count();
+                    start = now;
+                    return seconds;
+                };
+                double fetch_s = 0, merge_s = 0, plan_s = 0, threads_s = 0, rejected_s = 0;
+                std::atomic<uint64_t> parse_ns{ 0 }, add_ns{ 0 };
+                auto timed = [](std::atomic<uint64_t>& sum, auto&& work) {
+                    auto const start = Clock::now();
+                    work();
+                    sum += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count());
+                };
+                auto parse = [&](size_t i) {
+                    timed(parse_ns, [&]() { ParseChunk(profile, next[i], upcoming[i], !(next[i].last && failed)); });
+                };
                 auto release = [](ParsedChunk& chunk) {
                     std::deque<ChunkRead>().swap(chunk.reads);
                     std::vector<SamAddition>().swap(chunk.additions);
                 };
 
+                auto clock = Clock::now();
                 fetch();
+                fetch_s += since(clock);
                 sam_chunks::ParallelFor(next.size(), threads, parse);
+                threads_s += since(clock);
                 while (!next.empty()) {
                     std::swap(wave, next);
                     std::swap(parsed, upcoming);
@@ -4297,12 +4325,15 @@ namespace protal {
                         error_at_end = wave[i].last;
                         break;
                     }
+                    clock = Clock::now();
                     for (size_t i = 0; i < used; i++) {
                         counts.Add(parsed[i].counts);
                         profile.Evidence().Add(parsed[i].evidence);
                         lines = parsed[i].lines;
                     }
+                    merge_s += since(clock);
                     auto jobs = PlanChunks(profile, parsed, used, read_offset, link_offset);
+                    plan_s += since(clock);
 
                     // The taxa add this wave's records while the next wave is parsed and the last one is freed.
                     if (error.empty()) fetch();
@@ -4310,17 +4341,19 @@ namespace protal {
                         next.clear();
                         upcoming.clear();
                     }
+                    fetch_s += since(clock);
                     std::atomic<bool> emptied{ false };
                     size_t const n_jobs = jobs.size(), n_parse = next.size();
                     sam_chunks::ParallelFor(n_jobs + n_parse + done.size(), threads, [&](size_t t) {
                         if (t < n_jobs) {
-                            if (!emptied && !RunJob(jobs[t])) emptied = true;
+                            timed(add_ns, [&]() { if (!emptied && !RunJob(jobs[t])) emptied = true; });
                         } else if (t < n_jobs + n_parse) {
                             parse(t - n_jobs);
                         } else {
                             release(done[t - n_jobs - n_parse]);
                         }
                     });
+                    threads_s += since(clock);
                     done.clear();
                     if (emptied) {
                         serial = true;
@@ -4347,13 +4380,28 @@ namespace protal {
                         m_rejected_reads--;
                     }
                     std::swap(done, parsed);
+                    rejected_s += since(clock);
                     if (!error.empty()) break;
                 }
                 // What is left of the waves, freed on all threads.
+                clock = Clock::now();
                 for (auto* waves : { &done, &parsed, &upcoming }) {
                     sam_chunks::ParallelFor(waves->size(), threads, [&](size_t i) { release((*waves)[i]); });
                 }
+                threads_s += since(clock);
                 reader.Stop();
+                {
+                    auto const t = reader.GetTimes();
+                    std::ostringstream detail;
+                    detail << std::fixed << std::setprecision(2) << static_cast<double>(t.bytes) / 1e9 << " GB of SAM text in "
+                           << t.chunks << " chunks (" << DecompressThreads(threads) << " decompressing threads); the reading thread: "
+                           << t.read << " s reading, " << t.cut << " s cutting chunks, " << t.wait << " s waiting for room; "
+                           << "this thread: " << fetch_s << " s waiting for chunks, " << merge_s << " s adding the chunks' counts, "
+                           << plan_s << " s planning the taxa's records, " << rejected_s << " s on rejected reads, " << threads_s
+                           << " s on " << threads << " threads (parsing " << static_cast<double>(parse_ns.load()) / 1e9
+                           << " s, adding to the taxa " << static_cast<double>(add_ns.load()) / 1e9 << " s, summed over the threads)";
+                    m_read_detail = detail.str();
+                }
                 if (serial) return {};
                 if (!error.empty()) {
                     // A truncated file's last line is cut short, too: the truncation is the cause.
@@ -4378,6 +4426,7 @@ namespace protal {
                                    size_t threads=1) {
                 profile.SetDepthIdentityMargin(m_depth_identity_margin);
                 m_rejected_reads = 0;
+                m_read_detail.clear();
                 if (threads > 1) {
                     std::string rejected;
                     bool serial = false;

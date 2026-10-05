@@ -429,6 +429,49 @@ TEST(SingleOutputHandler, SkipsOnlyTheInconsistentCandidate) {
     EXPECT_FALSE(Flag::IsNotPrimaryAlignment(std::stoul(records[0][1])));
 }
 
+// A read that seeded on taxa but aligned nowhere: counted per taxon for the SAM header by default, an unmapped record
+// with --write_unmapped_reads; the reader counts the header line as it counts the records.
+TEST(SingleOutputHandler, CountsUnalignedReadsForTheHeaderOrWritesTheirRecords) {
+    TinyReference ref;
+    auto failed_of = [](SamReader& reader) {
+        SamEntry a, b;
+        bool has_a = false, has_b = false;
+        EXPECT_FALSE(reader.Next(a, b, has_a, has_b));
+        auto counts = reader.FailedCandidates();
+        counts.resize(8, 0);
+        return counts;
+    };
+    std::vector<uint32_t> const expected{ 0, 0, 0, 1, 0, 0, 0, 2 };
+    for (bool const write_records : { false, true }) {
+        std::ostringstream os;
+        SamStreamSink sink(os);
+        sink.SetUnmappedRecords(write_records);
+        {
+            ProtalSingleOutputHandler<false> handler(sink, 5, 0, 1 << 16, *ref.loader);
+            AlignmentResultList none, none2;
+            auto record = Record("read1", ref.gene.substr(5, 20));
+            auto record2 = Record("read2", ref.gene.substr(5, 20));
+            handler(none, record, { 3, 7 });
+            handler(none2, record2, { 7 });
+        }  // the destructor hands over the counts
+        auto const counts = sink.FailedCandidates();
+        if (write_records) {
+            EXPECT_TRUE(std::all_of(counts.begin(), counts.end(), [](uint64_t n) { return n == 0; }));
+            std::istringstream in(os.str());
+            SamReader reader(in);
+            EXPECT_EQ(failed_of(reader), expected);
+            EXPECT_EQ(reader.Skipped().at("unmapped"), 2u);
+        } else {
+            EXPECT_EQ(os.str(), "");
+            EXPECT_EQ(FailedCandidatesLine(counts), kSamFailedCandidatesComment + "3:1,7:2\n");
+            std::istringstream in("@HD\tVN:1.6\n" + FailedCandidatesLine(counts));
+            SamReader reader(in);
+            EXPECT_EQ(failed_of(reader), expected);
+            EXPECT_TRUE(reader.Skipped().empty());
+        }
+    }
+}
+
 TEST(AlternativesTag, ListsOtherTaxaByTheirBestCandidate) {
     EXPECT_EQ(AlignmentEdits("2S19M1X128M"), 3);  // clipped bases count as edits
     EXPECT_EQ(AlignmentEdits("5M2I3M1D4M"), 3);

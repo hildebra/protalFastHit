@@ -72,7 +72,7 @@ with a best record before the MAPQ and length filters (a pair or a long read onc
 abundance-weighted assignment leaves to the taxon (em_own_share x fragments_all: the fragments a divergent strain
 would have had, had its reads not tied with a congener's reference and fallen to MAPQ 0, which is where 159 of the
 328 r226 misses lost their evidence); and failed_candidate_rate, of the reads that seeded on the taxon strongly
-enough to be aligned against it, the share that did not align to it (protal's ZF tag, also on an unmapped record
+enough to be aligned against it, the share that did not align to it (protal's ZF tag, or the SAM header's counts
 when a read aligned nowhere: a relative the database lacks seeds on its nearest species and fails there, a present
 species' reads align).
 

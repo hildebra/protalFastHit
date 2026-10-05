@@ -97,13 +97,18 @@ namespace protal {
         // Room for the marker and header of a SAM whose records name at most `genes` genes, aligned
         // from `input_bytes` of read files (0: unknown): 8 bytes a gene (a header compresses to about
         // 3.5 bytes per @SQ line) and no more than 1/16 of the input (headers measured at most 3% of
-        // it), at least 16 KB and at most 1 MB, in whole 4 KB. What the header does not need stays
+        // it), at least 16 KB and at most 1 MB, in whole 4 KB. With the unaligned reads' failed candidates
+        // of up to `taxa` taxa in it (FailedCandidatesLine), 4 bytes more a taxon (about 3 compressed),
+        // no more than 1/16 of the input either, at most 1 MB more. What the header does not need stays
         // unwritten; a header that needs more is written as without room (SamOutput).
-        inline size_t HeaderRoom(size_t genes, uint64_t input_bytes = 0) {
+        inline size_t HeaderRoom(size_t genes, uint64_t input_bytes = 0, size_t taxa = 0) {
             constexpr size_t kUnit = size_t{4} << 10;
             size_t room = genes * 8;
             if (input_bytes > 0) room = std::min<uint64_t>(room, input_bytes / 16);
             room = std::clamp<size_t>(room, size_t{16} << 10, size_t{1} << 20);
+            size_t more = taxa * 4;
+            if (input_bytes > 0) more = std::min<uint64_t>(more, input_bytes / 16);
+            room += std::min<size_t>(more, size_t{1} << 20);
             return (room + kUnit - 1) / kUnit * kUnit;
         }
 
@@ -167,10 +172,37 @@ namespace protal {
     // Where output handlers put SAM records: blocks of whole reads' records, each line ending in a
     // newline, from any thread at any time, with the genes they name (SamGeneKey of RNAME and
     // RNEXT; duplicates allowed). Write empties `genes`.
+    // The reads that seeded on taxa but aligned nowhere go in as one unmapped record each (FLAG 4, ZF tag), or, unless
+    // SetUnmappedRecords(true), as counts per taxon (AddFailedCandidates) for the header (FailedCandidatesLine).
     class SamSink {
     public:
         virtual ~SamSink() = default;
         virtual void Write(char const* data, size_t size, std::vector<uint64_t>& genes) = 0;
+
+        // Whether output handlers write unaligned reads' unmapped records (--write_unmapped_reads) rather than count them.
+        bool WritesUnmappedRecords() const { return m_unmapped_records; }
+        void SetUnmappedRecords(bool write) { m_unmapped_records = write; }
+
+        // Adds `counts` (reads per taxid) to the sink's and sets them to 0.
+        void AddFailedCandidates(std::vector<uint32_t>& counts) {
+            std::lock_guard<std::mutex> lock(m_failed_mutex);
+            if (m_failed.size() < counts.size()) m_failed.resize(counts.size(), 0);
+            for (size_t taxid = 0; taxid < counts.size(); taxid++) {
+                m_failed[taxid] += counts[taxid];
+                counts[taxid] = 0;
+            }
+        }
+
+        // The unaligned reads per taxid that AddFailedCandidates counted.
+        std::vector<uint64_t> FailedCandidates() const {
+            std::lock_guard<std::mutex> lock(m_failed_mutex);
+            return m_failed;
+        }
+
+    private:
+        bool m_unmapped_records = true;
+        mutable std::mutex m_failed_mutex;
+        std::vector<uint64_t> m_failed;
     };
 
     // Records into a stream as they come, the genes into a set (tests, and plain streams).

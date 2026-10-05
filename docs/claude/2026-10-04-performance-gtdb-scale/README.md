@@ -772,6 +772,52 @@ seeding's memory waits (more threads; huge pages for the index; several reads' l
 flex cell for exact matches; small blocks inline), the profiling's SAM reading (47M records, 4.2 s), the preload, and
 the SAM's close.
 
+## The eighth cluster run, the profiling's SAM read and the genome preload (2026-10-05)
+
+**The eighth run** (SLURM job 23965403, `cbdb069` again, on the **v11** database with `gene_table.bin`, node `q512n8`;
+[`results_v8/`](results_v8/)): paired-end **47.3 s**, HiFi **16.8 s** (median), the gene tables 0.45 s: what the seventh
+run less the text tables predicted. The cohort's strain stage 5.5 s for 114 species, the cohort run 16.4 s.
+
+**The profiling's SAM read** (4.2 s of the paired-end run's 6.2 s of profiling): the SAM holds 47M records, and 44.9M of
+them are unmapped records (FLAG 4, no sequence), one for every fragment that seeded on taxa and aligned nowhere, written
+for their `ZF` tag only. The profiler takes nothing else from them than a count of reads per taxon
+(`failed_candidate_rate`). About 74 bytes each in the local SAM (r226's Illumina names and longer `ZF` lists make it
+more), they are some 5 GB of the r226 SAM's text, which the run formats, compresses and writes, and the profiler
+decompresses, cuts into chunks on one reading thread and takes apart field by field. On a SAM made like r226's (the
+local paired-end SAM with 20 unmapped records after each read, 4.8M of them, 0.65 GB; `scripts/samread_make_sam.sh`),
+an unmapped record cost about 300 ns of parsing (strings copied, four tag scans, a `std::map<std::string>` count), a
+mapped one 2-5 µs; at 6 threads the reading thread was busy 0.9 s of the 1.1 s read, so on 32 threads with ten times the
+text it is the likely limit.
+
+Changes (all outputs identical; 359 tests):
+
+- **The unaligned reads counted in the SAM header** (at the user's request): the output handlers count each such read's
+  failed candidates per taxon (`SamSink::AddFailedCandidates`) instead of writing its record, and the header gets one
+  line `@CO protal failed candidates of unaligned reads: <taxid>:<reads>,...`, which `SamReader` adds up as it added
+  up the records' tags. `--write_unmapped_reads` writes the records as before (and then no line, so nothing counts
+  twice), as `--full_sam_header` does, whose header is written before the reads. The header's room grows by 4 bytes a
+  taxon (at most 1 MB more). Local e2e (pe 500k pairs, PacBio 90 Mb, 6 threads): the profiles the same as before, from
+  the run, with `--write_unmapped_reads` (whose records are the old ones), and profiled from the new SAM and from an old
+  one at 6 and at 1 thread; the new SAM's records are the old ones less the unmapped. The local SAM had only 38k of them;
+  at r226 the SAM loses ~95% of its records.
+- **Unmapped records parsed without a `SamEntry`** (`SamReader::SkipUnmapped`, for old SAMs and `--write_unmapped_reads`):
+  the same checks of the fields as `SamFromTokens`, so a record it would refuse still names its problem; parsing the
+  synthetic SAM 2.0-2.4 → 1.6-1.8 s summed over 6 threads.
+- **Timers**: a `Sample <id> SAM read:` line splits the parallel read into the reading thread's reading (decompressing),
+  cutting and waiting, and this thread's waiting for chunks, adding the chunks' counts, planning, rejected reads and the
+  parallel parts (parsing and adding to the taxa summed over the threads).
+
+**The genome preload** (3.9 s beside the index's 2.5 s, 3.2 s alone in the runs before the concurrent start-up): it listed
+the 14.5M genes over the sorted taxids with a lookup in the sparse genome map each, then sorted the gene pointers by
+start byte, each comparison reading two genes at random (a 464 MB array), on one thread, before the parallel reading and
+packing. Now the genes are listed as (start byte, gene) pairs in the order `reference.map` lists the genomes, sorted only
+if they are not in the reference's order already (the local e2e database's are not; r226's the next run shows), and a
+`Preload:` line times the listing, the arena, the reading and packing, and marking the genomes. Outputs identical.
+What the r226 preload gains needs the next cluster run; the start-up's critical path is then the index's 2.5 s.
+
+What the next run should show: the SAM's size and its read, the `SAM read:` and `Preload:` lines, the output handler's
+time and the SAM's close.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):

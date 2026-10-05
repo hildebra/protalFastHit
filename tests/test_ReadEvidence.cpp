@@ -138,6 +138,43 @@ TEST(ReadEvidence, TheTagRoundTripsAndAnUnmappedRecordCarriesIt) {
     EXPECT_EQ(a.ToString().substr(a.ToString().size() - 6), "ZF:Z:5");
 }
 
+// The SAM header's counts (FailedCandidatesLine) add up with unmapped records' tags; a bad entry names its line.
+TEST(ReadEvidence, TheHeadersFailedCandidatesAddUpWithTheRecords) {
+    EXPECT_EQ(FailedCandidatesLine({}), "");
+    EXPECT_EQ(FailedCandidatesLine({ 0, 0 }), "");
+    EXPECT_EQ(FailedCandidatesLine({ 0, 3, 0, 1 }), kSamFailedCandidatesComment + "1:3,3:1\n");
+    std::istringstream is("@HD\tVN:1.6\n" + FailedCandidatesLine({ 0, 0, 0, 0, 2, 0, 0, 0, 0, 1 }) +
+                          "read9\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*\tZU:i:0\tZT:i:0\tZF:Z:9\n");
+    SamReader reader(is);
+    SamEntry a, b;
+    bool has_a = false, has_b = false;
+    EXPECT_FALSE(reader.Next(a, b, has_a, has_b));
+    EXPECT_EQ(reader.FailedCandidates().at(4), 2u);
+    EXPECT_EQ(reader.FailedCandidates().at(9), 2u);
+    EXPECT_EQ(reader.Skipped().at("unmapped"), 1u);
+
+    std::istringstream bad("@HD\tVN:1.6\n" + kSamFailedCandidatesComment + "4:2,9\n");
+    SamReader bad_reader(bad);
+    try {
+        bad_reader.Next(a, b, has_a, has_b);
+        ADD_FAILURE() << "a bad entry is not an error";
+    } catch (SamFormatError const& e) {
+        EXPECT_EQ(std::string(e.what()).rfind("line 2: ", 0), 0u) << e.what();
+    }
+}
+
+// An unmapped record is skipped without a SamEntry (SamReader::SkipUnmapped), but one that cannot be parsed is the same
+// error as before.
+TEST(ReadEvidence, AnUnmappedRecordThatCannotBeParsedIsAnError) {
+    for (std::string const line : { "r\t4\t*\tx\t0\t*\t*\t0\t0\t*\t*\n", "r\t4\t*\t0\t0\t*\t*\t0\n", "r\t4\t*\t0\t300\t*\t*\t0\t0\t*\t*\n" }) {
+        std::istringstream is(line);
+        SamReader reader(is);
+        SamEntry a, b;
+        bool has_a = false, has_b = false;
+        EXPECT_THROW(reader.Next(a, b, has_a, has_b), SamFormatError) << line;
+    }
+}
+
 TEST(ReadEvidence, FragmentsBeforeTheFiltersTheEMsFragmentsAndTheFailedCandidates) {
     std::mt19937 rng(21);
     std::vector<std::string> one, two;

@@ -6,8 +6,10 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <deque>
 #include <exception>
@@ -91,6 +93,19 @@ namespace protal::sam_chunks {
             if (m_failure) std::rethrow_exception(std::exchange(m_failure, nullptr));
         }
 
+        // Where the reading thread spent its time, and the text it read; complete once the last chunk is taken (or after Stop).
+        struct Times {
+            double read = 0;  // in the stream's read: decompressing, or waiting for the decompressing threads
+            double cut = 0;   // cutting the text into chunks of whole reads and counting their lines
+            double wait = 0;  // waiting for room: the chunks read ahead not yet taken
+            uint64_t bytes = 0;
+            size_t chunks = 0;
+        };
+        Times GetTimes() const {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            return m_times;
+        }
+
         // Whether the stream went bad (a read error); known once the last chunk is taken.
         bool Bad() const {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -121,17 +136,32 @@ namespace protal::sam_chunks {
             m_cv.notify_all();
         }
 
+        using Clock = std::chrono::steady_clock;
+        static double Since(Clock::time_point& start) {
+            auto const now = Clock::now();
+            double const seconds = std::chrono::duration<double>(now - start).count();
+            start = now;
+            return seconds;
+        }
+
         void Read() {
             std::string buffer;
             size_t index = 0, lines = 0;
+            Times times;
             while (true) {
+                auto clock = Clock::now();
                 size_t const had = buffer.size();
                 buffer.resize(had + m_bytes);
                 m_is.read(buffer.data() + had, static_cast<std::streamsize>(m_bytes));
                 buffer.resize(had + static_cast<size_t>(m_is.gcount()));
+                times.bytes += static_cast<uint64_t>(m_is.gcount());
+                times.read += Since(clock);
                 bool const end = !m_is;
                 size_t cut = end ? buffer.size() : ChunkEnd(buffer.data(), buffer.size());
-                if (cut == 0 && !end) continue;  // one read so far: read on
+                if (cut == 0 && !end) {  // one read so far: read on
+                    times.cut += Since(clock);
+                    continue;
+                }
                 Chunk chunk;
                 chunk.index = index++;
                 chunk.first_line = lines;
@@ -141,14 +171,19 @@ namespace protal::sam_chunks {
                 chunk.text = std::move(buffer);
                 buffer = std::move(rest);
                 lines += static_cast<size_t>(std::count(chunk.text.begin(), chunk.text.end(), '\n'));
-                if (!Put(std::move(chunk), end && m_is.bad()) || end) return;
+                times.cut += Since(clock);
+                times.chunks++;
+                if (!Put(std::move(chunk), end && m_is.bad(), times, clock) || end) return;
             }
         }
 
-        // False if the reader was stopped. `bad`: the stream went bad (set with the last chunk).
-        bool Put(Chunk&& chunk, bool bad) {
+        // False if the reader was stopped. `bad`: the stream went bad (set with the last chunk). The wait for room is
+        // added to `times`, which are then the reader's.
+        bool Put(Chunk&& chunk, bool bad, Times& times, Clock::time_point& clock) {
             std::unique_lock<std::mutex> lock(m_mutex);
             m_cv.wait(lock, [this] { return m_ready.size() < m_ahead || m_stop; });
+            times.wait += Since(clock);
+            m_times = times;
             if (m_stop) return false;
             m_bad = m_bad || bad;
             m_ready.push_back(std::move(chunk));
@@ -163,6 +198,7 @@ namespace protal::sam_chunks {
         bool m_done = false;
         bool m_stop = false;
         bool m_bad = false;
+        Times m_times;
         std::exception_ptr m_failure;
         mutable std::mutex m_mutex;
         std::condition_variable m_cv;

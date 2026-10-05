@@ -274,10 +274,13 @@ Each read's best record carries `ZA:Z:<taxid>:<edits more>,...`: its other candi
 taxa (at most 5 edits more than the best, or `*`), from which the profiler counts the reads that a
 congener fits as well ([features.md](features.md#the-reads-other-candidates-071)). A read's first record carries
 `ZF:Z:<taxid>,...` when the read seeded on taxa strongly enough to be aligned against them (the
-align-top anchors) but did not align to them; a read that seeded on taxa and aligned nowhere gets a
-minimal unmapped record (flag 4, no sequence) with the tag, and nothing else is written for unaligned
-reads. The profiler counts per taxon the reads that failed on it (`failed_candidate_rate`): a relative
-the database lacks seeds on its nearest species and fails there, a present species' reads align
+align-top anchors) but did not align to them; the reads that seeded on taxa and aligned nowhere are
+counted per taxon in one header line (`@CO protal failed candidates of unaligned reads: <taxid>:<reads>,...`),
+and nothing else is written for unaligned reads. `--write_unmapped_reads` writes a minimal unmapped
+record (flag 4, no sequence) with the tag for each of them instead, as protal did up to 0.7.6 (on
+GTDB r226 these were 95% of a paired-end sample's records, which the profiler read only to count
+them); so does `--full_sam_header`, whose header is written before the reads. The profiler counts
+per taxon the reads that failed on it (`failed_candidate_rate`): a relative the database lacks seeds on its nearest species and fails there, a present species' reads align
 ([report](claude/2026-10-03-false-positive-fixes/README.md)). Profiling a SAM of an older protal, without these, gives the feature 0.
 
 ### Developer options
@@ -287,7 +290,8 @@ the database conversions `--compress_db`, `--unpack_db`, `--decompress_db`
 ([databases.md](databases.md#the-files-of-a-database)), `--profile_truth` for the training dump
 ([databases.md](databases.md#training-data)), `--benchmark_alignment` (checks alignments against the
 `taxid_geneid` encoded in simulated read names), `--mapq_debug_output`, `--full_sam_header` (every
-gene in the SAM header, see above), `--whole_read_alignment` and `--profile_after_alignment` (both below),
+gene in the SAM header, see above), `--write_unmapped_reads` (an unmapped record for each read that
+aligned nowhere, see above), `--whole_read_alignment` and `--profile_after_alignment` (both below),
 `--sequential_load` (load the database's parts one after another, as before 0.7.6, instead of the
 index beside the genome preload and the small tables each on a thread; the run is the same either way).
 

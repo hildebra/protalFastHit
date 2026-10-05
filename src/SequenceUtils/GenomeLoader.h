@@ -746,6 +746,12 @@ namespace protal {
         std::vector<GenomeKey> m_genome_order;
         struct FreeDeleter { void operator()(void* p) const { std::free(p); } };
         std::vector<std::unique_ptr<uint8_t[], FreeDeleter>> m_arenas;  // the preloaded genes' packed sequences (Gene::SetPacked)
+        struct PreloadParts {  // the last LoadAllGenomes (PreloadTimes())
+            size_t genes = 0;
+            uint64_t bases = 0, packed_bytes = 0, reference_bytes = 0;
+            bool in_order = false;  // the genes came in the reference's order, unsorted
+            double listing = 0, arena = 0, reading = 0, marking = 0;
+        } m_preload_times;
 
         // Huge pages for a large arena, which the loading threads touch at random offsets (as
         // Seedmap::AdviseHugePages). Without transparent huge pages this does nothing.
@@ -1272,38 +1278,63 @@ namespace protal {
         // chunks, other zstd files in one stream), and each piece is copied, uppercased, into the
         // genes it overlaps. Large reads instead of one seek per gene, which matters on network storage.
         void LoadAllGenomes(int threads = 1) {
-            auto const keys = SortedKeys();
+            auto clock = std::chrono::steady_clock::now();
+            auto lap = [&clock]() {
+                double const seconds = gene_table::SecondsSince(clock);
+                clock = std::chrono::steady_clock::now();
+                return seconds;
+            };
+            m_preload_times = {};
 
-            std::vector<Gene*> genes;
-            for (auto& key : keys) {
-                auto& genome = m_genomes.at(key);
-                if (genome.IsLoaded()) continue;
+            // The genes by start byte, as (start byte, gene) pairs: sorting the genes themselves by their start bytes read a
+            // gene of the 14.5M of GTDB r226 at random for each comparison, seconds on one thread. The genomes in the order
+            // reference.map lists them first (m_genome_order) give the genes in the reference's order already when it holds
+            // them genome by genome, as protal's builds write it; then nothing is sorted.
+            std::vector<std::pair<uint64_t, Gene*>> by_start;
+            auto add_genome = [&by_start](Genome& genome) {
+                if (genome.IsLoaded()) return;
                 for (auto& gene : genome.Genes()) {
-                    if (gene.IsSet() && !gene.IsLoaded() && gene.GetLength() > 0) genes.emplace_back(&gene);
+                    if (gene.IsSet() && !gene.IsLoaded() && gene.GetLength() > 0) by_start.emplace_back(gene.GetStartByte(), &gene);
                 }
+            };
+            if (m_genome_order.size() == m_genomes.size()) {
+                for (auto const key : m_genome_order) add_genome(m_genomes.find(key).value());
+            } else {
+                for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) add_genome(it.value());
             }
-            std::sort(genes.begin(), genes.end(), [](Gene const* a, Gene const* b) {
-                return a->GetStartByte() < b->GetStartByte();
-            });
+            auto const by_byte = [](auto const& a, auto const& b) { return a.first < b.first; };
+            m_preload_times.in_order = std::is_sorted(by_start.begin(), by_start.end(), by_byte);
+            if (!m_preload_times.in_order) std::sort(by_start.begin(), by_start.end(), by_byte);
+            std::vector<Gene*> genes;
+            std::vector<uint64_t> starts;
+            genes.reserve(by_start.size());
+            starts.reserve(by_start.size());
+            for (auto const& [start, gene] : by_start) {
+                starts.push_back(start);
+                genes.push_back(gene);
+            }
+            std::vector<std::pair<uint64_t, Gene*>>().swap(by_start);
+            m_preload_times.listing = lap();
 
             // Give every gene its place in one arena of packed sequences first (sizing 16.6M strings one
             // by one took seconds on one thread); the threads then fill disjoint parts of it (a gene that
             // spans two chunks gets its two parts from two threads). Each gene starts on a byte. The
             // arena is zero, as PackInto needs, without being touched (calloc hands out fresh pages for
             // a block this large); the reference covers every gene byte, or protal stops below.
-            std::vector<uint64_t> starts;
-            starts.reserve(genes.size());
             uint64_t position = 0, packed_bytes = 0;
-            for (Gene* gene : genes) {
-                if (gene->GetStartByte() < position) {
-                    std::cerr << "Invalid reference map " << m_map.Name() << ": gene " << gene->GetId() << " at byte "
-                              << gene->GetStartByte() << " overlaps the previous gene" << std::endl;
+            for (size_t i = 0; i < genes.size(); i++) {
+                if (starts[i] < position) {
+                    std::cerr << "Invalid reference map " << m_map.Name() << ": gene " << genes[i]->GetId() << " at byte "
+                              << starts[i] << " overlaps the previous gene" << std::endl;
                     exit(8);
                 }
-                position = gene->GetStartByte() + gene->GetLength();
-                packed_bytes += packed::Bytes(gene->GetLength());
-                starts.emplace_back(gene->GetStartByte());
+                position = starts[i] + genes[i]->GetLength();
+                packed_bytes += packed::Bytes(genes[i]->GetLength());
             }
+            m_preload_times.genes = genes.size();
+            m_preload_times.bases = 0;
+            for (Gene const* gene : genes) m_preload_times.bases += gene->GetLength();
+            m_preload_times.packed_bytes = packed_bytes;
             if (!genes.empty()) {
                 std::unique_ptr<uint8_t[], FreeDeleter> arena(static_cast<uint8_t*>(std::calloc(packed_bytes, 1)));
                 if (!arena) {
@@ -1318,6 +1349,7 @@ namespace protal {
                 }
                 m_arenas.emplace_back(std::move(arena));
             }
+            m_preload_times.arena = lap();
             GeneSink sink(genes, starts);
             std::string error;
             uint64_t const size = m_reference.ParallelRead(threads, sink, error);
@@ -1330,9 +1362,21 @@ namespace protal {
                           << m_map.Name() << " lists genes up to byte " << position << std::endl;
                 exit(8);
             }
-            for (auto& key : keys) {
-                m_genomes.at(key).MarkLoaded();
-            }
+            m_preload_times.reference_bytes = size;
+            m_preload_times.reading = lap();
+            for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) it.value().MarkLoaded();
+            m_preload_times.marking = lap();
+        }
+
+        // Where the last LoadAllGenomes spent its time, in one line.
+        std::string PreloadTimes() const {
+            auto const& t = m_preload_times;
+            std::ostringstream line;
+            line << std::fixed << std::setprecision(2) << "Preload: " << t.genes << " genes, " << static_cast<double>(t.bases) / 1e9
+                 << " Gb, " << static_cast<double>(t.packed_bytes) / 1e9 << " GB packed, from " << static_cast<double>(t.reference_bytes) / 1e9
+                 << " GB of reference: listing the genes " << t.listing << " s (" << (t.in_order ? "in the reference's order" : "sorted")
+                 << "), arena " << t.arena << " s, reading and packing " << t.reading << " s, marking the genomes " << t.marking << " s";
+            return line.str();
         }
 
         bool AllGenomesLoaded() {
