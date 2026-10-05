@@ -811,8 +811,19 @@ Changes (all outputs identical; 359 tests):
 the 14.5M genes over the sorted taxids with a lookup in the sparse genome map each, then sorted the gene pointers by
 start byte, each comparison reading two genes at random (a 464 MB array), on one thread, before the parallel reading and
 packing. Now the genes are listed as (start byte, gene) pairs in the order `reference.map` lists the genomes, sorted only
-if they are not in the reference's order already (the local e2e database's are not; r226's the next run shows), and a
+if they are not in the reference's order already, and a
 `Preload:` line times the listing, the arena, the reading and packing, and marking the genomes. Outputs identical.
+**Does the build write the reference in an order the preload need not sort? No, on purpose.** `gtdb_to_protal_db.py`
+writes `reference.fna` gene by gene since `27bc4c7` (2026-09-26; `--order gene`, the default; `--order genome` for genome
+by genome): a gene's copies in related species side by side compress about 2× better. `reference.map` lists the rows in
+the same order, so at r226 a genome's genes lie all over the file and the preload has to sort. Measured at r226's size
+(143,614 genomes, 14.5M genes, the reference gene by gene; [`scripts/preload_sort_bench.cpp`](scripts/preload_sort_bench.cpp)):
+the gene pointers by `std::sort` 2.4 s (most of the 3.2 s preload when it ran alone), the (start byte, gene) pairs 1.0 s on
+one thread, 0.22 s on 6 threads in parallel. So the pairs are now sorted on all threads (`gene_table::ParallelSort`: a
+part per thread, then pairwise merges; the same as `std::sort`, test `GeneTables.TheParallelSortIsStdSort`), expected
+~0.1 s at 32 threads. Writing the reference genome by genome would save that 0.1 s at the cost of a ~2× larger
+`reference.fna.zst`; not worth it.
+
 What the r226 preload gains needs the next cluster run; the start-up's critical path is then the index's 2.5 s.
 
 What the next run should show: the SAM's size and its read, the `SAM read:` and `Preload:` lines, the output handler's

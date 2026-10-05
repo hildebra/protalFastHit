@@ -154,6 +154,40 @@ namespace protal {
             return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         }
 
+        // Sorts `values` by `less` on up to `threads` threads: a part per thread sorted at once, then the sorted runs
+        // merged pairwise, as many merges at once as there are pairs. The result is std::sort's for distinct keys (equal
+        // ones may come in another order). 14.5M (start byte, gene) pairs at GTDB r226: 1.0 s on one thread, 0.22 s on 6.
+        template<typename T, typename Less>
+        void ParallelSort(std::vector<T>& values, int threads, Less less) {
+            constexpr size_t kMinPart = size_t{1} << 16;
+            size_t const n = values.size();
+            size_t const parts = std::clamp<size_t>(static_cast<size_t>(std::max(threads, 1)), 1, std::max<size_t>(n / kMinPart, 1));
+            if (parts <= 1) {
+                std::sort(values.begin(), values.end(), less);
+                return;
+            }
+            std::vector<size_t> bounds(parts + 1);
+            for (size_t i = 0; i <= parts; i++) bounds[i] = n * i / parts;
+            zstd::ParallelFor(parts, threads, [&](size_t i, size_t) {
+                std::sort(values.begin() + bounds[i], values.begin() + bounds[i + 1], less);
+                return std::string();
+            });
+            std::vector<T> merged(n);
+            while (bounds.size() > 2) {
+                size_t const runs = bounds.size() - 1, merges = (runs + 1) / 2;
+                zstd::ParallelFor(merges, threads, [&](size_t m, size_t) {
+                    size_t const a = bounds[2 * m], b = bounds[std::min(2 * m + 1, runs)], c = bounds[std::min(2 * m + 2, runs)];
+                    std::merge(values.begin() + a, values.begin() + b, values.begin() + b, values.begin() + c, merged.begin() + a, less);
+                    return std::string();
+                });
+                std::vector<size_t> next;
+                for (size_t m = 0; m < merges; m++) next.push_back(bounds[2 * m]);
+                next.push_back(n);
+                bounds = std::move(next);
+                values.swap(merged);
+            }
+        }
+
         // The whole content of a table, read and decompressed on `threads` threads (zstd::ParallelRead: a seekable zstd
         // member frame by frame, a raw file in chunks), for ForEachPiece. The sequential reader decompressed a 1 GB table
         // on one thread, which with the parsing and the adds parallel was most of the load at GTDB r226 size.
@@ -1287,9 +1321,11 @@ namespace protal {
             m_preload_times = {};
 
             // The genes by start byte, as (start byte, gene) pairs: sorting the genes themselves by their start bytes read a
-            // gene of the 14.5M of GTDB r226 at random for each comparison, seconds on one thread. The genomes in the order
-            // reference.map lists them first (m_genome_order) give the genes in the reference's order already when it holds
-            // them genome by genome, as protal's builds write it; then nothing is sorted.
+            // gene of the 14.5M of GTDB r226 at random for each comparison, 2.4 s on one thread. The genomes in the order
+            // reference.map lists them first (m_genome_order) give the genes in the reference's order when it holds them
+            // genome by genome (gtdb_to_protal_db.py --order genome), and nothing is sorted. protal's builds write it gene by
+            // gene (--order gene, the default: a gene's copies in related species side by side compress about 2x better),
+            // so the pairs are sorted, on all threads (gene_table::ParallelSort).
             std::vector<std::pair<uint64_t, Gene*>> by_start;
             auto add_genome = [&by_start](Genome& genome) {
                 if (genome.IsLoaded()) return;
@@ -1304,7 +1340,7 @@ namespace protal {
             }
             auto const by_byte = [](auto const& a, auto const& b) { return a.first < b.first; };
             m_preload_times.in_order = std::is_sorted(by_start.begin(), by_start.end(), by_byte);
-            if (!m_preload_times.in_order) std::sort(by_start.begin(), by_start.end(), by_byte);
+            if (!m_preload_times.in_order) gene_table::ParallelSort(by_start, threads, by_byte);
             std::vector<Gene*> genes;
             std::vector<uint64_t> starts;
             genes.reserve(by_start.size());

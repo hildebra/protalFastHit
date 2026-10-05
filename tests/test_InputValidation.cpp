@@ -382,7 +382,7 @@ TEST(GeneTables, TheFirstProblemInTheFileIsReportedWithItsLine) {
 }
 
 // The rows are added by genome, each genome's by one thread (gene_table::AddPieceByGenome). A table whose genomes
-// are spread over the file (gene-major order, which protal never writes) gives every genome a run in every chunk:
+// are spread over the file (gene-major order, as gtdb_to_protal_db.py writes reference.map by default) gives every genome a run in every chunk:
 // the same genes as on one thread, and a gene listed twice far from its genome's other rows is still caught.
 TEST(GeneTables, GenomesSpreadOverTheFileAreAddedOnceEach) {
     ScratchDir dir;
@@ -634,4 +634,40 @@ TEST(ReadTypeDetection, NamesBeforeQualities) {
     auto const other = Guess(dir.Write("other.fq", Reads(40, 3000, '0', [](size_t i) { return "m_" + std::to_string(i); })));
     ASSERT_TRUE(other);
     EXPECT_EQ(other->type, protal::ReadType::ONT);
+}
+
+// The preload's sort of its genes by start byte (gene_table::ParallelSort): what std::sort gives, on any number of threads,
+// for sizes below, at and above a part per thread, and for genes listed genome by genome from a reference written gene by gene.
+TEST(GeneTables, TheParallelSortIsStdSort) {
+    std::mt19937_64 rng(11);
+    auto by_first = [](auto const& a, auto const& b) { return a.first < b.first; };
+    for (size_t const n : { size_t{0}, size_t{1}, size_t{1000}, size_t{1} << 16, (size_t{1} << 18) + 7, size_t{1} << 20 }) {
+        std::vector<std::pair<uint64_t, uint32_t>> values(n);
+        for (size_t i = 0; i < n; i++) values[i] = { rng(), static_cast<uint32_t>(i) };
+        auto expected = values;
+        std::sort(expected.begin(), expected.end(), by_first);
+        for (int const threads : { 1, 2, 3, 7, 32 }) {
+            auto sorted = values;
+            protal::gene_table::ParallelSort(sorted, threads, by_first);
+            EXPECT_EQ(sorted, expected) << n << " values on " << threads << " threads";
+        }
+    }
+    // 2000 genomes of up to 120 genes, the reference gene by gene: listed genome by genome, sorted back into its order.
+    std::vector<std::pair<uint64_t, uint32_t>> listed;
+    std::vector<std::vector<uint64_t>> start(2000, std::vector<uint64_t>(120, UINT64_MAX));
+    uint64_t offset = 0;
+    for (uint32_t gene = 0; gene < 120; gene++) {
+        for (uint32_t genome = 0; genome < 2000; genome++) {
+            if (rng() % 100 < 84) start[genome][gene] = (offset += 900 + rng() % 400);
+        }
+    }
+    for (uint32_t genome = 0; genome < 2000; genome++) {
+        for (uint32_t gene = 0; gene < 120; gene++) {
+            if (start[genome][gene] != UINT64_MAX) listed.emplace_back(start[genome][gene], genome * 120 + gene);
+        }
+    }
+    auto expected = listed;
+    std::sort(expected.begin(), expected.end(), by_first);
+    protal::gene_table::ParallelSort(listed, 6, by_first);
+    EXPECT_EQ(listed, expected);
 }
