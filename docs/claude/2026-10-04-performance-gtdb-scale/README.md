@@ -918,7 +918,7 @@ choose, and the result no longer depends on the seeds' order.
 
 On the 0.7.5 benchmark (paired-end rl100/rl150 at 1k/10k/500k pairs, PacBio and Nanopore at 3/90 Mb, 4 samples each,
 full and missing databases, -t 6; 160 runs, scored by that benchmark's `score.py`; [`results_ties/`](results_ties/),
-scripts `scripts/ties_*.sh`): F1, precision, recall, FP and Bray-Curtis **identical** in every set; the paired-end SAM
+scripts `scripts/ties_*.sh`; in its tables "0.7.3" is before, "0.7.5" after, the labels the scorer pairs): F1, precision, recall, FP and Bray-Curtis **identical** in every set; the paired-end SAM
 records and counts identical; 17 long-read `profile.genes.log` files differ by one in a gene's `UniqueMers` /
 `UniqueTwoMers` (a seed once dropped now counts in another anchor). Wall time the same within noise. The simulated
 world's genes have few internal repeats; r226's real ones are where it shows, in the next cluster run's counts.
