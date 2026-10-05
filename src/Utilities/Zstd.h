@@ -1156,6 +1156,23 @@ namespace protal::zstd {
         uint64_t m_frames = 0, m_written = 0;
     };
 
+    // A frame's compressed bytes, room for ZSTD_compressBound of its content: not zeroed, so only the
+    // bytes zstd writes become resident (a vector's resize writes every byte of the bound, of which a
+    // frame needs half or less: 64 threads held ~1 GB of zeros writing an r226 index, ~3 GB packing its reference).
+    struct CompressedBuffer {
+        std::unique_ptr<char[]> data;
+        size_t capacity = 0;
+        size_t size = 0;
+
+        char* Reserve(size_t bytes) {
+            if (bytes > capacity) {
+                data.reset(new char[bytes]);
+                capacity = bytes;
+            }
+            return data.get();
+        }
+    };
+
     // A compression context for frames with content checksums; nullptr (and error set) if params
     // are invalid.
     inline ZSTD_CCtx* MakeCCtx(Params const& params, std::string& error) {
@@ -1185,8 +1202,8 @@ namespace protal::zstd {
         int const threads = std::max(1, params.threads);
         struct Slot {
             ZSTD_CCtx* cctx = nullptr;
-            std::vector<char> in, out;
-            size_t out_size = 0;
+            std::vector<char> in;
+            CompressedBuffer out;
             Slot() = default;
             Slot(Slot const&) = delete;
             ~Slot() { if (cctx) ZSTD_freeCCtx(cctx); }
@@ -1208,14 +1225,14 @@ namespace protal::zstd {
                 std::string e = make(batch_start + b, slot.in);
                 if (!e.empty()) return e;
                 if (slot.in.size() > 0xffffffffu) return "frame " + std::to_string(batch_start + b) + " is larger than 4 GB";
-                slot.out.resize(ZSTD_compressBound(slot.in.size()));
-                size_t const r = ZSTD_compress2(slot.cctx, slot.out.data(), slot.out.size(), slot.in.data(), slot.in.size());
+                size_t const bound = ZSTD_compressBound(slot.in.size());
+                size_t const r = ZSTD_compress2(slot.cctx, slot.out.Reserve(bound), bound, slot.in.data(), slot.in.size());
                 if (ZSTD_isError(r)) return ZSTD_getErrorName(r);
-                slot.out_size = r;
+                slot.out.size = r;
                 return "";
             });
             for (size_t b = 0; b < batch && error.empty(); b++) {
-                if (!out.Add(slots[b].out.data(), slots[b].out_size, slots[b].in.size())) error = out.Error();
+                if (!out.Add(slots[b].out.data.get(), slots[b].out.size, slots[b].in.size())) error = out.Error();
             }
         }
         if (error.empty() && !out.Finish()) error = out.Error();
@@ -1283,8 +1300,9 @@ namespace protal::zstd {
         int const threads = std::max(1, params.threads);
         struct Slot {
             ZSTD_CCtx* cctx = nullptr;
-            std::vector<char> in, out;
-            size_t in_size = 0, out_size = 0;
+            std::vector<char> in;
+            CompressedBuffer out;
+            size_t in_size = 0;
             ~Slot() { if (cctx) ZSTD_freeCCtx(cctx); }
         };
         std::vector<Slot> slots(static_cast<size_t>(threads));
@@ -1316,15 +1334,15 @@ namespace protal::zstd {
             }
             error = ParallelFor(batch, threads, [&](size_t b, size_t) -> std::string {
                 Slot& slot = slots[b];
-                slot.out.resize(ZSTD_compressBound(slot.in_size));
-                size_t const r = ZSTD_compress2(slot.cctx, slot.out.data(), slot.out.size(), slot.in.data(), slot.in_size);
+                size_t const bound = ZSTD_compressBound(slot.in_size);
+                size_t const r = ZSTD_compress2(slot.cctx, slot.out.Reserve(bound), bound, slot.in.data(), slot.in_size);
                 if (ZSTD_isError(r)) return ZSTD_getErrorName(r);
-                slot.out_size = r;
+                slot.out.size = r;
                 return "";
             });
             if (!error.empty()) break;
             for (size_t b = 0; b < batch; b++) {
-                if (!out.Add(slots[b].out.data(), slots[b].out_size, slots[b].in_size)) {
+                if (!out.Add(slots[b].out.data.get(), slots[b].out.size, slots[b].in_size)) {
                     error = out.Error();
                     break;
                 }

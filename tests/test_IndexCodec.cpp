@@ -110,6 +110,61 @@ namespace {
         return infos;
     }
 
+    // The split form of chunk c as the format describes it (IndexCodec.h), written plainly from copies of the
+    // chunk's cells: header, bitmap, then byte planes of the counts (2), flex cells (8), taxids, gene ids and
+    // positions (the widths their maxima need) and flags (1).
+    std::string ReferenceSplit(SmallIndex const& index, index_codec::Chunk const& c) {
+        auto const& l = index.layout;
+        std::string bitmap((c.blocks + 7) / 8, '\0');
+        std::vector<uint64_t> counts, flex, entries;
+        for (uint64_t b = c.first_block; b < c.first_block + c.blocks; b++) {
+            uint16_t const* cells = index.keymap.data() + b * l.CellsPerBlock();
+            uint64_t start = 0, end = 0;
+            std::memcpy(&start, cells, 8);
+            std::memcpy(&end, cells + l.CellsPerBlock(), 8);
+            if (end == start) continue;
+            bitmap[(b - c.first_block) >> 3] = static_cast<char>(bitmap[(b - c.first_block) >> 3] | 1 << ((b - c.first_block) & 7));
+            for (uint64_t j = 0; j < l.keys_per_block; j++) {
+                uint64_t const offset = cells[l.ctrl_cells + j], next = j + 1 < l.keys_per_block ? cells[l.ctrl_cells + j + 1] : end - start;
+                uint64_t const n = next - offset, f = n >= 2 ? (n + 2) / 3 : 0;
+                counts.push_back(n);
+                auto const* v = index.values.data() + start + offset;
+                flex.insert(flex.end(), v, v + f);
+                entries.insert(entries.end(), v + f, v + n);
+            }
+        }
+        auto field = [](uint64_t e, int shift) { return (e >> shift) & 0xFFFFF; };
+        auto width = [&](int shift) {
+            uint64_t max = 0;
+            for (uint64_t e : entries) max = std::max(max, field(e, shift));
+            return max == 0 ? 0 : max < 256 ? 1 : max < 65536 ? 2 : 3;
+        };
+        int const tw = width(40), gw = width(20), pw = width(0);
+        std::string out(index_codec::kChunkHeaderBytes, '\0');
+        out[0] = static_cast<char>(index_codec::kModeSplit);
+        out[1] = static_cast<char>(tw);
+        out[2] = static_cast<char>(gw);
+        out[3] = static_cast<char>(pw);
+        uint64_t const ne = entries.size(), nf = flex.size(), filled = counts.size() / l.keys_per_block;
+        std::memcpy(out.data() + 8, &ne, 8);
+        std::memcpy(out.data() + 16, &nf, 8);
+        std::memcpy(out.data() + 24, &filled, 8);
+        out += bitmap;
+        auto planes = [&out](std::vector<uint64_t> const& cells, int bytes, auto&& value) {
+            for (int b = 0; b < bytes; b++) {
+                for (uint64_t cell : cells) out.push_back(static_cast<char>(value(cell) >> (8 * b)));
+            }
+        };
+        auto same = [](uint64_t x) { return x; };
+        planes(counts, 2, same);
+        planes(flex, 8, same);
+        planes(entries, tw, [&](uint64_t e) { return field(e, 40); });
+        planes(entries, gw, [&](uint64_t e) { return field(e, 20); });
+        planes(entries, pw, [&](uint64_t e) { return field(e, 0); });
+        planes(entries, 1, [](uint64_t e) { return e >> 60; });
+        return out;
+    }
+
     // Writes index with chunks of about chunk_bytes, then checks that every chunk is stored split,
     // that it reads back as it was written with any thread count, and that Verify accepts it.
     // Returns the chunks' headers.
@@ -243,6 +298,59 @@ TEST(IndexCodec, FlexCellsAfterAFirstBatchWithoutAny) {
     EXPECT_EQ(infos[0].mode, index_codec::kModeSplit);
     EXPECT_GT(infos[0].flex, 0u);
     EXPECT_GT(infos[0].entries, uint64_t{65536});
+}
+
+// The writer composes the planes straight from the index's cells (no copies of them): its chunks are, byte for
+// byte, the format's plain description of them, as the copying writer wrote them before.
+TEST(IndexCodec, ChunksAreTheFormatsBytes) {
+    TempDir tmp;
+    for (auto const& index : { SmallIndex(3000, 11, 0.5), SmallIndex(22000, 8, 0.2, 20000), SmallIndex(5000, 65, 0.3, 0, 65) }) {
+        for (uint64_t chunk : { uint64_t{4096}, uint64_t{50000}, uint64_t{64} << 20 }) {
+            std::string error;
+            ASSERT_TRUE(index_codec::Write(tmp / "index.zst", index.header, index.layout, index.keymap.data(), index.values.data(),
+                                           {3, 0, 4, chunk}, error)) << error;
+            auto const table = zstd::ReadSeekTable(tmp / "index.zst", error);
+            ASSERT_TRUE(table) << error;
+            auto const container = index_codec::ReadContainer(tmp / "index.zst", *table, error);
+            ASSERT_TRUE(container) << error;
+            size_t compared = 0;
+            std::string const e = zstd::ForEachFrame(tmp / "index.zst", *table, 1, 1, [&](size_t frame, char const* data, size_t size, size_t) {
+                std::string const expected = ReferenceSplit(index, container->chunks[frame - 1]);
+                compared++;
+                return std::string(data, size) == expected ? std::string() : "chunk " + std::to_string(frame) + " differs";
+            });
+            EXPECT_EQ(e, "") << "chunks of " << chunk;
+            EXPECT_EQ(compared, container->chunks.size());
+        }
+    }
+}
+
+// Verify compares the values as it decodes them: one changed flex cell, entry or raw cell is found.
+TEST(IndexCodec, VerifyFindsOneChangedValue) {
+    TempDir tmp;
+    SmallIndex index(2000, 9, 0.3);
+    std::string error;
+    ASSERT_TRUE(index_codec::Write(tmp / "index.zst", index.header, index.layout, index.keymap.data(), index.values.data(),
+                                   {3, 0, 2, 8192}, error)) << error;
+    ASSERT_EQ(index_codec::Verify(tmp / "index.zst", index.header, index.layout, index.keymap.data(), index.values.data(), 2), "");
+    for (size_t cell : { size_t{0}, index.values.size() / 2, index.values.size() - 1 }) {
+        auto changed = index.values;
+        changed[cell] ^= uint64_t{1} << 33;
+        std::string const e = index_codec::Verify(tmp / "index.zst", index.header, index.layout, index.keymap.data(), changed.data(), 2);
+        EXPECT_NE(e.find("differs from the index"), std::string::npos) << "cell " << cell << ": " << e;
+    }
+    // A chunk kept as raw cells (its first key does not start at its block).
+    SmallIndex odd(500, 3, 0.2);
+    odd.keymap[4] = 1;
+    size_t raw_chunks = 0;
+    ASSERT_TRUE(index_codec::Write(tmp / "odd.zst", odd.header, odd.layout, odd.keymap.data(), odd.values.data(), {3, 0, 2, 2048}, error,
+                                   &raw_chunks)) << error;
+    ASSERT_EQ(raw_chunks, 1u);
+    ASSERT_EQ(index_codec::Verify(tmp / "odd.zst", odd.header, odd.layout, odd.keymap.data(), odd.values.data(), 2), "");
+    auto changed = odd.values;
+    changed[1] ^= 1;
+    EXPECT_NE(index_codec::Verify(tmp / "odd.zst", odd.header, odd.layout, odd.keymap.data(), changed.data(), 2).find("differs from the index"),
+              std::string::npos);
 }
 
 TEST(IndexCodec, CorruptAndTruncatedFilesFail) {

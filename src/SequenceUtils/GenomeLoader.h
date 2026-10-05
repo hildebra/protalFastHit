@@ -369,6 +369,15 @@ namespace protal {
             return m_loaded ? reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(m_where)) : nullptr;
         }
 
+        // Forgets the packed bytes (their owner frees them, GenomeLoader::ReleaseGeneSequences): the gene is
+        // not loaded and has no sequence from here.
+        void ReleaseSequence() {
+            if (m_loaded) {
+                m_where = 0;
+                m_loaded = 0;
+            }
+        }
+
         bool IsSet() const {
             return (m_id != 0 || m_length > 0) && m_length != kUnsetLength;
         }
@@ -470,6 +479,7 @@ namespace protal {
         // The packed sequences of the genes loaded one by one (LoadAllGenomes keeps its genes in an arena).
         std::vector<std::unique_ptr<uint8_t[]>> m_owned;
         std::string m_scratch;
+        bool m_released = false;  // the genes' sequences were freed (ReleaseSequences): none can be read again
 
         size_t m_short_unique = 0;
         size_t m_long_unique = 0;
@@ -568,6 +578,9 @@ namespace protal {
         // gene read after it into NUL bytes.
         void LoadGeneData(Gene& gene) {
             if (gene.IsLoaded() || !gene.IsSet()) return;
+            if (m_released) {
+                errx(EX_SOFTWARE, "Gene %zu cannot be read: the genes' sequences were freed at the end of the build", gene.GetId());
+            }
             size_t const length = gene.GetLength();
             if (m_reader && m_reader->is_open()) {
                 m_reader->seekg(gene.GetStartByte());
@@ -625,6 +638,16 @@ namespace protal {
 
         void MarkLoaded() {
             m_is_loaded.Set();
+        }
+
+        // Forgets the genes' sequences and frees those loaded one by one (GenomeLoader::ReleaseGeneSequences frees
+        // the preload's arenas). A loaded genome stays marked loaded (GetGeneOMP returns its genes, without
+        // sequences); reading a gene again stops protal.
+        void ReleaseSequences() {
+            for (auto& gene : m_genes) gene.ReleaseSequence();
+            m_owned.clear();
+            m_owned.shrink_to_fit();
+            m_released = true;
         }
 
         size_t GeneNum() const {
@@ -1319,6 +1342,15 @@ namespace protal {
                 }
             }
             return true;
+        }
+
+        // Frees every gene's sequence, preloaded or loaded one by one: for the end of --build, which reads no gene
+        // after its uniqueness check. The genes keep their ids, lengths and k-mer counts; their sequences are empty
+        // from here, and reading one again stops protal (a loaded gene no longer knows its start byte).
+        void ReleaseGeneSequences() {
+            for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) it.value().ReleaseSequences();
+            m_arenas.clear();
+            m_arenas.shrink_to_fit();
         }
 
         PROTAL_CLONE_V3 Genome& GetGenome(GenomeKey const& key) {

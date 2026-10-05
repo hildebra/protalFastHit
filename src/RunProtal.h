@@ -416,9 +416,13 @@ namespace protal {
 
             Benchmark bm_build("Run build");
             bm_build.Start();
-            KmerPutterSM kmer_putter{};
-            auto protal_stats = protal::build::Run<SimpleKmerHandler<ClosedSyncmer>, KmerPutterSM, DEBUG_NONE>(
-                    options, kmer_putter, iterator, db.GetGenomes());
+            Statistics protal_stats;
+            {
+                KmerPutterSM kmer_putter{};
+                protal_stats = protal::build::Run<SimpleKmerHandler<ClosedSyncmer>, KmerPutterSM, DEBUG_NONE>(
+                        options, kmer_putter, iterator, db.GetGenomes());
+            }  // the index is written: freed before the files are packed (~36 GB at r226)
+            protal::build::ReleaseFreeMemory();
 
             // Last, as the build reads reference.fna until here: the single file (which compresses
             // reference.fna itself), or separate files.
@@ -428,6 +432,7 @@ namespace protal {
                 protal::build::CompressReference(options);
                 protal::build::RemoveStaleBundle(options);
             }
+            protal::build::PrintMemory(options.WriteBundle() ? "writing " + db::kFileName : "compressing the reference");
 
             bm_build.PrintResults();
             protal_stats.WriteStats(std::cout);

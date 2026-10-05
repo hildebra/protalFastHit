@@ -142,7 +142,7 @@ At GTDB r226 (143,614 species) the whole pipeline takes:
 |---|---|
 | download | 17.7 GB of GTDB files and about 75 GB of genomes to simulate from, on a node with internet |
 | time | about 2.5-3 hours on a 52-64-thread node (conversion 5 min; the r226 build of 2026-10-03 then took 2 h, and 0.7.6's design simulates half as many short-read samples again) |
-| memory | up to ~90 GB while both index builds run at once; `--one-build-at-a-time` needs about half |
+| memory | each index build ~42-44 GB with 64 threads (estimated; it was 64 GB before 2026-10-05; its log's `Memory after ...` lines say), up to ~90 GB while both run at once; `--one-build-at-a-time` needs about half |
 | node-local disk | 120-175 GB for the simulated samples (`--scratch`) |
 | result | `database.protal`, ~27 GB |
 

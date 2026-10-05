@@ -354,6 +354,29 @@ TEST(GenomeLoaderPacked, AWindowOfAGeneIsTheSameBasesAsTheWholeGene) {
     EXPECT_TRUE(never_loaded.Window(0, 10).empty());
 }
 
+// The end of --build frees the genes' sequences (GenomeLoader::ReleaseGeneSequences): the genes keep their
+// lengths, have no sequence, and reading one again stops protal instead of reading the wrong bytes.
+TEST(GenomeLoaderPacked, ReleasedGenesKeepTheirLengthsAndCannotBeReadAgain) {
+    ScratchDir dir;
+    AmbiguousReference ref;
+    auto fna = dir.Write("reference.fna", ref.fna);
+    auto map = dir.Write("reference.map", ref.map);
+    GenomeLoader preloaded(fna, map);
+    preloaded.LoadAllGenomes(2);
+    GenomeLoader on_demand(fna, map);
+    ASSERT_FALSE(on_demand.GetGenome(2).GetGeneOMP(1).Sequence().empty());  // taxon 2's genes loaded, 1's and 3's not
+    preloaded.ReleaseGeneSequences();
+    on_demand.ReleaseGeneSequences();
+    for (int gene = 1; gene <= 40; gene++) {
+        int const taxid = 1 + gene % 3;
+        EXPECT_EQ(preloaded.GeneLength(taxid, gene), ref.sequences[gene - 1].size());
+        EXPECT_FALSE(preloaded.GetGenome(taxid).GetGene(gene).IsLoaded());
+        EXPECT_TRUE(preloaded.GetGenome(taxid).GetGeneOMP(gene).Sequence().empty()) << gene;
+    }
+    EXPECT_TRUE(on_demand.GetGenome(2).GetGeneOMP(1).Sequence().empty());
+    EXPECT_EXIT(on_demand.GetGenome(3).GetGeneOMP(2), testing::ExitedWithCode(EX_SOFTWARE), "freed at the end of the build");
+}
+
 TEST(GenomeLoaderPacked, AGeneTakesThirtyTwoBytes) {
     EXPECT_EQ(sizeof(Gene), 32u);
 }

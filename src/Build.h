@@ -22,8 +22,37 @@
 #include "Zstd.h"
 #include <filesystem>
 #include "SequenceUtils/GenomeLoader.h"
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
 
 namespace protal::build {
+    // The build's resident memory now and its peak so far (VmRSS and VmHWM in /proc/self/status), after
+    // a phase: which phase sets a GTDB build's peak (docs/claude/2026-10-05-build-memory). Nothing
+    // where /proc is not there.
+    inline void PrintMemory(std::string const& after) {
+        std::ifstream status("/proc/self/status");
+        std::string line;
+        double rss = -1, hwm = -1;
+        while (std::getline(status, line)) {
+            if (line.rfind("VmRSS:", 0) == 0) rss = std::stod(line.substr(6));
+            else if (line.rfind("VmHWM:", 0) == 0) hwm = std::stod(line.substr(6));
+        }
+        if (rss < 0 || hwm < 0) return;
+        char text[96];
+        std::snprintf(text, sizeof(text), "%.2f GB resident, peak %.2f GB", rss / (1024.0 * 1024.0), hwm / (1024.0 * 1024.0));
+        std::cout << "Memory after " << after << ": " << text << std::endl;
+    }
+
+    // Gives the memory freed so far back to the system. glibc keeps freed small blocks in its
+    // per-thread arenas: the suspect-copy scan's millions of sketches left ~12 GB resident at r226
+    // scale (64 threads) that no later phase reused, under the index.
+    inline void ReleaseFreeMemory() {
+#ifdef __GLIBC__
+        malloc_trim(0);
+#endif
+    }
+
     // The k-mer an index entry was built from, read back from its gene and encoded as the build's
     // k-mer handler encodes it: the k-mer or its reverse complement, whichever has the smaller
     // core. Entries store the position of their core, which starts flex_k/2 bases into the k-mer.
@@ -1060,8 +1089,11 @@ namespace protal::build {
             }
             #pragma omp critical(suspect_copies_merge)
             {
+                // Moved, not copied: a copy of every sketch was ~6 GB more at r226 scale.
                 if (copies.size() < mine.size()) copies.resize(mine.size());
-                for (size_t g = 0; g < mine.size(); g++) copies[g].insert(copies[g].end(), mine[g].begin(), mine[g].end());
+                for (size_t g = 0; g < mine.size(); g++) {
+                    copies[g].insert(copies[g].end(), std::make_move_iterator(mine[g].begin()), std::make_move_iterator(mine[g].end()));
+                }
             }
         }
         for (auto& gene : copies) {
@@ -1094,7 +1126,8 @@ namespace protal::build {
                   << " of another genus's copy and farther from their congeners'"
                   << (table.Empty() ? std::string(": none") : ": " + target) << "; "
                   << result.pairs.size() << " near pairs across genera (within " << gene_incongruence::kReportDistance << ") of "
-                  << result.genes << " genes, " << result.candidates << " sketch pairs compared: " << report << std::endl;
+                  << result.genes << " genes, " << result.candidates << " sketch pairs compared: " << report
+                  << std::setprecision(6) << std::endl;  // the default again: the index passes print after this
         bm.Stop();
         bm.PrintResults();
     }
@@ -1179,6 +1212,19 @@ namespace protal::build {
 
     template<typename KmerHandler, typename KmerPutter, DebugLevel debug>
     static Statistics Run(protal::Options const& options, KmerPutter& putter, KmerHandler& kmer_handler_global, GenomeLoader& genomes) {
+
+        // The tables made from the genes alone first (conservation factors, congeners, suspect copies) and the checks
+        // of the gene neighbours and positions: none needs the index, so they run before it is allocated. The
+        // suspect-copy scan held ~20 GB at r226 scale with 64 threads, which on top of the index made the build's
+        // peak (docs/claude/2026-10-05-build-memory); a bad table also stops the build before its passes.
+        auto const conservation = WriteGeneConservation(options, genomes, options.GetFullSequenceFilePath(),
+                                                        options.GetGeneConservationFile());
+        WriteGeneCongeners(options, genomes, conservation.table);
+        WriteSuspectCopies(options, genomes);
+        CheckGeneNeighbours(options, genomes);
+        CheckGenePositions(options, genomes);
+        ReleaseFreeMemory();
+        PrintMemory("the gene tables");
 
         // Shared
         auto input = OpenInput(options.GetSequenceFilePath());
@@ -1402,6 +1448,7 @@ namespace protal::build {
         }
         bm_pass2.Stop();
         bm_pass2.PrintResults();
+        PrintMemory("pass 2");
 
         // Options falls back to --reference when no --full_reference is given, so unique_kmers.tsv is
         // always written: a database without it cannot detect anything.
@@ -1508,12 +1555,11 @@ namespace protal::build {
                   << std::defaultfloat << " per k-mer), " << kmers_shared << " found under another taxon or more than once, "
                   << singles_read << " single entries read back from their genes" << std::endl;
 
-        auto const conservation = WriteGeneConservation(options, genomes, options.GetFullSequenceFilePath(),
-                                                        options.GetGeneConservationFile());
-        WriteGeneCongeners(options, genomes, conservation.table);
-        WriteSuspectCopies(options, genomes);
-        CheckGeneNeighbours(options, genomes);
-        CheckGenePositions(options, genomes);
+        // No gene is read from here on (the k-mer statistics need only how many genes each taxon has): their
+        // sequences go before the index is written (~4 GB at r226).
+        genomes.ReleaseGeneSequences();
+        ReleaseFreeMemory();
+        PrintMemory("the uniqueness check");
 
         std::cout << "Save unique kmer info: \n" << options.GetUniqueKmersFile() << std::endl;
         Benchmark bm_statistics("Unique k-mer statistics");
@@ -1530,6 +1576,7 @@ namespace protal::build {
         putter.GetMap().SetReferenceFingerprint(
                 ReferenceFingerprint::Of(options.GetSequenceMapFile(), options.GetSequenceFile()));
         SaveIndex(options, putter);
+        PrintMemory("writing the index");
 
         return statistics;
     }
