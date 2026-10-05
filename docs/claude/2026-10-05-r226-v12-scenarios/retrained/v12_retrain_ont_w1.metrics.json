@@ -1,0 +1,1666 @@
+{
+ "run": {
+  "args": {
+   "truth_file": "local/v12/training/training_data_ont.tsv",
+   "output_prefix": "/tmp/v12_retrain_ont_w1",
+   "features": "normalized+adjacency+distance+depth+divergence+unfiltered",
+   "reference_pmml": null,
+   "ntree": 64,
+   "maxnodes": 128,
+   "min_samples_leaf": 1,
+   "max_features": "sqrt",
+   "knob": 0.5,
+   "depth_knobs": true,
+   "fdr_calls": false,
+   "singleton_congener": 0,
+   "scenario_weight": 1.0,
+   "folds": 5,
+   "evaluation": "basic",
+   "previous_procedure": false,
+   "taxonomy": null,
+   "test_file": "local/v12/test/training_data_ont.tsv",
+   "seed": 1,
+   "threads": 6
+  },
+  "sklearn": "1.9.1",
+  "python": "3.14.7"
+ },
+ "scenario_weight": {
+  "weight": 1.0,
+  "rows": 54977
+ },
+ "data": {
+  "taxa": 68772,
+  "samples": 197,
+  "present": 28262,
+  "absent": 40510,
+  "species": 31403,
+  "by_domain": {
+   "Archaea": {
+    "present": 1334,
+    "absent": 165,
+    "species": 592
+   },
+   "Bacteria": {
+    "present": 26928,
+    "absent": 4442,
+    "species": 12015
+   },
+   "unknown": {
+    "present": 0,
+    "absent": 35903,
+    "species": 18796
+   }
+  },
+  "identity_quantiles": {
+   "identity": {
+    "present": [
+     0.8956294443531263,
+     0.9229695533565907,
+     0.9570831538855744,
+     0.9695292769046313
+    ],
+    "absent": [
+     0.8516335148530995,
+     0.8586292508167508,
+     0.8794244435019292,
+     0.9024440798110533
+    ]
+   },
+   "top_identity": {
+    "present": [
+     0.8995588004589081,
+     0.941850608587265,
+     0.9888888597488403,
+     1.0
+    ],
+    "absent": [
+     0.8517915606498718,
+     0.8592848896980285,
+     0.8860518932342529,
+     0.91952183842659
+    ]
+   }
+  },
+  "features_constant_per_species": []
+ },
+ "evaluation": {
+  "out of bag": {
+   "taxa": 68772,
+   "present": 28262,
+   "AUC": 0.9925702983653625,
+   "AP": 0.9912415000485456,
+   "log_loss": 0.0990116098552932,
+   "brier": 0.02585799864569571,
+   "sensitivity": 0.9645460335432736,
+   "precision": 0.9552510775484458,
+   "F1": 0.9598760541558831,
+   "FP": 1277,
+   "FN": 1002,
+   "FP_per_sample": 6.482233502538071,
+   "sensitivity_Archaea": 0.9805097451274363,
+   "sensitivity_Bacteria": 0.9637551990493167
+  },
+  "rows": {
+   "taxa": 68772,
+   "present": 28262,
+   "AUC": 0.9927905000466333,
+   "AP": 0.9915622649602184,
+   "log_loss": 0.09783336943856612,
+   "brier": 0.025475960748813493,
+   "sensitivity": 0.9639091359422546,
+   "precision": 0.9564301513183302,
+   "F1": 0.9601550797427086,
+   "FP": 1241,
+   "FN": 1020,
+   "FP_per_sample": 6.299492385786802,
+   "sensitivity_Archaea": 0.9790104947526237,
+   "sensitivity_Bacteria": 0.9631610219845514
+  },
+  "samples": {
+   "taxa": 68772,
+   "present": 28262,
+   "AUC": 0.9922164847071119,
+   "AP": 0.991029731040162,
+   "log_loss": 0.09937529212174873,
+   "brier": 0.025894896687198087,
+   "sensitivity": 0.9639091359422546,
+   "precision": 0.9564301513183302,
+   "F1": 0.9601550797427086,
+   "FP": 1241,
+   "FN": 1020,
+   "FP_per_sample": 6.299492385786802,
+   "sensitivity_Archaea": 0.9805097451274363,
+   "sensitivity_Bacteria": 0.9630867498514557
+  },
+  "species": {
+   "taxa": 68772,
+   "present": 28262,
+   "AUC": 0.9926711295674789,
+   "AP": 0.9912981310016163,
+   "log_loss": 0.09825542774802025,
+   "brier": 0.025605997118566818,
+   "sensitivity": 0.963413771141462,
+   "precision": 0.9567111735769501,
+   "F1": 0.9600507739501428,
+   "FP": 1232,
+   "FN": 1034,
+   "FP_per_sample": 6.253807106598985,
+   "sensitivity_Archaea": 0.9782608695652174,
+   "sensitivity_Bacteria": 0.9626782531194296
+  },
+  "collection model": {
+   "taxa": 68772,
+   "present": 28262,
+   "AUC": 0.5,
+   "AP": 0.4109521316814983,
+   "log_loss": 5.677514103111827,
+   "brier": 0.4109521316814983,
+   "sensitivity": 0.0,
+   "precision": null,
+   "F1": 0.0,
+   "FP": 0,
+   "FN": 28262,
+   "FP_per_sample": 0.0,
+   "sensitivity_Archaea": 0.0,
+   "sensitivity_Bacteria": 0.0
+  }
+ },
+ "threshold": {
+  "knob": 0.5,
+  "at_knob": {
+   "threshold": 0.5,
+   "precision": 0.9567111735769501,
+   "sensitivity": 0.963413771141462,
+   "F1": 0.9600507739501428,
+   "FP": 1232.0,
+   "FN": 1034.0
+  },
+  "best_F1": {
+   "threshold": 0.5564631111442145,
+   "precision": 0.9618290822661322,
+   "sensitivity": 0.9593447031349516,
+   "F1": 0.9605852863545375
+  }
+ },
+ "breakdown": {
+  "present, simulated from": [
+   {
+    "present, simulated from": "the representative",
+    "taxa": 9507,
+    "called": 9334,
+    "called_collection": 0
+   },
+   {
+    "present, simulated from": "another genome, real",
+    "taxa": 4630,
+    "called": 4228,
+    "called_collection": 0
+   },
+   {
+    "present, simulated from": "another genome, in silico",
+    "taxa": 14125,
+    "called": 13666,
+    "called_collection": 0
+   }
+  ],
+  "absent taxa": [
+   {
+    "absent taxa": "congeners of a species the database lacks",
+    "taxa": 34844,
+    "called": 997,
+    "called_collection": 0
+   },
+   {
+    "absent taxa": "others",
+    "taxa": 5666,
+    "called": 235,
+    "called_collection": 0
+   }
+  ]
+ },
+ "by_rank": {
+  "false_positives_by_rank_held_out": [
+   {
+    "held out at": "species",
+    "simulated": 40619,
+    "taxa": 36411,
+    "FP": 1121,
+    "FP rate": 3.0787399412265524,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0,
+    "FP per 100 simulated": 2.759792215465669
+   },
+   {
+    "held out at": "genus",
+    "simulated": 603,
+    "taxa": 217,
+    "FP": 1,
+    "FP rate": 0.4608294930875576,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0,
+    "FP per 100 simulated": 0.16583747927031509
+   },
+   {
+    "held out at": "family",
+    "simulated": 467,
+    "taxa": 22,
+    "FP": 1,
+    "FP rate": 4.545454545454546,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0,
+    "FP per 100 simulated": 0.21413276231263384
+   },
+   {
+    "held out at": "order",
+    "simulated": 760,
+    "taxa": 12,
+    "FP": 2,
+    "FP rate": 16.666666666666668,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0,
+    "FP per 100 simulated": 0.2631578947368421
+   },
+   {
+    "held out at": "class",
+    "simulated": 262,
+    "taxa": 3,
+    "FP": 0,
+    "FP rate": 0.0,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0,
+    "FP per 100 simulated": 0.0
+   },
+   {
+    "held out at": "phylum",
+    "simulated": 665,
+    "taxa": 0,
+    "FP": 0,
+    "FP rate": null,
+    "FP_collection": 0,
+    "FP rate_collection": null,
+    "FP per 100 simulated": 0.0
+   },
+   {
+    "held out at": "other absent taxa",
+    "simulated": null,
+    "taxa": 3845,
+    "FP": 107,
+    "FP rate": 2.7828348504551363,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   }
+  ],
+  "false_positives_by_shared_rank": [
+   {
+    "shared rank": "genus",
+    "taxa": 34844,
+    "FP": 997,
+    "FP rate": 2.861324761795431,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   },
+   {
+    "shared rank": "family",
+    "taxa": 1522,
+    "FP": 83,
+    "FP rate": 5.45335085413929,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   },
+   {
+    "shared rank": "order",
+    "taxa": 134,
+    "FP": 30,
+    "FP rate": 22.388059701492537,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   },
+   {
+    "shared rank": "class",
+    "taxa": 101,
+    "FP": 8,
+    "FP rate": 7.920792079207921,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   },
+   {
+    "shared rank": "phylum",
+    "taxa": 36,
+    "FP": 5,
+    "FP rate": 13.88888888888889,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   },
+   {
+    "shared rank": "domain",
+    "taxa": 28,
+    "FP": 2,
+    "FP rate": 7.142857142857143,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   }
+  ],
+  "false_negatives_by_neighbour_rank": [
+   {
+    "closest other species shares": "genus",
+    "taxa": 15323,
+    "FN": 856,
+    "FN rate": 5.5863734255694055,
+    "FN_collection": 15323,
+    "FN rate_collection": 100.0
+   },
+   {
+    "closest other species shares": "family",
+    "taxa": 6993,
+    "FN": 105,
+    "FN rate": 1.5015015015015014,
+    "FN_collection": 6993,
+    "FN rate_collection": 100.0
+   },
+   {
+    "closest other species shares": "order",
+    "taxa": 2517,
+    "FN": 27,
+    "FN rate": 1.0727056019070322,
+    "FN_collection": 2517,
+    "FN rate_collection": 100.0
+   },
+   {
+    "closest other species shares": "class",
+    "taxa": 1896,
+    "FN": 28,
+    "FN rate": 1.4767932489451476,
+    "FN_collection": 1896,
+    "FN rate_collection": 100.0
+   },
+   {
+    "closest other species shares": "phylum",
+    "taxa": 856,
+    "FN": 10,
+    "FN rate": 1.1682242990654206,
+    "FN_collection": 856,
+    "FN rate_collection": 100.0
+   },
+   {
+    "closest other species shares": "domain",
+    "taxa": 677,
+    "FN": 8,
+    "FN rate": 1.1816838995568686,
+    "FN_collection": 677,
+    "FN rate_collection": 100.0
+   }
+  ],
+  "clades_held_out_in_training": [
+   {
+    "held out in training": "species",
+    "present": 28262,
+    "FN": 1034,
+    "FN rate": 3.658622885853797,
+    "absent": 40510,
+    "FP": 1232,
+    "FP rate": 3.0412243890397432,
+    "FP per sample": 6.253807106598985,
+    "F1": 0.9600507739501428
+   }
+  ]
+ },
+ "feature_classes": {
+  "present, no congener held out": {
+   "rows": 16220,
+   "conserved_fast_record_ratio": [
+    -2.2135235561799407,
+    -0.30523472779898764,
+    0.567986306911455
+   ],
+   "conserved_fast_kept_ratio": [
+    -2.323672621678292,
+    -0.34536005077936105,
+    0.551739270759859
+   ],
+   "conserved_fast_depth_ratio": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "conserved_hit_share": [
+    0.16666666666666666,
+    0.39473684210526316,
+    0.50752009184845
+   ],
+   "excess_median": [
+    -0.002020614517171136,
+    -6.984206265769899e-05,
+    0.0014479520032182336
+   ]
+  },
+  "present, beside a held-out congener": {
+   "rows": 12042,
+   "conserved_fast_record_ratio": [
+    -2.5602261032994122,
+    -0.41338474066791864,
+    0.7173625980662088
+   ],
+   "conserved_fast_kept_ratio": [
+    -2.99952385091112,
+    -0.5072250031169455,
+    0.6634910777980825
+   ],
+   "conserved_fast_depth_ratio": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "conserved_hit_share": [
+    0.0,
+    0.3333333333333333,
+    0.5
+   ],
+   "excess_median": [
+    -0.002019345702137798,
+    -5.011872583615684e-10,
+    0.002723152982071042
+   ]
+  },
+  "absent, congener of a held-out species": {
+   "rows": 34844,
+   "conserved_fast_record_ratio": [
+    -3.030551870100447,
+    0.15699121094152896,
+    3.3416556752248994
+   ],
+   "conserved_fast_kept_ratio": [
+    -3.655093723881119,
+    -0.2178499459860681,
+    3.5577620450997975
+   ],
+   "conserved_fast_depth_ratio": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "conserved_hit_share": [
+    0.0,
+    0.4392091648189209,
+    1.0
+   ],
+   "excess_median": [
+    0.03777538379654288,
+    0.0692532416433096,
+    0.10155477561056614
+   ]
+  },
+  "absent, other": {
+   "rows": 5666,
+   "conserved_fast_record_ratio": [
+    -3.3135953380086254,
+    -0.23789017981334992,
+    3.716275518005032
+   ],
+   "conserved_fast_kept_ratio": [
+    -3.59979584458161,
+    -0.8744886880187008,
+    3.628588907814866
+   ],
+   "conserved_fast_depth_ratio": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "conserved_hit_share": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "excess_median": [
+    0.032367634354159236,
+    0.07353216782212257,
+    0.11121091619133949
+   ]
+  }
+ },
+ "strains": {
+  "by_fragments": [
+   {
+    "simulated from": "the representative",
+    "fragments": "1-10",
+    "present": 5733,
+    "missed": 146,
+    "FN rate": 2.5466596895168325
+   },
+   {
+    "simulated from": "the representative",
+    "fragments": "11-100",
+    "present": 3027,
+    "missed": 25,
+    "FN rate": 0.8259002312520648
+   },
+   {
+    "simulated from": "the representative",
+    "fragments": ">100",
+    "present": 747,
+    "missed": 2,
+    "FN rate": 0.2677376171352075
+   },
+   {
+    "simulated from": "the representative",
+    "fragments": "all",
+    "present": 9507,
+    "missed": 173,
+    "FN rate": 1.8197117913116652
+   },
+   {
+    "simulated from": "another genome",
+    "fragments": "1-10",
+    "present": 11316,
+    "missed": 735,
+    "FN rate": 6.495227995758219
+   },
+   {
+    "simulated from": "another genome",
+    "fragments": "11-100",
+    "present": 6011,
+    "missed": 114,
+    "FN rate": 1.8965230410913325
+   },
+   {
+    "simulated from": "another genome",
+    "fragments": ">100",
+    "present": 1428,
+    "missed": 12,
+    "FN rate": 0.8403361344537815
+   },
+   {
+    "simulated from": "another genome",
+    "fragments": "all",
+    "present": 18755,
+    "missed": 861,
+    "FN rate": 4.590775793121834
+   },
+   {
+    "simulated from": "another genome, real",
+    "fragments": "1-10",
+    "present": 2774,
+    "missed": 339,
+    "FN rate": 12.220620043258831
+   },
+   {
+    "simulated from": "another genome, real",
+    "fragments": "11-100",
+    "present": 1516,
+    "missed": 56,
+    "FN rate": 3.6939313984168867
+   },
+   {
+    "simulated from": "another genome, real",
+    "fragments": ">100",
+    "present": 340,
+    "missed": 7,
+    "FN rate": 2.0588235294117645
+   },
+   {
+    "simulated from": "another genome, real",
+    "fragments": "all",
+    "present": 4630,
+    "missed": 402,
+    "FN rate": 8.682505399568035
+   },
+   {
+    "simulated from": "another genome, in silico",
+    "fragments": "1-10",
+    "present": 8542,
+    "missed": 396,
+    "FN rate": 4.635916647155233
+   },
+   {
+    "simulated from": "another genome, in silico",
+    "fragments": "11-100",
+    "present": 4495,
+    "missed": 58,
+    "FN rate": 1.2903225806451613
+   },
+   {
+    "simulated from": "another genome, in silico",
+    "fragments": ">100",
+    "present": 1088,
+    "missed": 5,
+    "FN rate": 0.45955882352941174
+   },
+   {
+    "simulated from": "another genome, in silico",
+    "fragments": "all",
+    "present": 14125,
+    "missed": 459,
+    "FN rate": 3.2495575221238937
+   }
+  ],
+  "identity_found": [
+   0.9271,
+   0.957,
+   0.9686
+  ],
+  "identity_missed": [
+   0.884,
+   0.9208,
+   0.9445
+  ],
+  "features": [
+   {
+    "taxa": "strains found",
+    "rows": 17894,
+    "conserved_fast_record_ratio": "-0.352",
+    "conserved_fast_kept_ratio": "-0.407",
+    "conserved_fast_depth_ratio": "+0.000",
+    "conserved_hit_share": "+0.375",
+    "excess_median": "-0.000"
+   },
+   {
+    "taxa": "strains missed",
+    "rows": 861,
+    "conserved_fast_record_ratio": "-0.691",
+    "conserved_fast_kept_ratio": "-1.254",
+    "conserved_fast_depth_ratio": "+0.000",
+    "conserved_hit_share": "+0.250",
+    "excess_median": "+0.024"
+   },
+   {
+    "taxa": "strains missed, > 10 fragments",
+    "rows": 126,
+    "conserved_fast_record_ratio": "+0.145",
+    "conserved_fast_kept_ratio": "+0.065",
+    "conserved_fast_depth_ratio": "+0.000",
+    "conserved_hit_share": "+0.425",
+    "excess_median": "+0.025"
+   },
+   {
+    "taxa": "absent, congener of a held-out species",
+    "rows": 34844,
+    "conserved_fast_record_ratio": "+0.157",
+    "conserved_fast_kept_ratio": "-0.218",
+    "conserved_fast_depth_ratio": "+0.000",
+    "conserved_hit_share": "+0.439",
+    "excess_median": "+0.069"
+   }
+  ]
+ },
+ "global_knob": {
+  "knob": null,
+  "best": 0.56,
+  "gain": 0.0004736767940102249,
+  "F1_at_knob": 0.9600507739501428,
+  "F1_best": 0.960524450744153,
+  "rows": [
+   {
+    "knob": "--knob 0.5",
+    "F1 (weighted)": 0.9600507739501428,
+    "F1 design rows": 0.9752348420153715,
+    "F1 scenario rows": 0.9550503866885399,
+    "FP": 1232,
+    "FN": 1034
+   },
+   {
+    "knob": "best 0.56",
+    "F1 (weighted)": 0.960524450744153,
+    "F1 design rows": 0.9753870300349575,
+    "F1 scenario rows": 0.9556137001155034,
+    "FP": 1072,
+    "FN": 1156
+   }
+  ]
+ },
+ "depth_knobs": {
+  "curve": [],
+  "points": [],
+  "skipped": "the sample's depth is a feature",
+  "global_knob": null
+ },
+ "test": {
+  "this one": {
+   "taxa": 3478,
+   "present": 1701,
+   "AUC": 0.9949531491456084,
+   "AP": 0.9952748005065486,
+   "log_loss": 0.08102290137539819,
+   "brier": 0.019783013148581705,
+   "sensitivity": 0.974132863021752,
+   "precision": 0.9735605170387779,
+   "F1": 0.9738466059359389,
+   "FP": 45,
+   "FN": 44,
+   "FP_per_sample": 1.0714285714285714,
+   "sensitivity_Archaea": 0.9811320754716981,
+   "sensitivity_Bacteria": 0.9736677115987461
+  },
+  "collection model": {
+   "taxa": 3478,
+   "present": 1701,
+   "AUC": 0.5,
+   "AP": 0.4890741805635423,
+   "log_loss": 6.7568100161294185,
+   "brier": 0.4890741805635423,
+   "sensitivity": 0.0,
+   "precision": null,
+   "F1": 0.0,
+   "FP": 0,
+   "FN": 1701,
+   "FP_per_sample": 0.0,
+   "sensitivity_Archaea": 0.0,
+   "sensitivity_Bacteria": 0.0
+  }
+ },
+ "test_by_depth": [
+  {
+   "depth": 150000,
+   "samples": 8,
+   "present": 20,
+   "FN": 0,
+   "FN rate": 0.0,
+   "absent": 1,
+   "FP": 0,
+   "FP rate": 0.0
+  },
+  {
+   "depth": 1000000,
+   "samples": 8,
+   "present": 57,
+   "FN": 3,
+   "FN rate": 5.2631578947368425,
+   "absent": 21,
+   "FP": 1,
+   "FP rate": 4.761904761904762
+  },
+  {
+   "depth": 5000000,
+   "samples": 8,
+   "present": 200,
+   "FN": 8,
+   "FN rate": 4.0,
+   "absent": 61,
+   "FP": 1,
+   "FP rate": 1.639344262295082
+  },
+  {
+   "depth": 25000000,
+   "samples": 8,
+   "present": 593,
+   "FN": 18,
+   "FN rate": 3.0354131534569984,
+   "absent": 239,
+   "FP": 8,
+   "FP rate": 3.3472803347280333
+  },
+  {
+   "depth": 250000000,
+   "samples": 8,
+   "present": 651,
+   "FN": 13,
+   "FN rate": 1.9969278033794162,
+   "absent": 773,
+   "FP": 30,
+   "FP rate": 3.8809831824062098
+  },
+  {
+   "depth": 3000000000,
+   "samples": 2,
+   "present": 180,
+   "FN": 2,
+   "FN rate": 1.1111111111111112,
+   "absent": 682,
+   "FP": 5,
+   "FP rate": 0.7331378299120235
+  }
+ ],
+ "test_best_threshold": {
+  "threshold": 0.4708114405795718,
+  "precision": 0.9719789842381786,
+  "sensitivity": 0.9788359788359788,
+  "F1": 0.9753954305799648
+ },
+ "test_feature_classes": {
+  "present, no congener held out": {
+   "rows": 1471,
+   "conserved_fast_record_ratio": [
+    -2.544330133578339,
+    -0.2661437385186454,
+    0.5587988579520022
+   ],
+   "conserved_fast_kept_ratio": [
+    -2.826431926234923,
+    -0.30234900242364904,
+    0.5181203948514328
+   ],
+   "conserved_fast_depth_ratio": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "conserved_hit_share": [
+    0.07142857142857142,
+    0.3793103448275862,
+    0.5092624356775299
+   ],
+   "excess_median": [
+    -0.0018768320514936931,
+    -5.011872583615684e-10,
+    0.0013687991304323077
+   ]
+  },
+  "present, beside a held-out congener": {
+   "rows": 230,
+   "conserved_fast_record_ratio": [
+    -2.638047719398324,
+    -0.21369210622441162,
+    0.8071646323259004
+   ],
+   "conserved_fast_kept_ratio": [
+    -2.706515955989257,
+    -0.2546495211861497,
+    0.8001601760695538
+   ],
+   "conserved_fast_depth_ratio": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "conserved_hit_share": [
+    0.125,
+    0.4,
+    0.5384615384615384
+   ],
+   "excess_median": [
+    -0.0021827154414495453,
+    -0.0002724248915910721,
+    0.0006549300595470806
+   ]
+  },
+  "absent, congener of a held-out species": {
+   "rows": 1086,
+   "conserved_fast_record_ratio": [
+    -2.043402892097752,
+    0.38567177531391234,
+    3.3968468007875234
+   ],
+   "conserved_fast_kept_ratio": [
+    -3.274181313984806,
+    0.12743682669694592,
+    3.5725901333635255
+   ],
+   "conserved_fast_depth_ratio": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "conserved_hit_share": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "excess_median": [
+    0.04122433299198747,
+    0.0746762603521347,
+    0.10552049241960049
+   ]
+  },
+  "absent, other": {
+   "rows": 691,
+   "conserved_fast_record_ratio": [
+    -2.9720227851097247,
+    -0.04275607405397999,
+    3.8666981685168396
+   ],
+   "conserved_fast_kept_ratio": [
+    -3.205022504840536,
+    -0.8105921679837503,
+    3.71564650641994
+   ],
+   "conserved_fast_depth_ratio": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "conserved_hit_share": [
+    0.0,
+    0.3333333333333333,
+    1.0
+   ],
+   "excess_median": [
+    0.03783743929670891,
+    0.07697176188230515,
+    0.11434656009078026
+   ]
+  }
+ },
+ "test_strains": {
+  "by_fragments": [
+   {
+    "simulated from": "the representative",
+    "fragments": "1-10",
+    "present": 229,
+    "missed": 3,
+    "FN rate": 1.3100436681222707
+   },
+   {
+    "simulated from": "the representative",
+    "fragments": "11-100",
+    "present": 120,
+    "missed": 1,
+    "FN rate": 0.8333333333333334
+   },
+   {
+    "simulated from": "the representative",
+    "fragments": ">100",
+    "present": 47,
+    "missed": 0,
+    "FN rate": 0.0
+   },
+   {
+    "simulated from": "the representative",
+    "fragments": "all",
+    "present": 396,
+    "missed": 4,
+    "FN rate": 1.0101010101010102
+   },
+   {
+    "simulated from": "another genome",
+    "fragments": "1-10",
+    "present": 739,
+    "missed": 31,
+    "FN rate": 4.194857916102841
+   },
+   {
+    "simulated from": "another genome",
+    "fragments": "11-100",
+    "present": 413,
+    "missed": 7,
+    "FN rate": 1.694915254237288
+   },
+   {
+    "simulated from": "another genome",
+    "fragments": ">100",
+    "present": 153,
+    "missed": 2,
+    "FN rate": 1.3071895424836601
+   },
+   {
+    "simulated from": "another genome",
+    "fragments": "all",
+    "present": 1305,
+    "missed": 40,
+    "FN rate": 3.0651340996168583
+   },
+   {
+    "simulated from": "another genome, real",
+    "fragments": "1-10",
+    "present": 180,
+    "missed": 13,
+    "FN rate": 7.222222222222222
+   },
+   {
+    "simulated from": "another genome, real",
+    "fragments": "11-100",
+    "present": 103,
+    "missed": 3,
+    "FN rate": 2.912621359223301
+   },
+   {
+    "simulated from": "another genome, real",
+    "fragments": ">100",
+    "present": 42,
+    "missed": 2,
+    "FN rate": 4.761904761904762
+   },
+   {
+    "simulated from": "another genome, real",
+    "fragments": "all",
+    "present": 325,
+    "missed": 18,
+    "FN rate": 5.538461538461538
+   },
+   {
+    "simulated from": "another genome, in silico",
+    "fragments": "1-10",
+    "present": 559,
+    "missed": 18,
+    "FN rate": 3.2200357781753133
+   },
+   {
+    "simulated from": "another genome, in silico",
+    "fragments": "11-100",
+    "present": 310,
+    "missed": 4,
+    "FN rate": 1.2903225806451613
+   },
+   {
+    "simulated from": "another genome, in silico",
+    "fragments": ">100",
+    "present": 111,
+    "missed": 0,
+    "FN rate": 0.0
+   },
+   {
+    "simulated from": "another genome, in silico",
+    "fragments": "all",
+    "present": 980,
+    "missed": 22,
+    "FN rate": 2.2448979591836733
+   }
+  ],
+  "identity_found": [
+   0.9257,
+   0.9611,
+   0.9704
+  ],
+  "identity_missed": [
+   0.8792,
+   0.9151,
+   0.9353
+  ],
+  "features": [
+   {
+    "taxa": "strains found",
+    "rows": 1265,
+    "conserved_fast_record_ratio": "-0.231",
+    "conserved_fast_kept_ratio": "-0.271",
+    "conserved_fast_depth_ratio": "+0.000",
+    "conserved_hit_share": "+0.389",
+    "excess_median": "-0.000"
+   },
+   {
+    "taxa": "strains missed",
+    "rows": 40,
+    "conserved_fast_record_ratio": "-1.299",
+    "conserved_fast_kept_ratio": "-1.593",
+    "conserved_fast_depth_ratio": "+0.000",
+    "conserved_hit_share": "+0.250",
+    "excess_median": "+0.024"
+   },
+   {
+    "taxa": "strains missed, > 10 fragments",
+    "rows": 9,
+    "conserved_fast_record_ratio": "-0.223",
+    "conserved_fast_kept_ratio": "-0.329",
+    "conserved_fast_depth_ratio": "+0.000",
+    "conserved_hit_share": "+0.300",
+    "excess_median": "+0.024"
+   },
+   {
+    "taxa": "absent, congener of a held-out species",
+    "rows": 1086,
+    "conserved_fast_record_ratio": "+0.386",
+    "conserved_fast_kept_ratio": "+0.127",
+    "conserved_fast_depth_ratio": "+0.000",
+    "conserved_hit_share": "+0.500",
+    "excess_median": "+0.075"
+   }
+  ]
+ },
+ "test_by_rank": {
+  "false_positives_by_rank_held_out": [
+   {
+    "held out at": "species",
+    "simulated": 1964,
+    "taxa": 1320,
+    "FP": 34,
+    "FP rate": 2.5757575757575757,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0,
+    "FP per 100 simulated": 1.7311608961303462
+   },
+   {
+    "held out at": "genus",
+    "simulated": 59,
+    "taxa": 37,
+    "FP": 0,
+    "FP rate": 0.0,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0,
+    "FP per 100 simulated": 0.0
+   },
+   {
+    "held out at": "family",
+    "simulated": 53,
+    "taxa": 6,
+    "FP": 0,
+    "FP rate": 0.0,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0,
+    "FP per 100 simulated": 0.0
+   },
+   {
+    "held out at": "order",
+    "simulated": 72,
+    "taxa": 7,
+    "FP": 1,
+    "FP rate": 14.285714285714286,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0,
+    "FP per 100 simulated": 1.3888888888888888
+   },
+   {
+    "held out at": "class",
+    "simulated": 42,
+    "taxa": 0,
+    "FP": 0,
+    "FP rate": null,
+    "FP_collection": 0,
+    "FP rate_collection": null,
+    "FP per 100 simulated": 0.0
+   },
+   {
+    "held out at": "phylum",
+    "simulated": 66,
+    "taxa": 2,
+    "FP": 0,
+    "FP rate": 0.0,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0,
+    "FP per 100 simulated": 0.0
+   },
+   {
+    "held out at": "other absent taxa",
+    "simulated": null,
+    "taxa": 405,
+    "FP": 10,
+    "FP rate": 2.4691358024691357,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   }
+  ],
+  "false_positives_by_shared_rank": [
+   {
+    "shared rank": "genus",
+    "taxa": 1086,
+    "FP": 26,
+    "FP rate": 2.394106813996317,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   },
+   {
+    "shared rank": "family",
+    "taxa": 226,
+    "FP": 5,
+    "FP rate": 2.2123893805309733,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   },
+   {
+    "shared rank": "order",
+    "taxa": 22,
+    "FP": 2,
+    "FP rate": 9.090909090909092,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   },
+   {
+    "shared rank": "class",
+    "taxa": 24,
+    "FP": 1,
+    "FP rate": 4.166666666666667,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   },
+   {
+    "shared rank": "phylum",
+    "taxa": 4,
+    "FP": 0,
+    "FP rate": 0.0,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   },
+   {
+    "shared rank": "domain",
+    "taxa": 10,
+    "FP": 1,
+    "FP rate": 10.0,
+    "FP_collection": 0,
+    "FP rate_collection": 0.0
+   }
+  ],
+  "false_negatives_by_neighbour_rank": [
+   {
+    "closest other species shares": "genus",
+    "taxa": 546,
+    "FN": 23,
+    "FN rate": 4.212454212454213,
+    "FN_collection": 546,
+    "FN rate_collection": 100.0
+   },
+   {
+    "closest other species shares": "family",
+    "taxa": 353,
+    "FN": 7,
+    "FN rate": 1.9830028328611897,
+    "FN_collection": 353,
+    "FN rate_collection": 100.0
+   },
+   {
+    "closest other species shares": "order",
+    "taxa": 304,
+    "FN": 6,
+    "FN rate": 1.9736842105263157,
+    "FN_collection": 304,
+    "FN rate_collection": 100.0
+   },
+   {
+    "closest other species shares": "class",
+    "taxa": 240,
+    "FN": 6,
+    "FN rate": 2.5,
+    "FN_collection": 240,
+    "FN rate_collection": 100.0
+   },
+   {
+    "closest other species shares": "phylum",
+    "taxa": 151,
+    "FN": 2,
+    "FN rate": 1.3245033112582782,
+    "FN_collection": 151,
+    "FN rate_collection": 100.0
+   },
+   {
+    "closest other species shares": "domain",
+    "taxa": 107,
+    "FN": 0,
+    "FN rate": 0.0,
+    "FN_collection": 107,
+    "FN rate_collection": 100.0
+   }
+  ]
+ },
+ "scenarios": [
+  {
+   "scenario": "(design)",
+   "set": "training, species held out",
+   "samples": 185,
+   "present": 7014,
+   "absent": 6781,
+   "TP": 6852,
+   "FP": 186,
+   "FN": 162,
+   "sensitivity": 0.9769033361847733,
+   "precision": 0.9735720375106565,
+   "F1": 0.9752348420153715,
+   "FP rate %": 2.7429582657425158,
+   "FN rate %": 2.309666381522669,
+   "FP/sample": 1.0054054054054054,
+   "FP near novel": 137,
+   "best F1": 0.9756862745098039,
+   "at": 0.5473391394964494
+  },
+  {
+   "scenario": "gut",
+   "set": "hold-in, in sample",
+   "samples": 3,
+   "present": 1113,
+   "absent": 1627,
+   "TP": 1109,
+   "FP": 22,
+   "FN": 4,
+   "sensitivity": 0.9964061096136568,
+   "precision": 0.9805481874447391,
+   "F1": 0.9884135472370766,
+   "FP rate %": 1.352181929932391,
+   "FN rate %": 0.35938903863432164,
+   "FP/sample": 7.333333333333333,
+   "FP near novel": 6,
+   "best F1": 0.9946091644204852,
+   "at": 0.6054872066016824
+  },
+  {
+   "scenario": "gut",
+   "set": "hold-in, samples held out",
+   "samples": 3,
+   "present": 1113,
+   "absent": 1627,
+   "TP": 1105,
+   "FP": 31,
+   "FN": 8,
+   "sensitivity": 0.9928122192273136,
+   "precision": 0.9727112676056338,
+   "F1": 0.9826589595375722,
+   "FP rate %": 1.9053472649047327,
+   "FN rate %": 0.7187780772686433,
+   "FP/sample": 10.333333333333334,
+   "FP near novel": 10,
+   "best F1": 0.9852744310575636,
+   "at": 0.5487619975507463
+  },
+  {
+   "scenario": "gut",
+   "set": "hold-in, species held out",
+   "samples": 3,
+   "present": 1113,
+   "absent": 1627,
+   "TP": 1105,
+   "FP": 24,
+   "FN": 8,
+   "sensitivity": 0.9928122192273136,
+   "precision": 0.978742249778565,
+   "F1": 0.9857270294380018,
+   "FP rate %": 1.4751075599262446,
+   "FN rate %": 0.7187780772686433,
+   "FP/sample": 8.0,
+   "FP near novel": 8,
+   "best F1": 0.9909665763324299,
+   "at": 0.7077980556288367
+  },
+  {
+   "scenario": "gut",
+   "set": "hold-out",
+   "samples": 2,
+   "present": 756,
+   "absent": 1188,
+   "TP": 750,
+   "FP": 20,
+   "FN": 6,
+   "sensitivity": 0.9920634920634921,
+   "precision": 0.974025974025974,
+   "F1": 0.9829619921363041,
+   "FP rate %": 1.6835016835016836,
+   "FN rate %": 0.7936507936507936,
+   "FP/sample": 10.0,
+   "FP near novel": 6,
+   "best F1": 0.9881266490765173,
+   "at": 0.6361128404267805
+  },
+  {
+   "scenario": "host",
+   "set": "hold-in, in sample",
+   "samples": 3,
+   "present": 90,
+   "absent": 94,
+   "TP": 90,
+   "FP": 3,
+   "FN": 0,
+   "sensitivity": 1.0,
+   "precision": 0.967741935483871,
+   "F1": 0.9836065573770492,
+   "FP rate %": 3.1914893617021276,
+   "FN rate %": 0.0,
+   "FP/sample": 1.0,
+   "FP near novel": 1,
+   "best F1": 0.989010989010989,
+   "at": 0.8623029495572494
+  },
+  {
+   "scenario": "host",
+   "set": "hold-in, samples held out",
+   "samples": 3,
+   "present": 90,
+   "absent": 94,
+   "TP": 90,
+   "FP": 2,
+   "FN": 0,
+   "sensitivity": 1.0,
+   "precision": 0.9782608695652174,
+   "F1": 0.989010989010989,
+   "FP rate %": 2.127659574468085,
+   "FN rate %": 0.0,
+   "FP/sample": 0.6666666666666666,
+   "FP near novel": 0,
+   "best F1": 0.989010989010989,
+   "at": 0.8862957377317917
+  },
+  {
+   "scenario": "host",
+   "set": "hold-in, species held out",
+   "samples": 3,
+   "present": 90,
+   "absent": 94,
+   "TP": 90,
+   "FP": 3,
+   "FN": 0,
+   "sensitivity": 1.0,
+   "precision": 0.967741935483871,
+   "F1": 0.9836065573770492,
+   "FP rate %": 3.1914893617021276,
+   "FN rate %": 0.0,
+   "FP/sample": 1.0,
+   "FP near novel": 1,
+   "best F1": 0.989010989010989,
+   "at": 0.8747264025900516
+  },
+  {
+   "scenario": "host",
+   "set": "hold-out",
+   "samples": 2,
+   "present": 42,
+   "absent": 109,
+   "TP": 41,
+   "FP": 3,
+   "FN": 1,
+   "sensitivity": 0.9761904761904762,
+   "precision": 0.9318181818181818,
+   "F1": 0.9534883720930233,
+   "FP rate %": 2.7522935779816513,
+   "FN rate %": 2.380952380952381,
+   "FP/sample": 1.5,
+   "FP near novel": 2,
+   "best F1": 0.9761904761904762,
+   "at": 0.9639653197391113
+  },
+  {
+   "scenario": "soil",
+   "set": "hold-in, in sample",
+   "samples": 3,
+   "present": 11305,
+   "absent": 22184,
+   "TP": 10977,
+   "FP": 499,
+   "FN": 328,
+   "sensitivity": 0.9709862892525432,
+   "precision": 0.9565179505054026,
+   "F1": 0.9636978183574031,
+   "FP rate %": 2.249368914532997,
+   "FN rate %": 2.9013710747456876,
+   "FP/sample": 166.33333333333334,
+   "FP near novel": 478,
+   "best F1": 0.9645559538032655,
+   "at": 0.5914908511984861
+  },
+  {
+   "scenario": "soil",
+   "set": "hold-in, samples held out",
+   "samples": 3,
+   "present": 11305,
+   "absent": 22184,
+   "TP": 10893,
+   "FP": 574,
+   "FN": 412,
+   "sensitivity": 0.9635559486952676,
+   "precision": 0.9499433156012906,
+   "F1": 0.956701212014755,
+   "FP rate %": 2.587450414713307,
+   "FN rate %": 3.644405130473242,
+   "FP/sample": 191.33333333333334,
+   "FP near novel": 549,
+   "best F1": 0.9570455045064848,
+   "at": 0.5107416600858738
+  },
+  {
+   "scenario": "soil",
+   "set": "hold-in, species held out",
+   "samples": 3,
+   "present": 11305,
+   "absent": 22184,
+   "TP": 10882,
+   "FP": 579,
+   "FN": 423,
+   "sensitivity": 0.9625829279080053,
+   "precision": 0.9494808480935346,
+   "F1": 0.9559869981551437,
+   "FP rate %": 2.6099891813919944,
+   "FN rate %": 3.741707209199469,
+   "FP/sample": 193.0,
+   "FP near novel": 557,
+   "best F1": 0.9567868504772004,
+   "at": 0.5551692042076463
+  },
+  {
+   "scenario": "soil",
+   "set": "hold-out",
+   "samples": 2,
+   "present": 7254,
+   "absent": 14059,
+   "TP": 6957,
+   "FP": 384,
+   "FN": 297,
+   "sensitivity": 0.9590570719602978,
+   "precision": 0.9476910502656314,
+   "F1": 0.9533401849948613,
+   "FP rate %": 2.7313464684543707,
+   "FN rate %": 4.094292803970223,
+   "FP/sample": 192.0,
+   "FP near novel": 365,
+   "best F1": 0.9547302418521326,
+   "at": 0.5454986956347649
+  },
+  {
+   "scenario": "soil_shallow",
+   "set": "hold-in, in sample",
+   "samples": 3,
+   "present": 8740,
+   "absent": 9824,
+   "TP": 8363,
+   "FP": 399,
+   "FN": 377,
+   "sensitivity": 0.9568649885583524,
+   "precision": 0.9544624514950925,
+   "F1": 0.9556622100331391,
+   "FP rate %": 4.061482084690554,
+   "FN rate %": 4.31350114416476,
+   "FP/sample": 133.0,
+   "FP near novel": 383,
+   "best F1": 0.957055912632956,
+   "at": 0.4531853244543271
+  },
+  {
+   "scenario": "soil_shallow",
+   "set": "hold-in, samples held out",
+   "samples": 3,
+   "present": 8740,
+   "absent": 9824,
+   "TP": 8295,
+   "FP": 433,
+   "FN": 445,
+   "sensitivity": 0.9490846681922197,
+   "precision": 0.9503895508707608,
+   "F1": 0.949736661323563,
+   "FP rate %": 4.40757328990228,
+   "FN rate %": 5.091533180778032,
+   "FP/sample": 144.33333333333334,
+   "FP near novel": 417,
+   "best F1": 0.9505450372920253,
+   "at": 0.5232345819246895
+  },
+  {
+   "scenario": "soil_shallow",
+   "set": "hold-in, species held out",
+   "samples": 3,
+   "present": 8740,
+   "absent": 9824,
+   "TP": 8299,
+   "FP": 440,
+   "FN": 441,
+   "sensitivity": 0.9495423340961099,
+   "precision": 0.9496509898157683,
+   "F1": 0.9495966588477601,
+   "FP rate %": 4.478827361563518,
+   "FN rate %": 5.045766590389016,
+   "FP/sample": 146.66666666666666,
+   "FP near novel": 422,
+   "best F1": 0.9502850627137971,
+   "at": 0.46972354341632255
+  },
+  {
+   "scenario": "soil_shallow",
+   "set": "hold-out",
+   "samples": 2,
+   "present": 5203,
+   "absent": 6152,
+   "TP": 4912,
+   "FP": 228,
+   "FN": 291,
+   "sensitivity": 0.9440707284259081,
+   "precision": 0.9556420233463035,
+   "F1": 0.9498211350671952,
+   "FP rate %": 3.706111833550065,
+   "FN rate %": 5.5929271574091874,
+   "FP/sample": 114.0,
+   "FP near novel": 217,
+   "best F1": 0.9509775594722142,
+   "at": 0.4707287530622536
+  }
+ ],
+ "model": {
+  "bytes": 3420965,
+  "nodes": 16320,
+  "trees": 64,
+  "features": [
+   "fragments",
+   "depth",
+   "hit_gene_fraction",
+   "gene_presence_ratio",
+   "depth_cv",
+   "identity",
+   "top_identity",
+   "low_identity_share",
+   "uniqueness",
+   "lu_per_kb",
+   "lsu_per_kb",
+   "variant_sites_per_kb",
+   "multiallelic_sites_per_kb",
+   "RAF0",
+   "RAF1",
+   "RAF2",
+   "RAF3",
+   "RAF4",
+   "lu_gene_rate",
+   "lsu_gene_rate",
+   "lu_gene_rate2",
+   "lsu_gene_rate2",
+   "lu_gene_rate3",
+   "lsu_gene_rate3",
+   "mean_mapq",
+   "low_mapq_share",
+   "congener_fit_share",
+   "other_genus_fit_share",
+   "excess_median",
+   "excess_high_share",
+   "conserved_fast_depth_ratio",
+   "conserved_hit_share",
+   "conserved_fast_record_ratio",
+   "conserved_fast_kept_ratio",
+   "adjacent_expected_share",
+   "adjacent_unlikely_share",
+   "adjacent_support",
+   "relative_skew",
+   "relative_distance",
+   "relative_spill",
+   "relative_close_share",
+   "sample_log_fragments",
+   "excess_scaled_median",
+   "excess_conserved_fast_ratio",
+   "third_position_share",
+   "mate_lost_share",
+   "fragments_all",
+   "em_fragments",
+   "failed_candidate_rate"
+  ],
+  "pmml_vs_sklearn_max_diff": 0.0,
+  "pmml_vs_sklearn_call_differences": 0
+ },
+ "timing_seconds": {
+  "load": 3.0696585178375244,
+  "fit": 2.464954137802124,
+  "evaluation": 25.202495574951172,
+  "depth_knobs": 0.04938387870788574,
+  "test": 0.09431123733520508,
+  "scenarios": 0.5756728649139404,
+  "export": 0.1558091640472412,
+  "total": 35.34197425842285
+ },
+ "warnings": [
+  "scenario host: its hold-out samples score F1 0.953 against 0.984 on its training samples with species held out: too few training samples of it, or they differ"
+ ]
+}

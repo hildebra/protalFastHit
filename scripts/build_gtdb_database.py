@@ -732,6 +732,7 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
              ("classifier_call_mode", args.call_mode),
              ("classifier_scenarios", (", ".join(f"{name} {n_in} hold-in (training) and {n_out} hold-out (test) samples"
                                                  for name, (n_in, n_out) in args.scenario_samples_of.items())
+                                       + f"; their rows weighted {args.scenario_weight:g}"
                                        + (f"; definitions {args.scenario_file}" if args.scenario_file else "")
                                        + (f"; host genome {args.host_genome}" if args.host_genome else "")
                                        + "".join(f"; {note}" for note in getattr(args, "scenario_notes", [])))
@@ -758,12 +759,19 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
         rows.append((f"model_{t}", f"species held out F1 {species_cv.get('F1')}, FP per sample "
                                    f"{species_cv.get('FP_per_sample')}; independent test F1 {test.get('F1')}, FP per "
                                    f"sample {test.get('FP_per_sample')}"))
-        curve = metrics.get("depth_knobs", {}).get("curve")
-        if curve:
+        knobs = metrics.get("depth_knobs", {})
+        curve = knobs.get("curve")
+        if knobs.get("global_knob") is not None:  # one knob for every sample (a curve of one point)
+            chosen = metrics.get("global_knob", {})
+            rows.append((f"model_{t}_depth_knobs", f"none: {knobs.get('skipped')}; knob {knobs['global_knob']:g} for every "
+                                                   f"sample, F1 {chosen.get('gain', 0):.4f} above 0.5 with species held out; "
+                                                   f"independent test F1 at it {metrics.get('test_depth_knobs', {}).get('F1')}"))
+        elif curve:
             rows.append((f"model_{t}_depth_knobs", "log10 fragments:knob " + ",".join(f"{x:.3f}:{k:g}" for x, k in curve) +
                          f"; independent test F1 at them {metrics.get('test_depth_knobs', {}).get('F1')}"))
-        elif metrics.get("depth_knobs", {}).get("skipped"):
-            rows.append((f"model_{t}_depth_knobs", "none: " + metrics["depth_knobs"]["skipped"] + " (protal calls at --knob)"))
+        elif knobs.get("skipped"):
+            rows.append((f"model_{t}_depth_knobs", "none: " + knobs["skipped"] + " (protal calls at --knob: no knob gained "
+                                                   "0.002 with species held out)"))
         false_calls = metrics.get("false_calls")
         if false_calls:
             rows.append((f"model_{t}_false_calls", f"target {false_calls['fdr']} per sample; species held out F1 "
@@ -773,8 +781,8 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
 
 
 def model_scores(read_types, prefixes):
-    """Each model's F1 at knob 0.5 with species held out in training and on the independent test set, from its
-    .metrics.json, in a few words."""
+    """Each model's F1 at knob 0.5 with species held out in training and on the independent test set as protal calls
+    (at the model's own knob or curve, if it has one), from its .metrics.json, in a few words."""
     scores, with_test = [], False
     for t in read_types:
         try:
@@ -784,10 +792,12 @@ def model_scores(read_types, prefixes):
             scores.append(f"{t} -")
             continue
         cv = metrics.get("evaluation", {}).get("species", {}).get("F1")
-        test = metrics.get("test", {}).get("this one", {}).get("F1")
+        called = metrics.get("test_depth_knobs")
+        test = (called or metrics.get("test", {}).get("this one", {})).get("F1")
         with_test |= test is not None
-        scores.append(f"{t} " + ("-" if cv is None else f"{cv:.3f}") + ("" if test is None else f"/{test:.3f}"))
-    return f"F1 with species held out{'/on the test set' if with_test else ''}: {', '.join(scores)}"
+        scores.append(f"{t} " + ("-" if cv is None else f"{cv:.3f}") + ("" if test is None else f"/{test:.3f}") +
+                      (f" ({called['knob']})" if called and called.get("knob") else ""))
+    return f"F1 with species held out (knob 0.5){'/on the test set (as protal calls)' if with_test else ''}: {', '.join(scores)}"
 
 
 def feature_choices(read_types, prefixes):
@@ -831,13 +841,13 @@ def summary_lines(read_types, prefixes, db):
     """model_logs/summary.txt: for each read type's model, TP, FP, TN, FN and the rates, with species held
     out in training (cross-validation), on the independent test set and, with --scenarios, on each scenario's
     hold-out and hold-in samples, from its .metrics.json."""
-    header = ("read type", "evaluated on", "taxa", "TP", "FP", "TN", "FN", "sensitivity", "specificity",
+    header = ("read type", "evaluated on", "knob", "taxa", "TP", "FP", "TN", "FN", "sensitivity", "specificity",
               "precision", "F1", "FP rate", "FN rate", "FP/sample")
     rows = []
     rate = lambda v: "-" if v is None else f"{v:.4f}"
 
-    def row(t, label, tp, fp, tn, fn, per_sample):
-        return (t, label, str(tp + fp + tn + fn), str(tp), str(fp), str(tn), str(fn),
+    def row(t, label, knob, tp, fp, tn, fn, per_sample):
+        return (t, label, knob, str(tp + fp + tn + fn), str(tp), str(fp), str(tn), str(fn),
                 rate(tp / (tp + fn) if tp + fn else None), rate(tn / (tn + fp) if tn + fp else None),
                 rate(tp / (tp + fp) if tp + fp else None), rate(2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None),
                 rate(fp / (fp + tn) if fp + tn else None), rate(fn / (tp + fn) if tp + fn else None),
@@ -849,23 +859,33 @@ def summary_lines(read_types, prefixes, db):
         except (OSError, ValueError):
             rows.append((t, "no metrics (training failed?)") + ("",) * (len(header) - 2))
             continue
-        for label, m in (("species held out", metrics.get("evaluation", {}).get("species")),
-                         ("independent test set", metrics.get("test", {}).get("this one"))):
-            if m:
-                fp = m["FP"]
-                rows.append(row(t, label, m["present"] - m["FN"], fp, m["taxa"] - m["present"] - fp, m["FN"],
-                                m.get("FP_per_sample")))
-        # The scenarios: their hold-out samples, and their hold-in ones with species held out and in sample.
+        # How protal calls with the model: at its own knob or curve (the trainer's --depth-knobs), else at 0.5.
+        called = metrics.get("test_depth_knobs") or {}
+        label = called.get("knob") or ""
+        own = "curve" if label.startswith("knob curve") else (label.removeprefix("knob ") or "0.5")
+        species = metrics.get("evaluation", {}).get("species")
+        if species:
+            fp = species["FP"]
+            rows.append(row(t, "species held out", "0.5", species["present"] - species["FN"], fp,
+                            species["taxa"] - species["present"] - fp, species["FN"], species.get("FP_per_sample")))
+        test = called if "TP" in called else metrics.get("test", {}).get("this one")
+        if test:
+            fp = test["FP"]
+            rows.append(row(t, "independent test set", own if test is called else "0.5", test["present"] - test["FN"], fp,
+                            test["taxa"] - test["present"] - fp, test["FN"], test.get("FP_per_sample")))
+        # The scenarios: their hold-out samples, and their hold-in ones with species held out and in sample, as protal
+        # calls (the trainer scores them at the model's knob).
         for m in metrics.get("scenarios", []):
             if m["scenario"] != "(design)" and m["set"] in ("hold-out", "hold-in, species held out", "hold-in, in sample"):
-                rows.append(row(t, f"{m['scenario']}: {m['set']}", m["TP"], m["FP"], m["absent"] - m["FP"], m["FN"],
+                rows.append(row(t, f"{m['scenario']}: {m['set']}", own, m["TP"], m["FP"], m["absent"] - m["FP"], m["FN"],
                                 m["FP/sample"]))
     widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))]
     table = ["  ".join(str(v).ljust(w) for v, w in zip(r, widths)).rstrip() for r in [header, *rows]]
     choices = feature_choices(read_types, prefixes)
     if choices:  # --features auto: the set each trainer chose, and why
         table += ["", "Feature sets chosen (--features auto):"] + [f"  {t}: {name}: {why}" for t, name, why in choices]
-    return [f"Presence models of {db}, taxa scored at knob 0.5: TP present and called, FP absent and called, TN "
+    return [f"Presence models of {db}, taxa scored at the knob given (0.5, or the model's own, as protal calls by "
+            "default): TP present and called, FP absent and called, TN "
             "absent and not called, FN present and not called; FP rate FP / (FP + TN), FN rate FN / (TP + FN). "
             "species held out: each taxon scored by forests that did not see its species; independent test set: "
             "samples of another design, scored by the final model; <scenario>: hold-out: the scenario's samples of "
@@ -1251,6 +1271,12 @@ def main():
                         "not trained on)")
     p.add_argument("--scenario-test-samples", type=int, default=2,
                    help="hold-out samples per scenario, in the test set (default 2)")
+    p.add_argument("--scenario-weight", type=float, default=0.25,
+                   help="the sample weight of the scenarios' hold-in rows in the forests, the design's 1 "
+                        "(random_forest_cmdline.py --scenario-weight; default 0.25: at r226 v12 their rows were 52-80%% "
+                        "of the training rows, and at full weight they cost the design's test set 0.002-0.004 of F1, at "
+                        "0.25 half to two thirds less with the soil scenarios' gain kept; "
+                        "docs/claude/2026-10-05-r226-v12-scenarios)")
     p.add_argument("--host-genome",
                    help="FASTA (gzipped or not) of the host genome for scenarios with host reads (default: the human "
                         "genome download_gtdb.py fetched into --inputs)")
@@ -1374,8 +1400,8 @@ def main():
     if args.rank_genes and args.holdout <= 0 and args.holdout_clades.strip().lower() == "none" and not args.holdout_species:
         p.error("--rank-genes ranks from the training database: hold species out")
     # The scenarios (scenarios.py): their names, and what they need beyond the design, checked before anything runs.
-    if args.scenario_samples < 0 or args.scenario_test_samples < 0:
-        p.error("--scenario-samples and --scenario-test-samples cannot be negative")
+    if args.scenario_samples < 0 or args.scenario_test_samples < 0 or args.scenario_weight < 0:
+        p.error("--scenario-samples, --scenario-test-samples and --scenario-weight cannot be negative")
     scenarios_given = args.scenarios is not None  # by default all four, the host scenario only with a host genome
     if not scenarios_given:
         args.scenarios = ",".join(scenarios.PRESETS)
@@ -1990,7 +2016,7 @@ def main():
         command = [sys.executable, TRAINER, "--truth-file", os.path.join(training, TABLES[t]),
                    "--output-prefix", prefixes[t], "--features", args.features, "--ntree", str(args.ntree),
                    "--maxnodes", str(max_leaves(args.maxnodes, t)), "--seed", str(args.seed),
-                   "--threads", str(trainer_threads),
+                   "--threads", str(trainer_threads), "--scenario-weight", str(args.scenario_weight),
                    "--taxonomy", taxonomy, "--evaluation", args.evaluation]
         if args.previous_procedure:
             command += ["--previous-procedure"]

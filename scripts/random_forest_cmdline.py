@@ -49,7 +49,10 @@ read pairs to ~0.9 for 500,000 (absent taxa grow with depth, present ones level 
 depth raised the test sets' F1 by 0.006-0.033 for every read type (docs/claude/2026-10-02-r226-build-
 evaluation); the earlier knobs by whole decade (bins 2-6, other bins at --knob's default), which protal
 still reads, cost PacBio up to 0.016 on the v0.7.1 benchmark (docs/claude/2026-10-01-features-depth-knobs).
-build_gtdb_database.py passes it for every read type.
+build_gtdb_database.py passes it for every read type. With the sample's depth among the features (the default set)
+no curve is fitted, but one knob for every sample (choose_global_knob): the threshold with the highest F1 with species
+held out, if it gains 0.002 over --knob, in the model as a curve of one point (r226 v12: pe 0.70 on both species held
+out and the test set, the other read types near 0.5).
 
 --fdr-calls calibrates the scores instead (an isotonic fit of presence on the scores of species held out) and
 chooses the target share of false calls per sample with the highest F1 on species held out: protal then reports in
@@ -62,8 +65,10 @@ go into the model's header; build_gtdb_database.py passes it unless --call-mode 
 Scenarios (collect_training_data.py --scenarios, meta_scenario): the section "Scenarios" gives F1, false positive and
 false negative rates per scenario as protal calls, on its training samples (hold-in: in sample, and with their samples
 or species held out) and on its samples in --test-file (hold-out), which are kept out of the independent test set's
-section. --features auto chooses the feature set with species held out (choose_feature_set): the forests of each
-candidate set's folds, about what the "Feature sets" study costs per set, which --evaluation full then reuses.
+section. Their rows weigh --scenario-weight (0.25) in every forest: at full weight, most of a GTDB build's rows, they
+shifted the design's calls (docs/claude/2026-10-05-r226-v12-scenarios). --features auto chooses the feature set with
+species held out (choose_feature_set): the forests of each candidate set's folds, about what the "Feature sets" study
+costs per set, which --evaluation full then reuses.
 
 Every call counted here leaves out the taxa protal's singleton rule vetoes (--singleton-congener, protal's
 --singleton_congener): one fragment beside a congener of 100 fragments or more, whose read looks like the congener's
@@ -143,6 +148,14 @@ PRIOR_PSEUDO_COUNT = 20  # candidates at the training rate added to every sample
 SINGLETON_CONGENER = 0
 SINGLETON_OWN_SHARE = 0.5
 SINGLETON_IDENTITY = 0.95
+# --scenario-weight: the sample weight of the scenarios' rows (meta_scenario; the design's weigh 1) in every forest fitted
+# here, times the balanced class weights. They are most of a GTDB build's training rows (r226 v12: 52-80%, nearly all
+# soil's), and at full weight they made the forests call more freely on the design's samples (pe test F1 -0.004, its best
+# threshold 0.65 against 0.43); at 0.25 the soil scenarios' gain stayed within 0.002 and half to two thirds of the cost
+# went (docs/claude/2026-10-05-r226-v12-scenarios). ROW_WEIGHTS: the training table's rows' weights, set in main() (None:
+# every row weighs 1).
+SCENARIO_WEIGHT = 0.25
+ROW_WEIGHTS = None
 # The features the report shows by class of taxon (study_feature_classes): what the conservation of the genes a taxon's
 # reads hit, before and after the MAPQ filter, and the divergence beyond the base qualities say of a relative's reads.
 CLASS_FEATURES = ["conserved_fast_record_ratio", "conserved_fast_kept_ratio", "conserved_fast_depth_ratio",
@@ -180,7 +193,8 @@ def parse_args(argv=None):
     p.add_argument("--knob", type=float, default=0.5, help="the threshold protal will use (its --knob, default 0.5)")
     p.add_argument("--depth-knobs", action="store_true",
                    help="also choose a knob curve over the sample's depth, on species held out, and store it in the "
-                        "model, which protal then applies unless --knob is given (see above)")
+                        "model, which protal then applies unless --knob is given (see above); with the sample's depth "
+                        "a feature, one knob for every sample instead, when it gains 0.002 of F1")
     p.add_argument("--fdr-calls", action="store_true",
                    help="also calibrate the model's scores (an isotonic fit of presence on the scores of species held "
                         "out) and choose the expected share of false calls per sample with the highest F1 on species "
@@ -192,6 +206,9 @@ def parse_args(argv=None):
                    help="the singleton rule protal applies (its --singleton_congener, default 0: no rule): a taxon of one "
                         "fragment beside a congener of at least this many fragments, whose read looks like the "
                         "congener's, is never called; every F1 here counts it so")
+    p.add_argument("--scenario-weight", type=float, default=SCENARIO_WEIGHT,
+                   help=f"the sample weight of the scenarios' rows (meta_scenario) in every forest, the design's 1 "
+                        f"(default {SCENARIO_WEIGHT}; 1: as the design's)")
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
                    help="full: also the studies (see above); basic: out of bag, by sample and by species; "
@@ -290,6 +307,23 @@ def forest_params(opts, **overrides):
     return params
 
 
+def row_weights(rows=None):
+    """The sample weights of the training table's rows (all, or those indexed by `rows`) for a fit: ROW_WEIGHTS, or
+    None when every row weighs 1."""
+    if ROW_WEIGHTS is None:
+        return None
+    return ROW_WEIGHTS if rows is None else ROW_WEIGHTS[rows]
+
+
+def fit_forest(params, X, y, rows=None):
+    """A forest of `params` fitted on the training table's rows `rows` (all by default) of X and y, each with its
+    weight (row_weights), as every forest here is: the final one, those of the held-out estimates, of the feature sets'
+    choice and of the studies."""
+    if rows is None:
+        return RandomForestClassifier(**params).fit(X, y, sample_weight=row_weights())
+    return RandomForestClassifier(**params).fit(X[rows], y[rows], sample_weight=row_weights(rows))
+
+
 def folds(df, y, scheme, opts):
     """(train, test) index pairs; None if the table cannot be split that way."""
     if scheme == "rows":
@@ -314,7 +348,7 @@ def predict_out_of_fold(X, y, splits, params, fit_rows=None, leaves=None):
             train = fit_rows(train)
         if len(np.unique(y[train])) < 2:
             continue
-        rf = RandomForestClassifier(**params).fit(X[train], y[train])
+        rf = fit_forest(params, X, y, train)
         p[test] = rf.predict_proba(X[test])[:, 1]
         if leaves is not None:
             leaves.append(np.mean([e.tree_.n_leaves for e in rf.estimators_]))
@@ -859,6 +893,64 @@ def f1_of(y, call):
     return 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None
 
 
+def knob_label(curve, knob=0.5):
+    """How a model calls, in words: "knob 0.7" for one knob for every sample (a curve of one point), "knob curve
+    (1.300:0.12,...)" for a curve over the depth, "knob 0.5" (--knob) without either."""
+    if not curve:
+        return f"knob {knob:g}"
+    if len(curve) == 1:
+        return f"knob {float(curve[0][1]):g}"
+    return f"knob curve ({format_depth_knob_curve(curve)})"
+
+
+def weighted_f1(y, call, weights=None):
+    """F1 of calls, each row counted by its weight (row_weights: the scenarios' rows by --scenario-weight)."""
+    w = np.ones(len(y)) if weights is None else weights
+    tp, fp, fn = w[call & (y == 1)].sum(), w[call & (y == 0)].sum(), w[~call & (y == 1)].sum()
+    return float(2 * tp / (2 * tp + fp + fn)) if tp + fp + fn else None
+
+
+def choose_global_knob(report, df, y, p, opts):
+    """--depth-knobs with the sample's depth a feature: no curve (the forest knows the depth), but one knob for every
+    sample, the threshold of DEPTH_KNOB_GRID with the highest F1 with species held out (rows weighted as the forest's),
+    kept only if it gains DEPTH_KNOB_MIN_GAIN over --knob, as the depth knobs' points are. At r226 v12 the pe forest's
+    best threshold was 0.698 with species held out and 0.699 on the test set (+0.0046 and +0.0029 of F1 over 0.5); the
+    other read types' sat near 0.5 or disagreed between the two (docs/claude/2026-10-05-r226-v12-scenarios). -> the knob,
+    or None (protal calls at --knob)."""
+    report.section("Knob (species held out)")
+    report.add("No knob curve: the sample's depth is a feature (sample_log_fragments), so the forest's score already "
+               "depends on it, and a curve fitted on top of it corrects twice (on the r226 v5 tables it lost 0.01 of "
+               "test F1; docs/claude/2026-10-03-false-positive-anatomy). One knob for every sample instead, if it gains "
+               f"{DEPTH_KNOB_MIN_GAIN} of F1 with species held out (rows weighted as in the forests).")
+    scores = p.get("species")
+    if scores is None:
+        report.add("no scores with species held out: protal calls at --knob")
+        return None
+    ok = ~np.isnan(scores)
+    scores = call_scores(df, scores)[ok]  # the singleton rule's rows are never called
+    yy = y[ok]
+    weights = row_weights(np.flatnonzero(ok)) if ROW_WEIGHTS is not None else None
+    f1s = [weighted_f1(yy, scores >= t, weights) or 0.0 for t in DEPTH_KNOB_GRID]
+    best = float(DEPTH_KNOB_GRID[int(np.argmax(f1s))])
+    at_knob = weighted_f1(yy, scores >= opts.knob, weights) or 0.0
+    gain = max(f1s) - at_knob
+    knob = best if gain >= DEPTH_KNOB_MIN_GAIN else None
+    design = scenario_of(df)[ok] == ""
+    rows = []
+    for label, t in ((f"--knob {opts.knob}", opts.knob), (f"best {best:.2f}", best)):
+        call = scores >= t
+        rows.append({"knob": label, "F1 (weighted)": weighted_f1(yy, call, weights), "F1 design rows": f1_of(yy[design], call[design]),
+                     "F1 scenario rows": f1_of(yy[~design], call[~design]) if (~design).any() else None,
+                     "FP": int((call & (yy == 0)).sum()), "FN": int((~call & (yy == 1)).sum())})
+    report.table(pd.DataFrame(rows))
+    report.add(f"knob {knob:g} for every sample: {gain:.4f} of F1 above {opts.knob}" if knob is not None else
+               f"protal calls at --knob {opts.knob}: the best threshold, {best:.2f}, gains {gain:.4f}, less than "
+               f"{DEPTH_KNOB_MIN_GAIN}")
+    report.data["global_knob"] = {"knob": knob, "best": best, "gain": gain, "F1_at_knob": at_knob, "F1_best": max(f1s),
+                                  "rows": rows}
+    return knob
+
+
 def study_depth_knobs(report, df, X, y, p, opts):
     """--depth-knobs: a knob curve over the sample's depth (DEPTH_KNOB_STEP and the rest above), on species held out;
     returns [(log10 fragments, knob)]."""
@@ -1074,17 +1166,23 @@ def study_test(report, rf, cols, opts, prefix, depth_knobs=None, false_calls=Non
                 row.update({"FN fdr": int((~pr.fdr_call).sum()), "FP fdr": int(ab.fdr_call.sum())})
             depth_rows.append(row)
         report.add("by depth (read pairs, or bases for long reads); FN/FP at the knob"
-                   + (", at the knob curve" if knob_calls is not None else "")
+                   + (f", at the model's {knob_label(depth_knobs)} (FN curve, FP curve)" if knob_calls is not None else "")
                    + (", at the target share of false calls" if fdr_calls is not None else "") + ":")
         report.table(pd.DataFrame(depth_rows))
         report.data["test_by_depth"] = depth_rows
     default = "as protal calls by default" if not false_calls else "as protal calls with --fdr 0"
     if knob_calls is not None:
         fp, fn = int((knob_calls & (y == 0)).sum()), int((~knob_calls & (y == 1)).sum())
-        report.add(f"at the knob curve ({format_depth_knob_curve(depth_knobs)}), {default}: F1 "
+        report.add(f"at the model's {knob_label(depth_knobs)}, {default}: F1 "
                    f"{fmt(f1_of(y, knob_calls), 4)}, {fp} false positives, {fn} false negatives (at knob {opts.knob}: "
                    f"F1 {fmt(rows[0][1]['F1'], 4)}, {rows[0][1]['FP']} and {rows[0][1]['FN']})")
-        report.data["test_depth_knobs"] = {"F1": f1_of(y, knob_calls), "FP": fp, "FN": fn}
+        tp = int((knob_calls & (y == 1)).sum())
+        report.data["test_depth_knobs"] = {"F1": f1_of(y, knob_calls), "FP": fp, "FN": fn, "TP": tp,
+                                           "taxa": int(len(y)), "present": int(y.sum()),
+                                           "sensitivity": tp / (tp + fn) if tp + fn else None,
+                                           "precision": tp / (tp + fp) if tp + fp else None,
+                                           "FP_per_sample": fp / max(1, test["meta_sample"].nunique() if "meta_sample" in test else 1),
+                                           "knob": knob_label(depth_knobs)}
     if fdr_calls is not None:
         fp, fn = int((fdr_calls & (y == 0)).sum()), int((~fdr_calls & (y == 1)).sum())
         report.add(f"at a target share of false calls of {false_calls['fdr']} per sample (calibrated), as protal calls by "
@@ -1180,7 +1278,7 @@ def choose_feature_set(report, df, y, opts, held_out=()):
         row = {"features": name, "n": len(cols), "F1": m["F1"], "AP": m["AP"], "log_loss": m["log_loss"],
                "sensitivity": m["sensitivity"], "precision": m["precision"], "FP": m["FP"], "FN": m["FN"]}
         if held_out:
-            rf = RandomForestClassifier(**forest_params(opts)).fit(X, y)
+            rf = fit_forest(forest_params(opts), X, y)
             for label, table in held_out:
                 ty = table["truth"].to_numpy()
                 tp = rf.predict_proba(table[cols].to_numpy(dtype=np.float64))[:, 1]
@@ -1267,7 +1365,7 @@ def study_scenarios(report, df, y, p, fitted, opts, held_out=None, held_out_p=No
     if not scenarios:
         return
     report.section("Scenarios: hold-in and hold-out samples")
-    report.add(f"At knob {opts.knob}" + (" (the knob curve)" if depth_knobs else "") + ", as protal calls by default. "
+    report.add(f"At the model's {knob_label(depth_knobs, opts.knob)}, as protal calls by default. "
                "hold-in: the scenario's training samples, scored by the final forest (in sample: fitted on them), by "
                "forests that did not see their sample (samples held out) or their species (species held out); hold-out: "
                "the scenario's samples of the test set, which no forest saw. FP rate: of the absent taxa, those called; "
@@ -1333,7 +1431,8 @@ def study_old_procedure(report, df, y, opts, cols, p_new):
         grid = GridSearchCV(RandomForestClassifier(**forest_params(opts, n_estimators=128, n_jobs=1,
                                                                    class_weight="balanced_subsample")),
                             {"max_features": candidates}, cv=folds_n, n_jobs=opts.threads)
-        return grid.fit(X[sub], y[sub])
+        weights = row_weights(sub)
+        return grid.fit(X[sub], y[sub]) if weights is None else grid.fit(X[sub], y[sub], sample_weight=weights)
 
     # Every second value, then the neighbours of the best.
     values = sorted(set(range(start, end + 1, 2)) | {end})
@@ -1357,7 +1456,7 @@ def study_old_procedure(report, df, y, opts, cols, p_new):
     test = rng.choice(len(df), size=len(df) // 5, replace=False)
     train = np.setdiff1d(np.arange(len(df)), test)
     t0 = time.time()
-    rf = RandomForestClassifier(**old).fit(Xt[train], y[train])
+    rf = fit_forest(old, Xt, y, train)
     fit_s = time.time() - t0
     p_own = np.full(len(df), np.nan)
     p_own[test] = rf.predict_proba(Xt[test])[:, 1]
@@ -1405,7 +1504,7 @@ def study_capacity(report, df, X, y, opts):
     ks = [k for k in (8, 16, 32, 64, 128, 256)]
     sums = {k: np.full(len(y), np.nan) for k in ks}
     for train, test in splits:
-        rf = RandomForestClassifier(**forest_params(opts, n_estimators=max(ks))).fit(X[train], y[train])
+        rf = fit_forest(forest_params(opts, n_estimators=max(ks)), X, y, train)
         total = np.zeros(len(test))
         for i, tree in enumerate(rf.estimators_, 1):
             total += tree.predict_proba(X[test])[:, 1]
@@ -1441,7 +1540,7 @@ def study_learning_curve(report, df, X, y, opts):
 # ---- main -------------------------------------------------------------------------------------------------
 
 def main(argv=None):
-    global SINGLETON_CONGENER
+    global SINGLETON_CONGENER, ROW_WEIGHTS
     opts = parse_args(argv)
     SINGLETON_CONGENER = opts.singleton_congener
     prefix = opts.output_prefix
@@ -1462,6 +1561,13 @@ def main(argv=None):
     if df["truth"].nunique() < 2:
         sys.exit("the training table has only present or only absent taxa")
     y = df["truth"].to_numpy()
+    if opts.scenario_weight < 0:
+        sys.exit("--scenario-weight cannot be negative")
+    in_scenarios = scenario_of(df) != ""
+    ROW_WEIGHTS = None
+    if in_scenarios.any() and opts.scenario_weight != 1:  # every fit weighs the scenarios' rows so (fit_forest)
+        ROW_WEIGHTS = np.where(in_scenarios, opts.scenario_weight, 1.0)
+    report.data["scenario_weight"] = {"weight": opts.scenario_weight, "rows": int(in_scenarios.sum())}
     # The test table: the design's rows are the independent test set, a scenario's rows its hold-out samples.
     test_design = test_scenarios = None
     if opts.test_file:
@@ -1491,6 +1597,9 @@ def main(argv=None):
     check_features(df, cols)
     X = df[cols].to_numpy(dtype=np.float64)
     report.add(f"{len(cols)} features ({source}): {', '.join(cols)}")
+    if in_scenarios.any():
+        report.add(f"the scenarios' {int(in_scenarios.sum())} of {len(df)} rows weigh {opts.scenario_weight:g} in every "
+                   "forest, the design's 1 (--scenario-weight)")
     veto = vetoed(df)
     if SINGLETON_CONGENER > 0 and ("genus_top_fragments" not in df.columns or "em_own_share" not in df.columns):
         report.add("singleton rule: the table has no genus_top_fragments or em_own_share (a dump of an older protal), so "
@@ -1503,7 +1612,7 @@ def main(argv=None):
     warnings = study_data(report, df, y, cols) if opts.evaluation != "none" else []
 
     t0 = time.time()
-    rf = RandomForestClassifier(oob_score=opts.evaluation != "none", **forest_params(opts)).fit(X, y)
+    rf = fit_forest(forest_params(opts, oob_score=opts.evaluation != "none"), X, y)
     timing["fit"] = time.time() - t0
     nodes = sum(e.tree_.node_count for e in rf.estimators_)
     report.add("")
@@ -1550,11 +1659,17 @@ def main(argv=None):
         timing[name] = time.time() - t0
     depth_knobs = []
     if opts.depth_knobs and has_sample_depth(cols):
-        report.section("Knobs by sample depth (species held out)")
-        report.add("No knob curve: the sample's depth is a feature (sample_log_fragments), so the forest's score already "
-                   "depends on it, and a curve fitted on top of it corrects twice (on the r226 v5 tables it lost 0.01 of "
-                   "test F1; docs/claude/2026-10-03-false-positive-anatomy). protal calls at --knob.")
-        report.data["depth_knobs"] = {"curve": [], "points": [], "skipped": "the sample's depth is a feature"}
+        # One knob for every sample, if it pays (choose_global_knob): in the model as a curve of one point, which protal
+        # reads as that knob at every depth (profiler::DepthKnobAt).
+        t0 = time.time()
+        knob = choose_global_knob(report, df, y, p, opts) if p else None
+        if knob is not None:
+            depth = float(np.median(sample_depths(df)))
+            depth_knobs = [(round(min(12.0, max(0.0, depth)), 3), knob)]
+        report.data["depth_knobs"] = {"curve": [[x, k] for x, k in depth_knobs], "points": [],
+                                      "skipped": "the sample's depth is a feature",
+                                      "global_knob": knob}
+        timing["depth_knobs"] = time.time() - t0
     elif opts.depth_knobs:
         t0 = time.time()
         depth_knobs = study_depth_knobs(report, df, X, y, p, opts)
@@ -1599,8 +1714,13 @@ def main(argv=None):
     species = report.data.get("evaluation", {}).get("species")
     if species:
         notes.append(f"species held out: AP {fmt(species['AP'])}, F1 {fmt(species['F1'])} at knob {opts.knob}")
-    if depth_knobs:
+    if len(depth_knobs) == 1:
+        notes.append(f"knob {depth_knobs[0][1]:g} for every sample, chosen with species held out (a knob curve of one "
+                     f"point: {format_depth_knob_curve(depth_knobs)})")
+    elif depth_knobs:
         notes.append(f"knob curve by sample depth (log10 fragments: knob): {format_depth_knob_curve(depth_knobs)}")
+    if ROW_WEIGHTS is not None:
+        notes.append(f"the scenarios' rows weighted {opts.scenario_weight:g} (--scenario-weight)")
     if false_calls:
         notes.append(f"calls at a target share of false calls of {false_calls['fdr']} per sample, calibrated on species "
                      f"held out (prior {false_calls['prior']:.4f})")
@@ -1692,7 +1812,8 @@ def main(argv=None):
         report.add(f"independent test set: F1 {fmt(test['F1'])}, sensitivity {fmt(test['sensitivity'])}, precision "
                    f"{fmt(test['precision'])}, {fmt(test.get('FP_per_sample'), 2)} false positives per sample at knob "
                    f"{opts.knob}; highest F1 at threshold {report.data['test_best_threshold']['threshold']:.3f}")
-        for key, label in (("test_depth_knobs", "at the knob curve"), ("test_false_calls", "at the target share of false calls")):
+        for key, label in (("test_depth_knobs", f"at the model's {report.data.get('test_depth_knobs', {}).get('knob', 'knob')}"),
+                           ("test_false_calls", "at the target share of false calls")):
             if key in report.data:
                 r = report.data[key]
                 report.add(f"independent test set {label}: F1 {fmt(r['F1'])}, {r['FP']} false positives, {r['FN']} false "

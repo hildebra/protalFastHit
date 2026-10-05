@@ -1,0 +1,307 @@
+# protal presence model: v12_retrain_pb_w1
+2026-10-05T21:40:22  python 3.14.7, scikit-learn 1.9.1, numpy 2.5.3, pandas 3.0.6, 6 CPUs
+command: scripts/random_forest_cmdline.py --truth-file local/v12/training/training_data_pb.tsv --test-file local/v12/test/training_data_pb.tsv --output-prefix /tmp/v12_retrain_pb_w1 --features normalized+adjacency+distance+depth+divergence+unfiltered --ntree 64 --maxnodes 128 --depth-knobs --evaluation basic --threads 6 --scenario-weight 1
+49 features (--features normalized+adjacency+distance+depth+divergence+unfiltered): fragments, depth, hit_gene_fraction, gene_presence_ratio, depth_cv, identity, top_identity, low_identity_share, uniqueness, lu_per_kb, lsu_per_kb, variant_sites_per_kb, multiallelic_sites_per_kb, RAF0, RAF1, RAF2, RAF3, RAF4, lu_gene_rate, lsu_gene_rate, lu_gene_rate2, lsu_gene_rate2, lu_gene_rate3, lsu_gene_rate3, mean_mapq, low_mapq_share, congener_fit_share, other_genus_fit_share, excess_median, excess_high_share, conserved_fast_depth_ratio, conserved_hit_share, conserved_fast_record_ratio, conserved_fast_kept_ratio, adjacent_expected_share, adjacent_unlikely_share, adjacent_support, relative_skew, relative_distance, relative_spill, relative_close_share, sample_log_fragments, excess_scaled_median, excess_conserved_fast_ratio, third_position_share, mate_lost_share, fragments_all, em_fragments, failed_candidate_rate
+the scenarios' 46268 of 57710 rows weigh 1 in every forest, the design's 1 (--scenario-weight)
+
+## Training data
+57710 taxa in 198 samples: 27664 present, 30046 absent (1.1 absent per present); 25662 species (11615 ever present, 15271 ever absent)
+  domain  present  absent  species
+ Archaea     1328     127      597
+Bacteria    26336    3305    11684
+ unknown        0   26614    13381
+ meta_read_pairs  samples  present  absent  median_fragments_present  median_fragments_absent
+          300000       36      106      24                    2.0000                   1.0000
+         1500000       36      463      80                    2.0000                   1.0000
+         6000000       36     1013     275                    3.0000                   1.0000
+        30000000       36     2010     795                    5.0000                   1.0000
+       150000000       36     2809    2187                   19.0000                   2.0000
+      1500000000        7     8621    8273                    4.0000                   2.0000
+      3000000000        3       90      61                  118.0000                   3.0000
+      6000000000        8    12552   18351                   12.0000                   2.0000
+identity quantiles 1/5/25/50%: present 0.9592 0.9791 0.9950 0.9997 | absent 0.9004 0.9035 0.9195 0.9381
+top_identity quantiles 1/5/25/50%: present 0.9746 0.9897 1.0000 1.0000 | absent 0.9004 0.9038 0.9261 0.9530
+
+forest: 64 trees, max 128 leaves, 16320 nodes, fitted in 2.09 s
+
+## How well the model does on data it was not trained on (knob 0.5)
+rows: random rows held out (the samples and species of the held-out rows are in training); samples: whole samples held out; species: whole species held out (as most GTDB species are when profiling real samples); genus, family, order, class, phylum (with --taxonomy): whole clades held out, so the forest saw no taxon of the row's clade (as for taxa of clades the training data barely cover). out of bag: each row scored by the trees not grown on it.
+        held out  taxa  present    AUC     AP  log_loss     F1  sensitivity  precision  FP    FN  FP_per_sample  sens_Archaea  sens_Bacteria
+      out of bag 57710    27664 0.9928 0.9935    0.0957 0.9670       0.9658     0.9683 874   947         4.4141        0.9721         0.9654
+            rows 57710    27664 0.9929 0.9936    0.0955 0.9668       0.9657     0.9679 887   950         4.4798        0.9729         0.9653
+         samples 57710    27664 0.9925 0.9934    0.0965 0.9663       0.9649     0.9677 892   972         4.5051        0.9706         0.9646
+         species 57710    27664 0.9928 0.9935    0.0964 0.9663       0.9646     0.9679 886   978         4.4747        0.9706         0.9643
+collection model 57710    27664 0.5000 0.4794    6.6226 0.0000       0.0000          -   0 27664         0.0000        0.0000         0.0000
+collection model: the model that profiled the training samples (their dumps' probability), e.g. the model shipped with protal.
+
+## Threshold (species held out)
+at knob 0.5: precision 0.9679, sensitivity 0.9646, F1 0.9663
+highest F1 at 0.496: precision 0.9675, sensitivity 0.9653, F1 0.9664
+table: /tmp/v12_retrain_pb_w1.thresholds.tsv
+
+## Where the errors are (species held out; collection model for comparison)
+  domain  meta_read_pairs  present  found  absent  FP  found_collection  FP_collection
+ Archaea           300000        5      5       0   0                 0              0
+ Archaea          1500000       30     28       1   0                 0              0
+ Archaea          6000000       56     52       1   0                 0              0
+ Archaea         30000000      118    116       4   0                 0              0
+ Archaea        150000000      176    173      12   1                 0              0
+ Archaea       1500000000      329    313      29   3                 0              0
+ Archaea       3000000000        2      2       0   0                 0              0
+ Archaea       6000000000      612    600      80   4                 0              0
+Bacteria           300000      101     97       3   0                 0              0
+Bacteria          1500000      433    418       6   1                 0              0
+Bacteria          6000000      957    927      33   1                 0              0
+Bacteria         30000000     1892   1845      86   7                 0              0
+Bacteria        150000000     2633   2596     273   9                 0              0
+Bacteria       1500000000     8292   7891     896  19                 0              0
+Bacteria       3000000000       88     88      10   0                 0              0
+Bacteria       6000000000    11940  11535    1998  51                 0              0
+ unknown           300000        0      0      21   1                 0              0
+ unknown          1500000        0      0      73   8                 0              0
+ unknown          6000000        0      0     241  12                 0              0
+ unknown         30000000        0      0     705  26                 0              0
+ unknown        150000000        0      0    1902  63                 0              0
+ unknown       1500000000        0      0    7348 255                 0              0
+ unknown       3000000000        0      0      51   1                 0              0
+ unknown       6000000000        0      0   16273 424                 0              0
+by the taxon's fragments (read pairs) in the sample:
+fragments  present  found  absent  FP  found_collection  FP_collection
+      <10    15482  14676   25927 729                 0              0
+    10-99     9946   9790    3826 143                 0              0
+  100-999     1960   1946     280  14                 0              0
+   >=1000      276    274      13   0                 0              0
+present, simulated from:
+  present, simulated from  taxa  called  called_collection
+       the representative  9178    9051                  0
+     another genome, real  4584    4157                  0
+another genome, in silico 13902   13478                  0
+absent taxa:
+                              absent taxa  taxa  called  called_collection
+congeners of a species the database lacks 26756     700                  0
+                                   others  3290     186                  0
+absent taxa scored highest:
+                       meta_sample                      taxon_name  domain  fragments  identity  top_identity  hit_gene_fraction  low_identity_share  lsu_per_kb      p
+        sc_soil_pb_b6000000000_s_1        s__C7867-001 sp021817705 unknown          5    0.9995        1.0000             0.0411              0.0000    167.4889 0.9946
+        sc_soil_pb_b6000000000_s_1     s__Parvarchaeum sp023488405 unknown          7    0.9983        1.0000             0.6000              0.0000    151.4143 0.9943
+sc_soil_shallow_pb_b1500000000_s_1     s__Parvarchaeum sp023488405 unknown          8    0.9997        1.0000             0.6000              0.0000    160.9966 0.9943
+                pb_b150000000_s_16       s__SR-FBR-E99 sp025455535 unknown          6    0.9933        1.0000             0.0645              0.0000    150.4572 0.9941
+                pb_b150000000_s_23         s__JAQTNH01 sp028713895 unknown          3    1.0000        1.0000             0.0638              0.0000    167.7813 0.9940
+        sc_soil_pb_b6000000000_s_2     s__Paludibacter sp022708505 unknown          5    0.9951        1.0000             0.0610              0.0000     62.8392 0.9940
+sc_soil_shallow_pb_b1500000000_s_1    s__Sediminimonas sp011389955 unknown          2    1.0000        1.0000             0.0317              0.0000     98.3709 0.9935
+        sc_soil_pb_b6000000000_s_3 s__Sphingorhabdus_B sp021741065 unknown          6    0.9980        1.0000             0.0420              0.0000     81.6571 0.9934
+        sc_soil_pb_b6000000000_s_2         s__RGIG3528 sp017444675 unknown          3    0.9994        1.0000             0.0411              0.0000     82.8893 0.9932
+sc_soil_shallow_pb_b1500000000_s_3     s__Lactobacillus mulieris_A unknown          2    1.0000        1.0000             0.0465              0.0000    129.6296 0.9928
+        sc_soil_pb_b6000000000_s_3         s__UBA11606 sp029247365 unknown          3    0.9998        1.0000             0.0263              0.0000    151.3634 0.9926
+        sc_soil_pb_b6000000000_s_1   s__Ferrimicrobium sp027409005 unknown         47    0.9946        1.0000             0.4242              0.0000    147.0985 0.9913
+present taxa scored lowest:
+                       meta_sample                        taxon_name   domain  fragments  identity  top_identity  hit_gene_fraction  low_identity_share  lsu_per_kb      p
+        sc_soil_pb_b6000000000_s_3    s__SCGC-AG-212-J23 sp035454645 Bacteria          1    0.9194        0.9194             0.0137              0.0000      0.0000 0.0104
+sc_soil_shallow_pb_b1500000000_s_2           s__Bog-1198 sp035307465 Bacteria          1    0.9020        0.9020             0.0097              0.0000      0.0000 0.0107
+        sc_soil_pb_b6000000000_s_3       s__Streptomyces sp001426585 Bacteria          1    0.9461        0.9461             0.0108              0.0000      0.0000 0.0107
+sc_soil_shallow_pb_b1500000000_s_2 s__Methanoprimaticola sp963637895  Archaea          4    0.9327        0.9385             0.0476              0.0000      0.0000 0.0108
+        sc_soil_pb_b6000000000_s_3         s__Limimorpha sp900317155 Bacteria          1    0.9681        0.9681             0.0089              0.0000      0.0000 0.0108
+                 pb_b30000000_s_14           s__JAGZMM01 sp904420015 Bacteria          1    0.9055        0.9055             0.0095              0.0000      2.6247 0.0108
+sc_soil_shallow_pb_b1500000000_s_2            s__Flavivirga algicola Bacteria          1    0.9058        0.9058             0.0084              0.0000      0.0000 0.0109
+        sc_soil_pb_b6000000000_s_1         s__Luteimonas sp041300785 Bacteria          1    0.9318        0.9318             0.0085              0.0000      0.0000 0.0109
+        sc_soil_pb_b6000000000_s_3        s__Streptomyces phyllanthi Bacteria          2    0.9492        0.9659             0.0187              0.0000      0.0000 0.0109
+sc_soil_shallow_pb_b1500000000_s_2       s__Palauibacter sp022826685 Bacteria          2    0.9372        0.9412             0.0196              0.0000      1.5576 0.0109
+sc_soil_shallow_pb_b1500000000_s_1           s__MGIIa-L1 sp018662825  Archaea          1    0.9005        0.9005             0.0244              0.0000      0.0000 0.0109
+        sc_soil_pb_b6000000000_s_1        s__Mycobacterium crassicus Bacteria          2    0.8952        0.8952             0.0085              0.0000      2.0964 0.0110
+
+## False positives and false negatives by taxonomic rank
+Rates in % at the knob, scored with species held out (and by the collection model, _collection). FP rate: of the absent taxa, those called; FN rate: of the present taxa, those not called.
+
+False positives from what the training database lacks (build_gtdb_database.py --holdout, --holdout-clades): absent taxa whose closest species in the sample is one the database lacks, by the rank it was held out at (its reads are the likely source of the taxon's); simulated: such species in the samples. Other absent taxa: closest to a species the database has.
+      held out at simulated  taxa  FP  FP rate  FP_collection  FP rate_collection  FP per 100 simulated
+          species     40637 27456 812   2.9575              0              0.0000                1.9982
+            genus       604    90   1   1.1111              0              0.0000                0.1656
+           family       468    15   1   6.6667              0              0.0000                0.2137
+            order       761     6   0   0.0000              0              0.0000                0.0000
+            class       263     0   0        -              0                   -                0.0000
+           phylum       666     2   1  50.0000              0              0.0000                0.1502
+other absent taxa         -  2477  71   2.8664              0              0.0000                     -
+the same false positives by the deepest rank the taxon shares with that species:
+shared rank  taxa  FP  FP rate  FP_collection  FP rate_collection
+      genus 26756 700   2.6162              0              0.0000
+     family   641  82  12.7925              0              0.0000
+      order    63  17  26.9841              0              0.0000
+      class    59   9  15.2542              0              0.0000
+     phylum    33   5  15.1515              0              0.0000
+     domain    17   2  11.7647              0              0.0000
+
+False negatives by the deepest rank a present taxon shares with another species in its sample (a congener's reads fit it nearly as well):
+closest other species shares  taxa  FN  FN rate  FN_collection  FN rate_collection
+                       genus 15002 779   5.1926          15002            100.0000
+                      family  6819 110   1.6131           6819            100.0000
+                       order  2502  39   1.5588           2502            100.0000
+                       class  1822  28   1.5368           1822            100.0000
+                      phylum   839  12   1.4303            839            100.0000
+                      domain   680  10   1.4706            680            100.0000
+
+With the taxon's whole species, genus, family, order, class or phylum held out of training (cross-validation): how the model does on parts of the tree its training data lack:
+held out in training  present  FN  FN rate  absent  FP  FP rate  FP per sample     F1
+             species    27664 978   3.5353   30046 886   2.9488         4.4747 0.9663
+
+## The conservation features by class of taxon
+median (quartiles). conserved_fast_record_ratio: log2 of the depth of all best records (before the MAPQ filter) on genes of conservation factor below 1 over that on the others; conserved_fast_kept_ratio: the same of the records the filters keep; conserved_fast_depth_ratio and conserved_hit_share: the same of the hit genes' depths after the filters, and the conserved share of the hit genes. A species' own reads cover both kinds of genes alike; a relative's align best on the conserved ones (docs/claude/2026-10-01-conservation-pattern).
+                                  taxa  rows conserved_fast_record_ratio conserved_fast_kept_ratio conserved_fast_depth_ratio     conserved_hit_share           excess_median
+         present, no congener held out 15848     -0.375 (-2.314, +0.541)   -0.420 (-2.425, +0.520)    +0.000 (+0.000, +0.000) +0.391 (+0.167, +0.526) -0.000 (-0.000, +0.003)
+   present, beside a held-out congener 11816     -0.524 (-2.920, +0.622)   -0.630 (-3.321, +0.568)    +0.000 (+0.000, +0.000) +0.333 (+0.000, +0.500) -0.000 (-0.000, +0.004)
+absent, congener of a held-out species 26756     +0.297 (-2.745, +3.580)   +0.002 (-3.683, +3.715)    +0.000 (+0.000, +0.000) +0.500 (+0.000, +1.000) +0.059 (+0.037, +0.079)
+                         absent, other  3290     -0.669 (-3.677, +3.754)   -1.071 (-3.975, +3.742)    +0.000 (+0.000, +0.000) +0.000 (+0.000, +1.000) +0.056 (+0.030, +0.079)
+
+## Strains: species simulated from another genome than the representative
+at knob 0.5; another genome: a strain of the species, not the representative the database holds
+           simulated from fragments  present  missed  FN rate
+       the representative      1-10     5370     107   1.9926
+       the representative    11-100     3047      18   0.5907
+       the representative      >100      761       2   0.2628
+       the representative       all     9178     127   1.3837
+           another genome      1-10    10787     710   6.5820
+           another genome    11-100     6244     128   2.0500
+           another genome      >100     1455      13   0.8935
+           another genome       all    18486     851   4.6035
+     another genome, real      1-10     2639     338  12.8079
+     another genome, real    11-100     1588      79   4.9748
+     another genome, real      >100      357      10   2.8011
+     another genome, real       all     4584     427   9.3150
+another genome, in silico      1-10     8148     372   4.5655
+another genome, in silico    11-100     4656      49   1.0524
+another genome, in silico      >100     1098       3   0.2732
+another genome, in silico       all    13902     424   3.0499
+identity quantiles 5/25/50% of strains found [0.9807, 0.9928, 0.9984], missed [0.928, 0.9615, 0.9721]
+medians of the conservation features (see the table by class of taxon): a missed strain should look like the found ones, not like the absent taxa holding a missing congener's reads
+                                  taxa  rows conserved_fast_record_ratio conserved_fast_kept_ratio conserved_fast_depth_ratio conserved_hit_share excess_median
+                         strains found 17635                      -0.421                    -0.488                     +0.000              +0.370        -0.000
+                        strains missed   851                      -1.049                    -1.670                     +0.000              +0.222        +0.026
+        strains missed, > 10 fragments   141                      -0.033                    -0.088                     +0.000              +0.414        +0.027
+absent, congener of a held-out species 26756                      +0.297                    +0.002                     +0.000              +0.500        +0.059
+
+## Knob (species held out)
+No knob curve: the sample's depth is a feature (sample_log_fragments), so the forest's score already depends on it, and a curve fitted on top of it corrects twice (on the r226 v5 tables it lost 0.01 of test F1; docs/claude/2026-10-03-false-positive-anatomy). One knob for every sample instead, if it gains 0.002 of F1 with species held out (rows weighted as in the forests).
+      knob  F1 (weighted)  F1 design rows  F1 scenario rows  FP  FN
+--knob 0.5         0.9663          0.9780            0.9623 886 978
+ best 0.49         0.9664          0.9781            0.9624 913 947
+protal calls at --knob 0.5: the best threshold, 0.49, gains 0.0001, less than 0.002
+
+## Independent test set (local/v12/test/training_data_pb.tsv)
+2737 taxa in 42 samples, 1628 present
+           model  taxa  present    AUC     AP  log_loss     F1  sensitivity  precision  FP   FN  FP_per_sample  sens_Archaea  sens_Bacteria
+        this one  2737     1628 0.9966 0.9979    0.0721 0.9807       0.9816     0.9798  33   30         0.7857        0.9900         0.9810
+collection model  2737     1628 0.5000 0.5948    8.2176 0.0000       0.0000          -   0 1628         0.0000        0.0000         0.0000
+by depth (read pairs, or bases for long reads); FN/FP at the knob:
+     depth  samples  present  FN  FN rate  absent  FP  FP rate
+    150000        8       14   0   0.0000       3   1  33.3333
+   1000000        8       73   2   2.7397      17   0   0.0000
+   5000000        8      172   2   1.1628      46   2   4.3478
+  25000000        8      552  15   2.7174     174   8   4.5977
+ 250000000        8      637   9   1.4129     488  13   2.6639
+3000000000        2      180   2   1.1111     381   9   2.3622
+highest F1 on the test set at threshold 0.586 (F1 0.9818; at knob 0.5: 0.9807)
+
+## Independent test set: the conservation features by class of taxon
+median (quartiles). conserved_fast_record_ratio: log2 of the depth of all best records (before the MAPQ filter) on genes of conservation factor below 1 over that on the others; conserved_fast_kept_ratio: the same of the records the filters keep; conserved_fast_depth_ratio and conserved_hit_share: the same of the hit genes' depths after the filters, and the conserved share of the hit genes. A species' own reads cover both kinds of genes alike; a relative's align best on the conserved ones (docs/claude/2026-10-01-conservation-pattern).
+                                  taxa  rows conserved_fast_record_ratio conserved_fast_kept_ratio conserved_fast_depth_ratio     conserved_hit_share           excess_median
+         present, no congener held out  1403     -0.353 (-2.193, +0.564)   -0.410 (-2.279, +0.545)    +0.000 (+0.000, +0.000) +0.392 (+0.154, +0.526) -0.000 (-0.000, +0.002)
+   present, beside a held-out congener   225     -0.370 (-2.096, +0.612)   -0.459 (-2.410, +0.606)    +0.000 (+0.000, +0.000) +0.375 (+0.154, +0.500) -0.000 (-0.000, +0.002)
+absent, congener of a held-out species   730     +0.566 (-2.179, +3.378)   +0.028 (-3.194, +3.391)    +0.000 (+0.000, +0.000) +0.500 (+0.000, +1.000) +0.062 (+0.038, +0.080)
+                         absent, other   379     +0.077 (-3.327, +4.125)   -0.877 (-3.671, +4.083)    +0.000 (+0.000, +0.000) +0.000 (+0.000, +1.000) +0.060 (+0.030, +0.084)
+
+## Independent test set: strains, species simulated from another genome than the representative
+at knob 0.5; another genome: a strain of the species, not the representative the database holds
+           simulated from fragments  present  missed  FN rate
+       the representative      1-10      216       2   0.9259
+       the representative    11-100      119       1   0.8403
+       the representative      >100       46       0   0.0000
+       the representative       all      381       3   0.7874
+           another genome      1-10      674      19   2.8190
+           another genome    11-100      404       5   1.2376
+           another genome      >100      169       3   1.7751
+           another genome       all     1247      27   2.1652
+     another genome, real      1-10      156       9   5.7692
+     another genome, real    11-100      108       3   2.7778
+     another genome, real      >100       47       3   6.3830
+     another genome, real       all      311      15   4.8232
+another genome, in silico      1-10      518      10   1.9305
+another genome, in silico    11-100      296       2   0.6757
+another genome, in silico      >100      122       0   0.0000
+another genome, in silico       all      936      12   1.2821
+identity quantiles 5/25/50% of strains found [0.9828, 0.9949, 0.9993], missed [0.9335, 0.9624, 0.9703]
+medians of the conservation features (see the table by class of taxon): a missed strain should look like the found ones, not like the absent taxa holding a missing congener's reads
+                                  taxa  rows conserved_fast_record_ratio conserved_fast_kept_ratio conserved_fast_depth_ratio conserved_hit_share excess_median
+                         strains found  1220                      -0.360                    -0.415                     +0.000              +0.385        -0.000
+                        strains missed    27                      -0.872                    -0.791                     +0.000              +0.229        +0.029
+        strains missed, > 10 fragments     8                      +0.140                    +0.488                     +0.342              +0.471        +0.024
+absent, congener of a held-out species   730                      +0.566                    +0.028                     +0.000              +0.500        +0.062
+
+## Independent test set: false positives and false negatives by taxonomic rank
+Rates in % at the knob, scored by the forest fitted on all training rows (and by the collection model, _collection). FP rate: of the absent taxa, those called; FN rate: of the present taxa, those not called.
+
+False positives from what the training database lacks (build_gtdb_database.py --holdout, --holdout-clades): absent taxa whose closest species in the sample is one the database lacks, by the rank it was held out at (its reads are the likely source of the taxon's); simulated: such species in the samples. Other absent taxa: closest to a species the database has.
+      held out at simulated  taxa  FP  FP rate  FP_collection  FP rate_collection  FP per 100 simulated
+          species      1964   802  25   3.1172              0              0.0000                1.2729
+            genus        59    20   1   5.0000              0              0.0000                1.6949
+           family        53     6   0   0.0000              0              0.0000                0.0000
+            order        72     0   0        -              0                   -                0.0000
+            class        42     0   0        -              0                   -                0.0000
+           phylum        66     0   0        -              0                   -                0.0000
+other absent taxa         -   281   7   2.4911              0              0.0000                     -
+the same false positives by the deepest rank the taxon shares with that species:
+shared rank  taxa  FP  FP rate  FP_collection  FP rate_collection
+      genus   730  18   2.4658              0              0.0000
+     family    74   5   6.7568              0              0.0000
+      order    10   1  10.0000              0              0.0000
+      class    11   2  18.1818              0              0.0000
+     phylum     3   0   0.0000              0              0.0000
+
+False negatives by the deepest rank a present taxon shares with another species in its sample (a congener's reads fit it nearly as well):
+closest other species shares  taxa  FN  FN rate  FN_collection  FN rate_collection
+                       genus   514  15   2.9183            514            100.0000
+                      family   343   8   2.3324            343            100.0000
+                       order   286   3   1.0490            286            100.0000
+                       class   239   4   1.6736            239            100.0000
+                      phylum   134   0   0.0000            134            100.0000
+                      domain   112   0   0.0000            112            100.0000
+
+## Scenarios: hold-in and hold-out samples
+At the model's knob 0.5, as protal calls by default. hold-in: the scenario's training samples, scored by the final forest (in sample: fitted on them), by forests that did not see their sample (samples held out) or their species (species held out); hold-out: the scenario's samples of the test set, which no forest saw. FP rate: of the absent taxa, those called; FN rate: of the present taxa, those not called; FP near novel: false positives whose closest species in the sample is one the database lacks; best F1: at the threshold best for these rows.
+    scenario                        set  samples  present  absent    TP  FP  FN  sensitivity  precision     F1  FP rate %  FN rate %  FP/sample  FP near novel  best F1     at
+    (design) training, species held out      186     6901    4541  6749 151 152       0.9780     0.9781 0.9780     3.3253     2.2026     0.8118            121   0.9783 0.4981
+         gut         hold-in, in sample        3     1114     962  1107   8   7       0.9937     0.9928 0.9933     0.8316     0.6284     2.6667              3   0.9946 0.5937
+         gut  hold-in, samples held out        3     1114     962  1104  25  10       0.9910     0.9779 0.9844     2.5988     0.8977     8.3333              7   0.9887 0.6853
+         gut  hold-in, species held out        3     1114     962  1107  15   7       0.9937     0.9866 0.9902     1.5593     0.6284     5.0000              6   0.9923 0.6093
+         gut                   hold-out        2      756     714   749  24   7       0.9907     0.9690 0.9797     3.3613     0.9259    12.0000              7   0.9860 0.8295
+        host         hold-in, in sample        3       90      61    90   0   0       1.0000     1.0000 1.0000     0.0000     0.0000     0.0000              0   1.0000 0.8836
+        host  hold-in, samples held out        3       90      61    90   1   0       1.0000     0.9890 0.9945     1.6393     0.0000     0.3333              0   1.0000 0.9007
+        host  hold-in, species held out        3       90      61    90   1   0       1.0000     0.9890 0.9945     1.6393     0.0000     0.3333              0   1.0000 0.8848
+        host                   hold-out        2       42      78    41   1   1       0.9762     0.9762 0.9762     1.2821     2.3810     0.5000              0   0.9762 0.9531
+        soil         hold-in, in sample        3    11205   16799 10886 349 319       0.9715     0.9689 0.9702     2.0775     2.8469   116.3333            330   0.9704 0.5256
+        soil  hold-in, samples held out        3    11205   16799 10807 450 398       0.9645     0.9600 0.9622     2.6787     3.5520   150.0000            430   0.9628 0.6083
+        soil  hold-in, species held out        3    11205   16799 10796 456 409       0.9635     0.9595 0.9615     2.7144     3.6502   152.0000            435   0.9622 0.5771
+        soil                   hold-out        2     7111   10719  6843 291 268       0.9623     0.9592 0.9608     2.7148     3.7688   145.5000            280   0.9612 0.4866
+soil_shallow         hold-in, in sample        3     8354    7683  8018 228 336       0.9598     0.9724 0.9660     2.9676     4.0220    76.0000            220   0.9661 0.4115
+soil_shallow  hold-in, samples held out        3     8354    7683  7945 265 409       0.9510     0.9677 0.9593     3.4492     4.8959    88.3333            256   0.9598 0.4464
+soil_shallow  hold-in, species held out        3     8354    7683  7944 263 410       0.9509     0.9680 0.9594     3.4231     4.9078    87.6667            253   0.9597 0.3782
+soil_shallow                   hold-out        2     4990    4839  4770 175 220       0.9559     0.9646 0.9602     3.6164     4.4088    87.5000            171   0.9610 0.4012
+
+## Model file
+/tmp/v12_retrain_pb_w1.xml: 3.40 MB, 16320 nodes; written in 0.15 s
+PMML scored as protal scores it vs scikit-learn, 57710 rows: max difference 0, 0 calls differ at knob 0.5
+importance: excess_high_share 0.152, lu_per_kb 0.150, excess_scaled_median 0.150, top_identity 0.116, excess_median 0.110, identity 0.109, third_position_share 0.044, lsu_per_kb 0.034
+
+## Summary
+species held out: AP 0.993, F1 0.966, sensitivity 0.965, precision 0.968, 4.47 false positives per sample at knob 0.5; Archaea sensitivity 0.971, Bacteria sensitivity 0.964
+collection model: AP 0.479, F1 0.000, sensitivity 0.000, precision -; Archaea sensitivity 0.000, Bacteria sensitivity 0.000
+optimism of random row splits: F1 0.967 on rows vs 0.966 on species held out
+FP rate of absent taxa closest to species the database lacks, by the rank held out: species 2.96% (812/27456), genus 1.11% (1/90), family 6.67% (1/15), order 0.00% (0/6), phylum 50.00% (1/2), other absent taxa 2.87% (71/2477)
+FN rate of present taxa by the rank shared with the closest other species in the sample: genus 5.19% (779/15002), family 1.61% (110/6819), order 1.56% (39/2502), class 1.54% (28/1822), phylum 1.43% (12/839), domain 1.47% (10/680)
+FN rate of strains (another genome than the representative): 4.60% (851/18486), with 11-100 fragments 2.05%; of the representatives 1.38% (127/9178)
+with the clade held out of training: species FN rate 3.54%, FP rate 2.95%, F1 0.966
+independent test set: F1 0.981, sensitivity 0.982, precision 0.980, 0.79 false positives per sample at knob 0.5; highest F1 at threshold 0.586
+independent test set, highest FN rate by depth: 2.74% at 1000000
+scenario gut: hold-out F1 0.980 (FP rate 3.36%, FN rate 0.93%, 2 samples); hold-in with species held out F1 0.990 (FP rate 1.56%, FN rate 0.63%, 3 samples); hold-in in sample F1 0.993 (FP rate 0.83%, FN rate 0.63%, 3 samples)
+scenario host: hold-out F1 0.976 (FP rate 1.28%, FN rate 2.38%, 2 samples); hold-in with species held out F1 0.994 (FP rate 1.64%, FN rate 0.00%, 3 samples); hold-in in sample F1 1.000 (FP rate 0.00%, FN rate 0.00%, 3 samples)
+scenario soil: hold-out F1 0.961 (FP rate 2.71%, FN rate 3.77%, 2 samples); hold-in with species held out F1 0.961 (FP rate 2.71%, FN rate 3.65%, 3 samples); hold-in in sample F1 0.970 (FP rate 2.08%, FN rate 2.85%, 3 samples)
+scenario soil_shallow: hold-out F1 0.960 (FP rate 3.62%, FN rate 4.41%, 2 samples); hold-in with species held out F1 0.959 (FP rate 3.42%, FN rate 4.91%, 3 samples); hold-in in sample F1 0.966 (FP rate 2.97%, FN rate 4.02%, 3 samples)
+time: load 2.4 s, fit 2.1 s, evaluation 20.8 s, depth_knobs 0.0 s, test 0.1 s, scenarios 0.5 s, export 0.1 s, total 29.2 s

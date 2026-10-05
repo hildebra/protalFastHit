@@ -336,7 +336,8 @@ class TrainerDepthKnobsTest(unittest.TestCase):
 
     def test_no_depth_knob_curve_with_the_samples_depth_as_a_feature(self):
         # With sample_log_fragments among the features the forest sees the depth itself: no curve is fitted even with
-        # --depth-knobs, and the report says why.
+        # --depth-knobs, and the report says why; one knob for every sample instead, if it gains 0.002 with species held
+        # out, in the model as a curve of one point.
         table = pd.read_csv(self.table, sep="\t")
         totals = table.groupby("meta_sample")["fragments"].transform("sum")
         table["sample_log_fragments"] = np.log10(np.maximum(totals, 1.0))
@@ -347,12 +348,42 @@ class TrainerDepthKnobsTest(unittest.TestCase):
                                  "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--evaluation", "basic",
                                  "--threads", "1", "--depth-knobs"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
-        self.assertEqual(read_depth_knob_curve(prefix + ".xml"), [])
         with open(prefix + ".metrics.json") as fh:
             metrics = json.load(fh)
-        self.assertEqual(metrics["depth_knobs"]["curve"], [])
         self.assertIn("depth is a feature", metrics["depth_knobs"]["skipped"])
         self.assertIn("No knob curve: the sample's depth is a feature", result.stdout)
+        chosen = metrics["global_knob"]
+        curve = read_depth_knob_curve(prefix + ".xml")
+        if chosen["gain"] >= 0.002:
+            self.assertEqual([k for _, k in curve], [chosen["best"]])
+            self.assertEqual(metrics["depth_knobs"]["global_knob"], chosen["best"])
+        else:
+            self.assertEqual(curve, [])
+            self.assertIsNone(metrics["depth_knobs"]["global_knob"])
+        self.assertEqual([[x, k] for x, k in curve], metrics["depth_knobs"]["curve"])
+
+    def test_one_knob_for_every_sample(self):
+        # choose_global_knob: the threshold of the highest F1 with species held out, kept if it gains 0.002 over 0.5, the
+        # rows weighted as the forests weigh them (the scenarios' by --scenario-weight).
+        rng = np.random.default_rng(2)
+        n = 4000
+        y = (rng.random(n) < 0.3).astype(int)
+        scores = np.clip(np.where(y == 1, rng.normal(0.85, 0.08, n), rng.normal(0.45, 0.12, n)), 0, 1)
+        frame = pd.DataFrame({"truth": y, "meta_scenario": ""})
+        opts = types.SimpleNamespace(knob=0.5)
+        report = self.trainer.Report()
+        knob = self.trainer.choose_global_knob(report, frame, y, {"species": scores}, opts)
+        self.assertIsNotNone(knob)
+        self.assertGreater(knob, 0.55)  # absent taxa score up to ~0.7: a knob above 0.5 calls fewer of them
+        self.assertGreaterEqual(report.data["global_knob"]["gain"], 0.002)
+        # Scores whose best threshold is 0.5: no knob, protal calls at --knob.
+        even = np.where(y == 1, 0.9, 0.1)
+        self.assertIsNone(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {"species": even}, opts))
+        # Without scores with species held out (--evaluation none): none.
+        self.assertIsNone(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {}, opts))
+        self.assertEqual(self.trainer.knob_label([(4.0, 0.7)]), "knob 0.7")
+        self.assertEqual(self.trainer.knob_label([]), "knob 0.5")
+        self.assertTrue(self.trainer.knob_label([(2.0, 0.3), (4.0, 0.7)]).startswith("knob curve (2.000:0.3,"))
 
     def test_strains(self):
         _, metrics = self.train("strains")
@@ -574,13 +605,13 @@ class TrainerScenariosTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def train(self, name, features, test=None):
+    def train(self, name, features, test=None, *extra):
         """The trainer on the training table, with --features `features` (None: its default)."""
         prefix = os.path.join(self.tmp.name, name)
         result = subprocess.run([sys.executable, os.path.join(HERE, "random_forest_cmdline.py"), "--truth-file",
                                  self.training, "--output-prefix", prefix, *(["--features", features] if features else []),
-                                 "--ntree", "16", "--evaluation", "basic", "--threads", "1", "--test-file", test or self.test],
-                                capture_output=True, text=True)
+                                 "--ntree", "16", "--evaluation", "basic", "--threads", "1", "--test-file", test or self.test,
+                                 *extra], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
         with open(prefix + ".metrics.json") as fh:
             return prefix, json.load(fh), result.stdout
@@ -608,6 +639,12 @@ class TrainerScenariosTest(unittest.TestCase):
         predictions = pd.read_csv(prefix + ".scenario_predictions.tsv.gz", sep="\t")
         self.assertEqual(sorted(predictions["meta_scenario"].unique()), ["gut", "host"])
         self.assertEqual(len(predictions), 7 * 20)
+        # The scenarios' rows weigh 0.25 in every forest by default (--scenario-weight); at 1 the forest is another.
+        self.assertEqual(metrics["scenario_weight"], {"weight": 0.25, "rows": 6 * 20})
+        self.assertIn("the scenarios' 120 of 720 rows weigh 0.25 in every forest", stdout)
+        full, _, _ = self.train("scenarios_full_weight", "normalized", None, "--scenario-weight", "1")
+        again = pd.read_csv(full + ".scenario_predictions.tsv.gz", sep="\t")
+        self.assertFalse(np.allclose(again["p"], predictions["p"]))
         # A test table of the scenarios' hold-out samples alone: no independent test set, the scenarios reported.
         only = os.path.join(self.tmp.name, "only_scenarios.tsv")
         frame = pd.read_csv(self.test, sep="\t")

@@ -423,10 +423,10 @@ The design spans depths, community sizes and read setups so that one model learn
 not say how a model does on one kind of study. So every build also simulates samples of four such
 kinds (`scripts/scenarios.py`; `--scenarios` picks others, `none` leaves them out): each scenario's
 hold-in samples (`--scenario-samples`, 3) join the training data and inform the forests as the
-design's samples do, its hold-out samples (`--scenario-test-samples`, 2, another seed) the test set,
-and each read type's report scores both (section "Scenarios"; `summary.txt` has a row per scenario
-and set). A scenario is a community sequenced by several technologies at the same bases, each
-technology reading the same communities:
+design's samples do, at a quarter of their weight (`--scenario-weight` 0.25), its hold-out samples
+(`--scenario-test-samples`, 2, another seed) the test set, and each read type's report scores both
+(section "Scenarios"; `summary.txt` has a row per scenario and set). A scenario is a community
+sequenced by several technologies at the same bases, each technology reading the same communities:
 
 | Scenario | Community | Reads |
 |---|---|---|
@@ -478,8 +478,13 @@ Scenario samples are deep: one sample of every preset takes ~52 GB of reads (gut
 soil_shallow 4, host 11; measured per Gb on 2026-10-05), ~260 GB for the default 3 + 2 samples if they
 were all on the disk at once, which `--profile-blocks` avoids, and hours more of simulation and
 profiling on a 64-thread node ([report](claude/2026-10-05-collector-profiling/README.md)). Their rows also weigh in the training: a
-soil sample adds ~10,000 rows, as many as 70 design samples. The section "Scenarios" gives the
-design's samples with species held out beside them, to show what the scenarios cost the rest.
+soil sample adds ~10,000 rows, as many as 70 design samples, and at r226 v12 the scenarios' rows were
+52-80% of every training table. At full weight they made the forests call more freely on the design's
+samples (test F1 -0.002 to -0.004; on gut -0.008 for long reads), while without them soil's F1 fell by
+0.01-0.15; at a quarter of the weight (`--scenario-weight`) soil kept its gain within 0.002 and half to
+two thirds of the cost went ([report](claude/2026-10-05-r226-v12-scenarios/README.md)). The section
+"Scenarios" gives the design's samples with species held out beside them, to show what the scenarios
+cost the rest.
 
 #### Local scratch
 
@@ -555,6 +560,7 @@ keeps the finished database.
 | `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases`, `--test-long-read-samples` | `500,...,5000000:2`, `10-300`, `lognormal:2.0`, `0.5,0.2`, 150 kb to 3 Gb, 8 | the test set's design |
 | `--scenarios`, `--scenario-file` | `all` | kinds of studies to train on and score ([above](#scenarios-kinds-of-studies)): `gut`, `soil`, `soil_shallow`, `host`, `all`, `NAME:N`, `none`; JSON of more or changed ones |
 | `--scenario-samples`, `--scenario-test-samples` | 3, 2 | each scenario's hold-in samples (training data; 0: scored, not trained on) and hold-out samples (test set) |
+| `--scenario-weight` | 0.25 | the weight of the scenarios' hold-in rows in the forests, the design's 1 |
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
 | `--features` | `auto` | each trainer chooses its feature set ([below](#training)); or feature groups ([features.md](features.md)), e.g. `normalized+adjacency+distance+depth+divergence+unfiltered` (the set `auto` keeps unless another is better); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--ntree`, `--maxnodes` | 64, `512,pb:128,ont:128` | trees, and leaves per tree by read type |
@@ -766,7 +772,7 @@ probability of `TRUE` reaches a threshold:
 - **`--knob`** (default 0.5), for every sample;
 - **a knob curve** over the sample's depth, if the model carries one and `--knob` is not given
   ([below](#knobs-by-sample-depth)). Models trained with the sample's depth as a feature (the
-  default) have none;
+  default) have none, but may carry one knob for every sample, chosen in training;
 - **a target share of false calls** with `--fdr F`, for a model with calibrated calls
   ([below](#calls-at-a-target-share-of-false-calls));
 - **the singleton rule** with `--singleton_congener N`, which vetoes a single-fragment species
@@ -866,7 +872,8 @@ training row.
 | `--features` | `auto` | `auto` chooses (below); or feature groups joined by `+` ([features.md](features.md)); `+priors` is opt-in; `all` takes every column. A table of an older protal lacks newer groups: `auto` leaves out the sets it lacks, a set named must leave them out |
 | `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 256, 1, `sqrt` | the forest (the GTDB build gives 512 leaves for short reads, 128 for long reads) |
 | `--knob` | 0.5 | the threshold protal will use; errors are counted at it |
-| `--depth-knobs`, `--fdr-calls`, `--singleton-congener` | off, off, 0 | a knob curve; calibrated calls; the singleton rule the counts follow ([below](#knobs-by-sample-depth)) |
+| `--depth-knobs`, `--fdr-calls`, `--singleton-congener` | off, off, 0 | a knob curve (with the sample's depth a feature: one knob for every sample, if it pays); calibrated calls; the singleton rule the counts follow ([below](#knobs-by-sample-depth)) |
+| `--scenario-weight` | 0.25 | the sample weight of the scenarios' rows (`meta_scenario`) in every forest, the design's 1 ([above](#scenarios-kinds-of-studies)) |
 | `--taxonomy` | | the database's taxonomy: domains, and whole clades held out |
 | `--test-file` | | an independent test table, scored by the final forest; its scenarios' rows (`meta_scenario`) are their hold-out samples, scored apart |
 | `--evaluation`, `--folds`, `--previous-procedure` | `full`, 5, off | `basic`: held-out scores only; `none`: fit and export only |
@@ -965,9 +972,14 @@ lists each sample's knob. At r226 (0.7.0's features) curves raised the test F1 b
 type ([report](claude/2026-10-02-r226-build-evaluation/README.md)).
 
 With the sample's depth among the features (the default since 0.7.5) no curve is fitted: the forest
-already knows the depth, and a curve on top corrects twice (it lost 0.010). Either way a model cannot
-extrapolate beyond its deepest training samples: train at the depths you profile. Models of 0.7.2
-carry knobs per decade instead, which protal still reads.
+already knows the depth, and a curve on top corrects twice (it lost 0.010). Instead the trainer chooses
+one knob for every sample, the threshold with the highest F1 on species held out (rows weighted as in
+the forests), if it gains 0.002 over `--knob`; it goes into the model as a curve of one point, which
+protal reads as that knob at every depth (`--knob` overrides it). At r226 v12 the paired-end forest's
+best threshold was 0.70 both with species held out and on the test set (+0.003 of test F1); the other
+read types' sat near 0.5 ([report](claude/2026-10-05-r226-v12-scenarios/README.md)). Either way a
+model cannot extrapolate beyond its deepest training samples: train at the depths you profile. Models
+of 0.7.2 carry knobs per decade instead, which protal still reads.
 
 ### Calls at a target share of false calls
 
