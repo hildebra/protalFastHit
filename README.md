@@ -37,16 +37,13 @@ four-sample example and describes every output file.
 
 | Page | What it covers |
 |---|---|
-| [Installation](docs/installation.md) | bioconda, static binaries, building from source, one binary for every CPU |
-| [Running protal](docs/running.md) | details beyond the website: where outputs go, exit codes, reruns, less common options |
-| [What changed](docs/version_changes.md) | 0.6.0a to 0.7.6: changes and benchmarks of every version |
-| [Database files](docs/database-files.md) | `database.protal`, compression, converting and unpacking a database |
-| [Building a database](docs/building-a-database.md) | download, build and train a database from one or several GTDB releases, full or reduced |
-| [Training the model](docs/model-training.md) | the presence model: what protal expects, training data, trainers |
+| [Installation](docs/installation.md) | bioconda, static binaries, building from source |
+| [Running protal](docs/running.md) | details beyond the website: outputs, read types, reruns, exit codes, less common options |
+| [Strains](docs/strains.md) | strain MSAs, filtering them with qcmsa, building trees |
+| [Databases](docs/databases.md) | database files; building and training a database from GTDB; the presence model |
 | [The model's features](docs/features.md) | every feature, its importance per read type, and when it matters |
-| [Strain MSA filtering (qcmsa)](docs/qcmsa.md) | the post-filter of the strain MSAs and how to re-filter without re-running protal |
-| [Simulating metagenomes](docs/simulation.md) | `simulate_metagenomes`: mock communities, strain sharing, reproducible replays |
-| [Testing and development](docs/testing.md) | unit and end-to-end tests, the mini database, CI, the strain test harness |
+| [Development](docs/development.md) | tests, mini databases, `simulate_metagenomes`, CI |
+| [What changed](docs/version_changes.md) | 0.6.0a to 0.7.6: changes and benchmarks of every version |
 | [Audits and benchmarks](docs/claude/README.md) | reports written with Claude Code |
 
 ## Citation

@@ -146,7 +146,7 @@ design is unchanged, so its 2k, 50k and 200k points are no longer between traini
 test numbers there are not comparable with v10's as a measure of interpolation, only of the errors.
 
 **2, in-silico strains of one-genome species**: `scripts/insilico_strains.py`, run by `build_gtdb_database.py`
-after the conversion (`--insilico-strains 1`, `--insilico-ani`; docs/building-a-database.md):
+after the conversion (`--insilico-strains 1`, `--insilico-ani`; docs/databases.md):
 - Every species of the genome table with one genome (2,017 of 7,998 in the r226 pool) gets a copy of its
   representative, `insilico_<accession>`, which the simulator draws as another genome; the training and test
   collections simulate from `genomes_simulated.tsv`.

@@ -318,7 +318,7 @@ finished database's background build gets its line when it ends. `--progress-eve
 `25d457e` with the two files changed (471 s), and again on `a212559` (287 s), after another session
 had committed its own changes to the script (`trace_relatives`, whose line follows the same indented
 style). The example in
-[building-a-database.md](../../building-a-database.md#what-it-prints) is from a small build of the
+[building-a-database.md](../../databases.md#what-it-prints) is from a small build of the
 tuning world with the changed scripts (first `demo`, 22:45 min on the loaded machine; since the
 follow-up `demo2`, with the background simulations, 1:42 on an idle one).
 
@@ -326,8 +326,8 @@ follow-up `demo2`, with the background simulations, 1:42 on an idle one).
 
 On `audit-fixes` at `5c7d64c` (uncommitted when measured): `scripts/collect_training_data.py`,
 `scripts/build_gtdb_database.py`, `scripts/mini_db/gene_neighbours.py`, their tests in
-`scripts/mini_db/test_mini_db.py`, and `docs/model-training.md`, `docs/building-a-database.md`,
-`docs/simulation.md`.
+`scripts/mini_db/test_mini_db.py`, and `docs/databases.md`, `docs/databases.md`,
+`docs/development.md`.
 
 1. **Long reads by templates.** `collect_training_data.simulate_long` draws each long-read sample's
    reads (`long_read_templates`: a read's genome by relative abundance × genome length, its length

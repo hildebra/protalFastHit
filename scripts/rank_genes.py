@@ -32,7 +32,7 @@ the gene's suspect copies (suspect_copies.tsv, if there), so that a subset can b
 grounds too. --subset FILE writes the N genes chosen as a gene list for
 scripts/mini_db/gtdb_to_protal_db.py --genes or protal --build --build_gene_subset (one id per
 line, the marker and scores as comments); build_gtdb_database.py --n-genes N does all of this in a
-build-and-train run (docs/building-a-database.md, reduced marker sets).
+build-and-train run (docs/databases.md, reduced marker sets).
 """
 import argparse
 import collections

@@ -1,5 +1,5 @@
 #!/bin/bash
-# docs/testing.md's commands, literally where possible (a fake nproc caps the justfile's -j$(nproc)
+# docs/development.md's commands, literally where possible (a fake nproc caps the justfile's -j$(nproc)
 # at 2; everything pinned to 2 cores): CI's Python step, just mini-db-test, just model-test,
 # just e2e (baseline, fresh mini DB), and the e2e suite against protal_avx2 (not in CI or just e2e).
 set -u

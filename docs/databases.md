@@ -1,12 +1,120 @@
-# Building a database
+# Databases: files, building and the presence model
 
-The database on the [downloads page](https://protal.earlham.ac.uk/main.php?site=downloads) is built
-from GTDB r226. You can build your own from any GTDB release from r207 on, with all marker genes or a
-subset of them. A database has three ingredients:
+A protal database holds the marker genes of GTDB's species, a k-mer index of them, and a presence
+model per read type that decides which species are in a sample. The database on the
+[downloads page](https://protal.earlham.ac.uk/main.php?site=downloads) is built from GTDB r226.
 
-- the marker genes of each species' representative genome, which reads are aligned to;
-- the marker genes of all genomes, which decide which k-mers are unique to a species;
-- a presence model per read type, trained on simulated samples against this database.
+| Part | What it covers |
+|---|---|
+| [The files of a database](#the-files-of-a-database) | what a database holds, `database.protal`, compression, converting and unpacking, memory |
+| [Building a database](#building-a-database) | from GTDB in one command, for several releases, reduced marker sets, step by step |
+| [The presence model](#the-presence-model) | how protal calls species, training data, training and checking a model, installing it |
+
+The model's features are listed in [features.md](features.md); simulated test worlds and mini
+databases are in [development.md](development.md).
+
+## The files of a database
+
+### What a database holds
+
+| File | What it holds |
+|---|---|
+| `index.prx` | the k-mer index of the reference marker genes |
+| `reference.fna`, `reference.map` | the reference genes (`>taxid_geneid`), and each gene's taxid, gene id and byte range |
+| `internal_taxonomy.dmp` | the taxonomy: id, parent, external id, name, rank, level, representative genome |
+| `unique_kmers.tsv` | per species and gene, the k-mers unique to it in the database |
+| `gene_conservation.tsv` | optional: per gene, how fast it diverges within species against the species' other genes ([below](#2-build-the-index)); for the conservation and divergence features, and `--gene_conservation db` |
+| `suspect_copies.tsv` | optional: gene copies near-identical to another genus's (contamination, transferred genes), whose reads a run leaves out of the evidence ([below](#2-build-the-index)) |
+| `species_priors.tsv` | optional: what GTDB knows of each species before any read ([below](#species-priors)) |
+| `gene_neighbours.tsv`, `gene_positions.tsv` | optional: which genes lie next to which, per clade, and where each gene lies in each genome ([below](#gene-neighbours)); a run loads only the first |
+| `gene_table.bin` | only in `database.protal`: `reference.map` and `unique_kmers.tsv` in binary, loaded on all threads without parsing (r226-sized tables, six threads: 1.76 → 0.43 s) |
+| `model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml` | the presence models of paired-end, single-end, PacBio and Nanopore reads ([below](#the-presence-model)); `model.xml` in databases before 0.7 |
+
+A database without an optional table works; the features that need it are then fixed values (0, or
+0.5). A model trained with a table should run with it.
+
+Every file is checked when a run starts, and protal stops at the first problem, with the file and
+line. Ids and names in the taxonomy are unique, every lineage ends at the root, and the tables name
+only genes and clades the database has.
+
+### One file: database.protal
+
+`protal --build` packs the files into `database.protal`, compressed with
+[zstd](https://facebook.github.io/zstd/): one file to copy, download, checksum or version, whose
+parts cannot get out of step. `--db` (or `$PROTAL_DB_PATH`) takes that file, a folder that holds it,
+or a folder of separate files (raw, or `index.prx.zst` and `reference.fna.zst`); a folder with both
+uses the separate files. Databases of earlier versions (raw files, index format 1) load unchanged.
+protal prints the index's features when it loads it (`Index features: ...`) and checks the index
+against the reference.
+
+### Compression
+
+Compression saves disk space and makes loading faster wherever storage is slower than decompression,
+as on network file systems. The mini database is 1.0 MB as `database.protal` and 3.2 GB raw (the
+index's key map has a fixed size).
+
+protal writes zstd's *seekable* format: independent frames of 64 MB, so loading decompresses frames
+on `-t` threads (~1-1.5 GB/s each). In `database.protal` each part is a range of frames. The index is
+stored in columns (per chunk, the number of values per k-mer, then each field in byte planes only as
+wide as the chunk needs), 25-55% smaller than its raw bytes compressed alike and as fast to load.
+Because of the columns, plain `zstd -d` does not give an `index.prx`; use `protal --unpack_db` or
+`--decompress_db`. `scripts/db_compression_benchmark.sh` measures ratio and speed per level on your
+database.
+
+### Build options for the format
+
+`protal --build` writes `database.protal` into the `--db` folder, reads it back, compares, and
+removes the separate files it holds. The build inputs (`full_reference.fna`, ...) stay.
+
+| Build option | Default | |
+|---|---|---|
+| `--no_bundle` | off | separate compressed files (`index.prx.zst`, `reference.fna.zst`, ...) |
+| `--no_compress` | off | separate raw files |
+| `--compress_level` | 19 | zstd level 1-22; 19 compresses ~3 MB/s per thread, 12 ~40 MB/s; decompression speed hardly depends on it |
+| `--compress_frame_mb` | 64 | frame size; 0 writes a single frame (one loading thread; needs `--no_bundle`) |
+| `--compress_window_log` | 27 | long-distance matching window (128 MB); 0 turns it off |
+
+### Converting a database
+
+A database is converted in place without rebuilding it; the content stays byte-identical and is
+verified before the old files are removed:
+
+```bash
+protal --compress_db --db /path/to/protal-db -t 16      # separate files -> database.protal
+protal --unpack_db --db /path/to/protal-db -t 16        # database.protal -> separate files beside it (it is kept)
+protal --decompress_db --db /path/to/protal-db -t 16    # -> separate raw files
+```
+
+- `--unpack_db` writes `index.prx.zst`, an uncompressed `reference.fna` and the other files but
+  `gene_table.bin` (beside `database.protal`, or into `--unpack_dir`).
+- `--compress_db` on a `database.protal` without a current `gene_table.bin` (packed before 0.7.6)
+  adds it, rewriting the file once with the other parts' frames copied.
+- `--compress_db` on a folder of raw files writes the same `database.protal` that `--build` would.
+
+**Models.** `protal --add_model MODEL --read_type pe --db DB` (or `se`, `pb`, `ont`) checks a model
+and replaces the database's model of that read type. Several at once
+(`--add_model pe.xml,se.xml --read_type pe,se`) rewrite `database.protal` once (about 5 minutes at
+r226). `--model` and `--model_se` use another model for a run without changing the database.
+
+### The database in memory
+
+- **Genes** are held at two bits per base. `N` is stored as `A`, an IUPAC code as the first base it
+  stands for (A C G T order), so alignments, SNP and MSA reference rows show the stored base. `--build`
+  leaves k-mers with an ambiguous base out of the index. A SAM of an older protal with an `M` against
+  such a base is set aside (`<sam>.err`).
+- **The index** is held packed: each value takes the bits the database needs (42 instead of 64 at
+  r226: 27 GB instead of 35 GB). The files are unchanged. A run prints `Index in memory: ...`.
+- A full r226 run peaks at 38 GB ([running.md](running.md#memory)).
+- `--preload_genomes_off` reads genes on demand from a raw `reference.fna`: less memory, slower, and
+  it needs the database as separate files (protal prints the `--unpack_db` command).
+
+`reference.fna` is ordered by gene, then taxon (`gtdb_to_protal_db.py --order gene`), which compresses
+about twice as well as genome by genome; protal finds genes through `reference.map` in any order.
+
+## Building a database
+
+You can build a database from any GTDB release from r207 on, with all marker genes or a subset of
+them:
 
 | Route | Use it for | Section |
 |---|---|---|
@@ -14,10 +122,10 @@ subset of them. A database has three ingredients:
 | **Several releases** | each release's full and reduced database, with a summary table | [Several releases](#several-releases-full-and-reduced) |
 | **Step by step** | your own pipeline, or a database without training | [Step by step](#step-by-step) |
 
-The small databases used for testing are made the same way from a synthetic release
-([testing.md](testing.md#mini-database)).
+The mini databases used for testing are made the same way from a synthetic release
+([development.md](development.md#mini-databases)).
 
-## What you need
+### What you need
 
 - `protal` and `simulate_metagenomes` built from this checkout. The build script checks that they
   match the scripts' version and commit ([installation.md](installation.md#building-from-source)).
@@ -38,7 +146,7 @@ At GTDB r226 (143,614 species) the whole pipeline takes:
 | node-local disk | 120-175 GB for the simulated samples (`--scratch`) |
 | result | `database.protal`, ~27 GB |
 
-## Build and train in one command
+### Build and train in one command
 
 Two commands: the download needs the internet, the build a compute node.
 
@@ -54,7 +162,7 @@ python3 scripts/build_gtdb_database.py --inputs /shared/protal_inputs/gtdb_r226 
 The result is `/data/protal_r226/protal_db/database.protal`, with a model for each read type
 (paired-end, single-end, PacBio HiFi, Nanopore). Profile with `protal --db /data/protal_r226/protal_db`.
 
-### 1. Download
+#### 1. Download
 
 `download_gtdb.py` fetches the release (r226 by default; `--release 220`, or a point release such as
 `214.1`):
@@ -104,7 +212,7 @@ HTTP 503.
 | `--connections`, `--ftp_url` | 8, NCBI's | genomes fetched at once from NCBI's FTP server (0: only through `datasets`) |
 | `--mirror`, `--datasets`, `--batch`, `-t` | | GTDB server, NCBI CLI, genomes per `datasets` request (500), compression threads (8) |
 
-### 2. Build and train
+#### 2. Build and train
 
 `build_gtdb_database.py` runs these steps. Each logs to its own file in `--outdir` and prints one
 numbered line when it starts and indented lines when it ends.
@@ -132,7 +240,7 @@ A rerun into the same `--outdir` resumes. Completed steps are skipped when their
 unchanged, and simulated samples are reused when their design is the same
 ([details](#stopping-and-rerunning)).
 
-### 3. Check the result
+#### 3. Check the result
 
 `OUTDIR/model_logs/summary.txt` (also printed at the end) gives each model's sensitivity, precision,
 F1 and false positives per sample, with species held out in training and on the independent test
@@ -146,10 +254,10 @@ Each model's full report is `trained_model*.report.txt`. Start with these sectio
   clades the database lacks.
 - **Strains**: how often strains are missed, for real and for in-silico strains.
 
-[model-training.md](model-training.md) explains the reports. [features.md](features.md) lists what
-the models use.
+[The presence model](#the-presence-model) explains the reports; [features.md](features.md) lists
+what the models use.
 
-### What it prints
+#### What it prints
 
 Every console line starts with the time and how long the run has taken. The first lines of the
 r226 build of 2026-10-05:
@@ -168,20 +276,20 @@ background build gets its line when it ends, whatever step the run is at. With `
 each running stage also prints a status line every N seconds (its run time, memory and the last line
 of its log). The run ends with `Ready protal database: ...` and the path of the model reports.
 
-### Outputs
+#### Outputs
 
 | Path in `--outdir` | |
 |---|---|
 | `protal_db/database.protal` | the finished database with its models; `protal_db/build_metadata.tsv` records the release, protal version and commit, command, design, held-out species and each model's scores |
 | `model_logs/` | everything to judge the models: `summary.txt`, each read type's report (`trained_model*.report.txt`, `.metrics.json`), predictions, thresholds, feature importances, parity checks, `genome_table.txt`, `holdout.txt`, `build_metadata.tsv`; and what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv`, `relatives_by_gene_conservation.txt` |
-| `trained_model*` | the models and the trainer's outputs ([model-training.md](model-training.md#training)) |
+| `trained_model*` | the models and the trainer's outputs ([the presence model](#training)) |
 | `genomes.tsv`, `genome_table.txt` | the genomes simulated from (accession, taxonomy, FASTA, length), and a summary |
 | `genomes_simulated.tsv`, `insilico_strains/` | the same with the in-silico strains, their FASTAs and `insilico_strains.tsv` (per strain: divergence drawn and reached, substitutions) |
 | `heldout_species.txt` | the species the training database leaves out, with the rank they were held out at and the clade |
 | `training/`, `test/`, `training_db/` | one table per read type (`training_data.tsv` for pe, `_se`, `_pb`, `_ont`); without `--scratch` also the samples, their profiles and the training database |
 | `.stages/`, `*.log` | what a rerun may skip; one log per step |
 
-## Several releases, full and reduced
+### Several releases, full and reduced
 
 Two scripts run the pipeline for a list of GTDB releases, each as a full database and a reduced
 one of 12 marker genes ([reduced marker sets](#reduced-marker-sets)). Only the first needs the
@@ -212,9 +320,9 @@ builds them again). At the end `OUT/build_summary.tsv` and `.txt` compare the da
 protal version, genes, taxa per rank and domain, size, build time and peak memory, profiling memory,
 and per read type the test-set F1, false positives per sample, sensitivity and precision.
 
-## How the build works
+### How the build works
 
-### Training data like real samples
+#### Training data like real samples
 
 The model has to learn what reads look like when they do not come from the database's own
 references. On a GTDB-like simulated world it needed two things
@@ -250,7 +358,7 @@ sample or missed a fifth of the strains.
 
   Every sample holds one species of a held-out clade of each rank. `heldout_species.txt` lists them,
   and the report gives false positive and false negative rates by rank
-  ([model-training.md](model-training.md#species-and-clades-the-database-lacks)). The finished
+  ([below](#species-and-clades-the-database-lacks)). The finished
   database has every species.
 
 The samples are as complex as real ones:
@@ -265,7 +373,7 @@ The samples are as complex as real ones:
 - depths from 1,000 to 30M read pairs (`--read-pairs`). A model with the sample's depth as a feature
   cannot extrapolate beyond its deepest training sample, and real samples are 5-50M pairs.
 
-### One model per read type
+#### One model per read type
 
 `--read-types` (default `pe,se,pb,ont`) trains a model for each kind of reads, from the same
 communities:
@@ -283,7 +391,7 @@ models are trained in parallel. Without pbsim3, leave `ont` out; a read type lef
 placeholder model that reports nothing and makes protal warn. Replace it later with
 `protal --add_model MODEL --read_type se --db DB`.
 
-### An independent test set
+#### An independent test set
 
 Cross-validation only judges the model on what the training design contains: a model trained from
 5,000 read pairs up missed 8% of the present taxa of 1,000-pair samples while its own estimate said
@@ -291,7 +399,7 @@ F1 0.997 ([report](claude/2026-09-30-clade-holdouts.md)). So every build also pr
 another design: depths of 500 to 5M pairs, 10-300 species, more uneven abundances (sigma 2.0), more
 mixed strains, another seed (`--test-*` options; `--test-samples 0` skips it).
 
-### Local scratch
+#### Local scratch
 
 The simulations write and delete many files, which a network file system is slow at.
 `--scratch DIR` makes the samples, the training database and the converter's temporary files on a
@@ -300,7 +408,7 @@ it 175 GB, or use fewer deep samples (`DEPTH:SAMPLES` in `--read-pairs`). The co
 the run takes there. A rerun reuses the samples only from the same DIR, so on a disk that is cleared
 after the job, a rerun simulates again (the builds are kept in `--outdir`).
 
-### Time and memory
+#### Time and memory
 
 The simulations need no database, so they start as soon as the held-out species are chosen. They run
 in the background at a lower priority than the index builds, long reads and paired-end points in one
@@ -312,7 +420,7 @@ The marker genes of every genome (`full_reference.fna.zst`, 86 GB uncompressed a
 compressed and removed once each build has used them. The finished database is compressed at
 `--final-db-level` (9), the training database at `--training-db-level` (3).
 
-### Stopping and rerunning
+#### Stopping and rerunning
 
 Before it starts, the script checks the tools. protal and the simulator must be built from the
 source it is at: of its version and commit, with nothing changed since in `src/`, `lib/` or the
@@ -331,7 +439,7 @@ A rerun into the same `--outdir` resumes:
 Another `--seed` or `--holdout` therefore rebuilds the training database and collects again, but
 keeps the finished database.
 
-### Options
+#### Options
 
 | Option | Default | |
 |---|---|---|
@@ -359,7 +467,7 @@ keeps the finished database.
 | `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases`, `--test-long-read-samples` | `500,...,5000000:2`, `10-300`, `lognormal:2.0`, `0.5,0.2`, 150 kb to 3 Gb, 8 | the test set's design |
 | `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered` | the models' feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--ntree`, `--maxnodes` | 64, `512,pb:128,ont:128` | trees, and leaves per tree by read type |
-| `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([model-training.md](model-training.md#calls-at-a-target-share-of-false-calls)) |
+| `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
 | `--evaluation`, `--previous-procedure` | `full`, off | how much the trainer evaluates |
 | `--n-genes`, `--genes`, `--gene-ranking`, `--genes-per-domain`, `--rank-genes` | | a reduced database ([below](#reduced-marker-sets)) |
 | `--no-gene-neighbours` | | skip the gene neighbours; protal then pairs no mates across neighbouring genes |
@@ -369,7 +477,7 @@ keeps the finished database.
 | `--no-binary-check` | | run binaries of another source anyway |
 | `--progress-every` | 0 | seconds between status lines; 0 for none |
 
-## Reduced marker sets
+### Reduced marker sets
 
 A database of a subset of the marker genes takes less memory: 12 of the 120 bacterial markers give
 about a tenth of the index (the reduced database on the downloads page is one). In one command:
@@ -385,7 +493,7 @@ ranking of an earlier full build instead (a full build writes one with `--rank-g
 `--genes LIST` names the genes. The choice is in `gene_subset.txt`, `gene_ranking.tsv` and
 `build_metadata.tsv`.
 
-### Which genes
+#### Which genes
 
 `rank_genes.py` scores each gene by prevalence (the share of species whose copy has k-mers in the
 index) times unique share (the share of a copy's k-mers unique to its species). It reads a build's
@@ -402,7 +510,7 @@ few percent of the species. A subset by the overall score alone would hold no ar
 copies, so that a subset can be chosen on other grounds. A gene list is GTDB marker ids (`PF00380.20`,
 `TIGR00001`) or protal gene ids, comma-separated or one per line.
 
-### A folder of the subset
+#### A folder of the subset
 
 `gtdb_to_protal_db.py --genes LIST` writes a converted folder with those genes only, from the release
 or from a converted folder (`--from_db`), with the gene neighbours counted anew over the genes kept.
@@ -418,9 +526,9 @@ protal --build --no_profile --db /data/protal_r226_12 --reference /data/protal_r
 the other genes stay in `reference.fna` but get no k-mers, so no read lands on them. It refuses a
 folder with `gene_neighbours.tsv`, which was counted over every gene.
 
-## Step by step
+### Step by step
 
-### GTDB files
+#### GTDB files
 
 Download the release from https://data.gtdb.ecogenomic.org/releases/ (for r226: `release226/226.0/`),
 keep GTDB's layout and extract the tarballs where they are (e.g.
@@ -435,7 +543,7 @@ keep GTDB's layout and extract the tarballs where they are (e.g.
 | `auxillary_files/sp_clusters_r226.tsv` | species priors (optional) |
 | `genomic_files_reps/gtdb_genomes_reps_r226.tar.gz` | whole genomes, only to simulate training data |
 
-### 1. Convert the release
+#### 1. Convert the release
 
 ```bash
 python3 scripts/mini_db/gtdb_to_protal_db.py --gtdb /data/gtdb_r226 --outdir /data/protal_r226_db -t 16
@@ -452,7 +560,7 @@ It writes:
   (accession, species taxid, representative, lineage).
 
 The default `model_pe.xml` was trained on older databases and does not call archaea reliably.
-Train a model for a database you will use ([model-training.md](model-training.md)), or take the
+Train a model for a database you will use ([below](#the-presence-model)), or take the
 one-command route.
 
 | Option | Default | |
@@ -465,7 +573,7 @@ one-command route.
 | `--genes` | | only these marker genes ([reduced marker sets](#reduced-marker-sets)) |
 | `--order` | `gene` | `reference.fna` by gene, then taxon (compresses ~2x better), or `genome` |
 
-### Species priors
+#### Species priors
 
 `species_priors.tsv` holds what GTDB knows of each species before any read, for the model's
 optional prior features ([features.md](features.md#the-species-priors-priors-075-opt-in)):
@@ -477,7 +585,7 @@ optional prior features ([features.md](features.md#the-species-priors-priors-075
 
 -1 means unknown. `--build` packs the table into `database.protal`.
 
-### Gene neighbours
+#### Gene neighbours
 
 Optional, between conversion and build: which marker genes lie next to each other, per clade. With
 it, protal pairs mates across neighbouring genes and follows long reads from gene to gene. GTDB's
@@ -510,7 +618,7 @@ each gene lies in each genome, which runs do not read). `--build` checks and pac
 `gtdb_to_protal_db.py --from_db` derives a training database's frequencies from the positions,
 without the species it leaves out ([report](claude/2026-10-02-gene-neighbour-frequencies/README.md)).
 
-### 2. Build the index
+#### 2. Build the index
 
 ```bash
 protal --build --no_profile -t 16 --db /data/protal_r226_db \
@@ -540,13 +648,13 @@ the `.zst` file when the plain one is missing. The build:
    `genome2tiid.tsv` stay beside it.
 
 Every phase uses `-t` threads, and the index is the same for any `-t`. The log times each phase.
-[database-files.md](database-files.md#build-options-for-the-format) lists the options for separate
+[Build options for the format](#build-options-for-the-format) lists the options for separate
 or uncompressed files and the compression level.
 
-### 3. Check it
+#### 3. Check it
 
 Profile samples simulated from genomes whose species you know. With
-[`simulate_metagenomes`](simulation.md) the map carries the truth:
+[`simulate_metagenomes`](development.md#simulating-metagenomes) the map carries the truth:
 
 ```bash
 simulate_metagenomes --genome_table genomes.tsv -o sim -n 4 --total_read_pairs 200000 \
@@ -556,3 +664,192 @@ protal --db /data/protal_r226_db --map sim/protal.meta -t 16
 
 protal prints each sample's true and false positives and false negatives, and writes
 `<profile>.truth_annotated`.
+
+## The presence model
+
+### How protal calls species
+
+protal scores every species with reads with a random forest (PMML) and reports those whose
+probability of `TRUE` reaches a threshold:
+
+- **`--knob`** (default 0.5), for every sample;
+- **a knob curve** over the sample's depth, if the model carries one and `--knob` is not given
+  ([below](#knobs-by-sample-depth)). Models trained with the sample's depth as a feature (the
+  default) have none;
+- **a target share of false calls** with `--fdr F`, for a model with calibrated calls
+  ([below](#calls-at-a-target-share-of-false-calls));
+- **the singleton rule** with `--singleton_congener N`, which vetoes a single-fragment species
+  beside an abundant congener ([below](#the-singleton-rule)). Off by default.
+
+A model belongs to the kind of database and reads it was trained on: its features come from the
+reads and the database, and a pair counts twice. Each read type has its own model in the database
+(`model_pe.xml`, `model_se.xml`, `model_PB.xml`, `model_ONT.xml`; or `--model`, `--model_se`,
+`--model_pb`, `--model_ont`).
+
+### What protal expects of a model
+
+At start, before any alignment, protal checks that the model takes only inputs protal computes (the
+features of `TaxonFeatures` in `src/Profiling/Profiler.h`, the columns of the training dump), predicts
+a field with the value `TRUE`, and scores a species. A model that fails stops the run with exit code
+2, naming the problem.
+
+### Training data
+
+With a truth file per sample (`--profile_truth`, or a map's `PROFILE_TRUTH` column), protal writes
+`<profile>.truth_annotated`: one row per species with reads, whether it was present (`truth`), the
+current model's call and probability, and every feature exactly as the model is given it. A truth
+file names one present species per line, by GTDB lineage (`d__...;s__Genus species`) or by internal
+taxid in the first field; `simulate_metagenomes --protal_metafile` writes such files and a map that
+uses them ([development.md](development.md#simulating-metagenomes)).
+
+`scripts/collect_training_data.py` makes such data at scale: it simulates samples over a grid of read
+setups and depths, profiles them against a database, and joins the dumps into one table per read type
+(`training_data.tsv` for pe, `training_data_se.tsv`, `_pb`, `_ont`). `build_gtdb_database.py` runs it
+with a realistic design ([above](#training-data-like-real-samples)); by hand:
+
+```bash
+python3 scripts/collect_training_data.py --db DB --genome_table genomes.tsv -o training \
+    --archaea 2 --species_per_sample 10-40 -t 8
+```
+
+- **Read types** (`--read_types`): `se` profiles the paired-end samples' first reads alone; `pb` and
+  `ont` replay each paired-end point's communities as long reads, drawn read by read (genome by
+  abundance × length, length from a gamma distribution, start uniform, cut at the contig's end).
+  PacBio HiFi reads are made by `scripts/hifi_reads.py` (quality by length, Q50 up to 5 kb to Q20 at
+  50 kb, errors mostly as homopolymer indels, calibrated base qualities); Nanopore reads by pbsim3.
+  pbsim3 makes no HiFi reads: its one-pass reads have quality 0, which broke the excess features
+  until 2026-10-02 ([report](claude/2026-10-02-pacbio-hifi-reads/README.md)).
+- **Scheduling**: all simulations share `--jobs` cores in one queue, long reads from the
+  communities' design (seconds) rather than after the paired-end reads; then all samples are profiled
+  in one protal run. A rerun skips design points simulated and profiled from the same inputs.
+- **Columns** starting with `meta_` say where a row comes from: design point, sample, read type,
+  depth, the taxon's domain, the species the database lacks in the sample and whether the taxon
+  shares a genus with one (`meta_novel_*`), whether a present species was simulated from its
+  representative (`meta_rep_genome`) or an in-silico strain (`meta_insilico_strain`), and how close
+  its relatives in the sample are (`meta_relative_rank`, `meta_neighbour_rank`). The training report
+  breaks its errors down by them.
+
+What the genome table must hold for a good model: species the database lacks (their reads land on
+relatives, the false positives to learn; build the training database with
+`gtdb_to_protal_db.py --exclude_species`, which keeps their taxids), archaea (`--archaea`), and other
+strains than the references. Congeners must share samples (`--congeners`) for the relatives
+features.
+
+| Option | Default | |
+|---|---|---|
+| `--db`, `--genome_table`, `-o` | required | the database, the simulator's genome table, the output folder |
+| `--protal`, `--simulator` | on `$PATH` | the binaries |
+| `--samples`, `--read_pairs`, `--read_setups` | 4, `1000,5000,20000,100000,500000`, three setups | samples per point, depths, read length : ART profile : fragment mean : SD |
+| `--species_per_sample`, `--archaea`, `--strains_per_species`, `--abundance`, `--congeners` | `5-30`, 0, one, sigma 1.3, 0 | the communities |
+| `--read_types`, `--long_read_bases`, `--pb_setup`, `--ont_setup`, `--pbsim`, `--pbsim_models` | `pe` | other read types and how they are made |
+| `--novel_species`, `--novel_clades`, `--taxonomy` | | the species the database lacks (`heldout_species.txt`), held-out clades per sample, and the taxonomy for the `meta_*` ranks |
+| `-t`, `--jobs`, `--seed`, `--long_read_chunk` | 4, `-t`, 1, 250 Mb | threads, cores for the simulations, seed, chunks of deep long-read samples |
+| `--simulate_only`, `--prepare_profiling`, `--also_profile MAP` | | simulate and stop; write the map to profile and stop; profile another collection in the same run |
+
+### Training
+
+```bash
+python3 scripts/random_forest_cmdline.py --truth-file training/training_data.tsv --output-prefix training/model
+```
+
+The trainer needs Python 3 with numpy, pandas, joblib and scikit-learn, no Java: it writes the PMML
+itself, so that protal's probabilities equal scikit-learn's bit for bit, and checks this on every
+training row.
+
+| Option | Default | |
+|---|---|---|
+| `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
+| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered` | feature groups joined by `+` ([features.md](features.md)); `+priors` is opt-in; `all` takes every column. A table of an older protal lacks newer groups: leave them out |
+| `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 256, 1, `sqrt` | the forest (the GTDB build gives 512 leaves for short reads, 128 for long reads) |
+| `--knob` | 0.5 | the threshold protal will use; errors are counted at it |
+| `--depth-knobs`, `--fdr-calls`, `--singleton-congener` | off, off, 0 | a knob curve; calibrated calls; the singleton rule the counts follow ([below](#knobs-by-sample-depth)) |
+| `--taxonomy` | | the database's taxonomy: domains, and whole clades held out |
+| `--test-file` | | an independent test table, scored by the final forest |
+| `--evaluation`, `--folds`, `--previous-procedure` | `full`, 5, off | `basic`: held-out scores only; `none`: fit and export only |
+| `--seed`, `--threads` | 1, 4 | |
+
+**How a model is judged.** Rows of one sample share its reads, and rows of one species its reference,
+so random rows would score a model on what it was trained on. The trainer scores each row with forests
+that saw neither its sample nor its species ("by species", the estimate that matters: most species
+protal meets were never in training), and with `--taxonomy` with its whole genus, family, order, class
+or phylum held out. `--evaluation full` adds studies: the other feature sets, forest size, and a
+learning curve.
+
+| Output | |
+|---|---|
+| `<prefix>.xml` | the model |
+| `<prefix>.report.txt` | the evaluation (also printed) |
+| `<prefix>.metrics.json`, `.predictions.tsv.gz`, `.thresholds.tsv`, `.varimp.tsv`, `.joblib` | its numbers, every taxon's held-out probability, F1 by threshold, feature importances, the scikit-learn forest |
+
+`scripts/check_model_parity.py --db DB --model training/model.xml --training training` re-profiles
+saved training samples and checks that protal's probabilities are the model file's and its features
+those of the training data (`--read_type se`, `pb`, `ont` for other models). Differences in the last
+digits (1e-12) are noted, not failed. `gradient_boosted_cmdline.py` and
+`hist_gradient_boosted_cmdline.py` train gradient-boosted trees (their PMML export needs Java); the R
+scripts are the older caret pipeline.
+
+### Species and clades the database lacks
+
+The report's section "False positives and false negatives by taxonomic rank" (and the same for the test
+set) shows how the model handles organisms the database lacks:
+
+- **False positives from what the training database lacks**: absent taxa whose closest species in
+  the sample is one the database lacks, by the rank it was held out at, against the other absent taxa.
+- **False negatives** of present taxa by the deepest rank they share with another species of the
+  sample.
+- **With the taxon's clade held out of training**: FN and FP rates and F1 when the forest has seen
+  nothing of that species, genus, ... phylum.
+
+The section "Strains" compares species simulated from another genome than the representative (real
+and in-silico strains apart) with those simulated from it, by fragments: how often each is missed,
+and whether missed strains look like found ones or like a missing species' congeners. "The
+conservation features by class of taxon" checks the conservation features on the training data.
+
+### Using a new model
+
+Try it without changing the database, on new samples or on existing alignments:
+
+```bash
+protal --db DB --model training/model.xml --map test.map -t 16
+protal --profile_only a.sam.zst,b.sam.zst --db DB --model training/model.xml -o test/
+```
+
+Then make it the database's model of its read type with `protal --add_model training/model.xml
+--read_type pe --db DB`. Choose `--knob` on held-out samples like the ones it will profile;
+`<prefix>.thresholds.tsv` is a start.
+
+### Knobs by sample depth
+
+A deep sample holds many more absent taxa with a few reads (at r226 they grew as depth^0.84), so its
+best threshold is higher. With `--depth-knobs` the trainer fits a knob curve over log10 of the
+sample's fragments: a point per half decade with 6 or more samples, its knob the threshold with the
+highest F1 on species held out within half a decade of it, kept at `--knob` unless it gains 0.002.
+The curve goes into the model (`<Extension name="protal_depth_knob_curve" .../>`), and protal
+interpolates it per sample, keeping the deepest knob for deeper samples; `--knob` overrides it. The log
+lists each sample's knob. At r226 (0.7.0's features) curves raised the test F1 by 0.006-0.033 per read
+type ([report](claude/2026-10-02-r226-build-evaluation/README.md)).
+
+With the sample's depth among the features (the default since 0.7.5) no curve is fitted: the forest
+already knows the depth, and a curve on top corrects twice (it lost 0.010). Either way a model cannot
+extrapolate beyond its deepest training samples: train at the depths you profile. Models of 0.7.2
+carry knobs per decade instead, which protal still reads.
+
+### Calls at a target share of false calls
+
+With `--fdr-calls` the trainer calibrates the scores (an isotonic fit on species held out) and picks the
+target share of false calls (0.005-0.5) with the highest F1. With `protal --fdr F`, each sample's scores
+become probabilities, adjusted to the sample's own share of present candidates, and protal reports
+the highest-scoring taxa while the mean of their 1 − probability stays at or below F. At r226 these
+calls were 0.001-0.007 F1 below the knob curve for every read type
+([report](claude/2026-10-03-r226-v5-v6-training/README.md)), so they are off by default;
+`build_gtdb_database.py --call-mode fdr` trains them.
+
+### The singleton rule
+
+With `--singleton_congener N`, a species with a single fragment beside a congener of N or more
+fragments is never reported if its read looks like the congener's: the abundance-weighted assignment
+(`em_own_share`) leaves it less than half of it, or its identity is below 0.95. Off by default (0): at
+r226 the model already called none of the rows the rule would veto, and on worlds with congener groups
+a rule without the read test removed true minor congeners
+([report](claude/2026-10-03-false-positive-anatomy/README.md)). The profiles, statistics and MSAs
+follow it, and the trainer counts it with `--singleton-congener`.

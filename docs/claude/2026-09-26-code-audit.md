@@ -6,7 +6,7 @@
 > during the work on branch `audit-fixes`. Commit hashes are on that branch. The last row (step H,
 > `d35f158`) is the state when the page was last edited; later commits added the single-file
 > database (`66016e9`) and the GTDB build-and-train workflow (`e917af3`, see
-> [building-a-database.md](../building-a-database.md)).
+> [building-a-database.md](../databases.md#building-a-database)).
 
 Protal's read-mapping core is well designed and fast, but eight verified bugs in the SAM round-trip and the SNP/MSA path silently change profiles and strain output. Build, packaging and tests lag behind the code. Scope: branch `alpha` at commit `014f4a9`. A clean clone builds in about a minute with no errors; it was compiled with `-Wall -Wextra` under gcc 13 and clang 18, and the CLI was exercised on edge cases. There was no end-to-end profiling run: that needs a GTDB index, and the simulator needs `art_illumina`.
 
@@ -20,7 +20,7 @@ The core design choices are sound and worth keeping; the problems below are most
 - **CLI validation**: every input is checked before the index loads, all missing files are listed at once, and bad input exits non-zero (verified: codes 2, 30, 31). Help text is detailed, and `--map_help` has a worked example.
 - **Strain output**: MSA row and column order is deterministic, the IUPAC table is correct, each rejected site is attributed to a named filter, and the qcmsa call is properly shell-quoted.
 - **Simulator**: zero compiler warnings under `-Wall -Wextra`. ART runs via `fork`/`execvp` with exit-status checks, read counts sum exactly to the target, and every run records its seed and a replayable manifest.
-- **Documentation of recent work**: the strain M1–M5 commits have descriptive messages, and `scripts/qcmsa.md` is a good operator guide.
+- **Documentation of recent work**: the strain M1–M5 commits have descriptive messages, and `docs/strains.md` is a good operator guide.
 
 ## Result-changing bugs
 

@@ -46,7 +46,7 @@ Every run used `-t 6 --no_qcmsa`. Machine: WSL Ubuntu 24.04 on a Core Ultra 7 25
 | `src/Build.h` | the genera compared for the gene congener table list their members by taxid, not in the genome map's order (a build-time output; no effect on runs) |
 | `tests/test_ExactSum.cpp` (new) | the sum is the same in shuffled and reversed orders where a double sum is not; parts add up to the whole; small sums exact |
 | `tests/test_ProfileThreads.cpp` | `ProfileSam.TheProfileDoesNotDependOnTheOrderOfTheReads`: a 3000-read SAM and the same with its reads shuffled (each read's records together), profiled on 1 and 3 threads, give the same profile in an order-free dump (taxa by taxid, all model features, genes by id with their sums, sorted read identities, coverage, variant sites by position) |
-| `docs/testing.md` | one sentence on the new test |
+| `docs/development.md` | one sentence on the new test |
 
 Alignment itself needed nothing: each read's records depend only on the read (the candidates' order comes from the index
 and the seeds), and the SAMs of repeated runs were the same sets before and after.

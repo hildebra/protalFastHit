@@ -1223,7 +1223,7 @@ def main():
                         "~22 GB at r226). A network file system (OUTDIR's, often) is slow at the many files the "
                         "simulators write and delete, and at writing a database; the converter spools the release's "
                         "marker genes there too. With the defaults the r226 run took up to 120 GB there, without the training database "
-                        "(give it 175 GB, docs/building-a-database.md); a rerun reuses the samples in the same SCRATCH")
+                        "(give it 175 GB, docs/databases.md); a rerun reuses the samples in the same SCRATCH")
     args = p.parse_args()
     Job.progress_every = args.progress_every
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]

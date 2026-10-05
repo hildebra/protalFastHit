@@ -104,9 +104,9 @@
   default; `tests/e2e/test_protal_e2e.py`: `FalseCallsTest.test_calls_only_with_fdr`;
   `scripts/mini_db/test_mini_db.py`: the default set and the suspect-copies metadata.
 - `docs/running.md` (`--fdr`, `--singleton_congener`, `--keep_suspect_copies`, the run-level check),
-  `docs/model-training.md` (the two feature groups, `--features`, the knob curve's gain rule and its absence, calls
-  only with `--fdr`, the singleton rule off), `docs/building-a-database.md` (the scan, the files, `--features`,
-  `--call-mode`), `docs/database-files.md` (`suspect_copies.tsv`).
+  `docs/databases.md` (the two feature groups, `--features`, the knob curve's gain rule and its absence, calls
+  only with `--fdr`, the singleton rule off), `docs/databases.md` (the scan, the files, `--features`,
+  `--call-mode`), `docs/databases.md` (`suspect_copies.tsv`).
 
 ## Validation on the benchmark world
 

@@ -17,7 +17,7 @@ the Linux file system; the old binary is `4b21427` built the same way.
 | `VariantHandler` | takes the `Gene` and decodes it once per alignment (`Reference()`), or a fixed `string_view` as in the tests; `StrainLevelContainer` passes its gene |
 | `unique_kmers.tsv` | counts above 2^32 − 1 are refused as too large (they are stored in 32 bits; a gene has fewer than 2^20 bases) |
 | tests | `tests/test_PackedSequence.cpp` (9 tests), the existing ones unchanged |
-| docs | `docs/database-files.md` (Genes in memory), `docs/running.md` (Memory) |
+| docs | `docs/databases.md` (Genes in memory), `docs/running.md` (Memory) |
 
 **Coding** (your suggestion): A 0, C 1, G 2, T 3, four bases to a byte. `N` is stored as `A`, an
 IUPAC code as the first base it stands for in the order A C G T (`R W M D H V` → `A`, `Y S B` → `C`,

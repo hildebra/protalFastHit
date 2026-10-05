@@ -33,7 +33,7 @@ for this page.
 
 - One file, `database.protal` (seekable zstd, the index in columns), checked against its reference;
   107 MB instead of 3.4 GB for the 765-species tuning world, built 3x faster. The old raw files still
-  work and can be converted both ways ([database-files.md](database-files.md)).
+  work and can be converted both ways ([databases.md](databases.md#the-files-of-a-database)).
 - `--add_model` installs a read type's model into the database (several at once since 0.7.3).
 - Index format 2 with correct unique flags, built in parallel and the same for any thread count.
   No k-mer with an ambiguous base enters the index.
@@ -53,7 +53,7 @@ for this page.
 - Reduced databases (0.7.6): a subset of the marker genes (`--build_gene_subset`, the converter's
   `--genes`) now reaches every build phase. `scripts/rank_genes.py` picks the most distinctive genes
   with a share reserved for each domain, so that archaea keep genes
-  ([building-a-database.md](building-a-database.md)).
+  ([databases.md](databases.md#building-a-database)).
 
 ### Profiles and strains
 
@@ -106,7 +106,7 @@ for this page.
 
 - `build_gtdb_database.py` builds and trains a database from a GTDB release: held-out clades and
   species, other strains, an independent test set, one model per read type, resumable reruns
-  ([building-a-database.md](building-a-database.md), [model-training.md](model-training.md)).
+  ([databases.md](databases.md#building-a-database), [databases.md](databases.md#the-presence-model)).
   0.6.0a shipped one model trained on older databases.
 - 0.7.3 to 0.7.5 made the training data more realistic (PacBio HiFi reads with qualities by length
   instead of pbsim3's quality-0 reads; a mixed design of lognormal sigma 1.3 and 2.0 communities;

@@ -178,7 +178,7 @@ per-sample alignment times at r226 (`profile_all/protal.log` on scratch).
 
 On `4cae2f4` (uncommitted when measured): `src/RandomForest/MetagenomeSimulator.{cpp,h}`,
 `src/simulate_metagenomes_main.cpp` (help text), `scripts/collect_training_data.py`, `scripts/build_gtdb_database.py`,
-`scripts/mini_db/test_mini_db.py`, `docs/model-training.md`, `docs/simulation.md`, `docs/building-a-database.md`.
+`scripts/mini_db/test_mini_db.py`, `docs/databases.md`, `docs/development.md`, `docs/databases.md`.
 
 1. **Long reads, largest first and in chunks.** All the collector's simulations are now jobs in one queue
    (`Scheduler`), which runs the ready job of highest priority on the cores it needs (`--jobs`, default `-t`) and

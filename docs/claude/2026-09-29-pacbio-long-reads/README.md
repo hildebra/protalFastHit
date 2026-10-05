@@ -338,8 +338,8 @@ more but lose minor strains between 20% and 30%.
 
 In `docs/running.md`'s options table: `--read_type` (`pe`, `se`, `pb` or `ont`; default: `pe`
 with `-2`, else `se`), `--model_pb` and `--model_ont` (default `--model`, else `model_PB.xml` or
-`model_ONT.xml`), and the ONT defaults of `-a` and `--snp_min_af`. `docs/database-files.md`:
+`model_ONT.xml`), and the ONT defaults of `-a` and `--snp_min_af`. `docs/databases.md`:
 `model_pe.xml`, `model_se.xml`, `model_PB.xml` and `model_ONT.xml`, `model.xml` for older
-databases. `docs/model-training.md`: the PacBio and ONT models are trained on long-read samples
+databases. `docs/databases.md`: the PacBio and ONT models are trained on long-read samples
 of their platform, as `model_se.xml` on single-end ones. The website is out of date for single-end,
 PacBio and ONT reads. `docs/claude/README.md`: this report's line in the table.

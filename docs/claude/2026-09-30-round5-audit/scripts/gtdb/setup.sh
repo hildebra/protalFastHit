@@ -7,6 +7,6 @@ rsync -a --exclude /build ~/strain-build/src/ ~/audit6/gtdb/src/
 ls ~/audit6/gtdb/src/scripts
 # compare with the worktree copy
 diff -rq ~/audit6/gtdb/src/scripts /mnt/c/Users/hildebra/Documents/locDev/protal/.claude/worktrees/strain-fixes/scripts | head
-diff -q ~/audit6/gtdb/src/docs/building-a-database.md /mnt/c/Users/hildebra/Documents/locDev/protal/.claude/worktrees/strain-fixes/docs/building-a-database.md
+diff -q ~/audit6/gtdb/src/docs/databases.md /mnt/c/Users/hildebra/Documents/locDev/protal/.claude/worktrees/strain-fixes/docs/databases.md
 ~/strain-build/bin/protal --version 2>&1 | head -3
 ~/strain-build/bin/simulate_metagenomes --help 2>&1 | head -60

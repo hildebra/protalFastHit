@@ -12,7 +12,7 @@ echo "build rc=$?" | tee -a $A/rel_build.log
 ls -la build/protal build/protal_avx2 build/simulate_metagenomes | tee -a $A/rel_build.log
 ./build/protal --version 2>&1 | tail -3 | tee -a $A/rel_build.log
 echo "== warnings in release build"; grep -c 'warning:' $A/rel_build.log
-# unit tests (as just test / docs/testing.md)
+# unit tests (as just test / docs/development.md)
 { time cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON ; } > $A/rel_test_configure.log 2>&1
 echo "test configure rc=$?" | tee -a $A/rel_test_configure.log
 { time cmake --build build --target protal_tests -j 2 ; } > $A/rel_test_build.log 2>&1

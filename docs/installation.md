@@ -3,7 +3,7 @@
 protal runs on Linux on x86-64 CPUs. There is no macOS or native Windows version; on Windows it
 builds and runs under WSL2 (see [Windows (WSL2)](#windows-wsl2)).
 
-At run time protal needs `python3` for the strain MSA post-filter [qcmsa](qcmsa.md), which the
+At run time protal needs `python3` for the strain MSA post-filter [qcmsa](strains.md#filtering-with-qcmsa), which the
 bioconda package brings. It compresses its outputs itself (zstd, and gzip with libdeflate), so
 no external compressor is needed.
 
@@ -63,9 +63,9 @@ it against its own checkout.
 |---|---|---|
 | `protal` | `build/protal` | runs on any x86-64 CPU, with AVX2 where the CPU has it ([below](#one-binary-for-every-cpu)) |
 | `protal_static` | `build/protal_<version>_static` | fully static build of `protal` |
-| `simulate_metagenomes` | `build/simulate_metagenomes` | read simulator, see [simulation.md](simulation.md) |
+| `simulate_metagenomes` | `build/simulate_metagenomes` | read simulator, see [development.md](development.md#simulating-metagenomes) |
 | `simulate_metagenomes_static` | `build/simulate_metagenomes_static` | static simulator |
-| `protal_tests` | `build/tests/protal_tests` | unit tests; needs `-DPROTAL_BUILD_TESTS=ON` and GoogleTest, see [testing.md](testing.md) |
+| `protal_tests` | `build/tests/protal_tests` | unit tests; needs `-DPROTAL_BUILD_TESTS=ON` and GoogleTest, see [development.md](development.md) |
 
 The [justfile](../justfile) wraps these: `just baseline` (protal), `just simulate`,
 `just build-all` (the two binaries that get installed), `just static`, and `just clear` to
@@ -128,7 +128,7 @@ conda create -n protal_local -c "file://$PWD/conda-build" -c conda-forge -c bioc
 
 ## Tools to build a database
 
-Building and training a database ([building-a-database.md](building-a-database.md)) needs more than
+Building and training a database ([databases.md](databases.md#building-a-database)) needs more than
 profiling: compilers for protal from the checkout, ART for the simulations, Python with
 numpy, pandas, scikit-learn and joblib for the training, and NCBI's `datasets` for strain genomes.
 `envs/protal-db-build.yaml` is a conda environment with all of them:

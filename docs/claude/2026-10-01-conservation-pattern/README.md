@@ -57,7 +57,7 @@ conserved genes the relative's reads (and the species' own) fit many congeners a
 about where the reads align. Here, in a world of other design (genera of 1 to 38 species, 173 of them with one),
 the same group is at −0.02 (0.99 times); why the two worlds differ was not traced.
 The feature documentation turned it into a statement about where a relative's reads land, without measuring it.
-Corrected in `docs/model-training.md`, `scripts/model_features.py`, the comments of `Profiler.h`, and noted in
+Corrected in `docs/databases.md`, `scripts/model_features.py`, the comments of `Profiler.h`, and noted in
 the two earlier reports.
 
 ## What the simulation assumes that real genomes may not

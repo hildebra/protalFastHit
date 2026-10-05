@@ -1,7 +1,7 @@
 # Tools to build and train a protal database: scripts/build_gtdb_database.py and what it runs
 # (gtdb_to_protal_db.py, protal --build, simulate_metagenomes, collect_training_data.py,
 # random_forest_cmdline.py, check_model_parity.py) and download_gtdb.py, which fetches its inputs. See
-# docs/building-a-database.md.
+# docs/databases.md.
 #
 #   conda env create -f envs/protal-db-build.yaml        # or: micromamba create -f envs/protal-db-build.yaml
 #   conda activate protal-db-build

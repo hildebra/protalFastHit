@@ -50,7 +50,7 @@ known.
 
 | Question | The website says | Suggested change |
 |---|---|---|
-| Can I use a custom database? | no; GTDB r214 | yes: a database can be built from any GTDB release, or part of one, with `scripts/build_gtdb_database.py` (`docs/building-a-database.md`). The shipped database is r226; update the release and its species count |
+| Can I use a custom database? | no; GTDB r214 | yes: a database can be built from any GTDB release, or part of one, with `scripts/build_gtdb_database.py` (`docs/databases.md`). The shipped database is r226; update the release and its species count |
 | Is there a windows version? | no | still no native version, but it builds and runs under WSL2 (checked on Ubuntu 24.04 for this review) |
 | Can I use protal on long reads? | short reads only | also: paired-end only; single-end reads are not supported yet |
 | Can I track strains across samples? | "strain-trees and pairwise sample distances for each species" | protal writes no pairwise distance matrix at present (the similarity matrix is switched off in `StrainWrapper2`, `src/RunProtal.h`); distances come from trees built on the MSAs |
@@ -67,12 +67,12 @@ link to them.
 - Building from source, static builds, the AVX2 launcher, WSL2: `docs/installation.md`
 - Output locations per mode, reruns, exit status, the options `--help` shows but the website does
   not, alignment and developer options, environment variables: `docs/running.md`
-- The database files, `database.protal`, compression and conversion: `docs/database-files.md`
+- The database files, `database.protal`, compression and conversion: `docs/databases.md`
 - Building a database from GTDB, reduced marker sets, build and train in one command:
-  `docs/building-a-database.md`
-- Training the presence model: `docs/model-training.md`
-- qcmsa's parameters and re-filtering: `docs/qcmsa.md`
-- `simulate_metagenomes`: `docs/simulation.md`
+  `docs/databases.md`
+- Training the presence model: `docs/databases.md`
+- qcmsa's parameters and re-filtering: `docs/strains.md`
+- `simulate_metagenomes`: `docs/development.md`
 
 ## Found in the repository while checking
 
@@ -83,9 +83,9 @@ Not website issues, but found on the way; not changed here.
   defaults after `OptionsFromArguments`).
 - `--no_qcmsa`'s help says protal "fails gracefully with a warning" if qcmsa cannot be found; it
   reports an error and exits 1 (`RunQCMSA`, `src/RunProtal.h`).
-- The removed `scripts/qcmsa.md` documented `--remove-constant` / `--keep-constant`; qcmsa's flag
-  is `--discard-constant`. `docs/qcmsa.md` has the right flags.
+- The removed `docs/strains.md` documented `--remove-constant` / `--keep-constant`; qcmsa's flag
+  is `--discard-constant`. `docs/strains.md` has the right flags.
 - The CI workflow no longer builds the mini database or runs the end-to-end tests (removed in
   `e917af3`); the old README still said it did.
 - `scripts/build_gtdb_database.py` trains on simulations of species that are all in the database,
-  so the model sees none of the novel-species negatives that `docs/model-training.md` recommends.
+  so the model sees none of the novel-species negatives that `docs/databases.md` recommends.

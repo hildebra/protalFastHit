@@ -5,7 +5,7 @@ computes the quantities below from the sample's alignments, the database and the
 taxa, hands them to the model and reports the species whose probability reaches `--knob`. This
 page lists every feature: since which version protal computes it, what it measures, how much the
 GTDB r226 models lean on it for each read type, and in which situations it matters. How the models
-are trained is in [model-training.md](model-training.md); the reports the evidence comes from are
+are trained is in [databases.md](databases.md#the-presence-model); the reports the evidence comes from are
 in [`docs/claude/`](claude/README.md).
 
 **Where they come from.** `TaxonFeatures` in `src/Profiling/Profiler.h` computes them, in the column
@@ -30,7 +30,9 @@ The default set is `normalized+adjacency+distance+depth+divergence+unfiltered` (
 adds no feature; it changes how the models are trained (below: the priors opt-in, in-silico strains,
 more training depths). 0.6.0a
 shipped one model on absolute counts (genes, k-mers and mates); those columns are still in the dump
-([below](#in-the-dump-but-in-no-set)) but in no 0.7 set.
+([below](#in-the-dump-but-in-no-set)) but in no 0.7 set. A training table of an older protal
+lacks the columns of later groups: train it with the groups it has (before 0.7.5
+`normalized+adjacency+distance`, before 0.7.4 `normalized+adjacency`).
 
 **How to read the importance columns.** The numbers are the forests' Gini importances (scikit-learn's
 `feature_importances_`, which sum to 1 over a model) of the two latest GTDB r226 trainings, read
@@ -102,7 +104,9 @@ the rates below are relative to what the species could show.
 ### The reads' other candidates (0.7.1)
 
 From every read's best record, also those the MAPQ filter leaves out; the alternatives come from the
-`ZA` tag protal writes (the other taxa among a read's aligned candidates within 5 edits).
+`ZA` tag protal writes (the other taxa among a read's aligned candidates within 5 edits). A SAM of
+an older protal lacks the tag (protal warns, and the fit shares are 0): align it again (`--force`)
+for a model that uses them.
 
 | feature | since | what it measures | importance pe / se / pb / ont | matters for |
 |---|---|---|---|---|
@@ -144,7 +148,9 @@ They separate present from absent taxa hardly at all (AUC 0.39-0.72 on the bench
 [report](claude/2026-10-01-gene-neighbours-run/README.md)): a missing relative's reads pair across
 the same genes as the species' own. At r226 the group changes F1 within ±0.001 (the feature-set
 table below). They stay in the default set for real data, where gene order differs more between
-clades than in the simulated worlds; single-end reads cannot have them (0 importance).
+clades than in the simulated worlds; single-end reads cannot have them (0 importance). A database
+whose `gene_neighbours.tsv` has lines of a species' own gene order judges that order expected, so
+train on the table the model will run with.
 
 ## The sample's other taxa (`distance` and `relatives`, 0.7.4)
 

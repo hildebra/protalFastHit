@@ -74,7 +74,7 @@ Where the instructions go, `db900`, 1 thread, 15.0 G in all (`scripts/cg_startup
 
 GTDB r226 has 136,646 bacterial and 6,968 archaeal species (GTDB's release statistics, not
 checked against the database); protal uses 119 and 52 marker genes
-([model-training.md](../../model-training.md)), so up to **16.6M genes** (~17 Gbp at ~1 kb each).
+([model-training.md](../../databases.md#the-presence-model)), so up to **16.6M genes** (~17 Gbp at ~1 kb each).
 `db900` has 266 index values per gene; at that density the full database has ~4.4 G values
 (35 GB), and 3.2 GB key map + 35 GB values + ~17 GB genes + 1.8 GB gene tables ≈ 57 GB, close to
 the 59 GB that [running.md](../../running.md) gives. The mini database has fewer genes per species.

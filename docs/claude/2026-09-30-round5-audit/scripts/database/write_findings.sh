@@ -7,7 +7,7 @@ cat > ~/audit6/database/findings.md <<'EOF'
 
 Reviewer area: src/Utilities/Database.h, src/Utilities/Zstd.h, src/Hash/IndexCodec.h,
 Seedmap load/save, src/Build.h (bundle/compress/unpack/add_model), db location/validation in
-src/Options.h, docs/database-files.md. Repo: worktree strain-fixes @ 39a8585. All experiments
+src/Options.h, docs/databases.md. Repo: worktree strain-fixes @ 39a8585. All experiments
 used at most 2 threads. Mid-audit the shared WSL VM crashed (Wsl/Service/E_UNEXPECTED, machine
 load ~13 from other sessions) and rebooted; ~/audit6 persisted and every experiment completed.
 wsl --shutdown was never used.

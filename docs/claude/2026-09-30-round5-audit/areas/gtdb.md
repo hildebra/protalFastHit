@@ -31,7 +31,7 @@ Test world: gtdb_like_lineages.py --species 120 --archaea 0.1 --seed 1; simulate
 | L8 | Low | check_model_parity.py:210; collect_training_data.py:349; lineages.py:34-41 | latent: parity hard-codes alignments/; a sample prefix containing ".profile" cut short; a taxonomy cycle -> RecursionError | probes.py P3, P2 |
 | L9 | Low | collector's protal.meta | training/ cannot be moved: absolute paths | E-d on a copy |
 | L10 | Low (extrapolated) | gtdb_to_protal_db.py:237-256, 474-488 | disk at r226 undocumented: full_reference.fna in both protal_db and training_db, .convert_tmp another full copy until joined; ~3.0x the reference per copy -> ~85 GB per copy at r226: ~170 GB kept + ~85 GB transient, besides the release | b2 sizes |
-| L11 | Low | tests | no end-to-end test of build_gtdb_database.py; H1, M1-M4, L3 never exercised | justfile, docs/testing.md |
+| L11 | Low | tests | no end-to-end test of build_gtdb_database.py; H1, M1-M4, L3 never exercised | justfile, docs/development.md |
 
 Verified to hold: end to end exit 0; database.protal's model_pe.xml identical to trained_model.xml, placeholders marked;
 model_logs complete; PMML equals scikit-learn 1.9.0 exactly (trainer: max difference 0 on 219 rows; probes.py P4: 0.0 on

@@ -66,7 +66,7 @@
     fixes `just install DIR`: just passes recipe arguments by position, so the documented
     `just install prefix=DIR` installed into a folder named `prefix=DIR`;
   - `docs/running.md`: the environment variable is gone;
-  - `docs/testing.md`: what CI builds;
+  - `docs/development.md`: what CI builds;
   - `docs/README.md`.
 - The website (`main.php?site=documentation`) says nothing about AVX2 builds or the launcher, so it does not
   go out of date.

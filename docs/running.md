@@ -59,42 +59,8 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   thousands of taxa, and that many small files took 15 s of a run on a network file system. The
   profile files hold the same numbers per sample.
 
-Strain MSAs are written for the species that pass the model in at least two samples, each with a
-row for every sample in which the species passes. A run of one sample therefore writes no MSAs.
-`--msa_species s__Genus_species,...` writes MSAs for the named species only. A species passes
-with a model probability of at least its sample's knob in the profiles (`--knob`, a model's knob
-for the sample's depth, [model-training.md](model-training.md#knobs-by-sample-depth), or the knob of its
-calibrated calls, [--fdr](model-training.md#calls-at-a-target-share-of-false-calls); never a species the
-singleton rule vetoes) and of at
-least `--msa_knob` (default: the same knob) for the MSAs, so by default both hold the same samples. An MSA takes the genes
-with reads in its samples. For a species with relatives in the database, whose genes have long
-unique k-mers (a 15-mer core shared with a relative) in 90% of cases or more, the genes without
-any are left out: a relative may share them unchanged, and its reads would then show as a second
-strain.
-
-A long-read sample (PacBio, ONT) whose reads show two or more strains of a species gets a row per
-strain in the species' MSA, `<sample>_hap1`, `<sample>_hap2`, ... (the most abundant first), in
-place of its one row, which would hold an IUPAC code wherever both strains' alleles pass. A long
-read covers several marker genes, and at each of the sample's multi-allelic sites on them shows the
-allele of the one strain it comes from. protal groups the sites that reads link, directly or through
-other sites, into blocks, and per block grows haplotypes from the reads: a haplotype starts from the
-read with the most sites and takes the reads that share sites with it and agree there; a read that
-fits none starts the next. A block's haplotypes go to the rows by their shares of its reads, which
-are the strains' shares of the sample in every block: the block with the most sites gives the rows,
-and another block's haplotypes join them if their read counts make one join at least 20 times more
-likely than any other. Each row is then called from its strain's reads as a sample's row is from
-the sample's (same SNP filters), so its bases are its strain's also where the sample's filters did
-not see that strain's allele, and it is `-` where its strain's reads do not reach. A block that
-strains of about equal abundance, or too few reads, leave unphased gives no row its reads.
-Phasing needs phased blocks on at least 3 genes: a second allele on one or two genes is a gene
-from elsewhere (another genome's copy of it), not a strain. Reads are cut where two of their genes
-are unlikely neighbours in the species' clade (a chimera; with the database's gene neighbours), and
-a foreign gene (below) is not phased unless kept. The strain rows get lines of their own in
-`.meta.tsv`, so qcmsa judges them as rows. `<species>.haplotypes.tsv` has a line per block of each
-long-read sample: its genes, sites and reads, the reads of its haplotypes, the haplotype of each row
-if it was phased, and the log odds of that join against the next best. `--no_phasing` writes one
-row per sample, as before; paired-end and single-end samples always get one
-([report](claude/2026-10-02-phasing-and-foreign-genes/README.md)).
+Strain MSAs (which samples, genes and reads enter them, long-read strains, qcmsa, trees) are
+described in [strains.md](strains.md).
 
 `misc/unreported_species.tsv` lists the species that a sample's profile leaves out, their
 probability below the sample's knob, although their own reads are strong evidence that they are present:
@@ -219,32 +185,19 @@ alignment. Workflow managers can rely on a non-zero status.
 | Option | Default | |
 |---|---|---|
 | `-t, --threads` | 1 | threads for alignment (which also compresses the SAM), database loading and profiling. Set it: the default is one thread. While aligning, each read file is also decompressed by a thread of its own (two for paired reads); BGZF files (`bgzip`, `simulate_metagenomes`) decompress about 2x faster than other gzip files (libdeflate against zlib-ng). Samples are profiled in parallel, the largest SAM first, each on threads in proportion to its SAM's share of all the samples' bytes (at least one; a single sample on all), with the same results as on one thread. A sample profiled on several threads also has its SAM read by a thread of its own; from 8 threads on, the zstd frames of a `.sam.zst` that protal wrote are decompressed ahead by `-t`/6 more threads (2 to 8) |
-| `--knob` | 0.5 | detection threshold, 0 to 1 (checked). Choose it on data like yours; see [model-training.md](model-training.md). A model with knobs by sample depth (trained with `--depth-knobs`, as `build_gtdb_database.py` trains every model since 0.7.3: a curve over log10 of the sample's fragments) uses the knob for each sample's depth unless `--knob` is given; the log lists them ([model-training.md](model-training.md#knobs-by-sample-depth)). A model trained with the sample's depth as a feature (the default set) has no curve and calls at 0.5 unless `--knob` is given. A model's calibrated calls are used only with `--fdr` |
-| `--fdr` | off | expected share of false calls, 0 to 1, for a model with calibrated calls (`random_forest_cmdline.py --fdr-calls`, as `build_gtdb_database.py --call-mode fdr` trains them): each sample reports its highest-scoring species while the mean of their 1 - probability stays at or below it, the scores made probabilities by the model's calibration and adjusted to the share of present species among the sample's candidates, so that a deep sample, with many more absent candidates, needs higher scores. Off by default: without `--fdr` the knob curve or `--knob` applies even to a model with calibrated calls, which at GTDB r226 called 0.001-0.007 F1 below the curve for every read type ([report](claude/2026-10-03-r226-v5-v6-training/README.md)). `0`: off; not with `--knob`. The log gives each sample's calls and knob ([model-training.md](model-training.md#calls-at-a-target-share-of-false-calls)) |
-| `--singleton_congener` | 0 | a species of a single fragment beside a species of its genus with at least this many fragments in the sample is not reported, whatever its score, if its read looks like the congener's: the abundance-weighted assignment of the reads' alternatives leaves it less than half of it, or its identity is below 0.95 ([model-training.md](model-training.md#the-singleton-rule)). `0` (default): no such rule; on GTDB r226 training data the model called none of the taxa the rule would have vetoed ([report](claude/2026-10-03-false-positive-anatomy/README.md)) |
-| `--keep_suspect_copies` | off | count reads on the database's suspect gene copies as evidence of their species. A suspect copy is a species' copy of a marker gene that `--build` found near-identical to a copy of a species of another genus (or family, order, class, phylum, domain) while its own congeners' copies are farther, or it has none: a contaminating contig or a transferred gene (`suspect_copies.tsv`, [building-a-database.md](building-a-database.md#2-build-the-index)). By default records on them are left out as if the reads had not aligned (the log says how many per sample): every present organism with such a gene puts a perfect read on the copy, and such reads were a fifth of the false species calls at GTDB r226 ([report](claude/2026-10-03-false-positive-anatomy/README.md)) |
+| `--knob` | 0.5 | detection threshold, 0 to 1. A model with a knob curve over the sample's depth uses the curve unless `--knob` is given; models trained with the depth as a feature (the default) have none ([databases.md](databases.md#how-protal-calls-species)). Choose it on data like yours |
+| `--fdr` | off | report each sample's species while their expected share of false calls stays at or below this, for a model with calibrated calls; at r226 it called slightly below the knob curve, so it is off ([databases.md](databases.md#calls-at-a-target-share-of-false-calls)) |
+| `--singleton_congener` | 0 | veto a single-fragment species beside a congener of at least this many fragments when its read looks like the congener's; 0: no rule ([databases.md](databases.md#the-singleton-rule)) |
+| `--keep_suspect_copies` | off | count reads on the database's suspect gene copies (near-identical to another genus's copy: contamination or a transferred gene) as evidence; by default they are left out, and the log says how many per sample ([databases.md](databases.md#2-build-the-index)) |
 | `--depth_identity_margin` | 0.08 | a read counts towards a species' abundance only if its identity is at most this far below that of the species' best reads (98th percentile). Reads of relatives the database lacks still count for detection, not for depth. The margin is the same on every gene unless `--gene_conservation` scales it. The default counts the reads of strains up to about 5% from the reference; 0.04, the earlier default, dropped up to 40% of the reads of strains 3–5% away and undercounted those strains ([report](claude/2026-09-30-depth-margin-stress/README.md), [scaled per gene](claude/2026-10-01-gene-scaled-margin/README.md)). 1 lets every read count. The depth counts each base a fragment covers on a gene once: where a pair's mates overlap there, the second mate adds only what the first did not cover, as the strain MSA counts them ([report](claude/2026-10-02-fragment-depth/README.md)) |
-| `--gene_conservation` | `none` | scale `--depth_identity_margin` per gene by how fast each gene diverges within species: `db` for the database's factors (`gene_conservation.tsv`, which `--build` estimates and stores, [database-files.md](database-files.md)), or a file of `geneid<TAB>factor` lines. A gene's margin is then 0.03 for read errors plus the rest times its factor: at 0.08, 0.05 on a gene with factor 0.4 and 0.10 on one with 1.4. `none`, the default, keeps the same margin on every gene: summed over three simulated worlds it did best, since the scaled margin also admits more of a missing relative's reads; the scaled one was better only where strains reach 6% from the reference ([report](claude/2026-10-01-gene-scaled-margin/README.md)). The log says which applies (`Gene conservation: ...`). Whatever it says, the database's factors (or the file's) give the model's conservation features (`conserved_fast_depth_ratio`, `conserved_hit_share`, [model-training.md](model-training.md)); without them these are 0 and 0.5 |
-| `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [model-training.md](model-training.md) |
+| `--gene_conservation` | `none` | scale `--depth_identity_margin` per gene by its conservation factor: `db` for the database's, or a file of `geneid<TAB>factor`; a gene's margin is then 0.03 plus the rest times its factor. `none` did best over three simulated worlds ([report](claude/2026-10-01-gene-scaled-margin/README.md)). The model's conservation features use the factors either way |
+| `--model` | `model.xml` of the database (`model_se.xml` for single-end samples) | a PMML file, or the name of another model in the database folder (`<name>.xml`); for all samples unless `--model_se` is given. protal checks the model before aligning, see [databases.md](databases.md#the-presence-model) |
 | `--model_se` | `--model`, else `model_se.xml` of the database | the model of single-end samples, given as `--model` |
 | `--sam_format` | `zst` | the format of the SAM files protal names: `zst` (`.sam.zst`), `gz` (`.sam.gz`) or `sam`; a map's `SAM` names keep their own ending |
-| `--no_strains` | off | no MSAs or SNP tables. Variants are still called, since the model uses them, so profiles are the same with and without it |
-| `--msa_knob` | `--knob` | model probability a sample's species needs for the sample to enter the species' strain MSA. By default the MSA holds the samples whose profile reports the species; lower it to add samples the profile leaves out |
-| `--msa_min_hcov` | 1000 | minimum non-N, non-gap bases for a sample's sequence to stay in an MSA; passed to qcmsa as `--reapply-hcov` |
-| `--msa_min_depth` | 1 | reads a position needs to be written in an MSA, else `-`. Where its reads all show one allele, that many suffice; a second allele (an IUPAC code) needs `--snp_min_cov` reads, and a position whose reads disagree otherwise is `N`. 2 is the behaviour before the 2026-09-29 strain audit |
-| `--msa_identity_margin` | 0.04 | a read enters a species' strain MSA rows only if its identity is at most this far below that of the species' best reads (98th percentile), as for the abundance but more strictly: a relative's reads within 0.08 of the best put 10 times more false calls into the raw MSAs of mixed strains (twice as many after qcmsa). 1 lets every read in |
-| `--snp_max_alleles` | 3 | alleles encoded as an IUPAC ambiguity code in the MSA: 1 = only the top allele, 2 = two-allele mixtures (R, Y, ...), 3 = also three-allele mixtures (B, H, ...) |
-| `--no_phasing` | off | one MSA row per long-read sample, the consensus of its reads, as before. By default a PacBio or ONT sample whose reads show two or more strains of a species gets a row per strain (below) |
+| `--no_strains` | off | no MSAs or SNP tables (profiles are the same). The other strain options are in [strains.md](strains.md#options) |
 | `--keep_foreign_genes` | off | keep foreign genes (below) in their taxon's depth and strain MSAs; by default they are left out of both. `.profile.genes.log` lists them either way |
-| `--qcmsa_script` | | the qcmsa executable; see [installation.md](installation.md#installing-a-source-build) for how protal finds it otherwise |
-| `--preload_genomes_off` | off | read reference genes on demand instead of loading `reference.fna`: less memory, slower. Needs the database as separate files, see [database-files.md](database-files.md) |
+| `--preload_genomes_off` | off | read reference genes on demand instead of loading `reference.fna`: less memory, slower. Needs the database as separate files, see [databases.md](databases.md#the-files-of-a-database) |
 | `--verbose` | off | more progress output |
-
-The SNP filters (`--snp_min_cov`, `--snp_min_phred_sum`, `--snp_min_mean_qual`, `--snp_min_af`,
-`--snp_no_strand`) are described on the website. Base qualities are read with the standard
-Phred+33 offset. `--snp_min_af` defaults to 0.15 (0.2 for ONT reads): an allele needs
-that share of the reads with a base at a position to be called or to enter an IUPAC code. The
-profiles do not depend on it.
 
 ### Alignment options
 
@@ -280,11 +233,11 @@ and aligned in part if it runs past the gene's end. The log reports how many mat
 
 Marker genes often lie next to each other (the ribosomal protein operons, rpoB and rpoC, ...), so a
 fragment or a long read can span two of them. A database built with gene neighbours
-(`gene_neighbours.tsv`, [building-a-database.md](building-a-database.md#gene-neighbours)) knows,
+(`gene_neighbours.tsv`, [databases.md](databases.md#gene-neighbours)) knows,
 for each clade, how often each gene's end faces which other gene's end in its species' genomes and
 how far apart they are. For a taxon, a pairing's share in its family leans on the clades above it, the
 more the fewer species the family has
-([building-a-database.md](building-a-database.md#gene-neighbours)): ends that face each other in
+([databases.md](databases.md#gene-neighbours)): ends that face each other in
 20% or more are expected, in 5% or less unlikely. With it:
 - mates on two genes of one taxon that each run towards the end facing the other gene (expected
   neighbours), as one
@@ -299,7 +252,7 @@ more the fewer species the family has
 - the profile gets `adjacent_expected_share`, `adjacent_unlikely_share` and `adjacent_support`: of
   the genes next to each other on a taxon's reads, the shares that are expected and unlikely
   neighbours in the taxon's clade, and the mean frequency of their pairings there
-  ([model-training.md](model-training.md));
+  ([features.md](features.md#gene-neighbours-adjacency-071-and-073));
 - a gene whose reads' neighbouring genes are mostly unlikely neighbours in its taxon's clade (4 or
   more such links judged, more than half of them unlikely) is *foreign*: its reads come from another
   genome, one that carries a copy of it among other genes (a transferred gene, a relative's homolog in
@@ -307,10 +260,11 @@ more the fewer species the family has
   counts as a gene the taxon lacks) and of its strain MSA rows, unless `--keep_foreign_genes`;
   `.profile.genes.log` lists every gene's `LinksJudged`, `LinksUnlikely` and `Foreign`, and the log
   says how many a sample has. A gene with one end in context and one not is not foreign, and with
-  the species' own lines in the table ([building-a-database.md](building-a-database.md#gene-neighbours))
+  the species' own lines in the table ([databases.md](databases.md#gene-neighbours))
   the genes next to each other on its own genome's reads are expected, so its own genes are not taken
   for foreign ones;
-- a long-read sample's strains are phased with reads cut between unlikely neighbours (above).
+- a long-read sample's strains are phased with reads cut between unlikely neighbours
+  ([strains.md](strains.md#strains-in-long-read-samples)).
 
 The log says what the database has (`Gene neighbours: ... rules of ... clades`) and how many
 fragments and genes were found so. Gene order is much the same across bacteria, so this helps to
@@ -318,7 +272,7 @@ align and pair reads; it does not tell a species from its congeners.
 
 Each read's best record carries `ZA:Z:<taxid>:<edits more>,...`: its other candidates in other
 taxa (at most 5 edits more than the best, or `*`), from which the profiler counts the reads that a
-congener fits as well ([model-training.md](model-training.md)). A read's first record carries
+congener fits as well ([features.md](features.md#the-reads-other-candidates-071)). A read's first record carries
 `ZF:Z:<taxid>,...` when the read seeded on taxa strongly enough to be aligned against them (the
 align-top anchors) but did not align to them; a read that seeded on taxa and aligned nowhere gets a
 minimal unmapped record (flag 4, no sequence) with the tag, and nothing else is written for unaligned
@@ -328,10 +282,10 @@ the database lacks seeds on its nearest species and fails there, a present speci
 
 ### Developer options
 
-Also shown by `--full_help`: `--build` and its options ([building-a-database.md](building-a-database.md)),
+Also shown by `--full_help`: `--build` and its options ([databases.md](databases.md#building-a-database)),
 the database conversions `--compress_db`, `--unpack_db`, `--decompress_db`
-([database-files.md](database-files.md)), `--profile_truth` for the training dump
-([model-training.md](model-training.md)), `--benchmark_alignment` (checks alignments against the
+([databases.md](databases.md#the-files-of-a-database)), `--profile_truth` for the training dump
+([databases.md](databases.md#training-data)), `--benchmark_alignment` (checks alignments against the
 `taxid_geneid` encoded in simulated read names), `--mapq_debug_output`, `--full_sam_header` (every
 gene in the SAM header, see above), `--whole_read_alignment` and `--profile_after_alignment` (both below),
 `--sequential_load` (load the database's parts one after another, as before 0.7.6, instead of the
@@ -375,7 +329,7 @@ with the alignment on every core it gained nothing, so it is off by default.
 protal keeps the index and the reference genes in memory: 38 GB peak for a run on the full r226
 database (measured on real paired-end and HiFi samples: the index's values packed to 42 bits,
 27.3 GB; its key map, 3.2 GB; the genes at two bits per base, the tables and the run's buffers, the
-rest; [database-files.md](database-files.md#the-index-in-memory)) and correspondingly less for the
+rest; [databases.md](databases.md#the-database-in-memory)) and correspondingly less for the
 reduced one ([downloads](https://protal.earlham.ac.uk/main.php?site=downloads); the figures there,
 59 and 12 GB, predate the 2-bit genes and the packed index).
 It prints the machine's total memory at start and, after loading the index, the memory it takes. The index is read at random, one lookup per k-mer,

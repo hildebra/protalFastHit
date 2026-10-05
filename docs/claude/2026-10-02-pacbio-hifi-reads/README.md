@@ -3,7 +3,7 @@
 - **Date**: 2026-10-02.
 - **Code**: branch `audit-fixes` at `d11381f` with this work uncommitted: `scripts/hifi_reads.py` (new),
   `scripts/collect_training_data.py`, `scripts/build_gtdb_database.py`, `scripts/mini_db/test_mini_db.py`,
-  `docs/model-training.md`, `docs/building-a-database.md`.
+  `docs/databases.md`, `docs/databases.md`.
 - **Data**: the operon world's build `~/opw/b_gn2` ([gene neighbour report](../2026-10-02-gene-neighbour-frequencies/README.md)):
   the communities of its first two paired-end test samples of 100,000 pairs (`rl100_p100000`, 69 and 25 genomes),
   30 Mb of long reads each, drawn by the collector; its training database and its PacBio model (trained on

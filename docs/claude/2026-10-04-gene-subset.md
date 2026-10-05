@@ -72,8 +72,8 @@ Where the subset reached, and where it did not, at `281a4ba`:
   once ranked), `gene_ranking.tsv` and `gene_subset.txt` in OUTDIR and `model_logs/`, both database
   folders derived with `--genes`, the subset in the resume keys of both builds and of the ranking,
   `marker_genes` in `build_metadata.tsv`, a step of its own on the console.
-- `docs/building-a-database.md` (reduced marker sets, the converter's option table),
-  `docs/testing.md`; `scripts/subset_genes.py` removed.
+- `docs/databases.md` (reduced marker sets, the converter's option table),
+  `docs/development.md`; `scripts/subset_genes.py` removed.
 
 ## The score
 
