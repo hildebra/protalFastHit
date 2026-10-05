@@ -113,6 +113,27 @@ namespace protal {
             return a.ToUINT64_t<40,20>() < b.ToUINT64_t<40,20>();
         }
 
+        // A read's seeds are sorted (ChainAnchorFinder::Sort) by taxon, gene and read position, as SortByReadComparator
+        // orders them, and then by gene position and the two flags: every field takes part, so any sort gives the same
+        // order. (std::sort with SortByReadComparator left seeds equal in the first three, a k-mer's hits at several
+        // places of one gene, in an order of the standard library's making, and the first of a gene's seeds starts its
+        // anchor.) All fields packed into one 128-bit key, which also sorts in half the time of the comparator.
+        __extension__ using SortKeyType = unsigned __int128;
+        SortKeyType SortKey() const {
+            return (SortKeyType{ taxid } << 82) | (SortKeyType{ geneid } << 50) | (SortKeyType{ readpos } << 34) |
+                   (SortKeyType{ genepos } << 2) | (SortKeyType{ unique } << 1) | SortKeyType{ unique_dist_two };
+        }
+        static LookupResult FromSortKey(SortKeyType key) {
+            LookupResult seed;
+            seed.taxid = static_cast<uint32_t>(key >> 82);
+            seed.geneid = static_cast<uint32_t>(key >> 50);
+            seed.readpos = static_cast<uint16_t>(key >> 34);
+            seed.genepos = static_cast<uint32_t>(key >> 2);
+            seed.unique = (key >> 1) & 1;
+            seed.unique_dist_two = key & 1;
+            return seed;
+        }
+
         std::string ToString() const {
             std::string str;
             str += "[LUR: ";

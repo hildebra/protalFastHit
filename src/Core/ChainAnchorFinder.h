@@ -417,9 +417,14 @@ namespace protal {
             }
         }
 
+        // By taxon, gene and read position, ties by gene position (LookupResult::SortKey), sorted as 128-bit keys.
         void Sort(SeedList &list) {
-            std::sort(list.begin(), list.end(), Seed::SortByReadComparator);
+            m_sort_keys.resize(list.size());
+            for (size_t i = 0; i < list.size(); i++) m_sort_keys[i] = list[i].SortKey();
+            std::sort(m_sort_keys.begin(), m_sort_keys.end());
+            for (size_t i = 0; i < list.size(); i++) list[i] = LookupResult::FromSortKey(m_sort_keys[i]);
         }
+        std::vector<LookupResult::SortKeyType> m_sort_keys;  // Sort's, kept for its capacity
 
         void Subset(SeedList &list, SeedList &subset, size_t take_top=10) {
             // Collect taxa counts
