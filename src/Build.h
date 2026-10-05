@@ -1345,10 +1345,15 @@ namespace protal::build {
         bm_pass1.Stop();
         bm_pass1.PrintResults();
 
-        // Each key's value positions, from its count
+        // Each key's value positions, from its count. The values are held packed from the start, in the widths
+        // the reference's taxids, gene ids and positions need, as a query run holds them (Seedmap::PackedLayout;
+        // 29 instead of 36 GB with the key map at r226); only the files keep the 8-byte layout. A position is a
+        // k-mer core's, flex_k/2 bases into its gene.
         Benchmark bm_pointers("Value pointers");
         bm_pointers.Start();
-        putter.InitializeForPut(serial ? 1 : threads);
+        auto const [max_taxid, max_gene, max_length] = genomes.IndexFieldMaxima();
+        Seedmap::PackedLayout const layout = Seedmap::PackedLayout::For(max_taxid, max_gene, max_length + map.m_flex_k);
+        putter.InitializeForPut(serial ? 1 : threads, &layout);
         bm_pointers.Stop();
         bm_pointers.PrintResults();
 
@@ -1484,7 +1489,9 @@ namespace protal::build {
         KmerList kmers;
         KmerLookupSM lookup(lookup_global);
 
-        std::vector<ValueEntry*> exact;
+        Seedmap& index = putter.GetMap();
+        Seedmap::PackedBlock block;     // a core's values (the index is packed)
+        std::vector<uint32_t> exact;    // the entries of those whose whole k-mer is the k-mer's
         size_t local_kmers = 0, local_compared = 0, local_shared = 0, local_singles = 0;
 
         while (reader(record)) {
@@ -1508,32 +1515,31 @@ namespace protal::build {
                 // A k-mer counts where the whole of it is indexed (core and flex part): under another
                 // taxon, or more than once, all its values become non-unique.
                 exact.clear();
-                local_compared += lookup.GetExact(pair.first, exact);
+                local_compared += lookup.GetExact(pair.first, block, exact);
                 if (exact.empty()) {
                     // A core that occurs once in the index has no flex keys, so GetExact cannot compare
                     // the whole k-mer; before, such entries were never checked and all stayed unique.
                     // Compare with the k-mer the entry was built from, read back from its gene, under
                     // the rule used for flex blocks: another taxon with the same k-mer makes it
                     // non-unique.
-                    ValueEntry* single = lookup.GetSingleEntry(pair.first);
-                    if (single == nullptr) continue;
-                    single->Get(taxid, geneid, genepos);
+                    if (!lookup.GetSingleEntry(pair.first, block)) continue;
+                    lookup.Entry(block, 0).Get(taxid, geneid, genepos);
                     if (taxonomic_id == taxid) continue;
                     local_singles++;
                     uint64_t indexed_kmer = 0;
-                    if (!IndexedKmer(putter.GetMap(), genomes, taxid, geneid, genepos, indexed_kmer) || indexed_kmer != pair.first) continue;
-                    single->SetFlagNonUnique();  // atomic
+                    if (!IndexedKmer(index, genomes, taxid, geneid, genepos, indexed_kmer) || indexed_kmer != pair.first) continue;
+                    index.ClearUniqueFlag(block, 0);  // atomic
                     local_shared++;
                     continue;
                 }
 
-                exact.front()->Get(taxid, geneid, genepos);
+                lookup.Entry(block, exact.front()).Get(taxid, geneid, genepos);
                 if (exact.size() == 1 && taxonomic_id == taxid) {
                     continue;
                 }
                 local_shared++;
-                for (auto& entry : exact) {
-                    entry->SetFlagNonUnique();  // atomic
+                for (uint32_t const entry : exact) {
+                    index.ClearUniqueFlag(block, entry);  // atomic
                 }
             }
         }

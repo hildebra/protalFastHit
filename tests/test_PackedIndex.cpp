@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <random>
 #include <string>
 #include <vector>
@@ -55,6 +57,32 @@ namespace {
                 if ((e - start) % 3 == 0) e->SetFlagUniqueDistanceMinTwo();
             }
         }
+    }
+
+    // As Fill, but into the packed layout from the start (as --build since 2026-10-05), the same flags set through
+    // the packed entries.
+    void FillPacked(Seedmap& map, std::vector<SmallValue> const& values, Seedmap::PackedLayout const& layout) {
+        for (auto const& v : values) map.CountUpKey(map.MainKey(v.key));
+        map.BuildValuePointers(2, &layout);
+        ASSERT_TRUE(map.IsPacked());
+        for (auto const& v : values) {
+            ValueEntry entry;
+            entry.Put(v.taxid, v.gene, v.pos);
+            ASSERT_TRUE(map.PutOwned(v.key, entry.value));
+        }
+        for (size_t i = 0; i < values.size(); i += 3) {
+            Seedmap::PackedBlock block;
+            ASSERT_TRUE(map.GetPacked(values[i].key, block));
+            for (uint32_t e = 0; e < block.size; e++) {
+                if (e % 2 == 1) map.ClearUniqueFlag(block, e);
+                if (e % 3 == 0) map.SetUniqueDistanceTwoFlag(block, e);
+            }
+        }
+    }
+
+    std::string Slurp(std::filesystem::path const& path) {
+        std::ifstream is(path, std::ios::binary);
+        return {std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>()};
     }
 
     struct Stored { std::vector<uint32_t> flex; std::vector<uint64_t> entries; };
@@ -161,6 +189,85 @@ TEST(PackedIndex, TheColumnFormatPacksChunkByChunkToTheSameValues) {
     ExpectPackedEquals(loaded, values, stored);
     EXPECT_TRUE(loaded.Layout() == layout);
     std::filesystem::remove_all(dir);
+}
+
+// --build fills the packed layout directly: it holds what the 8-byte build holds once packed, the files it
+// writes (the column format, and the raw index unpacked) are byte for byte the 8-byte build's, and the build's
+// lookups (GetExact, GetSingleEntry) see the same entries.
+TEST(PackedIndex, ABuildIntoThePackedLayoutWritesTheSameIndex) {
+    auto const values = SmallValues(8, 3000);
+    auto const layout = Seedmap::PackedLayout::For(143614, 168, 12883 + 16);
+    Seedmap wide;
+    Fill(wide, values);
+    auto const stored = Record(wide, values);
+    Seedmap packed;
+    FillPacked(packed, values, layout);
+    EXPECT_EQ(packed.PackedEntries(), values.size());
+    ExpectPackedEquals(packed, values, stored);
+
+    auto const dir = std::filesystem::temp_directory_path() / ("protal_packbuild_" + std::to_string(::getpid()));
+    std::filesystem::create_directories(dir);
+    protal::zstd::Params params;
+    params.level = 3;
+    params.window_log = 0;
+    params.threads = 3;
+    params.frame_size = uint64_t{1} << 20;  // many chunks
+    for (auto* map : { &wide, &packed }) {
+        uint64_t written = 0;
+        size_t raw_chunks = 0;
+        std::string const name = map == &wide ? "wide" : "packed";
+        ASSERT_EQ(map->SaveCompressed((dir / (name + ".prx.zst")).string(), params, written, raw_chunks), "") << name;
+        EXPECT_EQ(raw_chunks, 0u);
+        std::ofstream os(dir / (name + ".prx"), std::ios::binary);
+        map->Save(os);
+    }
+    EXPECT_EQ(Slurp(dir / "packed.prx.zst"), Slurp(dir / "wide.prx.zst"));
+    EXPECT_EQ(Slurp(dir / "packed.prx"), Slurp(dir / "wide.prx"));
+    EXPECT_EQ(Slurp(dir / "packed.prx").size(), wide.SerializedSize());
+    std::filesystem::remove_all(dir);
+
+    protal::KmerLookupSM lookup(packed, 256);
+    size_t exact_found = 0, singles = 0;
+    for (size_t k = 0; k < values.size(); k += 5) {
+        size_t kmer = values[k].key;
+        Seedmap::PackedBlock block;
+        std::vector<uint32_t> exact;
+        size_t const compared = lookup.GetExact(kmer, block, exact);
+        auto const& s = stored[k];
+        if (s.flex.empty()) {
+            EXPECT_EQ(compared, 0u);
+            EXPECT_TRUE(exact.empty());
+            ASSERT_TRUE(lookup.GetSingleEntry(kmer, block)) << "key " << k;
+            EXPECT_EQ(lookup.Entry(block, 0).value, s.entries[0]);
+            singles++;
+            continue;
+        }
+        EXPECT_FALSE(lookup.GetSingleEntry(kmer, block));
+        EXPECT_EQ(compared, s.entries.size());
+        std::vector<uint32_t> expected;
+        for (uint32_t i = 0; i < s.flex.size(); i++) {
+            if (s.flex[i] == static_cast<uint32_t>(packed.FlexKey(kmer))) expected.push_back(i);
+        }
+        EXPECT_EQ(exact, expected) << "key " << k;
+        exact_found += exact.size();
+    }
+    EXPECT_GT(exact_found, 100u);
+    EXPECT_GT(singles, 10u);
+}
+
+TEST(PackedIndex, ABuildStopsAtAValueWiderThanItsLayout) {
+    auto const values = SmallValues(9, 50);
+    auto const narrow = Seedmap::PackedLayout::For(1000, 168, 12883 + 16);  // taxids go to 143614
+    Seedmap map;
+    for (auto const& v : values) map.CountUpKey(map.MainKey(v.key));
+    map.BuildValuePointers(1, &narrow);
+    EXPECT_EXIT({
+        for (auto const& v : values) {
+            ValueEntry entry;
+            entry.Put(v.taxid, v.gene, v.pos);
+            map.PutOwned(v.key, entry.value);
+        }
+    }, testing::ExitedWithCode(8), "wider than the reference");
 }
 
 TEST(PackedIndex, AValueOutsideTheLayoutStopsTheLoad) {

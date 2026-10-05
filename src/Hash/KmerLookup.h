@@ -144,10 +144,6 @@ namespace protal {
         std::vector<LookupPointer> m_lookups;
 //        std::shared_ptr<Seedmap> m_sm;
         Seedmap& m_sm;
-        ValueEntry* m_entry_begin = nullptr;
-        ValueEntry* m_entry_end = nullptr;
-        uint32_t* m_flex_begin = nullptr;
-        uint32_t* m_flex_end = nullptr;
 
         std::vector<uint16_t> flex_vector;
 
@@ -201,8 +197,8 @@ namespace protal {
             __builtin_prefetch(pointers.entries);
         }
 
-        // Entry i of a lookup's values as a ValueEntry (Seedmap::EntryValue).
-        inline ValueEntry Entry(LookupPointer const& pointers, uint32_t i) const {
+        // Entry i of a lookup's (or a core's) values as a ValueEntry (Seedmap::EntryValue).
+        inline ValueEntry Entry(Seedmap::PackedBlock const& pointers, uint32_t i) const {
             ValueEntry entry;
             entry.value = m_sm.EntryValue(pointers, i);
             return entry;
@@ -273,27 +269,24 @@ namespace protal {
             }
         }
 
-        // The entry of a k-mer core that occurs only once in the index, or nullptr. Such a block has
-        // no flex keys (see m_flex_threshold), so GetExact returns nothing for it.
-        inline ValueEntry* GetSingleEntry(size_t &kmer) {
-            m_sm.Get(kmer, m_entry_begin, m_entry_end, m_flex_begin, m_flex_end);
-            if (m_entry_begin == nullptr || m_flex_begin != nullptr || m_entry_end - m_entry_begin != 1) return nullptr;
-            return m_entry_begin;
+        // Whether a k-mer core occurs only once in the index; its values in `block` (one entry, no flex
+        // cells: see m_flex_threshold, so GetExact returns nothing for it).
+        inline bool GetSingleEntry(size_t &kmer, Seedmap::PackedBlock& block) const {
+            return m_sm.GetPacked(kmer, block) && block.flex == nullptr && block.size == 1;
         }
 
-        // The entries of a core with several values whose whole k-mer is `kmer` (equal flex parts),
-        // none if more than m_max_ubiquity are; appended to `entries`, which must be empty. For
-        // --build's uniqueness check, which only acts on whole k-mers. Returns the flex parts compared.
-        inline size_t GetExact(size_t &kmer, std::vector<ValueEntry*>& entries) {
-            m_sm.Get(kmer, m_entry_begin, m_entry_end, m_flex_begin, m_flex_end);
-            // Get leaves the flex pointers as they were when the core has no values.
-            if (m_entry_begin == nullptr || m_entry_end == nullptr || m_flex_begin == nullptr) return 0;
+        // The entries (their indices in `block`, the core's values) of a core with several values whose
+        // whole k-mer is `kmer` (equal flex parts), none if more than m_max_ubiquity are; appended to
+        // `entries`, which must be empty. For --build's uniqueness check, which only acts on whole k-mers.
+        // Returns the flex parts compared.
+        inline size_t GetExact(size_t &kmer, Seedmap::PackedBlock& block, std::vector<uint32_t>& entries) const {
+            if (!m_sm.GetPacked(kmer, block) || block.flex == nullptr) return 0;
             uint32_t const flex_key = static_cast<uint32_t>(m_sm.FlexKey(kmer));
-            for (auto cell = m_flex_begin; cell < m_flex_end; cell++) {
-                if (*cell == flex_key) entries.emplace_back(m_entry_begin + (cell - m_flex_begin));
+            for (uint32_t i = 0; i < block.size; i++) {
+                if (Seedmap::FlexCell(block, i) == flex_key) entries.emplace_back(i);
             }
             if (entries.size() > m_max_ubiquity) entries.clear();
-            return m_flex_end - m_flex_begin;
+            return block.size;
         }
 
         // Get and GetFromLookup in one.

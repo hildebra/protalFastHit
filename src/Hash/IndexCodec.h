@@ -59,6 +59,39 @@ namespace protal::index_codec {
         std::vector<Chunk> chunks;
     };
 
+    // An index's value cells in the file's 8-byte layout, as the writer and Verify read them: an array of
+    // them, or readers that give them from another layout (--build holds the values packed,
+    // Seedmap::PackedLayout): a key's cells (first and n are the key's first slot and its slots), and any
+    // range (for chunks kept raw, rare).
+    struct Cells {
+        using Reader = void (*)(void const* context, uint64_t first, uint64_t n, uint64_t* out);
+        uint64_t const* array = nullptr;
+        void const* context = nullptr;
+        Reader read_key = nullptr, read_range = nullptr;
+
+        Cells(uint64_t const* cells) : array(cells) {}
+        Cells(void const* reader_context, Reader key_reader, Reader range_reader)
+                : context(reader_context), read_key(key_reader), read_range(range_reader) {}
+
+        // The cells of the key at slots [first, first + n): the array's own, or read into buffer.
+        uint64_t const* Key(uint64_t first, uint64_t n, std::vector<uint64_t>& buffer) const {
+            return Read(read_key, first, n, buffer);
+        }
+
+        // Cells [first, first + n), any range.
+        uint64_t const* Range(uint64_t first, uint64_t n, std::vector<uint64_t>& buffer) const {
+            return Read(read_range, first, n, buffer);
+        }
+
+    private:
+        uint64_t const* Read(Reader reader, uint64_t first, uint64_t n, std::vector<uint64_t>& buffer) const {
+            if (array) return array + first;
+            buffer.resize(std::max<uint64_t>(n, 1));
+            if (n) reader(context, first, n, buffer.data());
+            return buffer.data();
+        }
+    };
+
     namespace detail {
         inline void PutU64(std::vector<char>& out, uint64_t v) {
             char b[8];
@@ -105,10 +138,10 @@ namespace protal::index_codec {
         inline std::string const kValuesDiffer = "its values differ from the index";
 
         // Decodes a chunk payload into the key map cells of its blocks (km) and its value cells (vals). With
-        // `expected` (vals unused) the value cells are compared with expected's instead (kValuesDiffer if any
-        // differs): a check of a chunk against the index needs no copy of its values (~50 MB per chunk at r226).
+        // `expected` (vals unused) the value cells are compared with the index's cells instead (kValuesDiffer if
+        // any differs): a check of a chunk against the index needs no copy of its values (~50 MB per chunk at r226).
         PROTAL_CLONE_V3 inline std::string DecodeChunk(char const* data, size_t size, Layout const& l, Chunk const& c, uint16_t* km,
-                                       uint64_t* vals, uint64_t const* expected = nullptr) {
+                                       uint64_t* vals, Cells const* expected = nullptr) {
             uint64_t const cpb = l.CellsPerBlock(), kpb = l.keys_per_block;
             if (size < kChunkHeaderBytes) return "chunk shorter than its header";
             auto const* u = reinterpret_cast<unsigned char const*>(data);
@@ -118,7 +151,11 @@ namespace protal::index_codec {
                 if (size != expected_size) return "raw chunk of " + std::to_string(size) + " bytes, expected " + std::to_string(expected_size);
                 std::memcpy(km, data + kChunkHeaderBytes, 2 * c.blocks * cpb);
                 char const* const raw_values = data + kChunkHeaderBytes + 2 * c.blocks * cpb;
-                if (c.values > 0 && expected) return std::memcmp(expected, raw_values, 8 * c.values) == 0 ? "" : kValuesDiffer;
+                if (c.values > 0 && expected) {
+                    std::vector<uint64_t> buffer;
+                    uint64_t const* const want = expected->Range(c.first_value, c.values, buffer);
+                    return std::memcmp(want, raw_values, 8 * c.values) == 0 ? "" : kValuesDiffer;
+                }
                 if (c.values > 0) std::memcpy(vals, raw_values, 8 * c.values);
                 return "";
             }
@@ -189,14 +226,17 @@ namespace protal::index_codec {
             constexpr uint64_t kBatch = 1 << 16;
             std::vector<uint64_t> tmp_flex, tmp_entries;
             uint64_t* dst = vals;
-            uint64_t const* want = expected;
-            // n cells to the values, or compared with the expected ones.
-            auto put = [&dst, &want, expected](uint64_t const* cells, uint64_t n) {
+            uint64_t want = c.first_value;  // the first slot of the next key to compare
+            std::vector<uint64_t> buffer;
+            // A key's f flex cells and n - f entries to the values, or compared with the index's cells of the key.
+            auto put = [&dst, &want, &buffer, expected](uint64_t const* flex_cells, uint64_t f, uint64_t const* entry_cells, uint64_t n) {
                 if (expected) {
-                    if (std::memcmp(want, cells, n * 8) != 0) return false;
+                    uint64_t const* const key = expected->Key(want, n, buffer);
+                    if ((f && std::memcmp(key, flex_cells, f * 8) != 0) || std::memcmp(key + f, entry_cells, (n - f) * 8) != 0) return false;
                     want += n;
                 } else {
-                    std::memcpy(dst, cells, n * 8);
+                    if (f) std::memcpy(dst, flex_cells, f * 8);
+                    std::memcpy(dst + f, entry_cells, (n - f) * 8);
                     dst += n;
                 }
                 return true;
@@ -227,8 +267,7 @@ namespace protal::index_codec {
                         if (n == 0) continue;
                         // Keys of one cell have no flex cells, and tmp_flex has no data pointer while it is
                         // empty. n - f >= 1, so tmp_entries is never empty here.
-                        if (f && !put(tmp_flex.data() + fp, f)) return kValuesDiffer;
-                        if (!put(tmp_entries.data() + ep, n - f)) return kValuesDiffer;
+                        if (!put(f ? tmp_flex.data() + fp : nullptr, f, tmp_entries.data() + ep, n)) return kValuesDiffer;
                         fp += f;
                         ep += n - f;
                     }
@@ -240,27 +279,17 @@ namespace protal::index_codec {
             return "";
         }
 
-        // Calls fn(cell) for each flex cell (flex) or each entry (!flex) of the keys whose cell counts are
-        // `counts` (in key order, their cells from vals on), in that order.
-        template<typename Fn>
-        void ForEachCell(std::vector<uint16_t> const& counts, uint64_t const* vals, bool flex, Fn&& fn) {
-            for (uint16_t const n : counts) {
-                uint64_t const f = FlexCells(n);
-                for (uint64_t i = flex ? 0 : f, end = flex ? f : n; i < end; i++) fn(vals[i]);
-                vals += n;
-            }
-        }
-
-        // Encodes chunk c of the index (key map km, values vals) into out, as raw cells if the split
+        // Encodes chunk c of the index (key map km, value cells vals) into out, as raw cells if the split
         // form does not decode to exactly the same bytes. Returns true if split. The planes are written
-        // from the index's cells and the check compares the decoded values with them, so a chunk costs
-        // its encoded bytes and its key map cells, not two more copies of its values (64 threads held
-        // ~6 GB of such copies writing an r226 index).
-        inline bool EncodeChunk(Layout const& l, Chunk const& c, uint16_t const* km, uint64_t const* vals,
+        // from the index's cells a key at a time and the check compares the decoded values with them, so
+        // a chunk costs its encoded bytes and its key map cells, not two more copies of its values (64
+        // threads held ~6 GB of such copies writing an r226 index).
+        inline bool EncodeChunk(Layout const& l, Chunk const& c, uint16_t const* km, Cells const& vals,
                                 std::vector<char>& out) {
             uint64_t const cpb = l.CellsPerBlock(), kpb = l.keys_per_block;
             std::vector<unsigned char> bitmap((c.blocks + 7) / 8, 0);
             std::vector<uint16_t> counts;
+            std::vector<uint64_t> buffer;  // a key's cells, unless vals is an array
             uint64_t nf = 0, ne = 0, max_tax = 0, max_gene = 0, max_pos = 0;
             bool canonical = true;
             uint64_t v = c.first_value;
@@ -286,10 +315,11 @@ namespace protal::index_codec {
                     counts.push_back(static_cast<uint16_t>(n));
                     nf += f;
                     ne += n - f;
-                    for (uint64_t i = v + f; i < v + n; i++) {
-                        max_tax = std::max(max_tax, (vals[i] >> 40) & 0xFFFFF);
-                        max_gene = std::max(max_gene, (vals[i] >> 20) & 0xFFFFF);
-                        max_pos = std::max(max_pos, vals[i] & 0xFFFFF);
+                    uint64_t const* const key_cells = vals.Key(v, n, buffer);
+                    for (uint64_t i = f; i < n; i++) {
+                        max_tax = std::max(max_tax, (key_cells[i] >> 40) & 0xFFFFF);
+                        max_gene = std::max(max_gene, (key_cells[i] >> 20) & 0xFFFFF);
+                        max_pos = std::max(max_pos, key_cells[i] & 0xFFFFF);
                     }
                     v += n;
                 }
@@ -319,27 +349,31 @@ namespace protal::index_codec {
                     lo[keys + k] = static_cast<char>(counts[k] >> 8);
                 }
                 char* const flex = out.data() + flex_at;
-                size_t i = 0;
-                ForEachCell(counts, vals + c.first_value, true, [&](uint64_t cell) {
-                    for (int b = 0; b < 8; b++) flex[b * nf + i] = static_cast<char>(cell >> (8 * b));
-                    i++;
-                });
                 char* const tax = out.data() + tax_at;
                 char* const gene = out.data() + gene_at;
                 char* const pos = out.data() + pos_at;
                 char* const flags = out.data() + flags_at;
-                i = 0;
-                ForEachCell(counts, vals + c.first_value, false, [&](uint64_t e) {
-                    for (int b = 0; b < tw; b++) tax[b * ne + i] = static_cast<char>(((e >> 40) & 0xFFFFF) >> (8 * b));
-                    for (int b = 0; b < gw; b++) gene[b * ne + i] = static_cast<char>(((e >> 20) & 0xFFFFF) >> (8 * b));
-                    for (int b = 0; b < pw; b++) pos[b * ne + i] = static_cast<char>((e & 0xFFFFF) >> (8 * b));
-                    flags[i] = static_cast<char>(e >> 60);
-                    i++;
-                });
+                size_t fi = 0, ei = 0;
+                v = c.first_value;
+                for (uint16_t const n : counts) {
+                    uint64_t const f = FlexCells(n);
+                    uint64_t const* const key_cells = vals.Key(v, n, buffer);
+                    for (uint64_t i = 0; i < f; i++, fi++) {
+                        for (int b = 0; b < 8; b++) flex[b * nf + fi] = static_cast<char>(key_cells[i] >> (8 * b));
+                    }
+                    for (uint64_t i = f; i < n; i++, ei++) {
+                        uint64_t const e = key_cells[i];
+                        for (int b = 0; b < tw; b++) tax[b * ne + ei] = static_cast<char>(((e >> 40) & 0xFFFFF) >> (8 * b));
+                        for (int b = 0; b < gw; b++) gene[b * ne + ei] = static_cast<char>(((e >> 20) & 0xFFFFF) >> (8 * b));
+                        for (int b = 0; b < pw; b++) pos[b * ne + ei] = static_cast<char>((e & 0xFFFFF) >> (8 * b));
+                        flags[ei] = static_cast<char>(e >> 60);
+                    }
+                    v += n;
+                }
 
                 // It must decode to exactly the chunk's bytes.
                 std::vector<uint16_t> km_check(c.blocks * cpb);
-                if (DecodeChunk(out.data(), out.size(), l, c, km_check.data(), nullptr, vals + c.first_value).empty() &&
+                if (DecodeChunk(out.data(), out.size(), l, c, km_check.data(), nullptr, &vals).empty() &&
                     std::memcmp(km_check.data(), km + c.first_block * cpb, km_check.size() * 2) == 0) {
                     return true;
                 }
@@ -349,7 +383,7 @@ namespace protal::index_codec {
             auto const* km_bytes = reinterpret_cast<char const*>(km + c.first_block * cpb);
             out.insert(out.end(), km_bytes, km_bytes + 2 * c.blocks * cpb);
             if (c.values != 0) {
-                auto const* val_bytes = reinterpret_cast<char const*>(vals + c.first_value);
+                auto const* val_bytes = reinterpret_cast<char const*>(vals.Range(c.first_value, c.values, buffer));
                 out.insert(out.end(), val_bytes, val_bytes + 8 * c.values);
             }
             return false;
@@ -474,7 +508,7 @@ namespace protal::index_codec {
     // with chunks of about params.frame_size bytes. raw_chunks (if given) receives the number of
     // chunks stored raw. Returns the bytes written, or nullopt with a message in error.
     inline std::optional<uint64_t> Write(std::string const& path, std::string const& header, Layout const& l,
-                                         uint16_t const* keymap, uint64_t const* values, zstd::Params const& params,
+                                         uint16_t const* keymap, Cells const& values, zstd::Params const& params,
                                          std::string& error, size_t* raw_chunks = nullptr) {
         uint64_t const target = params.frame_size > 0 ? params.frame_size : uint64_t{64} << 20;
         auto const chunks = detail::MakeChunks(l, keymap, target, error);
@@ -512,7 +546,7 @@ namespace protal::index_codec {
     // copy of the index in memory, nor of a chunk's values: they are compared as they are decoded).
     // Returns an error message, empty if identical.
     inline std::string Verify(std::string const& path, std::string const& header, Layout const& l, uint16_t const* keymap,
-                              uint64_t const* values, int threads) {
+                              Cells const& values, int threads) {
         std::string error;
         auto const table = zstd::ReadSeekTable(path, error);
         if (!table) return error.empty() ? "not a seekable zstd file" : error;
@@ -526,7 +560,7 @@ namespace protal::index_codec {
         return zstd::ForEachFrame(path, *table, 1, threads, [&](size_t frame, char const* data, size_t size, size_t worker) -> std::string {
             Chunk const& ch = c->chunks[frame - 1];
             km_tmp[worker].resize(ch.blocks * l.CellsPerBlock());
-            std::string const e = detail::DecodeChunk(data, size, l, ch, km_tmp[worker].data(), nullptr, values + ch.first_value);
+            std::string const e = detail::DecodeChunk(data, size, l, ch, km_tmp[worker].data(), nullptr, &values);
             if (e == detail::kValuesDiffer) return "chunk " + std::to_string(frame) + " differs from the index";
             if (!e.empty()) return "chunk " + std::to_string(frame) + ": " + e;
             if (std::memcmp(km_tmp[worker].data(), keymap + ch.first_block * l.CellsPerBlock(), km_tmp[worker].size() * 2) != 0) {

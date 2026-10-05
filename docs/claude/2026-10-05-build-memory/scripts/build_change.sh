@@ -4,7 +4,7 @@
 # tests. setup.sh builds the baseline (~/buildmem/base).
 SRC=/mnt/c/Users/hildebra/Documents/locDev/protal
 WORK=$HOME/buildmem
-FILES="src/Build.h src/RunProtal.h src/SequenceUtils/GenomeLoader.h src/Hash/IndexCodec.h src/Utilities/Zstd.h"
+FILES=${FILES:-"src/Build.h src/RunProtal.h src/SequenceUtils/GenomeLoader.h src/Hash/IndexCodec.h src/Utilities/Zstd.h"}
 FILES="$FILES ${EXTRA_FILES:-}"
 mkdir -p $WORK && cd $WORK || exit 1
 if [ ! -d new/src ]; then mkdir -p new && (cd $SRC && git archive --format=tar HEAD) | tar -x -C new || exit 1; fi

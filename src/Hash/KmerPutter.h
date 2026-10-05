@@ -59,8 +59,9 @@ namespace protal {
             return m_sm;
         }
 
-        inline void InitializeForPut(int threads = 1) {
-            m_sm.BuildValuePointers(threads);
+        // With a layout the values are allocated and filled packed (Seedmap::BuildValuePointers).
+        inline void InitializeForPut(int threads = 1, Seedmap::PackedLayout const* pack = nullptr) {
+            m_sm.BuildValuePointers(threads, pack);
         }
 
         inline void Save(std::ostream& ofs) {

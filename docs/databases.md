@@ -103,7 +103,8 @@ r226). `--model` and `--model_se` use another model for a run without changing t
   leaves k-mers with an ambiguous base out of the index. A SAM of an older protal with an `M` against
   such a base is set aside (`<sam>.err`).
 - **The index** is held packed: each value takes the bits the database needs (42 instead of 64 at
-  r226: 27 GB instead of 35 GB). The files are unchanged. A run prints `Index in memory: ...`.
+  r226: 27 GB instead of 35 GB), by a run and, since 2026-10-05, by `--build` too. The files are unchanged.
+  A run and a build print `Index in memory: ...`.
 - A full r226 run peaks at 38 GB ([running.md](running.md#memory)).
 - `--preload_genomes_off` reads genes on demand from a raw `reference.fna`: less memory, slower, and
   it needs the database as separate files (protal prints the `--unpack_db` command).
@@ -142,7 +143,7 @@ At GTDB r226 (143,614 species) the whole pipeline takes:
 |---|---|
 | download | 17.7 GB of GTDB files and about 75 GB of genomes to simulate from, on a node with internet |
 | time | about 2.5-3 hours on a 52-64-thread node (conversion 5 min; the r226 build of 2026-10-03 then took 2 h, and 0.7.6's design simulates half as many short-read samples again), and several hours more for the [scenarios](#scenarios-kinds-of-studies) (an estimate; `--scenarios none` leaves them out) |
-| memory | each index build ~42-44 GB with 64 threads (estimated; it was 64 GB before 2026-10-05; its log's `Memory after ...` lines say), up to ~90 GB while both run at once; `--one-build-at-a-time` needs about half |
+| memory | each index build ~35-37 GB with 64 threads (estimated; it was 64 GB before 2026-10-05; its log's `Memory after ...` lines say), up to ~75 GB while both run at once; `--one-build-at-a-time` needs about half |
 | node-local disk | 120-175 GB for the simulated samples (`--scratch`), and roughly 200 GB more for the scenarios' (an estimate) |
 | result | `database.protal`, ~27 GB |
 

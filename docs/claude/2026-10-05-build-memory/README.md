@@ -222,3 +222,74 @@ In WSL, from Linux-side copies (the `/mnt/c` checkout is case-insensitive):
 Results (section 7): unit tests 352 passed, 2 skipped; e2e 128 of 131 (the 3 failures predate the change);
 `GtdbBuildTest` 4 of 5 (the failure is a stale step-number assertion). Work files in WSL `~/buildmem`
 (`runs/` holds the traced builds).
+
+## 9. Follow-up: the index packed during the build
+
+Same day, on `3910d98`: this report's commits `2baef20` and `0e800b2`, and on top two commits of
+another session that change only comments in `src/`. The user asked for section 6's
+next lever: build the index packed. The user also said separate files are no longer needed. They turned
+out to cost nothing to keep, so `--no_bundle` and `--no_compress` still work.
+
+**What changed.**
+
+- `Seedmap::BuildValuePointers(threads, &layout)`: `--build` allocates the values in the packed layout
+  query runs have used since 0.7.5 (`PackedLayout`, widths from `GenomeLoader::IndexFieldMaxima` as in
+  `LoadIndex`). The 8-byte layout is never in memory.
+- `PutOwned` fills a key's packed region. Its entries fill in order and a placed entry is never 0
+  (its unique flag is set), so the first empty one is found by bisection. Bytes shared with a
+  neighbouring key, which another thread's key range may be filling, are written and read atomically
+  (`PutBits`, `GetBits`). A value wider than the layout stops the build (exit 8).
+- The uniqueness check works on packed blocks: `KmerLookupSM::GetExact` and `GetSingleEntry` return a
+  `PackedBlock` and entry indices, and `Seedmap::ClearUniqueFlag` clears a flag with an atomic byte
+  AND. The unique k-mer statistics read flex cells and entries through the block and set the
+  distance-two flag with an atomic byte OR (`SetUniqueDistanceTwoFlag`).
+- Writing: `index_codec::Cells` gives the writer and `Verify` the file's 8-byte cells a key at a time.
+  That is the array itself for an 8-byte index (`--compress_db`, the tests), or `Seedmap::UnpackKey`
+  for a packed one, a few hundred cells into a small buffer. Any other range goes through
+  `UnpackSlots`, which finds its block by bisection: chunks kept raw, and `Save` writing a raw
+  `index.prx` in 1M-cell batches for `--no_compress` or one frame. A first version bisected for every
+  key and made "Write index" 3-5× slower; the per-key reader fixed that.
+- "Index in memory: ..." is printed by the build too. The unused `Seedmap::SerializedParts` is gone.
+
+**Checks.**
+
+- Byte-identical to the `18dceda` build on the 900-species world:
+  - `database.protal` and every other file at 1, 6 and 24 threads;
+  - all 13 separate files with `--no_bundle` (`index.prx.zst` included) and with `--no_compress` (the
+    raw 3.2 GB `index.prx`, written unpacked).
+  The logs differ by the new "Index in memory" line only.
+- Unit tests 356 passed. New:
+  - `PackedIndex.ABuildIntoThePackedLayoutWritesTheSameIndex`: the packed build holds what the 8-byte
+    build holds once packed, writes the same column-format and raw files byte for byte, and its
+    `GetExact` and `GetSingleEntry` find the same entries;
+  - `PackedIndex.ABuildStopsAtAValueWiderThanItsLayout`.
+- e2e: all 131 pass on the mini database built by the packed build.
+- `GtdbBuildTest`: 6 of 6 pass (the whole pipeline, two index builds per run).
+
+**Time** (6 threads, the 900-species world, 3 alternated runs):
+
+| | baseline | packed build |
+|---|---|---|
+| whole build | 20.5 / 19.0 / 19.4 s | 21.4 / 17.8 / 18.7 s |
+| pass 2 | 0.72 / 0.65 / 0.53 s | 0.87 / 0.77 / 0.84 s |
+| write index | 3.4 / 3.3 / 2.6 s | 2.9 / 3.0 / 3.2 s |
+
+Pass 2 is ~0.2 s slower here (bit-level writes); scaled to r226's 32 s pass 2 that is probably 5-10 s
+of a 28-minute build.
+
+**Memory at r226.** The values take 30.65 GiB in 8-byte slots. At r226's widths (taxid 18, gene 8,
+position 14 bits plus 2 flags: 42 bits per entry, 50 bits per slot) they take 23.95 GiB. With the key
+map the index is 28.9 GB instead of 36.1 GB, −7.2 GB in every phase after pass 1.
+
+The projection of section 5 becomes:
+
+| phase | GB |
+|---|---|
+| gene tables (before the index) | ~18 |
+| pass 2 | 28.9 + 4.0 + 0.6 + ~1.3 ≈ 35 |
+| uniqueness check | ≈ 33.5 |
+| index write and read-back | 28.9 + 0.6 + 64 × 0.085-0.12 ≈ 35-37 |
+| **peak** | **~35-37 GB** (the measured baseline: 64.2) |
+
+Reproduce with the scripts of section 8, with this round's files laid over HEAD:
+`FILES='src/Build.h src/Hash/IndexCodec.h src/Hash/KmerLookup.h src/Hash/KmerPutter.h src/Hash/Seedmap.h tests/test_PackedIndex.cpp' bash scripts/build_change.sh`.

@@ -486,6 +486,12 @@ namespace protal {
         inline bool GetPacked(uint64_t key, PackedBlock& block) const {
             uint64_t start, slots;
             if (!Locate(MainKey(key), start, slots)) return false;
+            BlockOfSlots(start, slots, block);
+            return true;
+        }
+
+        // The packed values of the key whose slots (in the file's layout) are [start, start + slots), slots >= 1.
+        inline void BlockOfSlots(uint64_t start, uint64_t slots, PackedBlock& block) const {
             uint64_t const bit = start * m_slot_bits;
             if (slots >= m_flex_threshold) {
                 uint64_t const entries = slots - FlexBlockSize(slots);
@@ -501,7 +507,70 @@ namespace protal {
                 block.entries = m_packed + (bit >> 3);
                 block.entry_shift = static_cast<uint32_t>(bit & 7);
             }
-            return true;
+        }
+
+        // The bit of flag `flag` (0: unique, 1: unique at distance two) of entry i of a key's packed values.
+        uint64_t FlagBit(PackedBlock const& block, uint32_t i, unsigned flag) const {
+            return static_cast<uint64_t>(block.entries - m_packed) * 8 + block.entry_shift + static_cast<uint64_t>(i) * m_entry_bits +
+                   m_taxid_bits + m_gene_bits + m_pos_bits + flag;
+        }
+
+        // The flags of entry i of a key's packed values, changed atomically a byte at a time: --build's
+        // uniqueness check clears them from any thread, the unique k-mer statistics set them by block ranges,
+        // and an entry's bytes may be shared with a neighbouring key's.
+        void ClearUniqueFlag(PackedBlock const& block, uint32_t i) {
+            uint64_t const bit = FlagBit(block, i, 0);
+            std::atomic_ref<uint8_t>(m_packed[bit >> 3]).fetch_and(static_cast<uint8_t>(~(1u << (bit & 7))), std::memory_order_relaxed);
+        }
+
+        void SetUniqueDistanceTwoFlag(PackedBlock const& block, uint32_t i) {
+            uint64_t const bit = FlagBit(block, i, 1);
+            std::atomic_ref<uint8_t>(m_packed[bit >> 3]).fetch_or(static_cast<uint8_t>(1u << (bit & 7)), std::memory_order_relaxed);
+        }
+
+        // The cells [first, first + n) of the values in the file's 8-byte layout, from the packed values: a
+        // key's flex cells two to a slot (the second 0 for an odd number of values), then its entries.
+        void UnpackSlots(uint64_t first, uint64_t n, uint64_t* out) const {
+            if (n == 0) return;
+            uint64_t const cpb = m_keys_per_ctrl_block + ctrl_block_cell_size, blocks = keymap_size / m_keys_per_ctrl_block;
+            // The block holding slot `first`: the last one starting at or before it (empty blocks start where the next does).
+            uint64_t lo = 0, hi = blocks;
+            while (hi - lo > 1) {
+                uint64_t const mid = lo + (hi - lo) / 2;
+                (BlockStart(mid) <= first ? lo : hi) = mid;
+            }
+            uint64_t const last = first + n;
+            for (uint64_t block = lo; block < blocks && BlockStart(block) < last; block++) {
+                uint64_t const begin = BlockStart(block), end = BlockStart(block + 1);
+                if (end <= first) continue;
+                for (size_t j = 0; j < m_keys_per_ctrl_block; j++) {
+                    uint64_t const start = begin + m_keymap[block * cpb + ctrl_block_cell_size + j];
+                    uint64_t const stop = j + 1 == m_keys_per_ctrl_block ? end : begin + m_keymap[block * cpb + ctrl_block_cell_size + j + 1];
+                    if (stop <= start || stop <= first || start >= last) continue;
+                    uint64_t const S = stop - start;
+                    PackedBlock values;
+                    BlockOfSlots(start, S, values);
+                    uint64_t const f = S >= m_flex_threshold ? FlexBlockSize(S) : 0;
+                    for (uint64_t s = std::max(start, first); s < std::min(stop, last); s++) out[s - first] = SlotCell(values, f, s - start);
+                }
+            }
+        }
+
+        // The cells of the key whose slots are [start, start + S) (S >= 1), as UnpackSlots gives them,
+        // without looking for the key.
+        void UnpackKey(uint64_t start, uint64_t S, uint64_t* out) const {
+            PackedBlock values;
+            BlockOfSlots(start, S, values);
+            uint64_t const f = S >= m_flex_threshold ? FlexBlockSize(S) : 0;
+            for (uint64_t j = 0; j < S; j++) out[j] = SlotCell(values, f, j);
+        }
+
+        // Slot j of a key's values (f of its slots are flex slots) in the file's 8-byte layout.
+        uint64_t SlotCell(PackedBlock const& values, uint64_t f, uint64_t j) const {
+            if (j >= f) return EntryValue(values, static_cast<uint32_t>(j - f));
+            uint64_t const a = 2 * j, b = a + 1;
+            return FlexCell(values, static_cast<uint32_t>(a)) |
+                   (b < values.size ? uint64_t{FlexCell(values, static_cast<uint32_t>(b))} << 32 : 0);
         }
 
         // ORs the low w bits of x into the zeroed bit array `base` at `bit`. Bytes in [safe_begin, safe_end)
@@ -522,6 +591,33 @@ namespace protal {
                 auto const b = static_cast<uint8_t>(v >> (8 * k));
                 if (b) std::atomic_ref<uint8_t>(base[byte + k]).fetch_or(b, std::memory_order_relaxed);
             }
+        }
+
+        // The w bits (w <= 64) at `bit` of the bit array `base`, as PutBits writes them: bytes outside
+        // [safe_begin, safe_end) are read atomically, as another thread may be OR'ing into them.
+        static uint64_t GetBits(uint8_t* base, uint64_t bit, unsigned w, uint64_t safe_begin, uint64_t safe_end) {
+            uint64_t const byte = bit >> 3;
+            unsigned const shift = static_cast<unsigned>(bit & 7);
+            unsigned const bytes = (shift + w + 7) / 8;
+            __uint128_t x = 0;
+            if (byte >= safe_begin && byte + bytes <= safe_end) {
+                std::memcpy(&x, base + byte, bytes);
+            } else {
+                for (unsigned k = 0; k < bytes; k++) {
+                    x |= static_cast<__uint128_t>(std::atomic_ref<uint8_t>(base[byte + k]).load(std::memory_order_relaxed)) << (8 * k);
+                }
+            }
+            uint64_t const mask = w == 64 ? ~uint64_t{0} : (uint64_t{1} << w) - 1;
+            return static_cast<uint64_t>(x >> shift) & mask;
+        }
+
+        // A value (the bits of a ValueEntry: taxid << 40 | gene << 20 | position, flags at 60) in the packed
+        // layout's fields; false if a field does not fit them.
+        bool PackValue(uint64_t v, uint64_t& packed) const {
+            uint64_t const taxid = (v >> 40) & 0xfffff, gene = (v >> 20) & 0xfffff, pos = v & 0xfffff, flags = (v >> 60) & 3;
+            if (taxid > m_taxid_mask || gene > m_gene_mask || pos > m_pos_mask) return false;
+            packed = taxid << (m_gene_bits + m_pos_bits) | gene << m_pos_bits | pos | flags << (m_taxid_bits + m_gene_bits + m_pos_bits);
+            return true;
         }
 
         // Converts the loaded 8-byte layout into the packed one with `threads` threads and frees it.
@@ -602,14 +698,12 @@ namespace protal {
                 bit += 32 * e;
             }
             for (uint64_t i = 0; i < e; i++, bit += m_entry_bits) {
-                uint64_t const v = entries[i];
-                uint64_t const taxid = (v >> 40) & 0xfffff, gene = (v >> 20) & 0xfffff, pos = v & 0xfffff, flags = (v >> 60) & 3;
-                if (taxid > m_taxid_mask || gene > m_gene_mask || pos > m_pos_mask) {
-                    bad = v;
+                uint64_t packed = 0;
+                if (!PackValue(entries[i], packed)) {
+                    bad = entries[i];
                     return false;
                 }
-                PutBits(m_packed, bit, taxid << (m_gene_bits + m_pos_bits) | gene << m_pos_bits | pos | flags << (m_taxid_bits + m_gene_bits + m_pos_bits),
-                        m_entry_bits, safe_begin, safe_end);
+                PutBits(m_packed, bit, packed, m_entry_bits, safe_begin, safe_end);
             }
             return true;
         }
@@ -828,16 +922,36 @@ namespace protal {
             return ofs.str();
         }
 
+        // The raw index (header, key map, values in the 8-byte layout); packed values are written unpacked, in batches.
         void Save(std::ostream& ofs) {
 //            SortForKeys();
             std::string const header = HeaderBytes();
             ofs.write(header.data(), static_cast<std::streamsize>(header.size()));
             ofs.write((char *) m_keymap, sizeof(*m_keymap) * keymap_size_total);
-            ofs.write((char *) m_map, sizeof(*m_map) * values_size);
+            if (!IsPacked()) {
+                ofs.write((char *) m_map, sizeof(*m_map) * values_size);
+                return;
+            }
+            constexpr uint64_t kBatch = uint64_t{1} << 20;
+            std::vector<uint64_t> cells(kBatch);
+            for (uint64_t first = 0; first < values_size && ofs; first += kBatch) {
+                uint64_t const n = std::min(kBatch, values_size - first);
+                UnpackSlots(first, n, cells.data());
+                ofs.write(reinterpret_cast<char const*>(cells.data()), static_cast<std::streamsize>(n * sizeof(uint64_t)));
+            }
         }
 
         index_codec::Layout CodecLayout() const {
             return { keymap_size / m_keys_per_ctrl_block, m_keys_per_ctrl_block, ctrl_block_cell_size, values_size };
+        }
+
+        // The values as the column format's writer and Verify read them: the 8-byte layout in place, or the packed
+        // values unpacked a key at a time (UnpackKey; UnpackSlots for other ranges).
+        index_codec::Cells ValueCells() const {
+            if (!IsPacked()) return { reinterpret_cast<uint64_t const*>(m_map) };
+            return { this,
+                     [](void const* map, uint64_t first, uint64_t n, uint64_t* out) { static_cast<Seedmap const*>(map)->UnpackKey(first, n, out); },
+                     [](void const* map, uint64_t first, uint64_t n, uint64_t* out) { static_cast<Seedmap const*>(map)->UnpackSlots(first, n, out); } };
         }
 
         // Writes the index compressed in columns (IndexCodec.h), then reads the file back chunk by
@@ -845,21 +959,12 @@ namespace protal {
         std::string SaveCompressed(std::string const& path, zstd::Params const& params, uint64_t& written, size_t& raw_chunks) {
             std::string error;
             std::string const header = HeaderBytes();
-            auto const* values = reinterpret_cast<uint64_t const*>(m_map);
+            index_codec::Cells const values = ValueCells();
             auto const bytes = index_codec::Write(path, header, CodecLayout(), m_keymap, values, params, error, &raw_chunks);
             if (!bytes) return error;
             written = *bytes;
             error = index_codec::Verify(path, header, CodecLayout(), m_keymap, values, params.threads);
             return error.empty() ? error : "reading it back: " + error;
-        }
-
-        // Save's bytes as memory regions for zstd::CompressFrames; header_storage holds the header
-        // and must outlive the reader.
-        void SerializedParts(std::string& header_storage, zstd::MemoryReader& reader) {
-            header_storage = HeaderBytes();
-            reader.Add(header_storage.data(), header_storage.size());
-            reader.Add(reinterpret_cast<char const*>(m_keymap), sizeof(*m_keymap) * keymap_size_total);
-            reader.Add(reinterpret_cast<char const*>(m_map), sizeof(*m_map) * values_size);
         }
 
         // Reads an index written by Save. Every size in the file is checked against the layout this
@@ -1339,14 +1444,15 @@ namespace protal {
         }
 
         // Puts a value (the bits of a ValueEntry::Put) into the first empty slot of its key, and in a
-        // flex block the key's flex part into the flex cell of that slot. No lock: one thread at a time
+        // flex block the key's flex part into the flex cell of that slot, in the 8-byte layout or the packed
+        // one (BuildValuePointers with a layout, as --build fills them). No lock: one thread at a time
         // per control block, as PutOMP's lock or the index build's key ranges (Build.h) ensure; a
         // key's values arrive in reference order and fill its slots in that order. false for a key
         // without values (not counted, or dropped by BuildValuePointers).
         bool PutOwned(uint64_t key, uint64_t value) {
             uint64_t const main_key = MainKey(key);
             uint64_t const flex_key = FlexKey(key);
-            if (m_map == nullptr) {
+            if (m_map == nullptr && m_packed == nullptr) {
                 std::cerr << "You need to initialize the values with BuildValuePointers()" << std::endl;
                 exit(8);
             }
@@ -1378,6 +1484,33 @@ namespace protal {
                 exit(code);
             };
             if (value_index >= values_size) failed("they lie beyond the values", 73);
+
+            if (IsPacked()) {
+                // The key's region of the packed values (PackedLayout): its flex cells, then its entries. They fill
+                // in order, so the first empty entry follows the filled ones (found by bisection; a placed entry is
+                // never 0, its unique flag is set). Bytes shared with the neighbouring keys, which another thread
+                // may be filling, are read and written atomically (GetBits, PutBits).
+                uint64_t const region = key_value_start * m_slot_bits, region_end = key_value_end * m_slot_bits;
+                uint64_t const safe_begin = (region >> 3) + ((region & 7) ? 1 : 0), safe_end = region_end >> 3;
+                uint64_t const entries = key_value_block_size - (is_flex ? flex_block_size : 0);
+                uint64_t const entry_bit = region + (is_flex ? 32 * entries : 0);
+                uint64_t lo = 0, hi = entries;
+                while (lo < hi) {
+                    uint64_t const mid = lo + (hi - lo) / 2;
+                    if (GetBits(m_packed, entry_bit + mid * m_entry_bits, m_entry_bits, safe_begin, safe_end) != 0) lo = mid + 1;
+                    else hi = mid;
+                }
+                if (lo == entries) failed("all its slots are taken", 75);
+                uint64_t packed = 0;
+                if (!PackValue(value, packed)) failed("its taxid, gene id or position is wider than the reference's (PackedLayout)", 8);
+                PutBits(m_packed, entry_bit + lo * m_entry_bits, packed, m_entry_bits, safe_begin, safe_end);
+                if (is_flex) {
+                    uint64_t const flex_bit = region + 32 * lo;
+                    if (GetBits(m_packed, flex_bit, 32, safe_begin, safe_end) != 0) failed("its flex cell is taken", 76);
+                    PutBits(m_packed, flex_bit, static_cast<uint32_t>(flex_key), 32, safe_begin, safe_end);
+                }
+                return true;
+            }
 
             // The next empty slot
             while (value_index < key_value_end && !m_map[value_index].Empty()) value_index++;
@@ -1556,6 +1689,8 @@ namespace protal {
                 size_t local_outside = 0;
                 std::vector<uint8_t> close;
                 std::vector<std::pair<uint32_t, uint32_t>> keyed;
+                std::vector<uint32_t> flex_cells;  // a packed key's flex cells
+                PackedBlock packed;
 
 #pragma omp for schedule(dynamic, 1 << 14)
                 for (int64_t block = 0; block < n_blocks; block++) {
@@ -1572,34 +1707,50 @@ namespace protal {
                         bool const has_flex = size >= m_flex_threshold;
                         uint64_t const flex_slots = has_flex ? FlexBlockSize(size) : 0;
                         uint64_t const n = size - flex_slots;
-                        ValueEntry* const values = m_map + key_start + flex_slots;
+                        // The key's values in either layout (--build holds them packed).
+                        ValueEntry* const values = IsPacked() ? nullptr : m_map + key_start + flex_slots;
+                        if (IsPacked()) BlockOfSlots(key_start, size, packed);
+                        auto entry_of = [&](size_t e) {
+                            ValueEntry entry;
+                            entry.value = values ? values[e].value : EntryValue(packed, static_cast<uint32_t>(e));
+                            return entry;
+                        };
+                        auto set_two = [&](size_t e) {
+                            if (values) values[e].SetFlagUniqueDistanceMinTwo();
+                            else SetUniqueDistanceTwoFlag(packed, static_cast<uint32_t>(e));
+                        };
 
                         if (has_flex) {
                             // Flex part e belongs to value e. Only unique values get the flag, and only
                             // whether another value is within distance 1 matters.
-                            uint32_t const* flex = (uint32_t*)(m_map + key_start);
+                            uint32_t const* flex = values ? (uint32_t const*)(m_map + key_start) : nullptr;
+                            if (!values) {
+                                flex_cells.resize(n);
+                                for (size_t e = 0; e < n; e++) flex_cells[e] = FlexCell(packed, static_cast<uint32_t>(e));
+                                flex = flex_cells.data();
+                            }
                             if (n >= kSortFrom) {
                                 FlexNeighbours(flex, n, m_flex_k, close, keyed);
                                 local.comparisons += n * m_flex_k;
                                 for (size_t e = 0; e < n; e++) {
-                                    if (values[e].IsFlagUnique() && !close[e]) values[e].SetFlagUniqueDistanceMinTwo();
+                                    if (entry_of(e).IsFlagUnique() && !close[e]) set_two(e);
                                 }
                             } else {
                                 for (size_t e = 0; e < n; e++) {
-                                    if (!values[e].IsFlagUnique()) continue;
+                                    if (!entry_of(e).IsFlagUnique()) continue;
                                     bool near = false;
                                     for (size_t o = 0; o < n && !near; o++) {
                                         if (o == e) continue;
                                         local.comparisons++;
                                         near = Similarity(flex[e], flex[o]) + 1 >= m_flex_k;
                                     }
-                                    if (!near) values[e].SetFlagUniqueDistanceMinTwo();
+                                    if (!near) set_two(e);
                                 }
                             }
                         }
 
                         for (size_t e = 0; e < n; e++) {
-                            auto const& entry = values[e];
+                            ValueEntry const entry = entry_of(e);
                             auto [taxid, geneid, pos] = entry.Get();
                             if (taxid + 1 >= rows.first_row.size() || geneid == 0 ||
                                 geneid > rows.first_row[taxid + 1] - rows.first_row[taxid]) {
@@ -1675,8 +1826,10 @@ namespace protal {
         // The value positions of every control block and key (from the counts of pass 1), in
         // `threads` threads: each part of the blocks is laid out from 0, then the parts' sizes are
         // summed in order and each part's start is added to its blocks' positions. The same key
-        // map as on one thread.
-        void BuildValuePointers(int threads = 1) {
+        // map as on one thread. With a layout the values are allocated packed (PackedLayout), as a query
+        // run holds them, and filled so (PutOwned): --build never holds the 8-byte layout (36 GB at r226
+        // instead of 29 with the key map), which only the files keep.
+        void BuildValuePointers(int threads = 1, PackedLayout const* pack = nullptr) {
             uint64_t const num_ctrl_blocks = keymap_size >> ctrl_block_frequency_bitshift;
             std::cout << "number ctrl blocks: " << num_ctrl_blocks << std::endl;
             uint64_t const max_keyblock_size = max_key_ubiquity*2;
@@ -1743,7 +1896,26 @@ namespace protal {
             values_size = global_position;
             std::cout << "ctrl_block_cell_size: " << ctrl_block_cell_size << std::endl;
 
-            AllocateValues(values_size, true);  // zeroed: an all-zero entry is empty
+            if (pack) {
+                SetLayout(*pack);
+                AllocatePacked();  // zeroed: an all-zero entry is empty
+                uint64_t entries = 0;
+#pragma omp parallel for num_threads(threads) schedule(dynamic, 1 << 14) reduction(+:entries)
+                for (int64_t block = 0; block < static_cast<int64_t>(num_ctrl_blocks); block++) {
+                    uint64_t const begin = BlockStart(block), end = BlockStart(block + 1);
+                    if (begin == end) continue;
+                    for (size_t j = 0; j < m_keys_per_ctrl_block; j++) {
+                        uint64_t const start = begin + m_keymap[block * block_cells + ctrl_block_cell_size + j];
+                        uint64_t const stop = j + 1 == m_keys_per_ctrl_block ? end : begin + m_keymap[block * block_cells + ctrl_block_cell_size + j + 1];
+                        uint64_t const S = stop - start;
+                        entries += S >= m_flex_threshold ? S - FlexBlockSize(S) : S;
+                    }
+                }
+                m_packed_entries = entries;
+            } else {
+                AllocateValues(values_size, true);  // zeroed: an all-zero entry is empty
+            }
+            std::cout << "Index in memory: " << MemoryDescription() << std::endl;
 
             constexpr bool verbose = true;
             if constexpr(verbose) {
