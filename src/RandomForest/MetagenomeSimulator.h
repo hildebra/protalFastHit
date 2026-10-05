@@ -60,11 +60,15 @@ public:
         bool skip_reads = false,
         bool keep_tmp = false);
 
+    // How the samples' read files are written (default BGZF).
+    void set_reads_compression(ReadsCompression compression) { reads_compression_ = compression; }
+
 private:
     std::vector<GenomeRecord> genomes_;
     ArtIlluminaWrapper art_;
     CommunityProfileDesigner designer_;
     std::mt19937_64 rng_;
+    ReadsCompression reads_compression_ = ReadsCompression::Bgzf;
 
     // A sample's design (its assignments), prepared (prepare_sample); its reads are written later.
     SampleOutput simulate_single(
@@ -78,9 +82,9 @@ private:
     void prepare_sample(SampleOutput& sample, std::uint64_t paired_read_length);
 
     // Runs ART for each assignment of a prepared sample, on up to `threads` threads, and appends its reads in the
-    // assignments' order to the sample's _R1.fq.gz and _R2.fq.gz, BGZF-compressed as they arrive (the same bytes
-    // as compressing the whole files, for any number of threads); each genome's temporary files go once appended,
-    // unless keep_tmp. With skip_reads, empty placeholder files.
+    // assignments' order to the sample's _R1 and _R2 files, compressed as they arrive (BGZF, .fq.gz, or zstd, .fq.zst:
+    // reads_compression_; the same bytes as compressing the whole files, for any number of threads); each genome's
+    // temporary files go once appended, unless keep_tmp. With skip_reads, empty placeholder files.
     void write_reads(SampleOutput& sample, const std::filesystem::path& output_dir, bool skip_reads, bool keep_tmp,
                      std::size_t threads = 1) const;
 

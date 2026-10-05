@@ -62,6 +62,8 @@ import tempfile
 import threading
 import bisect
 
+import compressed
+
 READ_TYPES = ("pe", "se", "pb", "ont")
 # The defaults of a scenario's reads, by type: Illumina paired-end reads (ART), Ultima Genomics single-end reads
 # (hifi_reads.py's flow model, ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD); long reads take the collection's setups
@@ -477,7 +479,8 @@ COMPLEMENT = bytes.maketrans(b"ACGTN", b"TGCAN")
 
 
 def host_pe_chunk(task):
-    """`task["pairs"]` host read pairs into task["r1"] and task["r2"] (gzip): fragments drawn from the host
+    """`task["pairs"]` host read pairs into task["r1"] and task["r2"] (zstd or gzip by their names, as the sample's
+    reads they are appended to; compressed.open_write): fragments drawn from the host
     (fragment length normal, of the setup's mean and SD, at least the read length + 1; either strand), each read by
     ART in amplicon mode (-amp -p -c 1: one pair from the two ends of each fragment) with the setup's profile and
     quality shifts (task["art_args"]), named h<chunk>_<n>. -> None, or why it failed."""
@@ -502,7 +505,7 @@ def host_pe_chunk(task):
         return f"{task['sample']}: host reads: {' '.join(command)} failed ({result.returncode}): {result.stderr.strip()[-300:]}"
     made = []
     for source, dest in ((prefix + "1.fq", task["r1"]), (prefix + "2.fq", task["r2"])):
-        with open(source, "rb") as fin, gzip.open(dest + ".partial", "wb", compresslevel=1) as fout:
+        with open(source, "rb") as fin, compressed.open_write(dest + ".partial") as fout:
             shutil.copyfileobj(fin, fout, 16 << 20)
         with open(source, "rb") as fh:
             made.append(sum(1 for _ in fh) // 4)

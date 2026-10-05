@@ -51,7 +51,8 @@ def run(a):
             out.write(gzip.open(path).read())
     host_folder = scenarios.prepare_host(host_fa, os.path.join(root, "host"))
     opts = argparse.Namespace(out=root, seed=1, pbsim="pbsim", pbsim_models=a.pbsim_models, samples=a.samples,
-                              long_read_chunk=a.chunk, host_folder=host_folder)
+                              long_read_chunk=a.chunk, host_folder=host_folder,
+                              **({"read_compression": a.read_compression} if a.read_compression else {}))
     units = []
     for kind, text in (("ultima", "ultima:300:40:25:2"), ("hifi", "hifi:15000:3000:3"),
                        ("ont", "qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36")):
@@ -79,16 +80,27 @@ def run(a):
         sys.exit(1)
 
 
+def decompressed(path):
+    """A read file's content, gzip or zstd (by its first bytes)."""
+    with open(path, "rb") as fh:
+        head = fh.read(4)
+    if head[:2] == b"\x1f\x8b":
+        return gzip.open(path).read()
+    import subprocess
+    return subprocess.run(["zstd", "-dcq", path], check=True, stdout=subprocess.PIPE).stdout
+
+
 def compare(a, b):
-    def reads(root):
-        return {os.path.relpath(f, root): f for f in glob.glob(os.path.join(root, "points", "*", "sim", "reads", "*.fq.gz"))}
+    def reads(root):  # by name without the compression's suffix: gzip and zstd files of the same reads compare
+        return {os.path.relpath(f, root).rsplit(".fq.", 1)[0]: f
+                for f in glob.glob(os.path.join(root, "points", "*", "sim", "reads", "*.fq.*"))}
     first, second = reads(a), reads(b)
     if sorted(first) != sorted(second):
         print(f"different samples: {sorted(set(first) ^ set(second))}")
         return False
     same = True
     for name in sorted(first):
-        x, y = gzip.open(first[name]).read(), gzip.open(second[name]).read()
+        x, y = decompressed(first[name]), decompressed(second[name])
         if x != y:
             print(f"DIFFERENT: {name} ({len(x)} and {len(y)} bytes)")
             same = False
@@ -109,6 +121,7 @@ def main():
     ap.add_argument("--community", type=int, default=150)
     ap.add_argument("--chunk", type=int, default=4_000_000)
     ap.add_argument("--processes", action="store_true")
+    ap.add_argument("--read_compression", help="zstd or gzip (collectors since 2026-10-05; default theirs)")
     ap.add_argument("--compare", nargs=2)
     a = ap.parse_args()
     if a.compare:

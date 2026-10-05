@@ -2826,6 +2826,29 @@ class SimulatorTest(WorkDir):
         self.assertEqual(outputs["1"], outputs["3"])
         with gzip.open(self.path("sim_t1", "reads", "sample_1_R1.fq.gz"), "rt") as fh:
             self.assertEqual(sum(1 for _ in fh) // 4, 600)
+        # --reads_compression zstd: .fq.zst files of the same reads (the training data collector's default), named so in
+        # the protal map; the same bytes on any number of threads.
+        if not shutil.which("zstd"):
+            self.skipTest("needs the zstd command")
+        zstd = {}
+        for threads in ("1", "3"):
+            out = f"sim_zstd_t{threads}"
+            rc, log = run(self.work, "--genome_table", "genomes.tsv", "--seed", "4", "--samples", "4",
+                          "--total_read_pairs", "600", "--species_per_sample", "3", "--read_length", "100",
+                          "--sequencer", "HS20", "--fragment_mean", "300", "--fragment_stdev", "30", "-t", threads,
+                          "--output_dir", out, "--reads_compression", "zstd", "--protal_metafile", self.path(out, "p"),
+                          binary=SIMULATE, timeout=300)
+            self.assertEqual(rc, 0, log[-3000:])
+            files = sorted(os.listdir(self.path(out, "reads")))
+            self.assertEqual(files, [f"sample_{i}_R{r}.fq.zst" for i in range(1, 5) for r in (1, 2)])
+            zstd[threads] = {f: open(self.path(out, "reads", f), "rb").read() for f in files}
+            with open(self.path(out, "protal.meta")) as fh:
+                self.assertIn("sample_1\tsample_1_R1.fq.zst\tsample_1_R2.fq.zst\tsample_1.sam.zst\tsample_1\t", fh.read())
+        self.assertEqual(zstd["1"], zstd["3"])
+        for name, data in zstd["1"].items():
+            self.assertEqual(data[:4], b"\x28\xb5\x2f\xfd", name)
+            plain = subprocess.run(["zstd", "-dcq"], input=data, check=True, stdout=subprocess.PIPE).stdout
+            self.assertEqual(plain, gzip.decompress(outputs["1"][name.replace(".zst", ".gz")]), name)
 
 
 class PhasingTest(WorkDir):

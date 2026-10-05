@@ -90,6 +90,10 @@ inline double SigmaForSample(ProfileDesignOptions const& options, std::size_t in
     return options.pln_sigmas[index % options.pln_sigmas.size()];
 }
 
+// How a sample's read files are written: BGZF (libdeflate, _R1.fq.gz) or zstd (one frame at level 3, _R1.fq.zst;
+// as small, written several times faster, and read by protal alike).
+enum class ReadsCompression { Bgzf, Zstd };
+
 struct ArtIlluminaOptions {
     std::string art_path{"art_illumina"};
     int read_length{150};

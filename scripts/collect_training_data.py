@@ -70,6 +70,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import compressed  # noqa: E402
 import lineages  # noqa: E402
 import scenarios  # noqa: E402
 
@@ -161,6 +162,10 @@ def parse_args(argv=None):
                    help="GB to keep free on the output's file system: a simulation that would leave less waits until a "
                         "--follow run has profiled and removed reads (default 0: no limit); the work in progress may "
                         "still finish below it")
+    p.add_argument("--read_compression", choices=sorted(compressed.SUFFIXES), default="zstd",
+                   help="how the simulated reads are written: zstd (.fq.zst, the default: as small as gzip or smaller, "
+                        "several times faster to write and read; protal reads both) or gzip (.fq.gz: BGZF from "
+                        "simulate_metagenomes, gzip from the long reads)")
     p.add_argument("--poll", type=float, default=30.0, help=argparse.SUPPRESS)  # seconds between looks (tests: less)
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--novel_species",
@@ -506,6 +511,21 @@ def art_profile_args(profile, extra=""):
     return ["--sequencer", "HS25", "--extra_art_args", f"-1 {files[0]} -2 {files[-1]}" + (f" {extra}" if extra else "")]
 
 
+def read_compression(opts):
+    """zstd or gzip: how the simulated reads are written (--read_compression)."""
+    return getattr(opts, "read_compression", "zstd")
+
+
+def reads_suffix(opts):
+    """The compression suffix of a read file after its .fq: .zst or .gz."""
+    return compressed.SUFFIXES[read_compression(opts)]
+
+
+def reads_compression_args(opts):
+    """simulate_metagenomes's option for the reads' compression."""
+    return ["--reads_compression", "zstd" if read_compression(opts) == "zstd" else "bgzf"]
+
+
 def art_options(profile):
     """art_illumina's own options for a read setup's ART profile: -ss PROFILE, or -1 R1 -2 R2 of a file= profile."""
     if not profile.startswith("file="):
@@ -759,7 +779,8 @@ def scenario_command(point, opts, threads):
                "--species_per_sample", d["species"], "--read_length", point["read_length"],
                *art_profile_args(point["sequencer"], point.get("art_shift", "")), "--fragment_mean", point["fragment_mean"],
                "--fragment_stdev", point["fragment_sd"], "--seed", str(scenarios.seed_of(opts.seed, point["scenario"])),
-               "-t", str(threads), "--protal_metafile", profiles, *abundance_args(d["abundance"])]
+               "-t", str(threads), "--protal_metafile", profiles, *abundance_args(d["abundance"]),
+               *reads_compression_args(opts)]
     if d["strains"]:
         command += ["--strains_per_species", d["strains"]]
     kind, congeners = congener_spec(d["congeners"])
@@ -786,7 +807,8 @@ def simulation_command(point, index, opts, threads, clades):
                "--species_per_sample", opts.species_per_sample, "--read_length", point["read_length"],
                *art_profile_args(point["sequencer"]), "--fragment_mean", point["fragment_mean"],
                "--fragment_stdev", point["fragment_sd"], "--seed", str(opts.seed + index),
-               "-t", str(threads), "--protal_metafile", profiles, *abundance_args(opts.abundance)]
+               "-t", str(threads), "--protal_metafile", profiles, *abundance_args(opts.abundance),
+               *reads_compression_args(opts)]
     if opts.strains_per_species:
         command += ["--strains_per_species", opts.strains_per_species]
     # One --taxon for all demands: the simulator reads only the last.
@@ -832,7 +854,8 @@ def host_pe_jobs(point, opts, key, started):
     """The jobs that add a scenario point's host read pairs to its samples' reads, once the community's are simulated:
     point["host_pairs"] per sample in chunks of scenarios.HOST_PAIRS_CHUNK side by side (scenarios.host_pe_chunk: ART
     in amplicon mode on fragments of the host, the point's profile and quality shifts), then each sample's chunks
-    appended to its read files (gzip members one after the other), and the point's key written (simulated.json), so
+    appended to its read files (zstd frames or gzip members one after the other), and the point's key written
+    (simulated.json), so
     that a point stopped before is simulated again."""
     base, sim, _ = point_dirs(point, opts)
     _, rows, _ = map_rows(os.path.join(sim, "protal.meta"))
@@ -846,11 +869,11 @@ def host_pe_jobs(point, opts, key, started):
                   "pairs": point["host_pairs"] // k + (1 if c < point["host_pairs"] % k else 0),
                   "length": int(point["read_length"]), "fragment_mean": float(point["fragment_mean"]),
                   "fragment_sd": float(point["fragment_sd"]), "seed": scenarios.seed_of(opts.seed, point["name"]) + s * 1009 + c,
-                  "tmp": os.path.join(tmp, f"c{c + 1}"), "r1": os.path.join(tmp, f"c{c + 1}_R1.fq.gz"),
-                  "r2": os.path.join(tmp, f"c{c + 1}_R2.fq.gz")} for c in range(k)]
+                  "tmp": os.path.join(tmp, f"c{c + 1}"), "r1": os.path.join(tmp, f"c{c + 1}_R1.fq{reads_suffix(opts)}"),
+                  "r2": os.path.join(tmp, f"c{c + 1}_R2.fq{reads_suffix(opts)}")} for c in range(k)]
         names = [f"host:{row['SAMPLEID']}:{t['chunk']}" for t in tasks]
         jobs += [{"name": n, "run": lambda t=t: (Workers.call(scenarios.host_pe_chunk, t), []), "priority": 1.5e9,
-                  # its fragments, ART's plain reads and the gzipped ones
+                  # its fragments, ART's plain reads and the compressed ones
                   "disk": int(t["pairs"] * (t["fragment_mean"] + 2 * t["length"] * (1 + PE_BYTES))), "opens": False}
                  for n, t in zip(names, tasks)]
 
@@ -986,8 +1009,8 @@ def draw_templates(tasks):
     arise in sequencing, until each task's bases reach its own: a read's genome by relative abundance times genome
     length (task["genomes"]: fasta, weight), its length by read_length, its start uniform over the genome's contigs
     of PBSIM_MIN_LENGTH bases or more (a read ends where its contig does), either strand. Written to
-    task["templates"] as FASTA (gzipped if its name ends in .gz), one line of sequence per read, the reads of a
-    genome together, named g<genome>x_<n>, n = 1, 2, ... (in a chunk of a sample, every task["name_step"]-th from
+    task["templates"] as FASTA (zstd or gzip if its name ends in .zst or .gz), one line of sequence per read, the reads
+    of a genome together, named g<genome>x_<n>, n = 1, 2, ... (in a chunk of a sample, every task["name_step"]-th from
     task["name_offset"] + 1, so that the chunks' names do not meet).
 
     Each task draws in rounds with its own random stream (task["seed"]): it plans the reads of the bases it still
@@ -1019,8 +1042,7 @@ def draw_templates(tasks):
     with contextlib.ExitStack() as files:
         for state in states:
             path = state["task"]["templates"]
-            state["out"] = files.enter_context(gzip.open(path, "wb", compresslevel=1) if path.endswith(".gz")
-                                               else open(path, "wb"))
+            state["out"] = files.enter_context(compressed.open_write(path, level=1))
         while True:
             plans = []
             for state in states:  # this round's reads of each task that still lacks bases: {genome: [length, ...]}
@@ -1106,7 +1128,7 @@ def make_reads(task, count):
     """A read of each of the `count` templates in task["templates"] (draw_templates), named after it (g<genome>x_<n>),
     into task["out"]: by hifi_reads.py for a hifi setup (its flow model for an ultima one), else by one pbsim3 run
     with --strategy templ, which makes one read of each template, with the model's errors and qualities, and names it
-    <id prefix>_<n> after the template's place n in the file (gzipped templates are unpacked for it first). Then
+    <id prefix>_<n> after the template's place n in the file (compressed templates are unpacked for it first). Then
     task["tmp"] goes (its templates: ~6 GB for a 6 Gb sample, and pbsim3's files). -> None, or why it failed."""
     tmp, setup, templates = task["tmp"], task["setup"], task["templates"]
     if setup["method"] in ("hifi", "ultima"):
@@ -1117,9 +1139,9 @@ def make_reads(task, count):
         os.replace(task["out"] + ".partial", task["out"])
         shutil.rmtree(tmp, ignore_errors=True)
         return None
-    if templates.endswith(".gz"):  # pbsim3 reads plain FASTA
-        plain = templates[:-len(".gz")]
-        with gzip.open(templates, "rb") as fin, open(plain, "wb") as fout:
+    if compressed.compression_of(templates):  # pbsim3 reads plain FASTA
+        plain = os.path.splitext(templates)[0]
+        with compressed.open_read(templates) as fin, open(plain, "wb") as fout:
             shutil.copyfileobj(fin, fout, 16 << 20)
         os.remove(templates)
         templates = plain
@@ -1140,7 +1162,7 @@ def make_reads(task, count):
     reads, lines = 0, 0
     with open(templates, "rb") as names_in, \
             (gzip.open(fastqs[0], "rb") if fastqs[0].endswith(".gz") else open(fastqs[0], "rb")) as fin, \
-            gzip.open(task["out"] + ".partial", "wb", compresslevel=1) as fout:
+            compressed.open_write(task["out"] + ".partial") as fout:
         names = (line[1:] for line in names_in if line.startswith(b">"))  # the templates' names, in file order
         for line in fin:
             if lines % 4 == 0:
@@ -1169,22 +1191,25 @@ def long_read_chunks(task, chunk):
     """A long-read sample's task as the tasks of its chunks: [task] if it has `chunk` bases or fewer (or chunk is 0),
     else k = ceil(bases / chunk) tasks of a k-th of its bases each, with seeds of their own, the read names of chunk
     c every k-th from c + 1 (draw_templates), each with its own folder in the sample's tmp folder, its templates
-    there gzipped (draw_chunks writes all chunks' templates at once) and its reads next to them; join_chunks then
+    there compressed as the sample's reads (draw_chunks writes all chunks' templates at once) and its reads next to
+    them; join_chunks then
     writes the sample's reads."""
     bases = task["bases"]
     if not chunk or bases <= chunk:
         return [task]
     k = -(-bases // chunk)
     part = bases // k
+    suffix = os.path.splitext(task["out"])[1] if compressed.compression_of(task["out"]) else ".gz"  # the sample's
     return [{**task, "bases": part if c < k - 1 else bases - part * (k - 1), "seed": task["seed"] * 1009 + c + 1,
-             "out": os.path.join(task["tmp"], f"chunk{c + 1}.fq.gz"), "tmp": os.path.join(task["tmp"], f"c{c + 1}"),
-             "templates": os.path.join(task["tmp"], f"c{c + 1}", "templates.fa.gz"),
+             "out": os.path.join(task["tmp"], f"chunk{c + 1}.fq{suffix}"), "tmp": os.path.join(task["tmp"], f"c{c + 1}"),
+             "templates": os.path.join(task["tmp"], f"c{c + 1}", f"templates.fa{suffix}"),
              "name_step": k, "name_offset": c} for c in range(k)]
 
 
 def join_chunks(task, chunks):
-    """The chunks' reads (gzip files, one after the other: a gzip file of several members) as the sample's reads,
-    each chunk's file removed once it is in (the sample is not on the disk twice). -> None, or why it failed."""
+    """The chunks' reads (zstd or gzip files, one after the other: a file of several frames or members) as the
+    sample's reads, each chunk's file removed once it is in (the sample is not on the disk twice). -> None, or why it
+    failed."""
     if len(chunks) == 1:
         return None
     try:
@@ -1253,8 +1278,9 @@ class Workers:
 
 
 # Bytes on the disk per base a simulation writes, for the room it needs (Scheduler space; measured 2026-10-05,
-# docs/claude/2026-10-05-collector-profiling): paired-end reads (BGZF) ~0.6-1.0 per base read; drawn reads (gzip)
-# ~1.1, their plain templates 1.0 (gzipped ~0.35), and pbsim3's own files (its reads and alignments) ~1.4 more.
+# docs/claude/2026-10-05-collector-profiling): paired-end reads (BGZF or zstd) ~0.6-1.0 per base read; drawn reads
+# (gzip) ~1.1, zstd ~1.0, their plain templates 1.0 (compressed ~0.35), and pbsim3's own files (its reads and
+# alignments) ~1.4 more.
 PE_BYTES, DRAWN_BYTES, TEMPLATE_BYTES, GZIPPED_TEMPLATE_BYTES, PBSIM_BYTES = 0.8, 1.1, 1.0, 0.35, 1.4
 
 
@@ -1266,7 +1292,7 @@ def drawn_bytes(task, gzipped=False):
 
 
 # Jobs of a group run at most so many at once (Scheduler limits): a sample whose templates are drawn holds all its
-# chunks' templates on the disk (gzipped, ~0.4 bytes per base) until the chunks' reads are made, and the chunks' reads
+# chunks' templates on the disk (compressed, ~0.35 bytes per base) until the chunks' reads are made, and the chunks' reads
 # come first (READS_FIRST), so that drawn templates do not pile up while more samples are drawn.
 DRAW_GROUP = "draw"
 READS_FIRST = 9e8  # a chunk's reads: before any sample's drawing or a sample made whole, after the paired-end points
@@ -1386,7 +1412,7 @@ def long_unit_jobs(index, unit, opts, keys, started, counter, source=None):
     need = 2 if unit["setup"]["method"] in PBSIM_METHODS else 1  # pbsim3 keeps about two cores busy
     for s, (_, community) in enumerate(unit_communities(unit, opts, source)):
         sample = f"{unit['name']}_s_{s + 1}"
-        out = os.path.join(sim, "reads", sample + ".fq.gz")
+        out = os.path.join(sim, "reads", sample + ".fq" + reads_suffix(opts))
         rows.append((sample, out, truth[community], community))
         task = {"sample": sample, "out": out, "bases": unit["bases"], "setup": unit["setup"], "model": model,
                 "pbsim": opts.pbsim, "seed": (opts.seed * 1000003 + index * 1009 + s) * 101,
@@ -1706,6 +1732,8 @@ def long_key(unit, index, opts, keys):
         key["chunk"] = opts.long_read_chunk
     if unit.get("host_share"):
         key["host"] = {"genome": scenarios.host_identity(opts.host_folder), "share": unit["host_share"]}
+    if read_compression(opts) != "gzip":  # the reads' files (gzip ones, of older collectors, have no entry)
+        key["compression"] = read_compression(opts)
     return key
 
 

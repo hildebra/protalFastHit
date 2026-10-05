@@ -68,6 +68,7 @@ static std::string derive_prefix_from_r1(const fs::path& r1) {
         }
     };
     strip_suffix(".gz");
+    strip_suffix(".zst");
     strip_suffix(".fastq");
     strip_suffix(".fq");
     strip_suffix(".fasta");
@@ -146,6 +147,7 @@ struct CliOptions {
     bool plot_png{false};
     bool test_mode{false};
     bool keep_tmp{false};
+    protal::sim::ReadsCompression reads_compression{protal::sim::ReadsCompression::Bgzf};
     bool pick_random_demand_if_fail{false};
     int threads{1};
     std::optional<fs::path> protal_metafile_output_dir;
@@ -266,6 +268,7 @@ static cxxopts::Options build_cxxopts() {
     options.add_options("General")
         ("t,threads",       "Threads: samples simulated at a time, and threads beyond the samples run the ART calls of a sample's genomes side by side; the samples are the same for any number", cxxopts::value<int>()->default_value("1"))
         ("pigz_path",       "Unused: the reads are compressed in process (kept so that older commands still run)", cxxopts::value<std::string>()->default_value(""))
+        ("reads_compression", "How the read files are written: bgzf (_R1.fq.gz, libdeflate) or zstd (_R1.fq.zst, level 3: as small, several times faster to write; protal reads both)", cxxopts::value<std::string>()->default_value("bgzf"))
         ("protal_metafile", "Write a Protal meta file (output_dir/protal.meta) but set OUTPUT_DIR to <path>", cxxopts::value<std::string>())
         ("test",            "Generate profiles/manifests but skip read simulation (fast dry run)")
         ("keep_tmp",        "Keep the individual per-genome reads")
@@ -359,6 +362,11 @@ static CliOptions parse_cli(int argc, char** argv) {
     opts.threads          = result["threads"].as<int>();
     opts.test_mode         = result.count("test") > 0;
     opts.keep_tmp          = result.count("keep_tmp") > 0;
+    {
+        std::string const compression = result["reads_compression"].as<std::string>();
+        if (compression == "zstd") opts.reads_compression = protal::sim::ReadsCompression::Zstd;
+        else if (compression != "bgzf") throw std::runtime_error("--reads_compression: bgzf or zstd, not " + compression);
+    }
     opts.plot_png          = result.count("plot_png") > 0;
     opts.pick_random_demand_if_fail = result.count("pick_random_demand_if_fail") > 0;
 
@@ -460,6 +468,7 @@ static std::vector<protal::sim::SampleOutput> design_and_simulate(
 
     cli.art.threads = std::max(1, cli.threads);
     MetagenomeSimulator simulator(std::move(genomes), cli.art, *cli.seed);
+    simulator.set_reads_compression(cli.reads_compression);
 
     return simulator.simulate_samples(
         profile, cli.samples, cli.sample_prefix, cli.output_dir, cli.test_mode, cli.keep_tmp);
@@ -567,6 +576,7 @@ static std::vector<protal::sim::SampleOutput> replay_from_manifest(
     // The seed is only consumed for rows without a recorded art_seed.
     cli.art.threads = std::max(1, cli.threads);
     MetagenomeSimulator simulator(std::move(replay_genomes), cli.art, *cli.seed);
+    simulator.set_reads_compression(cli.reads_compression);
 
     return simulator.replay_samples(std::move(design), cli.output_dir, cli.test_mode, cli.keep_tmp);
 }

@@ -1056,6 +1056,7 @@ class MiniDbTest(unittest.TestCase):
         keys = {"ont_b300000": {"a": 1}}
         self.assertEqual(collect.simulate_long([(0, unit)], opts, 2, keys), {})
         self.assertTrue(collect.same_key(os.path.join(root, "points", "ont_b300000", "simulated.json"), keys["ont_b300000"]))
+        import compressed
         self.assertFalse(os.path.exists(os.path.join(root, "points", "ont_b300000", "sim", "tmp")))
         rows, _ = collect.unit_map_rows(unit, opts)
         self.assertEqual([r["SAMPLEID"] for r in rows], ["ont_b300000_s_1", "ont_b300000_s_2"])
@@ -1064,8 +1065,11 @@ class MiniDbTest(unittest.TestCase):
         complement = str.maketrans("ACGT", "TGCA")
         first = {}
         for row, (a, b) in zip(rows, ((0.5, 0.5), (0.8, 0.2))):
-            with gzip.open(row["FIRST"], "rt") as fh:
-                lines = fh.read().splitlines()
+            # zstd by default (--read_compression), as the collector names it
+            self.assertTrue(row["FIRST"].endswith(".fq.zst"), row["FIRST"])
+            with open(row["FIRST"], "rb") as fh:
+                self.assertEqual(fh.read(4), compressed.ZSTD_MAGIC)
+            lines = compressed.read_text(row["FIRST"]).splitlines()
             first[row["SAMPLEID"]] = lines
             names, reads = lines[0::4], lines[1::4]
             self.assertEqual(len(names), len(set(names)), "read names must be unique within a sample")
@@ -1088,16 +1092,14 @@ class MiniDbTest(unittest.TestCase):
         # The same seed, the same reads.
         self.assertEqual(collect.simulate_long([(0, unit)], opts, 1), {})
         for row in rows:
-            with gzip.open(row["FIRST"], "rt") as fh:
-                self.assertEqual(fh.read().splitlines(), first[row["SAMPLEID"]])
+            self.assertEqual(compressed.read_text(row["FIRST"]).splitlines(), first[row["SAMPLEID"]])
         # A sample of more bases than --long_read_chunk is simulated in chunks side by side, joined into one gzip
         # file: every read named once (chunk c of k names every k-th from c + 1), the sample's bases, reads of its
         # genomes; the same reads on any number of slots, and its chunks' files gone.
         chunked = argparse.Namespace(**vars(opts), long_read_chunk=70000)
         self.assertEqual(collect.simulate_long([(0, unit)], chunked, 3), {})
         for row in rows:
-            with gzip.open(row["FIRST"], "rt") as fh:
-                lines = fh.read().splitlines()
+            lines = compressed.read_text(row["FIRST"]).splitlines()
             names, reads = lines[0::4], lines[1::4]
             self.assertNotEqual(lines, first[row["SAMPLEID"]])
             ids = [int(n.split("x_")[1]) for n in names]
@@ -1108,12 +1110,17 @@ class MiniDbTest(unittest.TestCase):
             for name, read in zip(names, reads):
                 genome = sequences["GA" if name.startswith("@g0x_") else "GB"]
                 self.assertTrue(read in genome or read.translate(complement)[::-1] in genome)
-            with gzip.open(row["FIRST"], "rt") as fh:
-                chunked_first = fh.read()
+            chunked_first = compressed.read_text(row["FIRST"])
             self.assertEqual(collect.simulate_long([(0, unit)], chunked, 1), {})
-            with gzip.open(row["FIRST"], "rt") as fh:
-                self.assertEqual(fh.read(), chunked_first)
+            self.assertEqual(compressed.read_text(row["FIRST"]), chunked_first)
         self.assertFalse(os.path.exists(os.path.join(root, "points", "ont_b300000", "sim", "tmp")))
+        zstd_reads = {r["SAMPLEID"]: compressed.read_text(r["FIRST"]) for r in rows}
+        gzipped = argparse.Namespace(**vars(chunked), read_compression="gzip")
+        self.assertEqual(collect.simulate_long([(0, unit)], gzipped, 3), {})
+        for row in collect.unit_map_rows(unit, gzipped)[0]:
+            self.assertTrue(row["FIRST"].endswith(".fq.gz"))
+            with gzip.open(row["FIRST"], "rt") as fh:
+                self.assertEqual(fh.read(), zstd_reads[row["SAMPLEID"]])
         tasks = collect.long_read_chunks({"bases": 300000, "seed": 7, "tmp": "/t", "out": "/o"}, 70000)
         self.assertEqual([t["bases"] for t in tasks], [60000] * 4 + [60000])
         self.assertEqual(len({t["seed"] for t in tasks}), 5)
@@ -1698,6 +1705,13 @@ class MiniDbTest(unittest.TestCase):
         back = str.maketrans("ACGT", "TGCA")
         near = sum(r[:30] in both or r[:30].translate(back)[::-1] in both for r in first[1::4])
         self.assertGreater(near, 400)  # reads of the host, but for their errors
+        import compressed
+        zstd_task = {**task, "r1": os.path.join(tmp, "r1.fq.zst"), "r2": os.path.join(tmp, "r2.fq.zst")}
+        self.assertIsNone(scenarios.host_pe_chunk(zstd_task))
+        with open(zstd_task["r1"], "rb") as fh:
+            self.assertEqual(fh.read(4), compressed.ZSTD_MAGIC)
+        self.assertEqual(compressed.read_text(zstd_task["r1"]).splitlines(), first)
+        self.assertEqual(compressed.read_text(zstd_task["r2"]).splitlines(), second)
 
     def test_collector_scenario_units(self):
         # The scenarios' points and units after the design's: a community point per scenario (its paired-end reads
@@ -3165,7 +3179,7 @@ class GtdbBuildTest(unittest.TestCase):
                 self.assertEqual(ours, self.text("scenarios", collection, table), f"{collection}/{table}")
                 self.assertIn("\tsc_", ours)  # the scenarios' rows too
             points = os.path.join(scratch, collection, "points")
-            self.assertEqual(glob.glob(os.path.join(points, "*", "sim", "reads", "*.f*q.gz")), [])
+            self.assertEqual(glob.glob(os.path.join(points, "*", "sim", "reads", "*.fq.*")), [])
             self.assertTrue(glob.glob(os.path.join(points, "*", "sim", "reads_removed.txt")))
             self.assertTrue(glob.glob(os.path.join(points, "*", "protal*", "alignments", "*.sam*")))
         log = self.text("scenarios_follow", "training_data.log")
@@ -3214,13 +3228,16 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn("sc_host_pe_p20000: 18000 host read pairs added to each of its 2 samples", simulation)
         # A host sample: the community's 2,000 read pairs and the host's 18,000; its Ultima reads, 90% of them host's.
         points = os.path.join(scratch, "training", "points")
-        for reads in glob.glob(os.path.join(points, "sc_host_pe_p20000", "sim", "reads", "*_R1.fq.gz")):
-            with gzip.open(reads, "rt") as fh:
-                names = fh.read().splitlines()[0::4]
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import compressed
+        host_reads = glob.glob(os.path.join(points, "sc_host_pe_p20000", "sim", "reads", "*_R1.fq.zst"))
+        self.assertEqual(len(host_reads), 2)  # zstd by default (--read-compression)
+        for reads in host_reads:
+            names = compressed.read_text(reads).splitlines()[0::4]
             self.assertEqual(sum(n.startswith("@h") for n in names), 18000)  # exactly the host's
             self.assertAlmostEqual(len(names), 20000, delta=20)  # ART makes about the community's 2,000
-        with gzip.open(glob.glob(os.path.join(points, "sc_host_se_ultima_r5000", "sim", "reads", "*.fq.gz"))[0], "rt") as fh:
-            lines = fh.read().splitlines()
+        lines = compressed.read_text(glob.glob(os.path.join(points, "sc_host_se_ultima_r5000", "sim", "reads",
+                                                            "*.fq.zst"))[0]).splitlines()
         lengths = [len(r) for r in lines[1::4]]
         self.assertAlmostEqual(sum(lengths) / len(lengths), 300, delta=15)
         quality = [ord(c) - 33 for q in lines[3::4] for c in q]

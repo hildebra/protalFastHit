@@ -147,7 +147,7 @@ protal --db DB --map sims/protal.meta -t 8      # prints true and false positive
 
 | Output | |
 |---|---|
-| `reads/<sample>_R1.fq.gz`, `_R2.fq.gz` | the reads (BGZF, compressed as each genome's reads are appended) |
+| `reads/<sample>_R1.fq.gz`, `_R2.fq.gz` | the reads (BGZF, compressed as each genome's reads are appended; with `--reads_compression zstd` `.fq.zst`, one zstd frame at level 3, as the database build writes them) |
 | `manifest.tsv`, `manifests/<sample>.tsv` | per (sample, genome): read pairs, relative abundance, vertical coverage, the FASTA and ART's seed |
 | `abundance_matrix.tsv` | relative abundance of each species in each sample |
 | `run_params.tsv` | the command line, the seed (also when not given) and the ART settings |
@@ -168,6 +168,7 @@ protal --db DB --map sims/protal.meta -t 8      # prints true and false positive
 | `--read_length`, `--fragment_mean`, `--fragment_stdev`, `--sequencer` | 150, 350, 50, `HS25` | ART's read, fragment and error profile; `--extra_art_args` passes more |
 | `-t, --threads` | 1 | samples at a time; more threads run ART on a sample's genomes side by side. The samples are the same for any number |
 | `--test` | off | the design, manifests and truth, no reads |
+| `--reads_compression` | bgzf | `bgzf` (`.fq.gz`) or `zstd` (`.fq.zst`: as small, several times faster to write; protal reads both) |
 | `--keep_tmp`, `--art_path`, `-v` | | keep each genome's reads; ART's path; the version and commit |
 
 **Strains shared across samples.** `--strain_sharing_file` takes a tab-separated file, one species

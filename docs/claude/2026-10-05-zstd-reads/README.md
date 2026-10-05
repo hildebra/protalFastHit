@@ -72,11 +72,35 @@ report's table).
 
 ## Not done
 
-- The simulators still write gzip: `simulate_metagenomes` BGZF (libdeflate level 6), the collector's long and Ultima
-  reads gzip level 1 (`hifi_reads.py`, the pbsim3 renaming). Writing zstd there would save ~7% of the scenarios' disk
-  and some of their compression time (the collector report); `simulate_metagenomes` would need a zstd writer and its
-  map's file names (`derive_prefix_from_r1` strips no `.zst`), the Python writers `compression.zstd` (Python 3.14) or
-  the `zstd` command.
 - bzip2 and xz still go through a pipe.
 
 The website's page on running protal lists the read formats: it needs zstd added.
+
+## Follow-up (2026-10-05): the database build's simulations write zstd by default
+
+The user then asked for the build's simulations to write zstd by default.
+
+- `simulate_metagenomes --reads_compression bgzf|zstd` (its own default stays `bgzf`, `.fq.gz`): with `zstd` each
+  sample's reads go to `_R1.fq.zst`/`_R2.fq.zst` as one zstd frame at level 3 with a checksum, no long window
+  (`zstd::OStream`, compressed as each genome's reads are appended as before: the same bytes for any number of
+  threads); the protal map names them, and its prefixes strip `.zst`.
+- `collect_training_data.py --read_compression zstd|gzip` (default `zstd`), and `build_gtdb_database.py
+  --read-compression` (default `zstd`), which passes it on: the simulator's reads, the long and Ultima reads
+  (`hifi_reads.py`, the pbsim3 renaming), the host's paired-end chunks (zstd frames appended to the sample's zstd
+  file, as gzip members were to its BGZF file) and the chunks' templates are zstd (level 3, the templates level 1).
+  `scripts/compressed.py` writes by the file name and reads by the first bytes, with Python 3.14's
+  `compression.zstd` or else the `zstd` command (in the protal-db-build environment and on CI). A long-read point's
+  key gets the compression, and a paired-end point's the simulator command with its option, so a rerun after the
+  change simulates its points again.
+- **The same reads**: the A/B of the collector report (`ab_collector.py`, now comparing files of either compression
+  decompressed) gives the same 21 samples (Ultima, HiFi, Nanopore, chunked or not, a host share) as `22c445d`'s gzip
+  collector, both with zstd (the default) and with `--read_compression gzip`; the zstd files took 197 MB against
+  216 MB of gzip (8.5% less). In the end-to-end test, `simulate_metagenomes --reads_compression zstd` writes the same
+  FASTQ as its BGZF files decompressed, the same bytes on 1 and 3 threads.
+
+Tests (WSL, `git archive e7b391e` + this change): `ctest` 366 of 366; e2e `SimulatorTest` and `BadInputTest` 11 of 11
+(new: zstd reads of `simulate_metagenomes` against its BGZF ones); `test_mini_db.py` 68 of 68 with Python 3.12 (the
+`zstd` command), `GtdbBuildTest` included (the scenario build's host and Ultima reads are `.fq.zst`; the build
+followed in blocks gives the same tables as the one protal run); the long-read and host tests also with Python 3.14
+(`compression.zstd`). New in `test_mini_db.py`: the default writes zstd, gzip (`--read_compression gzip`) gives the
+same reads, the host's chunks in zstd hold the reads of its gzip ones.

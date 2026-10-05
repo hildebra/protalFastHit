@@ -6,6 +6,7 @@
 #include <cctype>
 #include <condition_variable>
 #include <exception>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <fstream>
@@ -18,6 +19,7 @@
 #include <vector>
 
 #include "../Utilities/Benchmark.h"
+#include "../Utilities/Zstd.h"
 #include "../IO/Bgzf.h"
 #include "ThreadedGzStream.h"
 
@@ -507,7 +509,42 @@ static std::unordered_map<std::string, std::uint64_t> build_length_cache(const s
 //    dst.clear();  // ← THIS IS THE CRITICAL FIX
 //}
 
-static void append_fastq(const fs::path& src, protal::bgzf::Writer& dst)
+// A sample's read file as its reads arrive: BGZF (libdeflate) or one zstd frame at level 3 with a checksum, without a
+// long window (FASTQ gains nothing from one). Error() says why writing failed; Close() finishes the file.
+class ReadsWriter {
+public:
+    ReadsWriter(std::string const& path, ReadsCompression compression) {
+        if (compression == ReadsCompression::Zstd) {
+            m_zstd = std::make_unique<protal::zstd::OStream>(path, protal::zstd::Params{3, 0, 1, 0});
+        } else {
+            m_bgzf = std::make_unique<protal::bgzf::Writer>(path);
+        }
+    }
+
+    void Write(char const* data, std::size_t size) {
+        if (m_zstd) m_zstd->write(data, static_cast<std::streamsize>(size));
+        else m_bgzf->Write(data, size);
+    }
+
+    std::string Error() const {
+        if (!m_zstd) return m_bgzf->Error();
+        if (!m_zstd->Buffer().Error().empty()) return m_zstd->Buffer().Error();
+        return m_zstd->fail() ? "writing the zstd stream failed" : "";
+    }
+
+    bool Close() { return m_zstd ? m_zstd->Close() : m_bgzf->Close(); }
+
+private:
+    std::unique_ptr<protal::bgzf::Writer> m_bgzf;
+    std::unique_ptr<protal::zstd::OStream> m_zstd;
+};
+
+// The file name suffix of a sample's reads: .fq.gz (BGZF) or .fq.zst.
+static std::string ReadsSuffix(ReadsCompression compression) {
+    return compression == ReadsCompression::Zstd ? ".fq.zst" : ".fq.gz";
+}
+
+static void append_fastq(const fs::path& src, ReadsWriter& dst)
 {
     std::ifstream in(src, std::ios::binary);
     if (!in) {
@@ -608,8 +645,8 @@ void MetagenomeSimulator::write_reads(
     fs::path reads_dir = output_dir / "reads";
     fs::create_directories(reads_dir);
     const fs::path sample_prefix = reads_dir / sample_name;
-    const fs::path r1_gz = sample_prefix.string() + "_R1.fq.gz";
-    const fs::path r2_gz = sample_prefix.string() + "_R2.fq.gz";
+    const fs::path r1_gz = sample_prefix.string() + "_R1" + ReadsSuffix(reads_compression_);
+    const fs::path r2_gz = sample_prefix.string() + "_R2" + ReadsSuffix(reads_compression_);
     sample.read1_path = r1_gz;
     sample.read2_path = r2_gz;
     if (skip_reads) {
@@ -623,10 +660,10 @@ void MetagenomeSimulator::write_reads(
 
     const fs::path temp_dir = output_dir / (sample_name + "_tmp");
     fs::create_directories(temp_dir);
-    // Truncated: a leftover file of an interrupted run must not be extended. BGZF as the reads arrive, so that a
-    // deep sample's uncompressed reads are never on disk; replays give byte-identical .gz files.
-    protal::bgzf::Writer r1_out(r1_gz.string());
-    protal::bgzf::Writer r2_out(r2_gz.string());
+    // Truncated: a leftover file of an interrupted run must not be extended. Compressed as the reads arrive, so that
+    // a deep sample's uncompressed reads are never on disk; replays give byte-identical files.
+    ReadsWriter r1_out(r1_gz.string(), reads_compression_);
+    ReadsWriter r2_out(r2_gz.string(), reads_compression_);
     if (!r1_out.Error().empty() || !r2_out.Error().empty()) {
         throw std::runtime_error("Unable to create output FASTQ files for " + sample_name + ": " + r1_out.Error() + r2_out.Error());
     }

@@ -1343,6 +1343,10 @@ def main():
     p.add_argument("--keep-free", type=float, default=30.0,
                    help="with --profile-blocks: GB a simulation leaves free on the disk of the samples (--scratch or "
                         "OUTDIR), or it waits until profiled reads are removed (default 30)")
+    p.add_argument("--read-compression", choices=["zstd", "gzip"], default="zstd",
+                   help="how the simulated samples' reads are written (collect_training_data.py --read_compression): "
+                        "zstd (.fq.zst, the default: as small as BGZF or smaller, several times faster to write) or "
+                        "gzip (.fq.gz); protal reads both")
     args = p.parse_args()
     Job.progress_every = args.progress_every
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
@@ -1806,7 +1810,7 @@ def main():
                    "--species_per_sample", species, "--seed", str(seed), "-t", str(args.threads),
                    "--taxonomy", taxonomy, "--congeners", congener_text(args.congeners), "--read_types", ",".join(read_types),
                    "--long_read_bases", long_bases, "--pb_setup", args.pb_setup, "--ont_setup", args.ont_setup,
-                   "--pbsim", args.pbsim]
+                   "--pbsim", args.pbsim, "--read_compression", args.read_compression]
         command += ["--abundance", abundance] if abundance else []
         command += ["--strains_per_species", strains] if strains else []
         command += ["--pbsim_models", args.pbsim_models] if args.pbsim_models else []

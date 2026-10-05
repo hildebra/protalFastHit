@@ -7,7 +7,7 @@ ccs turns into HiFi reads; in one pass with its error model it writes every base
 them for an error. Badread has error and quality models trained on HiFi reads (pacbio2021), but runs in Python
 with alignments along each read, which its README calls slow. So the collector makes its PacBio reads here, one
 read of each template it drew
-(collect_training_data.draw_templates; plain or gzipped FASTA), with numpy:
+(collect_training_data.draw_templates; plain, gzipped or zstd FASTA), with numpy:
 
 - each read's quality R (Phred) falls with its length (QUALITY_BY_LENGTH): Q50 up to 5 kb, Q30 at 25 kb, linearly
   between, Q20 at 50 kb and lower still beyond, at that slope; a read's R is that of its length plus a normal
@@ -28,13 +28,17 @@ qualities are R less 10 log10 of their weight over the read's geometric mean wei
 they are not clipped); homopolymers count from two bases (FLOW_HOMOPOLYMER), so that an error in a run of two is a
 run length error too, as flow-based sequencing makes them.
 
-    python3 scripts/hifi_reads.py --templates templates.fa --out reads.fq.gz [--q_sd 3 --seed 1] [--q_mean 25]
+    python3 scripts/hifi_reads.py --templates templates.fa --out reads.fq.zst [--q_sd 3 --seed 1] [--q_mean 25]
 """
 
 import argparse
-import gzip
+import os
+import sys
 
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import compressed  # noqa: E402
 
 # Identifies this model in a design point's key (collect_training_data.py): points made by another are simulated again.
 MODEL = ("hifi_reads.py v2: read Q by length (Q50 to 5 kb, Q30 at 25 kb, Q20 at 50 kb) + normal SD, base weights "
@@ -135,7 +139,7 @@ def mutate(seqs, rng, q_sd, q_mean=None):
 def read_fasta(path):
     """(name, sequence) of a FASTA, in file order."""
     name, parts = None, []
-    with (gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")) as fh:
+    with compressed.open_read(path) as fh:
         for line in fh:
             line = line.rstrip(b"\r\n")
             if line.startswith(b">"):
@@ -150,10 +154,11 @@ def read_fasta(path):
 
 def simulate(templates, out, q_sd=3.0, seed=1, q_mean=None):
     """A HiFi read (with q_mean: a read of the flow model) of each template of the FASTA `templates`, named after it,
-    into the gzipped FASTQ `out`, in file order. -> the number of reads."""
+    into the FASTQ `out` (zstd if it ends in .zst, gzip if in .gz: compressed.open_write), in file order. -> the number
+    of reads."""
     rng = np.random.default_rng(seed)
     reads = 0
-    with gzip.open(out, "wb", compresslevel=1) as fh:
+    with compressed.open_write(out) as fh:
         chunk, bases = [], 0
 
         def flush():
@@ -178,7 +183,7 @@ def simulate(templates, out, q_sd=3.0, seed=1, q_mean=None):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--templates", required=True, help="FASTA: one read of each sequence")
-    ap.add_argument("--out", required=True, help="gzipped FASTQ")
+    ap.add_argument("--out", required=True, help="FASTQ: .zst (zstd), .gz (gzip) or plain")
     ap.add_argument("--q_sd", type=float, default=3.0, help="the SD of reads' qualities around their length's")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--q_mean", type=float, help="the flow model: the reads' mean base quality (Phred)")
