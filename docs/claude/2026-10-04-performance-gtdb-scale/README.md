@@ -856,6 +856,43 @@ the taxa that converge slowly (those whose reads a congener explains about as we
 200th sweep. That would need the r226 benchmark and maybe retrained models; not done. The rest of the record evidence
 (1.6 s less the EM and the distances) is ~0.15 s.
 
+## The ninth cluster run (2026-10-05): the unaligned reads in the header, the preload, the seed sort at r226
+
+SLURM job 23971798, `c232ebe`, 32 threads, node `q512n22`, v11; [`results_v9/`](results_v9/). Counts as before but for
+a few hundred reads in 10M alignments (the seed sort's new tie order; the eighth run's were the sixth's exactly).
+
+| pe1 | eighth (`cbdb069`) | ninth (`c232ebe`) |
+|---|---|---|
+| wall (median) | 47.5 s | **46.7 s** (44.8 s best) |
+| preload | 3.9 s | **1.9 s** (listing 0.41 s sorted, arena 0.56, reading and packing 0.90) |
+| SAM text | ~6 GB, 47M records | **1.65 GB**, 2.2M records (+ a 1.5 MB header line: 143,614 taxa) |
+| profiling: reading the SAM | 4.1 s | **2.6 s** |
+| sorting seeds per thread | 3.3 s | 3.4 s (no gain) |
+| SAM header and file, writing the profile | 1.3-2.5 s, 0.2-0.4 s | 1.8-4.1 s, 0.9-1.5 s (NFS on this node; pb 1.1-2.6 s) |
+| max RSS | 36.2 GB (warm), 38.1 (cold) | 38.1 GB in every run |
+
+- **The SAM read**, 2.6 s, is now this thread's: adding the 1,575 chunks' evidence one by one 0.92 s, the rejected-reads
+  pass 0.59 s (with the clearing of the last wave's chunks, which freed their evidence maps on this thread), planning
+  0.14 s, against 0.76 s on the 32 threads (parsing 11.4 s, adding to the taxa 4.5 s summed) and 1.1 s that the reading
+  thread waited for room: the reading thread is no longer the limit.
+- **The preload** (1.9 s) now ends before the index (2.8 s), which is start-up's critical path.
+- **The max RSS** of 38.1 GB was the cold first runs' before: with the preload done first, its 4.1 GB arena is resident
+  while the index load holds its per-thread frame buffers (64 MB frames on 32 threads), as when the index came slowly
+  from NFS. Not a new need of memory, a new overlap.
+- **The seed sort**: no gain on the EPYC (Zen 4) node, though 39 → 21 ns per seed on the bench's machine; to measure
+  there: `g++ -O3 -std=c++20 seed_sort_bench.cpp -o b && ./b` on a node.
+- **The read EM** at r226: 319,071 classes with 873,996 alternatives, 143,614 taxa, 200 sweeps (the cap), 1.12 s of
+  sweeps, the rest 0.1 s.
+
+Then (outputs identical, 360 tests; the r226 gain needs the next run):
+
+- The wave's chunk evidence merged pairwise on the threads (neighbours first, so every appended list stays in chunk
+  order), and the profile's evidence added to once a wave (13 times instead of 1,575).
+- The rejected reads' records built per chunk on the threads and joined in chunk order; the chunks' evidence freed in
+  the parallel release.
+- The EM's sweeps reset and check only the taxa the classes name (the others keep their weight and share): at r226 the
+  classes name a part of the 143,614 taxa that the failed candidates bring in.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):

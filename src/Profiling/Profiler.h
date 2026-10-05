@@ -2666,7 +2666,7 @@ namespace protal {
                 auto const& s = m_em_stats;
                 std::ostringstream line;
                 line << std::fixed << std::setprecision(3) << s.classes << " ambiguity classes with " << s.alternatives << " alternatives, "
-                     << s.taxa << " taxa, " << s.sweeps << " sweeps; the record counts by taxon " << m_em_counts_seconds << " s, setting up "
+                     << s.taxa << " taxa (" << s.named << " named by the classes), " << s.sweeps << " sweeps; the record counts by taxon " << m_em_counts_seconds << " s, setting up "
                      << s.setup << " s, the sweeps " << s.sweeping << " s, the shares " << s.sharing << " s";
                 return line.str();
             }
@@ -4149,6 +4149,10 @@ namespace protal {
                 size_t lines = 0;  // the line the chunk ends with
                 bool started = false;  // a record was read (a read begun)
                 std::string error;  // a SamFormatError; the reads before it count
+                std::string rejected;       // the rejected reads' records (ProfileSamParallel), and how many reads
+                size_t rejected_reads = 0;
+                size_t last_mark = 0;       // where the last read's records begin in `rejected`
+                bool last_rejected = false;  // and whether it was rejected
             };
 
             // ProfileSamParallel's work on a chunk, on any thread: its reads (CollectGroups) with their links within the
@@ -4322,6 +4326,7 @@ namespace protal {
                 auto release = [](ParsedChunk& chunk) {
                     std::deque<ChunkRead>().swap(chunk.reads);
                     std::vector<SamAddition>().swap(chunk.additions);
+                    chunk.evidence = chunk.evidence.Empty();  // its maps freed on the threads, not by the wave's clear
                 };
 
                 auto clock = Clock::now();
@@ -4342,9 +4347,18 @@ namespace protal {
                         break;
                     }
                     clock = Clock::now();
+                    // The wave's evidence: neighbouring chunks merged pairwise on the threads (0 and 1, 2 and 3, then 0 and 2,
+                    // ...), which keeps every list the evidence appends to in chunk order, and the sum added to the profile's
+                    // once. Adding the 1,575 chunks of an r226 SAM one by one took 0.9 s on this thread.
+                    for (size_t stride = 1; stride < used; stride *= 2) {
+                        sam_chunks::ParallelFor((used + 2 * stride - 1) / (2 * stride), threads, [&](size_t pair) {
+                            size_t const into = pair * 2 * stride, from = into + stride;
+                            if (from < used) parsed[into].evidence.Add(parsed[from].evidence);
+                        });
+                    }
+                    profile.Evidence().Add(parsed[0].evidence);
                     for (size_t i = 0; i < used; i++) {
                         counts.Add(parsed[i].counts);
-                        profile.Evidence().Add(parsed[i].evidence);
                         lines = parsed[i].lines;
                     }
                     merge_s += since(clock);
@@ -4376,19 +4390,31 @@ namespace protal {
                         break;
                     }
 
-                    for (size_t i = 0; i < used; i++) {
+                    // The rejected reads' records, each chunk's on the threads, joined in chunk order; `last_mark` and
+                    // `last_rejected` as if the reads were gone through one by one here.
+                    sam_chunks::ParallelFor(used, threads, [&](size_t i) {
                         auto& chunk = parsed[i];
                         for (auto& read : chunk.reads) {
                             bool valid = read.valid;
                             for (size_t k = read.first_addition; k < read.first_addition + read.additions; k++) valid &= chunk.additions[k].ok;
-                            last_mark = rejected.size();
-                            last_rejected = !valid;
+                            chunk.last_mark = chunk.rejected.size();
+                            chunk.last_rejected = !valid;
                             if (valid) continue;
-                            m_rejected_reads++;
+                            chunk.rejected_reads++;
                             auto& pair = read.group[read.pair];
-                            if (pair.first.has_value()) rejected += pair.first.value().ToString() + '\n';
-                            if (pair.second.has_value()) rejected += pair.second.value().ToString() + '\n';
+                            if (pair.first.has_value()) chunk.rejected += pair.first.value().ToString() + '\n';
+                            if (pair.second.has_value()) chunk.rejected += pair.second.value().ToString() + '\n';
                         }
+                    });
+                    for (size_t i = 0; i < used; i++) {
+                        auto& chunk = parsed[i];
+                        if (!chunk.reads.empty()) {
+                            last_mark = rejected.size() + chunk.last_mark;
+                            last_rejected = chunk.last_rejected;
+                        }
+                        rejected += chunk.rejected;
+                        m_rejected_reads += chunk.rejected_reads;
+                        std::string().swap(chunk.rejected);
                     }
                     size_t const stop = !error.empty() ? used - 1 : wave.back().last && failed ? wave.size() - 1 : SIZE_MAX;
                     if (stop != SIZE_MAX && !parsed[stop].started && last_rejected) {

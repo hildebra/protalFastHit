@@ -254,7 +254,7 @@ namespace protal::profiler::context {
     //
     // What the last AbundanceWeightedShares did, for the run's log (`stats`).
     struct EmStats {
-        size_t classes = 0, alternatives = 0, taxa = 0, sweeps = 0;
+        size_t classes = 0, alternatives = 0, taxa = 0, named = 0, sweeps = 0;  // named: the taxa classes name
         double setup = 0, sweeping = 0, sharing = 0;  // seconds: the indices and classes, the sweeps, the shares
     };
 
@@ -345,10 +345,24 @@ namespace protal::profiler::context {
             }
             for (uint32_t k = 0; k <= c.count; k++) shares[k] /= total;
         };
-        std::vector<double> next, own(plain.size(), 0.0), previous_share(plain.size(), 0.0);
+        // Only the taxa a class names change in a sweep: the others keep their records as weight and their share. At r226 a
+        // sample's taxa are all 143,614 species (each has failed candidates), its classes name a fraction of them; the
+        // sweeps reset and check those alone, which gives the same weights and changes as resetting and checking all.
+        std::vector<char> named(plain.size(), 0), owns(plain.size(), 0);
+        for (auto const& c : resolved) {
+            owns[c.own] = 1;
+            named[c.own] = 1;
+            for (uint32_t k = 0; k < c.count; k++) named[alternatives[c.first + k].index] = 1;
+        }
+        std::vector<uint32_t> named_taxa, owners;
+        for (uint32_t i = 0; i < plain.size(); i++) {
+            if (named[i]) named_taxa.push_back(i);
+            if (owns[i]) owners.push_back(i);
+        }
+        std::vector<double> next = plain, own(plain.size(), 0.0), previous_share(plain.size(), 0.0);
         for (size_t iteration = 0; iteration < max_sweeps && !resolved.empty(); iteration++) {
-            next = plain;
-            std::fill(own.begin(), own.end(), 0.0);
+            for (auto const i : named_taxa) next[i] = plain[i];
+            for (auto const i : owners) own[i] = 0.0;
             for (auto const& c : resolved) {
                 posterior(c);
                 double const to_own = c.n * shares[0];
@@ -358,9 +372,10 @@ namespace protal::profiler::context {
                     if (shares[1 + k] > 0) next[alternatives[c.first + k].index] += c.n * shares[1 + k];
                 }
             }
-            // The sweep's largest change of any taxon's own share: converged when below the tolerance.
+            // The sweep's largest change of any taxon's own share: converged when below the tolerance. A taxon that owns
+            // no class keeps its share (`own` stays 0), so only the owners can change.
             double change = 0;
-            for (size_t i = 0; i < own.size(); i++) {
+            for (auto const i : owners) {
                 double const share = (plain[i] + own[i]) / std::max(1.0, records[i]);
                 if (iteration > 0) change = std::max(change, std::abs(share - previous_share[i]));
                 previous_share[i] = share;
@@ -393,7 +408,7 @@ namespace protal::profiler::context {
             }
             result[taxid] = s;
         }
-        if (stats) *stats = { resolved.size(), alternatives.size(), plain.size(), sweeps, setup_seconds, sweep_seconds, lap() };
+        if (stats) *stats = { resolved.size(), alternatives.size(), plain.size(), named_taxa.size(), sweeps, setup_seconds, sweep_seconds, lap() };
         return result;
     }
 
