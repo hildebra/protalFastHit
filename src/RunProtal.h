@@ -2582,7 +2582,7 @@ namespace protal {
 
     // Runs protal and returns the process exit code: 0, or 1 if any sample or output failed (see
     // RunStatus). Invalid input and fatal errors still exit directly with their own codes.
-    // Prints how long freeing the run's memory took: the destructors of the database (24M genes and their tables at GTDB
+    // Prints how long freeing the run's memory took: the destructors of the database (14.5M genes and their tables at GTDB
     // size), the index and the profiles run after "Run protal took". Declared before them in Run, so destroyed after them;
     // armed when the run is done.
     struct TeardownTimer {

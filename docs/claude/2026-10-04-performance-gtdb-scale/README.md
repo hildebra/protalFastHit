@@ -399,7 +399,7 @@ profiling stage; the next `measure_performance.sh` run shows how much.
   and `.profile.truth_annotated` is written only with a truth file. On the 500k-pair sample, 306 files with the flag
   and none without; every other output identical (the 6-thread SAMs identical as sets of records). The website's
   output page lists the statistics files and needs the flag added.
-- Timers for what was untimed: "Loading the gene tables took" (the `ProtalDB` construction: `reference.map`, 24M
+- Timers for what was untimed: "Loading the gene tables took" (the `ProtalDB` construction: `reference.map`, 14.5M
   lines at r226 size, parsed on all threads), "Loading the taxonomy, models and tables took" (taxonomy, the models'
   XML, gene conservation, suspect copies, species priors, gene neighbours), and "Freeing memory took", printed after
   "Run protal took" by an object destroyed after the database (`TeardownTimer`). Locally these are 0.1, 0.13 and
@@ -436,7 +436,7 @@ SAMs hold the same records.
    half of the 27.5 s HiFi run and a quarter of the paired-end one. Freeing the memory takes 0.15 s, so the teardown
    is not it, and nothing is left untimed (0.2-0.7 s).
 3. **The gene tables are the one surprise: 6 s.** `GenomeLoader::LoadPositionMap` and `LoadUniqueKmers` parse
-   `reference.map` and `unique_kmers.tsv` (24M lines each at r226 size) in parallel chunks, but add the rows to the
+   `reference.map` and `unique_kmers.tsv` (14.5M lines each at r226 size) in parallel chunks, but add the rows to the
    genomes in file order on one thread: per row a genome lookup, a duplicate check and a gene insertion, twice over.
    Adding per genome in parallel (the rows of a genome are contiguous in the file), or a binary table of the genes in
    the database file, would bring this to about a second. That is the next start-up item; the other 7.8 s are the
@@ -451,7 +451,7 @@ SAMs hold the same records.
 
 ### The gene tables loaded in parallel (`scripts/gene_table_check.sh`, `build_head_tests.sh`; `results/followup_gene_tables.txt`)
 
-`reference.map` and `unique_kmers.tsv` (24M rows each at r226 size) were parsed in parallel chunks but their rows
+`reference.map` and `unique_kmers.tsv` (14.5M rows each at r226 size) were parsed in parallel chunks but their rows
 were added to the genomes on one thread, and a database member was decompressed on one thread: 6.0 s per run on the
 cluster. Two changes, outputs unchanged (the same genes, lengths, offsets and unique counts; the 10 gene-table tests
 pass, with a new one whose genomes are spread over the whole file):
@@ -481,8 +481,7 @@ new member kind would touch the build, the packer and `--unpack_db` for perhaps 
 ## The fourth cluster run (`8c37dd6`), the binary gene table and the concurrent start-up
 
 The fourth run (SLURM job 23943078, [`results_v4/`](results_v4/)): paired-end 60.9 → 58.5 s, HiFi 27.5 → 24.6 s; the gene
-tables 6.0 → 3.4 s, not the 1-2 s expected. The bench at full r226 size (`PROTAL_GENE_TABLE_TAXA=143614`, 24.1M rows per
-table, with the split the loads now print; [`results/followup_gene_table_bin.txt`](results/followup_gene_table_bin.txt))
+tables 6.0 → 3.4 s, not the 1-2 s expected. The bench at r226's species count (`PROTAL_GENE_TABLE_TAXA=143614`, 168 genes each: 24.1M rows per table, 1.7× r226's 14.5M; with the split the loads now print; [`results/followup_gene_table_bin.txt`](results/followup_gene_table_bin.txt))
 showed why, on six threads from a single-file database:
 
 | part (both tables) | 1 thread | 6 threads |
@@ -505,9 +504,9 @@ run reads them (`--build`; `--compress_db` on a folder, and on a single-file dat
 once with the other members' frames copied); `--unpack_db` leaves it out. A run from `database.protal` loads it on all
 threads with no parsing and no grouping, and takes the fingerprint from it; a table whose recorded sizes of
 `reference.map`, `unique_kmers.tsv` and `reference.fna` are not the database's, or that is corrupt, is not used (a note
-says why) and the text tables are read. At r226 size it is ~770 MB (an estimated ~250 MB compressed, 1% of the file).
+says why) and the text tables are read. At r226 size (14.5M genes) it is ~465 MB (an estimated ~150 MB compressed, under 1% of the file).
 
-| at r226 size, six threads, from `database.protal` | text tables | `gene_table.bin` |
+| the bench (24.1M genes), six threads, from `database.protal` | text tables | `gene_table.bin` |
 |---|---|---|
 | loading the genes and their unique k-mer counts | 1.76 s | **0.43 s** (reading 0.18, genomes 0.02, adding 0.22) |
 | the fingerprint for the index check | `reference.map` read again on one thread | from the table |
@@ -551,6 +550,47 @@ protal --compress_db --db /hpc-home/hildebra/DB/protal/protal0.7.3_r226_v10/prot
 bash scripts/measure_performance.sh Perf0.7.5_v5 $DB pe:...:... pb:...
 PROTAL_ARGS="--sequential_load" bash scripts/measure_performance.sh Perf0.7.5_v5_sequential $DB pe:...:... pb:...
 ```
+
+## The fifth cluster run (2026-10-05): `gene_table.bin` and the concurrent start-up at r226 size
+
+SLURM job 23960603 on `q512n10`, protal at `735617c` (which holds `48e8cd0`), 32 threads, on a new database,
+`protal0.7.5_r226_v11`, built by the 0.7.5 pipeline and so packed with `gene_table.bin`. It is the same reference as v10:
+the same 2,903,557,366 index entries, 5,589 suspect copies, 143,614 species priors and 731,664 gene-neighbour rules.
+Files in [`results_v5/`](results_v5/).
+
+| | pe1 fourth run (v10) | pe1 fifth run (v11) | pb2 fourth | pb2 fifth |
+|---|---|---|---|---|
+| wall (median of 3) | 58.5 s | **51.4 s** | 24.6 s | **17.7 s** |
+| loading the gene tables | 3.37 s | **0.46 s** (`gene_table.bin`: reading 0.08, genomes 0.07, adding 0.31) | 3.39 s | 0.46 s |
+| genome preload | 3.21 s | 3.80 s, beside the index and the tables | 3.22 s | 3.73 s |
+| taxonomy, models and tables | 1.39 s | done within the preload (their timer, 3.84 s, spans it) | 1.30 s | idem |
+| index load | 3.23 s, after the others | 2.54 s, beside them (no second read of `reference.map`) | 3.22 s | 2.54 s |
+| start-up before aligning | 11.2 s | **4.3 s** | 11.1 s | 4.2 s |
+| aligning / profiling | 38.4 / 6.2 s | 37.9 / 6.4 s | 11.9 / 0.53 s | 11.8 / 0.49 s |
+| max RSS | 38.2 GB | 36.2 GB | 38.1 GB | 36.2 GB |
+
+The counts are the same as in every run since `50ecb4b`. The 1.9 GB less peak memory is the text tables' in-memory copies,
+which the binary table does not need. The preload took 0.6 s longer beside the index decode, which shares the cores'
+memory bandwidth; the overlap still saves 4 s.
+
+**The gene count.** The table holds 14,527,738 genes: 101 per species of the 168 markers, as a species carries its own
+domain's markers. Earlier reports extrapolated 16.6M from the benchmark world, and the sections above assumed 24M (all 168
+per species). So the bench's 24.1M rows per table overstated the per-table times by about 1.7×; the comments that said
+24M are corrected. The count is the database's, not a bug.
+
+**Where the time goes now.** Paired-end, 51.4 s: aligning 37.9 s (74%; seeding 20.4 s per thread, 54% of it), profiling
+6.4 s (13%), start-up 4.3 s (8%), the SAM header and file 1.6 s, the rest under a second. HiFi, 17.7 s: aligning 11.8 s
+(67%), start-up 4.2 s (24%). Over the two days the paired-end run went from 131 s to 51 s (−61%) and the HiFi run from
+104 s to 18 s (−83%), on the same 32 threads, with the same alignments and profiles but for item 4a's long-read windows and the order-independence fix of `3c2d56c`.
+
+**The cold first run**, 222.6 s, read the 27 GB file from NFS for the first time: the index (174 s) and the preload
+(47.6 s) streamed their members at the same time. It is not comparable with the first day's cold run, whose page cache
+held part of the old database.
+
+**What is left, by size**: the seeding at GTDB scale (20.4 s per thread of the paired-end run, memory latency in the
+k-mer lookups; item 5); the preload, now the start-up's critical path (3.8 s; the genes stored 2-bit packed in the
+database would skip the packing, a format change); the SAM header and file (1.6 s on the paired-end run, up from 0.5 s,
+to be looked at); and the cold start (item 7: parallel reads or a copy to node-local disk).
 
 ## How it was run
 

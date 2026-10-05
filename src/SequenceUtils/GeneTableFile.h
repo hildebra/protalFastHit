@@ -1,7 +1,7 @@
 // GeneTableFile.h - the binary gene table, gene_table.bin: reference.map and unique_kmers.tsv as GenomeLoader holds
 // them, by genome, in a member of the single-file database beside the two text tables. A run from a single-file
 // database loads it instead of them: no parsing, every genome's genes added by one thread, and the reference
-// fingerprint the index is checked against without reading reference.map again. At GTDB r226 size (24M genes) the
+// fingerprint the index is checked against without reading reference.map again. At GTDB r226 size (14.5M genes) the
 // two text tables took 3.4 s of every run on 32 threads, parsing most of it
 // (docs/claude/2026-10-04-performance-gtdb-scale).
 //

@@ -266,7 +266,7 @@ namespace protal {
         // A piece's rows added by genome, each genome's rows by one thread: a genome's rows are contiguous in
         // protal's tables, so they form one run per chunk they lie in (a table that lists a genome in several
         // places gives it several runs; all of a genome's runs go to the one thread, in file order). Adding the
-        // rows one by one on one thread took 6 s per run at GTDB r226 size, 24M rows per table
+        // rows one by one on one thread took 6 s per run at GTDB r226 size, 14.5M rows per table
         // (docs/claude/2026-10-04-performance-gtdb-scale). prepare(taxid) is called on this thread for each
         // distinct genome of the piece before the rows are added, in file order (the genome map is changed there,
         // never in parallel); add(taxid, row) on any thread returns a problem with the row (empty: none). Returns
@@ -1127,7 +1127,7 @@ namespace protal {
             // Without rows every taxon would fail the model silently.
             if (rows == 0) InvalidUniqueKmers(file, 0, "the file lists no genes (rebuild the database with --build)");
 
-            // Every genome's sums over its genes, on all threads (one pass over 24M genes at GTDB r226 size).
+            // Every genome's sums over its genes, on all threads (one pass over 14.5M genes at GTDB r226 size).
             auto const after = std::chrono::steady_clock::now();
             std::vector<Genome*> genomes;
             genomes.reserve(m_genomes.size());
