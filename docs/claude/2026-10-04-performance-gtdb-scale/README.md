@@ -893,6 +893,36 @@ Then (outputs identical, 360 tests; the r226 gain needs the next run):
 - The EM's sweeps reset and check only the taxa the classes name (the others keep their weight and share): at r226 the
   classes name a part of the 143,614 taxa that the failed candidates bring in.
 
+## Peak memory, and tied seeds kept for their own anchor (2026-10-05)
+
+**Why the ninth run's peak rose to 38.1 GB.** It did not: 38.1 GB is protal's peak at r226 whenever the preloaded genes
+are all in memory while the index loads. The runs that loaded the parts one after another (first to fourth, preload
+first) peaked at 38.0-38.2 GB in every repeat; the concurrent start-up (fifth to eighth) at 36.2 GB in its warm repeats
+only, because the slower preload (3.9 s) was still filling its 4.1 GB arena while the index (2.5 s) held its loading
+buffers, and at 38.1-38.5 GB in its cold first runs, where the index came slowly from NFS; the ninth run's preload
+(1.9 s) ends before the index again. The index load's transient: on 32 threads each holds a compressed frame, its
+decompressed chunk and the chunk's 8-byte values (chunks of ~64 MB decoded), some 2-4 GB until the load ends. To
+confirm it, protal now logs `Memory after <stage>: R GB resident, peak P GB` after the genome preload, the index load,
+aligning and profiling (`9b5c5b3`), and `measure_performance.sh` puts the four peaks in `runs.tsv`. To lower the peak,
+the index load would hold fewer chunks at once or decode the values straight into the packed index.
+
+**Ties in the seeds.** The anchor finder takes a gene's first seed, collects the seeds on its diagonal (within the indel
+allowance) and leaves the rest for later rounds, each making its own anchor; but a seed at the read or gene position of
+the last seed taken was dropped whatever its diagonal. Of a k-mer's hits at two places of a gene, the one sorted first
+took the anchor and the other's seeds at the same read positions were lost: the ninth run's few hundred changed
+candidates are this, from the seed sort's new tie order (`22c445d`). Deciding such ties by WFA2 at the seed stage would
+put alignments into the seeding loop; instead (`ChainAnchorFinder::FindAnchorsSingleRef`), a seed tied with the last
+one taken is still dropped on the anchor's own diagonal (a duplicate) but kept, on another diagonal, for that
+diagonal's own anchor: every place keeps its anchor, the alignments (anchored extension, WFA2, the candidates' ranking)
+choose, and the result no longer depends on the seeds' order.
+
+On the 0.7.5 benchmark (paired-end rl100/rl150 at 1k/10k/500k pairs, PacBio and Nanopore at 3/90 Mb, 4 samples each,
+full and missing databases, -t 6; 160 runs, scored by that benchmark's `score.py`; [`results_ties/`](results_ties/),
+scripts `scripts/ties_*.sh`): F1, precision, recall, FP and Bray-Curtis **identical** in every set; the paired-end SAM
+records and counts identical; 17 long-read `profile.genes.log` files differ by one in a gene's `UniqueMers` /
+`UniqueTwoMers` (a seed once dropped now counts in another anchor). Wall time the same within noise. The simulated
+world's genes have few internal repeats; r226's real ones are where it shows, in the next cluster run's counts.
+
 ## How it was run
 
 On the cluster (the user's job; the paths are the cluster's):

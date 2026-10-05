@@ -368,16 +368,20 @@ namespace protal {
                     auto& seed = seeds[i];
                     auto seed_offset = Offset(seed);
 
+                    bool const on_diagonal = OffsetPairMatch(init_offset, seed_offset, m_indel);
+                    // A seed at the read or gene position of the last one taken (a k-mer's hits at several places of the
+                    // gene, or a k-mer repeated in the read): on this anchor's diagonal a duplicate, left out; on another
+                    // one a seed of that diagonal's anchor, which a later round makes. So every place a read's seeds
+                    // point to keeps its anchor, and the alignments choose between them, whatever order the seeds of one
+                    // read position come in. (Such seeds were left out whatever their diagonal: of a read position's hits,
+                    // the one sorted first took the anchor.)
                     if (seed.genepos == prev.genepos || seed.readpos == prev.readpos) {
-//                        std::cout << "________________Skip" << std::endl;
-//                        std::cout << prev.ToString() << std::endl;
-//                        std::cout << seed.ToString() << std::endl;
+                        if (!on_diagonal) m_seed_tmp_other.emplace_back(seed);
                         skip_count += 1;
-//                        std::cout << skip_count << std::endl;
                         continue;
                     }
 
-                    if (OffsetPairMatch(init_offset, seed_offset, m_indel)) {
+                    if (on_diagonal) {
                         m_seed_tmp_take.emplace_back(seed);
                         prev = seed;
                     } else {
