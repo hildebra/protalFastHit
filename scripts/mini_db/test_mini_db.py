@@ -66,8 +66,12 @@ elif args[:3] == ["download", "genome", "accession"]:
     accessions = open(args[args.index("--inputfile") + 1]).read().split()
     if set(accessions) & set(os.environ.get("FAKE_SUPPRESSED", "").split(",")):
         sys.exit("Error: some accessions are not valid")
+    # Withdrawn genomes: in the package's report, not in its fetch.txt, which a package of only such has none of.
+    have = [a for a in accessions if a not in os.environ.get("FAKE_WITHDRAWN", "").split(",")]
     with zipfile.ZipFile(args[args.index("--filename") + 1], "w") as z:
-        z.writestr("ncbi_dataset/fetch.txt", "\n".join(accessions))
+        z.writestr("ncbi_dataset/data/assembly_data_report.jsonl", "")
+        if have:
+            z.writestr("ncbi_dataset/fetch.txt", "\n".join(have))
 elif args[0] == "rehydrate":
     folder = args[args.index("--directory") + 1]
     paths = {r["accession"]: r["fasta_path"] for r in csv.DictReader(open(os.environ["FAKE_TABLE"]), delimiter="\t")}
@@ -381,6 +385,24 @@ class MiniDbTest(unittest.TestCase):
         self.assertIn(f"sequencing technology of {len(asked)} candidate strains: {len(asked)} known, 0 to ask", again.stdout)
         with open(calls) as fh:
             self.assertNotIn("summary", fh.read())
+        # Genomes NCBI no longer has (withdrawn): datasets packs nothing to fetch for them. A rerun asking only for such
+        # genomes took that for NCBI being down (r226, 2026-10-05: 52 such genomes, 13 failed requests in a row, no
+        # host genome fetched); they are missing, and the rest of the run goes on.
+        gone = os.path.join(self.tmp.name, "inputs_withdrawn")
+        shutil.copytree(out, gone)
+        lost = sorted(os.listdir(os.path.join(gone, "genomes")))[:4]
+        for name in lost:
+            os.remove(os.path.join(gone, "genomes", name))
+        withdrawn = [name[:-len(".fna.gz")] for name in lost] + ["GCA_999002003.1"]
+        rerun = [gone if c == out else c for c in command]
+        rerun[rerun.index("--batch") + 1] = "1"  # 5 requests of one, as many as stop a run that fails them all
+        result = subprocess.run(rerun, env=dict(env, FAKE_SUPPRESSED="", FAKE_WITHDRAWN=",".join(withdrawn)),
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("failed in a row", result.stderr)
+        self.assertIn("Inputs for GTDB r226", result.stdout)
+        with open(os.path.join(gone, "missing.txt")) as fh:
+            self.assertEqual(sorted(fh.read().split()), sorted(withdrawn))
         run(CONVERT, "--gtdb", release, "--outdir", os.path.join(self.tmp.name, "db_downloaded"))
         with open(os.path.join(self.db, "reference.fna"), "rb") as a, \
                 open(os.path.join(self.tmp.name, "db_downloaded", "reference.fna"), "rb") as b:

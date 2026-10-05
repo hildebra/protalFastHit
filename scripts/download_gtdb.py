@@ -547,7 +547,9 @@ def fetch_direct(opts, wanted, folder):
 
 def ncbi_batch(opts, accessions, work):
     """Downloads accessions with datasets into work: {accession: FASTA path} of those delivered, and why the
-    request failed ("" if it did not)."""
+    request failed ("" if it did not). A package without fetch.txt is datasets' answer that it has none of the
+    genomes (withdrawn or suppressed assemblies): none delivered, and no failure (rehydrate would fail on it, and
+    a rerun asking only for such genomes took NCBI for down)."""
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
     listing = os.path.join(work, "accessions.txt")
@@ -561,6 +563,8 @@ def ncbi_batch(opts, accessions, work):
     log_path = os.path.join(work, "log.txt")
     with open(log_path, "w") as log:
         for command in steps:
+            if command[1] == "rehydrate" and not os.path.isfile(os.path.join(unpacked, "ncbi_dataset", "fetch.txt")):
+                return {}, ""  # nothing to fetch: datasets has none of these genomes
             rc = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT).returncode
             if rc != 0:
                 log.close()
@@ -587,7 +591,8 @@ def ncbi_requests(opts, items, request):
     (found, why the request failed, "" if it did not) answers. A request that fails is halved, down to single
     items, to find the ones NCBI refuses; one such item fails at most ~log2(--batch) requests in a row. More
     failures in a row mean that NCBI (or datasets) is not working, which halving would only ask about ~2n
-    times: the run stops."""
+    times: the run stops. A request that succeeds is not halved, whatever it delivered: what it lacks NCBI does
+    not have."""
     batches = [items[i:i + opts.batch] for i in range(0, len(items), opts.batch)]
     in_a_row, most_in_a_row, error = 0, max(1, opts.batch).bit_length() + 4, ""
     while batches:
@@ -600,7 +605,7 @@ def ncbi_requests(opts, items, request):
                          f"here, and does {opts.datasets} work? A rerun downloads what is still missing")
         else:
             in_a_row = 0
-        if not found and len(batch) > 1:  # a failed request: halve it, down to single items
+        if why and not found and len(batch) > 1:  # a failed request: halve it, down to single items
             batches[:0] = [batch[:len(batch) // 2], batch[len(batch) // 2:]]
             continue
         yield batch, found, len(batches), error
