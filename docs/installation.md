@@ -25,11 +25,18 @@ for clusters where conda is not an option or where compute nodes differ from the
 installed the software. qcmsa is `scripts/qcmsa.py` of the source (or run protal with
 `--no_qcmsa`).
 
-To build them yourself (needs the static libraries of zstd and libdeflate):
+To build them yourself:
 
 ```bash
 just static        # -> build/protal_<version>_static, build/simulate_metagenomes_static
 ```
+
+`just static` downloads zstd 1.5.7 and libdeflate 1.26 (pinned releases, sha256-checked) and builds
+their static libraries in `build/static-deps` (CMake option `-DPROTAL_STATIC_FETCH_DEPS=ON`, see
+[lib/static-deps.cmake](../lib/static-deps.cmake)), so the system needs no `libzstd.a` or
+`libdeflate.a`. Without network access, download the two tarballs elsewhere and pass their paths
+with `-DPROTAL_ZSTD_URL=...` and `-DPROTAL_LIBDEFLATE_URL=...`, or link the system's static
+libraries (Ubuntu: `libzstd-dev`, `libdeflate-dev`) with `just static_fetch_deps=OFF static`.
 
 They are compiled for plain x86-64 (SSE2), so they run on any x86-64 CPU, and use AVX2 where the CPU
 has it, as `protal` does (see [One binary for every CPU](#one-binary-for-every-cpu)).

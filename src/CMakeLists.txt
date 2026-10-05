@@ -195,24 +195,39 @@ target_link_directories(protal_lib_static
 include(${PROJECT_SOURCE_DIR}/../lib/zlib-ng.cmake)
 
 # zstd: compressed database files (index.prx.zst, reference.fna.zst). Ubuntu: libzstd-dev,
-# conda: zstd. The static build links libzstd.a by name.
+# conda: zstd.
 find_path(ZSTD_INCLUDE_DIR zstd.h REQUIRED)
 find_library(ZSTD_LIBRARY NAMES zstd REQUIRED)
 get_filename_component(ZSTD_LIBRARY_DIR ${ZSTD_LIBRARY} DIRECTORY)
 message(STATUS "zstd: ${ZSTD_LIBRARY} (${ZSTD_INCLUDE_DIR})")
 target_include_directories(protal_lib PUBLIC ${ZSTD_INCLUDE_DIR})
-target_include_directories(protal_lib_static PUBLIC ${ZSTD_INCLUDE_DIR})
-target_link_directories(protal_lib_static PUBLIC ${ZSTD_LIBRARY_DIR})
 
 # libdeflate: gzip as protal writes it (BGZF: .sam.gz, the simulator's reads) and reads BGZF input.
-# Ubuntu: libdeflate-dev, conda: libdeflate. The static build links libdeflate.a by name.
+# Ubuntu: libdeflate-dev, conda: libdeflate.
 find_path(LIBDEFLATE_INCLUDE_DIR libdeflate.h REQUIRED)
 find_library(LIBDEFLATE_LIBRARY NAMES deflate REQUIRED)
 get_filename_component(LIBDEFLATE_LIBRARY_DIR ${LIBDEFLATE_LIBRARY} DIRECTORY)
 message(STATUS "libdeflate: ${LIBDEFLATE_LIBRARY} (${LIBDEFLATE_INCLUDE_DIR})")
 target_include_directories(protal_lib PUBLIC ${LIBDEFLATE_INCLUDE_DIR})
-target_include_directories(protal_lib_static PUBLIC ${LIBDEFLATE_INCLUDE_DIR})
-target_link_directories(protal_lib_static PUBLIC ${LIBDEFLATE_LIBRARY_DIR})
+
+# The static binaries link zstd and libdeflate statically: the system's libzstd.a and libdeflate.a
+# (by name, next to the libraries found above), or with PROTAL_STATIC_FETCH_DEPS (`just static`)
+# releases downloaded and built in the build tree (lib/static-deps.cmake).
+option(PROTAL_STATIC_FETCH_DEPS "Download and build zstd and libdeflate for the static binaries" OFF)
+if (PROTAL_STATIC_FETCH_DEPS)
+    include(${PROJECT_SOURCE_DIR}/../lib/static-deps.cmake)
+    message(STATUS "Static binaries: zstd and libdeflate built in ${PROTAL_STATIC_DEPS_DIR}")
+    # BEFORE: their headers, not the system's, which a conda include directory may also hold.
+    target_include_directories(protal_lib_static BEFORE PUBLIC ${PROTAL_STATIC_DEPS_INCLUDE_DIR})
+    add_dependencies(protal_lib_static protal_static_zstd_build protal_static_deflate_build)
+    set(PROTAL_STATIC_ZSTD protal_static_zstd)
+    set(PROTAL_STATIC_DEFLATE protal_static_deflate)
+else()
+    target_include_directories(protal_lib_static PUBLIC ${ZSTD_INCLUDE_DIR} ${LIBDEFLATE_INCLUDE_DIR})
+    target_link_directories(protal_lib_static PUBLIC ${ZSTD_LIBRARY_DIR} ${LIBDEFLATE_LIBRARY_DIR})
+    set(PROTAL_STATIC_ZSTD zstd)
+    set(PROTAL_STATIC_DEFLATE deflate)
+endif()
 
 target_include_directories(protal_lib PUBLIC ../lib/robin)
 target_include_directories(protal_lib PUBLIC ../lib/tsl)
@@ -292,8 +307,8 @@ target_link_libraries(protal_lib_static
         wfa_lib
         gzstream_lib_static
         zlib-ng
-        zstd
-        deflate
+        ${PROTAL_STATIC_ZSTD}
+        ${PROTAL_STATIC_DEFLATE}
 )
 
 message("CMAKE_CURRENT_SOURCE_DIR: ${CMAKE_CURRENT_SOURCE_DIR}")
