@@ -122,3 +122,37 @@ In order of what they are worth:
 
 Together, with the new defaults: 16 fits of 250 rounds, five at a time, a few minutes per model instead of the
 hours of `--features auto` and `--evaluation full` (an estimate).
+
+## Follow-up: the three cuts implemented (`15006c2`)
+
+`--rounds 250 --learning-rate 0.1` are the trainer's and the build's defaults; the folds are fitted side by side
+(`--fold-jobs`: by default as many as there are folds, up to `--threads` / 3, each on `--threads` / jobs threads,
+in joblib's loky worker processes); the clade ranks are held out only with `--evaluation full`. Neither model depends
+on its threads (boosting checked on 1, 3 and 6 threads), and the folds side by side gave the very scores of the folds
+one after another, in the unit test and on the v13 table below.
+
+The trainer of `15006c2` with the build's defaults on the v13 paired-end table, 6 threads, the machine quieter than
+before (load 2-5; [`load_during_folds.txt`](load_during_folds.txt)):
+
+| | wall time | CPU time | fits |
+|---|---|---|---|
+| old defaults (auto, full; 500 rounds), load 7-14 | 3 h 28 min | 11.7 h | ~220 |
+| `14632a8` defaults (default set, basic with clades; 500 rounds), load 7-13 | 1 h 17 min | 4.4 h | 41 |
+| `15006c2`, folds one after another (`--fold-jobs 1`, 6 threads) | 8 min 33 s | 0.34 h | 16 |
+| `15006c2`, folds side by side (2 at a time, 3 threads each; the default on 6 threads) | **6 min 10 s** | 0.30 h | 16 |
+
+([`pe-default-basic-folds.report.txt`](pe-default-basic-folds.report.txt),
+[`pe-default-basic-folds.time.txt`](pe-default-basic-folds.time.txt),
+[`pe-default-basic-sequential.time.txt`](pe-default-basic-sequential.time.txt).) The load differed between the
+first two rows and the last two, so their ratio overstates the cuts' part; the last two ran under the same load:
+side by side 1.4 times faster with 2 jobs on 6 threads, more expected with 5 jobs on a build's 16.
+
+What 250 rounds at 0.1 changed against 500 at 0.05 (the trainer's own numbers, the `14632a8` run against this
+one): with species held out F1 0.9554 → 0.9548, AP 0.9923 → 0.9921, log loss 0.0459 → 0.0464; with samples held
+out F1 0.9563 → 0.9559; the design's test set at 0.5 F1 0.9703 both, AP 0.9954 both, log loss 0.0363 → 0.0361;
+soil hold-out 0.9583 → 0.9580, shallow soil 0.8862 → 0.8861, gut 0.9943 → 0.9931 (at the model's knob).
+
+**An observation, not acted on:** the one knob the trainer chooses with species held out (pe 0.66 with 500 rounds,
+0.72 with 250) costs the design's test set 0.002-0.004 of F1 against 0.5 (0.9684 and 0.9664 against 0.9703), where
+its best threshold is 0.50-0.51 with either model; the training rows it is chosen on are mostly the scenarios'
+(soil prefers ~0.7, docs/claude/2026-10-05-r226-v12-scenarios). With boosting the global knob may no longer pay.
