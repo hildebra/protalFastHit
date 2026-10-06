@@ -849,7 +849,7 @@ class ModelContractTest(WorkDir):
 
 
 class DepthKnobsTest(WorkDir):
-    """A model with knobs by sample depth (random_forest_cmdline.py --depth-knobs, in its header): a sample's taxa are
+    """A model with knobs by sample depth (machine_learning_cmdline.py --depth-knobs, in its header): a sample's taxa are
     reported at the knob of its depth bin unless --knob is given."""
 
     def model(self, name, value, extension="protal_depth_knobs", more=""):
@@ -916,7 +916,7 @@ class DepthKnobsTest(WorkDir):
 
 
 class FalseCallsTest(WorkDir):
-    """A model with calibrated calls (random_forest_cmdline.py --fdr-calls, in its header): with --fdr F a sample
+    """A model with calibrated calls (machine_learning_cmdline.py --fdr-calls, in its header): with --fdr F a sample
     reports its highest-scoring taxa while their expected share of false calls stays at F; without --fdr (or with
     --fdr 0 or --knob) the calls are not used and the knob curve or --knob applies."""
 

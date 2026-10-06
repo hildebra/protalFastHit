@@ -50,9 +50,9 @@ knob curve over the sample's depth (--depth-knob-read-types): a deep sample
 holds many more absent taxa with a few reads, and needs a higher threshold.
 
 Four scenarios of real studies (--scenarios, scenarios.py: gut, soil, shallow
-soil, 90% host reads) add samples of their own: their hold-in samples join the
-training data, their hold-out samples the test set, and every model's report
-scores both. Each trainer chooses its feature set (--features auto) with species
+soil, 90% host reads) add samples of their own, each at a depth drawn around its
+scenario's: their hold-in samples join the training data, their hold-out samples
+the test set, and every model's report scores both. Each trainer chooses its feature set (--features auto) with species
 held out, and the run says which set won and why.
 
 OUT_DIR/model_logs/ collects what tells whether the models are good: summary.txt
@@ -118,7 +118,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONVERTER = os.path.join(HERE, "mini_db", "gtdb_to_protal_db.py")
 GENE_NEIGHBOURS = os.path.join(HERE, "mini_db", "gene_neighbours.py")
-TRAINER = os.path.join(HERE, "random_forest_cmdline.py")
+TRAINER = os.path.join(HERE, "machine_learning_cmdline.py")
 COLLECTOR = os.path.join(HERE, "collect_training_data.py")
 PARITY = os.path.join(HERE, "check_model_parity.py")
 TRACE = os.path.join(HERE, "trace_relatives.py")
@@ -606,6 +606,11 @@ def gene_conservation_summary(build_log):
     return text.rsplit(": ", 1)[0] if text.endswith("gene_conservation.tsv") else text
 
 
+# --maxnodes by default: the trainer's for boosting (machine_learning_cmdline.MODEL_DEFAULTS), and the forests' since the
+# r226 v3 training; boosting's rounds (machine_learning_cmdline.GBM_ROUNDS).
+BOOSTED_LEAVES, FOREST_LEAVES, TRAINER_ROUNDS = "63", "512,pb:128,ont:128", 500
+
+
 def max_leaves(spec, read_type):
     """The leaves per tree of read_type's model from --maxnodes: a TYPE:N for it, else the bare N, else 256 (the
     trainer's default). ValueError when the list is not of N and TYPE:N."""
@@ -731,7 +736,8 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
                                                        "Gene positions:")),
             ("gene_congeners", gene_congeners_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("suspect_copies", suspect_copies_summary(os.path.join(args.outdir, "index_and_package.log"))),
-            ("classifier_features", args.features), ("classifier_trees", args.ntree),
+            ("classifier_features", args.features), ("classifier_model", args.model),
+            ("classifier_trees", args.ntree if args.model == "forest" else f"{args.rounds or TRAINER_ROUNDS} rounds"),
             ("classifier_max_leaves", ",".join(f"{t}:{max_leaves(args.maxnodes, t)}" for t in read_types)),
             ("classifier_evaluation", args.evaluation),
             ("classifier_previous_procedure",
@@ -835,7 +841,7 @@ def feature_choices(read_types, prefixes):
 
 def scenario_scores(read_types, prefixes, order=()):
     """The models' F1 per scenario on its hold-out samples (and its hold-in ones with species held out), from their
-    .metrics.json (random_forest_cmdline.py, section Scenarios), in a few words; the scenarios in `order` first, in
+    .metrics.json (machine_learning_cmdline.py, section Scenarios), in a few words; the scenarios in `order` first, in
     that order."""
     found = collections.defaultdict(list)
     for t in read_types:
@@ -904,7 +910,7 @@ def summary_lines(read_types, prefixes, db):
     return [f"Presence models of {db}, taxa scored at the knob given (0.5, or the model's own, as protal calls by "
             "default): TP present and called, FP absent and called, TN "
             "absent and not called, FN present and not called; FP rate FP / (FP + TN), FN rate FN / (TP + FN). "
-            "species held out: each taxon scored by forests that did not see its species; independent test set: "
+            "species held out: each taxon scored by models that did not see its species; independent test set: "
             "samples of another design, scored by the final model; <scenario>: hold-out: the scenario's samples of "
             "the test set (never trained on), hold-in: its training samples, scored with species held out, or in "
             "sample (by the final model, fitted on them). Details: trained_model*.report.txt", ""] + table
@@ -1281,16 +1287,17 @@ def main():
                         "scenario larger than the genome table holds at its share of species the database lacks is "
                         "scaled down, and the run says so: soil's full size needs about 25,000 species to simulate from, "
                         "the download's default since 2026-10-05 (8,000 before). host needs the host genome (--host-genome, "
-                        "or the download's); by default, without one, it is left out with a warning")
+                        "or the download's); by default, without one, it is left out with a warning. Each sample's "
+                        "depth is its scenario's times a factor from 1/2 to 2 (depth_spread)")
     p.add_argument("--scenario-file", help="JSON of scenarios by name, which add to or change the presets (scenarios.py)")
-    p.add_argument("--scenario-samples", type=int, default=3,
-                   help="hold-in samples per scenario, in the training data (default 3; 0: the scenarios are scored, "
-                        "not trained on)")
-    p.add_argument("--scenario-test-samples", type=int, default=2,
-                   help="hold-out samples per scenario, in the test set (default 2)")
+    p.add_argument("--scenario-samples", type=int, default=6,
+                   help="hold-in samples per scenario, in the training data (default 6; 3 before 2026-10-06; 0: the "
+                        "scenarios are scored, not trained on)")
+    p.add_argument("--scenario-test-samples", type=int, default=3,
+                   help="hold-out samples per scenario, in the test set (default 3; 2 before 2026-10-06)")
     p.add_argument("--scenario-weight", type=float, default=0.25,
-                   help="the sample weight of the scenarios' hold-in rows in the forests, the design's 1 "
-                        "(random_forest_cmdline.py --scenario-weight; default 0.25: at r226 v12 their rows were 52-80%% "
+                   help="the sample weight of the scenarios' hold-in rows in the models, the design's 1 "
+                        "(machine_learning_cmdline.py --scenario-weight; default 0.25: at r226 v12 their rows were 52-80%% "
                         "of the training rows, and at full weight they cost the design's test set 0.002-0.004 of F1, at "
                         "0.25 half to two thirds less with the soil scenarios' gain kept; "
                         "docs/claude/2026-10-05-r226-v12-scenarios)")
@@ -1308,12 +1315,18 @@ def main():
                         "abundant (docs/claude/2026-10-02-amplicon-denoising). On the benchmark world the groups left "
                         "the other models' test F1 within noise (docs/claude/2026-10-03-denoising-implementation)")
     p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--ntree", type=int, default=64)
-    p.add_argument("--maxnodes", default="512,pb:128,ont:128",
-                   help="leaves per tree at most (random_forest_cmdline.py --maxnodes), N or TYPE:N items, a bare N for "
-                        "the read types not named (default 512,pb:128,ont:128: at r226 512 leaves gave the short-read "
-                        "models a lower log loss and fewer false positives than 256, 128 the long-read models a lower "
-                        "log loss at the same F1)")
+    p.add_argument("--model", choices=["gbm", "forest"], default="gbm",
+                   help="the presence models (machine_learning_cmdline.py --model): gbm (default since 2026-10-06), "
+                        "gradient-boosted trees, which beat the forest on the r226 v13 tables "
+                        "(docs/claude/2026-10-06-r226-v13-soil); forest, a random forest, as before")
+    p.add_argument("--ntree", type=int, default=64, help="a forest's trees (default 64)")
+    p.add_argument("--rounds", type=int,
+                   help=f"boosting's rounds (machine_learning_cmdline.py --rounds; default {TRAINER_ROUNDS})")
+    p.add_argument("--maxnodes", default=None,
+                   help=f"leaves per tree at most (machine_learning_cmdline.py --maxnodes), N or TYPE:N items, a bare N for "
+                        f"the read types not named (default {BOOSTED_LEAVES} for boosting, {FOREST_LEAVES} for a forest: "
+                        "at r226 512 leaves gave the short-read forests a lower log loss and fewer false positives than "
+                        "256, 128 the long-read forests a lower log loss at the same F1)")
     p.add_argument("--no-gene-neighbours", action="store_true",
                    help="do not record which marker genes lie next to which in the genomes to simulate from "
                         "(gene_neighbours.py; protal then pairs no mates across neighbouring genes)")
@@ -1322,9 +1335,9 @@ def main():
                         "with an error) instead of placeholders that report no species until trained ones replace "
                         "them (placeholder_models.py)")
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
-                   help="how much the trainer evaluates (random_forest_cmdline.py --evaluation)")
+                   help="how much the trainer evaluates (machine_learning_cmdline.py --evaluation)")
     p.add_argument("--features", type=feature_set_name, default="auto", metavar="auto|" + "|".join(FEATURE_SETS[:2] + ("...",)),
-                   help="the models' features (random_forest_cmdline.py --features): auto (default), each trainer "
+                   help="the models' features (machine_learning_cmdline.py --features): auto (default), each trainer "
                         "chooses its set (below); or feature groups joined by '+' "
                         f"(the set auto keeps unless another is better: {DEFAULT_FEATURE_SET}): normalized, the "
                         "normalised features; adjacency, the gene "
@@ -1341,25 +1354,25 @@ def main():
                         "normalized+adjacency+distance is the set of protal 0.7.3's dumps, normalized+adjacency that "
                         "of older ones. auto: each model's set chosen by its trainer, the one of highest F1 with "
                         "species held out among those without the priors (auto+priors: with them), the default set "
-                        "unless another is 0.002 better (random_forest_cmdline.py choose_feature_set); the run says "
+                        "unless another is 0.002 better (machine_learning_cmdline.py choose_feature_set); the run says "
                         "which won and why, and each set's F1 on the test sets")
     p.add_argument("--call-mode", choices=["curve", "fdr"], default="curve",
                    help="how protal calls with the models by default: curve (default), the knob curve over the "
                         "sample's depth (--depth-knob-read-types); fdr, the highest-scoring taxa of each sample while "
                         "their expected share of false calls stays at the target the trainer chose "
-                        "(random_forest_cmdline.py --fdr-calls; protal --fdr), which follows the sample's number of "
+                        "(machine_learning_cmdline.py --fdr-calls; protal --fdr), which follows the sample's number of "
                         "candidates at any depth (on the benchmark world 0.0005-0.004 F1 below the curve, "
                         "docs/claude/2026-10-03-denoising-implementation; at r226 0.001-0.007 below it, missing most "
                         "species of the shallowest samples, docs/claude/2026-10-03-r226-v5-v6-training). With fdr the "
                         "trainer reports both on the "
                         "test set")
     p.add_argument("--previous-procedure", action=argparse.BooleanOptionalAction, default=False,
-                   help="the trainer also compares with its previous procedure (random_forest_cmdline.py "
+                   help="the trainer also compares with its previous procedure (machine_learning_cmdline.py "
                         "--previous-procedure): for the first builds of a release; off by default, as it takes "
                         "most of the training time")
     p.add_argument("--depth-knob-read-types", default="pe,se,pb,ont",
                    help="read types (comma-separated) whose models also get a knob curve over the sample's depth "
-                        "(random_forest_cmdline.py --depth-knobs; default all four, '' for none): at GTDB r226 the best "
+                        "(machine_learning_cmdline.py --depth-knobs; default all four, '' for none): at GTDB r226 the best "
                         "threshold went from ~0.1 at 1,000 read pairs to ~0.9 at 500,000, and thresholds by depth raised "
                         "the test sets' F1 by 0.006-0.033 (docs/claude/2026-10-02-r226-build-evaluation). A model with "
                         "the sample's depth among its features (--features ... depth, the default) gets no curve: the "
@@ -1395,6 +1408,8 @@ def main():
     read_types = [t.strip() for t in args.read_types.split(",") if t.strip()]
     if not read_types or any(t not in TABLES for t in read_types):
         p.error(f"--read-types: a comma-separated list of {', '.join(TABLES)}, got {args.read_types!r}")
+    if args.maxnodes is None:
+        args.maxnodes = BOOSTED_LEAVES if args.model == "gbm" else FOREST_LEAVES
     try:
         max_leaves(args.maxnodes, "pe")
     except ValueError as e:
@@ -2034,10 +2049,12 @@ def main():
     trainers = {}
     for t in read_types:
         command = [sys.executable, TRAINER, "--truth-file", os.path.join(training, TABLES[t]),
-                   "--output-prefix", prefixes[t], "--features", args.features, "--ntree", str(args.ntree),
-                   "--maxnodes", str(max_leaves(args.maxnodes, t)), "--seed", str(args.seed),
+                   "--output-prefix", prefixes[t], "--features", args.features, "--model", args.model,
+                   "--ntree", str(args.ntree), "--maxnodes", str(max_leaves(args.maxnodes, t)), "--seed", str(args.seed),
                    "--threads", str(trainer_threads), "--scenario-weight", str(args.scenario_weight),
                    "--taxonomy", taxonomy, "--evaluation", args.evaluation]
+        if args.rounds:
+            command += ["--rounds", str(args.rounds)]
         if args.previous_procedure:
             command += ["--previous-procedure"]
         if t in depth_knob_types(args):

@@ -736,7 +736,7 @@ TEST(ModelFeatures, TheModelMustFitProtal) {
 }
 
 TEST(ModelFeatures, DepthKnobsByTheSamplesFragments) {
-    // The bin: the digits of the sample's fragments less one, 2 to 6 (random_forest_cmdline.py depth_bins).
+    // The bin: the digits of the sample's fragments less one, 2 to 6 (machine_learning_cmdline.py depth_bins).
     EXPECT_EQ(profiler::DepthKnobBin(0), 2);
     EXPECT_EQ(profiler::DepthKnobBin(999), 2);
     EXPECT_EQ(profiler::DepthKnobBin(1000), 3);
@@ -792,7 +792,7 @@ TEST(ModelFeatures, DepthKnobsByTheSamplesFragments) {
     }
 
     // A knob curve (the trainer's since 0.7.3): log10 of the sample's fragments : knob, linear between the points, the
-    // ends' beyond them (random_forest_cmdline.py knob_at); a model has bins or a curve.
+    // ends' beyond them (machine_learning_cmdline.py knob_at); a model has bins or a curve.
     std::string const curve_xml = header(R"(<Extension name="protal_depth_knob_curve" value="2.000:0.2,4.000:0.8"/>)") + body;
     profiler::DepthKnobCurve curve;
     EXPECT_EQ(profiler::ParseDepthKnobCurve(curve_xml, curve), "");

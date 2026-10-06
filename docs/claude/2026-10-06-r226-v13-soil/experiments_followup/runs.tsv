@@ -1,0 +1,126 @@
+read type	variant	set	knob	F1	FP	FN	F1 at 0.5	best F1	at
+pe	v13	design, species held out	0.7	0.96711	415	580	0.96403	0.96711	0.7
+pe	v13	soil hold-in, species held out	0.7	0.95835	456	584	0.94741	0.95905	0.76
+pe	v13	soil_shallow hold-in, species held out	0.7	0.93035	539	1056	0.9288	0.9317	0.58
+pe	v13	design test	0.7	0.96521	93	220	0.96328	0.96559	0.68
+pe	v13	gut hold-out	0.7	0.99496	1	7	0.99561	0.99623	0.55
+pe	v13	soil hold-out	0.7	0.95353	304	433	0.94399	0.95395	0.73
+pe	v13	soil_shallow hold-out	0.7	0.92532	331	727	0.92567	0.92754	0.59
+pe	+ref	design, species held out	0.68	0.96713	438	558	0.96542	0.9675	0.6
+pe	+ref	soil hold-in, species held out	0.68	0.95763	501	560	0.94826	0.95866	0.72
+pe	+ref	soil_shallow hold-in, species held out	0.68	0.93107	574	1010	0.93012	0.93184	0.58
+pe	+ref	design test	0.68	0.96596	101	206	0.96451	0.96724	0.57
+pe	+ref	gut hold-out	0.68	0.99497	2	6	0.99436	0.99623	0.53
+pe	+ref	soil hold-out	0.68	0.95391	324	409	0.94507	0.95519	0.73
+pe	+ref	soil_shallow hold-out	0.68	0.9253	357	705	0.92542	0.9273	0.65
+pe	forest 512	design, species held out	0.7	0.96711	415	580	0.96403	0.96711	0.7
+pe	forest 512	soil hold-in, species held out	0.7	0.95835	456	584	0.94741	0.95905	0.76
+pe	forest 512	soil_shallow hold-in, species held out	0.7	0.93035	539	1056	0.9288	0.9317	0.58
+pe	forest 512	design test	0.7	0.96521	93	220	0.96328	0.96559	0.68
+pe	forest 512	gut hold-out	0.7	0.99496	1	7	0.99561	0.99623	0.55
+pe	forest 512	soil hold-out	0.7	0.95353	304	433	0.94399	0.95395	0.73
+pe	forest 512	soil_shallow hold-out	0.7	0.92532	331	727	0.92567	0.92754	0.59
+pe	gbm depth rounded	design, species held out	0.73	0.97007	394	513	0.96826	0.97024	0.69
+pe	gbm depth rounded	soil hold-in, species held out	0.73	0.96011	382	610	0.95428	0.9606	0.82
+pe	gbm depth rounded	soil_shallow hold-in, species held out	0.73	0.93601	647	839	0.92746	0.93618	0.75
+pe	gbm depth rounded	design test	0.73	0.96682	93	206	0.96861	0.96945	0.59
+pe	gbm depth rounded	gut hold-out	0.73	0.99307	2	9	0.99434	0.99624	0.35
+pe	gbm depth rounded	soil hold-out	0.73	0.95755	244	427	0.95358	0.95825	0.81
+pe	gbm depth rounded	soil_shallow hold-out	0.73	0.93145	426	563	0.92312	0.93227	0.78
+pe	gbm +ref depth rounded	design, species held out	0.79	0.97017	345	556	0.96907	0.97042	0.66
+pe	gbm +ref depth rounded	soil hold-in, species held out	0.79	0.96171	305	643	0.95551	0.96216	0.8
+pe	gbm +ref depth rounded	soil_shallow hold-in, species held out	0.79	0.93755	508	928	0.92971	0.93763	0.8
+pe	gbm +ref depth rounded	design test	0.79	0.96599	74	231	0.96915	0.97014	0.57
+pe	gbm +ref depth rounded	gut hold-out	0.79	0.99306	1	10	0.99497	0.99623	0.55
+pe	gbm +ref depth rounded	soil hold-out	0.79	0.96066	181	438	0.95538	0.96092	0.77
+pe	gbm +ref depth rounded	soil_shallow hold-out	0.79	0.9344	320	616	0.92651	0.9344	0.79
+pb	v13	design, species held out	0.5	0.97194	172	199	0.97194	0.97286	0.46
+pb	v13	soil hold-in, species held out	0.5	0.94793	556	645	0.94793	0.94802	0.52
+pb	v13	soil_shallow hold-in, species held out	0.5	0.94935	299	525	0.94935	0.95037	0.45
+pb	v13	design test	0.5	0.97672	55	43	0.97672	0.97689	0.54
+pb	v13	gut hold-out	0.5	0.98558	13	10	0.98558	0.98736	0.62
+pb	v13	soil hold-out	0.5	0.94692	322	432	0.94692	0.94736	0.51
+pb	v13	soil_shallow hold-out	0.5	0.94738	178	337	0.94738	0.94771	0.46
+pb	+ref	design, species held out	0.5	0.97294	171	187	0.97294	0.97304	0.45
+pb	+ref	soil hold-in, species held out	0.5	0.94825	567	628	0.94825	0.94825	0.51
+pb	+ref	soil_shallow hold-in, species held out	0.5	0.95041	293	514	0.95041	0.95116	0.44
+pb	+ref	design test	0.5	0.97625	56	44	0.97625	0.97683	0.39
+pb	+ref	gut hold-out	0.5	0.98558	13	10	0.98558	0.98923	0.67
+pb	+ref	soil hold-out	0.5	0.9475	320	426	0.9475	0.94848	0.47
+pb	+ref	soil_shallow hold-out	0.5	0.94974	168	324	0.94974	0.94974	0.5
+pb	forest 512	design, species held out	0.5	0.9731	171	185	0.9731	0.97384	0.47
+pb	forest 512	soil hold-in, species held out	0.5	0.94948	526	638	0.94948	0.9497	0.53
+pb	forest 512	soil_shallow hold-in, species held out	0.5	0.95048	294	512	0.95048	0.9509	0.49
+pb	forest 512	design test	0.5	0.97718	52	44	0.97718	0.97808	0.35
+pb	forest 512	gut hold-out	0.5	0.98744	10	10	0.98744	0.98989	0.57
+pb	forest 512	soil hold-out	0.5	0.94801	298	439	0.94801	0.94838	0.55
+pb	forest 512	soil_shallow hold-out	0.5	0.94806	181	328	0.94806	0.94843	0.43
+pb	gbm depth rounded	design, species held out	0.5	0.97533	168	159	0.97533	0.97558	0.57
+pb	gbm depth rounded	soil hold-in, species held out	0.5	0.9527	479	610	0.9527	0.95357	0.47
+pb	gbm depth rounded	soil_shallow hold-in, species held out	0.5	0.95468	321	422	0.95468	0.95513	0.46
+pb	gbm depth rounded	design test	0.5	0.98003	46	38	0.98003	0.98085	0.31
+pb	gbm depth rounded	gut hold-out	0.5	0.99057	7	8	0.99057	0.99119	0.51
+pb	gbm depth rounded	soil hold-out	0.5	0.95171	266	418	0.95171	0.95245	0.47
+pb	gbm depth rounded	soil_shallow hold-out	0.5	0.95128	193	287	0.95128	0.95215	0.46
+pb	gbm +ref depth rounded	design, species held out	0.5	0.97596	169	150	0.97596	0.97629	0.55
+pb	gbm +ref depth rounded	soil hold-in, species held out	0.5	0.95296	489	595	0.95296	0.95296	0.5
+pb	gbm +ref depth rounded	soil_shallow hold-in, species held out	0.5	0.95535	317	415	0.95535	0.9555	0.49
+pb	gbm +ref depth rounded	design test	0.5	0.98049	44	38	0.98049	0.98158	0.29
+pb	gbm +ref depth rounded	gut hold-out	0.5	0.99121	7	7	0.99121	0.99245	0.59
+pb	gbm +ref depth rounded	soil hold-out	0.5	0.95442	263	384	0.95442	0.95492	0.39
+pb	gbm +ref depth rounded	soil_shallow hold-out	0.5	0.95305	178	284	0.95305	0.95375	0.55
+ont	v13	design, species held out	0.5	0.96886	219	202	0.96886	0.96955	0.52
+ont	v13	soil hold-in, species held out	0.5	0.94247	694	656	0.94247	0.94257	0.51
+ont	v13	soil_shallow hold-in, species held out	0.5	0.93939	419	593	0.93939	0.94062	0.46
+ont	v13	design test	0.5	0.97201	66	55	0.97201	0.97282	0.56
+ont	v13	gut hold-out	0.5	0.9788	23	11	0.9788	0.98602	0.77
+ont	v13	soil hold-out	0.5	0.94116	433	426	0.94116	0.94167	0.54
+ont	v13	soil_shallow hold-out	0.5	0.93388	284	404	0.93388	0.93582	0.4
+ont	+ref	design, species held out	0.5	0.96913	211	206	0.96913	0.96926	0.48
+ont	+ref	soil hold-in, species held out	0.5	0.94274	704	641	0.94274	0.94311	0.59
+ont	+ref	soil_shallow hold-in, species held out	0.5	0.94032	416	581	0.94032	0.94044	0.47
+ont	+ref	design test	0.5	0.97296	66	51	0.97296	0.97406	0.54
+ont	+ref	gut hold-out	0.5	0.97944	23	10	0.97944	0.98665	0.79
+ont	+ref	soil hold-out	0.5	0.94041	448	423	0.94041	0.94118	0.55
+ont	+ref	soil_shallow hold-out	0.5	0.93579	281	388	0.93579	0.93654	0.47
+ont	forest 512	design, species held out	0.5	0.97077	202	193	0.97077	0.97081	0.51
+ont	forest 512	soil hold-in, species held out	0.5	0.94467	647	649	0.94467	0.94526	0.58
+ont	forest 512	soil_shallow hold-in, species held out	0.5	0.94155	393	582	0.94155	0.94166	0.52
+ont	forest 512	design test	0.5	0.97455	60	50	0.97455	0.97512	0.59
+ont	forest 512	gut hold-out	0.5	0.98369	14	12	0.98369	0.98862	0.65
+ont	forest 512	soil hold-out	0.5	0.94192	410	436	0.94192	0.94321	0.47
+ont	forest 512	soil_shallow hold-out	0.5	0.93673	266	392	0.93673	0.93796	0.41
+ont	gbm depth rounded	design, species held out	0.5	0.97259	200	171	0.97259	0.97342	0.56
+ont	gbm depth rounded	soil hold-in, species held out	0.5	0.94742	589	640	0.94742	0.94765	0.52
+ont	gbm depth rounded	soil_shallow hold-in, species held out	0.5	0.94418	426	511	0.94418	0.94454	0.51
+ont	gbm depth rounded	design test	0.5	0.97614	54	49	0.97614	0.97687	0.41
+ont	gbm depth rounded	gut hold-out	0.5	0.9856	14	9	0.9856	0.98688	0.39
+ont	gbm depth rounded	soil hold-out	0.5	0.94666	337	436	0.94666	0.94727	0.43
+ont	gbm depth rounded	soil_shallow hold-out	0.5	0.94213	276	330	0.94213	0.94264	0.48
+ont	gbm +ref depth rounded	design, species held out	0.5	0.97253	204	168	0.97253	0.974	0.58
+ont	gbm +ref depth rounded	soil hold-in, species held out	0.5	0.94846	570	634	0.94846	0.94876	0.62
+ont	gbm +ref depth rounded	soil_shallow hold-in, species held out	0.5	0.94458	420	510	0.94458	0.94583	0.66
+ont	gbm +ref depth rounded	design test	0.5	0.97776	50	46	0.97776	0.97877	0.37
+ont	gbm +ref depth rounded	gut hold-out	0.5	0.98558	13	10	0.98558	0.9862	0.52
+ont	gbm +ref depth rounded	soil hold-out	0.5	0.94856	338	409	0.94856	0.94868	0.53
+ont	gbm +ref depth rounded	soil_shallow hold-out	0.5	0.94395	276	312	0.94395	0.94456	0.52
+se	v13	design, species held out	0.5	0.96511	656	396	0.96511	0.966	0.59
+se	v13	soil hold-in, species held out	0.5	0.95676	643	451	0.95676	0.96093	0.69
+se	v13	design test	0.5	0.95923	186	179	0.95923	0.96067	0.56
+se	v13	soil hold-out	0.5	0.95108	434	353	0.95108	0.95449	0.63
+se	+ref	design, species held out	0.5	0.9643	661	415	0.9643	0.96576	0.61
+se	+ref	soil hold-in, species held out	0.5	0.95832	630	425	0.95832	0.96119	0.71
+se	+ref	design test	0.5	0.95994	174	184	0.95994	0.96048	0.54
+se	+ref	soil hold-out	0.5	0.95287	417	341	0.95287	0.95568	0.6
+se	forest 512	design, species held out	0.5	0.96511	656	396	0.96511	0.966	0.59
+se	forest 512	soil hold-in, species held out	0.5	0.95676	643	451	0.95676	0.96093	0.69
+se	forest 512	design test	0.5	0.95923	186	179	0.95923	0.96067	0.56
+se	forest 512	soil hold-out	0.5	0.95108	434	353	0.95108	0.95449	0.63
+se	gbm depth rounded	design, species held out	0.5	0.96604	610	412	0.96604	0.96733	0.63
+se	gbm depth rounded	soil hold-in, species held out	0.5	0.95905	576	457	0.95905	0.96403	0.75
+se	gbm depth rounded	design test	0.5	0.96017	148	206	0.96017	0.96221	0.62
+se	gbm depth rounded	soil hold-out	0.5	0.95729	357	328	0.95729	0.9594	0.58
+se	gbm +ref depth rounded	design, species held out	0.5	0.96645	593	416	0.96645	0.96736	0.7
+se	gbm +ref depth rounded	soil hold-in, species held out	0.5	0.96141	541	432	0.96141	0.96461	0.76
+se	gbm +ref depth rounded	design test	0.5	0.96279	140	191	0.96279	0.96356	0.58
+se	gbm +ref depth rounded	soil hold-out	0.5	0.95765	352	327	0.95765	0.96061	0.64

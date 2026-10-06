@@ -418,7 +418,7 @@ namespace protal::profiler::context {
     // ---- calibrated calls with a target share of false calls ----------------------------------------------
 
     // The model's score -> the probability that a taxon is present, piecewise linear, x increasing, y not decreasing
-    // (random_forest_cmdline.py --fdr-calls: an isotonic fit on species held out in training).
+    // (machine_learning_cmdline.py --fdr-calls: an isotonic fit on species held out in training).
     using CalibrationCurve = std::vector<std::pair<double, double>>;
 
     // The curve at `score`: linear between its points, its end points' beyond them.

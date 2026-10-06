@@ -21,6 +21,7 @@ import hashlib
 import http.server
 import io
 import json
+import math
 import os
 import random
 import shutil
@@ -1645,6 +1646,17 @@ class MiniDbTest(unittest.TestCase):
             if "se" in reads:
                 self.assertEqual(reads["se"]["setup"], "ultima:300:40:25:2")
                 self.assertEqual(reads["se"]["depth"] * 300, bases)
+        # Each sample's depth factor: log-uniform from 1/spread to spread, one in each equal part of the range, the
+        # same for the same seed and name, other ones for another seed.
+        self.assertEqual({d["depth_spread"] for d in defs.values()}, {scenarios.DEPTH_SPREAD})
+        factors = scenarios.depth_factors(1, "soil", 6, 2.0)
+        self.assertEqual(factors, scenarios.depth_factors(1, "soil", 6, 2.0))
+        self.assertNotEqual(factors, scenarios.depth_factors(1001, "soil", 6, 2.0))
+        parts = sorted(int((math.log2(f) + 1) / 2 * 6) for f in factors)
+        self.assertEqual(parts, list(range(6)))
+        self.assertEqual(scenarios.depth_factors(1, "soil", 3, 1.0), [1.0, 1.0, 1.0])
+        self.assertEqual(scenarios.depth_factors(1, "soil", 0, 2.0), [])
+        self.assertEqual(scenarios.sample_depths(1000, [0.5, 1.999, 0.0001]), [500, 1999, 1])
         self.assertEqual(scenarios.selection("gut,soil:5", 3, defs), [("gut", 3), ("soil", 5)])
         self.assertEqual([n for n, _ in scenarios.selection("all", 2, defs)], list(defs))
         self.assertEqual(scenarios.selection("gut:0,host", 2, defs), [("host", 2)])
@@ -1678,7 +1690,8 @@ class MiniDbTest(unittest.TestCase):
         for wrong in ({"species": "3"}, {**changed["tiny"], "colour": 1}, {**changed["tiny"], "novel_share": 2},
                       {**changed["tiny"], "host_share": 1}, {**changed["tiny"], "reads": [{"type": "se", "depth": 9,
                                                                                          "setup": "hifi:1:1:1"}]},
-                      {**changed["tiny"], "reads": [{"type": "pe", "depth": 9}] * 2}):
+                      {**changed["tiny"], "reads": [{"type": "pe", "depth": 9}] * 2},
+                      {**changed["tiny"], "depth_spread": 0.5}, {**changed["tiny"], "depth_spread": "x"}):
             with self.assertRaises(scenarios.ScenarioError):
                 scenarios.check_definition("x", wrong)
         # The table's species: all of the side short of the share, enough of the other.
@@ -1793,14 +1806,22 @@ class MiniDbTest(unittest.TestCase):
         sys.path.insert(0, os.path.join(HERE, ".."))
         import argparse
         import collect_training_data as collect
+        import scenarios
         opts = argparse.Namespace(read_setups="150:HSXt:350:50", read_pairs="1000", read_types=["pe", "se", "pb", "ont"],
                                   samples=2, long_read_samples=0, pb_setup="hifi:15000:3000:3",
                                   ont_setup="qshmm:QSHMM-ONT-HQ:8000:6000:0.97", long_read_bases="1e6",
-                                  scenarios="host,gut:1", scenario_samples=3, scenario_file=None)
+                                  scenarios="host,gut:1", scenario_samples=3, scenario_file=None, seed=1)
         points, units = collect.units_of(opts)
         self.assertEqual([p["name"] for p in points], ["rl150_p1000", "sc_host_pe_p10000000", "sc_gut_pe_p20000000"])
         host = points[1]
         self.assertEqual((host["community_pairs"], host["host_pairs"], host["samples"]), ("1000000", 9000000, 3))
+        # Each sample at its own depth, from half to twice the scenario's, the community's part and the host's of it.
+        factors = scenarios.depth_factors(1, "host", 3, 2.0)
+        pairs = scenarios.sample_depths(10_000_000, factors)
+        self.assertEqual([c + h for c, h in zip(host["community_pairs_of"], host["host_pairs_of"])], pairs)
+        self.assertEqual(host["community_pairs_of"], [round(p * 0.1) for p in pairs])
+        self.assertTrue(all(5_000_000 <= p <= 20_000_000 for p in pairs))
+        self.assertEqual(collect.community_pairs_of(points[0]), [1000, 1000])  # the design's: one depth
         names = [u["name"] for u in units if u.get("scenario")]
         self.assertEqual(names, ["sc_host_pe_p10000000", "sc_host_se_ultima_r10000000", "sc_host_pb_b3000000000",
                                  "sc_host_ont_b3000000000", "sc_gut_pe_p20000000", "sc_gut_pb_b6000000000",
@@ -1809,6 +1830,9 @@ class MiniDbTest(unittest.TestCase):
         self.assertTrue(collect.drawn(ultima))
         self.assertEqual((ultima["type"], ultima["bases"], ultima["setup"]["method"], ultima["host_share"]),
                          ("se", 3_000_000_000, "ultima", 0.9))
+        # sample s of every technology at the same factor: the same bases as the paired-end sample s
+        self.assertEqual(ultima["bases_of"], scenarios.sample_depths(3_000_000_000, factors))
+        self.assertEqual(collect.bases_of(ultima), ultima["bases_of"])
         self.assertEqual(collect.profile_dir(ultima, argparse.Namespace(out="/o")), "/o/points/sc_host_se_ultima_r10000000/protal")
         self.assertFalse(collect.drawn(units[1]))  # the design's se: the first reads of its paired-end point
         self.assertEqual(collect.parse_long_setup("ultima:300:40:25:2"),
@@ -1826,10 +1850,21 @@ class MiniDbTest(unittest.TestCase):
                                                     4, {})
         self.assertIsNone(error)
         self.assertEqual(command[command.index("--genome_table") + 1], "/o/scenarios/host/genomes.tsv")
-        self.assertEqual(command[command.index("--total_read_pairs") + 1], "1000000")
+        self.assertEqual(command[command.index("--total_read_pairs") + 1], ",".join(map(str, host["community_pairs_of"])))
         self.assertEqual(command[command.index("--species_per_sample") + 1], "2-50")
         self.assertIn("power_law", command)
         self.assertNotIn("--test", command)
+        # depth_spread 1: every sample at the scenario's depth, one value for the simulator
+        path = os.path.join(self.tmp.name, "flat.json")
+        with open(path, "w") as fh:
+            json.dump({"host": {"depth_spread": 1}}, fh)
+        flat_opts = argparse.Namespace(**{**vars(opts), "scenario_file": path, "out": "/o", "simulator": "sim",
+                                          "genome_table": "g"})
+        flat = collect.units_of(flat_opts)[0][1]
+        self.assertNotIn("community_pairs_of", flat)
+        command, _ = collect.simulation_command(flat, 0, flat_opts, 4, {})
+        self.assertEqual(command[command.index("--total_read_pairs") + 1], "1000000")
+        self.assertEqual(collect.host_pairs_of(flat), [9000000] * 3)
 
     def test_gtdb_like_lineages(self):
         text = subprocess.run([sys.executable, LINEAGES, "--species", "300", "--archaea", "0.1", "--seed", "3"],
@@ -2862,7 +2897,7 @@ class GtdbBuildTest(unittest.TestCase):
                    "--samples", "2", "--read-pairs", "1000,4000", "--read-setups", "100:HS20:300:40",
                    "--species-per-sample", "6-8", "--archaea", "1", "--holdout-max-share", "0.2",
                    "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
-                   "--test-read-pairs", "2000", "--ntree", "16", "--evaluation", "basic", "--progress-every", "5",
+                   "--test-read-pairs", "2000", "--ntree", "16", "--rounds", "40", "--evaluation", "basic", "--progress-every", "5",
                    *([] if scenarios else ["--scenarios", "none"]), *extra]
         if not wait:
             return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -2946,14 +2981,16 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(first.stdout, r"\[\d\d:\d\d:\d\d \+\d+:\d\d:\d\d\] 5/9 training data \(training_data\.log\): "
                                        r"4 pe, 4 se samples\n")
         # The models go into the database in one rewrite, each with its knob curve over depth (the trainer's
-        # --depth-knobs for every read type), with up to 512 leaves per tree for short reads (--maxnodes); the
+        # --depth-knobs for every read type), gradient-boosted trees of up to 63 leaves (--model, --maxnodes); the
         # converter logs its steps' times.
         self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", "final_package.log")))
         self.assertEqual(glob.glob(os.path.join(self.tmp.name, "out", "final_package_*.log")), [])
         self.assertEqual(self.text("out", "final_package.log").count("Models for read types:"), 1)
         self.assertEqual(metadata["classifier_depth_knobs"], "pe,se")
-        self.assertEqual(metadata["classifier_max_leaves"], "pe:512,se:512")
-        self.assertIn("--maxnodes 512", self.text("out", "classifier_training_se.log"))
+        self.assertEqual((metadata["classifier_model"], metadata["classifier_trees"]), ("gbm", "40 rounds"))
+        self.assertEqual(metadata["classifier_max_leaves"], "pe:63,se:63")
+        self.assertIn("--model gbm --ntree 16 --maxnodes 63", self.text("out", "classifier_training_se.log"))
+        self.assertIn("gradient-boosted trees: 40 rounds", self.text("out", "classifier_training_se.log"))
         self.assertRegex(self.text("out", "convert.log"), r"spooled the representatives' marker genes \(\d+ species\): [\d.]+ s")
         self.assertRegex(self.text("out", "convert.log"), r"joined them into full_reference\.fna(\.zst)?: [\d.]+ s")
         self.assertRegex(first.stdout, r"\n\[[^]]+\]     collected in \d+:\d\d:\d\d.*; taxa present/absent: pe \d+/\d+, "
@@ -3160,7 +3197,7 @@ class GtdbBuildTest(unittest.TestCase):
                    "--samples", "2", "--read-pairs", "1000,4000", "--read-setups", "100:HS20:300:40",
                    "--species-per-sample", "6-8", "--archaea", "1", "--holdout-max-share", "0.2",
                    "--holdout-clades", "family:1,genus:1", "--read-types", "pe,se", "--test-samples", "1",
-                   "--test-read-pairs", "2000", "--ntree", "16", "--evaluation", "basic", "--scenarios", "none"]
+                   "--test-read-pairs", "2000", "--ntree", "16", "--rounds", "40", "--evaluation", "basic", "--scenarios", "none"]
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=3000)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
         self.assertLess(result.stdout.index("r226, full: building"), result.stdout.index("r226, n3: building"))
@@ -3231,8 +3268,10 @@ class GtdbBuildTest(unittest.TestCase):
                                "reads": [{**illumina, "depth": 3000}, {**ultima, "depth": 1000}]},
                        "soil": {**small, "species": "30-40", "novel_share": 0.6, "reads": [{**illumina, "depth": 2000}]},
                        "soil_shallow": {**small, "species": "5", "novel_share": 0.3, "reads": [{**illumina, "depth": 1000}]},
+                       # host at one depth, so that its host reads can be counted; the others drawn around theirs
                        "host": {**small, "species": "2-3", "novel_share": 0.3, "abundance": "powerlaw:1.0", "strains": "",
-                                "host_share": 0.9, "reads": [{**illumina, "depth": 20000}, {**ultima, "depth": 5000}]}}, fh)
+                                "host_share": 0.9, "depth_spread": 1,
+                                "reads": [{**illumina, "depth": 20000}, {**ultima, "depth": 5000}]}}, fh)
         return definitions, host
 
     def test_g_profiled_as_simulated(self):

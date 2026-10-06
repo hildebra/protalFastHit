@@ -1024,7 +1024,7 @@ namespace protal {
             // The sample's threshold, on this thread's copy of the model: --knob if given, else the model's knob for the
             // sample's depth (its fragments over all taxa) if it has depth knobs (the trainer's), else --knob's default.
             // Its taxa enter the strain MSAs at --msa_knob if given, else at the same.
-            // With --fdr F above 0 and a model's calibration (random_forest_cmdline.py --fdr-calls): the knob at which
+            // With --fdr F above 0 and a model's calibration (machine_learning_cmdline.py --fdr-calls): the knob at which
             // the sample's expected share of false calls is at most F (context::FalseCallKnob), over its taxa the
             // singleton rule does not veto. Without --fdr the calibrated calls are not used: at GTDB r226 they called
             // 0.001-0.007 F1 below the knob curve for every read type (docs/claude/2026-10-03-r226-v5-v6-training).
@@ -2912,7 +2912,7 @@ namespace protal {
                 std::cout << "Model of " << info.name << " reads: " << model_file.Name() << std::endl;
                 auto const& model = models[static_cast<size_t>(info.type)].emplace(std::move(loaded_models[m]));
                 if (options.FdrGiven() && options.GetFdr() > 0 && !model.HasFalseCalls()) {
-                    std::cerr << "--fdr needs a model with a calibration (random_forest_cmdline.py --fdr-calls); "
+                    std::cerr << "--fdr needs a model with a calibration (machine_learning_cmdline.py --fdr-calls); "
                               << model_file.Name() << " has none" << std::endl;
                     exit(2);
                 }

@@ -3,7 +3,7 @@
 
 Two things must hold for a model to do in protal what its training report says:
 - protal (cPMML) gives each taxon the probability the model file gives it in Python
-  (model_pmml.PmmlForest, which random_forest_cmdline.py checks against scikit-learn on every
+  (model_pmml.load_model: PmmlForest or PmmlBoosted, which machine_learning_cmdline.py checks against scikit-learn on every
   training row);
 - protal computes the features as it did when the training data was collected. Another protal
   version may compute them differently, and the model then sees other inputs than it was trained on.
@@ -35,7 +35,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from model_pmml import PmmlForest  # noqa: E402
+from model_pmml import load_model  # noqa: E402
 
 # protal's option for each read type's model (ReadType.h).
 MODEL_OPTIONS = {"pe": "--model", "se": "--model_se", "pb": "--model_pb", "ont": "--model_ont"}
@@ -158,7 +158,7 @@ def main(argv=None):
     if rc != 0:
         sys.exit(f"protal failed with exit code {rc}; see {out}/protal.log")
 
-    model = PmmlForest(opts.model)
+    model = load_model(opts.model)
     problems, rows, empty, feature_diff = [], 0, 0, {}
     for sample, _, _, collected in samples:
         new_dump = os.path.join(out, sample + ".profile.truth_annotated")

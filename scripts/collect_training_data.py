@@ -11,7 +11,7 @@ species the database lacks, and which present species were simulated from anothe
 the database's reference, and meta_insilico_strain which of them from an in-silico strain of
 insilico_strains.py). Train on it with
 
-    python3 scripts/random_forest_cmdline.py --truth-file OUT/training_data.tsv --output-prefix OUT/model
+    python3 scripts/machine_learning_cmdline.py --truth-file OUT/training_data.tsv --output-prefix OUT/model
 
 Read types (--read_types): pe, the paired-end samples above; se, the same samples' first reads
 alone, profiled as single-end reads; pb and ont, long reads of the same communities (--pb_setup,
@@ -44,8 +44,9 @@ host-dominated samples, or one defined in --scenario_file), simulated and profil
 and joined into the same tables, with meta_scenario naming the scenario. A scenario's communities are
 drawn from a genome table of its own that gives the share of species the database lacks, and each of
 its read types (Illumina at a mean base quality, Ultima single-end reads, PacBio, Nanopore; a host
-genome's share of the reads, --host_genome) sequences the same communities. --samples 0 collects the
-scenarios alone.
+genome's share of the reads, --host_genome) sequences the same communities, sample s of each at the same
+bases: a sample's depth is its scenario's times a factor drawn for it (scenarios.depth_factors). --samples 0
+collects the scenarios alone.
 
 usage: collect_training_data.py --db DB --genome_table genomes.tsv -o OUT [options]
 """
@@ -185,8 +186,8 @@ def parse_args(argv=None):
     p.add_argument("--scenarios", default="",
                    help="scenarios to collect besides the design, NAME[:SAMPLES] comma-separated (gut, soil, soil_shallow, "
                         "host, those of --scenario_file; all: every one), each with --scenario_samples samples unless it "
-                        "gives its own (scenarios.py)")
-    p.add_argument("--scenario_samples", type=int, default=3, help="samples per scenario (default 3)")
+                        "gives its own (scenarios.py); a sample's depth is drawn around its scenario's (depth_spread)")
+    p.add_argument("--scenario_samples", type=int, default=6, help="samples per scenario (default 6)")
     p.add_argument("--scenario_file", help="JSON of scenarios by name, which add to or change the presets")
     p.add_argument("--host_genome", help="FASTA (gzipped or not) of the host genome of scenarios with a host share, "
                                          "e.g. the human genome download_gtdb.py fetches")
@@ -211,7 +212,8 @@ META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pai
                 "meta_novel_species", "meta_novel_congener", "meta_rep_genome", "meta_novel_levels",
                 "meta_novel_level", "meta_relative_rank", "meta_neighbour_rank", "meta_read_type", "meta_insilico_strain",
                 "meta_scenario"]
-# meta_read_pairs: the design point's depth, read pairs (pe; reads for se) or bases (pb, ont).
+# meta_read_pairs: the design point's depth, read pairs (pe; reads for se) or bases (pb, ont); for a scenario its
+# preset's, around which each sample's own depth is drawn (scenarios.depth_factors).
 # meta_novel_levels: the sample's species the database lacks, by the rank they were held out at
 # ("species:2,family:1"). meta_relative_rank: the deepest rank the taxon shares with a species simulated in
 # the sample ("species" for the simulated species themselves, "none" for no shared domain). meta_novel_level:
@@ -583,7 +585,10 @@ def scenario_units(opts):
     when it has paired-end reads (simulated at the community's part of the read pairs, the host's added later), else
     sc_<name>_community (its communities without reads, simulate_metagenomes --test); its pe unit; and its units of
     reads drawn from those communities (se: Ultima reads, pb, ont), each the scenario's samples. Read types not
-    collected (--read_types) are left out. -> (points, units)."""
+    collected (--read_types) are left out. A sample's depth is the scenario's times its factor
+    (scenarios.depth_factors; the same for sample s of every technology): the point's community_pairs_of and
+    host_pairs_of and a drawn unit's bases_of give each sample's (absent when every factor is 1); names, read_pairs,
+    community_pairs, host_pairs and bases stay the scenario's (meta_read_pairs in the tables). -> (points, units)."""
     if not getattr(opts, "scenarios", ""):
         return [], []
     defs = scenarios.definitions(getattr(opts, "scenario_file", None))
@@ -594,6 +599,8 @@ def scenario_units(opts):
         if not reads:
             continue
         pe, host = reads.get("pe"), d["host_share"]
+        factors = scenarios.depth_factors(opts.seed, name, samples, d["depth_spread"])
+        varied = any(f != 1 for f in factors)
         common = {"samples": samples, "depth_index": None, "scenario": name, "definition": d}
         if pe:
             community = max(1, round(pe["depth"] * (1 - host)))
@@ -601,6 +608,10 @@ def scenario_units(opts):
                      "sequencer": pe["profile"], "fragment_mean": str(pe["fragment_mean"]),
                      "fragment_sd": str(pe["fragment_sd"]), "read_pairs": str(pe["depth"]), "quality": pe.get("quality"),
                      "reads": True, "community_pairs": str(community), "host_pairs": pe["depth"] - community}
+            if varied:
+                pairs = scenarios.sample_depths(pe["depth"], factors)
+                point["community_pairs_of"] = [max(1, round(p * (1 - host))) for p in pairs]
+                point["host_pairs_of"] = [p - c for p, c in zip(pairs, point["community_pairs_of"])]
         else:  # the read pairs only spread over the genomes, every one with one at least
             point = {**common, "name": f"{SCENARIO_PREFIX}{name}_community", "read_length": "150", "sequencer": "HS25",
                      "fragment_mean": "350", "fragment_sd": "50", "read_pairs": "0", "quality": None, "reads": False,
@@ -618,6 +629,7 @@ def scenario_units(opts):
             else:
                 unit_name, bases = f"{SCENARIO_PREFIX}{name}_{kind}_b{given['depth']}", given["depth"]
             units.append({"type": kind, "name": unit_name, "setup": setup, "bases": bases, "samples": samples,
+                          **({"bases_of": scenarios.sample_depths(bases, factors)} if varied else {}),
                           "communities": [point], "scenario": name, "host_share": host,
                           # its samples' seeds do not depend on the design's long-read points
                           "seed_index": 1_000_000 + scenarios.seed_of(0, f"{name}:{kind}") % 1_000_000,
@@ -754,6 +766,8 @@ def simulation_key(point, index, opts, clades):
     if point.get("host_pairs"):  # the host's reads, added to the community's (host_pe_jobs)
         key["host"] = {"genome": point["host_key"], "pairs": point["host_pairs"], "chunk": scenarios.HOST_PAIRS_CHUNK,
                        "art": identity("art_illumina")}
+        if point.get("host_pairs_of"):
+            key["host"]["pairs_of"] = list(point["host_pairs_of"])
     return key
 
 
@@ -769,13 +783,15 @@ def point_table(point, opts):
 
 def scenario_command(point, opts, threads):
     """The simulator's command for a scenario's community point (scenario_units): its own genome table, species,
-    abundances, strains, congeners and seed; the community's part of the read pairs, at the quality shifts
-    prepare_scenarios found (point["art_shift"]); no reads (--test) for a point only of communities."""
+    abundances, strains, congeners and seed; the community's part of each sample's read pairs (a list, one per
+    sample, when they differ: scenario_units), at the quality shifts prepare_scenarios found (point["art_shift"]); no
+    reads (--test) for a point only of communities."""
     d = point["definition"]
     _, sim, profiles = point_dirs(point, opts)
     table = point_table(point, opts)
+    pairs = ",".join(map(str, point["community_pairs_of"])) if point.get("community_pairs_of") else point["community_pairs"]
     command = [opts.simulator, "--genome_table", table, "-o", sim, "-n", str(point["samples"]),
-               "--sample_prefix", point["name"] + "_s", "--total_read_pairs", point["community_pairs"],
+               "--sample_prefix", point["name"] + "_s", "--total_read_pairs", pairs,
                "--species_per_sample", d["species"], "--read_length", point["read_length"],
                *art_profile_args(point["sequencer"], point.get("art_shift", "")), "--fragment_mean", point["fragment_mean"],
                "--fragment_stdev", point["fragment_sd"], "--seed", str(scenarios.seed_of(opts.seed, point["scenario"])),
@@ -852,21 +868,24 @@ def simulate(point, index, opts, threads, clades, key):
 
 def host_pe_jobs(point, opts, key, started):
     """The jobs that add a scenario point's host read pairs to its samples' reads, once the community's are simulated:
-    point["host_pairs"] per sample in chunks of scenarios.HOST_PAIRS_CHUNK side by side (scenarios.host_pe_chunk: ART
-    in amplicon mode on fragments of the host, the point's profile and quality shifts), then each sample's chunks
-    appended to its read files (zstd frames or gzip members one after the other), and the point's key written
-    (simulated.json), so
-    that a point stopped before is simulated again."""
+    each sample's host pairs (host_pairs_of) in chunks of scenarios.HOST_PAIRS_CHUNK side by side
+    (scenarios.host_pe_chunk: ART in amplicon mode on fragments of the host, the point's profile and quality shifts),
+    then each sample's chunks appended to its read files (zstd frames or gzip members one after the other), and the
+    point's key written (simulated.json), so that a point stopped before is simulated again."""
     base, sim, _ = point_dirs(point, opts)
     _, rows, _ = map_rows(os.path.join(sim, "protal.meta"))
     art = shutil.which("art_illumina") or "art_illumina"
     art_args = art_options(point["sequencer"]) + point.get("art_shift", "").split()
+    host_of = host_pairs_of(point)
     jobs, joins = [], []
     for s, row in enumerate(rows):
         tmp = os.path.join(sim, "tmp_host", row["SAMPLEID"])
-        k = -(-point["host_pairs"] // scenarios.HOST_PAIRS_CHUNK)
+        # the simulator names sample i (from 0) <prefix>_<i + 1>
+        number = row["SAMPLEID"].rsplit("_", 1)[-1]
+        host = host_of[int(number) - 1 if number.isdigit() and 0 < int(number) <= len(host_of) else s]
+        k = -(-host // scenarios.HOST_PAIRS_CHUNK)
         tasks = [{"sample": row["SAMPLEID"], "host": opts.host_folder, "chunk": c + 1, "art": art, "art_args": art_args,
-                  "pairs": point["host_pairs"] // k + (1 if c < point["host_pairs"] % k else 0),
+                  "pairs": host // k + (1 if c < host % k else 0),
                   "length": int(point["read_length"]), "fragment_mean": float(point["fragment_mean"]),
                   "fragment_sd": float(point["fragment_sd"]), "seed": scenarios.seed_of(opts.seed, point["name"]) + s * 1009 + c,
                   "tmp": os.path.join(tmp, f"c{c + 1}"), "r1": os.path.join(tmp, f"c{c + 1}_R1.fq{reads_suffix(opts)}"),
@@ -891,7 +910,8 @@ def host_pe_jobs(point, opts, key, started):
     def finish():
         shutil.rmtree(os.path.join(sim, "tmp_host"), ignore_errors=True)
         write_key(os.path.join(base, "simulated.json"), key)
-        print(f"{point['name']}: {point['host_pairs']} host read pairs added to each of its {len(rows)} samples, "
+        counts = f"{min(host_of)}-{max(host_of)}" if min(host_of) != max(host_of) else str(host_of[0])
+        print(f"{point['name']}: {counts} host read pairs added to each of its {len(rows)} samples, "
               f"{clock(time.time() - started)} in all", flush=True)
         return None, []
     jobs.append({"name": f"host:{point['name']}", "run": finish, "after": joins, "priority": 2e9})
@@ -1241,11 +1261,35 @@ def draw_seconds(task):
     return len(task.get("genomes", ())) * 0.035 + reads * (4e-6 if task["setup"]["method"] == "ultima" else 25e-6)
 
 
+def community_pairs_of(point):
+    """Each sample's read pairs of the community a paired-end point simulates: a scenario's samples' own
+    (scenario_units), else the point's for every sample."""
+    if point.get("community_pairs_of"):
+        return list(point["community_pairs_of"])
+    return [int(float(point.get("community_pairs") or point["read_pairs"]))] * point["samples"]
+
+
+def host_pairs_of(point):
+    """Each sample's host read pairs of a scenario's paired-end point (host_pe_jobs), 0 for others."""
+    if point.get("host_pairs_of"):
+        return list(point["host_pairs_of"])
+    return [int(point.get("host_pairs") or 0)] * point["samples"]
+
+
+def bases_of(unit):
+    """Each sample's bases of a drawn unit (long reads, a scenario's Ultima reads): a scenario's samples' own
+    (scenario_units), else the unit's for every sample."""
+    return list(unit["bases_of"]) if unit.get("bases_of") else [unit["bases"]] * unit["samples"]
+
+
 def pe_point_seconds(point, threads):
     """A rough estimate of a paired-end point's time on `threads` threads (measured 2026-10-03: ~85 ms per genome
     of a sample, ~200 genomes, and ~96 s per million 150 bp pairs)."""
-    per_sample = 20 + float(point["read_pairs"]) * int(point["read_length"]) / 150 * 96e-6
-    return point["samples"] * per_sample / max(1, threads)
+    if point.get("community_pairs_of"):  # a scenario's samples of their own depths
+        pairs = [c + h for c, h in zip(community_pairs_of(point), host_pairs_of(point))]
+    else:
+        pairs = [float(point["read_pairs"])] * point["samples"]
+    return sum(20 + p * int(point["read_length"]) / 150 * 96e-6 for p in pairs) / max(1, threads)
 
 
 class Workers:
@@ -1410,11 +1454,16 @@ def long_unit_jobs(index, unit, opts, keys, started, counter, source=None):
     os.makedirs(os.path.join(sim, "reads"), exist_ok=True)
     rows, jobs, chunk = [], [], getattr(opts, "long_read_chunk", LONG_READ_CHUNK)
     need = 2 if unit["setup"]["method"] in PBSIM_METHODS else 1  # pbsim3 keeps about two cores busy
+    per_sample = bases_of(unit)
     for s, (_, community) in enumerate(unit_communities(unit, opts, source)):
         sample = f"{unit['name']}_s_{s + 1}"
         out = os.path.join(sim, "reads", sample + ".fq" + reads_suffix(opts))
         rows.append((sample, out, truth[community], community))
-        task = {"sample": sample, "out": out, "bases": unit["bases"], "setup": unit["setup"], "model": model,
+        # a scenario's sample is read at the depth of its community's sample (<point>_s_<i>: the factor of sample i)
+        number = community.rsplit("_", 1)[-1]
+        bases = per_sample[int(number) - 1] if unit.get("bases_of") and number.isdigit() and \
+            0 < int(number) <= len(per_sample) else per_sample[s]
+        task = {"sample": sample, "out": out, "bases": bases, "setup": unit["setup"], "model": model,
                 "pbsim": opts.pbsim, "seed": (opts.seed * 1000003 + index * 1009 + s) * 101,
                 "tmp": os.path.join(sim, "tmp", sample),
                 "genomes": [{"genome": g["genome"], "fasta": g["fasta_path"],
@@ -1703,6 +1752,9 @@ def prepare_scenarios(points, units, opts, novel):
                      f"Q{means[1]:.1f}, shifted by {qs1:+d} and {qs2:+d})")
         if d["host_share"] > 0:
             note += f"; {d['host_share']:.0%} of the reads from the host"
+        factors = scenarios.depth_factors(opts.seed, name, point["samples"], d["depth_spread"])
+        if any(f != 1 for f in factors):
+            note += "; its samples at " + ", ".join(f"{f:.2f}" for f in factors) + " times its depths"
         print(f"scenario {name} ({point['samples']} samples): {note}", flush=True)
     if any(p["definition"]["host_share"] > 0 for p in scenario_points):
         named = ", ".join(sorted({p["scenario"] for p in scenario_points if p["definition"]["host_share"] > 0}))
@@ -1728,7 +1780,9 @@ def long_key(unit, index, opts, keys):
            "pbsim": identity(opts.pbsim) if pbsim else None,
            "model": identity(pbsim_model(opts, unit["setup"]["model"])) if pbsim else hifi_model(unit["setup"]["method"]),
            "reads": LONG_READS}
-    if opts.long_read_chunk and unit["bases"] > opts.long_read_chunk:  # chunks make other reads
+    if unit.get("bases_of"):  # a scenario's samples at depths of their own
+        key["bases_of"] = list(unit["bases_of"])
+    if opts.long_read_chunk and max(bases_of(unit)) > opts.long_read_chunk:  # chunks make other reads
         key["chunk"] = opts.long_read_chunk
     if unit.get("host_share"):
         key["host"] = {"genome": scenarios.host_identity(opts.host_folder), "share": unit["host_share"]}
@@ -1747,8 +1801,7 @@ def pe_bytes(point):
     """What a paired-end point's reads take on the disk (the community's; a host's are added by jobs of their own)."""
     if point.get("reads") is False:
         return 0
-    pairs = float(point.get("community_pairs") or point["read_pairs"])
-    return int(point["samples"] * pairs * 2 * int(point["read_length"]) * PE_BYTES)
+    return int(sum(community_pairs_of(point)) * 2 * int(point["read_length"]) * PE_BYTES)
 
 
 def simulate_all(pe_points, units, opts, keys, clades, slots, needed, force=frozenset()):
@@ -1790,8 +1843,8 @@ def simulate_all(pe_points, units, opts, keys, clades, slots, needed, force=froz
     # The paired-end points share the cores with the long reads by their estimated work, so that both end about
     # together (the long reads take the cores the paired-end points leave, and those they free).
     pe_work = sum(pe_point_seconds(p, 1) for _, p in pending)
-    long_work = sum(u["samples"] * long_read_seconds(u) * (2 if u["setup"]["method"] in PBSIM_METHODS else 1)
-                    for _, u in long_pending)
+    long_work = sum(sum(long_read_seconds({**u, "bases": b}) for b in bases_of(u)) *
+                    (2 if u["setup"]["method"] in PBSIM_METHODS else 1) for _, u in long_pending)
     threads_of = pe_threads(pending, max(1, round(slots * pe_work / ((pe_work + long_work) or 1))))
     if pending:
         more = [f"{p['name']} {threads_of[p['name']]}" for _, p in pending if threads_of[p["name"]] > 1]

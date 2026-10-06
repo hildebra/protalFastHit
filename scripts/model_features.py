@@ -85,9 +85,20 @@ clusters the ANI circumscription radius, mean and minimum intra-species ANI and 
 or crowded cluster makes a cloud of reads a few percent from the reference a strain rather than a sister species.
 On a synthetic world they are all unknown and do nothing.
 
+REF_FEATURES ("ref", 2026-10-06; in the dump since 2024): the shares of the species' reference k-mers that are unique in
+the database's index (su_rate_ref, lu_rate_ref, lsu_rate_ref: super-unique, locally unique, locally super-unique), a
+property of the reference and the database, before any read: a reference with few unique k-mers has close relatives
+in the database. Unlike the priors they do not depend on how many genomes GTDB has of a species. On the r226 v13
+tables they added 0.002-0.003 of F1 in soil to gradient boosting (pe +0.003 soil and shallow soil, pb +0.003, ont
++0.002; the design's test set -0.001 to +0.003), and nothing to a forest (docs/claude/2026-10-06-r226-v13-soil). They
+are computed against the database that profiles the sample: the training database lacks its held-out species, so a
+reference whose close relatives were held out is more unique there than in the finished database, which the
+simulations cannot show (real samples can).
+
 A set's name is its groups joined by "+": normalized, adjacency, relatives or distance, depth, divergence,
-unfiltered, priors; "all" is every feature column of the dump. The trainer's default set (DEFAULT_FEATURE_SET) is
-"normalized+adjacency+distance+depth+divergence+unfiltered"; the priors are opt-in ("+priors": at r226 +0.007 to
+unfiltered, ref, priors; "all" is every feature column of the dump. The trainer's default set (DEFAULT_FEATURE_SET) is
+"normalized+adjacency+distance+depth+divergence+unfiltered+ref" (without ref before 2026-10-06; the set every model
+of the r226 v12 and v13 builds chose with --features auto); the priors are opt-in ("+priors": at r226 +0.007 to
 +0.009 of test F1, all of it the cluster size, a bet that a divergent read cloud on a one-genome species is a relative
 the database lacks, which the simulation cannot test; for a database of a densely sampled environment,
 docs/claude/2026-10-03-r226-v9-evaluation). At r226 the distance features added 0.004 F1
@@ -96,7 +107,7 @@ reads within noise (docs/claude/2026-10-03-r226-v5-v6-training); a table of a pr
 --features normalized+adjacency, one before the depth and divergence features --features
 normalized+adjacency+distance, one before the unfiltered and priors features
 --features normalized+adjacency+distance+depth+divergence. genus_top_fragments, the fragments of the taxon's most
-abundant congener, is an input of the singleton rule (random_forest_cmdline.py --singleton-congener), not a feature
+abundant congener, is an input of the singleton rule (machine_learning_cmdline.py --singleton-congener), not a feature
 of these sets: it counts reads.
 """
 
@@ -149,6 +160,9 @@ DIVERGENCE_FEATURES = ["excess_scaled_median", "excess_conserved_fast_ratio", "t
 # The reads before the filters and the reads that failed on the taxon (see above).
 UNFILTERED_FEATURES = ["fragments_all", "em_fragments", "failed_candidate_rate"]
 
+# The reference's k-mer uniqueness in the database's index (see above).
+REF_FEATURES = ["su_rate_ref", "lu_rate_ref", "lsu_rate_ref"]
+
 # What GTDB knows of the species before any read (see above).
 PRIORS_FEATURES = ["rep_duplicate_share", "rep_completeness", "rep_contamination", "cluster_ani_radius", "cluster_mean_ani",
                    "cluster_min_ani", "cluster_genomes_log10"]
@@ -156,12 +170,13 @@ PRIORS_FEATURES = ["rep_duplicate_share", "rep_completeness", "rep_contamination
 # The groups a set's name may join with "+", in the order they are listed.
 FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEATURES, "relatives": RELATIVE_FEATURES,
                   "distance": DISTANCE_FEATURES, "depth": SAMPLE_FEATURES, "divergence": DIVERGENCE_FEATURES,
-                  "unfiltered": UNFILTERED_FEATURES, "priors": PRIORS_FEATURES}
+                  "unfiltered": UNFILTERED_FEATURES, "ref": REF_FEATURES, "priors": PRIORS_FEATURES}
 
 # The sets worth naming (--features takes any groups joined by "+", and "all").
 FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
                 "normalized+adjacency+distance+depth", "normalized+adjacency+distance+depth+divergence",
                 "normalized+adjacency+distance+depth+divergence+unfiltered",
+                "normalized+adjacency+distance+depth+divergence+unfiltered+ref",
                 "normalized+adjacency+distance+divergence+unfiltered+priors",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+priors",
                 "normalized+adjacency+relatives+depth+divergence+unfiltered+priors", "all")
@@ -169,9 +184,9 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
 # alone, a rule that a divergent read cloud on a one-genome species is a relative the database lacks, which the
 # simulation cannot test (a one-genome species has no strain to simulate from) and which rejects the strains of
 # single-MAG species that dominate environments GTDB has sampled sparsely (docs/claude/2026-10-03-r226-v9-evaluation).
-DEFAULT_FEATURE_SET = "normalized+adjacency+distance+depth+divergence+unfiltered"
+DEFAULT_FEATURE_SET = "normalized+adjacency+distance+depth+divergence+unfiltered+ref"
 # --features auto: the trainer scores each of these sets with species held out and keeps the best, the default unless
-# another beats it by AUTO_MIN_GAIN of F1 at the knob (random_forest_cmdline.choose_feature_set). Without the priors
+# another beats it by AUTO_MIN_GAIN of F1 at the knob (machine_learning_cmdline.choose_feature_set). Without the priors
 # (above) and "all"; auto+priors adds the sets with the priors.
 AUTO_FEATURE_SETS = ("auto", "auto+priors")
 AUTO_CANDIDATES = tuple(s for s in FEATURE_SETS if s != "all" and "priors" not in s.split("+")) + \

@@ -1894,7 +1894,7 @@ namespace protal {
         }
 
         // A sample's depth bin for a model's depth knobs: floor(log10) of the sample's fragments over all its taxa, 2 to
-        // 6 (below 100 fragments 2, a million or more 6), as scripts/random_forest_cmdline.py --depth-knobs bins the
+        // 6 (below 100 fragments 2, a million or more 6), as scripts/machine_learning_cmdline.py --depth-knobs bins the
         // training samples.
         inline int DepthKnobBin(size_t fragments) {
             int bin = 0;
@@ -1903,7 +1903,7 @@ namespace protal {
         }
 
         // A model's knob as a function of the sample's depth (ParseDepthKnobCurve): points (log10 of the sample's
-        // fragments over all its taxa, knob), x increasing. Written by scripts/random_forest_cmdline.py --depth-knobs.
+        // fragments over all its taxa, knob), x increasing. Written by scripts/machine_learning_cmdline.py --depth-knobs.
         using DepthKnobCurve = std::vector<std::pair<double, double>>;
 
         // The curve's knob for a sample of `fragments` fragments: linear in log10(fragments) between its points, the
@@ -1921,7 +1921,7 @@ namespace protal {
             return k0 + (k1 - k0) * (x - x0) / (x1 - x0);
         }
 
-        // A model's calls at a target share of false calls (random_forest_cmdline.py --fdr-calls; ParseFalseCalls): the
+        // A model's calls at a target share of false calls (machine_learning_cmdline.py --fdr-calls; ParseFalseCalls): the
         // curve from its score to the probability that a taxon is present (an isotonic fit on species held out), the
         // share of present taxa among the rows it was fitted on, and the target (context::FalseCallKnob).
         struct FalseCallModel {
@@ -2050,7 +2050,7 @@ namespace protal {
             return header_end != std::string::npos && xml.rfind(kPlaceholderModelMarker, header_end) != std::string::npos;
         }
 
-        // A model's knobs by sample depth, which scripts/random_forest_cmdline.py --depth-knobs writes into the header:
+        // A model's knobs by sample depth, which scripts/machine_learning_cmdline.py --depth-knobs writes into the header:
         // <Extension name="protal_depth_knobs" value="2:0.31,3:0.42"/>, depth bin (DepthKnobBin) : knob.
         inline constexpr std::string_view kDepthKnobsExtension = "protal_depth_knobs";
 
@@ -2095,7 +2095,7 @@ namespace protal {
             return {};
         }
 
-        // A model's knob by sample depth as a curve, which scripts/random_forest_cmdline.py --depth-knobs writes into the
+        // A model's knob by sample depth as a curve, which scripts/machine_learning_cmdline.py --depth-knobs writes into the
         // header: <Extension name="protal_depth_knob_curve" value="1.30:0.12,2.89:0.40,4.32:0.92"/>, log10 of the
         // sample's fragments : knob (DepthKnobAt).
         inline constexpr std::string_view kDepthKnobCurveExtension = "protal_depth_knob_curve";
@@ -2141,7 +2141,7 @@ namespace protal {
             return {};
         }
 
-        // A model's calls at a target share of false calls, which scripts/random_forest_cmdline.py --fdr-calls writes into
+        // A model's calls at a target share of false calls, which scripts/machine_learning_cmdline.py --fdr-calls writes into
         // the header: <Extension name="protal_calibration" value="0.02:0.001,0.5:0.31,0.97:0.995"/> (score : probability,
         // the score increasing, the probability not decreasing), <Extension name="protal_prior" value="0.21"/> and
         // <Extension name="protal_fdr" value="0.05"/>.

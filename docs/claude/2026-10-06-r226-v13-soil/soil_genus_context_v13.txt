@@ -1,0 +1,684 @@
+
+=== pe soil hold-in species held out: FN 584, FP 456
+FN with a called present congener in the sample: 73.3% (its fragments / the FN's: median 13.6, >=10x 56.3%); with a false positive of its genus beside it: 30.0%; neither (alone in its genus among the called): 26.7%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               43                  26
+real strain                   332                 106
+representative                 53                  24
+FP with a present database congener in the sample: 56.6% (called 56.6%); only a novel species of its genus: 36.8%; neither: 6.6%
+genus level: 18338 genera with reads, present 12665, TP 8011, FP 30, FN 4654, F1 0.7738 (genera whose only evidence is a novel species: 4660)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             7.0    0.9667           1.0         0.0206                0.0202                   0.0          0.3721              0.2500                95.0           -1.000                 0.0000  0.3425
+                 TP            38.0    0.9893           1.0         0.0009                0.0008                   0.0          0.0127              0.0000                95.0           -1.000                 0.0000  0.9982
+real strain      FN            10.0    0.9668           1.0         0.0178                0.0165                   0.0          0.6728              0.5000                95.0           96.260                 0.6021  0.3068
+                 TP            36.0    0.9886           1.0         0.0010                0.0009                   0.0          0.0678              0.0310                95.0           98.770                 0.6021  0.9982
+representative   FN             6.0    0.9790           1.0         0.0077                0.0094                   0.0          0.5933              0.3524                95.0           96.710                 0.3010  0.3128
+                 TP            36.0    0.9913           1.0        -0.0007               -0.0007                   0.0          0.0365              0.0133                95.0           97.335                 0.3010  0.9982
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]           100.0 (2)  100.0 (25)      100.0 (5)
+(0.95, 0.96]          80.0 (15)  100.0 (83)     100.0 (12)
+(0.96, 0.97]         27.6 (105)  54.2 (295)      46.9 (32)
+(0.97, 0.98]          3.7 (327)   9.4 (812)      11.0 (82)
+(0.98, 0.99]         0.6 (1208)  2.8 (2538)      2.0 (696)
+(0.99, 0.995]        0.4 (1233)  0.7 (2052)     0.4 (2940)
+(0.995, 1.001]        12.5 (16)   24.2 (33)      26.3 (38)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]               2.3 (2529)         NaN     1.4 (1320)
+(0.01, 0.5]                  2.1 (338)  7.2 (2802)     2.0 (1477)
+(0.5, 1.0]                    7.7 (39)  7.0 (1946)      2.4 (680)
+(1.0, 2.0]                         NaN   9.6 (955)      3.4 (296)
+(2.0, 5.0]                         NaN   5.2 (135)       9.4 (32)
+
+=== pe soil hold-out: FN 433, FP 304
+FN with a called present congener in the sample: 71.8% (its fragments / the FN's: median 14.8, >=10x 58.5%); with a false positive of its genus beside it: 25.2%; neither (alone in its genus among the called): 27.3%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               43                  23
+real strain                   225                  80
+representative                 43                  19
+FP with a present database congener in the sample: 59.5% (called 57.9%); only a novel species of its genus: 34.2%; neither: 6.2%
+genus level: 11610 genera with reads, present 7964, TP 5044, FP 19, FN 2920, F1 0.7744 (genera whose only evidence is a novel species: 2904)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             9.0    0.9658           1.0         0.0234                0.0212                   0.0          0.2361              0.2155                95.0            -1.00                 0.0000  0.3799
+                 TP            34.0    0.9893           1.0         0.0010                0.0008                   0.0          0.0129              0.0000                95.0            -1.00                 0.0000  0.9982
+real strain      FN             7.0    0.9668           1.0         0.0177                0.0166                   0.0          0.6818              0.4800                95.0            96.45                 0.6021  0.3525
+                 TP            31.0    0.9884           1.0         0.0011                0.0009                   0.0          0.0667              0.0320                95.0            98.76                 0.6021  0.9982
+representative   FN             5.0    0.9730           1.0         0.0086                0.0081                   0.0          0.5455              0.3978                95.0            97.44                 0.3010  0.3195
+                 TP            32.0    0.9913           1.0        -0.0007               -0.0007                   0.0          0.0371              0.0103                95.0            97.46                 0.3010  0.9982
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]           100.0 (9)  100.0 (28)      100.0 (9)
+(0.95, 0.96]          90.9 (11)   94.9 (59)     100.0 (10)
+(0.96, 0.97]          35.5 (62)  52.6 (173)      36.0 (25)
+(0.97, 0.98]          5.1 (215)  11.6 (554)      17.0 (53)
+(0.98, 0.99]          1.0 (790)  3.1 (1583)      3.2 (432)
+(0.99, 0.995]         0.4 (780)  0.9 (1260)     0.4 (1881)
+(0.995, 1.001]        25.0 (12)   24.0 (25)      16.7 (24)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]               3.6 (1650)         NaN      1.6 (819)
+(0.01, 0.5]                  3.1 (195)  7.7 (1743)      2.8 (959)
+(0.5, 1.0]                    3.1 (32)  8.0 (1264)      3.4 (436)
+(1.0, 2.0]                     0.0 (2)  10.4 (614)      3.4 (204)
+(2.0, 5.0]                         NaN    9.8 (61)       0.0 (16)
+
+=== pe soil_shallow hold-in species held out: FN 1056, FP 539
+FN with a called present congener in the sample: 64.7% (its fragments / the FN's: median 10.5, >=10x 51.5%); with a false positive of its genus beside it: 15.4%; neither (alone in its genus among the called): 34.3%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain              102                 101
+real strain                   466                 220
+representative                115                  52
+FP with a present database congener in the sample: 54.4% (called 52.3%); only a novel species of its genus: 34.1%; neither: 11.5%
+genus level: 13492 genera with reads, present 11364, TP 7493, FP 61, FN 3871, F1 0.7922 (genera whose only evidence is a novel species: 3703)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             1.0    0.9733        0.9901         0.0162                0.0155                   0.0          0.0714              0.0000                95.0           -1.000                 0.0000  0.4273
+                 TP            11.0    0.9893        1.0000         0.0010                0.0009                   0.0          0.0000              0.0000                95.0           -1.000                 0.0000  0.9981
+real strain      FN             2.0    0.9693        0.9933         0.0170                0.0161                   0.0          0.5000              0.3000                95.0           97.135                 0.6021  0.2611
+                 TP            10.0    0.9890        1.0000         0.0009                0.0008                   0.0          0.0323              0.0000                95.0           98.800                 0.6021  0.9978
+representative   FN             2.0    0.9822        1.0000         0.0052                0.0047                   0.0          0.5000              0.3333                95.0           96.930                 0.3010  0.3810
+                 TP            10.0    0.9914        1.0000        -0.0007               -0.0007                   0.0          0.0000              0.0000                95.0           97.440                 0.3010  0.9982
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]          100.0 (23)  100.0 (79)     100.0 (18)
+(0.95, 0.96]         100.0 (14)  98.1 (108)      94.7 (19)
+(0.96, 0.97]         41.7 (115)  67.1 (255)      56.2 (32)
+(0.97, 0.98]         15.8 (291)  18.0 (700)      25.0 (92)
+(0.98, 0.99]         3.4 (1126)  5.7 (2263)      6.2 (884)
+(0.99, 0.995]         1.9 (997)  2.2 (1810)     0.8 (2350)
+(0.995, 1.001]        15.8 (95)  17.6 (204)      7.3 (233)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain  real strain representative
+cluster_genomes_log10                                             
+(-0.01, 0.01]               7.2 (2314)          NaN     3.6 (1293)
+(0.01, 0.5]                 11.3 (293)  11.9 (2645)     4.9 (1357)
+(0.5, 1.0]                    8.3 (48)  12.4 (1846)      5.0 (654)
+(1.0, 2.0]                     0.0 (6)   14.6 (829)      6.4 (282)
+(2.0, 5.0]                         NaN    20.2 (99)       7.1 (42)
+
+=== pe soil_shallow hold-out: FN 727, FP 331
+FN with a called present congener in the sample: 68.0% (its fragments / the FN's: median 13.9, >=10x 57.1%); with a false positive of its genus beside it: 19.7%; neither (alone in its genus among the called): 31.6%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               70                  51
+real strain                   337                 133
+representative                 87                  49
+FP with a present database congener in the sample: 52.9% (called 52.0%); only a novel species of its genus: 31.4%; neither: 15.7%
+genus level: 8477 genera with reads, present 7112, TP 4611, FP 51, FN 2501, F1 0.7833 (genera whose only evidence is a novel species: 2382)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             2.0    0.9686        0.9867         0.0209                0.0189                   0.0          0.0000              0.0000                95.0            -1.00                 0.0000  0.3225
+                 TP            10.0    0.9893        1.0000         0.0010                0.0009                   0.0          0.0000              0.0000                95.0            -1.00                 0.0000  0.9980
+real strain      FN             2.0    0.9733        0.9933         0.0158                0.0145                   0.0          0.5000              0.3333                95.0            97.29                 0.6021  0.2761
+                 TP             9.0    0.9891        1.0000         0.0010                0.0009                   0.0          0.0152              0.0000                95.0            98.86                 0.6021  0.9977
+representative   FN             1.0    0.9866        0.9967         0.0075                0.0091                   0.0          0.6000              0.3229                95.0            97.37                 0.3010  0.3360
+                 TP             9.5    0.9914        1.0000        -0.0007               -0.0006                   0.0          0.0000              0.0000                95.0            97.35                 0.3010  0.9982
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]          100.0 (17)  100.0 (49)     100.0 (18)
+(0.95, 0.96]          84.6 (13)   96.5 (57)      85.7 (21)
+(0.96, 0.97]          54.3 (70)  64.5 (166)      42.9 (28)
+(0.97, 0.98]         13.1 (183)  24.3 (448)      21.1 (57)
+(0.98, 0.99]          2.5 (677)  6.8 (1428)      6.0 (520)
+(0.99, 0.995]         1.1 (630)  2.5 (1105)     1.8 (1471)
+(0.995, 1.001]        12.3 (57)  20.5 (122)     13.1 (145)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain  real strain representative
+cluster_genomes_log10                                             
+(-0.01, 0.01]               7.2 (1401)          NaN      4.4 (774)
+(0.01, 0.5]                  8.9 (214)  12.1 (1567)      7.4 (874)
+(0.5, 1.0]                    3.3 (30)  13.3 (1226)      4.7 (424)
+(1.0, 2.0]                     0.0 (2)   20.5 (521)      8.4 (167)
+(2.0, 5.0]                         NaN    16.4 (61)      14.3 (21)
+
+=== pe (design) design test: FN 220, FP 93
+FN with a called present congener in the sample: 31.4% (its fragments / the FN's: median 8.0, >=10x 42.0%); with a false positive of its genus beside it: 1.4%; neither (alone in its genus among the called): 67.3%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               12                  31
+real strain                    50                 104
+representative                  7                  16
+FP with a present database congener in the sample: 17.2% (called 14.0%); only a novel species of its genus: 55.9%; neither: 26.9%
+genus level: 9046 genera with reads, present 4972, TP 3838, FP 25, FN 1134, F1 0.8688 (genera whose only evidence is a novel species: 1037)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             1.0    0.9726         0.990         0.0113                0.0092                   0.0          0.0000              0.0000                95.0           -1.000                 0.0000  0.4706
+                 TP            23.0    0.9878         1.000        -0.0000               -0.0000                   0.0          0.0035              0.0000                95.0           -1.000                 0.0000  0.9982
+real strain      FN             1.0    0.9703         0.991         0.0145                0.0129                   0.0          0.5683              0.3297                95.0           96.935                 0.6021  0.4465
+                 TP            19.0    0.9871         1.000         0.0002                0.0001                   0.0          0.0270              0.0080                95.0           98.700                 0.6021  0.9978
+representative   FN             1.0    0.9900         1.000         0.0032                0.0036                   0.0          0.0000              0.0000                95.0           95.880                 0.3010  0.5509
+                 TP            19.0    0.9908         1.000        -0.0012               -0.0010                   0.0          0.0073              0.0000                95.0           97.520                 0.3010  0.9983
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]           100.0 (5)  100.0 (21)      100.0 (1)
+(0.95, 0.96]          38.5 (13)   75.0 (36)      100.0 (2)
+(0.96, 0.97]          13.8 (58)  21.8 (133)       14.3 (7)
+(0.97, 0.98]          2.6 (266)   5.0 (522)      0.8 (119)
+(0.98, 0.99]          2.4 (376)   3.7 (834)      3.2 (315)
+(0.99, 0.995]         1.6 (251)   2.1 (437)      1.6 (251)
+(0.995, 1.001]        2.5 (201)   3.0 (364)      1.1 (350)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]               3.4 (1027)         NaN      3.2 (347)
+(0.01, 0.5]                  6.2 (128)  5.6 (1116)      2.0 (395)
+(0.5, 1.0]                    0.0 (15)   5.6 (803)      1.0 (207)
+(1.0, 2.0]                         NaN  11.0 (391)       2.4 (85)
+(2.0, 5.0]                         NaN    8.1 (37)       0.0 (11)
+
+=== se soil hold-in species held out: FN 451, FP 643
+FN with a called present congener in the sample: 75.8% (its fragments / the FN's: median 15.2, >=10x 59.9%); with a false positive of its genus beside it: 35.5%; neither (alone in its genus among the called): 23.7%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               34                  17
+real strain                   275                  76
+representative                 33                  16
+FP with a present database congener in the sample: 62.1% (called 61.7%); only a novel species of its genus: 34.4%; neither: 3.6%
+genus level: 15127 genera with reads, present 12292, TP 8115, FP 23, FN 4177, F1 0.7944 (genera whose only evidence is a novel species: 4284)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             7.0    0.9707        0.9892         0.0201                0.0198                0.0000          0.3333              0.0213                95.0           -1.000                 0.0000  0.3114
+                 TP            36.0    0.9913        1.0000         0.0007                0.0007                0.2464          0.0093              0.0000                95.0           -1.000                 0.0000  0.9981
+real strain      FN             8.0    0.9698        0.9940         0.0189                0.0173                0.0000          0.7590              0.2857                95.0           95.990                 0.6021  0.1744
+                 TP            35.0    0.9907        1.0000         0.0009                0.0008                0.2420          0.0857              0.0045                95.0           98.750                 0.6021  0.9978
+representative   FN             7.0    0.9803        1.0000         0.0062                0.0075                0.0000          0.6842              0.2105                95.0           96.330                 0.4771  0.1642
+                 TP            34.0    0.9934        1.0000        -0.0008               -0.0008                0.2357          0.0429              0.0000                95.0           97.315                 0.3010  0.9981
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]           100.0 (2)  100.0 (15)      100.0 (7)
+(0.95, 0.96]           80.0 (5)   93.0 (57)       71.4 (7)
+(0.96, 0.97]          26.5 (68)  52.4 (212)      44.0 (25)
+(0.97, 0.98]          4.7 (253)  12.4 (620)       1.6 (63)
+(0.98, 0.99]          1.1 (883)  2.4 (1892)      3.6 (247)
+(0.99, 0.995]        0.3 (1582)  1.1 (2811)     0.2 (3123)
+(0.995, 1.001]        0.9 (116)   8.6 (233)      2.7 (333)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]               1.7 (2532)         NaN     1.1 (1320)
+(0.01, 0.5]                  1.5 (338)  5.5 (2803)     0.9 (1476)
+(0.5, 1.0]                    7.7 (39)  6.3 (1954)      1.3 (681)
+(1.0, 2.0]                         NaN   7.2 (948)      3.0 (296)
+(2.0, 5.0]                         NaN   5.2 (135)       9.4 (32)
+
+=== se soil hold-out: FN 353, FP 434
+FN with a called present congener in the sample: 76.8% (its fragments / the FN's: median 18.7, >=10x 60.9%); with a false positive of its genus beside it: 36.8%; neither (alone in its genus among the called): 21.0%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               34                  13
+real strain                   197                  54
+representative                 40                  15
+FP with a present database congener in the sample: 62.9% (called 61.1%); only a novel species of its genus: 32.7%; neither: 4.4%
+genus level: 9496 genera with reads, present 7713, TP 5131, FP 19, FN 2582, F1 0.7978 (genera whose only evidence is a novel species: 2643)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN            11.0    0.9671        0.9959         0.0233                0.0229                0.0000          0.6619              0.1923                95.0            -1.00                 0.0000  0.1863
+                 TP            33.0    0.9914        1.0000         0.0008                0.0007                0.2276          0.0078              0.0000                95.0            -1.00                 0.0000  0.9981
+real strain      FN             5.0    0.9707        0.9947         0.0181                0.0169                0.0000          0.7000              0.2500                95.0            96.48                 0.6021  0.1964
+                 TP            29.0    0.9905        1.0000         0.0010                0.0009                0.1994          0.0833              0.0000                95.0            98.73                 0.6021  0.9976
+representative   FN             5.0    0.9763        1.0000         0.0071                0.0078                0.0000          0.6667              0.2500                95.0            98.25                 0.3010  0.2181
+                 TP            31.0    0.9933        1.0000        -0.0008               -0.0007                0.2047          0.0401              0.0000                95.0            97.41                 0.3010  0.9981
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]           100.0 (5)  100.0 (14)      100.0 (6)
+(0.95, 0.96]           87.5 (8)   87.5 (32)      76.9 (13)
+(0.96, 0.97]          39.5 (38)  57.5 (134)      37.5 (16)
+(0.97, 0.98]          6.2 (178)  12.2 (459)      23.5 (34)
+(0.98, 0.99]          0.5 (551)  3.5 (1178)      5.0 (161)
+(0.99, 0.995]        0.5 (1024)  1.1 (1703)     0.5 (1991)
+(0.995, 1.001]         1.2 (85)   9.8 (163)      3.8 (211)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]               2.3 (1660)         NaN      1.0 (821)
+(0.01, 0.5]                  4.6 (195)  6.3 (1741)      3.3 (956)
+(0.5, 1.0]                    0.0 (32)  6.7 (1267)      1.6 (435)
+(1.0, 2.0]                     0.0 (2)   8.5 (614)      3.4 (204)
+(2.0, 5.0]                         NaN    8.2 (61)       6.2 (16)
+
+=== se (design) design test: FN 179, FP 186
+FN with a called present congener in the sample: 33.0% (its fragments / the FN's: median 9.3, >=10x 45.8%); with a false positive of its genus beside it: 1.1%; neither (alone in its genus among the called): 65.9%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               13                  26
+real strain                    38                  83
+representative                  8                  11
+FP with a present database congener in the sample: 17.2% (called 16.1%); only a novel species of its genus: 66.1%; neither: 16.7%
+genus level: 8153 genera with reads, present 4827, TP 3851, FP 31, FN 976, F1 0.8844 (genera whose only evidence is a novel species: 968)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             1.0    0.9720        0.9800         0.0147                0.0194                   0.0          0.5000                 0.0                95.0            -1.00                 0.0000  0.1880
+                 TP            20.0    0.9901        1.0000        -0.0002               -0.0002                   0.0          0.0012                 0.0                95.0            -1.00                 0.0000  0.9981
+real strain      FN             2.0    0.9710        0.9867         0.0140                0.0130                   0.0          0.6667                 0.0                95.0            96.83                 0.6990  0.2281
+                 TP            16.0    0.9900        1.0000        -0.0001               -0.0001                   0.0          0.0571                 0.0                95.0            98.69                 0.6021  0.9976
+representative   FN             1.0    0.9900        0.9900         0.0037                0.0031                   0.0          0.0000                 0.0                95.0            95.86                 0.3010  0.2788
+                 TP            17.0    0.9931        1.0000        -0.0012               -0.0010                   0.0          0.0102                 0.0                95.0            97.54                 0.3010  0.9982
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]           100.0 (4)   95.5 (22)      100.0 (2)
+(0.95, 0.96]           66.7 (9)   59.1 (22)      100.0 (1)
+(0.96, 0.97]          21.9 (32)   27.4 (84)       20.0 (5)
+(0.97, 0.98]          5.7 (122)   8.3 (312)       4.3 (23)
+(0.98, 0.99]          1.4 (417)   2.2 (784)      2.2 (323)
+(0.99, 0.995]         0.8 (257)   1.0 (521)      0.0 (243)
+(0.995, 1.001]        2.2 (314)   2.9 (547)      1.6 (429)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]               3.2 (1015)         NaN      2.4 (337)
+(0.01, 0.5]                  5.6 (126)  4.2 (1083)      1.8 (389)
+(0.5, 1.0]                    0.0 (14)   4.7 (790)      0.5 (206)
+(1.0, 2.0]                         NaN   9.7 (382)       3.6 (83)
+(2.0, 5.0]                         NaN    5.4 (37)       0.0 (11)
+
+=== pb soil hold-in species held out: FN 645, FP 556
+FN with a called present congener in the sample: 67.0% (its fragments / the FN's: median 8.5, >=10x 45.8%); with a false positive of its genus beside it: 23.3%; neither (alone in its genus among the called): 32.7%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               59                  41
+real strain                   333                 151
+representative                 40                  21
+FP with a present database congener in the sample: 59.2% (called 58.8%); only a novel species of its genus: 27.9%; neither: 12.9%
+genus level: 11005 genera with reads, present 10661, TP 7502, FP 72, FN 3159, F1 0.8228 (genera whose only evidence is a novel species: 3100)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             2.0    0.9750        0.9878         0.0260                0.0239                   0.0          0.0000              0.0000                95.0           -1.000                 0.0000  0.3175
+                 TP             9.0    0.9990        1.0000        -0.0000               -0.0000                   0.0          0.0000              0.0000                95.0           -1.000                 0.0000  0.9921
+real strain      FN             4.0    0.9729        0.9908         0.0251                0.0237                   0.0          0.4885              0.0000                95.0           96.330                 0.6021  0.2120
+                 TP            11.0    0.9979        1.0000        -0.0000               -0.0000                   0.0          0.0000              0.0000                95.0           98.790                 0.6021  0.9914
+representative   FN             6.0    0.9666        1.0000         0.0322                0.0363                   0.0          0.4211              0.0658                95.0           96.970                 0.3010  0.2702
+                 TP            10.0    0.9999        1.0000        -0.0001               -0.0001                   0.0          0.0000              0.0000                95.0           97.475                 0.3010  0.9936
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]          100.0 (10)  100.0 (31)      93.3 (15)
+(0.95, 0.96]          100.0 (8)   90.2 (51)      75.0 (12)
+(0.96, 0.97]          77.8 (18)  86.1 (137)      44.0 (25)
+(0.97, 0.98]         30.8 (120)  38.3 (368)      36.0 (25)
+(0.98, 0.99]          6.9 (320)   9.5 (783)       7.1 (56)
+(0.99, 0.995]         0.8 (368)   4.7 (814)       8.1 (37)
+(0.995, 1.001]       0.3 (1793)  1.1 (3230)     0.3 (3355)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]               3.7 (2292)         NaN     1.3 (1193)
+(0.01, 0.5]                  3.9 (308)  8.2 (2586)     1.8 (1376)
+(0.5, 1.0]                    8.1 (37)  8.9 (1814)      1.7 (644)
+(1.0, 2.0]                         NaN  11.0 (883)      2.5 (282)
+(2.0, 5.0]                         NaN   9.9 (131)      10.0 (30)
+
+=== pb soil hold-out: FN 432, FP 322
+FN with a called present congener in the sample: 66.4% (its fragments / the FN's: median 8.0, >=10x 43.9%); with a false positive of its genus beside it: 17.8%; neither (alone in its genus among the called): 32.9%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               39                  29
+real strain                   222                 102
+representative                 26                  14
+FP with a present database congener in the sample: 63.0% (called 62.1%); only a novel species of its genus: 27.6%; neither: 9.3%
+genus level: 6774 genera with reads, present 6565, TP 4614, FP 30, FN 1951, F1 0.8233 (genera whose only evidence is a novel species: 1901)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             3.0    0.9717        0.9881         0.0277                0.0249                   0.0          0.2292              0.0000                95.0            -1.00                 0.0000  0.2502
+                 TP             9.0    0.9988        1.0000        -0.0000               -0.0000                   0.0          0.0000              0.0000                95.0            -1.00                 0.0000  0.9914
+real strain      FN             3.0    0.9719        0.9905         0.0255                0.0243                   0.0          0.3431              0.0000                95.0            96.53                 0.6021  0.2187
+                 TP             9.0    0.9980        1.0000        -0.0000               -0.0000                   0.0          0.0000              0.0000                95.0            98.82                 0.6021  0.9906
+representative   FN             5.0    0.9617        1.0000         0.0369                0.0461                   0.0          0.3590              0.0461                95.0            97.85                 0.3891  0.2179
+                 TP             9.0    0.9999        1.0000        -0.0001               -0.0001                   0.0          0.0000              0.0000                95.0            97.52                 0.3010  0.9935
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]          100.0 (14)  100.0 (37)     100.0 (13)
+(0.95, 0.96]          100.0 (4)   94.1 (34)      100.0 (6)
+(0.96, 0.97]          83.3 (18)   86.9 (84)      66.7 (12)
+(0.97, 0.98]          19.1 (68)  37.8 (230)      26.7 (15)
+(0.98, 0.99]          7.3 (219)  10.9 (486)      15.8 (19)
+(0.99, 0.995]         1.3 (229)   3.5 (485)       0.0 (23)
+(0.995, 1.001]       0.3 (1115)  1.3 (1954)     0.3 (2093)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]               4.0 (1462)         NaN      1.2 (721)
+(0.01, 0.5]                  5.7 (175)  9.3 (1555)      2.0 (862)
+(0.5, 1.0]                    0.0 (28)  8.8 (1142)      1.8 (400)
+(1.0, 2.0]                     0.0 (2)  12.9 (558)      3.8 (183)
+(2.0, 5.0]                         NaN   10.9 (55)       0.0 (15)
+
+=== pb soil_shallow hold-in species held out: FN 525, FP 299
+FN with a called present congener in the sample: 57.3% (its fragments / the FN's: median 5.0, >=10x 35.5%); with a false positive of its genus beside it: 12.0%; neither (alone in its genus among the called): 41.9%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               50                  51
+real strain                   219                 154
+representative                 32                  19
+FP with a present database congener in the sample: 54.5% (called 53.2%); only a novel species of its genus: 41.1%; neither: 4.3%
+genus level: 8012 genera with reads, present 7926, TP 5712, FP 13, FN 2214, F1 0.8369 (genera whose only evidence is a novel species: 2119)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             2.0    0.9710        0.9815         0.0275                0.0232                   0.0          0.0000                 0.0                95.0            -1.00                 0.0000  0.2188
+                 TP             4.0    0.9992        1.0000        -0.0000               -0.0000                   0.0          0.0000                 0.0                95.0            -1.00                 0.0000  0.9867
+real strain      FN             2.0    0.9714        0.9837         0.0271                0.0255                   0.0          0.0526                 0.0                95.0            96.95                 0.6021  0.1677
+                 TP             4.0    0.9987        1.0000         0.0002                0.0002                   0.0          0.0000                 0.0                95.0            98.82                 0.6021  0.9851
+representative   FN             2.0    0.9656        0.9933         0.0364                0.0369                   0.0          0.2143                 0.0                95.0            96.15                 0.3010  0.1538
+                 TP             4.0    1.0000        1.0000        -0.0001               -0.0001                   0.0          0.0000                 0.0                95.0            97.62                 0.3010  0.9908
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]          100.0 (21)   95.7 (47)     100.0 (16)
+(0.95, 0.96]          100.0 (4)   92.5 (53)      100.0 (1)
+(0.96, 0.97]          87.5 (24)  81.0 (100)      80.0 (15)
+(0.97, 0.98]          41.8 (79)  45.4 (227)      50.0 (10)
+(0.98, 0.99]          6.2 (195)  12.4 (492)      18.2 (22)
+(0.99, 0.995]         2.9 (275)   2.7 (474)      18.2 (22)
+(0.995, 1.001]       0.2 (1303)  0.9 (2389)     0.4 (2478)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain  real strain representative
+cluster_genomes_log10                                             
+(-0.01, 0.01]               5.2 (1646)          NaN      1.8 (877)
+(0.01, 0.5]                  7.0 (214)   8.6 (1848)      2.0 (971)
+(0.5, 1.0]                    2.8 (36)  10.8 (1273)      1.7 (478)
+(1.0, 2.0]                     0.0 (5)   11.9 (599)      2.9 (206)
+(2.0, 5.0]                         NaN     8.1 (62)       6.2 (32)
+
+=== pb soil_shallow hold-out: FN 337, FP 178
+FN with a called present congener in the sample: 54.3% (its fragments / the FN's: median 6.0, >=10x 33.9%); with a false positive of its genus beside it: 11.0%; neither (alone in its genus among the called): 44.2%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               27                  29
+real strain                   130                 110
+representative                 26                  15
+FP with a present database congener in the sample: 55.6% (called 52.8%); only a novel species of its genus: 38.8%; neither: 5.6%
+genus level: 4950 genera with reads, present 4879, TP 3460, FP 10, FN 1419, F1 0.8288 (genera whose only evidence is a novel species: 1339)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             2.0    0.9723        0.9821         0.0271                0.0247                   0.0          0.0000                 0.0                95.0            -1.00                 0.0000  0.2277
+                 TP             4.0    0.9993        1.0000        -0.0000               -0.0000                   0.0          0.0000                 0.0                95.0            -1.00                 0.0000  0.9870
+real strain      FN             2.0    0.9702        0.9810         0.0282                0.0254                   0.0          0.1214                 0.0                95.0            97.06                 0.6021  0.1521
+                 TP             4.0    0.9990        1.0000        -0.0000               -0.0000                   0.0          0.0000                 0.0                95.0            98.88                 0.6021  0.9832
+representative   FN             2.0    0.9642        0.9832         0.0375                0.0324                   0.0          0.3333                 0.0                95.0            97.15                 0.3010  0.0868
+                 TP             4.0    1.0000        1.0000        -0.0001               -0.0001                   0.0          0.0000                 0.0                95.0            97.42                 0.3010  0.9905
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]          100.0 (12)   97.6 (41)     100.0 (16)
+(0.95, 0.96]          100.0 (2)   83.3 (30)       66.7 (3)
+(0.96, 0.97]          75.0 (16)   87.1 (62)      100.0 (5)
+(0.97, 0.98]          27.8 (54)  42.6 (141)       80.0 (5)
+(0.98, 0.99]          5.8 (121)  11.4 (297)      17.6 (17)
+(0.99, 0.995]         1.4 (143)   4.2 (287)       28.6 (7)
+(0.995, 1.001]        0.8 (778)  1.0 (1448)     0.6 (1488)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]                5.2 (958)         NaN      2.3 (519)
+(0.01, 0.5]                  4.2 (143)  9.2 (1080)      2.2 (583)
+(0.5, 1.0]                    0.0 (24)   9.9 (840)      2.0 (304)
+(1.0, 2.0]                     0.0 (1)  15.2 (349)      6.7 (120)
+(2.0, 5.0]                         NaN   13.5 (37)      13.3 (15)
+
+=== pb (design) design test: FN 43, FP 55
+FN with a called present congener in the sample: 32.6% (its fragments / the FN's: median 5.9, >=10x 35.7%); with a false positive of its genus beside it: 0.0%; neither (alone in its genus among the called): 67.4%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain                4                   3
+real strain                    10                  25
+representative                  0                   1
+FP with a present database congener in the sample: 18.2% (called 18.2%); only a novel species of its genus: 49.1%; neither: 32.7%
+genus level: 2354 genera with reads, present 2243, TP 1835, FP 18, FN 408, F1 0.8960 (genera whose only evidence is a novel species: 406)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             4.0    0.9737        0.9904         0.0241                0.0211                   0.0          0.0351                 0.0                95.0            -1.00                 0.0000  0.3394
+                 TP            10.0    0.9990        1.0000        -0.0000               -0.0000                   0.0          0.0000                 0.0                95.0            -1.00                 0.0000  0.9927
+real strain      FN             3.0    0.9701        0.9854         0.0258                0.0224                   0.0          0.5714                 0.0                95.0            96.26                 0.6021  0.2184
+                 TP            11.0    0.9984        1.0000        -0.0000               -0.0000                   0.0          0.0000                 0.0                95.0            98.76                 0.6021  0.9899
+representative   FN             1.0    0.9130        0.9130         0.0866                0.0741                   0.0          0.0000                 0.0                95.0            99.99                 0.3010  0.0185
+                 TP            10.0    0.9999        1.0000        -0.0001               -0.0001                   0.0          0.0000                 0.0                95.0            97.66                 0.3010  0.9935
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]                 NaN   100.0 (5)      100.0 (1)
+(0.95, 0.96]          100.0 (1)    50.0 (6)            NaN
+(0.96, 0.97]          100.0 (2)   69.2 (13)            NaN
+(0.97, 0.98]          12.5 (16)   21.2 (52)        0.0 (1)
+(0.98, 0.99]           1.8 (57)   3.0 (164)        0.0 (2)
+(0.99, 0.995]          1.5 (68)   0.0 (151)            NaN
+(0.995, 1.001]        0.0 (385)   0.3 (713)      0.0 (462)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]                0.8 (472)         NaN      0.0 (147)
+(0.01, 0.5]                   3.7 (54)   2.7 (525)      0.5 (184)
+(0.5, 1.0]                    33.3 (3)   2.0 (403)       0.0 (94)
+(1.0, 2.0]                         NaN   7.1 (168)       0.0 (35)
+(2.0, 5.0]                         NaN    12.5 (8)        0.0 (6)
+
+=== ont soil hold-in species held out: FN 656, FP 694
+FN with a called present congener in the sample: 68.1% (its fragments / the FN's: median 9.0, >=10x 47.9%); with a false positive of its genus beside it: 26.1%; neither (alone in its genus among the called): 30.2%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               52                  38
+real strain                   334                 141
+representative                 61                  30
+FP with a present database congener in the sample: 58.2% (called 56.6%); only a novel species of its genus: 31.3%; neither: 10.5%
+genus level: 11985 genera with reads, present 11310, TP 7624, FP 73, FN 3686, F1 0.8022 (genera whose only evidence is a novel species: 3703)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             3.0    0.9395        0.9710         0.0225                0.0214                   0.0          0.1833              0.0000                95.0            -1.00                 0.0000  0.2961
+                 TP             9.0    0.9685        1.0000        -0.0000               -0.0000                   0.0          0.0000              0.0000                95.0            -1.00                 0.0000  0.9928
+real strain      FN             3.0    0.9439        0.9772         0.0218                0.0206                   0.0          0.5000              0.0333                95.0            96.55                 0.6021  0.2220
+                 TP            11.0    0.9675        1.0000        -0.0000               -0.0000                   0.0          0.0000              0.0000                95.0            98.80                 0.6021  0.9915
+representative   FN             3.0    0.9356        0.9800         0.0296                0.0351                   0.0          0.3750              0.0769                95.0            96.81                 0.3010  0.1954
+                 TP            10.0    0.9715        1.0000        -0.0009               -0.0009                   0.0          0.0000              0.0000                95.0            97.44                 0.3010  0.9934
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain  real strain representative
+identity                                                   
+(0.0, 0.95]          11.6 (481)  26.5 (1078)     13.5 (481)
+(0.95, 0.96]          2.4 (377)    7.6 (892)      2.4 (375)
+(0.96, 0.97]          2.1 (634)   4.3 (1256)      0.1 (800)
+(0.97, 0.98]          1.3 (618)   2.7 (1168)      0.5 (960)
+(0.98, 0.99]          0.6 (363)    2.7 (657)      0.5 (586)
+(0.99, 0.995]         0.9 (106)    4.2 (192)      1.8 (171)
+(0.995, 1.001]        0.8 (119)    4.8 (189)      2.4 (210)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]               3.3 (2344)         NaN     2.0 (1222)
+(0.01, 0.5]                  3.5 (315)  7.8 (2604)     2.2 (1402)
+(0.5, 1.0]                    5.1 (39)  9.2 (1819)      3.4 (648)
+(1.0, 2.0]                         NaN  10.4 (881)      3.6 (281)
+(2.0, 5.0]                         NaN   9.4 (128)      13.3 (30)
+
+=== ont soil hold-out: FN 426, FP 433
+FN with a called present congener in the sample: 68.5% (its fragments / the FN's: median 10.7, >=10x 51.7%); with a false positive of its genus beside it: 22.5%; neither (alone in its genus among the called): 30.0%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               33                  25
+real strain                   217                  92
+representative                 42                  17
+FP with a present database congener in the sample: 59.8% (called 58.4%); only a novel species of its genus: 30.5%; neither: 9.7%
+genus level: 7440 genera with reads, present 7005, TP 4740, FP 42, FN 2265, F1 0.8043 (genera whose only evidence is a novel species: 2267)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             3.0    0.9415        0.9772         0.0281                0.0258                   0.0          0.1056                 0.0                95.0            -1.00                 0.0000  0.1879
+                 TP             9.0    0.9692        0.9990        -0.0000               -0.0000                   0.0          0.0000                 0.0                95.0            -1.00                 0.0000  0.9922
+real strain      FN             3.0    0.9433        0.9750         0.0207                0.0197                   0.0          0.4615                 0.0                95.0            96.84                 0.6021  0.2443
+                 TP             9.0    0.9678        0.9995        -0.0000               -0.0000                   0.0          0.0000                 0.0                95.0            98.78                 0.6021  0.9891
+representative   FN             2.0    0.9261        0.9792         0.0335                0.0314                   0.0          0.3125                 0.0                95.0            97.59                 0.3010  0.1360
+                 TP             9.0    0.9723        1.0000        -0.0009               -0.0009                   0.0          0.0000                 0.0                95.0            97.45                 0.3010  0.9934
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]          12.7 (275)  26.0 (697)     13.9 (302)
+(0.95, 0.96]          3.4 (238)   9.4 (491)      1.5 (206)
+(0.96, 0.97]          1.0 (398)   4.2 (764)      1.0 (503)
+(0.97, 0.98]          1.5 (412)   3.2 (751)      0.8 (594)
+(0.98, 0.99]          1.7 (240)   3.7 (409)      0.8 (388)
+(0.99, 0.995]          0.0 (71)   3.7 (107)      0.0 (100)
+(0.995, 1.001]         1.5 (68)   5.3 (131)      0.7 (151)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]               3.4 (1494)         NaN      1.5 (745)
+(0.01, 0.5]                  4.0 (177)  9.0 (1573)      3.0 (891)
+(0.5, 1.0]                    0.0 (29)  8.5 (1159)      3.5 (405)
+(1.0, 2.0]                     0.0 (2)  11.4 (562)      3.7 (188)
+(2.0, 5.0]                         NaN    8.9 (56)       0.0 (15)
+
+=== ont soil_shallow hold-in species held out: FN 593, FP 419
+FN with a called present congener in the sample: 56.8% (its fragments / the FN's: median 5.0, >=10x 30.6%); with a false positive of its genus beside it: 15.2%; neither (alone in its genus among the called): 41.8%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               57                  53
+real strain                   233                 147
+representative                 47                  56
+FP with a present database congener in the sample: 57.0% (called 54.9%); only a novel species of its genus: 38.4%; neither: 4.5%
+genus level: 8626 genera with reads, present 8438, TP 5833, FP 19, FN 2605, F1 0.8164 (genera whose only evidence is a novel species: 2523)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             1.0    0.9428        0.9638         0.0238                0.0225                   0.0          0.0000                 0.0                95.0            -1.00                 0.0000  0.2495
+                 TP             4.0    0.9716        0.9950        -0.0000               -0.0000                   0.0          0.0000                 0.0                95.0            -1.00                 0.0000  0.9868
+real strain      FN             2.0    0.9412        0.9626         0.0249                0.0240                   0.0          0.1056                 0.0                95.0            97.02                 0.6021  0.1591
+                 TP             4.0    0.9698        0.9951        -0.0000               -0.0000                   0.0          0.0000                 0.0                95.0            98.80                 0.6021  0.9826
+representative   FN             2.0    0.9240        0.9533         0.0292                0.0307                   0.0          0.3333                 0.0                95.0            97.54                 0.3010  0.1154
+                 TP             4.0    0.9745        1.0000        -0.0013               -0.0012                   0.0          0.0000                 0.0                95.0            97.52                 0.3010  0.9906
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]          15.1 (411)  23.4 (998)     14.0 (529)
+(0.95, 0.96]          5.9 (219)   9.1 (440)      3.1 (261)
+(0.96, 0.97]          5.9 (306)   5.4 (625)      1.1 (354)
+(0.97, 0.98]          3.1 (350)   5.3 (675)      1.2 (508)
+(0.98, 0.99]          1.0 (305)   3.6 (576)      0.8 (498)
+(0.99, 0.995]         0.8 (128)   4.1 (221)      1.8 (171)
+(0.995, 1.001]        1.0 (199)   1.8 (325)      1.2 (336)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain  real strain representative
+cluster_genomes_log10                                             
+(-0.01, 0.01]               5.6 (1650)          NaN      3.3 (933)
+(0.01, 0.5]                  6.2 (224)   8.7 (1856)     4.1 (1012)
+(0.5, 1.0]                    7.5 (40)  10.3 (1340)      3.4 (471)
+(1.0, 2.0]                     0.0 (4)   11.9 (595)      7.2 (207)
+(2.0, 5.0]                         NaN    14.5 (69)       0.0 (34)
+
+=== ont soil_shallow hold-out: FN 404, FP 284
+FN with a called present congener in the sample: 57.9% (its fragments / the FN's: median 5.8, >=10x 37.6%); with a false positive of its genus beside it: 15.3%; neither (alone in its genus among the called): 39.9%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain               29                  35
+real strain                   161                 101
+representative                 44                  34
+FP with a present database congener in the sample: 46.5% (called 44.0%); only a novel species of its genus: 49.6%; neither: 3.9%
+genus level: 5425 genera with reads, present 5305, TP 3672, FP 11, FN 1633, F1 0.8171 (genera whose only evidence is a novel species: 1610)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             2.0    0.9376        0.9628         0.0285                0.0268                   0.0          0.0000                 0.0                95.0           -1.000                 0.0000  0.1620
+                 TP             3.0    0.9715        0.9940        -0.0000               -0.0000                   0.0          0.0000                 0.0                95.0           -1.000                 0.0000  0.9854
+real strain      FN             2.0    0.9489        0.9664         0.0241                0.0224                   0.0          0.3333                 0.0                95.0           97.395                 0.6990  0.1928
+                 TP             4.0    0.9713        0.9955        -0.0000               -0.0000                   0.0          0.0000                 0.0                95.0           98.860                 0.6021  0.9822
+representative   FN             1.5    0.9246        0.9421         0.0228                0.0230                   0.0          0.1429                 0.0                95.0           97.120                 0.3010  0.0987
+                 TP             3.0    0.9746        1.0000        -0.0010               -0.0010                   0.0          0.0000                 0.0                95.0           97.430                 0.3010  0.9898
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]          14.3 (279)  23.5 (579)     15.8 (354)
+(0.95, 0.96]          5.3 (113)  11.4 (297)      2.3 (133)
+(0.96, 0.97]          3.0 (199)  10.2 (371)      1.3 (227)
+(0.97, 0.98]          4.9 (206)   6.8 (424)      2.3 (299)
+(0.98, 0.99]          0.5 (190)   2.3 (387)      0.7 (287)
+(0.99, 0.995]          1.3 (75)   3.1 (163)      1.6 (124)
+(0.995, 1.001]        0.0 (138)   5.6 (195)      2.2 (223)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]               5.5 (1028)         NaN      2.8 (540)
+(0.01, 0.5]                  4.1 (146)  9.4 (1110)      5.7 (645)
+(0.5, 1.0]                    4.0 (25)   9.5 (887)      5.1 (311)
+(1.0, 2.0]                     0.0 (1)  18.1 (376)      5.9 (135)
+(2.0, 5.0]                         NaN   14.0 (43)      12.5 (16)
+
+=== ont (design) design test: FN 55, FP 66
+FN with a called present congener in the sample: 27.3% (its fragments / the FN's: median 8.0, >=10x 33.3%); with a false positive of its genus beside it: 1.8%; neither (alone in its genus among the called): 72.7%
+FN by strain kind x a called present congener (count):
+tp                congener called  no congener called
+strain                                               
+in-silico strain                2                   6
+real strain                    12                  34
+representative                  1                   0
+FP with a present database congener in the sample: 16.7% (called 16.7%); only a novel species of its genus: 54.5%; neither: 28.8%
+genus level: 2573 genera with reads, present 2321, TP 1877, FP 19, FN 444, F1 0.8902 (genera whose only evidence is a novel species: 437)
+present taxa, medians by strain kind and outcome:
+                          fragments  identity  top_identity  excess_median  excess_scaled_median  variant_sites_per_kb  low_mapq_share  congener_fit_share  cluster_ani_radius  cluster_min_ani  cluster_genomes_log10       p
+strain           outcome                                                                                                                                                                                                      
+in-silico strain FN             1.0    0.8959        0.8961         0.0397                0.0395                   0.0            0.00                0.00                95.0            -1.00                 0.0000  0.1278
+                 TP             9.0    0.9692        1.0000        -0.0000               -0.0000                   0.0            0.00                0.00                95.0            -1.00                 0.0000  0.9924
+real strain      FN             2.0    0.9486        0.9753         0.0245                0.0227                   0.0            0.25                0.00                95.0            96.88                 0.7386  0.2303
+                 TP            10.0    0.9685        1.0000        -0.0000               -0.0000                   0.0            0.00                0.00                95.0            98.71                 0.6021  0.9907
+representative   FN             1.0    0.9181        0.9181        -0.0116               -0.0131                   0.0            0.00                0.75                95.0           100.00                 0.6021  0.4905
+                 TP             8.0    0.9711        1.0000        -0.0010               -0.0011                   0.0            0.00                0.00                95.0            97.30                 0.3010  0.9933
+present taxa, FN rate % by strain kind and identity:
+strain         in-silico strain real strain representative
+identity                                                  
+(0.0, 0.95]            7.8 (77)  14.0 (178)       1.7 (59)
+(0.95, 0.96]           1.4 (71)   3.6 (138)       0.0 (39)
+(0.96, 0.97]          0.0 (155)   2.8 (324)      0.0 (126)
+(0.97, 0.98]          0.0 (130)   0.8 (237)      0.0 (120)
+(0.98, 0.99]           1.5 (66)   2.9 (139)       0.0 (72)
+(0.99, 0.995]          0.0 (30)    2.0 (51)       0.0 (24)
+(0.995, 1.001]         0.0 (37)    0.0 (44)       0.0 (39)
+present taxa by species cluster's genomes in GTDB (log10) and strain kind: FN rate % (rows)
+strain                in-silico strain real strain representative
+cluster_genomes_log10                                            
+(-0.01, 0.01]                1.4 (502)         NaN      0.0 (169)
+(0.01, 0.5]                   1.7 (60)   3.3 (519)      0.0 (178)
+(0.5, 1.0]                     0.0 (4)   3.5 (399)       1.1 (88)
+(1.0, 2.0]                         NaN   7.3 (179)       0.0 (37)
+(2.0, 5.0]                         NaN   14.3 (14)        0.0 (7)

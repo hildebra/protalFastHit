@@ -1,0 +1,1472 @@
+
+
+######## pe (knob 0.7)
+
+=== pe soil hold-in species held out: 3 samples, F1 0.9584, TP 11965, FP 456, FN 584, TN 76087
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1           75      75  100.00     12.8
+2           78      42   53.85      7.2
+3-4        296      91   30.74     15.6
+5-9       1005      85    8.46     14.6
+10-29     4108     139    3.38     23.8
+30-99     4390     110    2.51     18.8
+100-999   2466      42    1.70      7.2
+>=1000     131       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  2906      69    2.37     11.8
+real strain       5838     438    7.50     75.0
+representative    3805      77    2.02     13.2
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                    100.0        100.0           100.0
+2                     23.8         70.5            46.2
+3-4                   19.7         42.8             8.1
+5-9                    5.2         13.9             2.3
+10-29                  0.8          6.3             0.8
+30-99                  1.7          3.8             1.2
+100-999                0.7          2.6             1.1
+>=1000                 0.0          0.0             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 297       0    0.00      0.0
+domain                 31       2    6.45      0.3
+family               3184      44    1.38      7.5
+genus                8220     535    6.51     91.6
+order                 723       3    0.41      0.5
+phylum                 94       0    0.00      0.0
+
+FP by fragments:
+           rows  errors  rate %  share %
+frag_bin                                
+1         36182       3    0.01      0.7
+2         12668      33    0.26      7.2
+3-4       10366      61    0.59     13.4
+5-9        7997      95    1.19     20.8
+10-29      6101     131    2.15     28.7
+30-99      2449      90    3.67     19.7
+100-999     747      41    5.49      9.0
+>=1000       33       2    6.06      0.4
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                   3976      11    0.28      2.4
+class                 1       0    0.00      0.0
+family                7       0    0.00      0.0
+genus                95       0    0.00      0.0
+order                 8       0    0.00      0.0
+species           72456     445    0.61     97.6
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                 143       1    0.70      0.2
+domain                  8       0    0.00      0.0
+family               6780      22    0.32      4.8
+genus               69082     426    0.62     93.4
+order                 512       6    1.17      1.3
+phylum                 18       1    5.56      0.2
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             9.0    0.9670        1.0000          0.6364              0.4375        0.9360             0.0873         0.0176                   1.0       0.0385                95.0  0.3146
+FP            12.5    0.9737        1.0000          0.2313              0.1429        0.9932             0.1228         0.0120                   1.0       0.1995                95.0  0.8597
+TN             2.0    0.9307        0.9483          0.5000              0.2500        0.9827             0.0169         0.0579                   1.0       0.0131                95.0  0.0044
+TP            36.0    0.9902        1.0000          0.0370              0.0133        1.0000             0.3048        -0.0003                   1.0       0.6000                95.0  0.9982
+
+=== pe soil hold-out: 2 samples, F1 0.9535, TP 7562, FP 304, FN 433, TN 47575
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1           53      53  100.00     12.2
+2           93      64   68.82     14.8
+3-4        263      56   21.29     12.9
+5-9        886      75    8.47     17.3
+10-29     2610     100    3.83     23.1
+30-99     2556      59    2.31     13.6
+100-999   1429      25    1.75      5.8
+>=1000     105       1    0.95      0.2
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  1879      66    3.51     15.2
+real strain       3682     305    8.28     70.4
+representative    2434      62    2.55     14.3
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                    100.0        100.0           100.0
+2                     46.7         82.5            47.6
+3-4                   14.0         29.1            10.8
+5-9                    5.3         13.4             2.1
+10-29                  2.2          6.1             1.6
+30-99                  2.0          3.2             1.3
+100-999                1.5          2.4             1.1
+>=1000                 0.0          2.2             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 194       1    0.52      0.2
+domain                 21       0    0.00      0.0
+family               1931      28    1.45      6.5
+genus                5340     398    7.45     91.9
+order                 453       6    1.32      1.4
+phylum                 56       0    0.00      0.0
+
+FP by fragments:
+           rows  errors  rate %  share %
+frag_bin                                
+1         22808       2    0.01      0.7
+2          8054      23    0.29      7.6
+3-4        6404      52    0.81     17.1
+5-9        4937      58    1.17     19.1
+10-29      3706      86    2.32     28.3
+30-99      1419      55    3.88     18.1
+100-999     526      28    5.32      9.2
+>=1000       25       0    0.00      0.0
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                   2419       3    0.12      1.0
+family                7       0    0.00      0.0
+genus                30       0    0.00      0.0
+order                 7       0    0.00      0.0
+species           45416     301    0.66     99.0
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                 119       2    1.68      0.7
+domain                  8       0    0.00      0.0
+family               4333      14    0.32      4.6
+genus               43073     285    0.66     93.8
+order                 328       2    0.61      0.7
+phylum                 18       1    5.56      0.3
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             7.0    0.9670        1.0000          0.6289              0.4444        0.9477             0.0704         0.0177                   1.0       0.0341                95.0  0.3490
+FP            11.0    0.9746        1.0000          0.2946              0.1667        0.9900             0.1150         0.0119                   1.0       0.1703                95.0  0.8577
+TN             2.0    0.9305        0.9483          0.5000              0.2500        0.9861             0.0168         0.0579                   1.0       0.0145                95.0  0.0044
+TP            32.0    0.9902        1.0000          0.0379              0.0147        1.0000             0.2773        -0.0002                   1.0       0.5598                95.0  0.9982
+
+=== pe soil_shallow hold-in species held out: 3 samples, F1 0.9303, TP 10652, FP 539, FN 1056, TN 35678
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1          854     448   52.46     42.4
+2          874     186   21.28     17.6
+3-4       1496     159   10.63     15.1
+5-9       2777     131    4.72     12.4
+10-29     3607      94    2.61      8.9
+30-99     1631      31    1.90      2.9
+100-999    459       7    1.53      0.7
+>=1000      10       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  2661     203    7.63     19.2
+real strain       5419     686   12.66     65.0
+representative    3628     167    4.60     15.8
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                     54.5         60.1            36.0
+2                     16.5         28.0            12.9
+3-4                    6.1         16.9             4.2
+5-9                    3.4          7.6             1.5
+10-29                  2.4          3.7             1.2
+30-99                  1.0          2.8             1.4
+100-999                0.9          2.6             0.6
+>=1000                 0.0          0.0             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 315      12    3.81      1.1
+domain                 34       0    0.00      0.0
+family               2899     109    3.76     10.3
+genus                7742     910   11.75     86.2
+order                 652      24    3.68      2.3
+phylum                 66       1    1.52      0.1
+
+FP by fragments:
+           rows  errors  rate %  share %
+frag_bin                                
+1         20843     161    0.77     29.9
+2          5588      69    1.23     12.8
+3-4        4191      81    1.93     15.0
+5-9        2959      95    3.21     17.6
+10-29      1950      92    4.72     17.1
+30-99       564      35    6.21      6.5
+100-999     120       5    4.17      0.9
+>=1000        2       1   50.00      0.2
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                   1286      25    1.94      4.6
+family                1       0    0.00      0.0
+genus                42       0    0.00      0.0
+order                 2       0    0.00      0.0
+species           34886     514    1.47     95.4
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                  49       7   14.29      1.3
+domain                  4       2   50.00      0.4
+family               2278      43    1.89      8.0
+genus               33723     477    1.41     88.5
+order                 156       8    5.13      1.5
+phylum                  7       2   28.57      0.4
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             2.0    0.9721        0.9933          0.4286              0.2500        0.9998             0.0207         0.0150                   1.0       0.0714                95.0  0.3074
+FP             3.0    0.9800        1.0000          0.0000              0.0000        1.0000             0.0360         0.0076                   1.0       0.2632                95.0  0.8367
+TN             1.0    0.9333        0.9474          0.3333              0.1257        0.9999             0.0120         0.0557                   1.0       0.0357                95.0  0.0047
+TP            10.0    0.9902        1.0000          0.0000              0.0000        1.0000             0.1008        -0.0000                   1.0       0.6667                95.0  0.9981
+
+=== pe soil_shallow hold-out: 2 samples, F1 0.9253, TP 6555, FP 331, FN 727, TN 22096
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1          646     328   50.77     45.1
+2          602     119   19.77     16.4
+3-4       1004     105   10.46     14.4
+5-9       1671      82    4.91     11.3
+10-29     2060      64    3.11      8.8
+30-99      959      23    2.40      3.2
+100-999    328       6    1.83      0.8
+>=1000      12       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  1647     121    7.35     16.6
+real strain       3375     470   13.93     64.6
+representative    2260     136    6.02     18.7
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                     43.1         62.2            37.0
+2                     15.2         26.1            12.5
+3-4                    7.7         13.9             6.0
+5-9                    3.8          7.0             2.8
+10-29                  2.1          5.0             1.2
+30-99                  1.3          4.2             0.7
+100-999                1.3          3.4             0.0
+>=1000                 0.0          0.0             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 170       2    1.18      0.3
+domain                 25       0    0.00      0.0
+family               1794      74    4.12     10.2
+genus                4876     643   13.19     88.4
+order                 362       7    1.93      1.0
+phylum                 55       1    1.82      0.1
+
+FP by fragments:
+           rows  errors  rate %  share %
+frag_bin                                
+1         13130      98    0.75     29.6
+2          3426      52    1.52     15.7
+3-4        2460      39    1.59     11.8
+5-9        1720      50    2.91     15.1
+10-29      1171      53    4.53     16.0
+30-99       426      36    8.45     10.9
+100-999      90       3    3.33      0.9
+>=1000        4       0    0.00      0.0
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                    848      11    1.30      3.3
+class                 1       0    0.00      0.0
+family                3       0    0.00      0.0
+genus                15       0    0.00      0.0
+order                 2       0    0.00      0.0
+species           21558     320    1.48     96.7
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                  42       3    7.14      0.9
+family               1422      39    2.74     11.8
+genus               20845     279    1.34     84.3
+order                 111       9    8.11      2.7
+phylum                  7       1   14.29      0.3
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             2.0    0.9733        0.9933          0.5000              0.2857        0.9996             0.0190         0.0151                   1.0       0.0526                95.0  0.2975
+FP             3.0    0.9801        1.0000          0.0000              0.0000        1.0000             0.0336         0.0077                   1.0       0.3333                95.0  0.8576
+TN             1.0    0.9333        0.9467          0.3333              0.0909        1.0000             0.0118         0.0565                   1.0       0.0368                95.0  0.0046
+TP             9.0    0.9902        1.0000          0.0000              0.0000        1.0000             0.0932         0.0001                   1.0       0.6667                95.0  0.9980
+
+=== pe design test: 78 samples, F1 0.9652, TP 4342, FP 93, FN 220, TN 17650
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1          520     130   25.00     59.1
+2          294      25    8.50     11.4
+3-4        393      28    7.12     12.7
+5-9        551      14    2.54      6.4
+10-29      945      12    1.27      5.5
+30-99      836       9    1.08      4.1
+100-999    819       0    0.00      0.0
+>=1000     204       2    0.98      0.9
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  1170      43    3.68     19.5
+real strain       2347     154    6.56     70.0
+representative    1045      23    2.20     10.5
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                     24.8         30.4            14.5
+2                      4.8         11.8             3.3
+3-4                    2.0         11.5             1.3
+5-9                    1.6          3.7             0.8
+10-29                  0.0          2.5             0.0
+30-99                  1.8          1.2             0.0
+100-999                0.0          0.0             0.0
+>=1000                 0.0          2.2             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 668      15    2.25      6.8
+domain                271       7    2.58      3.2
+family               1053      47    4.46     21.4
+genus                1496     102    6.82     46.4
+order                 775      42    5.42     19.1
+phylum                299       7    2.34      3.2
+
+FP by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         9642      30    0.31     32.3
+2         2489       8    0.32      8.6
+3-4       2052      13    0.63     14.0
+5-9       1518      12    0.79     12.9
+10-29     1215      13    1.07     14.0
+30-99      516       8    1.55      8.6
+100-999    279       5    1.79      5.4
+>=1000      32       4   12.50      4.3
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                   4762      15    0.31     16.1
+class                42       0    0.00      0.0
+family               92       0    0.00      0.0
+genus               344       0    0.00      0.0
+order               193       1    0.52      1.1
+phylum               53       1    1.89      1.1
+species           12257      76    0.62     81.7
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                 639       6    0.94      6.5
+domain                120       2    1.67      2.2
+family               4045      11    0.27     11.8
+genus               11912      68    0.57     73.1
+order                 867       2    0.23      2.2
+phylum                160       4    2.50      4.3
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             1.0    0.9730          0.99          0.4495              0.0389           1.0             0.0123         0.0118                   1.0       0.6667                95.0  0.4663
+FP             3.0    0.9784          1.00          0.0040              0.0000           1.0             0.0357         0.0094                   1.0       0.9375                95.0  0.8474
+TN             1.0    0.9283          0.94          0.3762              0.0000           1.0             0.0111         0.0587                   1.0       0.0543                95.0  0.0039
+TP            20.0    0.9887          1.00          0.0120              0.0000           1.0             0.1897        -0.0006                   1.0       1.0000                95.0  0.9982
+
+
+######## se (knob 0.5)
+
+=== se soil hold-in species held out: 3 samples, F1 0.9568, TP 12103, FP 643, FN 451, TN 53124
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1           61      61  100.00     13.5
+2           89      50   56.18     11.1
+3-4        250      53   21.20     11.8
+5-9       1077      91    8.45     20.2
+10-29     4256     107    2.51     23.7
+30-99     4325      62    1.43     13.7
+100-999   2367      27    1.14      6.0
+>=1000     129       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  2909      51    1.75     11.3
+real strain       5840     351    6.01     77.8
+representative    3805      49    1.29     10.9
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                    100.0        100.0           100.0
+2                     33.3         70.2            28.6
+3-4                   10.4         32.1             6.2
+5-9                    6.9         13.0             1.6
+10-29                  0.9          4.4             0.8
+30-99                  0.9          2.3             0.6
+100-999                0.4          1.8             0.7
+>=1000                 0.0          0.0             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 297       1    0.34      0.2
+domain                 32       0    0.00      0.0
+family               3186      32    1.00      7.1
+genus                8223     416    5.06     92.2
+order                 722       2    0.28      0.4
+phylum                 94       0    0.00      0.0
+
+FP by fragments:
+           rows  errors  rate %  share %
+frag_bin                                
+1         25314       0    0.00      0.0
+2          8709      47    0.54      7.3
+3-4        6915      57    0.82      8.9
+5-9        5735     129    2.25     20.1
+10-29      4629     207    4.47     32.2
+30-99      1844     144    7.81     22.4
+100-999     596      58    9.73      9.0
+>=1000       25       1    4.00      0.2
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                   2519       6    0.24      0.9
+class                 1       0    0.00      0.0
+family                2       0    0.00      0.0
+genus                31       0    0.00      0.0
+order                 1       0    0.00      0.0
+species           51213     637    1.24     99.1
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                  81       0    0.00      0.0
+domain                  3       0    0.00      0.0
+family               3015      17    0.56      2.6
+genus               50407     620    1.23     96.4
+order                 245       5    2.04      0.8
+phylum                 16       1    6.25      0.2
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             7.0    0.9700        0.9946          0.7273              0.2500        0.9715             0.0725         0.0181                   1.0       0.0291                95.0  0.1865
+FP            15.0    0.9738        0.9966          0.3636              0.0833        0.9981             0.1354         0.0141                   1.0       0.1743                95.0  0.7100
+TN             2.0    0.9378        0.9538          0.5000              0.0000        0.9992             0.0168         0.0508                   1.0       0.0134                95.0  0.0041
+TP            35.0    0.9923        1.0000          0.0435              0.0000        1.0000             0.2793        -0.0000                   1.0       0.6349                95.0  0.9981
+
+=== se soil hold-out: 2 samples, F1 0.9511, TP 7651, FP 434, FN 353, TN 33182
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1           49      49  100.00     13.9
+2           80      38   47.50     10.8
+3-4        252      61   24.21     17.3
+5-9        949      61    6.43     17.3
+10-29     2685      79    2.94     22.4
+30-99     2508      41    1.63     11.6
+100-999   1383      23    1.66      6.5
+>=1000      98       1    1.02      0.3
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  1889      47    2.49     13.3
+real strain       3683     251    6.82     71.1
+representative    2432      55    2.26     15.6
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                    100.0        100.0           100.0
+2                     28.6         54.2            40.0
+3-4                   11.3         36.4             6.8
+5-9                    4.1         10.0             2.4
+10-29                  2.5          4.0             1.6
+30-99                  1.1          2.7             0.5
+100-999                0.9          2.5             1.1
+>=1000                 0.0          2.4             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 194       0    0.00      0.0
+domain                 21       1    4.76      0.3
+family               1935      20    1.03      5.7
+genus                5344     328    6.14     92.9
+order                 454       3    0.66      0.8
+phylum                 56       1    1.79      0.3
+
+FP by fragments:
+           rows  errors  rate %  share %
+frag_bin                                
+1         15973       1    0.01      0.2
+2          5368      22    0.41      5.1
+3-4        4482      83    1.85     19.1
+5-9        3447      91    2.64     21.0
+10-29      2813     118    4.19     27.2
+30-99      1104      79    7.16     18.2
+100-999     414      40    9.66      9.2
+>=1000       15       0    0.00      0.0
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                   1578       6    0.38      1.4
+family                1       0    0.00      0.0
+genus                 6       1   16.67      0.2
+order                 4       0    0.00      0.0
+species           32027     427    1.33     98.4
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                  65       0    0.00      0.0
+domain                  7       0    0.00      0.0
+family               1845      19    1.03      4.4
+genus               31556     415    1.32     95.6
+order                 135       0    0.00      0.0
+phylum                  8       0    0.00      0.0
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             6.0    0.9707        0.9959          0.6667              0.2308        0.9788             0.0614         0.0184                   1.0       0.0308                95.0  0.1968
+FP            12.0    0.9750        0.9965          0.4000              0.0742        0.9988             0.1111         0.0137                   1.0       0.1496                95.0  0.7289
+TN             2.0    0.9383        0.9542          0.5000              0.0000        0.9992             0.0167         0.0504                   1.0       0.0146                95.0  0.0042
+TP            31.0    0.9922        1.0000          0.0435              0.0000        1.0000             0.2522        -0.0000                   1.0       0.6047                95.0  0.9981
+
+=== se design test: 78 samples, F1 0.9592, TP 4294, FP 186, FN 179, TN 14733
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1          524     102   19.47     57.0
+2          325      31    9.54     17.3
+3-4        415      20    4.82     11.2
+5-9        563      12    2.13      6.7
+10-29      933       7    0.75      3.9
+30-99      764       6    0.79      3.4
+100-999    773       0    0.00      0.0
+>=1000     176       1    0.57      0.6
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  1155      39    3.38     21.8
+real strain       2292     121    5.28     67.6
+representative    1026      19    1.85     10.6
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                     21.6         21.4            13.5
+2                      7.0         13.9             0.0
+3-4                    2.1          7.7             0.0
+5-9                    0.0          3.8             0.8
+10-29                  0.0          1.5             0.0
+30-99                  1.4          0.8             0.0
+100-999                0.0          0.0             0.0
+>=1000                 0.0          1.2             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 654      19    2.91     10.6
+domain                262       5    1.91      2.8
+family               1027      32    3.12     17.9
+genus                1475      81    5.49     45.3
+order                 760      36    4.74     20.1
+phylum                295       6    2.03      3.4
+
+FP by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         8327      57    0.68     30.6
+2         2111      22    1.04     11.8
+3-4       1651      28    1.70     15.1
+5-9       1238      25    2.02     13.4
+10-29      963      26    2.70     14.0
+30-99      393      13    3.31      7.0
+100-999    215      11    5.12      5.9
+>=1000      21       4   19.05      2.2
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                   3998      19    0.48     10.2
+class                34       0    0.00      0.0
+family               73       0    0.00      0.0
+genus               241       0    0.00      0.0
+order               145       0    0.00      0.0
+phylum               37       1    2.70      0.5
+species           10391     166    1.60     89.2
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                 482       5    1.04      2.7
+domain                 87       2    2.30      1.1
+family               3289      19    0.58     10.2
+genus               10251     155    1.51     83.3
+order                 685       3    0.44      1.6
+phylum                125       2    1.60      1.1
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             1.0    0.9733        0.9867          0.5000                 0.0           1.0             0.0127         0.0119                   1.0       0.6400                95.0  0.2212
+FP             3.0    0.9784        0.9959          0.2346                 0.0           1.0             0.0326         0.0121                   1.0       0.7639                95.0  0.7420
+TN             1.0    0.9300        0.9400          0.5000                 0.0           1.0             0.0108         0.0570                   1.0       0.0545                95.0  0.0032
+TP            17.5    0.9911        1.0000          0.0208                 0.0           1.0             0.1610        -0.0006                   1.0       1.0000                95.0  0.9979
+
+
+######## pb (knob 0.5)
+
+=== pb soil hold-in species held out: 3 samples, F1 0.9479, TP 10931, FP 556, FN 645, TN 16302
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1          970     188   19.38     29.1
+2          841      76    9.04     11.8
+3-4       1427      96    6.73     14.9
+5-9       2486     109    4.38     16.9
+10-29     3587     120    3.35     18.6
+30-99     1721      47    2.73      7.3
+100-999    533       9    1.69      1.4
+>=1000      11       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  2637     100    3.79     15.5
+real strain       5414     484    8.94     75.0
+representative    3525      61    1.73      9.5
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                     15.1         30.7             6.0
+2                      6.4         16.1             1.5
+3-4                    3.9         12.1             0.9
+5-9                    2.0          7.4             1.6
+10-29                  2.1          5.2             1.4
+30-99                  0.9          4.4             1.1
+100-999                1.6          1.9             1.4
+>=1000                 0.0          0.0             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 277       2    0.72      0.3
+domain                 27       1    3.70      0.2
+family               2962      66    2.23     10.2
+genus                7556     567    7.50     87.9
+order                 668       9    1.35      1.4
+phylum                 86       0    0.00      0.0
+
+FP by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         6799     183    2.69     32.9
+2         2782      79    2.84     14.2
+3-4       2496      84    3.37     15.1
+5-9       2256      88    3.90     15.8
+10-29     1839      78    4.24     14.0
+30-99      554      35    6.32      6.3
+100-999    129       9    6.98      1.6
+>=1000       3       0    0.00      0.0
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                    516      27    5.23      4.9
+class                 1       0    0.00      0.0
+genus                 4       1   25.00      0.2
+species           16337     528    3.23     95.0
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                  13       7   53.85      1.3
+domain                  2       2  100.00      0.4
+family                304      50   16.45      9.0
+genus               16505     484    2.93     87.1
+order                  31      11   35.48      2.0
+phylum                  3       2   66.67      0.4
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             4.0    0.9729        0.9912          0.3548                 0.0           1.0             0.0345         0.0256                   1.0       0.0930                95.0  0.2335
+FP             3.0    0.9904        0.9980          0.0000                 0.0           1.0             0.0302         0.0074                   1.0       0.1389                95.0  0.7265
+TN             2.0    0.9391        0.9560          0.4000                 0.0           1.0             0.0183         0.0577                   1.0       0.0588                95.0  0.0160
+TP            10.0    0.9997        1.0000          0.0000                 0.0           1.0             0.0968        -0.0000                   1.0       0.7083                95.0  0.9926
+
+=== pb soil hold-out: 2 samples, F1 0.9469, TP 6726, FP 322, FN 432, TN 10144
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1          647     114   17.62     26.4
+2          552      63   11.41     14.6
+3-4        958      75    7.83     17.4
+5-9       1586      78    4.92     18.1
+10-29     2003      70    3.49     16.2
+30-99     1045      22    2.11      5.1
+100-999    353      10    2.83      2.3
+>=1000      14       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  1667      68    4.08     15.7
+real strain       3310     324    9.79     75.0
+representative    2181      40    1.83      9.3
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                     11.9         30.2             3.8
+2                      6.5         19.0             4.4
+3-4                    5.1         13.6             1.0
+5-9                    4.1          7.0             2.0
+10-29                  2.6          5.5             1.1
+30-99                  0.4          3.6             1.1
+100-999                0.0          4.8             1.9
+>=1000                 0.0          0.0             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 170       1    0.59      0.2
+domain                 19       0    0.00      0.0
+family               1749      40    2.29      9.3
+genus                4772     384    8.05     88.9
+order                 397       7    1.76      1.6
+phylum                 51       0    0.00      0.0
+
+FP by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         4406     113    2.56     35.1
+2         1728      49    2.84     15.2
+3-4       1454      48    3.30     14.9
+5-9       1308      42    3.21     13.0
+10-29     1099      49    4.46     15.2
+30-99      374      20    5.35      6.2
+100-999     94       1    1.06      0.3
+>=1000       3       0    0.00      0.0
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                    334      10    2.99      3.1
+species           10132     312    3.08     96.9
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                  11       5   45.45      1.6
+domain                  1       0    0.00      0.0
+family                187      24   12.83      7.5
+genus               10253     292    2.85     90.7
+order                  12       1    8.33      0.3
+phylum                  2       0    0.00      0.0
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             3.0    0.9712        0.9912          0.3333                 0.0           1.0             0.0333         0.0265                   1.0       0.1023                95.0  0.2250
+FP             2.0    0.9904        0.9982          0.0000                 0.0           1.0             0.0288         0.0074                   1.0       0.0993                95.0  0.7305
+TN             2.0    0.9390        0.9553          0.4286                 0.0           1.0             0.0179         0.0577                   1.0       0.0588                95.0  0.0169
+TP             9.0    0.9997        1.0000          0.0000                 0.0           1.0             0.0889        -0.0000                   1.0       0.6875                95.0  0.9922
+
+=== pb soil_shallow hold-in species held out: 3 samples, F1 0.9493, TP 7722, FP 299, FN 525, TN 7576
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         1722     210   12.20     40.0
+2         1263     107    8.47     20.4
+3-4       1622      96    5.92     18.3
+5-9       1793      63    3.51     12.0
+10-29     1401      39    2.78      7.4
+30-99      386      10    2.59      1.9
+100-999     59       0    0.00      0.0
+>=1000       1       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  1901     101    5.31     19.2
+real strain       3782     373    9.86     71.0
+representative    2564      51    1.99      9.7
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                      9.7         19.6             3.5
+2                      7.6         12.6             3.4
+3-4                    4.8          9.3             1.4
+5-9                    2.9          5.4             1.1
+10-29                  2.3          4.3             0.9
+30-99                  1.1          4.6             0.8
+100-999                0.0          0.0             0.0
+>=1000                 NaN          0.0             NaN
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 230       6    2.61      1.1
+domain                 27       2    7.41      0.4
+family               2016      54    2.68     10.3
+genus                5457     451    8.26     85.9
+order                 471      11    2.34      2.1
+phylum                 46       1    2.17      0.2
+
+FP by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         3809     117    3.07     39.1
+2         1411      47    3.33     15.7
+3-4       1091      53    4.86     17.7
+5-9        873      39    4.47     13.0
+10-29      566      39    6.89     13.0
+30-99      113       3    2.65      1.0
+100-999     12       1    8.33      0.3
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                  rows  errors  rate %  share %
+meta_novel_level                               
+                   159       8    5.03      2.7
+species           7716     291    3.77     97.3
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                    rows  errors  rate %  share %
+meta_relative_rank                               
+class                  1       1  100.00      0.3
+family                83      11   13.25      3.7
+genus               7785     286    3.67     95.7
+order                  5       1   20.00      0.3
+phylum                 1       0    0.00      0.0
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             2.0    0.9710        0.9834          0.0000                 0.0           1.0             0.0190         0.0275                   1.0       0.2500                95.0  0.1790
+FP             2.0    0.9886        0.9968          0.0000                 0.0           1.0             0.0233         0.0086                   1.0       0.3333                95.0  0.7578
+TN             2.0    0.9417        0.9545          0.1111                 0.0           1.0             0.0169         0.0561                   1.0       0.1667                95.0  0.0163
+TP             4.0    0.9998        1.0000          0.0000                 0.0           1.0             0.0392        -0.0000                   1.0       0.8571                95.0  0.9881
+
+=== pb soil_shallow hold-out: 2 samples, F1 0.9474, TP 4636, FP 178, FN 337, TN 4582
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         1092     153   14.01     45.4
+2          782      69    8.82     20.5
+3-4        919      49    5.33     14.5
+5-9       1046      37    3.54     11.0
+10-29      837      22    2.63      6.5
+30-99      255       7    2.75      2.1
+100-999     41       0    0.00      0.0
+>=1000       1       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  1126      56    4.97     16.6
+real strain       2306     240   10.41     71.2
+representative    1541      41    2.66     12.2
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                     10.4         20.6             5.8
+2                      5.4         13.3             4.7
+3-4                    3.6          9.1             1.7
+5-9                    3.4          5.1             1.2
+10-29                  2.0          4.3             0.7
+30-99                  1.8          4.0             1.4
+100-999                0.0          0.0             0.0
+>=1000                 NaN          NaN             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 113       5    4.42      1.5
+domain                 14       0    0.00      0.0
+family               1228      28    2.28      8.3
+genus                3334     298    8.94     88.4
+order                 247       6    2.43      1.8
+phylum                 37       0    0.00      0.0
+
+FP by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         2274      71    3.12     39.9
+2          825      35    4.24     19.7
+3-4        699      30    4.29     16.9
+5-9        539      22    4.08     12.4
+10-29      331      15    4.53      8.4
+30-99       80       5    6.25      2.8
+100-999     12       0    0.00      0.0
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                  rows  errors  rate %  share %
+meta_novel_level                               
+                   120       2    1.67      1.1
+species           4640     176    3.79     98.9
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                    rows  errors  rate %  share %
+meta_relative_rank                               
+class                  3       2   66.67      1.1
+family                63       7   11.11      3.9
+genus               4688     168    3.58     94.4
+order                  4       1   25.00      0.6
+phylum                 2       0    0.00      0.0
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             2.0    0.9701        0.9815          0.0345                 0.0           1.0             0.0182         0.0284                   1.0       0.2000                95.0  0.1597
+FP             2.0    0.9872        0.9972          0.0000                 0.0           1.0             0.0233         0.0089                   1.0       0.2929                95.0  0.7185
+TN             2.0    0.9400        0.9539          0.0641                 0.0           1.0             0.0171         0.0580                   1.0       0.1984                95.0  0.0174
+TP             4.0    0.9998        1.0000          0.0000                 0.0           1.0             0.0388        -0.0000                   1.0       0.8889                95.0  0.9880
+
+=== pb design test: 41 samples, F1 0.9767, TP 2056, FP 55, FN 43, TN 1604
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1          266      14    5.26     32.6
+2          191       3    1.57      7.0
+3-4        252      10    3.97     23.3
+5-9        312       6    1.92     14.0
+10-29      471       6    1.27     14.0
+30-99      329       3    0.91      7.0
+100-999    240       1    0.42      2.3
+>=1000      38       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain   529       7    1.32     16.3
+real strain       1104      35    3.17     81.4
+representative     466       1    0.21      2.3
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                      3.0          7.5             1.9
+2                      0.0          2.8             0.0
+3-4                    3.0          6.6             0.0
+5-9                    1.1          3.4             0.0
+10-29                  0.9          2.0             0.0
+30-99                  1.0          1.1             0.0
+100-999                0.0          0.8             0.0
+>=1000                 0.0          0.0             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 304       1    0.33      2.3
+domain                128       0    0.00      0.0
+family                499       9    1.80     20.9
+genus                 682      25    3.67     58.1
+order                 354       8    2.26     18.6
+phylum                132       0    0.00      0.0
+
+FP by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1          698      27    3.87     49.1
+2          236       8    3.39     14.5
+3-4        252       4    1.59      7.3
+5-9        186       9    4.84     16.4
+10-29      160       2    1.25      3.6
+30-99       90       2    2.22      3.6
+100-999     31       1    3.23      1.8
+>=1000       6       2   33.33      3.6
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                  rows  errors  rate %  share %
+meta_novel_level                               
+                   420      12    2.86     21.8
+class                1       0    0.00      0.0
+family               1       0    0.00      0.0
+genus                3       0    0.00      0.0
+phylum               5       1   20.00      1.8
+species           1229      42    3.42     76.4
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                    rows  errors  rate %  share %
+meta_relative_rank                               
+class                 18       4   22.22      7.3
+domain                 5       1   20.00      1.8
+family                75       9   12.00     16.4
+genus               1542      37    2.40     67.3
+order                 14       4   28.57      7.3
+phylum                 5       0    0.00      0.0
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             4.0    0.9701        0.9856             0.5              0.0000           1.0             0.0380         0.0242                   1.0       0.8333                95.0  0.2748
+FP             2.0    0.9925        0.9975             0.0              0.0000           1.0             0.0168         0.0076                   1.0       1.0000                95.0  0.7933
+TN             2.0    0.9392        0.9548             0.5              0.0205           1.0             0.0146         0.0576                   1.0       0.1000                95.0  0.0169
+TP            10.0    0.9996        1.0000             0.0              0.0000           1.0             0.1024        -0.0000                   1.0       1.0000                95.0  0.9920
+
+
+######## ont (knob 0.5)
+
+=== ont soil hold-in species held out: 3 samples, F1 0.9425, TP 11057, FP 694, FN 656, TN 21514
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1          848     192   22.64     29.3
+2          883      92   10.42     14.0
+3-4       1568     112    7.14     17.1
+5-9       2601     112    4.31     17.1
+10-29     3568      96    2.69     14.6
+30-99     1730      45    2.60      6.9
+100-999    503       7    1.39      1.1
+>=1000      12       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  2698      90    3.34     13.7
+real strain       5432     475    8.74     72.4
+representative    3583      91    2.54     13.9
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                     14.0         35.6             9.9
+2                      6.2         15.9             5.9
+3-4                    5.3         10.8             3.0
+5-9                    2.3          7.5             1.2
+10-29                  0.9          4.4             1.5
+30-99                  1.4          3.8             1.5
+100-999                0.8          1.7             1.4
+>=1000                 0.0          0.0             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 279       4    1.43      0.6
+domain                 28       0    0.00      0.0
+family               2987      51    1.71      7.8
+genus                7664     597    7.79     91.0
+order                 670       4    0.60      0.6
+phylum                 85       0    0.00      0.0
+
+FP by fragments:
+           rows  errors  rate %  share %
+frag_bin                                
+1         10329     232    2.25     33.4
+2          3534     101    2.86     14.6
+3-4        3060     104    3.40     15.0
+5-9        2635     108    4.10     15.6
+10-29      1968      95    4.83     13.7
+30-99       552      43    7.79      6.2
+100-999     127      11    8.66      1.6
+>=1000        3       0    0.00      0.0
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                    700      27    3.86      3.9
+genus                19       0    0.00      0.0
+species           21489     667    3.10     96.1
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                  22       3   13.64      0.4
+domain                  1       0    0.00      0.0
+family                650      54    8.31      7.8
+genus               21477     621    2.89     89.5
+order                  57      15   26.32      2.2
+phylum                  1       1  100.00      0.1
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             3.0    0.9430        0.9764             0.4              0.0078           1.0             0.0302         0.0226                   1.0       0.0714                95.0  0.2254
+FP             3.0    0.9574        0.9866             0.0              0.0000           1.0             0.0318         0.0063                   1.0       0.1984                95.0  0.7296
+TN             2.0    0.9030        0.9219             0.5              0.0000           1.0             0.0172         0.0692                   1.0       0.0526                95.0  0.0161
+TP            10.0    0.9691        1.0000             0.0              0.0000           1.0             0.0938        -0.0000                   1.0       0.6667                95.0  0.9928
+
+=== ont soil hold-out: 2 samples, F1 0.9412, TP 6870, FP 433, FN 426, TN 13155
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1          652     128   19.63     30.0
+2          611      78   12.77     18.3
+3-4       1038      65    6.26     15.3
+5-9       1534      61    3.98     14.3
+10-29     2127      65    3.06     15.3
+30-99      999      22    2.20      5.2
+100-999    321       7    2.18      1.6
+>=1000      14       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  1702      58    3.41     13.6
+real strain       3350     309    9.22     72.5
+representative    2244      59    2.63     13.8
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                     11.3         28.6            11.9
+2                      7.3         21.0             4.0
+3-4                    2.4         10.5             2.6
+5-9                    3.3          6.5             0.8
+10-29                  1.6          4.4             2.0
+30-99                  1.8          3.4             0.9
+100-999                0.0          4.1             1.0
+>=1000                 0.0          0.0             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 185       1    0.54      0.2
+domain                 20       0    0.00      0.0
+family               1755      33    1.88      7.7
+genus                4870     386    7.93     90.6
+order                 415       6    1.45      1.4
+phylum                 51       0    0.00      0.0
+
+FP by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         6387     143    2.24     33.0
+2         2179      64    2.94     14.8
+3-4       1837      70    3.81     16.2
+5-9       1549      52    3.36     12.0
+10-29     1170      68    5.81     15.7
+30-99      381      34    8.92      7.9
+100-999     83       2    2.41      0.5
+>=1000       2       0    0.00      0.0
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                   rows  errors  rate %  share %
+meta_novel_level                                
+                    456      14    3.07      3.2
+family                1       0    0.00      0.0
+genus                 3       0    0.00      0.0
+order                 1       0    0.00      0.0
+species           13127     419    3.19     96.8
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                     rows  errors  rate %  share %
+meta_relative_rank                                
+class                   9       3   33.33      0.7
+domain                  1       0    0.00      0.0
+family                411      32    7.79      7.4
+genus               13132     391    2.98     90.3
+order                  32       7   21.88      1.6
+phylum                  3       0    0.00      0.0
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             3.0    0.9423        0.9759          0.3964                 0.0           1.0             0.0277         0.0234                   1.0       0.0874                95.0  0.2139
+FP             3.0    0.9570        0.9859          0.0000                 0.0           1.0             0.0278         0.0067                   1.0       0.1600                95.0  0.7400
+TN             2.0    0.9033        0.9211          0.5000                 0.0           1.0             0.0171         0.0702                   1.0       0.0556                95.0  0.0160
+TP             9.0    0.9696        1.0000          0.0000                 0.0           1.0             0.0875        -0.0000                   1.0       0.6407                95.0  0.9918
+
+=== ont soil_shallow hold-in species held out: 3 samples, F1 0.9394, TP 7842, FP 419, FN 593, TN 9371
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         1877     284   15.13     47.9
+2         1355     122    9.00     20.6
+3-4       1676      94    5.61     15.9
+5-9       1782      51    2.86      8.6
+10-29     1352      33    2.44      5.6
+30-99      339       9    2.65      1.5
+100-999     53       0    0.00      0.0
+>=1000       1       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  1918     110    5.74     18.5
+real strain       3860     380    9.84     64.1
+representative    2657     103    3.88     17.4
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                     13.6         20.3             8.5
+2                      7.0         13.6             3.9
+3-4                    3.7          8.4             3.1
+5-9                    2.2          4.2             1.3
+10-29                  1.7          2.8             2.5
+30-99                  1.4          4.0             1.7
+100-999                0.0          0.0             0.0
+>=1000                 NaN          0.0             NaN
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 238       6    2.52      1.0
+domain                 22       1    4.55      0.2
+family               2037      55    2.70      9.3
+genus                5609     522    9.31     88.0
+order                 485       8    1.65      1.3
+phylum                 44       1    2.27      0.2
+
+FP by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         5194     175    3.37     41.8
+2         1691      69    4.08     16.5
+3-4       1282      72    5.62     17.2
+5-9        985      55    5.58     13.1
+10-29      530      39    7.36      9.3
+30-99       97       7    7.22      1.7
+100-999     11       2   18.18      0.5
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                  rows  errors  rate %  share %
+meta_novel_level                               
+                   216      17    7.87      4.1
+genus                3       0    0.00      0.0
+species           9571     402    4.20     95.9
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                    rows  errors  rate %  share %
+meta_relative_rank                               
+class                  2       0    0.00      0.0
+domain                 1       1  100.00      0.2
+family               182      17    9.34      4.1
+genus               9594     400    4.17     95.5
+order                 10       1   10.00      0.2
+phylum                 1       0    0.00      0.0
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             2.0    0.9386        0.9620            0.00                 0.0           1.0             0.0177         0.0246                   1.0       0.1795                95.0  0.1667
+FP             2.0    0.9572        0.9810            0.00                 0.0           1.0             0.0217         0.0075                   1.0       0.2973                95.0  0.7044
+TN             1.0    0.9054        0.9202            0.25                 0.0           1.0             0.0141         0.0658                   1.0       0.1486                95.0  0.0168
+TP             4.0    0.9718        0.9962            0.00                 0.0           1.0             0.0370        -0.0001                   1.0       0.8095                95.0  0.9871
+
+=== ont soil_shallow hold-out: 2 samples, F1 0.9339, TP 4859, FP 284, FN 404, TN 5736
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         1264     188   14.87     46.5
+2          844      90   10.66     22.3
+3-4       1019      63    6.18     15.6
+5-9       1013      38    3.75      9.4
+10-29      841      22    2.62      5.4
+30-99      240       3    1.25      0.7
+100-999     41       0    0.00      0.0
+>=1000       1       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain  1200      64    5.33     15.8
+real strain       2416     262   10.84     64.9
+representative    1647      78    4.74     19.3
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                      8.5         22.1             9.9
+2                      5.9         15.1             7.1
+3-4                    5.0          8.5             3.6
+5-9                    3.6          4.9             2.3
+10-29                  3.0          3.6             0.8
+30-99                  1.6          1.9             0.0
+100-999                0.0          0.0             0.0
+>=1000                 NaN          NaN             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 132       2    1.52      0.5
+domain                 19       0    0.00      0.0
+family               1325      28    2.11      6.9
+genus                3490     365   10.46     90.3
+order                 259       7    2.70      1.7
+phylum                 38       2    5.26      0.5
+
+FP by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         3124     116    3.71     40.8
+2         1014      45    4.44     15.8
+3-4        814      42    5.16     14.8
+5-9        617      42    6.81     14.8
+10-29      367      33    8.99     11.6
+30-99       73       5    6.85      1.8
+100-999     11       1    9.09      0.4
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                  rows  errors  rate %  share %
+meta_novel_level                               
+                   136       2    1.47      0.7
+species           5884     282    4.79     99.3
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                    rows  errors  rate %  share %
+meta_relative_rank                               
+class                  4       2   50.00      0.7
+family               113       8    7.08      2.8
+genus               5897     273    4.63     96.1
+order                  6       1   16.67      0.4
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             2.0    0.9412        0.9640          0.2500                 0.0           1.0             0.0172         0.0250                   1.0       0.1633                95.0  0.1699
+FP             2.0    0.9621        0.9838          0.0000                 0.0           1.0             0.0208         0.0093                   1.0       0.5000                95.0  0.7430
+TN             1.0    0.9061        0.9212          0.1667                 0.0           1.0             0.0154         0.0665                   1.0       0.1667                95.0  0.0166
+TP             4.0    0.9724        0.9963          0.0000                 0.0           1.0             0.0357        -0.0001                   1.0       0.8571                95.0  0.9864
+
+=== ont design test: 42 samples, F1 0.9720, TP 2101, FP 66, FN 55, TN 2233
+
+FN by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1          302      25    8.28     45.5
+2          211       9    4.27     16.4
+3-4        240       5    2.08      9.1
+5-9        340       6    1.76     10.9
+10-29      481       7    1.46     12.7
+30-99      302       2    0.66      3.6
+100-999    243       1    0.41      1.8
+>=1000      37       0    0.00      0.0
+
+FN by strain kind:
+                  rows  errors  rate %  share %
+strain                                         
+in-silico strain   566       8    1.41     14.5
+real strain       1111      46    4.14     83.6
+representative     479       1    0.21      1.8
+
+FN by strain kind and fragments (rate %):
+strain    in-silico strain  real strain  representative
+frag_bin                                               
+1                      6.0         13.1             1.4
+2                      3.0          6.5             0.0
+3-4                    0.0          4.0             0.0
+5-9                    1.1          2.9             0.0
+10-29                  0.0          2.9             0.0
+30-99                  0.0          1.2             0.0
+100-999                0.0          0.8             0.0
+>=1000                 0.0          0.0             0.0
+
+FN by the closest other species in the sample (meta_neighbour_rank):
+                     rows  errors  rate %  share %
+meta_neighbour_rank                               
+class                 313       3    0.96      5.5
+domain                131       1    0.76      1.8
+family                519       7    1.35     12.7
+genus                 700      33    4.71     60.0
+order                 357       9    2.52     16.4
+phylum                136       2    1.47      3.6
+
+FP by fragments:
+          rows  errors  rate %  share %
+frag_bin                               
+1         1119      28    2.50     42.4
+2          333       8    2.40     12.1
+3-4        299       5    1.67      7.6
+5-9        220      11    5.00     16.7
+10-29      190       5    2.63      7.6
+30-99       97       4    4.12      6.1
+100-999     34       3    8.82      4.5
+>=1000       7       2   28.57      3.0
+
+FP by the rank their reads' source was held out at (meta_novel_level; '' = closest species in the DB):
+                  rows  errors  rate %  share %
+meta_novel_level                               
+                   580       8    1.38     12.1
+class                1       1  100.00      1.5
+family               3       0    0.00      0.0
+genus                8       1   12.50      1.5
+order                2       0    0.00      0.0
+phylum               6       2   33.33      3.0
+species           1699      54    3.18     81.8
+
+FP by the deepest rank shared with a simulated species (meta_relative_rank):
+                    rows  errors  rate %  share %
+meta_relative_rank                               
+class                 38       5   13.16      7.6
+domain                 8       3   37.50      4.5
+family               194      10    5.15     15.2
+genus               2021      47    2.33     71.2
+order                 26       1    3.85      1.5
+phylum                12       0    0.00      0.0
+
+medians by outcome:
+         fragments  identity  top_identity  low_mapq_share  congener_fit_share  em_own_share  hit_gene_fraction  excess_median  relative_close_share  genus_share  cluster_ani_radius       p
+outcome                                                                                                                                                                                      
+FN             2.0    0.9466        0.9747            0.25                 0.0           1.0             0.0189         0.0248                   1.0       1.0000                95.0  0.2230
+FP             2.0    0.9544        0.9865            0.00                 0.0           1.0             0.0192         0.0068                   1.0       1.0000                95.0  0.7711
+TN             2.0    0.9011        0.9171            0.50                 0.0           1.0             0.0130         0.0684                   1.0       0.0769                95.0  0.0155
+TP            10.0    0.9694        1.0000            0.00                 0.0           1.0             0.0940        -0.0000                   1.0       1.0000                95.0  0.9921

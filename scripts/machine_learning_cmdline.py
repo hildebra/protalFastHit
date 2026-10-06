@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Train protal's presence model and report how well it does on samples and species it has not seen.
 
-The model is a random forest that gives each taxon with reads the probability that it is present;
-protal reports taxa whose probability is at least --knob. Training needs no Java: the forest is
-written as PMML by model_pmml.py, and protal scores exactly what scikit-learn scores (checked here on
-every training row).
+The model gives each taxon with reads the probability that it is present; protal reports taxa whose
+probability is at least --knob. It is gradient-boosted trees (--model gbm, the default since 2026-10-06:
+scikit-learn's HistGradientBoostingClassifier, MODEL_DEFAULTS) or a random forest (--model forest, the
+model before). On the r226 v13 tables boosting scored higher than the forest on every test set of the
+long reads (soil +0.004 to +0.008, the design's test set +0.003, gut +0.008 to +0.013) and Ultima's (+0.005 in
+soil), and, with the scenarios' depths varied, paired-end reads' (docs/claude/2026-10-06-r226-v13-soil).
+Training needs no Java: the model is written as PMML by model_pmml.py, and protal scores exactly what
+scikit-learn scores (checked here on every training row). "Forest" below stands for either model.
 
-    python3 scripts/random_forest_cmdline.py --truth-file training/training_data.tsv \\
+    python3 scripts/machine_learning_cmdline.py --truth-file training/training_data.tsv \\
         --output-prefix training/model
 
 The training table comes from collect_training_data.py: protal's training dumps
@@ -19,8 +23,8 @@ scored by forests that saw neither its sample ("by sample") nor its species ("by
 with --taxonomy, by forests that saw no taxon of its genus, family, class or phylum. By species is
 what matters for a large database: of GTDB's ~130,000 species, a training set holds a few thousand,
 so most species protal meets in real samples were never in training; the clades tell how far that
-holds. The out-of-bag estimate (each tree scores the rows it was not grown on) comes free with the
-fit. When the training database lacked species or whole clades (build_gtdb_database.py), the report
+holds. A forest's out-of-bag estimate (each tree scores the rows it was not grown on) comes free with
+the fit; boosting has none. When the training database lacked species or whole clades (build_gtdb_database.py), the report
 also counts the false positives their reads cause, by the rank they were held out at.
 
 Written to PREFIX.*:
@@ -28,11 +32,11 @@ Written to PREFIX.*:
   report.txt          the evaluation (also printed); metrics.json has its numbers
   predictions.tsv.gz  each taxon's probabilities out of fold, with its main features
   thresholds.tsv      precision and sensitivity by threshold, from species held out
-  varimp.tsv          feature importances
-  joblib              the fitted scikit-learn forest
+  varimp.tsv          feature importances (a forest's Gini importances; boosting's split gains)
+  joblib              the fitted scikit-learn model
 
 --evaluation full adds studies that tell whether the training set and the settings suffice: other
-feature sets, forest sizes and tree counts, and fewer training samples. --previous-procedure (off by
+feature sets, model sizes (a forest's leaves and trees, boosting's leaves and rounds), and fewer training samples. --previous-procedure (off by
 default) also compares with the procedure this script used before: a grid search over max_features, then
 a forest of 512 trees on only the top features. Its grid, which took most of the training time
 (docs/claude/2026-10-01-build-profiling), is cheaper than the procedure's own: every second value of
@@ -79,6 +83,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import datetime
 import json
 import os
@@ -90,16 +95,26 @@ import joblib
 import numpy as np
 import pandas as pd
 import sklearn
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.metrics import average_precision_score, brier_score_loss, log_loss, precision_recall_curve, roc_auc_score
 from sklearn.model_selection import GridSearchCV, GroupKFold, StratifiedKFold
+from threadpoolctl import threadpool_limits
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lineages  # noqa: E402
 from model_features import (AUTO_FEATURE_SETS, AUTO_MIN_GAIN, DEFAULT_FEATURE_SET, FEATURE_SETS,  # noqa: E402
                             auto_candidates, feature_columns, feature_set_name, has_sample_depth)
-from model_pmml import (PmmlForest, format_depth_knob_curve, read_depth_knob_curve, read_false_calls,  # noqa: E402
-                        write_forest)
+from model_pmml import (format_depth_knob_curve, load_model, read_depth_knob_curve, read_false_calls,  # noqa: E402
+                        write_model)
+
+# --model: gradient-boosted trees (gbm, the default) or a random forest, and each one's defaults of the options that
+# shape it (--maxnodes, --min-samples-leaf; --ntree and --max-features are the forest's, --rounds, --learning-rate and
+# --l2 boosting's). Boosting's: the settings of the r226 v13 experiments (docs/claude/2026-10-06-r226-v13-soil), 500
+# rounds at a rate of 0.05 of trees of up to 63 leaves, 20 rows a leaf at least, an L2 penalty of 1 on the leaf values,
+# balanced classes and no early stopping (it would hold out random rows, which share samples and species with the rest).
+MODELS = ("gbm", "forest")
+MODEL_DEFAULTS = {"gbm": {"maxnodes": 63, "min_samples_leaf": 20}, "forest": {"maxnodes": 256, "min_samples_leaf": 1}}
+GBM_ROUNDS, GBM_LEARNING_RATE, GBM_L2 = 500, 0.05, 1.0
 
 # Clades held out in cross-validation (with --taxonomy): each row is scored by forests that saw no taxon of
 # its genus, family, order, class or phylum.
@@ -182,14 +197,23 @@ def parse_args(argv=None):
                         "the sets with the priors too); see choose_feature_set")
     p.add_argument("--reference-pmml", help="train on the inputs of this PMML model instead of --features (which it "
                                             "overrides, auto included)")
-    p.add_argument("--ntree", type=int, default=64, help="trees (default 64)")
-    p.add_argument("--maxnodes", type=int, default=256,
-                   help="leaves per tree at most, 0 for no limit (default 256; the GTDB build gives 512 for short reads "
-                        "and 128 for long reads: at r226 512 leaves gave short reads a lower log loss and fewer false "
-                        "positives, 128 long reads a lower log loss at the same F1, "
-                        "docs/claude/2026-10-02-r226-v3-training/README.md)")
-    p.add_argument("--min-samples-leaf", type=int, default=1)
-    p.add_argument("--max-features", default="sqrt", help="features tried per split: sqrt, log2, a count or a fraction")
+    p.add_argument("--model", choices=MODELS, default="gbm",
+                   help="gbm (default): gradient-boosted trees (HistGradientBoostingClassifier); forest: a random forest, "
+                        "the model before 2026-10-06 (see above)")
+    p.add_argument("--ntree", type=int, default=64, help="the forest's trees (default 64)")
+    p.add_argument("--rounds", type=int, default=GBM_ROUNDS, help=f"boosting's rounds, a tree each (default {GBM_ROUNDS})")
+    p.add_argument("--learning-rate", type=float, default=GBM_LEARNING_RATE,
+                   help=f"boosting's learning rate (default {GBM_LEARNING_RATE})")
+    p.add_argument("--l2", type=float, default=GBM_L2, help=f"boosting's L2 penalty of the leaf values (default {GBM_L2:g})")
+    p.add_argument("--maxnodes", type=int, default=None,
+                   help="leaves per tree at most, 0 for no limit (default: 63 for boosting, 256 for a forest; the GTDB "
+                        "build gave forests 512 for short reads and 128 for long reads: at r226 512 leaves gave short "
+                        "reads a lower log loss and fewer false positives, 128 long reads a lower log loss at the same "
+                        "F1, docs/claude/2026-10-02-r226-v3-training/README.md)")
+    p.add_argument("--min-samples-leaf", type=int, default=None,
+                   help="rows a leaf holds at least (default: 20 for boosting, 1 for a forest)")
+    p.add_argument("--max-features", default="sqrt",
+                   help="the forest's features tried per split: sqrt, log2, a count or a fraction")
     p.add_argument("--knob", type=float, default=0.5, help="the threshold protal will use (its --knob, default 0.5)")
     p.add_argument("--depth-knobs", action="store_true",
                    help="also choose a knob curve over the sample's depth, on species held out, and store it in the "
@@ -207,12 +231,12 @@ def parse_args(argv=None):
                         "fragment beside a congener of at least this many fragments, whose read looks like the "
                         "congener's, is never called; every F1 here counts it so")
     p.add_argument("--scenario-weight", type=float, default=SCENARIO_WEIGHT,
-                   help=f"the sample weight of the scenarios' rows (meta_scenario) in every forest, the design's 1 "
+                   help=f"the sample weight of the scenarios' rows (meta_scenario) in every model fitted, the design's 1 "
                         f"(default {SCENARIO_WEIGHT}; 1: as the design's)")
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
-                   help="full: also the studies (see above); basic: out of bag, by sample and by species; "
-                        "none: fit and export only")
+                   help="full: also the studies (see above); basic: by sample and by species (and a forest's out of "
+                        "bag); none: fit and export only")
     p.add_argument("--previous-procedure", action=argparse.BooleanOptionalAction, default=False,
                    help="also compare with the procedure this script used before (grid search over max_features, "
                         "512 trees on the top features), unless --evaluation none; off by default, as it takes "
@@ -220,12 +244,17 @@ def parse_args(argv=None):
     p.add_argument("--taxonomy", help="internal_taxonomy.dmp of the database, for the taxa's domains when the "
                                       "table has no meta_domain column")
     p.add_argument("--test-file", help="an independent test table (collect_training_data.py with another design and "
-                                       "seed): scored with the fitted forest and reported, by depth and by rank; its "
+                                       "seed): scored with the fitted model and reported, by depth and by rank; its "
                                        "scenarios' rows (meta_scenario) are the scenarios' hold-out samples, reported "
                                        "apart (section Scenarios)")
     p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--threads", type=int, default=4)
-    return p.parse_args(argv)
+    p.add_argument("--threads", type=int, default=4,
+                   help="threads (default 4; boosting's OpenMP threads too, which would otherwise take every core)")
+    opts = p.parse_args(argv)
+    for name, value in MODEL_DEFAULTS[opts.model].items():
+        if getattr(opts, name) is None:
+            setattr(opts, name, value)
+    return opts
 
 
 def max_features_value(text):
@@ -299,12 +328,92 @@ def check_features(df, cols):
 
 # ---- models and folds -------------------------------------------------------------------------------------
 
-def forest_params(opts, **overrides):
-    params = dict(n_estimators=opts.ntree, max_leaf_nodes=opts.maxnodes or None, min_samples_leaf=opts.min_samples_leaf,
-                  max_features=max_features_value(opts.max_features), class_weight="balanced",
-                  random_state=opts.seed, n_jobs=opts.threads)
+def model_params(opts, kind=None, **overrides):
+    """The settings of a model of `kind` (--model by default) from the options, with `overrides`: {"kind": ..., and the
+    scikit-learn estimator's parameters} (make_model). A forest's settings for kind "forest" whatever --model is (the
+    previous procedure's)."""
+    kind = kind or opts.model
+    if kind == "forest":
+        maxnodes = opts.maxnodes if opts.model == "forest" else MODEL_DEFAULTS["forest"]["maxnodes"]
+        min_leaf = opts.min_samples_leaf if opts.model == "forest" else MODEL_DEFAULTS["forest"]["min_samples_leaf"]
+        params = dict(kind="forest", n_estimators=opts.ntree, max_leaf_nodes=maxnodes or None, min_samples_leaf=min_leaf,
+                      max_features=max_features_value(opts.max_features), class_weight="balanced",
+                      random_state=opts.seed, n_jobs=opts.threads)
+    else:
+        params = dict(kind="gbm", max_iter=opts.rounds, learning_rate=opts.learning_rate, max_leaf_nodes=opts.maxnodes or None,
+                      min_samples_leaf=opts.min_samples_leaf, l2_regularization=opts.l2, class_weight="balanced",
+                      early_stopping=False, random_state=opts.seed)
     params.update(overrides)
     return params
+
+
+def make_model(params):
+    """An unfitted estimator of model_params' settings: a RandomForestClassifier or a HistGradientBoostingClassifier
+    (its OpenMP threads limited to --threads by main's threadpool_limits)."""
+    params = dict(params)
+    kind = params.pop("kind", "forest")
+    return RandomForestClassifier(**params) if kind == "forest" else HistGradientBoostingClassifier(**params)
+
+
+def is_forest(model):
+    return isinstance(model, RandomForestClassifier)
+
+
+def model_nodes(model):
+    """The nodes of a fitted model's trees."""
+    if is_forest(model):
+        return int(sum(e.tree_.node_count for e in model.estimators_))
+    return int(sum(len(tree.nodes) for trees in model._predictors for tree in trees))
+
+
+def model_trees(model):
+    return len(model.estimators_) if is_forest(model) else int(sum(len(trees) for trees in model._predictors))
+
+
+def mean_leaves(model):
+    """A fitted model's leaves per tree, on average."""
+    if is_forest(model):
+        return float(np.mean([e.tree_.n_leaves for e in model.estimators_]))
+    return float(np.mean([int(tree.nodes["is_leaf"].sum()) for trees in model._predictors for tree in trees]))
+
+
+def model_importances(model, n_features):
+    """A fitted model's feature importances, summing to 1: a forest's (Gini) importances, or boosting's split gains (the
+    loss reduction of every split on the feature, over all trees)."""
+    if is_forest(model):
+        return np.asarray(model.feature_importances_, dtype=float)
+    gain = np.zeros(n_features)
+    for trees in model._predictors:
+        for tree in trees:
+            nodes = tree.nodes[tree.nodes["is_leaf"] == 0]
+            np.add.at(gain, nodes["feature_idx"].astype(int), nodes["gain"].astype(float))
+    total = gain.sum()
+    return gain / total if total > 0 else gain
+
+
+@contextlib.contextmanager
+def sequential(model):
+    """A forest's trees summed in file order while within (n_jobs 1), as protal sums them: with more jobs the summation
+    order, and so the last bit of a probability, may differ. Boosting sums its trees in order on any number of threads."""
+    if not is_forest(model):
+        yield model
+        return
+    jobs = model.n_jobs
+    model.n_jobs = 1
+    try:
+        yield model
+    finally:
+        model.n_jobs = jobs
+
+
+def describe_model(opts, model=None):
+    """The model's settings in words (and its nodes, when fitted)."""
+    nodes = f", {model_nodes(model)} nodes" if model is not None else ""
+    if opts.model == "forest":
+        return (f"random forest: {opts.ntree} trees, max {opts.maxnodes or 'unlimited'} leaves, min leaf "
+                f"{opts.min_samples_leaf}, max features {opts.max_features}{nodes}")
+    return (f"gradient-boosted trees: {opts.rounds} rounds at a learning rate of {opts.learning_rate:g}, max "
+            f"{opts.maxnodes or 'unlimited'} leaves, min leaf {opts.min_samples_leaf}, L2 {opts.l2:g}{nodes}")
 
 
 def row_weights(rows=None):
@@ -315,13 +424,13 @@ def row_weights(rows=None):
     return ROW_WEIGHTS if rows is None else ROW_WEIGHTS[rows]
 
 
-def fit_forest(params, X, y, rows=None):
-    """A forest of `params` fitted on the training table's rows `rows` (all by default) of X and y, each with its
-    weight (row_weights), as every forest here is: the final one, those of the held-out estimates, of the feature sets'
-    choice and of the studies."""
+def fit_model(params, X, y, rows=None):
+    """A model of `params` (model_params) fitted on the training table's rows `rows` (all by default) of X and y, each
+    with its weight (row_weights), as every model here is: the final one, those of the held-out estimates, of the
+    feature sets' choice and of the studies."""
     if rows is None:
-        return RandomForestClassifier(**params).fit(X, y, sample_weight=row_weights())
-    return RandomForestClassifier(**params).fit(X[rows], y[rows], sample_weight=row_weights(rows))
+        return make_model(params).fit(X, y, sample_weight=row_weights())
+    return make_model(params).fit(X[rows], y[rows], sample_weight=row_weights(rows))
 
 
 def folds(df, y, scheme, opts):
@@ -340,18 +449,18 @@ def folds(df, y, scheme, opts):
 
 
 def predict_out_of_fold(X, y, splits, params, fit_rows=None, leaves=None):
-    """Each row's probability from the forest that did not see its fold. fit_rows(train) may thin a fold's
-    training rows; leaves, a list, gets each fold forest's mean leaves per tree."""
+    """Each row's probability from the model that did not see its fold. fit_rows(train) may thin a fold's
+    training rows; leaves, a list, gets each fold model's mean leaves per tree."""
     p = np.full(len(y), np.nan)
     for train, test in splits:
         if fit_rows is not None:
             train = fit_rows(train)
         if len(np.unique(y[train])) < 2:
             continue
-        rf = fit_forest(params, X, y, train)
+        rf = fit_model(params, X, y, train)
         p[test] = rf.predict_proba(X[test])[:, 1]
         if leaves is not None:
-            leaves.append(np.mean([e.tree_.n_leaves for e in rf.estimators_]))
+            leaves.append(mean_leaves(rf))
     return p
 
 
@@ -530,6 +639,15 @@ def study_data(report, df, y, cols):
     return warnings
 
 
+def held_out(p):
+    """The held-out probabilities the studies read: with species held out, else (no species to split by) a forest's out
+    of bag, else by rows."""
+    for key in ("species", "out of bag", "rows"):
+        if p.get(key) is not None:
+            return p[key]
+    raise ValueError("no held-out probabilities")
+
+
 def study_evaluation(report, df, X, y, opts, oob, known=None):
     """Out of fold by rows, samples and species; returns the probabilities by scheme. known: probabilities of a
     scheme already computed with the same folds and forests ({"species": ...} from choose_feature_set)."""
@@ -537,10 +655,10 @@ def study_evaluation(report, df, X, y, opts, oob, known=None):
     report.add("rows: random rows held out (the samples and species of the held-out rows are in training); "
                "samples: whole samples held out; species: whole species held out (as most GTDB species are when "
                "profiling real samples); genus, family, order, class, phylum (with --taxonomy): whole clades held out, "
-               "so the forest saw no taxon of the row's clade (as for taxa of clades the training data barely "
-               "cover). out of bag: each row scored by the trees not grown on it.")
-    params = forest_params(opts)
-    p = {"out of bag": oob}
+               "so the model saw no taxon of the row's clade (as for taxa of clades the training data barely "
+               "cover)." + (" out of bag: each row scored by the trees not grown on it." if oob is not None else ""))
+    params = model_params(opts)
+    p = {"out of bag": oob} if oob is not None else {}
     for scheme in ("rows", "samples", "species", *CLADE_SCHEMES):
         if known and scheme in known:
             p[scheme] = known[scheme]
@@ -561,7 +679,7 @@ def study_evaluation(report, df, X, y, opts, oob, known=None):
 
 def study_breakdown(report, df, y, p, opts):
     report.section("Where the errors are (species held out; collection model for comparison)")
-    new = p.get("species", p["out of bag"])
+    new = held_out(p)
     old = p.get("collection model")
     call_new = call_scores(df, new) >= opts.knob
     call_old = call_scores(df, old) >= opts.knob if old is not None else None
@@ -639,7 +757,7 @@ def study_by_rank(report, df, y, p, opts, title="False positives and false negat
     report.section(title)
     report.add(f"Rates in % at the knob, {scored} (and by the collection model, _collection). "
                "FP rate: of the absent taxa, those called; FN rate: of the present taxa, those not called.")
-    new = p["species"] if "species" in p else p["out of bag"]
+    new = held_out(p)
     old = p.get("collection model")
     absent, present = y == 0, y == 1
     called_new = call_scores(df, new) >= opts.knob
@@ -918,10 +1036,10 @@ def choose_global_knob(report, df, y, p, opts):
     other read types' sat near 0.5 or disagreed between the two (docs/claude/2026-10-05-r226-v12-scenarios). -> the knob,
     or None (protal calls at --knob)."""
     report.section("Knob (species held out)")
-    report.add("No knob curve: the sample's depth is a feature (sample_log_fragments), so the forest's score already "
+    report.add("No knob curve: the sample's depth is a feature (sample_log_fragments), so the model's score already "
                "depends on it, and a curve fitted on top of it corrects twice (on the r226 v5 tables it lost 0.01 of "
                "test F1; docs/claude/2026-10-03-false-positive-anatomy). One knob for every sample instead, if it gains "
-               f"{DEPTH_KNOB_MIN_GAIN} of F1 with species held out (rows weighted as in the forests).")
+               f"{DEPTH_KNOB_MIN_GAIN} of F1 with species held out (rows weighted as in the fits).")
     scores = p.get("species")
     if scores is None:
         report.add("no scores with species held out: protal calls at --knob")
@@ -961,7 +1079,7 @@ def study_depth_knobs(report, df, X, y, p, opts):
         if splits is None:
             report.add("the table cannot hold out species: no depth knobs")
             return []
-        scores = predict_out_of_fold(X, y, splits, forest_params(opts))
+        scores = predict_out_of_fold(X, y, splits, model_params(opts))
     depths = sample_depths(df)
     ok = ~np.isnan(scores)
     scores = call_scores(df, scores)  # the singleton rule's rows are never called
@@ -1094,7 +1212,7 @@ def choose_false_calls(report, df, X, y, p, opts, depth_knobs):
         if splits is None:
             report.add("the table cannot hold out species: no calibrated calls")
             return None
-        scores = predict_out_of_fold(X, y, splits, forest_params(opts))
+        scores = predict_out_of_fold(X, y, splits, model_params(opts))
     curve, prior = fit_calibration(y, scores)
     ok = ~np.isnan(scores)
     q = calibrated(curve, scores[ok])
@@ -1199,7 +1317,7 @@ def study_test(report, rf, cols, opts, prefix, depth_knobs=None, false_calls=Non
     collection = {"collection model": test["probability"].to_numpy(dtype=float)} if "probability" in test.columns else {}
     study_by_rank(report, test, y, {"species": p, **collection}, opts,
                   title="Independent test set: false positives and false negatives by taxonomic rank",
-                  key="test_by_rank", clade_rows=False, scored="scored by the forest fitted on all training rows")
+                  key="test_by_rank", clade_rows=False, scored="scored by the model fitted on all training rows")
     out = test[[c for c in test.columns if c.startswith("meta_")] + [c for c in ("taxon", "taxon_name", "domain", "truth")
                                                                          if c in test]].copy()
     out["p"] = p
@@ -1208,7 +1326,7 @@ def study_test(report, rf, cols, opts, prefix, depth_knobs=None, false_calls=Non
 
 def study_threshold(report, df, y, p, opts, prefix):
     report.section("Threshold (species held out)")
-    scores = p.get("species", p["out of bag"])
+    scores = held_out(p)
     scores = np.where(vetoed(df), -1.0, scores)  # the singleton rule's rows are never called
     t, prec, rec, f1 = best_threshold(y, scores)
     table = threshold_table(y, scores)
@@ -1244,7 +1362,7 @@ def study_features(report, df, y, opts, cols, known=None):
             splits = folds(df, y, scheme, opts)
             if splits is not None:
                 rows.append(({"features": f"{name} ({len(set_cols)})", "held out": scheme},
-                             metrics(y, predict_out_of_fold(X, y, splits, forest_params(opts)), df, opts.knob)))
+                             metrics(y, predict_out_of_fold(X, y, splits, model_params(opts)), df, opts.knob)))
     report.table(metrics_table(rows))
     report.data["feature_sets"] = [dict(**label, **m) for label, m in rows]
 
@@ -1273,12 +1391,12 @@ def choose_feature_set(report, df, y, opts, held_out=()):
             report.add(f"{name}: not scored (features that are not finite numbers: {', '.join(bad)})")
             continue
         X = df[cols].to_numpy(dtype=np.float64)
-        known[name], columns[name] = predict_out_of_fold(X, y, splits, forest_params(opts)), cols
+        known[name], columns[name] = predict_out_of_fold(X, y, splits, model_params(opts)), cols
         m = metrics(y, known[name], df, opts.knob)
         row = {"features": name, "n": len(cols), "F1": m["F1"], "AP": m["AP"], "log_loss": m["log_loss"],
                "sensitivity": m["sensitivity"], "precision": m["precision"], "FP": m["FP"], "FN": m["FN"]}
         if held_out:
-            rf = fit_forest(forest_params(opts), X, y)
+            rf = fit_model(model_params(opts), X, y)
             for label, table in held_out:
                 ty = table["truth"].to_numpy()
                 tp = rf.predict_proba(table[cols].to_numpy(dtype=np.float64))[:, 1]
@@ -1314,7 +1432,7 @@ def choose_feature_set(report, df, y, opts, held_out=()):
         why += ("; on samples never trained on (not used to choose): " +
                 ", ".join(f"{label} {fmt(m, 4)} (the others {fmt(o, 4)})" for label, m, o in tests))
     report.add(f"chosen: {chosen} ({len(columns[chosen])} features): {why}." +
-               (" The F1 columns of samples never trained on are scored by each set's forest fitted on all rows, for "
+               (" The F1 columns of samples never trained on are scored by each set's model fitted on all rows, for "
                 "comparison only: they do not choose." if held_out else ""))
     report.data["features_auto"] = {"candidates": rows, "chosen": chosen, "best": best, "default": default,
                                     "min_gain": AUTO_MIN_GAIN, "why": why, "others_mean_F1": mean,
@@ -1366,9 +1484,9 @@ def study_scenarios(report, df, y, p, fitted, opts, held_out=None, held_out_p=No
         return
     report.section("Scenarios: hold-in and hold-out samples")
     report.add(f"At the model's {knob_label(depth_knobs, opts.knob)}, as protal calls by default. "
-               "hold-in: the scenario's training samples, scored by the final forest (in sample: fitted on them), by "
-               "forests that did not see their sample (samples held out) or their species (species held out); hold-out: "
-               "the scenario's samples of the test set, which no forest saw. FP rate: of the absent taxa, those called; "
+               "hold-in: the scenario's training samples, scored by the final model (in sample: fitted on them), by "
+               "models that did not see their sample (samples held out) or their species (species held out); hold-out: "
+               "the scenario's samples of the test set, which no model saw. FP rate: of the absent taxa, those called; "
                "FN rate: of the present taxa, those not called; FP near novel: false positives whose closest species in "
                "the sample is one the database lacks; best F1: at the threshold best for these rows.")
     rows = []
@@ -1428,8 +1546,8 @@ def study_old_procedure(report, df, y, opts, cols, p_new):
     folds_n = min(PREVIOUS_GRID_FOLDS, int(np.bincount(y[sub]).min()))
 
     def search(candidates):  # the same folds and forests' seeds for every candidate
-        grid = GridSearchCV(RandomForestClassifier(**forest_params(opts, n_estimators=128, n_jobs=1,
-                                                                   class_weight="balanced_subsample")),
+        grid = GridSearchCV(make_model(model_params(opts, "forest", n_estimators=128, n_jobs=1,
+                                                    class_weight="balanced_subsample")),
                             {"max_features": candidates}, cv=folds_n, n_jobs=opts.threads)
         weights = row_weights(sub)
         return grid.fit(X[sub], y[sub]) if weights is None else grid.fit(X[sub], y[sub], sample_weight=weights)
@@ -1449,19 +1567,19 @@ def study_old_procedure(report, df, y, opts, cols, p_new):
     top = importance.index[:mtry].tolist()
     grid_s = time.time() - t0
     Xt = df[top].to_numpy(dtype=np.float64)
-    old = forest_params(opts, n_estimators=512, max_features="sqrt", max_leaf_nodes=128, min_samples_leaf=1)
+    old = model_params(opts, "forest", n_estimators=512, max_features="sqrt", max_leaf_nodes=128, min_samples_leaf=1)
 
     # Its own estimate: a random 20% of the rows.
     rng = np.random.RandomState(opts.seed)
     test = rng.choice(len(df), size=len(df) // 5, replace=False)
     train = np.setdiff1d(np.arange(len(df)), test)
     t0 = time.time()
-    rf = fit_forest(old, Xt, y, train)
+    rf = fit_model(old, Xt, y, train)
     fit_s = time.time() - t0
     p_own = np.full(len(df), np.nan)
     p_own[test] = rf.predict_proba(Xt[test])[:, 1]
     own_t = best_threshold(y[test], p_own[test])[0]
-    nodes = sum(e.tree_.node_count for e in rf.estimators_)
+    nodes = model_nodes(rf)
 
     rows = [({"procedure": "previous", "judged on": "random 20% of rows (its report)"}, metrics(y, p_own, df, opts.knob))]
     splits = folds(df, y, "species", opts)
@@ -1471,7 +1589,7 @@ def study_old_procedure(report, df, y, opts, cols, p_new):
         rows.append(({"procedure": f"previous, its knob {own_t:.3f}", "judged on": "species held out"},
                      metrics(y, p_old, df, own_t)))
         if p_new is None:
-            p_new = predict_out_of_fold(X, y, splits, forest_params(opts))
+            p_new = predict_out_of_fold(X, y, splits, model_params(opts))
         rows.append(({"procedure": "this one", "judged on": "species held out"}, metrics(y, p_new, df, opts.knob)))
     report.add(f"grid search: {len(values)} values of max_features ({', '.join(map(str, values))}) x {folds_n} folds on "
                f"{len(sub)} of {len(df)} rows in {grid_s:.1f} s (128 trees each); chose {mtry}, so the forest used only "
@@ -1485,13 +1603,17 @@ def study_old_procedure(report, df, y, opts, cols, p_new):
 
 
 def study_capacity(report, df, X, y, opts):
-    report.section("Forest size (species held out)")
+    """The model's size against how well it does with species held out: a forest's leaves and trees, or boosting's
+    leaves and rounds (scored at fewer and more rounds from one fit of twice --rounds per fold)."""
+    gbm = opts.model == "gbm"
+    report.section("Model size (species held out)")
     report.add("leaves_per_tree below max_leaves: the limit does not bind. A lower log loss with more leaves: "
-               "the data support larger trees (raise --maxnodes).")
+               f"the data support larger trees (raise --maxnodes){'; with more rounds: raise --rounds' if gbm else ''}.")
     splits = folds(df, y, "species", opts) or folds(df, y, "rows", opts)
     rows = []
-    for leaves, min_leaf in ((32, 1), (128, 1), (512, 1), (0, 1), (0, 5)):
-        params = forest_params(opts, max_leaf_nodes=leaves or None, min_samples_leaf=min_leaf)
+    sizes = ((15, 20), (31, 20), (63, 20), (127, 20), (63, 5)) if gbm else ((32, 1), (128, 1), (512, 1), (0, 1), (0, 5))
+    for leaves, min_leaf in sizes:
+        params = model_params(opts, max_leaf_nodes=leaves or None, min_samples_leaf=min_leaf)
         t0 = time.time()
         grown = []
         p = predict_out_of_fold(X, y, splits, params, leaves=grown)
@@ -1500,19 +1622,29 @@ def study_capacity(report, df, X, y, opts):
                       "fit_s": round((time.time() - t0) / len(splits), 2)}, m))
     report.table(metrics_table(rows)[["max_leaves", "min_leaf", "leaves_per_tree", "fit_s", "AP", "log_loss", "F1",
                                       "sensitivity", "precision", "FP"]])
-    # Trees: grow 256 per fold once and score with the first k.
-    ks = [k for k in (8, 16, 32, 64, 128, 256)]
-    sums = {k: np.full(len(y), np.nan) for k in ks}
-    for train, test in splits:
-        rf = fit_forest(forest_params(opts, n_estimators=max(ks)), X, y, train)
-        total = np.zeros(len(test))
-        for i, tree in enumerate(rf.estimators_, 1):
-            total += tree.predict_proba(X[test])[:, 1]
-            if i in sums:
-                sums[i][test] = total / i
-    trows = [({"trees": k}, metrics(y, sums[k], df, opts.knob)) for k in ks]
-    report.table(metrics_table(trows)[["trees", "AP", "log_loss", "F1", "sensitivity", "precision", "FP"]])
-    report.data["capacity"] = {"leaves": [dict(**l, **m) for l, m in rows], "trees": [dict(**l, **m) for l, m in trows]}
+    if gbm:  # rounds: fit twice --rounds per fold once and score after the first k
+        ks = sorted({max(1, opts.rounds // 5), max(1, opts.rounds // 2), opts.rounds, opts.rounds * 3 // 2, 2 * opts.rounds})
+        label = "rounds"
+        sums = {k: np.full(len(y), np.nan) for k in ks}
+        for train, test in splits:
+            model = fit_model(model_params(opts, max_iter=max(ks)), X, y, train)
+            for i, proba in enumerate(model.staged_predict_proba(X[test]), 1):
+                if i in sums:
+                    sums[i][test] = proba[:, 1]
+    else:  # trees: grow 256 per fold once and score with the first k
+        ks = [8, 16, 32, 64, 128, 256]
+        label = "trees"
+        sums = {k: np.full(len(y), np.nan) for k in ks}
+        for train, test in splits:
+            rf = fit_model(model_params(opts, n_estimators=max(ks)), X, y, train)
+            total = np.zeros(len(test))
+            for i, tree in enumerate(rf.estimators_, 1):
+                total += tree.predict_proba(X[test])[:, 1]
+                if i in sums:
+                    sums[i][test] = total / i
+    trows = [({label: k}, metrics(y, sums[k], df, opts.knob)) for k in ks]
+    report.table(metrics_table(trows)[[label, "AP", "log_loss", "F1", "sensitivity", "precision", "FP"]])
+    report.data["capacity"] = {"leaves": [dict(**l, **m) for l, m in rows], label: [dict(**l, **m) for l, m in trows]}
 
 
 def study_learning_curve(report, df, X, y, opts):
@@ -1527,7 +1659,7 @@ def study_learning_curve(report, df, X, y, opts):
         rng = np.random.RandomState(opts.seed)
         keep = set(rng.choice(np.unique(samples), size=max(2, int(round(fraction * len(np.unique(samples))))), replace=False))
         thin = (lambda train: train[np.isin(samples[train], list(keep))]) if fraction < 1 else None
-        p = predict_out_of_fold(X, y, splits, forest_params(opts), fit_rows=thin)
+        p = predict_out_of_fold(X, y, splits, model_params(opts), fit_rows=thin)
         rows.append(({"samples": len(keep), "fraction": fraction}, metrics(y, p, df, opts.knob)))
     report.table(metrics_table(rows)[["samples", "fraction", "AP", "log_loss", "F1", "sensitivity", "precision", "FP"]
                                      + [c for c in metrics_table(rows).columns if c.startswith("sens_")]])
@@ -1540,8 +1672,15 @@ def study_learning_curve(report, df, X, y, opts):
 # ---- main -------------------------------------------------------------------------------------------------
 
 def main(argv=None):
-    global SINGLETON_CONGENER, ROW_WEIGHTS
     opts = parse_args(argv)
+    # Boosting's OpenMP threads (HistGradientBoostingClassifier has no n_jobs) at --threads: by default it takes every
+    # core, and a GTDB build runs four trainers side by side.
+    with threadpool_limits(limits=max(1, opts.threads), user_api="openmp"):
+        return train(opts)
+
+
+def train(opts):
+    global SINGLETON_CONGENER, ROW_WEIGHTS
     SINGLETON_CONGENER = opts.singleton_congener
     prefix = opts.output_prefix
     os.makedirs(os.path.dirname(os.path.abspath(prefix)), exist_ok=True)
@@ -1565,7 +1704,7 @@ def main(argv=None):
         sys.exit("--scenario-weight cannot be negative")
     in_scenarios = scenario_of(df) != ""
     ROW_WEIGHTS = None
-    if in_scenarios.any() and opts.scenario_weight != 1:  # every fit weighs the scenarios' rows so (fit_forest)
+    if in_scenarios.any() and opts.scenario_weight != 1:  # every fit weighs the scenarios' rows so (fit_model)
         ROW_WEIGHTS = np.where(in_scenarios, opts.scenario_weight, 1.0)
     report.data["scenario_weight"] = {"weight": opts.scenario_weight, "rows": int(in_scenarios.sum())}
     # The test table: the design's rows are the independent test set, a scenario's rows its hold-out samples.
@@ -1578,7 +1717,7 @@ def main(argv=None):
     timing["load"] = time.time() - t0
     known = {}  # probabilities with species held out by feature set (--features auto), reused by the evaluation
     if opts.reference_pmml:
-        cols = PmmlForest(opts.reference_pmml).features
+        cols = load_model(opts.reference_pmml).features
         source = f"the inputs of {opts.reference_pmml}"
     elif opts.features in AUTO_FEATURE_SETS:
         t0 = time.time()
@@ -1599,7 +1738,7 @@ def main(argv=None):
     report.add(f"{len(cols)} features ({source}): {', '.join(cols)}")
     if in_scenarios.any():
         report.add(f"the scenarios' {int(in_scenarios.sum())} of {len(df)} rows weigh {opts.scenario_weight:g} in every "
-                   "forest, the design's 1 (--scenario-weight)")
+                   "model fitted, the design's 1 (--scenario-weight)")
     veto = vetoed(df)
     if SINGLETON_CONGENER > 0 and ("genus_top_fragments" not in df.columns or "em_own_share" not in df.columns):
         report.add("singleton rule: the table has no genus_top_fragments or em_own_share (a dump of an older protal), so "
@@ -1612,20 +1751,22 @@ def main(argv=None):
     warnings = study_data(report, df, y, cols) if opts.evaluation != "none" else []
 
     t0 = time.time()
-    rf = fit_forest(forest_params(opts, oob_score=opts.evaluation != "none"), X, y)
+    oob_wanted = opts.model == "forest" and opts.evaluation != "none"
+    rf = fit_model(model_params(opts, **({"oob_score": True} if oob_wanted else {})), X, y)
     timing["fit"] = time.time() - t0
-    nodes = sum(e.tree_.node_count for e in rf.estimators_)
+    nodes = model_nodes(rf)
     report.add("")
-    report.add(f"forest: {opts.ntree} trees, max {opts.maxnodes or 'unlimited'} leaves, {nodes} nodes, "
-               f"fitted in {timing['fit']:.2f} s")
+    report.add(f"{describe_model(opts, rf)}, fitted in {timing['fit']:.2f} s")
 
     p = {}
     if opts.evaluation != "none":
-        oob = rf.oob_decision_function_[:, 1].copy() if hasattr(rf, "oob_decision_function_") else np.full(len(y), np.nan)
+        oob = None
+        if is_forest(rf):
+            oob = rf.oob_decision_function_[:, 1].copy() if hasattr(rf, "oob_decision_function_") else np.full(len(y), np.nan)
         # scikit-learn (1.9) draws each tree's rows with probability proportional to their class weight, so with
         # many more absent than present taxa some present rows are in every tree's sample: they have no
         # out-of-bag score, and scikit-learn gives them 0. They are left out of the out-of-bag estimate.
-        if hasattr(rf, "estimators_samples_"):
+        if is_forest(rf) and hasattr(rf, "estimators_samples_"):
             in_bag = np.zeros(len(y), dtype=int)
             for rows in rf.estimators_samples_:
                 drawn = np.zeros(len(y), dtype=bool)
@@ -1643,7 +1784,7 @@ def main(argv=None):
         study_breakdown(report, df, y, p, opts)
         study_by_rank(report, df, y, p, opts)
         study_feature_classes(report, df)
-        study_strains(report, df, y, p.get("species", p["out of bag"]), opts)
+        study_strains(report, df, y, held_out(p), opts)
         timing["evaluation"] = time.time() - t0
     studies = []
     if opts.evaluation == "full":
@@ -1681,36 +1822,34 @@ def main(argv=None):
         timing["false_calls"] = time.time() - t0
     if test_design is not None:
         t0 = time.time()
-        rf.n_jobs = 1  # sum the trees in file order, as protal does
-        study_test(report, rf, cols, opts, prefix, depth_knobs, false_calls, test_design)
-        rf.n_jobs = opts.threads
+        with sequential(rf):  # the trees summed in file order, as protal sums them
+            study_test(report, rf, cols, opts, prefix, depth_knobs, false_calls, test_design)
         timing["test"] = time.time() - t0
     elif test_scenarios is not None:
         report.add("")
         report.add(f"{opts.test_file} holds the scenarios' hold-out samples only (no independent test set of the design)")
     if (scenario_of(df) != "").any() or test_scenarios is not None:
         t0 = time.time()
-        rf.n_jobs = 1
-        fitted = rf.predict_proba(X)[:, 1]
         held_p = None
+        with sequential(rf):
+            fitted = rf.predict_proba(X)[:, 1]
+            if test_scenarios is not None:
+                check_features(test_scenarios, cols)
+                held_p = rf.predict_proba(test_scenarios[cols].to_numpy(dtype=np.float64))[:, 1]
         if test_scenarios is not None:
-            check_features(test_scenarios, cols)
-            held_p = rf.predict_proba(test_scenarios[cols].to_numpy(dtype=np.float64))[:, 1]
             out = test_scenarios[[c for c in test_scenarios.columns if c.startswith("meta_")] +
                                  [c for c in ("taxon", "taxon_name", "domain", "truth") if c in test_scenarios]].copy()
             out["p"] = held_p
             out.to_csv(prefix + ".scenario_predictions.tsv.gz", sep="\t", index=False, float_format="%.6g")
-        rf.n_jobs = opts.threads
         study_scenarios(report, df, y, p, fitted, opts, test_scenarios, held_p, depth_knobs)
         timing["scenarios"] = time.time() - t0
 
-    # Export, and check that the file scores as the forest does.
+    # Export, and check that the file scores as the model does.
     report.section("Model file")
     t0 = time.time()
     notes = [f"trained {datetime.date.today().isoformat()} on {os.path.abspath(opts.truth_file)}",
              f"{len(df)} taxa, {int(y.sum())} present, {df['meta_sample'].nunique() if 'meta_sample' in df else 1} samples",
-             f"{opts.ntree} trees, max leaves {opts.maxnodes or 'unlimited'}, min leaf {opts.min_samples_leaf}, "
-             f"max features {opts.max_features}, seed {opts.seed}, scikit-learn {sklearn.__version__}"]
+             f"{describe_model(opts)}, seed {opts.seed}, scikit-learn {sklearn.__version__}"]
     species = report.data.get("evaluation", {}).get("species")
     if species:
         notes.append(f"species held out: AP {fmt(species['AP'])}, F1 {fmt(species['F1'])} at knob {opts.knob}")
@@ -1728,29 +1867,30 @@ def main(argv=None):
     if "features_auto" in report.data:
         notes.append(f"feature set {report.data['features_auto']['chosen']} (--features {opts.features}: the highest F1 "
                      f"with species held out, the default unless {AUTO_MIN_GAIN} better)")
-    write_forest(rf, cols, prefix + ".xml", notes, depth_knobs, false_calls)
+    write_model(rf, cols, prefix + ".xml", notes, depth_knobs, false_calls)
     if read_depth_knob_curve(prefix + ".xml") != [(float(f"{x:.3f}"), k) for x, k in depth_knobs]:
         sys.exit(f"{prefix}.xml: the depth knobs read back differ from those written")
     if read_false_calls(prefix + ".xml") != (false_calls and {"curve": [tuple(c) for c in false_calls["curve"]],
                                                               "prior": false_calls["prior"], "fdr": false_calls["fdr"]}):
         sys.exit(f"{prefix}.xml: the calibrated calls read back differ from those written")
     timing["export"] = time.time() - t0
-    rf.n_jobs = 1  # sum the trees in file order, as protal does
-    sk = rf.predict_proba(X)[:, 1]
-    pmml = PmmlForest(prefix + ".xml").predict(X)
+    with sequential(rf):  # the trees summed in file order, as protal sums them
+        sk = rf.predict_proba(X)[:, 1]
+    pmml = load_model(prefix + ".xml").predict(X)
     diff = float(np.abs(sk - pmml).max())
     flips = int(((sk >= opts.knob) != (pmml >= opts.knob)).sum())
     size = os.path.getsize(prefix + ".xml")
-    report.add(f"{prefix}.xml: {size / 1e6:.2f} MB, {nodes} nodes; written in {timing['export']:.2f} s")
+    report.add(f"{prefix}.xml: {size / 1e6:.2f} MB, {model_trees(rf)} trees, {nodes} nodes; written in "
+               f"{timing['export']:.2f} s")
     report.add(f"PMML scored as protal scores it vs scikit-learn, {len(X)} rows: max difference {diff:.3g}, "
                f"{flips} calls differ at knob {opts.knob}")
-    report.data["model"] = {"bytes": size, "nodes": nodes, "trees": opts.ntree, "features": cols,
+    report.data["model"] = {"kind": opts.model, "bytes": size, "nodes": nodes, "trees": model_trees(rf), "features": cols,
                             "pmml_vs_sklearn_max_diff": diff, "pmml_vs_sklearn_call_differences": flips}
-    rf.n_jobs = opts.threads
     joblib.dump(rf, prefix + ".joblib")
-    pd.DataFrame({"feature": cols, "importance": rf.feature_importances_}).sort_values(
+    importance = model_importances(rf, len(cols))
+    pd.DataFrame({"feature": cols, "importance": importance}).sort_values(
         "importance", ascending=False).to_csv(prefix + ".varimp.tsv", sep="\t", index=False, float_format="%.6f")
-    top = pd.Series(rf.feature_importances_, index=cols).sort_values(ascending=False).head(8)
+    top = pd.Series(importance, index=cols).sort_values(ascending=False).head(8)
     report.add("importance: " + ", ".join(f"{k} {v:.3f}" for k, v in top.items()))
 
     if p:

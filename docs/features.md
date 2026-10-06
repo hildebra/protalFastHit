@@ -1,6 +1,7 @@
 # The features of protal's presence model
 
-protal decides whether a species is present with a random forest. For every species with reads it
+protal decides whether a species is present with a model of decision trees (gradient-boosted trees
+since 2026-10-06, a random forest before; [databases.md](databases.md#training)). For every species with reads it
 computes the quantities below from the sample's alignments, the database and the sample's other
 taxa, hands them to the model and reports the species whose probability reaches `--knob`. This
 page lists every feature: since which version protal computes it, what it measures, how much the
@@ -24,9 +25,10 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `depth` | 0.7.5 | the sample's depth | yes |
 | `divergence` | 0.7.5 | the reads' divergence by gene conservation and codon position, and the mates | yes |
 | `unfiltered` | 0.7.5 | the reads before the MAPQ filter and the reads that failed on the taxon | yes |
+| `ref` | 2026-10-06 (in the dump since 2024) | the reference's k-mer uniqueness in the database | yes, since 2026-10-06 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
-The default set is `normalized+adjacency+distance+depth+divergence+unfiltered` (49 features). 0.7.6
+The default set is `normalized+adjacency+distance+depth+divergence+unfiltered+ref` (52 features; without `ref`, 49, before 2026-10-06). 0.7.6
 adds no feature; it changes how the models are trained (below: the priors opt-in, in-silico strains,
 more training depths). 0.6.0a
 shipped one model on absolute counts (genes, k-mers and mates); those columns are still in the dump
@@ -38,7 +40,8 @@ the priors, with species held out, keeping the default set unless another is 0.0
 saying why ([databases.md](databases.md#training)).
 
 **How to read the importance columns.** The numbers are the forests' Gini importances (scikit-learn's
-`feature_importances_`, which sum to 1 over a model) of the two latest GTDB r226 trainings, read
+`feature_importances_`, which sum to 1 over a model; a boosted model's `varimp.tsv` holds its splits'
+gains instead, also summing to 1, not comparable cell for cell) of the two latest forest trainings at GTDB r226, read
 from their `trained_model*.varimp.tsv` in `local/v10` and `local/v9`: **v10**
 ([report](claude/2026-10-04-r226-v10-evaluation/README.md)) is the build of `281a4ba`
 (2026-10-04, after 0.7.5) with the default set 0.7.6 trains, without priors; **v9** (`26b065c`,
@@ -238,6 +241,27 @@ from 0.0319 to 0.0309 and the false positives per sample from 2.19 to 2.14 at th
 already mostly did at the knob ([v9](claude/2026-10-03-r226-v9-evaluation/README.md)). Low for
 long reads, which seed on many genes and rarely fail outright.
 
+## The reference's uniqueness (`ref`, 2026-10-06)
+
+How unique the species' reference is in the database that profiles the sample, before any read: the
+shares of its marker genes' k-mers that are unique in the index. protal has written them since 2024
+(0.6.0a's model used them with the absolute counts below); no 0.7 set took them until 2026-10-06.
+
+| feature | what it measures | matters for |
+|---|---|---|
+| `su_rate_ref` | the share of the reference's k-mers that are super-unique (in no other taxon) | **missing relative**: a reference with few unique k-mers has close relatives in the database, and a species the database lacks lands on such references |
+| `lu_rate_ref`, `lsu_rate_ref` | the shares that are locally unique and locally super-unique | the same, by the index's local uniqueness |
+
+Unlike the priors they do not depend on how many genomes GTDB has of a species. On the r226 v13
+tables they added 0.002-0.003 of soil's F1 to gradient boosting (paired-end +0.003 in soil and
+shallow soil, PacBio +0.003, Nanopore +0.002; the design's test set -0.001 to +0.003) and nothing to
+a forest ([report](claude/2026-10-06-r226-v13-soil/README.md)): among the soil samples' most
+confidently called false positives, the reference's uniqueness was lower (`lu_rate_ref` 0.64 against
+0.77 of true positives at the same score and divergence). They are computed against the database in
+use: the training database lacks its held-out species, so a reference whose close relatives were
+held out is more unique there than in the finished database. The simulations cannot show what that
+shift does; real samples can.
+
 ## The species' priors (`priors`, 0.7.5, opt-in)
 
 Per-species constants from GTDB, written by the converter into `species_priors.tsv` (−1 unknown).
@@ -328,7 +352,7 @@ The training dump also holds columns that no 0.7 set uses:
 - **0.6.0a's absolute counts**, the inputs of the model 0.6.0a shipped (`present_genes`,
   `total_hits`, `unique_hits`, `mean_ani`, `expected_gene_presence` and its ratio, `variance1`,
   `variance2`, `stddev`, `hittable`, `lu`, `lsu`, their gene counts, the reference's unique k-mer
-  counts `su_genome`, `lu_genome`, `lsu_genome`, `total_genome` and rates, `lu_per_read`,
+  counts `su_genome`, `lu_genome`, `lsu_genome`, `total_genome` (their rates are `ref`'s), `lu_per_read`,
   `lsu_per_read`, the allele counts `A0`-`A4`, `AF0`-`AF4`, `RA0`-`RA4`). They depend on the
   database (archaea have 52 marker genes, bacteria 119), the depth and the read length, which is
   why 0.6.0a found a third of the archaea present with probabilities pinned near 0.5 and why 0.7.0

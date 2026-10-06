@@ -49,6 +49,9 @@ struct StrainSharingSpec {
 
 struct ProfileDesignOptions {
     std::uint64_t total_read_pairs{100'000};
+    std::vector<std::uint64_t> total_read_pairs_per_sample;  // if not empty: the samples' read pairs in turn (sample i
+                                                             // gets the i-th, cyclically), so that one run's samples
+                                                             // differ in depth (ReadPairsForSample)
     std::size_t species_per_sample{10};
     std::size_t species_per_sample_min{0};  // if > 0, count is drawn uniformly from [min, species_per_sample] per sample
     AbundanceDistribution distribution{AbundanceDistribution::PoissonLognormal};
@@ -88,6 +91,13 @@ struct ProfileDesignOptions {
 inline double SigmaForSample(ProfileDesignOptions const& options, std::size_t index) {
     if (options.pln_sigmas.empty()) return options.pln_sigma;
     return options.pln_sigmas[index % options.pln_sigmas.size()];
+}
+
+// The read pairs of sample `index` (0-based) of a design: the index-th of total_read_pairs_per_sample, cyclically, or
+// total_read_pairs when none are given.
+inline std::uint64_t ReadPairsForSample(ProfileDesignOptions const& options, std::size_t index) {
+    if (options.total_read_pairs_per_sample.empty()) return options.total_read_pairs;
+    return options.total_read_pairs_per_sample[index % options.total_read_pairs_per_sample.size()];
 }
 
 // How a sample's read files are written: BGZF (libdeflate, _R1.fq.gz) or zstd (one frame at level 3, _R1.fq.zst;

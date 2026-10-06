@@ -1,11 +1,11 @@
-"""Write a scikit-learn random forest as the PMML model protal scores taxa with, and score such a
-model in Python the way protal's cPMML does.
+"""Write a scikit-learn random forest or gradient-boosted model as the PMML model protal scores taxa
+with, and score such a model in Python the way protal's cPMML does (load_model).
 
 protal reads the model with cPMML (C++). sklearn2pmml, which wrote the models before, runs the Java
-JPMML converter; this module writes the same kind of model directly, so training needs no Java: a
-MiningModel whose Segmentation averages one TreeModel per tree, as predict_proba does.
+JPMML converter; this module writes the models directly, so training needs no Java.
 
-protal's probabilities equal sklearn's bit for bit:
+A random forest (write_forest) is a MiningModel whose Segmentation averages one TreeModel per tree,
+as predict_proba does. protal's probabilities equal sklearn's bit for bit:
 - sklearn compares a feature as float32 with a double threshold, cPMML compares doubles. Each
   threshold is written as the largest double x for which float32(x) <= threshold, so both send
   every value down the same branch (FLOAT32_SPLIT).
@@ -13,8 +13,29 @@ protal's probabilities equal sklearn's bit for bit:
   1 - p and p, which sum to exactly 1.0 in doubles, so cPMML gets sklearn's p unchanged.
 - cPMML sums the trees in file order and divides by their number, as predict_proba does with
   n_jobs=1 (with more jobs, the summation order and so the last bit may differ).
+
+A HistGradientBoostingClassifier (write_boosted) is a MiningModel whose Segmentation chains
+(modelChain) one regression TreeModel per round, each passing its leaf's score on as an output
+field (tree_1, tree_2, ...), into a RegressionModel whose TRUE table adds them (logit
+normalization: P(TRUE) = 1 / (1 + exp(-sum))). Again bit for bit:
+- sklearn compares a feature as a double with a double threshold, as cPMML does: the thresholds are
+  written as they are (repr, the shortest text that reads back to the same double).
+- A chained tree's score reaches the next model as the leaf's text, read back exactly (a nested
+  MiningModel's sum would be passed on as std::to_string's six decimals).
+- cPMML adds a table's terms in file order from 0 and the intercept last; sklearn's raw score is
+  the baseline plus each round's leaf in turn: the baseline is added to the first tree's leaves, so
+  that both add (baseline + leaf 1) + leaf 2 + ..., and the intercept is 0.
+- Both take 1 / (1 + exp(-x)) of the sum with the C library's exp (scipy's expit; PmmlBoosted uses
+  Python's math.exp, the same function).
+- sklearn sends a missing value down the side it learned (missing_go_to_left): the first child holds
+  the other side's test (x > t, or x <= t), the second <True/>, which a missing value (every
+  comparison false) reaches. protal never gives a missing value.
+protal's contract check reads every MiningField of the file: the chained outputs are no
+MiningFields, and the trees' schemas name only features.
 """
 
+import math
+import sys
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import quoteattr
 
@@ -28,12 +49,12 @@ PLACEHOLDER_MARKER = "protal:placeholder"
 MODEL_FILES = {"pe": "model_pe.xml", "se": "model_se.xml", "pb": "model_PB.xml", "ont": "model_ONT.xml"}
 # The header extension with a model's knob curve over the sample's depth (profiler::kDepthKnobCurveExtension, read by
 # profiler::DepthKnobAt): "1.300:0.12,2.890:0.4", log10 of the sample's fragments over all its taxa : knob, linear between
-# the points and the ends' beyond them. random_forest_cmdline.py --depth-knobs writes it.
+# the points and the ends' beyond them. machine_learning_cmdline.py --depth-knobs writes it.
 DEPTH_KNOB_CURVE_EXTENSION = "protal_depth_knob_curve"
 # An older model's knobs by sample depth (profiler::kDepthKnobsExtension): "2:0.31,3:0.42", bin of the sample's
 # fragments (the digits of their number less one, 2 to 6) : knob. protal still reads them.
 DEPTH_KNOBS_EXTENSION = "protal_depth_knobs"
-# A model's calls at a target share of false calls (random_forest_cmdline.py --fdr-calls; profiler::ParseFalseCalls, read by
+# A model's calls at a target share of false calls (machine_learning_cmdline.py --fdr-calls; profiler::ParseFalseCalls, read by
 # context::FalseCallKnob): the calibration "0.02:0.001,0.5:0.31" (score : probability, linear between the points, the ends'
 # beyond them), the share of present taxa among the rows it was fitted on, and the target.
 CALIBRATION_EXTENSION = "protal_calibration"
@@ -68,6 +89,32 @@ def write_placeholder(path, read_type):
         fh.write(text)
 
 
+def _write_head(w, features, annotations, depth_knob_curve, false_calls):
+    """The XML declaration, header (extensions protal reads, annotations), data dictionary (truth: FALSE/TRUE, then the
+    features as doubles, without intervals, which cPMML would enforce) of a model -> its top MiningSchema, the target and
+    every feature (cPMML reads the inputs only there)."""
+    w('<?xml version="1.0" encoding="UTF-8"?>\n<PMML version="4.4">\n')
+    w(' <Header description="protal presence model: probability that a taxon is present">\n')
+    if depth_knob_curve:
+        w(f'  <Extension name="{DEPTH_KNOB_CURVE_EXTENSION}" value="{format_depth_knob_curve(depth_knob_curve)}"/>\n')
+    if false_calls:
+        w(f'  <Extension name="{CALIBRATION_EXTENSION}" value="{format_calibration(false_calls["curve"])}"/>\n')
+        w(f'  <Extension name="{PRIOR_EXTENSION}" value="{float(false_calls["prior"])!r}"/>\n')
+        w(f'  <Extension name="{FDR_EXTENSION}" value="{float(false_calls["fdr"])!r}"/>\n')
+    w('  <Application name="protal scripts/machine_learning_cmdline.py"/>\n')
+    for note in annotations:
+        w(f'  <Annotation>{_text(note)}</Annotation>\n')
+    w(' </Header>\n')
+    w(f' <DataDictionary numberOfFields="{len(features) + 1}">\n')
+    w(f'  <DataField name="truth" optype="categorical" dataType="string">'
+      f'<Value value="{LABELS[0]}"/><Value value="{LABELS[1]}"/></DataField>\n')
+    for f in features:
+        w(f'  <DataField name={quoteattr(f)} optype="continuous" dataType="double"/>\n')
+    w(' </DataDictionary>\n')
+    return ('<MiningSchema><MiningField name="truth" usageType="predicted"/>'
+            + "".join(f'<MiningField name={quoteattr(f)}/>' for f in features) + '</MiningSchema>')
+
+
 def float32_split(threshold):
     """The largest double x with float32(x) <= threshold: `x <= float32_split(t)` is sklearn's
     `float32(x) <= t` for every double x."""
@@ -99,26 +146,7 @@ def write_forest(forest, features, path, annotations=(), depth_knob_curve=None, 
         raise ValueError(f"the forest has {forest.n_features_in_} inputs, not {len(features)} features")
     out = []
     w = out.append
-    w('<?xml version="1.0" encoding="UTF-8"?>\n<PMML version="4.4">\n')
-    w(' <Header description="protal presence model: probability that a taxon is present">\n')
-    if depth_knob_curve:
-        w(f'  <Extension name="{DEPTH_KNOB_CURVE_EXTENSION}" value="{format_depth_knob_curve(depth_knob_curve)}"/>\n')
-    if false_calls:
-        w(f'  <Extension name="{CALIBRATION_EXTENSION}" value="{format_calibration(false_calls["curve"])}"/>\n')
-        w(f'  <Extension name="{PRIOR_EXTENSION}" value="{float(false_calls["prior"])!r}"/>\n')
-        w(f'  <Extension name="{FDR_EXTENSION}" value="{float(false_calls["fdr"])!r}"/>\n')
-    w('  <Application name="protal scripts/random_forest_cmdline.py"/>\n')
-    for note in annotations:
-        w(f'  <Annotation>{_text(note)}</Annotation>\n')
-    w(' </Header>\n')
-    w(f' <DataDictionary numberOfFields="{len(features) + 1}">\n')
-    w(f'  <DataField name="truth" optype="categorical" dataType="string">'
-      f'<Value value="{LABELS[0]}"/><Value value="{LABELS[1]}"/></DataField>\n')
-    for f in features:
-        w(f'  <DataField name={quoteattr(f)} optype="continuous" dataType="double"/>\n')
-    w(' </DataDictionary>\n')
-    schema = ('<MiningSchema><MiningField name="truth" usageType="predicted"/>'
-              + "".join(f'<MiningField name={quoteattr(f)}/>' for f in features) + '</MiningSchema>')
+    schema = _write_head(w, features, annotations, depth_knob_curve, false_calls)
     w(f' <MiningModel functionName="classification">\n  {schema}\n  <Segmentation multipleModelMethod="average">\n')
     names = [quoteattr(f) for f in features]
     for i, estimator in enumerate(forest.estimators_):
@@ -148,6 +176,100 @@ def write_forest(forest, features, path, annotations=(), depth_knob_curve=None, 
             stack.append((right[node], f'<SimplePredicate field={name} operator="greaterThan" value="{split!r}"/>', False))
             stack.append((left[node], f'<SimplePredicate field={name} operator="lessOrEqual" value="{split!r}"/>', False))
         w('</TreeModel></Segment>\n')
+    w('  </Segmentation>\n </MiningModel>\n</PMML>\n')
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("".join(out))
+
+
+TREE_OUTPUT = "tree_{}"  # the output field of chained tree i (from 1) of a boosted model
+
+
+def _double(value):
+    """A double as PMML text: the shortest that reads back to it (repr; float() first, as numpy's repr names its type),
+    a subnormal one as 0 (cPMML's stod throws on them; protal's features are never subnormal either)."""
+    x = float(value)
+    if x != 0 and abs(x) < sys.float_info.min:
+        x = 0.0
+    return repr(x)
+
+
+def is_boosted(model):
+    """Whether a fitted model is a HistGradientBoostingClassifier (its trees in _predictors)."""
+    return hasattr(model, "_predictors") and hasattr(model, "_baseline_prediction")
+
+
+def write_model(model, features, path, annotations=(), depth_knob_curve=None, false_calls=None):
+    """Write a fitted RandomForestClassifier (write_forest) or HistGradientBoostingClassifier (write_boosted)."""
+    writer = write_boosted if is_boosted(model) else write_forest
+    writer(model, features, path, annotations, depth_knob_curve, false_calls)
+
+
+def write_boosted(model, features, path, annotations=(), depth_knob_curve=None, false_calls=None):
+    """Write a fitted binary HistGradientBoostingClassifier (classes 0/1 or False/True), trained on the columns
+    `features` in this order without categorical features, as PMML for protal (see above): a chain of one regression
+    TreeModel per round into a logit RegressionModel. `annotations`, `depth_knob_curve` and `false_calls` as for
+    write_forest."""
+    try:
+        classes = [int(c) for c in model.classes_]
+    except (TypeError, ValueError):
+        classes = None
+    if classes != [0, 1]:
+        raise ValueError(f"expected a binary model with classes 0 and 1, got {list(model.classes_)}")
+    if model.n_features_in_ != len(features):
+        raise ValueError(f"the model has {model.n_features_in_} inputs, not {len(features)} features")
+    if getattr(model, "n_trees_per_iteration_", 1) != 1:
+        raise ValueError("expected one tree per round (a binary model)")
+    if getattr(model, "is_categorical_", None) is not None and np.any(model.is_categorical_):
+        raise ValueError("categorical features are not written")
+    baseline = float(np.asarray(model._baseline_prediction, dtype=np.float64).ravel()[0])
+    trees = [round_trees[0] for round_trees in model._predictors]
+    out = []
+    w = out.append
+    schema = _write_head(w, features, annotations, depth_knob_curve, false_calls)
+    w(f' <MiningModel functionName="classification">\n  {schema}\n  <Segmentation multipleModelMethod="modelChain">\n')
+    names = [quoteattr(f) for f in features]
+    for i, tree in enumerate(trees):
+        nodes = tree.nodes
+        offset = baseline if i == 0 else 0.0  # sklearn's raw score starts at the baseline
+        used = sorted({int(n["feature_idx"]) for n in nodes if not n["is_leaf"]}) or [0]
+        tree_schema = "<MiningSchema>" + "".join(f"<MiningField name={names[f]}/>" for f in used) + "</MiningSchema>"
+        w(f'   <Segment id="{i + 1}"><True/><TreeModel functionName="regression">{tree_schema}'
+          f'<Output><OutputField name="{TREE_OUTPUT.format(i + 1)}" optype="continuous" dataType="double" '
+          'feature="predictedValue"/></Output>\n')
+        if nodes[0]["is_leaf"]:  # a tree of one leaf: cPMML scores a root's children, so the leaf is its child
+            score = _double(float(nodes[0]["value"]) + offset)
+            w(f'<Node score="{score}"><True/><Node score="{score}"><True/></Node></Node>')
+        else:
+            # Depth first, the tested child first, without recursion.
+            stack = [(0, "<True/>", False)]
+            while stack:
+                node, predicate, closing = stack.pop()
+                if closing:
+                    w('</Node>')
+                    continue
+                n = nodes[node]
+                w(f'<Node score="{_double(float(n["value"]) + offset)}">{predicate}')
+                if n["is_leaf"]:
+                    w('</Node>')
+                    continue
+                name, threshold = names[int(n["feature_idx"])], _double(n["num_threshold"])
+                left, right = int(n["left"]), int(n["right"])
+                if n["missing_go_to_left"]:  # x > t to the right, the rest (and a missing value) to the left
+                    first = (right, f'<SimplePredicate field={name} operator="greaterThan" value="{threshold}"/>')
+                    second = (left, "<True/>")
+                else:
+                    first = (left, f'<SimplePredicate field={name} operator="lessOrEqual" value="{threshold}"/>')
+                    second = (right, "<True/>")
+                stack.append((node, None, True))
+                stack.append((second[0], second[1], False))
+                stack.append((first[0], first[1], False))
+        w('</TreeModel></Segment>\n')
+    terms = "".join(f'<NumericPredictor name="{TREE_OUTPUT.format(i + 1)}" coefficient="1.0"/>' for i in range(len(trees)))
+    w(f'   <Segment id="{len(trees) + 1}"><True/>'
+      '<RegressionModel functionName="classification" normalizationMethod="logit">'
+      '<MiningSchema><MiningField name="truth" usageType="predicted"/></MiningSchema>\n'
+      f'<RegressionTable intercept="0.0" targetCategory="{LABELS[1]}">{terms}</RegressionTable>'
+      f'<RegressionTable intercept="0.0" targetCategory="{LABELS[0]}"/></RegressionModel></Segment>\n')
     w('  </Segmentation>\n </MiningModel>\n</PMML>\n')
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("".join(out))
@@ -298,3 +420,130 @@ class PmmlForest:
 
     def node_count(self):
         return sum(len(tree[0]) for tree in self.trees)
+
+
+def _model_root(path):
+    root = ET.parse(path).getroot()
+    for elem in root.iter():
+        if "}" in elem.tag:
+            elem.tag = elem.tag.split("}", 1)[1]
+    model = root.find("MiningModel")
+    if model is None:
+        raise ValueError(f"{path}: no MiningModel")
+    return model
+
+
+class PmmlBoosted:
+    """A boosted PMML model as write_boosted writes it, scored as cPMML scores it: each chained tree's leaf score (the
+    first child whose predicate holds, in file order, from the root's children), the TRUE table's terms added in file
+    order from 0 and its intercept last, and P(TRUE) = 1 / (1 + exp(-sum)) with the C library's exp."""
+
+    def __init__(self, path):
+        model = _model_root(path)
+        schema = model.find("MiningSchema")
+        self.features = [f.get("name") for f in schema.findall("MiningField")
+                         if f.get("usageType", "active") == "active"]
+        index = {name: i for i, name in enumerate(self.features)}
+        segmentation = model.find("Segmentation")
+        if segmentation.get("multipleModelMethod") != "modelChain":
+            raise ValueError(f"{path}: the models are combined by {segmentation.get('multipleModelMethod')}, not chained")
+        segments = segmentation.findall("Segment")
+        self.trees, outputs = [], {}
+        for segment in segments[:-1]:
+            tree = segment.find("TreeModel")
+            if tree is None or tree.get("functionName") != "regression":
+                raise ValueError(f"{path}: expected regression trees before the last model")
+            outputs[tree.find("Output").find("OutputField").get("name")] = len(self.trees)
+            self.trees.append(self._compile(tree.find("Node"), index))
+        last = segments[-1].find("RegressionModel")
+        if last is None or last.get("normalizationMethod") != "logit":
+            raise ValueError(f"{path}: expected a logit RegressionModel last")
+        tables = last.findall("RegressionTable")
+        if len(tables) != 2 or tables[0].get("targetCategory") != LABELS[1]:
+            raise ValueError(f"{path}: expected the {LABELS[1]} table first and one more")
+        self.intercept = float(tables[0].get("intercept", 0.0))
+        self.terms = [(outputs[p.get("name")], float(p.get("coefficient")), float(p.get("exponent", 1.0)))
+                      for p in tables[0].findall("NumericPredictor")]
+
+    @staticmethod
+    def _compile(top, index):
+        """A tree as arrays: per node its feature (-1 for a leaf), test (0: x <= t, 1: x > t) and threshold, the child
+        taken when the test holds and the one otherwise (the <True/> child), and a leaf's score."""
+        feature, test, threshold, yes, no, score = [], [], [], [], [], []
+
+        def add():
+            for column in (feature, test, yes, no):
+                column.append(-1)
+            threshold.append(np.nan)
+            score.append(np.nan)
+            return len(feature) - 1
+
+        stack = [(top, add())]
+        while stack:
+            node, n = stack.pop()
+            children = node.findall("Node")
+            if len(children) == 1 and children[0].find("True") is not None:  # a tree of one leaf (write_boosted)
+                node, children = children[0], children[0].findall("Node")
+            if not children:
+                score[n] = float(node.get("score"))
+                continue
+            if len(children) != 2 or children[1].find("True") is None:
+                raise ValueError("expected two children, the second <True/>")
+            simple = children[0].find("SimplePredicate")
+            if simple is None or simple.get("operator") not in ("lessOrEqual", "greaterThan"):
+                raise ValueError("expected 'x <= t' or 'x > t' as the first child's test")
+            feature[n] = index[simple.get("field")]
+            test[n] = 0 if simple.get("operator") == "lessOrEqual" else 1
+            threshold[n] = float(simple.get("value"))
+            yes[n], no[n] = add(), add()
+            stack += [(children[1], no[n]), (children[0], yes[n])]
+        return (np.array(feature), np.array(test), np.array(threshold), np.array(yes), np.array(no), np.array(score))
+
+    def leaves(self, X, tree):
+        """The leaf scores of tree `tree` for the rows of X (doubles in model order)."""
+        feature, test, threshold, yes, no, score = self.trees[tree]
+        rows = np.arange(len(X))
+        node = np.zeros(len(X), dtype=np.int64)
+        active = feature[node] >= 0
+        while active.any():
+            at = node[active]
+            x = X[rows[active], feature[at]]
+            holds = np.where(test[at] == 0, x <= threshold[at], x > threshold[at])  # NaN: neither, the <True/> child
+            node[active] = np.where(holds, yes[at], no[at])
+            active = feature[node] >= 0
+        return score[node]
+
+    def raw(self, X):
+        """The TRUE table's sum for the rows of X, added as cPMML adds it."""
+        if hasattr(X, "columns"):
+            X = X[self.features].to_numpy(dtype=np.float64)
+        X = np.asarray(X, dtype=np.float64)
+        values = [self.leaves(X, t) for t in range(len(self.trees))]
+        partial = np.zeros(len(X))
+        for tree, coefficient, exponent in self.terms:
+            v = values[tree]
+            partial = partial + coefficient * (v if exponent == 1.0 else np.power(v, exponent))
+        return self.intercept + partial
+
+    def predict(self, X):
+        """Probability of TRUE for the rows of X (a DataFrame with the model's features, or an array with them in
+        model order): 1 / (1 + exp(-raw)) with math.exp, the C library's exp as cPMML's std::exp."""
+        raw = self.raw(X)
+        out = np.empty(len(raw))
+        for i, s in enumerate(raw):
+            try:
+                e = math.exp(-s)
+            except OverflowError:  # C's exp gives inf, and the probability 0
+                e = math.inf
+            out[i] = 1 / (1 + e)
+        return out
+
+    def node_count(self):
+        return sum(len(tree[0]) for tree in self.trees)
+
+
+def load_model(path):
+    """The PMML model at `path` scored as protal scores it: PmmlForest (averaged trees) or PmmlBoosted (chained
+    trees). Both have .features, .trees, .predict(X) and .node_count()."""
+    method = _model_root(path).find("Segmentation").get("multipleModelMethod")
+    return PmmlBoosted(path) if method == "modelChain" else PmmlForest(path)

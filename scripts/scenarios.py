@@ -8,7 +8,7 @@ genome's share of the reads) sequenced by several technologies, each at its dept
 same communities. collect_training_data.py --scenarios simulates and profiles a scenario's samples beside the
 design's, with meta_scenario naming the scenario in every row of the tables. build_gtdb_database.py --scenarios puts
 some in the training data (hold-in) and others, of another seed, in the test set (hold-out), and the trainer reports
-F1, false positive and false negative rates per scenario and read type on both (random_forest_cmdline.py, section
+F1, false positive and false negative rates per scenario and read type on both (machine_learning_cmdline.py, section
 "Scenarios").
 
 The presets (PRESETS; --scenario_file adds or changes them):
@@ -23,7 +23,16 @@ The presets (PRESETS; --scenario_file adds or changes them):
                   (alpha 1: a rank-abundance line of slope -1 on log-log axes), 5% of them lacking; Illumina PE 150
                   (Q35) at 10M read pairs, Ultima at 10M reads, PacBio and Nanopore at the same bases (3 Gb)
 
+These depths are each scenario's typical ones: a sample's own depth is drawn around them (depth_spread, below).
+
 How the parts are made:
+- The depths: each sample's depth is the preset's times a factor between 1/depth_spread and depth_spread (default
+  DEPTH_SPREAD, 2: from half to twice the depth; 1: every sample at the preset's), log-uniform and stratified, so that
+  a scenario's few samples spread over the range (depth_factors). Sample s of every technology has the same factor:
+  the technologies still read the same communities at the same bases. With one depth per scenario, a sample's depth
+  (the trainer's sample_log_fragments) told its samples apart and a model could learn each sample's own offset, which
+  cross-validation by species does not see (r226 v13: gradient boosting fell from 0.937 on the shallow-soil hold-in
+  samples to 0.881 on the hold-out ones; docs/claude/2026-10-06-r226-v13-soil).
 - The share of species the database lacks: a scenario draws its species from a genome table of its own
   (OUT/scenarios/<name>/genomes.tsv, scenario_table): every species of the collection's table on one side of the
   split, the database's and the held-out ones (--novel_species), and a random part of the other side, so that a
@@ -102,7 +111,11 @@ PRESETS = {
         "reads": [{**ILLUMINA, "depth": 10_000_000}, {**ULTIMA, "depth": 10_000_000},
                   {"type": "pb", "depth": 3_000_000_000}, {"type": "ont", "depth": 3_000_000_000}]},
 }
-FIELDS = ("description", "species", "novel_share", "abundance", "strains", "congeners", "host_share", "reads")
+FIELDS = ("description", "species", "novel_share", "abundance", "strains", "congeners", "host_share", "reads",
+          "depth_spread")
+OPTIONAL_FIELDS = ("description", "depth_spread")
+# A sample's depth is its scenario's times a factor from 1/depth_spread to depth_spread (depth_factors).
+DEPTH_SPREAD = 2.0
 NAME = re.compile(r"[a-z][a-z0-9_]*")
 # A scenario's table should hold this many times the species of its largest sample, or its samples share most of
 # their species: it is said so (scenario_table), not refused.
@@ -133,7 +146,7 @@ def check_definition(name, d):
     if not NAME.fullmatch(name):
         raise ScenarioError(f"scenario name {name!r}: lower-case letters, digits and _, starting with a letter")
     unknown = sorted(set(d) - set(FIELDS))
-    missing = [f for f in FIELDS if f not in d and f != "description"]
+    missing = [f for f in FIELDS if f not in d and f not in OPTIONAL_FIELDS]
     if unknown or missing:
         raise ScenarioError(f"scenario {name}: " + "; ".join(([f"unknown fields {', '.join(unknown)}"] if unknown else []) +
                                                            ([f"missing {', '.join(missing)}"] if missing else [])))
@@ -150,6 +163,13 @@ def check_definition(name, d):
         raise ScenarioError(f"scenario {name}: novel_share {out['novel_share']} is not between 0 and 1")
     if not 0 <= out["host_share"] < 1:
         raise ScenarioError(f"scenario {name}: host_share {out['host_share']} is not at least 0 and below 1")
+    try:
+        out["depth_spread"] = float(d.get("depth_spread", DEPTH_SPREAD))
+    except (TypeError, ValueError):
+        raise ScenarioError(f"scenario {name}: depth_spread {d.get('depth_spread')!r} is not a number") from None
+    if not 1 <= out["depth_spread"] <= 10:
+        raise ScenarioError(f"scenario {name}: depth_spread {out['depth_spread']} is not between 1 (every sample at "
+                            "the scenario's depth) and 10")
     if not isinstance(d["reads"], list) or not d["reads"]:
         raise ScenarioError(f"scenario {name}: reads is a list of the read types' entries")
     reads, seen = [], set()
@@ -227,6 +247,27 @@ def selection(text, samples, defs, keep_zero=False):
 def seed_of(seed, name):
     """A scenario's own seed: its samples do not change when the design or the other scenarios do."""
     return seed * 1_000_003 + int(hashlib.sha1(name.encode()).hexdigest()[:7], 16)
+
+
+def depth_factors(seed, name, samples, spread):
+    """The depth factor of each of a scenario's `samples` (its depth times the factor is the sample's): spread**u for u
+    in [-1, 1], log-uniform and stratified (one u in each of `samples` equal parts of [-1, 1], at a random place within
+    it, the parts in random order), so that few samples still spread from 1/spread to spread; drawn from the
+    collection's seed and the scenario's name, so that a rerun (and simulate_metagenomes --test) gets the same, and
+    another seed (the build's test set) others. All 1 when spread is 1."""
+    if samples <= 0:
+        return []
+    if spread <= 1:
+        return [1.0] * samples
+    rng = random.Random(seed_of(seed, f"{name}:depth"))
+    parts = list(range(samples))
+    rng.shuffle(parts)
+    return [float(spread) ** (-1 + 2 * (part + rng.random()) / samples) for part in parts]
+
+
+def sample_depths(depth, factors):
+    """A depth (read pairs, reads or bases) times each sample's factor, at least 1."""
+    return [max(1, round(depth * f)) for f in factors]
 
 
 # ---- the scenario's genome table --------------------------------------------------------------------------

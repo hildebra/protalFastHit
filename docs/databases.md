@@ -143,9 +143,9 @@ At GTDB r226 (143,614 species) the whole pipeline takes:
 | | |
 |---|---|
 | download | 17.7 GB of GTDB files and about 185 GB of genomes to simulate from (estimated for the defaults since 2026-10-05; 75 GB with the earlier 8,000 species), on a node with internet |
-| time | about 2.5-3 hours on a 52-64-thread node (conversion 5 min; the r226 build of 2026-10-03 then took 2 h, and 0.7.6's design simulates half as many short-read samples again), and several hours more for the [scenarios](#scenarios-kinds-of-studies) (an estimate; `--scenarios none` leaves them out) |
+| time | about 2.5-3 hours on a 52-64-thread node (conversion 5 min; the r226 build of 2026-10-03 then took 2 h, and 0.7.6's design simulates half as many short-read samples again), and several hours more for the [scenarios](#scenarios-kinds-of-studies) (an estimate; `--scenarios none` leaves them out); training gradient-boosted models (the default since 2026-10-06) takes about an hour where forests took minutes (an estimate; `--model forest`) |
 | memory | each index build ~35-37 GB with 64 threads (estimated; it was 64 GB before 2026-10-05; its log's `Memory after ...` lines say), up to ~75 GB while both run at once; `--one-build-at-a-time` needs about half |
-| node-local disk | for the simulated samples (`--scratch`): with `--profile-blocks` (the default) each design point's reads are removed once profiled, and the simulations wait rather than leave less than `--keep-free` GB, so ~150-200 GB is enough; all at once (`--profile-blocks 0`) ~180 GB for the design and ~260 GB more for the default scenarios (measured 2026-10-05) |
+| node-local disk | for the simulated samples (`--scratch`): with `--profile-blocks` (the default) each design point's reads are removed once profiled, and the simulations wait rather than leave less than `--keep-free` GB, so ~150-200 GB is enough; all at once (`--profile-blocks 0`) ~180 GB for the design and ~500 GB more for the default scenarios (6 + 3 samples each since 2026-10-06; ~260 GB for the 3 + 2 measured on 2026-10-05) |
 | result | `database.protal`, ~27 GB |
 
 ### Build and train in one command
@@ -246,8 +246,9 @@ numbered line when it starts and indented lines when it ends.
    host-dominated; [below](#scenarios-kinds-of-studies)), all against the training database.
 6. **Independent test set** (`test_data.log`): samples of another design, for an honest score, and
    the scenarios' hold-out samples.
-7. **Models** (`classifier_training*.log`): one random forest per read type, trained in parallel, each
-   on the feature set its trainer chose (`--features auto`); the console says which won and why.
+7. **Models** (`classifier_training*.log`): one model of gradient-boosted trees per read type (`--model`;
+   a random forest before 2026-10-06), trained in parallel, each on the feature set its trainer chose
+   (`--features auto`); the console says which won and why.
 8. **Parity check** (`parity*.log`): protal scores each model exactly as the trainer does.
 9. **Packaging** (`final_package.log`): the models go into the finished database.
 
@@ -429,11 +430,12 @@ mixed strains, another seed (`--test-*` options; `--test-samples 0` skips it).
 The design spans depths, community sizes and read setups so that one model learns them all; it does
 not say how a model does on one kind of study. So every build also simulates samples of four such
 kinds (`scripts/scenarios.py`; `--scenarios` picks others, `none` leaves them out): each scenario's
-hold-in samples (`--scenario-samples`, 3) join the training data and inform the forests as the
+hold-in samples (`--scenario-samples`, 6) join the training data and inform the models as the
 design's samples do, at a quarter of their weight (`--scenario-weight` 0.25), its hold-out samples
-(`--scenario-test-samples`, 2, another seed) the test set, and each read type's report scores both
+(`--scenario-test-samples`, 3, another seed) the test set, and each read type's report scores both
 (section "Scenarios"; `summary.txt` has a row per scenario and set). A scenario is a community
-sequenced by several technologies at the same bases, each technology reading the same communities:
+sequenced by several technologies at the same bases, each technology reading the same communities,
+each sample at a depth of its own around the scenario's (below):
 
 | Scenario | Community | Reads |
 |---|---|---|
@@ -449,9 +451,22 @@ sequenced by several technologies at the same bases, each technology reading the
 read type with its `depth` (read pairs, reads, or bases for long reads): `pe` with `length`,
 `profile`, `fragment_mean`, `fragment_sd` and `quality` (the mean base quality), `se` with an Ultima
 `setup` (`ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD`, default `ultima:300:40:25:2`), `pb` and `ont` with
-an optional `setup` (the build's `--pb-setup` and `--ont-setup` by default).
+an optional `setup` (the build's `--pb-setup` and `--ont-setup` by default); and optionally
+`depth_spread` (2; below).
 
 How the parts are made:
+- **The depths.** Each sample's depth is the scenario's times a factor from 1/`depth_spread` to
+  `depth_spread` (by default from half to twice it), log-uniform and stratified so that a few samples
+  still spread over the range, drawn from the build's seed (the hold-out samples, of another seed,
+  fall between the hold-in ones). Sample s of every technology has the same factor, so the
+  technologies still read the same communities at the same bases; `meta_read_pairs` in the tables is
+  the scenario's depth, and the collection's log lists each sample's factor (`scenario soil (6
+  samples): ...; its samples at 1.62, 0.55, ... times its depths`). Before 2026-10-06 every sample of a
+  scenario had its depth, so the sample's depth feature told a scenario's few samples apart: a model
+  could learn each training sample's own offset, which cross-validation by species does not see, and
+  gradient boosting fell from 0.937 on the shallow-soil training samples to 0.881 on the hold-out ones
+  ([report](claude/2026-10-06-r226-v13-soil/README.md)). `depth_spread` 1 gives every sample the
+  scenario's depth.
 - **The share the database lacks.** A scenario draws its species from a genome table of its own
   (`scenarios/<name>/genomes.tsv` beside the samples): every species of the build's table on the side
   of the split (held out or not) that is short of the share, and a random part of the other side, so
@@ -482,9 +497,10 @@ How the parts are made:
   on taxa.
 
 Scenario samples are deep: one sample of every preset takes ~52 GB of reads (gut 15, soil 22,
-soil_shallow 4, host 11; measured per Gb on 2026-10-05), ~260 GB for the default 3 + 2 samples if they
-were all on the disk at once, which `--profile-blocks` avoids, and hours more of simulation and
-profiling on a 64-thread node ([report](claude/2026-10-05-collector-profiling/README.md)). Their rows also weigh in the training: a
+soil_shallow 4, host 11; measured per Gb on 2026-10-05; the varied depths average ~1.08 times the
+preset's), ~500 GB for the default 6 + 3 samples if they were all on the disk at once, which
+`--profile-blocks` avoids, and hours more of simulation and profiling on a 64-thread node (the r226 v13
+build, with 3 + 2, took 3 h 05 min in all; [report](claude/2026-10-05-collector-profiling/README.md)). Their rows also weigh in the training: a
 soil sample adds ~10,000 rows, as many as 70 design samples, and at r226 v12 the scenarios' rows were
 52-80% of every training table. At full weight they made the forests call more freely on the design's
 samples (test F1 -0.002 to -0.004; on gut -0.008 for long reads), while without them soil's F1 fell by
@@ -502,7 +518,7 @@ and their reads removed once profiled (`--profile-blocks`), and a simulation tha
 than `--keep-free` GB (30) waits for that, so the disk holds the training database (~24 GB at r226),
 what is simulated but not yet profiled, and the SAMs and profiles; give it 150-200 GB. With
 `--profile-blocks 0` every sample is on the disk at once: the r226 design took up to 120 GB without
-the scenarios (give it 175 GB), the default scenarios ~260 GB more. The console says how much the run
+the scenarios (give it 175 GB), the default scenarios ~500 GB more (estimated for 6 + 3 samples each). The console says how much the run
 takes there. A rerun reuses the samples only from the same DIR, so on a disk that is cleared
 after the job, a rerun simulates again (the builds are kept in `--outdir`).
 
@@ -566,11 +582,12 @@ keeps the finished database.
 | `--test-samples` | 4 | test-set samples per design point; 0 for none |
 | `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases`, `--test-long-read-samples` | `500,...,5000000:2`, `10-300`, `lognormal:2.0`, `0.5,0.2`, 150 kb to 3 Gb, 8 | the test set's design |
 | `--scenarios`, `--scenario-file` | `all` | kinds of studies to train on and score ([above](#scenarios-kinds-of-studies)): `gut`, `soil`, `soil_shallow`, `host`, `all`, `NAME:N`, `none`; JSON of more or changed ones |
-| `--scenario-samples`, `--scenario-test-samples` | 3, 2 | each scenario's hold-in samples (training data; 0: scored, not trained on) and hold-out samples (test set) |
-| `--scenario-weight` | 0.25 | the weight of the scenarios' hold-in rows in the forests, the design's 1 |
+| `--scenario-samples`, `--scenario-test-samples` | 6, 3 | each scenario's hold-in samples (training data; 0: scored, not trained on) and hold-out samples (test set); 3 and 2 before 2026-10-06 |
+| `--scenario-weight` | 0.25 | the weight of the scenarios' hold-in rows in the models, the design's 1 |
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
-| `--features` | `auto` | each trainer chooses its feature set ([below](#training)); or feature groups ([features.md](features.md)), e.g. `normalized+adjacency+distance+depth+divergence+unfiltered` (the set `auto` keeps unless another is better); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
-| `--ntree`, `--maxnodes` | 64, `512,pb:128,ont:128` | trees, and leaves per tree by read type |
+| `--features` | `auto` | each trainer chooses its feature set ([below](#training)); or feature groups ([features.md](features.md)), e.g. `normalized+adjacency+distance+depth+divergence+unfiltered+ref` (the set `auto` keeps unless another is better; without `ref` before 2026-10-06); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
+| `--model` | `gbm` | the models: `gbm`, gradient-boosted trees (the default since 2026-10-06), or `forest`, a random forest ([below](#training)) |
+| `--rounds`, `--ntree`, `--maxnodes` | 500, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items) |
 | `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
 | `--evaluation`, `--previous-procedure` | `full`, off | how much the trainer evaluates |
 | `--n-genes`, `--genes`, `--gene-ranking`, `--genes-per-domain`, `--rank-genes` | | a reduced database ([below](#reduced-marker-sets)) |
@@ -773,8 +790,9 @@ protal prints each sample's true and false positives and false negatives, and wr
 
 ### How protal calls species
 
-protal scores every species with reads with a random forest (PMML) and reports those whose
-probability of `TRUE` reaches a threshold:
+protal scores every species with reads with a model of trees (PMML: gradient-boosted trees since
+2026-10-06, a random forest before; protal reads either) and reports those whose probability of
+`TRUE` reaches a threshold:
 
 - **`--knob`** (default 0.5), for every sample;
 - **a knob curve** over the sample's depth, if the model carries one and `--knob` is not given
@@ -857,7 +875,7 @@ features.
 | `--species_per_sample`, `--archaea`, `--strains_per_species`, `--abundance`, `--congeners` | `5-30`, 0, one, sigma 1.3, 0 | the communities |
 | `--read_types`, `--long_read_bases`, `--pb_setup`, `--ont_setup`, `--pbsim`, `--pbsim_models` | `pe` | other read types and how they are made |
 | `--novel_species`, `--novel_clades`, `--taxonomy` | | the species the database lacks (`heldout_species.txt`), held-out clades per sample, and the taxonomy for the `meta_*` ranks |
-| `--scenarios`, `--scenario_samples`, `--scenario_file`, `--host_genome` | none, 3 | scenarios to collect besides the design, their samples, more or changed scenarios, the host genome |
+| `--scenarios`, `--scenario_samples`, `--scenario_file`, `--host_genome` | none, 6 | scenarios to collect besides the design, their samples (each at a depth of its own), more or changed scenarios, the host genome |
 | `-t`, `--jobs`, `--seed`, `--long_read_chunk` | 4, `-t`, 1, 250 Mb | threads, cores for the simulations, seed, chunks of deep long-read samples |
 | `--simulate_only`, `--prepare_profiling`, `--also_profile MAP` | | simulate and stop; write the map to profile and stop; profile another collection in the same run |
 | `--read_compression` | zstd | `zstd` (`.fq.zst`) or `gzip` (`.fq.gz`): how the simulated reads are written |
@@ -866,68 +884,87 @@ features.
 ### Training
 
 ```bash
-python3 scripts/random_forest_cmdline.py --truth-file training/training_data.tsv --output-prefix training/model
+python3 scripts/machine_learning_cmdline.py --truth-file training/training_data.tsv --output-prefix training/model
 ```
 
 The trainer needs Python 3 with numpy, pandas, joblib and scikit-learn, no Java: it writes the PMML
 itself, so that protal's probabilities equal scikit-learn's bit for bit, and checks this on every
 training row.
 
+**The model.** Gradient-boosted trees (`--model gbm`, the default since 2026-10-06; scikit-learn's
+`HistGradientBoostingClassifier`: 500 rounds at a learning rate of 0.05 of trees of up to 63 leaves,
+20 rows a leaf at least, an L2 penalty of 1, balanced classes, no early stopping) or a random forest
+(`--model forest`, the model before). Refitted on the r226 v13 tables, boosting scored higher than the
+forest on every test set of the long reads (soil +0.004 to +0.008, the design's test set +0.003, gut
++0.008 to +0.013) and of Ultima's (+0.005 in soil), and, with the scenarios' depths varied (rounded in
+the experiment), of paired-end reads (soil +0.004, shallow soil +0.006, the design's test set +0.002;
+[report](claude/2026-10-06-r226-v13-soil/README.md)). It is written as a chain of one regression tree
+per round into a logit sum (`model_pmml.write_boosted`), which protal's cPMML scores bit for bit as
+scikit-learn does; a boosted model file is ~5 MB, a forest's ~13 MB. It trains slower: a fit of 500
+rounds took ~35 s on 6 threads on four fifths of the r226 paired-end table, so a model's training with
+`--evaluation full` takes about an hour on 16 threads (an estimate), against minutes for a forest. Its
+OpenMP threads are held at `--threads`. A boosted model has no out-of-bag estimate; its importances
+(`.varimp.tsv`) are the splits' gains.
+
 | Option | Default | |
 |---|---|---|
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
 | `--features` | `auto` | `auto` chooses (below); or feature groups joined by `+` ([features.md](features.md)); `+priors` is opt-in; `all` takes every column. A table of an older protal lacks newer groups: `auto` leaves out the sets it lacks, a set named must leave them out |
-| `--ntree`, `--maxnodes`, `--min-samples-leaf`, `--max-features` | 64, 256, 1, `sqrt` | the forest (the GTDB build gives 512 leaves for short reads, 128 for long reads) |
+| `--model` | `gbm` | `gbm`: gradient-boosted trees; `forest`: a random forest |
+| `--rounds`, `--learning-rate`, `--l2` | 500, 0.05, 1 | boosting's rounds, learning rate and L2 penalty |
+| `--maxnodes`, `--min-samples-leaf` | 63, 20 for boosting; 256, 1 for a forest | leaves per tree at most (0: no limit), rows a leaf at least (the GTDB build gives forests 512 leaves for short reads, 128 for long reads) |
+| `--ntree`, `--max-features` | 64, `sqrt` | a forest's trees and features tried per split |
 | `--knob` | 0.5 | the threshold protal will use; errors are counted at it |
 | `--depth-knobs`, `--fdr-calls`, `--singleton-congener` | off, off, 0 | a knob curve (with the sample's depth a feature: one knob for every sample, if it pays); calibrated calls; the singleton rule the counts follow ([below](#knobs-by-sample-depth)) |
-| `--scenario-weight` | 0.25 | the sample weight of the scenarios' rows (`meta_scenario`) in every forest, the design's 1 ([above](#scenarios-kinds-of-studies)) |
+| `--scenario-weight` | 0.25 | the sample weight of the scenarios' rows (`meta_scenario`) in every model fitted, the design's 1 ([above](#scenarios-kinds-of-studies)) |
 | `--taxonomy` | | the database's taxonomy: domains, and whole clades held out |
-| `--test-file` | | an independent test table, scored by the final forest; its scenarios' rows (`meta_scenario`) are their hold-out samples, scored apart |
+| `--test-file` | | an independent test table, scored by the final model; its scenarios' rows (`meta_scenario`) are their hold-out samples, scored apart |
 | `--evaluation`, `--folds`, `--previous-procedure` | `full`, 5, off | `basic`: held-out scores only; `none`: fit and export only |
 | `--seed`, `--threads` | 1, 4 | |
 
 **How a model is judged.** Rows of one sample share its reads, and rows of one species its reference,
-so random rows would score a model on what it was trained on. The trainer scores each row with forests
+so random rows would score a model on what it was trained on. The trainer scores each row with models
 that saw neither its sample nor its species ("by species", the estimate that matters: most species
 protal meets were never in training), and with `--taxonomy` with its whole genus, family, order, class
-or phylum held out. `--evaluation full` adds studies: the other feature sets, forest size, and a
-learning curve.
+or phylum held out. `--evaluation full` adds studies: the other feature sets, the model's size (a
+forest's leaves and trees, boosting's leaves and rounds), and a learning curve.
 
 **Scenarios.** For a table with scenarios (`meta_scenario`), the section "Scenarios: hold-in and
 hold-out samples" gives, per scenario, as protal calls by default: TP, FP, FN, sensitivity,
 precision, F1, the FP rate (of the absent taxa, those called), the FN rate (of the present taxa, those
 missed), FP per sample, the false positives whose closest species in the sample is one the database
 lacks, and the highest F1 at any threshold. On the scenario's training samples (hold-in) three times:
-scored by the final forest, which was fitted on them (in sample: how well it fits), with their samples
+scored by the final model, which was fitted on them (in sample: how well it fits), with their samples
 held out, and with their species held out; and on its samples in `--test-file` (hold-out), which no
-forest saw. A row for the design's training samples with species held out comes first, for
+model saw. A row for the design's training samples with species held out comes first, for
 comparison. The summary has a line per scenario, and warns when a scenario's hold-out F1 is more than
 0.02 below its hold-in F1 with species held out. The independent test set's section leaves the
 scenarios' rows out.
 
 **`--features auto`** (the default) scores each candidate set with species held out and keeps the one
-of highest F1 at the knob, but `normalized+adjacency+distance+depth+divergence+unfiltered` unless
+of highest F1 at the knob, but `normalized+adjacency+distance+depth+divergence+unfiltered+ref` unless
 another beats it by 0.002 (`AUTO_MIN_GAIN`, the gain below which the depth knobs changed between fits
 at r226). The candidates are the named sets without the priors, and
 `normalized+adjacency+relatives+depth+divergence+unfiltered` (`auto+priors` adds the sets with the
 priors, which win on simulated data for a reason the simulation makes: see
 [features.md](features.md)). The section "Feature set chosen" lists each candidate's F1, AP, log loss
-and errors, and, scored by each candidate's forest fitted on all rows, its F1 on every test set apart:
+and errors, and, scored by each candidate's model fitted on all rows, its F1 on every test set apart:
 the independent test set and each scenario's hold-out samples. These are for comparison only, since a
 set chosen on them would leave them no longer held out. A line then says why the winner won: its F1
 against the other sets' mean and the best of them, the rule that kept or chose it, and its F1 on each
 test set against the other sets' mean (also the summary's last line, `metrics.json`'s
-`features_auto.why`, and the build's console and `summary.txt`). It costs 8 candidates x 5 forests on four fifths of the rows, and one forest
-on all rows each for the held-out tables: at the r226 tables' size (the "Feature sets" study, 11 sets
+`features_auto.why`, and the build's console and `summary.txt`). It costs 8 candidates x 5 fits on four fifths of the rows, and one fit
+on all rows each for the held-out tables: for forests at the r226 tables' size (the "Feature sets" study, 11 sets
 x 2 schemes, took 10-170 s per read type, a final fit 1-6 s) roughly 10-100 s per read type, against
-1-8 min for a model's whole training and 2.5-3 h for a build. The evaluation and, with `--evaluation
+1-8 min for a model's whole training and 2.5-3 h for a build; for boosting about 15-30 min for the
+paired-end table (48 fits of ~20-35 s; an estimate). The evaluation and, with `--evaluation
 full`, the "Feature sets" study reuse the candidates' scores with species held out.
 
 | Output | |
 |---|---|
 | `<prefix>.xml` | the model |
 | `<prefix>.report.txt` | the evaluation (also printed) |
-| `<prefix>.metrics.json`, `.predictions.tsv.gz`, `.thresholds.tsv`, `.varimp.tsv`, `.joblib` | its numbers, every taxon's held-out probability, F1 by threshold, feature importances, the scikit-learn forest |
+| `<prefix>.metrics.json`, `.predictions.tsv.gz`, `.thresholds.tsv`, `.varimp.tsv`, `.joblib` | its numbers, every taxon's held-out probability, F1 by threshold, feature importances, the scikit-learn model |
 | `<prefix>.test_predictions.tsv.gz`, `.scenario_predictions.tsv.gz` | each taxon's probability on the independent test set and on the scenarios' hold-out samples |
 
 `scripts/check_model_parity.py --db DB --model training/model.xml --training training` re-profiles
@@ -936,8 +973,9 @@ those of the training data (`--read_type se`, `pb`, `ont` for other models). Dif
 digits (1e-12) are noted, not failed. A sample without taxa (a shallow one of a database of few genes)
 passes if it had none during collection either; the check fails only if no sample has a taxon to
 compare. `gradient_boosted_cmdline.py` and
-`hist_gradient_boosted_cmdline.py` train gradient-boosted trees (their PMML export needs Java); the R
-scripts are the older caret pipeline.
+`hist_gradient_boosted_cmdline.py` are older trainers of gradient-boosted trees (their PMML export
+needs Java), which `machine_learning_cmdline.py --model gbm` replaces; the R scripts are the older caret
+pipeline.
 
 ### Species and clades the database lacks
 
@@ -948,7 +986,7 @@ set) shows how the model handles organisms the database lacks:
   the sample is one the database lacks, by the rank it was held out at, against the other absent taxa.
 - **False negatives** of present taxa by the deepest rank they share with another species of the
   sample.
-- **With the taxon's clade held out of training**: FN and FP rates and F1 when the forest has seen
+- **With the taxon's clade held out of training**: FN and FP rates and F1 when the model has seen
   nothing of that species, genus, ... phylum.
 
 The section "Strains" compares species simulated from another genome than the representative (real
@@ -980,10 +1018,10 @@ interpolates it per sample, keeping the deepest knob for deeper samples; `--knob
 lists each sample's knob. At r226 (0.7.0's features) curves raised the test F1 by 0.006-0.033 per read
 type ([report](claude/2026-10-02-r226-build-evaluation/README.md)).
 
-With the sample's depth among the features (the default since 0.7.5) no curve is fitted: the forest
+With the sample's depth among the features (the default since 0.7.5) no curve is fitted: the model
 already knows the depth, and a curve on top corrects twice (it lost 0.010). Instead the trainer chooses
 one knob for every sample, the threshold with the highest F1 on species held out (rows weighted as in
-the forests), if it gains 0.002 over `--knob`; it goes into the model as a curve of one point, which
+the fits), if it gains 0.002 over `--knob`; it goes into the model as a curve of one point, which
 protal reads as that knob at every depth (`--knob` overrides it). At r226 v12 the paired-end forest's
 best threshold was 0.70 both with species held out and on the test set (+0.003 of test F1); the other
 read types' sat near 0.5 ([report](claude/2026-10-05-r226-v12-scenarios/README.md)). Either way a

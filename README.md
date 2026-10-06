@@ -2,7 +2,7 @@
 
 Protal profiles bacterial and archaeal communities from shotgun metagenomes (paired-end,
 single-end, PacBio HiFi and Nanopore reads), and resolves strains across samples. It aligns reads to the marker genes of GTDB (the prebuilt
-database covers GTDB r226), decides with a random forest which species are present, and writes
+database covers GTDB r226), decides with a model of decision trees which species are present, and writes
 species abundances and per-species multiple sequence alignments for strain phylogenies.
 
 - Website and user documentation: https://protal.earlham.ac.uk

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Checks for model_pmml.py: a forest written as PMML scores as scikit-learn scores it, bit for bit.
+"""Checks for model_pmml.py: a forest or a gradient-boosted model written as PMML scores as scikit-learn
+scores it, bit for bit.
 
 The PMML file is scored with model_pmml.PmmlForest, which compares doubles and averages the trees in
-file order as protal's cPMML does; check_model_parity.py compares PmmlForest with protal itself.
-Also the knobs by sample depth that random_forest_cmdline.py --depth-knobs chooses and writes.
+file order as protal's cPMML does, or PmmlBoosted, which chains the trees into a logit sum as cPMML
+does; check_model_parity.py compares them with protal itself. Also the knobs by sample depth that
+machine_learning_cmdline.py --depth-knobs chooses and writes.
 
   python3 -m unittest scripts/test_model_pmml.py
 """
@@ -20,8 +22,8 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from model_pmml import (PmmlForest, float32_split, format_depth_knob_curve, format_depth_knobs,  # noqa: E402
-                        read_depth_knob_curve, read_depth_knobs, read_false_calls, write_forest)
+from model_pmml import (PmmlBoosted, PmmlForest, float32_split, format_depth_knob_curve, format_depth_knobs,  # noqa: E402
+                        load_model, read_depth_knob_curve, read_depth_knobs, read_false_calls, write_forest, write_model)
 
 try:
     import pandas as pd
@@ -156,6 +158,116 @@ class ForestExportTest(unittest.TestCase):
             write_forest(rf, self.features, os.path.join(self.tmp.name, "bad.xml"))
 
 
+@unittest.skipIf(RandomForestClassifier is None, "needs numpy, pandas and scikit-learn")
+class BoostedExportTest(unittest.TestCase):
+    """A HistGradientBoostingClassifier written as a chain of trees into a logit RegressionModel (write_boosted) scores
+    as scikit-learn scores it, bit for bit (PmmlBoosted scores it as cPMML does)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from sklearn.ensemble import HistGradientBoostingClassifier
+        cls.Boosted = HistGradientBoostingClassifier
+        rng = np.random.default_rng(11)
+        n = 4000
+        X = np.column_stack([rng.random(n), rng.normal(0, 3, n), rng.integers(0, 50, n).astype(float),
+                             rng.random(n) ** 8, rng.lognormal(0, 2, n)])
+        y = ((X[:, 0] + 0.2 * X[:, 1] - 0.01 * X[:, 2] + rng.normal(0, 0.4, n)) > 0.5).astype(int)
+        cls.features = ["a", "b", "count", "small", "wide"]
+        cls.X, cls.y = X, y
+        cls.weights = np.where(rng.random(n) < 0.3, 0.25, 1.0)
+        cls.tmp = tempfile.TemporaryDirectory()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def export(self, X=None, **params):
+        X = self.X if X is None else X
+        settings = dict(max_iter=40, learning_rate=0.1, max_leaf_nodes=15, min_samples_leaf=20, l2_regularization=1.0,
+                        class_weight="balanced", early_stopping=False, random_state=3)
+        model = self.Boosted(**{**settings, **params}).fit(X, self.y, sample_weight=self.weights)
+        path = os.path.join(self.tmp.name, "boosted.xml")
+        write_model(model, self.features, path, ["boosted & <annotation>"])
+        return model, load_model(path)
+
+    def test_same_probabilities(self):
+        for params in ({}, {"max_leaf_nodes": 63, "max_iter": 25}, {"max_depth": 1, "max_iter": 10}):
+            model, pmml = self.export(**params)
+            self.assertIsInstance(pmml, PmmlBoosted)
+            self.assertEqual(pmml.features, self.features)
+            self.assertEqual(len(pmml.trees), model.n_iter_)
+            np.testing.assert_array_equal(pmml.raw(self.X), model.decision_function(self.X))
+            np.testing.assert_array_equal(pmml.predict(self.X), model.predict_proba(self.X)[:, 1])
+
+    def test_values_on_split_boundaries(self):
+        # Rows at a threshold and one double either side: the thresholds are written exactly.
+        model, pmml = self.export()
+        base = np.median(self.X, axis=0)
+        rows = []
+        for trees in model._predictors:
+            nodes = trees[0].nodes
+            for n in nodes[nodes["is_leaf"] == 0]:
+                t = float(n["num_threshold"])
+                for x in (t, np.nextafter(t, np.inf), np.nextafter(t, -np.inf)):
+                    row = base.copy()
+                    row[int(n["feature_idx"])] = x
+                    rows.append(row)
+        rows = np.array(rows)
+        np.testing.assert_array_equal(pmml.predict(rows), model.predict_proba(rows)[:, 1])
+
+    def test_missing_values_go_where_sklearn_sends_them(self):
+        X = self.X.copy()
+        X[::7, 1] = np.nan  # missing in training: each split learns a side for them
+        model, pmml = self.export(X=X)
+        test = self.X[:500].copy()
+        test[::3, 1] = np.nan
+        test[1::5, 3] = np.nan  # never missing in training
+        np.testing.assert_array_equal(pmml.predict(test), model.predict_proba(test)[:, 1])
+
+    def test_a_tree_of_one_leaf(self):
+        # A round whose best split gains nothing is one leaf: written as the root's only child (cPMML scores a root's
+        # children).
+        model, pmml = self.export(max_iter=5, min_samples_leaf=len(self.y))
+        self.assertTrue(all(trees[0].nodes[0]["is_leaf"] for trees in model._predictors))
+        np.testing.assert_array_equal(pmml.predict(self.X), model.predict_proba(self.X)[:, 1])
+
+    def test_model_contract(self):
+        # protal reads every MiningField of the file: the target once, as predicted, the rest features; the chained
+        # trees' outputs are no MiningFields.
+        self.export(max_iter=3)
+        with open(os.path.join(self.tmp.name, "boosted.xml")) as fh:
+            xml = fh.read()
+        import re
+        fields = re.findall(r'<MiningField name="([^"]+)"( usageType="predicted")?/>', xml)
+        self.assertEqual({name for name, predicted in fields if predicted}, {"truth"})
+        self.assertTrue({name for name, predicted in fields if not predicted} <= set(self.features))
+        self.assertIn('<Value value="TRUE"/>', xml)
+        self.assertIn('multipleModelMethod="modelChain"', xml)
+        self.assertIn('normalizationMethod="logit"', xml)
+        self.assertIn('<OutputField name="tree_3" optype="continuous" dataType="double" feature="predictedValue"/>', xml)
+        self.assertNotIn("Interval", xml)
+        self.assertIn("boosted &amp; &lt;annotation&gt;", xml)
+
+    def test_header_extensions(self):
+        model = self.Boosted(max_iter=3, random_state=1).fit(self.X, self.y)
+        path = os.path.join(self.tmp.name, "boosted_knobs.xml")
+        calls = {"curve": [(0.0, 0.0001), (1.0, 0.99)], "prior": 0.2, "fdr": 0.05}
+        write_model(model, self.features, path, depth_knob_curve=[(5.5, 0.7)], false_calls=calls)
+        self.assertEqual(read_depth_knob_curve(path), [(5.5, 0.7)])
+        self.assertEqual(read_false_calls(path), calls)
+
+    def test_rejects_other_classes(self):
+        model = self.Boosted(max_iter=2).fit(self.X, np.where(self.y == 1, "yes", "no"))
+        with self.assertRaises(ValueError):
+            write_model(model, self.features, os.path.join(self.tmp.name, "bad.xml"))
+
+    def test_loads_either_model(self):
+        rf = RandomForestClassifier(n_estimators=2, random_state=1).fit(self.X, self.y)
+        path = os.path.join(self.tmp.name, "either.xml")
+        write_model(rf, self.features, path)
+        self.assertIsInstance(load_model(path), PmmlForest)
+
+
 @unittest.skipIf(RandomForestClassifier is None, "needs scikit-learn")
 class FeatureSetsTest(unittest.TestCase):
     """The trainer's default features are the normalised ones, the gene neighbours', the four relatives features by the
@@ -165,18 +277,21 @@ class FeatureSetsTest(unittest.TestCase):
 
     def test_default_set_has_the_gene_neighbour_features(self):
         import model_features as mf
-        import random_forest_cmdline
+        import machine_learning_cmdline
         columns = (["truth", "taxon", "meta_sample"] + mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES +
                    mf.RELATIVE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES +
-                   mf.PRIORS_FEATURES + ["genus_top_fragments", "other"])
-        # The priors are opt-in: their gain at r226 is the cluster-size rule the simulation cannot test.
-        self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence+unfiltered")
+                   mf.REF_FEATURES + mf.PRIORS_FEATURES + ["genus_top_fragments", "other"])
+        # The priors are opt-in: their gain at r226 is the cluster-size rule the simulation cannot test. The reference's
+        # k-mer uniqueness (ref) is in the default set since 2026-10-06.
+        self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence+unfiltered+ref")
+        self.assertEqual(mf.REF_FEATURES, ["su_rate_ref", "lu_rate_ref", "lsu_rate_ref"])
         self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
-                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES)
+                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES)
         self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET + "+priors"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
-                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.PRIORS_FEATURES)
+                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.PRIORS_FEATURES)
+        self.assertIn("normalized+adjacency+distance+depth+divergence+unfiltered", mf.AUTO_CANDIDATES)  # the old default
         self.assertIn(mf.DEFAULT_FEATURE_SET, mf.FEATURE_SETS)
         self.assertEqual(mf.feature_columns(columns, "normalized+adjacency+distance+depth+divergence"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES)
@@ -208,7 +323,7 @@ class FeatureSetsTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "em_own_share"):  # a table of protal before the relatives features
             mf.feature_columns([c for c in columns if c != "em_own_share"], "normalized+adjacency+relatives")
         # The trainer chooses its set by default, the default set among the candidates.
-        opts = random_forest_cmdline.parse_args(["--truth-file", "t.tsv", "--output-prefix", "p"])
+        opts = machine_learning_cmdline.parse_args(["--truth-file", "t.tsv", "--output-prefix", "p"])
         self.assertEqual(opts.features, "auto")
         self.assertIn(mf.DEFAULT_FEATURE_SET, mf.auto_candidates("auto"))
 
@@ -261,15 +376,15 @@ def metrics_knobs(test, name):
 
 
 class TrainerDepthKnobsTest(unittest.TestCase):
-    """random_forest_cmdline.py --depth-knobs on a table of shallow samples (hundreds of fragments, log10 ~2.7) and
+    """machine_learning_cmdline.py --depth-knobs on a table of shallow samples (hundreds of fragments, log10 ~2.7) and
     deep ones (tens of thousands, ~4.7), where a present taxon's evidence grows with depth; half the present taxa
     simulated from another genome than the representative."""
 
     @classmethod
     def setUpClass(cls):
         sys.path.insert(0, HERE)
-        import random_forest_cmdline
-        cls.trainer = random_forest_cmdline
+        import machine_learning_cmdline
+        cls.trainer = machine_learning_cmdline
         cls.tmp = tempfile.TemporaryDirectory()
         rng = np.random.default_rng(5)
         rows = []
@@ -298,8 +413,8 @@ class TrainerDepthKnobsTest(unittest.TestCase):
 
     def train(self, name, *extra):
         prefix = os.path.join(self.tmp.name, name)
-        result = subprocess.run([sys.executable, os.path.join(HERE, "random_forest_cmdline.py"), "--truth-file", self.table,
-                                 "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--evaluation", "basic",
+        result = subprocess.run([sys.executable, os.path.join(HERE, "machine_learning_cmdline.py"), "--truth-file", self.table,
+                                 "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--rounds", "30", "--evaluation", "basic",
                                  "--threads", "1", *extra], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
         with open(prefix + ".metrics.json") as fh:
@@ -366,8 +481,8 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         path = os.path.join(self.tmp.name, "with_depth.tsv")
         table.to_csv(path, sep="\t", index=False)
         prefix = os.path.join(self.tmp.name, "with_depth")
-        result = subprocess.run([sys.executable, os.path.join(HERE, "random_forest_cmdline.py"), "--truth-file", path,
-                                 "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--evaluation", "basic",
+        result = subprocess.run([sys.executable, os.path.join(HERE, "machine_learning_cmdline.py"), "--truth-file", path,
+                                 "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--rounds", "30", "--evaluation", "basic",
                                  "--threads", "1", "--depth-knobs"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
         with open(prefix + ".metrics.json") as fh:
@@ -460,13 +575,13 @@ class TrainerDepthKnobsTest(unittest.TestCase):
 
 @unittest.skipIf(RandomForestClassifier is None, "needs numpy, pandas and scikit-learn")
 class TrainerFalseCallsTest(unittest.TestCase):
-    """random_forest_cmdline.py --fdr-calls and the singleton rule: the calibration, the prior adjusted to each sample
+    """machine_learning_cmdline.py --fdr-calls and the singleton rule: the calibration, the prior adjusted to each sample
     and the calls at a target share of false calls, as protal makes them (context::FalseCallKnob)."""
 
     @classmethod
     def setUpClass(cls):
-        import random_forest_cmdline
-        cls.trainer = random_forest_cmdline
+        import machine_learning_cmdline
+        cls.trainer = machine_learning_cmdline
         cls.tmp = tempfile.TemporaryDirectory()
         rng = np.random.default_rng(11)
         rows = []
@@ -492,8 +607,8 @@ class TrainerFalseCallsTest(unittest.TestCase):
 
     def train(self, name, *extra):
         prefix = os.path.join(self.tmp.name, name)
-        result = subprocess.run([sys.executable, os.path.join(HERE, "random_forest_cmdline.py"), "--truth-file", self.table,
-                                 "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--evaluation", "basic",
+        result = subprocess.run([sys.executable, os.path.join(HERE, "machine_learning_cmdline.py"), "--truth-file", self.table,
+                                 "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--rounds", "30", "--evaluation", "basic",
                                  "--threads", "1", "--test-file", self.table, *extra], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
         with open(prefix + ".metrics.json") as fh:
@@ -588,7 +703,7 @@ class TrainerFalseCallsTest(unittest.TestCase):
 
 @unittest.skipIf(RandomForestClassifier is None, "needs numpy, pandas and scikit-learn")
 class TrainerScenariosTest(unittest.TestCase):
-    """random_forest_cmdline.py on tables with scenarios (meta_scenario): the hold-in rows of the training table and
+    """machine_learning_cmdline.py on tables with scenarios (meta_scenario): the hold-in rows of the training table and
     the hold-out rows of the test table reported per scenario, apart from the independent test set; and --features
     auto, which chooses among the named sets with species held out."""
 
@@ -630,9 +745,9 @@ class TrainerScenariosTest(unittest.TestCase):
     def train(self, name, features, test=None, *extra):
         """The trainer on the training table, with --features `features` (None: its default)."""
         prefix = os.path.join(self.tmp.name, name)
-        result = subprocess.run([sys.executable, os.path.join(HERE, "random_forest_cmdline.py"), "--truth-file",
+        result = subprocess.run([sys.executable, os.path.join(HERE, "machine_learning_cmdline.py"), "--truth-file",
                                  self.training, "--output-prefix", prefix, *(["--features", features] if features else []),
-                                 "--ntree", "16", "--evaluation", "basic", "--threads", "1", "--test-file", test or self.test,
+                                 "--ntree", "16", "--rounds", "30", "--evaluation", "basic", "--threads", "1", "--test-file", test or self.test,
                                  *extra], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
         with open(prefix + ".metrics.json") as fh:
@@ -661,9 +776,9 @@ class TrainerScenariosTest(unittest.TestCase):
         predictions = pd.read_csv(prefix + ".scenario_predictions.tsv.gz", sep="\t")
         self.assertEqual(sorted(predictions["meta_scenario"].unique()), ["gut", "host"])
         self.assertEqual(len(predictions), 7 * 20)
-        # The scenarios' rows weigh 0.25 in every forest by default (--scenario-weight); at 1 the forest is another.
+        # The scenarios' rows weigh 0.25 in every fit by default (--scenario-weight); at 1 the model is another.
         self.assertEqual(metrics["scenario_weight"], {"weight": 0.25, "rows": 6 * 20})
-        self.assertIn("the scenarios' 120 of 720 rows weigh 0.25 in every forest", stdout)
+        self.assertIn("the scenarios' 120 of 720 rows weigh 0.25 in every model fitted", stdout)
         full, _, _ = self.train("scenarios_full_weight", "normalized", None, "--scenario-weight", "1")
         again = pd.read_csv(full + ".scenario_predictions.tsv.gz", sep="\t")
         self.assertFalse(np.allclose(again["p"], predictions["p"]))
@@ -675,6 +790,26 @@ class TrainerScenariosTest(unittest.TestCase):
         self.assertNotIn("test", metrics)
         self.assertIn("holds the scenarios' hold-out samples only", stdout)
         self.assertIn(("host", "hold-out"), {(r["scenario"], r["set"]) for r in metrics["scenarios"]})
+
+    def test_boosting_by_default_and_the_forest_on_request(self):
+        # The default model is gradient-boosted trees (--model gbm), written as a chain; --model forest the forest,
+        # averaged; each scores in PMML as scikit-learn does (the trainer's own check), with its importances.
+        prefix, metrics, stdout = self.train("boosted", "normalized")
+        self.assertEqual(metrics["model"]["kind"], "gbm")
+        self.assertEqual(metrics["model"]["trees"], 30)
+        self.assertEqual((metrics["model"]["pmml_vs_sklearn_max_diff"], metrics["model"]["pmml_vs_sklearn_call_differences"]),
+                         (0.0, 0))
+        self.assertIn("gradient-boosted trees: 30 rounds at a learning rate of 0.05, max 63 leaves, min leaf 20", stdout)
+        self.assertIsInstance(load_model(prefix + ".xml"), PmmlBoosted)
+        self.assertNotIn("out of bag", metrics["evaluation"])
+        importance = pd.read_csv(prefix + ".varimp.tsv", sep="\t")
+        self.assertAlmostEqual(importance["importance"].sum(), 1.0, places=4)  # written with 6 decimals
+        prefix, metrics, stdout = self.train("forest", "normalized", None, "--model", "forest")
+        self.assertEqual((metrics["model"]["kind"], metrics["model"]["trees"]), ("forest", 16))
+        self.assertEqual(metrics["model"]["pmml_vs_sklearn_max_diff"], 0.0)
+        self.assertIn("random forest: 16 trees, max 256 leaves, min leaf 1", stdout)
+        self.assertIsInstance(load_model(prefix + ".xml"), PmmlForest)
+        self.assertIn("out of bag", metrics["evaluation"])
 
     def test_features_auto(self):
         prefix, metrics, stdout = self.train("auto", "auto")
@@ -698,7 +833,7 @@ class TrainerScenariosTest(unittest.TestCase):
                                       r"0.002 better)[^;]*; on samples never trained on \(not used to choose\): test set "
                                       r"[0-9.]+ \(the others [0-9.]+\), gut hold-out [0-9.]+ \(the others [0-9.]+\), host hold-out")
         # The model takes the chosen set's features, and the evaluation scored that set; auto is the default.
-        self.assertEqual(PmmlForest(prefix + ".xml").features, self.features.feature_set_columns(auto["chosen"]))
+        self.assertEqual(load_model(prefix + ".xml").features, self.features.feature_set_columns(auto["chosen"]))
         self.assertIn("## Feature set chosen (--features auto, species held out)", stdout)
         self.assertIn(f"feature set (--features auto): {auto['chosen']}: {auto['why']}", stdout)
         self.assertAlmostEqual(metrics["evaluation"]["species"]["F1"], f1[auto["chosen"]])

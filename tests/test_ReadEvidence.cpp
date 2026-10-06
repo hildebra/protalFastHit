@@ -266,6 +266,19 @@ TEST(ReadEvidence, TheSimulatorGivesTheSamplesTheirSigmasInTurn) {
     EXPECT_EQ(protal::sim::SigmaForSample(options, 7), 2.0);
 }
 
+TEST(ReadEvidence, TheSimulatorGivesTheSamplesTheirDepthsInTurn) {
+    // collect_training_data.py gives a scenario's samples depths of their own (--total_read_pairs a,b,c).
+    protal::sim::ProfileDesignOptions options;
+    options.total_read_pairs = 1000;
+    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 0), 1000u);
+    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 3), 1000u);
+    options.total_read_pairs_per_sample = { 500, 2000, 1200 };
+    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 0), 500u);
+    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 1), 2000u);
+    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 2), 1200u);
+    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 4), 2000u);
+}
+
 TEST(ReadEvidence, FeatureStringsFlushSubnormalValuesToZero) {
     // cPMML reads the values back with stod, which throws on underflow: an EM share of 1e-311 made a run crash.
     EXPECT_EQ(profiler::FeatureString(9.0946131981813e-311), "0");

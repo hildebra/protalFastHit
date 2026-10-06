@@ -1,0 +1,46 @@
+set                               soil hold-out  soil_shallow hold-out  soil hold-in, species held out  soil_shallow hold-in, species held out  design test  gut hold-out
+read type variant                                                                                                                                                        
+pe        v13                            0.9535                 0.9253                          0.9584                                  0.9304       0.9652        0.9950
+          +ref                           0.9539                 0.9253                          0.9576                                  0.9311       0.9660        0.9950
+          forest 512                     0.9535                 0.9253                          0.9584                                  0.9304       0.9652        0.9950
+          gbm depth rounded              0.9576                 0.9314                          0.9601                                  0.9360       0.9668        0.9931
+          gbm +ref depth rounded         0.9607                 0.9344                          0.9617                                  0.9376       0.9660        0.9931
+pb        v13                            0.9469                 0.9474                          0.9479                                  0.9494       0.9767        0.9856
+          +ref                           0.9475                 0.9497                          0.9482                                  0.9504       0.9762        0.9856
+          forest 512                     0.9480                 0.9481                          0.9495                                  0.9505       0.9772        0.9874
+          gbm depth rounded              0.9517                 0.9513                          0.9527                                  0.9547       0.9800        0.9906
+          gbm +ref depth rounded         0.9544                 0.9530                          0.9530                                  0.9554       0.9805        0.9912
+ont       v13                            0.9412                 0.9339                          0.9425                                  0.9394       0.9720        0.9788
+          +ref                           0.9404                 0.9358                          0.9427                                  0.9403       0.9730        0.9794
+          forest 512                     0.9419                 0.9367                          0.9447                                  0.9416       0.9746        0.9837
+          gbm depth rounded              0.9467                 0.9421                          0.9474                                  0.9442       0.9761        0.9856
+          gbm +ref depth rounded         0.9486                 0.9440                          0.9485                                  0.9446       0.9778        0.9856
+se        v13                            0.9511                    NaN                          0.9568                                     NaN       0.9592           NaN
+          +ref                           0.9529                    NaN                          0.9583                                     NaN       0.9599           NaN
+          forest 512                     0.9511                    NaN                          0.9568                                     NaN       0.9592           NaN
+          gbm depth rounded              0.9573                    NaN                          0.9590                                     NaN       0.9602           NaN
+          gbm +ref depth rounded         0.9576                    NaN                          0.9614                                     NaN       0.9628           NaN
+
+change against v13:
+set                               soil hold-out  soil_shallow hold-out  soil hold-in, species held out  soil_shallow hold-in, species held out  design test  gut hold-out
+read type variant                                                                                                                                                        
+pe        v13                            0.0000                 0.0000                          0.0000                                  0.0000       0.0000        0.0000
+          +ref                           0.0004                -0.0000                         -0.0007                                  0.0007       0.0008        0.0000
+          forest 512                     0.0000                 0.0000                          0.0000                                  0.0000       0.0000        0.0000
+          gbm depth rounded              0.0040                 0.0061                          0.0018                                  0.0057       0.0016       -0.0019
+          gbm +ref depth rounded         0.0071                 0.0091                          0.0034                                  0.0072       0.0008       -0.0019
+pb        v13                            0.0000                 0.0000                          0.0000                                  0.0000       0.0000        0.0000
+          +ref                           0.0006                 0.0024                          0.0003                                  0.0011      -0.0005        0.0000
+          forest 512                     0.0011                 0.0007                          0.0015                                  0.0011       0.0005        0.0019
+          gbm depth rounded              0.0048                 0.0039                          0.0048                                  0.0053       0.0033        0.0050
+          gbm +ref depth rounded         0.0075                 0.0057                          0.0050                                  0.0060       0.0038        0.0056
+ont       v13                            0.0000                 0.0000                          0.0000                                  0.0000       0.0000        0.0000
+          +ref                          -0.0008                 0.0019                          0.0003                                  0.0009       0.0010        0.0006
+          forest 512                     0.0008                 0.0028                          0.0022                                  0.0022       0.0025        0.0049
+          gbm depth rounded              0.0055                 0.0082                          0.0050                                  0.0048       0.0041        0.0068
+          gbm +ref depth rounded         0.0074                 0.0101                          0.0060                                  0.0052       0.0057        0.0068
+se        v13                            0.0000                    NaN                          0.0000                                     NaN       0.0000           NaN
+          +ref                           0.0018                    NaN                          0.0016                                     NaN       0.0007           NaN
+          forest 512                     0.0000                    NaN                          0.0000                                     NaN       0.0000           NaN
+          gbm depth rounded              0.0062                    NaN                          0.0023                                     NaN       0.0009           NaN
+          gbm +ref depth rounded         0.0066                    NaN                          0.0046                                     NaN       0.0036           NaN

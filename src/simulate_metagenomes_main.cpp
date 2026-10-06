@@ -128,6 +128,7 @@ struct CliOptions {
     std::size_t samples{1};
     std::string sample_prefix{"sample"};
     std::uint64_t total_read_pairs{100'000};
+    std::vector<std::uint64_t> total_read_pairs_per_sample;  // --total_read_pairs with several values: the samples' in turn
     std::size_t species_per_sample{10};
     std::size_t species_per_sample_min{0};
     AbundanceDistribution distribution{AbundanceDistribution::PoissonLognormal};
@@ -233,7 +234,7 @@ static cxxopts::Options build_cxxopts() {
     options.add_options("Sampling")
         ("n,samples",           "Number of metagenome samples", cxxopts::value<std::size_t>()->default_value("1"))
         ("sample_prefix",       "Prefix for sample names", cxxopts::value<std::string>()->default_value("sample"))
-        ("total_read_pairs",    "Read pairs per sample", cxxopts::value<std::uint64_t>()->default_value("100000"))
+        ("total_read_pairs",    "Read pairs per sample; several comma-separated values are given to the samples in turn (sample 1 the first, sample 2 the second, ...), so that one run's samples differ in depth", cxxopts::value<std::string>()->default_value("100000"))
         ("species_per_sample",  "Number of species per sample, or an inclusive range e.g. 20-80", cxxopts::value<std::string>()->default_value("10"))
         ("distribution",        "Abundance model: power_law | negative_binomial | poisson_lognormal", cxxopts::value<std::string>()->default_value("poisson_lognormal"))
         ("alpha",               "Power law alpha", cxxopts::value<double>()->default_value("2.0"))
@@ -315,7 +316,23 @@ static CliOptions parse_cli(int argc, char** argv) {
     opts.output_dir        = result["output_dir"].as<std::string>();
     opts.samples           = result["samples"].as<std::size_t>();
     opts.sample_prefix     = result["sample_prefix"].as<std::string>();
-    opts.total_read_pairs  = result["total_read_pairs"].as<std::uint64_t>();
+    {
+        const std::string pairs_arg = result["total_read_pairs"].as<std::string>();
+        std::stringstream ss(pairs_arg);
+        std::string item;
+        while (std::getline(ss, item, ',')) {
+            if (item.empty()) continue;
+            std::size_t used = 0;
+            const unsigned long long pairs = std::stoull(item, &used);
+            if (used != item.size() || pairs == 0) {
+                throw std::runtime_error("--total_read_pairs takes positive whole numbers, comma-separated: " + pairs_arg);
+            }
+            opts.total_read_pairs_per_sample.push_back(pairs);
+        }
+        if (opts.total_read_pairs_per_sample.empty()) throw std::runtime_error("--total_read_pairs needs a value");
+        opts.total_read_pairs = opts.total_read_pairs_per_sample.front();
+        if (opts.total_read_pairs_per_sample.size() == 1) opts.total_read_pairs_per_sample.clear();
+    }
     {
         const std::string sps_arg = result["species_per_sample"].as<std::string>();
         const auto dash = sps_arg.find('-');
@@ -459,6 +476,7 @@ static std::vector<protal::sim::SampleOutput> design_and_simulate(
     profile.taxon_species_counts = protal::sim::parse_taxon_selection(cli.taxon_counts);
     protal::sim::parse_congener_groups(cli.congener_groups, profile);
     profile.total_read_pairs = cli.total_read_pairs;
+    profile.total_read_pairs_per_sample = cli.total_read_pairs_per_sample;
     profile.pick_random_demand_if_fail = cli.pick_random_demand_if_fail;
     if (!cli.strain_sharing_file.empty()) {
         profile.strain_sharing = parse_strain_sharing_file(cli.strain_sharing_file);

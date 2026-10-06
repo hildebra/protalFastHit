@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Gradient-boosted tree trainer — drop-in replacement for random_forest_cmdline.py.
+# Gradient-boosted tree trainer — drop-in replacement for machine_learning_cmdline.py.
 # Exports a PMML file understood by cPMML (MiningModel/modelChain with logistic
 # probability transform), so the output can be copied straight into the protal
 # index as random_forest.xml.
