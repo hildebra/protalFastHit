@@ -155,7 +155,7 @@ namespace protal {
                 ("sequential_load", "Load the database's parts one after another, as protal did before 0.7.6, rather than the index beside the genome preload and the single-threaded tables (taxonomy, models, gene conservation, suspect copies, species priors, gene neighbours) each on a thread of its own. For measuring; the run is the same either way.")
                 ("taxon_statistics", "Write misc/<taxon>.statistics.tsv for every taxon with reads: its coverage, reads, ANI and MAPQ in each sample, and whether it is reported. Off by default: a sample on a GTDB-sized database has reads on thousands of taxa, and that many small files took 15 s on a network file system. The profile files (<prefix>.profile, .profile.log, .profile.genes.log) hold the same per sample.")
                 ("full_sam_header", "List every gene of the database in the SAM header (@SQ), as protal did before; by default only the genes that alignments name are listed.")
-                ("write_unmapped_reads", "Write an unmapped record (FLAG 4, no sequence; its ZF tag names the taxa the read seeded on) for every read that seeded on taxa but aligned nowhere, as protal did up to 0.7.6. By default these reads are counted per taxon in the SAM header instead (@CO protal failed candidates of unaligned reads), which is all the profiler takes from them: on a GTDB-sized database they were 95% of a sample's records. --full_sam_header, whose header is written before the reads, writes them too.")
+                ("write_unmapped_reads", "Write an unmapped record (FLAG 4, no sequence; its ZF tag names the taxa the read seeded on) for every read that seeded on taxa but aligned nowhere, as protal did up to 0.7.6. By default these reads are counted per taxon in the SAM header instead (@CO protal failed candidates of unaligned reads), which is all the profiler takes from them: on a GTDB-sized database they were 95% of a sample's records. --full_sam_header, whose header is written before the reads, writes them too. A map's UNMAPPED_READS column (write or count) chooses per sample.")
                 ("serial_index_passes", "With --build: count and place the reference's k-mers and compute the value pointers on one thread, as protal did before these ran in -t threads (slower; the index is the same).")
                 ("profile_ahead", "With several samples: profile each sample whose SAM is complete while the next sample's reads are aligned, on a worker with a quarter of the threads beside the alignment's; the profiling stage after the alignment takes the rest on all threads. The profiles are the same either way. Measured on a 6-core laptop it gained nothing (the worker's CPU time came out of the alignment's); it may pay on a node where the profiling stage leaves cores idle.")
                 ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
@@ -261,6 +261,7 @@ namespace protal {
         std::vector<std::string> profile_list;
         std::vector<std::string> profile_truth_list;
         std::vector<std::string> read_type_list;  // per sample: a ReadType token, or empty: pe or se by the second file
+        std::vector<std::string> unmapped_reads_list;  // per sample, a map's UNMAPPED_READS: write, count or '-'
         std::vector<size_t> range;
 
         // profiling
@@ -379,6 +380,9 @@ namespace protal {
         // ResolveReadTypes).
         std::vector<std::string> m_read_type_list;
         std::vector<ReadType> m_read_types;
+        // Per sample, from a map's UNMAPPED_READS column: whether its unaligned reads get an unmapped record each
+        // (empty without the column: --write_unmapped_reads for every sample).
+        std::vector<char> m_unmapped_reads_list;
 
         std::vector<size_t> m_range;
 
@@ -444,6 +448,11 @@ namespace protal {
         static inline const std::string MAP_SECOND_READ = "SECOND";
         static inline const std::string MAP_NO_SECOND_READ = "-";  // SECOND of a single-end sample
         static inline const std::string MAP_READ_TYPE = "READ_TYPE";
+        // A sample's reads that seeded on taxa but aligned nowhere: an unmapped record each (write) or counted per taxon
+        // in the SAM header (count); '-': as --write_unmapped_reads says for every sample.
+        static inline const std::string MAP_UNMAPPED_READS = "UNMAPPED_READS";
+        static inline const std::string MAP_UNMAPPED_WRITE = "write";
+        static inline const std::string MAP_UNMAPPED_COUNT = "count";
         static inline const std::string MAP_SAM = "SAM";
         static inline const std::string MAP_PROFILE = "PROFILE";
         static inline const std::string MAP_PROFILE_TRUTH = "PROFILE_TRUTH";
@@ -527,6 +536,7 @@ namespace protal {
                 m_range(std::move(d.range)),
                 m_profile_truth(std::move(d.profile_truth)),
                 m_read_type_list(std::move(d.read_type_list)),
+                m_unmapped_reads_list(UnmappedReadsFlags(d.unmapped_reads_list, d.write_unmapped_reads)),
                 m_model(std::move(d.model)),
                 m_model_se(std::move(d.model_se)),
                 m_model_pb(std::move(d.model_pb)),
@@ -646,7 +656,8 @@ namespace protal {
             result_str << "alignment screen:    " << (m_no_alignment_screen ? "off (--no_alignment_screen)" : "k-mers shared with the window before WFA2") << '\n';
             if (long_reads) result_str << "long read budget:    " << (m_long_read_budget ? std::to_string(m_long_read_budget) + " edits past the best candidate (--long_read_budget)" : "the ANI floor's for every candidate") << '\n';
             result_str << "SAM header lists:    " << (m_full_sam_header ? "every gene" : "the genes aligned to") << '\n';
-            result_str << "unaligned reads:     " << (WriteUnmappedReads() ? "an unmapped record each" : "counted per taxon in the SAM header") << '\n';
+            result_str << "unaligned reads:     " << (WriteUnmappedReads() ? "an unmapped record each" : "counted per taxon in the SAM header")
+                       << (m_unmapped_reads_list.empty() || m_full_sam_header ? "" : " (per sample: the map's UNMAPPED_READS)") << '\n';
             result_str << "fastalign:           " << std::to_string(m_fastalign) << '\n';
             result_str << "max out:             " << std::to_string(m_max_out) << '\n';
             result_str << "------ Strains ------" << std::string(30, '-') << '\n';
@@ -1304,6 +1315,24 @@ namespace protal {
             return m_write_unmapped_reads || m_full_sam_header;
         }
 
+        // The same for sample `index`: a map's UNMAPPED_READS (write or count) where the map has the column, else as
+        // above; --full_sam_header, whose header is written before the reads, writes them in any case.
+        bool WriteUnmappedReads(size_t index) const {
+            if (m_full_sam_header) return true;
+            return index < m_unmapped_reads_list.size() ? m_unmapped_reads_list[index] != 0 : WriteUnmappedReads();
+        }
+
+        // A map's UNMAPPED_READS values as flags: write 1, count 0, '-' `all` (--write_unmapped_reads). LoadFromMap admits
+        // no other value.
+        static std::vector<char> UnmappedReadsFlags(std::vector<std::string> const& values, bool all) {
+            std::vector<char> flags;
+            flags.reserve(values.size());
+            for (auto const& value : values) {
+                flags.push_back(value == MAP_UNMAPPED_WRITE ? 1 : value == MAP_UNMAPPED_COUNT ? 0 : static_cast<char>(all));
+            }
+            return flags;
+        }
+
         // --serial_index_passes: the index build's passes and value pointers on one thread (build::Run).
         bool SerialIndexPasses() const {
             return m_serial_index_passes;
@@ -1422,6 +1451,10 @@ its model (model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml). Without the
 --read_type applies to all samples; without either, or with '-' as READ_TYPE, a sample is pe
 with a SECOND file and se without.
 The first column, #SAMPLEID, names the sample in the outputs (MSA rows, logs, statistics).
+An optional UNMAPPED_READS column says per sample what becomes of the reads that seeded on taxa
+but aligned nowhere: write (an unmapped record each, with the taxa in its ZF tag, as
+--write_unmapped_reads writes them for all samples) or count (counted per taxon in the SAM
+header, the default); '-' leaves it to --write_unmapped_reads.
 SAM and PROFILE are optional and default to <PREFIX>.sam and <PREFIX>.profile. Every sample
 needs its own SAM and PROFILE file; protal stops if two samples share one.)" << std::endl;
         }
@@ -1465,7 +1498,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                                 std::vector<std::string>& first_list, std::vector<std::string>& second_list,
                                 std::vector<std::string>& sam_list, std::vector<std::string>& profile_list,
                                 std::vector<std::string>& samplenames_list, std::vector<std::string>& profile_truth_list,
-                                std::vector<std::string>& read_type_list, std::string const& sam_ending = kDefaultSamEnding) {
+                                std::vector<std::string>& read_type_list, std::vector<std::string>& unmapped_reads_list,
+                                std::string const& sam_ending = kDefaultSamEnding) {
             using namespace std::filesystem;
 
             if (!std::filesystem::exists(map_path)) {
@@ -1492,6 +1526,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             int profile_truth_column = -1;
             int header_to_species_column = -1;
             int read_type_column = -1;
+            int unmapped_reads_column = -1;
 
             bool header = true;
             size_t line_num = 0;
@@ -1566,6 +1601,13 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                                     return false;
                                 }
                                 read_type_column = i;
+                            }
+                            if (token == MAP_UNMAPPED_READS) {
+                                if (unmapped_reads_column != -1) {
+                                    std::cerr << "Column '" << MAP_UNMAPPED_READS << "' is defined twice" << std::endl;
+                                    return false;
+                                }
+                                unmapped_reads_column = i;
                             }
                             if (token == MAP_HEADER_TO_SPECIES) {
                                 if (header_to_species_column != -1) {
@@ -1671,7 +1713,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     std::pair<int, std::string const*> const columns[] = {
                             { 0, &MAP_SAMPLEID }, { prefix_column, &MAP_PREFIX }, { first_column, &MAP_FIRST_READ }, { second_column, &MAP_SECOND_READ },
                             { sam_column, &MAP_SAM }, { profile_column, &MAP_PROFILE }, { profile_truth_column, &MAP_PROFILE_TRUTH },
-                            { read_type_column, &MAP_READ_TYPE } };
+                            { read_type_column, &MAP_READ_TYPE }, { unmapped_reads_column, &MAP_UNMAPPED_READS } };
                     for (auto const& [column, name] : columns) {
                         if (column == -1) continue;
                         if (static_cast<size_t>(column) >= tokens.size() || tokens[column].empty()) {
@@ -1711,6 +1753,15 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     }
                     if (read_type_column != -1) {
                         read_type_list.emplace_back(tokens[read_type_column]);
+                    }
+                    if (unmapped_reads_column != -1) {
+                        auto const& value = tokens[unmapped_reads_column];
+                        if (value != MAP_UNMAPPED_WRITE && value != MAP_UNMAPPED_COUNT && value != MAP_NO_SECOND_READ) {
+                            std::cerr << "Line " << line_num << ": " << MAP_UNMAPPED_READS << " is '" << value << "'; expected "
+                                      << MAP_UNMAPPED_WRITE << ", " << MAP_UNMAPPED_COUNT << " or -" << std::endl;
+                            return false;
+                        }
+                        unmapped_reads_list.emplace_back(value);
                     }
                 }
             }
@@ -2422,6 +2473,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             std::vector<std::string> samplenames_list;
             std::vector<std::string> profile_truth_list;
             std::vector<std::string> read_type_list;
+            std::vector<std::string> unmapped_reads_list;
 
             std::string strain_output_dir = "";
             std::string misc_output_dir = "";
@@ -2471,7 +2523,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     std::cerr << "Map file " << map_file << " does not exist." << std::endl;
                     exit(9);
                 }
-                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list, sam_ending)) {
+                if (!LoadFromMap(map_file, output_dir, strain_output_dir, misc_output_dir, prefix_list, first_list, second_list, sam_list, profile_list, samplenames_list, profile_truth_list, read_type_list, unmapped_reads_list, sam_ending)) {
                     std::cerr << "Failed to read map file " << map_file << " (see --map_help)." << std::endl;
                     exit(9);
                 }
@@ -2723,6 +2775,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.profile_list             = std::move(profile_list);
             d.profile_truth_list       = std::move(profile_truth_list);
             d.read_type_list           = std::move(read_type_list);
+            d.unmapped_reads_list      = std::move(unmapped_reads_list);
             d.profile_truth            = profile_truth;
             d.force                    = force;
             d.verbose                  = verbose;

@@ -46,7 +46,10 @@ drawn from a genome table of its own that gives the share of species the databas
 its read types (Illumina at a mean base quality, Ultima single-end reads, PacBio, Nanopore; a host
 genome's share of the reads, --host_genome) sequences the same communities, sample s of each at the same
 bases: a sample's depth is its scenario's times a factor drawn for it (scenarios.depth_factors). --samples 0
-collects the scenarios alone.
+collects the scenarios alone. --unmapped_reads (all, or read types, of the design's samples or of scenarios) has protal
+write an unmapped record for each read of those samples that seeded on taxa but aligned nowhere (the map's
+UNMAPPED_READS), so that their SAMs hold every read with a seed: error_reads.py takes the records of the reads behind a
+model's errors from them.
 
 usage: collect_training_data.py --db DB --genome_table genomes.tsv -o OUT [options]
 """
@@ -191,6 +194,12 @@ def parse_args(argv=None):
     p.add_argument("--scenario_file", help="JSON of scenarios by name, which add to or change the presets")
     p.add_argument("--host_genome", help="FASTA (gzipped or not) of the host genome of scenarios with a host share, "
                                          "e.g. the human genome download_gtdb.py fetches")
+    p.add_argument("--unmapped_reads", default="",
+                   help="the samples whose reads that seeded on taxa but aligned nowhere get an unmapped record each "
+                        "(FLAG 4, its ZF tag the taxa the read seeded on) rather than a count in the SAM header (the "
+                        "map's UNMAPPED_READS; the profiles are the same), for error_reads.py: all, or READ_TYPE (its "
+                        "samples), READ_TYPE:design (the design's) or READ_TYPE:SCENARIO, comma-separated (default: "
+                        "none)")
     opts = p.parse_args(argv)
     opts.read_types = [t.strip() for t in opts.read_types.split(",") if t.strip()]
     unknown = [t for t in opts.read_types if t not in READ_TYPES]
@@ -205,7 +214,39 @@ def parse_args(argv=None):
         scenarios.selection(opts.scenarios, opts.scenario_samples, scenarios.definitions(opts.scenario_file))
     except scenarios.ScenarioError as e:
         p.error(str(e))
+    try:
+        opts.unmapped_units = unmapped_spec(opts.unmapped_reads)
+    except ValueError as e:
+        p.error(f"--unmapped_reads: {e}")
     return opts
+
+
+UNMAPPED_DESIGN = "design"  # --unmapped_reads READ_TYPE:design: the design's samples (no scenario)
+
+
+def unmapped_spec(text):
+    """{(read type, scope)} of an --unmapped_reads list: all (every read type, scope None: all its samples), READ_TYPE,
+    READ_TYPE:design or READ_TYPE:SCENARIO, comma-separated; ValueError if an entry is none of these."""
+    out = set()
+    for entry in (e.strip() for e in (text or "").split(",")):
+        if not entry or entry == "none":
+            continue
+        if entry == "all":
+            out |= {(kind, None) for kind in READ_TYPES}
+            continue
+        kind, colon, scope = entry.partition(":")
+        if kind not in READ_TYPES or (colon and not scope):
+            raise ValueError(f"{entry!r} is not READ_TYPE, READ_TYPE:design or READ_TYPE:SCENARIO (read types "
+                             f"{', '.join(READ_TYPES)}), or all")
+        out.add((kind, scope or None))
+    return out
+
+
+def writes_unmapped(unit, opts):
+    """Whether protal writes an unmapped record for each read of the unit's samples that seeded but aligned nowhere
+    (--unmapped_reads)."""
+    spec = getattr(opts, "unmapped_units", set())
+    return (unit["type"], None) in spec or (unit["type"], unit.get("scenario") or UNMAPPED_DESIGN) in spec
 
 
 META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pairs", "meta_domain",
@@ -227,7 +268,9 @@ META_COLUMNS = ["meta_design", "meta_sample", "meta_read_length", "meta_read_pai
 INSILICO_PREFIX = "insilico_"  # insilico_strains.py's PREFIX: the names of its strains
 TABLES = {"pe": "training_data.tsv", "se": "training_data_se.tsv", "pb": "training_data_pb.tsv",
           "ont": "training_data_ont.tsv"}
-MAP_COLUMNS = ["SAMPLEID", "FIRST", "SECOND", "SAM", "PREFIX", "PROFILE", "PROFILE_TRUTH", "READ_TYPE"]
+MAP_COLUMNS = ["SAMPLEID", "FIRST", "SECOND", "SAM", "PREFIX", "PROFILE", "PROFILE_TRUTH", "READ_TYPE", "UNMAPPED_READS"]
+# A map row without a column (one of an older collector's map, --also_profile) takes its default.
+MAP_DEFAULTS = {"UNMAPPED_READS": "count"}
 
 
 def congener_spec(text):
@@ -1552,6 +1595,12 @@ def map_rows(meta):
 
 def unit_map_rows(unit, opts):
     """The rows of a unit in the combined map (MAP_COLUMNS, absolute paths) and the folders they write to."""
+    rows, dirs = unit_map_rows_of(unit, opts)
+    unmapped = "write" if writes_unmapped(unit, opts) else "count"
+    return [{**row, "UNMAPPED_READS": unmapped} for row in rows], dirs
+
+
+def unit_map_rows_of(unit, opts):
     if not drawn(unit):
         _, rows, dirs = map_rows(os.path.join(point_dirs(unit["point"], opts)[1], "protal.meta"))
         if unit["type"] == "pe":
@@ -1580,7 +1629,7 @@ def write_map(path, rows):
     """A protal map of rows (MAP_COLUMNS, absolute paths)."""
     with open(path, "w") as fh:
         fh.write(f"#OUTPUT_DIR\t{os.path.dirname(path)}\n#" + "\t".join(MAP_COLUMNS) + "\n")
-        fh.writelines("\t".join(row[c] for c in MAP_COLUMNS) + "\n" for row in rows)
+        fh.writelines("\t".join(row[c] if c in row else MAP_DEFAULTS[c] for c in MAP_COLUMNS) + "\n" for row in rows)
 
 
 def read_map(path):
@@ -1901,7 +1950,9 @@ def profile_keys(units, opts, keys):
     """{unit name: what its profiles are made with (profiled.json)}: its simulation's key, the database's and
     protal's identity, the read type."""
     db, protal = db_identity(opts.db), identity(opts.protal)
-    return {u["name"]: {"simulated": keys[simulation_of(u)], "db": db, "protal": protal, "read_type": u["type"]}
+    # Only a unit that writes unmapped records has it in its key: the others' profiles stay valid.
+    return {u["name"]: {"simulated": keys[simulation_of(u)], "db": db, "protal": protal, "read_type": u["type"],
+                        **({"unmapped_reads": "write"} if writes_unmapped(u, opts) else {})}
             for u in units}
 
 

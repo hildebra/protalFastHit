@@ -577,8 +577,8 @@ namespace protal {
                 std::vector<std::string> read_file_list{ options.GetFirstFile(index) };
                 if (!single_file) read_file_list.push_back(options.GetSecondFile(index));
                 SamOutput sam_output(sam_partial, SamCompressionOf(sam), full_header,
-                                     sam_zstd::HeaderRoom(database_genes, input_bytes(read_file_list), options.WriteUnmappedReads() ? 0 : genomes.GetGenomeMap().size()));
-                sam_output.SetUnmappedRecords(options.WriteUnmappedReads());
+                                     sam_zstd::HeaderRoom(database_genes, input_bytes(read_file_list), options.WriteUnmappedReads(index) ? 0 : genomes.GetGenomeMap().size()));
+                sam_output.SetUnmappedRecords(options.WriteUnmappedReads(index));
                 if (!sam_output.Ok()) {
                     RunStatus::Get().Fail("Cannot write the SAM file of sample " + options.GetSampleId(index) + ": " + sam_output.Error());
                     continue;
@@ -748,7 +748,7 @@ namespace protal {
                     genomes.WriteSamHeader(os, genes);
                     os << read_type_line;
                     // The reads that aligned nowhere, counted per taxon they seeded on (--write_unmapped_reads: a record each).
-                    if (!options.WriteUnmappedReads()) {
+                    if (!options.WriteUnmappedReads(index)) {
                         auto const failed = sam_output.FailedCandidates();
                         failed_taxa = static_cast<size_t>(std::count_if(failed.begin(), failed.end(), [](uint64_t n) { return n > 0; }));
                         failed_line = FailedCandidatesLine(failed);

@@ -287,7 +287,10 @@ counted per taxon in one header line (`@CO protal failed candidates of unaligned
 and nothing else is written for unaligned reads. `--write_unmapped_reads` writes a minimal unmapped
 record (flag 4, no sequence) with the tag for each of them instead, as protal did up to 0.7.6 (on
 GTDB r226 these were 95% of a paired-end sample's records, which the profiler read only to count
-them); so does `--full_sam_header`, whose header is written before the reads. The profiler counts
+them); so does `--full_sam_header`, whose header is written before the reads. A map's
+`UNMAPPED_READS` column chooses per sample: `write` (the records) or `count` (the header line; `-`
+leaves it to `--write_unmapped_reads`); the database build uses it to keep the non-hits of its
+samples ([databases.md](databases.md#the-reads-behind-the-errors)). The profiler counts
 per taxon the reads that failed on it (`failed_candidate_rate`): a relative the database lacks seeds on its nearest species and fails there, a present species' reads align
 ([report](claude/2026-10-03-false-positive-fixes/README.md)). Profiling a SAM of an older protal, without these, gives the feature 0.
 

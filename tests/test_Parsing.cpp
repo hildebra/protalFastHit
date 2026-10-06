@@ -57,10 +57,10 @@ namespace {
 
     struct MapLists {
         std::string output_dir, strain_dir, misc_dir;
-        std::vector<std::string> prefixes, firsts, seconds, sams, profiles, names, truths, read_types;
+        std::vector<std::string> prefixes, firsts, seconds, sams, profiles, names, truths, read_types, unmapped;
 
         bool Load(std::string const& path) {
-            return Options::LoadFromMap(path, output_dir, strain_dir, misc_dir, prefixes, firsts, seconds, sams, profiles, names, truths, read_types);
+            return Options::LoadFromMap(path, output_dir, strain_dir, misc_dir, prefixes, firsts, seconds, sams, profiles, names, truths, read_types, unmapped);
         }
     };
 
@@ -120,6 +120,42 @@ TEST(SampleMap, SingleEndSamplesHaveNoSecondFile) {
                                                   "p\tp\tp_1.fq\tp_2.fq\tpe\nl\tl\tl.fq.gz\t-\tpb\n")));
     EXPECT_EQ(typed.read_types, (Tokens{ "pe", "pb" }));
     EXPECT_EQ(typed.seconds[1], "");
+}
+
+TEST(SampleMap, UnmappedReadsChoosePerSample) {
+    ScratchDir dir;
+    auto const header = "#OUTPUT_DIR\t" + (dir.path / "out").string() + "\n#SAMPLEID\tPREFIX\tFIRST\tSECOND\tUNMAPPED_READS\n";
+    MapLists lists;
+    ASSERT_TRUE(lists.Load(dir.Write("unmapped.map", header + "a\ta\ta_1.fq\ta_2.fq\twrite\nb\tb\tb_1.fq\tb_2.fq\tcount\n"
+                                                            "c\tc\tc_1.fq\tc_2.fq\t-\n")));
+    EXPECT_EQ(lists.unmapped, (Tokens{ "write", "count", "-" }));
+    // '-' is --write_unmapped_reads's choice.
+    EXPECT_EQ(Options::UnmappedReadsFlags(lists.unmapped, false), (std::vector<char>{ 1, 0, 0 }));
+    EXPECT_EQ(Options::UnmappedReadsFlags(lists.unmapped, true), (std::vector<char>{ 1, 0, 1 }));
+    MapLists none;
+    ASSERT_TRUE(none.Load(dir.Write("none.map", MapHeader(dir.path / "out") + "a\ta\ta_1.fq\ta_2.fq\ta.profile\n")));
+    EXPECT_TRUE(none.unmapped.empty());
+
+    // Per sample through Options; --full_sam_header writes them for every sample.
+    OptionsData d;
+    d.unmapped_reads_list = lists.unmapped;
+    Options by_map(d);
+    EXPECT_TRUE(by_map.WriteUnmappedReads(0));
+    EXPECT_FALSE(by_map.WriteUnmappedReads(1));
+    EXPECT_FALSE(by_map.WriteUnmappedReads(2));
+    EXPECT_FALSE(by_map.WriteUnmappedReads());
+    d.write_unmapped_reads = true;
+    Options all(d);
+    EXPECT_FALSE(all.WriteUnmappedReads(1));
+    EXPECT_TRUE(all.WriteUnmappedReads(2));
+    d.full_sam_header = true;
+    EXPECT_TRUE(Options(d).WriteUnmappedReads(1));
+
+    testing::internal::CaptureStderr();
+    MapLists bad;
+    EXPECT_FALSE(bad.Load(dir.Write("bad.map", header + "a\ta\ta_1.fq\ta_2.fq\tyes\n")));
+    auto const log = testing::internal::GetCapturedStderr();
+    EXPECT_NE(log.find("UNMAPPED_READS is 'yes'"), std::string::npos) << log;
 }
 
 TEST(ReadFileStem, DropsReadAndCompressionExtensions) {

@@ -31,6 +31,8 @@ Written to PREFIX.*:
   xml                 the model (protal --model FILE, or protal --add_model FILE --read_type pe: model_pe.xml of a database)
   report.txt          the evaluation (also printed); metrics.json has its numbers
   predictions.tsv.gz  each taxon's probabilities out of fold, with its main features
+  calls.tsv.gz        each row's score, knob and call as protal calls by default (training rows: species held out;
+                      the test table's: the final model); error_reads.py takes the reads of the false calls from the SAMs
   thresholds.tsv      precision and sensitivity by threshold, from species held out
   varimp.tsv          feature importances (a forest's Gini importances; boosting's split gains)
   joblib              the fitted scikit-learn model
@@ -1490,14 +1492,21 @@ def scenario_of(df):
     return df["meta_scenario"].fillna("").astype(str).to_numpy()
 
 
+def default_calls(frame, p, opts, depth_knobs=None):
+    """The calls protal makes by default on the rows: (the scores it calls on, call_scores; each row's knob, the curve's
+    at its sample's depth or the one knob; the calls)."""
+    scores = call_scores(frame, p)
+    knobs = knob_at(depth_knobs, sample_depths(frame)) if depth_knobs else np.full(len(frame), float(opts.knob))
+    return scores, knobs, scores >= knobs
+
+
 def scenario_row(label, frame, y, p, opts, depth_knobs=None):
     """A row of the scenario table: the calls protal makes by default (the knob, or the knob curve) on these rows, their
     errors and rates, the false positives closest to a species the database lacks (meta_novel_level), and the highest
     F1 at any threshold."""
     ok = ~np.isnan(p)
     frame, y, p = frame[ok], y[ok], p[ok]
-    scores = call_scores(frame, p)
-    call = depth_knob_calls(scores, sample_depths(frame), depth_knobs, opts.knob) if depth_knobs else scores >= opts.knob
+    scores, _, call = default_calls(frame, p, opts, depth_knobs)
     tp, fp, fn = int((call & (y == 1)).sum()), int((call & (y == 0)).sum()), int((~call & (y == 1)).sum())
     present, absent = int(y.sum()), int((y == 0).sum())
     samples = frame["meta_sample"].nunique() if "meta_sample" in frame else 1
@@ -1553,6 +1562,32 @@ def study_scenarios(report, df, y, p, fitted, opts, held_out=None, held_out_p=No
     report.table(pd.DataFrame(rows))
     report.data["scenarios"] = rows
     return rows
+
+
+def write_calls(path, df, p_species, test, test_p, opts, depth_knobs=None):
+    """PREFIX.calls.tsv.gz: every row with the score and the call protal makes by default (default_calls; a knob curve's
+    sample depth over the sample's rows of its table): set "training", the training table's rows (the design's and the
+    scenarios' hold-in samples) with species held out (no model saw the taxon's species); "test", the test table's (the
+    independent test set and the scenarios' hold-out samples) by the final model. error_reads.py takes the reads of the
+    false calls from the samples' SAMs. -> the rows written."""
+    frames = []
+    for label, frame, p in (("training", df, p_species), ("test", test, test_p)):
+        if frame is None or p is None:
+            continue
+        ok = ~np.isnan(p)
+        frame, p = frame[ok], p[ok]
+        if not len(frame):
+            continue
+        _, knobs, call = default_calls(frame, p, opts, depth_knobs)
+        out = frame[[c for c in frame.columns if c.startswith("meta_")] +
+                    [c for c in ("taxon", "taxon_name", "domain", "truth") if c in frame]].copy()
+        out["set"], out["p"], out["knob"], out["call"] = label, p, knobs, call.astype(int)
+        frames.append(out)
+    if not frames:
+        return 0
+    out = pd.concat(frames, ignore_index=True)
+    out.to_csv(path, sep="\t", index=False, float_format="%.6g")
+    return len(out)
 
 
 def grid_rows(df, opts):
@@ -1900,6 +1935,16 @@ def train(opts):
             out.to_csv(prefix + ".scenario_predictions.tsv.gz", sep="\t", index=False, float_format="%.6g")
         study_scenarios(report, df, y, p, fitted, opts, test_scenarios, held_p, depth_knobs)
         timing["scenarios"] = time.time() - t0
+    # Every row's call, for error_reads.py: the training rows' with species held out, the test table's by the final model.
+    t0 = time.time()
+    test_p = None
+    if opts.test_file:
+        check_features(test, cols)
+        with sequential(rf):  # the trees summed in file order, as protal sums them
+            test_p = rf.predict_proba(test[cols].to_numpy(dtype=np.float64))[:, 1]
+    write_calls(prefix + ".calls.tsv.gz", df, (p or {}).get("species"), test if opts.test_file else None, test_p, opts,
+                depth_knobs)
+    timing["calls"] = time.time() - t0
 
     # Export, and check that the file scores as the model does.
     report.section("Model file")

@@ -808,6 +808,20 @@ class TrainerScenariosTest(unittest.TestCase):
         predictions = pd.read_csv(prefix + ".scenario_predictions.tsv.gz", sep="\t")
         self.assertEqual(sorted(predictions["meta_scenario"].unique()), ["gut", "host"])
         self.assertEqual(len(predictions), 7 * 20)
+        # Every row's call at the model's knob (error_reads.py): the training rows' with species held out, the test
+        # table's by the final model; the scenario table's errors are theirs.
+        calls = pd.read_csv(prefix + ".calls.tsv.gz", sep="\t")
+        self.assertEqual(calls.groupby("set").size().to_dict(), {"training": 36 * 20, "test": 15 * 20})
+        self.assertTrue(((calls["p"] >= calls["knob"]) == (calls["call"] == 1)).all())
+        held = calls[(calls["set"] == "test") & calls["meta_scenario"].notna()]
+        self.assertTrue(np.allclose(held["p"].to_numpy(), predictions["p"].to_numpy(), atol=1e-5))
+        tested = pd.read_csv(prefix + ".test_predictions.tsv.gz", sep="\t")
+        design = calls[(calls["set"] == "test") & calls["meta_scenario"].isna()]
+        self.assertTrue(np.allclose(design["p"].to_numpy(), tested["p"].to_numpy(), atol=1e-5))
+        for (scenario, kind), group in calls[calls["meta_scenario"].notna()].groupby(["meta_scenario", "set"]):
+            row = rows[(scenario, "hold-in, species held out" if kind == "training" else "hold-out")]
+            self.assertEqual((int(((group["call"] == 1) & (group["truth"] == 0)).sum()),
+                              int(((group["call"] == 0) & (group["truth"] == 1)).sum())), (row["FP"], row["FN"]))
         # The scenarios' rows weigh 0.25 in every fit by default (--scenario-weight); at 1 the model is another.
         self.assertEqual(metrics["scenario_weight"], {"weight": 0.25, "rows": 6 * 20})
         self.assertIn("the scenarios' 120 of 720 rows weigh 0.25 in every model fitted", stdout)

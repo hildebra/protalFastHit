@@ -50,6 +50,8 @@ def parse_args(argv=None):
     p.add_argument("--out", required=True, help="output prefix: PREFIX.txt and PREFIX.tsv")
     p.add_argument("--max-records", type=int, default=5_000_000, help="records read per sample at most (default 5M)")
     p.add_argument("--threads", type=int, default=8, help="genome FASTAs read at once for their contig names (default 8)")
+    p.add_argument("--contig-cache", help="a file of the genomes' contig names read before, joined by those read here "
+                                          "(error_reads.py reads it too)")
     return p.parse_args(argv)
 
 
@@ -116,13 +118,35 @@ def contig_names(path):
         return []
 
 
-def genome_contigs(paths, threads):
-    """{FASTA path: [contig names]} of the genomes, read on `threads` processes."""
+def genome_contigs(paths, threads, cache=None):
+    """{FASTA path: [contig names]} of the genomes, read on `threads` processes. cache: a file (TSV, gzipped) of the
+    names read before, by path, size and modification time, which the names read here join, so that a build reads its
+    ~40,000 genomes once for trace_relatives.py and error_reads.py."""
     paths = sorted(set(p for p in paths if p))
     if not paths:
         return {}
-    with concurrent.futures.ProcessPoolExecutor(max(1, min(threads, len(paths)))) as pool:
-        return dict(zip(paths, pool.map(contig_names, paths, chunksize=16)))
+    known, stamps = {}, {}
+    for path in paths:
+        try:
+            st = os.stat(path)
+            stamps[path] = f"{st.st_size}:{st.st_mtime_ns}"
+        except OSError:
+            stamps[path] = ""
+    if cache and os.path.isfile(cache):
+        with gzip.open(cache, "rt") as fh:
+            for line in fh:
+                path, stamp, names = (line.rstrip("\n").split("\t") + ["", ""])[:3]
+                if stamps.get(path) == stamp and stamp:
+                    known[path] = names.split(" ") if names else []  # a contig's name has no blank
+    todo = [p for p in paths if p not in known]
+    if todo:
+        with concurrent.futures.ProcessPoolExecutor(max(1, min(threads, len(todo)))) as pool:
+            known.update(zip(todo, pool.map(contig_names, todo, chunksize=16)))
+        if cache:
+            os.makedirs(os.path.dirname(os.path.abspath(cache)), exist_ok=True)
+            with gzip.open(cache, "at", compresslevel=1) as fh:
+                fh.writelines(f"{path}\t{stamps[path]}\t{' '.join(known[path])}\n" for path in todo if stamps[path])
+    return {p: known[p] for p in paths}
 
 
 def read_contig(name):
@@ -150,7 +174,8 @@ def trace(opts):
     spread = collections.defaultdict(collections.Counter)  # (sample, relative genome, gene) -> {taxid: kept records}
     samples = 0
     paired = list(paired_samples(opts.points))
-    contigs = genome_contigs([r.get("fasta_path") for rows, _, _ in paired for r in rows], opts.threads)
+    contigs = genome_contigs([r.get("fasta_path") for rows, _, _ in paired for r in rows], opts.threads,
+                             opts.contig_cache)
     unnamed = ambiguous = 0
     for rows, sample, sam in paired:
         source, contig_source = {}, {}

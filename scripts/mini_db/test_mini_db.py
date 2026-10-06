@@ -1865,6 +1865,45 @@ class MiniDbTest(unittest.TestCase):
         command, _ = collect.simulation_command(flat, 0, flat_opts, 4, {})
         self.assertEqual(command[command.index("--total_read_pairs") + 1], "1000000")
         self.assertEqual(collect.host_pairs_of(flat), [9000000] * 3)
+        # --unmapped_reads (all; READ_TYPE; READ_TYPE:design; READ_TYPE:SCENARIO): those units' map rows write unmapped
+        # records (UNMAPPED_READS), their profile keys say so (profiled again once asked for); the others' rows count
+        # them, their keys unchanged.
+        self.assertEqual(collect.unmapped_spec("pe:gut, se:host,none"), {("pe", "gut"), ("se", "host")})
+        self.assertEqual(collect.unmapped_spec("all"), {(t, None) for t in collect.READ_TYPES})
+        self.assertEqual(collect.unmapped_spec("pb,pe:design"), {("pb", None), ("pe", "design")})
+        for bad in ("gut", "xx:gut", "pe:"):
+            with self.assertRaises(ValueError):
+                collect.unmapped_spec(bad)
+
+        def marked_units(spec):
+            marked = argparse.Namespace(**{**vars(opts), "unmapped_units": collect.unmapped_spec(spec)})
+            return marked, [u["name"] for u in collect.units_of(marked)[1] if collect.writes_unmapped(u, marked)]
+        self.assertEqual(marked_units("pe:gut")[1], ["sc_gut_pe_p20000000"])
+        self.assertEqual(marked_units("pe:design")[1], ["rl150_p1000"])
+        self.assertEqual(marked_units("pb")[1], ["pb_b1e6", "sc_host_pb_b3000000000", "sc_gut_pb_b6000000000"])
+        self.assertEqual(len(marked_units("all")[1]), len(collect.units_of(opts)[1]))
+        marked, _ = marked_units("pe:gut")
+        _, units = collect.units_of(marked)
+        self.assertFalse(collect.writes_unmapped(units[0], opts))  # without the option
+        sim = os.path.join(self.tmp.name, "unmapped", "points", "sc_gut_pe_p20000000", "sim")
+        os.makedirs(sim)
+        with open(os.path.join(sim, "protal.meta"), "w") as fh:
+            fh.write(f"#OUTPUT_DIR\t{sim}\n#INPUT_DIR\t{sim}\n#SAMPLEID\tFIRST\tSECOND\tSAM\tPREFIX\tPROFILE\tPROFILE_TRUTH\n"
+                     "s1\ta1.fq.zst\ta2.fq.zst\ts1.sam.zst\ts1\ts1.profile\t/t\n")
+        marked.out = os.path.join(self.tmp.name, "unmapped")
+        gut = next(u for u in units if u["name"] == "sc_gut_pe_p20000000")
+        rows, _ = collect.unit_map_rows(gut, marked)
+        self.assertEqual([r["UNMAPPED_READS"] for r in rows], ["write"])
+        self.assertEqual([r["UNMAPPED_READS"] for r in collect.unit_map_rows(gut, argparse.Namespace(**{
+            **vars(marked), "unmapped_units": set()}))[0]], ["count"])
+        path = os.path.join(self.tmp.name, "unmapped", "samples.map")
+        collect.write_map(path, rows + [{c: v for c, v in rows[0].items() if c != "UNMAPPED_READS"}])
+        with open(path) as fh:  # a row without the column (an older collector's map) counts them
+            self.assertEqual([line.rstrip("\n").split("\t")[-1] for line in fh][1:], ["UNMAPPED_READS", "write", "count"])
+        keys = {u["name"]: {"k": 1} for u in units}
+        key_of = collect.profile_keys(units, argparse.Namespace(**{**vars(marked), "db": sim, "protal": path}), keys)
+        self.assertEqual(key_of["sc_gut_pe_p20000000"].get("unmapped_reads"), "write")
+        self.assertNotIn("unmapped_reads", key_of["sc_host_pe_p10000000"])
 
     def test_gtdb_like_lineages(self):
         text = subprocess.run([sys.executable, LINEAGES, "--species", "300", "--archaea", "0.1", "--seed", "3"],
@@ -2494,6 +2533,20 @@ class BuildOptionsTest(unittest.TestCase):
         for bad in ("512,xx:4", "pb:", "many"):
             with self.assertRaises(ValueError):
                 build.max_leaves(bad, "pe")
+
+    def test_error_reads(self):
+        # --error-reads: all (every read type's samples), none, READ_TYPE, READ_TYPE:design or READ_TYPE:SCENARIO.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import build_gtdb_database as build
+        import scenarios
+        defs = scenarios.definitions()
+        self.assertEqual(build.error_read_units("all", defs), [("pe", None), ("se", None), ("pb", None), ("ont", None)])
+        self.assertEqual(build.error_read_units("pe:soil,pb:design,se,se", defs), [("pe", "soil"), ("pb", "design"),
+                                                                                  ("se", None)])
+        self.assertEqual(build.error_read_units("none", defs), [])
+        for bad in ("pe:mars", "soil", "pe:"):
+            with self.assertRaises(ValueError):
+                build.error_read_units(bad, defs)
 
 
 class BinaryCheckTest(unittest.TestCase):
@@ -3411,6 +3464,53 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn("; soil scaled from 30-40 to ", metadata["classifier_scenarios"])
         self.assertRegex(metadata["model_pe_features"], r"^normalized\S* \(--features auto: F1 ")
         self.assertRegex(metadata["model_se_scenarios"], r"gut hold-out F1 ([0-9.]+|-), FP rate ([0-9.]+%|-)")
+        # The reads behind each model's errors (--error-reads, default all): every sample profiled with an unmapped record
+        # for each read that seeded but aligned nowhere (no counts in the SAM header), and per sample of the training
+        # data and the test set, of each read type, the records of the errors' reads, each with its source.
+        self.assertRegex(result.stdout, r"    the reads of the models' errors \(model_logs/error_reads, in [\d:]+\): pe \d+ "
+                                        r"samples \(\d+ training, \d+ test\): \d+ FP, \d+ FN and \d+ unseen taxa, \d+ "
+                                        r"fragments, \d+ MB; se \d+ samples \(\d+ training, \d+ test\)")
+        unmapped = 0
+        for collection in ("training", "test"):
+            for sam in glob.glob(os.path.join(scratch, collection, "points", "*", "protal*", "alignments", "*.sam*")):
+                if not sam.endswith((".sam", ".sam.gz", ".sam.zst")):
+                    continue
+                lines = compressed.read_text(sam).splitlines()
+                unmapped += sum(not line.startswith("@") and line.split("\t")[1] == "4" for line in lines)
+                self.assertFalse(any(line.startswith("@CO\tprotal failed candidates") for line in lines), sam)
+        self.assertGreater(unmapped, 0)
+        logs = os.path.join(self.tmp.name, "scenarios", "model_logs")
+        for t in ("pe", "se"):
+            # The errors are those of the model's calls (the trainer's calls.tsv.gz, copied to model_logs): every sample
+            # of both tables.
+            expected, samples_of_calls = collections.Counter(), set()
+            with gzip.open(os.path.join(logs, f"trained_model{'' if t == 'pe' else '_' + t}.calls.tsv.gz"), "rt") as fh:
+                for row in csv.DictReader(fh, delimiter="\t"):
+                    samples_of_calls.add((row["set"], row["meta_sample"]))
+                    if row["call"] != row["truth"]:
+                        expected[(row["set"], row["meta_sample"], "FP" if row["call"] == "1" else "FN")] += 1
+            errors = os.path.join(logs, "error_reads", t)
+            with open(os.path.join(errors, "summary.tsv")) as fh:
+                samples = list(csv.DictReader(fh, delimiter="\t"))
+            self.assertEqual({(r["set"], r["sample"]) for r in samples}, samples_of_calls, t)
+            self.assertEqual({r["scenario"] for r in samples},
+                             {"design", "gut", "host"} | ({"soil", "soil_shallow"} if t == "pe" else set()), t)
+            for r in samples:
+                for kind in ("FP", "FN"):
+                    self.assertEqual(int(r[kind]), expected[(r["set"], r["sample"], kind)], (t, r["sample"], kind))
+                lines = compressed.read_text(os.path.join(errors, r["sam"])).splitlines()
+                records = [line for line in lines if not line.startswith("@")]
+                self.assertEqual(len(records), int(r["records"]))
+                self.assertTrue(all("\txg:Z:" in line and "\txs:Z:" in line and "\txe:Z:" in line for line in records))
+                self.assertTrue(any(line.startswith("@CO\terror_reads.py: ") for line in lines))
+                # Every read's source genome known (ART names a read after its contig, the collector a drawn read after
+                # its genome's place), but the host's paired-end reads.
+                if r["scenario"] != "host" or t != "pe":
+                    self.assertEqual(r["unknown_source"], "0", (t, r["sample"]))
+                with open(os.path.join(errors, r["set"], r["point"], r["sample"] + ".taxa.tsv")) as fh:
+                    taxa = collections.Counter(x["error"] for x in csv.DictReader(fh, delimiter="\t"))
+                self.assertEqual((taxa["FP"], taxa["FN"], taxa["unseen"]), (int(r["FP"]), int(r["FN"]), int(r["unseen"])))
+            self.assertGreater(sum(int(r["records"]) for r in samples), 0, t)
         # Without the host genome, the default scenarios run without host and say so; asked for, host stops the build
         # before anything runs.
         default = self.build("scenarios_default_nohost", "--scenario-file", definitions, scenarios=True, wait=False)

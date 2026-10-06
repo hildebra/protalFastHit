@@ -68,8 +68,10 @@ NCBI, it covers:
   from a random host genome at one depth, the others' samples at depths of their own, soil scaled
   down to the genome table), with Illumina reads at a target
   quality and Ultima reads, their hold-in and hold-out samples scored in every report and in
-  `summary.txt`, the feature sets the trainers chose and why, and the host scenario left out without
-  a host genome. The other build tests pass `--scenarios none`: the presets have real depths;
+  `summary.txt`, the feature sets the trainers chose and why, the reads behind each model's errors
+  in every sample (`model_logs/error_reads/`, from SAMs with the non-hits), and the host scenario
+  left out without a host genome. The other build tests pass `--scenarios none`: the presets have
+  real depths;
 - the same scenario build with its samples profiled as they are simulated (`--profile-blocks` of a
   few kB, the reads removed once profiled): the same tables as the one protal run of the build before
   (`--profile-blocks 0`), and a rerun with nothing to profile.

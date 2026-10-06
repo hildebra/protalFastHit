@@ -70,7 +70,11 @@ against within species), gene_incongruence.tsv (protal --build: every near pair 
 gene copies across genera, and which copy is suspect, contamination or a transfer; the
 suspect ones go into the database as suspect_copies.tsv and a run leaves their records
 out) and relatives_by_gene_conservation.txt (trace_relatives.py: where the reads of the
-held-out species land, by the genes' factors).
+held-out species land, by the genes' factors). model_logs/error_reads/ keeps the reads behind each model's errors in
+every sample of the training data and the test set (--error-reads, default all): per sample, the SAM records of the
+reads on its false positives and of its false negatives' reads wherever they went, the non-hits among them (reads that
+seeded on taxa but aligned nowhere, whose unmapped records protal writes for these samples), each with its source
+genome, and a table of the error taxa (error_reads.py).
 
 A reduced database holds a subset of the marker genes (--n-genes N: the N most
 distinctive by prevalence x unique k-mer share, ranked by scripts/rank_genes.py
@@ -104,6 +108,7 @@ and the last line of its log.
 import argparse
 import collections
 import concurrent.futures
+import csv
 import glob
 import gzip
 import hashlib
@@ -124,6 +129,7 @@ TRAINER = os.path.join(HERE, "machine_learning_cmdline.py")
 COLLECTOR = os.path.join(HERE, "collect_training_data.py")
 PARITY = os.path.join(HERE, "check_model_parity.py")
 TRACE = os.path.join(HERE, "trace_relatives.py")
+ERROR_READS = os.path.join(HERE, "error_reads.py")
 RANKER = os.path.join(HERE, "rank_genes.py")
 INSILICO = os.path.join(HERE, "insilico_strains.py")
 # --insilico-ani when the conversion left no gene_positions.tsv (--no-gene-neighbours): no real strains to draw from.
@@ -662,7 +668,7 @@ def suspect_copies_summary(build_log):
     return re.sub(r":? ?\S*(suspect_copies|gene_incongruence)\.tsv", "", text).strip()
 
 
-def trace_relatives(training, training_db, heldout, logs, outdir, threads=1):
+def trace_relatives(training, training_db, heldout, logs, outdir, threads=1, contig_cache=None):
     """model_logs/relatives_by_gene_conservation.txt (trace_relatives.py): where the paired-end reads of the species the
     training database lacks land, by the genes' conservation factors, on real genomes. A failure is reported, and does
     not stop the build: the models do not depend on it."""
@@ -671,7 +677,9 @@ def trace_relatives(training, training_db, heldout, logs, outdir, threads=1):
     began = time.time()
     with open(log, "w") as fh:
         rc = subprocess.run([sys.executable, TRACE, "--points", os.path.join(training, "points"), "--db", training_db,
-                             "--heldout", heldout, "--out", out, "--threads", str(threads)], stdout=fh, stderr=subprocess.STDOUT).returncode
+                             "--heldout", heldout, "--out", out, "--threads", str(threads)] +
+                            (["--contig-cache", contig_cache] if contig_cache else []),
+                            stdout=fh, stderr=subprocess.STDOUT).returncode
     if rc:
         say(f"    tracing the held-out species' reads failed ({rc}; see {log}); the build goes on")
         return
@@ -679,6 +687,75 @@ def trace_relatives(training, training_db, heldout, logs, outdir, threads=1):
         text = fh.read()
     first = text.splitlines()[0] if text.startswith("Not traced") else "model_logs/relatives_by_gene_conservation.txt"
     say(f"    the held-out species' reads by gene conservation, in {clock(time.time() - began)}: {first}")
+
+
+def error_read_units(text, defs):
+    """[(read type, scope)] of --error-reads: all (every read type; scope None: all its samples), none, or READ_TYPE,
+    READ_TYPE:design (the design's samples) or READ_TYPE:SCENARIO, comma-separated; ValueError for an entry that is
+    none of these, or of an unknown scenario."""
+    out = []
+    for entry in (e.strip() for e in (text or "").split(",")):
+        if not entry or entry == "none":
+            continue
+        if entry == "all":
+            out += [(kind, None) for kind in TABLES]
+            continue
+        kind, colon, scope = entry.partition(":")
+        if kind not in TABLES or (colon and not scope):
+            raise ValueError(f"{entry!r}: expected all, READ_TYPE, READ_TYPE:design or READ_TYPE:SCENARIO (read types "
+                             f"{', '.join(TABLES)})")
+        if scope and scope != "design" and scope not in defs:
+            raise ValueError(f"{entry!r}: no scenario {scope!r} (scenarios: {', '.join(defs)})")
+        out.append((kind, scope or None))
+    return list(dict.fromkeys(out))
+
+
+def error_reads(units, prefixes, training, test, training_db, logs, outdir, threads=1, contig_cache=None):
+    """model_logs/error_reads/<read type>/ (error_reads.py): the SAM records of the reads behind each model's false
+    positives and false negatives in the samples of --error-reads, which protal wrote with an unmapped record for every
+    read that seeded on taxa but aligned nowhere (collect_training_data.py --unmapped_reads), and a table of their error
+    taxa. A failure is reported, and does not stop the build: the models do not depend on it."""
+    log = os.path.join(outdir, "error_reads.log")
+    began, told = time.time(), []
+    scopes = collections.defaultdict(list)
+    for kind, scope in units:
+        scopes[kind].append(scope)
+    with open(log, "w") as fh:
+        for kind, which in scopes.items():
+            calls, out = prefixes[kind] + ".calls.tsv.gz", os.path.join(logs, "error_reads", kind)
+            if not os.path.isfile(calls):
+                told.append(f"{kind}: the trainer wrote no calls")
+                continue
+            command = [sys.executable, ERROR_READS, "--calls", calls, "--training", training, "--db", training_db,
+                       "--samples", "all" if None in which else ",".join(which), "--read-type", kind, "--out", out,
+                       "--threads", str(threads)]
+            command += ["--test", test] if test and os.path.isdir(test) else []
+            command += ["--contig-cache", contig_cache] if contig_cache else []
+            fh.write(" ".join(command) + "\n")
+            fh.flush()
+            rc = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
+            if rc:
+                say(f"    taking the reads of the {kind} model's errors failed ({rc}; see {log}); the build goes on")
+                continue
+            told.append(f"{kind} {error_reads_summary(os.path.join(out, 'summary.tsv'))}")
+    if told:
+        say(f"    the reads of the models' errors (model_logs/error_reads, in {clock(time.time() - began)}): "
+            + "; ".join(told))
+
+
+def error_reads_summary(path):
+    """The samples, error taxa, fragments and size of error_reads.py's summary.tsv, in words."""
+    if not os.path.isfile(path):
+        return "no samples"
+    c = collections.Counter()
+    with open(path) as fh:
+        for row in csv.DictReader(fh, delimiter="\t"):
+            c.update({"samples": 1, row["set"]: 1, "FP": int(row["FP"]), "FN": int(row["FN"]),
+                      "unseen": int(row["unseen"]), "fragments": int(row["fragments"]), "bytes": int(row["sam_bytes"])})
+    if not c["samples"]:
+        return "no samples"
+    return (f"{c['samples']} samples ({c['training']} training, {c['test']} test): {c['FP']} FP, {c['FN']} FN and "
+            f"{c['unseen']} unseen taxa, {c['fragments']} fragments, {gigabytes(c['bytes'])}")
 
 
 def gene_neighbours_summary(build_log, what="Gene neighbours:"):
@@ -1306,6 +1383,14 @@ def main():
     p.add_argument("--host-genome",
                    help="FASTA (gzipped or not) of the host genome for scenarios with host reads (default: the human "
                         "genome download_gtdb.py fetched into --inputs)")
+    p.add_argument("--error-reads", default="all",
+                   help="the samples whose reads behind the models' errors are kept: protal writes them with an unmapped "
+                        "record for every read that seeded on taxa but aligned nowhere (the non-hits; the profiles are "
+                        "the same), and once the models are trained model_logs/error_reads/ keeps, per sample, the SAM "
+                        "records of the reads behind the model's false positives and false negatives, with their source "
+                        "genomes (error_reads.py). all (default: every sample of the training data and the test set, "
+                        "every read type), none, or READ_TYPE, READ_TYPE:design (the design's samples) or "
+                        "READ_TYPE:SCENARIO, comma-separated; read types and scenarios not collected are left out")
     p.add_argument("--congeners", default="0.25:2-5", type=congener_spec,
                    help="relatives that share a sample, in the training data and the test set (collect_training_data.py "
                         "--congeners): SHARE:MIN-MAX, about SHARE of each sample's species in groups of MIN to MAX "
@@ -1495,6 +1580,12 @@ def main():
             selected = [n for n in selected if n not in hosted]
             args.scenario_samples_of = {n: v for n, v in args.scenario_samples_of.items() if n not in hosted}
             args.host_genome = None
+    try:
+        args.error_units = [(kind, scope) for kind, scope in error_read_units(args.error_reads, scenario_defs)
+                            if kind in read_types and (scope in (None, "design") or (
+                                scope in selected and any(r["type"] == kind for r in scenario_defs[scope]["reads"])))]
+    except ValueError as e:
+        p.error(f"--error-reads: {e}")
     os.makedirs(args.outdir, exist_ok=True)
     db = os.path.join(args.outdir, "protal_db")
     os.makedirs(db, exist_ok=True)
@@ -1889,6 +1980,8 @@ def main():
             command += ["--scenarios", ",".join(f"{name}:{n}" for name, n in scenario_samples.items())]
             command += ["--scenario_file", os.path.abspath(args.scenario_file)] if args.scenario_file else []
             command += ["--host_genome", args.host_genome] if args.host_genome else []
+        if args.error_units:
+            command += ["--unmapped_reads", ",".join(kind + (f":{scope}" if scope else "") for kind, scope in args.error_units)]
         return command
 
     training = os.path.join(samples_root, "training")
@@ -2094,7 +2187,7 @@ def main():
         parity = os.path.join(training, "parity" if t == "pe" else "parity_" + t, "parity.txt")
         for name in (prefix + ".report.txt", prefix + ".metrics.json", prefix + ".thresholds.tsv", prefix + ".varimp.tsv",
                      prefix + ".predictions.tsv.gz", prefix + ".test_predictions.tsv.gz",
-                     prefix + ".scenario_predictions.tsv.gz"):
+                     prefix + ".scenario_predictions.tsv.gz", prefix + ".calls.tsv.gz"):
             if os.path.isfile(name):
                 shutil.copy(name, logs)
         if os.path.isfile(parity):
@@ -2103,8 +2196,13 @@ def main():
                                                          "test_data_simulation.log", "test_data.log", "genome_table.txt")] + [heldout]:
         if os.path.isfile(name):
             shutil.copy(name, logs)
+    # The genomes' contig names, read once for both (beside the samples).
+    contig_cache = os.path.join(samples_root, "genome_contigs.tsv.gz")
     if "pe" in read_types and training_db != db and os.path.isfile(heldout):
-        trace_relatives(training, training_db, heldout, logs, args.outdir, args.threads)
+        trace_relatives(training, training_db, heldout, logs, args.outdir, args.threads, contig_cache)
+    if args.error_units:
+        error_reads(args.error_units, prefixes, training, test if has_test else None, training_db, logs, args.outdir,
+                    args.threads, contig_cache)
     Steps.start(f"adding {models} to {os.path.basename(db)} (final_package.log)")
     if final_build is not None:
         if final_build.seconds is None:
