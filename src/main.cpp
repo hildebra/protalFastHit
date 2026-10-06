@@ -1,8 +1,8 @@
-// protal 0.7.7. In 0.7 (since 0.6.0a):
+// protal 0.7.8. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
-// - Speed: input inflated outside the reader lock (libdeflate, vendored zlib-ng), short reads aligned
+// - Speed: input inflated outside the reader lock (ISA-L since 0.7.8, before libdeflate and zlib-ng), short reads aligned
 //   from their anchors' exact matches, branch-free and AVX2 syncmer scans, SAMs compressed in the
 //   alignment threads (.sam.zst by default), the database loaded and the index built in parallel.
 // - Database: one file, database.protal (seekable zstd, index in columns), checked against its
@@ -56,6 +56,15 @@
 //   it loads (no 8-byte chunk copies), in fractional-bit slots, its load's tail throttled to the run's own peak;
 //   memory logged per stage. .fq.zst read input; the build's index packed during --build, its simulations in zstd;
 //   training scenarios of real studies.
+// In 0.7.8: at r226 a paired-end run 42 -> 33 s and a HiFi run 15.6 -> 12.3 s, the same outputs: the seed lookup's
+//   best cells taken by AVX2 masks, flat taxid -> genome and -> gene tables with the anchors' genes prefetched, the
+//   k-mer screen from the genes' packed bytes and the read's strands packed once, only the seeds FindPairs can pair
+//   sorted; gzip read and written with ISA-L (replaces libdeflate and zlib-ng's inflate; paired-end runs no longer
+//   wait for their gzip input; .gz written ~7x faster, ~16% larger), `just static` builds ISA-L and nasm itself;
+//   seeding counters in the log. --add_model replaces the models in place (seconds instead of a whole rewrite).
+//   Training: gradient-boosted models by default (--model gbm, 250 rounds, folds fitted side by side), the
+//   reference's k-mer uniqueness as a feature, scenario samples at depths of their own, the default feature set
+//   and --evaluation basic as the build's defaults.
 #include <iostream>
 #include "RunProtal.h"
 
