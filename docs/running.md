@@ -281,8 +281,9 @@ align and pair reads; it does not tell a species from its congeners.
 Each read's best record carries `ZA:Z:<taxid>:<edits more>,...`: its other candidates in other
 taxa (at most 5 edits more than the best, or `*`), from which the profiler counts the reads that a
 congener fits as well ([features.md](features.md#the-reads-other-candidates-071)). A read's first record carries
-`ZF:Z:<taxid>,...` when the read seeded on taxa strongly enough to be aligned against them (the
-align-top anchors) but did not align to them; the reads that seeded on taxa and aligned nowhere are
+`ZF:Z:<taxid>:<gene>,...` when the read seeded on taxa strongly enough to be aligned against them (the
+align-top anchors) but did not align to them, each with the gene of its longest anchor (since
+2026-10-06; `<taxid>` alone before); the reads that seeded on taxa and aligned nowhere are
 counted per taxon in one header line (`@CO protal failed candidates of unaligned reads: <taxid>:<reads>,...`),
 and nothing else is written for unaligned reads. `--write_unmapped_reads` writes a minimal unmapped
 record (flag 4, no sequence) with the tag for each of them instead, as protal did up to 0.7.6 (on
@@ -290,6 +291,11 @@ GTDB r226 these were 95% of a paired-end sample's records, which the profiler re
 them); so does `--full_sam_header`, whose header is written before the reads. The profiler counts
 per taxon the reads that failed on it (`failed_candidate_rate`): a relative the database lacks seeds on its nearest species and fails there, a present species' reads align
 ([report](claude/2026-10-03-false-positive-fixes/README.md)). Profiling a SAM of an older protal, without these, gives the feature 0.
+Since 2026-10-06 a read's best record (each mate's, each long-read gene's) also carries
+`ZN:i:<taxa>`: the taxa whose anchors were at least 0.8 as long as the read's longest, how many
+species its seeds could not tell apart, also those it was never aligned against; the profiler takes
+`seed_crowding`, the genes of `ZF` and the long reads' `ZR` as features against the false positives
+of complex communities ([features.md](features.md#against-false-positives-in-complex-communities-consistency-shape-neighbourhood-2026-10-06)).
 
 ### Developer options
 

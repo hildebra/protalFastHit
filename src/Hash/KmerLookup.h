@@ -31,11 +31,18 @@ namespace protal {
         uint16_t readpos = UINT16_MAX;
         bool unique = false;
         bool unique_dist_two = false;
+        // The value of a core with one value in the index, which has no flex cells: unique and unique_dist_two are the
+        // entry's flags (its whole k-mer is in no other taxon, and no other value of the core is within distance two),
+        // but the lookup could not compare the read's flex part with the entry's. The anchor checks the whole k-mer
+        // against the gene before it counts the seed as unique (ChainAnchorFinder::CountUniques).
+        bool single = false;
 
         LookupResult() {};
 
-        LookupResult(uint32_t taxid, uint32_t geneid, uint32_t genepos, uint32_t readpos, bool unique=false, bool unique_dist_two=false) :
-                taxid(taxid), geneid(geneid), genepos(genepos), readpos(readpos), unique(unique), unique_dist_two(unique_dist_two) {};
+        LookupResult(uint32_t taxid, uint32_t geneid, uint32_t genepos, uint32_t readpos, bool unique=false, bool unique_dist_two=false,
+                     bool single=false) :
+                taxid(taxid), geneid(geneid), genepos(genepos), readpos(readpos), unique(unique), unique_dist_two(unique_dist_two),
+                single(single) {};
 
         inline bool SameTaxon(LookupResult const& other) const {
             return taxid == other.taxid;
@@ -122,17 +129,19 @@ namespace protal {
         // anchor.) All fields packed into one 128-bit key, which also sorts in half the time of the comparator.
         __extension__ using SortKeyType = unsigned __int128;
         SortKeyType SortKey() const {
-            return (SortKeyType{ taxid } << 82) | (SortKeyType{ geneid } << 50) | (SortKeyType{ readpos } << 34) |
-                   (SortKeyType{ genepos } << 2) | (SortKeyType{ unique } << 1) | SortKeyType{ unique_dist_two };
+            return (SortKeyType{ taxid } << 83) | (SortKeyType{ geneid } << 51) | (SortKeyType{ readpos } << 35) |
+                   (SortKeyType{ genepos } << 3) | (SortKeyType{ unique } << 2) | (SortKeyType{ unique_dist_two } << 1) |
+                   SortKeyType{ single };
         }
         static LookupResult FromSortKey(SortKeyType key) {
             LookupResult seed;
-            seed.taxid = static_cast<uint32_t>(key >> 82);
-            seed.geneid = static_cast<uint32_t>(key >> 50);
-            seed.readpos = static_cast<uint16_t>(key >> 34);
-            seed.genepos = static_cast<uint32_t>(key >> 2);
-            seed.unique = (key >> 1) & 1;
-            seed.unique_dist_two = key & 1;
+            seed.taxid = static_cast<uint32_t>(key >> 83);
+            seed.geneid = static_cast<uint32_t>(key >> 51);
+            seed.readpos = static_cast<uint16_t>(key >> 35);
+            seed.genepos = static_cast<uint32_t>(key >> 3);
+            seed.unique = (key >> 2) & 1;
+            seed.unique_dist_two = (key >> 1) & 1;
+            seed.single = key & 1;
             return seed;
         }
 
@@ -206,6 +215,10 @@ namespace protal {
                 m_max_ubiquity(other.m_max_ubiquity), m_flex_k_half(other.m_sm.m_flex_k/2) {
         };
 
+        // The flex bases on either side of a k-mer's core: a seed's read and gene positions are its core's, this far
+        // into its k-mer.
+        size_t FlexHalf() const { return m_flex_k_half; }
+
         void Clear() {
             m_lookups.clear();
         }
@@ -239,11 +252,15 @@ namespace protal {
         // The seeds of a lookup: the entries whose flex cells share the most bases with the read's (all entries of a key
         // with one value, which has no flex cells), in entry order, flagged unique only where the whole k-mer matches.
         // None if more than m_max_ubiquity cells share the best score; returns false for such a lookup (too ubiquitous).
+        // A key with one value keeps its entry's unique flag, marked `single`: only the core was compared, so the anchor
+        // compares the rest of the k-mer with the gene before it counts the seed (ChainAnchorFinder::CountUniques). No
+        // other value has the core, so such a value is unique at distance two whenever it is unique. Before, these
+        // never counted (at GTDB r226 5.1M of the index's 2.13 billion unique values; more of a small database's).
         PROTAL_CLONE_V3 inline bool GetFromLookup(LookupList& result, LookupPointer& pointers) {
             if (pointers.flex == nullptr) {
                 for (uint32_t i = 0; i < pointers.size; i++) {
                     Entry(pointers, i).Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
-                    result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, false, false );
+                    result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, m_unique, m_unique, m_unique );
                 }
                 return true;
             }

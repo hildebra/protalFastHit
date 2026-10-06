@@ -424,6 +424,34 @@ namespace protal {
         inline constexpr size_t kDefaultMateSpan = 500;  // the fragment length assumed when a sample shows too few (MateSpan)
         inline constexpr size_t kMinSpans = 50;          // fragments with both mates on one gene for the sample's own length
         inline constexpr double kMateSpanQuantile = 0.95;  // the fragment length that many of the sample's fragments fit in
+        // Against false positives in complex communities (docs/claude/2026-10-06-false-positive-features):
+        inline constexpr double kUnexpectedFit = 0.01;    // a congener fits a read this unlikely well for a read of the taxon (UnexpectedFit)
+        inline constexpr uint64_t kMinGeneAligned = 100;  // aligned bases a gene needs for gene_divergence_dispersion
+        inline constexpr size_t kMinDispersionGenes = 3;  // and genes a taxon needs; fewer: 1
+        inline constexpr uint32_t kMinSiteCoverage = 4;   // reads a site needs for the fixed and polymorphic site rates
+        inline constexpr double kFixedShare = 0.8;        // a non-reference allele in this share of a site's reads: a fixed difference
+        inline constexpr double kPolymorphicShare = 0.2;  // a second allele in this share (and 2 reads or more): a polymorphic site
+        inline constexpr double kLog2Unit = 65536.0;      // ZN's log2 summed in these units, an integer (seed_crowding)
+
+        // P(X <= k) for X ~ Poisson(lambda).
+        inline double PoissonCdf(int k, double lambda) {
+            if (k < 0) return 0;
+            if (!(lambda > 0)) return 1;
+            double term = std::exp(-lambda), sum = term;
+            for (int i = 1; i <= k; i++) {
+                term *= lambda / i;
+                sum += term;
+            }
+            return std::min(sum, 1.0);
+        }
+
+        // Whether a congener whose reference is `distance` from the taxon's fits a record of `aligned` bases with only
+        // `more` edits more than the taxon's reference does, where a read of the taxon's genome would fit it with about
+        // distance x aligned more (Poisson): less likely than kUnexpectedFit. Such reads are not the taxon's own: a read
+        // of a novel species between the two, or of a congener the database lacks, fits both alike.
+        inline bool UnexpectedFit(int more, double distance, uint64_t aligned) {
+            return PoissonCdf(more, distance * static_cast<double>(aligned)) < kUnexpectedFit;
+        }
 
         // A record's differences per aligned base (X + I + D over M + X + I + D, as AlignmentIdentity counts them) less
         // the mean error probability of its bases by their qualities (10^(-Q/10)): how far its genome differs from the
@@ -556,6 +584,23 @@ namespace protal {
             return static_cast<uint64_t>(std::llround(std::clamp(share, 0.0, 1.0) * kShareUnit));
         }
 
+        // A taxon's best records on one of its genes (RecordEvidence::gene_records): their count, differences (X, I, D),
+        // aligned bases (M, =, X, I, D) and expected sequencing errors (ppm of the aligned bases, an integer): the
+        // divergence of the reads gene by gene (gene_divergence_dispersion) and the genes' records against the reads
+        // that failed there (failed_gene_share).
+        struct GeneRecords {
+            uint32_t records = 0;
+            uint64_t differences = 0, aligned = 0, error_ppm = 0;
+
+            GeneRecords& operator+=(GeneRecords const& other) {
+                records += other.records;
+                differences += other.differences;
+                aligned += other.aligned;
+                error_ppm += other.error_ppm;
+                return *this;
+            }
+        };
+
         // A taxon's best records of all reads, before the profiler's MAPQ and length filters drop any (the reads that
         // fit another taxon as well have MAPQ near 0 and would never be counted): MicrobialProfile::NoteRecord.
         struct RecordEvidence {
@@ -603,6 +648,23 @@ namespace protal {
             // ZF tags of the sample's records, and of its unmapped records): a relative the database lacks seeds on
             // its nearest species and fails there, a present species' reads align.
             size_t failed_candidates = 0;
+            // Against false positives in complex communities (docs/claude/2026-10-06-false-positive-features):
+            // long reads' segment records whose best hit or MAPQ the read's consensus taxon gave them (ZR:i:1), and those
+            // on a gene the consensus taxon has no hit on, or a clearly worse one (ZR:i:2);
+            size_t settled_by_read = 0, settled_inconsistent = 0;
+            // records with a ZN tag, and the sum of log2 of the taxa their reads' seeds could not tell apart (kLog2Unit);
+            size_t crowded_records = 0;
+            uint64_t crowding_log2 = 0;
+            // records whose read a congener fits better than a read of the taxon would (UnexpectedFit, ZA and the
+            // database's species_neighbours.tsv);
+            size_t unexpected_fit = 0;
+            // fragments (a pair, a long read) with a best record on the taxon, and of them those with a best record on
+            // another species of its genus too (MicrobialProfile::FinishLink): one novel species split over two references;
+            size_t links = 0, split_links = 0;
+            // the records by gene (GeneRecords), and by gene the reads that seeded on the taxon there and failed (the ZF
+            // tags of records with genes; FoldFailedCandidates), both freed once the taxon's features are set.
+            tsl::robin_map<uint32_t, GeneRecords> gene_records;
+            tsl::robin_map<uint32_t, uint32_t> failed_genes;
 
             RecordEvidence& operator+=(RecordEvidence const& other) {
                 records += other.records;
@@ -634,9 +696,88 @@ namespace protal {
                 mate_room.insert(mate_room.end(), other.mate_room.begin(), other.mate_room.end());
                 fragments_all += other.fragments_all;
                 failed_candidates += other.failed_candidates;
+                settled_by_read += other.settled_by_read;
+                settled_inconsistent += other.settled_inconsistent;
+                crowded_records += other.crowded_records;
+                crowding_log2 += other.crowding_log2;
+                unexpected_fit += other.unexpected_fit;
+                links += other.links;
+                split_links += other.split_links;
+                for (auto const& [gene, records] : other.gene_records) gene_records[gene] += records;
+                for (auto const& [gene, reads] : other.failed_genes) failed_genes[gene] += reads;
                 return *this;
             }
         };
+
+        // A gene's records for DivergenceDispersion: differences, aligned bases, expected sequencing errors, and the gene's
+        // conservation factor (1 without gene_conservation.tsv).
+        struct GeneDivergence {
+            double differences = 0, aligned = 0, errors = 0, factor = 1;
+        };
+
+        // gene_divergence_dispersion: how far a taxon's genes differ from one another in their reads' divergence beyond
+        // what one divergence of the genome explains. That divergence D is the reads' differences beyond their expected
+        // errors over the aligned bases weighted by each gene's conservation factor; a gene is expected to show its errors
+        // and D x factor x aligned differences; the dispersion is Pearson's chi-square of the genes' differences against
+        // that over its degrees of freedom (genes - 1), each gene's expectation at least 1. A strain diverges on every gene
+        // by its factor; a sister species that is near-identical on some markers (recombined, or slow) and diverged on
+        // others does not, nor do a relative's reads that align only where they fit. Genes of fewer than kMinGeneAligned
+        // aligned bases are left out; 1 with fewer than kMinDispersionGenes genes. `genes` in a fixed order (by gene id).
+        inline double DivergenceDispersion(std::vector<GeneDivergence> const& genes) {
+            double beyond = 0, weighted = 0;
+            size_t n = 0;
+            for (auto const& g : genes) {
+                if (g.aligned < static_cast<double>(kMinGeneAligned)) continue;
+                beyond += g.differences - g.errors;
+                weighted += g.aligned * g.factor;
+                n++;
+            }
+            if (n < kMinDispersionGenes || weighted <= 0) return 1;
+            double const divergence = std::max(0.0, beyond / weighted);
+            double chi2 = 0;
+            for (auto const& g : genes) {
+                if (g.aligned < static_cast<double>(kMinGeneAligned)) continue;
+                double const expected = std::max(1.0, g.errors + divergence * g.factor * g.aligned);
+                chi2 += (g.differences - expected) * (g.differences - expected) / expected;
+            }
+            return chi2 / static_cast<double>(n - 1);
+        }
+
+        // failed_gene_share: of the genes with a best record of the taxon or a read that failed on it there (ZF), the share
+        // with more failed reads than records. A present species' reads align on all its genes; a relative's reads fail
+        // where it differs most from the reference and go to another congener's gene there, or nowhere. 0 without failed
+        // reads with genes (the ZF tags of reads that aligned elsewhere: the header counts of unaligned reads name no gene).
+        inline double FailedGeneShare(tsl::robin_map<uint32_t, GeneRecords> const& records, tsl::robin_map<uint32_t, uint32_t> const& failed) {
+            if (failed.empty()) return 0;
+            size_t genes = records.size(), dominated = 0;
+            for (auto const& [gene, reads] : failed) {
+                auto const it = records.find(gene);
+                if (it == records.end()) {
+                    genes++;
+                    dominated += reads > 0;
+                } else {
+                    dominated += reads > it->second.records;
+                }
+            }
+            return genes == 0 ? 0 : static_cast<double>(dominated) / static_cast<double>(genes);
+        }
+
+        // congener_gene_overlap: of the genes both references have (`genes_a`, `genes_b`), those both taxa's reads hit
+        // (`hit_a`, `hit_b`; all sorted), over those expected if each taxon's hit genes were drawn independently, as
+        // (both + 0.5) / (expected + 0.5); 1 when either taxon hits none of the shared genes. Two present congeners hit
+        // their genes independently (or all of them); one novel species whose genes are nearer one reference here and
+        // the other there gives two taxa whose hit genes complement each other: below 1.
+        inline double GeneOverlap(std::vector<uint32_t> const& hit_a, std::vector<uint32_t> const& hit_b,
+                                  std::vector<uint32_t> const& genes_a, std::vector<uint32_t> const& genes_b) {
+            std::vector<uint32_t> common, a, b, both;
+            std::set_intersection(genes_a.begin(), genes_a.end(), genes_b.begin(), genes_b.end(), std::back_inserter(common));
+            std::set_intersection(hit_a.begin(), hit_a.end(), common.begin(), common.end(), std::back_inserter(a));
+            std::set_intersection(hit_b.begin(), hit_b.end(), common.begin(), common.end(), std::back_inserter(b));
+            if (common.empty() || a.empty() || b.empty()) return 1;
+            std::set_intersection(a.begin(), a.end(), b.begin(), b.end(), std::back_inserter(both));
+            double const expected = static_cast<double>(a.size()) * static_cast<double>(b.size()) / static_cast<double>(common.size());
+            return (static_cast<double>(both.size()) + 0.5) / (expected + 0.5);
+        }
 
         // Calls on_alternative(taxid, edits more) for each entry of a ZA tag ("12:0,40:3"; "*" or empty: none).
         template<typename F>
@@ -756,6 +897,10 @@ namespace protal {
                                               // the depth the knob curve reads), at least 0: the forest sees the sample's depth,
                                               // which decides what a taxon of one perfect read is worth
                                               // (docs/claude/2026-10-03-false-positive-anatomy)
+            double congener_gene_overlap = 1;  // the genes it and the congener its reads fit most often (ZA) both have reads
+                                               // on, over those their numbers of hit genes predict ((both + 0.5) / (expected
+                                               // + 0.5)): below 1 where one novel species' genes are split between the two
+                                               // references; 1 without such a congener (MicrobialProfile::ApplySampleContext)
         };
 
         class Taxon {
@@ -794,6 +939,12 @@ namespace protal {
             double m_excess_conserved_fast_ratio = 0;  // see ExcessConservedFastRatio
             double m_third_position_share = 1.0 / 3;  // see ThirdPositionShare
             double m_mate_lost_share = 0;  // see MateLostShare
+            double m_gene_divergence_dispersion = 1;  // see GeneDivergenceDispersion
+            double m_failed_gene_share = 0;  // see FailedGeneShare
+            // BreadthRatio, FixedDifferenceRate and PolymorphicSiteRate, computed together from the genes' coverage and
+            // alleles (SiteRates)
+            mutable std::optional<std::array<double, 3>> m_site_rates;
+            species_neighbours::Table const* m_neighbours = nullptr;  // the database's species neighbours, or nullptr
             bool m_drop_foreign_genes = false;  // see SetDropForeignGenes
             bool m_keep_phase_records = false;  // see SetKeepPhaseRecords
             std::vector<haplotypes::ReadRecord> m_phase_records;
@@ -802,11 +953,12 @@ namespace protal {
         public:
 
             // conservation: the genes' conservation factors (GenomeLoader::GetGeneConservation), for the features and,
-            // with scale_margin, to scale the depth identity margin per gene.
+            // with scale_margin, to scale the depth identity margin per gene. neighbours: the database's species
+            // neighbours (GenomeLoader::GetSpeciesNeighbours), for the database-neighbourhood features.
             Taxon(Genome& genome, gene_conservation::Table const* conservation = nullptr, bool scale_margin = false,
-                  species_priors::Table const* priors = nullptr) :
+                  species_priors::Table const* priors = nullptr, species_neighbours::Table const* neighbours = nullptr) :
                     m_genome(&genome), m_genome_gene_count(genome.GeneNum()), m_conservation(conservation),
-                    m_scale_margin(scale_margin), m_priors(priors) {}
+                    m_scale_margin(scale_margin), m_priors(priors), m_neighbours(neighbours) {}
 
             // What GTDB knows of the species before any read (SpeciesPriors.h); unknown values without the table.
             species_priors::Row const& Priors() const {
@@ -818,6 +970,7 @@ namespace protal {
             void Changed() {
                 m_model_score.reset();
                 m_top_identity.reset();
+                m_site_rates.reset();
                 m_vcov = -1;
             }
 
@@ -998,6 +1151,19 @@ namespace protal {
                     [mate_span](uint16_t room) { return room >= mate_span; }));
                 size_t const judged = records.mates_linked + lost;
                 m_mate_lost_share = judged == 0 ? 0 : static_cast<double>(lost) / static_cast<double>(judged);
+                // By gene, in gene order (the maps' order depends on how they were filled; the sums must not).
+                std::vector<std::pair<uint32_t, GeneRecords>> genes(records.gene_records.begin(), records.gene_records.end());
+                std::sort(genes.begin(), genes.end(), [](auto const& a, auto const& b) { return a.first < b.first; });
+                std::vector<GeneDivergence> divergence;
+                divergence.reserve(genes.size());
+                for (auto const& [gene, g] : genes) {
+                    divergence.push_back({ static_cast<double>(g.differences), static_cast<double>(g.aligned),
+                                           static_cast<double>(g.error_ppm) / 1e6, ConservationFactor(gene) });
+                }
+                m_gene_divergence_dispersion = DivergenceDispersion(divergence);
+                m_failed_gene_share = profiler::FailedGeneShare(records.gene_records, records.failed_genes);
+                tsl::robin_map<uint32_t, GeneRecords>().swap(m_records.gene_records);
+                tsl::robin_map<uint32_t, uint32_t>().swap(m_records.failed_genes);
             }
 
             // What the other taxa of its sample say of it (MicrobialProfile::ApplySampleContext): its relatives'
@@ -1045,6 +1211,119 @@ namespace protal {
             // taxon: a species' own fragments bring both mates; a read of a relative that fits the reference where it is
             // conserved has a mate that fits nowhere on it. 0 for single-end and long reads, or without such fragments.
             double MateLostShare() const { return m_mate_lost_share; }
+
+            // Against false positives in complex communities (docs/claude/2026-10-06-false-positive-features).
+            // Of the taxon's best records (long reads' segment records), the share whose best hit or MAPQ its read's
+            // consensus taxon gave it (ZR:i:1), and the share on a gene that is clearly another taxon's than the read's
+            // consensus (ZR:i:2): a novel species near-identical to the taxon on some genes and to a congener on others
+            // splits its long reads; a present taxon wins its genes on their own. 0 for short reads.
+            double ReadConsensusShare() const {
+                return m_records.records == 0 ? 0 : static_cast<double>(m_records.settled_by_read) / static_cast<double>(m_records.records);
+            }
+            double ReadInconsistentShare() const {
+                return m_records.records == 0 ? 0 : static_cast<double>(m_records.settled_inconsistent) / static_cast<double>(m_records.records);
+            }
+            // The mean log2 of the taxa its records' reads seeded on nearly as well as on the best (ZN): how many species a
+            // read of it cannot be told from at the seeds, also those beyond ZA's four alternatives and align_top. 0
+            // without ZN tags.
+            double SeedCrowding() const {
+                return m_records.crowded_records == 0
+                    ? 0 : static_cast<double>(m_records.crowding_log2) / kLog2Unit / static_cast<double>(m_records.crowded_records);
+            }
+            // The share of its best records whose read a congener fits better than a read of the taxon would fit it, by the
+            // distance of their references (UnexpectedFit; the database's species_neighbours.tsv): ambiguity that the
+            // congener's distance does not explain. 0 without the table.
+            double UnexpectedCongenerFitShare() const {
+                return m_records.records == 0 ? 0 : static_cast<double>(m_records.unexpected_fit) / static_cast<double>(m_records.records);
+            }
+            // Of its fragments (a pair, a long read) with a best record on it, the share with a best record on another
+            // species of its genus too: one novel species split over two references. 0 for single-end reads.
+            double SplitFragmentShare() const {
+                return m_records.links == 0 ? 0 : static_cast<double>(m_records.split_links) / static_cast<double>(m_records.links);
+            }
+            // See DivergenceDispersion and FailedGeneShare.
+            double GeneDivergenceDispersion() const { return m_gene_divergence_dispersion; }
+            double FailedGeneShare() const { return m_failed_gene_share; }
+
+            // The reference bases its hit genes' kept reads cover over those they would cover if they lay at random
+            // (Lander-Waterman, as inStrain's breadth over expected breadth): each gene of length L at depth c (its fragment
+            // bases over L) is expected to cover L (1 - e^-c). A relative's reads align where the gene is conserved and leave
+            // the rest bare: below 1. 1 without genes.
+            double BreadthRatio() const { return SiteRates()[0]; }
+            // Sites where a non-reference allele has kFixedShare of the reads (of at least kMinSiteCoverage) per covered
+            // site, each gene's sites weighted by its conservation factor: the consensus' divergence from the reference in
+            // the genome's units, free of sequencing errors (which the long reads' excess features must subtract).
+            double FixedDifferenceRate() const { return SiteRates()[1]; }
+            // Sites where a second allele has kPolymorphicShare of the reads and 2 reads or more, per covered site: the
+            // taxon's own strain plus another's reads (a relative's spill-over, or two strains).
+            double PolymorphicSiteRate() const { return SiteRates()[2]; }
+
+            // BreadthRatio, FixedDifferenceRate and PolymorphicSiteRate, from the genes' coverage and alleles (the strain
+            // data of the kept records), computed once (until a read is added).
+            std::array<double, 3> const& SiteRates() const {
+                if (m_site_rates) return *m_site_rates;
+                std::vector<uint32_t> ids;
+                ids.reserve(m_genes.size());
+                for (auto const& [id, _] : m_genes) ids.push_back(static_cast<uint32_t>(id));
+                std::sort(ids.begin(), ids.end());
+                double covered = 0, expected = 0;
+                uint64_t sites = 0, fixed = 0, polymorphic = 0;
+                double weighted_sites = 0;
+                for (auto const id : ids) {
+                    auto const& gene = m_genes.at(id);
+                    auto const cov = gene.GetStrainLevel().GetSequenceRangeHandler().CalculateCoverageVector2();
+                    size_t const length = std::max<size_t>(gene.m_gene_length, cov.size());
+                    if (length == 0) continue;
+                    double const depth = static_cast<double>(gene.m_fragment_bases) / static_cast<double>(length);
+                    covered += static_cast<double>(std::count_if(cov.begin(), cov.end(), [](uint32_t c) { return c > 0; }));
+                    expected += static_cast<double>(length) * (1 - std::exp(-depth));
+                    uint64_t gene_sites = 0;
+                    for (uint32_t const c : cov) gene_sites += c >= kMinSiteCoverage;
+                    sites += gene_sites;
+                    weighted_sites += static_cast<double>(gene_sites) * ConservationFactor(id);
+                    for (auto const& [pos, bin] : gene.GetStrainLevel().GetVariantHandler().GetVariants()) {
+                        if (pos >= cov.size() || cov[pos] < kMinSiteCoverage) continue;
+                        double const reads = cov[pos];
+                        // The site's non-reference alleles, the most observed and the next; the reference allele has the
+                        // reads that show none of them.
+                        size_t alternative = 0, top = 0, second = 0;
+                        for (auto const& variant : bin) {
+                            if (variant.IsReference()) continue;
+                            size_t const n = variant.Observations();
+                            alternative += n;
+                            if (n > top) {
+                                second = top;
+                                top = n;
+                            } else if (n > second) {
+                                second = n;
+                            }
+                        }
+                        size_t const reference = alternative >= cov[pos] ? 0 : cov[pos] - alternative;
+                        fixed += static_cast<double>(top) >= kFixedShare * reads;
+                        // The site's second allele, of the reference and the non-reference ones.
+                        size_t const minor = reference >= top ? top : std::max(reference, second);
+                        polymorphic += minor >= 2 && static_cast<double>(minor) >= kPolymorphicShare * reads;
+                    }
+                }
+                std::array<double, 3> rates{ 1, 0, 0 };
+                if (expected > 0) rates[0] = covered / expected;
+                if (weighted_sites > 0) rates[1] = static_cast<double>(fixed) / weighted_sites;
+                if (sites > 0) rates[2] = static_cast<double>(polymorphic) / static_cast<double>(sites);
+                m_site_rates = rates;
+                return *m_site_rates;
+            }
+
+            // The database's crowding around the species' reference (SpeciesNeighbours.h): its congeners within
+            // `distance` (at most species_neighbours::kMaxNeighbours), and its nearest congener's distance (1 without one
+            // within kMaxDistance); species_neighbours::kUnknown (-1) for a database without species_neighbours.tsv.
+            double DatabaseCongeners(double distance) const {
+                if (!m_neighbours || m_neighbours->Empty()) return species_neighbours::kUnknown;
+                return static_cast<double>(m_neighbours->Within(static_cast<uint32_t>(m_id), distance));
+            }
+            double DatabaseNearestCongener() const {
+                if (!m_neighbours || m_neighbours->Empty()) return species_neighbours::kUnknown;
+                return m_neighbours->Nearest(static_cast<uint32_t>(m_id));
+            }
 
             // The conservation pattern of the genes its reads hit, by their factors (gene_conservation.tsv): log2 of the
             // median depth of its hit genes with factor below 1 (conserved) over that of the others, each + 0.001 (0 if
@@ -1154,15 +1433,17 @@ namespace protal {
                 return std::count_if(m_genes.begin(), m_genes.end(), [threshold](auto const& pair) { return pair.second.LongSuperUniques() > threshold; });
             }
 
+            // Of the reference's genes with (super) unique k-mers that a read's ZU (ZT) counts (Gene::HasWholeUniques: long
+            // ones and, since 2026-10-06, those of a core with one value), the share whose reads hit more than `threshold`.
             double GetLongUniqueGeneRate(const size_t threshold=0) const {
                 auto lu_genes = GenesWithLongUniques(threshold);
-                auto lu_genes_ref = m_genome->GenesWithLongUniques(threshold);
+                auto lu_genes_ref = m_genome->GenesWithWholeUniques(threshold);
                 return lu_genes == 0 || lu_genes_ref == 0 ? 0 : lu_genes/static_cast<double>(lu_genes_ref);
             }
 
             double GetLongSuperUniqueGeneRate(const size_t threshold=0) const {
                 auto lsu_genes = GenesWithLongSuperUniques(threshold);
-                auto lsu_genes_ref = m_genome->GenesWithLongSuperUniques(threshold);
+                auto lsu_genes_ref = m_genome->GenesWithWholeSuperUniques(threshold);
                 return lsu_genes == 0 || lsu_genes_ref == 0 ? 0 : lsu_genes/static_cast<double>(lsu_genes_ref);
             }
 
@@ -1358,6 +1639,11 @@ namespace protal {
             // scaled (--gene_conservation db or FILE) and factors are given.
             double GeneFactor(uint64_t geneid) const {
                 return m_scale_margin && m_conservation ? m_conservation->Factor(geneid) : 1.0;
+            }
+
+            // A gene's conservation factor for the features, whether or not it scales the depth margin; 1 without factors.
+            double ConservationFactor(uint64_t geneid) const {
+                return m_conservation && !m_conservation->Empty() ? m_conservation->Factor(geneid) : 1.0;
             }
 
             // The lowest identity of a read within `margin` of TopIdentity; 0 (every read) for a margin of 1
@@ -1611,12 +1897,12 @@ namespace protal {
                     if (!genome.IsGeneHittable(gene.GetId())) continue;
 
                     auto [short_unique, long_unique, long_super_unique, total_kmers] = gene.GetUniqueKmerCounts();
-                    (void) short_unique;
                     (void) long_super_unique;
                     (void) total_kmers;
 
-                    // Use only reference long-unique k-mer counts as weight.
-                    auto weight = static_cast<double>(long_unique);
+                    // Weighted by the reference's unique k-mers that a read's ZU counts (long ones and, since
+                    // 2026-10-06, those of a core with one value).
+                    auto weight = static_cast<double>(long_unique + short_unique);
                     if (weight > 0.0) {
                         weights.emplace_back(weight);
                     }
@@ -1738,9 +2024,14 @@ namespace protal {
             double const af_sum = std::accumulate(af.begin(), af.end(), 0.0);
             auto rate = [](double part, double whole) { return part == 0 || whole == 0 ? 0.0 : part / whole; };
             auto [su, lu, lsu, all] = taxon.GetGenome().GetUniqueKmerCounts();
+            // The reference's unique k-mers as a read's ZU and ZT count them since 2026-10-06: the long ones and those of a
+            // core with one value in the index ("short", su), whose whole k-mer the anchor checks; a short one has no other
+            // value of its core, so it is unique at distance two as well (Gene::HasWholeUniques).
+            lu += su;
+            lsu += su;
 
             TaxonFeatureList f;
-            f.reserve(80);
+            f.reserve(100);
             f.emplace_back("present_genes", taxon.PresentGenes());
             f.emplace_back("total_hits", taxon.TotalHits());
             f.emplace_back("unique_hits", taxon.UniqueHits());
@@ -1878,6 +2169,32 @@ namespace protal {
             f.emplace_back("cluster_genomes_log10", prior.clustered_genomes > 0 ? std::log10(prior.clustered_genomes) : species_priors::kUnknown);
             // The fragments of its genus's most abundant other species: with fragments, the singleton rule's inputs.
             f.emplace_back("genus_top_fragments", static_cast<double>(s.genus_top));
+            // Against false positives in complex communities, where most are species beside a congener the database
+            // lacks (docs/claude/2026-10-06-false-positive-features). How consistently its reads are its own: a long read's
+            // consensus taxon gave its genes their hit, or its gene is clearly another taxon's (ZR); how many taxa its reads'
+            // seeds could not tell apart (ZN); how often a congener fits a read better than its reference's distance lets
+            // a read of the taxon fit it; how often its fragments are split with a congener; and how its genes' reads and
+            // its congener's complement each other.
+            f.emplace_back("read_consensus_share", taxon.ReadConsensusShare());
+            f.emplace_back("read_inconsistent_share", taxon.ReadInconsistentShare());
+            f.emplace_back("seed_crowding", taxon.SeedCrowding());
+            f.emplace_back("unexpected_congener_fit_share", taxon.UnexpectedCongenerFitShare());
+            f.emplace_back("split_fragment_share", taxon.SplitFragmentShare());
+            f.emplace_back("congener_gene_overlap", s.congener_gene_overlap);
+            // The shape of its reads on its genes: how unevenly its genes diverge, how much of its genes they cover against
+            // their depth, on how many genes more reads failed than aligned, and its consensus' fixed differences and its
+            // polymorphic sites.
+            f.emplace_back("gene_divergence_dispersion", taxon.GeneDivergenceDispersion());
+            f.emplace_back("breadth_ratio", taxon.BreadthRatio());
+            f.emplace_back("failed_gene_share", taxon.FailedGeneShare());
+            f.emplace_back("fixed_difference_rate", taxon.FixedDifferenceRate());
+            f.emplace_back("polymorphic_site_rate", taxon.PolymorphicSiteRate());
+            // The database around its reference (species_neighbours.tsv): congeners within 0.01, 0.02 and 0.05 of it, and
+            // its nearest one's distance; -1 without the table.
+            f.emplace_back("db_congeners_01", taxon.DatabaseCongeners(0.01));
+            f.emplace_back("db_congeners_02", taxon.DatabaseCongeners(0.02));
+            f.emplace_back("db_congeners_05", taxon.DatabaseCongeners(0.05));
+            f.emplace_back("db_nearest_congener", taxon.DatabaseNearestCongener());
             return f;
         }
 
@@ -2317,30 +2634,47 @@ namespace protal {
                     e.excess.push_back(*excess);
                     e.scaled_excess.push_back(static_cast<float>(*excess / factor));
                 }
+                auto const error = MeanErrorProbability(sam);
+                uint64_t const error_ppm = error ? static_cast<uint64_t>(std::llround(*error * static_cast<double>(aligned) * 1e6)) : 0;
                 if (!conservation.Empty()) {
                     bool const conserved = factor < 1;
                     (conserved ? e.conserved_bases : e.fast_bases) += ReferenceBases(sam.m_cigar);
                     (conserved ? e.conserved_differences : e.fast_differences) += differences;
                     (conserved ? e.conserved_aligned : e.fast_aligned) += aligned;
-                    if (auto const error = MeanErrorProbability(sam)) {
-                        (conserved ? e.conserved_error_ppm : e.fast_error_ppm) +=
-                            static_cast<uint64_t>(std::llround(*error * static_cast<double>(aligned) * 1e6));
-                    }
+                    if (error) (conserved ? e.conserved_error_ppm : e.fast_error_ppm) += error_ppm;
                 }
+                auto& gene = e.gene_records[geneid];
+                gene.records++;
+                gene.differences += differences;
+                gene.aligned += aligned;
+                gene.error_ppm += error_ppm;
                 auto const [all_mismatches, third] = MismatchesByCodonPosition(sam.m_cigar, static_cast<size_t>(sam.m_pos));
                 e.mismatches += all_mismatches;
                 e.third_mismatches += third;
+                e.settled_by_read += sam.m_settled == 1;
+                e.settled_inconsistent += sam.m_settled == 2;
+                if (sam.m_crowding > 0) {
+                    e.crowded_records++;
+                    e.crowding_log2 += static_cast<uint64_t>(std::llround(std::log2(static_cast<double>(sam.m_crowding)) * kLog2Unit));
+                }
                 NoteAmbiguity(taxid, sam.m_alternatives, kept);
                 if (!m_genera) return;
                 auto const genus = GenusOf(taxid);
-                bool congener = false, other = false;
+                auto const& neighbours = m_genome_loader->GetSpeciesNeighbours();
+                bool congener = false, other = false, unexpected = false;
                 ForEachAlternative(sam.m_alternatives, [&](uint32_t alternative, int more) {
+                    bool const same_genus = genus != 0 && GenusOf(alternative) == genus;
+                    if (same_genus && !neighbours.Empty() && alternative != taxid && more >= 0 &&
+                        UnexpectedFit(more, neighbours.DistanceAtLeast(taxid, alternative), aligned)) {
+                        unexpected = true;
+                    }
                     if (more > kAlternativeFitEdits) return;
-                    if (genus != 0 && GenusOf(alternative) == genus) congener = true;
+                    if (same_genus) congener = true;
                     else other = true;
                 });
                 e.congener_fit += congener;
                 e.other_genus_fit += other;
+                e.unexpected_fit += unexpected;
             }
 
             // A record on a suspect gene copy (GenomeLoader::IsSuspectCopy), left out of the evidence
@@ -2360,8 +2694,14 @@ namespace protal {
             // distinct taxa, and a RecordEvidence per taxon per chunk (a hash map and four vectors each), merged
             // chunk by chunk, made the profiling of a 47M-record SAM slower on 32 threads than on one
             // (docs/claude/2026-10-04-performance-gtdb-scale). The sums are the same either way.
+            // The gene of each entry (ZF tags since 2026-10-06) is kept as one key, taxid and gene, in a list that the
+            // chunks append to and FoldFailedCandidates counts once, for the taxa with records only (failed_gene_share):
+            // a list costs one push per entry, where a map per chunk cost more than the parsing.
             void NoteFailedCandidates(std::string const& tag) {
-                ForEachFailedCandidate(tag, [this](uint32_t taxid) { CountFailedCandidate(m_failed, taxid); });
+                ForEachFailedCandidateGene(tag, [this](uint32_t taxid, uint32_t gene) {
+                    CountFailedCandidate(m_failed, taxid);
+                    if (gene != 0) m_failed_genes.push_back((static_cast<uint64_t>(taxid) << 32) | gene);
+                });
             }
 
             // The reads whose unmapped record names each taxon as a failed candidate (SamReader::FailedCandidates).
@@ -2383,6 +2723,16 @@ namespace protal {
                     if (m_failed[taxid]) m_counts[static_cast<uint32_t>(taxid)].failed_candidates += m_failed[taxid];
                 }
                 FailedCandidateCounts().swap(m_failed);
+                // The failed reads by gene, of the taxa with a best record (RecordEvidence::failed_genes).
+                std::sort(m_failed_genes.begin(), m_failed_genes.end());
+                for (size_t i = 0, j; i < m_failed_genes.size(); i = j) {
+                    for (j = i + 1; j < m_failed_genes.size() && m_failed_genes[j] == m_failed_genes[i]; j++) {}
+                    auto const taxid = static_cast<uint32_t>(m_failed_genes[i] >> 32);
+                    auto const found = m_counts.find(taxid);
+                    if (found == m_counts.end() || found->second.records == 0) continue;
+                    found->second.failed_genes[static_cast<uint32_t>(m_failed_genes[i] & 0xffffffffu)] += static_cast<uint32_t>(j - i);
+                }
+                std::vector<uint64_t>().swap(m_failed_genes);
             }
 
             // A read (link: the read across its records) with a best record on taxon taxid, before the filters: counted
@@ -2423,7 +2773,7 @@ namespace protal {
 
             // See MicrobialProfile::NoteLinkedRecord.
             void NoteLinkedRecord(uint32_t taxid, uint32_t geneid, SamEntry const& sam, size_t link) {
-                if (link == SIZE_MAX || m_genome_loader->GetGeneNeighbours().Empty()) return;
+                if (link == SIZE_MAX) return;
                 if (link != m_link) {
                     FinishLink();
                     m_link = link;
@@ -2438,8 +2788,24 @@ namespace protal {
 
             // See MicrobialProfile::FinishLink.
             void FinishLink() {
+                // The fragment's taxa (split_fragment_share): each counts the fragment once, and as split if another
+                // species of its genus has a best record of it too.
+                if (!m_link_records.empty()) {
+                    m_link_taxa.clear();
+                    for (auto const& r : m_link_records) m_link_taxa.push_back(r.taxid);
+                    std::sort(m_link_taxa.begin(), m_link_taxa.end());
+                    m_link_taxa.erase(std::unique(m_link_taxa.begin(), m_link_taxa.end()), m_link_taxa.end());
+                    for (auto const taxid : m_link_taxa) {
+                        auto& e = m_counts[taxid];
+                        e.links++;
+                        uint32_t const genus = GenusOf(taxid);
+                        if (genus == 0) continue;
+                        e.split_links += std::any_of(m_link_taxa.begin(), m_link_taxa.end(),
+                                                     [&](uint32_t other) { return other != taxid && GenusOf(other) == genus; });
+                    }
+                }
                 auto const& table = m_genome_loader->GetGeneNeighbours();
-                if (m_link_records.size() >= 2) {
+                if (m_link_records.size() >= 2 && !table.Empty()) {
                     using gene_neighbours::EndAhead;
                     if (!m_link_paired) {
                         std::stable_sort(m_link_records.begin(), m_link_records.end(),
@@ -2485,6 +2851,7 @@ namespace protal {
             void Add(RecordEvidenceCollector const& other) {
                 for (auto const& [taxid, counts] : other.m_counts) m_counts[taxid] += counts;
                 AddCounts(m_failed, other.m_failed);
+                m_failed_genes.insert(m_failed_genes.end(), other.m_failed_genes.begin(), other.m_failed_genes.end());
                 for (auto const& [key, n] : other.m_ambiguity) m_ambiguity[key] += n;
                 m_spans.insert(m_spans.end(), other.m_spans.begin(), other.m_spans.end());
                 m_suspect_records += other.m_suspect_records;
@@ -2548,11 +2915,13 @@ namespace protal {
             std::shared_ptr<std::vector<uint32_t> const> m_genera;  // taxid -> genus (0: none)
             std::unordered_map<uint32_t, RecordEvidence> m_counts;
             FailedCandidateCounts m_failed;  // failed candidates per taxon (indexed by taxid), until FoldFailedCandidates
+            std::vector<uint64_t> m_failed_genes;  // failed candidates with their gene, taxid << 32 | gene, until FoldFailedCandidates
             context::AmbiguityClasses m_ambiguity;  // see NoteAmbiguity
             std::vector<uint16_t> m_spans;  // the spans of fragments with both mates on one gene (NoteSpan, MateSpan)
             size_t m_suspect_records = 0;  // records on suspect gene copies, left out (NoteSuspectRecord)
             std::vector<std::pair<uint32_t, uint32_t>> m_alternatives;  // NoteAmbiguity's scratch
             std::vector<LinkRecord> m_link_records;
+            std::vector<uint32_t> m_link_taxa;  // FinishLink's scratch
             size_t m_link = SIZE_MAX;
             bool m_link_paired = false;  // the current link is a pair's mates, not a long read's genes
         };
@@ -2679,6 +3048,26 @@ namespace protal {
                 auto const shares = context::AbundanceWeightedShares(m_evidence.Ambiguity(), record_counts, context::kEmTolerance,
                                                                      context::kEmIterations, &m_em_stats);
                 m_bm_em.Stop();
+                // Each taxon's congener that its records' alternatives (ZA) name most often, ties to the lower taxid, for
+                // congener_gene_overlap.
+                std::unordered_map<uint64_t, uint64_t> linked;  // taxid << 32 | congener -> records
+                for (auto const& [key, n] : m_evidence.Ambiguity()) {
+                    if (key.size() < 4) continue;
+                    uint32_t const genus = GenusOf(key[0]);
+                    if (genus == 0) continue;
+                    for (size_t i = 2; i + 1 < key.size(); i += 2) {
+                        if (key[i] != key[0] && GenusOf(key[i]) == genus) linked[(static_cast<uint64_t>(key[0]) << 32) | key[i]] += n;
+                    }
+                }
+                std::unordered_map<uint32_t, std::pair<uint32_t, uint64_t>> partners;  // taxid -> (congener, records)
+                for (auto const& [pair, n] : linked) {
+                    auto const taxid = static_cast<uint32_t>(pair >> 32), congener = static_cast<uint32_t>(pair & 0xffffffffu);
+                    auto& [best, best_n] = partners[taxid];
+                    if (n > best_n || (n == best_n && congener < best)) {
+                        best = congener;
+                        best_n = n;
+                    }
+                }
                 auto const ids = SortedTaxa();
                 struct Entry {
                     uint32_t id;
@@ -2800,8 +3189,21 @@ namespace protal {
                                (s.em_own_share < context::kSingletonOwnShare ||
                                 m_taxa.at(e.id).BaseIdentity() < context::kSingletonIdentity);
                     s.sample_log_fragments = sample_log_fragments;
+                    if (auto const found = partners.find(e.id); found != partners.end() && m_taxa.contains(found->second.first)) {
+                        auto& taxon = m_taxa.at(e.id);
+                        auto& congener = m_taxa.at(found->second.first);
+                        s.congener_gene_overlap = GeneOverlap(taxon.SortedGeneIds(), congener.SortedGeneIds(),
+                                                              SortedHittable(taxon.GetGenome()), SortedHittable(congener.GetGenome()));
+                    }
                     m_taxa.at(e.id).SetSampleEvidence(s);
                 }
+            }
+
+            // A reference's hittable genes, ascending.
+            static std::vector<uint32_t> SortedHittable(Genome& genome) {
+                auto genes = genome.GetHittableGenes();
+                std::sort(genes.begin(), genes.end());
+                return genes;
             }
 
             // Notes a read's best record (as NoteRecord: before the filters) of taxon taxid on gene geneid for the adjacency
@@ -2918,7 +3320,7 @@ namespace protal {
                     auto &genome = m_genome_loader.GetGenome(taxid);
 
                     m_taxa.insert( { taxid, Taxon(genome, &m_genome_loader.GetGeneConservation(), m_genome_loader.ScaleDepthMargin(),
-                                                   &m_genome_loader.GetSpeciesPriors()) } );
+                                                   &m_genome_loader.GetSpeciesPriors(), &m_genome_loader.GetSpeciesNeighbours()) } );
                     m_taxa.at(taxid).SetId(taxid);
                     m_taxa.at(taxid).SetDepthIdentityMargin(m_depth_identity_margin);
                     m_taxa.at(taxid).SetDropForeignGenes(m_drop_foreign_genes);

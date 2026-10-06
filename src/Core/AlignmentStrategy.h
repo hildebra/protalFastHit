@@ -146,10 +146,37 @@ namespace protal {
     public:
         size_t total_alignments = 0;
         // The taxa of the anchors the last call tried to align (the align-top anchors and their ties), in order and
-        // with repeats; with the alignments' taxa this gives the read's failed candidates (FailedCandidates in
-        // AlignmentUtils.h).
-        std::vector<uint32_t> m_attempted;
-        std::vector<uint32_t> const& Attempted() const { return m_attempted; }
+        // with repeats, each with its anchor's gene; with the alignments' taxa this gives the read's failed candidates
+        // (FailedCandidates in AlignmentUtils.h).
+        std::vector<FailedCandidate> m_attempted;
+        std::vector<FailedCandidate> const& Attempted() const { return m_attempted; }
+        // The taxa of the last call's anchors at least kCrowdedLength as long as its longest (exact-match bases), at most
+        // UINT16_MAX: how many taxa the read's seeds could not tell apart, also those beyond align_top that were never
+        // aligned and that ZA cannot list (its ZN tag; 0 without anchors).
+        uint16_t m_crowding = 0;
+        uint16_t Crowding() const { return m_crowding; }
+        std::vector<uint32_t> m_crowded_scratch;  // CrowdedTaxa's
+
+        // An anchor at least this share of the longest anchor's exact-match bases counts for the read's crowding.
+        static constexpr double kCrowdedLength = 0.8;
+
+        // The taxa of `anchors` (in any order) with an anchor at least kCrowdedLength as long as the longest (total_length),
+        // at most UINT16_MAX; 0 without anchors.
+        template<typename Anchors>
+        static uint16_t CrowdedTaxa(Anchors const& anchors, std::vector<uint32_t>& taxa) {
+            size_t longest = 0;
+            for (auto const& anchor : anchors) longest = std::max<size_t>(longest, anchor.total_length);
+            if (anchors.empty()) return 0;
+            taxa.clear();
+            for (auto const& anchor : anchors) {
+                if (static_cast<double>(anchor.total_length) >= kCrowdedLength * static_cast<double>(longest)) {
+                    taxa.push_back(static_cast<uint32_t>(anchor.taxid));
+                }
+            }
+            std::sort(taxa.begin(), taxa.end());
+            size_t const distinct = static_cast<size_t>(std::unique(taxa.begin(), taxa.end()) - taxa.begin());
+            return static_cast<uint16_t>(std::min<size_t>(distinct, UINT16_MAX));
+        }
         size_t total_tail_alignments = 0;
         size_t total_tail_length = 0;
         Benchmark bm_alignment{ "Alignment", 0, Benchmark::kPerRead};
@@ -701,12 +728,13 @@ namespace protal {
 
             Anchor* last_anchor = nullptr;
             m_attempted.clear();
+            m_crowding = CrowdedTaxa(anchors, m_crowded_scratch);
 
             for (auto& anchor : anchors) {
                 if (--take_top < 0 && (last_anchor && last_anchor->total_length != anchor.total_length)) {
                     break;
                 }
-                m_attempted.push_back(static_cast<uint32_t>(anchor.taxid));
+                m_attempted.emplace_back(static_cast<uint32_t>(anchor.taxid), static_cast<uint32_t>(anchor.geneid));
 
                 auto& read = anchor.forward ? fwd : rev;
 

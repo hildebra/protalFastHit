@@ -356,24 +356,43 @@ namespace protal {
 
 
 
-    // The taxa a read seeded on strongly enough to be aligned against (the handler's Attempted()) but has no
-    // alignment to: sorted, each once. Written as the read's ZF tag (SamEntry::m_failed): a read of a relative the
-    // database lacks seeds on its nearest species and fails there.
-    inline std::vector<uint32_t> FailedCandidates(std::vector<uint32_t> attempted, std::vector<uint32_t> aligned) {
-        std::sort(attempted.begin(), attempted.end());
-        attempted.erase(std::unique(attempted.begin(), attempted.end()), attempted.end());
+    // A taxon a read was aligned against, with the gene of its longest anchor there (0: not known).
+    struct FailedCandidate {
+        uint32_t taxid = 0;
+        uint32_t gene = 0;
+        FailedCandidate(uint32_t taxid = 0, uint32_t gene = 0) : taxid(taxid), gene(gene) {}
+        bool operator==(FailedCandidate const&) const = default;
+    };
+
+    // The taxa a read seeded on strongly enough to be aligned against (the handler's Attempted(), its anchors in the
+    // order they were tried, the longest first) but has no alignment to: sorted by taxon, each once, with the gene of
+    // its first anchor. Written as the read's ZF tag (SamEntry::m_failed): a read of a relative the database lacks seeds
+    // on its nearest species and fails there, mostly on the genes where the two differ most.
+    inline std::vector<FailedCandidate> FailedCandidates(std::vector<FailedCandidate> attempted, std::vector<uint32_t> aligned) {
+        std::stable_sort(attempted.begin(), attempted.end(),
+                         [](FailedCandidate const& a, FailedCandidate const& b) { return a.taxid < b.taxid; });
+        attempted.erase(std::unique(attempted.begin(), attempted.end(),
+                                    [](FailedCandidate const& a, FailedCandidate const& b) { return a.taxid == b.taxid; }),
+                        attempted.end());
         std::sort(aligned.begin(), aligned.end());
-        std::vector<uint32_t> failed;
-        std::set_difference(attempted.begin(), attempted.end(), aligned.begin(), aligned.end(), std::back_inserter(failed));
+        std::vector<FailedCandidate> failed;
+        for (auto const& candidate : attempted) {
+            if (!std::binary_search(aligned.begin(), aligned.end(), candidate.taxid)) failed.push_back(candidate);
+        }
         return failed;
     }
 
-    // The ZF tag of failed candidates: "<taxid>,<taxid>", empty for none.
-    inline std::string FailedTag(std::vector<uint32_t> const& failed) {
+    // The ZF tag of failed candidates: "<taxid>:<gene>,<taxid>:<gene>" ("<taxid>" where the gene is not known, as protal
+    // wrote every entry before 2026-10-06), empty for none.
+    inline std::string FailedTag(std::vector<FailedCandidate> const& failed) {
         std::string tag;
-        for (uint32_t const taxid : failed) {
+        for (auto const& candidate : failed) {
             if (!tag.empty()) tag += ',';
-            tag += std::to_string(taxid);
+            tag += std::to_string(candidate.taxid);
+            if (candidate.gene != 0) {
+                tag += ':';
+                tag += std::to_string(candidate.gene);
+            }
         }
         return tag;
     }

@@ -100,9 +100,9 @@ namespace {
 }
 
 TEST(ReadEvidence, FailedCandidatesAreTheAttemptedTaxaWithoutAnAlignment) {
-    EXPECT_EQ(FailedCandidates({ 3, 1, 3, 2 }, { 2 }), (std::vector<uint32_t>{ 1, 3 }));
-    EXPECT_EQ(FailedCandidates({ 2, 2 }, { 2, 5 }), (std::vector<uint32_t>{}));
-    EXPECT_EQ(FailedCandidates({}, {}), (std::vector<uint32_t>{}));
+    EXPECT_EQ(FailedCandidates({ 3, 1, 3, 2 }, { 2 }), (std::vector<FailedCandidate>{ 1, 3 }));
+    EXPECT_EQ(FailedCandidates({ 2, 2 }, { 2, 5 }), (std::vector<FailedCandidate>{}));
+    EXPECT_EQ(FailedCandidates({}, {}), (std::vector<FailedCandidate>{}));
     EXPECT_EQ(FailedTag({ 1, 3 }), "1,3");
     EXPECT_EQ(FailedTag({}), "");
     std::vector<uint32_t> seen;

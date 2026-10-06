@@ -44,6 +44,7 @@
 #include "GeneIncongruence.h"
 #include "GeneNeighbours.h"
 #include "SpeciesPriors.h"
+#include "SpeciesNeighbours.h"
 
 namespace protal {
     // The database's gene tables (reference.map, unique_kmers.tsv), one line per gene (16.6M at GTDB
@@ -480,6 +481,15 @@ namespace protal {
         bool HasLongSuperUniques(const size_t threshold=0) const {
             return m_long_super_unique > threshold;
         }
+        // The k-mers a read's ZU and ZT count (since 2026-10-06): the long ones and those of a core with one value (short),
+        // whose whole k-mer the anchor compares (ChainAnchorFinder::CountUniques); a short unique k-mer has no other value
+        // of its core, so it is unique at distance two too.
+        bool HasWholeUniques(const size_t threshold=0) const {
+            return m_long_unique + m_short_unique > threshold;
+        }
+        bool HasWholeSuperUniques(const size_t threshold=0) const {
+            return m_long_super_unique + m_short_unique > threshold;
+        }
 
         double UniqueRate() const {
             return m_long_unique/static_cast<double>(m_total_kmers);
@@ -601,6 +611,20 @@ namespace protal {
         size_t GenesWithLongSuperUniques(size_t threshold = 0) const {
             return std::count_if(m_genes.begin(), m_genes.end(), [threshold](Gene const& gene) {
                 return gene.HasLongSuperUniques(threshold);
+            });
+        }
+
+        // The genes with more than `threshold` k-mers a read's ZU (ZT) can count (Gene::HasWholeUniques): the reference
+        // side of the lu (lsu) gene rates.
+        size_t GenesWithWholeUniques(size_t threshold = 0) const {
+            return std::count_if(m_genes.begin(), m_genes.end(), [threshold](Gene const& gene) {
+                return gene.HasWholeUniques(threshold);
+            });
+        }
+
+        size_t GenesWithWholeSuperUniques(size_t threshold = 0) const {
+            return std::count_if(m_genes.begin(), m_genes.end(), [threshold](Gene const& gene) {
+                return gene.HasWholeSuperUniques(threshold);
             });
         }
 
@@ -796,6 +820,7 @@ namespace protal {
         gene_neighbours::Table m_gene_neighbours;      // empty: no gene's neighbours are known
         gene_incongruence::Table m_suspect_copies;     // empty: every gene copy is evidence of its species
         species_priors::Table m_species_priors;        // empty: every species' priors unknown
+        species_neighbours::Table m_species_neighbours;  // empty: no species' congeners known (SpeciesNeighbours.h)
 
         int m_threads = 1;  // for reading reference.map
         gene_table::Times m_map_times, m_unique_times;  // the last loads of reference.map and unique_kmers.tsv (GeneTableTimes)
@@ -1062,6 +1087,7 @@ namespace protal {
                 m_gene_neighbours(other.m_gene_neighbours),
                 m_suspect_copies(other.m_suspect_copies),
                 m_species_priors(other.m_species_priors),
+                m_species_neighbours(other.m_species_neighbours),
                 m_threads(other.m_threads) {
             Open();
             LoadPositionMap(m_map, m_threads);
@@ -1115,6 +1141,17 @@ namespace protal {
 
         void SetSpeciesPriors(species_priors::Table table) {
             m_species_priors = std::move(table);
+        }
+
+        // Each species' nearest congeners in the database by the distance of their references (SpeciesNeighbours.h),
+        // for the database-neighbourhood features and unexpected_congener_fit_share; empty unless set (a database without
+        // species_neighbours.tsv), and then those features are unknown (-1) or 0.
+        species_neighbours::Table const& GetSpeciesNeighbours() const {
+            return m_species_neighbours;
+        }
+
+        void SetSpeciesNeighbours(species_neighbours::Table table) {
+            m_species_neighbours = std::move(table);
         }
 
         // Which genes lie next to which in the species' clades (GeneNeighbours.h); empty unless set (a

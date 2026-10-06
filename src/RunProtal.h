@@ -290,6 +290,31 @@ namespace protal {
         genomes.SetSpeciesPriors(std::move(table));
     }
 
+    // Each species' nearest congeners in the database (species_neighbours.tsv, SpeciesNeighbours.h), for the
+    // database-neighbourhood features and unexpected_congener_fit_share. Exits 8 if the file cannot be read.
+    static void LoadSpeciesNeighbours(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
+        auto const file = options.SpeciesNeighboursDbFile();
+        if (!file.Exists()) {
+            out << "Species neighbours: the database has no " << Options::PROTAL_SPECIES_NEIGHBOURS_FILE
+                << " (built by an earlier protal): the database-neighbourhood features are unknown (-1)" << std::endl;
+            return;
+        }
+        std::string error;
+        auto const content = file.ReadAll(error);
+        species_neighbours::Table table;
+        if (content) {
+            std::istringstream is(*content);
+            error = table.Read(is);
+        }
+        if (!error.empty()) {
+            std::cerr << "Invalid species neighbours " << file.Name() << ": " << error << std::endl;
+            exit(8);
+        }
+        out << "Species neighbours: " << table.Species() << " species with " << table.Pairs() << " congeners within "
+            << species_neighbours::kMaxDistance << " (" << file.Name() << ")" << std::endl;
+        genomes.SetSpeciesNeighbours(std::move(table));
+    }
+
     // The database's gene neighbours (gene_neighbours.tsv, GeneNeighbours.h: how often each marker gene end faces
     // which other in a clade's genomes), for mate guidance past a gene's end, pairs of mates on neighbouring genes,
     // the genes next to a long read's genes and the profiler's adjacency features; none without the file or with
@@ -2872,7 +2897,7 @@ namespace protal {
 
         Benchmark bm_tables("Loading the taxonomy, models and tables");
         std::vector<profiler::TaxonFilterObj> loaded_models;
-        std::ostringstream conservation_log, suspect_log, priors_log, neighbours_log;
+        std::ostringstream conservation_log, suspect_log, priors_log, species_neighbours_log, neighbours_log;
         std::optional<gene_neighbours::Table> neighbours;
         if (concurrent) {
             bm_tables.Start();
@@ -2885,6 +2910,7 @@ namespace protal {
                 tables.push_back(std::async(std::launch::async, [&]() { LoadGeneConservation(options, db.GetGenomes(), conservation_log); }));
                 tables.push_back(std::async(std::launch::async, [&]() { LoadSuspectCopies(options, db.GetGenomes(), suspect_log); }));
                 tables.push_back(std::async(std::launch::async, [&]() { LoadSpeciesPriors(options, db.GetGenomes(), priors_log); }));
+                tables.push_back(std::async(std::launch::async, [&]() { LoadSpeciesNeighbours(options, db.GetGenomes(), species_neighbours_log); }));
             }
             if (need_neighbours) neighbours_loading = std::async(std::launch::async, [&]() { return ReadGeneNeighbours(options, neighbours_log); });
             // The tables set their own parts of the genome loader, never its genes, which the preload fills meanwhile.
@@ -2947,11 +2973,12 @@ namespace protal {
                 }
             }
             if (concurrent) {
-                std::cout << conservation_log.str() << suspect_log.str() << priors_log.str();
+                std::cout << conservation_log.str() << suspect_log.str() << priors_log.str() << species_neighbours_log.str();
             } else {
                 LoadGeneConservation(options, db.GetGenomes());
                 LoadSuspectCopies(options, db.GetGenomes());
                 LoadSpeciesPriors(options, db.GetGenomes());
+                LoadSpeciesNeighbours(options, db.GetGenomes());
             }
         }
         if (need_neighbours) {

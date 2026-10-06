@@ -426,14 +426,16 @@ class MsaSampleSelectionTest(WorkDir):
     """A species' MSA takes only the samples in which the model accepts the species."""
 
     def test_rejected_samples_are_left_out(self):
-        # A sample with three read pairs of Mockella alpha, too few to call it.
+        # A sample with one read pair of Mockella alpha, too few to call it. (Three pairs were, until the k-mers of
+        # 15-base cores with one value in the index counted as unique, 2026-10-06: in the mini database they are 85% of
+        # the unique k-mers, and the 0.6.0a forest it ships scores three perfect pairs 0.55, one pair 0.34.)
         taxid = None
         with open(db_file("internal_taxonomy.dmp")) as fh:
             for line in fh:
                 f = line.split("\t")
                 if f[3] == "s__Mockella alpha":
                     taxid = f[0]
-        genes = [seq for name, seq in reference_genes() if name.split("_")[0] == taxid and len(seq) >= 300][:3]
+        genes = [seq for name, seq in reference_genes() if name.split("_")[0] == taxid and len(seq) >= 300][:1]
         with open(self.path("few_R1.fq"), "w") as r1, open(self.path("few_R2.fq"), "w") as r2:
             for i, gene in enumerate(genes, 1):
                 r1.write(f"@few.{i}/1\n{gene[:100]}\n+\n{'I' * 100}\n")
@@ -444,7 +446,7 @@ class MsaSampleSelectionTest(WorkDir):
                       "-t", "2", "--no_qcmsa", "--msa_min_hcov", "0")
         self.assertEqual(rc, 0, log[-3000:])
         with open(self.path("out", "few.profile")) as fh:
-            self.assertNotIn("Mockella alpha", fh.read(), "the three pairs do not call the species")
+            self.assertNotIn("Mockella alpha", fh.read(), "the one pair does not call the species")
         with open(self.path("out", "strains", "s__Mockella_alpha.raw.msa.fna")) as fh:
             names = [line[1:].strip() for line in fh if line.startswith(">")]
         self.assertIn("sa", names)
