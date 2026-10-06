@@ -243,6 +243,13 @@ else()
     target_link_directories(protal_lib_static PUBLIC ${ZSTD_LIBRARY_DIR} ${ISAL_LIBRARY_DIR})
     set(PROTAL_STATIC_ZSTD zstd)
     set(PROTAL_STATIC_ISAL isal)
+    # Ubuntu's libisal-dev has no libisal.a: the static binaries cannot be linked then, and are left out of the
+    # default build (`just static` builds ISA-L for them).
+    if (NOT EXISTS ${ISAL_LIBRARY_DIR}/libisal.a)
+        message(STATUS "No libisal.a next to ${ISAL_LIBRARY}: protal_static and simulate_metagenomes_static are left out of "
+                       "the default build (`just static` builds them)")
+        set_target_properties(protal_static simulate_metagenomes_static PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    endif()
 endif()
 
 target_include_directories(protal_lib PUBLIC ../lib/robin)

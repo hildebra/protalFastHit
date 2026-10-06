@@ -76,7 +76,7 @@ it against its own checkout.
 | Target | Binary | |
 |---|---|---|
 | `protal` | `build/protal` | runs on any x86-64 CPU, with AVX2 where the CPU has it ([below](#one-binary-for-every-cpu)) |
-| `protal_static` | `build/protal_<version>_static` | fully static build of `protal` |
+| `protal_static` | `build/protal_<version>_static` | fully static build of `protal` (in the default build only where a `libisal.a` is found; `just static` builds it in any case) |
 | `simulate_metagenomes` | `build/simulate_metagenomes` | read simulator, see [development.md](development.md#simulating-metagenomes) |
 | `simulate_metagenomes_static` | `build/simulate_metagenomes_static` | static simulator |
 | `protal_tests` | `build/tests/protal_tests` | unit tests; needs `-DPROTAL_BUILD_TESTS=ON` and GoogleTest, see [development.md](development.md) |
