@@ -3348,6 +3348,16 @@ class GtdbBuildTest(unittest.TestCase):
         import compressed
         host_reads = glob.glob(os.path.join(points, "sc_host_pe_p20000", "sim", "reads", "*_R1.fq.zst"))
         self.assertEqual(len(host_reads), 2)  # zstd by default (--read-compression)
+        # Every read file the build simulated is zstd (the build's default --read-compression: the design's paired-end
+        # points by simulate_metagenomes --reads_compression zstd, the scenarios', their host reads appended as more
+        # frames, Ultima and long reads by the collector), and protal profiled them all (the tables below).
+        for collection in ("training", "test"):
+            simulated = glob.glob(os.path.join(scratch, collection, "points", "*", "sim", "reads", "*.fq*"))
+            self.assertTrue(any("/rl100_p" in p.replace(os.sep, "/") for p in simulated), collection)  # the design's
+            for path in simulated:
+                self.assertTrue(path.endswith(".fq.zst"), path)
+                with open(path, "rb") as fh:
+                    self.assertEqual(fh.read(4), compressed.ZSTD_MAGIC, path)
         for reads in host_reads:
             names = compressed.read_text(reads).splitlines()[0::4]
             self.assertEqual(sum(n.startswith("@h") for n in names), 18000)  # exactly the host's

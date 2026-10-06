@@ -1,0 +1,25 @@
+	Command being timed: "/home/falk/micromamba/envs/protal-db-build/bin/python scripts/machine_learning_cmdline.py --truth-file /mnt/c/Users/hildebra/Documents/locDev/protal/local/v13/training/training_data.tsv --test-file /mnt/c/Users/hildebra/Documents/locDev/protal/local/v13/test/training_data.tsv --taxonomy /mnt/c/Users/hildebra/Documents/locDev/protal/local/v13/internal_taxonomy.dmp --output-prefix /home/falk/timing/pe-auto-full --features auto --evaluation full --depth-knobs --threads 6"
+	User time (seconds): 42101.73
+	System time (seconds): 1153.46
+	Percent of CPU this job got: 347%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 3:27:41
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 2092224
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 1300069
+	Voluntary context switches: 71895731
+	Involuntary context switches: 4923074
+	Swaps: 0
+	File system inputs: 810960
+	File system outputs: 58328
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+EXIT 0
+time: load 24.0 s, feature_choice 2989.9 s, fit 24.8 s, evaluation 3780.8 s, feature_sets 2642.0 s, capacity 1291.4 s, learning_curve 1607.1 s, depth_knobs 0.5 s, test 4.7 s, scenarios 17.4 s, export 1.4 s, total 12454.9 s
