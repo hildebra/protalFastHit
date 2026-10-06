@@ -1,7 +1,7 @@
 # Why `--add_model` took ~20 minutes, and replacing the models in place
 
-2026-10-06, branch `audit-fixes` at `15006c2` plus the working-tree change described here (`src/Utilities/Database.h`,
-`src/Utilities/Zstd.h`, `src/Build.h`, `src/Options.h`, tests, `docs/databases.md`). Measured in WSL (Ubuntu 24.04,
+2026-10-06, branch `audit-fixes` at `15006c2` plus the change described here (`src/Utilities/Database.h`,
+`src/Utilities/Zstd.h`, `src/Build.h`, `src/Options.h`, tests, `docs/databases.md`), committed as `fd85db9`. Measured in WSL (Ubuntu 24.04,
 Core Ultra 7 258V, ext4 on the laptop's NVMe, 23 GB RAM, other sessions' load 2-4).
 
 ## The question
