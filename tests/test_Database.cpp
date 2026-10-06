@@ -221,6 +221,208 @@ TEST(Database, RewriteWithOneMemberReplaced) {
     }
 }
 
+// The directory frame holds its content in raw blocks: any zstd decoder reads it, and its size depends on the
+// content's length alone.
+TEST(Database, TheDirectoryFrameIsRaw) {
+    for (size_t n : {1, 1000, 131072, 131073, 300000}) {
+        std::string const content = TestData(n, static_cast<unsigned>(n));
+        std::string const frame = db::detail::RawFrame(content);
+        EXPECT_EQ(frame.size(), db::detail::RawFrameSize(n)) << n;
+        EXPECT_EQ(ZSTD_getFrameContentSize(frame.data(), frame.size()), n);
+        std::string out(n, '\0');
+        size_t const got = ZSTD_decompress(out.data(), out.size(), frame.data(), frame.size());
+        ASSERT_FALSE(ZSTD_isError(got)) << n << ": " << ZSTD_getErrorName(got);
+        EXPECT_EQ(got, n);
+        EXPECT_EQ(out, content) << n;
+    }
+    TempDir tmp;
+    std::string error;
+    Spit(tmp / "a.txt", TestData(5000));
+    ASSERT_TRUE(db::Write(tmp / "database.protal", {{"a.txt", tmp / "a.txt"}}, SmallFrames(4096), error)) << error;
+    auto const bundle = db::Bundle::Open(tmp / "database.protal", error);
+    ASSERT_TRUE(bundle) << error;
+    EXPECT_EQ(bundle->DirectoryFrame().compressed_size, db::detail::RawFrameSize(bundle->DirectoryFrame().decompressed_size));
+}
+
+namespace {
+    // A database of `big` (copied from a seekable file), other.txt, and two models, the models last.
+    struct ModelDatabase {
+        TempDir tmp;
+        std::string big = TestData(40000, 3), other = TestData(7000, 4), pe = "<PMML>pe</PMML>", se = "<PMML>se</PMML>";
+        std::string path = tmp / "database.protal";
+
+        ModelDatabase() {
+            std::string error;
+            Spit(tmp / "big.txt", big);
+            EXPECT_TRUE(zstd::CompressFile(tmp / "big.txt", tmp / "big.zst", SmallFrames(1500), false, error)) << error;
+            EXPECT_TRUE(db::Write(path, {{"big.txt", tmp / "big.zst"}, {"other.txt", Spit(tmp / "other.txt", other)},
+                                         {"model_pe.xml", Spit(tmp / "pe.xml", pe)}, {"model_se.xml", Spit(tmp / "se.xml", se)}},
+                                  SmallFrames(4096), error)) << error;
+        }
+
+        db::Bundle Open() const {
+            std::string error;
+            auto bundle = db::Bundle::Open(path, error);
+            EXPECT_TRUE(bundle) << error;
+            return *bundle;
+        }
+
+        // The bundle's members, those named in `replace` from these files instead.
+        static std::vector<db::Source> Sources(db::Bundle const& bundle, std::map<std::string, std::string> const& replace) {
+            std::vector<db::Source> sources;
+            for (auto const& member : bundle.Members()) {
+                auto const it = replace.find(member.name);
+                if (it != replace.end()) sources.push_back({member.name, it->second});
+                else sources.push_back({member.name, bundle.Path(), member.frames});
+            }
+            return sources;
+        }
+    };
+}
+
+// Replacing the models (the last members) writes only the end of the file and the directory: the other members'
+// bytes stay where they were, the models read back, the file grows or shrinks with them, and no journal is left.
+TEST(Database, ModelsAreReplacedInPlace) {
+    ModelDatabase d;
+    std::string error;
+    std::string const before = Slurp(d.path);
+    auto const old = d.Open();
+    uint64_t const directory = old.DirectoryFrame().compressed_size;
+    uint64_t const tail = old.Members()[2].frames.frames.front().compressed_offset;
+
+    std::string const big_pe = TestData(9000, 8);  // three frames instead of one
+    auto sources = ModelDatabase::Sources(old, {{"model_pe.xml", Spit(d.tmp / "new_pe.xml", big_pe)}});
+    auto const first = db::InPlaceFrom(old, sources);
+    ASSERT_EQ(first, std::optional<size_t>(2));
+    auto const written = db::ReplaceTail(old, sources, *first, SmallFrames(4096, 3), error);
+    ASSERT_TRUE(written) << error;
+    EXPECT_EQ(*written, fs::file_size(d.path));
+    EXPECT_FALSE(fs::exists(d.path + db::kJournalExtension));
+    std::string const after = Slurp(d.path);
+    EXPECT_EQ(after.substr(directory, tail - directory), before.substr(directory, tail - directory));
+    EXPECT_NE(after.substr(0, directory), before.substr(0, directory));  // the frame counts changed
+
+    auto const now = d.Open();
+    ASSERT_EQ(now.Members().size(), 4u);
+    EXPECT_TRUE(db::SameFrames(now.Members()[0].frames, old.Members()[0].frames));
+    EXPECT_TRUE(db::SameFrames(now.Members()[1].frames, old.Members()[1].frames));
+    EXPECT_EQ(now.Members()[2].frames.frames.size(), 3u);
+    EXPECT_EQ(Content(db::DbFile::InBundle(now, "big.txt")), d.big);
+    EXPECT_EQ(Content(db::DbFile::InBundle(now, "other.txt")), d.other);
+    EXPECT_EQ(Content(db::DbFile::InBundle(now, "model_pe.xml")), big_pe);
+    EXPECT_EQ(Content(db::DbFile::InBundle(now, "model_se.xml")), d.se);  // copied from the old end of the file
+
+    // Back to one frame: the file shrinks; then the last member alone.
+    sources = ModelDatabase::Sources(now, {{"model_pe.xml", d.tmp / "pe.xml"}});
+    ASSERT_TRUE(db::ReplaceTail(now, sources, *db::InPlaceFrom(now, sources), SmallFrames(4096), error)) << error;
+    EXPECT_EQ(Slurp(d.path), before);
+    auto const again = d.Open();
+    sources = ModelDatabase::Sources(again, {{"model_se.xml", Spit(d.tmp / "new_se.xml", "<PMML>se 2</PMML>")}});
+    ASSERT_EQ(db::InPlaceFrom(again, sources), std::optional<size_t>(3));
+    ASSERT_TRUE(db::ReplaceTail(again, sources, 3, SmallFrames(4096), error)) << error;
+    EXPECT_EQ(Content(db::DbFile::InBundle(d.Open(), "model_se.xml")), "<PMML>se 2</PMML>");
+    EXPECT_EQ(Content(db::DbFile::InBundle(d.Open(), "model_pe.xml")), d.pe);
+}
+
+// In place only with the same members in the same order, something to replace, a tail that fits in memory and a
+// raw directory frame: a file written before (its directory compressed) is rewritten once by Write, which makes
+// its directory raw.
+TEST(Database, InPlaceNeedsTheSameMembersAndARawDirectory) {
+    ModelDatabase d;
+    std::string error;
+    auto const bundle = d.Open();
+    std::string const pe = Spit(d.tmp / "new_pe.xml", "<PMML>new</PMML>");
+    auto sources = ModelDatabase::Sources(bundle, {});
+    EXPECT_FALSE(db::InPlaceFrom(bundle, sources)) << "nothing changes";
+    sources = ModelDatabase::Sources(bundle, {{"model_pe.xml", pe}});
+    EXPECT_TRUE(db::InPlaceFrom(bundle, sources));
+    EXPECT_FALSE(db::InPlaceFrom(bundle, sources, 10)) << "more than max_bytes";
+    auto added = sources;
+    added.push_back({"model_ONT.xml", pe});
+    EXPECT_FALSE(db::InPlaceFrom(bundle, added));
+    auto reordered = sources;
+    std::swap(reordered[2], reordered[3]);
+    EXPECT_FALSE(db::InPlaceFrom(bundle, reordered));
+    auto renamed = sources;
+    renamed[2].name = "model_PB.xml";
+    EXPECT_FALSE(db::InPlaceFrom(bundle, renamed));
+
+    // The same file with its directory compressed, as protal wrote it before.
+    std::string const bytes = Slurp(d.path);
+    auto const table = zstd::ReadSeekTable(d.path, error);
+    ASSERT_TRUE(table) << error;
+    auto const& frames = table->frames;
+    std::string const listing = db::detail::Directory(*db::detail::Plan(ModelDatabase::Sources(bundle, {}), SmallFrames(4096), error));
+    std::string compressed(ZSTD_compressBound(listing.size()), '\0');
+    compressed.resize(ZSTD_compress(compressed.data(), compressed.size(), listing.data(), listing.size(), 3));
+    std::string entries;
+    zstd::PutLE32(entries, static_cast<uint32_t>(compressed.size()));
+    zstd::PutLE32(entries, static_cast<uint32_t>(listing.size()));
+    for (size_t f = 1; f < frames.size(); f++) {
+        zstd::PutLE32(entries, static_cast<uint32_t>(frames[f].compressed_size));
+        zstd::PutLE32(entries, static_cast<uint32_t>(frames[f].decompressed_size));
+    }
+    auto const& last = frames.back();
+    Spit(d.tmp / "old.protal", compressed + bytes.substr(frames[0].compressed_size, last.compressed_offset + last.compressed_size -
+                                                         frames[0].compressed_size) + zstd::SeekTableFrame(entries));
+    auto const old = db::Bundle::Open(d.tmp / "old.protal", error);
+    ASSERT_TRUE(old) << error;
+    EXPECT_EQ(Content(db::DbFile::InBundle(*old, "big.txt")), d.big);
+    sources = ModelDatabase::Sources(*old, {{"model_pe.xml", pe}});
+    EXPECT_FALSE(db::InPlaceFrom(*old, sources));
+    ASSERT_TRUE(db::Write(old->Path(), sources, SmallFrames(4096), error)) << error;
+    auto const rewritten = db::Bundle::Open(d.tmp / "old.protal", error);
+    ASSERT_TRUE(rewritten) << error;
+    EXPECT_TRUE(db::InPlaceFrom(*rewritten, ModelDatabase::Sources(*rewritten, {{"model_se.xml", pe}})));
+}
+
+// A replacement that stopped half way (its journal next to the file, which then does not open) is undone from the
+// journal, if the journal is of that file.
+TEST(Database, AnInterruptedReplacementIsWrittenBack) {
+    ModelDatabase d;
+    std::string error;
+    std::string const before = Slurp(d.path);
+    auto const old = d.Open();
+    db::detail::Journal journal;
+    uint64_t const directory = old.DirectoryFrame().compressed_size;
+    journal.tail_offset = old.Members()[2].frames.frames.front().compressed_offset;
+    journal.check_offset = std::max<uint64_t>(directory, journal.tail_offset - std::min<uint64_t>(journal.tail_offset, 4096));
+    journal.directory = before.substr(0, directory);
+    journal.check = before.substr(journal.check_offset, journal.tail_offset - journal.check_offset);
+    journal.tail = before.substr(journal.tail_offset);
+
+    auto const sources = ModelDatabase::Sources(old, {{"model_pe.xml", Spit(d.tmp / "new_pe.xml", TestData(9000, 8))}});
+    ASSERT_TRUE(db::ReplaceTail(old, sources, 2, SmallFrames(4096), error)) << error;
+    std::string const after = Slurp(d.path);
+    std::string const journal_path = d.path + db::kJournalExtension;
+    auto interrupt = [&]() {
+        Spit(d.path, after.substr(0, after.size() - 20));  // the seek table not yet complete
+        EXPECT_FALSE(db::Bundle::Open(d.path, error));
+    };
+
+    interrupt();
+    Spit(journal_path, journal.Serialize().substr(0, 100));
+    EXPECT_FALSE(db::RestoreFromJournal(d.path, error));
+    EXPECT_NE(error.find("not a complete journal"), std::string::npos) << error;
+    auto other = journal;
+    other.check[0] ^= 1;
+    Spit(journal_path, other.Serialize());
+    EXPECT_FALSE(db::RestoreFromJournal(d.path, error));
+    EXPECT_NE(error.find("is not of"), std::string::npos) << error;
+    EXPECT_EQ(Slurp(d.path), after.substr(0, after.size() - 20)) << "not touched";
+
+    Spit(journal_path, journal.Serialize());
+    EXPECT_TRUE(db::RestoreFromJournal(d.path, error)) << error;
+    EXPECT_EQ(Slurp(d.path), before);
+    EXPECT_FALSE(fs::exists(journal_path));
+    EXPECT_EQ(Content(db::DbFile::InBundle(d.Open(), "model_pe.xml")), d.pe);
+
+    // A journal left after the database was written anew is removed with it.
+    Spit(journal_path, journal.Serialize());
+    ASSERT_TRUE(db::Write(d.path, ModelDatabase::Sources(d.Open(), {{"model_se.xml", d.tmp / "pe.xml"}}), SmallFrames(4096), error)) << error;
+    EXPECT_FALSE(fs::exists(journal_path));
+}
+
 TEST(Database, ModelsPerReadType) {
     EXPECT_EQ(ModelCandidates(ReadType::Paired), (std::vector<std::string>{"model_pe.xml", "model.xml", "random_forest.xml"}));
     EXPECT_EQ(ModelCandidates(ReadType::Single), std::vector<std::string>{"model_se.xml"});

@@ -1,0 +1,5 @@
+Stored models/trained_model.xml as model_pe.xml in big.protal (replaced the previous one)
+Stored models/trained_model_se.xml as model_se.xml in big.protal
+Stored models/trained_model_pb.xml as model_PB.xml in big.protal
+Stored models/trained_model_ont.xml as model_ONT.xml in big.protal
+big.protal: 20.00 GB. Models for read types: pe, se, pb, ont

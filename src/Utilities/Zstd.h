@@ -1173,6 +1173,19 @@ namespace protal::zstd {
         std::vector<std::thread> m_workers;
     };
 
+    // The seek table (a skippable frame) of the frames whose sizes `entries` lists: per frame its compressed and its
+    // content size, 4 bytes each, little-endian.
+    inline std::string SeekTableFrame(std::string const& entries) {
+        std::string seek;
+        PutLE32(seek, kSeekTableFrameMagic);
+        PutLE32(seek, static_cast<uint32_t>(entries.size() + 9));
+        seek += entries;
+        PutLE32(seek, static_cast<uint32_t>(entries.size() / 8));
+        seek.push_back('\0');  // descriptor: no per-frame checksums in the table (each frame has one)
+        PutLE32(seek, kSeekTableMagic);
+        return seek;
+    }
+
     // Writes a file in the seekable format: zstd frames (compressed already) in order, then the
     // seek table (Finish). Failures make Add and Finish return false, with the reason in Error().
     class FrameWriter {
@@ -1208,13 +1221,7 @@ namespace protal::zstd {
         // Writes the seek table and closes the file.
         bool Finish() {
             if (m_out && Ok()) {
-                std::string seek;
-                PutLE32(seek, kSeekTableFrameMagic);
-                PutLE32(seek, static_cast<uint32_t>(m_table.size() + 9));
-                seek += m_table;
-                PutLE32(seek, static_cast<uint32_t>(m_frames));
-                seek.push_back('\0');  // descriptor: no per-frame checksums in the table (each frame has one)
-                PutLE32(seek, kSeekTableMagic);
+                std::string const seek = SeekTableFrame(m_table);
                 if (std::fwrite(seek.data(), 1, seek.size(), m_out) != seek.size()) Fail(std::string("write failed: ") + std::strerror(errno));
                 m_written += seek.size();
             }

@@ -93,8 +93,21 @@ protal --decompress_db --db /path/to/protal-db -t 16    # -> separate raw files
 
 **Models.** `protal --add_model MODEL --read_type pe --db DB` (or `se`, `pb`, `ont`) checks a model
 and replaces the database's model of that read type. Several at once
-(`--add_model pe.xml,se.xml --read_type pe,se`) rewrite `database.protal` once (about 5 minutes at
-r226). `--model` and `--model_se` use another model for a run without changing the database.
+(`--add_model pe.xml,se.xml --read_type pe,se`) are all checked before anything is written.
+`--model` and `--model_se` use another model for a run without changing the database.
+
+The models are the last members of `database.protal`, so `--add_model` replaces them in place: it
+rewrites only the end of the file (the models and the seek table) and the directory frame at its
+start, a few MB, and leaves the rest untouched. That takes seconds, mostly compressing the models
+(about 8 s for a 12 MB model at level 19; the models are compressed in parallel). A
+`database.protal` packed before this change, or one that gains a read type it had no model for, is
+rewritten once instead, with the models put last. That copies the whole file (21 GB at r226; 2.5
+minutes on a local SSD, ~20 minutes on a network file system). The GTDB build's final database
+already holds a model or placeholder for every read type (unless `--no-placeholder-models`), so its
+`--add_model` step runs in place. While the models are replaced, `database.protal.journal` holds the
+bytes being overwritten. If `--add_model` stops halfway, running it again first puts those bytes
+back; other protal commands say so instead of reading a broken file. Do not start protal runs on the
+database while `--add_model` replaces its models.
 
 ### The database in memory
 

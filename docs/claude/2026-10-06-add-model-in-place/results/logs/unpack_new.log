@@ -1,0 +1,16 @@
+Unpack mini.protal into unpacked_new
+Write unpacked_new/index.prx.zst
+Write unpacked_new/reference.fna
+Write unpacked_new/reference.map
+Write unpacked_new/internal_taxonomy.dmp
+Write unpacked_new/unique_kmers.tsv
+Write unpacked_new/gene_conservation.tsv
+Write unpacked_new/species_priors.tsv
+Write unpacked_new/gene_neighbours.tsv
+Write unpacked_new/gene_positions.tsv
+Write unpacked_new/model_pe.xml
+Write unpacked_new/model_se.xml
+Write unpacked_new/model_PB.xml
+Write unpacked_new/model_ONT.xml
+Unpack database.protal took 79ms
+Unpacked mini.protal into unpacked_new; protal --db unpacked_new uses these files (mini.protal can be removed)

@@ -296,6 +296,15 @@ namespace protal::build {
         return sources;
     }
 
+    // The models after the other members, each group in its order: at the end of database.protal, --add_model
+    // replaces them in place (db::InPlaceFrom).
+    inline void ModelsLast(std::vector<db::Source>& sources) {
+        auto const models = AllModelFiles();
+        std::stable_partition(sources.begin(), sources.end(), [&models](db::Source const& source) {
+            return std::find(models.begin(), models.end(), source.name) == models.end();
+        });
+    }
+
     // Whether names hold a model of reads of `type` (one of its ModelCandidates).
     inline bool HasModel(std::vector<std::string> const& names, ReadType type) {
         auto const candidates = ModelCandidates(type);
@@ -358,6 +367,7 @@ namespace protal::build {
             WriteGeneTableFile(db::DbFile::OnDisk(options.ResolvedSequenceFile()), db::DbFile::OnDisk(options.GetSequenceMapFile()),
                                unique, gene_table, static_cast<int>(std::max<size_t>(options.GetThreads(), 1)));
             sources.push_back({ gene_table_file::kFileName, gene_table });
+            ModelsLast(sources);
         }
         {
             std::vector<std::string> names;
@@ -538,9 +548,12 @@ namespace protal::build {
     }
 
     // --add_model (the models checked already): stores each PMML file of `models` (file, member name) as member or
-    // file of the database, replacing the one there. database.protal is rewritten once, via database.protal.partial,
-    // with its other members' frames copied as they are (db::Write checks it); in a folder of separate files each
-    // model is copied next to them.
+    // file of the database, replacing the one there. In database.protal the models are the last members, which are
+    // replaced in place (db::ReplaceTail: the models and the seek table written, the rest of the file untouched); a
+    // file with other members than before, or written before the models went last, is rewritten once instead, via
+    // database.protal.partial, its other members' frames copied as they are and the models put last (db::Write; ~20 min
+    // for a GTDB database on a network file system). Either way the result is checked. In a folder of separate files
+    // each model is copied next to them.
     static void AddModel(protal::Options const& options, std::vector<std::pair<std::string, std::string>> const& models) {
         namespace fs = std::filesystem;
         std::error_code ec;
@@ -578,12 +591,29 @@ namespace protal::build {
         for (auto const& [model, name] : models) {
             if (!replaced.contains(name)) sources.push_back({name, model});
         }
+        ModelsLast(sources);
+        auto const params = options.CompressionParams();
+        Benchmark bm("Store the models in " + db::kFileName);
+        bm.Start();
         std::string error;
-        auto const written = db::Write(bundle.Path(), sources, options.CompressionParams(), error);
+        std::optional<uint64_t> written;
+        if (auto const first = db::InPlaceFrom(bundle, sources)) {
+            std::cout << "Replace the last " << sources.size() - *first << " of " << sources.size() << " members of " << bundle.Path()
+                      << " in place (the others are not rewritten; compressed at zstd level " << params.level << "; checked, the old "
+                      << "bytes kept in " << bundle.Path() << db::kJournalExtension << " until then)" << std::endl;
+            written = db::ReplaceTail(bundle, sources, *first, params, error);  // its error says whether the database is unchanged
+        } else {
+            std::cout << "Rewrite " << bundle.Path() << " (its other members' frames copied as they are, the models compressed at zstd "
+                      << "level " << params.level << " and put last, where later --add_model runs replace them in place; verified)"
+                      << std::endl;
+            written = db::Write(bundle.Path(), sources, params, error);
+            if (!written) error += " (the database is unchanged)";
+        }
         if (!written) {
-            std::cerr << "Writing " << bundle.Path() << " failed: " << error << " (the database is unchanged)" << std::endl;
+            std::cerr << "Writing " << bundle.Path() << " failed: " << error << std::endl;
             exit(8);
         }
+        bm.Stop();
         std::vector<std::string> names;
         for (auto const& source : sources) names.push_back(source.name);
         for (auto const& [model, name] : models) {
@@ -592,6 +622,7 @@ namespace protal::build {
         }
         std::cout << bundle.Path() << ": " << HumanBytes(*written) << ". Models for read types: " << ModelCoverage(names).first
                   << std::endl;
+        bm.PrintResults();
     }
 
     // --compress_db on a single-file database: gives it the binary gene table (GeneTableFile.h) if it has none, or one made from
@@ -618,6 +649,7 @@ namespace protal::build {
             if (member.name != gene_table_file::kFileName) sources.push_back({ member.name, bundle.Path(), member.frames });
         }
         sources.push_back({ gene_table_file::kFileName, table });
+        ModelsLast(sources);
         auto const params = options.CompressionParams();
         std::cout << "Rewrite " << bundle.Path() << " with " << gene_table_file::kFileName << " (the other members' frames copied as "
                   << "they are, the table compressed at zstd level " << params.level << "; verified)" << std::endl;

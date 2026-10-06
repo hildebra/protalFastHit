@@ -1827,6 +1827,24 @@ class ReadTypeModelTest(WorkDir):
             with open(self.bundle, "rb") as fh:
                 self.assertEqual(fh.read(), before, "the database is unchanged")
 
+    def test_models_are_replaced_in_place(self):
+        # The models are the last members of database.protal: --add_model replaces one there in place, the members
+        # before it not rewritten. The same model at the level the database was packed at gives the same bytes.
+        pe = db_file("model_pe.xml")
+        with open(self.bundle, "rb") as fh:
+            before = fh.read()
+        rc, log = run(self.work, "--add_model", pe, "--read_type", "pe", "--db", self.db, "-t", "2", "--compress_level", "3")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertRegex(log, r"Replace the last \d+ of \d+ members of \S+ in place")
+        self.assertFalse(os.path.exists(self.bundle + ".journal"))
+        with open(self.bundle, "rb") as fh:
+            self.assertEqual(fh.read(), before)
+        rc, log = self.profile_only("out_pe_in_place")
+        self.assertEqual(rc, 0, log[-3000:])
+        with open(glob.glob(self.path("out_pe", "sa*.profile"))[0]) as a, \
+                open(glob.glob(self.path("out_pe_in_place", "sa*.profile"))[0]) as b:
+            self.assertEqual(a.read(), b.read())
+
     def test_an_unusable_model_is_not_added(self):
         with open(self.bundle, "rb") as fh:
             before = fh.read()

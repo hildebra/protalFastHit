@@ -1797,6 +1797,23 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             if (m_location.bundle.empty()) return;
             std::string error;
             auto bundle = db::Bundle::Open(m_location.bundle, error);
+            std::string const journal = m_location.bundle + db::kJournalExtension;
+            if (!bundle && std::filesystem::exists(journal)) {
+                // --add_model stopped while it replaced the models in place (db::ReplaceTail); the journal has the old bytes.
+                if (error.empty()) error = "it does not read as one";
+                if (m_add_model.empty()) {
+                    error += " (an interrupted protal --add_model left " + journal + ": run --add_model again, which first "
+                             "writes the database's old content back from it)";
+                } else if (std::string restore_error; db::RestoreFromJournal(m_location.bundle, restore_error)) {
+                    std::cout << "Wrote the old content of " << m_location.bundle << " back from " << journal
+                              << ", which an interrupted --add_model left" << std::endl;
+                    error.clear();
+                    bundle = db::Bundle::Open(m_location.bundle, error);
+                } else {
+                    error += "; writing its old content back from " + journal + " (an interrupted --add_model left it) failed: " +
+                             restore_error;
+                }
+            }
             if (!bundle) {
                 error_log.emplace_back(error.empty() ? "--db " + m_database_path + " is neither a folder nor a single-file protal database (" +
                                                        db::kFileName + ")"

@@ -1,0 +1,4 @@
+Replace the last 3 of 15 members of big.protal in place (the others are not rewritten; compressed at zstd level 19; checked, the old bytes kept in big.protal.journal until then)
+Stored models/trained_model_se.xml as model_se.xml in big.protal (replaced the previous one)
+big.protal: 20.00 GB. Models for read types: pe, se, pb, ont
+Store the models in database.protal took 7s 920ms

@@ -2116,7 +2116,8 @@ def main():
                   f"building {os.path.basename(db)}")
         Steps.done(built(db, job, remove_full_reference(db)))
     # The trained models replace the shipped one and the placeholders in database.protal; --add_model checks
-    # each and rewrites the database once, with the other parts copied as they are.
+    # each and replaces them in place at the end of the file (seconds; without placeholders, a read type's
+    # model is a new member and the ~20 GB file is rewritten once instead).
     began = time.time()
     run([args.protal, "--add_model", ",".join(prefixes[t] + ".xml" for t in read_types), "--read_type", ",".join(read_types),
          "--db", db, "-t", str(args.threads)], os.path.join(args.outdir, "final_package.log"), label=f"adding {models}")

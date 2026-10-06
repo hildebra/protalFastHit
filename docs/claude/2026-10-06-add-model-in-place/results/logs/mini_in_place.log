@@ -1,0 +1,5 @@
+Replace the last 2 of 14 members of mini.protal in place (the others are not rewritten; compressed at zstd level 19; checked, the old bytes kept in mini.protal.journal until then)
+Stored models/trained_model_pb.xml as model_ONT.xml in mini.protal (replaced the previous one)
+Stored models/trained_model_ont.xml as model_PB.xml in mini.protal (replaced the previous one)
+mini.protal: 2.02 MB. Models for read types: pe, se, pb, ont
+Store the models in database.protal took 2s 200ms
