@@ -617,6 +617,62 @@ bytes at a time); `ReadsGzipOfAnotherWriter` and the pipe test now get their gzi
 **For the next cluster run**: the pe run should show the sequence reader's wait gone or smaller (ISA-L's inflate at
 ~1.6-1.8× zlib-ng's), the seed sort at about a third, the screen at about two thirds; HiFi the sort and screen likewise.
 
+## The thirteenth cluster run: `230bf64` at r226
+
+SLURM job 24012922 (the user's), `scripts/measure_performance.sh` at `230bf64` (this round's three changes) on node
+`q512n10`, 32 threads, the same r226 v11 database and samples as the eleventh and twelfth runs;
+[`results/cluster_v13/`](results/cluster_v13/) (copied unchanged from `local/Perf0.7.5_v13/`), compared with
+`scripts/cmp_runs.sh` (`results/cluster_v13/cmp_v12_v13.txt`). The first paired-end run loaded the index cold from NFS
+(369 s, the database tables alone 2.5 min) and is left out of the paired-end numbers, as before. Between `cdce3c0` and
+`230bf64` only this round's commits touch protal's code.
+
+Every count is the twelfth run's: the reads, the mates with an anchor, the candidates tried, refused by the screen and
+aligned, the alignments made and records written, the seeds, the shared seeds, the dropped lookups and the anchors.
+
+| | twelfth (`cdce3c0`) | thirteenth (`230bf64`) | |
+|---|---|---|---|
+| pe wall (the two warm runs) | 36.2, 37.0 s | **33.1, 33.6 s** | −9% |
+| pe aligning | 28.4-29.0 s | 24.8-25.5 s | −13% |
+| pe user time; instructions; cycles | 1,051 s; 7.33 T; 3.85 T | 954 s; 6.58 T; 3.48 T | −9%; −10%; −10% |
+| pe pairs aligned per second | 1.75-1.78M | 1.99-2.04M | |
+| HiFi wall | 13.7 s | **12.3 s** | −10% |
+| HiFi aligning | 9.4 s | 7.9 s | −16% |
+| HiFi user time; instructions; IPC | 403 s; 3.60 T; 2.47 | 356 s; 3.28 T; 2.56 | −12%; −9% |
+| index load, peak memory | 2.66 s, 34.2 GB | 2.68 s, 34.2-34.5 GB | |
+
+Per thread (medians over the runs, `stages.tsv`):
+
+| stage, s per thread | pe twelfth | pe thirteenth | | HiFi twelfth | HiFi thirteenth | |
+|---|---|---|---|---|---|---|
+| seeding | 12.51 | 12.90 | +3% | 2.83 | 2.83 | |
+| sorting seeds | 3.39 | **1.06** | −69% | 1.26 | **0.32** | −74% |
+| pairing | 0.64 | 0.51 | −21% | 0.14 | 0.11 | −23% |
+| alignment handler | 3.36 | 2.79 | −17% | 9.28 | 7.80 | −16% |
+| – the k-mer screen | 1.91 | **1.36** | −29% | 0.99 | **0.44** | −55% |
+| extending anchors | 2.05 | 2.09 | | 0.55 | 0.55 | |
+| taking the k-mers | 1.94 | 1.95 | | | | |
+| sequence reader | 2.87 | **1.19** | −59% | 0.51 | 0.51 | |
+| output handler | 0.89 | 0.77 | −13% | 0.10 | 0.10 | |
+
+(For HiFi the seeding, sorting, pairing and extending run inside the alignment handler's time.)
+
+- **Each change did what was predicted.** The seed sort fell by 2.3 s per thread (pe, predicted ~2 s) and 0.94 s (HiFi,
+  predicted ~0.8 s); the screen by 0.55 s (pe, predicted ~0.6 s) and 0.55 s (HiFi, predicted ~0.5 s).
+- **The paired-end run is no longer held by its input.** The sequence reader's time per thread fell from 2.87 to 1.19 s,
+  near the eleventh run's 1.08 s from before the input became the limit, while the run aligned 1.99-2.04M pairs/s, above
+  the 1.8-2.0M pairs/s at which one zlib-ng thread per file capped it. ISA-L's inflate (1.6-1.8× zlib-ng's) leaves room
+  to about 3M pairs/s or more.
+- **Seeding is now over half of the paired-end aligning** (12.9 of 24.8 s per thread; its +3% is the nodes' spread: no
+  seeding code changed). The k-mer lookups wait on memory (2.2G lookups of 70 cells in a 27 GB index); the levers are the
+  GTDB-scale report's (more reads in flight per thread, a smaller index entry). After it come the alignment handler
+  (2.8 s, the screen half of it), extending the anchors (2.1 s) and taking the k-mers (2.0 s).
+- **The strain stage** took 3.7 s (5.6 s on the twelfth run's node, 3.0 s on the eleventh's): the twelfth run's was the
+  node's NFS, as thought.
+
+Since the eleventh run (`2093770`, before this report's changes): pe 42.2 → 33.4 s (−21%), HiFi 15.6 → 12.3 s (−21%),
+instructions 8.76 → 6.58 T and 4.00 → 3.28 T; since the first r226 run of the GTDB-scale report, pe 131 → 33 s and HiFi
+104 → 12 s.
+
 ## How it was run
 
 In WSL (`~/perf6`; the implementation in `~/perf7`: `build7.sh ref|work`, `check7.sh`), scripts in `scripts/`:
@@ -649,6 +705,7 @@ bash scripts/check_isal.sh            # all three against items 1 and 3: tests, 
 bash scripts/check_sfetch.sh          # lib/static-deps.cmake's nasm and ISA-L from the local tarballs
 bash scripts/read_bench.sh            # BGZF written and gzip read through protal's own code, HEAD against this round
 bash scripts/cg_final.sh              # callgrind, HEAD against this round
+bash scripts/cmp_runs.sh results/cluster_v12 results/cluster_v13 twelfth thirteenth   # the cluster runs side by side
 H=~/perf8/benchtree bash scripts/cc8.sh scripts/shared_sort_bench.cpp shared_sort_bench && ./shared_sort_bench 50000 1 0
 bash results/isal/build.sh && bash results/isal/run_inflate.sh   # ISA-L against zlib-ng, alternated (bench_inflate.c)
 ```

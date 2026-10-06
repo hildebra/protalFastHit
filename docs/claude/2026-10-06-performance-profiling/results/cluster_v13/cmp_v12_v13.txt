@@ -1,0 +1,57 @@
+sample stage                                          twelfth thirteenth   change
+pe1    Seeding                                         12.511   12.895      +3%
+pe1    Sorting Seeds                                    3.394    1.063     -69%
+pe1    Pairing                                          0.644    0.511     -21%
+pe1    Sorting Anchors                                  0.160    0.161      +1%
+pe1    Extending Anchors                                2.049    2.085      +2%
+pe1    Sequence reader                                  2.874    1.188     -59%
+pe1    Retrieve k-mers                                  1.944    1.954      +1%
+pe1    Seed- and Anchor-finding                        19.337   17.301     -11%
+pe1    Anchor recovery                                  0.499    0.489      -2%
+pe1    Alignment handler                                3.361    2.787     -17%
+pe1    K-mer screen                                     1.906    1.361     -29%
+pe1    Joining alignment pairs and sorting              0.449    0.446      -1%
+pe1    Output handler                                   0.889    0.774     -13%
+pe1    Profiling: sample                                3.131    3.055      -2%
+pe1    Profiling: reading the SAM                       1.801    1.795      -0%
+pe1    Profiling: record evidence and sample context    1.010    0.999      -1%
+pe1    Profiling: read EM                               0.637    0.636      -0%
+pe1    Profiling: congener distances                    0.233    0.231      -1%
+pe1    Profiling: SNP post-processing                   0.057    0.058      +2%
+pe1    Profiling: scoring                               0.034    0.034      +0%
+pe1    Profiling: writing the profile                   0.220    0.207      -6%
+pb2    Seeding                                          2.826    2.827      +0%
+pb2    Sorting Seeds                                    1.258    0.322     -74%
+pb2    Pairing                                          0.144    0.111     -23%
+pb2    Sorting Anchors                                  0.035    0.034      -3%
+pb2    Extending Anchors                                0.555    0.548      -1%
+pb2    Sequence reader                                  0.511    0.511      +0%
+pb2    Seed- and Anchor-finding                         0.000    0.000         
+pb2    Anchor recovery                                  0.000    0.000         
+pb2    Alignment handler                                9.280    7.795     -16%
+pb2    K-mer screen                                     0.993    0.443     -55%
+pb2    Joining alignment pairs and sorting              0.000    0.000         
+pb2    Output handler                                   0.100    0.100      +0%
+pb2    Profiling: sample                                0.352    0.360      +2%
+pb2    Profiling: reading the SAM                       0.200    0.199      -1%
+pb2    Profiling: record evidence and sample context    0.091    0.090      -1%
+pb2    Profiling: read EM                               0.038    0.038      +0%
+pb2    Profiling: congener distances                    0.029    0.029      +0%
+pb2    Profiling: SNP post-processing                   0.005    0.006     +20%
+pb2    Profiling: scoring                               0.004    0.004      +0%
+pb2    Profiling: writing the profile                   0.041    0.055     +34%
+
+== results/cluster_v12/runs.tsv
+pe1 rep 1: wall 297.27 user 1048.92 rss 34.2 load_index 251.495 aligning 38.185 profiling 3.287 instructions 7.35e+12 cycles 3.85e+12 ipc 1.91
+pe1 rep 2: wall 37.04 user 1054.32 rss 34.2 load_index 2.649 aligning 28.982 profiling 3.131 instructions 7.33e+12 cycles 3.85e+12 ipc 1.90
+pe1 rep 3: wall 36.16 user 1050.56 rss 34.2 load_index 2.658 aligning 28.431 profiling 3.227 instructions 7.33e+12 cycles 3.84e+12 ipc 1.91
+pb2 rep 1: wall 14.72 user 402.46 rss 34.4 load_index 2.656 aligning 10.290 profiling 0.367 instructions 3.6e+12 cycles 1.46e+12 ipc 2.47
+pb2 rep 2: wall 13.75 user 403.85 rss 34.3 load_index 2.656 aligning 9.396 profiling 0.386 instructions 3.6e+12 cycles 1.46e+12 ipc 2.46
+pb2 rep 3: wall 13.69 user 403.01 rss 34.4 load_index 2.661 aligning 9.414 profiling 0.365 instructions 3.6e+12 cycles 1.46e+12 ipc 2.47
+== results/cluster_v13/runs.tsv
+pe1 rep 1: wall 401.35 user 941.28 rss 34.3 load_index 368.800 aligning 24.602 profiling 3.144 instructions 6.58e+12 cycles 3.45e+12 ipc 1.90
+pe1 rep 2: wall 33.64 user 954.03 rss 34.2 load_index 2.683 aligning 25.484 profiling 3.158 instructions 6.58e+12 cycles 3.48e+12 ipc 1.89
+pe1 rep 3: wall 33.09 user 955.34 rss 34.2 load_index 2.674 aligning 24.770 profiling 3.367 instructions 6.58e+12 cycles 3.49e+12 ipc 1.89
+pb2 rep 1: wall 16.24 user 356.06 rss 34.5 load_index 2.676 aligning 11.685 profiling 0.494 instructions 3.28e+12 cycles 1.28e+12 ipc 2.56
+pb2 rep 2: wall 12.34 user 355.33 rss 34.5 load_index 2.681 aligning 7.917 profiling 0.375 instructions 3.28e+12 cycles 1.28e+12 ipc 2.56
+pb2 rep 3: wall 12.25 user 355.90 rss 34.5 load_index 2.689 aligning 7.928 profiling 0.353 instructions 3.28e+12 cycles 1.28e+12 ipc 2.56
