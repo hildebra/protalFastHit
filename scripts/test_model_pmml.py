@@ -369,6 +369,38 @@ class ParityFeaturesTest(unittest.TestCase):
         self.assertIn("differs from the model file's by up to 0.25", problems[0])
 
 
+@unittest.skipIf(RandomForestClassifier is None, "needs numpy and scikit-learn")
+class FoldJobsTest(unittest.TestCase):
+    """The trainer's cross-validation folds fitted side by side in worker processes (FOLD_JOBS, --fold-jobs) score as
+    when fitted one after another: neither model depends on its threads."""
+
+    def test_side_by_side_as_one_after_another(self):
+        import machine_learning_cmdline as trainer
+        from sklearn.model_selection import GroupKFold
+        rng = np.random.default_rng(3)
+        n = 1500
+        X = rng.normal(size=(n, 6))
+        y = ((X[:, 0] + X[:, 1] * X[:, 2] + rng.normal(0, 0.5, n)) > 0.2).astype(int)
+        splits = list(GroupKFold(5).split(X, y, rng.integers(0, 40, n)))
+        saved = trainer.FOLD_JOBS, trainer.FOLD_JOB_THREADS, trainer.ROW_WEIGHTS
+        try:
+            trainer.ROW_WEIGHTS = np.where(rng.random(n) < 0.3, 0.25, 1.0)  # the weights travel with the rows
+            for model in ("gbm", "forest"):
+                opts = trainer.parse_args(["--truth-file", "t.tsv", "--output-prefix", "p", "--model", model,
+                                           "--rounds", "20", "--ntree", "8", "--threads", "2"])
+                params = trainer.model_params(opts)
+                scores, leaves = {}, {}
+                for jobs, threads in ((1, 2), (3, 1)):
+                    trainer.FOLD_JOBS, trainer.FOLD_JOB_THREADS = jobs, threads
+                    leaves[jobs] = []
+                    scores[jobs] = trainer.predict_out_of_fold(X, y, splits, params, leaves=leaves[jobs])
+                np.testing.assert_array_equal(scores[1], scores[3], model)
+                self.assertEqual(leaves[1], leaves[3], model)
+                self.assertFalse(np.isnan(scores[1]).any())
+        finally:
+            trainer.FOLD_JOBS, trainer.FOLD_JOB_THREADS, trainer.ROW_WEIGHTS = saved
+
+
 def metrics_knobs(test, name):
     """The knob points of the model `name` trained in a TrainerDepthKnobsTest."""
     with open(os.path.join(test.tmp.name, name + ".metrics.json")) as fh:
@@ -799,11 +831,19 @@ class TrainerScenariosTest(unittest.TestCase):
         self.assertEqual(metrics["model"]["trees"], 30)
         self.assertEqual((metrics["model"]["pmml_vs_sklearn_max_diff"], metrics["model"]["pmml_vs_sklearn_call_differences"]),
                          (0.0, 0))
-        self.assertIn("gradient-boosted trees: 30 rounds at a learning rate of 0.05, max 63 leaves, min leaf 20", stdout)
+        self.assertIn("gradient-boosted trees: 30 rounds at a learning rate of 0.1, max 63 leaves, min leaf 20", stdout)
         self.assertIsInstance(load_model(prefix + ".xml"), PmmlBoosted)
         self.assertNotIn("out of bag", metrics["evaluation"])
+        self.assertNotIn("genus", metrics["evaluation"])  # the clades held out only with --evaluation full
+        self.assertIn("cross-validation folds fitted 1 at a time, on 1 threads each", stdout)
         importance = pd.read_csv(prefix + ".varimp.tsv", sep="\t")
         self.assertAlmostEqual(importance["importance"].sum(), 1.0, places=4)  # written with 6 decimals
+        # The folds side by side in worker processes (--fold-jobs): the same scores as one after another.
+        side, side_metrics, side_stdout = self.train("boosted_side_by_side", "normalized", None, "--fold-jobs", "2")
+        self.assertIn("cross-validation folds fitted 2 at a time, on 1 threads each", side_stdout)
+        self.assertEqual(side_metrics["evaluation"], metrics["evaluation"])
+        pd.testing.assert_frame_equal(pd.read_csv(side + ".predictions.tsv.gz", sep="\t"),
+                                      pd.read_csv(prefix + ".predictions.tsv.gz", sep="\t"))
         prefix, metrics, stdout = self.train("forest", "normalized", None, "--model", "forest")
         self.assertEqual((metrics["model"]["kind"], metrics["model"]["trees"]), ("forest", 16))
         self.assertEqual(metrics["model"]["pmml_vs_sklearn_max_diff"], 0.0)

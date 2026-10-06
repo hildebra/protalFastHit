@@ -53,8 +53,8 @@ Four scenarios of real studies (--scenarios, scenarios.py: gut, soil, shallow
 soil, 90% host reads) add samples of their own, each at a depth drawn around its
 scenario's: their hold-in samples join the training data, their hold-out samples
 the test set, and every model's report scores both. The models are gradient-boosted
-trees on the default feature set, evaluated with samples, species and clades held
-out (--features, --evaluation basic); --features auto lets each trainer choose its
+trees on the default feature set, evaluated with rows, samples and species held
+out (--features, --evaluation basic; the clades too with --evaluation full); --features auto lets each trainer choose its
 set with species held out, and the run then says which set won and why.
 
 OUT_DIR/model_logs/ collects what tells whether the models are good: summary.txt
@@ -610,7 +610,7 @@ def gene_conservation_summary(build_log):
 
 # --maxnodes by default: the trainer's for boosting (machine_learning_cmdline.MODEL_DEFAULTS), and the forests' since the
 # r226 v3 training; boosting's rounds (machine_learning_cmdline.GBM_ROUNDS).
-BOOSTED_LEAVES, FOREST_LEAVES, TRAINER_ROUNDS = "63", "512,pb:128,ont:128", 500
+BOOSTED_LEAVES, FOREST_LEAVES, TRAINER_ROUNDS = "63", "512,pb:128,ont:128", 250
 
 
 def max_leaves(spec, read_type):
@@ -1338,9 +1338,9 @@ def main():
                         "them (placeholder_models.py)")
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="basic",
                    help="how much the trainer evaluates (machine_learning_cmdline.py --evaluation): basic (default since "
-                        "2026-10-06), the models with samples, species and clades held out, which the summary and the "
-                        "knob need; full also the studies (other feature sets, model size, fewer samples), which "
-                        "multiply a boosted model's training several times")
+                        "2026-10-06), the models with rows, samples and species held out, which the summary and the "
+                        "knob need; full also with clades held out and the studies (other feature sets, model size, "
+                        "fewer samples), which multiply a boosted model's training several times")
     p.add_argument("--features", type=feature_set_name, default=DEFAULT_FEATURE_SET,
                    metavar="auto|" + "|".join(FEATURE_SETS[:2] + ("...",)),
                    help=f"the models' features (machine_learning_cmdline.py --features): {DEFAULT_FEATURE_SET} "

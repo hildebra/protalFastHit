@@ -143,7 +143,7 @@ At GTDB r226 (143,614 species) the whole pipeline takes:
 | | |
 |---|---|
 | download | 17.7 GB of GTDB files and about 185 GB of genomes to simulate from (estimated for the defaults since 2026-10-05; 75 GB with the earlier 8,000 species), on a node with internet |
-| time | about 2.5-3 hours on a 52-64-thread node (conversion 5 min; the r226 build of 2026-10-03 then took 2 h, and 0.7.6's design simulates half as many short-read samples again), and several hours more for the [scenarios](#scenarios-kinds-of-studies) (an estimate; `--scenarios none` leaves them out); training gradient-boosted models (the default since 2026-10-06) takes about an hour where forests took minutes (an estimate; `--model forest`) |
+| time | about 2.5-3 hours on a 52-64-thread node (conversion 5 min; the r226 build of 2026-10-03 then took 2 h, and 0.7.6's design simulates half as many short-read samples again), and several hours more for the [scenarios](#scenarios-kinds-of-studies) (an estimate; `--scenarios none` leaves them out); training gradient-boosted models (the default since 2026-10-06) takes a few minutes per model with the build's defaults (an estimate; `--features auto` and `--evaluation full` take hours) |
 | memory | each index build ~35-37 GB with 64 threads (estimated; it was 64 GB before 2026-10-05; its log's `Memory after ...` lines say), up to ~75 GB while both run at once; `--one-build-at-a-time` needs about half |
 | node-local disk | for the simulated samples (`--scratch`): with `--profile-blocks` (the default) each design point's reads are removed once profiled, and the simulations wait rather than leave less than `--keep-free` GB, so ~150-200 GB is enough; all at once (`--profile-blocks 0`) ~180 GB for the design and ~500 GB more for the default scenarios (6 + 3 samples each since 2026-10-06; ~260 GB for the 3 + 2 measured on 2026-10-05) |
 | result | `database.protal`, ~27 GB |
@@ -248,7 +248,7 @@ numbered line when it starts and indented lines when it ends.
    the scenarios' hold-out samples.
 7. **Models** (`classifier_training*.log`): one model of gradient-boosted trees per read type (`--model`;
    a random forest before 2026-10-06), trained in parallel on the default feature set and evaluated with
-   samples, species and clades held out (`--features`, `--evaluation basic`, the build's defaults since
+   rows, samples and species held out (`--features`, `--evaluation basic`, the build's defaults since
    2026-10-06); with `--features auto` each trainer chooses its set and the console says which won and why.
 8. **Parity check** (`parity*.log`): protal scores each model exactly as the trainer does.
 9. **Packaging** (`final_package.log`): the models go into the finished database.
@@ -588,9 +588,9 @@ keeps the finished database.
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
 | `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, and the reference's k-mer uniqueness); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--model` | `gbm` | the models: `gbm`, gradient-boosted trees (the default since 2026-10-06), or `forest`, a random forest ([below](#training)) |
-| `--rounds`, `--ntree`, `--maxnodes` | 500, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items) |
+| `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items) |
 | `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
-| `--evaluation`, `--previous-procedure` | `basic`, off | how much the trainer evaluates: `basic` (default since 2026-10-06, `full` before), the models with samples, species and clades held out, which the summary and the knob need; `full` adds the studies ([below](#training)), several times a boosted model's training |
+| `--evaluation`, `--previous-procedure` | `basic`, off | how much the trainer evaluates: `basic` (default since 2026-10-06, `full` before), the models with rows, samples and species held out, which the summary and the knob need; `full` adds the clades held out and the studies ([below](#training)), several times a boosted model's training |
 | `--n-genes`, `--genes`, `--gene-ranking`, `--genes-per-domain`, `--rank-genes` | | a reduced database ([below](#reduced-marker-sets)) |
 | `--no-gene-neighbours` | | skip the gene neighbours; protal then pairs no mates across neighbouring genes |
 | `--one-build-at-a-time` | | build the finished database after the training |
@@ -893,7 +893,7 @@ itself, so that protal's probabilities equal scikit-learn's bit for bit, and che
 training row.
 
 **The model.** Gradient-boosted trees (`--model gbm`, the default since 2026-10-06; scikit-learn's
-`HistGradientBoostingClassifier`: 500 rounds at a learning rate of 0.05 of trees of up to 63 leaves,
+`HistGradientBoostingClassifier`: 250 rounds at a learning rate of 0.1 of trees of up to 63 leaves,
 20 rows a leaf at least, an L2 penalty of 1, balanced classes, no early stopping) or a random forest
 (`--model forest`, the model before). Refitted on the r226 v13 tables, boosting scored higher than the
 forest on every test set of the long reads (soil +0.004 to +0.008, the design's test set +0.003, gut
@@ -901,9 +901,13 @@ forest on every test set of the long reads (soil +0.004 to +0.008, the design's 
 the experiment), of paired-end reads (soil +0.004, shallow soil +0.006, the design's test set +0.002;
 [report](claude/2026-10-06-r226-v13-soil/README.md)). It is written as a chain of one regression tree
 per round into a logit sum (`model_pmml.write_boosted`), which protal's cPMML scores bit for bit as
-scikit-learn does; a boosted model file is ~5 MB, a forest's ~13 MB. It trains slower: a fit of 500
-rounds took ~35 s on 6 threads on four fifths of the r226 paired-end table, so a model's training with
-`--evaluation full` takes about an hour on 16 threads (an estimate), against minutes for a forest. Its
+scikit-learn does; a boosted model file is ~3 MB, a forest's ~13 MB. 250 rounds at 0.1 (500 at 0.05
+until 2026-10-06) score within 0.001 of F1 of 500 at 0.05 on the v13 paired-end table, at half the trees
+([report](claude/2026-10-06-training-time/README.md)). It trains slower than a forest: a fit of 500 rounds
+took 88 s on one thread on four fifths of the r226 paired-end table and 52 s on two or three, and gained
+little from more threads, so the folds of a cross-validation are fitted side by side in worker processes of
+a few threads each (`--fold-jobs`: by default as many as there are folds, up to `--threads` / 3, each on
+`--threads` / jobs threads; the scores are the same, as neither model depends on its threads). Its
 OpenMP threads are held at `--threads`. A boosted model has no out-of-bag estimate; its importances
 (`.varimp.tsv`) are the splits' gains.
 
@@ -912,7 +916,8 @@ OpenMP threads are held at `--threads`. A boosted model has no out-of-bag estima
 | `--truth-file`, `--output-prefix` | required | the training table; the prefix of the outputs |
 | `--features` | `auto` | `auto` chooses (below); or feature groups joined by `+` ([features.md](features.md)); `+priors` is opt-in; `all` takes every column. A table of an older protal lacks newer groups: `auto` leaves out the sets it lacks, a set named must leave them out |
 | `--model` | `gbm` | `gbm`: gradient-boosted trees; `forest`: a random forest |
-| `--rounds`, `--learning-rate`, `--l2` | 500, 0.05, 1 | boosting's rounds, learning rate and L2 penalty |
+| `--rounds`, `--learning-rate`, `--l2` | 250, 0.1, 1 | boosting's rounds, learning rate and L2 penalty (500 and 0.05 before 2026-10-06) |
+| `--fold-jobs` | 0 | folds fitted side by side (0: as many as there are folds, up to `--threads` / 3; 1: one after another) |
 | `--maxnodes`, `--min-samples-leaf` | 63, 20 for boosting; 256, 1 for a forest | leaves per tree at most (0: no limit), rows a leaf at least (the GTDB build gives forests 512 leaves for short reads, 128 for long reads) |
 | `--ntree`, `--max-features` | 64, `sqrt` | a forest's trees and features tried per split |
 | `--knob` | 0.5 | the threshold protal will use; errors are counted at it |
@@ -926,8 +931,8 @@ OpenMP threads are held at `--threads`. A boosted model has no out-of-bag estima
 **How a model is judged.** Rows of one sample share its reads, and rows of one species its reference,
 so random rows would score a model on what it was trained on. The trainer scores each row with models
 that saw neither its sample nor its species ("by species", the estimate that matters: most species
-protal meets were never in training), and with `--taxonomy` with its whole genus, family, order, class
-or phylum held out. `--evaluation full` adds studies: the other feature sets, the model's size (a
+protal meets were never in training), and with `--taxonomy` and `--evaluation full` with its whole genus,
+family, order, class or phylum held out. `--evaluation full` adds studies: the other feature sets, the model's size (a
 forest's leaves and trees, boosting's leaves and rounds), and a learning curve.
 
 **Scenarios.** For a table with scenarios (`meta_scenario`), the section "Scenarios: hold-in and

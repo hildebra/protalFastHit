@@ -20,7 +20,7 @@ sample (meta_sample) and, if known, the taxon's domain (meta_domain).
 Evaluation. Rows of one sample share its reads, and rows of one species share its reference, so a
 random split of rows scores a model on samples and species it was trained on. Here each row is
 scored by forests that saw neither its sample ("by sample") nor its species ("by species"), and,
-with --taxonomy, by forests that saw no taxon of its genus, family, class or phylum. By species is
+with --taxonomy and --evaluation full, by forests that saw no taxon of its genus, family, class or phylum. By species is
 what matters for a large database: of GTDB's ~130,000 species, a training set holds a few thousand,
 so most species protal meets in real samples were never in training; the clades tell how far that
 holds. A forest's out-of-bag estimate (each tree scores the rows it was not grown on) comes free with
@@ -109,12 +109,21 @@ from model_pmml import (format_depth_knob_curve, load_model, read_depth_knob_cur
 
 # --model: gradient-boosted trees (gbm, the default) or a random forest, and each one's defaults of the options that
 # shape it (--maxnodes, --min-samples-leaf; --ntree and --max-features are the forest's, --rounds, --learning-rate and
-# --l2 boosting's). Boosting's: the settings of the r226 v13 experiments (docs/claude/2026-10-06-r226-v13-soil), 500
-# rounds at a rate of 0.05 of trees of up to 63 leaves, 20 rows a leaf at least, an L2 penalty of 1 on the leaf values,
-# balanced classes and no early stopping (it would hold out random rows, which share samples and species with the rest).
+# --l2 boosting's). Boosting's: trees of up to 63 leaves, 20 rows a leaf at least, an L2 penalty of 1 on the leaf values,
+# balanced classes and no early stopping (it would hold out random rows, which share samples and species with the rest),
+# as in the r226 v13 experiments (docs/claude/2026-10-06-r226-v13-soil); 250 rounds at a rate of 0.1 since 2026-10-06
+# (500 at 0.05 before): on the v13 paired-end table within 0.001 of F1 with species held out and on every test set, at
+# half the trees, so half of every fit and of protal's scoring (docs/claude/2026-10-06-training-time).
 MODELS = ("gbm", "forest")
 MODEL_DEFAULTS = {"gbm": {"maxnodes": 63, "min_samples_leaf": 20}, "forest": {"maxnodes": 256, "min_samples_leaf": 1}}
-GBM_ROUNDS, GBM_LEARNING_RATE, GBM_L2 = 500, 0.05, 1.0
+GBM_ROUNDS, GBM_LEARNING_RATE, GBM_L2 = 250, 0.1, 1.0
+# The folds of a cross-validation are fitted side by side in worker processes (--fold-jobs; by default as many as there
+# are folds, up to --threads / FOLD_THREADS), each on --threads / jobs threads: one boosted fit uses a few threads well
+# and many poorly (on the v13 paired-end table 88 s on 1 thread, 52 s on 2 and on 3), so five folds of 3 threads each
+# end sooner than five one after another on 16. The scores are the same: a forest does not depend on its threads, nor
+# does boosting (its histograms are built feature by feature; checked on 1, 3 and 6 threads).
+FOLD_THREADS = 3
+FOLD_JOBS, FOLD_JOB_THREADS = 1, 1  # set in train(): --fold-jobs and the threads of each
 
 # Clades held out in cross-validation (with --taxonomy): each row is scored by forests that saw no taxon of
 # its genus, family, order, class or phylum.
@@ -235,8 +244,8 @@ def parse_args(argv=None):
                         f"(default {SCENARIO_WEIGHT}; 1: as the design's)")
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
-                   help="full: also the studies (see above); basic: by sample and by species (and a forest's out of "
-                        "bag); none: fit and export only")
+                   help="full: also the clades held out (with --taxonomy) and the studies (see above); basic: by rows, "
+                        "samples and species (and a forest's out of bag); none: fit and export only")
     p.add_argument("--previous-procedure", action=argparse.BooleanOptionalAction, default=False,
                    help="also compare with the procedure this script used before (grid search over max_features, "
                         "512 trees on the top features), unless --evaluation none; off by default, as it takes "
@@ -250,6 +259,10 @@ def parse_args(argv=None):
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--threads", type=int, default=4,
                    help="threads (default 4; boosting's OpenMP threads too, which would otherwise take every core)")
+    p.add_argument("--fold-jobs", type=int, default=0,
+                   help=f"cross-validation folds fitted side by side, in worker processes of --threads / jobs threads "
+                        f"each (default 0: as many as there are folds, up to --threads / {FOLD_THREADS}; 1: one after "
+                        "another, each on --threads); the scores are the same")
     opts = p.parse_args(argv)
     for name, value in MODEL_DEFAULTS[opts.model].items():
         if getattr(opts, name) is None:
@@ -448,19 +461,45 @@ def folds(df, y, scheme, opts):
     return list(GroupKFold(n).split(df, y, groups))
 
 
+def fit_fold(params, X_train, y_train, weights, X_test, threads):
+    """One fold's model fitted on --threads / jobs threads in a worker process (predict_out_of_fold) -> (its
+    probabilities of X_test, its mean leaves per tree)."""
+    params = dict(params)
+    if params.get("kind", "forest") == "forest":
+        params["n_jobs"] = threads
+    with threadpool_limits(limits=threads, user_api="openmp"):
+        model = make_model(params).fit(X_train, y_train, sample_weight=weights)
+        return model.predict_proba(X_test)[:, 1], mean_leaves(model)
+
+
 def predict_out_of_fold(X, y, splits, params, fit_rows=None, leaves=None):
-    """Each row's probability from the model that did not see its fold. fit_rows(train) may thin a fold's
-    training rows; leaves, a list, gets each fold model's mean leaves per tree."""
+    """Each row's probability from the model that did not see its fold, the folds fitted FOLD_JOBS at a time in worker
+    processes (one after another in this one when 1). fit_rows(train) may thin a fold's training rows; leaves, a list,
+    gets each fold model's mean leaves per tree."""
     p = np.full(len(y), np.nan)
+    jobs = []
     for train, test in splits:
         if fit_rows is not None:
             train = fit_rows(train)
-        if len(np.unique(y[train])) < 2:
-            continue
-        rf = fit_model(params, X, y, train)
-        p[test] = rf.predict_proba(X[test])[:, 1]
+        if len(np.unique(y[train])) >= 2:
+            jobs.append((train, test))
+    n_jobs = min(FOLD_JOBS, len(jobs))
+    if n_jobs <= 1:
+        for train, test in jobs:
+            rf = fit_model(params, X, y, train)
+            p[test] = rf.predict_proba(X[test])[:, 1]
+            if leaves is not None:
+                leaves.append(mean_leaves(rf))
+        return p
+    weights = row_weights()
+    results = joblib.Parallel(n_jobs=n_jobs, backend="loky")(
+        joblib.delayed(fit_fold)(params, X[train], y[train], None if weights is None else weights[train], X[test],
+                                 FOLD_JOB_THREADS)
+        for train, test in jobs)
+    for (_, test), (probabilities, fold_leaves) in zip(jobs, results):
+        p[test] = probabilities
         if leaves is not None:
-            leaves.append(mean_leaves(rf))
+            leaves.append(fold_leaves)
     return p
 
 
@@ -654,12 +693,15 @@ def study_evaluation(report, df, X, y, opts, oob, known=None):
     report.section(f"How well the model does on data it was not trained on (knob {opts.knob})")
     report.add("rows: random rows held out (the samples and species of the held-out rows are in training); "
                "samples: whole samples held out; species: whole species held out (as most GTDB species are when "
-               "profiling real samples); genus, family, order, class, phylum (with --taxonomy): whole clades held out, "
-               "so the model saw no taxon of the row's clade (as for taxa of clades the training data barely "
-               "cover)." + (" out of bag: each row scored by the trees not grown on it." if oob is not None else ""))
+               "profiling real samples); genus, family, order, class, phylum (with --taxonomy and --evaluation full): "
+               "whole clades held out, so the model saw no taxon of the row's clade (as for taxa of clades the training "
+               "data barely cover)." + (" out of bag: each row scored by the trees not grown on it." if oob is not None
+                                        else ""))
     params = model_params(opts)
     p = {"out of bag": oob} if oob is not None else {}
-    for scheme in ("rows", "samples", "species", *CLADE_SCHEMES):
+    # The clade ranks only with --evaluation full: 25 fits that the build's summary does not read (at r226 v13 their F1
+    # within 0.0004 of each other; docs/claude/2026-10-06-training-time).
+    for scheme in ("rows", "samples", "species", *(CLADE_SCHEMES if opts.evaluation == "full" else ())):
         if known and scheme in known:
             p[scheme] = known[scheme]
             continue
@@ -1686,8 +1728,10 @@ def main(argv=None):
 
 
 def train(opts):
-    global SINGLETON_CONGENER, ROW_WEIGHTS
+    global SINGLETON_CONGENER, ROW_WEIGHTS, FOLD_JOBS, FOLD_JOB_THREADS
     SINGLETON_CONGENER = opts.singleton_congener
+    FOLD_JOBS = opts.fold_jobs if opts.fold_jobs > 0 else max(1, min(opts.folds, opts.threads // FOLD_THREADS))
+    FOLD_JOB_THREADS = max(1, opts.threads // FOLD_JOBS)
     prefix = opts.output_prefix
     os.makedirs(os.path.dirname(os.path.abspath(prefix)), exist_ok=True)
     report = Report()
@@ -1699,6 +1743,8 @@ def train(opts):
                f"scikit-learn {sklearn.__version__}, numpy {np.__version__}, pandas {pd.__version__}, "
                f"{os.cpu_count()} CPUs")
     report.add("command: " + " ".join(sys.argv))
+    report.add(f"cross-validation folds fitted {FOLD_JOBS} at a time, on {FOLD_JOB_THREADS if FOLD_JOBS > 1 else opts.threads} "
+               f"threads each (--fold-jobs, --threads)")
     report.data["run"] = {"args": vars(opts), "sklearn": sklearn.__version__, "python": platform.python_version()}
 
     t0 = time.time()
