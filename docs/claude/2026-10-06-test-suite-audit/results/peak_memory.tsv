@@ -1,0 +1,11 @@
+test	wall_s	max_rss_mb
+PackedIndex.ABuildIntoThePackedLayoutWritesTheSameIndex	35.87	13178
+PackedIndex.TaxidAndGeneAsOneNumberComeBackForEveryGeneCount	9.52	3086
+PackedIndex.TheColumnFormatPacksChunkByChunkToTheSameValues	2.66	6257
+PackedIndex.AValueOutsideTheLayoutStopsTheColumnLoad	2.40	3144
+PackedIndex.HoldsEveryFlexCellAndEntryOfTheStoredLayout	1.49	3189
+ProfileSam.AZstdSamOfManyFramesIsDecompressedOnThreadsOfItsOwn	0.21	77
+IndexCodec.ColumnsCompressBetterThanRawCells	3.34	125
+ProfileSam.OnSeveralThreadsTheProfileIsTheSame	0.87	77
+               total        used        free      shared  buff/cache   available
+Mem:              23           0          18           0           4          22

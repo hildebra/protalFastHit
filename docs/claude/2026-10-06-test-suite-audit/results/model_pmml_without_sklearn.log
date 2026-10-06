@@ -1,0 +1,54 @@
+test_a_tree_of_one_leaf (scripts.test_model_pmml.BoostedExportTest.test_a_tree_of_one_leaf) ... skipped 'needs numpy, pandas and scikit-learn'
+test_header_extensions (scripts.test_model_pmml.BoostedExportTest.test_header_extensions) ... skipped 'needs numpy, pandas and scikit-learn'
+test_loads_either_model (scripts.test_model_pmml.BoostedExportTest.test_loads_either_model) ... skipped 'needs numpy, pandas and scikit-learn'
+test_missing_values_go_where_sklearn_sends_them (scripts.test_model_pmml.BoostedExportTest.test_missing_values_go_where_sklearn_sends_them) ... skipped 'needs numpy, pandas and scikit-learn'
+test_model_contract (scripts.test_model_pmml.BoostedExportTest.test_model_contract) ... skipped 'needs numpy, pandas and scikit-learn'
+test_rejects_other_classes (scripts.test_model_pmml.BoostedExportTest.test_rejects_other_classes) ... skipped 'needs numpy, pandas and scikit-learn'
+test_same_probabilities (scripts.test_model_pmml.BoostedExportTest.test_same_probabilities) ... skipped 'needs numpy, pandas and scikit-learn'
+test_values_on_split_boundaries (scripts.test_model_pmml.BoostedExportTest.test_values_on_split_boundaries) ... skipped 'needs numpy, pandas and scikit-learn'
+test_default_set_has_the_gene_neighbour_features (scripts.test_model_pmml.FeatureSetsTest.test_default_set_has_the_gene_neighbour_features) ... skipped 'needs scikit-learn'
+test_matches_float32_comparison (scripts.test_model_pmml.Float32SplitTest.test_matches_float32_comparison) ... ok
+test_ties_round_to_even (scripts.test_model_pmml.Float32SplitTest.test_ties_round_to_even) ... ok
+test_dataframe_input_in_any_column_order (scripts.test_model_pmml.ForestExportTest.test_dataframe_input_in_any_column_order) ... skipped 'needs numpy, pandas and scikit-learn'
+test_depth_knob_curve (scripts.test_model_pmml.ForestExportTest.test_depth_knob_curve) ... skipped 'needs numpy, pandas and scikit-learn'
+test_false_calls (scripts.test_model_pmml.ForestExportTest.test_false_calls) ... skipped 'needs numpy, pandas and scikit-learn'
+test_model_contract (scripts.test_model_pmml.ForestExportTest.test_model_contract) ... skipped 'needs numpy, pandas and scikit-learn'
+test_rejects_other_classes (scripts.test_model_pmml.ForestExportTest.test_rejects_other_classes) ... skipped 'needs numpy, pandas and scikit-learn'
+test_same_probabilities (scripts.test_model_pmml.ForestExportTest.test_same_probabilities) ... skipped 'needs numpy, pandas and scikit-learn'
+test_values_on_split_boundaries (scripts.test_model_pmml.ForestExportTest.test_values_on_split_boundaries) ... skipped 'needs numpy, pandas and scikit-learn'
+test_last_digits_are_rounding (scripts.test_model_pmml.ParityFeaturesTest.test_last_digits_are_rounding) ... skipped 'needs pandas'
+test_sample_without_taxa (scripts.test_model_pmml.ParityFeaturesTest.test_sample_without_taxa)
+A shallow sample of a database of few genes can have no taxon: its dump is the header alone, which is ... skipped 'needs pandas'
+setUpClass (scripts.test_model_pmml.TrainerDepthKnobsTest) ... ERROR
+test_calibration (scripts.test_model_pmml.TrainerFalseCallsTest.test_calibration) ... skipped 'needs numpy, pandas and scikit-learn'
+test_calls_at_a_target_as_protal (scripts.test_model_pmml.TrainerFalseCallsTest.test_calls_at_a_target_as_protal) ... skipped 'needs numpy, pandas and scikit-learn'
+test_fdr_calls_in_the_model (scripts.test_model_pmml.TrainerFalseCallsTest.test_fdr_calls_in_the_model) ... skipped 'needs numpy, pandas and scikit-learn'
+test_prior_adjustment_as_protal (scripts.test_model_pmml.TrainerFalseCallsTest.test_prior_adjustment_as_protal) ... skipped 'needs numpy, pandas and scikit-learn'
+test_singleton_rule (scripts.test_model_pmml.TrainerFalseCallsTest.test_singleton_rule) ... skipped 'needs numpy, pandas and scikit-learn'
+test_boosting_by_default_and_the_forest_on_request (scripts.test_model_pmml.TrainerScenariosTest.test_boosting_by_default_and_the_forest_on_request) ... skipped 'needs numpy, pandas and scikit-learn'
+test_features_auto (scripts.test_model_pmml.TrainerScenariosTest.test_features_auto) ... skipped 'needs numpy, pandas and scikit-learn'
+test_scenarios_hold_in_and_hold_out (scripts.test_model_pmml.TrainerScenariosTest.test_scenarios_hold_in_and_hold_out) ... skipped 'needs numpy, pandas and scikit-learn'
+
+======================================================================
+ERROR: setUpClass (scripts.test_model_pmml.TrainerDepthKnobsTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/falk/testaudit/src/scripts/test_model_pmml.py", line 386, in setUpClass
+    import machine_learning_cmdline
+  File "/home/falk/testaudit/src/scripts/machine_learning_cmdline.py", line 94, in <module>
+    import joblib
+ModuleNotFoundError: No module named 'joblib'
+
+Slowest test durations
+----------------------------------------------------------------------
+0.085s     test_matches_float32_comparison (scripts.test_model_pmml.Float32SplitTest.test_matches_float32_comparison)
+0.000s     test_ties_round_to_even (scripts.test_model_pmml.Float32SplitTest.test_ties_round_to_even)
+
+----------------------------------------------------------------------
+Ran 28 tests in 0.152s
+
+FAILED (errors=1, skipped=26)
+
+real	0m0.769s
+user	0m0.415s
+sys	0m0.130s

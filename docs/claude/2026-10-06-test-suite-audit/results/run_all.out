@@ -1,0 +1,57 @@
+== configure Tue Oct  6 17:14:50 BST 2026
+== build Tue Oct  6 17:18:22 BST 2026
+== gtest Tue Oct  6 17:48:39 BST 2026
+gtest exit 0
+[  SKIPPED ] FlexScan.Bench
+
+real	8m54.440s
+user	1m14.387s
+sys	0m55.450s
+== ctest Tue Oct  6 17:57:34 BST 2026
+ctest exit 0
+	289 - GeneSequence.TheBasesOutsideAWindowAreNotLeftToChance (Skipped)
+	372 - FlexScan.Bench (Skipped)
+
+real	0m54.503s
+user	1m41.263s
+sys	1m25.492s
+== python versions
+Python 3.12.3
+numpy 1.26.4
+ModuleNotFoundError: No module named 'sklearn'
+ls: cannot access '/home/falk/protal-train/bin/python': No such file or directory
+/usr/bin/art_illumina
+== mini_db unit tests Tue Oct  6 17:58:29 BST 2026
+mini_db exit 0
+OK (skipped=1)
+
+real	1m4.685s
+user	0m49.781s
+sys	0m26.893s
+== insilico + trace Tue Oct  6 17:59:34 BST 2026
+scripts exit 0
+OK
+
+real	0m0.220s
+user	0m0.141s
+sys	0m0.064s
+== model pmml Tue Oct  6 17:59:34 BST 2026
+pmml exit 1
+FAILED (errors=1, skipped=26)
+
+real	0m0.769s
+user	0m0.415s
+sys	0m0.130s
+== mini db build Tue Oct  6 17:59:35 BST 2026
+mini-db build exit 0
+real	0m19.696s
+user	0m14.859s
+sys	0m4.796s
+== e2e Tue Oct  6 17:59:54 BST 2026
+e2e exit 0
+OK
+
+real	2m23.072s
+user	2m6.181s
+sys	1m21.882s
+== done Tue Oct  6 18:02:18 BST 2026
