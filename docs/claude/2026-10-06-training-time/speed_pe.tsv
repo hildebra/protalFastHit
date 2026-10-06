@@ -1,0 +1,9 @@
+what	seconds	F1 species held out	F1 design test	F1 soil hold-out	F1 soil_shallow hold-out
+one fit, 1 threads	87.8000				
+one fit, 2 threads	52.4000				
+one fit, 3 threads	51.6000				
+one fit, 6 threads	235.6000				
+500 rounds, rate 0.05 (default)	133.9000	0.9542	0.9691	0.9554	0.9265
+250 rounds, rate 0.1	300.6000	0.9537	0.9693	0.9551	0.9257
+150 rounds, rate 0.15	117.5000	0.9529	0.9673	0.9549	0.9242
+500 rounds, 63 bins	95.8000	0.9532	0.9674	0.9545	0.9260
