@@ -52,8 +52,10 @@ holds many more absent taxa with a few reads, and needs a higher threshold.
 Four scenarios of real studies (--scenarios, scenarios.py: gut, soil, shallow
 soil, 90% host reads) add samples of their own, each at a depth drawn around its
 scenario's: their hold-in samples join the training data, their hold-out samples
-the test set, and every model's report scores both. Each trainer chooses its feature set (--features auto) with species
-held out, and the run says which set won and why.
+the test set, and every model's report scores both. The models are gradient-boosted
+trees on the default feature set, evaluated with samples, species and clades held
+out (--features, --evaluation basic); --features auto lets each trainer choose its
+set with species held out, and the run then says which set won and why.
 
 OUT_DIR/model_logs/ collects what tells whether the models are good: summary.txt
 (TP, FP, TN, FN, sensitivity, specificity, precision and F1 of each model), each read
@@ -1334,13 +1336,18 @@ def main():
                    help="leave the se, pb and ont models out of the database (a run with such reads then stops "
                         "with an error) instead of placeholders that report no species until trained ones replace "
                         "them (placeholder_models.py)")
-    p.add_argument("--evaluation", choices=["full", "basic", "none"], default="full",
-                   help="how much the trainer evaluates (machine_learning_cmdline.py --evaluation)")
-    p.add_argument("--features", type=feature_set_name, default="auto", metavar="auto|" + "|".join(FEATURE_SETS[:2] + ("...",)),
-                   help="the models' features (machine_learning_cmdline.py --features): auto (default), each trainer "
-                        "chooses its set (below); or feature groups joined by '+' "
-                        f"(the set auto keeps unless another is better: {DEFAULT_FEATURE_SET}): normalized, the "
-                        "normalised features; adjacency, the gene "
+    p.add_argument("--evaluation", choices=["full", "basic", "none"], default="basic",
+                   help="how much the trainer evaluates (machine_learning_cmdline.py --evaluation): basic (default since "
+                        "2026-10-06), the models with samples, species and clades held out, which the summary and the "
+                        "knob need; full also the studies (other feature sets, model size, fewer samples), which "
+                        "multiply a boosted model's training several times")
+    p.add_argument("--features", type=feature_set_name, default=DEFAULT_FEATURE_SET,
+                   metavar="auto|" + "|".join(FEATURE_SETS[:2] + ("...",)),
+                   help=f"the models' features (machine_learning_cmdline.py --features): {DEFAULT_FEATURE_SET} "
+                        "(default since 2026-10-06: the set every model of the r226 v12 and v13 builds chose with auto, "
+                        "and the reference's k-mer uniqueness); auto, each trainer chooses its set (below), which "
+                        "doubles a boosted model's training with --evaluation basic; or feature groups joined by '+': "
+                        "normalized, the normalised features; adjacency, the gene "
                         "neighbours'; distance, the four relative_* features that compare a taxon with its sample's "
                         "relatives by the distance of their references (they need --congeners groups; at r226 +0.004 "
                         "paired-end F1 at the knob curve, the other read types within noise, "
@@ -1349,7 +1356,8 @@ def main():
                         "fits no knob curve and protal calls at --knob; on the r226 v5 tables false positives halved "
                         "at knob 0.5, docs/claude/2026-10-03-false-positive-anatomy); divergence, divergence by gene "
                         "conservation and codon position and lost mates; unfiltered, the reads before the MAPQ and "
-                        "length filters and the failed candidates; priors, what GTDB knows of the species "
+                        "length filters and the failed candidates; ref, the reference's k-mer uniqueness in the "
+                        "database; priors, what GTDB knows of the species "
                         "(docs/claude/2026-10-03-false-positive-fixes); all: every feature of the training dumps. "
                         "normalized+adjacency+distance is the set of protal 0.7.3's dumps, normalized+adjacency that "
                         "of older ones. auto: each model's set chosen by its trainer, the one of highest F1 with "

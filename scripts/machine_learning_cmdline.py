@@ -1372,14 +1372,15 @@ def choose_feature_set(report, df, y, opts, held_out=()):
     out) scored with species held out (the folds and forests of the evaluation, so that its scores are reused), the
     one of highest F1 at the knob chosen, but the default set unless another beats it by AUTO_MIN_GAIN (smaller gains
     changed between fits and test sets at r226, as the depth knobs' did). held_out: [(label, table)] of samples never
-    trained on (the independent test set, the scenarios' hold-out samples), each candidate's forest fitted on all rows
+    trained on (the independent test set, the scenarios' hold-out samples), each candidate's model fitted on all rows
     scores them for the report; they do not choose, or their scores would no longer be held out. -> (set, its columns,
-    {set: probabilities with species held out})."""
+    {set: probabilities with species held out}, the chosen set's model fitted on all rows or None: the final model,
+    when its settings are the same)."""
     report.section(f"Feature set chosen (--features {opts.features}, species held out)")
     splits = folds(df, y, "species", opts)
     if splits is None:
         sys.exit("--features auto scores the feature sets with species held out, and the table has too few species")
-    rows, known, columns = [], {}, {}
+    rows, known, columns, fitted = [], {}, {}, {}
     for name in auto_candidates(opts.features):
         try:
             cols = [c for c in feature_columns(df.columns, name) if c != "domain"]
@@ -1396,7 +1397,7 @@ def choose_feature_set(report, df, y, opts, held_out=()):
         row = {"features": name, "n": len(cols), "F1": m["F1"], "AP": m["AP"], "log_loss": m["log_loss"],
                "sensitivity": m["sensitivity"], "precision": m["precision"], "FP": m["FP"], "FN": m["FN"]}
         if held_out:
-            rf = fit_model(model_params(opts), X, y)
+            rf = fitted[name] = fit_model(model_params(opts), X, y)
             for label, table in held_out:
                 ty = table["truth"].to_numpy()
                 tp = rf.predict_proba(table[cols].to_numpy(dtype=np.float64))[:, 1]
@@ -1437,7 +1438,7 @@ def choose_feature_set(report, df, y, opts, held_out=()):
     report.data["features_auto"] = {"candidates": rows, "chosen": chosen, "best": best, "default": default,
                                     "min_gain": AUTO_MIN_GAIN, "why": why, "others_mean_F1": mean,
                                     "held_out": {label: {"F1": m, "others_mean_F1": o} for label, m, o in tests}}
-    return chosen, columns[chosen], known
+    return chosen, columns[chosen], known, fitted.get(chosen)
 
 
 def scenario_of(df):
@@ -1647,7 +1648,9 @@ def study_capacity(report, df, X, y, opts):
     report.data["capacity"] = {"leaves": [dict(**l, **m) for l, m in rows], label: [dict(**l, **m) for l, m in trows]}
 
 
-def study_learning_curve(report, df, X, y, opts):
+def study_learning_curve(report, df, X, y, opts, p_species=None):
+    """The model with species held out on a quarter, half and all of the training samples (all: p_species, the
+    evaluation's, when given)."""
     report.section("More training samples? (species held out, training samples thinned)")
     splits = folds(df, y, "species", opts)
     if splits is None or "meta_sample" not in df.columns:
@@ -1659,7 +1662,10 @@ def study_learning_curve(report, df, X, y, opts):
         rng = np.random.RandomState(opts.seed)
         keep = set(rng.choice(np.unique(samples), size=max(2, int(round(fraction * len(np.unique(samples))))), replace=False))
         thin = (lambda train: train[np.isin(samples[train], list(keep))]) if fraction < 1 else None
-        p = predict_out_of_fold(X, y, splits, model_params(opts), fit_rows=thin)
+        if fraction == 1 and p_species is not None:  # the same folds and models as the evaluation's
+            p = p_species
+        else:
+            p = predict_out_of_fold(X, y, splits, model_params(opts), fit_rows=thin)
         rows.append(({"samples": len(keep), "fraction": fraction}, metrics(y, p, df, opts.knob)))
     report.table(metrics_table(rows)[["samples", "fraction", "AP", "log_loss", "F1", "sensitivity", "precision", "FP"]
                                      + [c for c in metrics_table(rows).columns if c.startswith("sens_")]])
@@ -1716,6 +1722,7 @@ def train(opts):
         test_scenarios = test[in_scenario] if in_scenario.any() else None
     timing["load"] = time.time() - t0
     known = {}  # probabilities with species held out by feature set (--features auto), reused by the evaluation
+    chosen_model = None  # the chosen set's model fitted on all rows by --features auto, the final one if the same
     if opts.reference_pmml:
         cols = load_model(opts.reference_pmml).features
         source = f"the inputs of {opts.reference_pmml}"
@@ -1726,7 +1733,7 @@ def train(opts):
         if test_scenarios is not None:
             names = scenario_of(test_scenarios)
             held += [(f"{name} hold-out", test_scenarios[names == name]) for name in sorted(set(names))]
-        chosen, cols, known = choose_feature_set(report, df, y, opts, held)
+        chosen, cols, known, chosen_model = choose_feature_set(report, df, y, opts, held)
         source = f"--features {opts.features}: {chosen}"
         timing["feature_choice"] = time.time() - t0
     else:
@@ -1752,11 +1759,15 @@ def train(opts):
 
     t0 = time.time()
     oob_wanted = opts.model == "forest" and opts.evaluation != "none"
-    rf = fit_model(model_params(opts, **({"oob_score": True} if oob_wanted else {})), X, y)
+    if chosen_model is not None and not oob_wanted:  # --features auto fitted it on all rows with these settings
+        rf, fitted = chosen_model, "the feature choice's fit on all rows"
+    else:
+        rf = fit_model(model_params(opts, **({"oob_score": True} if oob_wanted else {})), X, y)
+        fitted = None
     timing["fit"] = time.time() - t0
     nodes = model_nodes(rf)
     report.add("")
-    report.add(f"{describe_model(opts, rf)}, fitted in {timing['fit']:.2f} s")
+    report.add(f"{describe_model(opts, rf)}, " + (fitted or f"fitted in {timing['fit']:.2f} s"))
 
     p = {}
     if opts.evaluation != "none":
@@ -1793,7 +1804,7 @@ def train(opts):
         studies += [("previous_procedure", lambda: study_old_procedure(report, df, y, opts, cols, p.get("species")))]
     if opts.evaluation == "full":
         studies += [("capacity", lambda: study_capacity(report, df, X, y, opts)),
-                    ("learning_curve", lambda: study_learning_curve(report, df, X, y, opts))]
+                    ("learning_curve", lambda: study_learning_curve(report, df, X, y, opts, p.get("species")))]
     for name, study in studies:
         t0 = time.time()
         study()

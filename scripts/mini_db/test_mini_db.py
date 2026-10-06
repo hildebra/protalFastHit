@@ -2931,16 +2931,19 @@ class GtdbBuildTest(unittest.TestCase):
                                                                                        "build_metadata.tsv")))
         self.assertRegex(metadata["gene_conservation"], r"^factors [0-9.]+-[0-9.]+ for \d+ genes, from \d+ species")
         self.assertEqual(metadata["classifier_previous_procedure"], "not compared")  # without --previous-procedure
-        # Each trainer chose its feature set (--features auto, the default): one of the candidates, the default set
-        # (the gene neighbours' features and the relatives' four by the references' distance) unless another was
-        # better; the run says which and why (the other seed's build below trains the relatives features and the
-        # calls at a target share of false calls).
-        self.assertEqual(metadata["classifier_features"], "auto")
-        for t in ("pe", "se"):
-            self.assertRegex(metadata[f"model_{t}_features"], r"^normalized\S* \(--features auto: F1 [0-9.]+ with species "
-                                                             r"held out, the other \d+ sets [0-9.]+ on average")
-            self.assertRegex(first.stdout, rf"     {t} model's features: normalized\S*: F1 [0-9.]+ with species held out")
-        self.assertIn("Feature sets chosen (--features auto):", self.text("out", "model_logs", "summary.txt"))
+        # The models train on the default feature set, evaluated with samples, species and clades held out (the build's
+        # defaults since 2026-10-06: --features DEFAULT_FEATURE_SET, --evaluation basic); test_f_scenarios has each
+        # trainer choose (--features auto), the other seed's build below trains the relatives features and the calls at
+        # a target share of false calls.
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import model_features
+        self.assertEqual((metadata["classifier_features"], metadata["classifier_evaluation"]),
+                         (model_features.DEFAULT_FEATURE_SET, "basic"))
+        self.assertNotIn("model_pe_features", metadata)
+        self.assertNotIn("model's features:", first.stdout)
+        self.assertNotIn("Feature sets chosen", self.text("out", "model_logs", "summary.txt"))
+        self.assertIn(f"--features {model_features.DEFAULT_FEATURE_SET} --model gbm",
+                      self.text("out", "classifier_training_se.log"))
         self.assertEqual(metadata["classifier_scenarios"], "none")
         self.assertIn("gene copies", metadata["suspect_copies"])  # the build looked for suspect copies
         self.assertIn("; congeners 0.25:2-5", metadata["classifier_training_design"])
@@ -3308,13 +3311,14 @@ class GtdbBuildTest(unittest.TestCase):
         # The default scenarios (gut, soil, soil_shallow, host; here made small by a --scenario-file of their names),
         # one with 90% host reads: their hold-in samples in the training data, their hold-out samples in the test set,
         # each read type's report and the summary scoring both; soil, larger than the genome table holds at 60% held
-        # out, scaled down; the feature sets chosen by the trainers (--features auto, the default) and why. Both
-        # collections profiled in one protal run, their reads kept (--profile-blocks 0; test_g follows them).
+        # out, scaled down; the feature sets chosen by the trainers (--features auto, not the default since 2026-10-06)
+        # and why. Both collections profiled in one protal run, their reads kept (--profile-blocks 0; test_g follows
+        # them).
         definitions, host = self.scenario_inputs()
         scratch = os.path.join(self.tmp.name, "scenario_scratch")
         result = self.build("scenarios", "--scenario-file", definitions, "--scenario-samples", "2",
                             "--scenario-test-samples", "1", "--host-genome", host, "--scratch", scratch,
-                            "--profile-blocks", "0", scenarios=True)
+                            "--profile-blocks", "0", "--features", "auto", scenarios=True)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
         self.assertRegex(result.stdout, r"    WARNING: scenario soil scaled from 30-40 to \d+(-\d+)? species per sample: at "
                                         r"60% lacking from the database the genome table's \d+ species the training "

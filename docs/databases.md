@@ -247,8 +247,9 @@ numbered line when it starts and indented lines when it ends.
 6. **Independent test set** (`test_data.log`): samples of another design, for an honest score, and
    the scenarios' hold-out samples.
 7. **Models** (`classifier_training*.log`): one model of gradient-boosted trees per read type (`--model`;
-   a random forest before 2026-10-06), trained in parallel, each on the feature set its trainer chose
-   (`--features auto`); the console says which won and why.
+   a random forest before 2026-10-06), trained in parallel on the default feature set and evaluated with
+   samples, species and clades held out (`--features`, `--evaluation basic`, the build's defaults since
+   2026-10-06); with `--features auto` each trainer chooses its set and the console says which won and why.
 8. **Parity check** (`parity*.log`): protal scores each model exactly as the trainer does.
 9. **Packaging** (`final_package.log`): the models go into the finished database.
 
@@ -585,11 +586,11 @@ keeps the finished database.
 | `--scenario-samples`, `--scenario-test-samples` | 6, 3 | each scenario's hold-in samples (training data; 0: scored, not trained on) and hold-out samples (test set); 3 and 2 before 2026-10-06 |
 | `--scenario-weight` | 0.25 | the weight of the scenarios' hold-in rows in the models, the design's 1 |
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
-| `--features` | `auto` | each trainer chooses its feature set ([below](#training)); or feature groups ([features.md](features.md)), e.g. `normalized+adjacency+distance+depth+divergence+unfiltered+ref` (the set `auto` keeps unless another is better; without `ref` before 2026-10-06); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
+| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, and the reference's k-mer uniqueness); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--model` | `gbm` | the models: `gbm`, gradient-boosted trees (the default since 2026-10-06), or `forest`, a random forest ([below](#training)) |
 | `--rounds`, `--ntree`, `--maxnodes` | 500, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items) |
 | `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
-| `--evaluation`, `--previous-procedure` | `full`, off | how much the trainer evaluates |
+| `--evaluation`, `--previous-procedure` | `basic`, off | how much the trainer evaluates: `basic` (default since 2026-10-06, `full` before), the models with samples, species and clades held out, which the summary and the knob need; `full` adds the studies ([below](#training)), several times a boosted model's training |
 | `--n-genes`, `--genes`, `--gene-ranking`, `--genes-per-domain`, `--rank-genes` | | a reduced database ([below](#reduced-marker-sets)) |
 | `--no-gene-neighbours` | | skip the gene neighbours; protal then pairs no mates across neighbouring genes |
 | `--one-build-at-a-time` | | build the finished database after the training |

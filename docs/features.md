@@ -35,9 +35,11 @@ shipped one model on absolute counts (genes, k-mers and mates); those columns ar
 ([below](#in-the-dump-but-in-no-set)) but in no 0.7 set. A training table of an older protal
 lacks the columns of later groups: train it with the groups it has (before 0.7.5
 `normalized+adjacency+distance`, before 0.7.4 `normalized+adjacency`). Since 2026-10-05 the trainer
-and the build choose the set themselves by default (`--features auto`): among the named sets without
-the priors, with species held out, keeping the default set unless another is 0.002 of F1 better, and
-saying why ([databases.md](databases.md#training)).
+chooses the set itself by default (`--features auto`): among the named sets without the priors, with
+species held out, keeping the default set unless another is 0.002 of F1 better, and saying why
+([databases.md](databases.md#training)). The build did so from 2026-10-05 to 2026-10-06, when every
+model of the r226 v12 and v13 builds kept the default set; since then it trains on the default set
+(with `ref`), as choosing doubled a boosted model's training.
 
 **How to read the importance columns.** The numbers are the forests' Gini importances (scikit-learn's
 `feature_importances_`, which sum to 1 over a model; a boosted model's `varimp.tsv` holds its splits'
