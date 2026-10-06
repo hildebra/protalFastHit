@@ -933,7 +933,9 @@ full`, the "Feature sets" study reuse the candidates' scores with species held o
 `scripts/check_model_parity.py --db DB --model training/model.xml --training training` re-profiles
 saved training samples and checks that protal's probabilities are the model file's and its features
 those of the training data (`--read_type se`, `pb`, `ont` for other models). Differences in the last
-digits (1e-12) are noted, not failed. `gradient_boosted_cmdline.py` and
+digits (1e-12) are noted, not failed. A sample without taxa (a shallow one of a database of few genes)
+passes if it had none during collection either; the check fails only if no sample has a taxon to
+compare. `gradient_boosted_cmdline.py` and
 `hist_gradient_boosted_cmdline.py` train gradient-boosted trees (their PMML export needs Java); the R
 scripts are the older caret pipeline.
 

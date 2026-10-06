@@ -107,6 +107,24 @@ def feature_differences(joined, features):
     return found
 
 
+def compare_sample(model, sample, new, old):
+    """A sample's problems (protal's probabilities against the model file's; its dump against the one written during
+    collection) and the largest relative difference of each feature that differs. `new`, `old`: the sample's dumps
+    now and during collection; either may have no taxa (a shallow sample of a database of few genes)."""
+    problems = []
+    diff = np.abs(model.predict(new) - new["probability"].to_numpy())
+    if (diff > 0).any():
+        problems.append(f"{sample}: protal's probability differs from the model file's by up to {diff.max():.3g} "
+                        f"({int((diff > 0).sum())} of {len(new)} taxa)")
+    if list(new.columns) != list(old.columns):
+        problems.append(f"{sample}: the dump has other columns than during collection (another protal version)")
+        return problems, {}
+    joined = new.merge(old, on="taxon", suffixes=("", "_collected"))
+    if len(joined) != len(new) or len(new) != len(old):
+        problems.append(f"{sample}: {len(new)} taxa now, {len(old)} during collection")
+    return problems, feature_differences(joined, model.features)
+
+
 def split_rounding(differences):
     """The features (name -> largest relative difference) that protal computes differently, and those that differ
     by rounding only (up to ROUNDING)."""
@@ -141,7 +159,7 @@ def main(argv=None):
         sys.exit(f"protal failed with exit code {rc}; see {out}/protal.log")
 
     model = PmmlForest(opts.model)
-    problems, rows, feature_diff = [], 0, {}
+    problems, rows, empty, feature_diff = [], 0, 0, {}
     for sample, _, _, collected in samples:
         new_dump = os.path.join(out, sample + ".profile.truth_annotated")
         if not os.path.isfile(new_dump):
@@ -149,25 +167,20 @@ def main(argv=None):
             continue
         new, old = read_dump(new_dump), read_dump(collected)
         rows += len(new)
-        python = model.predict(new)
-        diff = np.abs(python - new["probability"].to_numpy())
-        if diff.max() > 0:
-            problems.append(f"{sample}: protal's probability differs from the model file's by up to {diff.max():.3g} "
-                            f"({int((diff > 0).sum())} of {len(new)} taxa)")
-        if list(new.columns) != list(old.columns):
-            problems.append(f"{sample}: the dump has other columns than during collection (another protal version)")
-            continue
-        joined = new.merge(old, on="taxon", suffixes=("", "_collected"))
-        if len(joined) != len(new) or len(new) != len(old):
-            problems.append(f"{sample}: {len(new)} taxa now, {len(old)} during collection")
-        for c, d in feature_differences(joined, model.features).items():
+        empty += len(new) == 0
+        found, differences = compare_sample(model, sample, new, old)
+        problems += found
+        for c, d in differences.items():
             feature_diff[c] = max(feature_diff.get(c, 0.0), d)
+    if rows == 0 and not problems:  # nothing compared: no sample of these points has a taxon
+        problems.append("no sample has a taxon to compare; check more points (--points)")
     differs, rounded = split_rounding(feature_diff)
     if differs:
         problems.append("protal computes features differently than when the training data was collected (largest "
                         "relative difference): " + ", ".join(f"{c} {v:.3g}" for c, v in sorted(differs.items())))
     lines = [f"model {opts.model} ({opts.read_type} reads): {len(model.trees)} trees, {len(model.features)} features",
-             f"re-profiled {len(samples)} samples of {', '.join(os.path.basename(p) for p in chosen)}: {rows} taxa"]
+             f"re-profiled {len(samples)} samples of {', '.join(os.path.basename(p) for p in chosen)}: {rows} taxa"
+             + (f" ({empty} sample{'s' if empty > 1 else ''} without any)" if empty else "")]
     lines += ["PROBLEM: " + p for p in problems] or [
         "protal's probabilities equal the model file's (and so scikit-learn's) for every taxon; "
         "the features equal those of the training data" + (" but for rounding" if rounded else "")]

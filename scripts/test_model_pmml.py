@@ -231,6 +231,28 @@ class ParityFeaturesTest(unittest.TestCase):
         self.assertAlmostEqual(differs["changed"], 0.01 / 1.01)
         self.assertEqual(set(rounded), {"summed"})
 
+    def test_sample_without_taxa(self):
+        """A shallow sample of a database of few genes can have no taxon: its dump is the header alone, which is
+        no problem when the collection's had none either."""
+        import check_model_parity as cmp
+
+        class Model:
+            features = ["f"]
+
+            def predict(self, X):
+                return np.full(len(X), 0.25)
+
+        columns = ["truth", "prediction", "probability", "taxon", "f"]
+        none = pd.DataFrame({c: pd.Series(dtype=float) for c in columns})
+        one = pd.DataFrame([[1, 1, 0.25, 7, 2.0]], columns=columns)
+        self.assertEqual(cmp.compare_sample(Model(), "s", none, none), ([], {}))
+        problems, _ = cmp.compare_sample(Model(), "s", none, one)
+        self.assertEqual(problems, ["s: 0 taxa now, 1 during collection"])
+        self.assertEqual(cmp.compare_sample(Model(), "s", one, one), ([], {}))
+        problems, _ = cmp.compare_sample(Model(), "s", one.assign(probability=0.5), one.assign(probability=0.5))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("differs from the model file's by up to 0.25", problems[0])
+
 
 def metrics_knobs(test, name):
     """The knob points of the model `name` trained in a TrainerDepthKnobsTest."""
