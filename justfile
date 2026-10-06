@@ -247,8 +247,8 @@ simulate: configure
 
 # Static build: fully static protal + simulate_metagenomes (isa_baseline =>
 # -march=x86-64; the x86-64-v3 copies of the hot functions are chosen at run time as in `protal`).
-# zstd and libdeflate are downloaded and built in the build tree for them (lib/static-deps.cmake),
-# so no libzstd.a or libdeflate.a is needed; `just static_fetch_deps=OFF static` links the system's.
+# zstd and ISA-L (and nasm, without one on the PATH) are downloaded and built in the build tree for them
+# (lib/static-deps.cmake), so no libzstd.a or libisal.a is needed; `just static_fetch_deps=OFF static` links the system's.
 static_fetch_deps := "ON"
 static:
     cmake -S . -B {{build_dir}} -DCMAKE_BUILD_TYPE=Release -DPROTAL_STATIC_FETCH_DEPS={{static_fetch_deps}}

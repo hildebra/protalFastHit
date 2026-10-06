@@ -78,7 +78,7 @@ endif()
 
 # One binary for every x86-64 CPU: plain x86-64 (SSE2), with the hot functions compiled a second time for
 # x86-64-v3 and chosen at run time (PROTAL_CLONE_V3, src/Utilities/TargetClones.h), as are the AVX2
-# kernels of the syncmer scan, sequence packing, zlib-ng, libdeflate and zstd. -ffp-contract=off keeps
+# kernels of the syncmer scan, sequence packing, ISA-L, zlib-ng and zstd. -ffp-contract=off keeps
 # the x86-64-v3 copies from fusing multiplications and additions (FMA), so that both round alike.
 add_library(isa_baseline INTERFACE)
 target_compile_options(isa_baseline INTERFACE -march=x86-64 -mtune=generic -ffp-contract=off)

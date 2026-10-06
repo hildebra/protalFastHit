@@ -269,7 +269,7 @@ static cxxopts::Options build_cxxopts() {
     options.add_options("General")
         ("t,threads",       "Threads: samples simulated at a time, and threads beyond the samples run the ART calls of a sample's genomes side by side; the samples are the same for any number", cxxopts::value<int>()->default_value("1"))
         ("pigz_path",       "Unused: the reads are compressed in process (kept so that older commands still run)", cxxopts::value<std::string>()->default_value(""))
-        ("reads_compression", "How the read files are written: bgzf (_R1.fq.gz, libdeflate) or zstd (_R1.fq.zst, level 3: as small, several times faster to write; protal reads both)", cxxopts::value<std::string>()->default_value("bgzf"))
+        ("reads_compression", "How the read files are written: bgzf (_R1.fq.gz, ISA-L level 1) or zstd (_R1.fq.zst, level 3: smaller files; protal reads both)", cxxopts::value<std::string>()->default_value("bgzf"))
         ("protal_metafile", "Write a Protal meta file (output_dir/protal.meta) but set OUTPUT_DIR to <path>", cxxopts::value<std::string>())
         ("test",            "Generate profiles/manifests but skip read simulation (fast dry run)")
         ("keep_tmp",        "Keep the individual per-genome reads")

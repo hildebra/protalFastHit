@@ -121,7 +121,7 @@ std::optional<std::uint64_t> ArtIlluminaWrapper::seed_override() const {
 }
 
 void ArtIlluminaWrapper::decompress_gzip(const fs::path& gz_path, const fs::path& output_path) const {
-    // BGZF with libdeflate, other gzip with zlib-ng (ThreadedGzStream.h).
+    // BGZF or other gzip, inflated with ISA-L (ThreadedGzStream.h).
     protal::ThreadedGzIstream input(gz_path.string().c_str());
     if (!input.rdbuf()->is_open()) {
         throw std::runtime_error("Failed to open compressed genome: " + gz_path.string());

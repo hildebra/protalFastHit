@@ -221,6 +221,7 @@ namespace protal {
         std::string m_chunk;
         std::string m_window;
         std::string m_window_rev;
+        AlignmentScreen::ReadKmers m_read_kmers;  // the read, packed for its candidates' screens (operator())
         std::string m_id;
         KmerList m_kmers;
         SeedList m_seeds;
@@ -287,7 +288,10 @@ namespace protal {
 
             AlignmentResult result;
             m_id = record.id;
-            if (!m_alignment_handler.AlignAnchor(anchor, result, m_window, m_window_rev, false, m_id, max_score_cap)) return std::nullopt;
+            // The window [start, end) of the read is the stretch from start of its forward strand, and its reverse
+            // complement the stretch from read_length - end of its reverse strand, which the read's candidates share.
+            AlignmentScreen::ReadStretch const stretch{ &m_read_kmers, static_cast<size_t>(window.start), static_cast<size_t>(read_length - window.end) };
+            if (!m_alignment_handler.AlignAnchor(anchor, result, m_window, m_window_rev, false, m_id, max_score_cap, stretch)) return std::nullopt;
             auto& info = result.GetAlignmentInfo();
             if (info.GetProxyANI() < m_min_ani) return std::nullopt;
 
@@ -502,6 +506,7 @@ namespace protal {
             m_last_anchors = 0;
             auto const& read = record.sequence;
             int64_t const read_length = static_cast<int64_t>(read.size());
+            m_read_kmers.Set(read);  // for Align's screens, here and in AddNeighbourGenes
 
             auto const chunks = ChunkRead(read.size(), m_max_chunk, m_overlap);
             m_chunked_reads += chunks.size() > 1;

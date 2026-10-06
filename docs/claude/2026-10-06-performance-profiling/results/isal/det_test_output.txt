@@ -1,0 +1,53 @@
+CPU has AVX-512 (F+BW+VL): no
+
+/home/falk/zstdbench/reads.fq: 67108864 bytes, 1029 blocks
+profile              L1 bytes / crc32             L2 bytes / crc32             L3 bytes / crc32            
+dispatch                   19478728 / 8a256dcc          19466129 / c0d1a2a2          19620303 / edc0064a   
+base                       20097233 / 772264af          20085204 / d519a15b          19147742 / 88118b4d   
+sse4.2                     19478728 / 8a256dcc          19466129 / c0d1a2a2          19147742 / 88118b4d   
+avx                        19478728 / 8a256dcc          19466129 / c0d1a2a2          19147742 / 88118b4d   
+avx2                       19478728 / 8a256dcc          19466129 / c0d1a2a2          19620303 / edc0064a   
+avx2+base_encoder          19478728 / 8a256dcc          19466129 / c0d1a2a2          19620303 / edc0064a   
+avx2+base_setlong          19478728 / 8a256dcc          19466129 / c0d1a2a2          19585770 / 9fb2e2e2   
+avx2+base_gen              19478728 / 8a256dcc          19466129 / c0d1a2a2          19149171 / cbfbf680   
+avx512               (not runnable on this CPU)
+dispatch,MIN lvlbuf        19934225 / 57f784cb          19911449 / 2c0bf895          20358147 / 6bd25792   
+
+/home/falk/isal/data/pb.fq: 64000000 bytes, 981 blocks
+profile              L1 bytes / crc32             L2 bytes / crc32             L3 bytes / crc32            
+dispatch                   31888459 / ab5148de          31935916 / 3b97a362          32055771 / 967d088e   
+base                       32254043 / 19c464a0          32317344 / 7b4c5bbf          31848565 / fd2dd12d   
+sse4.2                     31888459 / ab5148de          31935916 / 3b97a362          31848565 / fd2dd12d   
+avx                        31888459 / ab5148de          31935916 / 3b97a362          31848565 / fd2dd12d   
+avx2                       31888459 / ab5148de          31935916 / 3b97a362          32055771 / 967d088e   
+avx2+base_encoder          31888459 / ab5148de          31935916 / 3b97a362          32055771 / 967d088e   
+avx2+base_setlong          31888459 / ab5148de          31935916 / 3b97a362          32059406 / 2885f1e0   
+avx2+base_gen              31888459 / ab5148de          31935916 / 3b97a362          31849192 / 81d524ca   
+avx512               (not runnable on this CPU)
+dispatch,MIN lvlbuf        29239829 / 8f84af7a          29318829 / fea456b8          29627192 / 6fb46929   
+
+/home/falk/isal/data/binary.bin: 7118030 bytes, 110 blocks
+profile              L1 bytes / crc32             L2 bytes / crc32             L3 bytes / crc32            
+dispatch                    2289634 / a9233097           2272998 / 3100a7c9           2252497 / 58fd7a57   
+base                        2315319 / b8a15faf           2299941 / d00132a0           2259394 / 949cbe2b   
+sse4.2                      2289634 / a9233097           2272998 / 3100a7c9           2259394 / 949cbe2b   
+avx                         2289634 / a9233097           2272998 / 3100a7c9           2259394 / 949cbe2b   
+avx2                        2289634 / a9233097           2272998 / 3100a7c9           2252497 / 58fd7a57   
+avx2+base_encoder           2289634 / a9233097           2272998 / 3100a7c9           2252497 / 58fd7a57   
+avx2+base_setlong           2289634 / a9233097           2272998 / 3100a7c9           2245223 / 96a39e16   
+avx2+base_gen               2289634 / a9233097           2272998 / 3100a7c9           2265989 / 466374d8   
+avx512               (not runnable on this CPU)
+dispatch,MIN lvlbuf         2301140 / f914dff2           2279498 / 82c308d5           2293267 / ec303fce   
+
+/home/falk/isal/data/random.bin: 4000000 bytes, 62 blocks
+profile              L1 bytes / crc32             L2 bytes / crc32             L3 bytes / crc32            
+dispatch                    4000310 / 47eb2afa           4000310 / 47eb2afa           4000310 / 47eb2afa   
+base                        4000310 / 47eb2afa           4000310 / 47eb2afa           4000310 / 47eb2afa   
+sse4.2                      4000310 / 47eb2afa           4000310 / 47eb2afa           4000310 / 47eb2afa   
+avx                         4000310 / 47eb2afa           4000310 / 47eb2afa           4000310 / 47eb2afa   
+avx2                        4000310 / 47eb2afa           4000310 / 47eb2afa           4000310 / 47eb2afa   
+avx2+base_encoder           4000310 / 47eb2afa           4000310 / 47eb2afa           4000310 / 47eb2afa   
+avx2+base_setlong           4000310 / 47eb2afa           4000310 / 47eb2afa           4000310 / 47eb2afa   
+avx2+base_gen               4000310 / 47eb2afa           4000310 / 47eb2afa           4000310 / 47eb2afa   
+avx512               (not runnable on this CPU)
+dispatch,MIN lvlbuf         4000310 / 47eb2afa           4000310 / 47eb2afa           4000310 / 47eb2afa   

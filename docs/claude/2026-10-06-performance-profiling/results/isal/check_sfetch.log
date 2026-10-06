@@ -1,0 +1,11 @@
+configure exit 0
+    -- nasm for ISA-L: none of 2.14.01 or later on the PATH, nasm 2.16.03 is built
+    -- ISA-L: none on the system; every binary links the one built in /home/falk/perf8/isal/build-sfetch/static-deps
+    -- Static binaries: zstd and ISA-L built in /home/falk/perf8/isal/build-sfetch/static-deps
+build exit 0
+    813634 /home/falk/perf8/isal/build-sfetch/static-deps/isal-install/lib/libisal.a
+    3985024 /home/falk/perf8/isal/build-sfetch/static-deps/nasm-install/bin/nasm
+    protal v0.7.7
+    run exit 0
+    SAM records as the ISA-L build's: yes
+SFETCHDONE 17:50:15

@@ -121,6 +121,7 @@ namespace protal {
         // the budget to exist is refused (AlignmentScreen; off with SetAlignmentScreen(false)).
         bool m_screen_on = true;
         AlignmentScreen m_screen;
+        AlignmentScreen::ReadKmers m_read_kmers;  // operator()'s read, packed for its candidates' screens
         std::string m_ops;     // the window's alignment operations, from either method
         std::string m_reverse; // the reverse complement of the read, when the caller has none
         std::string m_window;  // the window's reference bases, for the whole-window alignment
@@ -438,7 +439,10 @@ namespace protal {
         SNPList snps;
         FastxRecord record;
         // max_score_cap: a budget below the ANI floor's (LongReadAligner, --long_read_budget); an alignment that reaches it fails.
-        PROTAL_CLONE_V3 bool AlignAnchor(Anchor& anchor, AlignmentResult& alignment, std::string const& fwd, std::string const& rev, bool allow_heuristic_alignment, std::string& id, int max_score_cap = INT32_MAX) {
+        // stretch: where fwd and rev lie in a read whose packed strands its candidates share (AlignmentScreen::ReadStretch;
+        // none: the screen packs the candidate's read for it alone).
+        PROTAL_CLONE_V3 bool AlignAnchor(Anchor& anchor, AlignmentResult& alignment, std::string const& fwd, std::string const& rev, bool allow_heuristic_alignment, std::string& id, int max_score_cap = INT32_MAX,
+                                         AlignmentScreen::ReadStretch const& stretch = {}) {
             alignment.GetAlignmentInfo().Reset();
             alignment.Reset();
             m_aligner.Reset();
@@ -560,18 +564,24 @@ namespace protal {
             // have in WFA2 (AlignmentScreen), at a pass over the read and the window instead of the whole budget.
             // The window's k-mers are taken from the gene's packed bytes, so a refused candidate (most of them at GTDB
             // scale) is never decoded; a gene without them (not loaded) goes through its decoded window, which is empty.
+            // The read's come from its strands packed once for all its candidates (stretch), where the caller has them.
             if (m_screen_on) {
                 m_bm_screen.Start();
                 size_t const begin_free = static_cast<size_t>(std::max(window.read_begin_free, 0));
                 size_t const end_free = static_cast<size_t>(std::max(window.read_end_free, 0));
                 uint8_t const* const packed = gene.Packed();
-                bool const may_align = packed != nullptr ?
-                        m_screen.MayAlignPacked(read, begin_free, end_free, packed, packed::Bytes(gene.GetLength()), window.ref_start,
-                                                window.ref_end, window.max_score, m_aligner.Mismatch(), m_aligner.GapOpening(),
-                                                m_aligner.GapExtension()) :
+                bool const may_align = packed == nullptr ?
                         m_screen.MayAlign(read, begin_free, end_free,
                                           gene.Window(window.ref_start, window.ref_end).substr(window.ref_start, window.ref_end - window.ref_start),
-                                          window.max_score, m_aligner.Mismatch(), m_aligner.GapOpening(), m_aligner.GapExtension());
+                                          window.max_score, m_aligner.Mismatch(), m_aligner.GapOpening(), m_aligner.GapExtension()) :
+                        stretch.kmers != nullptr ?
+                        m_screen.MayAlignPacked(*stretch.kmers, anchor.forward, anchor.forward ? stretch.fwd_offset : stretch.rev_offset,
+                                                read.length(), begin_free, end_free, packed, packed::Bytes(gene.GetLength()),
+                                                window.ref_start, window.ref_end, window.max_score, m_aligner.Mismatch(),
+                                                m_aligner.GapOpening(), m_aligner.GapExtension()) :
+                        m_screen.MayAlignPacked(read, begin_free, end_free, packed, packed::Bytes(gene.GetLength()), window.ref_start,
+                                                window.ref_end, window.max_score, m_aligner.Mismatch(), m_aligner.GapOpening(),
+                                                m_aligner.GapExtension());
                 m_bm_screen.Stop();
                 if (!may_align) {
                     m_screened_alignments++;
@@ -701,6 +711,9 @@ namespace protal {
 
             Anchor* last_anchor = nullptr;
             m_attempted.clear();
+            // rev is fwd's reverse complement as KmerUtils::ReverseComplementInto writes it (here or the anchor finder's).
+            m_read_kmers.Set(fwd, rev);
+            AlignmentScreen::ReadStretch const stretch{ &m_read_kmers, 0, 0 };
 
             for (auto& anchor : anchors) {
                 if (--take_top < 0 && (last_anchor && last_anchor->total_length != anchor.total_length)) {
@@ -712,7 +725,7 @@ namespace protal {
 
                 m_alignment_result.GetAlignmentInfo().Reset();
 
-                auto success = AlignAnchor(anchor, m_alignment_result, fwd, rev, false, header);
+                auto success = AlignAnchor(anchor, m_alignment_result, fwd, rev, false, header, INT32_MAX, stretch);
 
                 if (success && m_alignment_result.GetAlignmentInfo().GetProxyANI() >= m_max_score_ani) {
                     // Moved, not copied: AlignAnchor sets every field again for the next anchor.

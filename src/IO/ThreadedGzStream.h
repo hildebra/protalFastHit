@@ -3,7 +3,6 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <zlib-ng.h>
 #include <zstd.h>
 
 #include <algorithm>
@@ -14,7 +13,9 @@
 #include <cstring>
 #include <deque>
 #include <istream>
+#include <memory>
 #include <mutex>
+#include <new>
 #include <streambuf>
 #include <string>
 #include <thread>
@@ -31,10 +32,13 @@ namespace protal {
     // inflated the input, which capped a run at one core's inflate speed (~200k read pairs/s)
     // whatever -t was. Here the lock holder only copies bytes that are already inflated, and the
     // two files of a pair inflate in parallel. A BGZF file (Bgzf.h: bgzip's, protal's) is
-    // inflated block by block with libdeflate; any other gzip file with zlib-ng (lib/zlib-ng.cmake),
-    // which streams (libdeflate cannot); a zstd file (its frames, one after the other, skippable ones
-    // too, any window zstd --long writes) with libzstd's streaming decompression. The format is
-    // told from the first bytes, not from the name; a file of none of them is read as it is.
+    // inflated block by block, any other gzip file streamed, both with ISA-L (igzip, Bgzf.h); a
+    // single-member .fq.gz inflates at about 1 GB/s of FASTQ on one thread, 1.6-1.8x zlib-ng's speed,
+    // which inflated it before and capped paired-end runs at 32 threads near 1.8M pairs/s
+    // (docs/claude/2026-10-06-performance-profiling). A zstd file (its frames, one after the other,
+    // skippable ones too, any window zstd --long writes) is read with libzstd's streaming
+    // decompression. The format is told from the first bytes, not from the name; a file of none of
+    // them is read as it is.
     //
     // As with igzstream, a truncated or corrupt file reads as one that ends early; read_failed()
     // tells the two apart once reading has stopped. A BGZF file must end with its end-of-file
@@ -50,7 +54,7 @@ namespace protal {
     public:
         static constexpr size_t kBlockSize = size_t{1} << 20;  // inflated bytes per block
         static constexpr size_t kBlocks = 4;
-        static constexpr uint32_t kZlibBuffer = 1u << 17;      // compressed bytes per read()
+        static constexpr uint32_t kInputBuffer = 1u << 17;     // compressed bytes per read()
 
         ThreadedGzStreambuf() = default;
         ThreadedGzStreambuf(ThreadedGzStreambuf const&) = delete;
@@ -113,8 +117,7 @@ namespace protal {
             }
             m_cv.notify_all();
             if (m_thread.joinable()) m_thread.join();
-            if (m_zs_open) zng_inflateEnd(&m_zs);
-            m_zs_open = false;
+            m_inflate.reset();
             if (m_zstd) ZSTD_freeDCtx(m_zstd);
             m_zstd = nullptr;
             ::close(m_fd);
@@ -283,21 +286,46 @@ namespace protal {
         }
 
         // Reads the rest of the file with FillStream, from its first `got` bytes in m_block_in (read
-        // there by FillBgzf, else none); false if zlib-ng cannot start (error then set).
+        // there by FillBgzf, else none); false if the inflate state cannot be had (error then set).
         bool StartGzip(size_t got, std::string& error) {
             m_bgzf = false;
-            m_block_in.resize(std::max<size_t>(m_block_in.size(), kZlibBuffer));
+            m_block_in.resize(std::max<size_t>(m_block_in.size(), kInputBuffer));
             m_in_pos = 0;
             m_in_end = got;
             m_in_eof = got > 0 && got < bgzf::kHeaderBytes;  // FillBgzf read fewer only at the end
             m_mode = Mode::Look;
-            std::memset(&m_zs, 0, sizeof(m_zs));
-            if (zng_inflateInit2(&m_zs, 15 + 16) != Z_OK) {  // 15 + 16: a gzip wrapper
-                error = "cannot start zlib-ng";
+            try {
+                m_inflate = std::make_unique<inflate_state>();  // ~85 KB
+            } catch (std::bad_alloc const&) {
+                error = "out of memory for the gzip inflate state";
                 return false;
             }
-            m_zs_open = true;
+            isal_inflate_init(m_inflate.get());
             return true;
+        }
+
+        // A gzip member begins at the unread input: its header is read next, then its deflate data and trailer,
+        // which ISA-L checks (CRC-32 and length). The header is read with a state of its own (m_gz_header):
+        // isal_inflate's own header reading (crc_flag ISAL_GZIP) fails on a header with a header CRC, or with two
+        // of name, comment and extra field, that is split between two reads of the file (ISA-L 2.32.1).
+        void StartMember() {
+            isal_inflate_reset(m_inflate.get());
+            m_inflate->crc_flag = ISAL_GZIP_NO_HDR_VER;
+            isal_gzip_header_init(&m_gz_header);  // no buffers: the name, comment and extra field are skipped
+            m_header_read = false;
+        }
+
+        // What an ISA-L error code says, as zlib words it.
+        static char const* InflateError(int ret) {
+            switch (ret) {
+                case ISAL_INVALID_BLOCK: return "invalid block type";
+                case ISAL_INVALID_SYMBOL: return "invalid code";
+                case ISAL_INVALID_LOOKBACK: return "invalid distance too far back";
+                case ISAL_INVALID_WRAPPER: return "incorrect header check";
+                case ISAL_UNSUPPORTED_METHOD: return "unknown compression method";
+                case ISAL_INCORRECT_CHECKSUM: return "incorrect data or length check";
+                default: return "corrupt gzip data";
+            }
         }
 
         // A zstd frame's magic number, or a skippable frame's (pzstd and the seekable format write them).
@@ -359,7 +387,7 @@ namespace protal {
                     if (left == 0) return true;  // the end of the file
                     unsigned char const* in = m_block_in.data() + m_in_pos;
                     if (left >= 2 && in[0] == 0x1f && in[1] == 0x8b) {
-                        if (m_members > 0) zng_inflateReset(&m_zs);
+                        StartMember();
                         m_members++;
                         m_mode = Mode::Gzip;
                     } else if (m_members == 0 && left >= 4 && IsZstdFrame(in)) {
@@ -387,31 +415,41 @@ namespace protal {
                     size += n;
                     continue;
                 }
-                // Mode::Gzip
+                // Mode::Gzip: the member's header, then its deflate data and trailer. At the member's end ISA-L
+                // gives back the bytes it read past the trailer, so the unread input starts where the member ends.
                 if (!Available(1, error)) return true;
                 if (m_in_end == m_in_pos) {
                     error = "the file ends inside gzip member " + std::to_string(m_members) + " (truncated file?)";
                     return true;
                 }
-                m_zs.next_in = m_block_in.data() + m_in_pos;
-                m_zs.avail_in = static_cast<uint32_t>(m_in_end - m_in_pos);
-                m_zs.next_out = reinterpret_cast<unsigned char*>(data + size);
-                m_zs.avail_out = static_cast<uint32_t>(kBlockSize - size);
-                int const ret = zng_inflate(&m_zs, Z_NO_FLUSH);
-                size_t const used = (m_in_end - m_in_pos) - m_zs.avail_in;
+                inflate_state& state = *m_inflate;
+                size_t const had = m_in_end - m_in_pos;
+                size_t const size_before = size;
+                state.next_in = m_block_in.data() + m_in_pos;
+                state.avail_in = static_cast<uint32_t>(had);
+                int ret;
+                if (!m_header_read) {
+                    ret = isal_read_gzip_header(&state, &m_gz_header);
+                    m_header_read = ret == ISAL_DECOMP_OK;
+                    if (ret > 0) ret = ISAL_DECOMP_OK;  // ISAL_END_INPUT: more of the header to come
+                } else {
+                    state.next_out = reinterpret_cast<uint8_t*>(data + size);
+                    state.avail_out = static_cast<uint32_t>(kBlockSize - size);
+                    ret = isal_inflate(&state);
+                    size = kBlockSize - state.avail_out;
+                }
+                size_t const used = had - state.avail_in;
                 m_in_pos += used;
                 m_offset += used;
-                size = kBlockSize - m_zs.avail_out;
-                if (ret == Z_STREAM_END) {
-                    m_mode = Mode::Look;
-                } else if (ret != Z_OK && ret != Z_BUF_ERROR) {
-                    error = std::string(m_zs.msg ? m_zs.msg : "corrupt gzip data") + " in gzip member " +
-                            std::to_string(m_members) + " (corrupt file?)";
+                if (ret != ISAL_DECOMP_OK) {
+                    error = std::string(InflateError(ret)) + " in gzip member " + std::to_string(m_members) + " (corrupt file?)";
                     return true;
-                } else if (used == 0 && m_zs.avail_out > 0) {
-                    // Nothing consumed although there is room and input: more input is needed.
+                }
+                if (m_header_read && state.block_state == ISAL_BLOCK_FINISH) {
+                    m_mode = Mode::Look;
+                } else if (used == 0 && size == size_before && size < kBlockSize) {
+                    // Nothing consumed or made although there is room and input: more input is needed.
                     std::string more;
-                    size_t const had = m_in_end - m_in_pos;
                     if (!Available(had + 1, more)) { error = more; return true; }
                     if (m_in_end - m_in_pos == had) {
                         error = "the file ends inside gzip member " + std::to_string(m_members) + " (truncated file?)";
@@ -467,8 +505,9 @@ namespace protal {
         bool m_in_eof = false;                           // FillStream: the file has no more bytes
         size_t m_members = 0;                            // gzip members begun (BGZF blocks read; zstd frames ended)
         Mode m_mode = Mode::Look;
-        zng_stream m_zs {};
-        bool m_zs_open = false;
+        std::unique_ptr<inflate_state> m_inflate;        // a gzip member's inflate state (ISA-L, ~85 KB)
+        isal_gzip_header m_gz_header {};                 // its header's, while it is read
+        bool m_header_read = false;                      // the member's header has been read
         ZSTD_DCtx* m_zstd = nullptr;                     // a zstd file's decompression
         bool m_zstd_in_frame = false;                    // a zstd frame has begun and not ended
         bool m_last_empty = false;                       // the last block read was empty (the EOF marker)

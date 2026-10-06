@@ -1,5 +1,5 @@
 // SamFile.h - SAM files as protal writes and reads them: plain (.sam), gzip (.sam.gz, written as
-// BGZF blocks with libdeflate, Bgzf.h) or zstd (.sam.zst, written in zstd's seekable format),
+// BGZF blocks with ISA-L, Bgzf.h) or zstd (.sam.zst, written in zstd's seekable format),
 // chosen by the file name.
 //
 // Writing (SamOutput): the output handlers of all alignment threads hand over blocks of whole
@@ -604,7 +604,7 @@ namespace protal {
                 }
                 m_stream = m_zin.get();
             } else {
-                // Plain or gzip: BGZF inflated with libdeflate, other gzip with zlib-ng, in a thread of its own.
+                // Plain or gzip (BGZF or not, inflated with ISA-L), in a thread of its own.
                 if (bgzf::StartsAsBgzf(path) && !bgzf::EndsWithEof(path)) m_problem = "the BGZF end-of-file block is missing";
                 m_gz = std::make_unique<ThreadedGzIstream>(path.c_str());
                 m_stream = m_gz.get();

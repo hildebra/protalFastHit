@@ -1,15 +1,22 @@
-// Bgzf.h - gzip as protal writes it, and reads it where it can, with libdeflate.
+// Bgzf.h - gzip as protal writes it, and reads it where it can, with ISA-L (igzip).
 //
 // protal writes gzip (.sam.gz, the simulator's .fq.gz) as BGZF (SAM specification, section 4.1):
 // gzip members of at most 64 KB, each with its size in a "BC" extra field, then an empty member
 // as end-of-file marker. zcat, gzip and zlib read it as any multi-member gzip file; htslib reads
-// its blocks independently. Every block is compressed and decompressed whole, which is what
-// libdeflate does (inflating about 3x as fast as zlib and 2x as fast as zlib-ng, but it cannot
-// stream). Other gzip files, e.g. the single-member .fq.gz of sequencers, are read with zlib-ng's
-// streaming inflate (ThreadedGzStream.h).
+// its blocks independently. Every block is compressed and decompressed whole, with ISA-L's
+// stateless (de)compression. Other gzip files, e.g. the single-member .fq.gz of sequencers, are read
+// with ISA-L's streaming inflate (ThreadedGzStream.h).
+//
+// ISA-L (docs/claude/2026-10-06-performance-profiling, the ISA-L section): it inflates about 1.6-1.8x
+// as fast as zlib-ng, which read single-member gzip before (libdeflate, which read BGZF before, was
+// 10-20% faster on whole blocks but cannot stream); at level 1 it deflates about 7x as fast as
+// libdeflate's level 6, which wrote BGZF before, into files about 16% larger. Its levels 1 and 2 wrote
+// the same bytes through its SSE4.2, AVX and AVX2 code (AVX-512 not checked), level 3 not (its AVX2
+// path matches differently).
 #pragma once
 
-#include <libdeflate.h>
+#include <isa-l/crc.h>
+#include <isa-l/igzip_lib.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -18,6 +25,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -26,7 +34,8 @@ namespace protal::bgzf {
     inline constexpr size_t kBlockInput = 0xff00;      // input bytes per block, as htslib
     inline constexpr size_t kMaxBlock = 0x10000;       // a block's size must fit its 16-bit field
     inline constexpr size_t kHeaderBytes = 18, kFooterBytes = 8;
-    inline constexpr int kLevel = 6;                   // gzip's default, as pigz
+    inline constexpr uint32_t kLevel = 1;              // ISA-L's: level 2 compresses no better, 3 differs by CPU
+    inline constexpr uint32_t kLevelBuffer = ISAL_DEF_LVL1_DEFAULT;  // fixed: the output depends on it
     inline constexpr unsigned char kHeader[16] = { 0x1f, 0x8b, 8, 4, 0, 0, 0, 0, 0, 0xff, 6, 0, 'B', 'C', 2, 0 };
     inline constexpr unsigned char kEof[28] = { 0x1f, 0x8b, 8, 4, 0, 0, 0, 0, 0, 0xff, 6, 0, 'B', 'C', 2, 0,
                                                 0x1b, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -44,44 +53,55 @@ namespace protal::bgzf {
         return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
     }
 
-    // A libdeflate compressor at one level, for one thread.
+    // An ISA-L compressor at kLevel, for one thread: raw deflate of a whole block. Its state and level
+    // buffer (~80 and ~280 KB) are kept for the thread's blocks.
     class Deflater {
     public:
-        explicit Deflater(int level) : m_c(libdeflate_alloc_compressor(level)) {}
-        ~Deflater() {
-            if (m_c) libdeflate_free_compressor(m_c);
-        }
-        Deflater(Deflater const&) = delete;
-        Deflater& operator=(Deflater const&) = delete;
+        Deflater() : m_stream(std::make_unique<isal_zstream>()), m_level_buffer(kLevelBuffer) {}
 
-        // Raw deflate of [in, in + size) into out; the compressed size, or 0 if it does not fit.
+        // Raw deflate of [in, in + size) into out; the compressed size, or 0 if it does not fit. A block
+        // that does not shrink is stored (ISA-L does it), so kBlockInput bytes always fit the BGZF limit.
         size_t Compress(char const* in, size_t size, unsigned char* out, size_t capacity) {
-            return m_c ? libdeflate_deflate_compress(m_c, in, size, out, capacity) : 0;
+            isal_zstream& stream = *m_stream;
+            isal_deflate_stateless_init(&stream);  // raw deflate (IGZIP_DEFLATE), the whole input at once
+            stream.level = kLevel;
+            stream.level_buf = m_level_buffer.data();
+            stream.level_buf_size = static_cast<uint32_t>(m_level_buffer.size());
+            stream.end_of_stream = 1;
+            stream.flush = NO_FLUSH;
+            stream.next_in = reinterpret_cast<uint8_t*>(const_cast<char*>(in));
+            stream.avail_in = static_cast<uint32_t>(size);
+            stream.next_out = out;
+            stream.avail_out = static_cast<uint32_t>(std::min<size_t>(capacity, UINT32_MAX));
+            return isal_deflate_stateless(&stream) == COMP_OK ? stream.total_out : 0;
         }
 
     private:
-        libdeflate_compressor* m_c;
+        std::unique_ptr<isal_zstream> m_stream;
+        std::vector<uint8_t> m_level_buffer;
     };
 
-    // Appends [data, data + size) to out as BGZF blocks, deflated at kLevel. A block that does not
-    // shrink below the 64 KB limit (random data) is stored instead. False only if libdeflate fails
-    // (out of memory).
+    // The CRC-32 of gzip, as zlib's crc32(0, data, size).
+    inline uint32_t Crc32(void const* data, size_t size) {
+        return crc32_gzip_refl(0, static_cast<unsigned char const*>(data), size);
+    }
+
+    // Appends [data, data + size) to out as BGZF blocks, deflated at kLevel (a block that does not
+    // shrink is stored). False only if ISA-L fails.
     inline bool Compress(char const* data, size_t size, std::string& out) {
-        thread_local Deflater deflater(kLevel);
-        thread_local Deflater store(0);
+        thread_local Deflater deflater;
         constexpr size_t kPayload = kMaxBlock - kHeaderBytes - kFooterBytes;
         for (size_t offset = 0; offset < size; offset += kBlockInput) {
             size_t const n = std::min(kBlockInput, size - offset);
             size_t const start = out.size();
             out.resize(start + kMaxBlock);
             auto* block = reinterpret_cast<unsigned char*>(out.data() + start);
-            size_t compressed = deflater.Compress(data + offset, n, block + kHeaderBytes, kPayload);
-            if (compressed == 0) compressed = store.Compress(data + offset, n, block + kHeaderBytes, kPayload);
+            size_t const compressed = deflater.Compress(data + offset, n, block + kHeaderBytes, kPayload);
             if (compressed == 0) return false;
             size_t const total = kHeaderBytes + compressed + kFooterBytes;
             std::memcpy(block, kHeader, sizeof(kHeader));
             PutLE16(block + 16, static_cast<uint32_t>(total - 1));
-            PutLE32(block + kHeaderBytes + compressed, libdeflate_crc32(0, data + offset, n));
+            PutLE32(block + kHeaderBytes + compressed, Crc32(data + offset, n));
             PutLE32(block + kHeaderBytes + compressed + 4, static_cast<uint32_t>(n));
             out.resize(start + total);
         }
@@ -102,13 +122,7 @@ namespace protal::bgzf {
     // Decompresses the whole block [block, block + size) into out (capacity bytes, at least its
     // content): its content size in n, or false and error for a corrupt block.
     inline bool DecompressBlock(unsigned char const* block, size_t size, char* out, size_t capacity, size_t& n, std::string& error) {
-        struct Inflater {
-            libdeflate_decompressor* d = libdeflate_alloc_decompressor();
-            ~Inflater() {
-                if (d) libdeflate_free_decompressor(d);
-            }
-        };
-        thread_local Inflater inflater;
+        thread_local std::unique_ptr<inflate_state> const state = std::make_unique<inflate_state>();  // ~85 KB
         if (size < kHeaderBytes + kFooterBytes || !IsBlockHeader(block) || BlockSize(block) != size) {
             error = "not a BGZF block";
             return false;
@@ -118,16 +132,18 @@ namespace protal::bgzf {
             error = "a BGZF block holds more than 64 KB";
             return false;
         }
-        if (!inflater.d) {
-            error = "out of memory";
-            return false;
-        }
-        if (libdeflate_deflate_decompress(inflater.d, block + kHeaderBytes, size - kHeaderBytes - kFooterBytes, out, isize,
-                                          nullptr) != LIBDEFLATE_SUCCESS) {
+        // Raw deflate, the whole block at once: its content must be exactly isize bytes.
+        isal_inflate_init(state.get());
+        state->crc_flag = ISAL_DEFLATE;
+        state->next_in = const_cast<uint8_t*>(block + kHeaderBytes);
+        state->avail_in = static_cast<uint32_t>(size - kHeaderBytes - kFooterBytes);
+        state->next_out = reinterpret_cast<uint8_t*>(out);
+        state->avail_out = isize;
+        if (isal_inflate_stateless(state.get()) != ISAL_DECOMP_OK || state->total_out != isize) {
             error = "a corrupt BGZF block";
             return false;
         }
-        if (libdeflate_crc32(0, out, isize) != crc) {
+        if (Crc32(out, isize) != crc) {
             error = "a BGZF block fails its CRC check";
             return false;
         }

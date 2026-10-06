@@ -169,7 +169,7 @@ protal --db DB --map sims/protal.meta -t 8      # prints true and false positive
 | `--read_length`, `--fragment_mean`, `--fragment_stdev`, `--sequencer` | 150, 350, 50, `HS25` | ART's read, fragment and error profile; `--extra_art_args` passes more |
 | `-t, --threads` | 1 | samples at a time; more threads run ART on a sample's genomes side by side. The samples are the same for any number |
 | `--test` | off | the design, manifests and truth, no reads |
-| `--reads_compression` | bgzf | `bgzf` (`.fq.gz`) or `zstd` (`.fq.zst`: as small, several times faster to write; protal reads both) |
+| `--reads_compression` | bgzf | `bgzf` (`.fq.gz`, ISA-L at level 1) or `zstd` (`.fq.zst`: about 15% smaller, about half as fast to write; protal reads both) |
 | `--keep_tmp`, `--art_path`, `-v` | | keep each genome's reads; ART's path; the version and commit |
 
 **Strains shared across samples.** `--strain_sharing_file` takes a tab-separated file, one species

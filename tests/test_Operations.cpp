@@ -30,7 +30,7 @@ namespace {
         return std::string(std::istreambuf_iterator<char>(in), {});
     }
 
-    // A gzip file's content as a reader other than libdeflate reads it (zlib-ng; zcat reads the same).
+    // A gzip file's content as a reader other than protal's (ISA-L) reads it (zlib-ng; zcat reads the same).
     std::string Gunzip(fs::path const& p) {
         gzFile f = zng_gzopen(p.c_str(), "rb");
         std::string text;

@@ -1,0 +1,67 @@
+== 3b: 5-member stream, headers parsed by the caller (isal_read_gzip_header + ISAL_GZIP_NO_HDR_VER)
+  ok for input chunks 1,2,3,5,7,11,13,64,1000,4096,128Ki,all
+== 3a/3b: isal_inflate, crc_flag ISAL_GZIP, multi-member, byte-wise feeding
+  FAIL: 5-member stream, in-chunk 1 out-chunk 1048576: ret -3 members 3
+  FAIL: 5-member stream, in-chunk 2 out-chunk 1048576: ret -3 members 3
+  FAIL: 5-member stream, in-chunk 3 out-chunk 1048576: ret -3 members 3
+  FAIL: 5-member stream, in-chunk 5 out-chunk 1048576: ret -3 members 3
+  FAIL: 5-member stream, in-chunk 7 out-chunk 1048576: ret -3 members 3
+  FAIL: 5-member stream, in-chunk 11 out-chunk 1048576: ret -3 members 3
+  FAIL: 5-member stream, in-chunk 13 out-chunk 1048576: ret -3 members 3
+  FAIL: 5-member stream, in-chunk 64 out-chunk 1: ret -3 members 3
+  FAIL: 5-member stream, in-chunk 64 out-chunk 7: ret -3 members 3
+  FAIL: 5-member stream, in-chunk 64 out-chunk 1048576: ret -3 members 3
+  single member, header no flags                    : ok for input chunks of 1..16 bytes
+  single member, header FNAME                       : ok for input chunks of 1..16 bytes
+  single member, header FEXTRA (BGZF)               : ok for input chunks of 1..16 bytes
+  single member, header FEXTRA+FNAME+FCOMMENT+FHCRC : FAILS for 16 of 16 chunk sizes (first: chunk 1, ret -3)
+  HDR_ALL member split into two reads at offset k (header is 108 bytes): k=1(ret -6) k=2(ret -6) k=3(ret -6) k=4(ret -6) k=5(ret -6) k=6(ret -6) k=7(ret -6) k=8(ret -6) k=9(ret -6) k=10(ret -3) k=11(ret -3) k=12(ret -3) k=13(ret -3) k=14(ret -3) k=15(ret -3) k=16(ret -3) k=17(ret -3) k=18(ret -3) k=19(ret -3) k=20(ret -3) k=21(ret -3) k=22(ret -3) k=23(ret -3) k=24(ret -3) k=25(ret -3) k=26(ret -3) k=27(ret -3) k=28(ret -3) k=29(ret -3) k=30(ret -3) k=31(ret -3) k=32(ret -3) k=33(ret -3) k=34(ret -3) k=35(ret -1) k=36(ret -1) k=37(ret -1) k=38(ret -1) k=39(ret -1) k=40(ret -1) k=41(ret -1) k=42(ret -1) k=43(ret -1) k=44(ret -1) k=45(ret -1) k=46(ret -1) k=47(ret -1) k=48(ret -1) k=49(ret -1) k=50(ret -1) k=51(ret -1) k=52(ret -1) k=53(ret -1) k=54(ret -1) k=55(ret -1) k=56(ret -1) k=57(ret -1) k=58(ret -1) k=59(ret -1) k=60(ret -1) k=61(ret -1) k=62(ret -1) k=63(ret -1) k=64(ret -1) k=65(ret -1) k=66(ret -1) k=67(ret -1) k=68(ret -1) k=69(ret -1) k=70(ret -1) k=71(ret -1) k=72(ret -1) k=73(ret -1) k=74(ret -1) k=75(ret -1) k=76(ret -1) k=77(ret -1) k=78(ret -1) k=79(ret -1) k=80(ret -1) k=81(ret -1) k=82(ret -1) k=83(ret -1) k=84(ret -1) k=85(ret -1) k=86(ret -1) k=87(ret -1) k=88(ret -1) k=89(ret -1) k=90(ret -1) k=91(ret -1) k=92(ret -1) k=93(ret -1) k=94(ret -1) k=95(ret -1) k=96(ret -1) k=97(ret -1) k=98(ret -1) k=99(ret -1) k=100(ret -1) k=101(ret -1) k=102(ret -1) k=103(ret -1) k=104(ret -1) k=105(ret -1) k=106(ret -6) k=107(ret -6)  <- failing split points
+  HDR_ALL via persistent isal_read_gzip_header + ISAL_GZIP_NO_HDR_VER, chunks 1..16: ok
+== 3a/3c: return codes
+  half the input: ret 0, avail_in 0, block_state 3 (FINISH=5)
+  1000-byte output buffer: ret 0, avail_out 0, avail_in 8572, block_state 3
+  input ends 3 bytes before the end of the trailer: ret 0, block_state 12 (CHECKSUM_CHECK=12), total_out 100000
+    ... then the last 3 bytes: ret 0, block_state 5
+  CRC32 byte flipped        : isal_inflate ret -6
+  ISIZE byte flipped        : isal_inflate ret -6
+  ID2 wrong (0x8c)          : isal_inflate ret -4
+  CM = 7                    : isal_inflate ret -5
+  deflate data byte flipped : isal_inflate ret -3
+  FHCRC mismatch            : isal_inflate ret -6
+  member + 16 zero bytes: ret 0, block_state 5, avail_in 16 (expect 16: next_in is just past the trailer)
+    ... isal_inflate_reset and continue on the zeros: ret -4
+== 3e: isal_inflate_stateless
+  raw deflate only, ISAL_DEFLATE        : ret 0, total_out 65280, crc 00000000 (crc32 7f3899a0), avail_in left 0
+  raw deflate only, ISAL_GZIP_NO_HDR    : ret 0, total_out 65280, crc 7f3899a0 (crc32 7f3899a0), avail_in left 0
+  raw deflate only, ISAL_GZIP_NO_HDR_VER: ret 1, total_out 65280, crc 7f3899a0 (crc32 7f3899a0), avail_in left 0
+  deflate + 8-byte trailer + 5 extra bytes, ISAL_GZIP_NO_HDR    : ret 0, crc 7f3899a0, avail_in left 13
+  deflate + 8-byte trailer + 5 extra bytes, ISAL_GZIP_NO_HDR_VER: ret 0, crc 7f3899a0, avail_in left 5
+  wrong CRC in trailer, ISAL_GZIP_NO_HDR_VER: ret -6
+  avail_out one byte short: ret 2
+  half the deflate input: ret 1
+  BGZF member + 28 bytes, ISAL_GZIP: ret 0, total_out 65280, crc 7f3899a0, avail_in left 28
+  same, state memset to 0xa5 instead of isal_inflate_init: ret 0, total_out 65280
+== 3f: isal_deflate_stateless
+  ISAL_DEF_LVLx_MIN: 24576 73728 90112, _DEFAULT (=_LARGE): 282624 331776 348160, _EXTRA_LARGE: 544768 593920 610304
+  L0 random 65280 bytes, avail_out 65510: ret 0, size 65285, first byte 0x01 (BTYPE 0), decodes ok
+     avail_out 65285 (= stored size): ret 0 size 65285; avail_out 65284: ret -1; FASTQ block into 1000 bytes: ret -1
+  L1 random 65280 bytes, avail_out 65510: ret 0, size 65285, first byte 0x01 (BTYPE 0), decodes ok
+     avail_out 65285 (= stored size): ret 0 size 65285; avail_out 65284: ret -1; FASTQ block into 1000 bytes: ret -1
+     same bytes for the same block: after other blocks in the same level_buf yes, level_buf full of garbage yes,
+       EXTRA_LARGE level_buf yes (size 19064), SMALL level_buf yes (size 19064 vs 19064), total_in=98765 on entry yes (size 19064)
+     L1 with level_buf NULL: ret 0 size 19025 (with DEFAULT level_buf: 19025)
+  L2 random 65280 bytes, avail_out 65510: ret 0, size 65285, first byte 0x01 (BTYPE 0), decodes ok
+     avail_out 65285 (= stored size): ret 0 size 65285; avail_out 65284: ret -1; FASTQ block into 1000 bytes: ret -1
+     same bytes for the same block: after other blocks in the same level_buf yes, level_buf full of garbage yes,
+       EXTRA_LARGE level_buf yes (size 19064), SMALL level_buf yes (size 19064 vs 19064), total_in=98765 on entry yes (size 19064)
+  L3 random 65280 bytes, avail_out 65510: ret 0, size 65285, first byte 0x01 (BTYPE 0), decodes ok
+     avail_out 65285 (= stored size): ret 0 size 65285; avail_out 65284: ret -1; FASTQ block into 1000 bytes: ret -1
+     same bytes for the same block: after other blocks in the same level_buf yes, level_buf full of garbage yes,
+       EXTRA_LARGE level_buf yes (size 19254), SMALL level_buf yes (size 19254 vs 19254), total_in=98765 on entry yes (size 19254)
+  IGZIP_GZIP: ret 0, size 19043, header bytes: 1f 8b 08 00 00 00 00 00 00 ff, libdeflate_gzip_decompress 0
+== 3g: crc32_gzip_refl vs zng_crc32 / libdeflate_crc32
+  3936 (init, buffer, length) cases: 0 mismatches (dispatched, _base, _by8, _avx2 vs zng_crc32 and libdeflate_crc32)
+  chaining: whole 8fb10ef1, three chained pieces 8fb10ef1, zng 8fb10ef1
+  len 0: crc32_gzip_refl(0x1234, NULL, 0) = 00001234, zng_crc32(0x1234, NULL, 0) = 00000000, zng_crc32(0x1234, buf, 0) = 00001234
+
+10 check failures

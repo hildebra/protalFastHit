@@ -72,7 +72,8 @@ seeding also waits on memory is for the next cluster run to show.
 ## What I would do, in order
 
 Items 1, 2, 3 and 5 were implemented the same day, outputs unchanged: see
-[the follow-up](#follow-up-the-same-day-items-1-3-and-the-counters-implemented).
+[the follow-up](#follow-up-the-same-day-items-1-3-and-the-counters-implemented). After the twelfth cluster run, items 4
+and 7 and ISA-L for gzip followed: see [that section](#after-the-twelfth-run-shared-seeds-the-reads-packed-strands-isa-l).
 
 | # | change | where | exact | evidence | expected at r226 |
 |---|---|---|---|---|---|
@@ -406,6 +407,216 @@ Wall times here were not measurable (load 5-9 from other sessions); the next clu
 on the r226 database, as the eleventh) shows the time, the anchors per mate and the share of seeds in shared genes,
 which decide items 6 and 7.
 
+## The twelfth cluster run: `cdce3c0` at r226
+
+SLURM job 24004543 (the user's), `scripts/measure_performance.sh` at `cdce3c0` on node `q512n17`, 32 threads, the r226 v11
+database and the same two samples as the eleventh run; [`results/cluster_v12/`](results/cluster_v12/) (copied unchanged from
+`local/Perf0.7.5v12/`). The first paired-end run loaded the index cold from NFS (251 s) and is left out of the paired-end
+medians. Against the eleventh run (`2093770`), which predates 0.7.7: of the changes between them only `cdce3c0` touches the
+alignment stage. 0.7.7's two (the index load's allowance, the read EM capped at 100 sweeps) and the gradient-boosted
+models of `1750475` touch the load and the profiling stage.
+
+| | eleventh (`2093770`) | twelfth (`cdce3c0`) | |
+|---|---|---|---|
+| pe wall (median) | 42.2 s | **36.6 s** (36.2, 37.0) | −13% |
+| pe aligning | 32.5 s | 28.4-29.0 s | −11% |
+| pe user time; instructions | 1,218 s; 8.76 T | 1,051 s; 7.33 T | −14%; −16% |
+| HiFi wall | 15.6 s | **13.7 s** | −12% |
+| HiFi aligning | 10.5 s | 9.4 s | −10% |
+| HiFi instructions | 4.00 T | 3.60 T | −10% |
+| index load | 3.26 s | 2.66 s | 0.7.7's allowance, as expected |
+| pe profiling | 3.8 s | 3.1 s | read EM 1.18 → 0.64 s (0.7.7's cap) |
+| peak memory | 34.2 GB | 34.2 GB | |
+
+Per thread (medians over the runs, `stages.tsv`):
+
+| stage, s per thread | pe eleventh | pe twelfth | | HiFi eleventh | HiFi twelfth | |
+|---|---|---|---|---|---|---|
+| seeding | 15.63 | 12.51 | −20% | 3.26 | 2.83 | −13% |
+| extending anchors | 3.67 | 2.05 | −44% | 0.97 | 0.55 | −43% |
+| alignment handler | 3.92 | 3.36 | −14% | 10.45 | 9.28 | −11% |
+| – of which the k-mer screen (new timer) | | 1.91 | | | 0.99 | |
+| sorting seeds | 3.40 | 3.39 | | 1.26 | 1.26 | |
+| taking the k-mers | 1.98 | 1.94 | | | | |
+| sequence reader | 1.08 | **2.87** | +166% | 0.48 | 0.51 | |
+| output handler | 0.65 | 0.89 | +37% | 0.10 | 0.10 | |
+
+(For HiFi the seeding, sorting and extending run inside the alignment handler's time.)
+
+- **The predictions held.** The seeding fell by 3.1 s per thread (predicted 2-5 s), and the extension by 44%: the queued
+  gene misses were most of it, as the numbers suggested. The k-mer screen, timed for the first time, is 57% of the
+  paired-end alignment handler after its own −33%. The instructions fell by 1.43 T (pe), of which ~1.1 T were predicted
+  for the lookups alone.
+- **The paired-end run is now limited by its gzip input.** The sequence reader's time per thread rose by 1.8 s while
+  everything around it fell: the aligners wait for reads. The run aligned 50.6M pairs in 28.4-29.0 s, 1.75-1.78M pairs/s,
+  and each FASTQ file is inflated by one zlib-ng thread, whose ceiling the multithreading audit put at 1.8-2.0M pairs/s
+  ([2026-10-01](../2026-10-01-multithreading-audit/README.md), follow-up 2). Without that wait the aligning would be about
+  27.2 s. So for gzip input at 32 threads and more, further alignment savings show only once the input is faster:
+  zstd input (`.fq.zst`, which protal reads since `e7b391e`; its frames could be inflated in parallel) or BGZF for
+  measuring the alignment itself, and for gzip a faster single-stream inflater (ISA-L's igzip inflates about twice as
+  fast as zlib-ng) or parallel inflation of a single gzip member (as rapidgzip does), a larger piece of work. The HiFi run
+  is not input-bound (0.5 s per thread in the reader).
+- **The counters at r226.** pe: 4.37G seeds, of which 550M (12.6%) share their taxon and gene with another seed of their
+  read; 6.98M lookups dropped as too ubiquitous (0.31%); 211M anchors (2.09 per mate; an extension now costs ~310 ns of a
+  thread per anchor). HiFi: 964M seeds, 155M (16.1%) shared; 124k lookups dropped; 46.6M anchors (93.6 per read). So 87%
+  of the paired-end seeds (84% HiFi) are sorted only for `FindPairs` to skip them: item 7 (count each read's (taxid, gene)
+  first, sort and pair only the shared ones) would take most of the 3.4 s per thread of sorting (1.3 s HiFi), exactly.
+- **The strain stage** of the cohort run took 5.6 s against 3.0 s: building the MSAs (51 against 24 s summed) and qcMSA (a
+  Python process per species: 92 against 44 s) both doubled, as on the tenth run's node: the node's NFS, not the code.
+
+What is left, by what it would give at r226 now: the input path for gzip (pe at 32+ threads), sorting only the shared
+seeds (pe −2-3 s, HiFi −1 s per thread, exact), the screen's read side from codes made once per read (−~1 s pe, −0.5 s
+HiFi), then the seeding's remaining 12.5 s per thread (memory-bound lookups; interleaving reads, the options of the
+GTDB-scale report).
+
+## After the twelfth run: shared seeds, the read's packed strands, ISA-L
+
+At the user's request, on `cdce3c0`: items 1 and 3 of the twelfth run's list (sort only the shared seeds; the screen's
+read side once per read), and ISA-L for gzip in place of libdeflate, if protal can still be built statically (it can).
+The first two are exact; ISA-L changes no content, only the bytes of the gzip protal writes.
+
+### Sorting only the seeds FindPairs can pair
+
+`SharedSeeds` (`ChainAnchorFinder.h`) counts a read's seeds per hash of their taxon and gene in byte counters (16-32
+per seed, cleared per read) and sorts, as 128-bit keys as before, only the seeds whose counter reached two: every seed
+whose gene another seed of the read has, and the 3-6% of the others whose counter another gene's seed shares.
+`FindPairs` makes anchors of runs of two or more seeds of one gene only, and a gene's run is the same in both lists, so
+it makes the same anchors in the same order; a seed of a gene of its own is a run of one and skipped. The caller's seed
+list is left as found (only its length is used after the anchor finder). A first version counted taxon and gene exactly
+in an open-addressing table; the byte counters cost the same at r226's mix and are simpler.
+
+`scripts/shared_sort_bench.cpp` (`sort_bench.cpp`'s seed lists: 51 seeds per mate, 14.3% in shared genes, as the twelfth
+run's 12.6%): the same groups for `FindPairs` (checksums equal), per seed (callgrind, the difference of one and two
+rounds):
+
+| | instructions per seed | seeds sorted |
+|---|---|---|
+| all seeds sorted (up to `cdce3c0`) | 163 | 100% |
+| exact counting, the shared ones sorted | 66 | 14.3% |
+| byte counters (implemented) | 65 | 17.6% |
+
+The sort's time is mostly mispredicted branches, which fall with the seeds sorted, so at the twelfth run's 3.39 s per
+thread (pe) about −2 s are expected, and about −0.8 s of HiFi's 1.26 s. Locally (83% of the seeds in shared genes: the
+local world's reads come from its own genomes) the counting is a small extra cost: 528 → 599 M instructions on 100k
+pairs (+13%; the exact counting 627 M), 121 → 138 M on PacBio 3 Mb, 0.2% and 0.1% of the runs.
+
+### The screen's read side from the read's packed strands
+
+`AlignmentScreen::ReadKmers` (`AlignmentScreen.h`) packs a strand of the read 2 bits a base (`packed::Pack`, AVX2, as the
+genes are packed) with a bitmap of its bases other than A, C, G or T (AVX2 compares), when a candidate first needs it,
+once per read for all its candidates and every k. The k-mer at base p is then the 2k bits at bit 2 (p % 4) of the 8 bytes
+from byte p / 4, four k-mers to a load as the window's (`StampPacked`); a k-mer with another base counts as shared
+(`Any(k)`, a stamp index always set). The exits are tested every 16 k-mers (shared k-mers only grow and shared plus
+remaining only shrink, so the answer is the same). `SimpleAlignmentHandler::operator()` sets the read and its reverse
+complement (the anchor finder's); `LongReadAligner` sets the read once and screens each candidate's window `[s, e)` as
+the stretch from `s` of the forward strand or from `n - e` of the reverse one, made from the read when first needed
+(`AlignmentScreen::ReadStretch`, a new last argument of `AlignAnchor`).
+
+A first version made per-k code tables (32-bit codes rolled base by base, blocks of 64 made on demand): ~10 instructions
+per base and k, which at r226 (2.2 candidates per mate, 90% refused after most of the read) would have cancelled the
+gain. Callgrind (one thread):
+
+| instructions | `cdce3c0` | code tables | packed strands (implemented) |
+|---|---|---|---|
+| pe 100k pairs: the screen (243,020 candidates, 5% refused) | 896 M | 748 M (−17%) | 612 M (−32%) |
+| – of which the read side | ~600 M (two thirds, from the line costs) | 407 M | 271 M |
+| PacBio 3 Mb: the screen (5,977 candidates, 20% refused) | 134 M | not measured | 99 M (−26%) |
+
+What is left of the screen is now mostly the window's stamping. At r226, where most candidates are refused after most of
+the read, the read side falls further than locally, where most pass early: about −0.6 s of the paired-end screen's 1.91 s
+per thread and −0.5 s of HiFi's 0.99 s are expected.
+
+### ISA-L for gzip, in place of libdeflate
+
+**Static builds still work.** ISA-L builds as a static library (`libisal.a`, ~0.8 MB) with its own CMake build (since
+2.32) and dispatches its SSE/AVX2/AVX-512 code at run time, so the static binaries still run on any x86-64; a fully
+`-static` link works. Its x86-64 code is nasm assembly: `just static` (`lib/static-deps.cmake`) uses the nasm on the PATH
+if it is 2.14.01 or later and otherwise downloads and builds nasm 2.16.03 too (a C compiler and make, ~30 s), as it does
+zstd. Ubuntu's `libisal-dev` (2.31.0) has no `libisal.a`, so the static build always builds ISA-L 2.32.1 itself; without
+an ISA-L on the system, the other binaries link that one too (no `libisal-dev` needed for `just static`). A normal build
+needs ISA-L like zstd (Ubuntu `libisal-dev`, conda-forge `isa-l`, or a prefix of one's own through `CMAKE_PREFIX_PATH`).
+
+**Where it is used** (`Bgzf.h`, `ThreadedGzStream.h`). Every gzip input: BGZF blocks whole (`isal_inflate_stateless`,
+raw deflate, then `crc32_gzip_refl`), other gzip as a stream (`isal_inflate`), which zlib-ng did before. BGZF output
+(`.sam.gz`, the simulator's `.fq.gz`, the in-place compressor) at ISA-L's level 1 with a fixed level buffer
+(`isal_deflate_stateless`; a block that does not shrink is stored by ISA-L itself). zlib-ng stays for gzstream.
+
+**Measured** (single thread, WSL under load 18-20, so the ratios matter: a 477 MB FASTQ, as one `gzip -6` member and as
+libdeflate's BGZF; `~/isal`, 10 alternated runs):
+
+| | ISA-L | before | |
+|---|---|---|---|
+| inflating one gzip member, MB/s (best / median) | 1,189 / 896 | zlib-ng 651 / 552 | 1.6-1.8× |
+| inflating BGZF as a stream | 998 / 769 | zlib-ng 502 / 414 | ~1.9× |
+| inflating BGZF block by block | 869 / 648 | libdeflate 1,048 / 653 | libdeflate 0-20% faster |
+| deflating 64 KB blocks, MB/s | level 1: 282 / 275 | libdeflate level 6: 40 / 37 | ~7× |
+| compressed size | level 1: 138.4 MB | libdeflate level 6: 119.0 MB | +16% |
+
+ISA-L's levels 2 and 3 compress no better than level 1 on FASTQ, and level 3 is slower. Through protal's own writer and
+reader (`scripts/read_bench.sh`, `results/isal/read_bench.log`; HEAD's build against this one, alternated, load 7-16):
+
+| the 477 MB FASTQ | before | ISA-L |
+|---|---|---|
+| written as BGZF (`bgzf::CompressFile`), one thread: CPU s | 17.7 (libdeflate level 6) | 2.6 (level 1) |
+| – six threads: wall s, CPU s | 19.3, 27.8 | 3.8, 3.5 |
+| – size | 119.2 MB | 138.6 MB (+16%) |
+| zstd -3, one thread, for the simulator's other format: user s, size | 5.3-8.7, 118.0 MB | |
+| read by `ThreadedGzStream` (gzip member, BGZF, zstd), MB/s | 235-412, 289-456, 164-227 | 386-401, 289-515, 207-389 |
+
+The reading rounds spread more than the formats differ (the old build read the same gzip member at 235 and 412 MB/s):
+under this load the reader shows no difference, and the inflate benchmark above (ten alternated runs of the inflate
+alone) is the measure. Written BGZF is read back to the same content (`zcat`, md5).
+
+**Two things found in ISA-L 2.32.1.** `isal_inflate` reading a gzip header itself (`crc_flag = ISAL_GZIP`) keeps the
+header's state in a local of one call: a header with a header CRC, or with two of extra field, name and comment, that is
+split between two reads of the input fails (CRC errors or invalid blocks; plain headers, a name alone and BGZF's extra
+field alone are fine). The reader keeps its own `isal_gzip_header`, reads the header with `isal_read_gzip_header` until it
+is complete, and inflates with `ISAL_GZIP_NO_HDR_VER`; at a member's end ISA-L gives back what it read past the trailer, so
+the next member starts where the last ended (the byte offsets in the reader's messages stay exact). And the compressed
+bytes are not the same on every CPU at level 3 (its AVX2 path matches differently); levels 1 and 2 gave the same bytes
+through ISA-L's SSE4.2, AVX and AVX2 code (AVX-512 was not available to check; CPUs without SSE4.2 hash differently). The
+output also depends on the level buffer's size, so it is fixed. For one ISA-L version, the gzip protal writes is thus the
+same for any thread count and on those CPUs; its content is the same everywhere.
+
+**Checks** (`scripts/build8.sh ref|work|isal`, `scripts/check8.sh`, `scripts/check_isal.sh`, `scripts/check_sfetch.sh`;
+`results/isal/`):
+
+| check | result |
+|---|---|
+| unit tests, all three changes | 373 passed, 3 skipped (the two opt-in benches, the AddressSanitizer-only test) |
+| end-to-end tests on the mini database | 133 passed (items 1 and 3; all three) |
+| pe 500k pairs (BGZF), se 500k, PacBio and ONT 90 Mb at 6 threads: items 1 and 3 against `cdce3c0` | SAM records identical (sorted), every other output file byte for byte; seeds, shared seeds, dropped lookups and anchors the same |
+| pe 100k pairs (one gzip member), pe and se 500k (BGZF), PacBio 90 Mb (one gzip member with a name): ISA-L against zlib-ng and libdeflate | the same |
+| a `.sam.gz` written with ISA-L | `gzip -t` passes; the same records as the `.sam.zst`; the profile files the same |
+| `-DPROTAL_STATIC_FETCH_DEPS=ON` without nasm on the PATH or ISA-L on the system (local tarballs) | nasm 2.16.03 and ISA-L 2.32.1 (`libisal.a` 0.8 MB) built, protal linked to that ISA-L; the same SAM records. (A first try failed: CMake gives extracted files the extraction's time, and nasm's Makefile then remakes `configure` with autotools; nasm now keeps its tarball's times.) |
+| `protal_static` against `~/isal/prefix`'s `libisal.a` and the system's `libzstd.a` | "statically linked"; the same SAM records |
+
+**All three, locally** (callgrind, one thread, `scripts/cg_final.sh`, `results/isal/cg_final.log`; `cdce3c0` against
+this round's build; the paired-end input one gzip member):
+
+| instructions | `cdce3c0` | this round | |
+|---|---|---|---|
+| aligning 100k pairs, the whole run | 28.82 G | 28.42 G | −1.4% |
+| – `RunPairedEnd` | 15.53 G | 15.29 G | −1.5% |
+| – the seed sort | 528 M | 599 M | +13% (83% of the seeds shared here) |
+| – the k-mer screen | 896 M | 612 M | −32% |
+| – inflating the input (the reader's thread) | 1,124 M (zlib-ng) | 980 M (ISA-L) | −13% (ISA-L's gain is mostly in instructions per cycle) |
+| PacBio 3 Mb, the whole run | 15.39 G | 15.34 G | −0.3% |
+| – the seed sort; the screen | 121 M; 134 M | 138 M; 99 M | +15%; −26% |
+
+**What is new in the tests**: `SharedSeeds.FindPairsSeesTheRunsOfAllSeedsSorted` (4,000 reads of 0-5,000 seeds, few or
+many taxa and genes, repeats, the largest ids: the runs `FindPairs` sees equal those of all seeds sorted, the sorted
+seeds are sorted and seeds of the read, few singletons among them), `SharedSeeds.OneSeedOrNoneHasNoneShared`,
+`AlignmentScreen.TheReadsSharedCodesGiveTheDefinitionsAnswer` (108,000 screens: stretches of both strands at any offset,
+long-read windows as reverse-strand stretches, Ns, ambiguity codes and lower case in the read, every k, with and without
+AVX2, the reverse strand given or made: the answer of the screen's definition without its exits, and that of the screen
+packing the candidate's read alone), `ThreadedGzStream.AHeaderSplitBetweenReadsIsRead` (a header with every optional
+field split between the reader's first two reads at all 43 places, and 300 such members through a pipe written a few
+bytes at a time); `ReadsGzipOfAnotherWriter` and the pipe test now get their gzip from zlib-ng.
+
+**For the next cluster run**: the pe run should show the sequence reader's wait gone or smaller (ISA-L's inflate at
+~1.6-1.8× zlib-ng's), the seed sort at about a third, the screen at about two thirds; HiFi the sort and screen likewise.
+
 ## How it was run
 
 In WSL (`~/perf6`; the implementation in `~/perf7`: `build7.sh ref|work`, `check7.sh`), scripts in `scripts/`:
@@ -427,3 +638,17 @@ bash scripts/collect.sh <report dir>  # results/
 
 The r226 numbers are arithmetic on the eleventh run's `runs.tsv`, `stages.tsv` and logs in
 `../2026-10-04-performance-gtdb-scale/results_v11/`.
+
+After the twelfth run (in `~/perf8`, ISA-L 2.32.1 and nasm 2.16.03 built into `~/isal/prefix` from their release
+tarballs, `results/isal/build_nasm.sh` and `build_isal_cmake.sh`; this machine has no `libisal-dev`):
+
+```bash
+bash scripts/build8.sh ref            # HEAD (cdce3c0); `work`: items 1 and 3; `isal`: all three, -DCMAKE_PREFIX_PATH=~/isal/prefix
+bash scripts/check8.sh                # items 1 and 3 against HEAD: unit and end-to-end tests, outputs, callgrind
+bash scripts/check_isal.sh            # all three against items 1 and 3: tests, outputs, .sam.gz, a static protal
+bash scripts/check_sfetch.sh          # lib/static-deps.cmake's nasm and ISA-L from the local tarballs
+bash scripts/read_bench.sh            # BGZF written and gzip read through protal's own code, HEAD against this round
+bash scripts/cg_final.sh              # callgrind, HEAD against this round
+H=~/perf8/benchtree bash scripts/cc8.sh scripts/shared_sort_bench.cpp shared_sort_bench && ./shared_sort_bench 50000 1 0
+bash results/isal/build.sh && bash results/isal/run_inflate.sh   # ISA-L against zlib-ng, alternated (bench_inflate.c)
+```

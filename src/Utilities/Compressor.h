@@ -9,7 +9,7 @@
 
 class Compressor {
 public:
-    // Compresses a file in place: `inputFile` becomes `inputFile`.gz, as BGZF (libdeflate, with
+    // Compresses a file in place: `inputFile` becomes `inputFile`.gz, as BGZF (ISA-L, with
     // `threads` threads; Bgzf.h), and the original is removed. The output holds no file name or
     // time stamp and does not depend on the thread count, so the same input always gives
     // byte-identical output. On failure nothing is removed and the partial .gz is deleted.

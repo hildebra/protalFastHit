@@ -443,7 +443,7 @@ static std::uint64_t read_genome_length(const fs::path& fasta_path) {
     };
 
     if (fasta_path.extension() == ".gz") {
-        // BGZF with libdeflate, other gzip with zlib-ng (ThreadedGzStream.h).
+        // BGZF or other gzip, inflated with ISA-L (ThreadedGzStream.h).
         protal::ThreadedGzIstream input(fasta_path.string().c_str());
         if (!input.rdbuf()->is_open()) {
             throw std::runtime_error("Unable to open compressed fasta: " + fasta_path.string());
@@ -509,7 +509,7 @@ static std::unordered_map<std::string, std::uint64_t> build_length_cache(const s
 //    dst.clear();  // ← THIS IS THE CRITICAL FIX
 //}
 
-// A sample's read file as its reads arrive: BGZF (libdeflate) or one zstd frame at level 3 with a checksum, without a
+// A sample's read file as its reads arrive: BGZF (ISA-L) or one zstd frame at level 3 with a checksum, without a
 // long window (FASTQ gains nothing from one). Error() says why writing failed; Close() finishes the file.
 class ReadsWriter {
 public:

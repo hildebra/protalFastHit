@@ -4,7 +4,7 @@ protal runs on Linux on x86-64 CPUs. There is no macOS or native Windows version
 builds and runs under WSL2 (see [Windows (WSL2)](#windows-wsl2)).
 
 At run time protal needs `python3` for the strain MSA post-filter [qcmsa](strains.md#filtering-with-qcmsa), which the
-bioconda package brings. It compresses its outputs itself (zstd, and gzip with libdeflate), so
+bioconda package brings. It compresses its outputs itself (zstd, and gzip with ISA-L), so
 no external compressor is needed.
 
 ## bioconda (recommended)
@@ -31,12 +31,15 @@ To build them yourself:
 just static        # -> build/protal_<version>_static, build/simulate_metagenomes_static
 ```
 
-`just static` downloads zstd 1.5.7 and libdeflate 1.26 (pinned releases, sha256-checked) and builds
+`just static` downloads zstd 1.5.7 and ISA-L 2.32.1 (pinned releases, sha256-checked) and builds
 their static libraries in `build/static-deps` (CMake option `-DPROTAL_STATIC_FETCH_DEPS=ON`, see
 [lib/static-deps.cmake](../lib/static-deps.cmake)), so the system needs no `libzstd.a` or
-`libdeflate.a`. Without network access, download the two tarballs elsewhere and pass their paths
-with `-DPROTAL_ZSTD_URL=...` and `-DPROTAL_LIBDEFLATE_URL=...`, or link the system's static
-libraries (Ubuntu: `libzstd-dev`, `libdeflate-dev`) with `just static_fetch_deps=OFF static`.
+`libisal.a`. ISA-L's x86-64 code is assembled with nasm: the one on the `PATH` if it is 2.14.01 or
+later (Ubuntu: `sudo apt-get install nasm`), otherwise nasm 2.16.03 is downloaded and built too
+(about 30 s, a C compiler and make are all it needs). Without network access, download the tarballs
+elsewhere and pass their paths with `-DPROTAL_ZSTD_URL=...`, `-DPROTAL_ISAL_URL=...` and
+`-DPROTAL_NASM_URL=...`, or link the system's static libraries with `just static_fetch_deps=OFF static`
+(Ubuntu's `libisal-dev` has no `libisal.a`).
 
 They are compiled for plain x86-64 (SSE2), so they run on any x86-64 CPU, and use AVX2 where the CPU
 has it, as `protal` does (see [One binary for every CPU](#one-binary-for-every-cpu)).
@@ -44,11 +47,15 @@ has it, as `protal` does (see [One binary for every CPU](#one-binary-for-every-c
 ## Building from source
 
 Requirements: CMake 3.22 or later, a C++20 compiler with OpenMP (GCC 13 and 14 are tested),
-zstd and libdeflate development files. On Ubuntu:
+zstd and ISA-L development files. On Ubuntu:
 
 ```bash
-sudo apt-get install cmake ninja-build g++ libzstd-dev libdeflate-dev python3
+sudo apt-get install cmake ninja-build g++ libzstd-dev libisal-dev python3
 ```
+
+Without root, build ISA-L into a prefix of your own (its CMake build, which needs nasm) and pass it
+with `-DCMAKE_PREFIX_PATH=<prefix>`, or use conda (`isa-l` from conda-forge), or `just static`, which
+builds it itself.
 
 All other libraries (zlib-ng, WFA2-lib, cPMML, gzstream, robin-map, ...) are in `lib/` and built
 with protal; no system zlib is needed. Then:
@@ -86,7 +93,10 @@ in the places where that was measured to pay. It chooses when it starts, and its
 same on every CPU.
 
 - The syncmer scan and sequence packing have AVX2 kernels of protal's own.
-- zlib-ng, libdeflate and zstd choose their own.
+- ISA-L, zlib-ng and zstd choose their own. The gzip that protal writes (`.sam.gz`, the simulator's
+  `.fq.gz`) is the same byte for byte for one ISA-L version on CPUs with SSE4.2 (Intel since 2008,
+  AMD since 2011) up to AVX2, as checked (AVX-512 CPUs were not checked; CPUs without SSE4.2 write
+  other bytes); its content is the same everywhere.
 - The hot functions marked `PROTAL_CLONE_V3` (`src/Utilities/TargetClones.h`) are compiled twice,
   for x86-64 and for x86-64-v3, and the loader picks one (GCC's `target_clones`). This needs GCC
   12 or later on Linux with glibc. With other compilers, or with

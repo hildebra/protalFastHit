@@ -563,7 +563,7 @@ keeps the finished database.
 | `--protal`, `--simulator` | on `$PATH` | the binaries |
 | `-t, --threads` | 8 | |
 | `--scratch` | | a node-local folder for the samples ([above](#local-scratch)) |
-| `--read-compression` | zstd | how the simulated reads are written: `zstd` (`.fq.zst`; `simulate_metagenomes --reads_compression zstd`, the long and Ultima reads, the host's reads, the chunks' templates) or `gzip` (`.fq.gz`); as small or smaller, several times faster to write ([report](claude/2026-10-05-zstd-reads/README.md)) |
+| `--read-compression` | zstd | how the simulated reads are written: `zstd` (`.fq.zst`; `simulate_metagenomes --reads_compression zstd`, the long and Ultima reads, the host's reads, the chunks' templates) or `gzip` (`.fq.gz`); smaller (about 15% against the simulator's gzip, which ISA-L writes about twice as fast) and several times faster to write than Python's gzip ([report](claude/2026-10-05-zstd-reads/README.md)) |
 | `--profile-blocks`, `--keep-free` | 20, 30 | profile the samples as they are simulated, in protal runs of at least this many GB of reads, removing the reads profiled (0: one protal run once all is simulated, reads kept); the GB a simulation leaves free on the samples' disk, or it waits |
 | `--seed` | 1 | |
 | `--holdout`, `--holdout-clades`, `--holdout-max-share` | 0.3, `phylum:2,class:4,order:6,family:8,genus:12`, 0.02 | species and clades left out of the training database; `--holdout-clades none` for species only |

@@ -91,6 +91,49 @@ namespace protal {
         }
     };
 
+    // The seeds of a read that FindPairs may pair, sorted by taxon, gene and read position, ties by gene position
+    // (LookupResult::SortKey, as 128-bit keys): every seed whose taxon and gene another seed of the read has, and the few
+    // others whose taxon and gene hash to the counter of another gene's seeds. ChainAnchorFinder::FindPairs makes anchors
+    // of runs of two or more seeds of one gene only, so it makes the same anchors in the same order from these as from all
+    // seeds sorted: a gene's run is the same, and a seed of a gene of its own is a run of one, skipped. At GTDB r226 87%
+    // of a paired-end read's seeds (84% of a HiFi read's) have a gene of their own (the twelfth cluster run of
+    // docs/claude/2026-10-06-performance-profiling): the seeds are counted per hash of their taxon and gene first (byte
+    // counters, 16-32 per seed, cleared per read: a seed of a gene of its own shares its counter with another seed at a
+    // chance of 3-6%), and only those of counters of two or more are sorted.
+    class SharedSeeds {
+    public:
+        // The seeds of `seeds` FindPairs may pair, sorted, into `shared`; `seeds` is left as it is.
+        void Sort(SeedList const& seeds, SeedList& shared) {
+            shared.clear();
+            m_sort_keys.clear();
+            size_t const n = seeds.size();
+            if (n < 2) return;
+            unsigned bits = 6;
+            while ((size_t{ 1 } << bits) < 16 * n) bits++;
+            m_counts.assign(size_t{ 1 } << bits, 0);
+            for (auto const& seed : seeds) {
+                uint8_t& count = m_counts[Counter(seed, bits)];
+                count += count < 2;
+            }
+            for (auto const& seed : seeds) {
+                if (m_counts[Counter(seed, bits)] > 1) m_sort_keys.push_back(seed.SortKey());
+            }
+            std::sort(m_sort_keys.begin(), m_sort_keys.end());
+            shared.resize(m_sort_keys.size());
+            for (size_t i = 0; i < m_sort_keys.size(); i++) shared[i] = LookupResult::FromSortKey(m_sort_keys[i]);
+        }
+
+    private:
+        // The counter of a seed's taxon and gene: the top bits of their Fibonacci hash.
+        static size_t Counter(LookupResult const& seed, unsigned bits) {
+            uint64_t const key = (static_cast<uint64_t>(seed.taxid) << 32) | seed.geneid;
+            return static_cast<size_t>((key * 0x9e3779b97f4a7c15ull) >> (64 - bits));
+        }
+
+        std::vector<uint8_t> m_counts;                        // per counter, 0, 1 or 2 (two or more)
+        std::vector<LookupResult::SortKeyType> m_sort_keys;  // kept for their capacity
+    };
+
     template<typename KmerLookup>
 //    requires KmerLookupConcept<KmerLookup>
     class ChainAnchorFinder {
@@ -454,14 +497,8 @@ namespace protal {
             }
         }
 
-        // By taxon, gene and read position, ties by gene position (LookupResult::SortKey), sorted as 128-bit keys.
-        void Sort(SeedList &list) {
-            m_sort_keys.resize(list.size());
-            for (size_t i = 0; i < list.size(); i++) m_sort_keys[i] = list[i].SortKey();
-            std::sort(m_sort_keys.begin(), m_sort_keys.end());
-            for (size_t i = 0; i < list.size(); i++) list[i] = LookupResult::FromSortKey(m_sort_keys[i]);
-        }
-        std::vector<LookupResult::SortKeyType> m_sort_keys;  // Sort's, kept for its capacity
+        SharedSeeds m_shared_seeds;
+        SeedList m_shared;  // the read's seeds FindPairs can pair, sorted (SharedSeeds)
 
         void Subset(SeedList &list, SeedList &subset, size_t take_top=10) {
             // Collect taxa counts
@@ -840,13 +877,14 @@ namespace protal {
 //            FindSeeds2(kmer_list, seeds);
             m_bm_seeding.Stop();
 
+            // seeds stays as found (the caller counts them); only those FindPairs can pair are sorted.
             m_bm_processing.Start();
-            Sort(seeds);
+            m_shared_seeds.Sort(seeds, m_shared);
             m_bm_processing.Stop();
 
             m_bm_pairing.Start();
             size_t const anchors_before = anchors.size();
-            FindPairs(seeds, anchors, read_length);
+            FindPairs(m_shared, anchors, read_length);
             m_seeding.anchors += anchors.size() - anchors_before;
             m_bm_pairing.Stop();
 

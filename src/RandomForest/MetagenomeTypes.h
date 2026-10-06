@@ -100,8 +100,8 @@ inline std::uint64_t ReadPairsForSample(ProfileDesignOptions const& options, std
     return options.total_read_pairs_per_sample[index % options.total_read_pairs_per_sample.size()];
 }
 
-// How a sample's read files are written: BGZF (libdeflate, _R1.fq.gz) or zstd (one frame at level 3, _R1.fq.zst;
-// as small, written several times faster, and read by protal alike).
+// How a sample's read files are written: BGZF (ISA-L at level 1, _R1.fq.gz) or zstd (one frame at level 3, _R1.fq.zst;
+// smaller, and read by protal alike).
 enum class ReadsCompression { Bgzf, Zstd };
 
 struct ArtIlluminaOptions {

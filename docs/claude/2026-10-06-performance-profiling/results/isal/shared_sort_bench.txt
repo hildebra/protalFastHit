@@ -1,0 +1,14 @@
+shared_sort_bench (scripts/shared_sort_bench.cpp), WSL, 2026-10-06, load ~10-15 (timings unusable; instructions exact).
+
+Timings, 200,000 mates (10,272,082 seeds, 14.3% in shared genes), three rounds, ns per seed:
+all sorted      115.1  147.2  236.4
+byte counters    35.5   14.5   60.1   (17.6% of the seeds sorted)
+exact counting   28.7   51.6   20.9   (14.3% sorted)
+checksum of the runs FindPairs sees: fbeccca641f0c3c6 for all three
+
+Instructions (callgrind), 50,000 mates (2,568,055 seeds), one variant per run, rounds 1 and 2 (the difference is one
+round: the sort, the copy of the list and the scan of the runs):
+variant           1 round         2 rounds        per round    per seed
+all sorted        1,202,189,306   1,621,289,537   419,100,231  163.2
+byte counters       949,463,910   1,115,834,416   166,370,506   64.8
+exact counting      952,631,004   1,122,167,925   169,536,921   66.0

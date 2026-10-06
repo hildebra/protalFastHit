@@ -1,0 +1,89 @@
+== unit tests, ISA-L build (16:51:10)
+exit 0
+[  PASSED  ] 373 tests.
+[  SKIPPED ] 3 tests.
+[       OK ] Compressor.CompressesInPlaceToBgzf (135 ms)
+[       OK ] Compressor.SameContentGivesIdenticalBytesWithAnyThreads (137 ms)
+[       OK ] Compressor.AnEmptyFileAndAMissingOne (3 ms)
+[       OK ] Compressor.TheStreamingWriterGivesTheSameBytes (443 ms)
+[       OK ] ThreadedGzStream.ReadsAGzipFileAsIgzstreamDoes (166 ms)
+[       OK ] ThreadedGzStream.ReadsAPlainFile (15 ms)
+[       OK ] ThreadedGzStream.ReadsAZstdFile (326 ms)
+[       OK ] ThreadedGzStream.ACutOrCorruptZstdFileIsReported (74 ms)
+[       OK ] ThreadedGzStream.ReadsGzipOfAnotherWriter (110 ms)
+[       OK ] ThreadedGzStream.AHeaderSplitBetweenReadsIsRead (110 ms)
+[       OK ] ThreadedGzStream.ReadsABgzfFileBlockByBlock (121 ms)
+[       OK ] ThreadedGzStream.ACutOrCorruptBgzfFileIsReported (67 ms)
+[       OK ] ThreadedGzStream.ATruncatedFileReadsAsAPrefixAndIsReported (226 ms)
+[       OK ] ThreadedGzStream.AMissingFileFailsToOpen (0 ms)
+[       OK ] ThreadedGzStream.AFileThatCannotBeReadSaysWhy (0 ms)
+[       OK ] ThreadedGzStream.ReadsAPipe (142 ms)
+[       OK ] ThreadedGzStream.WhatFollowsAGzipMemberMustBeAMember (38 ms)
+[       OK ] ThreadedGzStream.ClosingBeforeTheEndStopsTheInflatingThread (169 ms)
+[       OK ] ThreadedGzStream.ThreadsTakeEveryPairOnceInStep (303 ms)
+[       OK ] ThreadedGzStream.ThreadsTakeEverySingleEndReadOnce (148 ms)
+[       OK ] ThreadedGzStream.TakeLinesCutsWholeLinesAcrossBlocks (152 ms)
+[       OK ] SamFile.CompressionFollowsTheName (0 ms)
+[       OK ] SamFile.HeaderAfterTheRecordsInEveryFormat (233 ms)
+[       OK ] SamFile.AHeaderGivenUpFrontIsWrittenFirst (187 ms)
+[       OK ] SamFile.GzipIsBgzfThatZlibNgReads (68 ms)
+[       OK ] SamFile.BgzfStoresBlocksThatDoNotShrink (3 ms)
+[       OK ] SamFile.ZstdIsSeekableWithAMarker (18 ms)
+[       OK ] SamFile.AFileCutAtABlockOrFrameBoundaryIsIncomplete (37 ms)
+[       OK ] SamFile.DiscardAndFailuresLeaveNoFiles (0 ms)
+[       OK ] SamFile.ZstdRecordsGoStraightIntoTheSamBehindRoomForTheHeader (149 ms)
+[       OK ] SamFile.AZstdHeaderTooLargeForItsRoomMovesTheRecordsBehindIt (402 ms)
+[       OK ] SamFile.AZstdSamWithRoomButNoRecords (4 ms)
+[       OK ] SamFile.HeaderRoomIsEightBytesAGeneWithinItsBounds (0 ms)
+[       OK ] SamFile.StreamSinkCollectsTheGenes (48 ms)
+== whole runs, 6 threads (16:54:04)
+-- pe100k
+    pe100k.work: exit 0
+    pe100k.isal: exit 0
+    work vs isal: SAM records identical (71405); other files differing: none
+    Sequence reader took 24ms mean over 6 threads
+-- pe
+    pe.work: exit 0
+    pe.isal: exit 0
+    work vs isal: SAM records identical (418466); other files differing: none
+    Sequence reader took 313ms mean over 6 threads
+-- se
+    se.work: exit 0
+    se.isal: exit 0
+    work vs isal: SAM records identical (207742); other files differing: none
+    Sequence reader took 145ms mean over 6 threads
+-- pb
+    pb.work: exit 0
+    pb.isal: exit 0
+    work vs isal: SAM records identical (24947); other files differing: none
+    Sequence reader took 388ms mean over 6 threads
+== .sam.gz written with ISA-L (16:55:05)
+    gz.isal: exit 0
+    9431898 bytes (the .sam.zst: 8002154); gzip -t: ok
+    records as the .sam.zst's: yes
+    profile files differing from the .sam.zst run: none
+== end-to-end tests on the mini database (16:55:10)
+exit 0
+----------------------------------------------------------------------
+Ran 133 tests in 391.987s
+
+OK
+== lib/static-deps.cmake: nasm and ISA-L built from the local tarballs, protal linked to that ISA-L (17:01:43)
+configure exit 0
+    -- nasm for ISA-L: none of 2.14.01 or later on the PATH, nasm 2.16.03 is built
+    -- ISA-L: none on the system; every binary links the one built in /home/falk/perf8/isal/build-sfetch/static-deps
+    -- Static binaries: zstd and ISA-L built in /home/falk/perf8/isal/build-sfetch/static-deps
+build exit 1
+    No directory
+    No directory
+    /home/falk/perf8/check_isal.sh: line 61: /home/falk/perf8/isal/build-sfetch/protal: No such file or directory
+    sfetch: exit 0
+zstd: can't stat /home/falk/perf8/cmpi/sfetch/s.sam.zst : No such file or directory -- ignored 
+    SAM records as the ISA-L build's: NO
+== a fully static protal: ~/isal/prefix's libisal.a, the system's libzstd.a (17:04:17)
+configure exit 0
+build exit 0
+    protal_0.7.7_static: ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, Bui
+    static: exit 0
+    SAM records as the ISA-L build's: yes
+CHECKISALDONE 17:13:47

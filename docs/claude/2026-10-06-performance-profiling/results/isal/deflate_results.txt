@@ -1,0 +1,41 @@
+input 477240963 bytes, 7311 blocks of 65280; level_buf sizes L1 282624 L2 331776 L3 348160
+rep 0 isal_l1        1.829 s wall 1.821 s cpu
+rep 0 isal_l2        1.598 s wall 1.585 s cpu
+rep 0 isal_l3        2.915 s wall 2.899 s cpu
+rep 0 libdeflate_l1  2.452 s wall 2.413 s cpu
+rep 0 libdeflate_l6  11.904 s wall 11.557 s cpu
+rep 1 isal_l1        1.693 s wall 1.633 s cpu
+rep 1 isal_l2        1.637 s wall 1.544 s cpu
+rep 1 isal_l3        4.206 s wall 4.059 s cpu
+rep 1 libdeflate_l1  7.279 s wall 6.458 s cpu
+rep 1 libdeflate_l6  13.710 s wall 11.899 s cpu
+rep 2 isal_l1        1.738 s wall 1.201 s cpu
+rep 2 isal_l2        1.640 s wall 1.255 s cpu
+rep 2 isal_l3        2.758 s wall 2.182 s cpu
+rep 2 libdeflate_l1  2.646 s wall 2.058 s cpu
+rep 2 libdeflate_l6  12.769 s wall 9.704 s cpu
+rep 3 isal_l1        1.737 s wall 1.268 s cpu
+rep 3 isal_l2        2.129 s wall 1.416 s cpu
+rep 3 isal_l3        3.237 s wall 2.580 s cpu
+rep 3 libdeflate_l1  2.487 s wall 1.984 s cpu
+rep 3 libdeflate_l6  13.368 s wall 9.866 s cpu
+rep 4 isal_l1        1.800 s wall 1.437 s cpu
+rep 4 isal_l2        1.654 s wall 1.382 s cpu
+rep 4 isal_l3        2.999 s wall 2.520 s cpu
+rep 4 libdeflate_l1  2.938 s wall 2.180 s cpu
+rep 4 libdeflate_l6  12.088 s wall 9.958 s cpu
+
+method             compressed    ratio  MB/s(min t)  MB/s(med t) cpuMB/s(min) cpuMB/s(med)  crc32(compressed)
+isal_l1             138364284   0.2899        281.9        274.6        397.5        332.2  c8c8aa26
+isal_l2             138268289   0.2897        298.6        291.0        380.3        337.0  25c2b85b
+isal_l3             139368068   0.2920        173.1        159.1        218.7        185.0  8276246d
+libdeflate_l1       133221682   0.2791        194.7        180.4        240.5        218.9  8dbadec5
+libdeflate_l6       119045719   0.2494         40.1         37.4         49.2         47.9  766dc167
+
+per-block raw inflate of the libdeflate_l6 blocks (119045719 compressed bytes), MB/s of output, min-time / median-time:
+  isal_inflate_stateless           869.3    647.9
+  libdeflate_deflate_decompress   1047.6    652.9
+CRC32 over the whole text, MB/s min-time / median-time:
+  crc32_gzip_refl                22071.1  17845.7
+  libdeflate_crc32               17091.7  13748.2
+  zng_crc32                      15053.1  12030.7

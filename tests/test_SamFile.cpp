@@ -196,7 +196,7 @@ TEST(SamFile, GzipIsBgzfThatZlibNgReads) {
     EXPECT_EQ(bytes.compare(bytes.size() - 28, 28, reinterpret_cast<char const*>(bgzf::kEof), 28), 0);
     EXPECT_TRUE(bgzf::StartsAsBgzf(path));
     EXPECT_TRUE(bgzf::EndsWithEof(path));
-    // zlib-ng's gzread (protal's reader for gzip that is not BGZF) reads all members, as zcat does.
+    // zlib-ng's gzread (a reader other than protal's, which is ISA-L's) reads all members, as zcat does.
     auto const text = GzipRead(path);
     ASSERT_EQ(text.substr(0, kHeader.size()), kHeader);
     ExpectBlocks(text.substr(kHeader.size()), blocks);

@@ -1,0 +1,82 @@
+== unit tests, work build (15:51:39)
+exit 0
+[  PASSED  ] 372 tests.
+[  SKIPPED ] 3 tests.
+[       OK ] AlignmentScreen.TheBoundForShortReads (0 ms)
+[       OK ] AlignmentScreen.AReadOfItsOwnGenePasses (0 ms)
+[       OK ] AlignmentScreen.RefusesOnlyWhatWFA2Fails (832 ms)
+48000 screens: 9410 refused, 38590 passed, the same from the packed bytes
+[       OK ] AlignmentScreen.PackedWindowsGiveTheDecodedWindowsAnswer (176 ms)
+108000 screens: 12294 refused, 95706 passed, the same from the read's shared codes
+[       OK ] AlignmentScreen.TheReadsSharedCodesGiveTheDefinitionsAnswer (187 ms)
+4460 candidates, 3527 aligned; the screen refused 278 of 4460 (WFA2 ran 4182 times with it, 4460 without)
+[       OK ] AlignmentScreen.TheHandlerAlignsTheSameWithAndWithoutIt (133 ms)
+4000 reads, 344508 seeds, 151823 of them shared
+[       OK ] SharedSeeds.TheSharedSeedsSortedAsAllSeedsAre (110 ms)
+[       OK ] SharedSeeds.OneSeedOrNoneHasNoneShared (0 ms)
+== whole runs, 6 threads (15:54:50)
+-- pe
+    pe.ref: exit 0
+    pe.work: exit 0
+    ref vs work: SAM records identical (418466); other files differing: none
+    ref: 21756534 seeds, 18019599 of them sharing their taxon and gene with another seed; 965 lookups dropped as too ubiquitous; 3408009 anchors
+    ref: 		Sorting Seeds took 540ms mean over 6 threads
+    ref: Alignment handler took 1s 868ms mean over 6 threads
+    ref: 	K-mer screen took 640ms mean over 6 threads
+    work: 21756534 seeds, 18019599 of them sharing their taxon and gene with another seed; 965 lookups dropped as too ubiquitous; 3408009 anchors
+    work: 		Sorting Seeds took 594ms mean over 6 threads
+    work: Alignment handler took 1s 870ms mean over 6 threads
+    work: 	K-mer screen took 83ms mean over 6 threads
+-- se
+    se.ref: exit 0
+    se.work: exit 0
+    ref vs work: SAM records identical (207742); other files differing: none
+    ref: 11047351 seeds, 9188196 of them sharing their taxon and gene with another seed; 493 lookups dropped as too ubiquitous; 1716084 anchors
+    ref: Alignment handler took 644ms mean over 6 threads
+    ref: 	K-mer screen took 84ms mean over 6 threads
+    work: 11047351 seeds, 9188196 of them sharing their taxon and gene with another seed; 493 lookups dropped as too ubiquitous; 1716084 anchors
+    work: Alignment handler took 1s 839ms mean over 6 threads
+    work: 	K-mer screen took 48ms mean over 6 threads
+-- pb
+    pb.ref: exit 0
+    pb.work: exit 0
+    ref vs work: SAM records identical (24947); other files differing: none
+    ref: 15580143 seeds, 13648535 of them sharing their taxon and gene with another seed; 1621 lookups dropped as too ubiquitous; 1307831 anchors
+    ref: Alignment handler took 7s 686ms mean over 6 threads
+    ref: 	K-mer screen took 134ms mean over 6 threads
+    work: 15580143 seeds, 13648535 of them sharing their taxon and gene with another seed; 1621 lookups dropped as too ubiquitous; 1307831 anchors
+    work: Alignment handler took 4s 812ms mean over 6 threads
+    work: 	K-mer screen took 109ms mean over 6 threads
+-- ont
+    ont.ref: exit 0
+    ont.work: exit 0
+    ref vs work: SAM records identical (34871); other files differing: none
+    ref: 18750509 seeds, 16890777 of them sharing their taxon and gene with another seed; 2181 lookups dropped as too ubiquitous; 1510599 anchors
+    ref: Alignment handler took 14s 849ms mean over 6 threads
+    ref: 	K-mer screen took 51ms mean over 6 threads
+    work: 18750509 seeds, 16890777 of them sharing their taxon and gene with another seed; 2181 lookups dropped as too ubiquitous; 1510599 anchors
+    work: Alignment handler took 21s 205ms mean over 6 threads
+    work: 	K-mer screen took 14ms mean over 6 threads
+== callgrind, one thread (15:56:36)
+    pe.ref: 28,819,578,990 (100.0%)  PROGRAM TOTALS
+    pb.ref: 15,386,212,512 (100.0%)  PROGRAM TOTALS
+    pe.work: 28,776,428,260 (100.0%)  PROGRAM TOTALS
+    pb.work: 15,372,546,825 (100.0%)  PROGRAM TOTALS
+    pe RunPairedEnd: ref 15,525,041,097, work 15,481,890,923
+    pe ChainAnchorFinder<protal::KmerLookupSM>::operator(): ref 2,890,921,410, work 2,979,305,124
+    pe ChainAnchorFinder<protal::KmerLookupSM>::Sort: ref 528,166,455, work -
+    pe SharedSeeds::Sort: ref -, work 626,920,410
+    pe SimpleAlignmentHandler::AlignAnchor: ref 7,359,401,734, work 7,214,527,551
+    pe AlignmentScreen::MayAlignPacked: ref 896,390,983, work 748,290,882
+    pe AlignmentScreen::SharesEnough: ref -, work 407,310,210
+    pb RunLongReads: ref 3,147,021,536, work 3,133,354,287
+    pb ChainAnchorFinder<protal::KmerLookupSM>::operator(): ref 517,221,004, work 531,546,083
+    pb SimpleAlignmentHandler::AlignAnchor: ref 1,800,430,476, work 1,772,231,582
+== end-to-end tests on the mini database (16:03:28)
+exit 0
+...............
+----------------------------------------------------------------------
+Ran 133 tests in 306.869s
+
+OK
+CHECKDONE 16:08:36

@@ -1,0 +1,27 @@
+    pe.ref: 28,819,483,638 (100.0%)  PROGRAM TOTALS
+    pb.ref: 15,385,999,113 (100.0%)  PROGRAM TOTALS
+    pe.isal: 28,416,380,844 (100.0%)  PROGRAM TOTALS
+    pb.isal: 15,339,478,798 (100.0%)  PROGRAM TOTALS
+    pe RunPairedEnd: ref 15,525,404,634, final 15,285,554,309
+    pe ChainAnchorFinder<protal::KmerLookupSM>::operator(): ref 2,890,841,292, final 2,946,314,488
+    pe ChainAnchorFinder<protal::KmerLookupSM>::Sort: ref 528,167,387, final -
+    pe SharedSeeds::Sort: ref -, final 598,536,530
+    pe SimpleAlignmentHandler::AlignAnchor: ref 7,359,243,070, final 7,072,877,723
+    pe AlignmentScreen::MayAlignPacked: ref 896,390,956, final 611,773,510
+    pe AlignmentScreen::SharesEnough: ref -, final 270,792,854
+    pe ThreadedGzStreambuf::Inflate: ref 1,123,773,720, final 980,359,886
+    pe isal_inflate: ref -, final 980,281,230
+    pe zng_inflate: ref 1,123,695,671, final -
+    pb RunLongReads: ref 3,147,021,756, final 3,126,532,728
+    pb ChainAnchorFinder<protal::KmerLookupSM>::operator(): ref 517,233,296, final 532,915,679
+    pb ChainAnchorFinder<protal::KmerLookupSM>::Sort: ref 120,735,435, final -
+    pb SharedSeeds::Sort: ref -, final 138,456,272
+    pb SimpleAlignmentHandler::AlignAnchor: ref 1,800,405,492, final 1,764,547,052
+    pb AlignmentScreen::MayAlignPacked: ref 133,957,570, final 98,787,959
+    pb AlignmentScreen::SharesEnough: ref -, final 59,493,193
+    pb ThreadedGzStreambuf::Inflate: ref 70,882,112, final 64,433,668
+    pb isal_inflate: ref -, final 64,427,337
+    pb zng_inflate: ref 70,875,986, final -
+    ref: Sample s: 100000 read pairs, 79118 mates with an anchor; 243020 candidate alignments tried: 12986 refused by the k-mer screen, 224537 aligned from the anchor's exact matches and 5497 as whole windows;
+    isal: Sample s: 100000 read pairs, 79118 mates with an anchor; 243020 candidate alignments tried: 12986 refused by the k-mer screen, 224537 aligned from the anchor's exact matches and 5497 as whole windows;
+CGFINALDONE 17:32:41

@@ -626,7 +626,7 @@ namespace protal {
                     PrintAlignmentCounts(options, index, read_type, protal_stats, long_read_aligner.GetAlignmentHandler(),
                                          long_read_aligner.GetAnchorFinder().m_seeding);
                     reads_read = protal_stats.reads;
-                    // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
+                    // A truncated or corrupt gzip file reads as one that ends early (ThreadedGzStream).
                     truncated = is.rdbuf()->read_failed();
                     read_problem = read_error(is);
                     read_success = reader.Success();
@@ -655,7 +655,7 @@ namespace protal {
                     }
                     PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler, anchor_finder.m_seeding);
                     reads_read = protal_stats.reads;
-                    // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
+                    // A truncated or corrupt gzip file reads as one that ends early (ThreadedGzStream).
                     truncated = is.rdbuf()->read_failed();
                     read_problem = read_error(is);
                     read_success = reader.Success();
@@ -703,7 +703,7 @@ namespace protal {
                     }
                     PrintAlignmentCounts(options, index, read_type, protal_stats, alignment_handler, anchor_finder.m_seeding);
                     reads_read = protal_stats.reads;
-                    // zlib-ng and libdeflate read a truncated or corrupt gzip file as one that ends early.
+                    // A truncated or corrupt gzip file reads as one that ends early (ThreadedGzStream).
                     truncated = is1.rdbuf()->read_failed() || is2.rdbuf()->read_failed();
                     read_problem = read_error(is1);
                     if (read_problem.empty()) read_problem = read_error(is2);

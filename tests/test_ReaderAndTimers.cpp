@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <zstd.h>
 #include <zstd_errors.h>
+#include <zlib-ng.h>
 #include "gzstream.h"
 #include "IO/ThreadedGzStream.h"
 #include "SequenceUtils/FastaBatches.h"
@@ -110,12 +111,28 @@ namespace {
         return text;
     }
 
-    // content as gzip of another writer than protal (libdeflate), one member.
-    std::string GzipBytes(std::string_view text) {
-        libdeflate_compressor* compressor = libdeflate_alloc_compressor(6);
-        std::string out(libdeflate_gzip_compress_bound(compressor, text.size()), '\0');
-        out.resize(libdeflate_gzip_compress(compressor, text.data(), text.size(), out.data(), out.size()));
-        libdeflate_free_compressor(compressor);
+    // content as gzip of another writer than protal (zlib-ng, by default at gzip's default level), one member. With
+    // `full_header`, its header has every optional field: an extra field, a name, a comment and a header CRC.
+    std::string GzipBytes(std::string_view text, bool full_header = false, int level = 6) {
+        zng_stream zs {};
+        EXPECT_EQ(zng_deflateInit2(&zs, level, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY), Z_OK);  // 15 + 16: a gzip wrapper
+        static unsigned char extra[] = { 'X', 'Y', 4, 0, 1, 2, 3, 4 };
+        static unsigned char name[] = "reads.fq", comment[] = "a comment";
+        zng_gz_header header {};
+        header.extra = extra;
+        header.extra_len = sizeof(extra);
+        header.name = name;
+        header.comment = comment;
+        header.hcrc = 1;
+        if (full_header) EXPECT_EQ(zng_deflateSetHeader(&zs, &header), Z_OK);
+        std::string out(zng_deflateBound(&zs, text.size()) + 64, '\0');
+        zs.next_in = reinterpret_cast<uint8_t const*>(text.data());
+        zs.avail_in = static_cast<uint32_t>(text.size());
+        zs.next_out = reinterpret_cast<uint8_t*>(out.data());
+        zs.avail_out = static_cast<uint32_t>(out.size());
+        EXPECT_EQ(zng_deflate(&zs, Z_FINISH), Z_STREAM_END);
+        out.resize(zs.total_out);
+        zng_deflateEnd(&zs);
         return out;
     }
 
@@ -231,8 +248,8 @@ TEST(ThreadedGzStream, ACutOrCorruptZstdFileIsReported) {
     EXPECT_EQ(error, "");
 }
 
-// gzip that is not BGZF (as sequencers write it) is inflated with zlib-ng, also when protal did not
-// write it: here libdeflate writes it, as one member and as several (all members are read).
+// gzip that is not BGZF (as sequencers write it) is inflated as a stream (ISA-L), also when protal did
+// not write it: here zlib-ng writes it, as one member and as several (all members are read).
 TEST(ThreadedGzStream, ReadsGzipOfAnotherWriter) {
     ScratchDir dir;
     auto const content = Fastq(20000, "g");  // ~6 MB, several blocks
@@ -247,6 +264,57 @@ TEST(ThreadedGzStream, ReadsGzipOfAnotherWriter) {
         EXPECT_EQ(ReadAllOf(is), content);
         EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
     }
+}
+
+// A gzip header with every optional field (an extra field, a name, a comment, a header CRC) split between two reads
+// of the file, at every place: ISA-L's inflate reads such a header wrongly when it comes in two pieces (ThreadedGzStream
+// reads headers with a state of its own). The first member is stored (level 0) and sized so that the second one's
+// header begins s bytes before the end of the reader's first read; then members of random sizes with such headers
+// through a pipe written a few bytes at a time.
+TEST(ThreadedGzStream, AHeaderSplitBetweenReadsIsRead) {
+    ScratchDir dir;
+    auto const second = Fastq(300, "h");
+    std::string const two = GzipBytes(second, true);
+    auto const text = Fastq(1000, "s");  // ~330 KB, more than a read
+    size_t constexpr kHeader = 10 + (2 + 8) + 9 + 10 + 2;  // fixed part, extra field, name, comment, header CRC
+    for (size_t s = 1; s <= kHeader + 2; s++) {
+        SCOPED_TRACE(s);
+        size_t const target = ThreadedGzStreambuf::kInputBuffer - s;
+        std::string first = text.substr(0, target), one;
+        for (int i = 0; i < 10 && one.size() != target; i++) {
+            one = GzipBytes(first, true, 0);
+            first = text.substr(0, first.size() + target - one.size());
+        }
+        ASSERT_EQ(one.size(), target);
+        ThreadedGzIstream is(dir.Plain("split" + std::to_string(s) + ".fq.gz", one + two).c_str());
+        EXPECT_EQ(ReadAllOf(is), first + second);
+        EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+    }
+
+    std::signal(SIGPIPE, SIG_IGN);
+    std::mt19937 rng(5);
+    std::string content, bytes;
+    for (int m = 0; m < 300; m++) {
+        auto const piece = Fastq(1 + rng() % 40, "p" + std::to_string(m));
+        content += piece;
+        bytes += GzipBytes(piece, true);
+    }
+    auto const fifo = (dir.path / "members.fifo").string();
+    ASSERT_EQ(::mkfifo(fifo.c_str(), 0600), 0);
+    std::thread writer([&fifo, &bytes] {
+        std::ofstream os(fifo, std::ios::binary);
+        std::mt19937 chunks(9);
+        for (size_t at = 0; at < bytes.size();) {
+            size_t const n = std::min<size_t>(1 + chunks() % 97, bytes.size() - at);
+            os.write(bytes.data() + at, static_cast<std::streamsize>(n));
+            os.flush();
+            at += n;
+        }
+    });
+    ThreadedGzIstream is(fifo.c_str());
+    EXPECT_EQ(ReadAllOf(is), content);
+    EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+    writer.join();
 }
 
 TEST(ThreadedGzStream, ReadsABgzfFileBlockByBlock) {
