@@ -1,0 +1,22 @@
+==3725573== Callgrind, a call-graph generating cache profiler
+==3725573== Copyright (C) 2002-2017, and GNU GPL'd, by Josef Weidendorfer et al.
+==3725573== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==3725573== Command: ./lookup_bench 0.004 20000 1 ABC
+==3725573== 
+==3725573== For interactive control, run 'callgrind_control -h'.
+arena 0.00 GB: 5987 blocks, 73.1 cells per block
+A: 3870.2 ns per lookup, 1.69 seeds per lookup, checksum 5cd2eb734840bd29
+B: 1908.5 ns per lookup, 1.69 seeds per lookup, checksum 5cd2eb734840bd29
+C: 1548.9 ns per lookup, 1.69 seeds per lookup, checksum 5cd2eb734840bd29
+==3725573== 
+==3725573== Events    : Ir
+==3725573== Collected : 3469925492
+==3725573== 
+==3725573== I   refs:      3,469,925,492
+3,469,925,492 (100.0%)  PROGRAM TOTALS
+1,017,326,173 (29.32%)  ???:(anonymous namespace)::LookupA(std::vector<(anonymous namespace)::Seed, std::allocator<(anon
+  884,166,438 (25.48%)  ???:protal::flex_scan::ScoreAvx2(protal::Seedmap::PackedBlock const&, unsigned int, unsigned cha
+  678,908,387 (19.57%)  ???:(anonymous namespace)::LookupB(std::vector<(anonymous namespace)::Seed, std::allocator<(anon
+  581,984,112 (16.77%)  ???:(anonymous namespace)::LookupC(std::vector<(anonymous namespace)::Seed, std::allocator<(anon
+  416,368,024 (12.00%)  ???:(anonymous namespace)::TiesByMasks(std::vector<(anonymous namespace)::Seed, std::allocator<(
+  348,641,932 (10.05%)  ???:(anonymous namespace)::ScoreMasked(protal::Seedmap::PackedBlock const&, unsigned int, unsign

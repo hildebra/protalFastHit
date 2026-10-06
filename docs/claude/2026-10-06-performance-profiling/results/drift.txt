@@ -1,0 +1,27 @@
+pass2: 27,150,221,343 (100.0%)  PROGRAM TOTALS
+   RunPairedEnd: 16,159,982,467
+   Seedmap::Load: 7,334,111,501
+   SimpleAlignmentHandler::operator: 8,145,449,590
+   ChainAnchorFinder<protal::KmerLookupSM>::operator: 2,788,432,352
+   OutputHandler<false>::operator: 1,589,530,564
+   AlignmentScreen::MayAlign: 
+   GuideMate: 462,396,882
+   JoinAlignmentPairs: 
+   SimpleKmerHandler<protal::ClosedSyncmer>::operator: 1,178,512,056
+   ReadGeneNeighbours: 
+   LoadAllGenomes: 1,102,941,803
+   ThreadedGzStreambuf::Inflate: 1,123,843,688
+head: 29,351,925,891 (100.0%)  PROGRAM TOTALS
+   RunPairedEnd: 16,057,849,253
+   Seedmap::Load: 9,649,142,611
+   SimpleAlignmentHandler::operator: 7,909,113,862
+   ChainAnchorFinder<protal::KmerLookupSM>::operator: 2,981,686,713
+   OutputHandler<false>::operator: 1,528,728,743
+   AlignmentScreen::MayAlign: 1,342,405,000
+   GuideMate: 464,214,077
+   JoinAlignmentPairs: 
+   SimpleKmerHandler<protal::ClosedSyncmer>::operator: 1,194,113,130
+   ReadGeneNeighbours: 838,071,227
+   LoadAllGenomes: 1,097,823,946
+   ThreadedGzStreambuf::Inflate: 1,123,773,463
+DRIFTDONE

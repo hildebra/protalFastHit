@@ -1,0 +1,89 @@
+OK build work (1750475)
+== unit tests, work build (13:48:14)
+exit 0
+[  PASSED  ] 369 tests.
+[  SKIPPED ] 3 tests.
+[       OK ] PackedIndex.LookupsGiveTheSameSeedsWithAndWithoutAvx2 (4183 ms)
+[       OK ] GenomeLoaderPacked.TheFlatTablesReachTheGenomesAndGenesOfTheMap (101 ms)
+[       OK ] AlignmentScreen.TheBoundForShortReads (0 ms)
+[       OK ] AlignmentScreen.AReadOfItsOwnGenePasses (0 ms)
+[       OK ] AlignmentScreen.RefusesOnlyWhatWFA2Fails (439 ms)
+48000 screens: 9410 refused, 38590 passed, the same from the packed bytes
+[       OK ] AlignmentScreen.PackedWindowsGiveTheDecodedWindowsAnswer (87 ms)
+4460 candidates, 3527 aligned; the screen refused 278 of 4460 (WFA2 ran 4182 times with it, 4460 without)
+[       OK ] AlignmentScreen.TheHandlerAlignsTheSameWithAndWithoutIt (81 ms)
+2976 blocks, 2173 with an exact match
+[       OK ] FlexScan.Avx2ScoresAndTiesAsTheScalarScan (15 ms)
+[       OK ] FlexScan.ABlockWithoutASharedBaseHasEveryCellBest (0 ms)
+== whole runs, 6 threads (13:50:59)
+-- pe
+    pe.ref: exit 0
+    pe.work: exit 0
+    pe.scalar: exit 0
+    ref vs work: SAM records identical (418466); other files differing: none
+    ref vs scalar: SAM records identical (418466); other files differing: none
+    		Seeding took 515ms mean over 6 threads
+    		Extending Anchors took 290ms mean over 6 threads
+    	K-mer screen took 234ms mean over 6 threads
+    Sample s seeding: 22836468 k-mers looked up, 8543501 in the index, 8249314 blocks scanned with 77008210 flex cells (9.3 per block); by block size 1: 43.5% of blocks, 4.7% of cells, 2-15: 42.1% of bloc
+    ref: 		Seeding took 619ms mean over 6 threads
+    ref: 		Extending Anchors took 512ms mean over 6 threads
+    ref: Alignment handler took 1s 941ms mean over 6 threads
+-- se
+    se.ref: exit 0
+    se.work: exit 0
+    se.scalar: exit 0
+    ref vs work: SAM records identical (207742); other files differing: none
+    ref vs scalar: SAM records identical (207742); other files differing: none
+    		Seeding took 351ms mean over 6 threads
+    		Extending Anchors took 163ms mean over 6 threads
+    	K-mer screen took 164ms mean over 6 threads
+    Sample s seeding: 11418349 k-mers looked up, 4345034 in the index, 4190008 blocks scanned with 39023940 flex cells (9.3 per block); by block size 1: 43.2% of blocks, 4.6% of cells, 2-15: 42.3% of bloc
+    ref: 		Seeding took 205ms mean over 6 threads
+    ref: 		Extending Anchors took 168ms mean over 6 threads
+    ref: Alignment handler took 748ms mean over 6 threads
+-- pb
+    pb.ref: exit 0
+    pb.work: exit 0
+    pb.scalar: exit 0
+    ref vs work: SAM records identical (24947); other files differing: none
+    ref vs scalar: SAM records identical (24947); other files differing: none
+    	K-mer screen took 73ms mean over 6 threads
+    Sample s seeding: 17067778 k-mers looked up, 4967434 in the index, 4967434 blocks scanned with 63845336 flex cells (12.9 per block); by block size 1: 46.1% of blocks, 3.6% of cells, 2-15: 40.6% of blo
+    ref: Alignment handler took 4s 428ms mean over 6 threads
+-- ont
+    ont.ref: exit 0
+    ont.work: exit 0
+    ont.scalar: exit 0
+    ref vs work: SAM records identical (34871); other files differing: none
+    ref vs scalar: SAM records identical (34871); other files differing: none
+    	K-mer screen took 50ms mean over 6 threads
+    Sample s seeding: 17054278 k-mers looked up, 5593739 in the index, 5593739 blocks scanned with 75254563 flex cells (13.5 per block); by block size 1: 44.1% of blocks, 3.3% of cells, 2-15: 41.7% of blo
+    ref: Alignment handler took 12s 282ms mean over 6 threads
+== callgrind, one thread (13:52:48)
+    pe.ref: 29,349,418,164 (100.0%)  PROGRAM TOTALS
+    pb.ref: 15,472,506,285 (100.0%)  PROGRAM TOTALS
+    pe.work: 28,819,692,660 (100.0%)  PROGRAM TOTALS
+    pb.work: 15,386,224,785 (100.0%)  PROGRAM TOTALS
+    pe RunPairedEnd: ref 16,055,140,628, work 15,525,157,252
+    pe ChainAnchorFinder<protal::KmerLookupSM>::operator(): ref 2,981,292,742, work 2,891,032,279
+    pe KmerLookupSM::GetFromLookup: ref 607,047,541, work 510,191,916
+    pe SimpleAlignmentHandler::AlignAnchor: ref 7,817,453,988, work 7,359,409,348
+    pe AlignmentScreen::MayAlign: ref 1,342,404,823, work 896,390,983
+    pb RunLongReads: ref 3,233,577,250, work 3,147,035,788
+    pb ChainAnchorFinder<protal::KmerLookupSM>::operator(): ref 534,370,390, work 517,224,835
+    pb SimpleAlignmentHandler::AlignAnchor: ref 1,867,555,610, work 1,800,441,042
+    pb AlignmentScreen::MayAlign: ref 200,315,773, work 
+== measure_performance.sh (13:58:22)
+exit 0
+paired_seeds dropped_lookups anchors 
+3003580 96 530601 
+pe1	1	K-mer screen	0.118664	6	0.019777
+== end-to-end tests on the mini database (13:58:24)
+exit 0
+...............
+----------------------------------------------------------------------
+Ran 133 tests in 214.207s
+
+OK
+CHECKDONE 14:01:59

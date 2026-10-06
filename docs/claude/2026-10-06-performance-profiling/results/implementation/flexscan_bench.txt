@@ -1,0 +1,7 @@
+ 14:02:37 up 3 days, 10:19,  1 user,  load average: 4.87, 6.48, 7.70
+blocks of 16 cells: scalar 2.80824 ns per cell, AVX2 0.907374 ns per cell (3.0949x)
+blocks of 70 cells: scalar 2.24934 ns per cell, AVX2 0.414953 ns per cell (5.42072x)
+blocks of 1000 cells: scalar 2.07186 ns per cell, AVX2 0.377048 ns per cell (5.49494x)
+blocks of 16 cells: scalar 2.50344 ns per cell, AVX2 0.90549 ns per cell (2.76473x)
+blocks of 70 cells: scalar 1.99572 ns per cell, AVX2 0.419413 ns per cell (4.75837x)
+blocks of 1000 cells: scalar 2.06737 ns per cell, AVX2 0.323193 ns per cell (6.39672x)

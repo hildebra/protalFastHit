@@ -165,6 +165,63 @@ TEST(PackedIndex, HoldsEveryFlexCellAndEntryOfTheStoredLayout) {
     EXPECT_GT(compared, 100u);
 }
 
+// A lookup's seeds come out the same with the AVX2 scan (BestAvx2, TiesAvx2) and the scalar one: the same entries in
+// the same order with the same flags, and the same lookups dropped as too ubiquitous, for keys whose flex part matches
+// a stored one exactly, in a few bases or not at all.
+TEST(PackedIndex, LookupsGiveTheSameSeedsWithAndWithoutAvx2) {
+    if (!protal::flex_scan::CpuHasAvx2()) GTEST_SKIP() << "no AVX2 here";
+    bool const enabled = protal::flex_scan::Avx2Enabled().load();
+    auto const values = SmallValues(9, 3000);
+    Seedmap map;
+    Fill(map, values);
+    map.Pack(Seedmap::PackedLayout::For(143614, 168, 12883 + 16), 4);
+    std::mt19937_64 rng(4);
+    // The flex part of a key: bits 0-15 and 46-61 (SmallValues); base j of it at bits 2j (j < 8) or 46 + 2 (j - 8).
+    auto change_base = [&](uint64_t key) {
+        unsigned const j = static_cast<unsigned>(rng() % 16);
+        unsigned const bit = j < 8 ? 2 * j : 46 + 2 * (j - 8);
+        return key ^ ((1 + rng() % 3) << bit);
+    };
+    size_t compared = 0, seeds = 0, dropped = 0;
+    for (size_t ubiquity : { size_t{256}, size_t{3} }) {
+        protal::KmerLookupSM lookup(map, ubiquity);
+        for (size_t k = 0; k < values.size(); k += 3) {
+            for (int variant = 0; variant < 4; variant++) {
+                uint64_t key = values[k].key;
+                if (variant >= 1) key = change_base(key);
+                if (variant >= 2) key = change_base(change_base(key));
+                if (variant == 3) key = (key & (((uint64_t{1} << 30) - 1) << 16)) | ((rng() & 0xffff) | (rng() & 0xffff) << 46);
+                size_t kmer = key;
+                std::vector<protal::LookupPointer> pointers;
+                lookup.Get(pointers, kmer, static_cast<uint32_t>(rng() % 120));
+                ASSERT_EQ(pointers.size(), 1u) << "the core is stored";
+                protal::LookupList with, without;
+                protal::flex_scan::UseAvx2(true);
+                bool const taken_with = lookup.GetFromLookup(with, pointers[0]);
+                protal::flex_scan::UseAvx2(false);
+                bool const taken_without = lookup.GetFromLookup(without, pointers[0]);
+                ASSERT_EQ(taken_with, taken_without) << "key " << k << " variant " << variant;
+                ASSERT_EQ(with.size(), without.size()) << "key " << k << " variant " << variant;
+                for (size_t i = 0; i < with.size(); i++) {
+                    EXPECT_EQ(with[i].taxid, without[i].taxid);
+                    EXPECT_EQ(with[i].geneid, without[i].geneid);
+                    EXPECT_EQ(with[i].genepos, without[i].genepos);
+                    EXPECT_EQ(with[i].readpos, without[i].readpos);
+                    EXPECT_EQ(with[i].unique, without[i].unique);
+                    EXPECT_EQ(with[i].unique_dist_two, without[i].unique_dist_two);
+                }
+                compared++;
+                seeds += with.size();
+                dropped += !taken_with;
+            }
+        }
+    }
+    protal::flex_scan::UseAvx2(enabled);
+    EXPECT_GT(compared, 7000u);
+    EXPECT_GT(seeds, compared);
+    EXPECT_GT(dropped, 100u) << "lookups of more than 3 tied cells are dropped";
+}
+
 TEST(PackedIndex, TheColumnFormatPacksChunkByChunkToTheSameValues) {
     auto const values = SmallValues(6, 2000);
     Seedmap map;

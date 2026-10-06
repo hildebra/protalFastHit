@@ -11,7 +11,8 @@
 # that it times the profiling of all samples, the strain MSAs and qcMSA (QCMSA=0: --no_qcmsa).
 # Writes OUT_DIR/environment.txt (machine, protal, database), runs.tsv (one line per sample run:
 # times, memory, perf counters, protal's counts of reads, anchors and candidate alignments, the SAM
-# header's genes and finishing time, the seeding's k-mers, blocks and flex cells), cohort.tsv (one
+# header's genes and finishing time, the seeding's k-mers, blocks and flex cells, the seeds that share
+# their taxon and gene with another, the lookups dropped as too ubiquitous, the anchors), cohort.tsv (one
 # line per cohort run: profiling, strain MSAs, building the MSAs, qcMSA, species), stages.tsv (each
 # run's misc/<prefix>_runtime.tsv: the alignment stage's timers per thread and the profiling steps'
 # wall times), logs/, and prints medians.
@@ -116,7 +117,7 @@ timed() {
     return $status
 }
 
-printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\n' > "$out/runs.tsv"
+printf 'sample\ttype\trep\tthreads\twall_s\tuser_s\tsys_s\tmax_rss_gb\tmajor_faults\tload_index_s\taligning_s\tprofiling_s\tstrains_s\tinstructions\tcycles\tcache_misses\tipc\treads\tanchored_reads\ttried\tscreened\tfrom_anchors\twhole_windows\tmade\twritten\tsam_finish_s\theader_genes\trecords_copy_s\tkmers\tkmers_in_index\tblocks_scanned\tflex_cells\tseeds\tpeak_preload_gb\tpeak_index_gb\tpeak_aligning_gb\tpeak_profiling_gb\tpaired_seeds\tdropped_lookups\tanchors\n' > "$out/runs.tsv"
 printf 'sample\trep\tstage\tseconds\tthreads\tseconds_per_thread\n' > "$out/stages.tsv"
 sams=$out/sams; mkdir -p "$sams"
 cohort_map_rows=()
@@ -143,17 +144,21 @@ for spec in "$@"; do
         header_genes=$(number_after '^SAM header: ' 'SAM header:' "$log")
         copy_s=$(grep -m1 '^SAM header: ' "$log" | grep -oE 'copied behind it in [0-9.]+' | grep -oE '[0-9.]+$'); copy_s=${copy_s:-0}
         grep -q '^SAM header: ' "$log" || copy_s=NA
-        # The seeding line ("Sample <name> seeding: K k-mers looked up, F in the index, S blocks scanned with C flex cells ...; N seeds").
+        # The seeding line ("Sample <name> seeding: K k-mers looked up, F in the index, S blocks scanned with C flex cells ...; N seeds,
+        # P of them sharing their taxon and gene with another seed; D lookups dropped as too ubiquitous; A anchors"; a protal
+        # from before 2026-10-06 ends it at "N seeds", and the last three columns are NA).
         seedline="^Sample $name seeding: "
         seeding=$(printf '%s\t%s\t%s\t%s\t%s' "$(number_after "$seedline" 'seeding:' "$log")" "$(number_after "$seedline" 'looked up,' "$log")" \
                   "$(number_after "$seedline" 'in the index,' "$log")" "$(number_after "$seedline" 'scanned with' "$log")" \
-                  "$(grep -m1 -E "$seedline" "$log" | grep -oE '[0-9]+ seeds$' | grep -oE '^[0-9]+' || echo NA)")
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
+                  "$(grep -m1 -E "$seedline" "$log" | grep -oE '[0-9]+ seeds(,|$)' | grep -oE '^[0-9]+' || echo NA)")
+        seed_fates=$(printf '%s\t%s\t%s' "$(number_after "$seedline" 'seeds,' "$log")" "$(number_after "$seedline" 'with another seed;' "$log")" \
+                     "$(grep -m1 -E "$seedline" "$log" | grep -oE '[0-9]+ anchors$' | grep -oE '^[0-9]+' || echo NA)")
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$type" "$rep" "$threads" \
             "$wall" "$user" "$sys" "$rss" "$faults" "$(took 'Load Index' "$log")" "$(took 'Aligning reads' "$log")" \
             "$(took 'Profiling' "$log")" "$(took 'Strain-level MSAs' "$log")" "$ins" "$cyc" "$miss" "$ipc" "$counts" \
             "$(took 'Writing the SAM header and file' "$log")" "$header_genes" "$copy_s" "$seeding" \
             "$(peak_after 'the genome preload' "$log")" "$(peak_after 'loading the index' "$log")" "$(peak_after aligning "$log")" \
-            "$(peak_after profiling "$log")" >> "$out/runs.tsv"
+            "$(peak_after profiling "$log")" "$seed_fates" >> "$out/runs.tsv"
         [ -e "$run/misc/${name}_runtime.tsv" ] && awk -v s="$name" -v r="$rep" 'NR > 1 { print s "\t" r "\t" $0 }' \
             "$run/misc/${name}_runtime.tsv" >> "$out/stages.tsv"
         echo "$name run $rep: ${wall} s"

@@ -1,0 +1,26 @@
+0 File 0 of 1:
+	/home/falk/perf6/o.pe_t6.r3/s.sam.zst (compressed)
+Warning: 1 species in 1 sample profile(s) score below their sample's knob (0.5, or the model's for the sample's depth) and are not reported, although their own reads are strong evidence (depth 1x or more, reads on 90% of their genes, best reads 98% identical or more); they are listed in /home/falk/perf6/o.pe_t6.r3/misc/unreported_species.tsv. Their samples enter the strain MSAs if they score that knob or more.
+	Command being timed: "/home/falk/perf6/head/build/protal --db /home/falk/bench071/V075/protal_db -1 /home/falk/bench071/samples/points/rl150_p500000/sim/reads/rl150_p500000_s_1_R1.fq.gz -2 /home/falk/bench071/samples/points/rl150_p500000/sim/reads/rl150_p500000_s_1_R2.fq.gz --read_type pe --prefix s -o /home/falk/perf6/o.pe_t6.r3 -t 6 --no_qcmsa --verbose"
+	User time (seconds): 49.30
+	System time (seconds): 5.95
+	Percent of CPU this job got: 541%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:10.20
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 3536204
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 231831
+	Voluntary context switches: 3653
+	Involuntary context switches: 1478
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 89616
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

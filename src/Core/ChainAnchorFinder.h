@@ -28,11 +28,15 @@ namespace protal {
     // What the seeding did, counted (ChainAnchorFinder::m_seeding, joined over the threads; the run's "seeding" line): the
     // k-mers looked up, those whose core is in the index (a block of values), the blocks scanned (FindSeeds takes a
     // read's blocks smallest first and stops once a short read has its seeds), their flex cells, which every lookup scores
-    // one by one (KmerLookupSM::GetFromLookup), by block size in powers of two, and the seeds emitted. At GTDB scale the
-    // seeding is half of the alignment stage (docs/claude/2026-10-04-performance-gtdb-scale); these say whether its time is
-    // the lookups' memory latency (many small blocks) or the scans of large blocks.
+    // (KmerLookupSM::GetFromLookup), by block size in powers of two, and the seeds emitted. At GTDB scale the seeding is
+    // half of the alignment stage (docs/claude/2026-10-04-performance-gtdb-scale); these say whether its time is the
+    // lookups' memory latency (many small blocks) or the scans of large blocks. Then what becomes of the seeds
+    // (docs/claude/2026-10-06-performance-profiling): those that share their taxon and gene with another seed of the read
+    // (the only ones FindPairs can make anchors of), the lookups dropped as too ubiquitous (more cells of the best score
+    // than --max_key_ubiquity: scanned, but no seeds), and the anchors made, each of which is extended.
     struct SeedingCounts {
         uint64_t kmers = 0, found = 0, scanned = 0, cells = 0, seeds = 0;
+        uint64_t paired = 0, dropped = 0, anchors = 0;
         std::array<uint64_t, 33> blocks_by_bits{}, cells_by_bits{};  // by the bit width of the block's size
 
         void NoteBlock(uint32_t size) {
@@ -49,6 +53,9 @@ namespace protal {
             scanned += other.scanned;
             cells += other.cells;
             seeds += other.seeds;
+            paired += other.paired;
+            dropped += other.dropped;
+            anchors += other.anchors;
             for (size_t b = 0; b < blocks_by_bits.size(); b++) {
                 blocks_by_bits[b] += other.blocks_by_bits[b];
                 cells_by_bits[b] += other.cells_by_bits[b];
@@ -56,7 +63,8 @@ namespace protal {
         }
 
         // "K k-mers looked up, F in the index, S blocks scanned with C flex cells (C/S per block); blocks of 1, 2-15, ...
-        // entries: x% of the blocks, y% of the cells; N seeds".
+        // entries: x% of the blocks, y% of the cells; N seeds, P of them sharing their taxon and gene with another seed;
+        // D lookups dropped as too ubiquitous; A anchors" (scripts/measure_performance.sh reads it).
         std::string Text() const {
             auto pct = [](uint64_t part, uint64_t whole) {
                 std::ostringstream os;
@@ -77,7 +85,8 @@ namespace protal {
                 }
                 os << (g.from == 1 ? " " : ", ") << g.name << ": " << pct(blocks, scanned) << " of blocks, " << pct(in_cells, cells) << " of cells";
             }
-            os << "; " << seeds << " seeds";
+            os << "; " << seeds << " seeds, " << paired << " of them sharing their taxon and gene with another seed; " << dropped
+               << " lookups dropped as too ubiquitous; " << anchors << " anchors";
             return os.str();
         }
     };
@@ -163,7 +172,7 @@ namespace protal {
                 if (m_lookup_index + kPrefetchLookups < m_lookups.size()) KmerLookup::PrefetchValues(m_lookups[m_lookup_index + kPrefetchLookups]);
                 auto& lookup = m_lookups[m_lookup_index];
                 m_seeding.NoteBlock(lookup.size);
-                m_kmer_lookup.GetFromLookup(seeds, lookup);
+                m_seeding.dropped += !m_kmer_lookup.GetFromLookup(seeds, lookup);
                 total_lookups++;
                 m_successful_lookups += (seeds.size() > previous_size);
                 if (seeds.size() > m_max_seed_size && m_successful_lookups > m_min_successful_lookups) {
@@ -254,17 +263,40 @@ namespace protal {
                                                                            static_cast<int64_t>(gene_length))));
         }
 
-        // The gene of an anchor decoded around its links: all that extending the anchor and checking its seeds reads.
-        static GeneSequence GeneAround(Gene const& gene, ChainList const& chain, size_t read_length) {
+        // The stretch [lo, hi) of a gene an anchor's links reach along their diagonals.
+        static std::pair<size_t, size_t> AroundLinks(Gene const& gene, ChainList const& chain, size_t read_length) {
             size_t lo = SIZE_MAX, hi = 0;
             for (auto const& link : chain) WidenToDiagonal(lo, hi, link.genepos, link.readpos, read_length, gene.GetLength());
+            return { lo, hi };
+        }
+
+        // The gene of an anchor decoded around its links: all that extending the anchor and checking its seeds reads.
+        static GeneSequence GeneAround(Gene const& gene, ChainList const& chain, size_t read_length) {
+            auto const [lo, hi] = AroundLinks(gene, chain, read_length);
             return gene.Window(lo, hi);
+        }
+
+        // A read's anchors are extended one after another, each reading its gene's record and its packed bases around
+        // the anchor. At GTDB scale both are cache misses, and an anchor's decoding and extension is longer than the
+        // core's out-of-order window, so the misses would be waited for one anchor after another (~1.2 us a mate at r226,
+        // docs/claude/2026-10-06-performance-profiling). The records are fetched kPrefetchAnchors anchors ahead, the bases
+        // half as far (their place is in the record), once the genomes are preloaded (GenomeLoader::PrefetchGene).
+        static constexpr size_t kPrefetchAnchors = 8;
+
+        void PrefetchAnchorGene(Anchor const& anchor) const {
+            m_genome_loader.PrefetchGene(anchor.taxid, anchor.geneid);
+        }
+
+        void PrefetchAnchorBases(Anchor const& anchor, size_t read_length) const {
+            if (Gene const* gene = m_genome_loader.PreloadedGene(anchor.taxid, anchor.geneid)) {
+                auto const [lo, hi] = AroundLinks(*gene, anchor.chain, read_length);
+                gene->PrefetchBases(lo, hi);
+            }
         }
 
         Anchor ExtractAndExtendAnchorFromSeed(Seed& seed, std::string& fwd, std::string& rev) {
 //            if (seed.taxid == 0) exit(23); // remove
-            auto& genome = m_genome_loader.GetGenome(seed.taxid);
-            auto& gene = genome.GetGeneOMP(seed.geneid);
+            auto& gene = m_genome_loader.GetGeneOMP(seed.taxid, seed.geneid);
             // Along the seed's diagonal on either strand (which one it is on is not known yet).
             size_t lo = SIZE_MAX, hi = 0;
             WidenToDiagonal(lo, hi, seed.genepos, seed.readpos, fwd.length(), gene.GetLength());
@@ -408,6 +440,7 @@ namespace protal {
                 if (seed == next_seed) {
                     size_t group_size = 2;
                     while (i+group_size < seeds.size() && seeds[i+group_size] == seed) group_size++;
+                    m_seeding.paired += group_size;
 
                     auto start_it = seeds.begin() + i;
                     auto end_it = start_it + group_size;
@@ -644,8 +677,7 @@ namespace protal {
         }
 
         bool CheckSeedsInAnchor(ChainAlignmentAnchor& anchor, std::string const& query) {
-            auto& genome = m_genome_loader.GetGenome(anchor.taxid);
-            auto& gene = genome.GetGeneOMP(anchor.geneid);
+            auto& gene = m_genome_loader.GetGeneOMP(anchor.taxid, anchor.geneid);
             auto const geneseq = gene.Sequence();
 
             bool faulty = false;
@@ -687,8 +719,7 @@ namespace protal {
         }
 
         void ExtendAnchor(ChainAlignmentAnchor& anchor, std::string const& query) {
-            auto& genome = m_genome_loader.GetGenome(anchor.taxid);
-            auto& gene = genome.GetGeneOMP(anchor.geneid);
+            auto& gene = m_genome_loader.GetGeneOMP(anchor.taxid, anchor.geneid);
             auto const geneseq = GeneAround(gene, anchor.chain, query.size());
             ExtendAnchor(anchor, query, geneseq);
         }
@@ -814,14 +845,21 @@ namespace protal {
             m_bm_processing.Stop();
 
             m_bm_pairing.Start();
+            size_t const anchors_before = anchors.size();
             FindPairs(seeds, anchors, read_length);
+            m_seeding.anchors += anchors.size() - anchors_before;
             m_bm_pairing.Stop();
 
             m_bm_extend_anchors.Start();
-            for (auto& anchor : anchors) {
+            size_t const n_anchors = anchors.size();
+            for (size_t i = 0; i < std::min(n_anchors, kPrefetchAnchors); i++) PrefetchAnchorGene(anchors[i]);
+            for (size_t i = 0; i < std::min(n_anchors, kPrefetchAnchors / 2); i++) PrefetchAnchorBases(anchors[i], read_length);
+            for (size_t a = 0; a < n_anchors; a++) {
+                if (a + kPrefetchAnchors < n_anchors) PrefetchAnchorGene(anchors[a + kPrefetchAnchors]);
+                if (a + kPrefetchAnchors / 2 < n_anchors) PrefetchAnchorBases(anchors[a + kPrefetchAnchors / 2], read_length);
+                auto& anchor = anchors[a];
                 // The gene around the anchor, decoded once for the checks of a short anchor and its extension.
-                auto& genome = m_genome_loader.GetGenome(anchor.taxid);
-                auto& gene = genome.GetGeneOMP(anchor.geneid);
+                auto& gene = m_genome_loader.GetGeneOMP(anchor.taxid, anchor.geneid);
                 auto const geneseq = GeneAround(gene, anchor.chain, read_length);
                 if (anchor.chain.size() == 1 && anchor.total_length < 20) {
                     auto& seed = anchor.chain.back();

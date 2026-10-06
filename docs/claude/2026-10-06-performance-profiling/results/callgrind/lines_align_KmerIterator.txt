@@ -1,0 +1,30 @@
+111,000,000 ( 0.38%)                  for (uint32_t j = 1; j < count; j++) {
+ 49,200,000 ( 0.17%)                  for (size_t i = 0; i < n + 24; i++) b8[i] = static_cast<uint16_t>(b4[i] | (uint32_t{b4[i + 4]} << 8));
+ 49,200,000 ( 0.17%)                  for (size_t i = 0; i < n + 24; i++) b8[i] = static_cast<uint16_t>((uint32_t{b4[i]} << 8) | b4[i + 4]);
+ 47,600,000 ( 0.16%)                  for (size_t i = 0; i < n + 16; i++) b16[i] = (uint32_t{b8[i]} << 16) | b8[i + 8];
+ 47,200,006 ( 0.16%)                  for (size_t i = 0; i < n + 16; i++) b16[i] = b8[i] | (uint32_t{b8[i + 8]} << 16);
+ 42,000,000 ( 0.14%)                  uint64_t const kr = (uint64_t{b16[p]} | (uint64_t{b16[p + 16]} << 32)) & kmask;
+ 42,000,000 ( 0.14%)                  uint64_t const kf = ((uint64_t{b16[p]} << 32) | b16[p + 16]) >> kshift;
+ 37,600,000 ( 0.13%)                  m_cores_rev[p] = static_cast<uint32_t>((kr >> mshift) & mmask);
+ 36,491,272 ( 0.12%)                  while (hits) {
+ 31,200,000 ( 0.11%)              for (size_t q = 0; q + s <= n; q++) m_smers_fwd[q] = ((b16[q] >> sshift) & smask) << 4;
+ 27,000,000 ( 0.09%)                  m_cores_fwd[p] = static_cast<uint32_t>((kf >> mshift) & mmask);
+ 24,200,000 ( 0.08%)              for (size_t q = 0; q + s <= n; q++) m_smers_rev[q] = (b16[q] & sfull & smask) << 4;
+ 22,400,000 ( 0.08%)                  for (size_t i = 0; i < n + 30; i++) b2[i] = static_cast<uint8_t>(code[i] | (code[i + 1] << 2));
+ 21,200,000 ( 0.07%)              for (; p + 8 <= windows; p += 8) {
+ 21,000,000 ( 0.07%)                  for (size_t i = 0; i < n + 30; i++) b2[i] = static_cast<uint8_t>((code[i] << 2) | code[i + 1]);
+ 20,200,000 ( 0.07%)                  for (size_t i = 0; i < n + 28; i++) b4[i] = static_cast<uint8_t>((b2[i] << 4) | b2[i + 2]);
+ 19,600,000 ( 0.07%)                  for (size_t i = 0; i < n + 28; i++) b4[i] = static_cast<uint8_t>(b2[i] | (b2[i + 2] << 4));
+ 14,400,000 ( 0.05%)              for (; i < n; i++) {
+ 13,740,132 ( 0.05%)                      list.emplace_back(KmerElement((forwards >> lane) & 1 ? m_kmers_fwd[p + lane] : m_kmers_rev[p + lane], p + lane));
+ 13,740,132 ( 0.05%)                      auto const lane = static_cast<unsigned>(__builtin_ctz(hits));
+ 13,600,000 ( 0.05%)              for (size_t p = 0; p < windows; p++) {
+ 13,200,000 ( 0.04%)                  cf[i] = kForwardCode[ch];
+ 10,800,000 ( 0.04%)              for (size_t p = 0; p < windows; p++) {
+  8,800,000 ( 0.03%)                  cr[i] = kReverseCode[ch];
+  6,000,000 ( 0.02%)                  m_kmers_rev[p] = kr;
+  6,000,000 ( 0.02%)                  m_kmers_fwd[p] = kf;
+  5,600,000 ( 0.02%)          __attribute__((target("avx2"))) void Bases16(uint8_t const* code, size_t n, bool big_endian) {
+  4,580,044 ( 0.02%)                      hits &= hits - 1;
+  4,400,000 ( 0.01%)                  auto const ch = static_cast<unsigned char>(m_seq[i]);
+  3,800,000 ( 0.01%)              for (; i + 32 <= n; i += 32) {

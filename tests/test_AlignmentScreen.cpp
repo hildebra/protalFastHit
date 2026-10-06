@@ -137,6 +137,50 @@ TEST(AlignmentScreen, RefusesOnlyWhatWFA2Fails) {
     EXPECT_GT(refused, failed / 10);
 }
 
+// The screen from a gene's packed bytes (MayAlignPacked) answers as the screen of its decoded window (MayAlign): genes
+// with Ns and ambiguity codes (packed as bases, as the decoded window has them), windows at any offset (inside a packed
+// byte or not), up to the gene's last base, shorter than k or empty, read in exactly the gene's bytes; reads of every
+// divergence with Ns, free ends, budgets and k; one screen for both, its stamps reused between them.
+TEST(AlignmentScreen, PackedWindowsGiveTheDecodedWindowsAnswer) {
+    std::mt19937 rng(23);
+    std::uniform_real_distribution<double> u(0, 1);
+    AlignmentScreen screen;
+    std::vector<size_t> const ks = { 0, 4, 5, 6, 7, 8, 9, 10 };
+    size_t cases = 0, refused = 0, passed = 0;
+    for (int n = 0; n < 6000; n++) {
+        size_t const gene_length = 1 + rng() % 2500;
+        std::string gene = RandomBases(rng, gene_length);
+        for (auto& c : gene) if (rng() % 50 == 0) c = "NRYKMSWnacgt"[rng() % 12];
+        std::vector<uint8_t> packed(packed::Bytes(gene_length), 0);  // exactly the gene's bytes
+        packed::Pack(gene.data(), gene_length, packed.data());
+        std::string decoded(gene_length, '\0');
+        packed::Unpack(packed.data(), gene_length, decoded.data());
+        size_t const begin = rng() % (gene_length + 1);
+        size_t const end = n % 5 == 0 ? gene_length : std::min(gene_length, begin + rng() % 1600);
+        size_t const read_length = 5 + rng() % (n % 3 == 0 ? 1500 : 200);
+        long const start = static_cast<long>(begin) + static_cast<long>(rng() % 40) - 20;
+        double const divergence = u(rng) < 0.5 ? u(rng) * 0.05 : u(rng) * 0.3;
+        std::string const read = Derive(rng, decoded, start, read_length, divergence, n % 4 == 0 ? 0.02 : 0);
+        size_t const begin_free = rng() % 3 == 0 ? rng() % (read_length / 2 + 1) : 0;
+        size_t const end_free = rng() % 3 == 0 ? rng() % (read_length / 2 + 1) : 0;
+        int const max_score = 1 + static_cast<int>(rng() % 400);
+        std::string_view const window = std::string_view(decoded).substr(begin, end - begin);
+        for (size_t k : ks) {
+            bool const from_text = screen.MayAlign(read, begin_free, end_free, window, max_score, kMismatch, kGapOpen, kGapExtend, k);
+            bool const from_packed = screen.MayAlignPacked(read, begin_free, end_free, packed.data(), packed.size(), begin, end,
+                                                           max_score, kMismatch, kGapOpen, kGapExtend, k);
+            ASSERT_EQ(from_packed, from_text) << "case " << n << ", k " << k << ": gene " << gene_length << ", window " << begin << "-"
+                                              << end << ", read " << read_length << ", free " << begin_free << "/" << end_free;
+            cases++;
+            refused += !from_text;
+            passed += from_text;
+        }
+    }
+    std::cout << cases << " screens: " << refused << " refused, " << passed << " passed, the same from the packed bytes" << std::endl;
+    EXPECT_GT(refused, cases / 10);
+    EXPECT_GT(passed, cases / 10);
+}
+
 namespace {
     constexpr size_t kGenes = 12, kGeneLength = 1200;
 

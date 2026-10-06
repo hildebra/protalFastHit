@@ -182,7 +182,7 @@ namespace protal {
         // reverse one; the other mate aligns in the other orientation. Where the reach runs past the gene's end,
         // also on the genes the taxon's clade has at that end (the database's gene neighbours, AcrossGenes.h), in
         // the orientation their strands give; the place whose diagonal has the most k-mers is aligned.
-        auto& gene = genomes.GetGenome(guide.Taxid()).GetGeneOMP(guide.GeneId());
+        auto& gene = genomes.GetGeneOMP(guide.Taxid(), guide.GeneId());
         int64_t const gene_length = static_cast<int64_t>(gene.GetLength());
         int64_t const start = guide_info.gene_alignment_start;
         int64_t const end = start + static_cast<int64_t>(guide_info.alignment_length);
@@ -203,7 +203,7 @@ namespace protal {
         mate_guidance::Diagonal diagonal;
         across_genes::Stretch const* place = nullptr;
         for (auto const& candidate : places) {
-            auto& on = genomes.GetGenome(guide.Taxid()).GetGeneOMP(candidate.gene);
+            auto& on = genomes.GetGeneOMP(guide.Taxid(), candidate.gene);
             std::string const& query = candidate.forward ? record.sequence : reverse;
             auto const window = on.Window(static_cast<size_t>(candidate.first), static_cast<size_t>(candidate.last));
             auto const d = mate_guidance::BestDiagonal(query, window.View().substr(static_cast<size_t>(candidate.first),

@@ -1,0 +1,3 @@
+[  PASSED  ] 369 tests.
+[  SKIPPED ] 3 tests.
+[  SKIPPED ] 3 tests.

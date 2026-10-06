@@ -1,0 +1,30 @@
+213,988,996 ( 0.73%)                  if (valid >= k) m_stamps[code] = m_generation;
+137,834,982 ( 0.47%)                  if (valid < k || m_stamps[code] == m_generation) shared++;
+123,615,674 ( 0.42%)                  if (base > 3) valid = 0; else { valid++; code = ((code << 2) | base) & mask; }
+110,605,988 ( 0.38%)              for (char const c : window) {
+109,402,158 ( 0.37%)                  code = ((code << 2) | base) & mask;
+106,197,058 ( 0.36%)                  if (i + 1 < begin_free + k) continue;
+ 73,175,538 ( 0.25%)                  uint32_t const base = static_cast<uint32_t>(KmerUtils::BaseToInt(c));
+ 72,934,772 ( 0.25%)                  if (base > 3) { valid = 0; continue; }
+ 48,683,316 ( 0.17%)                  if (shared + remaining < required) return false;
+ 36,467,386 ( 0.12%)                  valid++;
+ 36,041,062 ( 0.12%)                  uint32_t const base = static_cast<uint32_t>(KmerUtils::BaseToInt(read[i]));
+ 35,318,764 ( 0.12%)              for (size_t i = begin_free, end = read.size() - end_free; i < end; i++) {
+ 32,911,104 ( 0.11%)                  if (shared >= required) return true;
+ 16,455,552 ( 0.06%)                  remaining--;
+  2,673,220 ( 0.01%)          bool MayAlign(std::string_view read, size_t begin_free, size_t end_free, std::string_view window,
+  2,187,000 ( 0.01%)              if (mismatch > 0) touched = std::max(touched, budget * k / mismatch);
+  1,944,160 ( 0.01%)          }
+  1,931,174 ( 0.01%)              if (begin_free + end_free >= read.size()) return true;
+  1,458,000 ( 0.00%)              if (open > 0) touched = std::max(touched, budget * k / open);
+  1,458,000 ( 0.00%)              if (gap_extension > 0) touched = std::max(touched, budget / gap_extension);
+  1,215,100 ( 0.00%)          static size_t KFor(size_t window_length) { return window_length <= kShortWindow ? kDefaultK : kLongK; }
+    976,050 ( 0.00%)              if (required > static_cast<int64_t>(aligned - k + 1)) return false;
+    963,064 ( 0.00%)              uint32_t const mask = (1u << (2 * k)) - 1;
+    729,060 ( 0.00%)              size_t const aligned = read.size() - begin_free - end_free;
+    729,000 ( 0.00%)              return static_cast<int64_t>(aligned - k + 1) - touched;
+    729,000 ( 0.00%)              int64_t const open = static_cast<int64_t>(gap_opening) + static_cast<int64_t>(gap_extension);
+    722,302 ( 0.00%)              if (m_stamps.size() < size_t{1} << (2 * k)) { m_stamps.assign(size_t{1} << (2 * k), 0); m_generation = 0; }
+    486,040 ( 0.00%)              if (k == 0) k = KFor(window.size());
+    486,040 ( 0.00%)              if (aligned < k) return 0;
+    486,000 ( 0.00%)              if (required <= 0) return true;

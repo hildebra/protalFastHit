@@ -1,0 +1,11 @@
+Loading the gene tables took 3s 623ms
+Preload genomes took 9s 244ms
+Loading the taxonomy, models and tables took 9s 275ms
+Thread 0 Profile sample took 1m 29s 651ms
+Profiling sample s took 102.8s: reading the SAM 69.8s, record evidence and sample context 15.0s, read EM 3.9s, congener distances 10.8s, SNP post-processing 4.8s, scoring 0.0s, writing the profile 13.1s
+Sample s read EM: 76017 ambiguity classes with 223147 alternatives, 765 taxa (724 named by the classes), 100 sweeps; the record counts by taxon 0.005 s, setting up 1.260 s, the sweeps 2.574 s, the shares 0.023 s
+Profiling took 1m 43s 87ms
+Strain-level MSAs took 11ms
+Building the strain MSAs took less than 1ms
+Run protal took 1m 57s 612ms
+Freeing memory took 0s 135ms

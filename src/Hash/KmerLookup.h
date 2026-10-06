@@ -6,6 +6,8 @@
 
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
+#include <algorithm>
+#include <tuple>
 #include "Seedmap.h"
 #include "FlexScan.h"
 #include "Constants.h"
@@ -167,7 +169,8 @@ namespace protal {
 //        std::shared_ptr<Seedmap> m_sm;
         Seedmap& m_sm;
 
-        std::vector<uint8_t> flex_vector;  // the last block's scores (flex_scan::Score), grown as needed
+        std::vector<uint8_t> flex_vector;  // the last block's scores (flex_scan::BestAvx2, ScoreScalar), grown as needed
+        std::vector<uint32_t> m_tie_masks;  // its best cells, 32 to a word (flex_scan::TiesAvx2)
 
         size_t m_flex_k = 16;
         size_t m_flex_k_half = m_flex_k/2;
@@ -233,42 +236,58 @@ namespace protal {
             result.emplace_back(m_lookup_tmp);
         }
 
-        PROTAL_CLONE_V3 inline void GetFromLookup(LookupList& result, LookupPointer& pointers) {
-            if (pointers.flex != nullptr) {
-                // Every cell's score, the best and how many have it (flex_scan::Score: AVX2 where the CPU has it).
-                if (flex_vector.size() < pointers.size) flex_vector.resize(pointers.size);
-                auto const [best, max_count] = flex_scan::Score(pointers, pointers.flex_key, flex_vector.data());
-                uint32_t const max = best;
-
-                if (max_count > m_max_ubiquity) {
-                    return;
-                }
-
-                for (uint32_t i = 0; i < pointers.size; i++) {
-                    if (flex_vector[i] == max) {
-                        ValueEntry const entry = Entry(pointers, i);
-                        entry.Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
-                        m_unique &= max == m_sm.m_flex_k;
-                        m_unique_dist_two &= max == m_sm.m_flex_k;
-
-                        if (m_taxid == 0) {
-                            // Debug
-                            std::cout << ValueEntry(entry).ToString() << std::endl;
-                            for (auto& e : result) {
-                                std::cout << e.ToString() << std::endl;
-                            }
-                            continue;
-                        }
-
-                        result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, m_unique, m_unique_dist_two );
-                    }
-                }
-            } else {
+        // The seeds of a lookup: the entries whose flex cells share the most bases with the read's (all entries of a key
+        // with one value, which has no flex cells), in entry order, flagged unique only where the whole k-mer matches.
+        // None if more than m_max_ubiquity cells share the best score; returns false for such a lookup (too ubiquitous).
+        PROTAL_CLONE_V3 inline bool GetFromLookup(LookupList& result, LookupPointer& pointers) {
+            if (pointers.flex == nullptr) {
                 for (uint32_t i = 0; i < pointers.size; i++) {
                     Entry(pointers, i).Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
                     result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, false, false );
                 }
+                return true;
             }
+            // The cells with the best score as bit masks (m_tie_masks, 32 cells to a word), then their entries in order.
+            uint32_t const size = pointers.size;
+            uint32_t const words = static_cast<uint32_t>(flex_scan::TieWords(size));
+            if (m_tie_masks.size() < words) m_tie_masks.resize(words);
+            uint32_t max = 0, max_count = 0;
+            if (flex_scan::Avx2Enabled().load(std::memory_order_relaxed)) {
+                // Every cell's score and the best in one pass, the masks and their count in another (FlexScan.h).
+                size_t const bytes = std::max<size_t>(size + flex_scan::kScorePadding, flex_scan::TieScoreBytes(size));
+                if (flex_vector.size() < bytes) flex_vector.resize(bytes);
+                max = flex_scan::BestAvx2(pointers, pointers.flex_key, flex_vector.data());
+                max_count = flex_scan::TiesAvx2(flex_vector.data(), size, max, m_tie_masks.data());
+                if (max_count > m_max_ubiquity) return false;
+            } else {
+                // Every cell's score, the best and how many have it, then the masks one cell at a time.
+                if (flex_vector.size() < size) flex_vector.resize(size);
+                std::tie(max, max_count) = flex_scan::ScoreScalar(pointers, pointers.flex_key, flex_vector.data());
+                if (max_count > m_max_ubiquity) return false;
+                std::fill_n(m_tie_masks.begin(), words, 0u);
+                for (uint32_t i = 0; i < size; i++) m_tie_masks[i / 32] |= static_cast<uint32_t>(flex_vector[i] == max) << (i % 32);
+            }
+            bool const exact = max == m_sm.m_flex_k;
+            for (uint32_t w = 0; w < words; w++) {
+                for (uint32_t m = m_tie_masks[w]; m != 0; m &= m - 1) {
+                    ValueEntry const entry = Entry(pointers, 32 * w + static_cast<uint32_t>(__builtin_ctz(m)));
+                    entry.Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
+                    m_unique &= exact;
+                    m_unique_dist_two &= exact;
+
+                    if (m_taxid == 0) {
+                        // Debug
+                        std::cout << ValueEntry(entry).ToString() << std::endl;
+                        for (auto& e : result) {
+                            std::cout << e.ToString() << std::endl;
+                        }
+                        continue;
+                    }
+
+                    result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, m_unique, m_unique_dist_two );
+                }
+            }
+            return true;
         }
 
         inline void RecoverFromLookup(LookupList& result, LookupPointer& pointers, RecoverySet& recovery) {

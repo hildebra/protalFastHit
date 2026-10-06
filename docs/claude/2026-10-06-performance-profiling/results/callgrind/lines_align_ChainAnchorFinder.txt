@@ -1,0 +1,30 @@
+96,985,434 ( 0.33%)                  if (a[i] != b[i] && (a[i] == 'A' || a[i] == 'C' || a[i] == 'G' || a[i] == 'T') && (b[i] == 'A' || b[i] == 'C' || b[i] == 'G' || b[i] == 'T')) {
+92,728,575 ( 0.32%)                   qpos >= query_left_limit && rpos >= 0 && query[qpos] == gene[rpos];
+76,283,434 ( 0.26%)              for (auto i = 0; i < a.length(); i++) {
+75,610,681 ( 0.26%)                   qpos < query_right_limit && rpos < gene.length() && query[qpos] == gene[rpos];
+37,370,810 ( 0.13%)              for (size_t i = 0; i < list.size(); i++) list[i] = LookupResult::FromSortKey(m_sort_keys[i]);
+24,729,940 ( 0.08%)              return min(abs(a.first - b.first), abs(a.second - b.second)) <= indel;
+19,700,220 ( 0.07%)                  if (j + kPrefetchKmers < n) m_kmer_lookup.PrefetchKey(kmer_list[j + kPrefetchKmers].first);
+16,960,440 ( 0.06%)              return OffsetPair { static_cast<int>(s.genepos) + s.readpos, static_cast<int>(s.genepos) - s.readpos };
+15,960,990 ( 0.05%)              for (size_t i = 0; i < list.size(); i++) m_sort_keys[i] = list[i].SortKey();
+14,837,664 ( 0.05%)                  if (!is_first && (prev.genepos >= seed.genepos || prev.readpos >= seed.readpos)) {
+14,540,132 ( 0.05%)              for (size_t j = 0; j < n; j++) {
+13,268,721 ( 0.05%)                      while (i+group_size < seeds.size() && seeds[i+group_size] == seed) group_size++;
+11,577,456 ( 0.04%)              scanned++;
+11,133,315 ( 0.04%)                  for (auto i = 1; i < seeds.size(); i++) {
+ 9,891,974 ( 0.03%)                      if (seed.genepos == prev.genepos || seed.readpos == prev.readpos) {
+ 9,010,635 ( 0.03%)              for (auto& seed : seeds) {
+ 8,088,449 ( 0.03%)              for (m_lookup_index = 0; m_lookup_index < m_lookups.size(); m_lookup_index++) {
+ 7,959,015 ( 0.03%)          Anchor ExtractAnchor(SeedList &seeds, size_t read_length) {
+ 7,847,394 ( 0.03%)              for (auto i = 0; i < seeds.size()-1; i++) {
+ 7,089,761 ( 0.02%)                  extension_right++;
+ 6,969,951 ( 0.02%)              for (auto const& link : chain) WidenToDiagonal(lo, hi, link.genepos, link.readpos, read_length, gene.GetLength());
+ 6,897,813 ( 0.02%)          void ExtendAnchor(ChainAlignmentAnchor& anchor, std::string const& query, GeneSequence const& geneseq) {
+ 6,767,354 ( 0.02%)                  extension_left++;
+ 6,367,212 ( 0.02%)          }
+ 6,069,096 ( 0.02%)                  m_kmer_lookup.Get(m_lookups, kmer_list[j].first, static_cast<uint32_t>(kmer_list[j].second));
+ 6,007,090 ( 0.02%)              auto uniques_two = std::accumulate(seeds.begin(), seeds.end(), 0, [](auto acc, Seed& seed){ return acc + seed.unique_dist_two; });
+ 6,007,090 ( 0.02%)              auto uniques = std::accumulate(seeds.begin(), seeds.end(), 0, [](auto acc, Seed& seed){ return acc + seed.unique; });
+ 6,007,090 ( 0.02%)                  prev = seed;
+ 5,911,042 ( 0.02%)              for (auto& seed : seeds) {
+ 5,788,728 ( 0.02%)              int const bits = size == 0 ? 0 : 32 - __builtin_clz(size);

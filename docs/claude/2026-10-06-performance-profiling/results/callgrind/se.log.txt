@@ -1,0 +1,21 @@
+Loading the gene tables took 2s 856ms
+Preload genomes took 8s 166ms
+Loading the taxonomy, models and tables took 12s 139ms
+Load Index took 35s 178ms
+OMP Loop handler took 37s 637ms
+Sequence reader took 6s 205ms
+Retrieve k-mers took 3s 119ms
+Seed- and Anchor-finding took 10s 751ms
+	Seed-finding operator took 9s 866ms
+		Seeding took 3s 682ms
+		Extending Anchors took 2s 164ms
+Alignment handler took 19s 815ms
+Output handler took 6s 692ms
+Sample s: 100000 reads, 39566 with an anchor; 107324 candidate alignments tried: 6287 refused by the k-mer screen, 98612 aligned from the anchor's exact matches and 2425 as whole windows; 90495 alignments made, 35326 records written
+Sample s seeding: 2290016 k-mers looked up, 756042 in the index, 734304 blocks scanned with 5921782 flex cells (8.1 per block); by block size 1: 44.6% of blocks, 5.5% of cells, 2-15: 44.5% of blocks, 33.7% of cells, 16-255: 10.9% of blocks, 56.5% of cells, 256-4095: 0.1% of blocks, 4.3% of cells, 4096-65535: 0.0% of blocks, 0.0% of cells, >=65536: 0.0% of blocks, 0.0% of cells; 1859142 seeds
+Aligning reads took 37s 693ms
+Writing the SAM header and file took 32ms
+SAM header: 2231 genes, 51798 bytes, written as 11758 (text built in 0.02 s); the unaligned reads' failed candidates of 628 taxa in 3943 bytes of it; placed in its room of 614400 bytes before the records
+Processing all samples took 37s 736ms
+Run protal took 1m 16s 26ms
+Freeing memory took 0s 19ms

@@ -245,7 +245,7 @@ namespace protal {
 
         void AddCandidate(Anchor const& anchor, ReadChunk const& chunk, int64_t read_length) {
             if (anchor.chain.empty()) return;
-            int64_t const gene_length = m_genomes.GetGenome(anchor.taxid).GetGeneOMP(anchor.geneid).GetLength();
+            int64_t const gene_length = m_genomes.GetGeneOMP(anchor.taxid, anchor.geneid).GetLength();
             int64_t const chunk_length = static_cast<int64_t>(chunk.length);
             auto to_read = [&](ReadInterval interval) {  // anchor orientation of the chunk to forward read coordinates
                 if (!anchor.forward) interval = { chunk_length - interval.end, chunk_length - interval.start };
@@ -392,7 +392,7 @@ namespace protal {
                             m_window.assign(read, static_cast<size_t>(window.start), static_cast<size_t>(window.Length()));
                             if (!partner_forward) KmerUtils::ReverseComplementInto(m_window, m_window_rev);
                             auto const& query = partner_forward ? m_window : m_window_rev;
-                            auto const gene_sequence = m_genomes.GetGenome(taxid).GetGeneOMP(rule->partner).Sequence();
+                            auto const gene_sequence = m_genomes.GetGeneOMP(taxid, rule->partner).Sequence();
                             auto const diagonal = mate_guidance::BestDiagonal(query, gene_sequence.View(), 0, kRescueK);
                             if (diagonal.hits < kRescueMinHits) continue;
                             Anchor anchor(taxid, rule->partner, partner_forward);

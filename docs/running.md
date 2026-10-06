@@ -44,7 +44,7 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   profile, and protal warns with their number.
 - `misc/` also receives `P_seedsizes_histogram.tsv`, `P_anchorsizes_histogram.tsv` and
   `P_runtime.tsv`, diagnostics of the seeding and alignment stages. `P_runtime.tsv` has one row
-  per stage (reading, k-mers, seeding and its steps, alignment, output): the seconds spent in it
+  per stage (reading, k-mers, seeding and its steps, alignment and its k-mer screen, output): the seconds spent in it
   summed over threads, the number of threads, and the seconds per thread that `--verbose` prints.
   The stages that run for every read are timed on every 61st call only (reading the clock costs
   10-15% of the alignment time otherwise), so their seconds are estimates: the mean timed interval
@@ -52,8 +52,12 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   SAM, record evidence and sample context, read EM, congener distances, SNPs, scoring, writing), which
   protal prints in one line per sample too.
 - Every run prints per sample how its reads went: the reads, those with an anchor, the candidate
-  alignments tried, those the k-mer screen refused, those aligned, and the records written. At the
-  end it times loading, freeing memory and every stage, so that a run's wall time adds up.
+  alignments tried, those the k-mer screen refused, those aligned, and the records written. A second
+  line ("seeding:") counts the k-mer lookups, the index blocks they scanned and their sizes, the
+  seeds, the seeds that share their taxon and gene with another seed of their read (the only ones
+  anchors are made of), the lookups dropped as too ubiquitous (more tied entries than
+  `--max_key_ubiquity`) and the anchors. At the end it times loading, freeing memory and every
+  stage, so that a run's wall time adds up.
 - `misc/<taxon>.statistics.tsv` (a taxon's coverage, reads, ANI and MAPQ in each sample) is written
   only with `--taxon_statistics` since 0.7.6: on a GTDB-sized database a sample has reads on
   thousands of taxa, and that many small files took 15 s of a run on a network file system. The

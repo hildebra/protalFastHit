@@ -1,0 +1,24 @@
+long read budget:    the ANI floor's for every candidate
+Loading the gene tables took 3s 599ms
+Preload genomes took 18s 237ms
+Loading the taxonomy, models and tables took 18s 883ms
+Load Index took 45s 967ms
+130 gene hits fit several taxa (MAPQ < 4); 410 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 9 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+OMP Loop handler took 23s 308ms
+Sequence reader took 12s 226ms
+Alignment handler took 37s 534ms
+Output handler took 2s 952ms
+Sample s: 1296 reads, 916 with an anchor; 5977 candidate alignments tried: 1213 refused by the k-mer screen, 4753 aligned from the anchor's exact matches and 11 as whole windows; 2222 alignments made, 1105 records written
+Sample s seeding: 570094 k-mers looked up, 172017 in the index, 172017 blocks scanned with 2435184 flex cells (14.2 per block); by block size 1: 46.5% of blocks, 3.3% of cells, 2-15: 36.0% of blocks, 15.1% of cells, 16-255: 16.6% of blocks, 59.2% of cells, 256-4095: 0.9% of blocks, 22.4% of cells, 4096-65535: 0.0% of blocks, 0.0% of cells, >=65536: 0.0% of blocks, 0.0% of cells; 595311 seeds
+Aligning reads took 23s 474ms
+Writing the SAM header and file took 22ms
+SAM header: 1049 genes, 26142 bytes, written as 7188 (text built in 0.01 s); the unaligned reads' failed candidates of 580 taxa in 3470 bytes of it; placed in its room of 73728 bytes before the records
+Processing all samples took 23s 513ms
+Thread 0 Profile sample took 6s 504ms
+Profiling sample s took 11.1s: reading the SAM 1.3s, record evidence and sample context 4.7s, read EM 0.0s, congener distances 4.6s, SNP post-processing 0.6s, scoring 0.0s, writing the profile 4.6s
+Sample s read EM: 169 ambiguity classes with 326 alternatives, 715 taxa (274 named by the classes), 20 sweeps; the record counts by taxon 0.002 s, setting up 0.011 s, the sweeps 0.005 s, the shares 0.004 s
+Profiling took 11s 191ms
+Strain-level MSAs took 10ms
+Building the strain MSAs took less than 1ms
+Run protal took 1m 24s 579ms
+Freeing memory took 0s 143ms

@@ -418,6 +418,11 @@ namespace protal {
             bool operator==(PackedLayout const&) const = default;
         };
 
+        // Zero bytes after the packed values: reads of a block may pass its end (EntryValue: 16 bytes from an entry's
+        // first byte; flex_scan::BestAvx2: kReadPastCells = 32 bytes past a block's last flex cell, which its entries
+        // follow), so the last block's reads stay inside the allocation.
+        static constexpr size_t kPackedPadding = 64;
+
         // A key's values in the packed layout (GetPacked).
         struct PackedBlock {
             uint8_t const* entries = nullptr;  // entry i: EntryBits() bits at bit entry_shift + i * EntryBits() from here
@@ -687,16 +692,16 @@ namespace protal {
         }
 
         // Zeroed (the packers OR their bits in) and untouched until a thread writes its range, as the
-        // genes' arena (GenomeLoader::LoadAllGenomes); 16 bytes more, read past the last entry.
+        // genes' arena (GenomeLoader::LoadAllGenomes); kPackedPadding bytes more, read past the last entry.
         void AllocatePacked() {
             std::free(m_packed);
             m_packed_bytes = (SlotBit(values_size) + 7) / 8;
-            m_packed = static_cast<uint8_t*>(std::calloc(m_packed_bytes + 16, 1));
+            m_packed = static_cast<uint8_t*>(std::calloc(m_packed_bytes + kPackedPadding, 1));
             if (!m_packed) {
-                std::cerr << "Cannot allocate the index values (" << m_packed_bytes + 16 << " bytes)" << std::endl;
+                std::cerr << "Cannot allocate the index values (" << m_packed_bytes + kPackedPadding << " bytes)" << std::endl;
                 exit(8);
             }
-            AdviseHugePages(m_packed, m_packed_bytes + 16);
+            AdviseHugePages(m_packed, m_packed_bytes + kPackedPadding);
         }
 
         // The first slot of control block `block` (block == number of blocks: the number of slots).

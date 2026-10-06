@@ -377,6 +377,48 @@ TEST(GenomeLoaderPacked, ReleasedGenesKeepTheirLengthsAndCannotBeReadAgain) {
     EXPECT_EXIT(on_demand.GetGenome(3).GetGeneOMP(2), testing::ExitedWithCode(EX_SOFTWARE), "freed at the end of the build");
 }
 
+// The flat tables (GetGenome, GetGeneOMP(taxid, gene), PreloadedGene) reach the very genomes and genes the genome map
+// holds: preloaded (the gene table), loaded on demand (through the genome, which is loaded on first use), and after the
+// sequences are freed; a gene id the genome does not have fails as through the genome, an unknown taxid stops protal.
+TEST(GenomeLoaderPacked, TheFlatTablesReachTheGenomesAndGenesOfTheMap) {
+    ScratchDir dir;
+    AmbiguousReference ref;
+    auto fna = dir.Write("reference.fna", ref.fna);
+    auto map = dir.Write("reference.map", ref.map);
+    GenomeLoader preloaded(fna, map);
+    GenomeLoader on_demand(fna, map);
+    EXPECT_EQ(preloaded.PreloadedGene(2, 1), nullptr) << "no gene table before the preload";
+    preloaded.LoadAllGenomes(2);
+    for (int gene = 1; gene <= 40; gene++) {
+        int const taxid = 1 + gene % 3;
+        std::string const expected = StoredOf(ref.sequences[gene - 1]);
+        Genome& genome = preloaded.GetGenomeMap().find(taxid).value();
+        EXPECT_EQ(&preloaded.GetGenome(taxid), &genome);
+        EXPECT_EQ(&static_cast<GenomeLoader const&>(preloaded).GetGenome(taxid), &genome);
+        EXPECT_EQ(&preloaded.GetGeneOMP(taxid, gene), &genome.GetGene(gene)) << gene;
+        EXPECT_EQ(preloaded.PreloadedGene(taxid, gene), &genome.GetGene(gene)) << gene;
+        EXPECT_EQ(preloaded.GetGeneOMP(taxid, gene).Sequence(), expected) << gene;
+        EXPECT_EQ(on_demand.PreloadedGene(taxid, gene), nullptr);
+        EXPECT_EQ(on_demand.GetGeneOMP(taxid, gene).Sequence(), expected) << gene << " on demand";
+        EXPECT_EQ(&on_demand.GetGeneOMP(taxid, gene), &on_demand.GetGenome(taxid).GetGene(gene));
+        // Prefetching is harmless for any gene, known or not.
+        preloaded.PrefetchGene(taxid, gene);
+        preloaded.GetGeneOMP(taxid, gene).PrefetchBases(0, 1000);
+    }
+    preloaded.PrefetchGene(99, 1);
+    preloaded.PrefetchGene(2, 0);
+    EXPECT_EQ(preloaded.PreloadedGene(2, 0), nullptr);
+    EXPECT_EQ(preloaded.PreloadedGene(1u << 21, 1), nullptr);
+    // Gene 0 and a gene past the genome's list: what Genome::GetGeneOMP does (its gene list's at()).
+    EXPECT_THROW(preloaded.GetGeneOMP(2, 0), std::out_of_range);
+    EXPECT_THROW(preloaded.GetGeneOMP(2, 1000), std::out_of_range);
+    EXPECT_EXIT(preloaded.GetGeneOMP(99, 1), testing::ExitedWithCode(10), "");
+    EXPECT_EXIT(preloaded.GetGenome(1u << 21), testing::ExitedWithCode(10), "");
+    preloaded.ReleaseGeneSequences();
+    EXPECT_TRUE(preloaded.GetGeneOMP(2, 1).Sequence().empty());
+    EXPECT_EQ(preloaded.GetGeneOMP(2, 1).GetLength(), ref.sequences[0].size());
+}
+
 TEST(GenomeLoaderPacked, AGeneTakesThirtyTwoBytes) {
     EXPECT_EQ(sizeof(Gene), 32u);
 }

@@ -1,0 +1,30 @@
+== in cache, 11:38:34, load 1.38
+arena 0.00 GB: 5987 blocks, 73.1 cells per block
+A: 179.3 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+B: 144.8 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+C: 110.8 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+D: 112.9 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+A: 152.8 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+B: 120.5 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+C: 112.8 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+D: 114.8 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+A: 160.8 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+B: 127.9 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+C: 151.6 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+D: 133.2 ns per lookup, 1.69 seeds per lookup, checksum ed73983b16a68e7f
+== DRAM 6 GB, 11:38:49, load 1.30
+arena 6.00 GB: 9351734 blocks, 70.3 cells per block
+A: 266.9 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+B: 226.1 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+C: 251.3 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+D: 441.6 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+A: 285.4 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+B: 278.6 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+C: 239.0 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+D: 366.1 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+A: 306.8 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+B: 247.5 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+C: 229.1 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+D: 386.1 ns per lookup, 1.70 seeds per lookup, checksum 00052cc9f4f89ff0
+AnonHugePages:         0 kB
+LOOKUPDONE 11:39:40

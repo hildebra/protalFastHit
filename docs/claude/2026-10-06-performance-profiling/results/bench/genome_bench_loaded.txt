@@ -1,0 +1,14 @@
+load 6.90
+143614 genomes (sizeof(Genome) 232, sizeof(Gene) 32), max taxid 239164
+GetGenome + GetGeneOMP (2 probes)  independent  294.7 ns, dependent 1067.7 ns (0)
+one find + GetGeneOMP              independent  163.8 ns, dependent 1212.0 ns (0)
+flat taxid -> Genome*              independent  165.3 ns, dependent 1046.5 ns (0)
+flat taxid -> Gene*                independent   83.3 ns, dependent 1341.6 ns (0)
+GetGenome + GetGeneOMP (2 probes)  independent  390.4 ns, dependent 1551.9 ns (0)
+one find + GetGeneOMP              independent  184.8 ns, dependent 1106.2 ns (0)
+flat taxid -> Genome*              independent  101.9 ns, dependent 1149.6 ns (0)
+flat taxid -> Gene*                independent   67.1 ns, dependent 1247.0 ns (0)
+GetGenome + GetGeneOMP (2 probes)  independent  383.0 ns, dependent 1320.9 ns (0)
+one find + GetGeneOMP              independent  138.6 ns, dependent 1340.3 ns (0)
+flat taxid -> Genome*              independent  263.8 ns, dependent 2067.8 ns (0)
+flat taxid -> Gene*                independent   72.9 ns, dependent  825.5 ns (0)

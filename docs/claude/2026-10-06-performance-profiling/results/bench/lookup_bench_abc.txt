@@ -1,0 +1,41 @@
+== DRAM 6 GB, 11:41:45, load 4.34
+arena 6.00 GB: 9351734 blocks, 70.3 cells per block
+A: 475.5 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+B: 394.0 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+C: 345.7 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+A: 379.9 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+B: 377.7 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+C: 399.1 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+A: 448.0 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+B: 409.7 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+C: 440.5 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+A: 415.5 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+B: 355.6 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+C: 522.4 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+A: 314.6 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+B: 455.1 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+C: 460.1 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+A: 292.5 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+B: 280.5 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+C: 226.1 ns per lookup, 1.70 seeds per lookup, checksum 68a11e30e5b09657
+== in cache, 11:42:59, load 3.46
+arena 0.00 GB: 5987 blocks, 73.1 cells per block
+A: 163.4 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+B: 143.4 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+C: 126.7 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+A: 169.7 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+B: 130.7 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+C: 115.0 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+A: 171.2 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+B: 128.1 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+C: 125.8 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+A: 168.8 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+B: 139.2 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+C: 147.8 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+A: 198.8 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+B: 169.7 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+C: 147.0 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+A: 208.1 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+B: 187.3 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+C: 166.3 ns per lookup, 1.69 seeds per lookup, checksum 562b9f2f1067ce47
+ABCDONE 11:43:18

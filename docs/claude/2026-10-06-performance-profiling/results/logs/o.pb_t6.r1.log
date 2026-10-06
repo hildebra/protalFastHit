@@ -1,0 +1,129 @@
+                                             ,,  
+`7MM"""Mq.                   mm            `7MM  
+  MM   `MM.                  MM              MM  
+  MM   ,M9 `7Mb,od8 ,pW"Wq.mmMMmm  ,6"Yb.    MM  
+  MMmmdM9    MM' "'6W'   `Wb MM   8)   MM    MM  
+  MM         MM    8M     M8 MM    ,pm9MM    MM  
+  MM         MM    YA.   ,A9 MM   8M   MM    MM  
+.JMML.     .JMML.   `Ybmd9'  `Mbmo`Moo9^Yo..JMML.
+
+
+Total available memory is 23GB
+
+Options:
+------ General ------------------------------------
+build:               0
+no strains:          0
+threads:             6
+-------- I/O --------------------------------------
+first:               1 files
+second:              
+read types:          0 paired-end, 0 single-end, 1 PacBio, 0 ONT sample(s)
+db path:             /home/falk/bench071/V075/protal_db
+database:            single file /home/falk/bench071/V075/protal_db/database.protal
+sequence file:       
+sam file:            /home/falk/perf6/o.pb_t6.r1/s.sam.zst
+profile file:        /home/falk/perf6/o.pb_t6.r1/s.profile
+output prefix:       s
+Output dir:          /home/falk/perf6/o.pb_t6.r1
+preload genomes:     yes
+----- Alignment -----------------------------------
+align top:           3
+max key ubiquity:    256
+max seed size:       128
+max score ani:       0.900000
+x-drop:              1000 (short reads; long reads: none)
+short reads aligned: from their anchors
+alignment screen:    k-mers shared with the window before WFA2
+long read budget:    the ANI floor's for every candidate
+SAM header lists:    the genes aligned to
+unaligned reads:     counted per taxon in the SAM header
+fastalign:           0
+max out:             1
+------ Strains ------------------------------------
+snp min cov:         2
+snp min phred sum:   90
+snp min mean qual:   15
+snp min af:          0.150000
+snp require strand:  yes
+snp max alleles:     3
+run qcmsa:           no
+msa species:         
+msa min hcov:        1000
+msa min depth:       1
+msa identity margin: 0.040000
+msa knob:            0.500000 (--knob)
+phasing:             long-read samples
+foreign genes:       left out of depth and MSAs
+suspect gene copies: left out of the evidence
+---- Dev Options ----------------------------------
+verbose:             yes
+benchmark alignment: no
+profile truth:       no
+^ output:            
+---------------------------------------------------
+
+Loading the gene tables took 26ms
+Gene tables: reference.map 83978 rows: reading 0.01 s, parsing 0.00 s, by genome 0.00 s, adding 0.00 s; unique_kmers.tsv 83978 rows: reading 0.01 s, parsing 0.00 s, by genome 0.00 s, adding 0.00 s, genome sums 0.00 s
+Preload genomes
+Preload genomes took 174ms
+Preload: 83978 genes, 0.09 Gb, 0.02 GB packed, from 0.09 GB of reference: listing the genes 0.01 s (sorted), arena 0.00 s, reading and packing 0.17 s, marking the genomes 0.00 s
+Memory after the genome preload: 1.26 GB resident, peak 1.30 GB
+Model of PacBio reads: model_PB.xml in /home/falk/bench071/V075/protal_db/database.protal
+Gene conservation: factors 0.25-3.1 for 168 genes (gene_conservation.tsv in /home/falk/bench071/V075/protal_db/database.protal), for the conservation features; the depth identity margin is the same on every gene (--gene_conservation db scales it by them)
+Suspect copies: 7 gene copies of 5 species near-identical to another genus's copy (suspect_copies.tsv in /home/falk/bench071/V075/protal_db/database.protal), their records are left out of the evidence (--keep_suspect_copies counts them)
+Species priors: 765 species (species_priors.tsv in /home/falk/bench071/V075/protal_db/database.protal), 765 with a duplicated marker, CheckM quality or a species cluster known
+Gene neighbours: 372295 rules of 1014 clades from 2295 genomes (gene_neighbours.tsv in /home/falk/bench071/V075/protal_db/database.protal), for 765 species: mates looked for past their gene's end, pairs across neighbouring genes, long reads' neighbouring genes
+Loading the taxonomy, models and tables took 233ms
+Load index index.prx in /home/falk/bench071/V075/protal_db/database.protal (6 thread(s))
+Index features: full s-mer syncmers, per-entry unique-distance flags, reference fingerprint, checked single-entry uniques
+Index in memory: 16949580 entries of 31 bits (taxid * 169 + gene 17, position 12, 2 flags) and their 32-bit flex cells, 42.00 bits per slot of the file: 0.1 GB; key map 3.2 GB
+Load Index took 413ms
+Index: its last 1 chunks decoded on fewer threads, so that their buffers stay within the index's memory and what aligning takes beside it
+Memory after loading the index: 3.20 GB resident, peak 3.27 GB
+Align the PacBio reads of sample s (-a 0.9)
+Start parallel execution with 6 threads
+2592 gene hits fit several taxa (MAPQ < 4); 15148 gene hits took their read's consensus taxon (another best hit or a higher MAPQ), and 292 had no hit of it or a clearly better one of another taxon (written with MAPQ 0)
+Gene neighbours: 78 genes found on reads where the database's gene neighbours put them next to the reads' genes
+---------------Speed benchmarks---------------------
+OMP Loop handler took 2s 714ms
+Sequence reader took 468ms mean over 6 threads
+Alignment handler took 2s 525ms mean over 6 threads
+Output handler took 54ms mean over 6 threads
+----------------------------------------------------
+
+Processed reads:    	7313
+Reads with errors:  	0
+Total kmers:        	0
+Minimizers kmers:   	0
+Seeds:              	15580143 (per read avg 2130.47)
+Best anchor seeds:  	0 (per best anchor avg 0)
+Total succ. lookups:	0 (per reads with at least one successful lookup -nan)
+Anchors:            	1307831
+Total alignments:   	49464
+Output alignments:  	24947
+Threads:            	6
+Sample s: 7313 reads, 6950 with an anchor; 137720 candidate alignments tried: 30732 refused by the k-mer screen, 106500 aligned from the anchor's exact matches and 488 as whole windows; 49464 alignments made, 24947 records written
+Sample s seeding: 17067778 k-mers looked up, 4967434 in the index, 4967434 blocks scanned with 63845336 flex cells (12.9 per block); by block size 1: 46.1% of blocks, 3.6% of cells, 2-15: 40.6% of blocks, 19.7% of cells, 16-255: 12.6% of blocks, 56.9% of cells, 256-4095: 0.8% of blocks, 19.8% of cells, 4096-65535: 0.0% of blocks, 0.0% of cells, >=65536: 0.0% of blocks, 0.0% of cells; 15580143 seeds
+Aligning reads took 2s 730ms
+Writing the SAM header and file took 2ms
+SAM header: 8969 genes, 198298 bytes, written as 42072 (text built in 0.00 s); the unaligned reads' failed candidates of 765 taxa in 5208 bytes of it; placed in its room of 675840 bytes before the records
+Processing all samples took 2s 733ms
+Memory after aligning: 3.35 GB resident, peak 3.35 GB
+Thread 0 read sam file /home/falk/perf6/o.pb_t6.r1/s.sam.zst
+Sample s: 1 records on suspect gene copies left out of the evidence (suspect_copies.tsv; --keep_suspect_copies counts them)
+Sample s: 103 foreign genes of 8 taxa (the genes next to them on their reads are mostly unlikely neighbours in the taxon's clade), left out of their depth and strain MSAs; Foreign in /home/falk/perf6/o.pb_t6.r1/s.profile.genes.log
+Thread 0 Profile sample took 355ms
+Write profile to: 
+/home/falk/perf6/o.pb_t6.r1/s.profile
+Profiling sample s took 0.4s: reading the SAM 0.2s, record evidence and sample context 0.1s, read EM 0.0s, congener distances 0.1s, SNP post-processing 0.0s, scoring 0.0s, writing the profile 0.0s
+Sample s SAM read: 0.05 GB of SAM text in 52 chunks (0 decompressing threads); the reading thread: 0.07 s reading, 0.01 s cutting chunks, 0.00 s waiting for room; this thread: 0.05 s waiting for chunks, 0.01 s adding the chunks' counts, 0.00 s planning the taxa's records, 0.00 s on rejected reads, 0.13 s on 6 threads (parsing 0.31 s, adding to the taxa 0.41 s, summed over the threads)
+Sample s read EM: 1758 ambiguity classes with 3255 alternatives, 765 taxa (535 named by the classes), 100 sweeps; the record counts by taxon 0.000 s, setting up 0.000 s, the sweeps 0.003 s, the shares 0.000 s
+Profiling took 410ms
+Memory after profiling: 0.48 GB resident, peak 3.35 GB
+Output /home/falk/perf6/o.pb_t6.r1
+Strain-level MSAs took less than 1ms
+Strain-level MSAs of 0 species: 0 raw MSAs, 0 filtered by qcMSA (--no_qcmsa); 1 species at a time, the times below summed over the species
+Building the strain MSAs took less than 1ms
+Run protal took 3s 683ms
+Freeing memory took 0s 3ms

@@ -1,0 +1,120 @@
+--------------------------------------------------------------------------------
+Profile data file '/home/falk/perf6/cg/prof.out' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 4050793399
+Trigger: Program termination
+Profiled target:  /home/falk/perf6/head/build/protal --db /home/falk/bench071/V075/protal_db --profile_only /home/falk/perf6/o.pe_t6.r1/s.sam.zst --prefix s -o /home/falk/perf6/cg/o.prof -t 1 --no_qcmsa --verbose (PID 3708822, part 1)
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       99
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                      
+--------------------------------------------------------------------------------
+19,198,972,409 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                       file:function
+--------------------------------------------------------------------------------
+17,719,341,939 (92.29%)  ???:0x000000000001f540 [/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2]
+17,716,768,557 (92.28%)  ???:(below main) [/home/falk/perf6/head/build/protal]
+17,716,768,545 (92.28%)  ./csu/../csu/libc-start.c:__libc_start_main@@GLIBC_2.34 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+17,715,369,347 (92.27%)  ./csu/../sysdeps/nptl/libc_start_call_main.h:(below main) [/usr/lib/x86_64-linux-gnu/libc.so.6]
+17,715,329,920 (92.27%)  ???:main [/home/falk/perf6/head/build/protal]
+17,715,313,222 (92.27%)  ???:protal::Run(int, char**) [/home/falk/perf6/head/build/protal]
+15,816,692,229 (82.38%)  ???:protal::ProfileWrapper(protal::ProfilingContext&, protal::ProfilingAhead*) [/home/falk/perf6/head/build/protal]
+15,816,663,501 (82.38%)  ???:0x000000000011e0b0 [???]
+15,816,663,499 (82.38%)  ???:GOMP_parallel [/usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0]
+15,816,661,045 (82.38%)  ???:protal::ProfileWrapper(protal::ProfilingContext&, protal::ProfilingAhead*) [clone ._omp_fn.0] [/home/falk/perf6/head/build/protal]
+15,816,638,148 (82.38%)  ???:protal::ProfileSample(protal::ProfilingContext&, unsigned long, std::array<std::optional<protal::profiler::TaxonFilterForest>, 4ul>&, unsigned long) [/home/falk/perf6/head/build/protal]
+14,362,830,152 (74.81%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long) [/home/falk/perf6/head/build/protal]
+10,182,373,701 (53.04%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > protal::profiler::Profiler<protal::ScoreAlignments>::ReadSamGroups<protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}>(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}&&) [/home/falk/perf6/head/build/protal]
+10,156,111,137 (52.90%)  ???:void protal::profiler::Profiler<protal::ScoreAlignments>::CollectGroups<protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}&>(protal::SamReader&, std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&, protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}&) [/home/falk/perf6/head/build/protal]
+ 5,300,064,713 (27.61%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::ProfileSam(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::profiler::MicrobialProfile&, std::optional<std::reference_wrapper<std::ostream> >, unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&)#1}::operator()(std::vector<protal::AlignmentPair, std::allocator<protal::AlignmentPair> >&) const [/home/falk/perf6/head/build/protal]
+ 4,031,585,602 (21.00%)  ???:protal::SamReader::Advance(protal::SamEntry&) [/home/falk/perf6/head/build/protal]
+ 3,602,543,398 (18.76%)  ???:protal::profiler::MicrobialProfile::ApplyRecordEvidence(unsigned long) [/home/falk/perf6/head/build/protal]
+ 3,572,045,151 (18.61%)  ???:protal::profiler::MicrobialProfile::ApplySampleContext(unsigned long) [/home/falk/perf6/head/build/protal]
+ 3,008,746,973 (15.67%)  ???:0x0000000000068a10 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 2,800,761,421 (14.59%)  ???:0x000000000011df90 [???]
+ 2,800,300,153 (14.59%)  ???:protal::profiler::Profiler<protal::ScoreAlignments>::PrepareMAPQ(protal::profiler::MicrobialProfile const&, protal::AlignmentPair&, unsigned long, protal::profiler::RecordEvidenceCollector&, protal::CigarInfo&, protal::CigarInfo&, std::vector<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition, std::allocator<protal::profiler::Profiler<protal::ScoreAlignments>::SamAddition> >&) const [clone .arch_x86_64_v3] [/home/falk/perf6/head/build/protal]
+ 2,577,450,467 (13.42%)  ???:0x000000000011e3e0 [???]
+ 2,575,828,643 (13.42%)  ???:std::basic_istream<char, std::char_traits<char> >& std::getline<char, std::char_traits<char>, std::allocator<char> >(std::basic_istream<char, std::char_traits<char> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, char) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+ 2,378,335,902 (12.39%)  ???:protal::profiler::Taxon::AddSam(unsigned int, protal::SamEntry const&, double, bool, unsigned long, bool, protal::profiler::ReadEvidence const&) [/home/falk/perf6/head/build/protal]
+ 2,350,660,911 (12.24%)  ???:protal::zstd::IStreambuf::underflow() [/home/falk/perf6/head/build/protal]
+ 2,350,657,446 (12.24%)  ???:protal::zstd::IStreambuf::Decompress(char*, unsigned long) [/home/falk/perf6/head/build/protal]
+ 2,350,635,604 (12.24%)  ???:0x000000000011dc20 [???]
+ 2,350,634,906 (12.24%)  ???:ZSTD_decompressStream [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 2,276,827,772 (11.86%)  ???:protal::profiler::context::CongenerDistances::SketchOf(unsigned int) [/home/falk/perf6/head/build/protal]
+ 2,276,686,764 (11.86%)  ???:void protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::ApplySampleContext(unsigned long)::{lambda(unsigned long)#1}>(unsigned long, unsigned long, protal::profiler::MicrobialProfile::ApplySampleContext(unsigned long)::{lambda(unsigned long)#1}&&) [/home/falk/perf6/head/build/protal]
+ 2,276,512,243 (11.86%)  ???:protal::profiler::context::CongenerDistances::MakeSketch(unsigned int) [clone .isra.0] [/home/falk/perf6/head/build/protal]
+ 2,257,689,513 (11.76%)  ???:protal::gene_conservation::BottomSketch(std::basic_string_view<char, std::char_traits<char> >, unsigned long) [/home/falk/perf6/head/build/protal]
+ 2,157,880,381 (11.24%)  ???:0x000000000006c280 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 2,157,796,487 (11.24%)  ???:ZSTD_decompressContinue [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 1,946,799,167 (10.14%)  ???:protal::VariantHandler::AddAlignment(protal::SamEntry const&, unsigned long, unsigned long, unsigned char, protal::ReadAlleles*) [/home/falk/perf6/head/build/protal]
+ 1,625,647,035 ( 8.47%)  ???:protal::profiler::RecordEvidenceCollector::NoteRecord(unsigned int, unsigned int, protal::SamEntry const&, bool) [/home/falk/perf6/head/build/protal]
+ 1,479,988,622 ( 7.71%)  ./nptl/./nptl/pthread_once.c:pthread_once@@GLIBC_2.34 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 1,479,630,421 ( 7.71%)  ./nptl/./nptl/pthread_create.c:start_thread [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 1,479,577,227 ( 7.71%)  ???:0x00000000000ecda0 [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+ 1,479,572,962 ( 7.71%)  ./nptl/./nptl/pthread_once.c:__pthread_once_slow [/usr/lib/x86_64-linux-gnu/libc.so.6]
+ 1,479,570,822 ( 7.71%)  ???:0x000000000011dac0 [???]
+ 1,479,569,910 ( 7.71%)  ???:__once_proxy [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+ 1,479,566,597 ( 7.71%)  ???:std::once_flag::_Prepare_execution::_Prepare_execution<std::call_once<void (std::__future_base::_State_baseV2::*)(std::function<std::unique_ptr<std::__future_base::_Result_base, std::__future_base::_Result_base::_Deleter> ()>*, bool*), std::__future_base::_State_baseV2*, std::function<std::unique_ptr<std::__future_base::_Result_base, std::__future_base::_Result_base::_Deleter> ()>*, bool*>(std::once_flag&, void (std::__future_base::_State_baseV2::*&&)(std::function<std::unique_ptr<std::__future_base::_Result_base, std::__future_base::_Result_base::_Deleter> ()>*, bool*), std::__future_base::_State_baseV2*&&, std::function<std::unique_ptr<std::__future_base::_Result_base, std::__future_base::_Result_base::_Deleter> ()>*&&, bool*&&)::{lambda()#1}>(void (std::__future_base::_State_baseV2::*&)(std::function<std::unique_ptr<std::__future_base::_Result_base, std::__future_base::_Result_base::_Deleter> ()>*, bool*))::{lambda()#1}::_FUN() [/home/falk/perf6/head/build/protal]
+ 1,479,566,507 ( 7.71%)  ???:std::__future_base::_State_baseV2::_M_do_set(std::function<std::unique_ptr<std::__future_base::_Result_base, std::__future_base::_Result_base::_Deleter> ()>*, bool*) [/home/falk/perf6/head/build/protal]
+ 1,246,788,349 ( 6.49%)  ???:Node::Node(XmlNode const&, bool, PredicateBuilder const&, DataType const&)'2 [/home/falk/perf6/head/build/protal]
+ 1,207,403,977 ( 6.29%)  ???:protal::profiler::context::AbundanceWeightedShares(std::map<std::vector<unsigned int, std::allocator<unsigned int> >, unsigned long, std::less<std::vector<unsigned int, std::allocator<unsigned int> > >, std::allocator<std::pair<std::vector<unsigned int, std::allocator<unsigned int> > const, unsigned long> > > const&, std::map<unsigned int, protal::profiler::context::RecordCounts, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, protal::profiler::context::RecordCounts> > > const&, double, unsigned long, protal::profiler::context::EmStats*) [/home/falk/perf6/head/build/protal]
+ 1,142,580,550 ( 5.95%)  ???:protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long) [/home/falk/perf6/head/build/protal]
+ 1,126,798,350 ( 5.87%)  ???:ZSTD_decompress_usingDDict [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 1,126,798,143 ( 5.87%)  ???:0x000000000006d640 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 1,104,063,756 ( 5.75%)  ???:0x000000000011dcb0 [???]
+ 1,104,063,734 ( 5.75%)  ???:ZSTD_decompressDCtx [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+ 1,097,868,261 ( 5.72%)  ???:protal::Run(int, char**)::{lambda()#3}::operator()() const [/home/falk/perf6/head/build/protal]
+ 1,097,825,425 ( 5.72%)  ???:protal::GenomeLoader::LoadAllGenomes(int) [/home/falk/perf6/head/build/protal]
+ 1,078,276,469 ( 5.62%)  ???:protal::zstd::ParallelReadFrames(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::zstd::SeekTable const&, int, protal::zstd::Sink&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [clone .isra.0] [/home/falk/perf6/head/build/protal]
+ 1,078,275,168 ( 5.62%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > protal::zstd::ParallelFor<protal::zstd::ParallelReadFrames(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::zstd::SeekTable const&, int, protal::zstd::Sink&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&)::{lambda(unsigned long, unsigned long)#1}>(unsigned long, int, protal::zstd::ParallelReadFrames(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::zstd::SeekTable const&, int, protal::zstd::Sink&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&)::{lambda(unsigned long, unsigned long)#1}&&) [/home/falk/perf6/head/build/protal]
+ 1,078,275,092 ( 5.62%)  ???:protal::zstd::ParallelFor<protal::zstd::ParallelReadFrames(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::zstd::SeekTable const&, int, protal::zstd::Sink&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&)::{lambda(unsigned long, unsigned long)#1}>(unsigned long, int, protal::zstd::ParallelReadFrames(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::zstd::SeekTable const&, int, protal::zstd::Sink&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&)::{lambda(unsigned long, unsigned long)#1}&&)::{lambda(unsigned long)#1}::operator()(unsigned long) const [/home/falk/perf6/head/build/protal]
+ 1,078,274,981 ( 5.62%)  ???:protal::zstd::ParallelReadFrames(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, protal::zstd::SeekTable const&, int, protal::zstd::Sink&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&)::{lambda(unsigned long, unsigned long)#1}::operator()[abi:cxx11](unsigned long, unsigned long) const [/home/falk/perf6/head/build/protal]
+   870,369,489 ( 4.53%)  ???:0x000000000011db70 [???]
+   855,438,205 ( 4.46%)  ???:operator delete(void*, unsigned long) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   851,232,423 ( 4.43%)  ???:operator delete(void*) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   842,553,362 ( 4.39%)  ???:0x00000000049b8430 [???]
+   837,948,581 ( 4.36%)  ???:std::thread::_State_impl<std::thread::_Invoker<std::tuple<void (std::__future_base::_Async_state_impl<std::thread::_Invoker<std::tuple<protal::Run(int, char**)::{lambda()#8}> >, std::optional<protal::gene_neighbours::Table> >::*)(), std::__future_base::_Async_state_impl<std::thread::_Invoker<std::tuple<protal::Run(int, char**)::{lambda()#8}> >, std::optional<protal::gene_neighbours::Table> >*> > >::_M_run() [/home/falk/perf6/head/build/protal]
+   837,948,573 ( 4.36%)  ???:std::__future_base::_Async_state_impl<std::thread::_Invoker<std::tuple<protal::Run(int, char**)::{lambda()#8}> >, std::optional<protal::gene_neighbours::Table> >::_M_run() [/home/falk/perf6/head/build/protal]
+   837,948,345 ( 4.36%)  ???:std::_Function_handler<std::unique_ptr<std::__future_base::_Result_base, std::__future_base::_Result_base::_Deleter> (), std::__future_base::_Task_setter<std::unique_ptr<std::__future_base::_Result<std::optional<protal::gene_neighbours::Table> >, std::__future_base::_Result_base::_Deleter>, std::thread::_Invoker<std::tuple<protal::Run(int, char**)::{lambda()#8}> >, std::optional<protal::gene_neighbours::Table> > >::_M_invoke(std::_Any_data const&) [/home/falk/perf6/head/build/protal]
+   837,948,166 ( 4.36%)  ???:protal::ReadGeneNeighbours(protal::Options const&, std::ostream&) [/home/falk/perf6/head/build/protal]
+   837,264,831 ( 4.36%)  ???:0x00000000049b8c60 [???]
+   822,007,342 ( 4.28%)  ./malloc/./malloc/malloc.c:free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   815,442,065 ( 4.25%)  ???:protal::SamFromTokens(std::vector<std::basic_string_view<char, std::char_traits<char> >, std::allocator<std::basic_string_view<char, std::char_traits<char> > > > const&, protal::SamEntry&) [/home/falk/perf6/head/build/protal]
+   785,837,252 ( 4.09%)  ???:operator new(unsigned long) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+   774,687,916 ( 4.04%)  ???:0x000000000011db50 [???]
+   714,227,815 ( 3.72%)  ???:protal::gene_neighbours::Table::Read[abi:cxx11](std::istream&) [/home/falk/perf6/head/build/protal]
+   691,125,662 ( 3.60%)  ???:void protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long)::{lambda(unsigned long)#1}>(unsigned long, unsigned long, protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long)::{lambda(unsigned long)#1}&&) [/home/falk/perf6/head/build/protal]
+   691,100,406 ( 3.60%)  ???:protal::profiler::MicrobialProfile::WriteSparseProfile(protal::taxonomy::IntTaxonomy&, protal::profiler::TaxonFilterForest const&, std::ostream&, std::ostream*, std::ostream*, unsigned long)::{lambda(unsigned long)#1}::operator()(unsigned long) const [/home/falk/perf6/head/build/protal]
+   663,818,972 ( 3.46%)  ???:0x00000000049b8210 [???]
+   648,470,966 ( 3.38%)  ./malloc/./malloc/malloc.c:malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   647,462,725 ( 3.37%)  ???:unsigned int& std::vector<unsigned int, std::allocator<unsigned int> >::emplace_back<unsigned int>(unsigned int&&) [clone .isra.0] [/home/falk/perf6/head/build/protal]
+   581,271,675 ( 3.03%)  ./malloc/./malloc/malloc.c:_int_free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   577,910,690 ( 3.01%)  ???:protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long) [/home/falk/perf6/head/build/protal]
+   577,735,730 ( 3.01%)  ???:void protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(unsigned long)#1}>(unsigned long, unsigned long, protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(unsigned long)#1}&&) [/home/falk/perf6/head/build/protal]
+   577,735,628 ( 3.01%)  ???:protal::sam_chunks::ParallelFor<protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(unsigned long)#1}>(unsigned long, unsigned long, protal::profiler::MicrobialProfile::PostProcessSNPs(unsigned long, unsigned long, double, unsigned long, unsigned long, bool, unsigned long)::{lambda(unsigned long)#1}&&)::{lambda()#1}::operator()() const [/home/falk/perf6/head/build/protal]
+   569,139,958 ( 2.96%)  ???:std::thread::_State_impl<std::thread::_Invoker<std::tuple<void (std::__future_base::_Async_state_impl<std::thread::_Invoker<std::tuple<protal::Run(int, char**)::{lambda()#2}> >, std::vector<protal::profiler::TaxonFilterForest, std::allocator<protal::profiler::TaxonFilterForest> > >::*)(), std::__future_base::_Async_state_impl<std::thread::_Invoker<std::tuple<protal::Run(int, char**)::{lambda()#2}> >, std::vector<protal::profiler::TaxonFilterForest, std::allocator<protal::profiler::TaxonFilterForest> > >*> > >::_M_run() [/home/falk/perf6/head/build/protal]
+   569,139,950 ( 2.96%)  ???:std::__future_base::_Async_state_impl<std::thread::_Invoker<std::tuple<protal::Run(int, char**)::{lambda()#2}> >, std::vector<protal::profiler::TaxonFilterForest, std::allocator<protal::profiler::TaxonFilterForest> > >::_M_run() [/home/falk/perf6/head/build/protal]
+   569,139,722 ( 2.96%)  ???:std::_Function_handler<std::unique_ptr<std::__future_base::_Result_base, std::__future_base::_Result_base::_Deleter> (), std::__future_base::_Task_setter<std::unique_ptr<std::__future_base::_Result<std::vector<protal::profiler::TaxonFilterForest, std::allocator<protal::profiler::TaxonFilterForest> > >, std::__future_base::_Result_base::_Deleter>, std::thread::_Invoker<std::tuple<protal::Run(int, char**)::{lambda()#2}> >, std::vector<protal::profiler::TaxonFilterForest, std::allocator<protal::profiler::TaxonFilterForest> > > >::_M_invoke(std::_Any_data const&) [/home/falk/perf6/head/build/protal]
+   569,139,687 ( 2.96%)  ???:protal::Run(int, char**)::{lambda()#2}::operator()() const [/home/falk/perf6/head/build/protal]
+   569,081,946 ( 2.96%)  ???:protal::LoadModel(protal::db::DbFile const&, double) [/home/falk/perf6/head/build/protal]
+   521,678,971 ( 2.72%)  ???:cpmml::Model::from_string(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) [/home/falk/perf6/head/build/protal]
+   521,138,279 ( 2.71%)  ???:ModelBuilder::build(std::vector<char, std::allocator<char> >) [clone .isra.0] [/home/falk/perf6/head/build/protal]
+   512,874,857 ( 2.67%)  ???:0x000000000011d720 [???]
+   510,478,510 ( 2.66%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   498,106,136 ( 2.59%)  ???:protal::ProtalDB::ProtalDB(protal::db::DbFile, protal::db::DbFile, std::optional<protal::db::DbFile> const&, std::optional<protal::db::DbFile> const&, int) [/home/falk/perf6/head/build/protal]
+   496,878,796 ( 2.59%)  ???:EnsembleModel::EnsembleModel(XmlNode const&, DataDictionary const&, TransformationDictionary const&, std::shared_ptr<Indexer> const&) [/home/falk/perf6/head/build/protal]
+   451,366,542 ( 2.35%)  ???:protal::profiler::TaxonFilterForest::ScoreFeatures(protal::profiler::Taxon const&) const [/home/falk/perf6/head/build/protal]
+   422,793,418 ( 2.20%)  ???:std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_replace(unsigned long, unsigned long, char const*, unsigned long) [/home/falk/perf6/head/build/protal]
+   414,826,887 ( 2.16%)  ???:TreeModel::scoreR(Sample const&, Node const&) const'2 [/home/falk/perf6/head/build/protal]
+   406,229,133 ( 2.12%)  ???:SequenceRangeHandler::CoveredPortion(unsigned int) const [/home/falk/perf6/head/build/protal]

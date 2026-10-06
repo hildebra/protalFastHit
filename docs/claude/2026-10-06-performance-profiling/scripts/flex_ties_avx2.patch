@@ -1,0 +1,124 @@
+--- a/src/Hash/FlexScan.h
++++ b/src/Hash/FlexScan.h
+@@ -97,6 +97,68 @@
+         return { best, count };
+     }
+ 
++    // The best score of the block's cells against key, every cell's score in scores[0, size) and 0 in the lanes of the
++    // last step past the block (scores needs size + 8 bytes): ScoreAvx2's scores, its last step masked rather than a
++    // scalar tail, and no counting pass (TiesAvx2 counts). Reads up to 36 bytes past the block's last cell, which the
++    // index's padding (64 bytes past the last entry) keeps inside it.
++    __attribute__((target("avx2"))) inline uint32_t BestAvx2(Seedmap::PackedBlock const& block, uint32_t key, uint8_t* scores) {
++        uint32_t const size = block.size;
++        __m256i const k = _mm256_set1_epi32(static_cast<int>(key));
++        __m256i const ones = _mm256_set1_epi32(-1);
++        __m256i const pairs = _mm256_set1_epi32(0x55555555);
++        __m256i const nibble = _mm256_set1_epi8(0x0f);
++        __m256i const popcount4 = _mm256_setr_epi8(0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
++                                                   0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4);
++        __m256i const byte_ones = _mm256_set1_epi8(1);
++        __m256i const word_ones = _mm256_set1_epi16(1);
++        __m256i const gather = _mm256_setr_epi8(0, 4, 8, 12, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
++                                                0, 4, 8, 12, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
++        __m256i const lane = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
++        __m128i const right = _mm_cvtsi32_si128(static_cast<int>(block.flex_shift));
++        __m128i const left = _mm_cvtsi32_si128(static_cast<int>(32 - block.flex_shift));
++        __m256i best8 = _mm256_setzero_si256();
++        for (uint32_t i = 0; i < size; i += 8) {
++            uint8_t const* p = block.flex + 4 * static_cast<size_t>(i);
++            __m256i const a = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(p));
++            __m256i const b = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(p + 4));
++            __m256i const cells = _mm256_or_si256(_mm256_srl_epi32(a, right), _mm256_sll_epi32(b, left));
++            __m256i const same = _mm256_xor_si256(_mm256_xor_si256(cells, k), ones);
++            __m256i const equal = _mm256_and_si256(_mm256_and_si256(_mm256_srli_epi32(same, 1), same), pairs);
++            __m256i const low = _mm256_shuffle_epi8(popcount4, _mm256_and_si256(equal, nibble));
++            __m256i const high = _mm256_shuffle_epi8(popcount4, _mm256_and_si256(_mm256_srli_epi16(equal, 4), nibble));
++            __m256i const per_byte = _mm256_add_epi8(low, high);
++            __m256i const inside = _mm256_cmpgt_epi32(_mm256_set1_epi32(static_cast<int>(size - i)), lane);
++            __m256i const per_cell = _mm256_and_si256(_mm256_madd_epi16(_mm256_maddubs_epi16(per_byte, byte_ones), word_ones), inside);
++            best8 = _mm256_max_epu32(best8, per_cell);
++            __m256i const packed = _mm256_shuffle_epi8(per_cell, gather);
++            uint32_t const first = static_cast<uint32_t>(_mm256_extract_epi32(packed, 0));
++            uint32_t const second = static_cast<uint32_t>(_mm256_extract_epi32(packed, 4));
++            std::memcpy(scores + i, &first, 4);
++            std::memcpy(scores + i + 4, &second, 4);
++        }
++        __m128i m = _mm_max_epu32(_mm256_castsi256_si128(best8), _mm256_extracti128_si256(best8, 1));
++        m = _mm_max_epu32(m, _mm_shuffle_epi32(m, 0x4e));
++        m = _mm_max_epu32(m, _mm_shuffle_epi32(m, 0xb1));
++        return static_cast<uint32_t>(_mm_cvtsi128_si32(m));
++    }
++
++    // The cells of scores[0, size) equal to best, as bit masks of 32 cells (masks needs (size + 31) / 32 words; the bits
++    // past size are 0); returns how many. scores must hold size rounded up to 32 bytes.
++    __attribute__((target("avx2"))) inline uint32_t TiesAvx2(uint8_t const* scores, uint32_t size, uint32_t best, uint32_t* masks) {
++        __m256i const target = _mm256_set1_epi8(static_cast<char>(best));
++        uint32_t const words = (size + 31) / 32;
++        uint32_t count = 0;
++        for (uint32_t w = 0; w < words; w++) {
++            __m256i const s = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(scores + 32 * w));
++            uint32_t m = static_cast<uint32_t>(_mm256_movemask_epi8(_mm256_cmpeq_epi8(s, target)));
++            uint32_t const left = size - 32 * w;
++            if (left < 32) m &= (1u << left) - 1;
++            masks[w] = m;
++            count += static_cast<uint32_t>(__builtin_popcount(m));
++        }
++        return count;
++    }
++
+     inline bool CpuHasAvx2() {
+         __builtin_cpu_init();
+         return __builtin_cpu_supports("avx2");
+--- a/src/Hash/KmerLookup.h
++++ b/src/Hash/KmerLookup.h
+@@ -233,8 +233,31 @@
+             result.emplace_back(m_lookup_tmp);
+         }
+ 
++        std::vector<uint32_t> m_tie_masks;  // GetFromLookup's AVX2 path: the best cells, 32 to a word
++
+         PROTAL_CLONE_V3 inline void GetFromLookup(LookupList& result, LookupPointer& pointers) {
+-            if (pointers.flex != nullptr) {
++            if (pointers.flex != nullptr && flex_scan::Avx2Enabled().load(std::memory_order_relaxed)) {
++                // The scores in one AVX2 pass, then the best cells by 32-byte compares (their count decides whether the
++                // lookup is too ubiquitous), taken in entry order as below.
++                size_t const padded = (static_cast<size_t>(pointers.size) + 31) & ~size_t{31};
++                if (flex_vector.size() < padded) flex_vector.resize(padded);
++                if (m_tie_masks.size() < padded / 32) m_tie_masks.resize(padded / 32);
++                uint32_t const max = flex_scan::BestAvx2(pointers, pointers.flex_key, flex_vector.data());
++                uint32_t const max_count = flex_scan::TiesAvx2(flex_vector.data(), pointers.size, max, m_tie_masks.data());
++                if (max_count > m_max_ubiquity) return;
++                bool const exact = max == m_sm.m_flex_k;
++                for (uint32_t w = 0, words = static_cast<uint32_t>(padded / 32); w < words; w++) {
++                    for (uint32_t m = m_tie_masks[w]; m != 0; m &= m - 1) {
++                        uint32_t const i = 32 * w + static_cast<uint32_t>(__builtin_ctz(m));
++                        ValueEntry const entry = Entry(pointers, i);
++                        entry.Get(m_taxid, m_geneid, m_genepos, m_unique, m_unique_dist_two);
++                        m_unique &= exact;
++                        m_unique_dist_two &= exact;
++                        if (m_taxid == 0) continue;
++                        result.emplace_back( m_taxid, m_geneid, m_genepos, pointers.read_pos + m_flex_k_half, m_unique, m_unique_dist_two );
++                    }
++                }
++            } else if (pointers.flex != nullptr) {
+                 // Every cell's score, the best and how many have it (flex_scan::Score: AVX2 where the CPU has it).
+                 if (flex_vector.size() < pointers.size) flex_vector.resize(pointers.size);
+                 auto const [best, max_count] = flex_scan::Score(pointers, pointers.flex_key, flex_vector.data());
+--- a/src/Hash/Seedmap.h
++++ b/src/Hash/Seedmap.h
+@@ -691,12 +691,12 @@
+         void AllocatePacked() {
+             std::free(m_packed);
+             m_packed_bytes = (SlotBit(values_size) + 7) / 8;
+-            m_packed = static_cast<uint8_t*>(std::calloc(m_packed_bytes + 16, 1));
++            m_packed = static_cast<uint8_t*>(std::calloc(m_packed_bytes + 64, 1));
+             if (!m_packed) {
+-                std::cerr << "Cannot allocate the index values (" << m_packed_bytes + 16 << " bytes)" << std::endl;
++                std::cerr << "Cannot allocate the index values (" << m_packed_bytes + 64 << " bytes)" << std::endl;
+                 exit(8);
+             }
+-            AdviseHugePages(m_packed, m_packed_bytes + 16);
++            AdviseHugePages(m_packed, m_packed_bytes + 64);
+         }
+ 
+         // The first slot of control block `block` (block == number of blocks: the number of slots).

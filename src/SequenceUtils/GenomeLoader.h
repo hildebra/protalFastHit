@@ -439,6 +439,22 @@ namespace protal {
                             : GeneSequence(std::string_view());
         }
 
+        // The gene's packed bytes (packed::Bytes(GetLength()) of them, PackedSequence.h), nullptr while it is not loaded.
+        uint8_t const* Packed() const {
+            return m_loaded ? reinterpret_cast<uint8_t const*>(static_cast<uintptr_t>(m_where)) : nullptr;
+        }
+
+        // Fetches the packed bytes of bases [begin, end) (cut to the gene) into the cache ahead of their use: up to
+        // four cache lines from the first; nothing while the gene is not loaded.
+        void PrefetchBases(size_t begin, size_t end) const {
+            end = std::min<size_t>(end, m_length);
+            if (!m_loaded || begin >= end) return;
+            auto const bytes = static_cast<uintptr_t>(m_where);
+            uintptr_t line = (bytes + begin / 4) & ~uintptr_t{63};
+            uintptr_t const last = bytes + (end - 1) / 4;
+            for (int i = 0; i < 4 && line <= last; i++, line += 64) __builtin_prefetch(reinterpret_cast<void const*>(line));
+        }
+
         const size_t GetId() const {
             return m_id;
         }
@@ -760,6 +776,21 @@ namespace protal {
         bool m_compressed = false;  // reference.fna.zst or in database.protal: genes are only read by LoadAllGenomes
         std::ifstream m_is;
         GenomeMap m_genomes;
+        // The genomes by taxid, and each genome's genes, in flat tables: at GTDB scale (143,614 genomes, 14.5M genes)
+        // a genome-map lookup and the walk from a genome to its gene are cache misses one after another, and the
+        // anchor finder, the alignment handler and the mate guidance reach a gene for every anchor (220-232 ns per gene
+        // through the map against 54-62 through the tables, docs/claude/2026-10-06-performance-profiling).
+        // m_genome_table is made when a load of the genes has completed the genome map (IndexGenomes; whatever adds to
+        // or clears the map empties it first), then only read, by any thread; taxids are at most 20 bits wide, so it
+        // takes at most 8 MB. m_gene_table is made once LoadAllGenomes has loaded every genome, and published by
+        // m_genes_indexed (until then, and without the preload, a gene is reached through its genome as before).
+        std::vector<Genome*> m_genome_table;  // nullptr: no genome of that taxid
+        struct GeneSpan {
+            Gene* genes = nullptr;  // the genome's gene list (Genome::Genes), gene id g at g - 1
+            size_t count = 0;
+        };
+        std::vector<GeneSpan> m_gene_table;
+        std::atomic<bool> m_genes_indexed{ false };
         gene_conservation::Table m_gene_conservation;  // empty: every gene's factor is 1
         bool m_scale_depth_margin = false;  // the depth identity margin scaled by m_gene_conservation (--gene_conservation)
         gene_neighbours::Table m_gene_neighbours;      // empty: no gene's neighbours are known
@@ -802,8 +833,34 @@ namespace protal {
 
         Genome& AddOrGetGenome(GenomeKey const& key) {
             auto it = m_genomes.find(key);
-            if (it == m_genomes.end()) it = m_genomes.insert({ key, Genome(key) }).first;
+            if (it == m_genomes.end()) {
+                ForgetGenomeTables();  // an insert may move the map's genomes
+                it = m_genomes.insert({ key, Genome(key) }).first;
+            }
             return it.value();
+        }
+
+        void ClearGenomes() {
+            ForgetGenomeTables();
+            m_genomes.clear();
+        }
+
+        // The flat tables of genomes and genes, empty (the map changes): only while the genes are loaded, before any
+        // thread reads the loader.
+        void ForgetGenomeTables() {
+            m_genome_table.clear();
+            m_gene_table.clear();
+            m_genes_indexed.store(false, std::memory_order_relaxed);
+        }
+
+        // m_genome_table, from the complete genome map.
+        void IndexGenomes() {
+            ForgetGenomeTables();
+            GenomeKey max_taxid = 0;
+            for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) max_taxid = std::max(max_taxid, it.key());
+            if (m_genomes.empty() || max_taxid >= (GenomeKey{1} << SEEDMAP_TAXID_BITS)) return;  // the map alone (loads check the taxids)
+            m_genome_table.assign(max_taxid + 1, nullptr);
+            for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) m_genome_table[it.key()] = &it.value();
         }
 
         void Open() {
@@ -845,7 +902,7 @@ namespace protal {
             auto skip = [&](std::string const& why) {
                 std::cerr << "Note: " << table.Name() << " is not used (" << why << "); the genes are read from "
                           << m_map.Name() << std::endl;
-                m_genomes.clear();
+                ClearGenomes();
                 return false;
             };
             if (!table.Exists() || !table_size || *table_size < sizeof(gtf::Header)) return skip("it cannot be read");
@@ -876,7 +933,7 @@ namespace protal {
 
             // The genomes, on this thread (the map is changed only here), then each one's genes on any thread.
             auto const genomes_start = std::chrono::steady_clock::now();
-            m_genomes.clear();
+            ClearGenomes();
             m_genome_order.clear();
             uint64_t next = 0;
             for (uint64_t i = 0; i < h.genomes; i++) {
@@ -932,6 +989,7 @@ namespace protal {
             m_fingerprint = ReferenceFingerprint{ h.map_hash, h.fna_size };
             m_from_gene_table = true;
             m_unique_from_gene_table = has_unique;
+            IndexGenomes();
             return true;
         }
 
@@ -1211,6 +1269,7 @@ namespace protal {
         }
 
         const Genome& GetGenome(GenomeKey const& key) const {
+            if (key < m_genome_table.size() && m_genome_table[key] != nullptr) return *m_genome_table[key];
             return m_genomes.at(key);
         }
 
@@ -1401,6 +1460,15 @@ namespace protal {
             m_preload_times.reference_bytes = size;
             m_preload_times.reading = lap();
             for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) it.value().MarkLoaded();
+            // Every genome is loaded: their genes can be reached without them (GetGeneOMP(taxid, gene)). The tables load
+            // beside the preload and read the genes, so the gene table is published only once it is complete.
+            if (!m_genes_indexed.load(std::memory_order_relaxed) && !m_genome_table.empty()) {
+                m_gene_table.assign(m_genome_table.size(), GeneSpan{});
+                for (size_t taxid = 0; taxid < m_genome_table.size(); taxid++) {
+                    if (Genome* genome = m_genome_table[taxid]) m_gene_table[taxid] = { genome->Genes().data(), genome->Genes().size() };
+                }
+                m_genes_indexed.store(true, std::memory_order_release);
+            }
             m_preload_times.marking = lap();
         }
 
@@ -1433,13 +1501,38 @@ namespace protal {
             m_arenas.shrink_to_fit();
         }
 
+        // The genome of a taxid; protal stops (exit 10) if there is none. Through the flat table (m_genome_table), else
+        // one lookup in the genome map.
         PROTAL_CLONE_V3 Genome& GetGenome(GenomeKey const& key) {
-            assert(m_genomes.contains(key));
-            if (!m_genomes.contains(key)) {
+            if (key < m_genome_table.size() && m_genome_table[key] != nullptr) return *m_genome_table[key];
+            auto it = m_genomes.find(key);
+            if (it == m_genomes.end()) {
                 std::cout << "Genomes Key: " << key << std::endl;
                 exit(10);
             }
-            return m_genomes.at(key);
+            return it.value();
+        }
+
+        // Gene `gene` of genome `taxid`, as GetGenome(taxid).GetGeneOMP(gene) gives it (loading the genome on first use
+        // when the genomes were not preloaded): once every genome is preloaded, straight from the flat gene table,
+        // without the genome-map lookup and the genome's own record, each a cache miss at GTDB scale.
+        PROTAL_CLONE_V3 Gene& GetGeneOMP(GenomeKey const& taxid, Genome::GeneKey const& gene) {
+            if (Gene* g = PreloadedGene(taxid, gene)) return *g;
+            return GetGenome(taxid).GetGeneOMP(gene);
+        }
+
+        // Where gene `gene` of genome `taxid` is, from the flat gene table, without reading it; nullptr until every genome
+        // is preloaded, or if the genome has no such gene slot.
+        Gene* PreloadedGene(GenomeKey const& taxid, Genome::GeneKey const& gene) const {
+            if (!m_genes_indexed.load(std::memory_order_acquire) || taxid >= m_gene_table.size()) return nullptr;
+            auto const& span = m_gene_table[taxid];
+            return gene - 1 < span.count ? span.genes + (gene - 1) : nullptr;  // gene 0 wraps around: none
+        }
+
+        // Fetches gene `gene` of genome `taxid`'s record into the cache ahead of its use (GetGeneOMP), once the genomes
+        // are preloaded; Gene::PrefetchBases then fetches its bases.
+        void PrefetchGene(GenomeKey const& taxid, Genome::GeneKey const& gene) const {
+            if (Gene const* g = PreloadedGene(taxid, gene)) __builtin_prefetch(g);
         }
 
 
@@ -1511,6 +1604,7 @@ namespace protal {
             if (!error.empty()) InvalidMap(file_path, 0, error);
             if (rows == 0) InvalidMap(file_path, 0, "the file lists no genes");
             m_fingerprint = ReferenceFingerprint{ hash.hash(), fna_size };
+            IndexGenomes();
         }
 
         [[noreturn]] static void InvalidUniqueKmers(std::string const& path, size_t line_no, std::string const& reason) {

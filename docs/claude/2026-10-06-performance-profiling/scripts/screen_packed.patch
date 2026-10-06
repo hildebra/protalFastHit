@@ -1,0 +1,119 @@
+--- a/src/Alignment/AlignmentScreen.h
++++ b/src/Alignment/AlignmentScreen.h
+@@ -21,6 +21,7 @@
+ #include <algorithm>
+ #include <cstddef>
+ #include <cstdint>
++#include <cstring>
+ #include <string_view>
+ #include <vector>
+ 
+@@ -96,18 +97,78 @@
+             return shared >= required;
+         }
+ 
++        // As MayAlign, with the window as the bases [begin, end) of a gene's 2-bit packed bytes (PackedSequence.h: base i
++        // at bits 2 (i % 4) of byte i / 4, `bytes` bytes in all). Packed bases are all A, C, G or T, as the decoded
++        // window's are, so the k-mers and the answer are MayAlign's; a refused candidate is never decoded. K-mers are
++        // coded with their first base lowest here (the packed bytes' order), on both sides.
++        bool MayAlignPacked(std::string_view read, size_t begin_free, size_t end_free, uint8_t const* packed, size_t bytes,
++                            size_t begin, size_t end, int max_score, int mismatch, int gap_opening, int gap_extension, size_t k = 0) {
++            if (begin_free + end_free >= read.size()) return true;
++            if (k == 0) k = KFor(end - begin);
++            k = std::min(k, kMaxK);
++            size_t const aligned = read.size() - begin_free - end_free;
++            int64_t const required = Required(aligned, max_score, mismatch, gap_opening, gap_extension, k);
++            if (required <= 0) return true;
++            if (required > static_cast<int64_t>(aligned - k + 1)) return false;
++            uint32_t const mask = (1u << (2 * k)) - 1;
++
++            NextGeneration(k);
++            if (end >= begin + k) {
++                size_t const last = end - k;  // the last k-mer's first base
++                uint16_t const g = m_generation;
++                auto code_at = [&](size_t p) {  // the k-mer at p, base by base (the gene's last bytes)
++                    uint32_t code = 0;
++                    for (size_t j = 0; j < k; j++) code |= ((packed[(p + j) >> 2] >> (2 * ((p + j) & 3))) & 3u) << (2 * j);
++                    return code;
++                };
++                size_t p = begin;
++                for (; p <= last && (p & 3) != 0; p++) m_stamps[code_at(p)] = g;
++                // Four k-mers per 8-byte load (32 bases; a k-mer at offset 0-3 of it needs at most 2 (3 + k) <= 26 bits).
++                for (; p + 3 <= last && (p >> 2) + 8 <= bytes; p += 4) {
++                    uint64_t w;
++                    std::memcpy(&w, packed + (p >> 2), 8);
++                    m_stamps[static_cast<uint32_t>(w) & mask] = g;
++                    m_stamps[static_cast<uint32_t>(w >> 2) & mask] = g;
++                    m_stamps[static_cast<uint32_t>(w >> 4) & mask] = g;
++                    m_stamps[static_cast<uint32_t>(w >> 6) & mask] = g;
++                }
++                for (; p <= last; p++) m_stamps[code_at(p)] = g;
++            }
++
++            int64_t shared = 0;
++            int64_t remaining = static_cast<int64_t>(aligned - k + 1);
++            uint32_t code = 0;
++            size_t valid = 0;
++            unsigned const top = static_cast<unsigned>(2 * (k - 1));
++            for (size_t i = begin_free, stop = read.size() - end_free; i < stop; i++) {
++                uint32_t const base = static_cast<uint32_t>(KmerUtils::BaseToInt(read[i]));
++                if (base > 3) valid = 0; else { valid++; code = (code >> 2) | (base << top); }
++                if (i + 1 < begin_free + k) continue;
++                remaining--;
++                if (valid < k || m_stamps[code] == m_generation) shared++;
++                if (shared >= required) return true;
++                if (shared + remaining < required) return false;
++            }
++            return shared >= required;
++        }
++
+         // Candidates refused so far.
+         size_t Refused() const { return m_refused; }
+         void CountRefused() { m_refused++; }
+ 
+     private:
+-        // Marks the window's k-mers with a fresh generation stamp.
+-        void Stamp(std::string_view window, size_t k, uint32_t mask) {
++        // A fresh generation stamp for a window's k-mers (the stamps sized for k).
++        void NextGeneration(size_t k) {
+             if (m_stamps.size() < size_t{1} << (2 * k)) { m_stamps.assign(size_t{1} << (2 * k), 0); m_generation = 0; }
+             if (++m_generation == 0) {  // wrapped: every old stamp reads as 0, so start over at 1
+                 std::fill(m_stamps.begin(), m_stamps.end(), 0);
+                 m_generation = 1;
+             }
++        }
++
++        // Marks the window's k-mers with a fresh generation stamp.
++        void Stamp(std::string_view window, size_t k, uint32_t mask) {
++            NextGeneration(k);
+             uint32_t code = 0;
+             size_t valid = 0;
+             for (char const c : window) {
+--- a/src/Core/AlignmentStrategy.h
++++ b/src/Core/AlignmentStrategy.h
+@@ -557,11 +557,22 @@
+             // The gene, decoded where the read lies: the window, which holds every link and flank the alignment reads
+             // (AnchoredAligner checks that each link is inside it) and where the alignment is checked; it lives to the
+             // end of this function. The rest of the gene is not decoded.
+-            auto const geneseq = gene.Window(window.ref_start, window.ref_end);
+-
+             // Too few shared k-mers for any alignment within the budget: the candidate fails here as it would
+             // have in WFA2 (AlignmentScreen), at a pass over the read and the window instead of the whole budget.
+-            if (m_screen_on && !m_screen.MayAlign(read, static_cast<size_t>(std::max(window.read_begin_free, 0)),
++            // From the gene's packed bytes, before the window is decoded.
++            uint8_t const* const packed = gene.MutablePacked();
++            if (m_screen_on && packed != nullptr &&
++                !m_screen.MayAlignPacked(read, static_cast<size_t>(std::max(window.read_begin_free, 0)),
++                                         static_cast<size_t>(std::max(window.read_end_free, 0)), packed, packed::Bytes(gene.GetLength()),
++                                         window.ref_start, window.ref_end, window.max_score, m_aligner.Mismatch(),
++                                         m_aligner.GapOpening(), m_aligner.GapExtension())) {
++                m_screened_alignments++;
++                return false;
++            }
++
++            auto const geneseq = gene.Window(window.ref_start, window.ref_end);
++
++            if (m_screen_on && packed == nullptr && !m_screen.MayAlign(read, static_cast<size_t>(std::max(window.read_begin_free, 0)),
+                                                   static_cast<size_t>(std::max(window.read_end_free, 0)),
+                                                   geneseq.substr(window.ref_start, window.ref_end - window.ref_start),
+                                                   window.max_score, m_aligner.Mismatch(), m_aligner.GapOpening(),

@@ -242,6 +242,8 @@ namespace protal::classify {
             std::cout << "\t\t";
             anchor_finder_global.m_bm_extend_anchors.PrintResults();
             bm_alignment_global.PrintResults();
+            std::cout << "\t";
+            alignment_handler_global.m_bm_screen.PrintResults();
             bm_output_global.PrintResults();
             std::cout << "----------------------------------------------------\n" << std::endl;
             std::cout << "Anchors aligned from their exact matches: " << alignment_handler_global.m_anchored_alignments
@@ -250,7 +252,7 @@ namespace protal::classify {
 
         WriteAlignmentDiagnostics(options, anchor_finder_global,
                                   { &bm_reader_global, &bm_kmer_extracter_global, &bm_anchor_finder_global,
-                                    &bm_anchor_recovery_global, &bm_alignment_global,
+                                    &bm_anchor_recovery_global, &bm_alignment_global, &alignment_handler_global.m_bm_screen,
                                     &bm_alignment_join_sort_global, &bm_output_global },
                                   seed_sizes_global, anchor_sizes_global);
         return statistics;
@@ -363,12 +365,15 @@ namespace protal::classify {
             bm_omp_block.PrintResults();
             bm_reader_global.PrintResults();
             bm_alignment_global.PrintResults();
+            std::cout << "\t";
+            aligner_global.GetAlignmentHandler().m_bm_screen.PrintResults();
             bm_output_global.PrintResults();
             std::cout << "----------------------------------------------------\n" << std::endl;
         }
 
         WriteAlignmentDiagnostics(options, aligner_global.GetAnchorFinder(),
                                   { &bm_reader_global, &bm_anchor_finder_global, &bm_anchor_recovery_global, &bm_alignment_global,
+                                    &aligner_global.GetAlignmentHandler().m_bm_screen,
                                     &bm_alignment_join_sort_global, &bm_output_global },
                                   seed_sizes_global, anchor_sizes_global);
         return statistics;
@@ -812,6 +817,8 @@ namespace protal::classify {
             anchor_finder_global.m_bm_recovering_anchors.PrintResults();
             bm_anchor_recovery_global.PrintResults();
             bm_alignment_global.PrintResults();
+            std::cout << "\t";
+            alignment_handler_global.m_bm_screen.PrintResults();
             bm_alignment_join_sort_global.PrintResults();
             bm_output_global.PrintResults();
             alignment_handler_global.bm_alignment.PrintResults();
@@ -828,7 +835,7 @@ namespace protal::classify {
 
         WriteAlignmentDiagnostics(options, anchor_finder_global,
                                   { &bm_reader_global, &bm_kmer_extracter_global, &bm_anchor_finder_global,
-                                    &bm_anchor_recovery_global, &bm_alignment_global,
+                                    &bm_anchor_recovery_global, &bm_alignment_global, &alignment_handler_global.m_bm_screen,
                                     &bm_alignment_join_sort_global, &bm_output_global },
                                   seed_sizes_global, anchor_sizes_global);
         return statistics;

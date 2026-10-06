@@ -155,6 +155,9 @@ namespace protal {
         Benchmark bm_alignment{ "Alignment", 0, Benchmark::kPerRead};
         Benchmark m_bm_alignment {"Raw alignment", 0, Benchmark::kPerRead};
         Benchmark bm_seedext{ "Seed Extension", 0, Benchmark::kPerRead};
+        // The k-mer screen of every candidate (part of the alignment handler's time): at GTDB scale it refuses 90-96% of
+        // the candidates and is most of the handler (docs/claude/2026-10-06-performance-profiling).
+        Benchmark m_bm_screen{ "K-mer screen", 0, Benchmark::kPerRead };
         size_t dummy = 0;
         // Anchors tried (AlignAnchor calls), of them those the k-mer screen refused before WFA2, those aligned
         // from their exact matches, and those aligned as a whole (anchored alignment off, or a chain it does not
@@ -165,12 +168,13 @@ namespace protal {
         size_t m_whole_window_alignments = 0;
         size_t m_validity_checks = 0;  // alignments so far: one in 64 is walked base by base (AlignAnchor)
 
-        // Adds a thread's copy's counts to this (the global) handler's.
+        // Adds a thread's copy's counts, and its screen's time, to this (the global) handler's.
         void JoinCounts(SimpleAlignmentHandler const& other) {
             m_attempted_alignments += other.m_attempted_alignments;
             m_screened_alignments += other.m_screened_alignments;
             m_anchored_alignments += other.m_anchored_alignments;
             m_whole_window_alignments += other.m_whole_window_alignments;
+            m_bm_screen.Join(other.m_bm_screen);
         }
 
 //        AlignmentInfo m_info;
@@ -379,8 +383,7 @@ namespace protal {
 
 
         void ExtendAnchor(ChainAlignmentAnchor& anchor, std::string const& ref) {
-            auto& genome = m_genome_loader.GetGenome(anchor.taxid);
-            auto& gene = genome.GetGeneOMP(anchor.geneid);
+            auto& gene = m_genome_loader.GetGeneOMP(anchor.taxid, anchor.geneid);
             auto const geneseq = gene.Sequence();
 
             for (auto i = 0; i < anchor.chain.size(); i++) {
@@ -446,8 +449,7 @@ namespace protal {
 
 
             // Get Resources
-            auto& genome = m_genome_loader.GetGenome(anchor.taxid);
-            auto& gene = genome.GetGeneOMP(anchor.geneid);
+            auto& gene = m_genome_loader.GetGeneOMP(anchor.taxid, anchor.geneid);
 
 //            std::cerr << "--------------- links: " << anchor.chain.size() << std::endl;
 //            auto [qry, ref] = anchor.ToVisualString(read, geneseq);
@@ -554,21 +556,33 @@ namespace protal {
             window.read_end_free = allowed_del_right;
             window.max_score = std::min(MaxScore(m_max_score_ani, m_alignment_orientation.overlap), max_score_cap);
 
+            // Too few shared k-mers for any alignment within the budget: the candidate fails here as it would
+            // have in WFA2 (AlignmentScreen), at a pass over the read and the window instead of the whole budget.
+            // The window's k-mers are taken from the gene's packed bytes, so a refused candidate (most of them at GTDB
+            // scale) is never decoded; a gene without them (not loaded) goes through its decoded window, which is empty.
+            if (m_screen_on) {
+                m_bm_screen.Start();
+                size_t const begin_free = static_cast<size_t>(std::max(window.read_begin_free, 0));
+                size_t const end_free = static_cast<size_t>(std::max(window.read_end_free, 0));
+                uint8_t const* const packed = gene.Packed();
+                bool const may_align = packed != nullptr ?
+                        m_screen.MayAlignPacked(read, begin_free, end_free, packed, packed::Bytes(gene.GetLength()), window.ref_start,
+                                                window.ref_end, window.max_score, m_aligner.Mismatch(), m_aligner.GapOpening(),
+                                                m_aligner.GapExtension()) :
+                        m_screen.MayAlign(read, begin_free, end_free,
+                                          gene.Window(window.ref_start, window.ref_end).substr(window.ref_start, window.ref_end - window.ref_start),
+                                          window.max_score, m_aligner.Mismatch(), m_aligner.GapOpening(), m_aligner.GapExtension());
+                m_bm_screen.Stop();
+                if (!may_align) {
+                    m_screened_alignments++;
+                    return false;
+                }
+            }
+
             // The gene, decoded where the read lies: the window, which holds every link and flank the alignment reads
             // (AnchoredAligner checks that each link is inside it) and where the alignment is checked; it lives to the
             // end of this function. The rest of the gene is not decoded.
             auto const geneseq = gene.Window(window.ref_start, window.ref_end);
-
-            // Too few shared k-mers for any alignment within the budget: the candidate fails here as it would
-            // have in WFA2 (AlignmentScreen), at a pass over the read and the window instead of the whole budget.
-            if (m_screen_on && !m_screen.MayAlign(read, static_cast<size_t>(std::max(window.read_begin_free, 0)),
-                                                  static_cast<size_t>(std::max(window.read_end_free, 0)),
-                                                  geneseq.substr(window.ref_start, window.ref_end - window.ref_start),
-                                                  window.max_score, m_aligner.Mismatch(), m_aligner.GapOpening(),
-                                                  m_aligner.GapExtension())) {
-                m_screened_alignments++;
-                return false;
-            }
 
             bm_alignment.Start();
             if (approximate_alignment) {

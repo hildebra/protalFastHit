@@ -1,0 +1,13 @@
+load ~1.5 (11:56; sort_bench 200000 4; then the same 20000 1 under callgrind, where ns track instructions)
+200000 mates, 51.4 seeds per mate
+128-bit: 33.2 ns per seed, checksum 67935e4ad4b9d688
+ 64-bit: 29.1 ns per seed, checksum 67935e4ad4b9d688
+128-bit: 31.8 ns per seed, checksum 67935e4ad4b9d688
+ 64-bit: 29.2 ns per seed, checksum 67935e4ad4b9d688
+128-bit: 31.2 ns per seed, checksum 67935e4ad4b9d688
+ 64-bit: 29.2 ns per seed, checksum 67935e4ad4b9d688
+128-bit: 31.5 ns per seed, checksum 67935e4ad4b9d688
+ 64-bit: 32.9 ns per seed, checksum 67935e4ad4b9d688
+under callgrind (20000 mates):
+128-bit: 339.8 ns per seed, checksum b1353ee39f8506c6
+ 64-bit: 260.0 ns per seed, checksum b1353ee39f8506c6

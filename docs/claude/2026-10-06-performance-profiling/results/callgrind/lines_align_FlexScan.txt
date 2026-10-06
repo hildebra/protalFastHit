@@ -1,0 +1,24 @@
+47,698,173 ( 0.16%)          for (; j < size; j++) count += scores[j] == best;
+21,257,515 ( 0.07%)          for (; i < size; i++) {
+ 6,393,872 ( 0.02%)          return Avx2Enabled().load(std::memory_order_relaxed) ? ScoreAvx2(block, key, scores) : ScoreScalar(block, key, scores);
+ 6,393,872 ( 0.02%)                                                                                      uint8_t* scores) {
+ 5,725,748 ( 0.02%)          for (; i + 8 <= size; i += 8) {
+ 5,539,526 ( 0.02%)              best = score > best ? score : best;
+ 5,166,293 ( 0.02%)          uint32_t count = 0, j = 0;
+ 4,409,680 ( 0.02%)          for (; j + 32 <= size; j += 32) {
+ 3,196,936 ( 0.01%)      }
+ 3,095,460 ( 0.01%)              uint8_t const* p = block.flex + 4 * static_cast<size_t>(i);
+ 2,769,763 ( 0.01%)              scores[i] = static_cast<uint8_t>(score);
+ 2,530,556 ( 0.01%)          for (uint32_t lane : lanes) best = lane > best ? lane : best;
+ 2,397,711 ( 0.01%)          }() };
+ 2,397,702 ( 0.01%)          return { best, count };
+ 1,598,468 ( 0.01%)          __m128i const left = _mm_cvtsi32_si128(static_cast<int>(32 - block.flex_shift));
+   799,234 ( 0.00%)          uint32_t const size = block.size;
+   799,234 ( 0.00%)          __m128i const right = _mm_cvtsi32_si128(static_cast<int>(block.flex_shift));
+   437,726 ( 0.00%)          uint32_t i = 0;
+   361,508 ( 0.00%)          __m256i best8 = _mm256_setzero_si256();
+   269,198 ( 0.00%)              count += static_cast<uint32_t>(__builtin_popcount(static_cast<uint32_t>(_mm256_movemask_epi8(_mm256_cmpeq_epi8(s, target)))));
+   134,599 ( 0.00%)              __m256i const s = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(scores + j));
+         6 ( 0.00%)              return CpuHasAvx2() && !(choice && std::string_view(choice) == "scalar");
+         3 ( 0.00%)              char const* choice = std::getenv("PROTAL_FLEX_SCAN");
+         1 ( 0.00%)          __builtin_cpu_init();

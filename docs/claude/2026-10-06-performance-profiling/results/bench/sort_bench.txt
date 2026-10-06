@@ -1,0 +1,10 @@
+load 6.80
+200000 mates, 51.4 seeds per mate
+128-bit: 43.8 ns per seed, checksum 67935e4ad4b9d688
+ 64-bit: 42.8 ns per seed, checksum 67935e4ad4b9d688
+128-bit: 45.7 ns per seed, checksum 67935e4ad4b9d688
+ 64-bit: 58.2 ns per seed, checksum 67935e4ad4b9d688
+128-bit: 43.1 ns per seed, checksum 67935e4ad4b9d688
+ 64-bit: 41.9 ns per seed, checksum 67935e4ad4b9d688
+128-bit: 61.5 ns per seed, checksum 67935e4ad4b9d688
+ 64-bit: 51.0 ns per seed, checksum 67935e4ad4b9d688
