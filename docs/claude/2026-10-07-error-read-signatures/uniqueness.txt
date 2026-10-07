@@ -1,0 +1,44 @@
+
+# pe
+
+                           fragments  any alternative  other genus <= 0  other genus <= 2  other genus <= 5  own genus only  source's genus among them  ZU median  identity median
+class                                                                                                                                                                             
+FP, from beyond the genus        781            0.192             0.014             0.024             0.049           0.143                      0.026       19.0           0.9900
+FP, from the genus             83734            0.285             0.003             0.007             0.017           0.268                      0.000       10.0           0.9733
+own reads                      60042            0.436             0.002             0.005             0.011           0.425                      0.000        8.0           0.9767
+  beyond the genus, by source: held out 0.617; another genus fits within 2 edits: held-out sources 0.029, sources in the database 0.017
+  beyond-genus FP fragments on 624 copies of 419 taxa; copies in 2 or more samples: 0.111 (holding 0.233 of the fragments); taxa in 2 or more samples: 0.148
+  test-set beyond-genus FP fragments: 307; on a copy that took one in a training sample: 0.163; on a taxon that did: 0.218
+
+# se
+
+                           fragments  any alternative  other genus <= 0  other genus <= 2  other genus <= 5  own genus only  source's genus among them  ZU median  identity median
+class                                                                                                                                                                             
+FP, from beyond the genus        573            0.103             0.002             0.009             0.028           0.075                      0.012       12.0           0.9900
+FP, from the genus            124620            0.182             0.000             0.001             0.005           0.177                      0.000        9.0           0.9759
+own reads                      38110            0.159             0.000             0.001             0.002           0.157                      0.000        8.0           0.9783
+  beyond the genus, by source: held out 0.647; another genus fits within 2 edits: held-out sources 0.013, sources in the database 0.000
+  beyond-genus FP fragments on 375 copies of 201 taxa; copies in 2 or more samples: 0.133 (holding 0.360 of the fragments); taxa in 2 or more samples: 0.119
+  test-set beyond-genus FP fragments: 156; on a copy that took one in a training sample: 0.397; on a taxon that did: 0.436
+
+# pb
+
+                           fragments  any alternative  other genus <= 0  other genus <= 2  other genus <= 5  own genus only  source's genus among them  ZU median  identity median
+class                                                                                                                                                                             
+FP, from beyond the genus        538            0.020             0.006             0.006             0.009           0.011                      0.006      104.0           0.9981
+FP, from the genus             16686            0.108             0.001             0.001             0.002           0.106                      0.000       70.5           0.9784
+own reads                      47018            0.074             0.000             0.001             0.001           0.073                      0.000      113.0           0.9992
+  beyond the genus, by source: held out 0.658; another genus fits within 2 edits: held-out sources 0.000, sources in the database 0.016
+  beyond-genus FP fragments on 405 copies of 347 taxa; copies in 2 or more samples: 0.193 (holding 0.349 of the fragments); taxa in 2 or more samples: 0.239
+  test-set beyond-genus FP fragments: 166; on a copy that took one in a training sample: 0.229; on a taxon that did: 0.331
+
+# ont
+
+                           fragments  any alternative  other genus <= 0  other genus <= 2  other genus <= 5  own genus only  source's genus among them  ZU median  identity median
+class                                                                                                                                                                             
+FP, from beyond the genus        745            0.021             0.005             0.008             0.011           0.011                      0.007       51.0           0.9744
+FP, from the genus             22439            0.101             0.001             0.001             0.002           0.099                      0.000       33.0           0.9557
+own reads                      40974            0.071             0.000             0.001             0.001           0.070                      0.000       53.0           0.9678
+  beyond the genus, by source: held out 0.703; another genus fits within 2 edits: held-out sources 0.010, sources in the database 0.005
+  beyond-genus FP fragments on 559 copies of 452 taxa; copies in 2 or more samples: 0.168 (holding 0.322 of the fragments); taxa in 2 or more samples: 0.230
+  test-set beyond-genus FP fragments: 237; on a copy that took one in a training sample: 0.207; on a taxon that did: 0.308

@@ -46,6 +46,7 @@
 #include "GeneNeighbours.h"
 #include "SpeciesPriors.h"
 #include "SpeciesNeighbours.h"
+#include "AncestrySites.h"
 #include "CongenerGapsTable.h"
 #include "ForeignRatesTable.h"
 
@@ -854,6 +855,7 @@ namespace protal {
         species_neighbours::Table m_species_neighbours;  // empty: no species' congeners known (SpeciesNeighbours.h)
         congener_gaps::Table m_congener_gaps;  // empty: no copy's gap to its congeners known (CongenerGapsTable.h)
         foreign_rates::Table m_foreign_rates;  // empty: no copy's foreign reads known (ForeignRatesTable.h)
+        ancestry::Cache m_ancestry_sites;  // the sites of every (species, gene) a run touched (AncestrySites.h)
 
         int m_threads = 1;  // for reading reference.map
         gene_table::Times m_map_times, m_unique_times;  // the last loads of reference.map and unique_kmers.tsv (GeneTableTimes)
@@ -1191,6 +1193,14 @@ namespace protal {
 
         void SetSpeciesNeighbours(species_neighbours::Table table) {
             m_species_neighbours = std::move(table);
+            m_ancestry_sites.Clear();
+        }
+
+        // Where taxid's copy of a gene differs from its nearest congener's copy (AncestrySites.h), computed once per run
+        // from the gene store and the species neighbours, for the ancestry features; empty without the table, or a
+        // congener with the gene whose copy pairs with the species'.
+        std::shared_ptr<ancestry::Sites const> AncestrySitesOf(uint32_t taxid, uint32_t geneid) {
+            return m_ancestry_sites.Get(taxid, geneid, *this, m_species_neighbours);
         }
 
         // Each gene copy's gap to its congeners' copies (CongenerGapsTable.h), for the "gaps" features; empty unless set (a

@@ -141,6 +141,7 @@ COLLECTOR = os.path.join(HERE, "collect_training_data.py")
 PARITY = os.path.join(HERE, "check_model_parity.py")
 TRACE = os.path.join(HERE, "trace_relatives.py")
 ERROR_READS = os.path.join(HERE, "error_reads.py")
+ANCESTRY = os.path.join(HERE, "ancestry_sites.py")
 RANKER = os.path.join(HERE, "rank_genes.py")
 INSILICO = os.path.join(HERE, "insilico_strains.py")
 # --insilico-ani when the conversion left no gene_positions.tsv (--no-gene-neighbours): no real strains to draw from.
@@ -865,7 +866,7 @@ def error_read_units(text, defs):
 
 
 def reports(trace, units, prefixes, training, test, training_db, logs, outdir, threads=1, contig_cache=None, sams=False,
-            heldout=None):
+            heldout=None, protal=None, taxonomy=None, work=None):
     """What the models' errors rest on, once the database is ready (neither feeds it), side by side, each on its share of
     the threads:
     - trace (heldout_species.txt, or None): model_logs/relatives_by_gene_conservation.txt (trace_relatives.py): where
@@ -874,7 +875,10 @@ def reports(trace, units, prefixes, training, test, training_db, logs, outdir, t
       of error_reads.py's memory budget): a table of each model's false positives and false negatives in those samples
       and where their reads went, from the samples' SAMs, which protal wrote with an unmapped record for every read that
       seeded on taxa but aligned nowhere (collect_training_data.py --unmapped_reads); with sams (--share-logs) also the
-      SAM records of those reads, the FP's and the FN's in files of their own.
+      SAM records of those reads, the FP's and the FN's in files of their own;
+    - then, with sams and the SAMs written: model_logs/ancestry_sites/<read type>.* (ancestry_reports): which side those
+      reads take where the species differs from its congeners, from the training database's genes (protal --unpack_db
+      into work, unless its reference.fna is still there) and its full reference's other genomes (if kept).
     The genomes' contig names, which both need for the paired-end samples, are read once before them into contig_cache.
     A failure is reported, and does not stop the build."""
     import error_reads as error_reads_script
@@ -959,6 +963,82 @@ def reports(trace, units, prefixes, training, test, training_db, logs, outdir, t
         say(f"    the reads of the models' errors (model_logs/error_reads, error_reads_<read type>.log): "
             + "; ".join(told[kind] for kind in scopes if kind in told))
     say(f"    reported in {clock(time.time() - began)}")
+    done = [what for what, p, _, out, _ in running if out and not p.returncode]
+    if sams and done and protal and taxonomy and work:
+        ancestry_reports(done, logs, training_db, protal, taxonomy, heldout, work, threads, outdir)
+
+
+def ancestry_reports(kinds, logs, training_db, protal, taxonomy, heldout, work, threads, outdir):
+    """ancestry_sites.py on each read type's error-read SAMs (model_logs/error_reads/<kind>), side by side:
+    model_logs/ancestry_sites/<kind>.{summary.txt,auc.tsv,taxa.tsv.gz,fragments.tsv.gz} and ancestry_sites_<kind>.log.
+    The training database's genes come from its reference.fna if that is still beside database.protal, else from
+    protal --unpack_db into work/ancestry_files (removed afterwards); the species' other genomes from its full
+    reference if it was kept (keep_full). A failure is reported, and does not stop the build."""
+    began = time.time()
+    reference = next((p for p in (os.path.join(training_db, "reference.fna"), os.path.join(training_db, "reference.fna.zst"))
+                      if os.path.isfile(p)), None)
+    unpacked = None
+    if not reference:
+        unpacked = os.path.join(work, "ancestry_files")
+        shutil.rmtree(unpacked, ignore_errors=True)
+        log = os.path.join(outdir, "ancestry_unpack.log")
+        with open(log, "w") as fh:
+            command = [protal, "--unpack_db", "--db", os.path.join(training_db, "database.protal"), "--unpack_dir", unpacked,
+                       "-t", str(threads)]
+            fh.write(" ".join(command) + "\n")
+            fh.flush()
+            code = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
+        if code or not os.path.isfile(os.path.join(unpacked, "reference.fna")):
+            say(f"    the ancestry sites of the errors' reads: unpacking {os.path.basename(training_db)} failed ({code}; "
+                f"see {log}); the build went on")
+            shutil.rmtree(unpacked, ignore_errors=True)
+            return
+        reference = os.path.join(unpacked, "reference.fna")
+    full = full_reference_path(training_db)
+    out_dir = os.path.join(logs, "ancestry_sites")
+    os.makedirs(out_dir, exist_ok=True)
+    running, told = [], []
+    for kind in kinds:
+        if not glob.glob(os.path.join(logs, "error_reads", kind, "*", "*", "*.sam*")):
+            told.append(f"{kind}: no SAMs")  # no errors, or none with a read
+            continue
+        command = [sys.executable, ANCESTRY, "--sams", os.path.join(logs, "error_reads", kind), "--reference", reference,
+                   "--taxonomy", taxonomy, "--out", os.path.join(out_dir, kind)]
+        command += ["--heldout", heldout] if heldout and os.path.isfile(heldout) else []
+        command += ["--full-reference", full] if full else []
+        log = os.path.join(outdir, f"ancestry_sites_{kind}.log")
+        fh = open(log, "w")
+        fh.write(" ".join(command) + "\n")
+        fh.flush()
+        running.append((kind, subprocess.Popen(command, stdout=fh, stderr=subprocess.STDOUT), log, fh))
+    for kind, p, log, fh in running:
+        p.wait()
+        fh.close()
+        told.append(f"{kind}: failed ({p.returncode}; see {log})" if p.returncode
+                    else f"{kind}: {ancestry_summary(os.path.join(out_dir, kind + '.auc.tsv'))}")
+    if unpacked:
+        shutil.rmtree(unpacked, ignore_errors=True)
+    say(f"    the ancestry sites of the errors' reads (model_logs/ancestry_sites, ancestry_sites_<read type>.log; "
+        + (f"the species' alleles from {os.path.basename(full)}" if full else "the congener sites only, no full reference")
+        + f"): {'; '.join(told)}; in {clock(time.time() - began)}")
+
+
+def ancestry_summary(path):
+    """ancestry_sites.py's auc.tsv in words: over the taxa with 10 or more sites, the AUC of plain identity and of the
+    sites' signals for the false negatives' own reads against the false positives'."""
+    if not os.path.isfile(path):
+        return "no taxa to compare"
+    rows = []
+    with open(path) as fh:
+        for row in csv.DictReader(fh, delimiter="\t"):
+            if row["min_sites"] == "10" and row["identity_band"] == "all":
+                rows.append(row)
+    if not rows:
+        return "fewer than 10 sites on every taxon, or taxa of one kind only"
+    short = {"identity": "identity", "species_base_at_congener_sites": "species' base at the congener sites",
+             "species_base_at_fixed_sites": "at the fixed sites", "fixed_site_identity": "fixed-site identity"}
+    parts = [f"{short[r['signal']]} {float(r['auc']):.3f}" for r in rows if r["signal"] in short]
+    return f"{rows[0]['taxa']} taxa ({rows[0]['fn']} FN) with 10 or more sites, AUC " + ", ".join(parts)
 
 
 def error_reads_summary(path):
@@ -1306,6 +1386,15 @@ def remove_full_reference(folder):
     if not path:
         return ""
     return f"; {os.path.basename(path)} removed ({gigabytes(remove_full_reference_files(folder))})"
+
+
+def full_reference_fate(folder, keep):
+    """remove_full_reference, or with keep the note that the full reference stays: the ancestry report (reports) reads
+    the species' other genomes from it once the error reads are taken."""
+    if not keep:
+        return remove_full_reference(folder)
+    path = full_reference_path(folder)
+    return f"; {os.path.basename(path)} kept for the ancestry report ({gigabytes(os.path.getsize(path))})" if path else ""
 
 
 def build_command(protal, db, threads, *extra):
@@ -1734,9 +1823,11 @@ def main():
     p.add_argument("--share-logs", action="store_true",
                    help="keep the SAM records of the reads behind the models' errors (model_logs/error_reads/: per "
                         "sample <sample>.FP.sam.zst and <sample>.FN.sam.zst, at most 20 fragments per taxon and reason, "
-                        "no qualities), and at the end pack OUTDIR/<OUTDIR's name>_share.tar.gz: the logs, model_logs/ "
-                        "and the training and test tables (their numbers to 9 significant digits), to be copied off the "
-                        "cluster and read elsewhere")
+                        "no qualities), measure which side those reads take where the species differs from its "
+                        "congeners (model_logs/ancestry_sites/, ancestry_sites.py; the training database's full "
+                        "reference is kept until then), and at the end pack OUTDIR/<OUTDIR's name>_share.tar.gz: the "
+                        "logs, model_logs/ and the training and test tables (their numbers to 9 significant digits), "
+                        "to be copied off the cluster and read elsewhere")
     p.add_argument("--congeners", default="0.25:2-5", type=congener_spec,
                    help="relatives that share a sample, in the training data and the test set (collect_training_data.py "
                         "--congeners): SHARE:MIN-MAX, about SHARE of each sample's species in groups of MIN to MAX "
@@ -2302,6 +2393,7 @@ def main():
 
     training_db, training_done = db, False
     n_heldout, files_took = 0, ""
+    keep_full = False  # the training database's full reference kept for the ancestry report (reports)
     if os.path.exists(heldout):
         chosen = read_holdout(heldout)
         n_heldout = len(chosen)
@@ -2311,6 +2403,7 @@ def main():
         # Read only by the collections and the parity check: on --scratch, its build writes and they load it from
         # the node's disk (writing database.protal to a network file system was 6 of the 15 min of an r226 build).
         training_db = os.path.join(samples_root, "training_db")
+        keep_full = args.share_logs  # ancestry_sites.py reads the species' other genomes from it, after the error reads
         Steps.start(f"training database ({os.path.basename(training_db)}, training_db_index.log): {n_heldout} species left "
                     f"out, {holdout_brief(chosen)} (model_logs/holdout.txt)")
         training_key = {"convert": convert_key, "heldout": content_hash(heldout), "protal": final_key["protal"],
@@ -2324,7 +2417,7 @@ def main():
             os.path.isfile(os.path.join(training_db, "database.protal"))
         if training_done:
             Steps.done(f"{training_db} was built by an earlier run with the same species left out"
-                       f"{' and the same genes' if subset else ''}; kept" + remove_full_reference(training_db))
+                       f"{' and the same genes' if subset else ''}; kept" + full_reference_fate(training_db, keep_full))
         else:
             stages.forget("training_db")
             training_stamp.forget("built_for")
@@ -2484,7 +2577,7 @@ def main():
                   os.path.join(args.outdir, "training_db_index.log"),
                   lambda: (stages.mark("training_db", training_key), training_stamp.mark("built_for", training_key)),
                   f"building {os.path.basename(training_db)}")
-        Steps.done(built(training_db, job, remove_full_reference(training_db) + files_took))
+        Steps.done(built(training_db, job, full_reference_fate(training_db, keep_full) + files_took))
     if not args.no_foreign_rates:
         if training_db != db:
             table = foreign_rates(training_db, taxonomy, heldout)  # the same taxids as the finished database's
@@ -2778,7 +2871,10 @@ def main():
     trace = heldout if "pe" in read_types and training_db != db and os.path.isfile(heldout) else None
     reports(trace, args.error_units, prefixes, training, test if has_test else None, training_db, logs, args.outdir,
             args.threads, os.path.join(samples_root, "genome_contigs.tsv.gz"), args.share_logs,
-            heldout if training_db != db else None)
+            heldout if training_db != db else None, args.protal, taxonomy, samples_root)
+    if keep_full:
+        if removed := remove_full_reference(training_db):
+            say(f"    the training database's full reference, kept for the ancestry report{removed}")
     if Job.scratch:
         Job.scratch.look()
         parts = [("the genome store", genome_store), ("the training database", training_db if training_db != db else None),

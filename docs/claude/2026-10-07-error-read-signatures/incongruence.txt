@@ -1,0 +1,57 @@
+copies with a near copy of another genus within 0.05: 105390; of them suspect: 5589
+
+# pe
+
+        fragments of  fragments  taxa  copy has a near copy of another genus (<= 0.05)  <= 0.02  <= 0.01  read no closer than that copy  median read divergence  median near distance (where any)
+FP, beyond the genus        781   513                                            0.170     0.14    0.125                          0.124                  0.0100                            0.0027
+      FP, same genus      83734  1907                                            0.004     0.00    0.000                          0.000                  0.0267                            0.0393
+ own reads (FN taxa)      47597  3680                                            0.003     0.00    0.000                          0.001                  0.0267                            0.0365
+ own reads (TP taxa)      12445  4263                                            0.002     0.00    0.000                          0.000                  0.0138                            0.0384
+  beyond-genus FP fragments by the near copy's rank: {'none within 0.05': 648, 'family': 79, 'domain': 21, 'order': 14, 'class': 11, 'phylum': 7, 'none': 1}
+  the FP taxon's congeners in the training database (a congruence test needs some): none 0.138, 1-2 0.113, 3 or more 0.749; of the fragments on a copy without a near foreign copy: none 0.140
+  by the read's relation to the source: {False: {'family': 196, 'order': 63, 'other': 389}, True: {'family': 78, 'order': 14, 'other': 41}}
+  rule 'read divergence >= 1.0 x the copy's nearest foreign distance': catches 0.124 of beyond-genus FP fragments, 0.000 of same-genus FP, costs 0.001 of own reads
+  rule 'read divergence >= 0.5 x the copy's nearest foreign distance': catches 0.143 of beyond-genus FP fragments, 0.001 of same-genus FP, costs 0.002 of own reads
+  rule 'read divergence >= 0.25 x the copy's nearest foreign distance': catches 0.154 of beyond-genus FP fragments, 0.002 of same-genus FP, costs 0.002 of own reads
+
+# se
+
+        fragments of  fragments  taxa  copy has a near copy of another genus (<= 0.05)  <= 0.02  <= 0.01  read no closer than that copy  median read divergence  median near distance (where any)
+FP, beyond the genus        573   236                                            0.166    0.136     0.12                          0.122                  0.0100                            0.0027
+      FP, same genus     124620  2125                                            0.003    0.000     0.00                          0.000                  0.0241                            0.0403
+ own reads (FN taxa)      33104  1723                                            0.002    0.000     0.00                          0.000                  0.0250                            0.0440
+ own reads (TP taxa)       5006  2303                                            0.002    0.000     0.00                          0.000                  0.0089                            0.0446
+  beyond-genus FP fragments by the near copy's rank: {'none within 0.05': 478, 'family': 43, 'domain': 34, 'order': 11, 'class': 4, 'phylum': 3}
+  the FP taxon's congeners in the training database (a congruence test needs some): none 0.133, 1-2 0.101, 3 or more 0.766; of the fragments on a copy without a near foreign copy: none 0.115
+  by the read's relation to the source: {False: {'family': 145, 'order': 47, 'other': 286}, True: {'family': 43, 'order': 11, 'other': 41}}
+  rule 'read divergence >= 1.0 x the copy's nearest foreign distance': catches 0.122 of beyond-genus FP fragments, 0.000 of same-genus FP, costs 0.000 of own reads
+  rule 'read divergence >= 0.5 x the copy's nearest foreign distance': catches 0.127 of beyond-genus FP fragments, 0.001 of same-genus FP, costs 0.001 of own reads
+  rule 'read divergence >= 0.25 x the copy's nearest foreign distance': catches 0.138 of beyond-genus FP fragments, 0.002 of same-genus FP, costs 0.001 of own reads
+
+# pb
+
+        fragments of  fragments  taxa  copy has a near copy of another genus (<= 0.05)  <= 0.02  <= 0.01  read no closer than that copy  median read divergence  median near distance (where any)
+FP, beyond the genus        538   458                                            0.217    0.193    0.149                          0.136                  0.0019                            0.0038
+      FP, same genus      16686  1952                                            0.003    0.000    0.000                          0.000                  0.0216                            0.0393
+ own reads (FN taxa)      12038  2426                                            0.007    0.001    0.000                          0.000                  0.0248                            0.0393
+ own reads (TP taxa)      34980 13629                                            0.002    0.000    0.000                          0.000                  0.0000                            0.0365
+  beyond-genus FP fragments by the near copy's rank: {'none within 0.05': 421, 'family': 61, 'domain': 22, 'phylum': 15, 'class': 13, 'order': 5, 'none': 1}
+  the FP taxon's congeners in the training database (a congruence test needs some): none 0.136, 1-2 0.167, 3 or more 0.697; of the fragments on a copy without a near foreign copy: none 0.114
+  by the read's relation to the source: {False: {'family': 149, 'order': 47, 'other': 225}, True: {'family': 61, 'order': 6, 'other': 50}}
+  rule 'read divergence >= 1.0 x the copy's nearest foreign distance': catches 0.136 of beyond-genus FP fragments, 0.000 of same-genus FP, costs 0.000 of own reads
+  rule 'read divergence >= 0.5 x the copy's nearest foreign distance': catches 0.169 of beyond-genus FP fragments, 0.000 of same-genus FP, costs 0.000 of own reads
+  rule 'read divergence >= 0.25 x the copy's nearest foreign distance': catches 0.182 of beyond-genus FP fragments, 0.001 of same-genus FP, costs 0.001 of own reads
+
+# ont
+
+        fragments of  fragments  taxa  copy has a near copy of another genus (<= 0.05)  <= 0.02  <= 0.01  read no closer than that copy  median read divergence  median near distance (where any)
+FP, beyond the genus        745   604                                            0.209    0.188     0.16                          0.187                  0.0256                            0.0038
+      FP, same genus      22439  2587                                            0.005    0.000     0.00                          0.003                  0.0443                            0.0379
+ own reads (FN taxa)      13569  2755                                            0.003    0.000     0.00                          0.002                  0.0464                            0.0403
+ own reads (TP taxa)      27405 12409                                            0.003    0.000     0.00                          0.001                  0.0229                            0.0393
+  beyond-genus FP fragments by the near copy's rank: {'none within 0.05': 589, 'family': 73, 'domain': 38, 'class': 18, 'phylum': 12, 'order': 12, 'none': 3}
+  the FP taxon's congeners in the training database (a congruence test needs some): none 0.148, 1-2 0.153, 3 or more 0.699; of the fragments on a copy without a near foreign copy: none 0.146
+  by the read's relation to the source: {False: {'family': 225, 'order': 54, 'other': 310}, True: {'family': 73, 'order': 12, 'other': 71}}
+  rule 'read divergence >= 1.0 x the copy's nearest foreign distance': catches 0.187 of beyond-genus FP fragments, 0.003 of same-genus FP, costs 0.001 of own reads
+  rule 'read divergence >= 0.5 x the copy's nearest foreign distance': catches 0.195 of beyond-genus FP fragments, 0.004 of same-genus FP, costs 0.002 of own reads
+  rule 'read divergence >= 0.25 x the copy's nearest foreign distance': catches 0.195 of beyond-genus FP fragments, 0.004 of same-genus FP, costs 0.002 of own reads

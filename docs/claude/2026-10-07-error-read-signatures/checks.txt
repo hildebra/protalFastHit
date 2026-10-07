@@ -1,0 +1,146 @@
+
+# pe
+
+pe: 3988 FN taxa; counted median 3, seeded on it and not aligned median 113 (more than counted: 0.863); own reads best elsewhere: 0.496; own reads on it below MAPQ 4: 0.414
+  medians by scenario: {'design': {'best_on_taxon_mapq4': 2.0, 'seeded_not_aligned': 2.0, 'own_best_elsewhere': 0.0}, 'gut': {'best_on_taxon_mapq4': 110.0, 'seeded_not_aligned': 402.0, 'own_best_elsewhere': 364.0}, 'host': {'best_on_taxon_mapq4': 61.0, 'seeded_not_aligned': 80.0, 'own_best_elsewhere': 213.0}, 'soil': {'best_on_taxon_mapq4': 9.0, 'seeded_not_aligned': 350.5, 'own_best_elsewhere': 3.0}, 'soil_shallow': {'best_on_taxon_mapq4': 2.0, 'seeded_not_aligned': 114.0, 'own_best_elsewhere': 0.0}}
+pe: fragments that seeded on an FN taxon and did not align to it: 632942
+fate                      aligned elsewhere  aligned nowhere
+whose                                                       
+another species' read                 24245           607487
+the FN species' own read                359              851
+  own failed reads per FN taxon with any: median 1, 90% 5; 378 FN taxa
+  the others' failed reads from held-out species: 0.603
+pe: FN taxa with >= 20 counted fragments: 593 of 3988; {'soil': 249, 'soil_shallow': 222, 'design': 102, 'gut': 19, 'host': 1}; p median 0.46; own reads mostly elsewhere: 0.13; the taxon most of those went to: {'not FP': 380, 'FP': 2}
+
+# se
+
+se: 1811 FN taxa; counted median 5, seeded on it and not aligned median 255 (more than counted: 0.747); own reads best elsewhere: 0.649; own reads on it below MAPQ 4: 0.572
+  medians by scenario: {'design': {'best_on_taxon_mapq4': 2.0, 'seeded_not_aligned': 1.0, 'own_best_elsewhere': 0.0}, 'host': {'best_on_taxon_mapq4': 45.0, 'seeded_not_aligned': 91.0, 'own_best_elsewhere': 196.0}, 'soil': {'best_on_taxon_mapq4': 8.0, 'seeded_not_aligned': 377.0, 'own_best_elsewhere': 3.0}}
+se: fragments that seeded on an FN taxon and did not align to it: 522163
+fate                      aligned elsewhere  aligned nowhere
+whose                                                       
+another species' read                 13826           507326
+the FN species' own read                227              784
+  own failed reads per FN taxon with any: median 1, 90% 5; 352 FN taxa
+  the others' failed reads from held-out species: 0.634
+se: FN taxa with >= 20 counted fragments: 428 of 1811; {'soil': 371, 'design': 56, 'host': 1}; p median 0.21; own reads mostly elsewhere: 0.14; the taxon most of those went to: {'not FP': 299, 'FP': 3}
+
+# pb
+
+pb: 3004 FN taxa; counted median 2, seeded on it and not aligned median 85 (more than counted: 0.953); own reads best elsewhere: 0.273; own reads on it below MAPQ 4: 0.195
+  medians by scenario: {'design': {'best_on_taxon_mapq4': 1.0, 'seeded_not_aligned': 1.0, 'own_best_elsewhere': 0.0}, 'gut': {'best_on_taxon_mapq4': 30.5, 'seeded_not_aligned': 143.5, 'own_best_elsewhere': 33.5}, 'host': {'best_on_taxon_mapq4': 80.5, 'seeded_not_aligned': 78.0, 'own_best_elsewhere': 10.5}, 'soil': {'best_on_taxon_mapq4': 2.0, 'seeded_not_aligned': 153.0, 'own_best_elsewhere': 0.0}, 'soil_shallow': {'best_on_taxon_mapq4': 1.0, 'seeded_not_aligned': 40.0, 'own_best_elsewhere': 0.0}}
+pb: fragments that seeded on an FN taxon and did not align to it: 411404
+fate                      aligned elsewhere  aligned nowhere
+whose                                                       
+another species' read                 80623           330280
+the FN species' own read                 88              413
+  own failed reads per FN taxon with any: median 1, 90% 3; 283 FN taxa
+  the others' failed reads from held-out species: 0.598
+pb: FN taxa with >= 20 counted fragments: 148 of 3004; {'soil': 101, 'soil_shallow': 18, 'gut': 15, 'design': 13, 'host': 1}; p median 0.20; own reads mostly elsewhere: 0.10; the taxon most of those went to: {'not FP': 63}
+
+# ont
+
+ont: 3334 FN taxa; counted median 2, seeded on it and not aligned median 80 (more than counted: 0.959); own reads best elsewhere: 0.268; own reads on it below MAPQ 4: 0.221
+  medians by scenario: {'design': {'best_on_taxon_mapq4': 1.0, 'seeded_not_aligned': 3.0, 'own_best_elsewhere': 0.0}, 'gut': {'best_on_taxon_mapq4': 27.5, 'seeded_not_aligned': 163.5, 'own_best_elsewhere': 51.5}, 'soil': {'best_on_taxon_mapq4': 2.0, 'seeded_not_aligned': 156.0, 'own_best_elsewhere': 0.0}, 'soil_shallow': {'best_on_taxon_mapq4': 1.0, 'seeded_not_aligned': 42.0, 'own_best_elsewhere': 0.0}}
+ont: fragments that seeded on an FN taxon and did not align to it: 433208
+fate                      aligned elsewhere  aligned nowhere
+whose                                                       
+another species' read                 64414           365753
+the FN species' own read                228             2813
+  own failed reads per FN taxon with any: median 1, 90% 4; 1008 FN taxa
+  the others' failed reads from held-out species: 0.607
+ont: FN taxa with >= 20 counted fragments: 166 of 3334; {'soil': 107, 'soil_shallow': 29, 'design': 17, 'gut': 13}; p median 0.21; own reads mostly elsewhere: 0.08; the taxon most of those went to: {'not FP': 69}
+
+# pe: the recurrent FN species with many fragments
+
+pe FN species with >= 20 counted fragments, most recurrent: {'s__JAQVHD01 sp028696375': 10, 's__Fimenecus sp004556705': 6, 's__Adlercreutzia equolifaciens_A': 4, 's__CALVJO01 sp944332075': 4, 's__Corynebacterium sp017942225': 4, 's__Spiroplasma sp030060925': 4, 's__RGIG4097 sp937885645': 4, 's__Agitococcus sp030646715': 3}
+
+s__JAQVHD01 sp028696375: 25 rows, 24 present; medians by truth
+truth                       0       1
+fragments               1.000  92.000
+identity                0.907   0.961
+top_identity            0.907   1.000
+excess_scaled_median    0.055   0.025
+lu_per_kb               0.000  50.660
+lu_gene_rate3           0.000   0.442
+hit_gene_fraction       0.013   0.635
+rep_completeness       95.190  95.190
+cluster_genomes_log10   0.845   0.845
+cluster_min_ani        95.340  95.340
+failed_candidate_rate   0.998   0.728
+low_mapq_share          0.000   0.006
+
+s__Fimenecus sp004556705: 16 rows, 10 present; medians by truth
+truth                       0       1
+fragments              19.500  55.500
+identity                0.958   0.965
+top_identity            1.000   1.000
+excess_scaled_median    0.028   0.022
+lu_per_kb              28.288  42.433
+lu_gene_rate3           0.082   0.280
+hit_gene_fraction       0.147   0.392
+rep_completeness       98.650  98.650
+cluster_genomes_log10   1.491   1.491
+cluster_min_ani        95.780  95.780
+failed_candidate_rate   0.950   0.770
+low_mapq_share          0.034   0.064
+
+s__Adlercreutzia equolifaciens_A: 23 rows, 12 present; medians by truth
+truth                       0       1
+fragments               3.000  33.000
+identity                0.945   0.969
+top_identity            0.980   1.000
+excess_scaled_median    0.046   0.017
+lu_per_kb              12.222  37.960
+lu_gene_rate3           0.009   0.173
+hit_gene_fraction       0.027   0.243
+rep_completeness       99.890  99.890
+cluster_genomes_log10   0.000   0.000
+cluster_min_ani        -1.000  -1.000
+failed_candidate_rate   0.988   0.843
+low_mapq_share          0.267   0.043
+
+s__CALVJO01 sp944332075: 16 rows, 9 present; medians by truth
+truth                       0       1
+fragments              21.000  57.000
+identity                0.957   0.962
+top_identity            1.000   1.000
+excess_scaled_median    0.028   0.023
+lu_per_kb              45.190  52.969
+lu_gene_rate3           0.143   0.286
+hit_gene_fraction       0.170   0.411
+rep_completeness       98.750  98.750
+cluster_genomes_log10   0.301   0.301
+cluster_min_ani        97.040  97.040
+failed_candidate_rate   0.899   0.794
+low_mapq_share          0.000   0.000
+
+s__Corynebacterium sp017942225: 14 rows, 9 present; medians by truth
+truth                        0        1
+fragments                1.000   27.000
+identity                 0.920    0.969
+top_identity             0.920    1.000
+excess_scaled_median     0.067    0.019
+lu_per_kb                0.000   37.368
+lu_gene_rate3            0.000    0.113
+hit_gene_fraction        0.009    0.214
+rep_completeness       100.000  100.000
+cluster_genomes_log10    0.477    0.477
+cluster_min_ani         96.150   96.150
+failed_candidate_rate    0.994    0.919
+low_mapq_share           0.600    0.233
+
+rows with >= 20 fragments {'TP': 47710, 'FN': 586, 'FP': 398}, medians by class:
+class                      FN      FP      TP
+fragments              44.500  45.000  62.000
+identity                0.962   0.970   0.990
+top_identity            1.000   1.000   1.000
+excess_scaled_median    0.023   0.015  -0.000
+lu_per_kb              30.950  45.564  84.550
+lu_gene_rate3           0.173   0.240   0.406
+hit_gene_fraction       0.311   0.358   0.453
+rep_completeness       98.655  97.530  96.840
+cluster_genomes_log10   0.602   0.301   0.301
+cluster_min_ani        96.090  95.780  97.710
+failed_candidate_rate   0.779   0.788   0.783
+low_mapq_share          0.290   0.162   0.030

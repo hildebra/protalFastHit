@@ -323,7 +323,7 @@ of its log). The run ends with `Ready protal database: ...` and the path of the 
 | Path in `--outdir` | |
 |---|---|
 | `protal_db/database.protal` | the finished database with its models; `protal_db/build_metadata.tsv` records the release, protal version and commit, command, design, held-out species and each model's scores. The versions and the scripts' commit are those the run started with (since 2026-10-06; read at its end before), followed by "at the end of the run: ..." if a pull or a rebuild changed them meanwhile, which the console then warns of |
-| `model_logs/` | everything to judge the models: `summary.txt`, each read type's report (`trained_model*.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances, parity checks, `genome_table.txt`, `holdout.txt`, `build_metadata.tsv`; what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv`, `relatives_by_gene_conservation.txt`; and `error_reads/`, where the reads behind each model's errors in every sample went (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)) |
+| `model_logs/` | everything to judge the models: `summary.txt`, each read type's report (`trained_model*.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances, parity checks, `genome_table.txt`, `holdout.txt`, `build_metadata.tsv`; what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv`, `relatives_by_gene_conservation.txt`; `error_reads/`, where the reads behind each model's errors in every sample went (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)), and with `--share-logs` `ancestry_sites/`, which side those reads take where the species differs from its congeners |
 | `<name>_share.tar.gz` | with `--share-logs`: the logs, `model_logs/` and the tables, to copy off the cluster ([below](#logs-to-share)) |
 | `trained_model*` | the models and the trainer's outputs ([the presence model](#training)) |
 | `genomes.tsv`, `genome_table.txt` | the genomes simulated from (accession, taxonomy, FASTA, length), and a summary |
@@ -389,8 +389,12 @@ sample or missed a fifth of the strains.
     in `gene_positions.tsv`), each marker gene by its conservation factor;
   - the genome at that divergence / 0.45, at most 5% (95% ANI; `--insilico-ani MIN-MAX` draws the
     ANI instead);
-  - codon-aware: amino-acid changes kept with probability 0.15, stop codons never made, so most
-    changes fall on third codon positions, as a strain's do.
+  - codon-aware: stop codons are never made, and an amino-acid change is kept with a probability
+    (dN/dS) calibrated on the table's real strains, so that the in-silico strains put the same share
+    of their differences on third codon positions as real strains do (0.15 without real strains;
+    `--omega` in the script). The r226 v15 in-silico strains, made with 0.15, had 0.06-0.10 less of
+    their differences on third positions than real strains at the same identity, a spectrum the
+    presence models could learn ([report](claude/2026-10-07-error-read-signatures/README.md)).
 
   The training table marks taxa simulated from one (`meta_insilico_strain`), and the report lists
   them apart.
@@ -601,7 +605,17 @@ or unseen species, wherever they went (`source:`). It writes per sample, to
 | `<sample>.taxa.tsv` | each error taxon: FP, FN, or `unseen` (a species of the sample that the training database has but that protal profiled no reads to: never scored, so not in the models' counts, but in protal's; not the species held out of it, which its `genome2tiid.tsv` keeps without genes: the build passes `heldout_species.txt`, `--heldout`); its score and knob; for FN and unseen species their genomes (and read pairs simulated, paired-end), their fragments with a record and where their best records went (on the taxon, at MAPQ 4 or more as the profiler counts them, elsewhere and on which taxa, or nowhere) and those that seeded on the species but did not align to it (`own_seeded_not_aligned`); for all, the fragments on the taxon and their sources, and those that seeded on it but failed to align. It counts every fragment |
 | `<sample>.FP.sam.zst`, `<sample>.FN.sam.zst` | with `--share-logs`: the records of the reads taken for the false positives, and for the false negatives (`FN:`, and `seeded:` and `source:` of a false negative), of at most 20 fragments per taxon and reason (the same ones at any cap: the lowest CRC-32 of the read name); each record with QUAL left out (`*`), its source genome and species (`xg:Z:`, `xs:Z:`, "(not in the database)" for a species the training database lacks) and why it was taken (`xe:Z:`, its reasons); the `@SQ` lines cut to the genes they name |
 
-and `summary.tsv` (one line per sample; the console sums it per read type). Unseen species are counted
+and `summary.tsv` (one line per sample; the console sums it per read type). With `--share-logs` the build
+then runs `scripts/ancestry_sites.py` on each read type's SAMs (`model_logs/ancestry_sites/<read type>.*`,
+`ancestry_sites_<read type>.log`): for every false positive and false negative, the sites where the
+species' gene copies differ from its nearest congener's in the training database and, from the species'
+other genomes in the build's full reference (kept until then), the sites where its own strains vary; per
+counted read, the sites it covers and whether it has the species' base or the congener's there. The
+`.summary.txt` and `.auc.tsv` say how well each signal tells the false negatives' own reads (a strain's)
+from the false positives' (a novel congener's) per taxon, overall and within identity bands, against
+plain identity; `.taxa.tsv.gz` and `.fragments.tsv.gz` hold the counts. The same sites are features of
+the models since 0.7.9 (`ancestry_*`, [features.md](features.md)); this report adds the alleles'
+half, which the database does not hold yet. Unseen species are counted
 in the tables but their reads not kept: a soil sample has hundreds (v15, which counted the held-out
 species too, thousands), and their records made up most of v15's 9 GB of error-read SAMs. `scripts/error_reads.py` itself keeps
 them with `--sams FP,FN,unseen` (`<sample>.unseen.sam.zst`), every fragment with `--max-fragments 0`, and
@@ -758,7 +772,7 @@ keeps the finished database.
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
 | `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` follows ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
 | `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
-| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+gaps+foreign+untried` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, the sample's complexity, which needs a protal of 2026-10-06 or later for the training data, and since 2026-10-07 the three groups against the false positives of complex communities and the per-copy tables and untried candidates (`gaps`, `foreign`, `untried`), untested at r226, which need a protal of 2026-10-07 or later: `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` trains without them); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
+| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+foreign+untried` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, the sample's complexity, which needs a protal of 2026-10-06 or later for the training data, and since 0.7.9 the three groups against the false positives of complex communities, the ancestry sites, and the per-copy tables and untried candidates (`gaps`, `foreign`, `untried`, since the congener-gaps merge), untested at r226, which need a protal of 0.7.9 or later: `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` trains without them); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--model` | `gbm` | the models: `gbm`, gradient-boosted trees (the default since 2026-10-06), or `forest`, a random forest ([below](#training)) |
 | `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items) |
 | `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
@@ -1152,7 +1166,7 @@ comparison. The summary has a line per scenario, and warns when a scenario's hol
 scenarios' rows out.
 
 **`--features auto`** (the default) scores each candidate set with species held out and keeps the one
-of highest F1 at the knob, but the default set (`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+gaps+foreign+untried`) unless
+of highest F1 at the knob, but the default set (`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry+gaps+foreign+untried`) unless
 another beats it by 0.002 (`AUTO_MIN_GAIN`, the gain below which the depth knobs changed between fits
 at r226). The candidates are the named sets without the priors, and
 `normalized+adjacency+relatives+depth+divergence+unfiltered` (`auto+priors` adds the sets with the

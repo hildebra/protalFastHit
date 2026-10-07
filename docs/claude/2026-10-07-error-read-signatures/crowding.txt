@@ -1,0 +1,39 @@
+
+# pe
+
+                                       group   all  with ZN  ZN median  ZN > 3  ZN > 5  ZN > 10
+                   FN own: best on the taxon 64773        0        NaN     NaN     NaN      NaN
+        FN own: elsewhere, also on the taxon   289        0        NaN     NaN     NaN      NaN
+      FN own: elsewhere, failed on the taxon   359        0        NaN     NaN     NaN      NaN
+FN own: elsewhere, never seeded on the taxon 74547        0        NaN     NaN     NaN      NaN
+        FN own: nowhere, failed on the taxon   847        0        NaN     NaN     NaN      NaN
+                 FP taxa's counted fragments 84515        0        NaN     NaN     NaN      NaN
+
+# se
+
+                                       group    all  with ZN  ZN median  ZN > 3  ZN > 5  ZN > 10
+                   FN own: best on the taxon  43141        0        NaN     NaN     NaN      NaN
+      FN own: elsewhere, failed on the taxon    227        0        NaN     NaN     NaN      NaN
+FN own: elsewhere, never seeded on the taxon  37468        0        NaN     NaN     NaN      NaN
+        FN own: nowhere, failed on the taxon    784        0        NaN     NaN     NaN      NaN
+                 FP taxa's counted fragments 125193        0        NaN     NaN     NaN      NaN
+
+# pb
+
+                                       group   all  with ZN  ZN median  ZN > 3  ZN > 5  ZN > 10
+                   FN own: best on the taxon 14528        0        NaN     NaN     NaN      NaN
+        FN own: elsewhere, also on the taxon   912        0        NaN     NaN     NaN      NaN
+      FN own: elsewhere, failed on the taxon    87        0        NaN     NaN     NaN      NaN
+FN own: elsewhere, never seeded on the taxon  8721        0        NaN     NaN     NaN      NaN
+        FN own: nowhere, failed on the taxon   394        0        NaN     NaN     NaN      NaN
+                 FP taxa's counted fragments 17224        0        NaN     NaN     NaN      NaN
+
+# ont
+
+                                       group   all  with ZN  ZN median  ZN > 3  ZN > 5  ZN > 10
+                   FN own: best on the taxon 16335        0        NaN     NaN     NaN      NaN
+        FN own: elsewhere, also on the taxon   723        0        NaN     NaN     NaN      NaN
+      FN own: elsewhere, failed on the taxon   217        0        NaN     NaN     NaN      NaN
+FN own: elsewhere, never seeded on the taxon  7876        0        NaN     NaN     NaN      NaN
+        FN own: nowhere, failed on the taxon  2754        0        NaN     NaN     NaN      NaN
+                 FP taxa's counted fragments 23184        0        NaN     NaN     NaN      NaN

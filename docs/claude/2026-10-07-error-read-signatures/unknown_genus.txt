@@ -1,0 +1,446 @@
+
+# pe (knob 0.8; 114 features)
+
+training: 333 samples, 369803 rows; FP calls 1954: beside a novel congener 0.871, closest simulated species a novel congener 0.871; the samples' novel congeners 77124, genera with one and a row 33740
+test: 90 samples, 169538 rows; FP calls 835: beside a novel congener 0.860, closest simulated species a novel congener 0.860; the samples' novel congeners 35945, genera with one and a row 15629
+
+     set                                     rule                        cut    TP   FP    FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present    of  F1 extended
+training                                 baseline                          - 60800 1954  3327 0.9584            0        NaN                   0                                    0 33740       0.7571
+training                                   oracle                     all FP 60800    0  3327 0.9734         1780      0.858                1527                                   49 33740       0.7769
+training                                   oracle FP beside a novel congener 60800  253  3327 0.9714         1527      1.000                1527                                    0 33740       0.7769
+training                                   p band                       0.85 60347 1594  3780 0.9574          772      0.718                 554                                  193 33740       0.7585
+training                                   p band                        0.9 59668 1173  4459 0.9549         1721      0.704                1211                                  451 33740       0.7590
+training                                   p band                       0.95 58329  676  5798 0.9474         3226      0.661                2132                                  978 33740       0.7553
+training                                   p band                       0.98 56198  301  7929 0.9318         5247      0.602                3158                                 1925 33740       0.7437
+training                                   p band                       0.99 54183  168  9944 0.9147         6910      0.569                3934                                 2795 33740       0.7304
+training                                 identity                       0.95 60767 1946  3360 0.9582           41      0.683                  28                                   12 33740       0.7570
+training                                 identity                       0.96 60592 1886  3535 0.9572          274      0.551                 151                                  121 33740       0.7564
+training                                 identity                       0.97 59238 1493  4889 0.9489         1965      0.549                1078                                  882 33740       0.7513
+training                                 identity                      0.975 57034 1119  7093 0.9328         4313      0.514                2218                                 2081 33740       0.7391
+training                                 identity                       0.98 52360  850 11767 0.8925         8476      0.448                3799                                 4654 33740       0.7040
+training                          learned relabel                        0.3 59989 1040  4138 0.9586         1525      0.883                1346                                  174 33740       0.7647
+training                          learned relabel                        0.5 60523 1453  3604 0.9599          729      0.933                 680                                   48 33740       0.7623
+training                          learned relabel                        0.7 60741 1754  3386 0.9594          257      0.977                 251                                    6 33740       0.7595
+training                          learned relabel                        0.9 60798 1921  3329 0.9586           35      1.000                  35                                    0 33740       0.7575
+training                              learned add                        0.3 60800 1954  3327 0.9584        36716      0.814               29895                                 3433 33740       0.9192
+training                              learned add                        0.5 60800 1954  3327 0.9584        32319      0.880               28433                                 2103 33740       0.9250
+training                              learned add                        0.7 60800 1954  3327 0.9584        28694      0.928               26640                                 1148 33740       0.9238
+training                              learned add                        0.9 60800 1954  3327 0.9584        23584      0.975               22983                                  322 33740       0.9097
+training                             learned both                        0.3 59989 1040  4138 0.9586        36956      0.813               30054                                 3512 33740       0.9195
+training                             learned both                        0.5 60523 1453  3604 0.9599        32450      0.879               28536                                 2131 33740       0.9263
+training                             learned both                        0.7 60741 1754  3386 0.9594        28746      0.928               26688                                 1152 33740       0.9246
+training                             learned both                        0.9 60798 1921  3329 0.9586        23601      0.975               23000                                  322 33740       0.9099
+training                relabel, no genus context                        0.5 60564 1464  3563 0.9602          672      0.933                 627                                   45 33740       0.7622
+training                    add, no genus context                        0.5 60800 1954  3327 0.9584        36032      0.809               29161                                 4935 33740       0.9149
+training rule: genus without a call, fragments >=                          1 60800 1954  3327 0.9584        54992      0.359               19755                                  574 33740       0.7472
+training rule: genus without a call, fragments >=                          3 60800 1954  3327 0.9584        23696      0.640               15174                                  299 33740       0.8244
+training rule: genus without a call, fragments >=                         10 60800 1954  3327 0.9584        11611      0.823                9558                                  140 33740       0.8170
+training rule: genus without a call, fragments >=                         30 60800 1954  3327 0.9584         5408      0.897                4851                                   67 33740       0.7908
+
+ set                                     rule                        cut    TP  FP   FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present    of  F1 extended
+test                                 baseline                          - 26932 835 1610 0.9566            0        NaN                   0                                    0 15629       0.7488
+test                                   oracle                     all FP 26932   0 1610 0.9710          747      0.845                 631                                   16 15629       0.7672
+test                                   oracle FP beside a novel congener 26932 117 1610 0.9689          631      1.000                 631                                    0 15629       0.7672
+test                                   p band                       0.85 26708 621 1834 0.9561          415      0.754                 313                                   82 15629       0.7515
+test                                   p band                        0.9 26388 429 2154 0.9533          869      0.704                 612                                  211 15629       0.7515
+test                                   p band                       0.95 25713 214 2829 0.9441         1600      0.644                1030                                  490 15629       0.7460
+test                                   p band                       0.98 24743  90 3799 0.9271         2444      0.606                1481                                  873 15629       0.7341
+test                                   p band                       0.99 23819  44 4723 0.9090         3164      0.575                1820                                 1249 15629       0.7202
+test                                 identity                       0.95 26926 831 1616 0.9565           10      1.000                  10                                    0 15629       0.7489
+test                                 identity                       0.96 26886 820 1656 0.9560           61      0.689                  42                                   19 15629       0.7486
+test                                 identity                       0.97 26308 664 2234 0.9478          773      0.626                 484                                  288 15629       0.7451
+test                                 identity                      0.975 25411 492 3131 0.9335         1732      0.602                1042                                  683 15629       0.7368
+test                                 identity                       0.98 23512 367 5030 0.8970         3395      0.516                1752                                 1627 15629       0.7072
+test                          learned relabel                        0.3 26547 393 1995 0.9570          744      0.891                 663                                   78 15629       0.7574
+test                          learned relabel                        0.5 26813 579 1729 0.9587          351      0.954                 335                                   16 15629       0.7550
+test                          learned relabel                        0.7 26902 741 1640 0.9576          122      0.975                 119                                    3 15629       0.7513
+test                          learned relabel                        0.9 26931 821 1611 0.9568           15      1.000                  15                                    0 15629       0.7491
+test                              learned add                        0.3 26932 835 1610 0.9566        17585      0.805               14158                                 1649 15629       0.9180
+test                              learned add                        0.5 26932 835 1610 0.9566        15492      0.874               13541                                 1020 15629       0.9258
+test                              learned add                        0.7 26932 835 1610 0.9566        13879      0.922               12793                                  581 15629       0.9258
+test                              learned add                        0.9 26932 835 1610 0.9566        11495      0.971               11164                                  177 15629       0.9132
+test                             learned both                        0.3 26547 393 1995 0.9570        17677      0.804               14212                                 1687 15629       0.9181
+test                             learned both                        0.5 26813 579 1729 0.9587        15538      0.874               13575                                 1032 15629       0.9274
+test                             learned both                        0.7 26902 741 1640 0.9576        13901      0.922               12812                                  584 15629       0.9267
+test                             learned both                        0.9 26931 821 1611 0.9568        11500      0.971               11169                                  177 15629       0.9134
+test                relabel, no genus context                        0.5 26815 596 1727 0.9585          331      0.949                 314                                   17 15629       0.7545
+test                    add, no genus context                        0.5 26932 835 1610 0.9566        17032      0.809               13784                                 2307 15629       0.9153
+test rule: genus without a call, fragments >=                          1 26932 835 1610 0.9566        23924      0.382                9141                                  293 15629       0.7526
+test rule: genus without a call, fragments >=                          3 26932 835 1610 0.9566        10447      0.686                7170                                  123 15629       0.8279
+test rule: genus without a call, fragments >=                         10 26932 835 1610 0.9566         5296      0.868                4595                                   56 15629       0.8164
+test rule: genus without a call, fragments >=                         30 26932 835 1610 0.9566         2581      0.932                2405                                   30 15629       0.7874
+
+by scenario:
+     set     scenario                          rule    TP   FP   FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present    of  F1 extended
+training       design                      baseline 14669  329  541 0.9712            0        NaN                   0                                    0  4909       0.8354
+training       design                oracle: all FP 14669    0  541 0.9819          326      0.712                 232                                   17  4909       0.8487
+training       design           learned relabel 0.5 14641  280  569 0.9718           77      0.792                  61                                   16  4909       0.8373
+training       design              learned both 0.5 14641  280  569 0.9718         4502      0.824                3708                                  468  4909       0.9281
+training       design rule: no call, >= 3 fragments 14669  329  541 0.9712         6239      0.391                2437                                  128  4909       0.8273
+training          gut                      baseline  2248    3   19 0.9951            0        NaN                   0                                    0    97       0.9742
+training          gut                oracle: all FP  2248    0   19 0.9958            3      0.667                   2                                    1    97       0.9751
+training          gut           learned relabel 0.5  2248    2   19 0.9954            1      1.000                   1                                    0    97       0.9746
+training          gut              learned both 0.5  2248    2   19 0.9954          133      0.617                  82                                   36    97       0.9817
+training          gut rule: no call, >= 3 fragments  2248    3   19 0.9951         1352      0.037                  50                                   10    97       0.7702
+training         host                      baseline   160    1    1 0.9938            0        NaN                   0                                    0     8       0.9697
+training         host                oracle: all FP   160    0    1 0.9969            1      1.000                   1                                    0     8       0.9758
+training         host           learned relabel 0.5   160    1    1 0.9938            0        NaN                   0                                    0     8       0.9697
+training         host              learned both 0.5   160    1    1 0.9938           19      0.263                   5                                    7     8       0.9456
+training         host rule: no call, >= 3 fragments   160    1    1 0.9938          127      0.024                   3                                    1     8       0.7133
+training         soil                      baseline 23339  621 1186 0.9627            0        NaN                   0                                    0 15472       0.7298
+training         soil                oracle: all FP 23339    0 1186 0.9752          551      0.953                 525                                    4 15472       0.7471
+training         soil           learned relabel 0.5 23255  421 1270 0.9649          264      0.966                 255                                    9 15472       0.7354
+training         soil              learned both 0.5 23255  421 1270 0.9649        15415      0.885               13640                                  932 15472       0.9330
+training         soil rule: no call, >= 3 fragments 23339  621 1186 0.9627        10481      0.737                7728                                   77 15472       0.8347
+training soil_shallow                      baseline 20384 1000 1580 0.9405            0        NaN                   0                                    0 13254       0.7203
+training soil_shallow                oracle: all FP 20384    0 1580 0.9627          899      0.853                 767                                   27 13254       0.7487
+training soil_shallow           learned relabel 0.5 20219  749 1745 0.9419          387      0.938                 363                                   23 13254       0.7276
+training soil_shallow              learned both 0.5 20219  749 1745 0.9419        12381      0.897               11101                                  688 13254       0.9136
+training soil_shallow rule: no call, >= 3 fragments 20384 1000 1580 0.9405         5497      0.902                4956                                   83 13254       0.8161
+    test       design                      baseline  4309   64  253 0.9645            0        NaN                   0                                    0  1447       0.8301
+    test       design                oracle: all FP  4309    0  253 0.9715           63      0.698                  44                                    4  1447       0.8386
+    test       design           learned relabel 0.5  4300   52  262 0.9648           20      0.750                  15                                    5  1447       0.8313
+    test       design              learned both 0.5  4300   52  262 0.9648         1279      0.842                1077                                  135  1447       0.9239
+    test       design rule: no call, >= 3 fragments  4309   64  253 0.9645         1666      0.437                 728                                   40  1447       0.8362
+    test          gut                      baseline  1177    3    6 0.9962            0        NaN                   0                                    0    52       0.9747
+    test          gut                oracle: all FP  1177    0    6 0.9975            3      0.667                   2                                    0    52       0.9764
+    test          gut           learned relabel 0.5  1177    3    6 0.9962            0        NaN                   0                                    0    52       0.9747
+    test          gut              learned both 0.5  1177    3    6 0.9962           70      0.643                  45                                   19    52       0.9835
+    test          gut rule: no call, >= 3 fragments  1177    3    6 0.9962          739      0.042                  31                                    2    52       0.7660
+    test         host                      baseline    47    0    0 1.0000            0        NaN                   0                                    0     0       1.0000
+    test         host                oracle: all FP    47    0    0 1.0000            0        NaN                   0                                    0     0       1.0000
+    test         host           learned relabel 0.5    47    0    0 1.0000            0        NaN                   0                                    0     0       1.0000
+    test         host              learned both 0.5    47    0    0 1.0000            5      0.000                   0                                    3     0       0.9495
+    test         host rule: no call, >= 3 fragments    47    0    0 1.0000           57      0.000                   0                                    0     0       0.6225
+    test         soil                      baseline 11092  254  539 0.9655            0        NaN                   0                                    0  7365       0.7311
+    test         soil                oracle: all FP 11092    0  539 0.9763          227      0.943                 214                                    4  7365       0.7459
+    test         soil           learned relabel 0.5 11056  162  575 0.9677          124      0.976                 121                                    3  7365       0.7368
+    test         soil              learned both 0.5 11056  162  575 0.9677         7625      0.868                6621                                  508  7365       0.9343
+    test         soil rule: no call, >= 3 fragments 11092  254  539 0.9655         5063      0.743                3761                                   38  7365       0.8390
+    test soil_shallow                      baseline 10307  514  812 0.9396            0        NaN                   0                                    0  6765       0.7181
+    test soil_shallow                oracle: all FP 10307    0  812 0.9621          454      0.817                 371                                    8  6765       0.7455
+    test soil_shallow           learned relabel 0.5 10233  362  886 0.9425          207      0.961                 199                                    8  6765       0.7273
+    test soil_shallow              learned both 0.5 10233  362  886 0.9425         6559      0.889                5832                                  367  6765       0.9170
+    test soil_shallow rule: no call, >= 3 fragments 10307  514  812 0.9396         2922      0.907                2650                                   43  6765       0.8194
+
+# se (knob 0.5; 114 features)
+
+training: 321 samples, 199629 rows; FP calls 1729: beside a novel congener 0.891, closest simulated species a novel congener 0.891; the samples' novel congeners 43813, genera with one and a row 19317
+test: 78 samples, 19392 rows; FP calls 134: beside a novel congener 0.739, closest simulated species a novel congener 0.739; the samples' novel congeners 3404, genera with one and a row 1370
+
+     set                                     rule                        cut    TP   FP   FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present    of  F1 extended
+training                                 baseline                          - 38446 1729 1200 0.9633            0        NaN                   0                                    0 19317       0.7756
+training                                   oracle                     all FP 38446    0 1200 0.9846         1487      0.874                1299                                   50 19317       0.8038
+training                                   oracle FP beside a novel congener 38446  188 1200 0.9823         1299      1.000                1299                                    0 19317       0.8038
+training                                   p band                       0.85 37603  752 2043 0.9642         1546      0.731                1130                                  357 19317       0.7836
+training                                   p band                        0.9 37248  580 2398 0.9616         1974      0.705                1391                                  510 19317       0.7824
+training                                   p band                       0.95 36681  367 2965 0.9566         2587      0.665                1721                                  766 19317       0.7790
+training                                   p band                       0.98 35670  218 3976 0.9445         3521      0.608                2140                                 1268 19317       0.7687
+training                                   p band                       0.99 34689  131 4957 0.9317         4350      0.567                2467                                 1761 19317       0.7573
+training                                 identity                       0.95 38413 1709 1233 0.9631           53      0.774                  41                                   12 19317       0.7758
+training                                 identity                       0.96 38324 1649 1322 0.9627          201      0.701                 141                                   58 19317       0.7760
+training                                 identity                       0.97 37663 1247 1983 0.9589         1216      0.652                 793                                  414 19317       0.7762
+training                                 identity                      0.975 36533  877 3113 0.9482         2543      0.587                1493                                 1039 19317       0.7689
+training                                 identity                       0.98 34530  646 5116 0.9230         4432      0.515                2284                                 2133 19317       0.7470
+training                          learned relabel                        0.3 37726  641 1920 0.9672         1473      0.844                1243                                  220 19317       0.7888
+training                          learned relabel                        0.5 38151  944 1495 0.9690          911      0.917                 835                                   72 19317       0.7878
+training                          learned relabel                        0.7 38360 1271 1286 0.9677          477      0.969                 462                                   14 19317       0.7837
+training                          learned relabel                        0.9 38443 1635 1203 0.9644           88      1.000                  88                                    0 19317       0.7774
+training                              learned add                        0.3 38446 1729 1200 0.9633        20253      0.831               16821                                 1898 19317       0.9258
+training                              learned add                        0.5 38446 1729 1200 0.9633        17913      0.892               15975                                 1122 19317       0.9299
+training                              learned add                        0.7 38446 1729 1200 0.9633        15963      0.938               14973                                  571 19317       0.9282
+training                              learned add                        0.9 38446 1729 1200 0.9633        13314      0.978               13017                                  169 19317       0.9153
+training                             learned both                        0.3 37726  641 1920 0.9672        20560      0.827               17001                                 2022 19317       0.9284
+training                             learned both                        0.5 38151  944 1495 0.9690        18083      0.891               16103                                 1163 19317       0.9343
+training                             learned both                        0.7 38360 1271 1286 0.9677        16046      0.938               15049                                  577 19317       0.9318
+training                             learned both                        0.9 38443 1635 1203 0.9644        13332      0.978               13035                                  169 19317       0.9162
+training                relabel, no genus context                        0.5 38168  931 1478 0.9694          875      0.918                 803                                   69 19317       0.7878
+training                    add, no genus context                        0.5 38446 1729 1200 0.9633        20310      0.813               16503                                 2853 19317       0.9200
+training rule: genus without a call, fragments >=                          1 38446 1729 1200 0.9633        29634      0.374               11088                                  262 19317       0.7693
+training rule: genus without a call, fragments >=                          3 38446 1729 1200 0.9633        12710      0.679                8632                                  130 19317       0.8418
+training rule: genus without a call, fragments >=                         10 38446 1729 1200 0.9633         6571      0.851                5594                                   62 19317       0.8332
+training rule: genus without a call, fragments >=                         30 38446 1729 1200 0.9633         3163      0.915                2894                                   25 19317       0.8082
+
+ set                                     rule                        cut   TP  FP  FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present   of  F1 extended
+test                                 baseline                          - 4271 134 202 0.9622            0        NaN                   0                                    0 1370       0.8335
+test                                   oracle                     all FP 4271   0 202 0.9769          129      0.729                  94                                    5 1370       0.8523
+test                                   oracle FP beside a novel congener 4271  35 202 0.9730           94      1.000                  94                                    0 1370       0.8523
+test                                   p band                       0.85 4146  58 327 0.9556          196      0.357                  70                                  107 1370       0.8232
+test                                   p band                        0.9 4096  47 377 0.9508          254      0.339                  86                                  148 1370       0.8168
+test                                   p band                       0.95 3987  36 486 0.9386          368      0.280                 103                                  245 1370       0.7993
+test                                   p band                       0.98 3842  17 631 0.9222          523      0.254                 133                                  363 1370       0.7775
+test                                   p band                       0.99 3718  11 755 0.9066          642      0.240                 154                                  461 1370       0.7582
+test                                 identity                       0.95 4269 132 204 0.9621            4      0.500                   2                                    1 1370       0.8335
+test                                 identity                       0.96 4255 125 218 0.9613           25      0.400                  10                                   14 1370       0.8324
+test                                 identity                       0.97 4171 101 302 0.9539          133      0.353                  47                                   82 1370       0.8232
+test                                 identity                      0.975 4044  78 429 0.9410          275      0.302                  83                                  183 1370       0.8061
+test                                 identity                       0.98 3804  58 669 0.9128          521      0.248                 129                                  380 1370       0.7692
+test                          learned relabel                        0.3 4211  62 262 0.9630          126      0.659                  83                                   40 1370       0.8385
+test                          learned relabel                        0.5 4250  91 223 0.9644           60      0.783                  47                                   13 1370       0.8389
+test                          learned relabel                        0.7 4261 106 212 0.9640           35      0.857                  30                                    5 1370       0.8377
+test                          learned relabel                        0.9 4269 125 204 0.9629           11      1.000                  11                                    0 1370       0.8353
+test                              learned add                        0.3 4271 134 202 0.9622         1422      0.733                1042                                  255 1370       0.9105
+test                              learned add                        0.5 4271 134 202 0.9622         1138      0.821                 934                                  139 1370       0.9143
+test                              learned add                        0.7 4271 134 202 0.9622          913      0.895                 817                                   61 1370       0.9117
+test                              learned add                        0.9 4271 134 202 0.9622          632      0.967                 611                                   10 1370       0.8974
+test                             learned both                        0.3 4211  62 262 0.9630         1466      0.726                1064                                  275 1370       0.9109
+test                             learned both                        0.5 4250  91 223 0.9644         1156      0.817                 945                                  146 1370       0.9162
+test                             learned both                        0.7 4261 106 212 0.9640          920      0.892                 821                                   64 1370       0.9132
+test                             learned both                        0.9 4269 125 204 0.9629          632      0.967                 611                                   10 1370       0.8980
+test                relabel, no genus context                        0.5 4245  88 228 0.9641           68      0.809                  55                                   13 1370       0.8395
+test                    add, no genus context                        0.5 4271 134 202 0.9622         1371      0.709                 972                                  321 1370       0.9025
+test rule: genus without a call, fragments >=                          1 4271 134 202 0.9622         4321      0.207                 893                                  111 1370       0.7089
+test rule: genus without a call, fragments >=                          3 4271 134 202 0.9622         1284      0.473                 607                                   28 1370       0.8460
+test rule: genus without a call, fragments >=                         10 4271 134 202 0.9622          504      0.736                 371                                   10 1370       0.8635
+test rule: genus without a call, fragments >=                         30 4271 134 202 0.9622          265      0.864                 229                                    4 1370       0.8561
+
+by scenario:
+     set scenario                          rule    TP   FP   FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present    of  F1 extended
+training   design                      baseline 14543  601  404 0.9666            0        NaN                   0                                    0  4592       0.8386
+training   design                oracle: all FP 14543    0  404 0.9863          575      0.743                 427                                   41  4592       0.8639
+training   design           learned relabel 0.5 14454  422  493 0.9693          254      0.791                 201                                   50  4592       0.8454
+training   design              learned both 0.5 14454  422  493 0.9693         4074      0.817                3328                                  455  4592       0.9240
+training   design rule: no call, >= 3 fragments 14543  601  404 0.9666         4862      0.415                2020                                   81  4592       0.8377
+training     host                      baseline   160    1    1 0.9938            0        NaN                   0                                    0     8       0.9697
+training     host                oracle: all FP   160    0    1 0.9969            1      1.000                   1                                    0     8       0.9758
+training     host           learned relabel 0.5   160    1    1 0.9938            0        NaN                   0                                    0     8       0.9697
+training     host              learned both 0.5   160    1    1 0.9938           18      0.278                   5                                    6     8       0.9483
+training     host rule: no call, >= 3 fragments   160    1    1 0.9938           82      0.024                   2                                    1     8       0.7864
+training     soil                      baseline 23743 1127  795 0.9611            0        NaN                   0                                    0 14717       0.7405
+training     soil                oracle: all FP 23743    0  795 0.9835          911      0.956                 871                                    9 14717       0.7703
+training     soil           learned relabel 0.5 23537  521 1001 0.9687          657      0.965                 634                                   22 14717       0.7557
+training     soil              learned both 0.5 23537  521 1001 0.9687        13991      0.913               12770                                  702 14717       0.9393
+training     soil rule: no call, >= 3 fragments 23743 1127  795 0.9611         7766      0.851                6610                                   48 14717       0.8444
+    test   design                      baseline  4271  134  202 0.9622            0        NaN                   0                                    0  1370       0.8335
+    test   design                oracle: all FP  4271    0  202 0.9769          129      0.729                  94                                    5  1370       0.8523
+    test   design           learned relabel 0.5  4250   91  223 0.9644           60      0.783                  47                                   13  1370       0.8389
+    test   design              learned both 0.5  4250   91  223 0.9644         1156      0.817                 945                                  146  1370       0.9162
+    test   design rule: no call, >= 3 fragments  4271  134  202 0.9622         1284      0.473                 607                                   28  1370       0.8460
+
+# pb (knob 0.5; 114 features)
+
+training: 209 samples, 103627 rows; FP calls 1777: beside a novel congener 0.861, closest simulated species a novel congener 0.861; the samples' novel congeners 73354, genera with one and a row 22922
+test: 41 samples, 3758 rows; FP calls 39: beside a novel congener 0.846, closest simulated species a novel congener 0.846; the samples' novel congeners 2002, genera with one and a row 592
+
+     set                                     rule                        cut    TP   FP    FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present    of  F1 extended
+training                                 baseline                          - 44905 1777  2003 0.9596            0        NaN                   0                                    0 22922       0.7708
+training                                   oracle                     all FP 44905    0  2003 0.9782         1579      0.844                1333                                   45 22922       0.7951
+training                                   oracle FP beside a novel congener 44905  247  2003 0.9756         1333      1.000                1333                                    0 22922       0.7950
+training                                   p band                       0.85 43106  665  3802 0.9507         2511      0.702                1762                                  654 22922       0.7728
+training                                   p band                        0.9 42376  505  4532 0.9439         3246      0.677                2197                                  934 22922       0.7688
+training                                   p band                       0.95 40963  308  5945 0.9291         4545      0.636                2892                                 1514 22922       0.7584
+training                                   p band                       0.98 38634  148  8274 0.9017         6488      0.588                3814                                 2508 22922       0.7376
+training                                   p band                       0.99 36270   84 10638 0.8712         8316      0.556                4622                                 3516 22922       0.7143
+training                                 identity                       0.95 44854 1750  2054 0.9593           78      0.910                  71                                    6 22922       0.7712
+training                                 identity                       0.96 44781 1725  2127 0.9588          175      0.897                 157                                   16 22922       0.7714
+training                                 identity                       0.97 44561 1596  2347 0.9576          515      0.841                 433                                   78 22922       0.7724
+training                                 identity                      0.975 44128 1415  2780 0.9546         1107      0.747                 827                                  273 22922       0.7719
+training                                 identity                       0.98 43207 1171  3701 0.9466         2187      0.678                1482                                  691 22922       0.7679
+training                          learned relabel                        0.3 44294  892  2614 0.9619         1272      0.896                1140                                  124 22922       0.7814
+training                          learned relabel                        0.5 44712 1229  2196 0.9631          664      0.943                 626                                   37 22922       0.7788
+training                          learned relabel                        0.7 44857 1469  2051 0.9622          341      0.985                 336                                    5 22922       0.7759
+training                          learned relabel                        0.9 44904 1689  2004 0.9605           88      1.000                  88                                    0 22922       0.7723
+training                              learned add                        0.3 44905 1777  2003 0.9596        20570      0.909               18691                                 1121 22922       0.9279
+training                              learned add                        0.5 44905 1777  2003 0.9596        19572      0.935               18298                                  725 22922       0.9289
+training                              learned add                        0.7 44905 1777  2003 0.9596        18349      0.959               17589                                  433 22922       0.9268
+training                              learned add                        0.9 44905 1777  2003 0.9596        15623      0.985               15391                                  126 22922       0.9126
+training                             learned both                        0.3 44294  892  2614 0.9619        20945      0.906               18967                                 1212 22922       0.9306
+training                             learned both                        0.5 44712 1229  2196 0.9631        19773      0.934               18471                                  752 22922       0.9323
+training                             learned both                        0.7 44857 1469  2051 0.9622        18454      0.959               17691                                  436 22922       0.9293
+training                             learned both                        0.9 44904 1689  2004 0.9605        15662      0.985               15430                                  126 22922       0.9136
+training                relabel, no genus context                        0.5 44708 1231  2200 0.9630          659      0.947                 624                                   31 22922       0.7787
+training                    add, no genus context                        0.5 44905 1777  2003 0.9596        20284      0.913               18510                                 1202 22922       0.9271
+training rule: genus without a call, fragments >=                          1 44905 1777  2003 0.9596        12961      0.862               11168                                  314 22922       0.8662
+training rule: genus without a call, fragments >=                          3 44905 1777  2003 0.9596         7675      0.944                7247                                  147 22922       0.8399
+training rule: genus without a call, fragments >=                         10 44905 1777  2003 0.9596         3455      0.968                3343                                   57 22922       0.8044
+training rule: genus without a call, fragments >=                         30 44905 1777  2003 0.9596         1217      0.973                1184                                   19 22922       0.7830
+
+ set                                     rule                        cut   TP  FP  FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present  of  F1 extended
+test                                 baseline                          - 2048  39  51 0.9785            0        NaN                   0                                    0 592       0.8573
+test                                   oracle                     all FP 2048   0  51 0.9877           39      0.846                  33                                    0 592       0.8711
+test                                   oracle FP beside a novel congener 2048   6  51 0.9863           33      1.000                  33                                    0 592       0.8711
+test                                   p band                       0.85 2012  17  87 0.9748           57      0.491                  28                                   26 592       0.8541
+test                                   p band                        0.9 1994  12 105 0.9715           80      0.425                  34                                   42 592       0.8491
+test                                   p band                       0.95 1964   4 135 0.9658          118      0.381                  45                                   68 592       0.8411
+test                                   p band                       0.98 1894   2 205 0.9482          186      0.290                  54                                  127 592       0.8163
+test                                   p band                       0.99 1804   1 295 0.9242          273      0.253                  69                                  199 592       0.7855
+test                                 identity                       0.95 2048  39  51 0.9785            0        NaN                   0                                    0 592       0.8573
+test                                 identity                       0.96 2045  38  54 0.9780            4      0.250                   1                                    3 592       0.8564
+test                                 identity                       0.97 2038  36  61 0.9768           13      0.308                   4                                    9 592       0.8548
+test                                 identity                      0.975 2022  28  77 0.9747           36      0.417                  15                                   21 592       0.8528
+test                                 identity                       0.98 1978  18 121 0.9661           90      0.344                  31                                   59 592       0.8411
+test                          learned relabel                        0.3 2038  19  61 0.9808           30      0.767                  23                                    7 592       0.8627
+test                          learned relabel                        0.5 2044  28  55 0.9801           15      0.800                  12                                    3 592       0.8606
+test                          learned relabel                        0.7 2047  33  52 0.9797            7      0.857                   6                                    1 592       0.8594
+test                          learned relabel                        0.9 2048  38  51 0.9787            1      1.000                   1                                    0 592       0.8577
+test                              learned add                        0.3 2048  39  51 0.9785          533      0.856                 456                                   58 592       0.9429
+test                              learned add                        0.5 2048  39  51 0.9785          468      0.910                 426                                   28 592       0.9432
+test                              learned add                        0.7 2048  39  51 0.9785          386      0.961                 371                                    6 592       0.9369
+test                              learned add                        0.9 2048  39  51 0.9785          275      0.989                 272                                    1 592       0.9183
+test                             learned both                        0.3 2038  19  61 0.9808          554      0.848                 470                                   65 592       0.9461
+test                             learned both                        0.5 2044  28  55 0.9801          479      0.906                 434                                   31 592       0.9454
+test                             learned both                        0.7 2047  33  52 0.9797          392      0.959                 376                                    7 592       0.9386
+test                             learned both                        0.9 2048  38  51 0.9787          276      0.989                 273                                    1 592       0.9187
+test                relabel, no genus context                        0.5 2046  31  53 0.9799           10      0.900                   9                                    1 592       0.8602
+test                    add, no genus context                        0.5 2048  39  51 0.9785          518      0.846                 438                                   66 592       0.9388
+test rule: genus without a call, fragments >=                          1 2048  39  51 0.9785          517      0.727                 376                                   24 592       0.9156
+test rule: genus without a call, fragments >=                          3 2048  39  51 0.9785          279      0.864                 241                                    7 592       0.9053
+test rule: genus without a call, fragments >=                         10 2048  39  51 0.9785          147      0.966                 142                                    2 592       0.8893
+test rule: genus without a call, fragments >=                         30 2048  39  51 0.9785           77      0.987                  76                                    0 592       0.8750
+
+by scenario:
+     set     scenario                          rule    TP  FP   FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present    of  F1 extended
+training       design                      baseline  6478 178  146 0.9756            0        NaN                   0                                    0  1808       0.8587
+training       design                oracle: all FP  6478   0  146 0.9889          173      0.682                 118                                   12  1808       0.8746
+training       design           learned relabel 0.5  6468 137  156 0.9779           50      0.800                  40                                   10  1808       0.8627
+training       design              learned both 0.5  6468 137  156 0.9779         1569      0.858                1346                                  133  1808       0.9411
+training       design rule: no call, >= 3 fragments  6478 178  146 0.9756          844      0.855                 722                                   34  1808       0.9038
+training          gut                      baseline  2246   7   19 0.9942            0        NaN                   0                                    0    89       0.9750
+training          gut                oracle: all FP  2246   0   19 0.9958            7      0.429                   3                                    1    89       0.9763
+training          gut           learned relabel 0.5  2245   6   20 0.9942            2      0.500                   1                                    1    89       0.9750
+training          gut              learned both 0.5  2245   6   20 0.9942           89      0.775                  69                                   14    89       0.9859
+training          gut rule: no call, >= 3 fragments  2246   7   19 0.9942          125      0.312                  39                                   10    89       0.9658
+training         host                      baseline   159   1    2 0.9907            0        NaN                   0                                    0     7       0.9695
+training         host                oracle: all FP   159   0    2 0.9938            1      1.000                   1                                    0     7       0.9756
+training         host           learned relabel 0.5   159   1    2 0.9907            0        NaN                   0                                    0     7       0.9695
+training         host              learned both 0.5   159   1    2 0.9907            9      0.444                   4                                    5     7       0.9674
+training         host rule: no call, >= 3 fragments   159   1    2 0.9907            7      0.143                   1                                    1     7       0.9552
+training         soil                      baseline 21421 918 1083 0.9554            0        NaN                   0                                    0 12093       0.7525
+training         soil                oracle: all FP 21421   0 1083 0.9753          795      0.825                 656                                   21 12093       0.7772
+training         soil           learned relabel 0.5 21320 621 1184 0.9594          344      0.962                 331                                   12 12093       0.7613
+training         soil              learned both 0.5 21320 621 1184 0.9594        10954      0.936               10256                                  391 12093       0.9357
+training         soil rule: no call, >= 3 fragments 21421 918 1083 0.9554         4397      0.963                4234                                   63 12093       0.8366
+training soil_shallow                      baseline 14601 673  753 0.9534            0        NaN                   0                                    0  8925       0.7383
+training soil_shallow                oracle: all FP 14601   0  753 0.9749          603      0.920                 555                                   11  8925       0.7677
+training soil_shallow           learned relabel 0.5 14520 464  834 0.9572          268      0.948                 254                                   14  8925       0.7475
+training soil_shallow              learned both 0.5 14520 464  834 0.9572         7152      0.950                6796                                  209  8925       0.9185
+training soil_shallow rule: no call, >= 3 fragments 14601 673  753 0.9534         2302      0.978                2251                                   39  8925       0.8053
+    test       design                      baseline  2048  39   51 0.9785            0        NaN                   0                                    0   592       0.8573
+    test       design                oracle: all FP  2048   0   51 0.9877           39      0.846                  33                                    0   592       0.8711
+    test       design           learned relabel 0.5  2044  28   55 0.9801           15      0.800                  12                                    3   592       0.8606
+    test       design              learned both 0.5  2044  28   55 0.9801          479      0.906                 434                                   31   592       0.9454
+    test       design rule: no call, >= 3 fragments  2048  39   51 0.9785          279      0.864                 241                                    7   592       0.9053
+
+# ont (knob 0.5; 114 features)
+
+training: 210 samples, 122904 rows; FP calls 2222: beside a novel congener 0.869, closest simulated species a novel congener 0.869; the samples' novel congeners 73360, genera with one and a row 25351
+test: 54 samples, 59385 rows; FP calls 1023: beside a novel congener 0.874, closest simulated species a novel congener 0.874; the samples' novel congeners 34563, genera with one and a row 12183
+
+     set                                     rule                        cut    TP   FP    FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present    of  F1 extended
+training                                 baseline                          - 45780 2222  2158 0.9543            0        NaN                   0                                    0 25351       0.7549
+training                                   oracle                     all FP 45780    0  2158 0.9770         1984      0.854                1694                                   42 25351       0.7844
+training                                   oracle FP beside a novel congener 45780  292  2158 0.9739         1694      1.000                1694                                    0 25351       0.7843
+training                                   p band                       0.85 43799  892  4139 0.9457         2821      0.733                2067                                  648 25351       0.7594
+training                                   p band                        0.9 42983  677  4955 0.9385         3641      0.697                2536                                  972 25351       0.7549
+training                                   p band                       0.95 41285  387  6653 0.9214         5204      0.653                3400                                 1633 25351       0.7437
+training                                   p band                       0.98 38414  174  9524 0.8879         7543      0.598                4509                                 2835 25351       0.7189
+training                                   p band                       0.99 35631  111 12307 0.8516         9655      0.563                5433                                 4006 25351       0.6920
+training                                 identity                       0.95 38366 1389  9572 0.8750         7240      0.498                3603                                 3566 25351       0.6978
+training                                 identity                       0.96 32659 1023 15279 0.8003        11933      0.467                5572                                 6268 25351       0.6431
+training                                 identity                       0.97 22274  709 25664 0.6281        19615      0.406                7955                                11541 25351       0.5217
+training                                 identity                      0.975 16364  559 31574 0.5046        23645      0.384                9084                                14427 25351       0.4470
+training                                 identity                       0.98 11947  437 35991 0.3961        26555      0.374                9919                                16487 25351       0.3897
+training                          learned relabel                        0.3 44955 1144  2983 0.9561         1624      0.898                1458                                  156 25351       0.7671
+training                          learned relabel                        0.5 45536 1588  2402 0.9580          800      0.948                 758                                   38 25351       0.7638
+training                          learned relabel                        0.7 45717 1892  2221 0.9570          380      0.976                 371                                    9 25351       0.7600
+training                          learned relabel                        0.9 45779 2184  2159 0.9547           38      1.000                  38                                    0 25351       0.7555
+training                              learned add                        0.3 45780 2222  2158 0.9543        24016      0.891               21391                                 1403 25351       0.9245
+training                              learned add                        0.5 45780 2222  2158 0.9543        22558      0.923               20820                                  911 25351       0.9260
+training                              learned add                        0.7 45780 2222  2158 0.9543        20758      0.953               19777                                  495 25351       0.9230
+training                              learned add                        0.9 45780 2222  2158 0.9543        16955      0.982               16647                                  152 25351       0.9031
+training                             learned both                        0.3 44955 1144  2983 0.9561        24494      0.887               21738                                 1526 25351       0.9271
+training                             learned both                        0.5 45536 1588  2402 0.9580        22789      0.922               21017                                  942 25351       0.9295
+training                             learned both                        0.7 45717 1892  2221 0.9570        20874      0.953               19887                                  501 25351       0.9255
+training                             learned both                        0.9 45779 2184  2159 0.9547        16972      0.982               16664                                  152 25351       0.9035
+training                relabel, no genus context                        0.5 45504 1586  2434 0.9577          813      0.940                 764                                   46 25351       0.7635
+training                    add, no genus context                        0.5 45780 2222  2158 0.9543        23565      0.895               21096                                 1629 25351       0.9233
+training rule: genus without a call, fragments >=                          1 45780 2222  2158 0.9543        16745      0.793               13286                                  304 25351       0.8558
+training rule: genus without a call, fragments >=                          3 45780 2222  2158 0.9543         9087      0.930                8450                                  130 25351       0.8319
+training rule: genus without a call, fragments >=                         10 45780 2222  2158 0.9543         3930      0.962                3780                                   52 25351       0.7916
+training rule: genus without a call, fragments >=                         30 45780 2222  2158 0.9543         1348      0.968                1305                                   20 25351       0.7679
+
+ set                                     rule                        cut    TP   FP    FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present    of  F1 extended
+test                                 baseline                          - 21514 1023  1176 0.9514            0        NaN                   0                                    0 12183       0.7495
+test                                   oracle                     all FP 21514    0  1176 0.9734          922      0.860                 793                                   22 12183       0.7785
+test                                   oracle FP beside a novel congener 21514  129  1176 0.9706          793      1.000                 793                                    0 12183       0.7785
+test                                   p band                       0.85 20445  357  2245 0.9402         1493      0.710                1060                                  381 12183       0.7523
+test                                   p band                        0.9 20023  263  2667 0.9318         1899      0.682                1296                                  539 12183       0.7473
+test                                   p band                       0.95 19164  148  3526 0.9125         2671      0.645                1724                                  866 12183       0.7348
+test                                   p band                       0.98 17662   62  5028 0.8741         3875      0.595                2305                                 1473 12183       0.7071
+test                                   p band                       0.99 16292   23  6398 0.8354         4908      0.553                2715                                 2091 12183       0.6777
+test                                 identity                       0.95 18131  654  4559 0.8743         3290      0.526                1732                                 1527 12183       0.6976
+test                                 identity                       0.96 15400  511  7290 0.7979         5489      0.486                2667                                 2784 12183       0.6421
+test                                 identity                       0.97 10309  350 12381 0.6182         9235      0.415                3836                                 5345 12183       0.5166
+test                                 identity                      0.975  7554  279 15136 0.4950        11040      0.395                4358                                 6622 12183       0.4433
+test                                 identity                       0.98  5421  231 17269 0.3825        12378      0.386                4776                                 7538 12183       0.3855
+test                          learned relabel                        0.3 21041  466  1649 0.9521          882      0.891                 786                                   91 12183       0.7624
+test                          learned relabel                        0.5 21359  697  1331 0.9547          440      0.923                 406                                   32 12183       0.7588
+test                          learned relabel                        0.7 21475  871  1215 0.9537          182      0.956                 174                                    8 12183       0.7543
+test                          learned relabel                        0.9 21511  989  1179 0.9520           36      1.000                  36                                    0 12183       0.7506
+test                              learned add                        0.3 21514 1023  1176 0.9514        11787      0.890               10489                                  711 12183       0.9250
+test                              learned add                        0.5 21514 1023  1176 0.9514        11074      0.922               10213                                  468 12183       0.9266
+test                              learned add                        0.7 21514 1023  1176 0.9514        10199      0.953                9716                                  242 12183       0.9238
+test                              learned add                        0.9 21514 1023  1176 0.9514         8432      0.984                8293                                   80 12183       0.9054
+test                             learned both                        0.3 21041  466  1649 0.9521        12025      0.886               10657                                  776 12183       0.9268
+test                             learned both                        0.5 21359  697  1331 0.9547        11197      0.920               10306                                  496 12183       0.9296
+test                             learned both                        0.7 21475  871  1215 0.9537        10258      0.952                9767                                  250 12183       0.9260
+test                             learned both                        0.9 21511  989  1179 0.9520         8450      0.984                8311                                   80 12183       0.9061
+test                relabel, no genus context                        0.5 21375  700  1315 0.9550          410      0.917                 376                                   33 12183       0.7584
+test                    add, no genus context                        0.5 21514 1023  1176 0.9514        11501      0.897               10312                                  794 12183       0.9237
+test rule: genus without a call, fragments >=                          1 21514 1023  1176 0.9514         8033      0.798                6409                                  176 12183       0.8534
+test rule: genus without a call, fragments >=                          3 21514 1023  1176 0.9514         4468      0.935                4179                                   60 12183       0.8304
+test rule: genus without a call, fragments >=                         10 21514 1023  1176 0.9514         1991      0.969                1929                                   20 12183       0.7893
+test rule: genus without a call, fragments >=                         30 21514 1023  1176 0.9514          665      0.979                 651                                    4 12183       0.7633
+
+by scenario:
+     set     scenario                          rule    TP   FP   FN     F1  genus calls  precision  novel genera found  wrong, a known species of G present    of  F1 extended
+training       design                      baseline  6583  190  169 0.9735            0        NaN                   0                                    0  2045       0.8456
+training       design                oracle: all FP  6583    0  169 0.9873          185      0.724                 134                                   12  2045       0.8631
+training       design           learned relabel 0.5  6558  141  194 0.9751           74      0.770                  57                                   16  2045       0.8497
+training       design              learned both 0.5  6558  141  194 0.9751         1850      0.844                1562                                  163  2045       0.9362
+training       design rule: no call, >= 3 fragments  6583  190  169 0.9735         1037      0.802                 832                                   32  2045       0.8930
+training          gut                      baseline  2249   10   17 0.9940            0        NaN                   0                                    0    93       0.9740
+training          gut                oracle: all FP  2249    0   17 0.9962            9      0.556                   5                                    1    93       0.9764
+training          gut           learned relabel 0.5  2248    8   18 0.9943            3      0.667                   2                                    1    93       0.9744
+training          gut              learned both 0.5  2248    8   18 0.9943          110      0.645                  71                                   28    93       0.9816
+training          gut rule: no call, >= 3 fragments  2249   10   17 0.9940          181      0.243                  44                                    9    93       0.9556
+training         host                      baseline   161    3    0 0.9908            0        NaN                   0                                    0     8       0.9670
+training         host                oracle: all FP   161    0    0 1.0000            3      0.333                   1                                    0     8       0.9730
+training         host           learned relabel 0.5   160    3    1 0.9877            1      0.000                   0                                    1     8       0.9610
+training         host              learned both 0.5   160    3    1 0.9877           11      0.545                   6                                    4     8       0.9679
+training         host rule: no call, >= 3 fragments   161    3    0 0.9908           12      0.167                   2                                    0     8       0.9449
+training         soil                      baseline 21657 1124 1105 0.9511            0        NaN                   0                                    0 13297       0.7361
+training         soil                oracle: all FP 21657    0 1105 0.9751          983      0.829                 815                                   19 13297       0.7657
+training         soil           learned relabel 0.5 21549  805 1213 0.9553          386      0.979                 378                                    7 13297       0.7458
+training         soil              learned both 0.5 21549  805 1213 0.9553        12556      0.926               11632                                  477 13297       0.9351
+training         soil rule: no call, >= 3 fragments 21657 1124 1105 0.9511         5282      0.957                5057                                   51 13297       0.8332
+training soil_shallow                      baseline 15130  895  867 0.9450            0        NaN                   0                                    0  9908       0.7217
+training soil_shallow                oracle: all FP 15130    0  867 0.9721          804      0.919                 739                                   10  9908       0.7586
+training soil_shallow           learned relabel 0.5 15021  631  976 0.9492          336      0.955                 321                                   13  9908       0.7324
+training soil_shallow              learned both 0.5 15021  631  976 0.9492         8262      0.938                7746                                  270  9908       0.9140
+training soil_shallow rule: no call, >= 3 fragments 15130  895  867 0.9450         2575      0.977                2515                                   38  9908       0.7929
+    test       design                      baseline  2089   52   67 0.9723            0        NaN                   0                                    0   618       0.8501
+    test       design                oracle: all FP  2089    0   67 0.9842           52      0.769                  40                                    0   618       0.8663
+    test       design           learned relabel 0.5  2083   35   73 0.9747           23      0.826                  19                                    4   618       0.8553
+    test       design              learned both 0.5  2083   35   73 0.9747          543      0.853                 463                                   49   618       0.9369
+    test       design rule: no call, >= 3 fragments  2089   52   67 0.9723          324      0.821                 266                                   10   618       0.8990
+    test          gut                      baseline  1175    8    7 0.9937            0        NaN                   0                                    0    50       0.9731
+    test          gut                oracle: all FP  1175    0    7 0.9970            8      0.125                   1                                    2    50       0.9739
+    test          gut           learned relabel 0.5  1173    8    9 0.9928            2      0.000                   0                                    2    50       0.9714
+    test          gut              learned both 0.5  1173    8    9 0.9928           62      0.645                  40                                   20    50       0.9802
+    test          gut rule: no call, >= 3 fragments  1175    8    7 0.9937           99      0.263                  26                                    2    50       0.9554
+    test         host                      baseline    47    1    0 0.9895            0        NaN                   0                                    0     0       0.9895
+    test         host                oracle: all FP    47    0    0 1.0000            1      0.000                   0                                    0     0       0.9895
+    test         host           learned relabel 0.5    47    1    0 0.9895            0        NaN                   0                                    0     0       0.9895
+    test         host              learned both 0.5    47    1    0 0.9895            1      0.000                   0                                    0     0       0.9792
+    test         host rule: no call, >= 3 fragments    47    1    0 0.9895            5      0.000                   0                                    0     0       0.9400
+    test         soil                      baseline 10362  530  599 0.9483            0        NaN                   0                                    0  6419       0.7330
+    test         soil                oracle: all FP 10362    0  599 0.9719          476      0.845                 402                                   10  6419       0.7629
+    test         soil           learned relabel 0.5 10285  350  676 0.9525          234      0.953                 223                                    9  6419       0.7440
+    test         soil              learned both 0.5 10285  350  676 0.9525         6195      0.920                5701                                  269  6419       0.9346
+    test         soil rule: no call, >= 3 fragments 10362  530  599 0.9483         2600      0.956                2486                                   32  6419       0.8323
+    test soil_shallow                      baseline  7841  432  503 0.9437            0        NaN                   0                                    0  5096       0.7222
+    test soil_shallow                oracle: all FP  7841    0  503 0.9689          385      0.909                 350                                   10  5096       0.7561
+    test soil_shallow           learned relabel 0.5  7771  303  573 0.9466          181      0.906                 164                                   17  5096       0.7315
+    test soil_shallow              learned both 0.5  7771  303  573 0.9466         4396      0.933                4102                                  158  5096       0.9165
+    test soil_shallow rule: no call, >= 3 fragments  7841  432  503 0.9437         1440      0.973                1401                                   16  5096       0.7983

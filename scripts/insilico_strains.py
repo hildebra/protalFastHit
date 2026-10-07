@@ -24,7 +24,12 @@ The mutations:
 - Codons. In a coding frame a substitution (transitions --kappa times as likely as each transversion) that keeps
   the amino acid is kept, one that changes it with probability --omega (dN/dS), one that makes a stop codon never;
   the proposals are scaled per gene so that the gene still differs by its target. Most differences fall on third
-  codon positions, as a strain's do (protal's third_position_share).
+  codon positions, as a strain's do (protal's third_position_share). --omega auto (the default) measures how many
+  of the real strains' substitutions in their marker genes fall on third positions (a sample of the table's real
+  strains against their representatives, the copies compared along their shared 12-mers) and takes the omega that
+  gives the same share when the representatives' genes are mutated here: at r226 v15 the in-silico strains made
+  with 0.15 had 0.06-0.10 less of their differences on third positions than the real strains, a spectrum the
+  presence models could learn (docs/claude/2026-10-07-error-read-signatures).
 Substitutions only: the strain has the representative's length and its genes' positions.
 
 Writes OUT_DIR/<name>.fna.gz per strain (name: insilico_ and the representative's accession with '_' for '.', so
@@ -63,6 +68,11 @@ MIN_STRAIN_GENES = 10  # a strain's genes placed, to count its median gene
 MIN_TYPICAL = 0.002  # a strain's median gene at least this far from the representative, for the factors
 MIN_FACTOR, MAX_FACTOR = 0.25, 4.0
 MIN_FACTOR_STRAINS = 3
+OMEGA_DEFAULT = 0.15  # without real strains to calibrate on
+OMEGA_GRID = (0.01, 0.02, 0.035, 0.05, 0.07, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0)
+SPECTRUM_STRAINS = 200  # real strains compared with their representatives for the spectrum
+SPECTRUM_KMER = 12  # the copies are compared along their shared 12-mers (no alignment)
+MIN_SPECTRUM_SUBSTITUTIONS = 2000  # fewer, and the measured share is not trusted
 
 CODE = np.full(256, 4, dtype=np.uint8)
 for _i, _b in enumerate(b"ACGT"):
@@ -151,6 +161,154 @@ def conservation_factors(strains):
         return {}
     middle = statistics.median(raw.values()) or 1.0
     return {g: min(MAX_FACTOR, max(MIN_FACTOR, v / middle)) for g, v in raw.items()}
+
+
+def gene_copy(contigs, contig, start, end, strand):
+    """A marker gene's codes (0-3, 4 other) in reading orientation from a genome's contigs ({name: codes}), or None
+    if the placement is outside the contig. start, end: 1-based, inclusive."""
+    codes = contigs.get(contig)
+    if codes is None or not 1 <= start <= end <= len(codes):
+        return None
+    copy = codes[start - 1:end]
+    if strand == "-":
+        copy = np.where(copy < 4, 3 - copy.astype(np.int16), 4).astype(np.uint8)[::-1]
+    return copy
+
+
+def kmer_codes(codes, k):
+    """The k-mers of codes as integers (4 ** k values; -1 where a k-mer holds another letter)."""
+    if len(codes) < k:
+        return np.zeros(0, dtype=np.int64)
+    windows = np.lib.stride_tricks.sliding_window_view(codes, k)
+    powers = 4 ** np.arange(k - 1, -1, -1, dtype=np.int64)
+    values = (np.minimum(windows, 3).astype(np.int64) * powers).sum(axis=1)
+    return np.where((windows == 4).any(axis=1), -1, values)
+
+
+def substitutions(rep, other, k=SPECTRUM_KMER):
+    """The substitutions between a representative's gene copy and another genome's (codes in reading orientation),
+    without an alignment: the k-mers unique to each copy pair them on their main diagonal, and the bases are compared
+    on the stretches between two paired k-mers that lie on that diagonal (an indel moves the diagonal and ends the
+    stretch). Returns (positions on the representative's copy that differ, bases compared)."""
+    a, b = kmer_codes(rep, k), kmer_codes(other, k)
+    if not len(a) or not len(b):
+        return np.zeros(0, dtype=np.int64), 0
+    ua, ia, ca = np.unique(a, return_index=True, return_counts=True)
+    ub, ib, cb = np.unique(b, return_index=True, return_counts=True)
+    keep_a = (ca == 1) & (ua >= 0)
+    keep_b = (cb == 1) & (ub >= 0)
+    shared, pa, pb = np.intersect1d(ua[keep_a], ub[keep_b], assume_unique=True, return_indices=True)
+    if len(shared) < 2:
+        return np.zeros(0, dtype=np.int64), 0
+    pos_a, pos_b = ia[keep_a][pa], ib[keep_b][pb]
+    diagonals, counts = np.unique(pos_a - pos_b, return_counts=True)
+    d = int(diagonals[np.argmax(counts)])
+    on = pos_a - pos_b == d
+    pos_a = np.sort(pos_a[on])
+    compared = np.zeros(len(rep), dtype=bool)
+    for p, q in zip(pos_a[:-1], pos_a[1:]):  # consecutive paired k-mers on the diagonal: the stretch between
+        compared[p:q + k] = True
+    lo, hi = max(0, d), min(len(rep), len(other) + d)
+    if hi <= lo:
+        return np.zeros(0, dtype=np.int64), 0
+    differ = np.zeros(len(rep), dtype=bool)
+    differ[lo:hi] = rep[lo:hi] != other[lo - d:hi - d]
+    compared[:lo] = False
+    compared[hi:] = False
+    compared &= (rep < 4)
+    differ &= compared
+    return np.flatnonzero(differ), int(compared.sum())
+
+
+def spectrum_pair(job):
+    """One real strain against its representative: (substitutions on third codon positions, substitutions, bases
+    compared, the representative's gene copies compared (for the calibration))."""
+    strain_path, rep_path, strain_genes, rep_genes = job
+    strain = {h.split()[0] if h.split() else h: CODE[np.frombuffer(s, dtype=np.uint8)] for h, s in read_fasta(strain_path)}
+    rep = {h.split()[0] if h.split() else h: CODE[np.frombuffer(s, dtype=np.uint8)] for h, s in read_fasta(rep_path)}
+    by_gene = {g[1]: g for g in strain_genes}
+    third = subs = compared = 0
+    copies = []
+    for contig, gene, s, e, strand in rep_genes:
+        other = by_gene.get(gene)
+        if other is None:
+            continue
+        a = gene_copy(rep, contig, s, e, strand)
+        b = gene_copy(strain, other[0], other[2], other[3], other[4])
+        if a is None or b is None or len(a) < 3 * SPECTRUM_KMER:
+            continue
+        positions, n = substitutions(a, b)
+        if n < len(a) // 2:  # the copies do not pair: another gene, or a poor placement
+            continue
+        third += int((positions % 3 == 2).sum())
+        subs += len(positions)
+        compared += n
+        if len(copies) < 8:
+            copies.append(a[:len(a) - len(a) % 3])
+    return third, subs, compared, copies
+
+
+def real_spectrum(rows, strains, positions_path, reps, rng, threads):
+    """The share of the real strains' substitutions in their marker genes that fall on third codon positions, from a
+    sample of SPECTRUM_STRAINS strains (gene_positions.tsv's non-representative genomes with MIN_STRAIN_GENES genes
+    placed) against their species' representatives. Returns (share or None, substitutions, strains compared, some
+    representatives' gene copies)."""
+    by_acc = {normalize_accession(r[0]): r for r in rows if len(r) >= 3 and ";s__" in r[1]}
+    rep_of = {}
+    for acc, r in by_acc.items():
+        if acc in reps:
+            rep_of.setdefault(r[1].split(";")[-1], acc)
+    candidates = sorted(acc for acc, d in strains.items() if len(d) >= MIN_STRAIN_GENES and acc in by_acc
+                        and rep_of.get(by_acc[acc][1].split(";")[-1]) not in (None, acc))
+    if not candidates:
+        return None, 0, 0, []
+    sample = [candidates[i] for i in rng.permutation(len(candidates))[:SPECTRUM_STRAINS]]
+    pairs = {acc: rep_of[by_acc[acc][1].split(";")[-1]] for acc in sample}
+    genes, _ = read_positions(positions_path, set(pairs) | set(pairs.values()), None)
+    jobs = [(by_acc[acc][2], by_acc[rep][2], genes.get(acc, []), genes.get(rep, []))
+            for acc, rep in pairs.items() if genes.get(acc) and genes.get(rep)]
+    third = subs = 0
+    copies, used = [], 0
+    with concurrent.futures.ProcessPoolExecutor(max(1, threads)) as pool:
+        for t, s, c, cp in pool.map(spectrum_pair, jobs, chunksize=4):
+            if c:
+                used += 1
+            third, subs = third + t, subs + s
+            if len(copies) < 24:
+                copies.extend(cp)
+    return (third / subs if subs >= MIN_SPECTRUM_SUBSTITUTIONS else None), subs, used, copies
+
+
+def simulated_third_share(copies, omega, kappa, rng, rate=0.03):
+    """The share of the substitutions mutate() makes on third codon positions, on a contig of these gene copies
+    (each a frame on the plus strand at `rate`)."""
+    codes = np.concatenate(copies)
+    frames, first = [], 0
+    for c in copies:
+        frames.append((first, first + len(c) - 1, "+", rate))
+        first += len(c)
+    owner, cpos, minus, fixed, relative = annotate(codes, frames, rng)
+    new, *_ = mutate(codes, owner, cpos, minus, fixed, len(frames), rng, kappa, omega)
+    changed = new != codes
+    return float((changed & (cpos == 2)).sum() / max(1, changed.sum()))
+
+
+def calibrate_omega(target, copies, kappa, rng, grid=OMEGA_GRID):
+    """The omega at which mutate() puts `target` of its substitutions on third codon positions: the share is measured
+    on `copies` at each omega of the grid (two draws each) and the target is interpolated in log(omega), clamped to
+    the grid."""
+    if not copies or target is None:
+        return OMEGA_DEFAULT
+    shares = [np.mean([simulated_third_share(copies, w, kappa, rng) for _ in range(2)]) for w in grid]
+    if target >= shares[0]:
+        return grid[0]
+    if target <= shares[-1]:
+        return grid[-1]
+    for (w0, s0), (w1, s1) in zip(zip(grid, shares), zip(grid[1:], shares[1:])):
+        if s1 <= target <= s0 and s0 != s1:
+            f = (s0 - target) / (s0 - s1)
+            return float(np.exp(np.log(w0) + f * (np.log(w1) - np.log(w0))))
+    return OMEGA_DEFAULT
 
 
 def read_fasta(path):
@@ -377,7 +535,10 @@ def main(argv=None):
     ap.add_argument("--min-ani", type=float, default=0.95, help="no strain further than this ANI (default 0.95)")
     ap.add_argument("--marker-scale", type=float, default=0.45,
                     help="the median marker gene's divergence over the genome's (default 0.45, from r226 v10's strains)")
-    ap.add_argument("--omega", type=float, default=0.15, help="share of amino-acid changes kept (dN/dS, default 0.15)")
+    ap.add_argument("--omega", default="auto",
+                    help="share of amino-acid changes kept (dN/dS): a number, or auto (the default), the omega at which "
+                         f"the strains' third-codon-position share of substitutions equals the real strains' ({OMEGA_DEFAULT} "
+                         "without real strains)")
     ap.add_argument("--kappa", type=float, default=3.0, help="transition / transversion rate ratio (default 3)")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("-t", "--threads", type=int, default=4)
@@ -400,6 +561,20 @@ def main(argv=None):
                  "in the table): give --ani MIN-MAX")
     max_genome = 1.0 - args.min_ani
     os.makedirs(args.out_dir, exist_ok=True)
+    omega_note = ""
+    if args.omega == "auto":
+        share, subs, used, copies = real_spectrum(rows, strains, args.positions, reps or set(), rng, args.threads) \
+            if args.positions and args.taxonomy else (None, 0, 0, [])
+        if share is None:
+            omega = OMEGA_DEFAULT
+            omega_note = (f"omega {omega} (no real strains to calibrate on: {subs} substitutions of {used} strains)")
+        else:
+            omega = calibrate_omega(share, copies, args.kappa, rng)
+            omega_note = (f"omega {omega:.3f}: {share:.3f} of the real strains' substitutions on third codon positions "
+                          f"({subs} substitutions in the marker genes of {used} strains)")
+    else:
+        omega = float(args.omega)
+        omega_note = f"omega {omega} (given)"
     jobs = []
     for r in chosen:
         acc = normalize_accession(r[0])
@@ -412,7 +587,7 @@ def main(argv=None):
             marker = genome * args.marker_scale
         out = os.path.join(args.out_dir, strain_name(acc) + ".fna.gz")
         jobs.append((acc, r[1].split(";")[-1], r[2], out, genes.get(acc, []), factors, genome, marker,
-                     seed_of(args.seed, acc), args.kappa, args.omega))
+                     seed_of(args.seed, acc), args.kappa, omega))
     with concurrent.futures.ProcessPoolExecutor(max(1, args.threads)) as pool:
         summary = list(pool.map(make_strain, jobs, chunksize=4))
     by_name = {s[0]: s for s in summary}
@@ -433,8 +608,8 @@ def main(argv=None):
           f"{100 * (1 - min(genome_divs, default=0)):.1f}%); "
           + (f"drawn from {len(divergences)} real strains' marker divergence (median {statistics.median(divergences):.4f}), "
              if args.ani is None else f"ANI drawn from {args.ani[0]:.3f}-{args.ani[1]:.3f}, ")
-          + f"{len(factors)} gene factors ({min(factors.values(), default=1):.2f}-{max(factors.values(), default=1):.2f}): "
-          f"{args.output}, {os.path.join(args.out_dir, SUMMARY)}", flush=True)
+          + f"{len(factors)} gene factors ({min(factors.values(), default=1):.2f}-{max(factors.values(), default=1):.2f}); "
+          f"{omega_note}: {args.output}, {os.path.join(args.out_dir, SUMMARY)}", flush=True)
 
 
 if __name__ == "__main__":

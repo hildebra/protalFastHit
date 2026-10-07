@@ -697,6 +697,27 @@ class GtdbBuildTest(unittest.TestCase):
             self.assertGreater(sum(int(r["records"]) for r in samples), 0, t)
             if any(int(r["FP"]) + int(r["FN"]) for r in samples):
                 self.assertGreater(sum(int(r["sam_records"]) for r in samples), 0, t)
+            # Which side the errors' reads take where the species differs from its congeners (ancestry_sites.py, after
+            # the error reads, from the training database's genes and its full reference, kept until then): a summary,
+            # the AUC table and the counts per taxon and record.
+            ancestry = os.path.join(logs, "ancestry_sites", t)
+            if not any(int(r["sam_records"]) for r in samples):
+                continue
+            summary = self.text("scenarios", "model_logs", "ancestry_sites", f"{t}.summary.txt")
+            self.assertRegex(summary, r"^\d+ SAMs of \d+ samples, \d+ counted records", t)
+            self.assertIn("alleles: ", summary)  # the full reference was there
+            self.assertIn("Per taxon, FN own (1) against FP genus (0)", summary)
+            with open(ancestry + ".auc.tsv") as fh:
+                self.assertEqual(fh.readline().rstrip("\n").split("\t"), ["min_sites", "identity_band", "signal", "taxa", "fn", "auc"])
+            for suffix in (".taxa.tsv.gz", ".fragments.tsv.gz"):
+                with gzip.open(ancestry + suffix, "rt") as fh:
+                    self.assertTrue(fh.readline().startswith("sample\t"), suffix)
+            self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "scenarios", f"ancestry_sites_{t}.log")))
+        console = self.text("scenarios", "console.log")
+        self.assertIn("the ancestry sites of the errors' reads (model_logs/ancestry_sites", console)
+        self.assertIn("full_reference.fna", console)  # kept for the report, then removed
+        self.assertFalse(glob.glob(os.path.join(scratch, "training_db", "full_reference.fna*")))
+        self.assertFalse(os.path.exists(os.path.join(scratch, "ancestry_files")))
         # The archive to share (--share-logs): the console's lines and the other logs, model_logs/ with the error reads'
         # SAMs, and the tables, their numbers to 9 significant digits (the same rows and values to 1e-8).
         import math
@@ -704,6 +725,7 @@ class GtdbBuildTest(unittest.TestCase):
         with tarfile.open(os.path.join(self.tmp.name, "scenarios", "scenarios_share.tar.gz")) as tar:
             members = set(tar.getnames())
             for name in ("console.log", "training_data.log", "model_logs/summary.txt", "model_logs/error_reads/pe/summary.tsv",
+                         "model_logs/ancestry_sites/pe.summary.txt", "model_logs/ancestry_sites/pe.auc.tsv",
                          "training/training_data.tsv", "training/training_data_se.tsv", "test/training_data.tsv"):
                 self.assertIn("scenarios/" + name, members)
             self.assertTrue(any(m.endswith(".FP.sam.zst") or m.endswith(".FN.sam.zst") for m in members))

@@ -15,7 +15,8 @@ The user chose:
 - build and test locally.
 
 **Short answer.** All of it is implemented, tested here and in the default feature set, but not yet trained at GTDB
-scale: the next r226 build is the first test of its worth. Branch `congener-gaps` (from `0aea3fb`).
+scale: the next r226 build is the first test of its worth. Branch `congener-gaps` (from `0aea3fb`, `8c7ab9c`), merged into
+audit-fixes after 0.7.9 (`0fe84e3`), its conflicts with the ancestry sites resolved by keeping both.
 
 ## What it does
 
@@ -144,7 +145,8 @@ The two alternatives to an order-dependent prior that the user chose:
 
 ## Overlap with the ancestry sites (the other branch)
 
-A parallel session implemented "ancestry sites" (`AncestrySites.h`, uncommitted in the main checkout on 2026-10-07).
+A parallel session implemented "ancestry sites" (`AncestrySites.h`, protal 0.7.9, `ffbedb3`), merged here with this branch;
+both groups are in the default set.
 
 **How they work.**
 - A run compares a reference's copy of a gene with its nearest congener's copy (from `species_neighbours.tsv`, the first

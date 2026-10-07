@@ -1,0 +1,172 @@
+
+# pe
+
+## FN taxa: their own reads
+
+pe: 3988 FN taxa; their own fragments with a record 2210473: best on the taxon 64773 (47597 at MAPQ >= 4), best elsewhere 75195, aligned nowhere 2070505
+  FN taxa without any own fragment with a record: 0.004; without one on the taxon: 0.056
+  2210473 own fragments of 3972 FN taxa; their fate: {'nowhere, seeded on other taxa only': 2069658, 'elsewhere, never seeded on the taxon': 74547, 'best on the taxon': 64773, 'nowhere, failed on the taxon': 847, 'elsewhere, failed on the taxon': 359, 'elsewhere, also on the taxon': 289}
+  of the own fragments that reached the aligner on the taxon: 64773 aligned to it, 359 failed there and aligned elsewhere, 847 failed there and aligned nowhere: alignment sensitivity on the taxon 0.982
+  the own fragments best elsewhere (75195): relation of that taxon {'genus': 0.987, 'order': 0.005, 'family': 0.004, 'other': 0.003}; its role {'other': 0.987, 'FN': 0.01, 'FP': 0.003}; identity there median 0.9767 (>= 0.98: 0.467); counted there 0.347; source genomes {'strain': 0.973, 'rep': 0.016, 'insilico': 0.011}
+  for comparison, the own fragments best on the taxon (64773): identity median 0.9760; source genomes {'strain': 0.857, 'rep': 0.093, 'insilico': 0.049}
+  the failed own fragments: their identity where they aligned elsewhere (median) 0.933; their source genomes {'strain': 1145, 'rep': 37, 'insilico': 24}
+  per FN taxon with any own fragment that touched it (3767): share lost to failed alignments median 0.000, 90% 0.000; taxa losing >= half: 0.006
+  all own fragments best elsewhere (49533), by that taxon's role: {'FP': 0.003, 'absent, not called': 0.887, 'no row': 0.064, 'present (TP)': 0.045}; by its relation: {'family': 0.004, 'genus': 0.992, 'order': 0.003, 'other': 0.002}
+  per FN taxon, the share of its aligned own fragments that went elsewhere: median 0.056, mean 0.229; >= half: 0.225; all: 0.011
+  FN taxa with >= 5 aligned own fragments (1951), the share that went elsewhere by the species of their genus in the database (Spearman 0.420):
+        taxa  median   mean
+bin                        
+1         45   0.000  0.004
+2-3       74   0.000  0.089
+4-10     245   0.088  0.176
+11-30    446   0.241  0.295
+31-100   466   0.333  0.362
+>100     675   0.444  0.454
+  the 10 FN taxa with most own fragments elsewhere hold 0.463 of them: [('s__Nanosyncoccus sp963539465', 9290), ('s__Deferrimicrobium sp011391555', 2560), ('s__SDRW01 sp916438855', 2331), ('s__Sphingomonas sp004341505', 2103), ('s__Streptococcus pneumoniae_F', 1580)]
+  own fragments per 1000 read pairs (FN taxa with >= 20 pairs), by the species' genome in the sample:
+          taxa  read_pairs  on_taxon_per_1000_pairs  touched_per_1000_pairs  own_identity
+genome                                                                                   
+insilico   376       100.0                   20.621                  20.921         0.977
+rep        503        98.0                   15.228                  15.267         0.991
+several   1116       118.0                   16.216                  16.878         0.985
+strain    1926       192.0                   24.324                  25.063         0.975
+  Spearman of own identity with fragments on the taxon per read pair (2674 taxa): -0.254
+                taxa  per_1000_pairs
+bin                                 
+(0.0, 0.95]       63           27.78
+(0.95, 0.97]     711           32.79
+(0.97, 0.98]     672           25.06
+(0.98, 0.99]     715           17.62
+(0.99, 0.995]    352           24.10
+(0.995, 1.001]   161           13.16
+
+## FP taxa: their reads' species
+
+pe: 84515 counted FP fragments by their source: {'held out (not in the database)': 0.993, 'in the database': 0.007}
+  of those from a species in the database (614): {'never seeded on its species': 0.881, 'aligned to its species too (worse or equal)': 0.116, 'seeded on its species, failed there': 0.003}
+  their source genomes: {'strain': 0.614, 'rep': 0.311, 'insilico': 0.075}; relation to the FP taxon: {'genus': 0.513, 'other': 0.309, 'family': 0.13, 'order': 0.047}
+  identity on the FP taxon by state: {'aligned to its species too (worse or equal)': 0.9867, 'never seeded on its species': 0.9867, 'seeded on its species, failed there': 0.9933}
+  their species is an FN taxon of the sample: 0.107
+  FP taxa by their fragments' main source: {'held out (not in the database)': 0.9, 'in the database': 0.1}
+  FP taxa where most fragments seeded on their own (database) species and failed there: 0.001 (2 of 2366)
+
+# se
+
+## FN taxa: their own reads
+
+se: 1811 FN taxa; their own fragments with a record 1445049: best on the taxon 43141 (33104 at MAPQ >= 4), best elsewhere 37695, aligned nowhere 1364213
+  FN taxa without any own fragment with a record: 0.003; without one on the taxon: 0.029
+  1445049 own fragments of 1806 FN taxa; their fate: {'nowhere, seeded on other taxa only': 1363429, 'best on the taxon': 43141, 'elsewhere, never seeded on the taxon': 37468, 'nowhere, failed on the taxon': 784, 'elsewhere, failed on the taxon': 227}
+  of the own fragments that reached the aligner on the taxon: 43141 aligned to it, 227 failed there and aligned elsewhere, 784 failed there and aligned nowhere: alignment sensitivity on the taxon 0.977
+  the own fragments best elsewhere (37695): relation of that taxon {'genus': 0.989, 'family': 0.005, 'other': 0.003, 'order': 0.002}; its role {'other': 0.986, 'FP': 0.01, 'FN': 0.004}; identity there median 0.9825 (>= 0.98: 0.565); counted there 0.293; source genomes {'strain': 0.943, 'insilico': 0.034, 'rep': 0.023}
+  for comparison, the own fragments best on the taxon (43141): identity median 0.9773; source genomes {'strain': 0.848, 'rep': 0.091, 'insilico': 0.061}
+  the failed own fragments: their identity where they aligned elsewhere (median) 0.942; their source genomes {'strain': 975, 'rep': 23, 'insilico': 13}
+  per FN taxon with any own fragment that touched it (1760): share lost to failed alignments median 0.000, 90% 0.066; taxa losing >= half: 0.006
+  all own fragments best elsewhere (24464), by that taxon's role: {'FP': 0.01, 'absent, not called': 0.833, 'no row': 0.105, 'present (TP)': 0.052}; by its relation: {'family': 0.005, 'genus': 0.991, 'order': 0.002, 'other': 0.002}
+  per FN taxon, the share of its aligned own fragments that went elsewhere: median 0.222, mean 0.295; >= half: 0.297; all: 0.010
+  FN taxa with >= 5 aligned own fragments (1244), the share that went elsewhere by the species of their genus in the database (Spearman 0.383):
+        taxa  median   mean
+bin                        
+1         17   0.000  0.009
+2-3       47   0.022  0.136
+4-10     153   0.111  0.205
+11-30    281   0.286  0.323
+31-100   295   0.400  0.402
+>100     451   0.474  0.470
+  the 10 FN taxa with most own fragments elsewhere hold 0.320 of them: [('s__UMGS124 sp019420325', 1332), ('s__SAR86A sp902547695', 1115), ('s__Streptococcus sp013277415', 946), ('s__UMGS124 sp934654475', 861), ('s__Lactobacillus sp946479925', 800)]
+  own fragments per 1000 read pairs (FN taxa with >= 20 pairs), by the species' genome in the sample:
+          taxa  read_pairs  on_taxon_per_1000_pairs  touched_per_1000_pairs  own_identity
+genome                                                                                   
+insilico    56       113.0                   17.624                  17.624         0.972
+rep         58       101.5                   12.987                  12.987         0.990
+several    185       111.0                   14.706                  14.815         0.984
+strain     267       205.0                   19.305                  19.608         0.974
+  Spearman of own identity with fragments on the taxon per read pair (373 taxa): -0.351
+                taxa  per_1000_pairs
+bin                                 
+(0.0, 0.95]       22           19.56
+(0.95, 0.97]     117           28.37
+(0.97, 0.98]      92           16.78
+(0.98, 0.99]      78           14.62
+(0.99, 0.995]     19           14.84
+(0.995, 1.001]    45           10.75
+
+## FP taxa: their reads' species
+
+se: 125193 counted FP fragments by their source: {'held out (not in the database)': 0.991, 'in the database': 0.009}
+  of those from a species in the database (1137): {'never seeded on its species': 0.852, 'aligned to its species too (worse or equal)': 0.142, 'seeded on its species, failed there': 0.005}
+  their source genomes: {'strain': 0.809, 'rep': 0.153, 'insilico': 0.038}; relation to the FP taxon: {'genus': 0.822, 'other': 0.104, 'family': 0.062, 'order': 0.012}
+  identity on the FP taxon by state: {'aligned to its species too (worse or equal)': 1.0, 'never seeded on its species': 0.9919, 'seeded on its species, failed there': 0.9542}
+  their species is an FN taxon of the sample: 0.107
+  FP taxa by their fragments' main source: {'held out (not in the database)': 0.918, 'in the database': 0.082}
+  FP taxa where most fragments seeded on their own (database) species and failed there: 0.000 (0 of 2304)
+
+# pb
+
+## FN taxa: their own reads
+
+pb: 3004 FN taxa; their own fragments with a record 92393: best on the taxon 14528 (12038 at MAPQ >= 4), best elsewhere 9720, aligned nowhere 68145
+  FN taxa without any own fragment with a record: 0.019; without one on the taxon: 0.168
+  92393 own fragments of 2946 FN taxa; their fate: {'nowhere, seeded on other taxa only': 67751, 'best on the taxon': 14528, 'elsewhere, never seeded on the taxon': 8721, 'elsewhere, also on the taxon': 912, 'nowhere, failed on the taxon': 394, 'elsewhere, failed on the taxon': 87}
+  of the own fragments that reached the aligner on the taxon: 14528 aligned to it, 87 failed there and aligned elsewhere, 394 failed there and aligned nowhere: alignment sensitivity on the taxon 0.968
+  the own fragments best elsewhere (9720): relation of that taxon {'genus': 0.991, 'family': 0.003, 'other': 0.003, 'order': 0.003}; its role {'other': 0.988, 'FN': 0.008, 'FP': 0.004}; identity there median 0.9724 (>= 0.98: 0.364); counted there 0.360; source genomes {'strain': 0.986, 'insilico': 0.008, 'rep': 0.007}
+  for comparison, the own fragments best on the taxon (14528): identity median 0.9759; source genomes {'strain': 0.916, 'insilico': 0.054, 'rep': 0.03}
+  the failed own fragments: their identity where they aligned elsewhere (median) 0.945; their source genomes {'strain': 421, 'rep': 30, 'insilico': 30}
+  per FN taxon with any own fragment that touched it (2519): share lost to failed alignments median 0.000, 90% 0.023; taxa losing >= half: 0.030
+  all own fragments best elsewhere (6591), by that taxon's role: {'FP': 0.005, 'absent, not called': 0.809, 'no row': 0.153, 'present (TP)': 0.034}; by its relation: {'family': 0.004, 'genus': 0.989, 'order': 0.004, 'other': 0.004}
+  per FN taxon, the share of its aligned own fragments that went elsewhere: median 0.000, mean 0.155; >= half: 0.150; all: 0.023
+  FN taxa with >= 5 aligned own fragments (676), the share that went elsewhere by the species of their genus in the database (Spearman 0.255):
+        taxa  median   mean
+bin                        
+1         13   0.000  0.000
+2-3       21   0.000  0.086
+4-10      78   0.118  0.243
+11-30    151   0.167  0.273
+31-100   199   0.333  0.361
+>100     214   0.254  0.368
+  the 10 FN taxa with most own fragments elsewhere hold 0.356 of them: [('s__Streptococcus mitis_P', 790), ('s__SDRW01 sp916438855', 375), ('s__Sphingomonas sp004341505', 312), ('s__SAR86A sp902547695', 154), ('s__UMGS124 sp019420325', 145)]
+
+## FP taxa: their reads' species
+
+pb: 17224 counted FP fragments by their source: {'held out (not in the database)': 0.981, 'in the database': 0.019}
+  of those from a species in the database (322): {'never seeded on its species': 0.894, 'aligned to its species too (worse or equal)': 0.09, 'seeded on its species, failed there': 0.016}
+  their source genomes: {'strain': 0.512, 'rep': 0.382, 'insilico': 0.106}; relation to the FP taxon: {'genus': 0.429, 'other': 0.307, 'family': 0.199, 'order': 0.065}
+  identity on the FP taxon by state: {'aligned to its species too (worse or equal)': 0.9833, 'never seeded on its species': 0.9977, 'seeded on its species, failed there': 0.9982}
+  their species is an FN taxon of the sample: 0.071
+  FP taxa by their fragments' main source: {'held out (not in the database)': 0.905, 'in the database': 0.095}
+  FP taxa where most fragments seeded on their own (database) species and failed there: 0.000 (1 of 2406)
+
+# ont
+
+## FN taxa: their own reads
+
+ont: 3334 FN taxa; their own fragments with a record 143234: best on the taxon 16335 (13569 at MAPQ >= 4), best elsewhere 8816, aligned nowhere 118083
+  FN taxa without any own fragment with a record: 0.004; without one on the taxon: 0.150
+  143234 own fragments of 3320 FN taxa; their fate: {'nowhere, seeded on other taxa only': 115329, 'best on the taxon': 16335, 'elsewhere, never seeded on the taxon': 7876, 'nowhere, failed on the taxon': 2754, 'elsewhere, also on the taxon': 723, 'elsewhere, failed on the taxon': 217}
+  of the own fragments that reached the aligner on the taxon: 16335 aligned to it, 217 failed there and aligned elsewhere, 2754 failed there and aligned nowhere: alignment sensitivity on the taxon 0.846
+  the own fragments best elsewhere (8816): relation of that taxon {'genus': 0.989, 'order': 0.006, 'other': 0.003, 'family': 0.002}; its role {'other': 0.986, 'FN': 0.01, 'FP': 0.004}; identity there median 0.9510 (>= 0.98: 0.177); counted there 0.390; source genomes {'strain': 0.975, 'rep': 0.013, 'insilico': 0.012}
+  for comparison, the own fragments best on the taxon (16335): identity median 0.9545; source genomes {'strain': 0.878, 'insilico': 0.065, 'rep': 0.057}
+  the failed own fragments: their identity where they aligned elsewhere (median) 0.896; their source genomes {'strain': 2688, 'rep': 142, 'insilico': 141}
+  per FN taxon with any own fragment that touched it (2892): share lost to failed alignments median 0.000, 90% 0.500; taxa losing >= half: 0.096
+  all own fragments best elsewhere (7168), by that taxon's role: {'FP': 0.005, 'absent, not called': 0.787, 'no row': 0.181, 'present (TP)': 0.028}; by its relation: {'family': 0.003, 'genus': 0.99, 'order': 0.004, 'other': 0.003}
+  per FN taxon, the share of its aligned own fragments that went elsewhere: median 0.000, mean 0.144; >= half: 0.140; all: 0.016
+  FN taxa with >= 5 aligned own fragments (739), the share that went elsewhere by the species of their genus in the database (Spearman 0.311):
+        taxa  median   mean
+bin                        
+1         11   0.000  0.000
+2-3       32   0.000  0.072
+4-10      83   0.100  0.222
+11-30    175   0.167  0.249
+31-100   194   0.333  0.375
+>100     244   0.333  0.375
+  the 10 FN taxa with most own fragments elsewhere hold 0.395 of them: [('s__Nanosyncoccus sp963539465', 1152), ('s__SDRW01 sp916438855', 327), ('s__Sphingomonas sp004341505', 297), ('s__Bifidobacterium pseudocatenulatum', 235), ('s__SAR86A sp902547695', 184)]
+
+## FP taxa: their reads' species
+
+ont: 23184 counted FP fragments by their source: {'held out (not in the database)': 0.98, 'in the database': 0.02}
+  of those from a species in the database (463): {'never seeded on its species': 0.905, 'aligned to its species too (worse or equal)': 0.078, 'seeded on its species, failed there': 0.017}
+  their source genomes: {'strain': 0.585, 'rep': 0.287, 'insilico': 0.127}; relation to the FP taxon: {'genus': 0.523, 'other': 0.235, 'family': 0.201, 'order': 0.041}
+  identity on the FP taxon by state: {'aligned to its species too (worse or equal)': 0.9521, 'never seeded on its species': 0.9747, 'seeded on its species, failed there': 0.9088}
+  their species is an FN taxon of the sample: 0.048
+  FP taxa by their fragments' main source: {'held out (not in the database)': 0.902, 'in the database': 0.098}
+  FP taxa where most fragments seeded on their own (database) species and failed there: 0.001 (2 of 3179)

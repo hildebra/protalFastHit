@@ -1,0 +1,176 @@
+
+# pe
+
+## Read level, capped and without composition
+
+capped at 20 fragments per taxon: 44327 fragments (16623 FP, 19247 own FN, 8457 own TP)
+boosted, no composition, sample-grouped 5-fold: AUC 0.674; FP vs own FN 0.572; FP vs own TP 0.906
+       feature   AUC      FP  own FN  own TP  importance
+         zf_fn 0.375   0.005   0.005   0.824       0.162
+      identity 0.443   0.974   0.974   0.985       0.022
+            zu 0.484  10.864   9.809  16.289       0.021
+          mapq 0.494  61.145  54.306  76.729       0.018
+       rel_pos 0.490   0.500   0.513   0.505       0.015
+  gene_between 0.497   1.039   1.048   1.022       0.015
+ longest_match 0.457  93.380  94.530 110.516       0.013
+gene_identical 0.510   0.001   0.001   0.001       0.012
+   gene_within 0.493   1.111   1.128   1.094       0.009
+       aligned 0.488 248.916 254.727 246.518       0.008
+    clip_bases 0.502  17.657  16.559  20.953       0.007
+    mismatches 0.547   6.531   6.733   3.955       0.006
+      read_len 0.496 151.519 152.476 152.460       0.006
+         za_fp 0.506   0.014   0.003   0.000       0.006
+  (gc: AUC 0.429, left out)
+  (top_trinucleotide: AUC 0.520, left out)
+  (homopolymer: AUC 0.534, left out)
+
+## FP fragments by their source's relation
+
+  genus     83734 fragments,  1907 taxa: identity median 0.973, >= 0.99: 0.181; source held out 0.996; MAPQ median 98
+  family      274 fragments,   189 taxa: identity median 0.990, >= 0.99: 0.496; source held out 0.708; MAPQ median 98
+  order        77 fragments,    58 taxa: identity median 0.990, >= 0.99: 0.532; source held out 0.623; MAPQ median 83
+  other       430 fragments,   273 taxa: identity median 0.990, >= 0.99: 0.514; source held out 0.558; MAPQ median 101
+
+## Per-gene divergence: within- or between-species pattern
+
+across the 168 genes: Spearman(within_factor, between_factor) = 0.76
+1901 taxa (766 FP, 1135 FN)
+      fragments  genes     div  r2_within  r2_between  between_better      cv
+role                                                                         
+FN         20.0   17.0  0.0360    -0.0211     -0.0286         -0.0015  0.5593
+FP         21.0   17.0  0.0281    -0.0016     -0.0046          0.0052  0.6014
+  AUC of between_better for FN (present) against FP: 0.499
+  AUC of cv for FN (present) against FP: 0.421
+  AUC of div for FN (present) against FP: 0.786
+
+# se
+
+## Read level, capped and without composition
+
+capped at 20 fragments per taxon: 41678 fragments (25043 FP, 12296 own FN, 4339 own TP)
+boosted, no composition, sample-grouped 5-fold: AUC 0.688; FP vs own FN 0.578; FP vs own TP 1.000
+            feature   AUC      FP  own FN  own TP  importance
+              zf_fn 0.370   0.002   0.001   1.000       0.129
+         mismatches 0.594   5.333   4.862   1.500       0.047
+                 zu 0.455  10.409   9.770  20.951       0.034
+            rel_pos 0.495   0.505   0.512   0.502       0.021
+            aligned 0.483 239.300 243.971 244.523       0.018
+       gene_between 0.493   1.040   1.050   1.037       0.017
+      longest_match 0.436 105.621 112.335 146.591       0.014
+           read_len 0.480 275.106 275.356 295.093       0.013
+           identity 0.423   0.974   0.976   0.988       0.013
+               mapq 0.465  54.966  48.922  88.906       0.012
+        gene_within 0.489   1.117   1.135   1.109       0.011
+     gene_identical 0.508   0.001   0.001   0.001       0.011
+gene_near_identical 0.512   0.009   0.008   0.009       0.009
+         clip_bases 0.494  35.805  31.385  50.569       0.008
+  (gc: AUC 0.445, left out)
+  (top_trinucleotide: AUC 0.514, left out)
+  (homopolymer: AUC 0.519, left out)
+
+## FP fragments by their source's relation
+
+  genus    124620 fragments,  2125 taxa: identity median 0.976, >= 0.99: 0.201; source held out 0.992; MAPQ median 96
+  family      188 fragments,    96 taxa: identity median 0.991, >= 0.99: 0.543; source held out 0.628; MAPQ median 93
+  order        58 fragments,    24 taxa: identity median 0.991, >= 0.99: 0.586; source held out 0.759; MAPQ median 94
+  other       327 fragments,   120 taxa: identity median 0.989, >= 0.99: 0.483; source held out 0.639; MAPQ median 99
+
+## Per-gene divergence: within- or between-species pattern
+
+across the 168 genes: Spearman(within_factor, between_factor) = 0.76
+2001 taxa (1273 FP, 728 FN)
+      fragments  genes     div  r2_within  r2_between  between_better      cv
+role                                                                         
+FN         24.0   18.0  0.0341    -0.0097     -0.0183          0.0132  0.5817
+FP         26.0   21.0  0.0275     0.0286      0.0275          0.0074  0.6442
+  AUC of between_better for FN (present) against FP: 0.510
+  AUC of cv for FN (present) against FP: 0.402
+  AUC of div for FN (present) against FP: 0.741
+
+# pb
+
+## Read level, capped and without composition
+
+capped at 20 fragments per taxon: 46425 fragments (8501 FP, 7616 own FN, 30308 own TP)
+boosted, no composition, sample-grouped 5-fold: AUC 0.922; FP vs own FN 0.637; FP vs own TP 0.994
+       feature   AUC        FP    own FN    own TP  importance
+         zf_fn 0.119     0.044     0.047     0.997       0.293
+      identity 0.223     0.978     0.975     0.996       0.018
+            zt 0.337    66.564    48.026   140.082       0.016
+            zu 0.335    85.346    63.401   167.555       0.014
+    mismatches 0.772    30.008    34.797     4.830       0.013
+       aligned 0.489  1342.070  1384.869  1358.384       0.009
+ longest_match 0.244   353.507   313.986  1002.925       0.007
+          mapq 0.415    75.483    63.610    97.550       0.006
+gene_identical 0.505     0.001     0.001     0.001       0.006
+      read_len 0.427 13393.587 13440.316 14971.405       0.005
+       rel_pos 0.493     0.500     0.504     0.502       0.005
+   gene_within 0.491     1.132     1.143     1.143       0.005
+  gene_between 0.483     1.058     1.064     1.073       0.003
+          zf_n 0.387    44.563    44.671    55.428       0.003
+  (gc: AUC 0.450, left out)
+  (top_trinucleotide: AUC 0.486, left out)
+  (homopolymer: AUC 0.492, left out)
+
+## FP fragments by their source's relation
+
+  genus     16686 fragments,  1952 taxa: identity median 0.978, >= 0.99: 0.206; source held out 0.992; MAPQ median 119
+  family      210 fragments,   174 taxa: identity median 0.998, >= 0.99: 0.810; source held out 0.695; MAPQ median 125
+  order        53 fragments,    44 taxa: identity median 0.997, >= 0.99: 0.774; source held out 0.604; MAPQ median 125
+  other       275 fragments,   241 taxa: identity median 0.998, >= 0.99: 0.829; source held out 0.640; MAPQ median 123
+
+## Per-gene divergence: within- or between-species pattern
+
+across the 168 genes: Spearman(within_factor, between_factor) = 0.76
+715 taxa (299 FP, 416 FN)
+      fragments  genes     div  r2_within  r2_between  between_better      cv
+role                                                                         
+FN         14.0   11.0  0.0341     0.0802      0.0384         -0.0165  0.5296
+FP         15.0   12.0  0.0260     0.0797      0.0430         -0.0263  0.6242
+  AUC of between_better for FN (present) against FP: 0.504
+  AUC of cv for FN (present) against FP: 0.371
+  AUC of div for FN (present) against FP: 0.743
+
+# ont
+
+## Read level, capped and without composition
+
+capped at 20 fragments per taxon: 44393 fragments (11460 FP, 8207 own FN, 24726 own TP)
+boosted, no composition, sample-grouped 5-fold: AUC 0.891; FP vs own FN 0.586; FP vs own TP 0.992
+       feature   AUC       FP   own FN   own TP  importance
+         zf_fn 0.138    0.032    0.031    0.997       0.338
+    mismatches 0.620   44.947   46.483   26.926       0.014
+            zu 0.366   49.257   38.342  103.076       0.012
+ longest_match 0.346  199.436  188.450  433.780       0.009
+      identity 0.392    0.950    0.949    0.966       0.008
+          mapq 0.401   69.810   60.903   95.895       0.008
+       aligned 0.469 1184.771 1199.936 1271.504       0.007
+     gap_opens 0.471   11.019   11.878   13.372       0.006
+        indels 0.476   14.418   15.789   16.953       0.006
+gene_identical 0.510    0.001    0.001    0.001       0.005
+  gene_between 0.486    1.057    1.063    1.070       0.005
+            zt 0.363   38.251   29.117   86.584       0.004
+          zf_n 0.346   30.021   29.413   49.429       0.003
+   gene_within 0.487    1.114    1.123    1.130       0.003
+  (gc: AUC 0.473, left out)
+  (top_trinucleotide: AUC 0.496, left out)
+  (homopolymer: AUC 0.486, left out)
+
+## FP fragments by their source's relation
+
+  genus     22439 fragments,  2587 taxa: identity median 0.956, >= 0.99: 0.073; source held out 0.989; MAPQ median 104
+  family      298 fragments,   237 taxa: identity median 0.971, >= 0.99: 0.221; source held out 0.688; MAPQ median 117
+  order        66 fragments,    52 taxa: identity median 0.980, >= 0.99: 0.333; source held out 0.712; MAPQ median 120
+  other       381 fragments,   316 taxa: identity median 0.975, >= 0.99: 0.268; source held out 0.714; MAPQ median 117
+
+## Per-gene divergence: within- or between-species pattern
+
+across the 168 genes: Spearman(within_factor, between_factor) = 0.76
+853 taxa (400 FP, 453 FN)
+      fragments  genes     div  r2_within  r2_between  between_better      cv
+role                                                                         
+FN         15.0   13.0  0.0612    -0.1206     -0.1127          0.0607  0.5020
+FP         14.0   12.0  0.0519    -0.0915     -0.0480          0.0302  0.5809
+  AUC of between_better for FN (present) against FP: 0.528
+  AUC of cv for FN (present) against FP: 0.320
+  AUC of div for FN (present) against FP: 0.717
