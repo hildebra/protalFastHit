@@ -1,6 +1,9 @@
 // SpeciesNeighbours.h - each species' nearest congeners in the database, by the distance of their references' marker
-// genes: the median Mash distance of the genes both references have (context::SketchedTaxonDistances, the distance
-// relative_distance reads in a run). --build compares every two species of a genus and writes, per species, up to
+// genes: the median Mash distance of all the marker genes both references have (context::SketchedTaxonDistances). A
+// run's relative_distance takes the same median over the genes with unique k-mers only (the hittable genes, which
+// --build does not know yet when it writes this table): genes identical in two congeners have none, so for
+// near-identical congeners the table's distance is the smaller one. Training and use read the same table, so the
+// features agree. --build compares every two species of a genus and writes, per species, up to
 // kMaxNeighbours of its congeners within kMaxDistance, nearest first, to species_neighbours.tsv in the database; a run
 // loads it for two kinds of features (docs/claude/2026-10-06-false-positive-features):
 //   - how crowded the database is around the species' reference (db_congeners_01, _02, _05: congeners within 0.01, 0.02

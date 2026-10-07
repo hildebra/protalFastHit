@@ -28,6 +28,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -342,13 +343,28 @@ namespace protal::db {
         return location;
     }
 
+    // A member whose frames are made in memory rather than read from a file: the index of protal --build, written
+    // straight into the database (not into index.prx.zst first, then copied and both read back). Its number of frames
+    // is known before (the directory frame goes first); write appends them to the database file; verify checks them in
+    // it, where they are once written (`frames`: in the file, content offsets from the member's start); `done` follows
+    // a successful check (--build frees the index there, before the other members are compressed). write and verify
+    // return an error message, empty on success.
+    struct Generated {
+        uint64_t frames = 0;
+        std::function<std::string(zstd::FrameWriter& out)> write;
+        std::function<std::string(std::string const& path, zstd::SeekTable const& frames)> verify;
+        std::function<void()> done;
+    };
+
     // A member to write, from the file at path: a seekable zstd file's frames are copied as they are,
     // any other file (raw, or zstd without a seek table) is compressed into frames. With frames, only
-    // those frames of path are copied (a member of another single-file database).
+    // those frames of path are copied (a member of another single-file database). With generated, the
+    // member's frames come from it (path is only named in messages).
     struct Source {
         std::string name;
         std::string path;
         std::optional<zstd::SeekTable> frames = std::nullopt;
+        std::shared_ptr<Generated> generated = nullptr;
     };
 
     namespace detail {
@@ -357,6 +373,7 @@ namespace protal::db {
             std::optional<zstd::SeekTable> table;  // frames to copy, or none: compress
             uint64_t frames = 0;
             uint64_t size = 0;
+            std::optional<zstd::SeekTable> written;  // a generated member's frames as written and checked
         };
 
         // What the database's members will be: per source its frames to copy (a seekable file's, or those given) or
@@ -375,6 +392,11 @@ namespace protal::db {
                 if (!IsFileName(source.name) || !names.insert(source.name).second) {
                     error = "invalid or repeated member name '" + source.name + "'";
                     return std::nullopt;
+                }
+                if (source.generated) {  // its size once written
+                    p.frames = source.generated->frames;
+                    plan.push_back(std::move(p));
+                    continue;
                 }
                 if (!std::filesystem::exists(source.path)) {
                     error = source.path + " does not exist";
@@ -438,6 +460,10 @@ namespace protal::db {
                 if (member.name != p.source.name || member.frames.frames.size() != p.frames || member.Size() != p.size) {
                     return what + "does not match its source " + p.source.path;
                 }
+                if (p.written) {  // generated: checked against its source when written, so its frames must be those
+                    if (!SameFrames(member.frames, *p.written)) return what + "its frames are not those written";
+                    continue;
+                }
                 if (p.table) {
                     int const src = ::open(p.source.path.c_str(), O_RDONLY | O_CLOEXEC);
                     int const dst = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
@@ -494,9 +520,9 @@ namespace protal::db {
     // error.
     inline std::optional<uint64_t> Write(std::string const& path, std::vector<Source> const& sources,
                                          zstd::Params const& params, std::string& error) {
-        auto const planned = detail::Plan(sources, params, error);
+        auto planned = detail::Plan(sources, params, error);
         if (!planned) return std::nullopt;
-        auto const& plan = *planned;
+        auto& plan = *planned;
         std::string const directory = detail::Directory(plan);
 
         std::string const partial = path + ".partial";
@@ -512,8 +538,26 @@ namespace protal::db {
             std::string const frame = detail::RawFrame(directory);
             if (!out.Add(frame.data(), frame.size(), directory.size())) return fail(out.Error());
 
-            for (auto const& p : plan) {
+            for (auto& p : plan) {
                 uint64_t const before = out.Frames();
+                if (p.source.generated) {
+                    auto const& generated = *p.source.generated;
+                    std::string const e = generated.write(out);
+                    if (!e.empty()) return fail(p.source.name + ": " + e);
+                    if (out.Frames() - before != p.frames) {
+                        return fail(p.source.name + ": " + std::to_string(out.Frames() - before) + " frames written, " +
+                                    std::to_string(p.frames) + " planned");
+                    }
+                    if (!out.Flush()) return fail(partial + ": " + out.Error());
+                    auto const frames = out.Slice(before, out.Frames());
+                    if (std::string const v = generated.verify(partial, frames); !v.empty()) {
+                        return fail(p.source.name + " does not read back as written: " + v);
+                    }
+                    p.size = frames.DecompressedSize();
+                    p.written = frames;
+                    if (generated.done) generated.done();
+                    continue;
+                }
                 if (p.table) {
                     // Frames copied as they are, in large sequential reads.
                     int const fd = ::open(p.source.path.c_str(), O_RDONLY | O_CLOEXEC);

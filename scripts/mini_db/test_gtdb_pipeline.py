@@ -379,6 +379,32 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn("1 per domain", row["marker_genes"])
         self.assertLess(float(row["database_gb"]), float(full["database_gb"]) + 0.01)
 
+        # The training database's folder on the scratch disk says what it was built from (built_for.json, as
+        # .stages/training_db.json; the rerun above kept the database by it). Another OUTDIR's build on the same scratch
+        # disk (other species held out) leaves its own there: this OUTDIR's next run then builds the training database
+        # again instead of taking that one. Stopped once it has decided.
+        stamp = os.path.join(self.tmp.name, "scratch", "training_db", "built_for.json")
+        with open(stamp) as fh:
+            self.assertEqual(json.load(fh), json.loads(self.text("out", ".stages", "training_db.json")))
+        with open(stamp, "w") as fh:
+            json.dump({"heldout": "another OUTDIR's species"}, fh)
+        console = os.path.join(out, "console.log")
+        seen = os.path.getsize(console)
+        rerun = self.build("out", *scratch, "--n-genes", "3", "--features", "normalized+adjacency+relatives",
+                           "--call-mode", "fdr", wait=False)
+        said, deadline = "", time.time() + 600
+        while rerun.poll() is None and os.path.exists(stamp) and time.time() < deadline and \
+                "with the same species left out" not in said:
+            time.sleep(0.2)
+            with open(console) as fh:
+                fh.seek(seen)
+                said = fh.read()
+        if rerun.poll() is None:
+            rerun.send_signal(signal.SIGTERM)
+        rerun.communicate(timeout=120)
+        self.assertFalse(os.path.exists(stamp), "the training database of another build was kept")
+        self.assertNotIn("with the same species left out", said)
+
     def test_b_a_failed_background_build_stops_the_run(self):
         # A reduced database ranked by a given table (--n-genes 3 --gene-ranking, as build_gtdb_releases.py builds its
         # reduced variants), here of four genes without the domains' columns: the table copied, the subset its 3 best,
@@ -406,6 +432,24 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn(f"ranked from --gene-ranking {given}", self.text("out_fail", "gene_subset.txt"))
         for name in ("gene_ranking_build.log", "gene_ranking_files.log", ".stages/gene_ranking.json", "ranking_db"):
             self.assertFalse(os.path.exists(os.path.join(out, name)), name)
+        # A run without the gene subset into the same folder: protal_db holds the subset's files, derived from the release
+        # converted whole into .converted, which the stopped run marked. They must not pass for the whole release (the
+        # finished database would have the subset's genes): the release is converted again. Stopped once it says.
+        console = os.path.join(out, "console.log")
+        seen = os.path.getsize(console)
+        full = self.build("out_fail", "--insilico-strains", "0", "--no-gene-neighbours", wait=False)
+        said, deadline = "", time.time() + 600
+        while full.poll() is None and time.time() < deadline and \
+                not any(s in said for s in ("converting GTDB", "holds the release converted by an earlier run")):
+            time.sleep(0.5)
+            with open(console) as fh:
+                fh.seek(seen)
+                said = fh.read()
+        if full.poll() is None:
+            full.send_signal(signal.SIGTERM)
+        full.communicate(timeout=120)
+        self.assertIn("converting GTDB", said)
+        self.assertNotIn("holds the release converted by an earlier run", said)
 
     def test_c_another_seed_then_sigterm(self):
         # The full build's copy (full_copy) run with another seed: other species held out, so the finished database is
@@ -449,6 +493,10 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertNotEqual(run_.returncode, 0)
         self.assertIn("Stopped by SIGTERM", output)
         self.assertNotRegex(output, r"built protal_db")
+        # The in-silico strains of the new seed take each gene's divergence from the real strains' (gene_positions.tsv),
+        # which the finished database kept packed: the release is converted again for them, not left to a uniform ANI.
+        self.assertIn("the release again, for its gene positions", output)
+        self.assertNotIn("no gene_positions.tsv", output)
         left = []
         for pid in os.listdir("/proc"):
             try:

@@ -142,6 +142,15 @@ namespace protal::gene_conservation {
         return std::vector<uint32_t>(hashes.begin(), hashes.begin() + static_cast<std::ptrdiff_t>(keep));
     }
 
+    // SketchDistance of two sketches whose s smallest union hashes hold `shared` in both: the one place the distance
+    // is computed, so that a bound on `shared` (GeneIncongruence.h) says exactly which distances a pair can reach.
+    inline double SketchDistanceOf(size_t shared, size_t s) {
+        if (s == 0 || shared == 0) return 1;
+        double const jaccard = static_cast<double>(shared) / static_cast<double>(s);
+        // max with 0: identical sketches give -log(1) = -0.0, which the reports would print as "-0".
+        return std::min(1.0, std::max(0.0, -std::log(2 * jaccard / (1 + jaccard)) / static_cast<double>(kK)));
+    }
+
     // The Mash distance of two genes from their bottom sketches (BottomSketch): of the s smallest hashes of their
     // union (s the smaller sketch's size), the share in both estimates their k-mers' Jaccard index j;
     // -ln(2j / (1 + j)) / k, 1 if they share none, as MashDistance on all k-mers.
@@ -161,10 +170,7 @@ namespace protal::gene_conservation {
             }
             seen++;
         }
-        if (shared == 0) return 1;
-        double const jaccard = static_cast<double>(shared) / static_cast<double>(s);
-        // max with 0: identical sketches give -log(1) = -0.0, which the reports would print as "-0".
-        return std::min(1.0, std::max(0.0, -std::log(2 * jaccard / (1 + jaccard)) / static_cast<double>(kK)));
+        return SketchDistanceOf(shared, s);
     }
 
     // The Mash distance of two sorted k-mer sets, an estimate of the share of bases that differ, from

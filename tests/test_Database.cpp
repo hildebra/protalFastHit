@@ -116,6 +116,68 @@ TEST(Database, MembersReadBackAsTheirSources) {
     EXPECT_FALSE(db::DbFile::InBundle(*bundle, "missing").ReadAll(error));
 }
 
+// A member whose frames are made in memory (db::Generated, as --build writes the index) gives the database a member of
+// the same frames copied from a file would: the same bytes. It is checked where it was written, then `done` runs; a
+// check that fails stops the write and leaves nothing behind.
+TEST(Database, AGeneratedMemberIsWrittenAsItsFileWouldBe) {
+    ScratchDir tmp;
+    std::string error;
+    std::vector<std::string> const parts = { TestData(5000, 4), TestData(3000, 5), TestData(7000, 6) };
+    auto make = [&parts](size_t i, std::vector<char>& out) {
+        out.assign(parts[i].begin(), parts[i].end());
+        return std::string();
+    };
+    auto const params = SmallFrames(4096);
+    ASSERT_TRUE(zstd::WriteSeekable(tmp / "member.zst", parts.size(), params, make, error)) << error;
+    Spit(tmp / "raw.txt", TestData(9000, 7));
+    ASSERT_TRUE(db::Write(tmp / "from_file.protal", { {"member", tmp / "member.zst"}, {"raw.txt", tmp / "raw.txt"} }, params, error)) << error;
+
+    for (bool const fail : { false, true }) {
+        SCOPED_TRACE(fail);
+        auto generated = std::make_shared<db::Generated>();
+        generated->frames = parts.size();
+        size_t checked = 0;
+        bool done = false;
+        generated->write = [&](zstd::FrameWriter& out) {
+            std::string e;
+            zstd::WriteFramesTo(out, parts.size(), params, make, e);
+            return e;
+        };
+        generated->verify = [&](std::string const& path, zstd::SeekTable const& frames) -> std::string {
+            // The member's frames as written, readable from the file before its seek table is.
+            std::string content;
+            int const fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+            ZSTD_DCtx* dctx = ZSTD_createDCtx();
+            std::vector<char> input, data;
+            for (size_t f = 0; f < frames.frames.size(); f++) {
+                EXPECT_EQ(zstd::ReadFrame(fd, frames, f, input, data, dctx), "");
+                content.append(data.begin(), data.end());
+            }
+            ZSTD_freeDCtx(dctx);
+            ::close(fd);
+            checked = content.size();
+            return fail ? "differs" : (content == parts[0] + parts[1] + parts[2] ? "" : "content differs");
+        };
+        generated->done = [&done]() { done = true; };
+        db::Source member{"member", "the member in memory"};
+        member.generated = generated;
+        std::string const target = tmp / (fail ? "failed.protal" : "generated.protal");
+        auto const written = db::Write(target, { member, {"raw.txt", tmp / "raw.txt"} }, params, error);
+        EXPECT_EQ(checked, 15000u);
+        if (fail) {
+            EXPECT_FALSE(written);
+            EXPECT_NE(error.find("member does not read back as written: differs"), std::string::npos) << error;
+            EXPECT_FALSE(done);
+            EXPECT_FALSE(fs::exists(target));
+            EXPECT_FALSE(fs::exists(target + ".partial"));
+            continue;
+        }
+        ASSERT_TRUE(written) << error;
+        EXPECT_TRUE(done);
+        EXPECT_EQ(Slurp(target), Slurp(tmp / "from_file.protal"));
+    }
+}
+
 TEST(Database, OtherFilesAreNotSingleFileDatabases) {
     ScratchDir tmp;
     std::string error;

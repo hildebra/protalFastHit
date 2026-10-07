@@ -108,7 +108,8 @@ namespace protal::profiler::context {
     }
 
     // A reference's sketches (GeneSketch) of its hittable genes that `take(gene id)` accepts, by gene id ascending: what
-    // CongenerDistances compares in a run, and --build for species_neighbours.tsv (SpeciesNeighbours.h).
+    // CongenerDistances compares in a run, and --build for species_neighbours.tsv (SpeciesNeighbours.h), where no gene is
+    // known to be hittable yet, so every gene counts (GenomeLoader::GetHittableGenes).
     template<typename Take>
     TaxonSketch ReferenceSketch(GenomeLoader& loader, uint32_t taxid, Take&& take) {
         TaxonSketch sketch;

@@ -16,6 +16,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -763,30 +764,58 @@ namespace protal {
     };
 
 
+    // A byte of a gene in reference.fna that its packed sequence does not hold as it is (anything but A, C, G and T:
+    // N, an IUPAC code, a lower-case base): gene `gene` (its place in the reference, GenomeLoader::FileOrder), its
+    // position. --build puts these back when it indexes the preloaded genes (GenomeLoader::KeepReferenceText), so that
+    // its passes see the reference's text and give the index they gave reading the file.
+    struct RawBase {
+        uint32_t gene = 0;
+        uint32_t position = 0;
+        char base = 0;
+        bool operator<(RawBase const& o) const { return gene != o.gene ? gene < o.gene : position < o.position; }
+    };
+
     // Copies reference bytes from zstd::ParallelRead into the genes they belong to, packed (two bits per
     // base, see PackedSequence.h). The genes' packed bytes must be zero (a calloc'd arena), as
     // packed::PackInto needs. genes are sorted by start byte and do not overlap; starts[i] is genes[i]'s
-    // start byte.
+    // start byte. With raw, it collects the bytes the packed genes do not hold as they are (RawBase).
     class GeneSink : public zstd::Sink {
     public:
-        GeneSink(std::vector<Gene*> const& genes, std::vector<uint64_t> const& starts) : m_genes(genes), m_starts(starts) {}
+        GeneSink(std::vector<Gene*> const& genes, std::vector<uint64_t> const& starts, std::vector<RawBase>* raw = nullptr)
+                : m_genes(genes), m_starts(starts), m_raw(raw) {}
 
         void Copy(uint64_t offset, char const* data, size_t size) override {
             uint64_t const end = offset + size;
             // The last gene starting at or before offset may reach into the range.
             size_t i = static_cast<size_t>(std::upper_bound(m_starts.begin(), m_starts.end(), offset) - m_starts.begin());
             if (i > 0) i--;
+            std::vector<RawBase> raw;
             for (; i < m_genes.size() && m_starts[i] < end; i++) {
                 uint64_t const begin = m_starts[i], gene_end = begin + m_genes[i]->GetLength();
                 uint64_t const from = std::max(offset, begin), to = std::min(end, gene_end);
                 if (from >= to) continue;
-                packed::PackInto(m_genes[i]->MutablePacked(), from - begin, data + (from - offset), to - from);
+                char const* const bases = data + (from - offset);
+                packed::PackInto(m_genes[i]->MutablePacked(), from - begin, bases, to - from);
+                if (m_raw) {
+                    for (uint64_t k = 0; k < to - from; k++) {
+                        char const c = bases[k];
+                        if (c != 'A' && c != 'C' && c != 'G' && c != 'T') {
+                            raw.push_back({ static_cast<uint32_t>(i), static_cast<uint32_t>(from - begin + k), c });
+                        }
+                    }
+                }
+            }
+            if (!raw.empty()) {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_raw->insert(m_raw->end(), raw.begin(), raw.end());
             }
         }
 
     private:
         std::vector<Gene*> const& m_genes;
         std::vector<uint64_t> const& m_starts;
+        std::vector<RawBase>* m_raw;
+        std::mutex m_mutex;
     };
 
     class GenomeLoader {
@@ -842,6 +871,10 @@ namespace protal {
             bool in_order = false;  // the genes came in the reference's order, unsorted
             double listing = 0, arena = 0, reading = 0, marking = 0;
         } m_preload_times;
+        // --build (KeepReferenceText): the genes in the reference's order and the bytes their packed sequences change.
+        bool m_keep_text = false;
+        std::vector<std::pair<uint32_t, uint32_t>> m_file_order;  // taxid, gene id
+        std::vector<RawBase> m_raw_bases;                         // sorted
 
         // Huge pages for a large arena, which the loading threads touch at random offsets (as
         // Seedmap::AdviseHugePages). Without transparent huge pages this does nothing.
@@ -1423,20 +1456,33 @@ namespace protal {
             // gene (--order gene, the default: a gene's copies in related species side by side compress about 2x better),
             // so the pairs are sorted, on all threads (gene_table::ParallelSort).
             std::vector<std::pair<uint64_t, Gene*>> by_start;
-            auto add_genome = [&by_start](Genome& genome) {
+            // With KeepReferenceText (--build): each gene's taxid and id by start byte too, the reference's order.
+            std::vector<std::pair<uint64_t, std::pair<uint32_t, uint32_t>>> order;
+            bool const keep_text = m_keep_text;
+            auto add_genome = [&by_start, &order, keep_text](Genome& genome, GenomeKey key) {
                 if (genome.IsLoaded()) return;
                 for (auto& gene : genome.Genes()) {
-                    if (gene.IsSet() && !gene.IsLoaded() && gene.GetLength() > 0) by_start.emplace_back(gene.GetStartByte(), &gene);
+                    if (gene.IsSet() && !gene.IsLoaded() && gene.GetLength() > 0) {
+                        by_start.emplace_back(gene.GetStartByte(), &gene);
+                        if (keep_text) order.push_back({ gene.GetStartByte(), { static_cast<uint32_t>(key), static_cast<uint32_t>(gene.GetId()) } });
+                    }
                 }
             };
             if (m_genome_order.size() == m_genomes.size()) {
-                for (auto const key : m_genome_order) add_genome(m_genomes.find(key).value());
+                for (auto const key : m_genome_order) add_genome(m_genomes.find(key).value(), key);
             } else {
-                for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) add_genome(it.value());
+                for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) add_genome(it.value(), it.key());
             }
             auto const by_byte = [](auto const& a, auto const& b) { return a.first < b.first; };
             m_preload_times.in_order = std::is_sorted(by_start.begin(), by_start.end(), by_byte);
             if (!m_preload_times.in_order) gene_table::ParallelSort(by_start, threads, by_byte);
+            if (keep_text) {
+                if (!std::is_sorted(order.begin(), order.end(), by_byte)) gene_table::ParallelSort(order, threads, by_byte);
+                m_file_order.clear();
+                m_file_order.reserve(order.size());
+                for (auto const& [start, gene] : order) m_file_order.push_back(gene);
+                std::vector<std::pair<uint64_t, std::pair<uint32_t, uint32_t>>>().swap(order);
+            }
             std::vector<Gene*> genes;
             std::vector<uint64_t> starts;
             genes.reserve(by_start.size());
@@ -1482,9 +1528,11 @@ namespace protal {
                 m_arenas.emplace_back(std::move(arena));
             }
             m_preload_times.arena = lap();
-            GeneSink sink(genes, starts);
+            m_raw_bases.clear();
+            GeneSink sink(genes, starts, keep_text ? &m_raw_bases : nullptr);
             std::string error;
             uint64_t const size = m_reference.ParallelRead(threads, sink, error);
+            if (keep_text) std::sort(m_raw_bases.begin(), m_raw_bases.end());
             if (!error.empty()) {
                 std::cerr << "Cannot read the reference " << m_reference.Name() << ": " << error << std::endl;
                 exit(8);
@@ -1529,6 +1577,30 @@ namespace protal {
             return true;
         }
 
+        // --build: the next LoadAllGenomes also keeps the genes in the reference's order and the bytes their packed
+        // sequences change (RawBase), so that the index passes take the preloaded genes for reference.fna's records
+        // (ReferenceText) instead of reading the file twice more: at GTDB r226 15 GB, which by then the page cache often
+        // no longer held (pass 1 took 9 s to 2:16). Queries keep neither.
+        void KeepReferenceText(bool keep) { m_keep_text = keep; }
+
+        // The genes in the reference's order (taxid, gene id) from the last LoadAllGenomes with KeepReferenceText; empty
+        // without.
+        std::vector<std::pair<uint32_t, uint32_t>> const& FileOrder() const { return m_file_order; }
+
+        // Gene `index` of FileOrder as reference.fna holds it, into text: its packed bases decoded, and the bytes they
+        // do not hold as they were (N, IUPAC codes, lower case) put back.
+        void ReferenceText(size_t index, std::string& text) {
+            auto const [taxid, geneid] = m_file_order[index];
+            Gene const& gene = GetGeneOMP(taxid, geneid);
+            text.resize(gene.GetLength());
+            packed::Unpack(gene.Packed(), gene.GetLength(), text.data());
+            auto it = std::lower_bound(m_raw_bases.begin(), m_raw_bases.end(), RawBase{ static_cast<uint32_t>(index), 0, 0 });
+            for (; it != m_raw_bases.end() && it->gene == index; ++it) text[it->position] = it->base;
+        }
+
+        // How many bytes of the reference's genes ReferenceText puts back.
+        size_t RawBases() const { return m_raw_bases.size(); }
+
         // Frees every gene's sequence, preloaded or loaded one by one: for the end of --build, which reads no gene
         // after its uniqueness check. The genes keep their ids, lengths and k-mer counts; their sequences are empty
         // from here, and reading one again stops protal (a loaded gene no longer knows its start byte).
@@ -1536,6 +1608,8 @@ namespace protal {
             for (auto it = m_genomes.begin(); it != m_genomes.end(); ++it) it.value().ReleaseSequences();
             m_arenas.clear();
             m_arenas.shrink_to_fit();
+            std::vector<std::pair<uint32_t, uint32_t>>().swap(m_file_order);
+            std::vector<RawBase>().swap(m_raw_bases);
         }
 
         // The genome of a taxid; protal stops (exit 10) if there is none. Through the flat table (m_genome_table), else

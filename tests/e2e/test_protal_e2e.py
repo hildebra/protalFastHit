@@ -423,6 +423,22 @@ def write_tiny_db(db, genes, taxonomy_text):
     return db
 
 
+def write_framed_fasta(path, text):
+    """FASTA text written as the converter writes the full reference: zstd frames, one per run of records of one gene id,
+    and a seek table (gtdb_to_protal_db.FramedZstdFile, through the zstd CLI)."""
+    sys.path.insert(0, os.path.join(ROOT, "scripts", "mini_db"))
+    import gtdb_to_protal_db
+    out = gtdb_to_protal_db.FramedZstdFile(path, 1)
+    gene = None
+    for record in re.findall(r">[^\n]*\n[^>]*", text):
+        record_gene = record[1:].split("\n", 1)[0].split("_", 1)[1]
+        if record_gene != gene:
+            out.new_frame()
+            gene = record_gene
+        out.write(record.encode())
+    out.close()
+
+
 def remove_indexes(db):
     """Remove a test build's index (~3 GB raw whatever the reference: a fixed-size key map)."""
     for index in ("index.prx", "index.prx.zst"):
@@ -1592,10 +1608,12 @@ class BuildIndexTest(ProtalTest):
     index; ambiguous bases (N, IUPAC codes) do not go into the index: k-mers whose window holds one are left out of the
     counting, the placing and the uniqueness check (AmbiguousKmers.* test the windows); a full reference with no other
     copies of the genes gives no gene conservation factors. And the passes that count and place the k-mers in -t
-    threads (by key range, batches applied in reference order) give the index and unique_kmers.tsv of the one-thread
-    passes (--serial_index_passes): the genes' k-mers in 1 KB batches, those of taxon 2's genes 3-6 in other batches
-    than taxon 1's copies. Both builds compress the index alike (FAST_BUILD), so the same index gives the same
-    index.prx.zst."""
+    threads (by key range, batches applied in reference order; the records from the preloaded genes, their ambiguous
+    bases put back) and the uniqueness check by key range (over a plain full reference, and over one in zstd frames read
+    on several threads) give the index and unique_kmers.tsv of the one-thread passes that read the reference and look
+    every k-mer up on its own (--serial_index_passes): the genes' k-mers in 1 KB batches, those of taxon 2's genes 3-6 in
+    other batches than taxon 1's copies. The builds compress the index alike (FAST_BUILD), so the same index gives the
+    same index.prx.zst. A full reference cut short stops the build."""
 
     TAXONOMY = ("id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n"
                 "3\t3\t0\troot\tno rank\t0\t\n"
@@ -1616,13 +1634,24 @@ class BuildIndexTest(ProtalTest):
             genes[(2, gene)] = seq
             genes[(1, gene)] = seq[:1500] + code + seq[1501:]
         # Another genome of taxon 2 carries taxon 1's gene 2 unchanged.
-        full = os.path.join(cls.work, "full_reference.fna")
         cls.logs, cls.outputs = {}, {}
-        # --no_bundle: unique_kmers.tsv stays a file of its own.
-        for name, extra in (("db", ["--index_batch_kb", "1"]), ("serial", ["--serial_index_passes"])):
+        # --no_bundle: unique_kmers.tsv stays a file of its own. "db": the passes from the preloaded genes, the uniqueness
+        # check by key range over a plain full reference; "frames": the same over the full reference in zstd frames with
+        # a seek table, a gene each (as the converter writes it), read on several threads; "serial": one thread, the
+        # reference read twice and every k-mer looked up on its own.
+        require_zstd("to write the full reference in frames")
+        for name, extra in (("db", ["--index_batch_kb", "1"]), ("serial", ["--serial_index_passes"]),
+                            ("frames", ["--index_batch_kb", "1"])):
             db = write_tiny_db(os.path.join(cls.work, name), genes, cls.TAXONOMY)
-            with open(os.path.join(db, "reference.fna")) as src, open(full, "w") as dst:
-                dst.write(src.read() + ">2_7\n" + genes[(1, 2)] + "\n")
+            with open(os.path.join(db, "reference.fna")) as src:
+                full_text = src.read() + ">2_7\n" + genes[(1, 2)] + "\n"
+            full = os.path.join(cls.work, name + "_full_reference.fna")
+            if name == "frames":
+                full += ".zst"
+                write_framed_fasta(full, full_text)
+            else:
+                with open(full, "w") as dst:
+                    dst.write(full_text)
             rc, cls.logs[name] = run(cls.work, "--build", "--no_bundle", "--no_profile", *FAST_BUILD, *extra, "--db", db,
                                      "--reference", os.path.join(db, "reference.fna"), "--full_reference", full)
             if rc != 0:
@@ -1637,6 +1666,31 @@ class BuildIndexTest(ProtalTest):
 
     def test_the_index_is_the_same_in_any_threads_and_batches(self):
         self.assertEqual(self.outputs["db"], self.outputs["serial"])
+        self.assertEqual(self.outputs["frames"], self.outputs["serial"])
+
+    def test_the_passes_read_what_they_should(self):
+        self.assertIn("Index passes: the reference's records from the preloaded genes", self.logs["db"])
+        # The ambiguous bases of genes 3-6 put back: N, Y, R and k (lower case).
+        self.assertRegex(self.logs["db"], r"preloaded genes \(4 bases of them as the reference has them")
+        self.assertIn("Index passes: the reference's records read from", self.logs["serial"])
+        self.assertRegex(self.logs["frames"], r"Uniqueness check: \d+ frames of .*frames_full_reference\.fna\.zst")
+        self.assertNotIn("frames of", self.logs["db"])
+
+    def test_a_truncated_full_reference_stops_the_build(self):
+        # Cut short (a full disk, a copy interrupted), the full reference ends early: the k-mers of what is missing
+        # would stay unique and the build would succeed. Without its seek table it is read as one stream.
+        db = write_tiny_db(os.path.join(self.work, "truncated"), {(1, 1): "ACGT" * 300, (2, 1): "TTGCA" * 200}, self.TAXONOMY)
+        full = os.path.join(self.work, "truncated_full.fna.zst")
+        write_framed_fasta(full, "".join(f">{t}_1\n" + "".join(random.Random(t).choice("ACGT") for _ in range(4000)) + "\n"
+                                         for t in (1, 2, 1, 2, 1, 2)))
+        with open(full, "rb") as fh:
+            data = fh.read()
+        with open(full, "wb") as fh:
+            fh.write(data[:len(data) // 2])
+        rc, log = run(self.work, "--build", "--no_bundle", "--no_profile", *FAST_BUILD, "--db", db,
+                      "--reference", os.path.join(db, "reference.fna"), "--full_reference", full)
+        self.assertEqual(rc, 8, log[-2000:])
+        self.assertIn("Cannot read the full reference", log)
 
     def test_a_gene_another_taxon_carries_is_not_unique(self):
         self.assertGreater(self.uniques[(1, 1)][0], 0, self.uniques)

@@ -26,8 +26,10 @@ Writes to <outdir>:
                          (species are the leaves; their ids are the reference taxids)
   full_reference.fna.zst marker genes of all genomes, header >taxid_geneid of the
                          genome's species (only if genomic_files_all is present);
-                         zstd-compressed by the zstd command (86 GB raw at r226),
-                         full_reference.fna without one
+                         zstd-compressed by the zstd command (86 GB raw at r226), a frame
+                         per marker file (or gene, in a --from_db copy) and a seek table,
+                         so that protal --build reads it on several threads;
+                         full_reference.fna without the zstd command
   gene2geneid.tsv        marker id -> geneid
   genome2tiid.tsv        accession, species taxid, species rep accession, lineage
   model_pe.xml           copy of --model (the profiler's random forest for paired-end reads;
@@ -36,13 +38,13 @@ Writes to <outdir>:
 Then build the index with
   protal --build --no_profile --db <outdir> --reference <outdir>/reference.fna \\
          --full_reference <outdir>/full_reference.fna
-which writes index.prx.zst and replaces reference.fna by reference.fna.zst unless --no_compress
-(for --full_reference full_reference.fna, protal reads its .zst).
+which writes database.protal (index.prx.zst and reference.fna.zst with --no_bundle; raw files with
+--no_compress); for --full_reference full_reference.fna, protal reads its .zst.
 
 Each marker's genes are spooled to <outdir>/.convert_tmp (or <--tmp>/.convert_tmp) and sorted one gene
 at a time, so memory stays at about one gene's sequences per worker; -t reads the marker files in
 parallel (the output is the same for any -t). The workers compress their chunks of the full reference
-themselves (zstd frames, joined as they are), and the log gives each step's time.
+themselves (zstd frames, joined as they are, then the seek table), and the log gives each step's time.
 
 Usage:
   gtdb_to_protal_db.py --gtdb <release dir> --outdir <db dir> [--release 226] [--model FILE]
@@ -72,6 +74,7 @@ import multiprocessing
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -334,7 +337,7 @@ def _write_full_reference(item):
     lineage, taxid, drop = _WORK["lineage"], _WORK["taxid"], _WORK["drop"]
     seen, result = set(), {}
     for index, path in files:
-        chunk, n = os.path.join(_WORK["tmp"], f"full_{index}.fna" + (".zst" if _WORK["zstd"] else "")), 0
+        chunk, n, size = os.path.join(_WORK["tmp"], f"full_{index}.fna" + (".zst" if _WORK["zstd"] else "")), 0, 0
         with (zstd_writer(chunk, 1) if _WORK["zstd"] else open(chunk, "wb")) as fh:
             for header, seq in read_fasta(path):
                 acc = normalize_accession(header)
@@ -342,10 +345,23 @@ def _write_full_reference(item):
                 if sp not in taxid or taxid[sp] in drop or acc in seen:
                     continue
                 seen.add(acc)
-                fh.write(f">{taxid[sp]}_{gid}\n{seq.upper()}\n".encode())
+                record = f">{taxid[sp]}_{gid}\n{seq.upper()}\n".encode()
+                fh.write(record)
                 n += 1
-        result[index] = (chunk, n)
+                size += len(record)
+        result[index] = (chunk, n, size)
     return result
+
+
+def seek_table(frames):
+    """zstd's seekable format's seek table (a skippable frame) for frames given as (compressed size, content size):
+    protal --build finds the full reference's frames through it and decompresses them on several threads; the zstd
+    command skips it. None if a frame is too large for the table's 4-byte entries."""
+    if any(c >= 1 << 32 or d >= 1 << 32 for c, d in frames):
+        return None
+    entries = b"".join(struct.pack("<II", c, d) for c, d in frames)
+    return (struct.pack("<II", 0x184D2A5E, len(entries) + 9) + entries +
+            struct.pack("<IBI", len(frames), 0, 0x8F92EAB1))
 
 
 def read_species_list(path):
@@ -420,22 +436,73 @@ def zstd_writer(path, threads):
     os.replace(partial, path)
 
 
+class FramedZstdFile:
+    """A file written as zstd frames, each through a zstd command of its own (ZSTD_OPTIONS, up to 8 of `threads`), with
+    a seek table at the end (seek_table): a frame ends where the writer calls new_frame (at whole records), so that
+    protal --build reads the frames on several threads. Written as path.partial, renamed by close."""
+
+    def __init__(self, path, threads):
+        self.path, self.threads = path, threads
+        self.fh = open(path + ".partial", "wb")
+        self.process, self.frames, self.size, self.start = None, [], 0, 0
+
+    def write(self, data):
+        if self.process is None:
+            self.start = self.fh.seek(0, os.SEEK_END)  # the commands write through the same file
+            self.process = subprocess.Popen([shutil.which("zstd") or "zstd", "-q", "-c", f"-T{max(1, min(self.threads, 8))}",
+                                             *ZSTD_OPTIONS], stdin=subprocess.PIPE, stdout=self.fh)
+        self.process.stdin.write(data)
+        self.size += len(data)
+
+    def new_frame(self):
+        if self.process is None:
+            return
+        self.process.stdin.close()
+        rc = self.process.wait()
+        if rc:
+            sys.exit(f"zstd failed with exit code {rc} writing {self.path}.partial")
+        self.frames.append((self.fh.seek(0, os.SEEK_END) - self.start, self.size))
+        self.process, self.size = None, 0
+
+    def close(self):
+        self.new_frame()
+        table = seek_table(self.frames)
+        if table:
+            self.fh.write(table)
+        self.fh.close()
+        os.replace(self.path + ".partial", self.path)
+
+
+class PlainFile:
+    """full_reference.fna without the zstd command: the frames FramedZstdFile would make are of no use."""
+
+    def __init__(self, path):
+        self.path, self.fh = path, open(path + ".partial", "wb")
+
+    def write(self, data):
+        self.fh.write(data)
+
+    def new_frame(self):
+        pass
+
+    def close(self):
+        self.fh.close()
+        os.replace(self.path + ".partial", self.path)
+
+
 @contextlib.contextmanager
 def full_reference_writer(folder, threads):
-    """A binary file to write a folder's full reference to: full_reference.fna.zst through the zstd command
-    (zstd_writer), or full_reference.fna without one, written as a .partial file and renamed once complete; the
-    variant of an earlier conversion goes first."""
+    """A file to write a folder's full reference to (write(bytes), new_frame() between genes): full_reference.fna.zst
+    in zstd frames with a seek table (FramedZstdFile), or full_reference.fna without the zstd command, written as a
+    .partial file and renamed once complete; the variant of an earlier conversion goes first."""
     zstd = shutil.which("zstd")
     remove_full_reference(folder)
     target = os.path.join(folder, FULL_REFERENCE + (".zst" if zstd else ""))
-    if zstd:
-        with zstd_writer(target, threads) as fh:
-            yield fh
-        return
-    sys.stderr.write(f"Note: no zstd command, so {target} is written uncompressed\n")
-    with open(target + ".partial", "wb") as fh:
-        yield fh
-    os.replace(target + ".partial", target)
+    if not zstd:
+        sys.stderr.write(f"Note: no zstd command, so {target} is written uncompressed\n")
+    out = FramedZstdFile(target, threads) if zstd else PlainFile(target)
+    yield out
+    out.close()
 
 
 @contextlib.contextmanager
@@ -589,12 +656,16 @@ def derive_db(src, dst, names=(), genes=None, threads=1):
     full_kept = 0
     if full:
         with read_full_reference(full) as fin, full_reference_writer(dst, threads) as out:
+            frame_gene = None  # a frame per gene (the full reference is gene by gene), whose copies stay together
             for header in fin:
                 seq = fin.readline()
                 if not header.startswith(b">") or not seq:
                     sys.exit(f"{full}: expected a header and one sequence line per record")
                 tid, gid = header[1:].rstrip(b"\n").split(b"_", 1)
                 if wanted(tid.decode(), gid.decode()):
+                    if gid != frame_gene:
+                        out.new_frame()
+                        frame_gene = gid
                     out.write(header)
                     out.write(seq)
                     full_kept += 1
@@ -830,13 +901,18 @@ def main():
         target = out(FULL_REFERENCE + (".zst" if _WORK["zstd"] else ""))
         if not _WORK["zstd"]:
             sys.stderr.write(f"Note: no zstd command, so {target} is written uncompressed\n")
+        frames = []  # (compressed size, content size) of each chunk, a zstd frame each
         with open(target + ".partial", "wb") as fh:
             for index in range(len(all_files)):
-                chunk, count = written[index]
+                chunk, count, size = written[index]
+                frames.append((os.path.getsize(chunk), size))
                 with open(chunk, "rb") as part:
                     shutil.copyfileobj(part, fh, 1 << 22)
                 os.remove(chunk)  # not kept until all are joined
                 n_full += count
+            table = seek_table(frames) if _WORK["zstd"] else None
+            if table:  # protal --build decompresses the frames on several threads
+                fh.write(table)
         os.replace(target + ".partial", target)
         phase(f"joined them into {os.path.basename(target)}")
     shutil.rmtree(tmp, ignore_errors=True)

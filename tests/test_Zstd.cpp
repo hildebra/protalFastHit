@@ -17,6 +17,7 @@
 #include <sysexits.h>
 #include <unistd.h>
 #include "Utilities/Zstd.h"
+#include "SequenceUtils/FastaBatches.h"
 #include "Hash/Seedmap.h"
 #include "SequenceUtils/GenomeLoader.h"
 #include "TestUtil.h"
@@ -497,6 +498,111 @@ TEST(ZstdSeekable, IndexSinkScattersIntoKeymapAndValues) {
 
 // The index loader stops with exit 8 on a compressed index that holds too little data, and on
 // one whose zstd frame is cut off.
+namespace {
+    // FASTA records in a seekable zstd file, a frame per group of records (as the converter writes the full reference),
+    // with the long window the converter uses; the frames' contents.
+    std::vector<std::string> WriteFastaFrames(std::string const& path, size_t frames, unsigned seed, size_t records = 40) {
+        std::mt19937 rng(seed);
+        std::vector<std::string> contents(frames);
+        for (size_t f = 0; f < frames; f++) {
+            for (size_t r = 0; r < records; r++) {
+                contents[f] += ">" + std::to_string(f * records + r + 1) + "_" + std::to_string(1 + rng() % 7) + "\n";
+                for (size_t b = 0, n = 200 + rng() % 3000; b < n; b++) contents[f] += "ACGT"[rng() % 4];
+                contents[f] += "\n";
+            }
+        }
+        std::string error;
+        EXPECT_TRUE(zstd::WriteSeekable(path, frames, {6, 27, 2, 0}, [&](size_t i, std::vector<char>& out) {
+            out.assign(contents[i].begin(), contents[i].end());
+            return std::string();
+        }, error)) << error;
+        return contents;
+    }
+
+    // Every frame's records read by FastaFrames::Reader, frame by frame, in batches of about `bytes`.
+    std::vector<std::string> ReadFastaFrames(FastaFrames const& frames, size_t bytes, std::string& error) {
+        std::vector<std::string> contents(frames.Frames());
+        FastaFrames::Reader reader(frames);
+        std::string batch;
+        for (size_t f = 0; f < frames.Frames(); f++) {
+            reader.Take(f);
+            while (reader.Next(batch, bytes)) contents[f] += batch;
+        }
+        error = reader.Error();
+        return contents;
+    }
+}
+
+// The full reference's frames, each a FASTA file of its own, read on threads of their own (FastaFrames): every record
+// once, in its frame's order, whatever the batch size; a file that is not in such frames is read as one stream.
+TEST(FastaFrames, RecordAlignedFramesReadAsTheyWereWritten) {
+    ScratchDir tmp;
+    auto const contents = WriteFastaFrames(tmp / "full.fna.zst", 5, 3);
+    std::string error;
+    auto const frames = FastaFrames::Open(tmp / "full.fna.zst", error);
+    ASSERT_TRUE(frames.has_value()) << error;
+    EXPECT_EQ(frames->Frames(), 5u);
+    for (size_t bytes : { size_t{1}, size_t{1000}, size_t{1} << 20 }) {
+        SCOPED_TRACE(bytes);
+        EXPECT_EQ(ReadFastaFrames(*frames, bytes, error), contents);
+        EXPECT_EQ(error, "");
+    }
+    // Readers on several threads at once, each taking the next frame.
+    std::vector<std::string> seen(frames->Frames());
+    std::atomic<size_t> next{0};
+    std::vector<std::thread> pool;
+    for (int t = 0; t < 3; t++) {
+        pool.emplace_back([&]() {
+            FastaFrames::Reader reader(*frames);
+            std::string batch;
+            for (size_t f; (f = next++) < frames->Frames();) {
+                reader.Take(f);
+                while (reader.Next(batch, 777)) seen[f] += batch;
+            }
+        });
+    }
+    for (auto& t : pool) t.join();
+    EXPECT_EQ(seen, contents);
+
+    // One frame, frames that do not begin a record, a plain file and a file without a seek table: one stream.
+    WriteFastaFrames(tmp / "one.zst", 1, 4);
+    EXPECT_FALSE(FastaFrames::Open(tmp / "one.zst", error).has_value());
+    EXPECT_EQ(error, "");
+    std::string const text = contents[0] + contents[1];
+    ASSERT_TRUE(zstd::WriteSeekable(tmp / "cut.zst", 2, {3, 0, 1, 0}, [&](size_t i, std::vector<char>& out) {
+        size_t const half = text.size() / 2;
+        out.assign(text.begin() + (i ? half : 0), i ? text.end() : text.begin() + half);
+        return std::string();
+    }, error)) << error;
+    EXPECT_FALSE(FastaFrames::Open(tmp / "cut.zst", error).has_value());
+    EXPECT_EQ(error, "");
+    Spit(tmp / "plain.fna", text);
+    EXPECT_FALSE(FastaFrames::Open(tmp / "plain.fna", error).has_value());
+    EXPECT_EQ(error, "");
+}
+
+// A frame that cannot be decompressed stops the reader with the frame and the reason (a build would otherwise go on
+// without the rest of the reference: the k-mers of the rest would stay unique).
+TEST(FastaFrames, ACorruptFrameIsAnError) {
+    ScratchDir tmp;
+    WriteFastaFrames(tmp / "full.fna.zst", 3, 5, 200);
+    std::string error;
+    auto table = zstd::ReadSeekTable(tmp / "full.fna.zst", error);
+    ASSERT_TRUE(table) << error;
+    std::string bytes = Slurp(tmp / "full.fna.zst");
+    auto const& frame = table->frames[1];
+    // Its content checksum, the frame's last 4 bytes: wrong only once the whole frame is decompressed.
+    for (size_t i = frame.compressed_offset + frame.compressed_size - 4; i < frame.compressed_offset + frame.compressed_size; i++) {
+        bytes[i] = static_cast<char>(bytes[i] ^ 0x5a);
+    }
+    Spit(tmp / "full.fna.zst", bytes);
+    auto const frames = FastaFrames::Open(tmp / "full.fna.zst", error);
+    ASSERT_TRUE(frames.has_value()) << error;  // the frame's first block is still fine
+    ReadFastaFrames(*frames, size_t{1} << 20, error);
+    EXPECT_NE(error.find("frame 2 of 3"), std::string::npos) << error;
+    EXPECT_NE(error.find("zstd"), std::string::npos) << error;
+}
+
 TEST(Zstd, TruncatedCompressedIndexExits8) {
     ScratchDir tmp;
     std::ostringstream header;

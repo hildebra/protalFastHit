@@ -164,8 +164,10 @@ namespace protal {
 
     // The index is built from --reference, but queries align reads against the database's reference.fna,
     // found through reference.map. Every --reference record must therefore be a reference.map gene of
-    // the same length, with ids and length inside the index's 20-bit fields.
-    static void CheckReferenceAgainstMap(Options const& options, GenomeLoader& genomes) {
+    // the same length, with ids and length inside the index's 20-bit fields. Returns whether --reference is
+    // the database's own reference.fna and holds each gene of reference.map once: then the index passes
+    // take the genes from the preload instead of reading it again (build::Run).
+    static bool CheckReferenceAgainstMap(Options const& options, GenomeLoader& genomes) {
         auto input = protal::build::OpenInput(options.GetSequenceFilePath());  // raw or .zst
         SeqReader reader{ input->Stream() };
         FastxRecord record;
@@ -173,6 +175,14 @@ namespace protal {
         constexpr uint64_t max_id = (uint64_t{1} << SEEDMAP_TAXID_BITS) - 1;
         constexpr uint64_t max_gene = (uint64_t{1} << SEEDMAP_GENEID_BITS) - 1;
         constexpr uint64_t max_length = (uint64_t{1} << SEEDMAP_GENE_POS_BITS) - 1;
+        // Each map gene's record seen, a bit per taxid and gene id (3 MB at r226): a gene twice makes the passes read the
+        // file, as they index every record. Ids too sparse for that: the file too.
+        auto const [map_taxid, map_gene, map_length] = genomes.IndexFieldMaxima();
+        (void)map_length;
+        uint64_t const genes_per_taxid = map_gene + 1;
+        bool const track = (map_taxid + 1) * genes_per_taxid <= (uint64_t{1} << 32);
+        std::vector<bool> seen(track ? (map_taxid + 1) * genes_per_taxid : 0, false);
+        bool repeated = !track;
         while (reader(record)) {
             records++;
             std::string problem;
@@ -193,11 +203,19 @@ namespace protal {
                 } else if (genomes.GeneLength(taxid, geneid) != record.sequence.size()) {
                     problem = std::to_string(record.sequence.size()) + " bases, but " +
                               std::to_string(genomes.GeneLength(taxid, geneid)) + " in reference.map";
+                } else if (track) {
+                    uint64_t const bit = taxid * genes_per_taxid + geneid;
+                    repeated = repeated || seen[bit];
+                    seen[bit] = true;
                 }
             }
             if (!problem.empty() && ++problems <= 10) {
                 std::cerr << "--reference record " << record.header << ": " << problem << std::endl;
             }
+        }
+        if (input->Stream().bad() || !reader.Success()) {  // not the end of the file: a read or decompression error
+            std::cerr << "Cannot read --reference " << options.GetSequenceFilePath() << " to its end (truncated or corrupt file?)" << std::endl;
+            exit(8);
         }
         if (records == 0) {
             std::cerr << "--reference " << options.GetSequenceFilePath() << " contains no sequences" << std::endl;
@@ -211,7 +229,11 @@ namespace protal {
         if (records != genomes.GeneCount()) {
             std::cerr << "Warning: --reference has " << records << " sequences, reference.map lists "
                       << genomes.GeneCount() << " genes" << std::endl;
+            return false;
         }
+        std::error_code ec;
+        return !repeated &&
+               std::filesystem::equivalent(zstd::Resolve(options.GetSequenceFilePath()), zstd::Resolve(options.GetSequenceFile()), ec);
     }
 
     // The genes' conservation factors (Options::GeneConservationDbFile, GeneConservation.h: the database's
@@ -463,7 +485,7 @@ namespace protal {
         const size_t kmer_size = 31;
 
         if (options.BuildMode()) {
-            CheckReferenceAgainstMap(options, db.GetGenomes());
+            bool const reference_is_mapped = CheckReferenceAgainstMap(options, db.GetGenomes());
 
             // New indexes compare whole s-mers (index format 2, recorded in the index header).
             ClosedSyncmer minimizer{mmer_size, 7, 2, true};
@@ -475,15 +497,13 @@ namespace protal {
             {
                 KmerPutterSM kmer_putter{};
                 protal_stats = protal::build::Run<SimpleKmerHandler<ClosedSyncmer>, KmerPutterSM, DEBUG_NONE>(
-                        options, kmer_putter, iterator, db.GetGenomes());
-            }  // the index is written: freed before the files are packed (~36 GB at r226)
+                        options, kmer_putter, iterator, db.GetGenomes(), reference_is_mapped);
+                // Last, as the build reads reference.fna until here: the single file, which takes the index from
+                // memory and frees it once written (before compressing reference.fna), or separate files.
+                if (options.WriteBundle()) protal::build::BundleDatabase(options, &kmer_putter.GetMap());
+            }  // the index is freed (~36 GB at r226)
             protal::build::ReleaseFreeMemory();
-
-            // Last, as the build reads reference.fna until here: the single file (which compresses
-            // reference.fna itself), or separate files.
-            if (options.WriteBundle()) {
-                protal::build::BundleDatabase(options);
-            } else {
+            if (!options.WriteBundle()) {
                 protal::build::CompressReference(options);
                 protal::build::RemoveStaleBundle(options);
             }
@@ -2924,7 +2944,9 @@ namespace protal {
         Benchmark bm_gene_tables("Loading the gene tables");
         bm_gene_tables.Start();
         // A single-file database's binary gene table (GeneTableFile.h) where it has a current one, else the text tables.
-        auto const unique_kmers = unique_kmers_file.Exists() ? std::optional(unique_kmers_file) : std::nullopt;
+        // --build makes unique_kmers.tsv anew: one an earlier build left in the folder is not read (it would make the
+        // genes it lists the only hittable ones, of which species_neighbours.tsv compares all).
+        auto const unique_kmers = unique_kmers_file.Exists() && !options.BuildMode() ? std::optional(unique_kmers_file) : std::nullopt;
         auto const gene_table = options.GeneTableDbFile();
         ProtalDB db(options.SequenceDbFile(), options.SequenceMapDbFile(), unique_kmers, gene_table, db_threads);
         bm_gene_tables.Stop();
@@ -2986,6 +3008,8 @@ namespace protal {
         auto preload = [&options, &db]() {
             if (!options.PreloadGenomes()) return;
             std::cout << "Preload genomes" << std::endl;
+            // --build's index passes take the genes from here (GenomeLoader::KeepReferenceText) rather than read reference.fna.
+            if (options.BuildMode()) db.GetGenomes().KeepReferenceText(true);
             Benchmark bm_preload_genomes("Preload genomes");
             bm_preload_genomes.Start();
             db.GetGenomes().LoadAllGenomes(static_cast<int>(options.GetThreads()));

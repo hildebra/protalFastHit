@@ -1010,6 +1010,32 @@ namespace protal {
             return error.empty() ? error : "reading it back: " + error;
         }
 
+        // The index as a member of a single-file database (Database.h, db::Generated): the frames SaveCompressed would
+        // write, planned first (their number goes into the database's directory), then written into the database file,
+        // then read back from it and compared.
+        std::optional<index_codec::FramePlan> CompressedFrames(zstd::Params const& params, std::string& error) {
+            return index_codec::PlanFrames(HeaderBytes(), CodecLayout(), m_keymap, params, error);
+        }
+
+        bool WriteCompressedFrames(zstd::FrameWriter& out, index_codec::FramePlan const& plan, zstd::Params const& params,
+                                   std::string& error, size_t& raw_chunks) const {
+            return index_codec::WriteFrames(out, plan, CodecLayout(), m_keymap, ValueCells(), params, error, &raw_chunks);
+        }
+
+        std::string VerifyCompressedFrames(std::string const& path, zstd::SeekTable const& frames, int threads) {
+            return index_codec::VerifyFrames(path, frames, HeaderBytes(), CodecLayout(), m_keymap, ValueCells(), threads);
+        }
+
+        // Frees the key map and the values, for --build once the index is written: nothing reads the map after this.
+        void FreeMemory() {
+            std::free(m_keymap);
+            std::free(m_map);
+            std::free(m_packed);
+            m_keymap = nullptr;
+            m_map = nullptr;
+            m_packed = nullptr;
+        }
+
         // Reads an index written by Save. Every size in the file is checked against the layout this
         // build uses and against the bytes the stream actually holds, so a truncated, corrupt or
         // incompatible index stops here with a message instead of causing out-of-bounds reads later.
@@ -1638,8 +1664,13 @@ namespace protal {
             });
         }
 
+        // What the value pointers did with the cores (15-base keys) of the reference's k-mers, for the build's log.
+        struct CoreReport {
+            uint64_t left_out = 0, left_out_values = 0, largest_left_out = 0;  // cores the index leaves out whole
+        };
+
         void BuildValuePointersSecondIteration(subkey* subkey, size_t& count_failed_demand, size_t& count_total_stored,
-                                               size_t& count_total_demand, uint64_t& max_keyblock_size) {
+                                               size_t& count_total_demand, uint64_t& max_keyblock_size, CoreReport& report) {
             uint64_t current_sum = 0;
             uint64_t total_demand = 0;
 
@@ -1659,6 +1690,9 @@ namespace protal {
                 if (subkey[key_pos].count < max_key_multiplicity && key_value_space_demand < max_keyblock_size && (current_sum + key_value_space_demand) < max_block_size) {
                     current_sum += key_value_space_demand;
                 } else {
+                    report.left_out++;
+                    report.left_out_values += subkey[key_pos].count;
+                    report.largest_left_out = std::max<uint64_t>(report.largest_left_out, subkey[key_pos].count);
                     subkey[key_pos].count = 0;
                 }
             }
@@ -1686,7 +1720,7 @@ namespace protal {
 
         void BuildValuePointersBlock(uint64_t block, uint64_t& global_position,
                                      size_t& count_failed_demand, size_t& count_total_stored, size_t& count_total_demand,
-                                     int* kmer_frequencies, uint64_t& max_keyblock_size, subkey* subkey) {
+                                     int* kmer_frequencies, uint64_t& max_keyblock_size, subkey* subkey, CoreReport& report) {
 
             uint64_t* control_ptr = nullptr;
             auto block_index = block * (m_keys_per_ctrl_block + ctrl_block_cell_size);
@@ -1708,7 +1742,7 @@ namespace protal {
             BuildValuePointersFirstIteration(total_count, subkey, kmer_frequencies, block_start_index);
             if (!total_count) return;
             BuildValuePointersSecondIteration(subkey, count_failed_demand, count_total_stored, count_total_demand,
-                                              max_keyblock_size);
+                                              max_keyblock_size, report);
             BuildValuePointersBlockThirdIteration(subkey, block_start_index, global_position);
         }
 
@@ -1911,7 +1945,6 @@ namespace protal {
         // instead of 29 with the key map), which only the files keep.
         void BuildValuePointers(int threads = 1, PackedLayout const* pack = nullptr) {
             uint64_t const num_ctrl_blocks = keymap_size >> ctrl_block_frequency_bitshift;
-            std::cout << "number ctrl blocks: " << num_ctrl_blocks << std::endl;
             uint64_t const max_keyblock_size = max_key_ubiquity*2;
             uint64_t const block_cells = m_keys_per_ctrl_block + ctrl_block_cell_size;
 
@@ -1921,6 +1954,7 @@ namespace protal {
             size_t count_failed_demand = 0;
             size_t count_total_stored = 0;
             size_t count_total_demand = 0;
+            CoreReport cores;
 
             threads = std::max(threads, 1);
             size_t const parts = threads == 1 ? 1 : static_cast<size_t>(threads) * 16;
@@ -1931,6 +1965,7 @@ namespace protal {
             {
                 std::vector<int> frequencies(kmer_freq_size, 0);
                 size_t failed_demand = 0, total_stored = 0, total_demand = 0;
+                CoreReport mine;
                 uint64_t keyblock_size = max_keyblock_size;
                 subkey keys[8];
                 std::vector<subkey> key_storage;
@@ -1946,7 +1981,7 @@ namespace protal {
                     uint64_t position = 0;
                     for (uint64_t block = part_begin(part); block < part_begin(part + 1); block++) {
                         BuildValuePointersBlock(block, position, failed_demand, total_stored, total_demand,
-                                                frequencies.data(), keyblock_size, sk);
+                                                frequencies.data(), keyblock_size, sk, mine);
                     }
                     part_start[part + 1] = position;
                 }
@@ -1957,6 +1992,9 @@ namespace protal {
                     count_failed_demand += failed_demand;
                     count_total_stored += total_stored;
                     count_total_demand += total_demand;
+                    cores.left_out += mine.left_out;
+                    cores.left_out_values += mine.left_out_values;
+                    cores.largest_left_out = std::max(cores.largest_left_out, mine.largest_left_out);
                 }
             }
             for (size_t part = 0; part < parts; part++) part_start[part + 1] += part_start[part];
@@ -1974,7 +2012,6 @@ namespace protal {
             uint64_t* control_ptr = (uint64_t*) (m_keymap + keymap_size_total - ctrl_block_cell_size);
             *control_ptr = global_position;
             values_size = global_position;
-            std::cout << "ctrl_block_cell_size: " << ctrl_block_cell_size << std::endl;
 
             if (pack) {
                 SetLayout(*pack);
@@ -1996,28 +2033,52 @@ namespace protal {
                 AllocateValues(values_size, true);  // zeroed: an all-zero entry is empty
             }
             std::cout << "Index in memory: " << MemoryDescription() << std::endl;
+            std::cout << CoreReportText(kmer_frequencies, cores, values_size) << std::endl;
+        }
 
-            constexpr bool verbose = true;
-            if constexpr(verbose) {
-                std::cout << "Values size: " << values_size << std::endl;
-                std::cout << "space requirements" << std::endl;
-                double key_mem = (double) keymap_size_total / (1024 * 1024 * 1024);
-                double val_mem = (double) (values_size * 8) / (1024 * 1024 * 1024);
-                std::cout << "keys:   " << key_mem << " GB" << std::endl;
-                std::cout << "values: " << val_mem << " GB" << std::endl;
-                std::cout << "total:  " << key_mem + val_mem << " GB" << std::endl;
-
-
-                for (auto i = 0; i < kmer_freq_size; i++) {
-                    std::cout << i << '\t' << kmer_frequencies[i] << '\n';
+        // The cores (the 15-base keys) of the reference's k-mers by how many values they have, and those the index
+        // leaves out whole (BuildValuePointersSecondIteration: max_key_multiplicity values or more; a k-mer that
+        // common places no read), in a few lines. The rule does not depend on the reference's order: a core keeps
+        // all its values or none.
+        std::string CoreReportText(std::vector<int> const& frequencies, CoreReport const& cores, uint64_t cells) const {
+            struct Band { uint64_t from, to; uint64_t cores = 0, values = 0; };
+            std::vector<Band> bands = { {1, 1}, {2, 15}, {16, 255}, {256, max_key_multiplicity - 1},
+                                        {max_key_multiplicity, frequencies.size() - 1} };
+            uint64_t all_cores = 0, all_values = 0;
+            for (size_t c = 1; c < frequencies.size(); c++) {
+                if (frequencies[c] == 0) continue;
+                all_cores += static_cast<uint64_t>(frequencies[c]);
+                all_values += c * static_cast<uint64_t>(frequencies[c]);
+                for (auto& band : bands) {
+                    if (c >= band.from && c <= band.to) {
+                        band.cores += static_cast<uint64_t>(frequencies[c]);
+                        band.values += c * static_cast<uint64_t>(frequencies[c]);
+                    }
                 }
-                std::cout << "Total stored: " << count_total_stored << std::endl;
-                std::cout << "Total demand: " << count_total_demand << std::endl;
-                std::cout << "Stored "
-                          << (100 * static_cast<double>(count_total_stored) / static_cast<double>(count_total_demand))
-                          << " of total values." << std::endl;
-                std::cout << "Failed to meet demands? " << count_failed_demand << std::endl;
             }
+            auto share = [](uint64_t part, uint64_t whole) {
+                std::ostringstream o;
+                o << std::fixed << std::setprecision(2) << 100.0 * static_cast<double>(part) / static_cast<double>(std::max<uint64_t>(whole, 1)) << "%";
+                return o.str();
+            };
+            std::ostringstream text;
+            text << "Index cores: " << all_values << " k-mers of the reference in " << all_cores << " cores (their 15-base keys); "
+                 << "cores by their values:";
+            for (size_t b = 0; b < bands.size(); b++) {
+                auto const& band = bands[b];
+                text << (b ? "," : "") << ' ' << band.from;
+                if (b + 1 == bands.size()) text << " or more";
+                else if (band.to != band.from) text << '-' << band.to;
+                text << ": " << band.cores << " cores, " << band.values << " k-mers (" << share(band.values, all_values) << ")";
+            }
+            text << "\nIndex cores left out: " << cores.left_out << " cores of " << max_key_multiplicity << " values or more, "
+                 << "whole (" << cores.left_out_values << " k-mers, " << share(cores.left_out_values, all_values)
+                 << " of the reference's; the largest core " << cores.largest_left_out << "): a k-mer that common places no "
+                 << "read. The other cores keep all their values: " << cells << " cells (entries and flex cells), "
+                 << std::fixed << std::setprecision(2) << static_cast<double>(cells * 8) / static_cast<double>(uint64_t{1} << 30)
+                 << " GB in the file's 8-byte layout; key map " << static_cast<double>(keymap_size_total * sizeof(KeyMap_t)) / static_cast<double>(uint64_t{1} << 30)
+                 << " GB" << std::defaultfloat;
+            return text.str();
         }
 
 

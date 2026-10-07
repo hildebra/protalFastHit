@@ -1861,19 +1861,24 @@ def main():
     # holds the conversion and its build consumes it (the folder serves the taxonomy alone otherwise).
     full = os.path.join(args.outdir, ".converted")
 
+    def convert_stage(folder):
+        """The stage key of the whole release converted into `folder`: protal_db holds a gene subset's files after a
+        reduced run, which a later run without the subset must not take for the whole release."""
+        return {**convert_key, "into": os.path.basename(folder)}
+
     def ensure_converted():
         """With a gene subset: the whole release in `full`, kept from an earlier run that stopped before the
         database folders were derived, or converted now."""
         nonlocal converted
         if converted:
             return
-        if stages.done("convert", convert_key) and os.path.isfile(taxonomy) and os.path.isfile(gene_table) and \
+        if stages.done("convert", convert_stage(full)) and os.path.isfile(taxonomy) and os.path.isfile(gene_table) and \
                 all(os.path.isfile(os.path.join(full, f)) for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp")):
             clear_build_outputs(full)
             Steps.done(f"{os.path.basename(full)} holds the release converted by an earlier run; not converted again")
         else:
             Steps.done("the whole release: " + convert(full))
-            stages.mark("convert", convert_key)
+            stages.mark("convert", convert_stage(full))
         converted = full
 
     if subset:
@@ -1887,9 +1892,10 @@ def main():
     elif final_done:
         Steps.start(f"the release: {db} was built by an earlier run from the same release and protal; kept" +
                     remove_full_reference(db))  # left by an earlier version of this script
-    elif stages.done("convert", convert_key) and os.path.isfile(taxonomy) and \
+    elif stages.done("convert", convert_stage(db)) and os.path.isfile(taxonomy) and \
             all(os.path.isfile(os.path.join(db, f)) for f in ("reference.fna", "reference.map", "internal_taxonomy.dmp")):
-        # Converted by an earlier run that stopped before the build packed the files.
+        # Converted by an earlier run that stopped before the build packed the files (not a gene subset's folder,
+        # derived into it by a reduced run: that one marks the conversion of `full` only).
         clear_build_outputs(db)
         converted = db
         Steps.start(f"the release: {db} holds the release converted by an earlier run; not converted again")
@@ -1897,7 +1903,7 @@ def main():
         Steps.start(f"converting GTDB r{release} (convert.log)")
         stages.forget("protal_db")
         Steps.done(convert(db))
-        stages.mark("convert", convert_key)
+        stages.mark("convert", convert_stage(db))
         converted = db
     if not subset and not os.path.isfile(taxonomy):
         Steps.done("its taxonomy: " + convert(full))
@@ -1925,8 +1931,16 @@ def main():
             def positions_file():
                 return next((p for p in (os.path.join(f, "gene_positions.tsv") for f in (converted, db, full) if f)
                              if os.path.isfile(p)), None)
-            if positions_file() is None and subset and not args.no_gene_neighbours:
-                ensure_converted()
+            if positions_file() is None and not args.no_gene_neighbours:
+                # The strains take each gene's divergence from the real strains' (gene_positions.tsv): without it they
+                # would all get a uniform ANI. A finished database kept from an earlier run packed its positions, so
+                # the release is converted again here (the training database's files are derived from it below).
+                if subset:
+                    ensure_converted()
+                elif converted is None:
+                    converted = full
+                    Steps.done("the release again, for its gene positions (the finished database packed them): " +
+                               convert(converted))
             positions = positions_file()
             command = [sys.executable, INSILICO, "--genome-table", genome_table, "--output", sim_table, "--out-dir",
                        os.path.join(args.outdir, "insilico_strains"), "--share", str(args.insilico_strains),
@@ -2094,13 +2108,17 @@ def main():
                         "level": args.training_db_level}
         if subset:
             training_key["genes"] = final_key["genes"]
-        training_done = stages.done("training_db", training_key) and \
+        # The key is kept in the training database's folder too: on a --scratch that several OUTDIRs share, another
+        # build may have replaced that folder (other species held out) since this OUTDIR's stage was marked.
+        training_stamp = Stages(training_db)
+        training_done = stages.done("training_db", training_key) and training_stamp.done("built_for", training_key) and \
             os.path.isfile(os.path.join(training_db, "database.protal"))
         if training_done:
             Steps.done(f"{training_db} was built by an earlier run with the same species left out"
                        f"{' and the same genes' if subset else ''}; kept" + remove_full_reference(training_db))
         else:
             stages.forget("training_db")
+            training_stamp.forget("built_for")
             if subset:
                 ensure_converted()
             elif converted is None:  # the finished database's build consumed them
@@ -2216,7 +2234,8 @@ def main():
         # Read only for the training samples and the parity check: zstd level 3 packs it in a fraction of the
         # time of level 19 (which half of a build spent on), and loads as fast.
         job = run(build_command(args.protal, training_db, args.threads, "--compress_level", str(args.training_db_level)),
-                  os.path.join(args.outdir, "training_db_index.log"), lambda: stages.mark("training_db", training_key),
+                  os.path.join(args.outdir, "training_db_index.log"),
+                  lambda: (stages.mark("training_db", training_key), training_stamp.mark("built_for", training_key)),
                   f"building {os.path.basename(training_db)}")
         Steps.done(built(training_db, job, remove_full_reference(training_db) + files_took))
     if args.rank_genes:

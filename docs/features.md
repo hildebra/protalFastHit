@@ -335,7 +335,10 @@ GTDB scale; no importances yet. Three need SAM tags of protal since 2026-10-06 (
 | `db_nearest_congener` | neighbourhood | the nearest congener's distance; 1 without one within 0.15, -1 without the table | as above |
 
 Like `ref`, the neighbourhood describes the database in use: a training database lacks its held-out
-species, so its species have fewer near congeners than in the finished database.
+species, so its species have fewer near congeners than in the finished database. The table's
+distance is the median Mash distance of all the marker genes two references have; a run's
+`relative_distance` takes it over the genes with unique k-mers only (genes identical in two congeners
+have none), so for near-identical congeners the table's distance is the smaller one.
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 

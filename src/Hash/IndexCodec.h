@@ -528,27 +528,58 @@ namespace protal::index_codec {
         return table && ReadContainer(path, *table, error).has_value();
     }
 
+    // The frames a split index is written in: the container, then one per chunk of about `target` bytes
+    // (MakeChunks). Frames() is known before anything is written, as a single-file database's directory needs.
+    struct FramePlan {
+        std::vector<Chunk> chunks;
+        std::vector<char> container;
+        size_t Frames() const { return chunks.size() + 1; }
+    };
+
+    inline std::optional<FramePlan> PlanFrames(std::string const& header, Layout const& l, uint16_t const* keymap,
+                                               zstd::Params const& params, std::string& error) {
+        uint64_t const target = params.frame_size > 0 ? params.frame_size : uint64_t{64} << 20;
+        auto chunks = detail::MakeChunks(l, keymap, target, error);
+        if (!chunks) return std::nullopt;
+        FramePlan plan;
+        plan.container = detail::ContainerBytes(header, l, *chunks);
+        plan.chunks = std::move(*chunks);
+        return plan;
+    }
+
+    // Appends the frames of plan to out: the index (its header bytes, key map and values of layout l) as a split
+    // index, in a file of its own (Write) or as a member of a single-file database. raw_chunks (if given) receives the
+    // number of chunks stored raw. Returns false with a message in error.
+    inline bool WriteFrames(zstd::FrameWriter& out, FramePlan const& plan, Layout const& l, uint16_t const* keymap,
+                            Cells const& values, zstd::Params const& params, std::string& error, size_t* raw_chunks = nullptr) {
+        std::atomic<size_t> raw{0};
+        bool const ok = zstd::WriteFramesTo(out, plan.Frames(), params, [&](size_t i, std::vector<char>& frame) -> std::string {
+            if (i == 0) {
+                frame = plan.container;
+                return "";
+            }
+            if (!detail::EncodeChunk(l, plan.chunks[i - 1], keymap, values, frame)) raw++;
+            return "";
+        }, error);
+        if (raw_chunks) *raw_chunks = raw;
+        return ok;
+    }
+
     // Writes an index (its header bytes, key map and values of layout l) as a split index at path,
     // with chunks of about params.frame_size bytes. raw_chunks (if given) receives the number of
     // chunks stored raw. Returns the bytes written, or nullopt with a message in error.
     inline std::optional<uint64_t> Write(std::string const& path, std::string const& header, Layout const& l,
                                          uint16_t const* keymap, Cells const& values, zstd::Params const& params,
                                          std::string& error, size_t* raw_chunks = nullptr) {
-        uint64_t const target = params.frame_size > 0 ? params.frame_size : uint64_t{64} << 20;
-        auto const chunks = detail::MakeChunks(l, keymap, target, error);
-        if (!chunks) return std::nullopt;
-        std::vector<char> const container = detail::ContainerBytes(header, l, *chunks);
-        std::atomic<size_t> raw{0};
-        auto const written = zstd::WriteSeekable(path, chunks->size() + 1, params, [&](size_t i, std::vector<char>& out) -> std::string {
-            if (i == 0) {
-                out = container;
-                return "";
-            }
-            if (!detail::EncodeChunk(l, (*chunks)[i - 1], keymap, values, out)) raw++;
-            return "";
-        }, error);
-        if (raw_chunks) *raw_chunks = raw;
-        return written;
+        auto const plan = PlanFrames(header, l, keymap, params, error);
+        if (!plan) return std::nullopt;
+        zstd::FrameWriter out(path);
+        if (!WriteFrames(out, *plan, l, keymap, values, params, error, raw_chunks)) return std::nullopt;
+        if (!out.Finish()) {
+            error = out.Error();
+            return std::nullopt;
+        }
+        return out.Written();
     }
 
     // What each chunk of a split index writes when it is decoded: its key map cells (2 bytes each) and its values,
@@ -585,19 +616,30 @@ namespace protal::index_codec {
     // Reads a split index back chunk by chunk and compares it with keymap and values (no second
     // copy of the index in memory, nor of a chunk's values: they are compared as they are decoded).
     // Returns an error message, empty if identical.
+    inline std::string VerifyFrames(std::string const& path, zstd::SeekTable const& table, std::string const& header, Layout const& l,
+                                    uint16_t const* keymap, Cells const& values, int threads);
+
     inline std::string Verify(std::string const& path, std::string const& header, Layout const& l, uint16_t const* keymap,
                               Cells const& values, int threads) {
         std::string error;
         auto const table = zstd::ReadSeekTable(path, error);
         if (!table) return error.empty() ? "not a seekable zstd file" : error;
-        auto const c = ReadContainer(path, *table, error);
+        return VerifyFrames(path, *table, header, l, keymap, values, threads);
+    }
+
+    // Verify of the split index whose frames `table` lists in the file at path: all of a file's, or one member's of a
+    // single-file database.
+    inline std::string VerifyFrames(std::string const& path, zstd::SeekTable const& table, std::string const& header, Layout const& l,
+                                    uint16_t const* keymap, Cells const& values, int threads) {
+        std::string error;
+        auto const c = ReadContainer(path, table, error);
         if (!c) return error.empty() ? "not a split index" : error;
         if (c->index_header != header || c->layout.blocks != l.blocks || c->layout.values != l.values ||
             c->layout.keys_per_block != l.keys_per_block) {
             return "the container does not describe this index";
         }
         std::vector<std::vector<uint16_t>> km_tmp(zstd::WorkerCount(c->chunks.size(), threads));
-        return zstd::ForEachFrame(path, *table, 1, threads, [&](size_t frame, char const* data, size_t size, size_t worker) -> std::string {
+        return zstd::ForEachFrame(path, table, 1, threads, [&](size_t frame, char const* data, size_t size, size_t worker) -> std::string {
             Chunk const& ch = c->chunks[frame - 1];
             km_tmp[worker].resize(ch.blocks * l.CellsPerBlock());
             std::string const e = detail::DecodeChunk(data, size, l, ch, km_tmp[worker].data(), nullptr, &values);

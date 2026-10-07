@@ -1205,6 +1205,24 @@ namespace protal::zstd {
         uint64_t Frames() const { return m_frames; }
         uint64_t Written() const { return m_written; }
 
+        // Frames [first, last) as written so far: where they are in the file, their content offsets from frame first's.
+        // Readable from the file (a member's frames, before the seek table is written) once Flush has returned true.
+        SeekTable Slice(uint64_t first, uint64_t last) const {
+            SeekTable table;
+            uint64_t const base = first < m_offsets.frames.size() ? m_offsets.frames[first].decompressed_offset : 0;
+            for (uint64_t f = first; f < last && f < m_offsets.frames.size(); f++) {
+                auto frame = m_offsets.frames[f];
+                frame.decompressed_offset -= base;
+                table.frames.push_back(frame);
+            }
+            return table;
+        }
+
+        bool Flush() {
+            if (Ok() && m_out && std::fflush(m_out) != 0) return Fail(std::string("write failed: ") + std::strerror(errno));
+            return Ok();
+        }
+
         // Appends a zstd frame of `size` bytes whose content has `content_size` bytes.
         bool Add(char const* data, size_t size, uint64_t content_size) {
             if (!Ok()) return false;
@@ -1213,7 +1231,9 @@ namespace protal::zstd {
             if (std::fwrite(data, 1, size, m_out) != size) return Fail(std::string("write failed: ") + std::strerror(errno));
             PutLE32(m_table, static_cast<uint32_t>(size));
             PutLE32(m_table, static_cast<uint32_t>(content_size));
+            m_offsets.frames.push_back({ m_written, size, m_content, content_size });
             m_written += size;
+            m_content += content_size;
             m_frames++;
             return true;
         }
@@ -1239,7 +1259,8 @@ namespace protal::zstd {
         std::FILE* m_out = nullptr;
         std::string m_error;
         std::string m_table;
-        uint64_t m_frames = 0, m_written = 0;
+        SeekTable m_offsets;  // the frames written, as a seek table of this file would list them
+        uint64_t m_frames = 0, m_written = 0, m_content = 0;
     };
 
     // A frame's compressed bytes, room for ZSTD_compressBound of its content: not zeroed, so only the
@@ -1278,13 +1299,11 @@ namespace protal::zstd {
         return cctx;
     }
 
-    // Writes `count` frames to path in the seekable format: make(index, out) fills frame index's
-    // content (an error message, empty on success); up to params.threads frames are made and
-    // compressed at once, and written in order, followed by the seek table. Returns the bytes
-    // written, or nullopt with a message in error.
+    // Appends `count` frames to out: make(index, out) fills frame index's content (an error message,
+    // empty on success); up to params.threads frames are made and compressed at once, and written in
+    // order. Returns false with a message in error.
     template<typename Make>
-    std::optional<uint64_t> WriteSeekable(std::string const& path, size_t count, Params const& params, Make&& make,
-                                          std::string& error) {
+    bool WriteFramesTo(FrameWriter& out, size_t count, Params const& params, Make&& make, std::string& error) {
         int const threads = std::max(1, params.threads);
         struct Slot {
             ZSTD_CCtx* cctx = nullptr;
@@ -1296,12 +1315,11 @@ namespace protal::zstd {
         };
         std::vector<Slot> slots(static_cast<size_t>(threads));
         for (auto& slot : slots) {
-            if (!(slot.cctx = MakeCCtx(params, error))) return std::nullopt;
+            if (!(slot.cctx = MakeCCtx(params, error))) return false;
         }
-        FrameWriter out(path);
         if (!out.Ok()) {
             error = out.Error();
-            return std::nullopt;
+            return false;
         }
         for (size_t batch_start = 0; batch_start < count && error.empty(); batch_start += slots.size()) {
             size_t const batch = std::min(slots.size(), count - batch_start);
@@ -1321,8 +1339,20 @@ namespace protal::zstd {
                 if (!out.Add(slots[b].out.data.get(), slots[b].out.size, slots[b].in.size())) error = out.Error();
             }
         }
-        if (error.empty() && !out.Finish()) error = out.Error();
-        if (!error.empty()) return std::nullopt;
+        return error.empty();
+    }
+
+    // Writes `count` frames to path in the seekable format (WriteFramesTo), followed by the seek
+    // table. Returns the bytes written, or nullopt with a message in error.
+    template<typename Make>
+    std::optional<uint64_t> WriteSeekable(std::string const& path, size_t count, Params const& params, Make&& make,
+                                          std::string& error) {
+        FrameWriter out(path);
+        if (!WriteFramesTo(out, count, params, std::forward<Make>(make), error)) return std::nullopt;
+        if (!out.Finish()) {
+            error = out.Error();
+            return std::nullopt;
+        }
         return out.Written();
     }
 

@@ -1,7 +1,8 @@
 // GeneIncongruence.h - gene copies that do not belong to their species. --build compares every species' copy of each
 // marker gene with the other species' copies (bottom sketches of 12-mers, as a run's congener distances) and flags a
 // copy that is near-identical to a copy of another genus, family, order, class, phylum or domain while its own
-// congeners' copies are farther, or it has none: a contaminating contig in a MAG, or a transferred gene. Reads on such
+// congeners' copies are farther, or it has none: a contaminating contig in a MAG, or a transferred gene (gene by gene,
+// each gene's copies on all threads: ScanGene). Reads on such
 // a copy are no evidence of its species, and every present organism with that gene puts a perfect read on it: at GTDB
 // r226 a fifth of the false positives were reads of a present species of another genus at identity 0.99, recurring
 // per reference (docs/claude/2026-10-03-false-positive-anatomy). A query leaves records on suspect copies out
@@ -10,6 +11,8 @@
 #pragma once
 
 #include "GeneConservation.h"
+
+#include <omp.h>
 
 #include <algorithm>
 #include <array>
@@ -150,116 +153,281 @@ namespace protal::gene_incongruence {
         std::vector<Pair> pairs;        // by gene id, then taxids
         size_t copies = 0;              // copies compared
         size_t genes = 0;               // genes with two copies or more
-        size_t candidates = 0;          // sketch pairs compared
+        size_t candidates = 0;          // pairs of copies (each way) that share one of a copy's kProbeHashes smallest hashes
+        size_t compared = 0;            // of them, those whose sketches were merged: the others cannot be within
+                                        // kReportDistance (detail::SharedBound)
     };
 
-    // Compares the copies of every gene (copies_by_gene[geneid]): for each copy its nearest other copy among its
-    // congeners and among the species of other genera (candidates: the copies sharing one of its kProbeHashes smallest
-    // hashes, their distance from the sketches), on `threads` threads. A copy is suspect when a copy of another genus
-    // (the partner) is within suspect_distance and: the copy's genus has other copies of the gene but its nearest one
-    // is kCongenerMargin farther than the partner's (its own genus does not have this copy, the other does); or the
-    // copy's genus has no other copy (a singleton genus) and the partner's genus does, with the partner's nearest
-    // congener's copy kCongenerMargin farther than this copy (the copy lies inside the other genus's cluster, tighter
-    // than the cluster itself: a slow gene shared by a young family does not qualify). The same for any thread count:
-    // each gene is judged on its own and the results sorted.
-    inline Result Scan(std::vector<std::vector<Copy>> const& copies_by_gene, std::unordered_map<uint32_t, Lineage> const& lineages,
-                       double suspect_distance, int threads) {
-        Result result;
-        Lineage const no_lineage;
-        auto lineage_of = [&](uint32_t taxid) -> Lineage const& {
-            auto const it = lineages.find(taxid);
-            return it == lineages.end() ? no_lineage : it->second;
-        };
-        size_t copies = 0, genes = 0, candidates = 0;
-        #pragma omp parallel for schedule(dynamic) num_threads(std::max(threads, 1)) reduction(+:copies, genes, candidates)
-        for (size_t geneid = 0; geneid < copies_by_gene.size(); geneid++) {
-            auto const& copies_here = copies_by_gene[geneid];
-            size_t const n = copies_here.size();
-            copies += n;
-            if (n < 2) continue;
-            genes++;
-            // Every (hash, copy) of every sketch, sorted: a hash's copies are a run.
-            std::vector<std::pair<uint32_t, uint32_t>> entries;
-            entries.reserve(n * kSketchSize);
-            for (size_t i = 0; i < n; i++) {
-                for (uint32_t const h : copies_here[i].sketch) entries.emplace_back(h, static_cast<uint32_t>(i));
-            }
-            std::sort(entries.begin(), entries.end());
-            std::vector<Suspect> suspects;
-            std::vector<Pair> pairs;
-            // Copies of the gene per genus: a copy whose genus has others is judged against them.
-            std::unordered_map<uint32_t, size_t> per_genus;
-            std::vector<uint32_t> genus_of(n, 0);
-            for (size_t i = 0; i < n; i++) {
-                genus_of[i] = lineage_of(copies_here[i].taxid).At(Rank::Genus);
-                if (genus_of[i] != 0) per_genus[genus_of[i]]++;
-            }
-            // Pass 1: each copy's nearest congener's copy and nearest other genus's copy (the partner).
-            std::vector<float> congener(n, 2), foreign(n, 2);
-            std::vector<size_t> partner(n, n);
-            std::vector<Rank> foreign_rank(n, Rank::None);
-            std::vector<uint32_t> found;
-            for (size_t i = 0; i < n; i++) {
-                auto const& copy = copies_here[i];
-                found.clear();
-                size_t const probes = std::min(kProbeHashes, copy.sketch.size());
-                for (size_t p = 0; p < probes; p++) {
-                    auto const [lo, hi] = std::equal_range(entries.begin(), entries.end(), std::make_pair(copy.sketch[p], uint32_t{0}),
-                        [](auto const& a, auto const& b) { return a.first < b.first; });
-                    if (static_cast<size_t>(hi - lo) > kMaxBucket) continue;
-                    for (auto it = lo; it != hi; ++it) {
-                        if (it->second != i) found.push_back(it->second);
+    // One gene's copies, for ScanGene: copy i is taxid taxids[i]'s, its sketch (sorted, as BottomSketch gives it) the
+    // length[i] hashes from Sketch(i), all in one array (`stride` hashes a copy) rather than a vector per copy.
+    struct GeneCopies {
+        std::vector<uint32_t> taxids;
+        std::vector<uint32_t> hashes;
+        std::vector<uint32_t> length;
+        size_t stride = kSketchSize;
+
+        size_t Size() const { return taxids.size(); }
+        uint32_t const* Sketch(size_t i) const { return hashes.data() + i * stride; }
+
+        // n copies of up to `stride_` hashes each, to be Set.
+        void Resize(size_t n, size_t stride_) {
+            stride = stride_;
+            taxids.assign(n, 0);
+            length.assign(n, 0);
+            hashes.assign(n * stride, 0);
+        }
+
+        void Set(size_t i, uint32_t taxid, std::vector<uint32_t> const& sketch) {
+            taxids[i] = taxid;
+            length[i] = static_cast<uint32_t>(std::min(sketch.size(), stride));
+            std::copy_n(sketch.begin(), length[i], hashes.begin() + static_cast<std::ptrdiff_t>(i * stride));
+        }
+    };
+
+    namespace detail {
+        // need[s]: the fewest hashes two sketches whose smaller one has s hashes must share among the s smallest of their
+        // union for their distance, as Scan keeps it (SketchDistanceOf as a float), to be within kReportDistance; s + 1
+        // if no count is. Taken from the distance itself, so a pair skipped for sharing fewer is one Scan never kept.
+        inline std::vector<uint32_t> SharedNeeded(size_t max_s) {
+            std::vector<uint32_t> need(max_s + 1);
+            for (size_t s = 0; s <= max_s; s++) {
+                need[s] = static_cast<uint32_t>(s + 1);
+                for (size_t c = 1; c <= s; c++) {
+                    if (!(static_cast<float>(gene_conservation::SketchDistanceOf(c, s)) > kReportDistance)) {
+                        need[s] = static_cast<uint32_t>(c);
+                        break;
                     }
                 }
-                std::sort(found.begin(), found.end());
-                found.erase(std::unique(found.begin(), found.end()), found.end());
+            }
+            return need;
+        }
+
+        // A copy's signature: its hashes as bits of a 1,024-bit set. Two sketches share at most the bits both have
+        // plus the hashes of either that fall on a bit another of its own hashes took (`extra`), which bounds the
+        // hashes their merge can find shared (SharedBound).
+        inline constexpr size_t kSignatureWords = 16;
+
+        inline uint32_t SharedBound(uint64_t const* a, uint64_t const* b, uint32_t extra_a, uint32_t extra_b) {
+            uint32_t bits = 0;
+            for (size_t w = 0; w < kSignatureWords; w++) bits += static_cast<uint32_t>(__builtin_popcountll(a[w] & b[w]));
+            return bits + std::min(extra_a, extra_b);
+        }
+
+        // The hashes in both of the s smallest of the union of sorted a and b (SketchDistance's merge, without branches),
+        // or nullopt once `need` of them can no longer be reached.
+        inline std::optional<size_t> MergeShared(uint32_t const* a, size_t la, uint32_t const* b, size_t lb, size_t s, size_t need) {
+            size_t i = 0, j = 0, seen = 0, shared = 0;
+            while (seen < s && i < la && j < lb) {
+                uint32_t const x = a[i], y = b[j];
+                i += x <= y;
+                j += y <= x;
+                shared += x == y;
+                seen++;
+                if (shared + (s - seen) < need) return std::nullopt;
+            }
+            return shared;
+        }
+
+        // Every (hash, copy) of a gene's sketches, sorted, in buckets by a mix of the hash: the copies holding a hash are
+        // a run in its bucket. Counted, placed and sorted bucket by bucket on all threads.
+        class HashIndex {
+        public:
+            static constexpr int kBucketBits = 12;
+
+            static size_t BucketOf(uint32_t h) { return (h * 0x9E3779B1u) >> (32 - kBucketBits); }
+
+            HashIndex(GeneCopies const& gene, int threads) {
+                size_t constexpr buckets = size_t{1} << kBucketBits;
+                size_t const n = gene.Size();
+                threads = std::max(threads, 1);
+                std::vector<uint64_t> counts(static_cast<size_t>(threads) * buckets, 0);  // per thread and bucket
+                m_start.assign(buckets + 1, 0);
+                uint64_t total = 0;
+                for (size_t i = 0; i < n; i++) total += gene.length[i];
+                m_entries.resize(total);
+                #pragma omp parallel num_threads(threads)
+                {
+                    size_t const t = static_cast<size_t>(omp_get_thread_num());
+                    uint64_t* mine = counts.data() + t * buckets;
+                    // The same static schedule twice: each thread places the copies it counted.
+                    #pragma omp for schedule(static)
+                    for (int64_t i = 0; i < static_cast<int64_t>(n); i++) {
+                        uint32_t const* sketch = gene.Sketch(static_cast<size_t>(i));
+                        for (uint32_t k = 0; k < gene.length[static_cast<size_t>(i)]; k++) mine[BucketOf(sketch[k])]++;
+                    }
+                    #pragma omp single
+                    {
+                        size_t const team = static_cast<size_t>(omp_get_num_threads());
+                        uint64_t position = 0;
+                        for (size_t b = 0; b < buckets; b++) {
+                            m_start[b] = position;
+                            for (size_t u = 0; u < team; u++) {
+                                uint64_t const c = counts[u * buckets + b];
+                                counts[u * buckets + b] = position;
+                                position += c;
+                            }
+                        }
+                        m_start[buckets] = position;
+                    }
+                    #pragma omp for schedule(static)
+                    for (int64_t i = 0; i < static_cast<int64_t>(n); i++) {
+                        uint32_t const* sketch = gene.Sketch(static_cast<size_t>(i));
+                        for (uint32_t k = 0; k < gene.length[static_cast<size_t>(i)]; k++) {
+                            m_entries[mine[BucketOf(sketch[k])]++] = { sketch[k], static_cast<uint32_t>(i) };
+                        }
+                    }
+                    #pragma omp for schedule(dynamic, 16)
+                    for (int64_t b = 0; b < static_cast<int64_t>(buckets); b++) {
+                        std::sort(m_entries.begin() + static_cast<std::ptrdiff_t>(m_start[static_cast<size_t>(b)]),
+                                  m_entries.begin() + static_cast<std::ptrdiff_t>(m_start[static_cast<size_t>(b) + 1]));
+                    }
+                }
+            }
+
+            // The entries of hash h: [first, second).
+            std::pair<std::pair<uint32_t, uint32_t> const*, std::pair<uint32_t, uint32_t> const*> Find(uint32_t h) const {
+                size_t const b = BucketOf(h);
+                auto const begin = m_entries.data() + m_start[b], end = m_entries.data() + m_start[b + 1];
+                auto const lo = std::lower_bound(begin, end, std::make_pair(h, uint32_t{0}));
+                auto const hi = std::upper_bound(lo, end, std::make_pair(h, UINT32_MAX));
+                return { lo, hi };
+            }
+
+        private:
+            std::vector<std::pair<uint32_t, uint32_t>> m_entries;
+            std::vector<uint64_t> m_start;
+        };
+    }
+
+    // Compares the copies of one gene (gene id `geneid`, in `gene`) and adds its suspects, its near pairs across genera
+    // and its counts to result (unsorted: Finish sorts them). For each copy its nearest other copy among its congeners
+    // and among the species of other genera: the candidates are the copies sharing one of its kProbeHashes smallest
+    // hashes (a hash more than kMaxBucket copies hold tells nothing), their distance from the sketches. A candidate whose
+    // sketch cannot share the hashes a distance within kReportDistance takes (detail::SharedBound, and the merge stopped
+    // once they can no longer be reached) is left out at once: what the comparison keeps is exactly what it kept when
+    // every candidate was merged in full, 95% or more of them to no end at GTDB r226 (docs/claude/2026-10-07-database-
+    // build-audit.md, S1). The copies are compared on `threads` threads, each copy's nearest ones set by its thread only.
+    //
+    // A copy is suspect when a copy of another genus (the partner) is within suspect_distance and: the copy's genus has
+    // other copies of the gene but its nearest one is kCongenerMargin farther than the partner's (its own genus does not
+    // have this copy, the other does); or the copy's genus has no other copy (a singleton genus) and the partner's genus
+    // does, with the partner's nearest congener's copy kCongenerMargin farther than this copy (the copy lies inside the
+    // other genus's cluster, tighter than the cluster itself: a slow gene shared by a young family does not qualify).
+    inline void ScanGene(uint32_t geneid, GeneCopies const& gene, std::unordered_map<uint32_t, Lineage> const& lineages,
+                         double suspect_distance, int threads, Result& result) {
+        size_t const n = gene.Size();
+        result.copies += n;
+        if (n < 2) return;
+        result.genes++;
+        threads = std::max(threads, 1);
+        Lineage const no_lineage;
+        std::vector<Lineage const*> lineage(n);
+        // Copies of the gene per genus: a copy whose genus has others is judged against them.
+        std::unordered_map<uint32_t, size_t> per_genus;
+        std::vector<uint32_t> genus_of(n, 0);
+        for (size_t i = 0; i < n; i++) {
+            auto const it = lineages.find(gene.taxids[i]);
+            lineage[i] = it == lineages.end() ? &no_lineage : &it->second;
+            genus_of[i] = lineage[i]->At(Rank::Genus);
+            if (genus_of[i] != 0) per_genus[genus_of[i]]++;
+        }
+        std::vector<uint64_t> signature(n * detail::kSignatureWords, 0);
+        std::vector<uint32_t> extra(n, 0);
+        #pragma omp parallel for schedule(static) num_threads(threads)
+        for (int64_t i = 0; i < static_cast<int64_t>(n); i++) {
+            uint64_t* sig = signature.data() + static_cast<size_t>(i) * detail::kSignatureWords;
+            uint32_t const* sketch = gene.Sketch(static_cast<size_t>(i));
+            uint32_t const length = gene.length[static_cast<size_t>(i)];
+            for (uint32_t k = 0; k < length; k++) sig[(sketch[k] & 1023u) >> 6] |= uint64_t{1} << (sketch[k] & 63u);
+            uint32_t bits = 0;
+            for (size_t w = 0; w < detail::kSignatureWords; w++) bits += static_cast<uint32_t>(__builtin_popcountll(sig[w]));
+            extra[static_cast<size_t>(i)] = length - bits;
+        }
+        detail::HashIndex const index(gene, threads);
+        std::vector<uint32_t> const need = detail::SharedNeeded(gene.stride);
+
+        // Pass 1: each copy's nearest congener's copy and nearest other genus's copy (the partner).
+        std::vector<float> congener(n, 2), foreign(n, 2);
+        std::vector<size_t> partner(n, n);
+        std::vector<Rank> foreign_rank(n, Rank::None);
+        std::vector<Pair> pairs;
+        size_t candidates = 0, compared = 0;
+        #pragma omp parallel num_threads(threads) reduction(+:candidates, compared)
+        {
+            std::vector<uint32_t> stamp(n, UINT32_MAX);  // stamp[j] == i: j is a candidate of i already
+            std::vector<uint32_t> found;
+            std::vector<Pair> mine;
+            #pragma omp for schedule(dynamic, 64)
+            for (int64_t ii = 0; ii < static_cast<int64_t>(n); ii++) {
+                auto const i = static_cast<size_t>(ii);
+                uint32_t const* a = gene.Sketch(i);
+                uint32_t const la = gene.length[i];
+                found.clear();
+                size_t const probes = std::min<size_t>(kProbeHashes, la);
+                for (size_t p = 0; p < probes; p++) {
+                    auto const [lo, hi] = index.Find(a[p]);
+                    if (static_cast<size_t>(hi - lo) > kMaxBucket) continue;
+                    for (auto it = lo; it != hi; ++it) {
+                        uint32_t const j = it->second;
+                        if (j != i && stamp[j] != i) {
+                            stamp[j] = static_cast<uint32_t>(i);
+                            found.push_back(j);
+                        }
+                    }
+                }
                 candidates += found.size();
-                auto const& lineage = lineage_of(copy.taxid);
+                uint32_t const taxid = gene.taxids[i];
+                uint64_t const* sig_a = signature.data() + i * detail::kSignatureWords;
                 for (uint32_t const j : found) {
-                    auto const& other = copies_here[j];
-                    if (other.taxid == copy.taxid) continue;
-                    auto const d = static_cast<float>(gene_conservation::SketchDistance(copy.sketch, other.sketch));
+                    if (gene.taxids[j] == taxid) continue;
+                    uint32_t const lb = gene.length[j];
+                    size_t const s = std::min(la, lb);
+                    if (detail::SharedBound(sig_a, signature.data() + j * detail::kSignatureWords, extra[i], extra[j]) < need[s]) continue;
+                    compared++;
+                    auto const shared = detail::MergeShared(a, la, gene.Sketch(j), lb, s, need[s]);
+                    if (!shared) continue;
+                    auto const d = static_cast<float>(gene_conservation::SketchDistanceOf(*shared, s));
                     if (d > kReportDistance) continue;
-                    Rank const rank = SharedRank(lineage, lineage_of(other.taxid));
+                    Rank const rank = SharedRank(*lineage[i], *lineage[j]);
                     if (rank == Rank::Genus) {
                         congener[i] = std::min(congener[i], d);
                         continue;
                     }
-                    if (d < foreign[i] || (d == foreign[i] && other.taxid < copies_here[partner[i]].taxid)) {
+                    if (d < foreign[i] || (d == foreign[i] && gene.taxids[j] < gene.taxids[partner[i]])) {
                         foreign[i] = d;
                         partner[i] = j;
                         foreign_rank[i] = rank;
                     }
-                    if (copy.taxid < other.taxid) pairs.push_back({ static_cast<uint32_t>(geneid), copy.taxid, other.taxid, rank, d });
-                    else pairs.push_back({ static_cast<uint32_t>(geneid), other.taxid, copy.taxid, rank, d });
+                    if (taxid < gene.taxids[j]) mine.push_back({ geneid, taxid, gene.taxids[j], rank, d });
+                    else mine.push_back({ geneid, gene.taxids[j], taxid, rank, d });
                 }
             }
-            // Pass 2: the verdicts.
-            for (size_t i = 0; i < n; i++) {
-                if (foreign[i] > suspect_distance || partner[i] >= n) continue;
-                bool const has_congeners = genus_of[i] != 0 && per_genus[genus_of[i]] > 1;
-                bool suspect;
-                if (has_congeners) {
-                    suspect = congener[i] > foreign[i] + kCongenerMargin;  // 2 when none within kReportDistance
-                } else {
-                    size_t const p = partner[i];
-                    bool const partner_has_congeners = genus_of[p] != 0 && per_genus[genus_of[p]] > 1;
-                    suspect = partner_has_congeners && congener[p] < 2 && foreign[i] + kCongenerMargin <= congener[p];
-                }
-                if (suspect) {
-                    suspects.push_back({ copies_here[i].taxid, static_cast<uint32_t>(geneid), copies_here[partner[i]].taxid,
-                                         foreign_rank[i], foreign[i], congener[i] });
-                }
+            #pragma omp critical(gene_incongruence_pairs)
+            pairs.insert(pairs.end(), mine.begin(), mine.end());
+        }
+        result.candidates += candidates;
+        result.compared += compared;
+        // Pass 2: the verdicts.
+        for (size_t i = 0; i < n; i++) {
+            if (foreign[i] > suspect_distance || partner[i] >= n) continue;
+            bool const has_congeners = genus_of[i] != 0 && per_genus[genus_of[i]] > 1;
+            bool suspect;
+            if (has_congeners) {
+                suspect = congener[i] > foreign[i] + kCongenerMargin;  // 2 when none within kReportDistance
+            } else {
+                size_t const p = partner[i];
+                bool const partner_has_congeners = genus_of[p] != 0 && per_genus[genus_of[p]] > 1;
+                suspect = partner_has_congeners && congener[p] < 2 && foreign[i] + kCongenerMargin <= congener[p];
             }
-            #pragma omp critical(gene_incongruence_merge)
-            {
-                result.suspects.insert(result.suspects.end(), suspects.begin(), suspects.end());
-                result.pairs.insert(result.pairs.end(), pairs.begin(), pairs.end());
+            if (suspect) {
+                result.suspects.push_back({ gene.taxids[i], geneid, gene.taxids[partner[i]], foreign_rank[i], foreign[i], congener[i] });
             }
         }
-        result.copies = copies;
-        result.genes = genes;
-        result.candidates = candidates;
+        result.pairs.insert(result.pairs.end(), pairs.begin(), pairs.end());
+    }
+
+    // Sorts what ScanGene added: the suspects by gene id and taxid, the pairs by gene id and taxids, each once.
+    inline void Finish(Result& result) {
         std::sort(result.suspects.begin(), result.suspects.end(), [](Suspect const& a, Suspect const& b) {
             return a.geneid != b.geneid ? a.geneid < b.geneid : a.taxid < b.taxid;
         });
@@ -267,6 +435,23 @@ namespace protal::gene_incongruence {
         std::sort(result.pairs.begin(), result.pairs.end(), [&](Pair const& a, Pair const& b) { return pair_key(a) < pair_key(b); });
         result.pairs.erase(std::unique(result.pairs.begin(), result.pairs.end(), [&](Pair const& a, Pair const& b) { return pair_key(a) == pair_key(b); }),
                            result.pairs.end());
+    }
+
+    // ScanGene on every gene of copies_by_gene (copies_by_gene[geneid], in any order), then Finish: the same for any
+    // thread count.
+    inline Result Scan(std::vector<std::vector<Copy>> const& copies_by_gene, std::unordered_map<uint32_t, Lineage> const& lineages,
+                       double suspect_distance, int threads) {
+        Result result;
+        for (size_t geneid = 0; geneid < copies_by_gene.size(); geneid++) {
+            auto const& list = copies_by_gene[geneid];
+            size_t stride = 0;
+            for (auto const& copy : list) stride = std::max(stride, copy.sketch.size());
+            GeneCopies gene;
+            gene.Resize(list.size(), stride);
+            for (size_t i = 0; i < list.size(); i++) gene.Set(i, list[i].taxid, list[i].sketch);
+            ScanGene(static_cast<uint32_t>(geneid), gene, lineages, suspect_distance, threads, result);
+        }
+        Finish(result);
         return result;
     }
 

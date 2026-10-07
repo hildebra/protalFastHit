@@ -349,14 +349,63 @@ namespace protal::build {
         bm.PrintResults();
     }
 
+    // The index of --build as the first member of database.protal, written from memory (db::Generated): its frames
+    // straight into the database file, read back from it and compared with the index, which is then freed, before the
+    // other members are compressed. Before, the index was written as index.prx.zst and read back, then copied into the
+    // database and both read again: ~36 GB written and ~72 GB read at r226 for an 18 GB index
+    // (docs/claude/2026-10-07-database-build-audit.md, S2). The database's bytes are the same.
+    inline db::Source IndexMember(Seedmap& index, zstd::Params const& params) {
+        std::string error;
+        auto plan = index.CompressedFrames(params, error);
+        if (!plan) {
+            std::cerr << "Cannot write the index: " << error << std::endl;
+            exit(8);
+        }
+        auto const frames = std::make_shared<index_codec::FramePlan>(std::move(*plan));
+        auto const timer = std::make_shared<Benchmark>("Write index");
+        auto generated = std::make_shared<db::Generated>();
+        generated->frames = frames->Frames();
+        generated->write = [&index, frames, params, timer](zstd::FrameWriter& out) -> std::string {
+            timer->Start();
+            std::cout << "Write the index into " << db::kFileName << " (zstd level " << params.level << ", columns in "
+                      << HumanBytes(params.frame_size) << " chunks, verified, " << params.threads << " thread(s))" << std::endl;
+            std::string error;
+            size_t raw_chunks = 0;
+            uint64_t const before = out.Written();
+            if (!index.WriteCompressedFrames(out, *frames, params, error, raw_chunks)) return error;
+            uint64_t const written = out.Written() - before, size = index.SerializedSize();
+            if (raw_chunks > 0) std::cout << raw_chunks << " index chunk(s) kept as raw cells" << std::endl;
+            std::cout << "Index in " << db::kFileName << ": " << HumanBytes(written) << " (" << HumanBytes(size) << " uncompressed, "
+                      << std::fixed << std::setprecision(1) << size / double(std::max<uint64_t>(written, 1)) << "x)"
+                      << std::defaultfloat << std::endl;
+            return "";
+        };
+        generated->verify = [&index, params](std::string const& path, zstd::SeekTable const& member) {
+            return index.VerifyCompressedFrames(path, member, params.threads);
+        };
+        generated->done = [&index, timer]() {
+            index.FreeMemory();  // ~30 GB at r226: gone before the reference is compressed
+            ReleaseFreeMemory();
+            timer->Stop();
+            timer->PrintResults();
+            PrintMemory("writing the index");
+        };
+        db::Source source{ Options::PROTAL_INDEX_FILE, "the index in memory" };
+        source.generated = std::move(generated);
+        return source;
+    }
+
     // Packs the database folder into database.protal, checks it (db::Write), and removes the files
-    // it now holds; --unpack_db writes them back. The index must be in the column format, as --build
-    // and --compress_db write it.
-    static void BundleDatabase(protal::Options const& options) {
+    // it now holds; --unpack_db writes them back. With `index` (--build), the index is taken from
+    // memory (IndexMember) and freed once written; else from the folder, in the column format, as
+    // --compress_db writes it.
+    static void BundleDatabase(protal::Options const& options, Seedmap* index = nullptr) {
         namespace fs = std::filesystem;
         std::string const target = (fs::path(options.GetLocation().dir) / db::kFileName).string();
         auto sources = BundleSources(options);
-        if (!index_codec::IsSplitIndex(sources.front().path)) {
+        if (index) {
+            sources.front() = IndexMember(*index, options.CompressionParams());
+        } else if (!index_codec::IsSplitIndex(sources.front().path)) {
             std::cerr << "Cannot write " << target << ": the index " << sources.front().path << " is not in protal's column "
                       << "format (protal --compress_db --no_bundle converts it)" << std::endl;
             exit(8);
@@ -390,8 +439,11 @@ namespace protal::build {
         uint64_t before = 0;
         std::string names;
         for (auto const& source : sources) {
-            before += fs::file_size(source.path, ec);
-            names += (names.empty() ? "" : ", ") + fs::path(source.path).filename().string();
+            if (!source.generated) {
+                auto const size = fs::file_size(source.path, ec);
+                if (!ec) before += size;
+            }
+            names += (names.empty() ? "" : ", ") + (source.generated ? source.path : fs::path(source.path).filename().string());
         }
         bool const replaces = fs::exists(target, ec);
         std::cout << "Write " << target << " from " << names << " (seekable zstd files' frames as they are, the others "
@@ -403,6 +455,7 @@ namespace protal::build {
             exit(8);
         }
         for (auto const& source : sources) {
+            if (source.generated) continue;
             fs::remove(source.path, ec);
             if (ec) std::cerr << "Warning: cannot remove " << source.path << ": " << ec.message() << std::endl;
         }
@@ -414,8 +467,9 @@ namespace protal::build {
         }
         bm.Stop();
         std::cout << target << ": " << HumanBytes(*written) << " (" << HumanBytes(before) << " as separate files"
-                  << (replaces ? "; replaced the previous one" : "") << "). Removed the separate files; "
-                  << options.ProgramName() << " --unpack_db --db " << Options::ShellWord(target) << " writes them back." << std::endl;
+                  << (index ? ", besides the index" : "") << (replaces ? "; replaced the previous one" : "")
+                  << "). Removed the separate files; " << options.ProgramName() << " --unpack_db --db "
+                  << Options::ShellWord(target) << " writes them back." << std::endl;
         bm.PrintResults();
     }
 
@@ -941,20 +995,67 @@ namespace protal::build {
             }
         }
         gene_conservation::Estimator estimator(std::move(keys));
-        auto input = OpenInput(full_reference);
-        std::istream& is = input->Stream();
-        omp_set_num_threads(static_cast<int>(std::max<size_t>(options.GetThreads(), 1)));
-#pragma omp parallel default(none) shared(is, genomes, estimator)
-        {
-            FastxRecord record;
-            SeqReader reader { is };
-            while (reader(record)) {
-                auto const [taxid, geneid] = KmerUtils::ExtractHeaderInformation(record.header);
-                if (!genomes.HasGene(taxid, geneid)) continue;
-                auto const slot = estimator.Take(taxid, geneid);
-                if (!slot) continue;
-                auto const rep = genomes.GetGenome(taxid).GetGeneOMP(geneid).Sequence();
-                estimator.Add(*slot, rep.View(), record.sequence);
+        auto add = [&genomes, &estimator](std::string const& header, std::string_view sequence) {
+            auto const [taxid, geneid] = KmerUtils::ExtractHeaderInformation(header);
+            if (!genomes.HasGene(taxid, geneid)) return;
+            auto const slot = estimator.Take(taxid, geneid);
+            if (!slot) return;
+            auto const rep = genomes.GetGenome(taxid).GetGeneOMP(geneid).Sequence();
+            estimator.Add(*slot, rep.View(), sequence);
+        };
+        int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        std::string error;
+        auto const frames = FastaFrames::Open(zstd::Resolve(full_reference), error);
+        if (!error.empty()) {
+            std::cerr << "Cannot read the full reference: " << error << std::endl;
+            exit(8);
+        }
+        if (frames) {
+            // A frame per thread at a time, its records in order (FastaFrames: the converter's frames, decompressed on all
+            // threads instead of one). A species' copies of a gene lie in one frame (a marker file's, or a gene's), so the
+            // copies it gets compared (the first kMaxCopies) are the first in the file, whatever the threads do.
+            std::atomic<size_t> next{ 0 };
+            std::string failure;
+#pragma omp parallel num_threads(static_cast<int>(std::min<size_t>(static_cast<size_t>(threads), frames->Frames())))
+            {
+                FastaFrames::Reader reader(*frames);
+                std::string batch, scratch, header;
+                for (size_t f; (f = next.fetch_add(1)) < frames->Frames();) {
+                    reader.Take(f);
+                    while (reader.Next(batch, size_t{1} << 20)) {
+                        ForEachFastaRecord(batch, scratch, [&](std::string_view record_header, std::string_view sequence) {
+                            header.assign(record_header);
+                            add(header, sequence);
+                        });
+                    }
+                    if (!reader.Error().empty()) {
+#pragma omp critical(conservation_failure)
+                        if (failure.empty()) failure = reader.Error();
+                        break;
+                    }
+                }
+            }
+            if (!failure.empty()) {
+                std::cerr << "Cannot read the full reference: " << failure << std::endl;
+                exit(8);
+            }
+        } else {
+            auto input = OpenInput(full_reference);
+            std::istream& is = input->Stream();
+            bool parsed = true;
+            omp_set_num_threads(threads);
+#pragma omp parallel default(none) shared(is, add, parsed)
+            {
+                FastxRecord record;
+                SeqReader reader { is };
+                while (reader(record)) add(record.header, record.sequence);
+#pragma omp critical(conservation_failure)
+                parsed = parsed && reader.Success();
+            }
+            // A read or decompression error ends the stream early: the factors would rest on part of the copies.
+            if (is.bad() || !parsed) {
+                std::cerr << "Cannot read the full reference " << full_reference << " to its end (truncated or corrupt file?)" << std::endl;
+                exit(8);
             }
         }
         auto estimate = estimator.Finish();
@@ -1084,9 +1185,9 @@ namespace protal::build {
         bm.PrintResults();
     }
 
-    // species_neighbours.tsv in the database (SpeciesNeighbours.h): every two species of a genus compared by their
-    // references' marker genes (profiler::context::SketchedTaxonDistance, the distance a run's relative_distance
-    // reads), and each species' nearest congeners kept (at most species_neighbours::kMaxNeighbours, within
+    // species_neighbours.tsv in the database (SpeciesNeighbours.h): every two species of a genus compared by all their
+    // references' marker genes (profiler::context::SketchedTaxonDistance; a run's relative_distance compares only the
+    // genes with unique k-mers, which the build does not know yet here), and each species' nearest congeners kept (at most species_neighbours::kMaxNeighbours, within
     // kMaxDistance); every species of the database gets a row, also one without a congener. The genera are taken in batches of about kNeighbourBatch
     // species, sketched and compared on all threads, so that the whole database's sketches (~35 kB a species) are never
     // held at once.
@@ -1186,37 +1287,36 @@ namespace protal::build {
             exit(8);
         }
         std::vector<uint32_t> taxids;
-        for (auto const& [taxid, _] : genomes.GetGenomeMap()) taxids.push_back(static_cast<uint32_t>(taxid));
+        size_t max_gene = 0;
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) {
+            taxids.push_back(static_cast<uint32_t>(taxid));
+            max_gene = std::max(max_gene, genome.GetGeneList().size());
+        }
         std::sort(taxids.begin(), taxids.end());
-        std::vector<std::vector<gene_incongruence::Copy>> copies;
         int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
-        #pragma omp parallel num_threads(threads)
-        {
-            std::vector<std::vector<gene_incongruence::Copy>> mine;
-            #pragma omp for schedule(dynamic, 16)
-            for (size_t t = 0; t < taxids.size(); t++) {
-                auto& genome = genomes.GetGenome(taxids[t]);
-                auto const& list = genome.GetGeneList();
-                for (size_t i = 0; i < list.size(); i++) {
-                    if (!list[i].IsSet() || !options.BuildGeneAllowed(i + 1)) continue;  // the subset's genes only
-                    auto const seq = genome.GetGeneOMP(i + 1).Sequence();
-                    if (mine.size() <= i + 1) mine.resize(i + 2);
-                    mine[i + 1].push_back({ taxids[t], gene_conservation::BottomSketch(seq.View(), gene_incongruence::kSketchSize) });
-                }
+        // Gene by gene: its copies sketched (by taxid) and compared on all threads, so that only one gene's sketches are
+        // held at a time (every gene's, ~13 GB at r226 with 64 threads, before) and no thread waits for the largest genes.
+        gene_incongruence::Result result;
+        gene_incongruence::GeneCopies copies;
+        std::vector<uint32_t> holders;
+        for (size_t g = 1; g <= max_gene; g++) {
+            if (!options.BuildGeneAllowed(g)) continue;  // the subset's genes only
+            holders.clear();
+            for (uint32_t const taxid : taxids) {
+                auto const& list = genomes.GetGenome(taxid).GetGeneList();
+                if (g <= list.size() && list[g - 1].IsSet()) holders.push_back(taxid);
             }
-            #pragma omp critical(suspect_copies_merge)
-            {
-                // Moved, not copied: a copy of every sketch was ~6 GB more at r226 scale.
-                if (copies.size() < mine.size()) copies.resize(mine.size());
-                for (size_t g = 0; g < mine.size(); g++) {
-                    copies[g].insert(copies[g].end(), std::make_move_iterator(mine[g].begin()), std::make_move_iterator(mine[g].end()));
-                }
+            if (holders.empty()) continue;
+            copies.Resize(holders.size(), gene_incongruence::kSketchSize);
+            #pragma omp parallel for schedule(dynamic, 64) num_threads(threads)
+            for (int64_t i = 0; i < static_cast<int64_t>(holders.size()); i++) {
+                auto const seq = genomes.GetGenome(holders[static_cast<size_t>(i)]).GetGeneOMP(g).Sequence();
+                copies.Set(static_cast<size_t>(i), holders[static_cast<size_t>(i)],
+                           gene_conservation::BottomSketch(seq.View(), gene_incongruence::kSketchSize));
             }
+            gene_incongruence::ScanGene(static_cast<uint32_t>(g), copies, lineages, threshold, threads, result);
         }
-        for (auto& gene : copies) {
-            std::sort(gene.begin(), gene.end(), [](auto const& a, auto const& b) { return a.taxid < b.taxid; });
-        }
-        auto const result = gene_incongruence::Scan(copies, lineages, threshold, threads);
+        gene_incongruence::Finish(result);
         gene_incongruence::Table table;
         for (auto const& suspect : result.suspects) table.Add(suspect);
         {
@@ -1243,32 +1343,195 @@ namespace protal::build {
                   << " of another genus's copy and farther from their congeners'"
                   << (table.Empty() ? std::string(": none") : ": " + target) << "; "
                   << result.pairs.size() << " near pairs across genera (within " << gene_incongruence::kReportDistance << ") of "
-                  << result.genes << " genes, " << result.candidates << " sketch pairs compared: " << report
+                  << result.genes << " genes, " << result.candidates << " candidate pairs, " << result.compared
+                  << " of them compared in full (the others cannot be within " << gene_incongruence::kReportDistance << "): " << report
                   << std::setprecision(6) << std::endl;  // the default again: the index passes print after this
         bm.Stop();
         bm.PrintResults();
     }
 
+    // A batch of records for the passes (PartitionedPass, UniquenessPass): the text of whole FASTA records (TextSource,
+    // FramesSource), or the genes [begin, end) of the reference's order (GeneSource). Empty: nothing in this slot.
+    struct BatchInput {
+        std::string text;
+        size_t begin = 0, end = 0;
+        bool Empty() const { return text.empty() && begin == end; }
+    };
+
+    // The records of a FASTA file read in one stream (FastaBatches): one thread reads each round's batches.
+    class TextSource {
+    public:
+        TextSource(std::istream& is, size_t batch_bytes) : m_reader(is), m_batch_bytes(batch_bytes) {}
+
+        // Called by every thread of the pass's team: fills inputs, returns how many it filled (0: the end).
+        size_t Fill(std::vector<BatchInput>& inputs) {
+#pragma omp single
+            {
+                m_filled = 0;
+                while (m_filled < inputs.size() && m_reader.Next(inputs[m_filled].text, m_batch_bytes)) m_filled++;
+            }
+            return m_filled;
+        }
+
+        // f(taxid, gene id, sequence) for each record of the batch.
+        template<typename F>
+        void ForEach(BatchInput const& input, std::string& scratch, F&& f) {
+            thread_local std::string header;
+            ForEachFastaRecord(input.text, scratch, [&](std::string_view record_header, std::string_view sequence) {
+                header.assign(record_header);
+                auto const [taxid, geneid] = KmerUtils::ExtractHeaderInformation(header);
+                f(taxid, geneid, sequence);
+            });
+        }
+
+        std::string const& Error() const { return m_reader.Error(); }
+
+    private:
+        FastaBatches m_reader;
+        size_t m_batch_bytes;
+        size_t m_filled = 0;
+    };
+
+    // Threads that decompress the full reference's frames at once in the uniqueness check (FramesSource; at most half of
+    // -t): each holds a frame's window, 128 MB for the converter's, beside the index.
+    inline constexpr size_t kFrameDecoders = 16;
+
+    // The records of a FASTA file in frames that each begin a record (FastaFrames: full_reference.fna.zst as the
+    // converter writes it), decompressed by `decoders` threads at once, each taking the next frame when its own ends: the
+    // order of the batches is not the file's, which the uniqueness check does not need. Each decoder holds a frame's
+    // window (128 MB for the converter's frames).
+    class FramesSource {
+    public:
+        FramesSource(FastaFrames const& frames, size_t decoders, size_t batch_bytes) : m_frames(frames), m_batch_bytes(batch_bytes) {
+            decoders = std::clamp<size_t>(decoders, 1, frames.Frames());
+            for (size_t d = 0; d < decoders; d++) m_decoders.push_back(std::make_unique<Decoder>(frames));
+        }
+
+        size_t Decoders() const { return m_decoders.size(); }
+
+        // Called by every thread of the pass's team: each decoder fills its share of inputs (a slot it leaves empty
+        // when its frames are done). Returns inputs.size() while any decoder had records, then 0.
+        size_t Fill(std::vector<BatchInput>& inputs) {
+            size_t const decoders = m_decoders.size();
+            size_t const share = std::max<size_t>(1, inputs.size() / decoders);
+#pragma omp single
+            {
+                m_any.store(false, std::memory_order_relaxed);
+                for (auto& input : inputs) input.text.clear();
+            }
+#pragma omp for schedule(static, 1)
+            for (size_t d = 0; d < decoders; d++) {
+                Decoder& decoder = *m_decoders[d];
+                for (size_t slot = d * share; slot < std::min(inputs.size(), (d + 1) * share); slot++) {
+                    while (!decoder.done) {
+                        if (decoder.reader.Next(inputs[slot].text, m_batch_bytes)) break;
+                        if (!decoder.reader.Error().empty()) {
+                            decoder.done = true;
+                            break;
+                        }
+                        size_t const f = m_next.fetch_add(1);
+                        if (f >= m_frames.Frames()) decoder.done = true;
+                        else decoder.reader.Take(f);
+                    }
+                    if (!inputs[slot].text.empty()) m_any.store(true, std::memory_order_relaxed);
+                }
+            }
+            // The implicit barrier of the loop above: every decoder has filled its slots.
+            return m_any.load(std::memory_order_relaxed) ? inputs.size() : 0;
+        }
+
+        template<typename F>
+        void ForEach(BatchInput const& input, std::string& scratch, F&& f) {
+            thread_local std::string header;
+            ForEachFastaRecord(input.text, scratch, [&](std::string_view record_header, std::string_view sequence) {
+                header.assign(record_header);
+                auto const [taxid, geneid] = KmerUtils::ExtractHeaderInformation(header);
+                f(taxid, geneid, sequence);
+            });
+        }
+
+        std::string Error() const {
+            for (auto const& decoder : m_decoders) {
+                if (!decoder->reader.Error().empty()) return decoder->reader.Error();
+            }
+            return "";
+        }
+
+    private:
+        struct Decoder {
+            explicit Decoder(FastaFrames const& frames) : reader(frames) {}
+            FastaFrames::Reader reader;
+            bool done = false;
+        };
+        FastaFrames const& m_frames;
+        size_t m_batch_bytes;
+        std::vector<std::unique_ptr<Decoder>> m_decoders;
+        std::atomic<size_t> m_next{ 0 };
+        std::atomic<bool> m_any{ false };
+    };
+
+    // reference.fna's records from the preloaded genes (GenomeLoader::ReferenceText), in the file's order: no file read,
+    // and each batch decoded by the thread that takes it.
+    class GeneSource {
+    public:
+        GeneSource(GenomeLoader& genomes, size_t batch_bytes) : m_genomes(genomes), m_batch_bytes(batch_bytes) {}
+
+        size_t Fill(std::vector<BatchInput>& inputs) {
+#pragma omp single
+            {
+                auto const& order = m_genomes.FileOrder();
+                m_filled = 0;
+                while (m_filled < inputs.size() && m_next < order.size()) {
+                    BatchInput& input = inputs[m_filled++];
+                    input.text.clear();
+                    input.begin = m_next;
+                    size_t bytes = 0;
+                    while (m_next < order.size() && (m_next == input.begin || bytes < m_batch_bytes)) {
+                        bytes += m_genomes.GeneLength(order[m_next].first, order[m_next].second) + 16;  // and a header's
+                        m_next++;
+                    }
+                    input.end = m_next;
+                }
+            }
+            return m_filled;
+        }
+
+        template<typename F>
+        void ForEach(BatchInput const& input, std::string& scratch, F&& f) {
+            auto const& order = m_genomes.FileOrder();
+            for (size_t g = input.begin; g < input.end; g++) {
+                m_genomes.ReferenceText(g, scratch);
+                f(static_cast<size_t>(order[g].first), static_cast<size_t>(order[g].second), std::string_view(scratch));
+            }
+        }
+
+        std::string Error() const { return ""; }
+
+    private:
+        GenomeLoader& m_genomes;
+        size_t m_batch_bytes;
+        size_t m_next = 0, m_filled = 0;
+    };
+
     // A pass over the reference in `threads` threads that updates the index as one thread would
     // (docs/claude/2026-09-29-index-build-parallel.md). The key space is cut into `ranges` ranges of
-    // whole control blocks. Each round, one thread reads batches of whole records (FastaBatches);
-    // the threads parse them, extract their items (extract: a record's k-mers, in order) and group
-    // each batch's items by range (range_of), keeping their order within a range; then each range
-    // is applied (apply) by one thread, batch by batch in reference order. A key's updates thus
-    // come in the serial order, and none needs a lock: no two threads touch the same block.
-    template<typename Item, typename KmerHandler, typename Extract, typename RangeOf, typename Apply>
-    void PartitionedPass(std::istream& is, KmerHandler const& handler_global, int threads, size_t batch_bytes,
-                         size_t ranges, Extract&& extract, RangeOf&& range_of, Apply&& apply, Statistics& statistics) {
+    // whole control blocks. Each round, the source gives batches of whole records, in the reference's
+    // order (TextSource: one thread reads them; GeneSource: the preloaded genes); the threads parse
+    // them, extract their items (extract: a record's k-mers, in order) and group each batch's items by
+    // range (range_of), keeping their order within a range; then each range is applied (apply) by one
+    // thread, batch by batch in reference order. A key's updates thus come in the serial order, and
+    // none needs a lock: no two threads touch the same block.
+    template<typename Item, typename Source, typename KmerHandler, typename Extract, typename RangeOf, typename Apply>
+    void PartitionedPass(Source& source, KmerHandler const& handler_global, int threads, size_t ranges, Extract&& extract,
+                         RangeOf&& range_of, Apply&& apply, Statistics& statistics) {
         struct Batch {
-            std::string text;
             std::vector<Item> items;        // grouped by range
             std::vector<uint32_t> offsets;  // items [offsets[r], offsets[r + 1]) are range r's
         };
         threads = std::max(threads, 1);
         size_t const per_round = 4 * static_cast<size_t>(threads);
+        std::vector<BatchInput> inputs(per_round);
         std::vector<Batch> batches(per_round);
-        FastaBatches reader(is);
-        size_t filled = 0;
 
 #pragma omp parallel num_threads(threads)
         {
@@ -1276,23 +1539,18 @@ namespace protal::build {
             Statistics local;
             std::vector<Item> items;  // a batch's items in record order
             std::vector<uint32_t> cursor(ranges);
-            std::string scratch, header;
+            std::string scratch;
             KmerList kmers;
             while (true) {
-#pragma omp single
-                {
-                    filled = 0;
-                    while (filled < per_round && reader.Next(batches[filled].text, batch_bytes)) filled++;
-                }
+                size_t const filled = source.Fill(inputs);
                 if (filled == 0) break;
 
 #pragma omp for schedule(dynamic, 1)
                 for (size_t b = 0; b < filled; b++) {
                     Batch& batch = batches[b];
                     items.clear();
-                    ForEachFastaRecord(batch.text, scratch, [&](std::string_view record_header, std::string_view sequence) {
-                        header.assign(record_header);
-                        extract(handler, header, sequence, kmers, items, local);
+                    source.ForEach(inputs[b], scratch, [&](size_t taxid, size_t geneid, std::string_view sequence) {
+                        extract(handler, taxid, geneid, sequence, kmers, items, local);
                     });
                     batch.offsets.assign(ranges + 1, 0);
                     for (Item const& item : items) batch.offsets[range_of(item) + 1]++;
@@ -1313,10 +1571,179 @@ namespace protal::build {
 #pragma omp critical(statistics)
             statistics.Join(local);
         }
-        if (!reader.Error().empty()) {
-            std::cerr << "Cannot read the reference: " << reader.Error() << std::endl;
+        if (!source.Error().empty()) {
+            std::cerr << "Cannot read the reference: " << source.Error() << std::endl;
             exit(8);
         }
+    }
+
+    // What the uniqueness check did, for its log line.
+    struct UniquenessCounts {
+        size_t kmers = 0;     // the full reference's k-mers looked up
+        size_t distinct = 0;  // distinct k-mers per key range and round, each looked up once
+        size_t cells = 0;     // flex cells compared
+        size_t shared = 0;    // whole k-mers found under another taxon or more than once
+        size_t singles = 0;   // single entries read back from their genes
+    };
+
+    // The uniqueness check (Run) by key range, from any source of the full reference's records (TextSource, FramesSource):
+    // each round's k-mers are grouped by range as in PartitionedPass, then each range's are sorted by core and flex part,
+    // and each distinct whole k-mer gets the taxa that hold it (the lowest and highest taxid suffice); each core's cells
+    // are then scanned once for all its k-mers of the round, instead of once per k-mer (5.3 times per value at GTDB r226,
+    // ~192 cells each: 2.8e12 compared). The rule is the one a k-mer at a time applied (the serial check below, kept
+    // for --serial_index_passes): an exact entry of another taxon, or several exact entries, make every exact entry
+    // non-unique; a core's single entry (no flex cells) is compared with its gene. Clears commute, so the flags, and the
+    // index, are the same.
+    template<typename Source, typename KmerHandler>
+    UniquenessCounts UniquenessPass(Source& source, KmerHandler const& handler_global, int threads, size_t ranges, int range_shift,
+                                    Seedmap& map, GenomeLoader& genomes, protal::Options const& options, size_t kmer_length) {
+        struct Item { uint64_t key; uint32_t taxid; };  // key: core << 32 | flex part (a whole k-mer), its record's taxid
+        struct Batch {
+            std::vector<Item> items;
+            std::vector<uint32_t> offsets;
+        };
+        threads = std::max(threads, 1);
+        size_t const per_round = 4 * static_cast<size_t>(threads);
+        std::vector<BatchInput> inputs(per_round);
+        std::vector<Batch> batches(per_round);
+        UniquenessCounts counts;
+
+#pragma omp parallel num_threads(threads)
+        {
+            KmerHandler handler(handler_global);
+            UniquenessCounts local;
+            std::vector<Item> items, group;
+            std::vector<uint32_t> cursor(ranges);
+            std::string scratch;
+            KmerList kmers;
+            struct Query { uint32_t flex; uint32_t min_taxid, max_taxid; uint32_t matches = 0, first = 0; };
+            std::vector<Query> queries;
+            std::vector<std::pair<uint32_t, uint32_t>> pairs;  // the further entries of queries with several: (query, entry)
+            Seedmap::PackedBlock block;
+            while (true) {
+                size_t const filled = source.Fill(inputs);
+                if (filled == 0) break;
+
+#pragma omp for schedule(dynamic, 1)
+                for (size_t b = 0; b < filled; b++) {
+                    Batch& batch = batches[b];
+                    items.clear();
+                    if (!inputs[b].Empty()) {
+                        source.ForEach(inputs[b], scratch, [&](size_t taxid, size_t geneid, std::string_view sequence) {
+                            // With --build_gene_subset the database's genes are the subset: a copy of another gene is
+                            // not among the sequences a read could come from, so it does not make k-mers non-unique.
+                            if (options.HasBuildGeneSubset() && !options.BuildGeneAllowed(geneid)) return;
+                            kmers.clear();
+                            handler(sequence, kmers);
+                            DropAmbiguousKmers(sequence, kmer_length, kmers);
+                            for (auto const& pair : kmers) {
+                                items.push_back({ map.MainKey(pair.first) << 32 | map.FlexKey(pair.first), static_cast<uint32_t>(taxid) });
+                            }
+                        });
+                    }
+                    local.kmers += items.size();
+                    batch.offsets.assign(ranges + 1, 0);
+                    for (Item const& item : items) batch.offsets[(item.key >> (32 + range_shift)) + 1]++;
+                    for (size_t r = 0; r < ranges; r++) batch.offsets[r + 1] += batch.offsets[r];
+                    std::copy(batch.offsets.begin(), batch.offsets.end() - 1, cursor.begin());
+                    batch.items.resize(items.size());
+                    for (Item const& item : items) batch.items[cursor[item.key >> (32 + range_shift)]++] = item;
+                }
+
+#pragma omp for schedule(dynamic, 1)
+                for (size_t r = 0; r < ranges; r++) {
+                    group.clear();
+                    for (size_t b = 0; b < filled; b++) {
+                        Batch const& batch = batches[b];
+                        group.insert(group.end(), batch.items.begin() + batch.offsets[r], batch.items.begin() + batch.offsets[r + 1]);
+                    }
+                    if (group.empty()) continue;
+                    std::sort(group.begin(), group.end(), [](Item const& a, Item const& b) { return a.key < b.key; });
+                    for (size_t i = 0; i < group.size();) {
+                        // The distinct k-mers of one core, each with the lowest and highest taxid holding it.
+                        uint64_t const core = group[i].key >> 32;
+                        queries.clear();
+                        while (i < group.size() && (group[i].key >> 32) == core) {
+                            uint64_t const key = group[i].key;
+                            Query q{ static_cast<uint32_t>(key), group[i].taxid, group[i].taxid };
+                            for (; i < group.size() && group[i].key == key; i++) {
+                                q.min_taxid = std::min(q.min_taxid, group[i].taxid);
+                                q.max_taxid = std::max(q.max_taxid, group[i].taxid);
+                            }
+                            queries.push_back(q);
+                        }
+                        local.distinct += queries.size();
+                        uint64_t start = 0, slots = 0;
+                        if (!map.Locate(core, start, slots)) continue;
+                        map.BlockOfSlots(start, slots, block);
+                        if (block.flex == nullptr) {
+                            // No flex cells: a core of one value (or below the flex threshold, which has none to compare).
+                            if (block.size != 1) continue;
+                            size_t taxid = 0, geneid = 0, genepos = 0;
+                            ValueEntry entry;
+                            entry.value = map.EntryValue(block, 0);
+                            entry.Get(taxid, geneid, genepos);
+                            uint64_t indexed = 0;
+                            bool read = false, have = false;
+                            for (Query const& q : queries) {
+                                if (q.min_taxid == taxid && q.max_taxid == taxid) continue;  // only its own taxon
+                                if (!read) {
+                                    read = true;
+                                    local.singles++;
+                                    have = IndexedKmer(map, genomes, taxid, geneid, genepos, indexed);
+                                }
+                                if (have && map.MainKey(indexed) == core && map.FlexKey(indexed) == q.flex) {
+                                    map.ClearUniqueFlag(block, 0);
+                                    local.shared++;
+                                    break;
+                                }
+                            }
+                            continue;
+                        }
+                        // Each cell once: the queries are sorted by their flex parts.
+                        pairs.clear();
+                        for (uint32_t c = 0; c < block.size; c++) {
+                            uint32_t const flex = Seedmap::FlexCell(block, c);
+                            auto const it = std::lower_bound(queries.begin(), queries.end(), flex,
+                                                             [](Query const& q, uint32_t f) { return q.flex < f; });
+                            if (it == queries.end() || it->flex != flex) continue;
+                            if (it->matches++ == 0) it->first = c;
+                            else pairs.emplace_back(static_cast<uint32_t>(it - queries.begin()), c);
+                        }
+                        local.cells += block.size;
+                        for (size_t q = 0; q < queries.size(); q++) {
+                            Query const& query = queries[q];
+                            if (query.matches == 0 || query.matches > map.max_key_multiplicity) continue;  // as GetExact
+                            if (query.matches == 1) {
+                                size_t taxid = 0, geneid = 0, genepos = 0;
+                                ValueEntry entry;
+                                entry.value = map.EntryValue(block, query.first);
+                                entry.Get(taxid, geneid, genepos);
+                                if (query.min_taxid == taxid && query.max_taxid == taxid) continue;
+                            }
+                            local.shared++;
+                            map.ClearUniqueFlag(block, query.first);
+                        }
+                        for (auto const& [q, c] : pairs) {
+                            if (queries[q].matches <= map.max_key_multiplicity) map.ClearUniqueFlag(block, c);
+                        }
+                    }
+                }
+            }
+#pragma omp critical(statistics)
+            {
+                counts.kmers += local.kmers;
+                counts.distinct += local.distinct;
+                counts.cells += local.cells;
+                counts.shared += local.shared;
+                counts.singles += local.singles;
+            }
+        }
+        if (!source.Error().empty()) {
+            std::cerr << "Cannot read the full reference: " << source.Error() << std::endl;
+            exit(8);
+        }
+        return counts;
     }
 
     // Key ranges for PartitionedPass: at least 64 per thread for balance, and at least 64 control
@@ -1327,8 +1754,11 @@ namespace protal::build {
         return std::min<int>(bits, static_cast<int>(main_bits) - 3 - 6);
     }
 
+    // reference_is_mapped: --reference is the database's reference.fna and holds each gene of reference.map once
+    // (CheckReferenceAgainstMap), so that the passes may take its records from the preloaded genes.
     template<typename KmerHandler, typename KmerPutter, DebugLevel debug>
-    static Statistics Run(protal::Options const& options, KmerPutter& putter, KmerHandler& kmer_handler_global, GenomeLoader& genomes) {
+    static Statistics Run(protal::Options const& options, KmerPutter& putter, KmerHandler& kmer_handler_global, GenomeLoader& genomes,
+                          bool reference_is_mapped) {
 
         // The tables made from the genes alone first (conservation factors, congeners, suspect copies) and the checks
         // of the gene neighbours and positions: none needs the index, so they run before it is allocated. The
@@ -1372,6 +1802,21 @@ namespace protal::build {
         size_t const ranges = size_t{1} << range_bits;
         int const range_shift = static_cast<int>(map.m_main_bits) - range_bits;
         if (serial) omp_set_num_threads(1);
+        // The passes' records: the preloaded genes in reference.fna's order (GenomeLoader::ReferenceText; the file is not
+        // read again, 15 GB at r226 that the page cache often no longer held), when --reference is that file and every
+        // gene is preloaded; else the file. The same records either way, so the same index.
+        bool const from_genes = !serial && reference_is_mapped && !genomes.FileOrder().empty();
+        std::cout << "Index passes: the reference's records " << (from_genes ? "from the preloaded genes (" + std::to_string(genomes.RawBases()) +
+                     " bases of them as the reference has them, not A, C, G or T)" : "read from " + options.GetSequenceFilePath()) << std::endl;
+        auto with_source = [&](auto&& pass) {
+            if (from_genes) {
+                GeneSource source(genomes, options.IndexBatchBytes());
+                pass(source);
+            } else {
+                TextSource source(is, options.IndexBatchBytes());
+                pass(source);
+            }
+        };
 
         // Each phase is timed in the log ("... took"): where a build at GTDB scale spends its time.
         std::cout << "Run Build" << std::endl;
@@ -1381,27 +1826,25 @@ namespace protal::build {
             // Items: the k-mers' main keys, counted up by the thread that owns their range.
             std::cout << "Build: iterate records" << std::endl;
             Statistics pass;
-            PartitionedPass<uint32_t>(is, kmer_handler_global, threads, options.IndexBatchBytes(), ranges,
-                [&](KmerHandler& handler, std::string const& header, std::string_view sequence, KmerList& kmers,
-                    std::vector<uint32_t>& items, Statistics& stats) {
-                    stats.reads++;
-                    if (options.HasBuildGeneSubset()) {
-                        auto [taxonomic_id, gene_id] = KmerUtils::ExtractHeaderInformation(header);
-                        (void)taxonomic_id;
-                        if (!options.BuildGeneAllowed(gene_id)) return;
-                    }
-                    kmers.clear();
-                    handler(sequence, kmers);
-                    DropAmbiguousKmers(sequence, kmer_length, kmers);
-                    for (auto const& pair : kmers) items.push_back(static_cast<uint32_t>(map.MainKey(pair.first)));
-                    if constexpr(KmerStatisticsConcept<KmerHandler>) {
-                        stats.kmers_total += handler.TotalKmers();
-                        stats.kmers_accepted += kmers.size();
-                    }
-                },
-                [range_shift](uint32_t main_key) { return static_cast<size_t>(main_key >> range_shift); },
-                [&map](uint32_t main_key) { map.CountUpKey(main_key); },
-                pass);
+            with_source([&](auto& source) {
+                PartitionedPass<uint32_t>(source, kmer_handler_global, threads, ranges,
+                    [&](KmerHandler& handler, size_t, size_t gene_id, std::string_view sequence, KmerList& kmers,
+                        std::vector<uint32_t>& items, Statistics& stats) {
+                        if (options.HasBuildGeneSubset() && !options.BuildGeneAllowed(gene_id)) return;
+                        stats.reads++;
+                        kmers.clear();
+                        handler(sequence, kmers);
+                        DropAmbiguousKmers(sequence, kmer_length, kmers);
+                        for (auto const& pair : kmers) items.push_back(static_cast<uint32_t>(map.MainKey(pair.first)));
+                        if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                            stats.kmers_total += handler.TotalKmers();
+                            stats.kmers_accepted += kmers.size();
+                        }
+                    },
+                    [range_shift](uint32_t main_key) { return static_cast<size_t>(main_key >> range_shift); },
+                    [&map](uint32_t main_key) { map.CountUpKey(main_key); },
+                    pass);
+            });
             std::cout << "minimizers: " << pass.kmers_accepted << std::endl;
             statistics.Join(pass);
         } else {
@@ -1460,6 +1903,10 @@ namespace protal::build {
                     std::cout << "minimizers: " << thread_statistics.kmers_accepted << std::endl;
                 }
         }
+        if (is.bad()) {  // a read or decompression error, not the end of the reference
+            std::cerr << "Cannot read the reference " << options.GetSequenceFilePath() << " to its end (truncated or corrupt file?)" << std::endl;
+            exit(8);
+        }
         bm_pass1.Stop();
         bm_pass1.PrintResults();
 
@@ -1488,28 +1935,29 @@ namespace protal::build {
             // thread that owns its range into the key's next empty slot, in reference order.
             struct Placement { uint64_t key; uint64_t value; };
             std::cout << "After first put" << std::endl;
-            PartitionedPass<Placement>(is, kmer_handler_global, threads, options.IndexBatchBytes(), ranges,
-                [&](KmerHandler& handler, std::string const& header, std::string_view sequence, KmerList& kmers,
-                    std::vector<Placement>& items, Statistics& stats) {
-                    auto [taxonomic_id, gene_id] = KmerUtils::ExtractHeaderInformation(header);
-                    if (options.HasBuildGeneSubset() && !options.BuildGeneAllowed(gene_id)) return;
-                    stats.reads++;
-                    kmers.clear();
-                    handler(sequence, kmers);
-                    DropAmbiguousKmers(sequence, kmer_length, kmers);
-                    for (auto const& pair : kmers) {
-                        ValueEntry entry;
-                        entry.Put(taxonomic_id, gene_id, pair.second + map.m_flex_k_half);  // as Seedmap::PutOMP
-                        items.push_back({ pair.first, entry.value });
-                    }
-                    if constexpr(KmerStatisticsConcept<KmerHandler>) {
-                        stats.kmers_total += handler.TotalKmers();
-                        stats.kmers_accepted += handler.TotalMinimizers();
-                    }
-                },
-                [&map, range_shift](Placement const& p) { return static_cast<size_t>(map.MainKey(p.key) >> range_shift); },
-                [&map](Placement const& p) { map.PutOwned(p.key, p.value); },
-                statistics);
+            with_source([&](auto& source) {
+                PartitionedPass<Placement>(source, kmer_handler_global, threads, ranges,
+                    [&](KmerHandler& handler, size_t taxonomic_id, size_t gene_id, std::string_view sequence, KmerList& kmers,
+                        std::vector<Placement>& items, Statistics& stats) {
+                        if (options.HasBuildGeneSubset() && !options.BuildGeneAllowed(gene_id)) return;
+                        stats.reads++;
+                        kmers.clear();
+                        handler(sequence, kmers);
+                        DropAmbiguousKmers(sequence, kmer_length, kmers);
+                        for (auto const& pair : kmers) {
+                            ValueEntry entry;
+                            entry.Put(taxonomic_id, gene_id, pair.second + map.m_flex_k_half);  // as Seedmap::PutOMP
+                            items.push_back({ pair.first, entry.value });
+                        }
+                        if constexpr(KmerStatisticsConcept<KmerHandler>) {
+                            stats.kmers_total += handler.TotalKmers();
+                            stats.kmers_accepted += handler.TotalMinimizers();
+                        }
+                    },
+                    [&map, range_shift](Placement const& p) { return static_cast<size_t>(map.MainKey(p.key) >> range_shift); },
+                    [&map](Placement const& p) { map.PutOwned(p.key, p.value); },
+                    statistics);
+            });
         } else {
 #pragma omp parallel default(none) shared(std::cout, options, is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, kmer_length)
     {
@@ -1569,6 +2017,10 @@ namespace protal::build {
         statistics.Join(thread_statistics);
     }
         }
+        if (is.bad()) {
+            std::cerr << "Cannot read the reference " << options.GetSequenceFilePath() << " to its end (truncated or corrupt file?)" << std::endl;
+            exit(8);
+        }
         bm_pass2.Stop();
         bm_pass2.PrintResults();
         PrintMemory("pass 2");
@@ -1580,6 +2032,36 @@ namespace protal::build {
         bm_unique.Start();
 
         omp_set_num_threads(options.GetThreads());
+        if (!serial) {
+            // By key range (UniquenessPass): the full reference's frames decompressed by several threads at once when it
+            // has them (FastaFrames: the converter's full_reference.fna.zst; each such thread holds a frame's 128 MB
+            // window), else read in one stream.
+            std::string const full_path = zstd::Resolve(options.GetFullSequenceFilePath());
+            std::string error;
+            auto const frames = FastaFrames::Open(full_path, error);
+            if (!error.empty()) {
+                std::cerr << "Cannot read the full reference: " << error << std::endl;
+                exit(8);
+            }
+            UniquenessCounts counts;
+            if (frames) {
+                FramesSource source(*frames, std::clamp<size_t>(static_cast<size_t>(threads) / 2, 1, kFrameDecoders), options.IndexBatchBytes());
+                std::cout << "Uniqueness check: " << frames->Frames() << " frames of " << full_path << ", decompressed on "
+                          << source.Decoders() << " threads at once" << std::endl;
+                counts = UniquenessPass(source, kmer_handler_global, threads, ranges, range_shift, map, genomes, options, kmer_length);
+            } else {
+                auto full_input = OpenInput(options.GetFullSequenceFilePath());
+                TextSource source(full_input->Stream(), options.IndexBatchBytes());
+                counts = UniquenessPass(source, kmer_handler_global, threads, ranges, range_shift, map, genomes, options, kmer_length);
+            }
+            bm_unique.Stop();
+            bm_unique.PrintResults();
+            std::cout << "Uniqueness check: " << counts.kmers << " k-mers, " << counts.distinct << " of them distinct in their key "
+                      << "range and round and looked up once each; " << counts.cells << " flex cells compared (" << std::fixed
+                      << std::setprecision(1) << counts.cells / std::max(1.0, double(counts.kmers)) << std::defaultfloat
+                      << " per k-mer), " << counts.shared << " whole k-mers found under another taxon or more than once, "
+                      << counts.singles << " single entries read back from their genes" << std::endl;
+        } else {
         auto full_input = OpenInput(options.GetFullSequenceFilePath());
         std::istream& full_is = full_input->Stream();
         KmerLookupSM lookup_global(putter.GetMap());
@@ -1588,8 +2070,9 @@ namespace protal::build {
         // Counted for the log: k-mers looked up, flex parts compared, k-mers found in the index
         // under another taxon or more than once, single entries read back from their gene.
         size_t kmers_checked = 0, flex_compared = 0, kmers_shared = 0, singles_read = 0;
+        bool parsed = true;
 
-#pragma omp parallel default(none) shared(std::cout, lookup_global, options, full_is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, genomes, kmers_checked, flex_compared, kmers_shared, singles_read, kmer_length)
+#pragma omp parallel default(none) shared(std::cout, lookup_global, options, full_is, dummy, read_count, kmer_handler_global, statistics, putter, flex_k_bits, main_k_bits, genomes, kmers_checked, flex_compared, kmers_shared, singles_read, kmer_length, parsed)
     {
         // Private variables
         FastxRecord record;
@@ -1670,14 +2153,22 @@ namespace protal::build {
             flex_compared += local_compared;
             kmers_shared += local_shared;
             singles_read += local_singles;
+            parsed = parsed && reader.Success();
         }
     }
+        // A read or decompression error ends the stream early: the k-mers of the rest would stay unique.
+        if (full_is.bad() || !parsed) {
+            std::cerr << "Cannot read the full reference " << options.GetFullSequenceFilePath() << " to its end (truncated or corrupt "
+                      << "file?)" << std::endl;
+            exit(8);
+        }
         bm_unique.Stop();
         bm_unique.PrintResults();
         std::cout << "Uniqueness check: " << kmers_checked << " k-mers, " << flex_compared << " flex parts compared ("
                   << std::fixed << std::setprecision(1) << flex_compared / std::max(1.0, double(kmers_checked))
                   << std::defaultfloat << " per k-mer), " << kmers_shared << " found under another taxon or more than once, "
                   << singles_read << " single entries read back from their genes" << std::endl;
+        }
 
         // No gene is read from here on (the k-mer statistics need only how many genes each taxon has): their
         // sequences go before the index is written (~4 GB at r226).
@@ -1688,9 +2179,25 @@ namespace protal::build {
         std::cout << "Save unique kmer info: \n" << options.GetUniqueKmersFile() << std::endl;
         Benchmark bm_statistics("Unique k-mer statistics");
         bm_statistics.Start();
-        std::ofstream os(options.GetUniqueKmersFile());
+        // Via a .partial file, checked: a table cut short (a full disk) would leave the genes after the cut without
+        // unique k-mers, so not hittable, in a database that is otherwise packed and verified as it is.
+        std::string const unique_partial = options.GetUniqueKmersFile() + ".partial";
+        std::ofstream os(unique_partial);
         auto const totals = putter.GetMap().CountUniqueKmers(os, GeneRowsOf(genomes), static_cast<int>(options.GetThreads()));
         os.close();
+        {
+            std::error_code ec;
+            if (!os) {
+                std::cerr << "Writing " << unique_partial << " failed" << std::endl;
+                std::filesystem::remove(unique_partial, ec);
+                exit(8);
+            }
+            std::filesystem::rename(unique_partial, options.GetUniqueKmersFile(), ec);
+            if (ec) {
+                std::cerr << "Cannot rename " << unique_partial << " to " << options.GetUniqueKmersFile() << ": " << ec.message() << std::endl;
+                exit(8);
+            }
+        }
         bm_statistics.Stop();
         bm_statistics.PrintResults();
         std::cout << "Distance-two flags: " << totals.comparisons << " flex parts compared" << std::endl;
@@ -1699,8 +2206,12 @@ namespace protal::build {
         // The fingerprint holds the uncompressed size, so it survives compressing reference.fna.
         putter.GetMap().SetReferenceFingerprint(
                 ReferenceFingerprint::Of(options.GetSequenceMapFile(), options.GetSequenceFile()));
-        SaveIndex(options, putter);
-        PrintMemory("writing the index");
+        // The single-file database (the default) takes the index straight from memory (BundleDatabase, called next);
+        // separate files get index.prx.zst (or index.prx) here.
+        if (!options.WriteBundle()) {
+            SaveIndex(options, putter);
+            PrintMemory("writing the index");
+        }
 
         return statistics;
     }

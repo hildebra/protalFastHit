@@ -65,7 +65,9 @@ database.
 ### Build options for the format
 
 `protal --build` writes `database.protal` into the `--db` folder, reads it back, compares, and
-removes the separate files it holds. The build inputs (`full_reference.fna`, ...) stay.
+removes the separate files it holds. The build inputs (`full_reference.fna`, ...) stay. The index
+goes straight from memory into `database.protal` (since 2026-10-07; before, it was written as
+`index.prx.zst`, read back, copied into `database.protal` and read again).
 
 | Build option | Default | |
 |---|---|---|
@@ -669,7 +671,13 @@ background build that fails stops the run within seconds.
 
 A rerun into the same `--outdir` resumes:
 - The conversion and both index builds are skipped when their inputs are unchanged (the release,
-  the converter, protal, the held-out species; recorded in `.stages/`).
+  the converter, protal, the held-out species; recorded in `.stages/`). The training database on
+  `--scratch` keeps that record in its own folder too (`built_for.json`): one that another
+  `--outdir`'s build left there is built again. The folder of a reduced database (`--n-genes`,
+  `--genes`) is never taken for the whole release by a later run without them.
+- With the finished database kept, the in-silico strains of another `--seed` take the release
+  converted again for the real strains' gene divergence (`gene_positions.tsv`, which the finished
+  database packed), not a uniform ANI.
 - The in-silico strains are kept when the genome table and options are the same.
 - The collector reuses samples and profiles of the same design, database and protal. It simulates
   again, and says so, rather than mixing designs.
@@ -804,7 +812,9 @@ It writes:
 - `reference.fna` and `reference.map`: the representatives' marker genes;
 - `internal_taxonomy.dmp`;
 - `full_reference.fna.zst`: every genome's marker genes, 86 GB uncompressed at r226; only if
-  `genomic_files_all` is there;
+  `genomic_files_all` is there. A zstd frame per marker file (per gene in a `--from_db` copy) and a
+  seek table at the end, so that `protal --build` decompresses it on several threads; the `zstd`
+  command reads it as any other file;
 - `species_priors.tsv` ([below](#species-priors));
 - `model_pe.xml`;
 - for your own use, `gene2geneid.tsv` (marker id to protal gene id) and `genome2tiid.tsv`
@@ -878,33 +888,44 @@ protal --build --no_profile -t 16 --db /data/protal_r226_db \
 ```
 
 Pass `--no_profile`; without it, build mode goes on to profile an empty sample list. protal reads
-the `.zst` file when the plain one is missing. The build:
+the `.zst` file when the plain one is missing. The build first makes the tables that need the genes
+alone (before the index takes its memory), then the index:
 
-1. Indexes `reference.fna`, checks every k-mer's uniqueness against the full reference, and writes
-   `unique_kmers.tsv`.
-2. Writes `gene_conservation.tsv`: how fast each gene diverges within species against the species'
+1. Writes `gene_conservation.tsv`: how fast each gene diverges within species against the species'
    other genes (strains' copies compared with the representative's, k = 12; the median gene 1).
    Queries use it for the conservation and divergence features. It needs other genomes' copies.
-3. Writes `gene_congeners.tsv` beside the database: how each gene differs between congeneric species
+2. Writes `gene_congeners.tsv` beside the database: how each gene differs between congeneric species
    against within species, to check that conserved genes are conserved between species too
    ([report](claude/2026-10-01-conservation-pattern/README.md)).
-4. Looks for **suspect gene copies**: a species' copy within 0.02 (`--suspect_copy_distance`) of
+3. Looks for **suspect gene copies**: a species' copy within 0.02 (`--suspect_copy_distance`) of
    another genus's copy while its own congeners' copies are farther, a contaminating contig or a
    transferred gene. At r226 such copies drew a fifth of the false species calls. They go into the
    database as `suspect_copies.tsv`, and runs leave reads on them out of the evidence
    (`--keep_suspect_copies` keeps them). Every near pair across genera is listed in
-   `gene_incongruence.tsv` ([report](claude/2026-10-03-false-positive-anatomy/README.md)).
-5. Compares every two species of a genus by their marker genes (the median Mash distance of the
-   genes both have, k = 12, as a run's `relative_distance`) and writes each species' nearest
-   congeners, at most 16 within 0.15, to `species_neighbours.tsv`: how crowded the database is
-   around a reference, and how far apart two congeners a read fits are (since 2026-10-06; genera in
-   batches of about 10,000 species, so the sketches of the whole database are never held at once).
-6. Packs everything into `database.protal`, with `gene_table.bin` for a fast load, reads it back,
-   compares, and removes the separate files. `full_reference.fna`, `gene2geneid.tsv` and
-   `genome2tiid.tsv` stay beside it.
+   `gene_incongruence.tsv` ([report](claude/2026-10-03-false-positive-anatomy/README.md)). One gene
+   at a time, its copies on all threads; a pair whose sketches cannot be within 0.05 is skipped
+   unmerged (at r226 most of them), which changes no result.
+4. Compares every two species of a genus by their marker genes (the median Mash distance of all the
+   marker genes both references have, k = 12) and writes each species' nearest congeners, at most 16
+   within 0.15, to `species_neighbours.tsv`: how crowded the database is around a reference, and how
+   far apart two congeners a read fits are (since 2026-10-06; genera in batches of about 10,000
+   species, so the sketches of the whole database are never held at once). A run's
+   `relative_distance` takes the median over the genes with unique k-mers only, which the build does
+   not know yet here: for near-identical congeners the table's distance is the smaller one. Training
+   and profiling read the same table.
+5. Indexes `reference.fna` (its records taken from the genes it loaded, not read again), checks every
+   k-mer's uniqueness against the full reference, and writes `unique_kmers.tsv`.
+6. Packs everything into `database.protal`, with `gene_table.bin` for a fast load: the index straight
+   from memory, the other files compressed or copied; it reads each member back, compares, and
+   removes the separate files. `full_reference.fna`, `gene2geneid.tsv` and `genome2tiid.tsv` stay
+   beside it.
 
-Every phase uses `-t` threads, and the index is the same for any `-t`. The log times each phase.
-[Build options for the format](#build-options-for-the-format) lists the options for separate
+Every phase uses `-t` threads, and the index is the same for any `-t`. A full reference in zstd
+frames with a seek table, as the converter writes it, is decompressed on several threads, a frame
+each; the gene conservation factors are then the same on any run too (each species' copies of a
+gene lie in one frame), and otherwise depend on which copies the threads reach first. A full
+reference that cannot be read to its end (cut short, corrupt) stops the build. The log times each
+phase. [Build options for the format](#build-options-for-the-format) lists the options for separate
 or uncompressed files and the compression level.
 
 #### 3. Check it

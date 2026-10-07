@@ -120,6 +120,24 @@ class MiniDbTest(unittest.TestCase):
             self.assertEqual(full_reference(one), full_reference(four), f"{order} order, full reference")
             self.assertFalse(os.path.exists(os.path.join(four, ".convert_tmp")))
 
+    @staticmethod
+    def zstd_frames(path):
+        """The contents of the frames of a seekable zstd file, from its seek table (zstd's seekable format)."""
+        import struct
+        with open(path, "rb") as fh:
+            data = fh.read()
+        n, descriptor, magic = struct.unpack("<IBI", data[-9:])
+        assert magic == 0x8F92EAB1, f"{path} has no seek table"
+        entry = 12 if descriptor & 0x80 else 8
+        table = data[-9 - n * entry:-9]
+        frames, offset = [], 0
+        for i in range(n):
+            compressed, _ = struct.unpack("<II", table[i * entry:i * entry + 8])
+            frames.append(subprocess.run(["zstd", "-dc", "--long=31"], input=data[offset:offset + compressed],
+                                         capture_output=True, check=True).stdout)
+            offset += compressed
+        return frames
+
     def test_exclude_species(self):
         excluded = os.path.join(self.tmp.name, "excluded.txt")
         with open(excluded, "w") as fh:
@@ -141,6 +159,14 @@ class MiniDbTest(unittest.TestCase):
         self.assertNotIn(taxids["s__Mockella beta"], kept)
         self.assertEqual(len(kept), len(taxids) - 1)
         check_reference_map(self, direct)  # reference.map still points at each sequence line
+        # The full reference in zstd frames that each begin a record, listed by a seek table (protal --build reads its
+        # frames on several threads): a frame per marker file of a conversion, per gene of a copy.
+        if shutil.which("zstd"):
+            for folder in (self.db, copied):
+                frames = self.zstd_frames(os.path.join(folder, "full_reference.fna.zst"))
+                self.assertGreater(len(frames), 1, folder)
+                self.assertTrue(all(f.startswith(b">") and f.endswith(b"\n") for f in frames if f), folder)
+                self.assertEqual(b"".join(frames), full_reference(folder))
         with self.assertRaises(subprocess.CalledProcessError):
             with open(excluded, "w") as fh:
                 fh.write("s__Nonexistent species\n")
