@@ -2534,6 +2534,19 @@ class BuildOptionsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 build.max_leaves(bad, "pe")
 
+    def test_versions_are_those_the_run_started_with(self):
+        # build_metadata.tsv records the versions read at the run's start, with what they were at its end if a pull or
+        # a rebuild changed them meanwhile (r226 v14 recorded the end's commit alone for a run that began with another).
+        sys.path.insert(0, os.path.join(HERE, ".."))
+        import build_gtdb_database as build
+        started = {"protal_version": "protal v0.7.8 (commit aaa)", "scripts_commit": "aaa"}
+        self.assertEqual(build.versions_at_end(started, dict(started)), (started, []))
+        versions, changed = build.versions_at_end(started, {"protal_version": "protal v0.7.8 (commit aaa)",
+                                                            "scripts_commit": "bbb"})
+        self.assertEqual(changed, ["scripts_commit"])
+        self.assertEqual(versions, {"protal_version": "protal v0.7.8 (commit aaa)",
+                                    "scripts_commit": "aaa; at the end of the run: bbb"})
+
     def test_error_reads(self):
         # --error-reads: all (every read type's samples), none, READ_TYPE, READ_TYPE:design or READ_TYPE:SCENARIO.
         sys.path.insert(0, os.path.join(HERE, ".."))
@@ -2984,6 +2997,10 @@ class GtdbBuildTest(unittest.TestCase):
                                                                                        "build_metadata.tsv")))
         self.assertRegex(metadata["gene_conservation"], r"^factors [0-9.]+-[0-9.]+ for \d+ genes, from \d+ species")
         self.assertEqual(metadata["classifier_previous_procedure"], "not compared")  # without --previous-procedure
+        # The versions the run started with; nothing changed them during it.
+        self.assertRegex(metadata["protal_version"], r"^protal v[0-9.]+")
+        self.assertNotIn("at the end of the run", metadata["protal_version"] + metadata["scripts_commit"])
+        self.assertNotIn("changed during the run", first.stdout)
         # The models train on the default feature set, evaluated with samples, species and clades held out (the build's
         # defaults since 2026-10-06: --features DEFAULT_FEATURE_SET, --evaluation basic); test_f_scenarios has each
         # trainer choose (--features auto), the other seed's build below trains the relatives features and the calls at

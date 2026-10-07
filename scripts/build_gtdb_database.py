@@ -782,8 +782,9 @@ def genes_placed(log):
     return f" in {m.group(3)} genomes ({m.group(1)} exactly, {m.group(2)} by their k-mer trace)" if m else ""
 
 
-def provenance(args, release, genome_table, heldout, n_heldout, read_types, prefixes, genes="all", insilico="none"):
-    """build_metadata.tsv: what the database was built from and with, so that two builds can be compared."""
+def tool_versions(args):
+    """protal's and the simulator's --version (their last line) and the scripts' commit ("(scripts changed since)" when
+    the checkout's scripts differ from it), as build_metadata.tsv records them."""
     def output(command):
         try:
             return subprocess.run(command, capture_output=True, text=True, timeout=60).stdout.strip()
@@ -794,6 +795,31 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
     commit = output(["git", "-C", HERE, "rev-parse", "HEAD"])
     if commit and output(["git", "-C", HERE, "status", "--porcelain", "--", "."]):
         commit += " (scripts changed since)"
+    return {"protal_version": version[-1] if version else "unknown",
+            "simulator_version": simulator_version[-1] if simulator_version else "unknown (older than 0.7.3)",
+            "scripts_commit": commit or "unknown (not a git checkout)"}
+
+
+def versions_at_end(started, ended):
+    """build_metadata.tsv's versions: those the run started with (tool_versions at its start), each followed by what it
+    was at the end where that differs, and the names of those that changed. A checkout pulled or rebuilt during a run of
+    hours runs its later steps (the trainer, protal's runs) with the new scripts and binaries; read only at the end, as
+    until 2026-10-06, the metadata named the new commit for a run that began with an older one (r226 v14, which trained
+    500 rounds at 0.05 under 15006c2's commit; docs/claude/2026-10-06-r226-v14)."""
+    versions, changed = {}, []
+    for key, value in started.items():
+        if ended.get(key, value) != value:
+            versions[key] = f"{value}; at the end of the run: {ended[key]}"
+            changed.append(key)
+        else:
+            versions[key] = value
+    return versions, changed
+
+
+def provenance(args, versions, release, genome_table, heldout, n_heldout, read_types, prefixes, genes="all",
+               insilico="none"):
+    """build_metadata.tsv: what the database was built from and with, so that two builds can be compared; versions:
+    versions_at_end's."""
     genomes, species = 0, set()
     with open(genome_table) as fh:
         for line in fh:
@@ -803,9 +829,9 @@ def provenance(args, release, genome_table, heldout, n_heldout, read_types, pref
                 species.add(lineage.split(";")[-1])
     clade_counts = collections.Counter(rank for rank, _ in set(read_holdout(heldout).values())) if n_heldout else {}
     rows = [("gtdb_release", f"r{release}"), ("built", time.strftime("%Y-%m-%d %H:%M:%S")),
-            ("protal_version", version[-1] if version else "unknown"), ("protal_binary", args.protal),
-            ("simulator_version", simulator_version[-1] if simulator_version else "unknown (older than 0.7.3)"),
-            ("scripts_commit", commit or "unknown (not a git checkout)"), ("command", " ".join(sys.argv)),
+            ("protal_version", versions["protal_version"]), ("protal_binary", args.protal),
+            ("simulator_version", versions["simulator_version"]),
+            ("scripts_commit", versions["scripts_commit"]), ("command", " ".join(sys.argv)),
             ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
             ("insilico_strains", insilico),
             ("marker_genes", genes),
@@ -1544,6 +1570,7 @@ def main():
         p.error(f"--scenarios {args.scenarios}: none of their read types is among --read-types {args.read_types}")
     hosted = [name for name in selected if scenario_defs[name]["host_share"] > 0]
     check_tools(args, read_types)
+    args.versions_at_start = tool_versions(args)  # build_metadata.tsv: what the run starts with (versions_at_end)
     state = {}
     if args.inputs:
         if args.gtdb:
@@ -2220,9 +2247,13 @@ def main():
     run([args.protal, "--add_model", ",".join(prefixes[t] + ".xml" for t in read_types), "--read_type", ",".join(read_types),
          "--db", db, "-t", str(args.threads)], os.path.join(args.outdir, "final_package.log"), label=f"adding {models}")
     Steps.done(f"added in {clock(time.time() - began)}{db_size(db)}")
+    versions, changed = versions_at_end(args.versions_at_start, tool_versions(args))
     with open(os.path.join(db, "build_metadata.tsv"), "w") as fh:
-        fh.write("".join(f"{k}\t{v}\n" for k, v in provenance(args, release, genome_table, heldout, n_heldout,
+        fh.write("".join(f"{k}\t{v}\n" for k, v in provenance(args, versions, release, genome_table, heldout, n_heldout,
                                                                   read_types, prefixes, genes_note, insilico_note)))
+    if changed:
+        say(f"Warning: {', '.join(k.replace('_', ' ') for k in changed)} changed during the run, so its later steps ran "
+            "other scripts or binaries than its first (build_metadata.tsv has both): rebuild the database if that matters")
     shutil.copy(os.path.join(db, "build_metadata.tsv"), logs)
     if os.path.isfile(os.path.join(db, "gene_congeners.tsv")):
         shutil.copy(os.path.join(db, "gene_congeners.tsv"), logs)

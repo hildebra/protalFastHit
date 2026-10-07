@@ -314,7 +314,7 @@ of its log). The run ends with `Ready protal database: ...` and the path of the 
 
 | Path in `--outdir` | |
 |---|---|
-| `protal_db/database.protal` | the finished database with its models; `protal_db/build_metadata.tsv` records the release, protal version and commit, command, design, held-out species and each model's scores |
+| `protal_db/database.protal` | the finished database with its models; `protal_db/build_metadata.tsv` records the release, protal version and commit, command, design, held-out species and each model's scores. The versions and the scripts' commit are those the run started with (since 2026-10-06; read at its end before), followed by "at the end of the run: ..." if a pull or a rebuild changed them meanwhile, which the console then warns of |
 | `model_logs/` | everything to judge the models: `summary.txt`, each read type's report (`trained_model*.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances, parity checks, `genome_table.txt`, `holdout.txt`, `build_metadata.tsv`; what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv`, `relatives_by_gene_conservation.txt`; and `error_reads/`, the reads behind each model's errors in every sample ([above](#the-reads-behind-the-errors)) |
 | `trained_model*` | the models and the trainer's outputs ([the presence model](#training)) |
 | `genomes.tsv`, `genome_table.txt` | the genomes simulated from (accession, taxonomy, FASTA, length), and a summary |
