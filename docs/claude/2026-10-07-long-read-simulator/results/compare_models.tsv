@@ -1,0 +1,10 @@
+model	program	reads	length ratio (SD)	mean base Q	per-read Q 5/25/50/75/95%	Q93 reads	errors expected by Q	errors made	CPU s per Mb
+hifi	simulate_metagenomes	2000	1.0000 (0.0001)	43.52	36.9/41.5/45.1/49.2/54.7	0.0000	0.00014	0.00014	0.0328
+hifi	hifi_reads.py	2000	1.0000 (0.0001)	43.49	37.1/41.6/45.1/49.2/54.8	0.0000	0.00015	0.00015	0.0855
+hifi	TVD of the quality histograms	0.0046
+ultima	simulate_metagenomes	60000	1.0000 (0.0044)	25.00	21.7/23.7/25.0/26.3/28.3	0.0000	0.00654	0.00653	0.0572
+ultima	hifi_reads.py	60000	1.0000 (0.0044)	25.00	21.7/23.7/25.0/26.4/28.3	0.0000	0.00654	0.00652	0.1094
+ultima	TVD of the quality histograms	0.0007
+ont	simulate_metagenomes	4000	0.9947 (0.0068)	40.75	14.6/23.2/31.0/35.7/93.0	0.2062	0.04272	0.04271	0.0188
+ont	pbsim3 3.0.5	4000	0.9947 (0.0066)	39.67	14.4/23.0/31.0/35.5/93.0	0.1918	0.04403	0.04401	0.4669
+ont	TVD of the quality histograms	0.0157

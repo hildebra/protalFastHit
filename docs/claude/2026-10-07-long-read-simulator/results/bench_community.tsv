@@ -1,0 +1,8 @@
+run	setup	genomes	Gb	threads	wall s	CPU s	CPU s per Mb	max RSS MB
+hifi	hifi:15000:3000:3	400	1	1	50.1	48.5	0.0485	33
+hifi	hifi:15000:3000:3	400	1	4	19.9	73.9	0.0739	107
+ultima	ultima:300:40:25:2	400	0.5	1	37.2	37.3	0.0745	107
+ultima	ultima:300:40:25:2	400	0.5	4	13.1	49.7	0.0994	107
+ont	qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36	400	1	1	42.8	43.9	0.0439	107
+ont	qshmm:QSHMM-ONT-HQ:8000:6000:0.97:39/24/36	400	1	4	15.2	54.3	0.0543	107
+genome reads	hifi:1000:0:3	400	0.0004	1	2.8	3.0	0.0076 s per genome (~0.63 of them read)	107
