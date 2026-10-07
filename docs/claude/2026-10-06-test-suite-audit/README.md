@@ -277,3 +277,8 @@ To continue:
 
 The Python branch splits `test_mini_db.py`. Since `a20bd2e`, `652ed53` has changed that file, so the
 split has to be redone on top of `652ed53`.
+
+**Done on 2026-10-07:** the WIP branches were merged, built, run and finished, and recommendations 1-8 are on
+`audit-fixes` (`049f7a1`, `ac32e2d`, `7086c09`, `51d111d`). See
+[2026-10-07-test-suite-fixes](../2026-10-07-test-suite-fixes/README.md) for what changed, what the suites cost
+now, and what is left.

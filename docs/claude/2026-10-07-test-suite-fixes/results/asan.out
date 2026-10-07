@@ -1,0 +1,15 @@
+build exit 0 after 326 s
+ctest exit 0 after 95 s
+100% tests passed, 0 tests failed out of 396
+15.30 AlignmentScreen.RefusesOnlyWhatWFA2Fails
+13.03 AlignmentScreen.TheReadsSharedCodesGiveTheDefinitionsAnswer
+12.68 GenomeLoaderPacked.GenesCutByFramesAndFilledByManyThreadsEqualWholeGenes
+11.38 ProfileSam.OnSeveralThreadsTheProfileIsTheSame
+9.16 PackedIndex.ABuildIntoThePackedLayoutWritesTheSameIndex
+8.31 GeneTables.TheFirstProblemInTheFileIsReportedWithItsLine
+8.01 SequenceRange.ReadsAtTheRangesEndsAndOutsideIt
+7.57 IndexCodec.ChunksAreTheFormatsBytes
+7.33 CommunityDesign.CongenerGroupsPutRelativesInEverySample
+7.19 SamFile.AZstdHeaderTooLargeForItsRoomMovesTheRecordsBehindIt
+6.83 GeneTables.TheParallelSortIsStdSort
+6.43 IndexCodec.LongRunsOfEmptyBlocks
