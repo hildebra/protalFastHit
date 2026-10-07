@@ -251,6 +251,10 @@ Smaller points keep the old path, which lets several samples share a protal run.
   `test_h_streamed`'s streamed build.
 - On the shared pipeline (`ReadPipeline`), the long reads are byte-identical to those of `acd4163` (md5 of HiFi,
   Ultima and qshmm output at 1 and 4 threads).
+- Follow-up (the same day): `check_model_parity.py` passes `--force` to protal. With `--profile_only` that aligns
+  nothing and only lets protal write the profiles again. On `d5ffc20` plus that change, built in `~/verify-illumina`
+  on 4 cores, `test_a_build_rerun_and_reduced_database` and `test_h_streamed` both pass, `test_h_streamed` with all
+  of its assertions.
 
 ## 6. Open
 

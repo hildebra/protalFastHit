@@ -52,7 +52,8 @@ def parse_args(argv=None):
                    help="the reads the model is for (default pe)")
     p.add_argument("--points", type=int, default=2, help="design points to re-profile (default 2: the first and last)")
     p.add_argument("--protal", default="protal")
-    p.add_argument("-o", "--out", help="folder for protal's outputs (default: TRAINING/parity, or parity_<read type>)")
+    p.add_argument("-o", "--out", help="folder for protal's outputs, rewritten on every run (default: TRAINING/parity, "
+                                       "or parity_<read type>)")
     p.add_argument("-t", "--threads", type=int, default=4)
     return p.parse_args(argv)
 
@@ -149,10 +150,12 @@ def main(argv=None):
         sys.exit("no samples with a SAM and a training dump in " + ", ".join(chosen))
     out = opts.out or os.path.join(opts.training, "parity" if opts.read_type == "pe" else "parity_" + opts.read_type)
     os.makedirs(out, exist_ok=True)
+    # --force: a rerun (of the build, say) profiles into the folder its last run filled, which --profile_only
+    # otherwise refuses; with --profile_only it aligns nothing, it only writes the profiles again.
     command = [opts.protal, "--db", opts.db, MODEL_OPTIONS[opts.read_type], opts.model,
                "--profile_only", ",".join(s[1] for s in samples),
                "--profile_truth", ",".join(s[2] for s in samples), "-o", out, "-t", str(opts.threads),
-               "--no_strains", "--no_qcmsa"]
+               "--no_strains", "--no_qcmsa", "--force"]
     with open(os.path.join(out, "protal.log"), "w") as log:
         rc = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT).returncode
     if rc != 0:
