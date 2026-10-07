@@ -26,9 +26,12 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `divergence` | 0.7.5 | the reads' divergence by gene conservation and codon position, and the mates | yes |
 | `unfiltered` | 0.7.5 | the reads before the MAPQ filter and the reads that failed on the taxon | yes |
 | `ref` | 2026-10-06 (in the dump since 2024) | the reference's k-mer uniqueness in the database | yes, since 2026-10-06 |
+| `complexity` | 2026-10-06 | the sample's complexity: its taxa, its share of low-identity bases, its median identity | yes, since 2026-10-06 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
-The default set is `normalized+adjacency+distance+depth+divergence+unfiltered+ref` (52 features; without `ref`, 49, before 2026-10-06). 0.7.6
+The default set is `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` (55 features; without
+`ref` and `complexity`, 49, before 2026-10-06). A training table of the r226 v14 build or older lacks the
+`complexity` columns: train it with `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref`. 0.7.6
 adds no feature; it changes how the models are trained (below: the priors opt-in, in-silico strains,
 more training depths). 0.6.0a
 shipped one model on absolute counts (genes, k-mers and mates); those columns are still in the dump
@@ -264,6 +267,31 @@ use: the training database lacks its held-out species, so a reference whose clos
 held out is more unique there than in the finished database. The simulations cannot show what that
 shift does; real samples can.
 
+## The sample's complexity (`complexity`, 2026-10-06)
+
+What all the taxa of the sample say together, before any is called; the same for every taxon of the
+sample (`context::SampleComplexityOf` in `src/Profiling/SampleContext.h`).
+
+| feature | what it measures | matters for |
+|---|---|---|
+| `sample_log_taxa` | log10 of the sample's taxa with fragments (the profile's rows) | **the kind of community at any depth**: a soil sample has thousands of taxa, a gut one hundreds, a host-dominated one tens |
+| `sample_low_identity` | the sample's fragments' share on low-identity bases: the taxa's `low_identity_share` weighted by their fragments | how much of the sample is relatives the database lacks (60% of a soil sample's species in the r226 scenarios) |
+| `sample_identity` | the fragment-weighted median identity of the sample's taxa with 10 fragments or more (of every taxon with fragments if none has 10) | the reads' quality and how close the community is to the database |
+
+Without them a model can tell the kind of community only by the sample's depth
+(`sample_log_fragments`), and the simulated scenarios draw each kind's samples from a narrow band of
+depths around its preset (0.5-2× since 2026-10-06). At r226 (v14) the paired-end model scored its
+shallowest shallow-soil sample, held out whole and below every other soil sample's depth, at F1
+0.758 against 0.920 with species held out: it took the sample for a design sample of that depth. With
+these three features the six shallow samples held out scored 0.935 against 0.908, the hold-out
+samples +0.001 to +0.003, the design's test set as before
+([report](claude/2026-10-06-r226-v14/README.md)). The other read types, refitted the same way:
+with whole samples held out se soil +0.002, PacBio soil and shallow soil +0.002 and gut +0.005,
+Nanopore +0.001 to +0.005; on the design's test set -0.0006 (se, at 0.5) to +0.001 (PacBio), Nanopore
+-0.0017. A real soil sample at a depth the simulations did not draw is the case they are for. In the
+default set since 2026-10-06; the next GTDB build is the first to train with them. A training table
+of a protal before them lacks the three columns.
+
 ## The species' priors (`priors`, 0.7.5, opt-in)
 
 Per-species constants from GTDB, written by the converter into `species_priors.tsv` (−1 unknown).
@@ -377,6 +405,7 @@ The training dump also holds columns that no 0.7 set uses:
 | **A minor congener beside an abundant one** | `relative_skew`, `relative_distance`, `relative_spill`, `relative_close_share`, `em_own_share` (opt-in), `congener_fit_share`, `low_mapq_share` | the distance features gain here only when trained with congener groups; the full relatives set over-rejects (1.6-2.3× the minor-congener misses) |
 | **Thin strains** (1-10 fragments, 2-4% from the reference: the false negatives) | `identity`, `excess_scaled_median`, `em_own_share`/`em_fragments`, `cluster_genomes_log10` (opt-in), `fragments` | v10: strains miss at 4.6% against 0.9% for representatives, 9.3% at 1-10 fragments; missed strains' identity median 0.967. Half the misses had most records below MAPQ 10. Since 0.7.6 one-genome species are trained with in-silico strains too. The remaining lever is strain alleles in the index, not a feature |
 | **Shallow samples** (a few thousand reads) | `sample_log_fragments`, `fragments`, `hit_gene_fraction` | at 500-1,000 pairs the depth feature lets a single read count; the knob curve did the same more coarsely |
+| **A complex community at a depth the training lacked** (soil at 2M pairs) | `sample_log_taxa`, `sample_low_identity`, `sample_identity` | r226 v14: with the depth alone, a shallow-soil sample below the simulated soil depths was scored like a design sample (F1 0.758); with the sample's complexity 0.935 over the six held out |
 | **Abundance estimates** | `depth`, `top_identity`, `identity` (the margin rule), `conserved_*`, and the foreign-gene exclusion behind `depth` | not a forest decision: abundance is the depth from the reads within `--depth_identity_margin` (0.08) of `top_identity`, foreign genes left out, fragment bases once ([version_changes.md](version_changes.md)) |
 | **Long reads** (errors differ read by read) | `excess_scaled_median`, `excess_median`, `excess_high_share`, `top_identity` (PacBio), `third_position_share` (Nanopore), `low_mapq_share` | PacBio HiFi models were trained on reads with real qualities since 0.7.3; the excess features need base qualities and are 0 without them |
 | **Contamination and transferred gene copies** | the suspect-copy scan at build (`suspect_copies.tsv`, not a feature), then `gene_presence_ratio`, `depth_cv`, `other_genus_fit_share`, `adjacent_*`, `rep_contamination` | 47% of r226's cross-genus false positives were reads on copies near-identical to another genus's; the scan removes them from the evidence before the features see them (v10: 5,589 of 14.5M copies) |

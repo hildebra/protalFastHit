@@ -23,6 +23,7 @@ import glob
 import gzip
 import hashlib
 import io
+import math
 import os
 import random
 import re
@@ -834,6 +835,14 @@ class ModelContractTest(WorkDir):
                     expected = float(row[f"{counts}{i}"]) / total if total else 0
                     self.assertAlmostEqual(float(row[f"{prefix}{i}"]), expected, places=9, msg=f"{prefix}{i}")
             self.assertEqual(row["truth"], "1")
+        # The sample's complexity: the same in every row of the sample, whose taxa (each with fragments) are the rows;
+        # the reads have 0.5% substitutions.
+        from model_features import COMPLEXITY_FEATURES
+        for name in COMPLEXITY_FEATURES:
+            self.assertEqual(len({row[name] for row in rows}), 1, name)
+        self.assertAlmostEqual(float(rows[0]["sample_log_taxa"]), math.log10(len(rows)), places=12)
+        self.assertTrue(0 <= float(rows[0]["sample_low_identity"]) <= 1, rows[0])
+        self.assertTrue(0.98 < float(rows[0]["sample_identity"]) <= 1, rows[0])
 
     def test_no_strains_changes_no_profile(self):
         outputs = {}

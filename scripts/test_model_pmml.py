@@ -280,18 +280,27 @@ class FeatureSetsTest(unittest.TestCase):
         import machine_learning_cmdline
         columns = (["truth", "taxon", "meta_sample"] + mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES +
                    mf.RELATIVE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES +
-                   mf.REF_FEATURES + mf.PRIORS_FEATURES + ["genus_top_fragments", "other"])
+                   mf.REF_FEATURES + mf.COMPLEXITY_FEATURES + mf.PRIORS_FEATURES + ["genus_top_fragments", "other"])
         # The priors are opt-in: their gain at r226 is the cluster-size rule the simulation cannot test. The reference's
-        # k-mer uniqueness (ref) is in the default set since 2026-10-06.
-        self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence+unfiltered+ref")
+        # k-mer uniqueness (ref) and the sample's complexity are in the default set since 2026-10-06.
+        self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity")
         self.assertEqual(mf.REF_FEATURES, ["su_rate_ref", "lu_rate_ref", "lsu_rate_ref"])
+        self.assertEqual(mf.COMPLEXITY_FEATURES, ["sample_log_taxa", "sample_low_identity", "sample_identity"])
         self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
-                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES)
+                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.COMPLEXITY_FEATURES)
         self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET + "+priors"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
-                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.PRIORS_FEATURES)
-        self.assertIn("normalized+adjacency+distance+depth+divergence+unfiltered", mf.AUTO_CANDIDATES)  # the old default
+                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.COMPLEXITY_FEATURES +
+                         mf.PRIORS_FEATURES)
+        self.assertIn("normalized+adjacency+distance+depth+divergence+unfiltered", mf.AUTO_CANDIDATES)  # an old default
+        # A table of the r226 v14 build (before the sample's complexity): a clear error with the default, its old set works.
+        v14 = [c for c in columns if c not in mf.COMPLEXITY_FEATURES]
+        with self.assertRaisesRegex(RuntimeError, "sample_log_taxa"):
+            mf.feature_columns(v14, mf.DEFAULT_FEATURE_SET)
+        self.assertEqual(mf.feature_columns(v14, "normalized+adjacency+distance+depth+divergence+unfiltered+ref"),
+                         mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
+                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES)
         self.assertIn(mf.DEFAULT_FEATURE_SET, mf.FEATURE_SETS)
         self.assertEqual(mf.feature_columns(columns, "normalized+adjacency+distance+depth+divergence"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES)

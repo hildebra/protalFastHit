@@ -169,6 +169,30 @@ TEST(SampleContext, SpillRateFallsTenfoldPerDecade) {
     EXPECT_NEAR(ctx::SpillRate(2 * ctx::kSpillDecade), ctx::kSpillAtZero / 100, 1e-15);
 }
 
+TEST(SampleContext, TheSamplesComplexityIsItsTaxaTheirLowIdentityShareAndTheirMedianIdentity) {
+    // Taxa (fragments, identity, low-identity share) in taxid order; one without fragments counts for nothing.
+    std::vector<ctx::TaxonSummary> taxa = { { 30, 0.99, 0.0 }, { 0, 0.5, 1.0 }, { 10, 0.95, 0.5 }, { 60, 0.97, 0.1 },
+                                            { 2, 0.80, 1.0 } };
+    auto const c = ctx::SampleComplexityOf(taxa);
+    EXPECT_NEAR(c.log_taxa, std::log10(4.0), 1e-12);
+    EXPECT_NEAR(c.low_identity, (10 * 0.5 + 60 * 0.1 + 2 * 1.0) / 102, 1e-12);
+    // The median of the taxa with at least 10 fragments (100 of them): 10 at 0.95, then 60 at 0.97 reach half.
+    EXPECT_EQ(c.identity, 0.97);
+    // With half reached exactly at a taxon, that taxon's identity (numpy's searchsorted of the cumulative sum).
+    EXPECT_EQ(ctx::SampleComplexityOf({ { 20, 0.9, 0 }, { 20, 0.99, 0 } }).identity, 0.9);
+    // The taxa are sorted by identity whatever order they come in.
+    EXPECT_EQ(ctx::SampleComplexityOf({ { 40, 0.99, 0 }, { 15, 0.90, 0 }, { 30, 0.95, 0 } }).identity, 0.95);
+    // No taxon of 10 fragments: the median over every taxon with fragments, here the one holding 3 of the 5.
+    auto const thin = ctx::SampleComplexityOf({ { 1, 0.98, 0 }, { 3, 0.93, 0.25 }, { 1, 1.0, 0 } });
+    EXPECT_EQ(thin.identity, 0.93);
+    EXPECT_NEAR(thin.low_identity, 0.75 / 5, 1e-12);
+    // An empty sample: zeros.
+    auto const empty = ctx::SampleComplexityOf({ { 0, 0.9, 0.5 } });
+    EXPECT_EQ(empty.log_taxa, 0.0);
+    EXPECT_EQ(empty.low_identity, 0.0);
+    EXPECT_EQ(empty.identity, 0.0);
+}
+
 TEST(SampleContext, TheEditRatioIsTheTaxonsOwnDivergence) {
     EXPECT_EQ(ctx::EditRatio({ 10, 10, 0, 0 }), ctx::kEditRatio);  // no aligned bases
     EXPECT_NEAR(ctx::EditRatio({ 10, 10, 2, 100 }), 0.02 / 0.98, 1e-12);

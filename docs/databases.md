@@ -628,7 +628,7 @@ keeps the finished database.
 | `--scenario-weight` | 0.25 | the weight of the scenarios' hold-in rows in the models, the design's 1 |
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
 | `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` keeps ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
-| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, and the reference's k-mer uniqueness); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
+| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, and the sample's complexity, which needs a protal of 2026-10-06 or later for the training data); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--model` | `gbm` | the models: `gbm`, gradient-boosted trees (the default since 2026-10-06), or `forest`, a random forest ([below](#training)) |
 | `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items) |
 | `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
@@ -990,7 +990,7 @@ comparison. The summary has a line per scenario, and warns when a scenario's hol
 scenarios' rows out.
 
 **`--features auto`** (the default) scores each candidate set with species held out and keeps the one
-of highest F1 at the knob, but `normalized+adjacency+distance+depth+divergence+unfiltered+ref` unless
+of highest F1 at the knob, but `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` unless
 another beats it by 0.002 (`AUTO_MIN_GAIN`, the gain below which the depth knobs changed between fits
 at r226). The candidates are the named sets without the priors, and
 `normalized+adjacency+relatives+depth+divergence+unfiltered` (`auto+priors` adds the sets with the

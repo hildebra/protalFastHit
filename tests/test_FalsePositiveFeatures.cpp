@@ -211,6 +211,15 @@ TEST(FalsePositiveFeatures, AProfilesTaxaCarryTheSamplesDepthAndTheirReadsDiverg
     EXPECT_NEAR(f1.at("sample_log_fragments"), 1.0, 1e-12);
     EXPECT_NEAR(f2.at("sample_log_fragments"), 1.0, 1e-12);
     EXPECT_EQ(profile.Fragments(), 10u);
+    // The sample's complexity, the same for both: two taxa, the low-identity share of their fragments, and the median
+    // identity over both (neither has 10 fragments), which is taxon 1's: it holds 9 of the 10 fragments.
+    auto const& t1 = profile.GetTaxa().at(1);
+    auto const& t2 = profile.GetTaxa().at(2);
+    for (auto const* f : { &f1, &f2 }) {
+        EXPECT_NEAR(f->at("sample_log_taxa"), std::log10(2.0), 1e-12);
+        EXPECT_NEAR(f->at("sample_low_identity"), (9 * t1.LowIdentityShare() + t2.LowIdentityShare()) / 10, 1e-12);
+        EXPECT_EQ(f->at("sample_identity"), t1.BaseIdentity());
+    }
     // Taxon 1's excess: medians over 9 reads (5 conserved at 0.02, 4 fast at 0.06) -> 0.02 - 1e-4; scaled all 0.04 - e.
     EXPECT_NEAR(f1.at("excess_median"), 0.02 - 1e-4, 1e-6);
     EXPECT_NEAR(f1.at("excess_scaled_median"), (0.02 - 1e-4) / 0.5, 1e-6);

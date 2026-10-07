@@ -189,6 +189,72 @@ namespace protal::profiler::context {
     inline constexpr double kSingletonOwnShare = 0.5;
     inline constexpr double kSingletonIdentity = 0.95;
 
+    // ---- the sample's complexity ---------------------------------------------------------------------------
+
+    // What all the taxa of a sample say together, before any is called (SampleEvidence::sample_log_taxa,
+    // sample_low_identity, sample_identity): a soil sample has thousands of taxa and much of its reads on relatives the
+    // database lacks, a gut sample hundreds, mostly on species the database holds. Without them a model can tell the
+    // kind of community only by the sample's depth, which the simulated scenarios draw from a narrow band around each
+    // preset: at GTDB r226 (v14), with whole samples held out, pe's shallowest shallow-soil sample, below every other soil
+    // sample's depth, scored F1 0.758 against 0.920 with species held out; with these three as features the six shallow
+    // samples scored 0.935 against 0.908 (docs/claude/2026-10-06-r226-v14).
+    inline constexpr size_t kSampleIdentityMinFragments = 10;  // the taxa sample_identity is the median of, if any
+
+    // A taxon as SampleComplexityOf sees it: its fragments, identity (BaseIdentity) and share of low-identity bases
+    // (LowIdentityShare).
+    struct TaxonSummary {
+        size_t fragments = 0;
+        double identity = 0;
+        double low_identity_share = 0;
+    };
+
+    struct SampleComplexity {
+        double log_taxa = 0;      // log10 of the taxa with fragments, at least 0
+        double low_identity = 0;  // the fragments' share on low-identity bases: the taxa's low_identity_share weighted by
+                                  // their fragments; 0 without fragments
+        double identity = 0;      // the fragment-weighted median identity of the taxa with at least
+                                  // kSampleIdentityMinFragments fragments (of every taxon with fragments if none has
+                                  // that many); 0 without fragments
+    };
+
+    // The sample's complexity from its taxa, given in a fixed order (taxids ascending): taxa of equal identity are
+    // taken in that order for the median, so the values do not depend on the order of the reads or the threads. The
+    // median is the identity of the first taxon, by identity, at which the cumulative fragments reach half of the
+    // taxa's (as numpy's searchsorted over the cumulative sum finds it).
+    inline SampleComplexity SampleComplexityOf(std::vector<TaxonSummary> const& taxa) {
+        SampleComplexity c;
+        size_t with_fragments = 0, deep = 0;
+        double fragments = 0, low = 0;
+        for (auto const& t : taxa) {
+            if (t.fragments == 0) continue;
+            with_fragments++;
+            deep += t.fragments >= kSampleIdentityMinFragments;
+            fragments += static_cast<double>(t.fragments);
+            low += static_cast<double>(t.fragments) * t.low_identity_share;
+        }
+        c.log_taxa = std::log10(static_cast<double>(std::max<size_t>(with_fragments, 1)));
+        if (fragments == 0) return c;
+        c.low_identity = low / fragments;
+        size_t const min_fragments = deep > 0 ? kSampleIdentityMinFragments : 1;
+        std::vector<std::pair<double, size_t>> by_identity;  // (identity, fragments)
+        double total = 0;
+        for (auto const& t : taxa) {
+            if (t.fragments < min_fragments) continue;
+            by_identity.emplace_back(t.identity, t.fragments);
+            total += static_cast<double>(t.fragments);
+        }
+        std::stable_sort(by_identity.begin(), by_identity.end(), [](auto const& a, auto const& b) { return a.first < b.first; });
+        double cumulative = 0;
+        for (auto const& [identity, n] : by_identity) {
+            cumulative += static_cast<double>(n);
+            if (cumulative >= total / 2) {
+                c.identity = identity;
+                break;
+            }
+        }
+        return c;
+    }
+
     // ---- abundance-weighted assignment of ambiguous reads -------------------------------------------------
 
     // One kind of best record with alternatives (RecordEvidenceCollector::NoteRecord): its taxon, whether the MAPQ and

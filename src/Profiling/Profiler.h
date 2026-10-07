@@ -756,6 +756,13 @@ namespace protal {
                                               // the depth the knob curve reads), at least 0: the forest sees the sample's depth,
                                               // which decides what a taxon of one perfect read is worth
                                               // (docs/claude/2026-10-03-false-positive-anatomy)
+            // The sample's complexity (context::SampleComplexityOf), the same for every taxon of the sample: what kind of
+            // community it is, whatever its depth (docs/claude/2026-10-06-r226-v14).
+            double sample_log_taxa = 0;      // log10 of the sample's taxa with fragments, at least 0
+            double sample_low_identity = 0;  // its fragments' share on low-identity bases (low_identity_share weighted by
+                                             // fragments): how much of the sample is relatives the database lacks
+            double sample_identity = 0;      // its taxa's fragment-weighted median identity (of those with at least
+                                             // context::kSampleIdentityMinFragments fragments, if any)
         };
 
         class Taxon {
@@ -1857,6 +1864,12 @@ namespace protal {
             // The sample's depth, log10 of its fragments over all its taxa (what the knob curve reads): a taxon of one
             // perfect read is a present species in a shallow sample and spill-over in a deep one.
             f.emplace_back("sample_log_fragments", s.sample_log_fragments);
+            // The sample's complexity: log10 of its taxa with fragments, its fragments' share on low-identity bases, and
+            // its taxa's fragment-weighted median identity (context::SampleComplexityOf). They tell a soil sample from a
+            // gut one at any depth, so that a model need not learn the kind of community from the depth.
+            f.emplace_back("sample_log_taxa", s.sample_log_taxa);
+            f.emplace_back("sample_low_identity", s.sample_low_identity);
+            f.emplace_back("sample_identity", s.sample_identity);
             // The taxon's reads before the filters, and of them what the abundance-weighted assignment leaves to the
             // taxon: the fragments a divergent strain would have had, had its reads not tied with a congener's reference.
             f.emplace_back("fragments_all", static_cast<double>(taxon.FragmentsAll()));
@@ -2692,6 +2705,13 @@ namespace protal {
                 size_t total_fragments = 0;
                 for (auto const& e : entries) total_fragments += e.n;
                 double const sample_log_fragments = std::log10(static_cast<double>(std::max<size_t>(total_fragments, 1)));
+                std::vector<context::TaxonSummary> summaries;
+                summaries.reserve(entries.size());
+                for (auto const& e : entries) {
+                    auto const& taxon = m_taxa.at(e.id);
+                    summaries.push_back({ e.n, taxon.BaseIdentity(), taxon.LowIdentityShare() });
+                }
+                auto const complexity = context::SampleComplexityOf(summaries);
                 // A genus's members by fragments, the most first (ties: lower taxid); a family's fragments by genus.
                 std::map<uint32_t, std::vector<std::pair<size_t, uint32_t>>> by_genus;
                 std::map<uint32_t, std::map<uint32_t, std::pair<size_t, size_t>>> by_family;  // genus -> (sum, max)
@@ -2800,6 +2820,9 @@ namespace protal {
                                (s.em_own_share < context::kSingletonOwnShare ||
                                 m_taxa.at(e.id).BaseIdentity() < context::kSingletonIdentity);
                     s.sample_log_fragments = sample_log_fragments;
+                    s.sample_log_taxa = complexity.log_taxa;
+                    s.sample_low_identity = complexity.low_identity;
+                    s.sample_identity = complexity.identity;
                     m_taxa.at(e.id).SetSampleEvidence(s);
                 }
             }
