@@ -10,9 +10,10 @@
 // them on their main diagonal, and the bases are compared on the stretches between two paired 12-mers that lie on it
 // (an indel moves the diagonal and ends the stretch, so a stretch past it is not compared). Per copy the sites are a
 // sorted list of positions with the congener's base: a few hundred bytes. They are computed once per run for each
-// (species, gene) a record touches (Cache: the gene store holds every reference's copy, species_neighbours.tsv names
-// the congeners) and counted per record from its CIGAR (M: the species' base at every site; X: the read's base
-// looked up).
+// (species, gene) a record touches (Cache: the gene store holds every reference's copy; the congener is the gene's
+// nearest by alignment in congener_gaps.tsv, else the species' nearest in species_neighbours.tsv) and counted per
+// record from its CIGAR (M: the species' base at every site; X: the read's base looked up). The gaps features
+// (CongenerGaps.h) take their nearest congener from the same table, so both describe one pair.
 #pragma once
 
 #include <algorithm>
@@ -26,6 +27,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "CongenerGapsTable.h"
 #include "SpeciesNeighbours.h"
 
 namespace protal::ancestry {
@@ -219,11 +221,15 @@ namespace protal::ancestry {
     // GenomeLoader (HasGene, GetGeneOMP), a template so that this header needs none of it.
     class Cache {
     public:
+        // gaps: the database's congener_gaps.tsv, or nullptr: the gene's nearest congener by alignment is compared first, then
+        // the species' nearest congeners (neighbours) as before, up to kCongenersTried in all.
         template<typename Genomes>
         std::shared_ptr<Sites const> Get(uint32_t taxid, uint32_t geneid, Genomes& genomes,
-                                         species_neighbours::Table const& neighbours) {
+                                         species_neighbours::Table const& neighbours,
+                                         congener_gaps::Table const* gaps = nullptr) {
             static std::shared_ptr<Sites const> const none = std::make_shared<Sites const>();
-            if (neighbours.Empty()) return none;
+            bool const by_gaps = gaps != nullptr && !gaps->Empty();
+            if (neighbours.Empty() && !by_gaps) return none;
             uint64_t const key = (static_cast<uint64_t>(taxid) << 32) | geneid;
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
@@ -232,16 +238,30 @@ namespace protal::ancestry {
             std::shared_ptr<Sites const> result = none;
             if (genomes.HasGene(taxid, geneid)) {
                 auto const own = genomes.GetGeneOMP(taxid, geneid).Sequence();
+                auto compare = [&](uint32_t congener) {
+                    auto const other = genomes.GetGeneOMP(congener, geneid).Sequence();
+                    auto sites = Compare(own.View(), other.View());
+                    if (!sites) return false;
+                    sites->congener = congener;
+                    result = std::make_shared<Sites const>(std::move(*sites));
+                    return true;
+                };
                 size_t tried = 0;
-                for (auto const& n : neighbours.Of(taxid)) {
-                    if (tried >= kCongenersTried) break;
-                    if (!genomes.HasGene(n.taxid, geneid)) continue;
-                    tried++;
-                    auto const other = genomes.GetGeneOMP(n.taxid, geneid).Sequence();
-                    if (auto sites = Compare(own.View(), other.View())) {
-                        sites->congener = n.taxid;
-                        result = std::make_shared<Sites const>(std::move(*sites));
-                        break;
+                uint32_t first = 0;  // the gene's nearest congener, tried first
+                if (by_gaps) {
+                    auto const gap = gaps->Find(taxid, geneid);
+                    if (gap && gap->nearest != 0 && gap->nearest != taxid && genomes.HasGene(gap->nearest, geneid)) {
+                        first = gap->nearest;
+                        tried++;
+                        compare(first);
+                    }
+                }
+                if (result == none) {
+                    for (auto const& n : neighbours.Of(taxid)) {
+                        if (tried >= kCongenersTried) break;
+                        if (n.taxid == first || !genomes.HasGene(n.taxid, geneid)) continue;
+                        tried++;
+                        if (compare(n.taxid)) break;
                     }
                 }
             }

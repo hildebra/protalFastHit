@@ -166,3 +166,34 @@ TEST(AncestrySites, CacheTakesTheNearestCongenerWithThePairingCopy) {
     cache.Clear();
     EXPECT_EQ(cache.Size(), 0u);
 }
+
+// With congener_gaps.tsv the cache compares a copy with the gene's nearest congener by alignment first: also one that
+// species_neighbours.tsv does not list (farther over all genes, or beyond its 16 within 0.15), and even without that
+// table; without the gene's nearest (an older table, or none for the gene) the species' neighbours as before.
+TEST(AncestrySites, CacheTakesTheGenesNearestCongenerFromTheGaps) {
+    std::mt19937 rng(17);
+    auto const own = RandomSequence(800, rng);
+    FakeGenomes genomes;
+    genomes.Set(1, 5, own);
+    genomes.Set(2, 5, Substituted(own, { 40, 140, 240, 340, 440 }, rng));  // the species' nearest over all genes
+    genomes.Set(7, 5, Substituted(own, { 100 }, rng));                     // gene 5's nearest, not a listed neighbour
+    genomes.Set(1, 6, own);
+    genomes.Set(2, 6, Substituted(own, { 30, 130 }, rng));
+    sn::Table neighbours;
+    neighbours.Set(1, { { 2, 0.02f } });
+    auto const gaps = protal::congener_gaps::Table::FromRows({ { 1, 5, protal::congener_gaps::Gap{ 13, 63, 2, 7 } },
+                                                               { 1, 6, protal::congener_gaps::Gap{ 25, 25, 1, 0 } } });
+    an::Cache cache;
+    auto const s5 = cache.Get(1, 5, genomes, neighbours, &gaps);
+    EXPECT_EQ(s5->congener, 7u);
+    EXPECT_EQ(s5->positions, std::vector<uint16_t>{ 100 });
+    // Gene 6's entry names no congener: the species' neighbour.
+    EXPECT_EQ(cache.Get(1, 6, genomes, neighbours, &gaps)->congener, 2u);
+    // Without species_neighbours.tsv, the gaps' congener still serves.
+    an::Cache alone;
+    EXPECT_EQ(alone.Get(1, 5, genomes, sn::Table{}, &gaps)->congener, 7u);
+    EXPECT_TRUE(alone.Get(1, 6, genomes, sn::Table{}, &gaps)->Empty());
+    // Without the gaps: the species' nearest, as before.
+    an::Cache before;
+    EXPECT_EQ(before.Get(1, 5, genomes, neighbours)->congener, 2u);
+}

@@ -355,9 +355,10 @@ apart ([report](claude/2026-10-07-error-read-signatures/README.md)). What does d
 mismatches fall. Where a species' gene copy differs from its nearest congener's copy, the species has its
 derived states (and the congener its own): a strain of the species carries the species' base at those
 sites; a species that branched off the lineage below some of them carries the congener's base there. At
-run time protal compares each hit gene's copy with the nearest congener's copy in the database
-(`species_neighbours.tsv`, nearest first; the first of the three nearest with the gene whose copy pairs
-along their shared 12-mers), keeps the differing positions with the congener's base, and reads each best
+run time protal compares each hit gene's copy with the nearest congener's copy in the database: that
+gene's nearest by alignment (`congener_gaps.tsv`, since 2026-10-08, the same congener the `gaps` features
+measure), else the species' nearest (`species_neighbours.tsv`, nearest first), the first of three whose copy
+pairs along their shared 12-mers; keeps the differing positions with the congener's base, and reads each best
 record's base at the sites it covers (`AncestrySites.h`; a few hundred bytes per copy, once per run).
 
 | feature | since | what it measures | importance pe / se / pb / ont | matters for |
@@ -366,10 +367,10 @@ record's base at the sites it covers (`AncestrySites.h`; a few hundred bytes per
 | `ancestry_agreement` | 0.7.9 | of the covered sites, the share where the read has the reference's base; -1 without a site | untested | a strain near 1, a novel congener at the fraction of the branch it shares |
 | `ancestry_congener_share` | 0.7.9 | the share where the read has the congener's base; -1 without a site | untested | a novel congener's reads, or a congener's spilling over |
 
-A species without a congener in the database within 0.15 (or in a database without the table) has no
-sites: the shares are -1 and the model falls back on the other features. Species with a second genome
-could refine the sites further (a site where the species' own strains vary is no evidence either way); the
-build does not store that yet.
+A species without a congener in the database (none for the gene in `congener_gaps.tsv`, none within 0.15
+in `species_neighbours.tsv`, or a database without both tables) has no sites: the shares are -1 and the
+model falls back on the other features. Species with a second genome could refine the sites further (a site
+where the species' own strains vary is no evidence either way); the build does not store that yet.
 
 ## The gene copies' gaps and foreign reads, and the untried candidates (`gaps`, `foreign`, `untried`, 2026-10-07)
 

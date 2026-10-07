@@ -1197,10 +1197,11 @@ namespace protal {
         }
 
         // Where taxid's copy of a gene differs from its nearest congener's copy (AncestrySites.h), computed once per run
-        // from the gene store and the species neighbours, for the ancestry features; empty without the table, or a
-        // congener with the gene whose copy pairs with the species'.
+        // from the gene store, with the gene's nearest congener by alignment (congener_gaps.tsv) or else the species'
+        // (species_neighbours.tsv), for the ancestry features; empty without either table, or without a congener with the
+        // gene whose copy pairs with the species'.
         std::shared_ptr<ancestry::Sites const> AncestrySitesOf(uint32_t taxid, uint32_t geneid) {
-            return m_ancestry_sites.Get(taxid, geneid, *this, m_species_neighbours);
+            return m_ancestry_sites.Get(taxid, geneid, *this, m_species_neighbours, &m_congener_gaps);
         }
 
         // Each gene copy's gap to its congeners' copies (CongenerGapsTable.h), for the "gaps" features; empty unless set (a
@@ -1211,6 +1212,7 @@ namespace protal {
 
         void SetCongenerGaps(congener_gaps::Table table) {
             m_congener_gaps = std::move(table);
+            m_ancestry_sites.Clear();  // their congeners come from the table
         }
 
         // Each gene copy's reads of a tiled scan of genomes and their foreign share (ForeignRatesTable.h), for the

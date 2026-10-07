@@ -3019,7 +3019,7 @@ namespace protal {
                 auto const& gaps = m_genome_loader->GetCongenerGaps();
                 if (!gaps.Empty()) {
                     e.gaps_known = true;
-                    auto const* gap = gaps.Find(taxid, geneid);
+                    auto const gap = gaps.Find(taxid, geneid);
                     if (gap && gap->min >= congener_gaps::kMinGap && aligned > 0) {
                         double const d = static_cast<double>(differences) / static_cast<double>(aligned);
                         e.gap_records++;

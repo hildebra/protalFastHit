@@ -16,7 +16,9 @@ The user chose:
 
 **Short answer.** All of it is implemented, tested here and in the default feature set, but not yet trained at GTDB
 scale: the next r226 build is the first test of its worth. Branch `congener-gaps` (from `0aea3fb`, `8c7ab9c`), merged into
-audit-fixes after 0.7.9 (`0fe84e3`), its conflicts with the ancestry sites resolved by keeping both.
+audit-fixes after 0.7.9 (`0fe84e3`), its conflicts with the ancestry sites resolved by keeping both. The two now share
+the nearest congener: `congener_gaps.tsv` names each copy's nearest congener by that gene's alignment, and the ancestry
+sites compare against it first ([Overlap](#overlap-with-the-ancestry-sites-the-other-branch)).
 
 ## What it does
 
@@ -36,10 +38,11 @@ The distance is the share of aligned columns that differ (mismatches and gap bas
 counted. Per copy, the table keeps:
 - the nearest congener's distance (min);
 - the median of the sample's distances (median);
-- the number of congeners with the gene.
+- the number of congeners with the gene;
+- which congener is the nearest (its taxid, since the ancestry reuse below).
 
 They are stored in 1/10,000 units, one line per species. A run loads the table into the `GenomeLoader` in parallel
-with the other tables: 8 bytes per copy, about 120 MB at r226.
+with the other tables: 12 bytes per copy, about 175 MB at r226.
 
 **Features** (per taxon, from its kept records, MAPQ 4 or more; −1 without the table or without a qualifying record):
 
@@ -115,6 +118,9 @@ The two alternatives to an order-dependent prior that the user chose:
   - the profiler's 8 features with and without the tables, on 1 and 3 threads.
 - All 446 unit tests ran: 443 passed, 2 were skipped, and one failed, `IlluminaSimulation.AFailedStreamIsCutOff`. That
   test is a named-pipe timing test this change does not touch; it passed 3 runs of 3 on its own.
+- After the nearest congener was added, with 0.7.9 merged in: 451 unit tests, 448 passed, 2 skipped, the same timing
+  test failed under load and passed alone. That includes `AncestrySites.CacheTakesTheGenesNearestCongenerFromTheGaps`,
+  the five-field table with the old four-field form still read, and the nearest of each copy in the scan tests.
 - `scripts/test_foreign_rates.py` (2 tests): the genome and taxonomy readers, the counting of a scan's SAM (best record,
   MAPQ, unmapped, unknown genome, supplementary first), and the table format.
 - `scripts/test_model_pmml.py`: the default feature set pinned with the three groups, and a table of a protal before them
@@ -140,7 +146,7 @@ The two alternatives to an order-dependent prior that the user chose:
   the training database's build and the profiling, so it lengthens the build's critical path by that much.
 - **Adaptive candidates.** Extra alignments only for divergent reads in crowded genera. The handler's k-mer screen
   refuses 90% of candidates at r226 for ~0.7 µs each, so most of the cost is screening; the run's log counts them.
-- **Memory at run time.** ~120 MB for the gaps and up to ~120 MB for the foreign rates (only the scanned copies). Each
+- **Memory at run time.** ~175 MB for the gaps and up to ~120 MB for the foreign rates (only the scanned copies). Each
   table is held as text while it is parsed: ~350 MB and less.
 
 ## Overlap with the ancestry sites (the other branch)
@@ -163,8 +169,8 @@ both groups are in the default set.
 | is the read on the species' side of its nearest congener? | `gap_within_min_share`, `gap_position`: the read's divergence over the whole gene against the copy's distance to the nearest congener | `ancestry_agreement`, `ancestry_congener_share`: base by base at the sites where the two differ |
 | how far is a typical congener? | `gap_within_median_share` (16-24 congeners per copy) | no |
 | can the gene tell at all? | `gap_informative_share` (nearest congener ≥ 0.005 away) | `ancestry_sites_per_record` (sites per record), close in spirit |
-| which congener | the nearest by that gene's own sketches, any congener of the genus | the nearest by all markers, within 0.15, from species_neighbours (≤ 16) |
-| computed | at build time, WFA2 alignment with indels counted; stored per copy (~120 MB) | at run time, per touched copy; k-mer pairing, stretches across indels not compared |
+| which congener | the nearest by that gene's alignment, any congener of the genus (now also the ancestry sites' first try) | the nearest by all markers, within 0.15, from species_neighbours (≤ 16) |
+| computed | at build time, WFA2 alignment with indels counted; stored per copy (~175 MB) | at run time, per touched copy; k-mer pairing, stretches across indels not compared |
 
 **Where it overlaps,** the ancestry sites ask the same question better: position by position, they avoid the caveat
 this branch lists, that a gene's divergence varies along it. `gap_within_min_share` and `gap_position` are probably
@@ -172,8 +178,8 @@ redundant with `ancestry_agreement` once both are trained. The median and the in
 ancestry sites. Neither are parts 2 and 3: the foreign rates, `--add_tables`, `ZC`, the adaptive candidates and
 `untried_candidate_rate`.
 
-**Duplicated work.** The two branches compute the nearest-congener comparison twice, at build time here and at run time
-there, and pick the nearest congener differently. Options:
+**Duplicated work.** Before the change below, the two branches computed the nearest-congener comparison twice, at
+build time here and at run time there, and picked the nearest congener differently. The options were:
 1. Train both and let the next r226 build's ablation (varimp, `--features` without `gaps`) decide. That is the cheapest
    now, and correlated features cost a gradient-boosted model little.
 2. Keep only the median and the informative share in `gaps`. Drop `gap_within_min_share` and `gap_position`, and with
@@ -182,8 +188,28 @@ there, and pick the nearest congener differently. Options:
    then compare against the gene's own nearest congener instead of the species-level one, including congeners beyond
    species_neighbours' 0.15. That makes the two consistent and drops the guess of 3 tries.
 
-The recommendation is 1 now and 2 or 3 after the build. Both branches touch the same files (RecordEvidence,
-TaxonFeatures, `model_features.py`'s default set): merging them means keeping both sides.
+**Done: option 3, with 1 for the rest.** The comparison itself is shared now; the site extraction and the gaps'
+statistics stay separate, because they answer different questions at different times.
+- `congener_gaps.tsv` has a fifth field per copy, `gene:min:median:congeners:nearest`: the taxid of the copy's nearest
+  congener by that gene's alignment, the lowest taxid of equal ones. Tables of before the change (four fields) are
+  still read; their nearest is 0. In memory, a copy takes 12 bytes (~175 MB at r226), up from 8.
+- `ancestry::Cache::Get` takes the gaps table. For a (species, gene) it tries that gene's nearest congener first, and
+  then `species_neighbours.tsv`'s neighbours, skipping that one, up to the 3 tries as before. A database with only one
+  of the two tables works; one with neither has no sites, as before. `GenomeLoader::SetCongenerGaps` clears the cache.
+- Kept independent: the run-time site extraction (k-mer pairing per touched copy, cached). Storing the sites at build
+  time would take ~3.5 GB at r226, for a few seconds of a run. Also kept independent: the gaps' median and
+  informative share, which the ancestry sites do not give.
+- Not shared: the two comparisons' arithmetic. The gaps count indels from a WFA2 alignment of the whole gene, while the
+  ancestry sites compare bases on the main diagonal. They answer different questions (how far, and where), and a
+  site list from the build's alignment would need the 3.5 GB above.
+- Test: `AncestrySites.CacheTakesTheGenesNearestCongenerFromTheGaps`. The gaps naming congener 7 for gene 5 give the
+  sites against 7. Gene 6, whose nearest is 0, falls back on the neighbour. It works without species_neighbours, and
+  without the gaps table the old behaviour is unchanged.
+- Whether `gap_within_min_share` and `gap_position` add anything beside `ancestry_agreement` is still for the r226
+  ablation (option 1). They now refer to the same congener as the sites do.
+
+Both branches touch the same files (RecordEvidence, TaxonFeatures, `model_features.py`'s default set): merging them
+means keeping both sides.
 
 ## What is not done
 

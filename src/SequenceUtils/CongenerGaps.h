@@ -203,8 +203,15 @@ namespace protal::congener_gaps {
             auto& list = found[i];
             if (list.empty()) continue;
             std::sort(list.begin(), list.end());
+            // The nearest congener: the least distance, of equals the lowest taxid (list is by copy index, taxids sorted).
             double least = std::numeric_limits<double>::infinity();
-            for (auto const& [_, d] : list) least = std::min(least, d);
+            uint32_t nearest = 0;
+            for (auto const& [partner, d] : list) {
+                if (d < least) {
+                    least = d;
+                    nearest = taxids[partner];
+                }
+            }
             values.clear();
             if (sampled[i]) {
                 for (auto const& [partner, d] : list) {
@@ -214,7 +221,7 @@ namespace protal::congener_gaps {
                 for (auto const& [_, d] : list) values.push_back(d);
             }
             if (values.empty()) continue;  // only nearest congeners aligned: no median sample
-            out.emplace_back(taxids[i], Gap{ Scaled(least), Scaled(detail::Median(values)), congeners[i] });
+            out.emplace_back(taxids[i], Gap{ Scaled(least), Scaled(detail::Median(values)), congeners[i], nearest });
             stats.copies++;
         }
     }

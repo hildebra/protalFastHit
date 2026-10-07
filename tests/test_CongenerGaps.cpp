@@ -96,9 +96,9 @@ TEST(CongenerGaps, AGeneOfAGenusGivesEachCopyItsNearestAndMedianCongener) {
     cg::ScanGene(7, taxids, seqs, genus, cg::Settings{}, 2, out, stats);
     std::map<uint32_t, cg::Gap> gaps(out.begin(), out.end());
     ASSERT_EQ(gaps.size(), 3u);  // not taxon 3: no congener
-    EXPECT_EQ(gaps.at(1), (cg::Gap{ cg::Scaled(0.010), cg::Scaled(0.020), 2 }));
-    EXPECT_EQ(gaps.at(2), (cg::Gap{ cg::Scaled(0.010), cg::Scaled(0.025), 2 }));  // 2 to 4: 40 differences
-    EXPECT_EQ(gaps.at(4), (cg::Gap{ cg::Scaled(0.030), cg::Scaled(0.035), 2 }));
+    EXPECT_EQ(gaps.at(1), (cg::Gap{ cg::Scaled(0.010), cg::Scaled(0.020), 2, 2 }));  // its nearest: taxon 2
+    EXPECT_EQ(gaps.at(2), (cg::Gap{ cg::Scaled(0.010), cg::Scaled(0.025), 2, 1 }));  // 2 to 4: 40 differences
+    EXPECT_EQ(gaps.at(4), (cg::Gap{ cg::Scaled(0.030), cg::Scaled(0.035), 2, 1 }));
     EXPECT_EQ(stats.genes, 1u);
     EXPECT_EQ(stats.alignments, 3u);
     EXPECT_EQ(stats.copies, 3u);
@@ -131,6 +131,8 @@ TEST(CongenerGaps, AGenusAboveTheLimitIsSampledAndStillFindsTheNearest) {
     ASSERT_TRUE(gaps.contains(1) && gaps.contains(2));
     EXPECT_EQ(gaps.at(1).min, cg::Scaled(6.0 / 1200));
     EXPECT_EQ(gaps.at(2).min, cg::Scaled(6.0 / 1200));
+    EXPECT_EQ(gaps.at(1).nearest, 2u);  // the twins are each other's nearest, found by their sketches
+    EXPECT_EQ(gaps.at(2).nearest, 1u);
     EXPECT_EQ(gaps.at(1).congeners, 11);
     // Each copy aligned against at most 1 + 3 others, so fewer pairs than all 66.
     EXPECT_LT(stats.alignments, 66u);
@@ -142,22 +144,29 @@ TEST(CongenerGaps, AGenusAboveTheLimitIsSampledAndStillFindsTheNearest) {
 }
 
 TEST(CongenerGaps, TheTableWritesAndReadsBack) {
-    auto const table = cg::Table::FromRows({ { 5, 2, cg::Gap{ 120, 800, 3 } }, { 2, 9, cg::Gap{ 0, 40, 1 } },
-                                             { 5, 1, cg::Gap{ 300, 300, 1 } } });
+    auto const table = cg::Table::FromRows({ { 5, 2, cg::Gap{ 120, 800, 3, 8 } }, { 2, 9, cg::Gap{ 0, 40, 1, 3 } },
+                                             { 5, 1, cg::Gap{ 300, 300, 1, 6 } } });
     EXPECT_EQ(table.Copies(), 3u);
     EXPECT_EQ(table.Species(), 2u);
     std::ostringstream os;
     table.Write(os);
-    EXPECT_EQ(os.str(), "taxid\tgene:min:median:congeners\n2\t9:0:40:1\n5\t1:300:300:1,2:120:800:3\n");
+    EXPECT_EQ(os.str(), "taxid\tgene:min:median:congeners:nearest\n2\t9:0:40:1:3\n5\t1:300:300:1:6,2:120:800:3:8\n");
     cg::Table back;
     std::istringstream is(os.str());
     EXPECT_EQ(back.Read(is), "");
-    ASSERT_NE(back.Find(5, 2), nullptr);
-    EXPECT_EQ(*back.Find(5, 2), (cg::Gap{ 120, 800, 3 }));
+    ASSERT_TRUE(back.Find(5, 2).has_value());
+    EXPECT_EQ(*back.Find(5, 2), (cg::Gap{ 120, 800, 3, 8 }));
     EXPECT_NEAR(back.Find(5, 2)->Median(), 0.08, 1e-12);
-    EXPECT_EQ(back.Find(5, 3), nullptr);
-    EXPECT_EQ(back.Find(4, 1), nullptr);
-    EXPECT_EQ(back.Find(99, 1), nullptr);
+    EXPECT_FALSE(back.Find(5, 3).has_value());
+    EXPECT_FALSE(back.Find(4, 1).has_value());
+    EXPECT_FALSE(back.Find(99, 1).has_value());
+    // A table of before 2026-10-08, without the nearest congener, reads with nearest 0; a trailing colon does not.
+    cg::Table old;
+    std::istringstream four("taxid\tgene:min:median:congeners\n7\t1:20:30:2\n");
+    EXPECT_EQ(old.Read(four), "");
+    EXPECT_EQ(*old.Find(7, 1), (cg::Gap{ 20, 30, 2, 0 }));
+    std::istringstream trailing("7\t1:20:30:2:\n");
+    EXPECT_NE(cg::Table().Read(trailing), "");
     std::istringstream bad("taxid\tgene:min:median:congeners\n7\t1:20:x:1\n");
     EXPECT_NE(cg::Table().Read(bad), "");
     std::istringstream range("7\t1:20000:30:1\n");
