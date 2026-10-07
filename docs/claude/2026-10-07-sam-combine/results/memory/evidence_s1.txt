@@ -1,0 +1,3 @@
+species rows 6490, gene bases 7063524 (coverage at 4 B: 28.3 MB)
+positions with variants (all reads): 349109; with a valid allele 345017, multi-allelic 31965
+species with MSAs: 59

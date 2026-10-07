@@ -55,6 +55,97 @@ namespace protal {
     struct SharedAlignmentRegion;
     using VariantVec = std::vector<VariantBin>;
 
+    // A gene as the strain MSA takes it (StrainLevelContainer::MSAItem: its variant bins and informative coverage),
+    // packed while a sample waits for the strain stage (profiler::Gene::KeepForMSAs): an allele in 32 bytes instead of
+    // a Variant's 88, its bin's vector and their heap blocks, the coverage in as many bytes per base as its largest
+    // value needs. Unpack
+    // gives the item back with every allele as Variant::Compact leaves it: what the MSA reads of it is the same.
+    class PackedMSAItem {
+        struct Allele {
+            uint64_t quality_sum;
+            uint32_t forward, reverse;
+            VariantPos position;
+            uint32_t structural;  // index into m_structurals, or kNone
+            SSize structural_size;
+            uint8_t type;
+            Base reference, variant;
+            uint8_t flags;  // 1: valid, 2: major
+        };
+        static_assert(sizeof(Allele) <= 32);
+        static constexpr uint32_t kNone = UINT32_MAX;
+        std::vector<uint32_t> m_bin_ends;  // each bin's alleles end at m_alleles[m_bin_ends[b]]
+        std::vector<Allele> m_alleles;
+        std::vector<std::string> m_structurals;  // the bases of the INDELs
+        std::vector<uint8_t> m_coverage;       // little-endian, m_width bytes per position
+        uint8_t m_width = 1;
+        size_t m_positions = 0;
+
+    public:
+        PackedMSAItem() = default;
+
+        explicit PackedMSAItem(std::pair<VariantVec, CoverageVec> const& item) {
+            for (auto const& bin : item.first) {
+                for (auto const& v : bin) {
+                    uint32_t structural = kNone;
+                    if (auto const* bases = v.StructuralBases()) {
+                        structural = static_cast<uint32_t>(m_structurals.size());
+                        m_structurals.push_back(*bases);
+                    }
+                    m_alleles.push_back({ v.QualitySum(), v.ObservationsForward(), v.ObservationsReverse(), v.Position(), structural,
+                                          static_cast<SSize>(v.GetStructuralSize()), static_cast<uint8_t>(v.GetType()),
+                                          v.GetReference(), v.GetVariant(),
+                                          static_cast<uint8_t>((v.GetValid() ? 1 : 0) | (v.IsMajorAllele() ? 2 : 0)) });
+                }
+                m_bin_ends.push_back(static_cast<uint32_t>(m_alleles.size()));
+            }
+            auto const& coverage = item.second;
+            uint32_t const top = coverage.empty() ? 0 : *std::max_element(coverage.begin(), coverage.end());
+            m_width = top < (1u << 8) ? 1 : top < (1u << 16) ? 2 : 4;
+            m_positions = coverage.size();
+            m_coverage.resize(m_positions * m_width);
+            for (size_t i = 0; i < m_positions; i++) {
+                for (uint8_t k = 0; k < m_width; k++) m_coverage[i * m_width + k] = static_cast<uint8_t>(coverage[i] >> (8 * k));
+            }
+            m_bin_ends.shrink_to_fit();
+            m_alleles.shrink_to_fit();
+            m_structurals.shrink_to_fit();
+        }
+
+        std::pair<VariantVec, CoverageVec> Unpack() const {
+            std::pair<VariantVec, CoverageVec> item;
+            item.first.reserve(m_bin_ends.size());
+            uint32_t start = 0;
+            for (auto end : m_bin_ends) {
+                VariantBin bin;
+                bin.reserve(end - start);
+                for (uint32_t a = start; a < end; a++) {
+                    auto const& x = m_alleles[a];
+                    bin.push_back(Variant::Restore(static_cast<VariantType>(x.type), x.position, x.reference, x.variant,
+                                                   x.structural == kNone ? nullptr : &m_structurals[x.structural],
+                                                   x.structural_size, x.forward, x.reverse, x.flags & 1, x.flags & 2,
+                                                   x.quality_sum));
+                }
+                item.first.push_back(std::move(bin));
+                start = end;
+            }
+            item.second.resize(m_positions);
+            for (size_t i = 0; i < m_positions; i++) {
+                uint32_t value = 0;
+                for (uint8_t k = 0; k < m_width; k++) value |= static_cast<uint32_t>(m_coverage[i * m_width + k]) << (8 * k);
+                item.second[i] = value;
+            }
+            return item;
+        }
+
+        // The memory it holds, for reports.
+        size_t Bytes() const {
+            size_t bytes = sizeof(*this) + m_bin_ends.capacity() * sizeof(uint32_t) + m_alleles.capacity() * sizeof(Allele) +
+                           m_coverage.capacity();
+            for (auto const& s : m_structurals) bytes += sizeof(s) + s.capacity();
+            return bytes;
+        }
+    };
+
     // This should be in alignment utils but there are weird circular dependencies
     static size_t AlignmentLengthRef(const std::string& cigar) {
         if (cigar.empty()) return 0;

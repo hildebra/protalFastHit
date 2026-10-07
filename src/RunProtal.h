@@ -33,6 +33,9 @@
 #include <set>
 #include <unistd.h>
 #include <sys/wait.h>
+#ifdef __GLIBC__
+#include <malloc.h>  // malloc_trim
+#endif
 
 // #include "Profiler/ReadFilter.h"
 
@@ -913,20 +916,27 @@ namespace protal {
     // (profile.ReleaseReadData scores all), so that later stages may use any model to tell which taxa pass: they
     // get the score of the sample's own model. Any thread may profile a sample of its own: a sample's profile
     // depends on its SAM and the database only, not on the thread or on the other samples.
-    // A sample's profiling timers (wall clock, ProfileSample): appended to its runtime table beside the alignment
+    // A sample's profiling timers (wall clock, ProfileSample): written to its runtime table beside the alignment
     // stage's timers (misc/<sample>_runtime.tsv, made by the alignment stage of this run, else here with its header),
     // and printed in one line, `total` first and the `parts` after it. Each row has the table's columns: a wall-clock
     // timer ran on one thread, so seconds and seconds per thread are the same.
     static void WriteProfilingTimes(Options const& options, size_t index, Benchmark const& total, std::vector<Benchmark const*> const& parts) {
         auto const path = std::filesystem::path(options.GetMiscOutputDir()) / (options.GetSampleId(index) + "_runtime.tsv");
-        bool const fresh = !std::filesystem::exists(path);
-        std::ofstream os(path, std::ios::out | std::ios::app);
-        os << std::fixed << std::setprecision(6);
-        if (fresh) os << "stage\tseconds\tthreads\tseconds_per_thread\n";
+        std::string kept = "stage\tseconds\tthreads\tseconds_per_thread\n";  // the header and the other stages' rows
+        {
+            std::ifstream is(path);
+            std::string line;
+            for (bool header = true; std::getline(is, line); header = false) {
+                if (!header && !line.empty() && line.rfind("Profiling: ", 0) != 0) kept += line + '\n';
+            }
+        }
+        std::ofstream os(path, std::ios::out | std::ios::trunc);
+        os << kept << std::fixed << std::setprecision(6);
         os << total.GetName() << '\t' << total.Seconds() << '\t' << total.Threads() << '\t' << total.MeanSeconds() << '\n';
         for (auto const* bm : parts) os << bm->GetName() << '\t' << bm->Seconds() << '\t' << bm->Threads() << '\t' << bm->MeanSeconds() << '\n';
         std::ostringstream line;
         line << std::fixed << std::setprecision(1) << "Profiling sample " << options.GetSampleId(index) << " took " << total.Seconds() << "s:";
+    // in place of the profiling rows an earlier profiling of the sample left there (a rerun once added a second set),
         for (size_t p = 0; p < parts.size(); p++) {
             std::string name = parts[p]->GetName();
             if (name.rfind("Profiling: ", 0) == 0) name = name.substr(11);
@@ -948,6 +958,30 @@ namespace protal {
         auto const& range = ctx.range;
         {
             auto i = range[idx];
+    // The parameters of the strain MSA's items of a sample with reads of `read_type` and a taxon whose own reads are
+    // at least `min_identity` identical (StrainLevelContainer::MSAItem): the SNP filters of the options.
+    static profiler::MSAItemParameters MSAItemFor(Options const& options, ReadType read_type, double min_identity) {
+        profiler::MSAItemParameters p;
+        p.min_identity = min_identity;
+        p.min_cov = options.GetSNPMinCov();
+        p.min_af = options.GetSNPMinAF(read_type);
+        p.min_mean_qual = options.GetSNPMinMeanQual();
+        p.min_qual_sum = options.GetSNPMinPhredSum();
+        p.require_strand = options.GetSNPRequireStrand();
+        return p;
+    }
+
+    // What a sample's taxa that enter the MSAs keep of their genes (Taxon::ReleaseReadData): the items at the identity
+    // of each taxon's own reads, and the SNP counts the strain stage reads (SelectGenesForTaxon: (2, 60) and (0, 0);
+    // GetMSAForTaxon: the SNP filters').
+    static profiler::MSAReleaseParameters MSAReleaseFor(Options const& options, ReadType read_type) {
+        profiler::MSAReleaseParameters p;
+        p.identity_margin = options.GetMSAIdentityMargin();
+        p.item = MSAItemFor(options, read_type, 0);
+        p.count_keys = { { 2, 60 }, { 0, 0 }, { static_cast<uint32_t>(options.GetSNPMinCov()), options.GetSNPMinPhredSum() } };
+        return p;
+    }
+
 
             auto const read_type = options.GetReadType(i);
             auto& sample_filter = filters[static_cast<size_t>(read_type)];
@@ -1182,9 +1216,18 @@ namespace protal {
                 unreported_slots[idx].push_back({ species, line.str() });
             }
 
-            // The sample's outputs are written: only the strain stage reads its profile again, and only
-            // the variants and read ranges of taxa that enter the MSAs (--msa_knob).
-            profile.ReleaseReadData(filter.WithKnob(msa_knob), !options.NoStrains());
+            // The sample's outputs are written: only the strain stage reads its profile again, and only the taxa that
+            // enter the MSAs (--msa_knob), of which it keeps what the MSAs read (Gene::KeepForMSAs); --taxon_statistics
+            // reads the numbers of every taxon.
+            std::optional<profiler::MSAReleaseParameters> msa;
+            if (!options.NoStrains()) msa = MSAReleaseFor(options, read_type);
+            profile.ReleaseReadData(filter.WithKnob(msa_knob), msa, options.TaxonStatistics());
+#ifdef __GLIBC__
+            // The sample's reads' records are freed, but glibc keeps the pages of its arenas that the blocks which stay
+            // (what the profile keeps, made after the records) leave partly used; returned, a cohort's memory grows by
+            // what its samples keep only (docs/claude/2026-10-07-sam-combine).
+            malloc_trim(0);
+#endif
 
             // Each thread writes to its own pre-allocated slot — no lock needed.
             profile_slots[idx].emplace(std::move(profile));
@@ -2119,8 +2162,7 @@ namespace protal {
         std::vector<haplotypes::Site> sites;
         for (auto geneid : genes) {
             if (!taxon.GetGenes().contains(geneid) || taxon.DropsGene(geneid)) continue;
-            auto const item = taxon.GetGenes().at(geneid).GetStrainLevel().MSAItem(min_identity, min_cov, min_af, min_mean_qual,
-                                                                                 min_qual_sum, require_strand);
+            auto const item = taxon.GetGenes().at(geneid).MSAItem(MSAItemFor(options, profile.GetReadType(), min_identity));
             auto const reference = genome.GetGene(geneid).Sequence();
             for (auto& [pos, bases] : MultiAllelicSites(item.first, item.second, min_cov, min_qual_sum, min_af, require_strand,
                                                         min_mean_qual, 4)) {
@@ -2309,13 +2351,11 @@ namespace protal {
                 auto& gene_obs = genes.at(geneid);
                 double const min_af = options.GetSNPMinAF(profile.GetReadType());
                 if (rows[r].haplotype < 0) {
-                    auto& strain = gene_obs.GetStrainLevel();
                     auto ac = gene_obs.AlleleSNPCounts(min_cov, min_qual_sum);
                     // The gene from the taxon's own reads, as the MSA takes it: the reads with a base per position,
-                    // what the MSA judges each position by.
-                    auto item = strain.MSAItem(taxon.IdentityThreshold(options.GetMSAIdentityMargin()),
-                                               min_cov, min_af,
-                                               min_mean_qual, min_qual_sum, require_strand);
+                    // what the MSA judges each position by (kept so when the sample was profiled, Gene::KeepForMSAs).
+                    auto item = gene_obs.MSAItem(MSAItemFor(options, profile.GetReadType(),
+                                                            taxon.IdentityThreshold(options.GetMSAIdentityMargin())));
                     metas[r] = meta_of(item, gene_obs.VerticalCoverage(), ac.Filtered(), gene_obs.m_gene_length, min_af);
                     items[r] = std::move(item);
                 } else {

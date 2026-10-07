@@ -178,9 +178,38 @@ namespace protal {
             }
         };
 
+        // What StrainLevelContainer::MSAItem takes: the identity of the taxon's own reads (Taxon::IdentityThreshold at
+        // --msa_identity_margin) and the SNP filters of the sample's kind of reads.
+        struct MSAItemParameters {
+            double min_identity = 0;
+            size_t min_cov = 0;
+            double min_af = 0;
+            size_t min_mean_qual = 0;
+            size_t min_qual_sum = 0;
+            bool require_strand = false;
+            bool operator==(MSAItemParameters const&) const = default;
+        };
+
+        // How a sample's taxa that enter the strain MSAs keep their genes (Taxon::ReleaseReadData): the MSA items'
+        // parameters but the identity, which each taxon takes from its own reads at `identity_margin`, and the
+        // (min_cov, min_qual_sum) of the SNP counts the strain stage asks for.
+        struct MSAReleaseParameters {
+            double identity_margin = 0;
+            MSAItemParameters item;
+            std::vector<std::pair<uint32_t, size_t>> count_keys;
+        };
+
         class Gene {
         public:
 //            using SNPs = std::vector<SNP>;
+            // Gene::KeepForMSAs: what the strain stage reads of a gene, kept in place of its reads' records.
+            struct MSAEvidence {
+                MSAItemParameters parameters;
+                PackedMSAItem item;
+                std::vector<std::pair<std::pair<uint32_t, size_t>, AlleleCounts>> counts;  // by (min_cov, min_qual_sum)
+                size_t covered = 0;  // positions with a read
+            };
+            std::shared_ptr<MSAEvidence const> m_msa_evidence;
 
             size_t m_mapped_reads = 0;
             size_t m_mapped_length = 0;
@@ -224,12 +253,51 @@ namespace protal {
             };
 
             size_t Coverage(size_t above=0) {
+                if (m_msa_evidence) {
+                    if (above != 0) throw std::logic_error("Gene::Coverage(" + std::to_string(above) + ") after KeepForMSAs");
+                    return m_msa_evidence->covered;
+                }
                 auto cov_vec = GetStrainLevel().GetSequenceRangeHandler().CalculateCoverageVector2();
                 auto cov = std::count_if(cov_vec.begin(), cov_vec.end(), [above](const uint32_t e){ return e > above; });
                 return cov;
             }
 
+            // The gene as the strain MSA takes it (StrainLevelContainer::MSAItem), from the reads' records, or after
+            // KeepForMSAs the one kept then for these parameters.
+            std::pair<VariantVec, CoverageVec> MSAItem(MSAItemParameters const& p) const {
+                if (m_msa_evidence) {
+                    if (!(m_msa_evidence->parameters == p)) throw std::logic_error("Gene::MSAItem with other parameters than KeepForMSAs");
+                    return m_msa_evidence->item.Unpack();
+                }
+                return m_strain_level.MSAItem(p.min_identity, p.min_cov, p.min_af, p.min_mean_qual, p.min_qual_sum, p.require_strand);
+            }
+
+            // Keeps what the strain stage reads of the gene (MSAItem for `p`, packed: PackedMSAItem; AlleleSNPCounts for
+            // `count_keys`; Coverage) and drops the reads' records it was made from: the variants with a quality and a
+            // strand and divergence byte per read, and a range per read. A sample's MSA rows depend on its own records
+            // only (the other samples set only which genes and columns an MSA has), so they come out the same, at a
+            // fraction of the memory a sample keeps until the strain stage (docs/claude/2026-10-07-sam-combine).
+            void KeepForMSAs(MSAItemParameters const& p, std::vector<std::pair<uint32_t, size_t>> const& count_keys) {
+                if (m_msa_evidence) return;
+                auto evidence = std::make_shared<MSAEvidence>();
+                evidence->parameters = p;
+                evidence->item = PackedMSAItem(MSAItem(p));
+                for (auto const& [min_cov, min_qual_sum] : count_keys) {
+                    evidence->counts.push_back({ { min_cov, min_qual_sum }, AlleleSNPCounts(min_cov, min_qual_sum) });
+                }
+                evidence->covered = Coverage();
+                m_strain_level.Clear();
+                m_msa_evidence = std::move(evidence);
+            }
+
             AlleleCounts AlleleSNPCounts(uint32_t min_cov, size_t min_qual_sum) {
+                if (m_msa_evidence) {
+                    for (auto const& [key, counts] : m_msa_evidence->counts) {
+                        if (key.first == min_cov && key.second == min_qual_sum) return counts;
+                    }
+                    throw std::logic_error("Gene::AlleleSNPCounts(" + std::to_string(min_cov) + ", " + std::to_string(min_qual_sum) +
+                                           ") after KeepForMSAs");
+                }
                 std::vector<size_t> alleles(5, 0);
                 GetAlleles(alleles, min_cov, min_qual_sum);
                 AlleleCounts counts;
@@ -1310,14 +1378,27 @@ namespace protal {
             // (after the depth is cached) and, unless `keep_strain_data`, the genes' variants and read
             // ranges. Depth, counters and a cached model score stay valid; features do not, so the
             // taxon must be scored first (see MicrobialProfile::ReleaseReadData).
-            void ReleaseReadData(bool keep_strain_data) {
+            // After the sample's outputs are written: drops the reads' records. A taxon that enters the strain MSAs
+            // (`msa`) keeps what the strain stage reads of each gene (Gene::KeepForMSAs, at the identity threshold of
+            // its own reads, taken before their identities go) and its long reads' phase records; any other its
+            // strain data too.
+            void ReleaseReadData(std::optional<MSAReleaseParameters> const& msa) {
                 VerticalCoverage();
+                std::optional<MSAItemParameters> item;
+                if (msa) {
+                    item = msa->item;
+                    item->min_identity = IdentityThreshold(msa->identity_margin);
+                }
                 for (auto it = m_genes.begin(); it != m_genes.end(); ++it) {
                     auto& gene = it->second;
+                    if (item) {
+                        gene.KeepForMSAs(*item, msa->count_keys);
+                    } else {
+                        gene.GetStrainLevel().Clear();
+                    }
                     std::vector<std::pair<float, uint32_t>>{}.swap(gene.m_read_identities);
-                    if (!keep_strain_data) gene.GetStrainLevel().Clear();
                 }
-                if (!keep_strain_data) std::vector<haplotypes::ReadRecord>{}.swap(m_phase_records);
+                if (!msa) std::vector<haplotypes::ReadRecord>{}.swap(m_phase_records);
             }
 
             // The identity of the taxon's best-matching reads: the 98th percentile, by aligned bases,
@@ -2859,14 +2940,20 @@ namespace protal {
             }
 
             // Frees the per-read data of every taxon once the profile's outputs are written (see
-            // Taxon::ReleaseReadData), after scoring it. The strain stage reads the variants and read
-            // ranges of taxa that pass `filter` only, so only theirs are kept, and only if
-            // `keep_strain_data`.
-            void ReleaseReadData(TaxonFilterObj const& filter, bool keep_strain_data) {
-                for (auto it = m_taxa.begin(); it != m_taxa.end(); ++it) {
+            // Taxon::ReleaseReadData), after scoring it. The strain stage reads the taxa that pass `filter` only:
+            // with `msa` (strain MSAs on) they keep what it reads of their genes, and the others are dropped, unless
+            // `keep_all_taxa` (--taxon_statistics, which reads every taxon's numbers): a cohort's memory grows by what its
+            // samples' MSAs need only (docs/claude/2026-10-07-sam-combine).
+            void ReleaseReadData(TaxonFilterObj const& filter, std::optional<MSAReleaseParameters> const& msa, bool keep_all_taxa) {
+                for (auto it = m_taxa.begin(); it != m_taxa.end();) {
                     auto& taxon = it.value();
                     bool const pass = filter.Pass(taxon);  // caches the score
-                    taxon.ReleaseReadData(keep_strain_data && pass);
+                    if (!keep_all_taxa && !(msa && pass)) {
+                        it = m_taxa.erase(it);
+                        continue;
+                    }
+                    taxon.ReleaseReadData(pass ? msa : std::nullopt);
+                    ++it;
                 }
             }
 

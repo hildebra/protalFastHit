@@ -39,7 +39,8 @@ inline uint8_t MaxDivergenceBin(double min_identity) {
 
 class Variant {
 
-    VariantID variant_id = 0;   // size_t
+    // The sum of the observations' qualities of a compact allele (IsCompact), which has no per-read bytes; else unused.
+    uint64_t compact_quality_sum = 0;
     VariantType variant_type;   // enum
     VariantPos position = UINT32_MAX;        // uint32_t
     Base reference = 'X';             // char
@@ -49,6 +50,7 @@ class Variant {
     uint32_t observations_rev = 0;
     bool is_valid = true;
     bool is_major = false;
+    bool compact = false;  // no per-read bytes (quals, reads): compact_quality_sum holds their qualities' sum
     // Inserted/deleted bases of an INDEL; null for SNPs. Owned, and deep-copied with the Variant.
     std::unique_ptr<std::string> structural;
     QualList quals;
@@ -65,10 +67,10 @@ public:
             structural(std::make_unique<std::string>(structural)) {};
 
     Variant(Variant const& other) :
-            variant_id(other.variant_id), variant_type(other.variant_type), position(other.position),
+            compact_quality_sum(other.compact_quality_sum), variant_type(other.variant_type), position(other.position),
             reference(other.reference), variant(other.variant), structural_size(other.structural_size),
             observations_fwd(other.observations_fwd), observations_rev(other.observations_rev),
-            is_valid(other.is_valid), is_major(other.is_major),
+            is_valid(other.is_valid), is_major(other.is_major), compact(other.compact),
             structural(other.structural ? std::make_unique<std::string>(*other.structural) : nullptr),
             quals(other.quals), reads(other.reads) {};
 
@@ -100,9 +102,47 @@ public:
             exit(12);
         }
         if (IsReference()) return Observations() * 40;
+        if (compact) return compact_quality_sum;
         return std::accumulate(quals.begin(), quals.end(), size_t{0}, [](size_t acc, const uint16_t q) {
             return acc + q;
         });
+    }
+
+    // Whether the allele is kept without its per-read bytes (qualities, strands and divergences), as Restore makes it:
+    // what the strain MSA reads of it, its observations per strand and their quality sum, are the same, but it can no
+    // longer be filtered by its reads' divergence (WithMaxDivergence returns it as it is).
+    bool IsCompact() const {
+        return compact;
+    }
+
+    // A compact allele from what it is made of (PackedMSAItem keeps alleles so and makes them again with this).
+    static Variant Restore(VariantType type, VariantPos pos, Base ref, Base var, std::string const* structural_bases,
+                           SSize structural_length, uint32_t forward, uint32_t reverse, bool valid, bool major,
+                           uint64_t quality_sum) {
+        Variant v(pos, var, ref);
+        v.variant_type = type;
+        v.structural_size = structural_length;
+        if (structural_bases) v.structural = std::make_unique<std::string>(*structural_bases);
+        v.observations_fwd = forward;
+        v.observations_rev = reverse;
+        v.is_valid = valid;
+        v.is_major = major;
+        v.compact = true;
+        v.compact_quality_sum = quality_sum;
+        return v;
+    }
+
+    VariantType GetType() const {
+        return variant_type;
+    }
+
+    Base GetReference() const {
+        return reference;
+    }
+
+    // The inserted or deleted bases of an INDEL, or null.
+    std::string const* StructuralBases() const {
+        return structural.get();
     }
     size_t MeanQuality() const {
         auto observations = Observations();

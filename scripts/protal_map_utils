@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -30,7 +31,7 @@ MAP_VAR_DEFAULT_SAM_OUTPUT_DIR = "alignments"
 MAP_VAR_DEFAULT_PROFILE_OUTPUT_DIR = "profiles"
 MAP_VAR_DEFAULT_STRAIN_OUTPUT_DIR = "strains"
 MAP_VAR_DEFAULT_MISC_OUTPUT_DIR = "misc"
-READ_EXTENSIONS = (".fq", ".fastq", ".fq.gz", ".fastq.gz")
+READ_EXTENSIONS = (".fq", ".fastq", ".fq.gz", ".fastq.gz", ".fq.zst", ".fastq.zst")
 
 
 @dataclass
@@ -288,15 +289,19 @@ def first_diff_index(str1: str, str2: str) -> int:
 
 
 def remove_pair(read1: str, read2: str) -> str:
+    """The sample name of a pair of read file names (without their extensions) that differ in a mate number 1/2: the
+    name without the mate number, an R before it, the separator before that, and the chunk number Illumina writes
+    after it: x_1, x_R1, x.R1 and x_S1_L001_R1_001 are x, x, x and x_S1_L001. Anything else after it stays
+    (x_R1_trimmed is x_trimmed)."""
     diff_idx = first_diff_index(read1, read2)
-    sample = read1
-    remove_set = {"_", "/", "."}
-    if diff_idx == len(read1) - 1:
-        i = diff_idx - 1
-        while i > 0 and read1[i] in remove_set:
-            i -= 1
-        sample = read1[: i + 1]
-    return sample
+    if diff_idx < 0:
+        return read1
+    start = diff_idx - 1 if diff_idx > 0 and read1[diff_idx - 1] in "Rr" else diff_idx
+    head = read1[:start].rstrip("_.-")
+    rest = read1[diff_idx + 1:]
+    if re.fullmatch(r"[_.-]\d{3}", rest):  # Illumina's chunk number, _001
+        rest = ""
+    return head + rest if head else read1
 
 
 def get_relevant_indices(path_list: List[str]) -> List[int]:

@@ -60,7 +60,8 @@ protal --db DB -t 16 -o combined --profile_only study1/alignments/a.sam.zst,stud
   (one per SAM, in the order of the expanded list) names them otherwise.
 - **Outputs.** Each sample's profile is written again, into `-o`, with the MSAs in `-o/strains`.
   Without `-o` the profiles go next to the SAMs and `strains/` and `misc/` into the current folder.
-  The `<sam>.err` file is always written next to its SAM.
+  protal stops before it starts where that would overwrite an earlier run's profiles or strain list
+  (`species.tsv`); `--force` writes them again. The `<sam>.err` file is always written next to its SAM.
 - **Maps.** `protal_map_utils merge --map run1.map run2.map --out combined > all.map` writes one
   map of the runs' samples, in which every SAM a run wrote is named by its absolute path: `protal --map
   all.map` profiles them where they are and aligns only the samples without one (`--new-sams` gives
@@ -69,9 +70,12 @@ protal --db DB -t 16 -o combined --profile_only study1/alignments/a.sam.zst,stud
   whose SAM exists need not exist (protal warns).
 
 Re-profiling costs a fraction of a run: at GTDB r226, profiling took 3.7 s of a 42 s paired-end run
-([report](claude/2026-10-06-performance-profiling/README.md)). Every sample's strain evidence (its
-reads on the species that enter MSAs) stays in memory until the MSAs are written, so the memory grows
-with the number of samples.
+([report](claude/2026-10-06-performance-profiling/README.md)). Until the MSAs are written, every sample
+keeps what its MSA rows need of the species that enter MSAs, packed: per gene, its alleles at variant
+positions (32 bytes each) and its coverage (a byte per base below 256x); the reads' records and the
+other taxa are freed once its profile is written (`--taxon_statistics` keeps the taxa). A dense sample
+of 1M read pairs from 60 species at about 25x keeps 37 MB (159 MB up to 0.7.8), so memory grows by that
+per sample: 16 such samples on 4 threads peaked at 1.4 GB (2.8 GB up to 0.7.8). The MSAs are the same.
 
 ## Strains in long-read samples
 

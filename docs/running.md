@@ -41,6 +41,8 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   `protal_map_utils generate` (and `merge --use-sampleid`) and `simulate_metagenomes
   --protal_metafile` write `.sam.zst` names; `protal_map_utils --gzip` writes `.sam.gz`, `--nogzip`
   `.sam`. A rerun also takes a plain `P.sam` from an earlier run as the SAM of `P.sam.zst`.
+  `protal_map_utils generate` names a sample after its read files without the mate number, an `R`
+  before it and Illumina's chunk number (`x_R1.fq` is `x`, `x_S1_L001_R1_001.fastq.gz` is `x_S1_L001`).
   `protal_map_utils merge` keeps the SAMs the merged maps' runs wrote, by their absolute paths, so a
   run of the merged map profiles them instead of aligning again
   ([strains.md](strains.md#strain-msas-over-several-runs)).
@@ -57,7 +59,7 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   10-15% of the alignment time otherwise), so their seconds are estimates: the mean timed interval
   times the number of calls. Since 0.7.6 it also has the profiling steps' wall-clock times (reading the
   SAM, record evidence and sample context, read EM, congener distances, SNPs, scoring, writing), which
-  protal prints in one line per sample too.
+  protal prints in one line per sample too; a rerun that profiles the sample again replaces them.
 - Every run prints per sample how its reads went: the reads, those with an anchor, the candidate
   alignments tried, those the k-mer screen refused, those aligned, and the records written. A second
   line ("seeding:") counts the k-mer lookups, the index blocks they scanned and their sizes, the
@@ -181,7 +183,9 @@ builds strain MSAs over all of them, also when they come from several runs
 come from `--prefix` (one per file) or from the SAM names (from their folders where names repeat),
 and the outputs go to `-o`, or without it the profiles next to each SAM and `strains/` and `misc/`
 into the current folder. This is also the quick way to try another `--knob`, model or
-`--depth_identity_margin`. Arguments that follow no option stop protal, except SAM files after
+`--depth_identity_margin`. `--profile_only` stops before it starts where an earlier run's results
+would be overwritten (a profile it would write, or `species.tsv` in its strain folder): give another
+`-o`, or `--force` to write them again. Arguments that follow no option stop protal, except SAM files after
 `--profile_only`: an unquoted `-1 *_1.fq` once aligned only its first file.
 
 Since 0.7.6 a profile does not depend on the order of the SAM's records, which multi-threaded
@@ -365,5 +369,7 @@ It prints the machine's total memory at start and, after loading the index, the 
 so protal asks Linux for transparent huge pages for it; the usual setting (`madvise` in
 `/sys/kernel/mm/transparent_hugepage/enabled`) grants them, and seeding is about a third faster.
 With THP set to `never` protal uses normal pages. The profiling stage streams each SAM and, once a
-sample's outputs are written, keeps only what the strain MSAs need: the variants and read ranges
-of the species that pass the model (nothing with `--no_strains`).
+sample's outputs are written, keeps only what its strain MSA rows need, packed: the alleles and
+coverage of the genes of the species that enter MSAs (nothing with `--no_strains`; every taxon's
+numbers with `--taxon_statistics`), 37 MB for a dense sample of 1M pairs from 60 species, 159 MB up
+to 0.7.8 ([strains.md](strains.md#strain-msas-over-several-runs)).

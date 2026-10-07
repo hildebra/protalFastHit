@@ -190,7 +190,7 @@ namespace protal {
                 ("map_help", "Get help how to format the map file.")
                 ("verbose", "Have verbose program output")
                 ("t,threads", "Specify number of threads to use: for alignment (which also compresses the SAM), database loading and profiling.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_THREADS)))
-                ("force", "Force redo alignment even if sam files exists.");
+                ("force", "Force redo alignment even if sam files exists. With --profile_only: write the profiles and strain outputs even where an earlier run left its own (without it, protal stops).");
 
         // Not shown: the arguments that follow no option. With --profile_only they are SAM files (an unquoted pattern,
         // which the shell expands into several arguments: the option takes the first), with --build the reference.
@@ -2227,6 +2227,26 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                     if (!std::filesystem::exists(sam)) {
                         error_log.emplace_back("--profile_only sam file does not exist: " + sam);
                     }
+                }
+            }
+
+            // --profile_only does not overwrite an earlier run's results (its rerun into the same folder also added a
+            // second set of rows to misc/<sample>_runtime.tsv): the profiles it would write, and the list of species of
+            // the strain output folder. --force writes them again.
+            if (m_profile_only && !m_force && !m_no_profile) {
+                std::vector<std::string> existing;
+                for (auto const& profile : m_profile_list) {
+                    if (std::filesystem::exists(profile)) existing.push_back(profile);
+                }
+                if (!m_no_strains && std::filesystem::exists(GetStrainSpeciesListOutput())) {
+                    existing.push_back(GetStrainSpeciesListOutput());
+                }
+                if (!existing.empty()) {
+                    std::string listed;
+                    for (size_t i = 0; i < existing.size() && i < 3; i++) listed += (i ? ", " : "") + existing[i];
+                    if (existing.size() > 3) listed += ", ... (" + std::to_string(existing.size()) + " files)";
+                    error_log.emplace_back("--profile_only would overwrite the results of an earlier run: " + listed +
+                                           ". Give another output folder (-o), or --force to write them again");
                 }
             }
 

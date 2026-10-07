@@ -200,3 +200,90 @@ Still open: the `.err` file next to the input SAM (finding 3), repeated `--profi
 to `misc/<sample>_runtime.tsv` (5), a map needing `FIRST` when its SAM exists (4: protal warns,
 `validate` accepts it), memory over large cohorts (6), and `generate`'s sample names (7). The website
 does not describe combining runs, patterns, runs without `-o` or the sample-ID rules.
+
+## Follow-up 2: reruns, generate's names, and the memory a cohort keeps (2026-10-07)
+
+On `12b059b` (the fixes above, committed and verified from `git archive`: unit tests pass, e2e 134 OK)
+plus the changes below, built in a clean tree of that commit with this session's files only
+(`scripts/build_on_commit.sh`). Asked: stop `--profile_only` where results exist (the duplicate runtime
+rows), name `generate`'s samples without the R1, and find out why memory grows with the samples and
+whether it can be limited.
+
+**Reruns.** `--profile_only` now stops before it starts where it would overwrite an earlier run's
+profiles or the strain folder's `species.tsv` (`Options::PrepareAndCheckValidity`); `--force` writes
+them again. `WriteProfilingTimes` replaces a sample's earlier `Profiling: ...` rows of
+`misc/<sample>_runtime.tsv` instead of appending a second set, which also fixes ordinary reruns that
+profile an existing SAM again.
+
+**`generate`'s names.** `remove_pair` drops the mate number, an `R` before it, the separator before
+that and Illumina's chunk number after it: `x_R1.fq` is `x` (was `x_R`), `x.R1.fastq.gz` is `x` (was
+`x.R`), `x_S1_L001_R1_001.fastq.gz` is `x_S1_L001` (was the whole name), `x_R1_trimmed.fq` is
+`x_trimmed`; `.fq.zst` and `.fastq.zst` files are found.
+
+### Why memory grows with the samples
+
+Data: `db900n` (the 900-species world of the performance reports), `w900` (1M pairs from 60 species,
+~25x each) aligned once, then `--profile_only` over 1-16 hard-linked copies of its SAM, 4 threads
+(`scripts/memory.sh`); heap profiles of 2 copies on one thread with valgrind massif (`scripts/massif.sh`).
+
+Each sample's profile stays in memory until the strain MSAs are written. What it kept up to `12b059b`:
+
+- **The strain evidence of the species that enter MSAs**, as the reads left it: a `Variant` of 88 bytes
+  per allele at every position with a variant, each with a quality byte and a strand/divergence byte
+  per read in two vectors, in a `robin_map` of vectors; a 24-byte `ReadInfo` per read and gene; the
+  positions without a base. For `w900`: 59 species, 6,490 genes, 7.1M bases, 349,000 variant positions
+  (the simulated strains differ from their references).
+- **Every other taxon with reads**, its genes and counters, which only `--taxon_statistics` reads.
+
+Heap (massif, 2 samples): base 103 MB; **159 MB kept per sample** (421 MB after profiling). The RSS
+(16 samples, 4 threads): 2.82 GB after profiling, about 163 MB more per sample once more samples than
+threads are done; with `--no_strains` 1.12 GB.
+
+Nothing of the strain stage needs the reads themselves: a sample's MSA rows are made from its own records
+filtered at its own identity threshold (`MSAItem`), and the other samples set only which genes and
+columns an MSA has. Every reader of the kept data reads aggregates of an allele: its observations per
+strand, their quality sum, its flags.
+
+### What changed
+
+1. **Kept packed, after the sample's outputs are written** (`Gene::KeepForMSAs`, `PackedMSAItem` in
+   `Strain.h`): for each gene of a species that enters MSAs, its `MSAItem` (the parameters it is built
+   with are fixed per sample: the identity threshold of the taxon's own reads, the SNP filters of the
+   read type), each allele in 32 bytes (kind, position, bases, observations per strand, quality sum,
+   flags, INDEL bases apart), the coverage in 1, 2 or 4 bytes per base by its largest value; the three
+   SNP counts and the covered bases the strain stage reads. The records are freed. Asking a kept gene for
+   anything else throws. `Variant::Restore` makes the alleles again (compact: no per-read bytes; its
+   unused `variant_id` holds the quality sum, so a `Variant` does not grow).
+2. **Taxa that enter no MSA are dropped** (`MicrobialProfile::ReleaseReadData`), unless
+   `--taxon_statistics`.
+3. **`malloc_trim(0)`** after each sample (glibc): the freed records' pages go back to the system.
+
+| 16 samples, 4 threads | `12b059b` | 2, items kept as compact `Variant`s | 1 + 2 | 1 + 2 + 3 |
+|---|---:|---:|---:|---:|
+| RSS after profiling, strains | 2.82 GB | 2.14 GB | 1.44 GB | 1.11 GB |
+| peak RSS, strains | 2.84 GB | 2.15 GB | 1.45 GB | 1.42 GB |
+| RSS after profiling, `--no_strains` | 1.12 GB | 1.09 GB | 1.09 GB | 0.72 GB |
+| heap kept per sample (massif, strains) | 159 MB | | 37 MB | |
+
+(`results/memory/rss_*.tsv`, `heap_*_2.txt`; wall times vary up to 2x on this machine and are not
+compared.) The outputs are byte-identical: profiles, raw MSAs, partitions, meta, SNP and coverage
+tables of 4 and 16 samples, with and without strains, against `12b059b` (`scripts/compare_runs.sh`,
+537 files for 16 samples), and the e2e suite's MSA and long-read phasing tests pass.
+
+The peak is now about the samples profiled at once (each ~150 MB of records while it is read) plus 37 MB
+per sample done. Without strains a sample keeps less than massif's 0.5% threshold; the RSS that still
+grows a little there is the allocator's, not data (`heap_nostrains_2.txt`: after the first sample's
+release the heap holds the database, the model, the shared congener sketches and the next sample's
+SAM buffer).
+
+**Further limits, not done.** The packed evidence is plain arrays, so it could be written to a file per
+sample and read back per species in the strain stage: memory would then be one species over all samples,
+at a disk cost of about what it holds now (37 MB per sample of this kind). Coverage could be run-length
+coded (7 MB of the 37 here). At 1,000 dense samples the kept evidence is ~37 GB instead of ~159 GB.
+
+Tests: `PackedMSAItem.UnpacksWhatTheMSAReads` (alleles of every kind, coverage in every width),
+`Abundance.ReleasingReadDataKeepsWhatLaterStagesRead` (the kept item and counts equal those from the
+records; other parameters throw), `Abundance.ReleasingReadDataDropsTheTaxaNoMsaTakes`; e2e
+`CombiningRunsTest.test_earlier_results_stop_protal_unless_forced`,
+`MapUtilsTest.test_generate_names_samples_without_mate_numbers`. Unit 401 passed (2 skipped), e2e 136
+passed in 58 s.

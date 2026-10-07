@@ -959,6 +959,24 @@ class CombiningRunsTest(DbTest):
             rows = [line[1:].strip() for line in read_text(msa).splitlines() if line.startswith(">")]
             self.assertEqual(rows[1:], ["sa", "sb"], msa)
 
+    def test_earlier_results_stop_protal_unless_forced(self):
+        # Profiling into a folder with an earlier run's results stops before it starts; --force writes them again,
+        # replacing the profiling rows of misc/<sample>_runtime.tsv (a rerun once added a second set).
+        os.makedirs(self.path("again"))
+        args = ["--db", DB, "--profile_only", ",".join(self.sams.values()), "--prefix", ",".join(self.sams),
+                "-o", "again", "-t", "2", "--no_qcmsa"]
+        rc, log = run(self.work, *args)
+        self.assertEqual(rc, 0, log[-3000:])
+        _, runtime = read_table(self.path("again", "misc", "study1_sa_runtime.tsv"))
+        self.assertTrue(runtime)
+        rc, log = run(self.work, *args)
+        self.assertNotIn(rc, (0, 1), log[-3000:])
+        self.assertIn("--profile_only would overwrite the results of an earlier run", log)
+        rc, log = run(self.work, *args, "--force")
+        self.assertEqual(rc, 0, log[-3000:])
+        _, rerun = read_table(self.path("again", "misc", "study1_sa_runtime.tsv"))
+        self.assertEqual([row[0] for row in rerun], [row[0] for row in runtime])
+
     def test_patterns_without_sams_stop_protal(self):
         rc, log = run(self.work, "--db", DB, "--profile_only", "nothing/*.sam.zst,study1/alignments,study1/alignments/*.err",
                       "-o", "nothing", "-t", "2", "--no_qcmsa")
@@ -1826,6 +1844,22 @@ class MapUtilsTest(DbTest):
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("All alignments are present", log)
         self.assertFalse(os.path.exists(self.path("merged", "alignments", "sa.sam")))
+
+    def test_generate_names_samples_without_mate_numbers(self):
+        # The sample ID of a pair is its files' name without the mate number, an R before it and Illumina's chunk
+        # number (x_R1.fq once gave x_R, Illumina's x_S1_L001_R1_001 the whole name); .fq.zst files are found too.
+        tool = os.path.join(ROOT, "scripts", "protal_map_utils")
+        expected = {"a_R1.fq": "a", "b_1.fastq.gz": "b", "c.R1.fq.gz": "c", "d_S1_L001_R1_001.fastq.gz": "d_S1_L001",
+                    "e_R1_trimmed.fq": "e_trimmed", "f_1.fq.zst": "f"}
+        os.makedirs(self.path("names"))
+        for first in expected:
+            second = first.replace("R1", "R2") if "R1" in first else first.replace("_1.", "_2.")
+            for name in (first, second):
+                open(self.path("names", name), "w").close()
+        rc, out = run(self.work, "generate", "--input", self.path("names"), binary=tool)
+        self.assertEqual(rc, 0, out)
+        rows = [line.split("\t") for line in out.splitlines() if line and not line.startswith("#")]
+        self.assertEqual(sorted(row[0] for row in rows), sorted(expected.values()), out)
 
     def test_merging_single_end_maps(self):
         # '-' as SECOND (single-end reads) stays '-', and a map without a SECOND column merges too.

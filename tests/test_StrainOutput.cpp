@@ -645,29 +645,163 @@ static_assert(std::is_nothrow_move_constructible_v<profiler::Gene>);
 static_assert(std::is_nothrow_move_constructible_v<profiler::Taxon>);
 
 TEST(Abundance, ReleasingReadDataKeepsWhatLaterStagesRead) {
-    // Once a sample's outputs are written, its reads' identities are freed, and its variants and
-    // read ranges unless the strain stage needs them; depth and counters stay.
+    // Once a sample's outputs are written, its reads' records are freed. A taxon that enters the strain MSAs keeps what
+    // the strain stage reads of its genes (Gene::KeepForMSAs), the same as the records gave; depth and counters stay.
     TinyReference ref;
     std::string reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence());
-    for (bool keep_strain_data : { true, false }) {
+    // 40 bases with one SNP: 97.5% identical, within the 0.04 identity margin of the taxon's best reads.
+    std::string snp = reference.substr(0, 40);
+    snp[5] = snp[5] == 'A' ? 'C' : 'A';
+    profiler::MSAReleaseParameters msa;
+    msa.identity_margin = 0.04;
+    msa.item = { 0, 1, 0.15, 15, 0, false };
+    msa.count_keys = { { 2, 60 }, { 0, 0 } };
+    for (bool enters : { true, false }) {
         profiler::MicrobialProfile profile(*ref.loader);
         profile.SetDepthIdentityMargin(0.04);
         auto first = MakeSam(reference.substr(0, 20), "20M", 1);
         auto second = MakeSam(reference.substr(20, 20), "20M", 21);
-        for (auto const* sam : { &first, &first, &second }) {
-            ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0, true, 0, false));
+        auto variant = MakeSam(snp, "5M1X34M", 1, 0x10);
+        int read_id = 0;  // each record a fragment of its own: a fragment's second record skips what its first covered
+        for (auto const* sam : { &first, &first, &second, &variant, &variant }) {
+            ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0, true, read_id++, false));
         }
         auto& taxon = profile.GetTaxa().at(1);
         double const depth = taxon.VerticalCoverage();
         size_t const length = taxon.TotalLength();
-        ASSERT_GT(taxon.GetGenes().at(1).GetStrainLevel().GetSequenceRangeHandler().Size(), 0u);
+        auto& gene = taxon.GetGenes().at(1);
+        ASSERT_GT(gene.GetStrainLevel().GetSequenceRangeHandler().Size(), 0u);
+        auto item = msa.item;
+        item.min_identity = taxon.IdentityThreshold(msa.identity_margin);
+        auto const before = gene.MSAItem(item);
+        ASSERT_FALSE(before.first.empty());
+        auto const counts = gene.AlleleSNPCounts(0, 0);
+        size_t const covered = gene.Coverage();
 
-        taxon.ReleaseReadData(keep_strain_data);
-        auto const& gene = taxon.GetGenes().at(1);
+        taxon.ReleaseReadData(enters ? std::optional(msa) : std::nullopt);
         EXPECT_TRUE(gene.m_read_identities.empty());
-        EXPECT_EQ(gene.GetStrainLevel().GetSequenceRangeHandler().Size() > 0, keep_strain_data);
+        EXPECT_EQ(gene.GetStrainLevel().GetSequenceRangeHandler().Size(), 0u);
+        EXPECT_EQ(gene.m_msa_evidence != nullptr, enters);
+        if (enters) {
+            auto const after = gene.MSAItem(item);
+            EXPECT_EQ(after.second, before.second);
+            ASSERT_EQ(after.first.size(), before.first.size());
+            for (size_t b = 0; b < before.first.size(); b++) {
+                ASSERT_EQ(after.first[b].size(), before.first[b].size());
+                for (size_t v = 0; v < before.first[b].size(); v++) {
+                    auto const& x = before.first[b][v];
+                    auto const& y = after.first[b][v];
+                    EXPECT_TRUE(y.IsCompact());
+                    EXPECT_EQ(y.Position(), x.Position());
+                    EXPECT_EQ(y.GetVariant(), x.GetVariant());
+                    EXPECT_EQ(y.ObservationsForward(), x.ObservationsForward());
+                    EXPECT_EQ(y.ObservationsReverse(), x.ObservationsReverse());
+                    EXPECT_EQ(y.QualitySum(), x.QualitySum());
+                    EXPECT_EQ(y.MeanQuality(), x.MeanQuality());
+                    EXPECT_EQ(y.GetValid(), x.GetValid());
+                }
+            }
+            auto const kept = gene.AlleleSNPCounts(0, 0);
+            EXPECT_EQ(std::tie(kept.filtered, kept.mono, kept.bi, kept.tri, kept.tetra),
+                      std::tie(counts.filtered, counts.mono, counts.bi, counts.tri, counts.tetra));
+            EXPECT_EQ(gene.Coverage(), covered);
+            // What it did not keep cannot be asked for (it would be read from the records, which are gone).
+            EXPECT_THROW(gene.AlleleSNPCounts(5, 5), std::logic_error);
+            auto other = item;
+            other.min_cov = 7;
+            EXPECT_THROW(gene.MSAItem(other), std::logic_error);
+        }
         EXPECT_EQ(taxon.VerticalCoverage(), depth);
         EXPECT_EQ(taxon.TotalLength(), length);
-        EXPECT_EQ(taxon.TotalHits(), 3u);
+        EXPECT_EQ(taxon.TotalHits(), 5u);
+    }
+}
+
+// A packed MSA item unpacks to the alleles the strain MSA reads: per allele its kind, position, bases, observations per
+// strand, quality sum and flags, INDEL bases included; and the coverage, in whatever width its largest value needs.
+TEST(PackedMSAItem, UnpacksWhatTheMSAReads) {
+    std::string inserted = "GT";
+    Variant snp(7, 'T', 'A');
+    snp.AddObservation(30, true);
+    snp.AddObservation(12, false);
+    snp.SetValid(false);
+    Variant reference(7, 'A', 'A');
+    reference.SetObservations(5, 2);
+    reference.SetMajorAllele(true);
+    Variant insertion(VariantType::INS, 9, 'C', inserted);
+    insertion.AddObservation(35, true);
+    std::pair<VariantVec, CoverageVec> item{ { { snp, reference }, { insertion } }, {} };
+    for (CoverageVec coverage : { CoverageVec{ 0, 3, 255 }, CoverageVec{ 1, 256, 65535 }, CoverageVec{ 2, 65536, 4000000000u }, CoverageVec{} }) {
+        item.second = coverage;
+        PackedMSAItem packed(item);
+        auto const back = packed.Unpack();
+        EXPECT_EQ(back.second, coverage);
+        ASSERT_EQ(back.first.size(), item.first.size());
+        for (size_t b = 0; b < item.first.size(); b++) {
+            ASSERT_EQ(back.first[b].size(), item.first[b].size());
+            for (size_t a = 0; a < item.first[b].size(); a++) {
+                auto const& x = item.first[b][a];
+                auto const& y = back.first[b][a];
+                EXPECT_TRUE(y.IsCompact());
+                EXPECT_EQ(y.GetType(), x.GetType());
+                EXPECT_EQ(y.Position(), x.Position());
+                EXPECT_EQ(y.GetReference(), x.GetReference());
+                EXPECT_EQ(y.GetVariant(), x.GetVariant());
+                EXPECT_EQ(y.GetStructuralSize(), x.GetStructuralSize());
+                EXPECT_EQ(y.StructuralBases() != nullptr, x.StructuralBases() != nullptr);
+                if (x.StructuralBases()) EXPECT_EQ(*y.StructuralBases(), *x.StructuralBases());
+                EXPECT_EQ(y.ObservationsForward(), x.ObservationsForward());
+                EXPECT_EQ(y.ObservationsReverse(), x.ObservationsReverse());
+                EXPECT_EQ(y.QualitySum(), x.QualitySum());
+                EXPECT_EQ(y.MeanQuality(), x.MeanQuality());
+                EXPECT_EQ(y.GetValid(), x.GetValid());
+                EXPECT_EQ(y.IsMajorAllele(), x.IsMajorAllele());
+            }
+        }
+    }
+}
+
+namespace {
+    // A model that scores every taxon 0.5: one leaf (on present_genes, which it does not split on).
+    profiler::TaxonFilterObj HalfModel(double knob) {
+        std::string const xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<PMML version="4.4">
+ <Header/>
+ <DataDictionary>
+  <DataField name="truth" optype="categorical" dataType="string"><Value value="FALSE"/><Value value="TRUE"/></DataField>
+  <DataField name="present_genes" optype="continuous" dataType="double"/>
+ </DataDictionary>
+ <TreeModel functionName="classification" splitCharacteristic="binarySplit">
+  <MiningSchema>
+   <MiningField name="truth" usageType="predicted"/>
+   <MiningField name="present_genes"/>
+  </MiningSchema>
+  <Node score="TRUE"><True/><ScoreDistribution value="FALSE" recordCount="1"/><ScoreDistribution value="TRUE" recordCount="1"/></Node>
+ </TreeModel>
+</PMML>
+)";
+        return profiler::TaxonFilterObj(cpmml::Model::from_string(xml), knob);
+    }
+}
+
+// A sample's taxa that do not enter the strain MSAs are dropped once its outputs are written, unless every taxon's
+// numbers are asked for (--taxon_statistics); without strain MSAs all of them are.
+TEST(Abundance, ReleasingReadDataDropsTheTaxaNoMsaTakes) {
+    TinyReference ref;
+    std::string reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence());
+    profiler::MSAReleaseParameters msa;
+    msa.identity_margin = 0.04;
+    msa.item = { 0, 2, 0.15, 15, 90, true };
+    for (int knob : { 0, 1 }) {  // the model scores 0.5: at knob 0 every taxon enters, at 1 none does
+        for (bool keep_all : { false, true }) {
+            for (bool strains : { true, false }) {
+                profiler::MicrobialProfile profile(*ref.loader);
+                auto sam = MakeSam(reference.substr(0, 20), "20M", 1);
+                ASSERT_TRUE(profile.AddSam(1, 1, sam, 1.0, true, 0, false));
+                profile.ReleaseReadData(HalfModel(knob), strains ? std::optional(msa) : std::nullopt, keep_all);
+                bool const kept = keep_all || (strains && knob == 0);
+                EXPECT_EQ(profile.GetTaxa().contains(1), kept) << "knob " << knob << " keep_all " << keep_all << " strains " << strains;
+            }
+        }
     }
 }
