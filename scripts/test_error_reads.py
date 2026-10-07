@@ -66,6 +66,25 @@ g2x_4\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*\tZU:i:0\tZT:i:0\tZF:Z:3
 COLUMNS = "meta_design\tmeta_sample\tmeta_read_type\tmeta_scenario\ttaxon\ttaxon_name\tdomain\ttruth\tset\tp\tknob\tcall\n"
 
 
+def _job(job):
+    """A worker's job for RunJobs: (name, folder, size, dies). It marks itself running, waits, counts the jobs running
+    beside it, and returns its name; dies "always" or "once" (the first time): killed as the kernel kills a process
+    out of memory."""
+    import signal
+    import time
+    name, folder, _, dies = job
+    marker = os.path.join(folder, name + ".died")
+    if dies == "always" or (dies == "once" and not os.path.exists(marker)):
+        open(marker, "w").close()
+        os.kill(os.getpid(), signal.SIGKILL)
+    running = os.path.join(folder, name + ".running")
+    open(running, "w").close()
+    time.sleep(0.3)
+    seen = len([f for f in os.listdir(folder) if f.endswith(".running")])
+    os.remove(running)
+    return name, seen
+
+
 @prerequisites.requires(HAVE_ZSTD, "needs the zstd command (or Python 3.14) for the samples' .sam.zst")
 class ErrorReads(unittest.TestCase):
     def setUp(self):
@@ -318,6 +337,71 @@ class ErrorReads(unittest.TestCase):
             fh.write(">changed\nACGTACGT\n")
         os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10 ** 9))
         self.assertEqual(trace_relatives.genome_contigs([path], 1, cache)[path], ["changed"])
+
+
+HAVE_FORK = "fork" in __import__("multiprocessing").get_all_start_methods()
+
+
+@prerequisites.requires(HAVE_FORK, "needs fork() for the worker processes")
+class RunJobs(unittest.TestCase):
+    """The samples extracted at once: within a memory budget, and a worker killed from outside (out of memory) loses
+    no other sample."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def jobs(self, sizes, dies=None):
+        dies = dies or {}
+        return [(f"j{i}", self.tmp.name, size, dies.get(f"j{i}")) for i, size in enumerate(sizes)]
+
+    def test_at_most_the_budget_at_once(self):
+        # Six jobs of 1 in a budget of 2 on 4 threads: two at a time. A job of 5 runs, alone.
+        results, given_up = error_reads.run_jobs(self.jobs([1] * 6), _job, 4, 2, lambda job: job[2])
+        self.assertEqual(sorted(name for name, _ in results), [f"j{i}" for i in range(6)])
+        self.assertEqual(max(seen for _, seen in results), 2)
+        self.assertEqual(given_up, [])
+        results, _ = error_reads.run_jobs(self.jobs([5, 1, 1]), _job, 4, 2, lambda job: job[2])
+        self.assertEqual(dict(results)["j0"], 1)
+        # Without a budget: as many as the threads.
+        results, _ = error_reads.run_jobs(self.jobs([1] * 4), _job, 4, float("inf"), lambda job: job[2])
+        self.assertEqual(max(seen for _, seen in results), 4)
+
+    def test_a_killed_worker_loses_no_other_job(self):
+        # j1's worker is killed the first time (run again alone, it ends), j2's every time (given up); the rest end.
+        jobs = self.jobs([1] * 6, {"j1": "once", "j2": "always"})
+        results, given_up = error_reads.run_jobs(jobs, _job, 3, float("inf"), lambda job: job[2])
+        self.assertEqual(sorted(name for name, _ in results), ["j0", "j1", "j3", "j4", "j5"])
+        self.assertEqual([job[0] for job in given_up], ["j2"])
+
+    def test_one_thread_runs_here(self):
+        results, given_up = error_reads.run_jobs(self.jobs([1, 1]), _job, 1, 0, lambda job: job[2])
+        self.assertEqual(([name for name, _ in results], given_up), (["j0", "j1"], []))
+
+    def test_the_memory_budget(self):
+        root = os.path.join(self.tmp.name, "cgroup")
+        proc = os.path.join(self.tmp.name, "proc_cgroup")
+        # cgroup v2: the job's limit above the step's "max"; the least of it and SLURM's.
+        os.makedirs(os.path.join(root, "slurm", "job_1", "step_0"))
+        with open(os.path.join(root, "slurm", "job_1", "memory.max"), "w") as fh:
+            fh.write("1000000000\n")
+        with open(os.path.join(root, "slurm", "job_1", "step_0", "memory.max"), "w") as fh:
+            fh.write("max\n")
+        with open(proc, "w") as fh:
+            fh.write("0::/slurm/job_1/step_0\n")
+        self.assertEqual(error_reads.memory_budget(0.5, proc, root, {}), 0.5e9)
+        self.assertEqual(error_reads.memory_budget(0.5, proc, root, {"SLURM_MEM_PER_NODE": "512"}), 0.5 * 512 * 2 ** 20)
+        # cgroup v1.
+        os.makedirs(os.path.join(root, "memory", "slurm", "uid_1", "job_2"))
+        with open(os.path.join(root, "memory", "slurm", "uid_1", "job_2", "memory.limit_in_bytes"), "w") as fh:
+            fh.write("2000000000\n")
+        with open(proc, "w") as fh:
+            fh.write("12:pids:/slurm\n4:memory:/slurm/uid_1/job_2\n")
+        self.assertEqual(error_reads.memory_budget(0.5, proc, root, {}), 1e9)
+        # Without a cgroup or SLURM: the machine's memory.
+        self.assertGreater(error_reads.memory_budget(0.5, os.path.join(self.tmp.name, "none"), root, {}), 1e8)
 
 
 if __name__ == "__main__":

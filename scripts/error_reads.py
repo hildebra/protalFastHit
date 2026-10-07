@@ -28,6 +28,9 @@ name), in one file per kind of error: a fragment of several reasons is in each o
 fields but QUAL (* unless --qualities) and gains its read's source and why it was taken: xg:Z:<genome>, xs:Z:<species>
 (" (not in the database)" for a species the training database lacks), xe:Z:<its reasons> (lower-case tags: the SAM
 specification leaves them to users). The simulations are seeded: the collector replays a sample's reads byte for byte.
+--threads samples are extracted at once, the largest SAMs first, while their estimated memory fits in --memory; a
+worker killed from outside (out of memory) costs no other sample: those it ran beside run again one at a time, and a
+sample whose worker is killed again is named and left out.
 
 Written to OUT/<training|test>/<design point>/:
   <sample>.FP.sam.zst, <sample>.FN.sam.zst, <sample>.unseen.sam.zst
@@ -73,6 +76,13 @@ NOT_IN_DB = " (not in the database)"
 TOP = 5  # taxa listed in a taxa.tsv cell
 KINDS = ("FP", "FN", "unseen")  # the kinds of error, one SAM each
 MAX_FRAGMENTS = 20  # --max-fragments: fragments per taxon and reason in the SAMs
+# A sample's extraction holds an entry per tracked fragment (~0.3 kB) and its genomes' contig names: estimated at most
+# JOB_BASE_BYTES and JOB_BYTES_PER_SAM_BYTE times its SAM's size on disk. The workers together keep within
+# MEMORY_FRACTION of the memory the job may use (--memory): r226 v15's pe extraction was killed, 84 workers started on its
+# 18 soil samples first, each of millions of tracked fragments at 1.2-2.3 kB then (docs/claude/2026-10-07-r226-v15).
+JOB_BASE_BYTES = 300e6
+JOB_BYTES_PER_SAM_BYTE = 2.0
+MEMORY_FRACTION = 0.6
 DRAWN_NAME = re.compile(rb"g(\d+)x_")  # simulate_metagenomes --long_samples (LongReadSimulator.cpp)
 TAXA_COLUMNS = ["sample", "set", "error", "taxid", "taxon_name", "p", "knob", "genomes", "read_pairs",
                 "own_fragments", "own_best_on_taxon", "own_best_on_taxon_mapq4", "own_best_elsewhere", "own_unaligned",
@@ -102,6 +112,10 @@ def parse_args(argv=None):
                    help="whose samples: all (default), or design and scenario names, comma-separated")
     p.add_argument("--out", required=True, help="output folder")
     p.add_argument("--threads", type=int, default=4, help="samples at once, and genome FASTAs read at once (default 4)")
+    p.add_argument("--memory", type=float, default=0,
+                   help=f"GB the samples extracted at once may take together, by an estimate from their SAMs' sizes "
+                        f"(default: {MEMORY_FRACTION:g} of the least of the machine's memory, SLURM_MEM_PER_NODE and the "
+                        f"process's cgroup limit)")
     p.add_argument("--contig-cache", help="a file of the genomes' contig names read before (trace_relatives.py "
                                           "--contig-cache), joined by those read here")
     p.add_argument("--sams", default="FP,FN",
@@ -212,13 +226,19 @@ def errors_of(rows, manifest):
     return errors, unseen
 
 
-class Fragment:
-    """What a fragment's records say: the taxa it aligned to, its best record's (primary: no flag 0x904) taxon and
-    MAPQ, the taxa it seeded on but did not align to (ZF), its records."""
-    __slots__ = ("aligned", "best", "best_mapq", "failed", "records")
+NONE = frozenset()  # a fragment's aligned or failed taxa until it has one
 
-    def __init__(self):
-        self.aligned, self.best, self.best_mapq, self.failed, self.records = set(), None, 0, set(), 0
+
+class Fragment:
+    """What a fragment's records say: why it was taken (its reasons, pass 1), the error taxa it aligned to, its best
+    record's (primary: no flag 0x904) taxon and MAPQ, the error taxa it seeded on but did not align to (ZF), its records.
+    Only the sample's error taxa (FP, FN, unseen) are kept of the aligned and failed ones: the taxa tables look up no
+    other, and a soil sample tracks millions of fragments (r226 v15: 13.6M in an se soil sample, 1.2-2.3 kB each with
+    every taxon kept; docs/claude/2026-10-07-r226-v15)."""
+    __slots__ = ("reasons", "aligned", "best", "best_mapq", "failed", "records")
+
+    def __init__(self, reasons=()):
+        self.reasons, self.aligned, self.best, self.best_mapq, self.failed, self.records = reasons, NONE, None, 0, NONE, 0
 
 
 def fields_of(line):
@@ -307,25 +327,33 @@ def extract(job):
     source_reason = {r["genome"]: "source:" + sources[species_of(r.get("taxonomy", ""))] for r in manifest
                      if species_of(r.get("taxonomy", "")) in sources}
 
-    # Pass 1: the fragments to take, and why.
-    why = collections.defaultdict(set)
+    # Pass 1: the fragments to take, and why: {qname: its reasons}, a tuple of strings shared by every fragment.
+    why, names = {}, {}
+
+    def note(qname, reason):
+        reason = names.setdefault(reason, reason)
+        have = why.get(qname, ())
+        if reason not in have:
+            why[qname] = have + (reason,)
+
     for line in records(sam):
         qname, _, rname, _, failed = fields_of(line)
         if rname != b"*":
             taxid = rname.split(b"_", 1)[0]
             if taxid in reason_of:
-                why[qname].add(reason_of[taxid] + ":" + taxid.decode())
+                note(qname, reason_of[taxid] + ":" + taxid.decode())
         for taxid in failed:
             if taxid in seeded:
-                why[qname].add("seeded:" + taxid.decode())
+                note(qname, "seeded:" + taxid.decode())
         genome, _ = source(qname)
         if genome in source_reason:
-            why[qname].add(source_reason[genome])
+            note(qname, source_reason[genome])
 
     taken = chosen(why, {t for t, (e, _) in errors.items() if e == "FN"}, kinds, cap)
 
     # Pass 2: what each fragment did (all of them); the records of those taken, tagged, into their kinds' files, and
-    # the genes they name.
+    # the genes they name. A fragment's reasons become its Fragment at its first record, under the same key (why then
+    # holds every fragment: pass 2 reads the records pass 1 read).
     os.makedirs(out_dir, exist_ok=True)
     with compressed.open_read(sam) as fh:
         header = []
@@ -335,24 +363,34 @@ def extract(job):
             header.append(line)
     genes = {kind: set() for kind in kinds}
     written = collections.Counter()
-    fragments, n_records, unknown = {}, 0, 0
+    error_taxa = set(reason_of) | seeded  # FP, FN and unseen: the taxa the taxa table looks up
+    taxa = {}  # one bytes object per taxid
+    n_records, unknown = 0, 0
     bodies = {kind: tempfile.TemporaryFile(dir=out_dir) for kind in kinds}
     try:
         for line in records(sam):
             qname, flag, rname, mapq, failed = fields_of(line)
-            reasons = why.get(qname)
-            if reasons is None:
-                continue
-            n_records += 1
-            fragment = fragments.get(qname)
+            fragment = why.get(qname)
             if fragment is None:
-                fragment = fragments[qname] = Fragment()
+                continue
+            if isinstance(fragment, tuple):
+                fragment = why[qname] = Fragment(fragment)
+            reasons = fragment.reasons
+            n_records += 1
             fragment.records += 1
-            fragment.failed.update(failed)
+            for taxid in failed:
+                if taxid in error_taxa:
+                    if fragment.failed is NONE:
+                        fragment.failed = set()
+                    fragment.failed.add(taxa.setdefault(taxid, taxid))
             named = ()
             if rname != b"*":
                 taxid = rname.split(b"_", 1)[0]
-                fragment.aligned.add(taxid)
+                taxid = taxa.setdefault(taxid, taxid)
+                if taxid in error_taxa:
+                    if fragment.aligned is NONE:
+                        fragment.aligned = set()
+                    fragment.aligned.add(taxid)
                 if not flag & 0x904 and fragment.best is None:
                     fragment.best, fragment.best_mapq = taxid, mapq
                 rnext = line.split(b"\t", 7)[6]
@@ -404,6 +442,7 @@ def extract(job):
     finally:
         for body in bodies.values():
             body.close()
+    fragments = why  # every fragment a Fragment now
     write_taxa(os.path.join(out_dir, sample + ".taxa.tsv"), sample, which, errors, unseen, manifest, fragments, source,
                drawn)
     root = os.path.dirname(os.path.dirname(out_dir))
@@ -472,6 +511,101 @@ def write_taxa(path, sample, which, errors, unseen, manifest, fragments, source,
     os.replace(path + ".partial", path)
 
 
+def job_memory(job):
+    """The bytes a sample's extraction is expected to take at most: JOB_BASE_BYTES and JOB_BYTES_PER_SAM_BYTE times its
+    SAM's size on disk (as if every record were a tracked fragment's)."""
+    return JOB_BASE_BYTES + JOB_BYTES_PER_SAM_BYTE * os.path.getsize(job[5])
+
+
+def memory_budget(fraction=MEMORY_FRACTION, cgroup="/proc/self/cgroup", root="/sys/fs/cgroup", environ=None):
+    """The bytes the worker processes may take together: `fraction` of the least of the machine's memory, SLURM's
+    SLURM_MEM_PER_NODE (MB) and the memory limit of the process's control group or of one above it (cgroup v2
+    memory.max, v1 memory.limit_in_bytes), as a SLURM job's is; unbounded if none is known."""
+    environ = os.environ if environ is None else environ
+    limits = []
+    try:
+        limits.append(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"))
+    except (ValueError, OSError, AttributeError):
+        pass
+    if environ.get("SLURM_MEM_PER_NODE", "").isdigit():
+        limits.append(int(environ["SLURM_MEM_PER_NODE"]) * 2 ** 20)
+    try:
+        with open(cgroup) as fh:
+            entries = [line.rstrip("\n").split(":", 2) for line in fh]
+    except OSError:
+        entries = []
+    for entry in entries:
+        if len(entry) != 3:
+            continue
+        hierarchy, controllers, path = entry
+        if hierarchy == "0" and not controllers:
+            base, name = root, "memory.max"
+        elif "memory" in controllers.split(","):
+            base, name = os.path.join(root, "memory"), "memory.limit_in_bytes"
+        else:
+            continue
+        parts = [p for p in path.split("/") if p]
+        for depth in range(len(parts), -1, -1):
+            try:
+                with open(os.path.join(base, *parts[:depth], name)) as fh:
+                    value = fh.read().strip()
+            except OSError:
+                continue
+            if value.isdigit():
+                limits.append(int(value))
+    return fraction * min(limits) if limits else float("inf")
+
+
+def run_jobs(jobs, work, threads, budget, estimate):
+    """work(job) for each job, in worker processes forked from this one (they share CONTIGS): at most `threads` at once
+    and, of their estimate(job), at most `budget` bytes together (one always runs; a smaller job later in the list takes
+    a place a larger one does not fit). A worker killed from outside (out of memory: BrokenProcessPool) loses no other
+    job's result: the jobs that were running are run again at the end, one at a time, the rest go on in a new pool at
+    half the budget; a job whose worker is killed again is given up. One thread, one job, or no fork: in this process.
+    -> (the results, in no particular order; the jobs given up)"""
+    if threads <= 1 or len(jobs) <= 1 or "fork" not in multiprocessing.get_all_start_methods():
+        return [work(job) for job in jobs], []
+    context = multiprocessing.get_context("fork")
+    queue, results, again = list(jobs), [], []
+    while queue:
+        running, broken = {}, False  # future -> (job, its estimate)
+        pool = concurrent.futures.ProcessPoolExecutor(min(threads, len(queue)), mp_context=context)
+        try:
+            while (queue or running) and not broken:
+                used = sum(need for _, need in running.values())
+                while queue and len(running) < threads:
+                    fits = next((i for i, job in enumerate(queue) if used + estimate(job) <= budget),
+                                None if running else 0)
+                    if fits is None:
+                        break
+                    job = queue.pop(fits)
+                    need = estimate(job)
+                    running[pool.submit(work, job)] = (job, need)
+                    used += need
+                finished, _ = concurrent.futures.wait(running, return_when=concurrent.futures.FIRST_COMPLETED)
+                for future in finished:
+                    try:
+                        results.append(future.result())
+                        running.pop(future)
+                    except concurrent.futures.process.BrokenProcessPool:
+                        broken = True
+            if broken:
+                again.extend(job for job, _ in running.values())
+                budget /= 2
+                print(f"a worker was killed (out of memory?): {len(running)} samples again at the end, one at a time; "
+                      f"the other {len(queue)} at half the memory budget ({budget / 1e9:.1f} GB)", flush=True)
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
+    given_up = []
+    for job in again:
+        with concurrent.futures.ProcessPoolExecutor(1, mp_context=context) as pool:
+            try:
+                results.append(pool.submit(work, job).result())
+            except concurrent.futures.process.BrokenProcessPool:
+                given_up.append(job)
+    return results, given_up
+
+
 def main(argv=None):
     opts = parse_args(argv)
     began = time.time()
@@ -507,13 +641,14 @@ def main(argv=None):
     CONTIGS.update(trace_relatives.genome_contigs(fastas, opts.threads, opts.contig_cache))
     print(f"the contigs of {len(CONTIGS)} genomes in {time.time() - began:.0f} s", flush=True)
     jobs.sort(key=lambda job: -os.path.getsize(job[5]))  # the largest SAMs first, so that the workers end together
-    methods = multiprocessing.get_all_start_methods()
-    if opts.threads > 1 and len(jobs) > 1 and "fork" in methods:  # the workers share CONTIGS as forked
-        with concurrent.futures.ProcessPoolExecutor(min(opts.threads, len(jobs)),
-                                                    mp_context=multiprocessing.get_context("fork")) as pool:
-            done = list(pool.map(extract, jobs))
-    else:
-        done = [extract(job) for job in jobs]
+    budget = opts.memory * 1e9 if opts.memory else memory_budget()
+    done, given_up = run_jobs(jobs, extract, opts.threads, budget, job_memory)
+    if given_up:
+        print(f"{len(given_up)} samples given up, their worker killed twice (out of memory?): "
+              + ", ".join(f"{job[3]} ({job[0]})" for job in given_up[:6]) + (" ..." if len(given_up) > 6 else ""),
+              flush=True)
+    if not done:
+        return 1
     done.sort(key=lambda r: (SETS.index(r["set"]), r["point"], r["sample"]))
     os.makedirs(opts.out, exist_ok=True)
     with open(os.path.join(opts.out, "summary.tsv"), "w", newline="") as fh:
@@ -535,7 +670,8 @@ def main(argv=None):
           f"{sum(r['fragments'] for r in done)} fragments"
           + (f" ({sum(r['sam_fragments'] for r in done)} in the {','.join(opts.sams)} SAMs, "
              f"{sum(r['sam_bytes'] for r in done) / 1e6:.1f} MB)" if opts.sams else "")
-          + f" in {opts.out}, {time.time() - began:.0f} s", flush=True)
+          + f" in {opts.out}, {time.time() - began:.0f} s"
+          + (f"; {len(given_up)} samples given up" if given_up else ""), flush=True)
     return 0
 
 

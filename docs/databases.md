@@ -591,6 +591,16 @@ simulations are seeded, so the collector replays a sample's reads byte for byte 
 The unmapped records make the SAMs on the samples' disk larger (at r226 a deep paired-end sample had 45M
 of them; an estimate of 10-20 GB more for the whole build, mostly the deep scenario samples).
 
+`error_reads.py` extracts `--threads` samples at once, the largest SAMs first, while their estimated
+memory (300 MB and twice the SAM's size on disk) fits in `--memory` GB (default 60% of the least of the
+machine's memory, `SLURM_MEM_PER_NODE` and the process's cgroup limit), and keeps only what the tables
+look up per fragment (its reasons, and of the taxa it aligned or failed to align to only the sample's
+error taxa). A worker killed from outside (out of memory) costs no other sample: those it ran beside run
+again one at a time, a sample killed again is named and left out. At r226 v15 the paired-end extraction
+was killed (84 workers started on the 18 soil samples at once, each tracking millions of fragments at
+1.2-2.3 kB with every taxon kept and the held-out species' reads counted), and its read type lost every
+sample's tables ([report](claude/2026-10-07-r226-v15/README.md)).
+
 #### Logs to share
 
 `--share-logs` keeps the error reads' SAMs ([above](#the-reads-behind-the-errors)) and ends the build by
