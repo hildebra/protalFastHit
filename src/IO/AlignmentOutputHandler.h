@@ -169,18 +169,9 @@ namespace protal {
         return true;
     }
 
-    // The edits of an alignment: mismatches, inserted and deleted bases and soft-clipped read bases.
-    static int AlignmentEdits(std::string const& compressed_cigar) {
-        int pos = 0, count = 0, edits = 0;
-        char op = ' ';
-        while (NextCompressedCigar(pos, compressed_cigar, count, op)) {
-            if (op == 'X' || op == 'I' || op == 'D' || op == 'S') edits += count;
-        }
-        return edits;
-    }
-
-    // The same from the counts that GetInstructionCountsAndCompress took of the alignment's CIGAR (the only way
-    // AlignmentInfo::compressed_cigar is made): no pass over it.
+    // The edits of an alignment: mismatches, inserted and deleted bases and soft-clipped read bases, from the counts
+    // that GetInstructionCountsAndCompress took of its CIGAR (the only way AlignmentInfo::compressed_cigar is made): no
+    // pass over the CIGAR.
     static int AlignmentEdits(AlignmentInfo const& info) {
         return static_cast<int>(info.mismatches) + static_cast<int>(info.insertions) + static_cast<int>(info.deletions) +
                static_cast<int>(info.softclips);

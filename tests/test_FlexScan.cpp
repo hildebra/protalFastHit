@@ -1,10 +1,9 @@
 // Unit tests for the flex-cell scan of seed lookups (FlexScan.h): the AVX2 functions give every cell the scalar score,
 // the same best score, and exactly the cells with it (as bit masks) and their count, for blocks of any size and bit
-// shift and keys that match cells exactly, partly or not at all; and a bench of both (PROTAL_FLEX_BENCH=1).
+// shift and keys that match cells exactly, partly or not at all. (The bench of both is
+// docs/claude/2026-10-06-performance-profiling/scripts/flex_scan_bench.cpp.)
 #include <gtest/gtest.h>
 #include <algorithm>
-#include <chrono>
-#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <random>
@@ -106,43 +105,5 @@ TEST(FlexScan, ABlockWithoutASharedBaseHasEveryCellBest) {
         EXPECT_EQ(flex_scan::TiesAvx2(scores.data(), 40, 0, masks.data()), 40u);
         EXPECT_EQ(masks[0], 0xffffffffu);
         EXPECT_EQ(masks[1], 0xffu);
-    }
-}
-
-// A bench, not a test: PROTAL_FLEX_BENCH=1 takes the best cells of blocks of 16, 70 (the mean at GTDB r226) and 1,000
-// cells, as a lookup does: the scalar scan and walk, and BestAvx2 with TiesAvx2.
-TEST(FlexScan, Bench) {
-    if (!std::getenv("PROTAL_FLEX_BENCH")) GTEST_SKIP() << "set PROTAL_FLEX_BENCH=1 to run";
-    if (!flex_scan::CpuHasAvx2()) GTEST_SKIP() << "no AVX2 here";
-    std::mt19937 rng(3);
-    for (uint32_t size : { 16u, 70u, 1000u }) {
-        std::vector<RandomBlock> blocks;
-        for (int i = 0; i < 256; i++) blocks.emplace_back(rng, size, static_cast<uint32_t>(i % 8));
-        std::vector<uint8_t> scores(ScoreBytes(size));
-        std::vector<uint32_t> masks(flex_scan::TieWords(size));
-        uint64_t sink = 0;
-        size_t const rounds = size < 100 ? 20000 : 2000;
-        auto time = [&](bool avx2) {
-            auto const start = std::chrono::steady_clock::now();
-            for (size_t r = 0; r < rounds; r++) {
-                for (auto& b : blocks) {
-                    if (avx2) {
-                        uint32_t const best = flex_scan::BestAvx2(b.block, b.key, scores.data());
-                        flex_scan::TiesAvx2(scores.data(), size, best, masks.data());
-                        for (uint32_t w = 0; w < flex_scan::TieWords(size); w++) {
-                            for (uint32_t m = masks[w]; m; m &= m - 1) sink += 32 * w + static_cast<uint32_t>(__builtin_ctz(m));
-                        }
-                    } else {
-                        auto const [best, count] = flex_scan::ScoreScalar(b.block, b.key, scores.data());
-                        for (uint32_t i = 0; i < size; i++) sink += scores[i] == best ? i : 0;
-                    }
-                }
-            }
-            double const ns = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start).count();
-            return ns / static_cast<double>(rounds * blocks.size() * size);
-        };
-        double const scalar = time(false), avx2 = time(true);
-        std::cout << "blocks of " << size << " cells: scalar " << scalar << " ns per cell, AVX2 " << avx2 << " ns per cell ("
-                  << scalar / avx2 << "x)" << (sink == 42 ? "" : "") << std::endl;
     }
 }

@@ -1,21 +1,27 @@
 // Unit tests for long reads: the chunks a read longer than seeding's 16-bit positions allow is
-// seeded in, the segments of a read's hits, and a long read's SAM records as the profiler reads
-// them back.
+// seeded in, the segments of a read's hits, the alignment of a read from its anchor (LongReadAligner),
+// and a long read's SAM records as the profiler reads them back.
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <unistd.h>
 #include "LongReads.h"
 #include "Profiling/Profiler.h"
 #include "ReadType.h"
 #include "SequenceUtils/SeqReader.h"
+#include "TestReference.h"
+#include "TestSamSink.h"
 
 using namespace protal;
+using protal::test::TinyReference;
+using protal::test::SamStreamSink;
 
 TEST(ChunkRead, ReadsUpToTheLimitAreOneChunk) {
     auto chunks = ChunkRead(15000, kMaxLongReadChunk, 5000);
@@ -25,6 +31,24 @@ TEST(ChunkRead, ReadsUpToTheLimitAreOneChunk) {
     EXPECT_EQ(chunks[0].core.start, -kBeyondRead);  // genes the read starts or ends in are its own
     EXPECT_EQ(chunks[0].core.end, kBeyondRead);
     EXPECT_EQ(ChunkRead(kMaxLongReadChunk, kMaxLongReadChunk, 5000).size(), 1u);
+    // An empty read is one empty chunk.
+    auto const empty = ChunkRead(0, kMaxLongReadChunk, 5000);
+    ASSERT_EQ(empty.size(), 1u);
+    EXPECT_EQ(empty[0].offset, 0u);
+    EXPECT_EQ(empty[0].length, 0u);
+}
+
+// An overlap of more than half a chunk is cut to half a chunk: the chunks step by half a chunk, the last ends at the
+// read's end.
+TEST(ChunkRead, AnOverlapOverHalfAChunkIsCutToHalf) {
+    auto const chunks = ChunkRead(200000, 65000, 50000);
+    std::vector<size_t> offsets;
+    for (auto const& chunk : chunks) {
+        offsets.push_back(chunk.offset);
+        EXPECT_EQ(chunk.length, 65000u);
+    }
+    EXPECT_EQ(offsets, (std::vector<size_t>{ 0, 32500, 65000, 97500, 130000, 135000 }));
+    for (size_t i = 1; i < chunks.size(); i++) EXPECT_EQ(chunks[i].core.start, chunks[i - 1].core.end);
 }
 
 TEST(ChunkRead, EveryGeneLiesInTheChunkThatOwnsIt) {
@@ -109,32 +133,6 @@ TEST(LongReadSegments, RankedHitsCountOnceAndSetTheMapq) {
 }
 
 namespace {
-    // A two-gene reference (taxid 1, genes 1 and 2) in a temporary directory, loaded.
-    struct TinyReference {
-        std::string gene = "ACGTTGCAAGGCTTACCGATGACTGAAACCGGTTTACGATCGGTAGCATG";   // 50 bp, gene 1
-        std::string gene2 = "TTGACCAGTCAGGATCCATTGCAGGTACTTGACCGTAAGCTGCATTGACA";  // 50 bp, gene 2
-        std::filesystem::path dir;
-        std::unique_ptr<GenomeLoader> loader;
-
-        TinyReference() {
-            dir = std::filesystem::temp_directory_path() / ("protal_longread_test_" + std::to_string(::getpid()));
-            std::filesystem::create_directories(dir);
-            std::ofstream fna(dir / "reference.fna"), map(dir / "reference.map");
-            size_t offset = 0;
-            for (auto const& [id, seq] : { std::pair{ 1, gene }, std::pair{ 2, gene2 } }) {
-                std::string header = ">1_" + std::to_string(id) + "\n";
-                fna << header << seq << '\n';
-                map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
-                offset += header.size() + seq.size() + 1;
-            }
-            fna.close();
-            map.close();
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-            loader->LoadAllGenomes();
-        }
-        ~TinyReference() { std::filesystem::remove_all(dir); }
-    };
-
     // The records written; `genes`, if given, receives the genes the handler reported for them.
     std::string Write(TinyReference& ref, LongReadSegments segments, FastxRecord record, size_t max_out = 5,
                       std::vector<uint64_t>* genes = nullptr) {
@@ -206,7 +204,7 @@ TEST(LongReadOutputHandler, OnePrimaryAndSupplementaryRecordsHardClipped) {
     EXPECT_EQ(records[1][9], ref.gene2);  // reference orientation
 
     // Read back, each segment is a read of its own.
-    auto const path = (ref.dir / "long.sam").string();
+    auto const path = ref.dir / "long.sam";
     std::ofstream(path) << "@HD\tVN:1.6\n" << kSamReadTypeComment << "pb\n" << sam;
     profiler::Profiler profiler(*ref.loader);
     EXPECT_EQ(profiler.FromSam(path), "");
@@ -362,26 +360,125 @@ TEST(LongReadOutputHandler, TagsGenesSettledByTheirRead) {
     EXPECT_EQ(tagged[0][4], "0");
 }
 
-TEST(SeqReader, ReadsWithoutQualitiesGetTheReadTypesQuality) {
-    std::istringstream fasta(">r1\nACGT\n>r2\nAC\nGT\n");
-    SeqReaderSE reader(fasta, FastaQualityChar(ReadType::PacBio));
-    FastxRecord record;
-    ASSERT_TRUE(reader(record));
-    EXPECT_EQ(record.quality, "????");  // Q30
-    ASSERT_TRUE(reader(record));
-    EXPECT_EQ(record.sequence, "ACGT");
-    EXPECT_EQ(record.quality, "????");
-    EXPECT_FALSE(reader(record));
+namespace {
+    // Stand-ins for the seeding LongReadAligner runs on each chunk of a read (SimpleKmerHandler, ChainAnchorFinder),
+    // which need an index: no k-mers, and the anchors the test gives, read positions in their orientation of the chunk.
+    struct NoKmers {
+        void operator()(std::string_view, KmerList&) {}
+    };
 
-    std::istringstream fastq("@r1\nACGT\n+\nIII#\n");
-    SeqReaderSE keeps(fastq, FastaQualityChar(ReadType::PacBio));
-    ASSERT_TRUE(keeps(record));
-    EXPECT_EQ(record.quality, "III#") << "FASTQ keeps its qualities";
+    struct GivenAnchors {
+        AlignmentAnchorList anchors;
+        template<typename Kmers, typename Seeds>
+        void operator()(Kmers&, Seeds&, AlignmentAnchorList& out, std::string const&) { out = anchors; }
+    };
 
-    std::istringstream mate1(">p/1\nAAAA\n"), mate2(">p/2\nCCC\n");
-    SeqReaderPE pairs(mate1, mate2, FastaQualityChar(ReadType::Paired));
-    FastxRecord record2;
-    ASSERT_TRUE(pairs(record, record2));
-    EXPECT_EQ(record.quality, "????");
-    EXPECT_EQ(record2.quality, "???");
+    // Random genes of taxid 1 (genes 1, 2, ...), loaded.
+    struct RandomGenes : test::LoadedReference {
+        std::vector<std::string> const& genes = LoadedReference::genes.at(1);
+
+        RandomGenes(std::mt19937& rng, std::vector<size_t> const& lengths)
+            : LoadedReference({ { 1, test::RandomGenes(lengths, rng) } }, "long read genes") {}
+    };
+}
+
+// A long read from base 500 of a 3 kb gene to past its end, with 5 substitutions, 2 deletions (3 bases) and 2 insertions,
+// then 400 bases of something else, on either strand: LongReadAligner aligns it from its anchor (the exact runs along the
+// read's path, as chained) into one segment of one hit at gene position 500, the edits counted as made, the identity
+// theirs, the CIGAR walking the hit's bases along the gene base by base, and the other bases of the read hard clips.
+TEST(LongReadAligner, AReadOfAGeneAlignsWithItsEdits) {
+    std::mt19937 rng(13);
+    RandomGenes ref(rng, { 3000, 1000 });
+    std::string const& gene = ref.genes[0];
+    // The read on the gene's strand: gene bases 500 to the end with the edits, where each lies; ChainLinks of its exact
+    // runs of 20 or more along its path.
+    std::string part;
+    std::vector<long> gene_of;  // per base of `part`, its gene position (-1: inserted)
+    for (size_t g = 500; g < gene.size(); g++) {
+        if (g == 1000 || g == 1800 || g == 1801) continue;  // deleted
+        char c = gene[g];
+        if (g == 800 || g == 1200 || g == 1600 || g == 2000 || g == 2400) c = c == 'A' ? 'C' : 'A';
+        part += c;
+        gene_of.push_back(static_cast<long>(g));
+        if (g == 1400 || g == 2200) {  // a base inserted, unlike the bases either side of it, so that its gap cannot move
+            for (char const b : { 'A', 'C', 'G', 'T' }) {
+                if (b != c && b != gene[g + 1]) {
+                    part += b;
+                    break;
+                }
+            }
+            gene_of.push_back(-1);
+        }
+    }
+    ChainList chain;
+    for (size_t i = 0; i < part.size();) {
+        if (gene_of[i] < 0 || part[i] != gene[gene_of[i]]) { i++; continue; }
+        size_t j = i + 1;
+        while (j < part.size() && gene_of[j] == gene_of[j - 1] + 1 && part[j] == gene[gene_of[j]]) j++;
+        if (j - i >= 20) chain.emplace_back(static_cast<uint32_t>(gene_of[i]), static_cast<uint16_t>(i), static_cast<uint16_t>(j - i));
+        i = j;
+    }
+    ASSERT_GE(chain.size(), 8u);
+    std::string tail(400, 'A');
+    for (auto& c : tail) c = "ACGT"[rng() % 4];
+    std::string const oriented = part + tail;
+
+    WFA2Wrapper2 wfa(4, 6, 2, 0);  // as protal aligns long reads: no X-drop, through every link of the chain
+    SimpleAlignmentHandler handler(*ref.loader, wfa, 31, 3, 0.85, false);
+    handler.SetAnchoredAlignment(true);
+    handler.SetAnchoredIndels(true);
+    for (bool forward : { true, false }) {
+        GivenAnchors finder;
+        finder.anchors.emplace_back(1, 1, forward);
+        finder.anchors.back().chain = chain;
+        finder.anchors.back().total_length = static_cast<uint16_t>(std::min<size_t>(part.size(), UINT16_MAX));
+        LongReadAligner<NoKmers, GivenAnchors> aligner(NoKmers{}, finder, handler, *ref.loader, 3, 0.85);
+        FastxRecord record = Read("r", forward ? oriented : KmerUtils::ReverseComplement(oriented));
+        LongReadSegments segments;
+        aligner(record, segments);
+        ASSERT_EQ(segments.size(), 1u) << (forward ? "forward" : "reverse");
+        ASSERT_EQ(segments[0].hits.size(), 1u);
+        auto const& hit = segments[0].hits[0];
+        auto const& info = hit.alignment.GetAlignmentInfo();
+        EXPECT_EQ(hit.alignment.Taxid(), 1u);
+        EXPECT_EQ(hit.alignment.GeneId(), 1u);
+        EXPECT_EQ(hit.alignment.Forward(), forward);
+        EXPECT_EQ(info.gene_alignment_start, 500);
+        EXPECT_EQ(info.mismatches, 5u);
+        EXPECT_EQ(info.deletions, 3u);
+        EXPECT_EQ(info.deletion_blocks, 2u);
+        EXPECT_EQ(info.insertions, 2u);
+        EXPECT_EQ(info.insertion_blocks, 2u);
+        EXPECT_EQ(info.matches, 2500u - 3 - 5);
+        EXPECT_NEAR(info.alignment_ani, 2492.0 / 2502.0, 1e-6);
+        // The hit's bases are the read's part on the gene, in the gene's orientation; the rest of the read is clipped.
+        EXPECT_EQ(hit.seq, part);
+        EXPECT_EQ(hit.clip_left, 0u);
+        EXPECT_EQ(hit.clip_right, tail.size());
+        EXPECT_EQ(hit.aligned.start, forward ? 0 : static_cast<int64_t>(tail.size()));
+        EXPECT_EQ(hit.aligned.end, hit.aligned.start + static_cast<int64_t>(part.size()));
+        EXPECT_EQ(LongReadCigar(hit), info.compressed_cigar + "400H");
+        // The CIGAR walks the hit's bases along the gene: M equal, X different, I a read base, D a gene base.
+        size_t r = 0, g = static_cast<size_t>(info.gene_alignment_start);
+        for (char const op : info.cigar) {
+            ASSERT_TRUE(op == 'M' || op == 'X' || op == 'I' || op == 'D') << op;
+            if (op == 'M' || op == 'X') {
+                ASSERT_LT(r, hit.seq.size());
+                ASSERT_LT(g, gene.size());
+                EXPECT_EQ(hit.seq[r] == gene[g], op == 'M') << "read base " << r << ", gene base " << g;
+            }
+            r += op != 'D';
+            g += op != 'I';
+        }
+        EXPECT_EQ(r, hit.seq.size());
+        EXPECT_EQ(g, gene.size());
+        EXPECT_TRUE(aligner.FailedTaxa(segments).empty());
+    }
+
+    // An empty read: no candidates, no segments.
+    LongReadAligner<NoKmers, GivenAnchors> aligner(NoKmers{}, GivenAnchors{}, handler, *ref.loader, 3, 0.85);
+    FastxRecord empty = Read("empty", "");
+    LongReadSegments segments{ LongReadSegment{} };
+    aligner(empty, segments);
+    EXPECT_TRUE(segments.empty());
 }

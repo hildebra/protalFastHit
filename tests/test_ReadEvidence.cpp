@@ -1,7 +1,7 @@
 // Unit tests for the reads' evidence before the filters and what the database knows before any read
 // (docs/claude/2026-10-03-false-positive-fixes): fragments before the MAPQ filter and the EM's fragments, the failed
-// candidates (the ZF tag, on a read's first record or on an unmapped record, read back and counted per taxon), the
-// species' priors (species_priors.tsv) as features, and the simulator's sigmas given to the samples in turn.
+// candidates (the ZF tag, on a read's first record or on an unmapped record, or the SAM header's line, read back and
+// counted per taxon), and the species' priors (species_priors.tsv) as features.
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
@@ -15,63 +15,13 @@
 #include "Profiling/Profiler.h"
 #include "IO/AlignmentOutputHandler.h"
 #include "SequenceUtils/SpeciesPriors.h"
-#include "RandomForest/MetagenomeTypes.h"
+#include "TestReference.h"
 
 using namespace protal;
+using protal::test::RandomSequence;
+using Reference = protal::test::LoadedReference;
 
 namespace {
-    std::string RandomSequence(size_t length, std::mt19937& rng) {
-        static constexpr char kBases[] = "ACGT";
-        std::string seq(length, 'A');
-        for (auto& c : seq) c = kBases[rng() % 4];
-        return seq;
-    }
-
-    struct Reference {
-        std::filesystem::path dir;
-        std::unique_ptr<GenomeLoader> loader;
-        std::map<uint32_t, std::vector<std::string>> genes;
-
-        explicit Reference(std::map<uint32_t, std::vector<std::string>> taxa) : genes(std::move(taxa)) {
-            dir = std::filesystem::temp_directory_path() / ("protal_read_evidence_" + std::to_string(::getpid()) + "_" +
-                                                            std::to_string(reinterpret_cast<uintptr_t>(this)));
-            std::filesystem::create_directories(dir);
-            std::ofstream fna(dir / "reference.fna");
-            std::ofstream map(dir / "reference.map");
-            size_t offset = 0;
-            for (auto const& [taxid, seqs] : genes) {
-                for (size_t i = 0; i < seqs.size(); i++) {
-                    std::string const header = ">" + std::to_string(taxid) + "_" + std::to_string(i + 1) + "\n";
-                    fna << header << seqs[i] << '\n';
-                    map << taxid << '\t' << i + 1 << '\t' << offset + header.size() << '\t' << offset + header.size() + seqs[i].size() << '\n';
-                    offset += header.size() + seqs[i].size() + 1;
-                }
-            }
-            fna.close();
-            map.close();
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-            loader->LoadAllGenomes();
-        }
-
-        std::string Header() const {
-            std::string header = "@HD\tVN:1.6\n";
-            for (auto const& [taxid, seqs] : genes) {
-                for (size_t i = 0; i < seqs.size(); i++) {
-                    header += "@SQ\tSN:" + std::to_string(taxid) + "_" + std::to_string(i + 1) + "\tLN:" + std::to_string(seqs[i].size()) + "\n";
-                }
-            }
-            return header;
-        }
-
-        std::string Write(std::string const& name, std::string const& content) const {
-            auto const path = (dir / name).string();
-            std::ofstream(path) << content;
-            return path;
-        }
-
-        ~Reference() { std::filesystem::remove_all(dir); }
-    };
-
     // A record of the gene's own bases from 0-based `start`; tags appended as given.
     std::string Record(Reference const& ref, std::string const& qname, int flag, uint32_t taxid, uint32_t gene, int start, int length,
                        int mapq = 60, std::string const& tags = "\tZA:Z:*") {
@@ -86,9 +36,11 @@ namespace {
         return features;
     }
 
+    // Profiles a SAM (its text) as a run does, on `threads` threads; on several, in chunks of about a read each.
     profiler::MicrobialProfile Profile(Reference const& ref, std::string const& sam, size_t threads = 1) {
         profiler::Profiler profiler(*ref.loader);
         profiler.SetDepthIdentityMargin(0.08);
+        profiler.SetChunkBytes(200);
         profiler::MicrobialProfile profile(*ref.loader);
         auto const path = ref.Write("sample" + std::to_string(threads) + ".sam", sam);
         std::ostringstream rejected;
@@ -138,11 +90,11 @@ TEST(ReadEvidence, TheTagRoundTripsAndAnUnmappedRecordCarriesIt) {
     EXPECT_EQ(a.ToString().substr(a.ToString().size() - 6), "ZF:Z:5");
 }
 
-// The SAM header's counts (FailedCandidatesLine) add up with unmapped records' tags; a bad entry names its line.
+// The reader adds the SAM header's counts (FailedCandidatesLine, no line without failed candidates) and the unmapped
+// records' tags up; a bad entry names its line. The output handler's line is tested in test_SamRoundTrip.cpp.
 TEST(ReadEvidence, TheHeadersFailedCandidatesAddUpWithTheRecords) {
     EXPECT_EQ(FailedCandidatesLine({}), "");
     EXPECT_EQ(FailedCandidatesLine({ 0, 0 }), "");
-    EXPECT_EQ(FailedCandidatesLine({ 0, 3, 0, 1 }), kSamFailedCandidatesComment + "1:3,3:1\n");
     std::istringstream is("@HD\tVN:1.6\n" + FailedCandidatesLine({ 0, 0, 0, 0, 2, 0, 0, 0, 0, 1 }) +
                           "read9\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*\tZU:i:0\tZT:i:0\tZF:Z:9\n");
     SamReader reader(is);
@@ -175,40 +127,57 @@ TEST(ReadEvidence, AnUnmappedRecordThatCannotBeParsedIsAnError) {
     }
 }
 
+// Two reads aligned nowhere: protal writes their failed candidates in the SAM header by default, as unmapped records
+// with --write_unmapped_reads; either way they reach the taxa's failed_candidate_rate.
 TEST(ReadEvidence, FragmentsBeforeTheFiltersTheEMsFragmentsAndTheFailedCandidates) {
     std::mt19937 rng(21);
-    std::vector<std::string> one, two;
+    std::vector<std::string> one, two, three;
     for (int g = 0; g < 2; g++) {
         one.push_back(RandomSequence(500, rng));
         two.push_back(RandomSequence(500, rng));
+        three.push_back(RandomSequence(500, rng));
     }
-    Reference ref({ { 1, one }, { 2, two } });
-    std::string sam = ref.Header();
+    Reference ref({ { 1, one }, { 2, two }, { 3, three } });
+    std::string records;
     // Taxon 1: three reads kept, one more at MAPQ 0 (dropped by the filter but a best record), and one read that
     // names taxon 2 as a failed candidate on its first record.
-    sam += Record(ref, "a1", 0, 1, 1, 10, 100);
-    sam += Record(ref, "a2", 0, 1, 2, 10, 100);
-    sam += Record(ref, "a3", 0, 1, 1, 50, 100, 60, "\tZA:Z:*\tZF:Z:2");
-    sam += Record(ref, "a4", 0, 1, 2, 60, 100, 0);
+    records += Record(ref, "a1", 0, 1, 1, 10, 100);
+    records += Record(ref, "a2", 0, 1, 2, 10, 100);
+    records += Record(ref, "a3", 0, 1, 1, 50, 100, 60, "\tZA:Z:*\tZF:Z:2");
+    records += Record(ref, "a4", 0, 1, 2, 60, 100, 0);
     // Taxon 2: one kept read.
-    sam += Record(ref, "b1", 0, 2, 1, 10, 100);
+    records += Record(ref, "b1", 0, 2, 1, 10, 100);
+    // Taxon 3: one read of its own and one that taxon 1 fits as well (no edit more). The EM gives that read the share
+    // s = (1 + s) / ((1 + s) + (4 + 1 - s)) of it (taxon 3's weight against taxon 1's): s = 0.2, and taxon 3 keeps
+    // 1.2 of its 2 reads.
+    records += Record(ref, "c1", 0, 3, 1, 10, 100);
+    records += Record(ref, "c2", 0, 3, 2, 10, 100, 60, "\tZA:Z:1:0");
     // Two reads that seeded on taxon 2 (one also on taxon 1) but aligned nowhere.
-    sam += "u1\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*\tZU:i:0\tZT:i:0\tZF:Z:2\n";
-    sam += "u2\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*\tZU:i:0\tZT:i:0\tZF:Z:1,2\n";
-    for (size_t threads : { 1u, 3u }) {
-        SCOPED_TRACE(threads);
-        auto const profile = Profile(ref, sam, threads);
-        auto const f1 = Features(profile.GetTaxa().at(1));
-        auto const f2 = Features(profile.GetTaxa().at(2));
-        EXPECT_EQ(f1.at("fragments"), 3.0);
-        EXPECT_EQ(f1.at("fragments_all"), 4.0);
-        EXPECT_NEAR(f1.at("em_fragments"), 4.0 * f1.at("em_own_share"), 1e-12);
-        EXPECT_EQ(f1.at("em_own_share"), 1.0);  // no alternatives: the EM leaves it every read
-        // Taxon 1 failed for u2 only: 1 of 1 + 4.
-        EXPECT_NEAR(f1.at("failed_candidate_rate"), 1.0 / 5, 1e-12);
-        // Taxon 2 failed for a3, u1 and u2: 3 of 3 + 1.
-        EXPECT_EQ(f2.at("fragments_all"), 1.0);
-        EXPECT_NEAR(f2.at("failed_candidate_rate"), 3.0 / 4, 1e-12);
+    std::string const unmapped = "u1\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*\tZU:i:0\tZT:i:0\tZF:Z:2\n"
+                                 "u2\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*\tZU:i:0\tZT:i:0\tZF:Z:1,2\n";
+    for (bool const in_header : { true, false }) {
+        std::string const sam = in_header ? ref.Header() + FailedCandidatesLine({ 0, 1, 2 }) + records : ref.Header() + records + unmapped;
+        for (size_t threads : { 1u, 3u }) {
+            SCOPED_TRACE(std::string(in_header ? "in the header" : "unmapped records") + ", threads " + std::to_string(threads));
+            auto const profile = Profile(ref, sam, threads);
+            auto const f1 = Features(profile.GetTaxa().at(1));
+            auto const f2 = Features(profile.GetTaxa().at(2));
+            auto const f3 = Features(profile.GetTaxa().at(3));
+            EXPECT_EQ(f1.at("fragments"), 3.0);
+            EXPECT_EQ(f1.at("fragments_all"), 4.0);
+            EXPECT_EQ(f1.at("em_own_share"), 1.0);  // no alternatives: the EM leaves it every read
+            EXPECT_EQ(f1.at("em_fragments"), 4.0);
+            EXPECT_NEAR(f3.at("em_own_share"), 0.6, 1e-6);
+            EXPECT_NEAR(f3.at("em_kept_own_share"), 0.6, 1e-6);
+            EXPECT_EQ(f3.at("fragments_all"), 2.0);
+            EXPECT_NEAR(f3.at("em_fragments"), 1.2, 2e-6);
+            // Taxon 1 failed for u2 only: 1 of 1 + 4.
+            EXPECT_NEAR(f1.at("failed_candidate_rate"), 1.0 / 5, 1e-12);
+            // Taxon 2 failed for a3, u1 and u2: 3 of 3 + 1.
+            EXPECT_EQ(f2.at("fragments_all"), 1.0);
+            EXPECT_NEAR(f2.at("failed_candidate_rate"), 3.0 / 4, 1e-12);
+            EXPECT_EQ(f3.at("failed_candidate_rate"), 0.0);
+        }
     }
 }
 
@@ -252,38 +221,4 @@ TEST(ReadEvidence, SpeciesPriorsAreReadAndBecomeFeatures) {
     Reference plain({ { 1, { RandomSequence(400, rng) } } });
     auto const none = Profile(plain, plain.Header() + Record(plain, "a", 0, 1, 1, 10, 100));
     EXPECT_EQ(Features(none.GetTaxa().at(1)).at("rep_duplicate_share"), species_priors::kUnknown);
-}
-
-TEST(ReadEvidence, TheSimulatorGivesTheSamplesTheirSigmasInTurn) {
-    protal::sim::ProfileDesignOptions options;
-    options.pln_sigma = 1.3;
-    EXPECT_EQ(protal::sim::SigmaForSample(options, 0), 1.3);
-    EXPECT_EQ(protal::sim::SigmaForSample(options, 5), 1.3);
-    options.pln_sigmas = { 1.3, 2.0 };
-    EXPECT_EQ(protal::sim::SigmaForSample(options, 0), 1.3);
-    EXPECT_EQ(protal::sim::SigmaForSample(options, 1), 2.0);
-    EXPECT_EQ(protal::sim::SigmaForSample(options, 2), 1.3);
-    EXPECT_EQ(protal::sim::SigmaForSample(options, 7), 2.0);
-}
-
-TEST(ReadEvidence, TheSimulatorGivesTheSamplesTheirDepthsInTurn) {
-    // collect_training_data.py gives a scenario's samples depths of their own (--total_read_pairs a,b,c).
-    protal::sim::ProfileDesignOptions options;
-    options.total_read_pairs = 1000;
-    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 0), 1000u);
-    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 3), 1000u);
-    options.total_read_pairs_per_sample = { 500, 2000, 1200 };
-    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 0), 500u);
-    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 1), 2000u);
-    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 2), 1200u);
-    EXPECT_EQ(protal::sim::ReadPairsForSample(options, 4), 2000u);
-}
-
-TEST(ReadEvidence, FeatureStringsFlushSubnormalValuesToZero) {
-    // cPMML reads the values back with stod, which throws on underflow: an EM share of 1e-311 made a run crash.
-    EXPECT_EQ(profiler::FeatureString(9.0946131981813e-311), "0");
-    EXPECT_EQ(profiler::FeatureString(-4e-320), "0");
-    EXPECT_EQ(profiler::FeatureString(2.2250738585072014e-308), "2.2250738585072014e-308");  // the smallest normal
-    EXPECT_EQ(profiler::FeatureString(0.25), "0.25");
-    EXPECT_EQ(profiler::FeatureString(-1), "-1");
 }

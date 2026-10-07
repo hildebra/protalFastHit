@@ -3,8 +3,10 @@
 // estimate behind abundances.
 #include <gtest/gtest.h>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <random>
 #include <set>
@@ -14,6 +16,7 @@
 #include <unistd.h>
 #include "Profiling/Profiler.h"
 #include "Profiling/Strain.h"
+#include "TestReference.h"
 
 using namespace protal;
 
@@ -89,6 +92,20 @@ TEST(ExtractVariants, IndelsAtAlignmentEndsAreIgnored) {
     EXPECT_FALSE(handler.AddVariantsFromSam(MakeSam(reference.substr(40) + "ACGTA", "15M", 41)));
 }
 
+TEST(ExtractVariants, LowQualitySnpKeepsLowQuality) {
+    // The read carries G instead of the reference T at position 3 (0-based), with quality '#' (Q2).
+    std::string reference = "ACGTACGTAC";
+    VariantHandler handler(reference);
+    auto sam = MakeSam("ACGGACGTAC", "3M1X6M", 1, 0, "III#IIIIII");
+
+    ASSERT_TRUE(handler.AddVariantsFromSam(sam));
+    ASSERT_TRUE(handler.HasVariantBin(3));
+    auto& bin = handler.GetVariantBin(3);
+    ASSERT_EQ(bin.size(), 1u);
+    EXPECT_EQ(bin.front().GetVariant(), 'G');
+    EXPECT_EQ(bin.front().QualitySum(), 2u);
+}
+
 TEST(Counters, CountBeyondSixteenBits) {
     Variant snp(3, 'G', 'A');
     for (int i = 0; i < 70000; i++) snp.AddObservation(30, i % 2 == 0);
@@ -102,21 +119,12 @@ TEST(Counters, CountBeyondSixteenBits) {
 }
 
 namespace {
-    struct TinyReference {
-        std::filesystem::path dir;
-        std::unique_ptr<GenomeLoader> loader;
+    constexpr char kSecondGene[] = "TTGACCGTAGCATGCAAGTCCGATTGACGTAACGGTCATGCAGTTCAGAC";  // 50 bp
 
-        TinyReference() {
-            dir = std::filesystem::temp_directory_path() / ("protal_strain_test_" + std::to_string(::getpid()));
-            std::filesystem::create_directories(dir);
-            std::string header = ">1_1\n";
-            std::string gene = kReference;
-            { std::ofstream fna(dir / "reference.fna"); fna << header << gene << '\n'; }
-            { std::ofstream map(dir / "reference.map"); map << "1\t1\t" << header.size() << '\t' << header.size() + gene.size() << '\n'; }
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-            loader->LoadAllGenomes();
-        }
-        ~TinyReference() { std::filesystem::remove_all(dir); }
+    // Taxon 1's genes 1_1, 1_2, ... (kReference alone by default), loaded.
+    struct TinyReference : test::LoadedReference {
+        explicit TinyReference(std::vector<std::string> const& genes = { kReference })
+            : LoadedReference({ { 1, genes } }, "strain reference") {}
     };
 }
 
@@ -139,9 +147,6 @@ TEST(Coverage, AReadOverSeveralGapsMergesAllTheirRanges) {
     ASSERT_EQ(cov.size(), 50u);
     std::vector<std::pair<size_t, uint32_t>> expected = { { 0, 1 }, { 5, 2 }, { 15, 1 }, { 25, 2 }, { 35, 1 }, { 44, 2 }, { 45, 1 }, { 49, 1 } };
     for (auto [pos, depth] : expected) EXPECT_EQ(cov[pos], depth) << "position " << pos;
-
-    ranges.CalculateCoverageVector();
-    EXPECT_EQ(ranges.CalculateCoverageVector(), cov);  // recomputed, not appended to
 }
 
 TEST(MSA, DeletionsBecomeGaps) {
@@ -405,8 +410,9 @@ TEST(MSA, EachSampleTakesItsOwnMinimumAlleleFrequency) {
     ASSERT_TRUE(MSA(items, reference, msa, 2, 0, std::vector<double>{ 0.0, 0.5 }, false, 0, nullptr, nullptr, 2));
     std::string const loose(msa[0].begin(), msa[0].end()), strict(msa[1].begin(), msa[1].end());
     ASSERT_EQ(loose.size(), reference.size());
-    EXPECT_EQ(std::string("ACGTN-").find(loose[10]), std::string::npos) << "an IUPAC code of two alleles: " << loose[10];
-    EXPECT_NE(std::string("ACGTN-").find(strict[10]), std::string::npos) << "no second allele: " << strict[10];
+    ASSERT_EQ(reference[10], 'G');
+    EXPECT_EQ(loose[10], 'R') << "A and G";
+    EXPECT_EQ(strict[10], 'G') << "the reference's base alone";
     EXPECT_EQ(loose.substr(11), strict.substr(11));
 }
 
@@ -547,25 +553,11 @@ TEST(Abundance, TheDepthMarginScalesWithTheGenesConservation) {
     // Two 50 bp genes of one species: gene 1 conserved (factor 0.4: margin 0.03 + 0.05 x 0.4 = 0.05),
     // gene 2 fast (1.6: 0.11). Reads 10% below the best on the fast gene are the species' own (a
     // strain's) and count; a read 6% below on the conserved gene is a relative's and does not.
-    std::filesystem::path const dir = std::filesystem::temp_directory_path() / ("protal_scaled_margin_" + std::to_string(::getpid()));
-    std::filesystem::create_directories(dir);
-    std::string const gene1 = kReference, gene2 = "TTGACCGTAGCATGCAAGTCCGATTGACGTAACGGTCATGCAGTTCAGAC";
-    {
-        std::ofstream fna(dir / "reference.fna");
-        std::ofstream map(dir / "reference.map");
-        size_t offset = 0;
-        for (auto const& [id, seq] : { std::pair<int, std::string>{ 1, gene1 }, { 2, gene2 } }) {
-            std::string const header = ">1_" + std::to_string(id) + "\n";
-            fna << header << seq << '\n';
-            map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
-            offset += header.size() + seq.size() + 1;
-        }
-    }
-    GenomeLoader loader((dir / "reference.fna").string(), (dir / "reference.map").string());
-    loader.LoadAllGenomes();
-    auto own = MakeSam(gene1, "50M", 1);
-    auto relative = MakeSam(gene1, "47M3X", 1);  // identity 0.94
-    auto strain = MakeSam(gene2, "45M5X", 1);    // identity 0.90
+    TinyReference ref({ kReference, kSecondGene });
+    GenomeLoader& loader = *ref.loader;
+    auto own = MakeSam(kReference, "50M", 1);
+    auto relative = MakeSam(kReference, "47M3X", 1);  // identity 0.94
+    auto strain = MakeSam(kSecondGene, "45M5X", 1);    // identity 0.90
     // A taxon takes the loader's factors, and whether they scale the margin, when its first read comes.
     auto fill = [&](profiler::MicrobialProfile& profile) -> profiler::Taxon& {
         int read = 0;  // each read its own fragment
@@ -607,32 +599,17 @@ TEST(Abundance, TheDepthMarginScalesWithTheGenesConservation) {
     profile.SetDepthIdentityMargin(1);  // every read counts, whatever the gene
     EXPECT_EQ(taxon.OwnIdentityThreshold(1), 0);
     EXPECT_NEAR(taxon.LowIdentityShare(), 0.0, 1e-9);
-    std::filesystem::remove_all(dir);
 }
 
 TEST(Abundance, TheRecordsDepthOnConservedAgainstFastGenes) {
     // conserved_fast_record_ratio: every best record (NoteRecord, before the MAPQ filter) on gene 1 (factor 0.4)
     // against gene 2 (1.6), both 50 bp: 150 bases on gene 1 (one of the records MAPQ 0), 50 on gene 2.
-    std::filesystem::path const dir = std::filesystem::temp_directory_path() / ("protal_record_ratio_" + std::to_string(::getpid()));
-    std::filesystem::create_directories(dir);
-    std::string const gene1 = kReference, gene2 = "TTGACCGTAGCATGCAAGTCCGATTGACGTAACGGTCATGCAGTTCAGAC";
-    {
-        std::ofstream fna(dir / "reference.fna");
-        std::ofstream map(dir / "reference.map");
-        size_t offset = 0;
-        for (auto const& [id, seq] : { std::pair<int, std::string>{ 1, gene1 }, { 2, gene2 } }) {
-            std::string const header = ">1_" + std::to_string(id) + "\n";
-            fna << header << seq << '\n';
-            map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
-            offset += header.size() + seq.size() + 1;
-        }
-    }
-    GenomeLoader loader((dir / "reference.fna").string(), (dir / "reference.map").string());
-    loader.LoadAllGenomes();
-    auto own = MakeSam(gene1, "50M", 1);
-    auto ambiguous = MakeSam(gene1, "50M", 1);
+    TinyReference ref({ kReference, kSecondGene });
+    GenomeLoader& loader = *ref.loader;
+    auto own = MakeSam(kReference, "50M", 1);
+    auto ambiguous = MakeSam(kReference, "50M", 1);
     ambiguous.m_mapq = 0;
-    auto fast = MakeSam(gene2, "45M5X", 1);
+    auto fast = MakeSam(kSecondGene, "45M5X", 1);
     auto fill = [&](profiler::MicrobialProfile& profile) -> profiler::Taxon const& {
         for (auto const* sam : { &own, &own, &ambiguous }) profile.NoteRecord(1, 1, *sam);
         profile.NoteRecord(1, 2, fast);
@@ -660,7 +637,6 @@ TEST(Abundance, TheRecordsDepthOnConservedAgainstFastGenes) {
     // depth is 1 on gene 1 and 0 on gene 2.
     EXPECT_EQ(taxon.ConservationPattern(), (std::pair<double, double>{ 0.0, 1.0 }));
     EXPECT_NEAR(features.at("conserved_fast_kept_ratio"), std::log2(1.001 / 0.001), 1e-9);
-    std::filesystem::remove_all(dir);
 }
 
 // tsl::sparse_map copies the values of a bucket on every insert into it unless they move without
@@ -694,147 +670,4 @@ TEST(Abundance, ReleasingReadDataKeepsWhatLaterStagesRead) {
         EXPECT_EQ(taxon.TotalLength(), length);
         EXPECT_EQ(taxon.TotalHits(), 3u);
     }
-}
-
-TEST(ModelFeatures, TheModelMustFitProtal) {
-    auto dir = std::filesystem::temp_directory_path() / ("protal model test " + std::to_string(::getpid()));
-    std::filesystem::create_directories(dir);
-    // A one-split tree on `field`, predicting `yes` or `no`.
-    auto model = [&](std::string const& name, std::string const& field, std::string const& yes, std::string const& no) {
-        auto path = (dir / name).string();
-        std::ofstream(path) << R"(<?xml version="1.0" encoding="UTF-8"?>
-<PMML version="4.4">
- <Header/>
- <DataDictionary>
-  <DataField name="truth" optype="categorical" dataType="string"><Value value=")" << no << R"("/><Value value=")" << yes << R"("/></DataField>
-  <DataField name=")" << field << R"(" optype="continuous" dataType="double"/>
- </DataDictionary>
- <TreeModel functionName="classification" splitCharacteristic="binarySplit">
-  <MiningSchema>
-   <MiningField name="truth" usageType="predicted"/>
-   <MiningField name=")" << field << R"("/>
-  </MiningSchema>
-  <Node score=")" << no << R"(">
-   <True/>
-   <Node score=")" << yes << R"("><SimplePredicate field=")" << field << R"(" operator="greaterThan" value="10"/><ScoreDistribution value=")" << no << R"(" recordCount="1"/><ScoreDistribution value=")" << yes << R"(" recordCount="9"/></Node>
-   <Node score=")" << no << R"("><True/><ScoreDistribution value=")" << no << R"(" recordCount="9"/><ScoreDistribution value=")" << yes << R"(" recordCount="1"/></Node>
-  </Node>
- </TreeModel>
-</PMML>
-)";
-        return path;
-    };
-    auto problem = [](std::string const& path) {
-        return profiler::ModelContractProblem(profiler::TaxonFilterForest(path), path);
-    };
-    EXPECT_EQ(problem(model("good.xml", "present_genes", "TRUE", "FALSE")), "");
-    EXPECT_EQ(problem(model("normalized.xml", "gene_presence_ratio", "TRUE", "FALSE")), "");
-    EXPECT_EQ(problem(model("unknown.xml", "coverage_of_moon", "TRUE", "FALSE")),
-              "it needs 1 input(s) protal does not compute: coverage_of_moon");
-    EXPECT_NE(problem(model("labels.xml", "present_genes", "yes", "no")).find("has no value TRUE"), std::string::npos);
-    std::filesystem::remove_all(dir);
-}
-
-TEST(ModelFeatures, DepthKnobsByTheSamplesFragments) {
-    // The bin: the digits of the sample's fragments less one, 2 to 6 (machine_learning_cmdline.py depth_bins).
-    EXPECT_EQ(profiler::DepthKnobBin(0), 2);
-    EXPECT_EQ(profiler::DepthKnobBin(999), 2);
-    EXPECT_EQ(profiler::DepthKnobBin(1000), 3);
-    EXPECT_EQ(profiler::DepthKnobBin(99999), 4);
-    EXPECT_EQ(profiler::DepthKnobBin(1000000), 6);
-    EXPECT_EQ(profiler::DepthKnobBin(5000000000ull), 6);
-
-    // The trainer writes them as an Extension of the header, which cPMML loads past.
-    auto const header = [](std::string const& extension) {
-        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<PMML version=\"4.4\">\n <Header description=\"m\">\n  " + extension +
-               "\n  <Application name=\"test\"/>\n </Header>\n";
-    };
-    std::string const body = R"( <DataDictionary>
-  <DataField name="truth" optype="categorical" dataType="string"><Value value="FALSE"/><Value value="TRUE"/></DataField>
-  <DataField name="fragments" optype="continuous" dataType="double"/>
- </DataDictionary>
- <TreeModel functionName="classification" splitCharacteristic="binarySplit">
-  <MiningSchema>
-   <MiningField name="truth" usageType="predicted"/>
-   <MiningField name="fragments"/>
-  </MiningSchema>
-  <Node score="FALSE"><True/><ScoreDistribution value="FALSE" recordCount="0.4"/><ScoreDistribution value="TRUE" recordCount="0.6"/></Node>
- </TreeModel>
-</PMML>
-)";
-    std::string const xml = header(R"(<Extension name="protal_depth_knobs" value="2:0.31,4:0.4"/>)") + body;
-    std::map<int, double> knobs;
-    EXPECT_EQ(profiler::ParseDepthKnobs(xml, knobs), "");
-    EXPECT_EQ(knobs, (std::map<int, double>{ { 2, 0.31 }, { 4, 0.4 } }));
-
-    profiler::TaxonFilterForest model(cpmml::Model::from_string(xml), 0.5);
-    EXPECT_EQ(profiler::ModelContractProblemInXml(model, xml), "");
-    EXPECT_FALSE(model.DepthKnob(500).has_value());  // none set yet
-    model.SetDepthKnobs(knobs);
-    EXPECT_EQ(model.DepthKnob(500), 0.31);
-    EXPECT_FALSE(model.DepthKnob(5000).has_value());  // bin 3: --knob's default
-    EXPECT_EQ(model.DepthKnob(50000), 0.4);
-    auto const copy = model.WithKnob(0.2);
-    EXPECT_EQ(copy.GetKnob(), 0.2);
-    EXPECT_EQ(copy.DepthKnobs(), knobs);
-
-    // None: another extension, or one after the header.
-    EXPECT_EQ(profiler::ParseDepthKnobs(header(R"(<Extension name="other" value="2:0.3"/>)") + body, knobs), "");
-    EXPECT_TRUE(knobs.empty());
-    EXPECT_EQ(profiler::ParseDepthKnobs(header("") + R"(<Extension name="protal_depth_knobs" value="2:0.3"/>)" + body, knobs), "");
-    EXPECT_TRUE(knobs.empty());
-    // Malformed: a bin outside 2-6, a knob outside 0-1, a bin twice, no colon, trailing characters.
-    for (std::string const value : { "7:0.3", "2:1.5", "2:0.3,2:0.4", "2-0.3", "2:0.3x", "" }) {
-        auto const problem = profiler::ParseDepthKnobs(
-            header(R"(<Extension name="protal_depth_knobs" value=")" + value + R"("/>)") + body, knobs);
-        EXPECT_NE(problem.find("its depth knobs are malformed"), std::string::npos) << value << ": " << problem;
-        EXPECT_TRUE(knobs.empty()) << value;
-    }
-
-    // A knob curve (the trainer's since 0.7.3): log10 of the sample's fragments : knob, linear between the points, the
-    // ends' beyond them (machine_learning_cmdline.py knob_at); a model has bins or a curve.
-    std::string const curve_xml = header(R"(<Extension name="protal_depth_knob_curve" value="2.000:0.2,4.000:0.8"/>)") + body;
-    profiler::DepthKnobCurve curve;
-    EXPECT_EQ(profiler::ParseDepthKnobCurve(curve_xml, curve), "");
-    EXPECT_EQ(curve, (profiler::DepthKnobCurve{ { 2.0, 0.2 }, { 4.0, 0.8 } }));
-    EXPECT_EQ(profiler::ParseDepthKnobs(curve_xml, knobs), "");
-    EXPECT_TRUE(knobs.empty());
-    profiler::TaxonFilterForest curved(cpmml::Model::from_string(curve_xml), 0.5);
-    EXPECT_FALSE(curved.HasDepthKnobs());
-    curved.SetDepthKnobCurve(curve);
-    EXPECT_TRUE(curved.HasDepthKnobs());
-    EXPECT_DOUBLE_EQ(*curved.DepthKnob(0), 0.2);        // below the first point: its knob
-    EXPECT_DOUBLE_EQ(*curved.DepthKnob(100), 0.2);
-    EXPECT_DOUBLE_EQ(*curved.DepthKnob(1000), 0.5);     // halfway in log10
-    EXPECT_NEAR(*curved.DepthKnob(3162), 0.65, 1e-4);   // 10^3.5
-    EXPECT_DOUBLE_EQ(*curved.DepthKnob(10000), 0.8);
-    EXPECT_DOUBLE_EQ(*curved.DepthKnob(5000000000ull), 0.8);  // deeper than any trained: the deepest knob
-    EXPECT_EQ(curved.WithKnob(0.3).GetDepthKnobCurve(), curve);
-    EXPECT_DOUBLE_EQ(profiler::DepthKnobAt({ { 1.5, 0.4 } }, 7), 0.4);  // one point: its knob everywhere
-    EXPECT_DOUBLE_EQ(profiler::DepthKnobAt({}, 7), 0.5);
-    EXPECT_EQ(profiler::ParseDepthKnobCurve(body, curve), "");
-    EXPECT_TRUE(curve.empty());
-    // Malformed: x not increasing or outside 0-12, a knob outside 0-1, no colon, trailing characters, no points.
-    for (std::string const value : { "3:0.3,2:0.4", "2:0.3,2:0.4", "13:0.3", "-1:0.3", "2:1.5", "2-0.3", "2:0.3x", "" }) {
-        auto const problem = profiler::ParseDepthKnobCurve(
-            header(R"(<Extension name="protal_depth_knob_curve" value=")" + value + R"("/>)") + body, curve);
-        EXPECT_NE(problem.find("its depth knob curve is malformed"), std::string::npos) << value << ": " << problem;
-        EXPECT_TRUE(curve.empty()) << value;
-    }
-}
-
-TEST(ModelFeatures, NamesAreUniqueAndValuesKeepTheirPrecision) {
-    Genome no_genome(0);
-    auto features = profiler::TaxonFeatures(profiler::Taxon(no_genome));
-    std::set<std::string> names;
-    for (auto const& [name, _] : features) EXPECT_TRUE(names.insert(name).second) << name << " twice";
-    for (auto const* name : { "RAF0", "RA4", "su_rate_ref", "lu_rate_ref", "lsu_rate_ref", "mean_mapq", "lu_per_read",
-                              "fragments", "gene_presence_ratio", "identity", "variant_sites_per_kb" }) {
-        EXPECT_TRUE(names.contains(name)) << name;
-    }
-
-    EXPECT_EQ(profiler::FeatureString(0.5), "0.5");
-    EXPECT_EQ(profiler::FeatureString(3), "3");
-    EXPECT_EQ(std::stod(profiler::FeatureString(1.25e-7)), 1.25e-7);
-    EXPECT_EQ(std::stod(profiler::FeatureString(0.1 + 0.2)), 0.1 + 0.2);
 }

@@ -205,32 +205,6 @@ namespace protal {
         std::vector<uint64_t> m_failed;
     };
 
-    // Records into a stream as they come, the genes into a set (tests, and plain streams).
-    class SamStreamSink : public SamSink {
-    public:
-        explicit SamStreamSink(std::ostream& os) : m_os(os) {}
-
-        void Write(char const* data, size_t size, std::vector<uint64_t>& genes) override {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            m_os.write(data, static_cast<std::streamsize>(size));
-            m_genes.insert(genes.begin(), genes.end());
-            genes.clear();
-        }
-
-        // The genes named so far, sorted.
-        std::vector<uint64_t> Genes() const {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            std::vector<uint64_t> genes(m_genes.begin(), m_genes.end());
-            std::sort(genes.begin(), genes.end());
-            return genes;
-        }
-
-    private:
-        std::ostream& m_os;
-        mutable std::mutex m_mutex;
-        std::unordered_set<uint64_t> m_genes;
-    };
-
     // A SAM file written by several threads (see the top of this file). Errors (a file that cannot
     // be written, a full disk) are kept in Error(); later writes are then skipped.
     class SamOutput : public SamSink {

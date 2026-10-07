@@ -1,10 +1,9 @@
 // Unit tests for zstd-compressed database files: the compressing and decompressing streams,
 // failure modes (truncated, corrupt, trailing data), rewinding, CompressFile, the seekable format
-// with parallel reading (index scatter, genes across frame boundaries), and loading a compressed
-// reference.fna.zst with GenomeLoader.
+// with parallel reading (index scatter), and loading a reference.fna.zst without a seek table with
+// GenomeLoader (GenomeLoaderPacked tests the seekable one).
 #include <gtest/gtest.h>
 #include <atomic>
-#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <mutex>
@@ -20,37 +19,13 @@
 #include "Utilities/Zstd.h"
 #include "Hash/Seedmap.h"
 #include "SequenceUtils/GenomeLoader.h"
+#include "TestUtil.h"
 
 namespace fs = std::filesystem;
 using namespace protal;
+using namespace protal::test;
 
 namespace {
-    struct TempDir {
-        fs::path dir;
-        TempDir() {
-            dir = fs::temp_directory_path() / ("protal_zstdtest_" + std::to_string(::getpid()));
-            fs::create_directories(dir);
-        }
-        ~TempDir() { fs::remove_all(dir); }
-        std::string operator/(std::string const& name) const { return (dir / name).string(); }
-    };
-
-    // Compressible, but not trivially: random DNA with repeats.
-    std::string TestData(size_t size, unsigned seed = 1) {
-        std::mt19937 rng(seed);
-        std::string s;
-        s.reserve(size);
-        while (s.size() < size) {
-            if (s.size() > 1000 && rng() % 4 == 0) {
-                size_t const from = rng() % (s.size() - 500);
-                s.append(s, from, std::min<size_t>(300, size - s.size()));
-            } else {
-                s.push_back("ACGT"[rng() % 4]);
-            }
-        }
-        return s;
-    }
-
     void WriteCompressed(std::string const& path, std::string const& data, zstd::Params params = {3, 0, 1},
                          bool pledge = true) {
         zstd::OStream os(path, params, pledge ? std::optional<uint64_t>(data.size()) : std::nullopt);
@@ -74,20 +49,12 @@ namespace {
         return out;
     }
 
-    std::string Slurp(std::string const& path) {
-        std::ifstream is(path, std::ios::binary);
-        return {std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>()};
-    }
-
-    void Spit(std::string const& path, std::string const& data) {
-        std::ofstream os(path, std::ios::binary);
-        os << data;
-    }
 }
 
+// 3 MB: WriteCompressed's writes grow past the stream's 1 MB buffer, so the last goes to zstd unbuffered.
 TEST(Zstd, RoundTripWithSmallAndLargeReads) {
-    TempDir tmp;
-    for (size_t size : {size_t{1}, size_t{1000}, size_t{3} << 20, size_t{20} << 20}) {
+    ScratchDir tmp;
+    for (size_t size : {size_t{1}, size_t{1000}, size_t{3} << 20}) {
         std::string const data = TestData(size, static_cast<unsigned>(size));
         WriteCompressed(tmp / "a.zst", data);
         EXPECT_TRUE(zstd::IsCompressed(tmp / "a.zst"));
@@ -103,8 +70,10 @@ TEST(Zstd, RoundTripWithSmallAndLargeReads) {
 }
 
 TEST(Zstd, MultithreadedLongWindowAndUnpledgedSize) {
-    TempDir tmp;
-    std::string const data = TestData(size_t{24} << 20, 7);
+    // Without multithreading, libzstd compresses on one thread and the stream only warns: nothing here would test it.
+    if (ZSTD_cParam_getBounds(ZSTD_c_nbWorkers).upperBound == 0) GTEST_SKIP() << "this libzstd has no multithreading";
+    ScratchDir tmp;
+    std::string const data = TestData(size_t{4} << 20, 7);
     for (bool pledge : {true, false}) {
         WriteCompressed(tmp / "b.zst", data, {9, 27, 4}, pledge);
         EXPECT_LT(fs::file_size(tmp / "b.zst"), data.size() / 3);
@@ -114,7 +83,7 @@ TEST(Zstd, MultithreadedLongWindowAndUnpledgedSize) {
 }
 
 TEST(Zstd, TellAndGetline) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const data = ">1_1\nACGT\n>1_2\nGGGCCC\n";
     WriteCompressed(tmp / "c.zst", data);
     zstd::InputFile in(tmp / "c.zst");
@@ -125,7 +94,7 @@ TEST(Zstd, TellAndGetline) {
 }
 
 TEST(Zstd, RewindRawAndCompressed) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const data = TestData(size_t{10} << 20);
     Spit(tmp / "raw", data);
     WriteCompressed(tmp / "raw.zst", data);
@@ -138,7 +107,7 @@ TEST(Zstd, RewindRawAndCompressed) {
 }
 
 TEST(Zstd, ConcatenatedFramesAreOneStream) {
-    TempDir tmp;
+    ScratchDir tmp;
     WriteCompressed(tmp / "x.zst", "first part|");
     WriteCompressed(tmp / "y.zst", "second part");
     Spit(tmp / "xy.zst", Slurp(tmp / "x.zst") + Slurp(tmp / "y.zst"));
@@ -149,7 +118,7 @@ TEST(Zstd, ConcatenatedFramesAreOneStream) {
 // The content size comes from the frame header, or is counted when the file starts with a
 // skippable frame (as pzstd writes them) or the header does not record it.
 TEST(Zstd, UncompressedSize) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const data = TestData(300000);
     Spit(tmp / "raw", data);
     WriteCompressed(tmp / "pledged.zst", data);
@@ -167,7 +136,7 @@ TEST(Zstd, UncompressedSize) {
 }
 
 TEST(Zstd, TruncatedCorruptAndTrailingDataFail) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const data = TestData(size_t{2} << 20);
     WriteCompressed(tmp / "good.zst", data);
     std::string const good = Slurp(tmp / "good.zst");
@@ -178,23 +147,29 @@ TEST(Zstd, TruncatedCorruptAndTrailingDataFail) {
     Spit(tmp / "corrupt.zst", corrupt);
     Spit(tmp / "trailing.zst", good + "garbage");
 
-    for (auto name : {"truncated.zst", "corrupt.zst", "trailing.zst"}) {
+    // What a truncated or corrupt file gives before the error is less than its content, and its start.
+    for (auto name : {"truncated.zst", "corrupt.zst"}) {
         zstd::InputFile in(tmp / name);
         std::string const read = ReadAll(in, 1 << 16);
         EXPECT_TRUE(in.Stream().bad()) << name << " was read without an error";
-        EXPECT_NE(read, data + "garbage") << name;
+        EXPECT_LT(read.size(), data.size()) << name;
+        EXPECT_EQ(data.compare(0, read.size(), read), 0) << name << ": what was read is not the content's start";
     }
+    // Bytes after the frame that are no frame: the whole content, then the error.
+    zstd::InputFile trailing(tmp / "trailing.zst");
+    EXPECT_EQ(ReadAll(trailing, 1 << 16), data);
+    EXPECT_TRUE(trailing.Stream().bad()) << "trailing.zst was read without an error";
 }
 
 TEST(Zstd, PledgedSizeMismatchFailsOnClose) {
-    TempDir tmp;
+    ScratchDir tmp;
     zstd::OStream os(tmp / "short.zst", {3, 0, 1}, 100);
     os << "only a few bytes";
     EXPECT_FALSE(os.Close());
 }
 
 TEST(Zstd, ResolvePrefersTheRawFile) {
-    TempDir tmp;
+    ScratchDir tmp;
     EXPECT_EQ(zstd::Resolve(tmp / "f"), tmp / "f");  // neither: the raw name
     Spit(tmp / "f.zst", "z");
     EXPECT_EQ(zstd::Resolve(tmp / "f"), tmp / "f.zst");
@@ -203,7 +178,7 @@ TEST(Zstd, ResolvePrefersTheRawFile) {
 }
 
 TEST(Zstd, CompressFileVerifiesAndRenames) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const data = TestData(size_t{5} << 20);
     Spit(tmp / "reference.fna", data);
     std::string error;
@@ -214,6 +189,23 @@ TEST(Zstd, CompressFileVerifiesAndRenames) {
 
     EXPECT_FALSE(zstd::CompressFile(tmp / "missing.fna", tmp / "missing.fna.zst", {3, 0, 1}, true, error));
     EXPECT_FALSE(fs::exists(tmp / "missing.fna.zst"));
+}
+
+// CompressFile's check of what it wrote: a source of two frames without a seek table (cat a.zst b.zst) has the first
+// frame's size in its header, which UncompressedSize takes for the whole content; the check finds more, CompressFile
+// fails, and neither the file nor its partial copy is left.
+TEST(Zstd, CompressFileFailsWhenWhatItWroteIsNotTheSource) {
+    ScratchDir tmp;
+    WriteCompressed(tmp / "a.zst", "first part|");
+    WriteCompressed(tmp / "b.zst", "second part");
+    Spit(tmp / "ab.zst", Slurp(tmp / "a.zst") + Slurp(tmp / "b.zst"));
+    ASSERT_EQ(zstd::UncompressedSize(tmp / "ab.zst"), std::optional<uint64_t>(11));
+    std::string error;
+    EXPECT_FALSE(zstd::CompressFile(tmp / "ab.zst", tmp / "out.zst", {3, 0, 1, 1 << 20}, true, error));
+    EXPECT_NE(error.find("verifying"), std::string::npos) << error;
+    EXPECT_NE(error.find("22 of 11 bytes compared"), std::string::npos) << error;
+    EXPECT_FALSE(fs::exists(tmp / "out.zst"));
+    EXPECT_FALSE(fs::exists(tmp / "out.zst.partial"));
 }
 
 namespace {
@@ -231,24 +223,24 @@ namespace {
         }
     };
 
+    // The parts one after another, written in the seekable format in frames of frame_size bytes (CompressFrames);
+    // returns them.
     std::string WriteSeekable(std::string const& path, std::vector<std::string> const& parts, uint64_t frame_size,
                               int threads = 4, int level = 3) {
-        zstd::MemoryReader reader;
         std::string all;
-        for (auto const& p : parts) {
-            reader.Add(p.data(), p.size());
-            all += p;
-        }
+        for (auto const& p : parts) all += p;
+        std::istringstream is(all);
+        zstd::StreamReader reader(is);
         std::string error;
         auto const written = zstd::CompressFrames(reader, path, {level, 0, threads, frame_size}, error);
         EXPECT_TRUE(written.has_value()) << error;
-        EXPECT_EQ(*written, fs::file_size(path));
+        EXPECT_EQ(written.value_or(0), fs::file_size(path));
         return all;
     }
 }
 
 TEST(ZstdSeekable, RoundTripWithAnyThreadCount) {
-    TempDir tmp;
+    ScratchDir tmp;
     // Parts of odd sizes: frames do not line up with them.
     std::string const data = WriteSeekable(tmp / "s.zst", {TestData(12345, 1), TestData(size_t{5} << 20, 2), TestData(777, 3),
                                                            TestData(size_t{4} << 20, 4)}, size_t{1} << 20);
@@ -275,7 +267,7 @@ TEST(ZstdSeekable, RoundTripWithAnyThreadCount) {
 }
 
 TEST(ZstdSeekable, ParallelReadOfRawAndSingleFrameFiles) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const data = TestData(size_t{3} << 20);
     Spit(tmp / "raw", data);
     WriteCompressed(tmp / "single.zst", data);
@@ -290,7 +282,7 @@ TEST(ZstdSeekable, ParallelReadOfRawAndSingleFrameFiles) {
 }
 
 TEST(ZstdSeekable, CorruptFramesAndTablesFail) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const data = WriteSeekable(tmp / "good.zst", {TestData(size_t{4} << 20)}, size_t{1} << 20);
     std::string const good = Slurp(tmp / "good.zst");
     std::string error;
@@ -331,7 +323,7 @@ namespace {
 // workers stop one by one; every frame is still handled once, with its content. With an ample budget only the last frame
 // waits for the others (nothing is left to write after it); without one, no worker stops early.
 TEST(ZstdSeekable, ForEachFrameStopsWorkersNearTheEndOfALoad) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const data = WriteSeekable(tmp / "load.zst", {TestData(size_t{3} << 20, 7)}, size_t{1} << 16);  // 48 frames
     std::string error;
     auto const table = zstd::ReadSeekTable(tmp / "load.zst", error);
@@ -417,7 +409,7 @@ TEST(ZstdSeekable, ForEachFrameStopsWorkersNearTheEndOfALoad) {
 }
 
 TEST(ZstdSeekable, ParallelFramesAreReadInOrderOnAnyThreadCount) {
-    TempDir tmp;
+    ScratchDir tmp;
     // Frames of 64 KB: many, more than the threads may hold ahead.
     std::string const data = WriteSeekable(tmp / "s.zst", {TestData(12345, 1), TestData(size_t{3} << 20, 2), TestData(777, 3)}, size_t{1} << 16);
     std::string error;
@@ -446,7 +438,7 @@ TEST(ZstdSeekable, ParallelFramesAreReadInOrderOnAnyThreadCount) {
 }
 
 TEST(ZstdSeekable, ParallelFramesStopAtACorruptFrame) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const data = WriteSeekable(tmp / "good.zst", {TestData(size_t{4} << 20)}, size_t{1} << 20);
     std::string corrupt = Slurp(tmp / "good.zst");
     std::string error;
@@ -470,7 +462,7 @@ TEST(ZstdSeekable, ParallelFramesStopAtACorruptFrame) {
 }
 
 TEST(ZstdSeekable, CompressFileWritesAndRecompressesFrames) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const data = TestData(size_t{3} << 20);
     Spit(tmp / "reference.fna", data);
     std::string error;
@@ -489,7 +481,7 @@ TEST(ZstdSeekable, CompressFileWritesAndRecompressesFrames) {
 
 // The index sink scatters a file into key map and values, whatever the frame boundaries.
 TEST(ZstdSeekable, IndexSinkScattersIntoKeymapAndValues) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const header = TestData(72, 5), keymap = TestData(50000, 6), values = TestData(80000, 7);
     for (uint64_t frame : {uint64_t{1000}, uint64_t{50072}, uint64_t{1} << 20}) {
         WriteSeekable(tmp / "index.zst", {header, keymap, values}, frame);
@@ -503,43 +495,10 @@ TEST(ZstdSeekable, IndexSinkScattersIntoKeymapAndValues) {
     }
 }
 
-// Genes that span frame boundaries are filled from both frames; sequences are uppercased.
-TEST(ZstdSeekable, GenomeLoaderReadsFramesInParallel) {
-    TempDir tmp;
-    std::vector<std::pair<std::string, std::string>> records;
-    for (int i = 1; i <= 40; i++) records.emplace_back("1_" + std::to_string(i), TestData(200 + 37 * i, i));
-    records[3].second[5] = 'a';  // lowercase is uppercased on load
-    {
-        std::ofstream fna(tmp / "reference.fna", std::ios::binary);
-        std::ofstream map(tmp / "reference.map");
-        size_t offset = 0;
-        for (auto const& [name, seq] : records) {
-            std::string const header = ">" + name + "\n";
-            fna << header << seq << '\n';
-            offset += header.size();
-            map << "1\t" << name.substr(2) << '\t' << offset << '\t' << offset + seq.size() << '\n';
-            offset += seq.size() + 1;
-        }
-    }
-    std::string error;
-    ASSERT_TRUE(zstd::CompressFile(tmp / "reference.fna", tmp / "reference.fna.zst", {3, 0, 4, 700}, true, error)) << error;
-    for (auto name : {"reference.fna", "reference.fna.zst"}) {
-        for (int threads : {1, 4}) {
-            GenomeLoader loader(tmp / name, tmp / "reference.map");
-            loader.LoadAllGenomes(threads);
-            for (int i = 1; i <= 40; i++) {
-                std::string expected = records[i - 1].second;
-                for (auto& c : expected) c = static_cast<char>(std::toupper(c));
-                EXPECT_EQ(loader.GetGenome(1).GetGene(i).Sequence(), expected) << name << ", " << threads << " threads, gene " << i;
-            }
-        }
-    }
-}
-
 // The index loader stops with exit 8 on a compressed index that holds too little data, and on
 // one whose zstd frame is cut off.
 TEST(Zstd, TruncatedCompressedIndexExits8) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::ostringstream header;
     auto put = [&](auto v) { header.write(reinterpret_cast<char const*>(&v), sizeof(v)); };
     constexpr size_t keys = size_t{1} << 30, total = keys + ((keys / 8) + 1) * 4;
@@ -556,40 +515,34 @@ TEST(Zstd, TruncatedCompressedIndexExits8) {
     EXPECT_EXIT({ Seedmap map; map.Load(tmp / "cut.prx.zst"); }, testing::ExitedWithCode(8), "truncated or corrupt");
 }
 
-// reference.fna.zst: preloading gives exactly the genes of reference.fna; loading a single gene
-// on demand is refused.
-TEST(Zstd, GenomeLoaderReadsACompressedReference) {
-    TempDir tmp;
+// A reference.fna.zst of one frame without a seek table (as the zstd command writes it) is preloaded as one stream, on
+// any number of threads: its genes are those of reference.fna. A single gene is not loaded on demand from it.
+TEST(Zstd, GenomeLoaderReadsASingleFrameReference) {
+    ScratchDir tmp;
     std::vector<std::pair<std::string, std::string>> records = {
             {"1_1", TestData(300, 1)}, {"1_2", TestData(1200, 2)}, {"2_1", TestData(80, 3)}, {"10_3", TestData(5000, 4)}};
-    {
-        std::ofstream fna(tmp / "reference.fna", std::ios::binary);
-        std::ofstream map(tmp / "reference.map");
-        size_t offset = 0;
-        for (auto const& [name, seq] : records) {
-            std::string const header = ">" + name + "\n";
-            fna << header << seq << '\n';
-            offset += header.size();
-            map << name.substr(0, name.find('_')) << '\t' << name.substr(name.find('_') + 1) << '\t'
-                << offset << '\t' << offset + seq.size() << '\n';
-            offset += seq.size() + 1;
-        }
-    }
-    std::string error;
-    ASSERT_TRUE(zstd::CompressFile(tmp / "reference.fna", tmp / "reference.fna.zst", {19, 27, 1}, true, error)) << error;
-
-    GenomeLoader raw(tmp / "reference.fna", tmp / "reference.map");
-    GenomeLoader compressed(tmp / "reference.fna.zst", tmp / "reference.map");
-    EXPECT_FALSE(raw.IsCompressed());
-    EXPECT_TRUE(compressed.IsCompressed());
-    raw.LoadAllGenomes();
-    compressed.LoadAllGenomes();
-    EXPECT_TRUE(compressed.AllGenomesLoaded());
+    std::string fna, map;
     for (auto const& [name, seq] : records) {
-        size_t const taxid = std::stoul(name.substr(0, name.find('_')));
-        size_t const gene = std::stoul(name.substr(name.find('_') + 1));
-        EXPECT_EQ(raw.GetGenome(taxid).GetGene(gene).Sequence(), seq) << name;
-        EXPECT_EQ(compressed.GetGenome(taxid).GetGene(gene).Sequence(), seq) << name;
+        std::string const header = ">" + name + "\n";
+        fna += header;
+        map += name.substr(0, name.find('_')) + '\t' + name.substr(name.find('_') + 1) + '\t' + std::to_string(fna.size()) + '\t' +
+               std::to_string(fna.size() + seq.size()) + '\n';
+        fna += seq + '\n';
+    }
+    Spit(tmp / "reference.map", map);
+    WriteCompressed(tmp / "reference.fna.zst", fna);
+    ASSERT_FALSE(zstd::IsSeekable(tmp / "reference.fna.zst"));
+
+    for (int threads : {1, 3}) {
+        GenomeLoader compressed(tmp / "reference.fna.zst", tmp / "reference.map");
+        EXPECT_TRUE(compressed.IsCompressed());
+        compressed.LoadAllGenomes(threads);
+        EXPECT_TRUE(compressed.AllGenomesLoaded());
+        for (auto const& [name, seq] : records) {
+            size_t const taxid = std::stoul(name.substr(0, name.find('_')));
+            size_t const gene = std::stoul(name.substr(name.find('_') + 1));
+            EXPECT_EQ(compressed.GetGenome(taxid).GetGene(gene).Sequence(), seq) << name << ", " << threads << " threads";
+        }
     }
 
     GenomeLoader lazy(tmp / "reference.fna.zst", tmp / "reference.map");

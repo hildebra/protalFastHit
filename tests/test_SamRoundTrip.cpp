@@ -1,45 +1,25 @@
-// Unit tests for the SAM round-trip: read names written for a pair, and reading pairs, orphan
-// mates and legacy files back with SamReader.
+// Unit tests for the SAM round-trip: read names written for a pair, reading pairs, orphan mates and legacy files back
+// with SamReader (SamPairs), the records the output handlers write, and mate guidance (GuideMate).
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 #include <unistd.h>
 #include "IO/AlignmentOutputHandler.h"
 #include "Core/MateGuidance.h"
+#include "TestReference.h"
+#include "TestSamSink.h"
 
 using namespace protal;
+using protal::test::TinyReference;
+using protal::test::SamStreamSink;
 
 namespace {
-    // A two-gene reference (taxid 1, genes 1 and 2) written to a temporary directory and loaded.
-    struct TinyReference {
-        std::string gene = "ACGTTGCAAGGCTTACCGATGACTGAAACCGGTTTACGATCGGTAGCATG";   // 50 bp, gene 1
-        std::string gene2 = "TTGACCAGTCAGGATCCATTGCAGGTACTTGACCGTAAGCTGCATTGACA";  // 50 bp, gene 2
-        std::filesystem::path dir;
-        std::unique_ptr<GenomeLoader> loader;
-
-        TinyReference() {
-            dir = std::filesystem::temp_directory_path() / ("protal_samtest_" + std::to_string(::getpid()));
-            std::filesystem::create_directories(dir);
-            std::ofstream fna(dir / "reference.fna"), map(dir / "reference.map");
-            size_t offset = 0;
-            for (auto const& [id, seq] : { std::pair{ 1, gene }, std::pair{ 2, gene2 } }) {
-                std::string header = ">1_" + std::to_string(id) + "\n";
-                fna << header << seq << '\n';
-                map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
-                offset += header.size() + seq.size() + 1;
-            }
-            fna.close();
-            map.close();
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-            loader->LoadAllGenomes();
-        }
-        ~TinyReference() { std::filesystem::remove_all(dir); }
-    };
-
     // An ungapped alignment of `length` bases starting at position `start` of gene `geneid`.
     AlignmentResult Aligned(size_t start, size_t length, bool forward, uint32_t geneid = 1) {
         AlignmentResult ar(0, 1, geneid, static_cast<int32_t>(start), forward);
@@ -117,7 +97,7 @@ TEST(ReadQName, StripsSlashMateSuffixOnly) {
     EXPECT_EQ(ReadQName("x"), "x");
 }
 
-TEST(SamReader, ReadsMatesTogether) {
+TEST(SamPairs, ReadsMatesTogether) {
     Reader r(SamLine("a", PAIRED | BOTH_ALIGN | READ1) + SamLine("a", PAIRED | BOTH_ALIGN | READ2));
     ASSERT_TRUE(r.Next());
     EXPECT_TRUE(r.has1);
@@ -127,7 +107,7 @@ TEST(SamReader, ReadsMatesTogether) {
     EXPECT_FALSE(r.Next());
 }
 
-TEST(SamReader, FlaggedOrphanRead1DoesNotSwallowNextRead) {
+TEST(SamPairs, FlaggedOrphanRead1DoesNotSwallowNextRead) {
     Reader r(SamLine("orphan", PAIRED | READ1 | MATE_UNMAPPED) +
              SamLine("b", PAIRED | BOTH_ALIGN | READ1) + SamLine("b", PAIRED | BOTH_ALIGN | READ2));
     ASSERT_TRUE(r.Next());
@@ -142,7 +122,7 @@ TEST(SamReader, FlaggedOrphanRead1DoesNotSwallowNextRead) {
     EXPECT_FALSE(r.Next());
 }
 
-TEST(SamReader, LegacyUnflaggedOrphanKeepsTheLookAheadRecord) {
+TEST(SamPairs, LegacyUnflaggedOrphanKeepsTheLookAheadRecord) {
     // Older protal versions wrote an orphan read1 with 0x1 but without 0x8.
     Reader r(SamLine("legacy", PAIRED | READ1) +
              SamLine("c", PAIRED | BOTH_ALIGN | READ1) + SamLine("c", PAIRED | BOTH_ALIGN | READ2));
@@ -157,7 +137,7 @@ TEST(SamReader, LegacyUnflaggedOrphanKeepsTheLookAheadRecord) {
     EXPECT_FALSE(r.Next());
 }
 
-TEST(SamReader, Read2OnlyAndTrailingOrphan) {
+TEST(SamPairs, Read2OnlyAndTrailingOrphan) {
     Reader r(SamLine("d", PAIRED | READ2 | MATE_UNMAPPED) + SamLine("e", PAIRED | READ1));
     ASSERT_TRUE(r.Next());
     EXPECT_FALSE(r.has1);
@@ -300,7 +280,7 @@ TEST(PairedOutputHandler, ReportsOnlyTheGenesOfRecordsWritten) {
     EXPECT_EQ(genes, (std::vector<uint64_t>{ SamGeneKey(1, 1) }));
 }
 
-TEST(SamReader, SingleEndReadsAreFirstReads) {
+TEST(SamPairs, SingleEndReadsAreFirstReads) {
     Reader r(SamLine("fwd", 0) + SamLine("rev", 0x10) + SamLine("rev", 0x10 | 0x100));
     for (std::string const name : { "fwd", "rev", "rev" }) {
         ASSERT_TRUE(r.Next());
@@ -313,10 +293,12 @@ TEST(SamReader, SingleEndReadsAreFirstReads) {
     EXPECT_EQ(r.reader.PairedRecords(), 0u);
 }
 
-TEST(SamReader, TellsPairedFromSingleEndReads) {
+// Whether a SAM holds paired reads, by its first usable record (ReadsOfSam; Options takes the read type from it when
+// the header does not name one).
+TEST(SamPairs, TellsPairedFromSingleEndReads) {
     auto paired = [](std::string text) {
         std::istringstream in(std::move(text));
-        return HoldsPairedReads(in);
+        return ReadsOfSam(in).paired;
     };
     EXPECT_EQ(paired("@HD\tVN:1.6\n" + SamLine("a", PAIRED | BOTH_ALIGN | READ1) + SamLine("a", PAIRED | BOTH_ALIGN | READ2)), true);
     EXPECT_EQ(paired(SamLine("orphan", PAIRED | READ2 | MATE_UNMAPPED)), true);
@@ -430,18 +412,9 @@ TEST(SingleOutputHandler, SkipsOnlyTheInconsistentCandidate) {
 }
 
 // A read that seeded on taxa but aligned nowhere: counted per taxon for the SAM header by default, an unmapped record
-// with --write_unmapped_reads; the reader counts the header line as it counts the records.
+// naming them with --write_unmapped_reads (ReadEvidence tests read both back).
 TEST(SingleOutputHandler, CountsUnalignedReadsForTheHeaderOrWritesTheirRecords) {
     TinyReference ref;
-    auto failed_of = [](SamReader& reader) {
-        SamEntry a, b;
-        bool has_a = false, has_b = false;
-        EXPECT_FALSE(reader.Next(a, b, has_a, has_b));
-        auto counts = reader.FailedCandidates();
-        counts.resize(8, 0);
-        return counts;
-    };
-    std::vector<uint32_t> const expected{ 0, 0, 0, 1, 0, 0, 0, 2 };
     for (bool const write_records : { false, true }) {
         std::ostringstream os;
         SamStreamSink sink(os);
@@ -457,25 +430,36 @@ TEST(SingleOutputHandler, CountsUnalignedReadsForTheHeaderOrWritesTheirRecords) 
         auto const counts = sink.FailedCandidates();
         if (write_records) {
             EXPECT_TRUE(std::all_of(counts.begin(), counts.end(), [](uint64_t n) { return n == 0; }));
+            std::vector<std::vector<std::string>> records;
             std::istringstream in(os.str());
-            SamReader reader(in);
-            EXPECT_EQ(failed_of(reader), expected);
-            EXPECT_EQ(reader.Skipped().at("unmapped"), 2u);
+            std::string line;
+            std::vector<std::string> tokens;
+            while (std::getline(in, line)) {
+                LineSplitter::Split(line, "\t", tokens);
+                records.push_back(tokens);
+            }
+            ASSERT_EQ(records.size(), 2u);
+            for (auto const& [record, name, tag] : { std::tuple{ records[0], "read1", "ZF:Z:3,7" }, std::tuple{ records[1], "read2", "ZF:Z:7" } }) {
+                EXPECT_EQ(record[0], name);
+                EXPECT_TRUE(Flag::IsUnmapped(std::stoul(record[1]))) << name;
+                EXPECT_EQ(record.back(), tag) << name;
+            }
         } else {
             EXPECT_EQ(os.str(), "");
             EXPECT_EQ(FailedCandidatesLine(counts), kSamFailedCandidatesComment + "3:1,7:2\n");
-            std::istringstream in("@HD\tVN:1.6\n" + FailedCandidatesLine(counts));
-            SamReader reader(in);
-            EXPECT_EQ(failed_of(reader), expected);
-            EXPECT_TRUE(reader.Skipped().empty());
         }
     }
 }
 
 TEST(AlternativesTag, ListsOtherTaxaByTheirBestCandidate) {
-    EXPECT_EQ(AlignmentEdits("2S19M1X128M"), 3);  // clipped bases count as edits
-    EXPECT_EQ(AlignmentEdits("5M2I3M1D4M"), 3);
-    EXPECT_EQ(AlignmentEdits("150M"), 0);
+    // A candidate's edits: its mismatches, inserted, deleted and soft-clipped bases (clipped bases count as edits).
+    for (auto const& [cigar, edits] : { std::pair<std::string, int>{ "SS" + std::string(19, 'M') + "X" + std::string(128, 'M'), 3 },
+                                        std::pair<std::string, int>{ "MMMMMIIMMMDMMMM", 3 }, std::pair<std::string, int>{ std::string(150, 'M'), 0 } }) {
+        AlignmentInfo info;
+        info.cigar = cigar;
+        info.GetInstructionCountsAndCompress();
+        EXPECT_EQ(AlignmentEdits(info), edits) << info.compressed_cigar;
+    }
     // The best is taxon 1 with 2 edits: its own other candidates are not listed, each other taxon once with its
     // best candidate, fewest edits first, none more than kAlternativeMaxEdits worse.
     EXPECT_EQ(AlternativesTag(1, 2, { { 1, 2 }, { 1, 0 }, { 2, 5 }, { 2, 3 }, { 3, 2 }, { 4, 9 } }), "3:0,2:1");
@@ -531,29 +515,11 @@ TEST(SingleOutputHandler, TagsTheBestRecordWithTheReadsAlternativesInOtherTaxa) 
 
 namespace {
     // Taxa 1 and 2, each with genes 1 and 2 of TinyReference's sequences.
-    struct TwoTaxaReference {
-        TinyReference tiny;
-        std::filesystem::path dir;
-        std::unique_ptr<GenomeLoader> loader;
+    struct TwoTaxaReference : test::LoadedReference {
+        std::string const gene = TinyReference::kGene1, gene2 = TinyReference::kGene2;
 
-        TwoTaxaReference() {
-            dir = tiny.dir / "two";
-            std::filesystem::create_directories(dir);
-            std::ofstream fna(dir / "reference.fna"), map(dir / "reference.map");
-            size_t offset = 0;
-            for (int taxid : { 1, 2 }) {
-                for (auto const& [id, seq] : { std::pair{ 1, tiny.gene }, std::pair{ 2, tiny.gene2 } }) {
-                    std::string header = ">" + std::to_string(taxid) + "_" + std::to_string(id) + "\n";
-                    fna << header << seq << '\n';
-                    map << taxid << '\t' << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
-                    offset += header.size() + seq.size() + 1;
-                }
-            }
-            fna.close();
-            map.close();
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-            loader->LoadAllGenomes();
-        }
+        TwoTaxaReference() : LoadedReference({ { 1, { TinyReference::kGene1, TinyReference::kGene2 } },
+                                               { 2, { TinyReference::kGene1, TinyReference::kGene2 } } }) {}
     };
 
     // An ungapped alignment of taxon `taxid`; `mismatches` count for the score only.
@@ -572,8 +538,8 @@ namespace {
 
 TEST(PairedOutputHandler, MatesOnTwoGenesTakeThePairsConsensusTaxon) {
     TwoTaxaReference ref;
-    auto r1 = Record("frag/1", ref.tiny.gene.substr(30, 20));
-    auto r2 = Record("frag/2", KmerUtils::ReverseComplement(ref.tiny.gene2.substr(0, 20)));
+    auto r1 = Record("frag/1", ref.gene.substr(30, 20));
+    auto r2 = Record("frag/2", KmerUtils::ReverseComplement(ref.gene2.substr(0, 20)));
     auto write = [&](PairedAlignmentResultList results) {
         std::ostringstream os;
         SamStreamSink sink(os);

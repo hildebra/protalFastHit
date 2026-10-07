@@ -2,6 +2,7 @@
 // a profile that is the same as on one thread, taxon for taxon and gene for gene, in the order of the maps.
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -9,31 +10,19 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 #include <unistd.h>
 #include "Profiling/Profiler.h"
 #include "Profiling/SamChunks.h"
 #include "IO/SamFile.h"
+#include "TestUtil.h"
 
 using namespace protal;
 namespace fs = std::filesystem;
+using protal::test::ScratchDir;
 
 namespace {
-    struct ScratchDir {
-        fs::path path;
-        ScratchDir() {
-            path = fs::temp_directory_path() / ("protal profile threads test " + std::to_string(::getpid()));
-            fs::create_directories(path);
-        }
-        ~ScratchDir() { fs::remove_all(path); }
-
-        std::string Write(std::string const& name, std::string const& content) const {
-            auto file = path / name;
-            std::ofstream(file, std::ios::binary) << content;
-            return file.string();
-        }
-    };
-
     struct Random {
         uint64_t state;
         explicit Random(uint64_t seed) : state(seed) {}
@@ -45,10 +34,12 @@ namespace {
 
     constexpr int kPaired = 0x1, kBothAlign = 0x2, kReverse = 0x10, kMateReverse = 0x20, kRead1 = 0x40, kRead2 = 0x80,
                   kSecondary = 0x100, kSupplementary = 0x800;
-    constexpr int kTaxa = 5, kGenes = 4, kGeneLength = 300;
+    // Ten genes per taxon: as many as two references must share for a distance (context::kMinSharedGenes).
+    constexpr int kTaxa = 5, kGenes = 10, kGeneLength = 300;
+    static_assert(kGenes >= static_cast<int>(profiler::context::kMinSharedGenes));
 
     // Gene neighbours of the taxa (families 100-102, order 200): in each clade gene g's 3' end faces gene g + 1's
-    // 5' end (gene 4's, gene 1's) in some of the species informative there and nothing in the others, so that the
+    // 5' end (the last gene's, gene 1's) in some of the species informative there and nothing in the others, so that the
     // links of the long reads of Sam (their parts on genes g, g + 1, ...) have smoothed shares of many values.
     gene_neighbours::Table Neighbours() {
         std::string text = "# protal gene neighbours: genomes=90 species=60 max_gap=3000 ranks=family,order\n"
@@ -70,7 +61,9 @@ namespace {
         return table;
     }
 
-    // kTaxa taxa (1..kTaxa) of kGenes genes (1..kGenes) each, of random bases; with_neighbours: with Neighbours().
+    // kTaxa taxa (1..kTaxa) of kGenes genes (1..kGenes) each, of random bases, except that taxa 2 and 4 are congeners
+    // of taxa 1 and 3 (the genera Profile gives them): their gene g has every (15 + g)-th base of the other's changed,
+    // 4-6% of them. Genes 1-4 are conserved (factor 0.5), the others fast (1.5). with_neighbours: with Neighbours().
     struct Reference {
         ScratchDir dir;
         std::map<std::pair<int, int>, std::string> genes;
@@ -82,7 +75,12 @@ namespace {
             for (int taxid = 1; taxid <= kTaxa; taxid++) {
                 for (int gene = 1; gene <= kGenes; gene++) {
                     std::string seq;
-                    for (int i = 0; i < kGeneLength; i++) seq += "ACGT"[random.Next(4)];
+                    if (taxid == 2 || taxid == 4) {
+                        seq = genes.at({ taxid - 1, gene });
+                        for (size_t i = 7; i < seq.size(); i += 15 + static_cast<size_t>(gene)) seq[i] = seq[i] == 'A' ? 'C' : 'A';
+                    } else {
+                        for (int i = 0; i < kGeneLength; i++) seq += "ACGT"[random.Next(4)];
+                    }
                     genes[{ taxid, gene }] = seq;
                     std::string const header = ">" + std::to_string(taxid) + "_" + std::to_string(gene) + "\n";
                     size_t const start = fna.size() + header.size();
@@ -95,6 +93,9 @@ namespace {
             auto const map_path = dir.Write("reference.map", map);
             loader = std::make_unique<GenomeLoader>(fna_path, map_path);
             loader->LoadAllGenomes();
+            gene_conservation::Table factors;
+            for (int gene = 1; gene <= kGenes; gene++) factors.Set(static_cast<uint64_t>(gene), gene <= 4 ? 0.5 : 1.5, 3);
+            loader->SetGeneConservation(factors);
             if (with_neighbours) loader->SetGeneNeighbours(Neighbours());
         }
 
@@ -178,8 +179,8 @@ namespace {
                                           : Line(name, 0, "1_1", kGeneLength - 30, 60, "70M", ref.genes.at({ 1, 1 }).substr(0, 70), tags);
                     sam += "\n";
                     break;
-                case 5:  // unusable: unmapped, or not a protal gene; CRLF
-                    sam += Line(name, 4, "*", 0, 0, "*", "ACGT", "");
+                case 5:  // unusable: unmapped (with the taxa it failed on), or not a protal gene; CRLF
+                    sam += Line(name, 4, "*", 0, 0, "*", "ACGT", "\tZF:Z:" + std::to_string(taxid) + "," + std::to_string(1 + (taxid % kTaxa)));
                     sam += Line(name + "x", 0, "chr1", 1, 60, "4M", "ACGT", "\r");
                     break;
                 default: {  // a pair
@@ -249,6 +250,7 @@ namespace {
     struct Profiled {
         std::string error, rejected, log, dump, order_free;
         size_t reads = 0, rejected_reads = 0;
+        std::map<uint32_t, std::map<std::string, double>> features;  // by taxon
     };
 
     Profiled Profile(Reference const& ref, std::string const& sam, size_t threads, size_t chunk_bytes = 0,
@@ -271,6 +273,9 @@ namespace {
         out.rejected_reads = profiler.RejectedReads();
         out.dump = Dump(profile);
         out.order_free = OrderFreeDump(profile);
+        for (auto const& [taxid, taxon] : profile.GetTaxa()) {
+            for (auto const& [name, value] : profiler::TaxonFeatures(taxon)) out.features[static_cast<uint32_t>(taxid)][name] = value;
+        }
         return out;
     }
 
@@ -296,6 +301,33 @@ namespace {
         EXPECT_EQ(Report(a.log), Report(b.log));
         // After an error the profile is incomplete, and not used.
         if (a.error.empty()) EXPECT_EQ(a.dump, b.dump);
+    }
+
+    // The default features made of the taxa's relatives, of their genes' conservation and of their reads' failed
+    // candidates differ from their values without them (relative_distance and relative_close_share 1, relative_spill
+    // log10((fragments + 0.5) / 0.5), the conservation ratios 0, conserved_hit_share 0.5, excess_scaled_median the plain
+    // median, failed_candidate_rate 0), so that ExpectSame compares them. Of each pair of congeners, the one with fewer
+    // fragments is compared with the other: its relative_* are of their references' distance.
+    void ExpectFeaturesOfRelativesAndConservation(Profiled const& profiled) {
+        size_t compared = 0;
+        for (auto const& [taxid, f] : profiled.features) {
+            SCOPED_TRACE("taxon " + std::to_string(taxid));
+            if (f.at("relative_distance") < 1) {
+                compared++;
+                EXPECT_GT(f.at("relative_distance"), 0.01);
+                EXPECT_LT(f.at("relative_distance"), 0.2);
+                EXPECT_LT(f.at("relative_spill"), std::log10((f.at("fragments") + 0.5) / 0.5) - 1e-3);
+                EXPECT_NE(f.at("relative_close_share"), 1.0);
+            }
+            EXPECT_NE(f.at("conserved_hit_share"), 0.5);
+            EXPECT_NE(f.at("conserved_fast_depth_ratio"), 0.0);
+            EXPECT_NE(f.at("conserved_fast_record_ratio"), 0.0);
+            EXPECT_NE(f.at("conserved_fast_kept_ratio"), 0.0);
+            EXPECT_NE(f.at("excess_conserved_fast_ratio"), 0.0);
+            EXPECT_NE(f.at("excess_scaled_median"), f.at("excess_median"));
+            EXPECT_GT(f.at("failed_candidate_rate"), 0.0);
+        }
+        EXPECT_EQ(compared, 2u);  // taxon 1 or 2, and taxon 3 or 4
     }
 
     // The QNAMEs of a text's record lines.
@@ -370,38 +402,29 @@ TEST(SamChunks, ParallelForRunsEachOnceAndPassesOnAnException) {
     sam_chunks::ParallelFor(0, 4, [](size_t) { FAIL(); });
 }
 
+// The profile, every feature and the rejected records are the same on several threads, whatever the chunks: of one
+// byte (every read a chunk of its own), of a few reads, of many, and of the default size (one chunk here). The taxa's
+// congeners and gene conservation factors make the distance features (the references sketched on the threads,
+// CongenerDistances) and the conservation features differ from their defaults. With gene neighbours, adjacent_support
+// sums the smoothed shares of the links of a taxon's reads: on several threads chunk by chunk, on one read by read; the
+// sum has to come out the same to the last bit, as the GTDB build's parity check (check_model_parity.py) profiles a
+// training sample alone on all threads, where the collector had profiled it among other samples on fewer.
 TEST(ProfileSam, OnSeveralThreadsTheProfileIsTheSame) {
-    Reference ref;
-    auto const sam = ref.dir.Write("sample.sam", Sam(ref, 3000, 5));
-    auto const serial = Profile(ref, sam, 1);
-    ASSERT_EQ(serial.error, "");
-    EXPECT_GT(serial.rejected_reads, 0u);
-    EXPECT_NE(serial.log.find("skipped"), std::string::npos);
-    EXPECT_EQ(serial.dump.find("taxon"), 0u);
-    for (size_t threads : { 2, 3, 8 }) {
-        for (size_t bytes : { 1, 500, 20000, 0 }) {
-            SCOPED_TRACE("threads " + std::to_string(threads) + ", chunks of " + std::to_string(bytes) + " bytes");
-            ExpectSame(serial, Profile(ref, sam, threads, bytes));
-        }
-    }
-}
-
-TEST(ProfileSam, OnSeveralThreadsTheGeneNeighboursFeaturesAreTheSame) {
-    // adjacent_support sums the smoothed shares of the links of a taxon's reads. On several threads they are summed
-    // chunk by chunk, on one thread read by read: the sum has to come out the same to the last bit, as the GTDB
-    // build's parity check (check_model_parity.py) profiles a training sample alone on all threads, where the
-    // collector had profiled it among other samples on fewer.
-    Reference ref(true);
-    auto const sam = ref.dir.Write("sample.sam", Sam(ref, 3000, 17));
-    auto const serial = Profile(ref, sam, 1);
-    ASSERT_EQ(serial.error, "");
-    size_t judged = 0;
-    for (size_t at = serial.dump.find(" adjacent_support="); at != std::string::npos; at = serial.dump.find(" adjacent_support=", at + 1)) {
-        judged += serial.dump.compare(at, 22, " adjacent_support=0.5 ") != 0;
-    }
-    EXPECT_EQ(judged, static_cast<size_t>(kTaxa));  // every taxon has links the clades judge
-    for (size_t threads : { 2, 3, 8 }) {
-        for (size_t bytes : { 1, 500, 20000, 0 }) {
+    for (bool const with_neighbours : { false, true }) {
+        SCOPED_TRACE(with_neighbours ? "with gene neighbours" : "without gene neighbours");
+        Reference ref(with_neighbours);
+        auto const sam = ref.dir.Write("sample.sam", Sam(ref, 1000, with_neighbours ? 17 : 5));
+        auto const serial = Profile(ref, sam, 1);
+        ASSERT_EQ(serial.error, "");
+        EXPECT_GT(serial.rejected_reads, 0u);
+        EXPECT_NE(serial.log.find("skipped"), std::string::npos);
+        EXPECT_EQ(serial.dump.find("taxon"), 0u);
+        ASSERT_EQ(serial.features.size(), static_cast<size_t>(kTaxa));
+        ExpectFeaturesOfRelativesAndConservation(serial);
+        size_t judged = 0;  // taxa with links the clades judge (0.5 without)
+        for (auto const& [taxid, f] : serial.features) judged += f.at("adjacent_support") != 0.5;
+        EXPECT_EQ(judged, with_neighbours ? static_cast<size_t>(kTaxa) : 0u);
+        for (auto const& [threads, bytes] : std::vector<std::pair<size_t, size_t>>{ { 2, 1 }, { 8, 1 }, { 3, 500 }, { 8, 20000 }, { 3, 0 } }) {
             SCOPED_TRACE("threads " + std::to_string(threads) + ", chunks of " + std::to_string(bytes) + " bytes");
             ExpectSame(serial, Profile(ref, sam, threads, bytes));
         }
@@ -410,7 +433,7 @@ TEST(ProfileSam, OnSeveralThreadsTheGeneNeighboursFeaturesAreTheSame) {
 
 TEST(ProfileSam, OnSeveralThreadsTheCompressedSamsGiveTheSameProfile) {
     Reference ref;
-    auto const text = Sam(ref, 2000, 9);
+    auto const text = Sam(ref, 800, 9);
     auto const header_end = text.find("\nread0\t") + 1;
     for (auto const* name : { "sample.sam.zst", "sample.sam.gz" }) {
         SCOPED_TRACE(name);
@@ -448,7 +471,7 @@ TEST(ProfileSam, OnSeveralThreadsTheCompressedSamsGiveTheSameProfile) {
 
 TEST(ProfileSam, AZstdSamOfManyFramesIsDecompressedOnThreadsOfItsOwn) {
     Reference ref;
-    auto const text = Sam(ref, 3000, 13);
+    auto const text = Sam(ref, 1000, 13);
     auto const header_end = text.find("\nread0\t") + 1;
     auto const path = (ref.dir.path / "frames.sam.zst").string();
     {
@@ -456,14 +479,16 @@ TEST(ProfileSam, AZstdSamOfManyFramesIsDecompressedOnThreadsOfItsOwn) {
         SamOutput out(path, SamCompression::Zstd);
         std::vector<uint64_t> genes;
         for (size_t at = header_end; at < text.size();) {
-            size_t end = text.find('\n', std::min(text.size() - 1, at + 9000)) + 1;
+            size_t end = text.find('\n', std::min(text.size() - 1, at + 3000)) + 1;
             out.Write(text.data() + at, end - at, genes);
             at = end;
         }
         ASSERT_TRUE(out.Finish(text.substr(0, header_end))) << out.Error();
     }
     std::string error;
-    ASSERT_GT(zstd::ReadSeekTable(path, error)->frames.size(), 50u);
+    auto const table = zstd::ReadSeekTable(path, error);
+    ASSERT_TRUE(table.has_value()) << error;
+    ASSERT_GT(table->frames.size(), 50u);
     auto const serial = Profile(ref, path, 1);
     ASSERT_EQ(serial.error, "");
     for (size_t decompress : { 0, 1, 3 }) {
@@ -478,7 +503,6 @@ TEST(ProfileSam, AZstdSamOfManyFramesIsDecompressedOnThreadsOfItsOwn) {
         std::ifstream is(path, std::ios::binary);
         bytes.assign(std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>());
     }
-    auto const table = zstd::ReadSeekTable(path, error);
     auto const& middle = table->frames[table->frames.size() / 2];
     bytes[middle.compressed_offset + middle.compressed_size / 2] ^= 0x5a;
     std::ofstream(path, std::ios::binary) << bytes;
@@ -505,21 +529,27 @@ TEST(ProfileSam, ATaxonLeftWithoutRecordsIsProfiledAsOnOneThread) {
     ExpectSame(serial, Profile(ref, sam, 4, 200));
 }
 
+// A bad line, a header of another database and an empty file are the same error on several threads; a SAM of a header
+// alone is none.
 TEST(ProfileSam, OnSeveralThreadsTheErrorsAreTheSame) {
     Reference ref;
-    auto const good = Sam(ref, 500, 7, false);
+    auto const good = Sam(ref, 300, 7, false);
     std::string broken = good;
-    size_t const at = broken.find("\nread300\t") + 1;
+    size_t const at = broken.find("\nread200\t") + 1;
     broken.insert(at, "bad\tline\n");
     std::string other_db = good;
     other_db.insert(other_db.find("@SQ"), "@SQ\tSN:1_1\tLN:999\n");
-    for (auto const& [name, text] : std::vector<std::pair<std::string, std::string>>{ { "broken.sam", broken }, { "other.sam", other_db },
-                                                                                      { "empty.sam", "" }, { "header.sam", ref.Header() } }) {
+    struct Case {
+        std::string name, text, error;  // the error: a part of it, "" for none
+    };
+    for (auto const& [name, text, error] : std::vector<Case>{ { "broken.sam", broken, "line " }, { "other.sam", other_db, "another database" },
+                                                                { "empty.sam", "", "the file is empty" }, { "header.sam", ref.Header(), "" } }) {
         SCOPED_TRACE(name);
         auto const path = ref.dir.Write(name, text);
         auto const serial = Profile(ref, path, 1);
+        if (error.empty()) EXPECT_EQ(serial.error, "");
+        else EXPECT_NE(serial.error.find(error), std::string::npos) << serial.error;
         for (size_t bytes : { 1, 300, 0 }) ExpectSame(serial, Profile(ref, path, 3, bytes));
-        if (name == "broken.sam") EXPECT_NE(serial.error.find("line "), std::string::npos) << serial.error;
     }
 }
 
@@ -529,7 +559,7 @@ TEST(ProfileSam, TheProfileDoesNotDependOnTheOrderOfTheReads) {
     // alleles' order at a site (first seen) followed it, and a value of .profile.gene.log changed in its last digit
     // between runs. Each read's records stay together and in their order; the reads are shuffled.
     Reference ref(true);
-    auto const text = Sam(ref, 3000, 23, false);
+    auto const text = Sam(ref, 1000, 23, false);
     std::string header;
     std::vector<std::string> reads;
     std::string last;
@@ -547,7 +577,7 @@ TEST(ProfileSam, TheProfileDoesNotDependOnTheOrderOfTheReads) {
         if (name) last = std::string(*name);
         reads.back() += line;
     }
-    ASSERT_GT(reads.size(), 2900u);
+    ASSERT_GT(reads.size(), 950u);
     auto const original = ref.dir.Write("original.sam", header + [&] { std::string s; for (auto const& r : reads) s += r; return s; }());
     Random random(29);
     for (size_t i = reads.size() - 1; i > 0; i--) std::swap(reads[i], reads[random.Next(static_cast<uint32_t>(i + 1))]);

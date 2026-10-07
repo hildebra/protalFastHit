@@ -14,25 +14,42 @@
 #include <unistd.h>
 #include "Hash/Seedmap.h"
 #include "Hash/KmerLookup.h"
+#include "TestUtil.h"
 
 using protal::Seedmap;
 using protal::ValueEntry;
+using protal::test::ScratchDir;
+using protal::test::Slurp;
 
 namespace {
+    // The maps here hold cores of 10 bases (Seedmap(size_t)), a key map of 3 MB instead of 3 GB. A key is laid out as
+    // a 15-base map's: the core from bit 16, the flex part's halves below it (bits 0-15) and above it (from kFlexHigh).
+    constexpr size_t kCoreBases = 10;
+    constexpr unsigned kFlexHigh = 16 + 2 * kCoreBases;
+    constexpr uint64_t kCoreMask = (uint64_t{1} << (2 * kCoreBases)) - 1;
+
+    uint64_t Key(uint64_t core, uint64_t flex) {
+        return (flex >> 16) << kFlexHigh | core << 16 | (flex & 0xffff);
+    }
+
+    // Restores flex_scan's AVX2 switch when it goes out of scope, also when an assertion ends the test early.
+    struct Avx2Setting {
+        bool const enabled = protal::flex_scan::Avx2Enabled().load();
+        ~Avx2Setting() { protal::flex_scan::UseAvx2(enabled); }
+    };
+
     struct SmallValue { uint64_t key, taxid, gene, pos; };
 
-    // Keys as the build sees them (62 bits: the 15-mer core in bits 16-45, the flex part around it),
-    // with 1 to ~300 values each; taxids, genes and positions in GTDB r226's ranges.
+    // Keys with 1 to ~300 values each; taxids, genes and positions in GTDB r226's ranges.
     std::vector<SmallValue> SmallValues(unsigned seed, size_t keys) {
         std::mt19937_64 rng(seed);
         std::vector<SmallValue> values;
         for (size_t k = 0; k < keys; k++) {
-            uint64_t const core = rng() & ((uint64_t{1} << 30) - 1);
+            uint64_t const core = rng() & kCoreMask;
             size_t const n = k % 7 == 0 ? 1 : k % 11 == 0 ? 2 : k % 23 == 0 ? 150 + rng() % 150 : 3 + rng() % 30;
             for (size_t i = 0; i < n; i++) {
                 uint64_t const flex = rng() & 0xffffffffu;
-                uint64_t const key = (flex >> 16) << 46 | core << 16 | (flex & 0xffff);
-                values.push_back({ key, 1 + rng() % 143614, 1 + rng() % 168, rng() % 12884 });
+                values.push_back({ Key(core, flex), 1 + rng() % 143614, 1 + rng() % 168, rng() % 12884 });
             }
         }
         return values;
@@ -80,9 +97,14 @@ namespace {
         }
     }
 
-    std::string Slurp(std::filesystem::path const& path) {
-        std::ifstream is(path, std::ios::binary);
-        return {std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>()};
+    // The column format in chunks of about frame_size bytes (many, so that chunk boundaries fall inside shared bytes).
+    protal::zstd::Params ColumnParams(int threads = 2, uint64_t frame_size = uint64_t{1} << 16) {
+        protal::zstd::Params params;
+        params.level = 3;
+        params.window_log = 0;
+        params.threads = threads;
+        params.frame_size = frame_size;
+        return params;
     }
 
     struct Stored { std::vector<uint32_t> flex; std::vector<uint64_t> entries; };
@@ -121,12 +143,10 @@ namespace {
 
 TEST(PackedIndex, HoldsEveryFlexCellAndEntryOfTheStoredLayout) {
     auto const values = SmallValues(5, 3000);
-    Seedmap map;
+    Seedmap map(kCoreBases);
     Fill(map, values);
     auto const stored = Record(map, values);
     auto const layout = Seedmap::PackedLayout::For(143614, 168, 12883 + 16);
-    EXPECT_EQ(layout.EntryBits(), 41u);       // taxid * 169 + gene in 25 bits, position 14, 2 flags
-    EXPECT_EQ(layout.SlotBits32(), 1558u);    // 48.69 bits per slot
     map.Pack(layout, 4);
     EXPECT_TRUE(map.IsPacked());
     EXPECT_EQ(map.PackedEntries(), values.size());
@@ -170,16 +190,16 @@ TEST(PackedIndex, HoldsEveryFlexCellAndEntryOfTheStoredLayout) {
 // a stored one exactly, in a few bases or not at all.
 TEST(PackedIndex, LookupsGiveTheSameSeedsWithAndWithoutAvx2) {
     if (!protal::flex_scan::CpuHasAvx2()) GTEST_SKIP() << "no AVX2 here";
-    bool const enabled = protal::flex_scan::Avx2Enabled().load();
+    Avx2Setting const restore;
     auto const values = SmallValues(9, 3000);
-    Seedmap map;
+    Seedmap map(kCoreBases);
     Fill(map, values);
     map.Pack(Seedmap::PackedLayout::For(143614, 168, 12883 + 16), 4);
     std::mt19937_64 rng(4);
-    // The flex part of a key: bits 0-15 and 46-61 (SmallValues); base j of it at bits 2j (j < 8) or 46 + 2 (j - 8).
+    // Base j of a key's flex part: at bit 2j (j < 8) or kFlexHigh + 2 (j - 8).
     auto change_base = [&](uint64_t key) {
         unsigned const j = static_cast<unsigned>(rng() % 16);
-        unsigned const bit = j < 8 ? 2 * j : 46 + 2 * (j - 8);
+        unsigned const bit = j < 8 ? 2 * j : kFlexHigh + 2 * (j - 8);
         return key ^ ((1 + rng() % 3) << bit);
     };
     size_t compared = 0, seeds = 0, dropped = 0;
@@ -190,7 +210,7 @@ TEST(PackedIndex, LookupsGiveTheSameSeedsWithAndWithoutAvx2) {
                 uint64_t key = values[k].key;
                 if (variant >= 1) key = change_base(key);
                 if (variant >= 2) key = change_base(change_base(key));
-                if (variant == 3) key = (key & (((uint64_t{1} << 30) - 1) << 16)) | ((rng() & 0xffff) | (rng() & 0xffff) << 46);
+                if (variant == 3) key = (key & (kCoreMask << 16)) | Key(0, rng() & 0xffffffffu);
                 size_t kmer = key;
                 std::vector<protal::LookupPointer> pointers;
                 lookup.Get(pointers, kmer, static_cast<uint32_t>(rng() % 120));
@@ -216,7 +236,6 @@ TEST(PackedIndex, LookupsGiveTheSameSeedsWithAndWithoutAvx2) {
             }
         }
     }
-    protal::flex_scan::UseAvx2(enabled);
     EXPECT_GT(compared, 7000u);
     EXPECT_GT(seeds, compared);
     EXPECT_GT(dropped, 100u) << "lookups of more than 3 tied cells are dropped";
@@ -224,28 +243,20 @@ TEST(PackedIndex, LookupsGiveTheSameSeedsWithAndWithoutAvx2) {
 
 TEST(PackedIndex, TheColumnFormatPacksChunkByChunkToTheSameValues) {
     auto const values = SmallValues(6, 2000);
-    Seedmap map;
+    Seedmap map(kCoreBases);
     Fill(map, values);
     auto const stored = Record(map, values);
-    auto const dir = std::filesystem::temp_directory_path() / ("protal_packtest_" + std::to_string(::getpid()));
-    std::filesystem::create_directories(dir);
-    std::string const path = (dir / "index.prx.zst").string();
+    ScratchDir dir("packtest");
     uint64_t written = 0;
     size_t raw_chunks = 0;
-    protal::zstd::Params params;
-    params.level = 3;
-    params.window_log = 0;
-    params.threads = 2;
-    params.frame_size = uint64_t{1} << 20;  // many chunks, so that chunk boundaries fall inside shared bytes
-    ASSERT_EQ(map.SaveCompressed(path, params, written, raw_chunks), "");
+    ASSERT_EQ(map.SaveCompressed(dir / "index.prx.zst", ColumnParams(), written, raw_chunks), "");
     auto const layout = Seedmap::PackedLayout::For(143614, 168, 12883 + 16);
-    Seedmap loaded;
-    loaded.Load(path, 3, &layout);
+    Seedmap loaded(kCoreBases);
+    loaded.Load(dir / "index.prx.zst", 3, &layout);
     EXPECT_TRUE(loaded.IsPacked());
     EXPECT_EQ(loaded.PackedEntries(), values.size());
     ExpectPackedEquals(loaded, values, stored);
     EXPECT_TRUE(loaded.Layout() == layout);
-    std::filesystem::remove_all(dir);
 }
 
 // --build fills the packed layout directly: it holds what the 8-byte build holds once packed, the files it
@@ -254,34 +265,28 @@ TEST(PackedIndex, TheColumnFormatPacksChunkByChunkToTheSameValues) {
 TEST(PackedIndex, ABuildIntoThePackedLayoutWritesTheSameIndex) {
     auto const values = SmallValues(8, 3000);
     auto const layout = Seedmap::PackedLayout::For(143614, 168, 12883 + 16);
-    Seedmap wide;
+    Seedmap wide(kCoreBases);
     Fill(wide, values);
     auto const stored = Record(wide, values);
-    Seedmap packed;
+    Seedmap packed(kCoreBases);
     FillPacked(packed, values, layout);
     EXPECT_EQ(packed.PackedEntries(), values.size());
     ExpectPackedEquals(packed, values, stored);
 
-    auto const dir = std::filesystem::temp_directory_path() / ("protal_packbuild_" + std::to_string(::getpid()));
-    std::filesystem::create_directories(dir);
-    protal::zstd::Params params;
-    params.level = 3;
-    params.window_log = 0;
-    params.threads = 3;
-    params.frame_size = uint64_t{1} << 20;  // many chunks
+    ScratchDir dir("packbuild");
     for (auto* map : { &wide, &packed }) {
         uint64_t written = 0;
         size_t raw_chunks = 0;
         std::string const name = map == &wide ? "wide" : "packed";
-        ASSERT_EQ(map->SaveCompressed((dir / (name + ".prx.zst")).string(), params, written, raw_chunks), "") << name;
+        ASSERT_EQ(map->SaveCompressed(dir / (name + ".prx.zst"), ColumnParams(3), written, raw_chunks), "") << name;
         EXPECT_EQ(raw_chunks, 0u);
         std::ofstream os(dir / (name + ".prx"), std::ios::binary);
         map->Save(os);
     }
     EXPECT_EQ(Slurp(dir / "packed.prx.zst"), Slurp(dir / "wide.prx.zst"));
-    EXPECT_EQ(Slurp(dir / "packed.prx"), Slurp(dir / "wide.prx"));
-    EXPECT_EQ(Slurp(dir / "packed.prx").size(), wide.SerializedSize());
-    std::filesystem::remove_all(dir);
+    std::string const raw = Slurp(dir / "packed.prx");
+    EXPECT_EQ(raw, Slurp(dir / "wide.prx"));
+    EXPECT_EQ(raw.size(), wide.SerializedSize());
 
     protal::KmerLookupSM lookup(packed, 256);
     size_t exact_found = 0, singles = 0;
@@ -315,7 +320,7 @@ TEST(PackedIndex, ABuildIntoThePackedLayoutWritesTheSameIndex) {
 TEST(PackedIndex, ABuildStopsAtAValueWiderThanItsLayout) {
     auto const values = SmallValues(9, 50);
     auto const narrow = Seedmap::PackedLayout::For(1000, 168, 12883 + 16);  // taxids go to 143614
-    Seedmap map;
+    Seedmap map(kCoreBases);
     for (auto const& v : values) map.CountUpKey(map.MainKey(v.key));
     map.BuildValuePointers(1, &narrow);
     EXPECT_EXIT({
@@ -329,7 +334,7 @@ TEST(PackedIndex, ABuildStopsAtAValueWiderThanItsLayout) {
 
 TEST(PackedIndex, AValueOutsideTheLayoutStopsTheLoad) {
     auto const values = SmallValues(7, 200);
-    Seedmap map;
+    Seedmap map(kCoreBases);
     Fill(map, values);
     auto const narrow = Seedmap::PackedLayout::For(1000, 168, 12883 + 16);  // taxids go to 143614
     EXPECT_EXIT(map.Pack(narrow, 2), testing::ExitedWithCode(8), "outside the reference");
@@ -339,21 +344,33 @@ TEST(PackedIndex, AValueOutsideTheLayoutStopsTheLoad) {
 // layout stops that load too, with the same message.
 TEST(PackedIndex, AValueOutsideTheLayoutStopsTheColumnLoad) {
     auto const values = SmallValues(7, 200);
-    Seedmap map;
+    Seedmap map(kCoreBases);
     Fill(map, values);
-    auto const dir = std::filesystem::temp_directory_path() / ("protal_packtest_narrow_" + std::to_string(::getpid()));
-    std::filesystem::create_directories(dir);
-    std::string const path = (dir / "index.prx.zst").string();
+    ScratchDir dir("packtest_narrow");
+    std::string const path = dir / "index.prx.zst";
     uint64_t written = 0;
     size_t raw_chunks = 0;
-    protal::zstd::Params params;
-    params.level = 3;
-    params.window_log = 0;
-    params.frame_size = uint64_t{1} << 20;
-    ASSERT_EQ(map.SaveCompressed(path, params, written, raw_chunks), "");
+    ASSERT_EQ(map.SaveCompressed(path, ColumnParams(1), written, raw_chunks), "");
     auto const narrow = Seedmap::PackedLayout::For(1000, 168, 12883 + 16);
-    EXPECT_EXIT({ Seedmap loaded; loaded.Load(path, 2, &narrow); }, testing::ExitedWithCode(8), "outside the reference");
-    std::filesystem::remove_all(dir);
+    EXPECT_EXIT({ Seedmap loaded(kCoreBases); loaded.Load(path, 2, &narrow); }, testing::ExitedWithCode(8), "outside the reference");
+}
+
+// A column-format index whose container describes another layout than its header (a corrupt file) stops the load,
+// packed or not, before anything is decoded.
+TEST(PackedIndex, AColumnIndexWhoseLayoutIsNotItsHeadersStopsTheLoad) {
+    Seedmap empty(kCoreBases);  // the header: 4^10 keys, no values
+    auto layout = empty.CodecLayout();
+    layout.blocks /= 2;         // the container: half the blocks
+    std::vector<uint16_t> const keymap(layout.KeymapCells(), 0);
+    std::vector<uint64_t> const values;
+    ScratchDir dir("packtest_layout");
+    std::string const path = dir / "index.prx.zst";
+    std::string error;
+    ASSERT_TRUE(protal::index_codec::Write(path, empty.HeaderBytes(), layout, keymap.data(), values.data(), ColumnParams(1), error))
+        << error;
+    auto const pack = Seedmap::PackedLayout::For(1000, 168, 12883 + 16);
+    EXPECT_EXIT({ Seedmap loaded(kCoreBases); loaded.Load(path); }, testing::ExitedWithCode(8), "does not match its header");
+    EXPECT_EXIT({ Seedmap loaded(kCoreBases); loaded.Load(path, 2, &pack); }, testing::ExitedWithCode(8), "does not match its header");
 }
 
 TEST(PackedIndex, PutBitsSharesBytesBetweenRanges) {
@@ -414,16 +431,16 @@ TEST(PackedIndex, TaxidAndGeneAsOneNumberComeBackForEveryGeneCount) {
         std::mt19937_64 rng(c.max_taxid ^ c.max_gene);
         std::vector<SmallValue> values;
         for (size_t k = 0; k < 400; k++) {
-            uint64_t const core = rng() & ((uint64_t{1} << 30) - 1);
+            uint64_t const core = rng() & kCoreMask;
             size_t const n = k % 5 == 0 ? 1 : 2 + rng() % 40;
             for (size_t i = 0; i < n; i++) {
                 uint64_t const flex = rng() & 0xffffffffu;
                 uint64_t const taxid = i % 4 == 0 ? c.max_taxid : i % 4 == 1 ? 0 : rng() % (c.max_taxid + 1);
                 uint64_t const gene = i % 3 == 0 ? c.max_gene : i % 3 == 1 ? 0 : rng() % (c.max_gene + 1);
-                values.push_back({ (flex >> 16) << 46 | core << 16 | (flex & 0xffff), taxid, gene, rng() % 12884 });
+                values.push_back({ Key(core, flex), taxid, gene, rng() % 12884 });
             }
         }
-        Seedmap map;
+        Seedmap map(kCoreBases);
         Fill(map, values);
         auto const stored = Record(map, values);
         auto const layout = Seedmap::PackedLayout::For(c.max_taxid, c.max_gene, 12883);

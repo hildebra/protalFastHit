@@ -1,4 +1,5 @@
-// SequenceRange::CoverageVector (a difference array) gives the counts of adding every read base by base.
+// SequenceRange::CoverageVector (a difference array) gives the counts of adding every read base by base, for reads
+// anywhere in their range.
 #include <gtest/gtest.h>
 #include <random>
 #include <vector>
@@ -40,9 +41,27 @@ TEST(SequenceRange, CoverageVectorEqualsAddingEveryBase) {
 TEST(SequenceRange, CoveredPortionCountsBasesWithReads) {
     SequenceRangeHandler handler;
     SequenceRange range(10, 60);
-    range.AddReadInfo(ReadInfo{0, 10, 20, true});
-    range.AddReadInfo(ReadInfo{1, 25, 10, false});   // 25..35 overlaps nothing before 30; covers 10..30 and 25..35
+    range.AddReadInfo(ReadInfo{0, 10, 20, true});    // bases [10, 30)
+    range.AddReadInfo(ReadInfo{1, 25, 10, false});   // bases [25, 35): 25 bases have a read, the 5 of [25, 30) both
     handler.Add(range);
     EXPECT_EQ(handler.CoveredPortion(), 25u);
     EXPECT_EQ(handler.CoveredPortion(2), 5u);
+}
+
+// Reads that start at the range's first base and end at its last are counted there, and nothing past the range's end
+// is written. A read outside its range is a caller's error, which debug builds stop at.
+TEST(SequenceRange, ReadsAtTheRangesEndsAndOutsideIt) {
+    SequenceRange range(100, 110);
+    range.AddReadInfo(ReadInfo{0, 100, 10, true});  // the whole range
+    range.AddReadInfo(ReadInfo{1, 100, 1, true});   // its first base
+    range.AddReadInfo(ReadInfo{2, 109, 1, false});  // its last base
+    EXPECT_EQ(range.CoverageVector(), (CoverageVec{ 2, 1, 1, 1, 1, 1, 1, 1, 1, 2 }));
+    EXPECT_EQ(range.CoverageVector(SequenceRange::kReverse), (CoverageVec{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }));
+#ifndef NDEBUG
+    for (ReadInfo const read : { ReadInfo{3, 105, 6, true}, ReadInfo{3, 99, 2, true}, ReadInfo{3, 200, 5, true} }) {
+        SequenceRange outside(100, 110);
+        outside.AddReadInfo(read);
+        EXPECT_DEATH(outside.CoverageVector(), "") << read.ToString();
+    }
+#endif
 }

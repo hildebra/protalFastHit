@@ -214,12 +214,6 @@ void SequenceRangeHandler::Add(SequenceRange &&range) {
     m_ranges.emplace_back(range);
 }
 
-CoverageVec SequenceRangeHandler::CalculateCoverageVector() {
-    m_cov = CalculateCoverageVector2();
-    return m_cov;
-}
-
-
 CoverageVec SequenceRangeHandler::CalculateCoverageVector2(int strand, uint8_t max_divergence) const {
     // Each range's coverage is added at its own position, so it stays correct should ranges overlap.
     CoverageVec cov;

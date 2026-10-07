@@ -11,39 +11,23 @@
 #include <vector>
 #include <unistd.h>
 #include "Core/AlignmentStrategy.h"
+#include "TestReference.h"
 
 using namespace protal;
 
 namespace {
     constexpr size_t kGenes = 20, kGeneLength = 1500;
 
-    // Random genes of taxid 1 (genes 1..kGenes) in a temporary directory, loaded.
-    struct RandomReference {
-        std::vector<std::string> genes;
-        std::filesystem::path dir;
-        std::unique_ptr<GenomeLoader> loader;
+    // Random genes of taxid 1 (genes 1..kGenes), loaded.
+    struct RandomReference : test::LoadedReference {
+        std::vector<std::string> const& genes = LoadedReference::genes.at(1);
 
-        RandomReference() {
+        RandomReference() : LoadedReference({ { 1, Genes() } }, "anchored") {}
+
+        static std::vector<std::string> Genes() {
             std::mt19937 rng(23);
-            dir = std::filesystem::temp_directory_path() / ("protal_anchored_test_" + std::to_string(::getpid()));
-            std::filesystem::create_directories(dir);
-            std::ofstream fna(dir / "reference.fna"), map(dir / "reference.map");
-            size_t offset = 0;
-            for (size_t id = 1; id <= kGenes; id++) {
-                std::string seq(kGeneLength, 'A');
-                for (auto& c : seq) c = "ACGT"[rng() % 4];
-                std::string header = ">1_" + std::to_string(id) + "\n";
-                fna << header << seq << '\n';
-                map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
-                offset += header.size() + seq.size() + 1;
-                genes.push_back(seq);
-            }
-            fna.close();
-            map.close();
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-            loader->LoadAllGenomes();
+            return test::RandomGenes(std::vector<size_t>(kGenes, kGeneLength), rng);
         }
-        ~RandomReference() { std::filesystem::remove_all(dir); }
     };
 
     // Both methods on the same reference, as protal sets them up (-a 0.9).
@@ -390,11 +374,8 @@ TEST(AnchoredAlignment, LongReadsThroughTheirChain) {
     EXPECT_GE(both, cases - 2);
     EXPECT_LE(much_worse, 1u);
     EXPECT_GE(static_cast<double>(anchored_sum), static_cast<double>(whole_sum) - 0.005 * std::abs(static_cast<double>(whole_sum)));
-    // The window's right end comes from the last link's diagonal for chains with indels (SimpleAlignmentHandler::AlignAnchor,
-    // AlignmentOrientation::Update): the read's bases past the gene's end are free by the end's own diagonal. Before, the first
-    // link's diagonal placed the end, and where the indels had moved it by more than the 9 bases of dovetail the chain's
-    // right flank did not fit and the whole-window alignment took the read (9 of 60 here; 4 now, chains the anchored aligner
-    // does not handle for other reasons).
+    // Most chains are aligned through their links: the window's right end comes from the last link's diagonal
+    // (AlignmentOrientation::Update), so a chain's right flank fits it whatever the indels did to the diagonal.
     EXPECT_EQ(h.anchored.m_anchored_alignments + h.anchored.m_whole_window_alignments, cases);
     EXPECT_GE(10 * h.anchored.m_anchored_alignments, 9 * cases);
 }
@@ -483,49 +464,66 @@ TEST(AnchoredAlignment, AgreesWithTheWholeReadAlignment) {
     EXPECT_GT(h.anchored.m_anchored_alignments, cases / 2);
 }
 
-// The alignment handler takes the reverse complement of the read from its caller (the anchor finder
-// has it), or makes it itself: either way the same alignments, for reads of either strand, and the
-// caller's string is neither changed nor copied per anchor.
-TEST(SimpleAlignmentHandler, ACallersReverseComplementGivesTheSameAlignments) {
+// Reads of either strand through the handler as protal calls it (operator(), with the reverse complement of the read
+// from the caller, which the anchor finder has, or made by the handler): a read of the reverse strand is aligned as its
+// reverse complement, the gene's strand, where that lies on the gene and with that strand's operations. Segments of a
+// gene with three mismatches, or with 3 bases deleted where the gap cannot shift: the start, the CIGAR (written out from
+// the edits) and the counts of mismatches and deletions, aligned as whole windows and from the anchor alike.
+TEST(SimpleAlignmentHandler, ReadsOfEitherStrandAlignWithTheirEdits) {
     RandomReference ref;
-    Handlers own(*ref.loader), given(*ref.loader);
+    Handlers h(*ref.loader);
     std::mt19937 rng(5);
-    size_t aligned = 0;
     for (bool reverse : { false, true }) {
         for (int round = 0; round < 20; round++) {
-            uint32_t const gene = 1 + rng() % kGenes;
+            uint32_t const gene_id = 1 + rng() % kGenes;
+            std::string const& gene = ref.genes[gene_id - 1];
             size_t const start = 100 + rng() % 1000;
-            std::string segment = ref.genes[gene - 1].substr(start, 150);
-            for (int m = 0; m < 3; m++) {
-                char& c = segment[10 + rng() % 130];
-                c = c == 'A' ? 'C' : 'A';
+            std::string segment, expected;  // the read on the gene's strand, and its alignment's operations
+            size_t mismatches = 0, deletions = 0;
+            if (round % 2 == 0) {  // a mismatch in each third
+                segment = gene.substr(start, 150);
+                expected = std::string(150, 'M');
+                for (size_t p : { 10 + rng() % 40, 60 + rng() % 40, 110 + rng() % 30 }) {
+                    segment[p] = segment[p] == 'A' ? 'C' : 'A';
+                    expected[p] = 'X';
+                    mismatches++;
+                }
+            } else {  // gene bases d, d + 1 and d + 2 missing from the read: the first d from 60 whose gap cannot move
+                size_t d = 60;
+                while (gene[start + d] == gene[start + d + 3] || gene[start + d - 1] == gene[start + d + 2]) d++;
+                segment = gene.substr(start, d) + gene.substr(start + d + 3, 150 - d);
+                expected = std::string(d, 'M') + "DDD" + std::string(150 - d, 'M');
+                deletions = 3;
             }
             std::string const read = reverse ? KmerUtils::ReverseComplement(segment) : segment;
-            ChainAlignmentAnchor anchor(1, gene, !reverse);
-            // the chain is in the orientation of the alignment, the gene's strand: AlignAnchor aligns `rev` of a
-            // reverse anchor, which is the segment
-            anchor.chain = ExactRuns(segment, ref.genes[gene - 1], static_cast<long>(start));
-            ASSERT_FALSE(anchor.chain.empty());
             std::string const rev = KmerUtils::ReverseComplement(read);
-            std::string const read_before = read, rev_before = rev;
-            std::string header = "r";
-            AlignmentAnchorList a, b;
-            a.push_back(anchor);
-            b.push_back(anchor);
-            AlignmentResultList from_own, from_given;
-            own.anchored(a, from_own, read, 3, header);
-            given.anchored(b, from_given, read, rev, 3, header);
-            ASSERT_EQ(from_own.size(), from_given.size());
-            for (size_t i = 0; i < from_own.size(); i++) {
-                EXPECT_EQ(from_own[i].AlignmentScore(), from_given[i].AlignmentScore());
-                EXPECT_EQ(from_own[i].GetAlignmentInfo().cigar, from_given[i].GetAlignmentInfo().cigar);
-                EXPECT_EQ(from_own[i].GetAlignmentInfo().gene_alignment_start, from_given[i].GetAlignmentInfo().gene_alignment_start);
-                EXPECT_EQ(from_own[i].Forward(), from_given[i].Forward());
+            ChainAlignmentAnchor anchor(1, gene_id, !reverse);
+            // The chain is on the gene's strand: of a reverse anchor, AlignAnchor aligns `rev`, which is the segment.
+            anchor.chain = ExactRuns(segment, gene, static_cast<long>(start));
+            ASSERT_FALSE(anchor.chain.empty());
+            for (auto* handler : { &h.whole, &h.anchored }) {
+                for (bool given : { false, true }) {
+                    AlignmentAnchorList anchors{ anchor };
+                    AlignmentResultList results;
+                    std::string header = "r";
+                    if (given) (*handler)(anchors, results, read, rev, 3, header);
+                    else (*handler)(anchors, results, read, 3, header);
+                    std::string const what = std::string(reverse ? "reverse" : "forward") + " read, round " + std::to_string(round) +
+                                             (handler == &h.anchored ? ", anchored" : ", whole") + (given ? ", reverse given" : "");
+                    ASSERT_EQ(results.size(), 1u) << what;
+                    auto const& result = results.front();
+                    auto const& info = result.GetAlignmentInfo();
+                    EXPECT_EQ(result.Forward(), !reverse) << what;
+                    EXPECT_EQ(result.GeneId(), gene_id) << what;
+                    EXPECT_EQ(info.gene_alignment_start, static_cast<int>(start)) << what;
+                    EXPECT_EQ(info.cigar, expected) << what;
+                    EXPECT_EQ(info.mismatches, mismatches) << what;
+                    EXPECT_EQ(info.deletions, deletions) << what;
+                    EXPECT_EQ(info.insertions, 0u) << what;
+                }
             }
-            aligned += from_given.size();
-            EXPECT_EQ(read, read_before);
-            EXPECT_EQ(rev, rev_before);
         }
     }
-    EXPECT_GT(aligned, 30u);
+    EXPECT_EQ(h.whole.m_whole_window_alignments, 80u);
+    EXPECT_GT(h.anchored.m_anchored_alignments, 40u);
 }

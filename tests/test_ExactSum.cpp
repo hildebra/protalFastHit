@@ -2,6 +2,7 @@
 // differs in its last bits.
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <random>
 #include <vector>
@@ -81,4 +82,44 @@ TEST(ExactSum, SmallSumsAreExact) {
     large += 0.5;
     large += 1;
     EXPECT_EQ(large.Value(), 1e15 + 1.5);
+}
+
+TEST(ExactSum, BitsBelowTwoToTheMinus64AreDropped) {
+    // A value of 2^-11 or more keeps all its bits: 2^-11 + 2^-63 less 2^-11 is 2^-63 exactly.
+    ExactSum kept;
+    kept += std::nextafter(0x1p-11, 1.0);
+    kept += -0x1p-11;
+    EXPECT_EQ(kept.Value(), 0x1p-63);
+    // Smaller ones lose their bits below 2^-64, each on its own (towards zero), whatever else is in the sum.
+    ExactSum small;
+    small += 0x1p-65;
+    small += 0x1p-65;
+    EXPECT_EQ(small.Value(), 0.0);
+    small += 0x1.8p-64;  // 1.5 x 2^-64
+    EXPECT_EQ(small.Value(), 0x1p-64);
+    small += -0x1.8p-64;
+    EXPECT_EQ(small.Value(), 0.0);
+}
+
+TEST(ExactSum, ValuesUpToTheLimitAddUpExactly) {
+    // The largest value below 2^62, twice, and 1: a sum just below 2^63, held exactly and rounded once.
+    double const largest = std::nextafter(ExactSum::kMaxMagnitude, 0.0);  // 2^62 - 2^9
+    ExactSum sum;
+    sum += largest;
+    sum += largest;
+    sum += 1.0;
+    EXPECT_EQ(sum.Value(), 2 * largest);  // 2^63 - 2^10 + 1 is 2^63 - 2^10 as a double
+    sum += -largest;
+    sum += -largest;
+    EXPECT_EQ(sum.Value(), 1.0);
+}
+
+// Beyond 2^62, or not finite, a value has no defined conversion to the fixed point: a debug build stops at it.
+TEST(ExactSum, AValueBeyondTheLimitStopsADebugBuild) {
+#ifdef NDEBUG
+    GTEST_SKIP() << "the limit is asserted in debug builds only";
+#else
+    EXPECT_DEATH({ ExactSum s; s += -ExactSum::kMaxMagnitude; }, "Assertion");
+    EXPECT_DEATH({ ExactSum s; s += std::nan(""); }, "Assertion");
+#endif
 }

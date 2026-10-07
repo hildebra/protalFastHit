@@ -464,7 +464,7 @@ pass, with a new one whose genomes are spread over the whole file):
   them (`zstd::ParallelRead`, the reader the genome preload uses) and parsed from there; a raw file keeps streaming,
   which from the page cache is faster than a copy.
 
-The bench (`GeneTables.BenchLoadOfLargeTables`, `PROTAL_GENE_TABLE_TAXA=30000`: 5.04M rows per table, a fifth of r226,
+The bench (`GeneTables.BenchLoadOfLargeTables`, out of the unit tests since 2026-10-07: `git show ce85bd7:tests/test_InputValidation.cpp`; `PROTAL_GENE_TABLE_TAXA=30000`: 5.04M rows per table, a fifth of r226,
 on this laptop's six vCPUs):
 
 | both tables, 6 threads | `c76e838` | now |
@@ -711,7 +711,7 @@ the ties are then taken as before, in entry order. It is chosen at run time wher
   cells exactly, partly or not at all; the same scores, best and count;
 - runs: SAMs and profiles identical with the AVX2 and the scalar scan (paired-end 500k pairs, PacBio 90 Mb).
 
-The bench (`PROTAL_FLEX_BENCH=1`): 3.60 → 1.07 ns per cell for blocks of 70 cells (r226's mean; 3.4×), 3.32 → 1.00 for
+The bench (`PROTAL_FLEX_BENCH=1`; since 2026-10-07 [`flex_scan_bench.cpp`](../2026-10-06-performance-profiling/scripts/flex_scan_bench.cpp)): 3.60 → 1.07 ns per cell for blocks of 70 cells (r226's mean; 3.4×), 3.32 → 1.00 for
 1,000, 3.42 → 1.94 for 16. If the scalar scan was most of the r226 lookup's ~295 ns (70 cells × ~3.6 ns), the seeding's
 20.5 s per thread could fall by up to half; locally the blocks average 9 cells and the seeding is within noise either
 way. The next cluster run shows it.

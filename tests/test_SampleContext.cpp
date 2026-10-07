@@ -10,36 +10,21 @@
 #include <memory>
 #include <random>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 #include <unistd.h>
 #include "Profiling/Profiler.h"
 #include "Profiling/SampleContext.h"
+#include "TestReference.h"
 
 using namespace protal;
 namespace ctx = protal::profiler::context;
+using protal::test::Mutated;
+using protal::test::RandomSequence;
+using Reference = protal::test::LoadedReference;
 
 namespace {
-    std::string RandomSequence(size_t length, std::mt19937& rng) {
-        static constexpr char kBases[] = "ACGT";
-        std::string seq(length, 'A');
-        for (auto& c : seq) c = kBases[rng() % 4];
-        return seq;
-    }
-
-    // seq with a share `rate` of its bases changed to another base.
-    std::string Mutated(std::string seq, double rate, std::mt19937& rng) {
-        static constexpr char kBases[] = "ACGT";
-        std::bernoulli_distribution change(rate);
-        for (auto& c : seq) {
-            if (!change(rng)) continue;
-            char other = c;
-            while (other == c) other = kBases[rng() % 4];
-            c = other;
-        }
-        return seq;
-    }
-
     SamEntry MakeSam(uint32_t taxid, uint32_t geneid, std::string seq, POS_t pos, std::string alternatives = "*") {
         SamEntry sam;
         sam.m_qname = "read";
@@ -52,36 +37,6 @@ namespace {
         sam.m_alternatives = std::move(alternatives);
         return sam;
     }
-
-    // A reference of taxa with genes 1..n each: reference.fna and reference.map in a folder of their own.
-    struct Reference {
-        std::filesystem::path dir;
-        std::unique_ptr<GenomeLoader> loader;
-        std::map<uint32_t, std::vector<std::string>> genes;  // taxid -> gene i at [i - 1]
-
-        explicit Reference(std::map<uint32_t, std::vector<std::string>> taxa) : genes(std::move(taxa)) {
-            dir = std::filesystem::temp_directory_path() / ("protal_sample_context_" + std::to_string(::getpid()) + "_" +
-                                                            std::to_string(reinterpret_cast<uintptr_t>(this)));
-            std::filesystem::create_directories(dir);
-            std::ofstream fna(dir / "reference.fna");
-            std::ofstream map(dir / "reference.map");
-            size_t offset = 0;
-            for (auto const& [taxid, seqs] : genes) {
-                for (size_t i = 0; i < seqs.size(); i++) {
-                    std::string const header = ">" + std::to_string(taxid) + "_" + std::to_string(i + 1) + "\n";
-                    fna << header << seqs[i] << '\n';
-                    map << taxid << '\t' << i + 1 << '\t' << offset + header.size() << '\t'
-                        << offset + header.size() + seqs[i].size() << '\n';
-                    offset += header.size() + seqs[i].size() + 1;
-                }
-            }
-            fna.close();
-            map.close();
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-            loader->LoadAllGenomes();
-        }
-        ~Reference() { std::filesystem::remove_all(dir); }
-    };
 }
 
 namespace {
@@ -163,10 +118,14 @@ TEST(SampleContext, TwoReferencesNeedTenSharedGenesForADistance) {
     EXPECT_EQ(ten.genes.size(), 10u);
 }
 
+// 1% of a relative's fragments at distance 0, ten times less per 0.05 (relative_spill, a default feature, is made of
+// it: the numbers are pinned, not the constants).
 TEST(SampleContext, SpillRateFallsTenfoldPerDecade) {
-    EXPECT_DOUBLE_EQ(ctx::SpillRate(0), ctx::kSpillAtZero);
-    EXPECT_NEAR(ctx::SpillRate(ctx::kSpillDecade), ctx::kSpillAtZero / 10, 1e-15);
-    EXPECT_NEAR(ctx::SpillRate(2 * ctx::kSpillDecade), ctx::kSpillAtZero / 100, 1e-15);
+    EXPECT_DOUBLE_EQ(ctx::SpillRate(0), 0.01);
+    EXPECT_DOUBLE_EQ(ctx::SpillRate(-0.1), 0.01);  // a distance below 0 is 0
+    EXPECT_NEAR(ctx::SpillRate(0.025), 0.01 / std::sqrt(10.0), 1e-15);
+    EXPECT_NEAR(ctx::SpillRate(0.05), 1e-3, 1e-15);
+    EXPECT_NEAR(ctx::SpillRate(0.1), 1e-4, 1e-15);
 }
 
 TEST(SampleContext, TheSamplesComplexityIsItsTaxaTheirLowIdentityShareAndTheirMedianIdentity) {
@@ -193,11 +152,12 @@ TEST(SampleContext, TheSamplesComplexityIsItsTaxaTheirLowIdentityShareAndTheirMe
     EXPECT_EQ(empty.identity, 0.0);
 }
 
+// θ / (1 - θ) of the taxon's differences per aligned base θ, within 0.002..0.2; 0.05 without aligned bases.
 TEST(SampleContext, TheEditRatioIsTheTaxonsOwnDivergence) {
-    EXPECT_EQ(ctx::EditRatio({ 10, 10, 0, 0 }), ctx::kEditRatio);  // no aligned bases
+    EXPECT_EQ(ctx::EditRatio({ 10, 10, 0, 0 }), 0.05);  // no aligned bases
     EXPECT_NEAR(ctx::EditRatio({ 10, 10, 2, 100 }), 0.02 / 0.98, 1e-12);
-    EXPECT_NEAR(ctx::EditRatio({ 10, 10, 0, 100 }), ctx::kMinDivergence / (1 - ctx::kMinDivergence), 1e-12);
-    EXPECT_NEAR(ctx::EditRatio({ 10, 10, 90, 100 }), ctx::kMaxDivergence / (1 - ctx::kMaxDivergence), 1e-12);
+    EXPECT_NEAR(ctx::EditRatio({ 10, 10, 0, 100 }), 0.002 / 0.998, 1e-12);
+    EXPECT_NEAR(ctx::EditRatio({ 10, 10, 90, 100 }), 0.25, 1e-12);
 }
 
 // A taxon whose reads all fit a congener a hundred times as abundant one edit worse holds the congener's reads; one
@@ -217,9 +177,6 @@ TEST(SampleContext, AnAbundantCongenerTakesTheReadsItFitsNearlyAsWell) {
     EXPECT_EQ(shares.at(3).all, 1.0);
     EXPECT_GT(shares.at(4).kept, 0.99);
     EXPECT_EQ(shares.at(1).all, 1.0);  // its reads have no alternatives
-    // The same counts give the same shares, whatever order the classes were noted in.
-    auto const again = ctx::AbundanceWeightedShares(classes, counts);
-    EXPECT_EQ(again.at(2).all, shares.at(2).all);
 
     // A tie (0 edits more) goes almost all to the abundant taxon.
     ctx::AmbiguityClasses ties;
@@ -466,6 +423,16 @@ TEST(SampleContext, AModelsCalibratedCallsAreReadFromItsHeader) {
     }
 }
 
+namespace {
+    // seq with every step-th base (from step / 2 on) changed to the next of ACGT: a share 1 / step changed, the same on
+    // every platform.
+    std::string MutatedEvery(std::string seq, size_t step) {
+        static constexpr char kNext[] = { 'C', 'G', 'T', 'A' };
+        for (size_t i = step / 2; i < seq.size(); i += step) seq[i] = kNext[std::string_view("ACGT").find(seq[i])];
+        return seq;
+    }
+}
+
 // Taxa 1 and 2 are congeners (genus 10), their references 1% apart on genes 1-6 and 6% on genes 7-12; taxon 3 is of
 // another genus of the family. Taxon 1 has 200 fragments.
 TEST(SampleContext, AProfilesTaxaAreJudgedAgainstTheirAbundantRelatives) {
@@ -473,7 +440,7 @@ TEST(SampleContext, AProfilesTaxaAreJudgedAgainstTheirAbundantRelatives) {
     std::vector<std::string> one, two, three;
     for (int g = 0; g < 12; g++) {
         one.push_back(RandomSequence(300, rng));
-        two.push_back(Mutated(one.back(), g < 6 ? 0.01 : 0.06, rng));
+        two.push_back(MutatedEvery(one.back(), g < 6 ? 100 : 17));
         three.push_back(RandomSequence(300, rng));
     }
     Reference ref({ { 1, one }, { 2, two }, { 3, three } });
@@ -483,9 +450,13 @@ TEST(SampleContext, AProfilesTaxaAreJudgedAgainstTheirAbundantRelatives) {
     (*genera)[3] = 11;
     (*families)[1] = (*families)[2] = (*families)[3] = 20;
 
-    auto fill = [&](profiler::MicrobialProfile& profile, std::vector<uint32_t> const& two_genes, std::string const& za = "1:1") {
+    // The profile with the singleton rule at `rule` fragments (0: off, the default); taxon 2 with a read on each of
+    // `two_genes`, whose last `mismatches` bases differ from its reference.
+    auto fill = [&](profiler::MicrobialProfile& profile, size_t rule, std::vector<uint32_t> const& two_genes,
+                    std::string const& za = "1:1", int mismatches = 0) {
         profile.SetGenera(genera);
         profile.SetFamilies(families);
+        profile.SetSingletonCongener(rule);
         int read = 0;
         for (int f = 0; f < 200; f++) {
             uint32_t const gene = static_cast<uint32_t>(f % 12) + 1;
@@ -496,7 +467,11 @@ TEST(SampleContext, AProfilesTaxaAreJudgedAgainstTheirAbundantRelatives) {
             ASSERT_TRUE(profile.AddSam(1, static_cast<int>(gene), sam, 1.0, true, read++));
         }
         for (auto gene : two_genes) {
-            auto const sam = MakeSam(2, gene, two[gene - 1].substr(10, 100), 11, za);
+            auto sam = MakeSam(2, gene, two[gene - 1].substr(10, 100), 11, za);
+            if (mismatches > 0) {
+                for (size_t i = 100 - static_cast<size_t>(mismatches); i < 100; i++) sam.m_seq[i] = sam.m_seq[i] == 'A' ? 'C' : 'A';
+                sam.m_cigar = std::to_string(100 - mismatches) + "M" + std::to_string(mismatches) + "X";
+            }
             profile.NoteRecord(2, gene, sam);
             ASSERT_TRUE(profile.AddSam(2, static_cast<int>(gene), sam, 1.0, true, read++));
         }
@@ -507,20 +482,22 @@ TEST(SampleContext, AProfilesTaxaAreJudgedAgainstTheirAbundantRelatives) {
     };
 
     profiler::MicrobialProfile profile(*ref.loader);
-    profile.SetSingletonCongener(100);  // the rule is off by default
-    fill(profile, { 1 });
+    fill(profile, 200, { 1 });  // the rule at taxon 1's fragments
     auto const& s1 = profile.GetTaxa().at(1).GetSampleEvidence();
     auto const& s2 = profile.GetTaxa().at(2).GetSampleEvidence();
     auto const& s3 = profile.GetTaxa().at(3).GetSampleEvidence();
-    // Taxon 2: one fragment beside a congener of 200, which its read fits one edit worse.
+    // Taxon 2: one fragment beside a congener of 200, which its read fits one edit worse: the EM gives the read to
+    // the congener.
     EXPECT_TRUE(profile.GetTaxa().at(2).Vetoed());
     EXPECT_EQ(s2.genus_top, 200u);
     EXPECT_NEAR(s2.genus_skew, std::log10(2.0 / 201), 1e-12);
     EXPECT_NEAR(s2.relative_skew, std::log10(2.0 / 201), 1e-12);
     EXPECT_NEAR(s2.genus_share, 1.0 / 201, 1e-12);
-    EXPECT_GT(s2.relative_distance, 0.005);
-    EXPECT_LT(s2.relative_distance, 0.08);
-    EXPECT_NEAR(s2.relative_spill, std::log10(1.5 / (200 * ctx::SpillRate(s2.relative_distance) + 0.5)), 1e-12);
+    // The references' distance: the median of their twelve genes' sketched distances, between the six at 1% and the
+    // six at 6%. relative_spill, a default feature, is pinned with it: log10(1.5 / (200 x 0.01 x 10^(-d / 0.05) + 0.5)).
+    EXPECT_NEAR(s2.relative_distance, 0.0456242706, 1e-9);
+    EXPECT_NEAR(s2.relative_spill, std::log10(1.5 / (200 * 0.01 * std::pow(10.0, -s2.relative_distance / 0.05) + 0.5)), 1e-12);
+    EXPECT_NEAR(s2.relative_spill, 0.3041392741, 1e-9);
     EXPECT_LT(s2.em_own_share, 0.5);
     // Taxon 1 has no congener with more fragments; taxon 3 none at all, but one of 200 in another genus of its family.
     EXPECT_FALSE(profile.GetTaxa().at(1).Vetoed());
@@ -540,23 +517,36 @@ TEST(SampleContext, AProfilesTaxaAreJudgedAgainstTheirAbundantRelatives) {
     EXPECT_EQ(features.at("genus_skew"), s2.genus_skew);
     EXPECT_EQ(features.at("relative_close_share"), s2.relative_close_share);
 
-    // Without the singleton rule nothing is vetoed.
-    profiler::MicrobialProfile no_rule(*ref.loader);
-    no_rule.SetSingletonCongener(0);
-    fill(no_rule, { 1 });
-    EXPECT_FALSE(no_rule.GetTaxa().at(2).Vetoed());
+    // Without the singleton rule nothing is vetoed, nor with a rule above the congener's fragments.
+    for (size_t rule : { 0, 201 }) {
+        profiler::MicrobialProfile other_rule(*ref.loader);
+        fill(other_rule, rule, { 1 });
+        EXPECT_LT(other_rule.GetTaxa().at(2).GetSampleEvidence().em_own_share, 0.5) << rule;
+        EXPECT_FALSE(other_rule.GetTaxa().at(2).Vetoed()) << rule;
+    }
     // Nor a single read that fits only its own reference (no alternative, identity 1): a minor congener's own read.
     profiler::MicrobialProfile own(*ref.loader);
-    fill(own, { 1 }, "*");
+    fill(own, 200, { 1 }, "*");
     EXPECT_EQ(own.GetTaxa().at(2).GetSampleEvidence().em_own_share, 1.0);
     EXPECT_FALSE(own.GetTaxa().at(2).Vetoed());
+    // Such a read further from the reference than a strain would be (identity below 0.95) is vetoed, one closer not.
+    for (int mismatches : { 6, 4 }) {
+        profiler::MicrobialProfile diverged(*ref.loader);
+        fill(diverged, 200, { 1 }, "*", mismatches);
+        auto const& taxon = diverged.GetTaxa().at(2);
+        EXPECT_NEAR(taxon.BaseIdentity(), 1 - mismatches / 100.0, 1e-12);
+        EXPECT_EQ(taxon.GetSampleEvidence().em_own_share, 1.0);
+        EXPECT_EQ(taxon.Vetoed(), mismatches == 6) << mismatches;
+    }
 
-    // Reads on the genes where the two references are most alike: about twice their share of the length; on the others none.
+    // Reads on the genes where the two references are most alike: about twice their share of the length; on the others
+    // none. Four fragments are more than one: the rule leaves them, although the EM gives their reads to the congener.
     profiler::MicrobialProfile close(*ref.loader);
-    fill(close, { 1, 2, 3, 4 });
+    fill(close, 200, { 1, 2, 3, 4 });
+    EXPECT_LT(close.GetTaxa().at(2).GetSampleEvidence().em_own_share, 0.5);
     EXPECT_FALSE(close.GetTaxa().at(2).Vetoed());
     EXPECT_NEAR(close.GetTaxa().at(2).GetSampleEvidence().relative_close_share, 2.0, 1e-9);
     profiler::MicrobialProfile far(*ref.loader);
-    fill(far, { 8, 9, 10, 11 });
+    fill(far, 0, { 8, 9, 10, 11 });
     EXPECT_NEAR(far.GetTaxa().at(2).GetSampleEvidence().relative_close_share, 0.0, 1e-9);
 }

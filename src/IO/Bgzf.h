@@ -27,7 +27,6 @@
 #include <fstream>
 #include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace protal::bgzf {
@@ -171,59 +170,9 @@ namespace protal::bgzf {
         return is.gcount() == static_cast<std::streamsize>(sizeof(b)) && std::memcmp(b, kEof, sizeof(b)) == 0;
     }
 
-    // Writes src as BGZF to dst with `threads` threads. Chunks of whole blocks are compressed in
-    // parallel and written in order, so the output is the same for any thread count. Returns an
-    // error message, empty on success.
-    inline std::string CompressFile(std::string const& src, std::string const& dst, int threads) {
-        constexpr size_t kChunk = 64 * kBlockInput;  // ~4 MB, whole blocks
-        std::FILE* in = std::fopen(src.c_str(), "rb");
-        if (!in) return "cannot read " + src + ": " + std::strerror(errno);
-        std::FILE* out = std::fopen(dst.c_str(), "wb");
-        if (!out) {
-            std::string const error = "cannot write " + dst + ": " + std::strerror(errno);
-            std::fclose(in);
-            return error;
-        }
-        size_t const workers = static_cast<size_t>(std::max(1, threads));
-        std::vector<std::string> chunks(workers), packed(workers);
-        std::vector<char> failed(workers);
-        std::string error;
-        bool done = false;
-        while (!done && error.empty()) {
-            size_t filled = 0;
-            for (; filled < workers; filled++) {
-                chunks[filled].resize(kChunk);
-                size_t const n = std::fread(chunks[filled].data(), 1, kChunk, in);
-                chunks[filled].resize(n);
-                if (n < kChunk) {
-                    if (std::ferror(in)) error = "reading " + src + " failed";
-                    done = true;
-                    if (n > 0) filled++;
-                    break;
-                }
-            }
-            auto compress = [&](size_t i) {
-                packed[i].clear();
-                failed[i] = !Compress(chunks[i].data(), chunks[i].size(), packed[i]);
-            };
-            std::vector<std::thread> pool;
-            for (size_t i = 1; i < filled; i++) pool.emplace_back(compress, i);
-            if (filled > 0) compress(0);
-            for (auto& t : pool) t.join();
-            for (size_t i = 0; i < filled && error.empty(); i++) {
-                if (failed[i]) error = "compressing " + src + " failed";
-                else if (std::fwrite(packed[i].data(), 1, packed[i].size(), out) != packed[i].size()) error = "writing " + dst + " failed: " + std::strerror(errno);
-            }
-        }
-        if (error.empty() && std::fwrite(kEof, 1, sizeof(kEof), out) != sizeof(kEof)) error = "writing " + dst + " failed";
-        std::fclose(in);
-        if (std::fclose(out) != 0 && error.empty()) error = "writing " + dst + " failed: " + std::strerror(errno);
-        return error;
-    }
-
     // Writes BGZF to a file as its content arrives, on one thread: the blocks start every kBlockInput bytes of the
-    // content, as in CompressFile, so the file is byte for byte what CompressFile makes of the whole content, without
-    // the content ever being on disk. Close() writes the rest and the end-of-file block; check Error() then.
+    // content, however it arrives, so the file depends on the content alone, and the content is never on disk
+    // uncompressed. Close() writes the rest and the end-of-file block; check Error() then.
     class Writer {
     public:
         explicit Writer(std::string path) : m_path(std::move(path)), m_out(std::fopen(m_path.c_str(), "wb")) {

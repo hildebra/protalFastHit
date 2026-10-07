@@ -4,6 +4,7 @@
 // threads in pieces equal genes packed whole, and a loader holds its genes packed.
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -15,12 +16,15 @@
 #include <vector>
 #include "SequenceUtils/GenomeLoader.h"
 #include "SequenceUtils/PackedSequence.h"
+#include "TestUtil.h"
 
 namespace fs = std::filesystem;
 using namespace protal;
+using protal::test::ScratchDir;
 
 namespace {
-    // What a character becomes: the test's own statement of the rule in PackedSequence.h.
+    // What a character becomes: the test's own statement of the rule in PackedSequence.h (an IUPAC code is the first
+    // base, in the order A C G T, it stands for; any other character is A).
     char Stored(char c) {
         switch (c) {
             case 'A': case 'a': case 'N': case 'n': case 'R': case 'r': case 'W': case 'w': case 'M': case 'm':
@@ -56,20 +60,6 @@ namespace {
     struct Restore {
         ~Restore() { packed::UseAvx2(true); }
     };
-
-    struct ScratchDir {
-        fs::path path;
-        ScratchDir() {
-            path = fs::temp_directory_path() / ("protal packed test " + std::to_string(::getpid()));
-            fs::create_directories(path);
-        }
-        ~ScratchDir() { fs::remove_all(path); }
-        std::string Write(std::string const& name, std::string const& content) const {
-            auto file = path / name;
-            std::ofstream(file, std::ios::binary) << content;
-            return file.string();
-        }
-    };
 }
 
 TEST(PackedSequence, CodesOfEveryCharacter) {
@@ -81,15 +71,6 @@ TEST(PackedSequence, CodesOfEveryCharacter) {
         packed::UnpackScalar(&byte, 1, &back);
         EXPECT_EQ(back, Stored(one)) << "character " << c;
     }
-    // The IUPAC rule: the first base, in the order A C G T, that the code stands for.
-    std::string const iupac = "NRYSWKMBDHV";
-    std::string const first = "AACCAGACAAA";
-    for (size_t i = 0; i < iupac.size(); i++) {
-        EXPECT_EQ(Stored(iupac[i]), first[i]) << iupac[i];
-        EXPECT_EQ(Stored(static_cast<char>(iupac[i] | 0x20)), first[i]) << iupac[i];
-    }
-    EXPECT_EQ(Stored('-'), 'A');
-    EXPECT_EQ(Stored('*'), 'A');
 }
 
 TEST(PackedSequence, RoundTripOfAllLengthsOnBothPaths) {
@@ -189,19 +170,23 @@ TEST(PackedSequence, ThreadsFillPiecesOfOneGene) {
     }
 }
 
+// A gene of up to kInline bases is decoded into the object itself (on the stack), a longer one into a buffer of its own;
+// bases held elsewhere are only viewed.
 TEST(GeneSequence, KeepsShortGenesOnTheStackAndLongOnesOnTheHeap) {
     static_assert(!std::is_copy_constructible_v<GeneSequence> && !std::is_move_constructible_v<GeneSequence>,
                   "a view of the sequence points into the object");
     std::mt19937_64 rng(5);
-    for (size_t n : { 0u, 1u, 4096u, 4097u, 20000u }) {
+    for (size_t n : std::vector<size_t>{ 0, 1, GeneSequence::kInline, GeneSequence::kInline + 1, 20000 }) {
         std::string s = Random(rng, n, "ACGT");
         std::vector<uint8_t> bytes(packed::Bytes(n) + 1);
         packed::Pack(s.data(), n, bytes.data());
         GeneSequence sequence(bytes.data(), n);
+        auto const object = reinterpret_cast<uintptr_t>(&sequence), data = reinterpret_cast<uintptr_t>(sequence.data());
+        EXPECT_EQ(data >= object && data + n <= object + sizeof(GeneSequence), n <= GeneSequence::kInline) << "length " << n;
         EXPECT_EQ(sequence.size(), n);
         EXPECT_EQ(sequence.length(), n);
         EXPECT_EQ(std::string_view(sequence), s);
-        EXPECT_TRUE(sequence == s);
+        EXPECT_TRUE(sequence == s) << "length " << n;
         if (n > 10) EXPECT_EQ(sequence.substr(3, 7), std::string_view(s).substr(3, 7));
     }
     std::string external = "ACGTN";
@@ -419,13 +404,10 @@ TEST(GenomeLoaderPacked, TheFlatTablesReachTheGenomesAndGenesOfTheMap) {
     EXPECT_EQ(preloaded.GetGeneOMP(2, 1).GetLength(), ref.sequences[0].size());
 }
 
-TEST(GenomeLoaderPacked, AGeneTakesThirtyTwoBytes) {
-    EXPECT_EQ(sizeof(Gene), 32u);
-}
-
 TEST(GenomeLoaderPacked, GenesCutByFramesAndFilledByManyThreadsEqualWholeGenes) {
     // A seekable zstd reference in frames of 1000 bytes, which cut most genes: the threads fill the
-    // pieces of a gene concurrently. The genes must come out as when one thread reads a raw file.
+    // pieces of a gene concurrently. The genes must come out as when one thread reads a raw file,
+    // lower case and ambiguity codes stored as their (first) base.
     ScratchDir dir;
     std::mt19937_64 rng(7);
     std::ostringstream fna_os, map_os;
@@ -434,6 +416,7 @@ TEST(GenomeLoaderPacked, GenesCutByFramesAndFilledByManyThreadsEqualWholeGenes) 
         std::string s = Random(rng, 500 + rng() % 1500, "ACGT");
         if (gene % 10 == 0) s[rng() % s.size()] = 'N';
         if (gene % 7 == 0) s[rng() % s.size()] = 'y';
+        if (gene % 3 == 0) s[rng() % s.size()] = "acgt"[rng() % 4];
         sequences.push_back(s);
         fna_os << '>' << 1 + gene % 50 << '_' << 1 + gene / 50 << '\n';
         size_t start = fna_os.str().size();

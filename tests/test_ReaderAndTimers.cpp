@@ -23,36 +23,25 @@
 #include <zlib-ng.h>
 #include "gzstream.h"
 #include "IO/ThreadedGzStream.h"
+#include "ReadType.h"
 #include "SequenceUtils/FastaBatches.h"
 #include "SequenceUtils/SeqReader.h"
 #include "Utilities/Benchmark.h"
+#include "TestUtil.h"
 
 using namespace protal;
 namespace fs = std::filesystem;
+using protal::test::ScratchDir;
 
 namespace {
-    struct ScratchDir {
-        fs::path path;
-        ScratchDir() {
-            path = fs::temp_directory_path() / ("protal reader test " + std::to_string(::getpid()));
-            fs::create_directories(path);
-        }
-        ~ScratchDir() { fs::remove_all(path); }
-
-        std::string Plain(std::string const& name, std::string const& content) const {
-            auto file = path / name;
-            std::ofstream(file, std::ios::binary) << content;
-            return file.string();
-        }
-
-        std::string Gzip(std::string const& name, std::string const& content) const {
-            auto file = (path / name).string();
-            ogzstream os(file.c_str());
-            os << content;
-            os.close();
-            return file;
-        }
-    };
+    // content written gzip-compressed (gzstream) into dir; returns the file's path.
+    std::string Gzip(ScratchDir const& dir, std::string const& name, std::string const& content) {
+        auto const file = dir / name;
+        ogzstream os(file.c_str());
+        os << content;
+        os.close();
+        return file;
+    }
 
     // A FASTQ file of n reads named <prefix><i>, several MB for n in the ten thousands.
     std::string Fastq(size_t n, std::string const& prefix) {
@@ -74,33 +63,13 @@ namespace {
     }
 }
 
-TEST(ThreadedGzStream, ReadsAGzipFileAsIgzstreamDoes) {
-    ScratchDir dir;
-    auto const content = Fastq(40000, "r");  // ~12 MB: each block is filled and reused several times
-    ASSERT_GT(content.size(), 2 * ThreadedGzStreambuf::kBlocks * ThreadedGzStreambuf::kBlockSize);
-    auto const path = dir.Gzip("reads.fq.gz", content);
-
-    ThreadedGzIstream threaded(path.c_str());
-    igzstream reference(path.c_str());
-    EXPECT_EQ(Lines(threaded), Lines(reference));
-    EXPECT_FALSE(threaded.rdbuf()->read_failed());
-}
-
-TEST(ThreadedGzStream, ReadsAPlainFile) {
-    ScratchDir dir;
-    auto const content = Fastq(5000, "p");
-    ThreadedGzIstream is(dir.Plain("reads.fq", content).c_str());
-    std::stringstream expected(content);
-    EXPECT_EQ(Lines(is), Lines(expected));
-    EXPECT_FALSE(is.rdbuf()->read_failed());
-}
-
 namespace {
-    // content written as BGZF (bgzf::CompressFile, as the simulator and bgzip write reads).
+    // content written as BGZF (bgzf::Writer, as the simulator writes reads; bgzip writes the same format).
     std::string Bgzf(ScratchDir const& dir, std::string const& name, std::string const& content) {
-        auto const plain = dir.Plain(name + ".plain", content);
         auto const path = (dir.path / name).string();
-        EXPECT_EQ(bgzf::CompressFile(plain, path, 3), "");
+        bgzf::Writer writer(path);
+        writer.Write(content.data(), content.size());
+        EXPECT_TRUE(writer.Close()) << writer.Error();
         return path;
     }
 
@@ -203,11 +172,11 @@ TEST(ThreadedGzStream, ReadsAZstdFile) {
         { "long.fq.zst", long_window }, { "named_as_plain.fq", ZstdBytes(content) } };
     for (auto const& [name, bytes] : inputs) {
         SCOPED_TRACE(name);
-        ThreadedGzIstream is(dir.Plain(name, bytes).c_str());
+        ThreadedGzIstream is(dir.Write(name, bytes).c_str());
         EXPECT_EQ(ReadAllOf(is), content);
         EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
     }
-    ThreadedGzIstream empty(dir.Plain("empty.fq.zst", ZstdBytes("")).c_str());
+    ThreadedGzIstream empty(dir.Write("empty.fq.zst", ZstdBytes("")).c_str());
     EXPECT_EQ(ReadAllOf(empty), "");
     EXPECT_FALSE(empty.rdbuf()->read_failed()) << empty.rdbuf()->read_error_message();
 }
@@ -220,7 +189,7 @@ TEST(ThreadedGzStream, ACutOrCorruptZstdFileIsReported) {
     std::string const one = ZstdBytes(first), two = ZstdBytes(second);
     int files = 0;
     auto read = [&](std::string const& bytes, std::string& error) {
-        ThreadedGzIstream is(dir.Plain("reads" + std::to_string(files++) + ".fq.zst", bytes).c_str());
+        ThreadedGzIstream is(dir.Write("reads" + std::to_string(files++) + ".fq.zst", bytes).c_str());
         auto const text = ReadAllOf(is);
         error = is.rdbuf()->read_failed() ? is.rdbuf()->read_error_message() : "";
         return text;
@@ -258,7 +227,7 @@ TEST(ThreadedGzStream, ReadsGzipOfAnotherWriter) {
     for (size_t from = 0; from < content.size(); from += 1000003) several += GzipBytes(std::string_view(content).substr(from, 1000003));
     for (auto const& [name, bytes] : { std::pair{ "one.fq.gz", one }, std::pair{ "several.fq.gz", several } }) {
         SCOPED_TRACE(name);
-        auto const path = dir.Plain(name, bytes);
+        auto const path = dir.Write(name, bytes);
         ASSERT_FALSE(bgzf::StartsAsBgzf(path));
         ThreadedGzIstream is(path.c_str());
         EXPECT_EQ(ReadAllOf(is), content);
@@ -286,7 +255,7 @@ TEST(ThreadedGzStream, AHeaderSplitBetweenReadsIsRead) {
             first = text.substr(0, first.size() + target - one.size());
         }
         ASSERT_EQ(one.size(), target);
-        ThreadedGzIstream is(dir.Plain("split" + std::to_string(s) + ".fq.gz", one + two).c_str());
+        ThreadedGzIstream is(dir.Write("split" + std::to_string(s) + ".fq.gz", one + two).c_str());
         EXPECT_EQ(ReadAllOf(is), first + second);
         EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
     }
@@ -311,9 +280,11 @@ TEST(ThreadedGzStream, AHeaderSplitBetweenReadsIsRead) {
             at += n;
         }
     });
-    ThreadedGzIstream is(fifo.c_str());
-    EXPECT_EQ(ReadAllOf(is), content);
-    EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+    {
+        ThreadedGzIstream is(fifo.c_str());
+        EXPECT_EQ(ReadAllOf(is), content);
+        EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+    }  // closed before the join: a writer left blocked on a full pipe by a reader that stopped early fails, not hangs
     writer.join();
 }
 
@@ -364,7 +335,7 @@ TEST(ThreadedGzStream, ACutOrCorruptBgzfFileIsReported) {
 TEST(ThreadedGzStream, ATruncatedFileReadsAsAPrefixAndIsReported) {
     ScratchDir dir;
     auto const content = Fastq(40000, "t");
-    auto const path = dir.Gzip("reads.fq.gz", content);
+    auto const path = Gzip(dir, "reads.fq.gz", content);
     fs::resize_file(path, fs::file_size(path) / 2);
 
     ThreadedGzIstream is(path.c_str());
@@ -374,32 +345,24 @@ TEST(ThreadedGzStream, ATruncatedFileReadsAsAPrefixAndIsReported) {
     EXPECT_GT(read.size(), 0u);
     EXPECT_LT(read.size(), content.size());
     EXPECT_EQ(content.compare(0, read.size(), read), 0);
-
-    igzstream reference(path.c_str());
-    std::string ignored((std::istreambuf_iterator<char>(reference)), std::istreambuf_iterator<char>());
-    EXPECT_TRUE(reference.rdbuf()->read_failed());  // as igzstream reports it
 }
 
-TEST(ThreadedGzStream, AMissingFileFailsToOpen) {
-    ScratchDir dir;
-    ThreadedGzIstream is((dir.path / "none.fq.gz").string().c_str());
-    EXPECT_FALSE(is.good());
-    EXPECT_FALSE(is.rdbuf()->is_open());
-    std::string line;
-    EXPECT_FALSE(std::getline(is, line));
-    EXPECT_FALSE(is.rdbuf()->read_failed());
-}
-
-// Why a file cannot be read, for protal's message: missing, a directory, or not readable.
+// A file that cannot be read fails to open, reads nothing (not as a read error) and says why, for protal's message:
+// missing, a directory, or not readable.
 TEST(ThreadedGzStream, AFileThatCannotBeReadSaysWhy) {
     ScratchDir dir;
     ThreadedGzIstream missing((dir.path / "none.fq.gz").string().c_str());
+    EXPECT_FALSE(missing.good());
+    EXPECT_FALSE(missing.rdbuf()->is_open());
+    std::string line;
+    EXPECT_FALSE(std::getline(missing, line));
+    EXPECT_FALSE(missing.rdbuf()->read_failed());
     EXPECT_EQ(missing.rdbuf()->open_error(), std::strerror(ENOENT));
     ThreadedGzIstream directory(dir.path.string().c_str());
     EXPECT_FALSE(directory.rdbuf()->is_open());
     EXPECT_EQ(directory.rdbuf()->open_error(), "it is a directory");
     if (::geteuid() != 0) {  // root reads any file
-        auto const path = dir.Plain("locked.fq", Fastq(1, "l"));
+        auto const path = dir.Write("locked.fq", Fastq(1, "l"));
         fs::permissions(path, fs::perms::none);
         ThreadedGzIstream locked(path.c_str());
         EXPECT_FALSE(locked.rdbuf()->is_open());
@@ -421,9 +384,11 @@ TEST(ThreadedGzStream, ReadsAPipe) {
         auto const fifo = (dir.path / (name + ".fifo")).string();
         ASSERT_EQ(::mkfifo(fifo.c_str(), 0600), 0);
         std::thread writer([&fifo, &bytes] { std::ofstream(fifo, std::ios::binary) << bytes; });
-        ThreadedGzIstream is(fifo.c_str());
-        EXPECT_EQ(ReadAllOf(is), content);
-        EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+        {
+            ThreadedGzIstream is(fifo.c_str());
+            EXPECT_EQ(ReadAllOf(is), content);
+            EXPECT_FALSE(is.rdbuf()->read_failed()) << is.rdbuf()->read_error_message();
+        }  // closed before the join (see AHeaderSplitBetweenReadsIsRead)
         writer.join();
     }
 }
@@ -437,7 +402,7 @@ TEST(ThreadedGzStream, WhatFollowsAGzipMemberMustBeAMember) {
     std::string const one = GzipBytes(first), two = GzipBytes(second);
     int files = 0;
     auto read = [&](std::string const& bytes, std::string& error) {
-        ThreadedGzIstream is(dir.Plain("reads" + std::to_string(files++) + ".fq.gz", bytes).c_str());
+        ThreadedGzIstream is(dir.Write("reads" + std::to_string(files++) + ".fq.gz", bytes).c_str());
         auto const text = ReadAllOf(is);
         error = is.rdbuf()->read_failed() ? is.rdbuf()->read_error_message() : "";
         return text;
@@ -473,7 +438,7 @@ TEST(ThreadedGzStream, WhatFollowsAGzipMemberMustBeAMember) {
 
 TEST(ThreadedGzStream, ClosingBeforeTheEndStopsTheInflatingThread) {
     ScratchDir dir;
-    auto const path = dir.Gzip("reads.fq.gz", Fastq(40000, "c"));
+    auto const path = Gzip(dir, "reads.fq.gz", Fastq(40000, "c"));
     for (int i = 0; i < 20; i++) {  // the inflating thread is blocked on full blocks or still inflating
         ThreadedGzIstream is(path.c_str());
         std::string line;
@@ -486,8 +451,8 @@ TEST(ThreadedGzStream, ClosingBeforeTheEndStopsTheInflatingThread) {
 TEST(ThreadedGzStream, ThreadsTakeEveryPairOnceInStep) {
     ScratchDir dir;
     size_t const n = 30000;
-    auto const r1 = dir.Gzip("r1.fq.gz", Fastq(n, "pair"));
-    auto const r2 = dir.Gzip("r2.fq.gz", Fastq(n, "pair"));
+    auto const r1 = Gzip(dir, "r1.fq.gz", Fastq(n, "pair"));
+    auto const r2 = Gzip(dir, "r2.fq.gz", Fastq(n, "pair"));
     ThreadedGzIstream is1(r1.c_str()), is2(r2.c_str());
     SeqReaderPE reader_global{ is1, is2 };
 
@@ -522,14 +487,15 @@ TEST(ThreadedGzStream, ThreadsTakeEveryPairOnceInStep) {
 TEST(ThreadedGzStream, ThreadsTakeEverySingleEndReadOnce) {
     ScratchDir dir;
     size_t const n = 30000;
-    auto const path = dir.Gzip("se.fq.gz", Fastq(n, "se"));
+    auto const path = Gzip(dir, "se.fq.gz", Fastq(n, "se"));
     for (bool const batches : { true, false }) {
         SCOPED_TRACE(batches ? "SeqReaderSE" : "SeqReader");
         ThreadedGzIstream is(path.c_str());
         SeqReaderSE batch_global{ is };
         SeqReader block_global{ is };
         std::vector<std::string> ids;
-#pragma omp parallel num_threads(8) shared(batch_global, block_global, ids, batches) default(none)
+        bool blocks_read = true;  // every thread's SeqReader (which has no UpdateSuccess) ended without an error
+#pragma omp parallel num_threads(8) shared(batch_global, block_global, ids, batches, blocks_read) default(none)
         {
             SeqReaderSE batch_reader{ batch_global };
             SeqReader block_reader{ block_global };
@@ -539,10 +505,12 @@ TEST(ThreadedGzStream, ThreadsTakeEverySingleEndReadOnce) {
 #pragma omp critical(test_ids)
             {
                 ids.insert(ids.end(), mine.begin(), mine.end());
-                batch_global.UpdateSuccess(batch_reader);
+                if (batches) batch_global.UpdateSuccess(batch_reader);
+                else blocks_read = blocks_read && block_reader.Success();
             }
         }
         EXPECT_TRUE(batch_global.Success());
+        EXPECT_TRUE(blocks_read);
         EXPECT_EQ(ids.size(), n);
         EXPECT_EQ(std::set<std::string>(ids.begin(), ids.end()).size(), n);
         EXPECT_FALSE(is.rdbuf()->read_failed());
@@ -557,7 +525,7 @@ TEST(ThreadedGzStream, TakeLinesCutsWholeLinesAcrossBlocks) {
     content += std::string(ThreadedGzStreambuf::kBlockSize + 12345, 'L') + "\n" + Fastq(20000, "t") + "last";
     std::stringstream reference(content);
     auto const lines = Lines(reference);
-    for (auto const& path : { dir.Gzip("lines.gz", content), dir.Plain("lines.txt", content) }) {
+    for (auto const& path : { Gzip(dir, "lines.gz", content), dir.Write("lines.txt", content) }) {
         SCOPED_TRACE(path);
         ThreadedGzIstream is(path.c_str());
         std::string taken;
@@ -601,8 +569,8 @@ TEST(SeqReader, FastqRecordsAreTheSameFromAnyStream) {
     EXPECT_EQ(expected.back(), "@end/1|end/1|AC|II");
 
     std::istringstream plain_stream(content);
-    ThreadedGzIstream plain(dir.Plain("reads.fq", content).c_str()), gz(dir.Gzip("reads.fq.gz", content).c_str());
-    ThreadedGzIstream zst(dir.Plain("reads.fq.zst", ZstdBytes(content)).c_str());
+    ThreadedGzIstream plain(dir.Write("reads.fq", content).c_str()), gz(Gzip(dir, "reads.fq.gz", content).c_str());
+    ThreadedGzIstream zst(dir.Write("reads.fq.zst", ZstdBytes(content)).c_str());
     for (std::istream* is : std::initializer_list<std::istream*>{ &plain_stream, &plain, &gz, &zst }) {
         SeqReaderSE reader(*is);
         EXPECT_EQ(Records([&](FastxRecord& r) { return reader(r); }), expected);
@@ -689,7 +657,7 @@ TEST(SeqReader, AMalformedFastqRecordIsAnError) {
     ScratchDir dir;
     std::string const content = "@r1\nACGT\n+\nIIII\nr2\nACGT\n+\nIIII\n";
     std::istringstream plain_stream(content);
-    ThreadedGzIstream gz(dir.Gzip("bad.fq.gz", content).c_str());
+    ThreadedGzIstream gz(Gzip(dir, "bad.fq.gz", content).c_str());
     for (std::istream* is : std::initializer_list<std::istream*>{ &plain_stream, &gz }) {
         SeqReaderSE reader(*is);
         FastxRecord record;
@@ -844,23 +812,25 @@ namespace {
 // The tests below check the sampling by which calls are timed, which needs no clock, and the estimate
 // only from below: a busy machine can make a timed interval longer, never shorter than its spin.
 TEST(Benchmark, ASampledStageTimesTheFirstCallAndThenEveryNth) {
+    constexpr int kPeriod = Benchmark::kPerRead;
     Benchmark bm{"per read", 0, Benchmark::kPerRead};
     std::vector<int> timed;
-    for (int i = 0; i < 400; i++) {
+    for (int i = 0; i < 6 * kPeriod + 7; i++) {
         bm.Start();
         if (bm.Timing()) timed.push_back(i);
         bm.Stop();
     }
-    EXPECT_EQ(timed, (std::vector<int>{ 0, 61, 122, 183, 244, 305, 366 }));
+    EXPECT_EQ(timed, (std::vector<int>{ 0, kPeriod, 2 * kPeriod, 3 * kPeriod, 4 * kPeriod, 5 * kPeriod, 6 * kPeriod }));
     EXPECT_EQ(bm.TimedCalls(), timed.size());
     EXPECT_FALSE(bm.Timing());
 }
 
 TEST(Benchmark, ASampledStageWithAnOddPeriodTimesBothMatesOfAPair) {
     // A stage called once per mate: an even period would time the same mate every time.
+    ASSERT_EQ(Benchmark::kPerRead % 2, 1u);
     Benchmark bm{"per mate", 0, Benchmark::kPerRead};
     size_t first_mate = 0, second_mate = 0;
-    for (int i = 0; i < 6100; i++) {
+    for (uint32_t i = 0; i < 100 * Benchmark::kPerRead; i++) {
         bm.Start();
         if (bm.Timing()) (i % 2 ? second_mate : first_mate)++;
         bm.Stop();
@@ -871,13 +841,13 @@ TEST(Benchmark, ASampledStageWithAnOddPeriodTimesBothMatesOfAPair) {
 
 TEST(Benchmark, ASampledStageEstimatesTheTimeOfAllItsCalls) {
     Benchmark bm{"per read", 0, Benchmark::kPerRead};
-    constexpr int kCalls = 6100;  // 100 timed calls
-    for (int i = 0; i < kCalls; i++) {
+    uint32_t const calls = 20 * Benchmark::kPerRead;  // 20 timed calls
+    for (uint32_t i = 0; i < calls; i++) {
         bm.Start();
         Spin(std::chrono::microseconds(20));
         bm.Stop();
     }
-    EXPECT_GE(bm.Seconds(), 0.99 * kCalls * 20e-6);
+    EXPECT_GE(bm.Seconds(), 0.99 * calls * 20e-6);
     EXPECT_EQ(bm.Threads(), 1u);
 }
 
@@ -887,28 +857,29 @@ TEST(Benchmark, ASampledStageScalesTheFirstCallToTheCallsMade) {
     Spin(std::chrono::microseconds(2000));
     bm.Stop();
     EXPECT_GE(bm.Seconds(), 0.002);  // a short run has a value from its first call
-    for (int i = 1; i < 61; i++) {   // 60 more calls, none timed: nothing is added, the mean times 61 is
-        bm.Start();
+    for (uint32_t i = 1; i < Benchmark::kPerRead; i++) {  // the other calls of the period, none timed: nothing is added,
+        bm.Start();                                       // the mean times their number is
         EXPECT_FALSE(bm.Timing());
         bm.Stop();
     }
     EXPECT_EQ(bm.TimedCalls(), 1u);
-    EXPECT_GE(bm.Seconds(), 61 * 0.002);
+    EXPECT_GE(bm.Seconds(), Benchmark::kPerRead * 0.002);
 }
 
 TEST(Benchmark, ASampledStageJoinsAndPrintsItsEstimate) {
     Benchmark global{"stage", 0};
+    uint32_t const calls = 2 * Benchmark::kPerRead;  // 2 timed calls
     for (int t = 0; t < 3; t++) {
         Benchmark local{"stage", 0, Benchmark::kPerRead};
-        for (int i = 0; i < 122; i++) {  // 2 timed calls
+        for (uint32_t i = 0; i < calls; i++) {
             local.Start();
-            Spin(std::chrono::microseconds(500));
+            Spin(std::chrono::microseconds(100));
             local.Stop();
         }
         global.Join(local);
     }
     EXPECT_EQ(global.Threads(), 3u);
-    EXPECT_GE(global.Seconds(), 3 * 122 * 500e-6 * 0.99);
+    EXPECT_GE(global.Seconds(), 3 * calls * 100e-6 * 0.99);
     testing::internal::CaptureStdout();
     global.PrintResults();
     auto const printed = testing::internal::GetCapturedStdout();
@@ -929,4 +900,28 @@ TEST(Benchmark, AStartedStageIsStoppedWhenPrinted) {
     bm.PrintResults();
     testing::internal::GetCapturedStdout();
     EXPECT_DOUBLE_EQ(bm.Seconds(), once);  // not stopped, and not added, a second time
+}
+
+TEST(SeqReader, ReadsWithoutQualitiesGetTheReadTypesQuality) {
+    std::istringstream fasta(">r1\nACGT\n>r2\nAC\nGT\n");
+    SeqReaderSE reader(fasta, FastaQualityChar(ReadType::PacBio));
+    FastxRecord record;
+    ASSERT_TRUE(reader(record));
+    EXPECT_EQ(record.quality, "????");  // Q30
+    ASSERT_TRUE(reader(record));
+    EXPECT_EQ(record.sequence, "ACGT");
+    EXPECT_EQ(record.quality, "????");
+    EXPECT_FALSE(reader(record));
+
+    std::istringstream fastq("@r1\nACGT\n+\nIII#\n");
+    SeqReaderSE keeps(fastq, FastaQualityChar(ReadType::PacBio));
+    ASSERT_TRUE(keeps(record));
+    EXPECT_EQ(record.quality, "III#") << "FASTQ keeps its qualities";
+
+    std::istringstream mate1(">p/1\nAAAA\n"), mate2(">p/2\nCCC\n");
+    SeqReaderPE pairs(mate1, mate2, FastaQualityChar(ReadType::Paired));
+    FastxRecord record2;
+    ASSERT_TRUE(pairs(record, record2));
+    EXPECT_EQ(record.quality, "????");
+    EXPECT_EQ(record2.quality, "???");
 }

@@ -1,7 +1,7 @@
 // Unit tests for the binary gene table (GeneTableFile.h; GenomeLoader::WriteGeneTable and LoadGeneTable): the genes and their
 // unique k-mer counts load from it as from reference.map and unique_kmers.tsv, with the same reference fingerprint; the same
-// tables give the same bytes; a table made from other tables, or a corrupt one, is not used (the text tables are); and a
-// single-file database with one loads it.
+// tables give the same bytes; a table made from other tables, or a corrupt one, is not used (the text tables are), but a
+// reference.map edited to the same size is not noticed; and a single-file database with one loads it.
 #include <gtest/gtest.h>
 #include <cstring>
 #include <filesystem>
@@ -13,33 +13,20 @@
 #include "SequenceUtils/GeneTableFile.h"
 #include "Utilities/Database.h"
 #include "Utilities/ReferenceFingerprint.h"
+#include "TestUtil.h"
 
 using namespace protal;
+using namespace protal::test;
 namespace fs = std::filesystem;
 
 namespace {
-    struct TempDir {
-        fs::path path;
-        TempDir() {
-            path = fs::temp_directory_path() / ("protal_gene_table_test_" + std::to_string(::getpid()) + "_" +
-                                                std::to_string(reinterpret_cast<uintptr_t>(this)));
-            fs::create_directories(path);
-        }
-        ~TempDir() { std::error_code ec; fs::remove_all(path, ec); }
-        std::string Write(std::string const& name, std::string const& content) const {
-            std::ofstream os(path / name, std::ios::binary);
-            os << content;
-            return (path / name).string();
-        }
-    };
-
     // reference.map of `taxa` genomes with gene ids up to `per_genome` (every third id left out), a sparse reference.fna
     // that covers them, and unique_kmers.tsv for most genes (every seventh has no line, every fifth no unique k-mers).
     struct Tables {
         std::string fna, map, unique;
         size_t genes = 0;
         // scrambled: the genomes listed in a scrambled order (taxid 1 + i * 7 mod taxa), as a converter may list them.
-        Tables(TempDir const& dir, int taxa = 300, int per_genome = 30, std::string const& suffix = "", bool scrambled = false) {
+        Tables(ScratchDir const& dir, int taxa = 300, int per_genome = 30, std::string const& suffix = "", bool scrambled = false) {
             std::string m, u;
             uint64_t position = 0;
             for (int i = 0; i < taxa; i++) {
@@ -105,34 +92,33 @@ namespace {
         EXPECT_EQ(na, nb);
         EXPECT_EQ(la, lb);
     }
-
-    std::string Slurp(std::string const& path) {
-        std::ifstream is(path, std::ios::binary);
-        return { std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>() };
-    }
 }
 
+// Also with the genomes listed in another order than their taxids' (300 is not a multiple of 7: every taxid once).
 TEST(GeneTableFile, LoadsAsTheTextTables) {
-    TempDir dir;
-    Tables t(dir);
-    auto text = TextLoader(t, 1);
-    ASSERT_TRUE(text.MapFingerprint().has_value());
-    // The fingerprint hashed while reference.map was parsed is the one the index is checked against.
-    EXPECT_EQ(*text.MapFingerprint(), ReferenceFingerprint::Of(t.map, t.fna));
-    EXPECT_EQ(*TextLoader(t, 6).MapFingerprint(), ReferenceFingerprint::Of(t.map, t.fna));
-    std::string const table = (dir.path / gene_table_file::kFileName).string();
-    ASSERT_EQ(WriteTable(text, t, table), "");
-    for (int threads : { 1, 6 }) {
-        auto binary = TableLoader(t, table, threads);
-        ASSERT_TRUE(binary.FromGeneTable());
-        EXPECT_TRUE(binary.UniqueKmersFromGeneTable());
-        EXPECT_EQ(*binary.MapFingerprint(), *text.MapFingerprint());
-        ExpectSame(text, binary);
+    for (bool const scrambled : { false, true }) {
+        SCOPED_TRACE(scrambled ? "genomes in a scrambled order" : "genomes in taxid order");
+        ScratchDir dir;
+        Tables t(dir, 300, 30, "", scrambled);
+        auto text = TextLoader(t, 1);
+        ASSERT_TRUE(text.MapFingerprint().has_value());
+        // The fingerprint hashed while reference.map was parsed is the one the index is checked against.
+        EXPECT_EQ(*text.MapFingerprint(), ReferenceFingerprint::Of(t.map, t.fna));
+        EXPECT_EQ(*TextLoader(t, 6).MapFingerprint(), ReferenceFingerprint::Of(t.map, t.fna));
+        std::string const table = (dir.path / gene_table_file::kFileName).string();
+        ASSERT_EQ(WriteTable(text, t, table), "");
+        for (int threads : { 1, 6 }) {
+            auto binary = TableLoader(t, table, threads);
+            ASSERT_TRUE(binary.FromGeneTable());
+            EXPECT_TRUE(binary.UniqueKmersFromGeneTable());
+            EXPECT_EQ(*binary.MapFingerprint(), *text.MapFingerprint());
+            ExpectSame(text, binary);
+        }
     }
 }
 
 TEST(GeneTableFile, WithoutUniqueKmers) {
-    TempDir dir;
+    ScratchDir dir;
     Tables t(dir);
     auto text = TextLoader(t, 4, false);
     std::string const table = (dir.path / gene_table_file::kFileName).string();
@@ -147,7 +133,7 @@ TEST(GeneTableFile, WithoutUniqueKmers) {
 }
 
 TEST(GeneTableFile, TheSameTablesGiveTheSameBytes) {
-    TempDir dir;
+    ScratchDir dir;
     Tables t(dir);
     std::string const a = (dir.path / "a.bin").string(), b = (dir.path / "b.bin").string();
     ASSERT_EQ(WriteTable(TextLoader(t, 1), t, a), "");
@@ -163,7 +149,7 @@ TEST(GeneTableFile, TheSameTablesGiveTheSameBytes) {
 }
 
 TEST(GeneTableFile, AnotherDatabasesTableIsNotUsed) {
-    TempDir dir;
+    ScratchDir dir;
     Tables t(dir);
     std::string const table = (dir.path / gene_table_file::kFileName).string();
     ASSERT_EQ(WriteTable(TextLoader(t, 4), t, table), "");
@@ -182,7 +168,7 @@ TEST(GeneTableFile, AnotherDatabasesTableIsNotUsed) {
 }
 
 TEST(GeneTableFile, ACorruptTableIsNotUsed) {
-    TempDir dir;
+    ScratchDir dir;
     Tables t(dir);
     auto text = TextLoader(t, 4);
     std::string const table = (dir.path / gene_table_file::kFileName).string();
@@ -216,10 +202,22 @@ TEST(GeneTableFile, ACorruptTableIsNotUsed) {
     std::string order = good;
     std::memcpy(order.data() + sizeof(h) + sizeof(gene_table_file::Genome), good.data() + sizeof(h), 8);
     check(order, "a taxid twice");
+    // The first genome with fewer gene slots than genes (its slots at byte 8 of its record).
+    gene_table_file::Genome g;
+    std::memcpy(&g, good.data() + sizeof(h), sizeof(g));
+    std::string slots = good;
+    uint64_t const fewer = g.count - 1;
+    std::memcpy(slots.data() + sizeof(h) + 8, &fewer, 8);
+    check(slots, "more genes than slots");
+    // The first gene ending past reference.fna (its start at byte 0 of its record).
+    std::string past = good;
+    uint64_t const start = fs::file_size(t.fna);
+    std::memcpy(past.data() + first_gene, &start, 8);
+    check(past, "a gene past the end of reference.fna");
 }
 
 TEST(GeneTableFile, ASingleFileDatabaseLoadsIt) {
-    TempDir dir;
+    ScratchDir dir;
     Tables t(dir);
     auto text = TextLoader(t, 4);
     std::string const table = (dir.path / gene_table_file::kFileName).string();
@@ -246,21 +244,28 @@ TEST(GeneTableFile, ASingleFileDatabaseLoadsIt) {
     ExpectSame(from_text, loader);
 }
 
-// The genome map is built in the order reference.map lists the genomes, from the text tables and from the binary one alike:
-// its iteration order is the same. No output depends on that order (docs/claude/2026-10-05-order-independence); the two
-// loaders are kept alike all the same.
-TEST(GeneTableFile, TheGenomeMapIsBuiltInTheSameOrder) {
-    TempDir dir;
-    Tables t(dir, 300, 30, "", true);  // 300 is not a multiple of 7: every taxid once
+// The table is checked against the database's tables by their sizes only, which spares a run reading reference.map
+// (GeneTableFile.h): a reference.map edited to the same size is not noticed, and the table's genes and fingerprint
+// (those of the map it was made from) are used. A single-file database's members change only as protal rewrites it,
+// with a new table.
+TEST(GeneTableFile, AnEditOfTheSameSizeIsNotNoticed) {
+    ScratchDir dir;
+    Tables t(dir);
     auto text = TextLoader(t, 4);
     std::string const table = (dir.path / gene_table_file::kFileName).string();
     ASSERT_EQ(WriteTable(text, t, table), "");
-    auto binary = TableLoader(t, table, 4);
-    ASSERT_TRUE(binary.FromGeneTable());
-    std::vector<uint64_t> a, b;
-    for (auto const& [key, genome] : text.GetGenomeMap()) a.push_back(key);
-    for (auto const& [key, genome] : binary.GetGenomeMap()) b.push_back(key);
-    EXPECT_EQ(a, b);
-    EXPECT_EQ(text.GetGenomeMap().bucket_count(), binary.GetGenomeMap().bucket_count());
-    ExpectSame(text, binary);
+    auto const fingerprint = ReferenceFingerprint::Of(t.map, t.fna);
+    // The end of the first gene changed by one, in as many digits as before.
+    std::string map = Slurp(t.map);
+    size_t const end = map.find('\n') - 1;
+    map[end] = static_cast<char>(map[end] == '9' ? '8' : map[end] + 1);
+    std::string const edited = dir.Write("edited.map", map);
+    ASSERT_EQ(fs::file_size(edited), fs::file_size(t.map));
+    ASSERT_NE(ReferenceFingerprint::Of(edited, t.fna), fingerprint);
+
+    GenomeLoader loader(db::DbFile::OnDisk(t.fna), db::DbFile::OnDisk(edited), 4, db::DbFile::OnDisk(table),
+                        std::optional<uint64_t>(fs::file_size(t.unique)));
+    EXPECT_TRUE(loader.FromGeneTable());
+    EXPECT_EQ(*loader.MapFingerprint(), fingerprint);
+    ExpectSame(text, loader);
 }

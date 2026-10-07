@@ -15,37 +15,21 @@
 #include "Hash/KmerLookup.h"
 #include "Core/AlignmentStrategy.h"
 #include "Core/ChainAnchorFinder.h"
+#include "TestReference.h"
 
 using namespace protal;
 
 namespace {
     // Random genes of taxid 1 of the given lengths (gene ids 1..), loaded.
-    struct Reference {
-        std::vector<std::string> genes;
-        std::filesystem::path dir;
-        std::unique_ptr<GenomeLoader> loader;
+    struct Reference : test::LoadedReference {
+        std::vector<std::string> const& genes = LoadedReference::genes.at(1);
 
-        explicit Reference(std::vector<size_t> const& lengths) {
+        explicit Reference(std::vector<size_t> const& lengths) : LoadedReference({ { 1, Genes(lengths) } }, "windows") {}
+
+        static std::vector<std::string> Genes(std::vector<size_t> const& lengths) {
             std::mt19937 rng(31);
-            dir = std::filesystem::temp_directory_path() / ("protal_windows_test_" + std::to_string(::getpid()));
-            std::filesystem::create_directories(dir);
-            std::ofstream fna(dir / "reference.fna"), map(dir / "reference.map");
-            size_t offset = 0;
-            for (size_t id = 1; id <= lengths.size(); id++) {
-                std::string seq(lengths[id - 1], 'A');
-                for (auto& c : seq) c = "ACGT"[rng() % 4];
-                std::string header = ">1_" + std::to_string(id) + "\n";
-                fna << header << seq << '\n';
-                map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
-                offset += header.size() + seq.size() + 1;
-                genes.push_back(seq);
-            }
-            fna.close();
-            map.close();
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-            loader->LoadAllGenomes();
+            return test::RandomGenes(lengths, rng);
         }
-        ~Reference() { std::filesystem::remove_all(dir); }
     };
 
     using Finder = ChainAnchorFinder<KmerLookupSM>;
@@ -82,35 +66,6 @@ namespace {
     }
 }
 
-TEST(GeneWindows, TheFinderExtendsAnchorsAsOnTheWholeGene) {
-    Reference ref({ 1500, 100, 6000, 300, 151, 1945 });
-    Seedmap map;
-    KmerLookupSM lookup(map, 16);
-    Finder finder(lookup, 15, 4, 10, *ref.loader);
-    std::mt19937 rng(7);
-    size_t checked = 0;
-    for (uint32_t gene = 1; gene <= ref.genes.size(); gene++) {
-        std::string const& g = ref.genes[gene - 1];
-        long const length = static_cast<long>(g.size());
-        // start positions that put the read inside the gene, over either end, and (for gene 2) beyond its length
-        for (long start : { 0L, 1L, 37L, length / 2 - 75, length - 150, length - 149, length - 100, -20L, -140L, length - 10L, 5L }) {
-            if (start < -140 || start >= length) continue;
-            for (std::vector<size_t> mismatches : { std::vector<size_t>{}, std::vector<size_t>{ 60 }, std::vector<size_t>{ 3, 40, 75, 110, 146 } }) {
-                std::string const read = ReadAt(g, start, 150, mismatches, rng);
-                // a seed of 15 bases at several places of the read, on the read's diagonal, when it lies on the gene
-                for (size_t readpos : { 0u, 20u, 62u, 100u, 135u }) {
-                    long const genepos = start + static_cast<long>(readpos);
-                    if (genepos < 0 || genepos + 15 > length) continue;
-                    if (g.compare(genepos, 15, read, readpos, 15) != 0) continue;  // the seed must be an exact match
-                    ExpectSameExtension(finder, ref, gene, read, { ChainLink(static_cast<uint32_t>(genepos), static_cast<uint16_t>(readpos), 15) }, "one seed");
-                    checked++;
-                }
-            }
-        }
-    }
-    EXPECT_GT(checked, 150u);
-}
-
 TEST(GeneWindows, ChainsWithAnIndelBetweenTheirLinksReadBothDiagonals) {
     Reference ref({ 1945, 2400, 4500 });
     Seedmap map;
@@ -133,7 +88,7 @@ TEST(GeneWindows, ChainsWithAnIndelBetweenTheirLinksReadBothDiagonals) {
                     std::string inserted = g.substr(start, 62) + "ACG" + g.substr(start + 62, 85);
                     ChainList chain2 = { ChainLink(static_cast<uint32_t>(start + 20), 20, 20),
                                          ChainLink(static_cast<uint32_t>(start + second), static_cast<uint16_t>(second + 3), 20) };
-                    if (second >= 62) ExpectSameExtension(finder, ref, gene, inserted, chain2, "two links, insertion");
+                    ExpectSameExtension(finder, ref, gene, inserted, chain2, "two links, insertion");
                     checked++;
                 }
             }
@@ -150,31 +105,41 @@ namespace {
     };
 }
 
+// One seed of a read inside the gene, over either end or (genes of 100 and 151 bases) longer than the gene, with
+// mismatches or without: the finder's window extends it as the whole gene does. What lies outside a window is
+// whatever the stack held; filled with a fixed byte, a read there that matters shows (and in an AddressSanitizer
+// build any read there is an error). NUL is the byte that matters most to the extension loop, which stops when the
+// read's NUL meets a base that is not one.
 TEST(GeneWindows, NothingReadsOutsideTheWindowWhateverIsThere) {
-    // What lies outside a window is whatever the stack held. A read there that matters would show with any
-    // fixed byte; NUL is the one that matters most to the extension loop, which stops when the read's NUL
-    // meets a base that is not one.
+    Reference ref({ 1500, 100, 6000, 300, 151, 1945 });
+    Seedmap map;
+    KmerLookupSM lookup(map, 16);
+    Finder finder(lookup, 15, 4, 10, *ref.loader);
     for (int byte : std::vector<int>{ 0, '#', 'A', 'N' }) {
         FillOutside fill(byte);
         SCOPED_TRACE("outside filled with " + std::to_string(byte));
-        Reference ref({ 1500, 1945, 6000, 151 });
-        Seedmap map;
-        KmerLookupSM lookup(map, 16);
-        Finder finder(lookup, 15, 4, 10, *ref.loader);
         std::mt19937 rng(9);
+        size_t checked = 0;
         for (uint32_t gene = 1; gene <= ref.genes.size(); gene++) {
             std::string const& g = ref.genes[gene - 1];
             long const length = static_cast<long>(g.size());
-            for (long start : { 0L, 45L, length / 3, length - 150, length - 149, -30L, length - 20 }) {
+            for (long start : { 0L, 1L, 5L, 37L, 45L, length / 3, length / 2 - 75, length - 150, length - 149, length - 100, length - 20,
+                                length - 10, -20L, -30L, -140L }) {
                 if (start < -140 || start >= length) continue;
-                std::string const read = ReadAt(g, start, 150, { 30, 90 }, rng);
-                for (size_t readpos : { 0u, 40u, 120u, 135u }) {
-                    long const genepos = start + static_cast<long>(readpos);
-                    if (genepos < 0 || genepos + 15 > length || g.compare(genepos, 15, read, readpos, 15) != 0) continue;
-                    ExpectSameExtension(finder, ref, gene, read, { ChainLink(static_cast<uint32_t>(genepos), static_cast<uint16_t>(readpos), 15) }, "one seed");
+                for (std::vector<size_t> mismatches : { std::vector<size_t>{}, std::vector<size_t>{ 60 }, std::vector<size_t>{ 30, 90 },
+                                                        std::vector<size_t>{ 3, 40, 75, 110, 146 } }) {
+                    std::string const read = ReadAt(g, start, 150, mismatches, rng);
+                    // a seed of 15 bases at several places of the read, on the read's diagonal, where it lies on the gene
+                    for (size_t readpos : { 0u, 20u, 40u, 62u, 100u, 120u, 135u }) {
+                        long const genepos = start + static_cast<long>(readpos);
+                        if (genepos < 0 || genepos + 15 > length || g.compare(genepos, 15, read, readpos, 15) != 0) continue;
+                        ExpectSameExtension(finder, ref, gene, read, { ChainLink(static_cast<uint32_t>(genepos), static_cast<uint16_t>(readpos), 15) }, "one seed");
+                        checked++;
+                    }
                 }
             }
         }
+        EXPECT_GT(checked, 150u);
     }
 }
 

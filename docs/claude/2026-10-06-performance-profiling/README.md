@@ -374,7 +374,7 @@ is the measure.
 
 **Tests** (`results/implementation/`): `FlexScan.Avx2ScoresAndTiesAsTheScalarScan` (every size 1-80 and 13 larger ones,
 every bit shift: scores, best, masks and count as `ScoreScalar`, garbage past the block masked out, no mask word written
-past the block's), `ABlockWithoutASharedBaseHasEveryCellBest`, the bench (`PROTAL_FLEX_BENCH=1`: 0.41 against 2.0-2.2 ns
+past the block's), `ABlockWithoutASharedBaseHasEveryCellBest`, the bench (`PROTAL_FLEX_BENCH=1`, since 2026-10-07 [`scripts/flex_scan_bench.cpp`](scripts/flex_scan_bench.cpp): 0.41 against 2.0-2.2 ns
 per cell for 70-cell blocks, scoring and the ties together, where `ScoreAvx2` alone took 1.07 on 2026-10-05);
 `PackedIndex.LookupsGiveTheSameSeedsWithAndWithoutAvx2` (a packed index of 3,000 keys, keys whose flex part matches
 exactly, in a few bases or not at all, ubiquity 256 and 3: the same seeds, flags and order, the same lookups dropped);

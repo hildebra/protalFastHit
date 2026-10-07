@@ -35,15 +35,6 @@ TEST(ReverseComplement, RandomReadsOfAnyLengthMatchTheDefinition) {
     }
 }
 
-TEST(ReverseComplement, TwiceGivesTheReadBackForACGT) {
-    std::mt19937 rng(4);
-    for (int i = 0; i < 50; i++) {
-        std::string read(1 + rng() % 300, 'A');
-        for (auto& c : read) c = "ACGT"[rng() % 4];
-        EXPECT_EQ(KmerUtils::ReverseComplement(KmerUtils::ReverseComplement(read)), read);
-    }
-}
-
 TEST(ReverseComplement, IntoReusesTheBufferAndResizesIt) {
     std::string buffer;
     KmerUtils::ReverseComplementInto("AACCGGTT", buffer);

@@ -11,25 +11,14 @@
 #include <vector>
 #include <unistd.h>
 #include "Classify.h"
+#include "TestReference.h"
 
 using namespace protal;
 
 namespace {
     // The join takes a genome loader and does not use it: one of a one-gene reference.
-    struct OneGeneLoader {
-        std::filesystem::path dir = std::filesystem::temp_directory_path() / ("protal pair join test " + std::to_string(::getpid()));
-        std::unique_ptr<GenomeLoader> loader;
-        OneGeneLoader() {
-            std::filesystem::create_directories(dir);
-            std::string const header = ">1_1\n", gene(100, 'A');
-            std::ofstream(dir / "reference.fna", std::ios::binary) << header << gene << '\n';
-            std::ofstream(dir / "reference.map", std::ios::binary) << "1\t1\t" << header.size() << '\t' << header.size() + gene.size() << '\n';
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-        }
-        ~OneGeneLoader() {
-            loader.reset();
-            std::filesystem::remove_all(dir);
-        }
+    struct OneGeneLoader : test::LoadedReference {
+        OneGeneLoader() : LoadedReference({ { 1, { std::string(100, 'A') } } }, "pair join") {}
     };
 
     // The join written plainly, as the definition: a mate-2 candidate that pairs is not also on its own (until

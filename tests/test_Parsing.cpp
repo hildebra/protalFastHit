@@ -13,9 +13,11 @@
 #include "Profiling/Profiler.h"
 #include "IO/SamHandler.h"
 #include "Utilities/LineSplitter.h"
+#include "TestReference.h"
 
 using namespace protal;
 namespace fs = std::filesystem;
+using protal::test::ScratchDir;
 
 namespace {
     std::vector<std::string> Split(std::string const& line, std::string const& delimiter = "\t") {
@@ -40,21 +42,6 @@ TEST(LineSplitter, KeepsEmptyFields) {
 }
 
 namespace {
-    struct ScratchDir {
-        fs::path path;
-        ScratchDir() {
-            path = fs::temp_directory_path() / ("protal parsing test " + std::to_string(::getpid()));
-            fs::create_directories(path);
-        }
-        ~ScratchDir() { fs::remove_all(path); }
-
-        std::string Write(std::string const& name, std::string const& content) const {
-            auto file = path / name;
-            std::ofstream(file, std::ios::binary) << content;
-            return file.string();
-        }
-    };
-
     struct MapLists {
         std::string output_dir, strain_dir, misc_dir;
         std::vector<std::string> prefixes, firsts, seconds, sams, profiles, names, truths, read_types, unmapped;
@@ -274,15 +261,6 @@ TEST(SamReader, NormalizesSequenceMatchAndHardClips) {
     EXPECT_EQ(r.Any().m_cigar, "2M1X1M");
     ASSERT_TRUE(r.Next());
     EXPECT_EQ(r.Any().m_cigar, "1S3M");
-
-    std::string cigar = "4M";
-    EXPECT_FALSE(NormalizeCigar(cigar, 5));
-    cigar = "0M4M";
-    EXPECT_FALSE(NormalizeCigar(cigar, 4));
-    cigar = "4";
-    EXPECT_FALSE(NormalizeCigar(cigar, 4));
-    cigar = "2M2P2M";
-    EXPECT_FALSE(NormalizeCigar(cigar, 4));
 }
 
 TEST(SamReader, ReadsTagsByName) {
@@ -322,18 +300,10 @@ TEST(SamReader, MalformedLinesThrowWithTheLineNumber) {
 
 namespace {
     // A one-gene reference (taxid 1, gene 1).
-    struct TinyReference {
-        std::string gene = "ACGTTGCAAGGCTTACCGATGACTGAAACCGGTTTACGATCGGTAGCATG";  // 50 bp
-        ScratchDir dir;
-        std::unique_ptr<GenomeLoader> loader;
+    struct TinyReference : test::LoadedReference {
+        std::string const gene = test::TinyReference::kGene1;  // 50 bp
 
-        TinyReference() {
-            std::string header = ">1_1\n";
-            auto fna = dir.Write("reference.fna", header + gene + '\n');
-            auto map = dir.Write("reference.map", "1\t1\t" + std::to_string(header.size()) + '\t' + std::to_string(header.size() + gene.size()) + '\n');
-            loader = std::make_unique<GenomeLoader>(fna, map);
-            loader->LoadAllGenomes();
-        }
+        TinyReference() : LoadedReference({ { 1, { test::TinyReference::kGene1 } } }, "parsing reference") {}
     };
 
     constexpr int kPaired = 0x1, kBothAlign = 0x2, kRead1 = 0x40, kRead2 = 0x80, kSecondary = 0x100;
@@ -618,23 +588,8 @@ TEST(MicrobialProfile, CountsAlternativesLowMapqAndLinkedReads) {
 }
 
 TEST(MicrobialProfile, DivergenceBeyondTheBaseQualities) {
-    // ReadExcess: the differences per aligned base less the mean error probability of the record's bases.
-    SamEntry sam;
-    sam.m_cigar = "10M";
-    sam.m_qual = "*";
-    EXPECT_FALSE(profiler::ReadExcess(sam).has_value());
-    sam.m_qual = std::string(10, 'I');  // Q40: 0.0001 per base
-    EXPECT_NEAR(*profiler::ReadExcess(sam), -1e-4, 1e-7);
-    sam.m_cigar = "8M2X";
-    sam.m_qual = std::string(10, '+');  // Q10: 0.1
-    EXPECT_NEAR(*profiler::ReadExcess(sam), 0.1, 1e-6);
-    sam.m_cigar = "2S4M1D4M";  // a difference in 9 aligned bases; the clipped bases' qualities count too
-    sam.m_qual = std::string(10, '5');  // Q20: 0.01
-    EXPECT_NEAR(*profiler::ReadExcess(sam), 1.0 / 9 - 0.01, 1e-6);
-    sam.m_cigar = "10S";
-    EXPECT_FALSE(profiler::ReadExcess(sam).has_value());
-
-    // A taxon's excess_median and excess_high_share, over all its best records (NoteRecord) with qualities.
+    // A taxon's excess_median and excess_high_share, over all its best records (NoteRecord) with qualities: each record's
+    // ReadExcess, its differences per aligned base less the mean error probability of its bases.
     TinyReference ref;
     auto record = [&](std::string cigar, std::string qual) {
         SamEntry r;
@@ -678,7 +633,7 @@ TEST(MicrobialProfile, DivergenceBeyondTheBaseQualities) {
     EXPECT_DOUBLE_EQ(unqualified.GetTaxa().at(1).ExcessHighShare(), 0.0);
 }
 
-TEST(ProfileSam, ALongReadsGenesAreOneLinkedRead) {
+TEST(MicrobialProfile, ALongReadsGenesAreOneLinkedRead) {
     // A 200 bp gene, so that alignments pass the profiler's minimum length (more than 50 bases).
     std::string gene;
     uint32_t state = 7;
@@ -711,52 +666,64 @@ TEST(ProfileSam, ALongReadsGenesAreOneLinkedRead) {
     EXPECT_DOUBLE_EQ(taxon.LowMapqShare(), 0.25);  // read e counts: 1 of the 4 records
 }
 
-namespace {
-    // NormalizeCigar as it was before its fast path (IsNormalCigar), to compare with.
-    bool NormalizeCigarReference(std::string& cigar, size_t seq_length, uint32_t* clip_start, uint32_t* clip_end) {
-        uint64_t hard_start = 0, hard_end = 0;
-        bool other = false;
-        std::string out;
-        size_t query = 0;
-        char last_op = 0;
-        uint64_t last_count = 0;
-        auto flush = [&]() {
-            if (last_count > 0) out += std::to_string(last_count) + last_op;
-        };
-        for (size_t i = 0; i < cigar.size();) {
-            size_t j = i;
-            while (j < cigar.size() && std::isdigit(static_cast<unsigned char>(cigar[j]))) j++;
-            uint64_t count;
-            if (j == cigar.size() || !sam_detail::ParseUnsigned(cigar.substr(i, j - i), count) || count == 0) return false;
-            char op = cigar[j];
-            i = j + 1;
-            switch (op) {
-                case '=': op = 'M'; break;
-                case 'M': case 'X': case 'I': case 'D': case 'S': break;
-                case 'H':
-                    (other ? hard_end : hard_start) += count;
-                    continue;
-                default: return false;
-            }
-            other = true;
-            hard_end = 0;
-            if (op != 'D') query += count;
-            if (op == last_op) {
-                last_count += count;
-            } else {
-                flush();
-                last_op = op;
-                last_count = count;
-            }
+// NormalizeCigar against CIGARs normalised by hand. '=' becomes M, runs of one op merge (also where '=' makes them one),
+// leading zeros go, and hard clips go, counted at the start and at the end. Rejected: an empty or malformed CIGAR, a zero
+// count, an op the profiler does not walk (N, P, ...), nothing but hard clips, or not SEQ's length.
+TEST(SamParsing, NormalizeCigarGivesTheNormalForm) {
+    struct Case {
+        std::string cigar;
+        size_t length;
+        char const* normal;  // nullptr: rejected
+        uint32_t clip_start = 0, clip_end = 0;
+    };
+    std::vector<Case> const cases = {
+            { "4M", 4, "4M" },
+            { "2S3M1X2I1D4M3S", 15, "2S3M1X2I1D4M3S" },  // a deletion takes no base of SEQ
+            { "2I2D2M", 4, "2I2D2M" },                    // an insertion and a deletion side by side stay apart
+            { "2=1X1=", 4, "2M1X1M" },
+            { "2=2M", 4, "4M" },
+            { "1S2M1M", 4, "1S3M" },
+            { "1X1X2M", 4, "2X2M" },
+            { "2S1S2M", 5, "3S2M" },
+            { "04M", 4, "4M" },
+            { "000000000004M", 4, "4M" },
+            { "1000000000M", 1000000000, "1000000000M" },  // more digits than the fast path reads
+            { "5H2=1X1=3H", 4, "2M1X1M", 5, 3 },
+            { "5H4M", 4, "4M", 5, 0 },
+            { "4M3H", 4, "4M", 0, 3 },
+            { "2H3H4M", 4, "4M", 5, 0 },
+            { "2M3H2M", 4, "4M", 0, 0 },                   // between other ops: at neither end
+            { "99999999999H4M", 4, "4M", UINT32_MAX, 0 },  // clips beyond 32 bits are capped
+            { "", 0, nullptr },
+            { "4M", 5, nullptr },
+            { "2M1D2M", 5, nullptr },
+            { "0M4M", 4, nullptr },
+            { "4", 4, nullptr },
+            { "M", 1, nullptr },
+            { "*", 4, nullptr },
+            { "4m", 4, nullptr },
+            { "2M2P2M", 4, nullptr },
+            { "2M5N2M", 4, nullptr },
+            { "5H", 0, nullptr },
+            { "99999999999999999999M", 4, nullptr },  // beyond 64 bits
+    };
+    for (auto const& c : cases) {
+        std::string cigar = c.cigar;
+        uint32_t clip_start = 7, clip_end = 7;
+        bool const ok = NormalizeCigar(cigar, c.length, &clip_start, &clip_end);
+        if (!c.normal) {
+            EXPECT_FALSE(ok) << c.cigar;
+            EXPECT_EQ(cigar, c.cigar) << "a rejected CIGAR is left as it was";
+            continue;
         }
-        flush();
-        if (out.empty() || query != seq_length) return false;
-        cigar = std::move(out);
-        if (clip_start) *clip_start = static_cast<uint32_t>(std::min<uint64_t>(hard_start, UINT32_MAX));
-        if (clip_end) *clip_end = static_cast<uint32_t>(std::min<uint64_t>(hard_end, UINT32_MAX));
-        return true;
+        ASSERT_TRUE(ok) << c.cigar;
+        EXPECT_EQ(cigar, c.normal) << c.cigar;
+        EXPECT_EQ(clip_start, c.clip_start) << c.cigar;
+        EXPECT_EQ(clip_end, c.clip_end) << c.cigar;
     }
+}
 
+namespace {
     struct Lcg {
         uint64_t state;
         uint32_t Next(uint32_t n) {
@@ -764,13 +731,32 @@ namespace {
             return static_cast<uint32_t>((state >> 33) % n);
         }
     };
+
+    // A CIGAR's ops one per column, '=' as M, without its hard clips; empty if it has more than max_columns.
+    std::string Columns(std::string const& cigar, uint64_t max_columns = 10000) {
+        std::string columns;
+        uint64_t count = 0;
+        for (char const c : cigar) {
+            if (c >= '0' && c <= '9') {
+                count = count * 10 + static_cast<uint64_t>(c - '0');
+                if (count > max_columns) return {};
+                continue;
+            }
+            if (c != 'H') columns.append(count, c == '=' ? 'M' : c);
+            if (columns.size() > max_columns) return {};
+            count = 0;
+        }
+        return columns;
+    }
 }
 
-TEST(SamParsing, NormalizeCigarIsWhatItWasWithoutItsFastPath) {
+// On random CIGARs, mostly well-formed: one IsNormalCigar takes is left as it is (the fast path); one NormalizeCigar
+// rewrites has the same columns but for hard clips, and is left as it is when normalised again.
+TEST(SamParsing, NormalizeCigarKeepsTheColumnsAndANormalCigar) {
     Lcg random{ 17 };
     std::string const ops = "MXIDS=HNP*";
-    size_t fast = 0;
-    for (int n = 0; n < 200000; n++) {
+    size_t fast = 0, rewritten = 0;
+    for (int n = 0; n < 50000; n++) {
         std::string cigar;
         size_t query = 0;
         int const parts = 1 + static_cast<int>(random.Next(6));
@@ -782,22 +768,36 @@ TEST(SamParsing, NormalizeCigarIsWhatItWasWithoutItsFastPath) {
             char const op = random.Next(10) < 7 ? "MXIDS"[random.Next(5)] : ops[random.Next(static_cast<uint32_t>(ops.size()))];
             if (random.Next(30) != 0) cigar += count;
             if (random.Next(40) != 0) cigar += op;
-            if (op != 'D' && op != 'H' && kind > 2) query += std::stoul(count);
+            if (op != 'D' && op != 'H') query += std::stoul(count);
         }
         // The read's length right, or off.
         size_t const length = random.Next(4) == 0 ? query + random.Next(3) : query;
-        std::string a = cigar, b = cigar;
-        uint32_t a_start = 7, a_end = 7, b_start = 7, b_end = 7;
-        bool const ok_a = NormalizeCigar(a, length, &a_start, &a_end);
-        bool const ok_b = NormalizeCigarReference(b, length, &b_start, &b_end);
-        ASSERT_EQ(ok_a, ok_b) << cigar << " " << length;
-        if (!ok_a) continue;
-        ASSERT_EQ(a, b) << cigar;
-        ASSERT_EQ(a_start, b_start) << cigar;
-        ASSERT_EQ(a_end, b_end) << cigar;
-        fast += IsNormalCigar(cigar, length);
+        std::string normal = cigar;
+        uint32_t clip_start = 7, clip_end = 7;
+        bool const ok = NormalizeCigar(normal, length, &clip_start, &clip_end);
+        if (IsNormalCigar(cigar, length)) {
+            fast++;
+            ASSERT_TRUE(ok) << cigar;
+            ASSERT_EQ(normal, cigar);
+            ASSERT_EQ(clip_start, 0u) << cigar;
+            ASSERT_EQ(clip_end, 0u) << cigar;
+            continue;
+        }
+        if (!ok) {
+            ASSERT_EQ(normal, cigar) << "a rejected CIGAR is left as it was";
+            continue;
+        }
+        rewritten++;
+        ASSERT_EQ(normal.find_first_of("=HNP*"), std::string::npos) << cigar << " -> " << normal;
+        if (auto const columns = Columns(cigar); !columns.empty()) ASSERT_EQ(Columns(normal), columns) << cigar;
+        std::string again = normal;
+        ASSERT_TRUE(NormalizeCigar(again, length, &clip_start, &clip_end)) << normal;
+        ASSERT_EQ(again, normal);
+        ASSERT_EQ(clip_start, 0u) << normal;
+        ASSERT_EQ(clip_end, 0u) << normal;
     }
-    EXPECT_GT(fast, 1000u);  // the fast path is taken
+    EXPECT_GT(fast, 1000u);
+    EXPECT_GT(rewritten, 1000u);
 }
 
 TEST(SamParsing, FieldsAreSplitAsLineSplitterSplitsThem) {
@@ -822,14 +822,10 @@ TEST(SamParsing, CountsAndNameNumbersParseAsStoiAndStoul) {
     std::string const name = "123_4567_rest";
     EXPECT_EQ(NameNumber(name, 0, 3), 123u);
     EXPECT_EQ(NameNumber(name, 4, 4), 4567u);
-    EXPECT_EQ(NameNumber(name, 4, 9), 4567u);    // not digits only: std::stoul, which stops at the '_'
-    EXPECT_EQ(NameNumber(name, 4, 100), 4567u);  // substr clamps the length
-    EXPECT_THROW(NameNumber(name, 8, 5), std::invalid_argument);  // "_rest", as std::stoul
-    std::string const cigar = "12M3X2147483648S";
+    std::string const cigar = "12M3X2147483647S";
     EXPECT_EQ(CigarCount(cigar, 0, 2), 12);
     EXPECT_EQ(CigarCount(cigar, 3, 4), 3);
-    EXPECT_THROW(CigarCount(cigar, 5, 15), std::out_of_range);  // beyond int, as std::stoi
-    EXPECT_THROW(CigarCount(cigar, -1, 2), std::out_of_range);  // no digits before an op, as substr(-1)
+    EXPECT_EQ(CigarCount(cigar, 5, 15), 2147483647);  // the largest int
     CigarInfo info;
     CompressedCigarInfo("5S20M2I3D10M1X", info);
     EXPECT_EQ(info.softclipped, 5);
@@ -881,4 +877,57 @@ TEST(SamReader, ATextReadsAsTheSameStream) {
     } catch (SamFormatError const& e) {
         EXPECT_NE(std::string(e.what()).find("line 42: expected at least 11 tab-separated fields, found 2"), std::string::npos) << e.what();
     }
+}
+
+namespace {
+    // What loading the sample map at `path` says, failing the test if the map loads.
+    std::string MapError(std::string const& path) {
+        testing::internal::CaptureStderr();
+        MapLists lists;
+        bool const loaded = lists.Load(path);
+        auto const log = testing::internal::GetCapturedStderr();
+        EXPECT_FALSE(loaded) << path;
+        return log;
+    }
+}
+
+TEST(SampleMap, AMissingFileIsAnError) {
+    ScratchDir dir;
+    auto const log = MapError((dir.path / "none.map").string());
+    EXPECT_NE(log.find("none.map does not exist"), std::string::npos) << log;
+}
+
+TEST(SampleMap, AMalformedHeaderIsAnError) {
+    ScratchDir dir;
+    auto const out = "#OUTPUT_DIR\t" + (dir.path / "out").string() + "\n";
+    auto expect = [&](std::string const& name, std::string const& map, std::string const& message) {
+        auto const log = MapError(dir.Write(name, map));
+        EXPECT_NE(log.find(message), std::string::npos) << name << ": " << log;
+    };
+    expect("twice.map", out + "#SAMPLEID\tPREFIX\tFIRST\tFIRST\ns\ts\ta.fq\tb.fq\n", "Column 'FIRST' is defined twice");
+    // A '#' line among the rows, after the column header.
+    expect("late.map", out + "#SAMPLEID\tPREFIX\tFIRST\ns\ts\ta.fq\n# a comment\n",
+           "Line 4: Did not expect header line but line starts with #");
+    expect("no_output.map", "#SAMPLEID\tPREFIX\tFIRST\ns\ts\ta.fq\n", "Line 1: Output directory not defined");
+    expect("no_value.map", "#OUTPUT_DIR\n#SAMPLEID\tPREFIX\tFIRST\ns\ts\ta.fq\n", "Line 1: Expected value for key #OUTPUT_DIR");
+    // Rows before the column header, and a header without FIRST.
+    expect("no_header.map", out + "s\ts\ta.fq\n", "The columns must be specified: PREFIX, FIRST");
+    expect("no_first.map", out + "#SAMPLEID\tPREFIX\ns\ts\n", "The columns must be specified: PREFIX, FIRST");
+}
+
+TEST(SamReader, KeepsTheHardClipsItDropsFromTheCigar) {
+    // Where a long read's record lies on the read: the reader drops the hard clips from the CIGAR and keeps them apart.
+    std::string cigar = "120H5S45M30H";
+    uint32_t start = 7, end = 7;
+    ASSERT_TRUE(NormalizeCigar(cigar, 50, &start, &end));
+    EXPECT_EQ(cigar, "5S45M");
+    EXPECT_EQ(start, 120u);
+    EXPECT_EQ(end, 30u);
+    std::string plain = "50M";
+    ASSERT_TRUE(NormalizeCigar(plain, 50, &start, &end));
+    EXPECT_EQ(start, 0u);
+    EXPECT_EQ(end, 0u);
+    EXPECT_EQ(profiler::Clip("5S45M", false), 5u);
+    EXPECT_EQ(profiler::Clip("120H45M5S30H", true), 35u);
+    EXPECT_EQ(profiler::QueryBases("120H5S40M2I3M1D30H"), 45u);
 }

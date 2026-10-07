@@ -1,16 +1,20 @@
 // Unit tests for the single-file database (Utilities/Database.h): writing it from seekable and other
 // files, reading members sequentially and in parallel, the index's column chunks and the reference
-// read through member frames, where --db points (Locate), and failures on truncated or corrupt files;
-// the genes' conservation factors (gene_conservation.tsv): reading, writing and estimating them.
+// read through member frames, where --db points (Locate), and failures on truncated or corrupt files.
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <random>
+#include <set>
 #include <sstream>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 #include <unistd.h>
 #include "ReadType.h"
@@ -19,47 +23,13 @@
 #include "Hash/IndexCodec.h"
 #include "SequenceUtils/GenomeLoader.h"
 #include "Taxonomy/Taxonomy.h"
+#include "TestUtil.h"
 
 namespace fs = std::filesystem;
 using namespace protal;
+using namespace protal::test;
 
 namespace {
-    struct TempDir {
-        fs::path dir;
-        TempDir() {
-            dir = fs::temp_directory_path() / ("protal_dbtest_" + std::to_string(::getpid()));
-            fs::remove_all(dir);
-            fs::create_directories(dir);
-        }
-        ~TempDir() { fs::remove_all(dir); }
-        std::string operator/(std::string const& name) const { return (dir / name).string(); }
-    };
-
-    std::string TestData(size_t size, unsigned seed = 1) {
-        std::mt19937 rng(seed);
-        std::string s;
-        s.reserve(size);
-        while (s.size() < size) {
-            if (s.size() > 1000 && rng() % 4 == 0) {
-                size_t const from = rng() % (s.size() - 500);
-                s.append(s, from, std::min<size_t>(300, size - s.size()));
-            } else {
-                s.push_back("ACGT"[rng() % 4]);
-            }
-        }
-        return s;
-    }
-
-    std::string Slurp(std::string const& path) {
-        std::ifstream is(path, std::ios::binary);
-        return {std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>()};
-    }
-
-    std::string Spit(std::string const& path, std::string const& data) {
-        std::ofstream os(path, std::ios::binary);
-        os << data;
-        return path;
-    }
 
     // Collects what ParallelRead delivers.
     struct StringSink : zstd::Sink {
@@ -86,7 +56,7 @@ namespace {
 // Seekable sources are copied frame by frame, the others compressed into frames; every member reads
 // back as its source, sequentially and with any number of threads.
 TEST(Database, MembersReadBackAsTheirSources) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string const seekable_data = TestData(20000, 1), raw_data = TestData(9000, 2), single_data = TestData(3000, 3);
     std::string error;
     Spit(tmp / "seekable.txt", seekable_data);
@@ -147,7 +117,7 @@ TEST(Database, MembersReadBackAsTheirSources) {
 }
 
 TEST(Database, OtherFilesAreNotSingleFileDatabases) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string error;
     Spit(tmp / "raw.txt", TestData(5000));
     ASSERT_TRUE(zstd::CompressFile(tmp / "raw.txt", tmp / "seekable.zst", SmallFrames(1000), false, error)) << error;
@@ -160,7 +130,7 @@ TEST(Database, OtherFilesAreNotSingleFileDatabases) {
 
 // Truncated or corrupt files fail with a message, not with wrong content.
 TEST(Database, TruncatedAndCorruptFilesFail) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string error;
     std::string const data = TestData(30000, 7);
     Spit(tmp / "data.txt", data);
@@ -186,10 +156,80 @@ TEST(Database, TruncatedAndCorruptFilesFail) {
     EXPECT_FALSE(error.empty());
 }
 
+namespace {
+    using Listed = std::tuple<std::string, uint64_t, uint64_t>;  // a member's name, first frame and number of frames
+
+    // A directory: the magic, the version, the member count (that of `members` unless given), then the members.
+    std::string Directory(std::vector<Listed> const& members, uint64_t version = db::kVersion,
+                          std::optional<uint64_t> count = std::nullopt) {
+        std::string directory(db::kMagic, db::kMagic + 8);
+        db::detail::PutU64(directory, version);
+        db::detail::PutU64(directory, count.value_or(members.size()));
+        for (auto const& [name, first, frames] : members) {
+            db::detail::PutU64(directory, name.size());
+            directory += name;
+            db::detail::PutU64(directory, first);
+            db::detail::PutU64(directory, frames);
+        }
+        return directory;
+    }
+
+    // A file in the single-file format: `directory` in a raw frame (as db::Write writes it), `frames` frames of a few
+    // bytes ("frame 0", "frame 1", ...) and the seek table, which gives the directory's content size as
+    // `directory_size` if set.
+    std::string WriteWithDirectory(ScratchDir const& tmp, std::string const& name, std::string const& directory, size_t frames,
+                                   std::optional<uint64_t> directory_size = std::nullopt) {
+        std::string const path = tmp / name;
+        zstd::FrameWriter out(path);
+        std::string const head = db::detail::RawFrame(directory);
+        EXPECT_TRUE(out.Add(head.data(), head.size(), directory_size.value_or(directory.size())));
+        for (size_t i = 0; i < frames; i++) {
+            std::string const content = "frame " + std::to_string(i);
+            std::string const frame = db::detail::RawFrame(content);
+            EXPECT_TRUE(out.Add(frame.data(), frame.size(), content.size()));
+        }
+        EXPECT_TRUE(out.Finish()) << out.Error();
+        return path;
+    }
+}
+
+// Bundle::Open checks a directory before it uses it: each kind of damage fails with its own message.
+TEST(Database, ADamagedDirectoryIsRejected) {
+    ScratchDir tmp;
+    std::string error;
+    std::vector<Listed> const members = {{"a.txt", 1, 1}, {"b.txt", 2, 2}};
+    auto const good = db::Bundle::Open(WriteWithDirectory(tmp, "good.protal", Directory(members), 3), error);
+    ASSERT_TRUE(good) << error;
+    EXPECT_EQ(Content(db::DbFile::InBundle(*good, "b.txt")), "frame 1frame 2");
+
+    std::vector<std::pair<std::string, std::string>> const cases = {  // directory, message
+        {Directory(members, db::kVersion + 1), "version " + std::to_string(db::kVersion + 1) + " of the single-file format"},
+        {std::string(db::kMagic, db::kMagic + 8) + "abc", "invalid directory: too short"},
+        {Directory(members, db::kVersion, 5), "invalid directory: member count"},  // more members than frames
+        {Directory({{"a.txt", 1, 1}, {"b.txt", 3, 1}}), "the members do not tile the file"},
+        {Directory({{"a.txt", 1, 1}, {"b.txt", 2, 1}}), "the members do not cover the file"},
+        {Directory({{"a.txt", 1, 1}, {"a.txt", 2, 2}}), "member a.txt is listed twice"},
+        {Directory({{"../a.txt", 1, 1}, {"b.txt", 2, 2}}), "member name '../a.txt' is not a file name"},
+        {Directory({{db::kFileName, 1, 1}, {"b.txt", 2, 2}}), "member name '" + db::kFileName + "' is not a file name"},
+        {Directory({{"", 1, 1}, {"b.txt", 2, 2}}), "invalid directory: member name (corrupt file?)"},
+        {Directory(members) + "x", "unexpected data after the member list"},
+    };
+    for (size_t i = 0; i < cases.size(); i++) {
+        auto const& [directory, message] = cases[i];
+        error.clear();
+        EXPECT_FALSE(db::Bundle::Open(WriteWithDirectory(tmp, "bad" + std::to_string(i) + ".protal", directory, 3), error)) << message;
+        EXPECT_NE(error.find(message), std::string::npos) << "expected: " << message << "; got: " << error;
+    }
+    // A first frame of more than 16 MB (as its seek table entry says) that starts as a directory.
+    error.clear();
+    EXPECT_FALSE(db::Bundle::Open(WriteWithDirectory(tmp, "large.protal", Directory(members), 3, (uint64_t{16} << 20) + 1), error));
+    EXPECT_NE(error.find("invalid directory: larger than 16 MB"), std::string::npos) << error;
+}
+
 // A database rewritten from its own members' frames with one member replaced (as --add_model does):
 // the others are byte-identical frames, the new one reads back.
 TEST(Database, RewriteWithOneMemberReplaced) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string error;
     std::string const big = TestData(40000, 3), model = "<PMML>old</PMML>", replaced = "<PMML>new model</PMML>";
     Spit(tmp / "big.txt", big);
@@ -235,7 +275,7 @@ TEST(Database, TheDirectoryFrameIsRaw) {
         EXPECT_EQ(got, n);
         EXPECT_EQ(out, content) << n;
     }
-    TempDir tmp;
+    ScratchDir tmp;
     std::string error;
     Spit(tmp / "a.txt", TestData(5000));
     ASSERT_TRUE(db::Write(tmp / "database.protal", {{"a.txt", tmp / "a.txt"}}, SmallFrames(4096), error)) << error;
@@ -247,7 +287,7 @@ TEST(Database, TheDirectoryFrameIsRaw) {
 namespace {
     // A database of `big` (copied from a seekable file), other.txt, and two models, the models last.
     struct ModelDatabase {
-        TempDir tmp;
+        ScratchDir tmp;
         std::string big = TestData(40000, 3), other = TestData(7000, 4), pe = "<PMML>pe</PMML>", se = "<PMML>se</PMML>";
         std::string path = tmp / "database.protal";
 
@@ -423,18 +463,29 @@ TEST(Database, AnInterruptedReplacementIsWrittenBack) {
     EXPECT_FALSE(fs::exists(journal_path));
 }
 
+// Each read type's model files, in order of precedence (paired-end reads: also those of databases from before read
+// types), all among the files a database may hold; each token names its read type.
 TEST(Database, ModelsPerReadType) {
     EXPECT_EQ(ModelCandidates(ReadType::Paired), (std::vector<std::string>{"model_pe.xml", "model.xml", "random_forest.xml"}));
     EXPECT_EQ(ModelCandidates(ReadType::Single), std::vector<std::string>{"model_se.xml"});
     EXPECT_EQ(ModelCandidates(ReadType::PacBio), std::vector<std::string>{"model_PB.xml"});
     EXPECT_EQ(ModelCandidates(ReadType::ONT), std::vector<std::string>{"model_ONT.xml"});
+    auto const all = AllModelFiles();
+    EXPECT_EQ(std::set<std::string>(all.begin(), all.end()).size(), all.size()) << "each file once";
+    for (auto const type : {ReadType::Paired, ReadType::Single, ReadType::PacBio, ReadType::ONT}) {
+        for (auto const& name : ModelCandidates(type)) EXPECT_NE(std::find(all.begin(), all.end(), name), all.end()) << name;
+    }
+    EXPECT_EQ(ReadTypeFromToken("pe"), std::optional<ReadType>(ReadType::Paired));
+    EXPECT_EQ(ReadTypeFromToken("se"), std::optional<ReadType>(ReadType::Single));
+    EXPECT_EQ(ReadTypeFromToken("pb"), std::optional<ReadType>(ReadType::PacBio));
+    EXPECT_EQ(ReadTypeFromToken("ont"), std::optional<ReadType>(ReadType::ONT));
     EXPECT_EQ(ReadTypeFromToken("illumina"), std::nullopt);
+    EXPECT_EQ(ReadTypeFromToken(""), std::nullopt);
     EXPECT_EQ(ReadTypeTokens(), "pe, se, pb, ont");
-    EXPECT_EQ(AllModelFiles().size(), 6u);
 }
 
 TEST(Database, WriteRejectsBadMembers) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::string error;
     Spit(tmp / "a.txt", "a");
     EXPECT_FALSE(db::Write(tmp / "x.protal", {{"../a.txt", tmp / "a.txt"}}, SmallFrames(100), error));
@@ -447,7 +498,7 @@ TEST(Database, WriteRejectsBadMembers) {
 
 // Separate files next to database.protal take precedence; a file given as --db is the database.
 TEST(Database, LocatePrefersSeparateFiles) {
-    TempDir tmp;
+    ScratchDir tmp;
     fs::create_directories(tmp / "only");
     fs::create_directories(tmp / "both");
     fs::create_directories(tmp / "none");
@@ -473,7 +524,7 @@ TEST(Database, LocatePrefersSeparateFiles) {
 // A path with nothing at it is missing, not a folder of separate files; one that cannot be looked at
 // says why.
 TEST(Database, LocateReportsAMissingPath) {
-    TempDir tmp;
+    ScratchDir tmp;
     Spit(tmp / "file", "x");
     for (auto const& path : {tmp / "nothing", tmp / "nothing/database.protal", tmp / "file/database.protal", std::string()}) {
         auto const missing = db::Locate(path);
@@ -490,7 +541,7 @@ TEST(Database, LocateReportsAMissingPath) {
 
 // The index's column chunks decode from the member's frames as from index.prx.zst.
 TEST(Database, IndexChunksDecodeFromTheMember) {
-    TempDir tmp;
+    ScratchDir tmp;
     index_codec::Layout layout;
     layout.blocks = 3000;
     std::vector<uint16_t> keymap(layout.KeymapCells(), 0);
@@ -537,7 +588,7 @@ TEST(Database, IndexChunksDecodeFromTheMember) {
 // The reference, its map and the taxonomy load from a single-file database as from the files, with
 // the same fingerprint.
 TEST(Database, ReferenceAndTaxonomyLoadFromMembers) {
-    TempDir tmp;
+    ScratchDir tmp;
     std::vector<std::pair<std::string, std::string>> records;
     for (int i = 1; i <= 30; i++) records.emplace_back("1_" + std::to_string(i), TestData(300 + 41 * i, 10 + i));
     {
@@ -583,200 +634,4 @@ TEST(Database, ReferenceAndTaxonomyLoadFromMembers) {
     taxonomy::IntTaxonomy taxonomy(input->Stream(), taxonomy_file.Name());
     EXPECT_EQ(taxonomy.Get("s__Mockella alpha"), 1u);
     EXPECT_EQ(taxonomy.root_id, 2u);
-}
-
-// gene_conservation.tsv (SequenceUtils/GeneConservation.h): the factors that scale the depth identity
-// margin per gene, as --build estimates and writes them and queries read them.
-namespace {
-    std::string RandomBases(std::mt19937& rng, size_t n) {
-        static constexpr char kBases[] = "ACGT";
-        std::string s(n, 'A');
-        for (auto& c : s) c = kBases[rng() % 4];
-        return s;
-    }
-
-    // seq with a share `rate` of its bases substituted.
-    std::string Mutate(std::mt19937& rng, std::string seq, double rate) {
-        static constexpr char kBases[] = "ACGT";
-        std::bernoulli_distribution change(rate);
-        for (auto& c : seq) {
-            if (!change(rng)) continue;
-            char other = c;
-            while (other == c) other = kBases[rng() % 4];
-            c = other;
-        }
-        return seq;
-    }
-}
-
-TEST(GeneConservation, TheMarginIsFixedForReadErrorsAndScaledForTheRest) {
-    using gene_conservation::GeneMargin;
-    EXPECT_NEAR(GeneMargin(0.08, 1.0), 0.08, 1e-12);  // a gene of typical conservation: the margin
-    EXPECT_NEAR(GeneMargin(0.08, 0.4), 0.05, 1e-12);  // 0.03 + 0.05 x 0.4
-    EXPECT_NEAR(GeneMargin(0.08, 1.6), 0.11, 1e-12);
-    EXPECT_NEAR(GeneMargin(0.02, 3.0), 0.02, 1e-12);  // below the fixed part: not scaled
-    EXPECT_EQ(GeneMargin(1.0, 0.4), 1.0);             // every read counts
-}
-
-TEST(GeneConservation, TheTableReadsWhatItWrites) {
-    gene_conservation::Table table;
-    table.Set(3, 0.4, 25);
-    table.Set(120, 1.62, 40);
-    EXPECT_EQ(table.Genes(), 2u);
-    std::stringstream ss;
-    table.Write(ss);
-    EXPECT_EQ(ss.str(), "geneid\tfactor\tspecies\n3\t0.4000\t25\n120\t1.6200\t40\n");
-    gene_conservation::Table read;
-    ASSERT_EQ(read.Read(ss), "");
-    EXPECT_EQ(read.Genes(), 2u);
-    EXPECT_NEAR(read.Factor(3), 0.4, 1e-6);
-    EXPECT_NEAR(read.Factor(120), 1.62, 1e-6);
-    EXPECT_EQ(read.Factor(4), 1.0);        // a gene without a factor
-    EXPECT_EQ(read.Factor(100000), 1.0);
-    auto const [low, high] = read.Range();
-    EXPECT_NEAR(low, 0.4, 1e-6);
-    EXPECT_NEAR(high, 1.62, 1e-6);
-    EXPECT_EQ(gene_conservation::Table().Range(), (std::pair<double, double>{1, 1}));
-
-    std::istringstream two_columns("# comment\n7\t0.9\n");  // the species column is optional
-    gene_conservation::Table short_table;
-    EXPECT_EQ(short_table.Read(two_columns), "");
-    EXPECT_NEAR(short_table.Factor(7), 0.9, 1e-6);
-}
-
-TEST(GeneConservation, ReadingStopsAtTheFirstBadLine) {
-    auto problem = [](std::string const& content) {
-        std::istringstream is(content);
-        gene_conservation::Table table;
-        return table.Read(is);
-    };
-    EXPECT_EQ(problem("geneid\tfactor\tspecies\n1\t1.0\t3\nx\t1.0\t3\n"), "line 3: the gene id is not a number");
-    EXPECT_EQ(problem("1 1.0\n"), "line 1: expected a gene id and a factor, separated by a tab");
-    EXPECT_EQ(problem("1\tfast\n"), "line 1: the factor is not a number");
-    EXPECT_EQ(problem("1\t0\n"), "line 1: the factor must be above 0 and at most 100");
-    EXPECT_EQ(problem("1\t-0.5\n"), "line 1: the factor must be above 0 and at most 100");
-    EXPECT_EQ(problem("1\tnan\n"), "line 1: the factor is not a number");
-    EXPECT_EQ(problem("1\t1.0\n1\t1.2\n"), "line 2: gene 1 is listed twice");
-    EXPECT_EQ(problem("1048576\t1.0\n"), "line 1: gene id 1048576 is too large");
-}
-
-TEST(GeneConservation, TheMashDistanceEstimatesTheShareOfDifferentBases) {
-    std::mt19937 rng(7);
-    std::string const gene = RandomBases(rng, 3000);
-    auto const kmers = gene_conservation::Kmers(gene);
-    EXPECT_EQ(gene_conservation::MashDistance(kmers, kmers), 0.0);
-    for (double rate : { 0.005, 0.02, 0.05 }) {
-        double const d = gene_conservation::MashDistance(kmers, gene_conservation::Kmers(Mutate(rng, gene, rate)));
-        EXPECT_NEAR(d, rate, 0.25 * rate + 0.002) << "rate " << rate;
-    }
-    EXPECT_GT(gene_conservation::MashDistance(kmers, gene_conservation::Kmers(RandomBases(rng, 3000))), 0.25);
-    EXPECT_EQ(gene_conservation::Kmers("ACGTNACGTACGTACGTAC").size(), 3u);  // the 14 bases after the N
-    EXPECT_EQ(gene_conservation::Kmers("ACGTNACGTACG").size(), 0u);         // no 12 bases without an N
-}
-
-TEST(GeneConservation, TheEstimateFollowsHowFastEachGeneDiverges) {
-    // 30 species of 21 genes: genes 1, 4, ... diverge at 0.4 times a species' rate, genes 2, 5, ... at 1,
-    // genes 3, 6, ... at 1.6; each species' 3 other genomes 0.5-3% from its representative at a gene
-    // of rate 1. The full reference lists the representative's own copy too.
-    std::mt19937 rng(11);
-    std::vector<double> const rate = { 0.4, 1.0, 1.6 };
-    std::vector<uint64_t> keys;
-    std::map<std::pair<uint64_t, uint64_t>, std::string> reference;
-    for (uint64_t taxid = 1; taxid <= 30; taxid++) {
-        for (uint64_t gene = 1; gene <= 21; gene++) {
-            keys.push_back(gene_conservation::Estimator::Key(taxid, gene));
-            reference[{taxid, gene}] = RandomBases(rng, 900);
-        }
-    }
-    // A species with identical genomes and one with only 5 genes inform nothing.
-    for (uint64_t gene = 1; gene <= 21; gene++) keys.push_back(gene_conservation::Estimator::Key(31, gene));
-    for (uint64_t gene = 1; gene <= 5; gene++) keys.push_back(gene_conservation::Estimator::Key(32, gene));
-    gene_conservation::Estimator estimator(keys);
-    for (uint64_t taxid = 1; taxid <= 30; taxid++) {
-        double const divergence = 0.005 + 0.025 * (taxid - 1) / 29.0;
-        for (uint64_t gene = 1; gene <= 21; gene++) {
-            auto const& rep = reference[{taxid, gene}];
-            auto slot = estimator.Take(taxid, gene);
-            ASSERT_TRUE(slot);
-            estimator.Add(*slot, rep, rep);  // the representative's own copy
-            for (int genome = 0; genome < 3; genome++) {
-                slot = estimator.Take(taxid, gene);
-                ASSERT_TRUE(slot);
-                estimator.Add(*slot, rep, Mutate(rng, rep, divergence * rate[(gene - 1) % 3]));
-            }
-        }
-    }
-    std::string const same = RandomBases(rng, 900);
-    for (uint64_t gene = 1; gene <= 21; gene++) {
-        for (int genome = 0; genome < 3; genome++) estimator.Add(*estimator.Take(31, gene), same, same);
-    }
-    for (uint64_t gene = 1; gene <= 5; gene++) estimator.Add(*estimator.Take(32, gene), same, Mutate(rng, same, 0.02));
-    EXPECT_FALSE(estimator.Take(33, 1)) << "not a reference gene";
-
-    auto const estimate = estimator.Finish();
-    EXPECT_EQ(estimate.species, 30u);
-    EXPECT_EQ(estimate.species_with_copies, 32u);
-    EXPECT_EQ(estimate.table.Genes(), 21u);
-    for (uint64_t gene = 1; gene <= 21; gene++) {
-        double const truth = rate[(gene - 1) % 3];
-        double const shrunk = (30 * truth + gene_conservation::kPrior) / (30 + gene_conservation::kPrior);
-        EXPECT_NEAR(estimate.table.Factor(gene), shrunk, 0.12) << "gene " << gene << ", rate " << truth;
-    }
-}
-
-TEST(GeneConservation, CongenersDifferMostOnTheFastGenes) {
-    // Genus 1: 6 species from one ancestor, each 4% from it at a gene of rate 1 (8% between two species): genes 1-6 at
-    // rate 0.3, 7-12 at 1.7, and gene 13 the same in every species. Genus 2 has one species: nothing to compare.
-    std::mt19937 rng(11);
-    std::vector<double> const rates = { 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 1.7, 1.7, 1.7, 1.7, 1.7, 1.7, 0 };
-    std::vector<std::string> ancestor;
-    for (size_t g = 0; g < rates.size(); g++) ancestor.push_back(RandomBases(rng, 1200));
-    std::map<uint32_t, std::vector<std::pair<uint64_t, std::string>>> species;
-    for (uint32_t taxid = 1; taxid <= 6; taxid++) {
-        for (size_t g = 0; g < rates.size(); g++) species[taxid].emplace_back(g + 1, Mutate(rng, ancestor[g], 0.04 * rates[g]));
-    }
-    species[7] = species[1];
-    gene_conservation::Table within;
-    for (uint64_t g = 1; g <= 12; g++) within.Set(g, g <= 6 ? 0.5 : 1.5, 6);
-    within.Set(13, 0.5, 6);
-    size_t calls = 0;
-    auto const estimate = gene_conservation::CompareCongeners({ { 1, 2, 3, 4, 5, 6 }, { 7 } }, [&](uint32_t taxid) {
-        calls++;
-        return species.at(taxid);
-    }, within, 1);
-    EXPECT_EQ(calls, 6u);  // the species of genus 1, once each
-    EXPECT_EQ(estimate.genera, 1u);
-    EXPECT_EQ(estimate.species, 6u);
-    EXPECT_EQ(estimate.pairs, 15u);  // each of 6 species against the next 4, cyclically: all 15 pairs
-    ASSERT_EQ(estimate.genes.size(), 13u);
-    // A pair's median gene is a slow one (6 slow, 6 fast, 1 the same): slow genes about 1, fast ones about 5.7.
-    for (auto const& g : estimate.genes) {
-        if (g.geneid <= 6) EXPECT_NEAR(g.between, 1.0, 0.4) << g.geneid;
-        else if (g.geneid <= 12) EXPECT_GT(g.between, 3.0) << g.geneid;
-        else EXPECT_EQ(g.between, 0.0);
-        EXPECT_EQ(g.pairs, 15u) << g.geneid;
-        EXPECT_EQ(g.species, 6u) << g.geneid;
-        EXPECT_EQ(g.identical, g.geneid == 13 ? 6u : 0u) << g.geneid;
-    }
-    EXPECT_GT(estimate.spearman, 0.8);
-    EXPECT_EQ(estimate.correlated, 13u);
-    EXPECT_NEAR(estimate.conserved_between, 1.0, 0.4);
-    EXPECT_GT(estimate.fast_between, 3.0);
-    EXPECT_NEAR(estimate.conserved_identical, 1.0 / 7, 1e-12);  // gene 13 of the 7 conserved genes
-    EXPECT_EQ(estimate.fast_identical, 0.0);
-    std::ostringstream os;
-    estimate.Write(os);
-    EXPECT_EQ(os.str().substr(0, os.str().find('\n')),
-              "geneid\twithin_factor\tbetween_factor\tpairs\tspecies\tidentical_share\tnear_identical_share");
-
-    EXPECT_NEAR(gene_conservation::Spearman({ 1, 2, 3, 4 }, { 10, 20, 30, 40 }), 1.0, 1e-12);
-    EXPECT_NEAR(gene_conservation::Spearman({ 1, 2, 3, 4 }, { 4, 3, 2, 1 }), -1.0, 1e-12);
-    EXPECT_TRUE(std::isnan(gene_conservation::Spearman({ 1, 2 }, { 1, 2 })));
-}
-
-TEST(GeneConservation, CopiesBeyondTheCapAreNotCompared) {
-    gene_conservation::Estimator estimator({ gene_conservation::Estimator::Key(1, 1) });
-    for (uint32_t i = 0; i < gene_conservation::kMaxCopies; i++) EXPECT_TRUE(estimator.Take(1, 1));
-    EXPECT_FALSE(estimator.Take(1, 1));
-    EXPECT_TRUE(estimator.Finish().table.Empty());  // one species, one gene: no factor
 }

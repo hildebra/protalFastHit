@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include "Classify.h"
 #include "Profiling/Profiler.h"
+#include "TestReference.h"
 
 using namespace protal;
 using gene_neighbours::End;
@@ -58,37 +59,16 @@ namespace {
     }
 
     // Taxon 1 with genes 1-3 of 300 random bases each, loaded, with the neighbours of Table().
-    struct ThreeGenes {
-        std::vector<std::string> genes;
-        std::filesystem::path dir;
-        std::unique_ptr<GenomeLoader> loader;
+    struct ThreeGenes : test::LoadedReference {
+        std::vector<std::string> const& genes = LoadedReference::genes.at(1);
 
-        explicit ThreeGenes(bool with_neighbours = true) {
-            static int instances = 0;
-            dir = std::filesystem::temp_directory_path() /
-                  ("protal_neighbours_" + std::to_string(::getpid()) + "_" + std::to_string(instances++));
-            std::mt19937 rng(11);
-            std::filesystem::create_directories(dir);
-            std::ofstream fna(dir / "reference.fna"), map(dir / "reference.map");
-            size_t offset = 0;
-            for (int id = 1; id <= 3; id++) {
-                std::string seq;
-                for (int i = 0; i < 300; i++) seq += "ACGT"[rng() % 4];
-                genes.push_back(seq);
-                std::string const header = ">1_" + std::to_string(id) + "\n";
-                fna << header << seq << '\n';
-                map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
-                offset += header.size() + seq.size() + 1;
-            }
-            fna.close();
-            map.close();
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-            loader->LoadAllGenomes();
+        explicit ThreeGenes(bool with_neighbours = true) : LoadedReference({ { 1, Genes() } }, "neighbours") {
             if (with_neighbours) loader->SetGeneNeighbours(Table());
         }
-        ~ThreeGenes() {
-            loader.reset();
-            std::filesystem::remove_all(dir);
+
+        static std::vector<std::string> Genes() {
+            std::mt19937 rng(11);
+            return test::RandomGenes({ 300, 300, 300 }, rng);
         }
     };
 
@@ -154,25 +134,23 @@ TEST(GeneNeighbours, StopsAtTheFirstBadLine) {
     EXPECT_EQ(Problem("100\t1\t3\t2\t5\t2\t4\t-4\t-8\t-1\n"), "");
 }
 
+// A clade's share is pulled towards its parent's by kPriorSpecies (3) pseudo-species: (species + 3 x the parent's
+// share) / (informative + 3). The shares feed adjacent_support, a default feature, so they are pinned as numbers.
 TEST(GeneNeighbours, AFewSpeciesLeanOnTheCladesAbove) {
     auto const table = Table();
-    // A clade's share pulled towards its parent's by kPriorSpecies pseudo-species.
-    auto smoothed = [](double species, double informative, double parent) {
-        return (species + gene_neighbours::kPriorSpecies * parent) / (informative + gene_neighbours::kPriorSpecies);
-    };
-    double const order2 = 36.0 / 45, order3 = 4.0 / 45, order4 = 1.0 / 45;
+    double const order2 = 36.0 / 45;
     // Species 1: its family saw gene 1's 3' end face gene 2's 5' end in 3 of 6 species, the order in 36 of 45.
     auto expected = table.Assess(1, 1, End::Three, 2, End::Five);
     EXPECT_EQ(expected.verdict, Verdict::Expected);
     EXPECT_EQ(expected.clade, 100u);
-    EXPECT_NEAR(expected.share, smoothed(3, 6, order2), 1e-12);  // 0.6
+    EXPECT_NEAR(expected.share, 0.6, 1e-12);  // (3 + 3 x 36/45) / (6 + 3)
     ASSERT_NE(expected.rule, nullptr);
     EXPECT_EQ(expected.rule->gap_median, 20);
     // ... never gene 3's, which the order has in 4 of 45: unlikely, by the order's gaps.
     auto const never = table.Assess(1, 1, End::Three, 3, End::Five);
     EXPECT_EQ(never.verdict, Verdict::Unlikely);
     EXPECT_EQ(never.clade, 100u);
-    EXPECT_NEAR(never.share, smoothed(0, 6, order3), 1e-12);  // 0.03
+    EXPECT_NEAR(never.share, 4.0 / 135, 1e-12);  // (0 + 3 x 4/45) / (6 + 3) = 0.030
     ASSERT_NE(never.rule, nullptr);
     EXPECT_EQ(never.rule->gap_median, 50);
     // The other end of gene 2, or another of gene 2's partners: no clade has data on that end.
@@ -191,9 +169,9 @@ TEST(GeneNeighbours, AFewSpeciesLeanOnTheCladesAbove) {
     auto const order = table.Assess(2, 1, End::Three, 3, End::Five);
     EXPECT_EQ(order.verdict, Verdict::Rare);
     EXPECT_EQ(order.clade, 101u);
-    EXPECT_NEAR(order.share, smoothed(0, 1, order3), 1e-12);  // 0.067
-    EXPECT_NEAR(table.Assess(2, 1, End::Three, 2, End::Five).share, smoothed(0, 1, order2), 1e-12);
-    EXPECT_EQ(table.Assess(2, 1, End::Three, 2, End::Five).verdict, Verdict::Expected);  // 0.6
+    EXPECT_NEAR(order.share, 1.0 / 15, 1e-12);  // (0 + 3 x 4/45) / (1 + 3) = 0.067
+    EXPECT_NEAR(table.Assess(2, 1, End::Three, 2, End::Five).share, 0.6, 1e-12);  // (0 + 3 x 36/45) / (1 + 3)
+    EXPECT_EQ(table.Assess(2, 1, End::Three, 2, End::Five).verdict, Verdict::Expected);
     EXPECT_EQ(table.Assess(2, 1, End::Three, 4, End::Five).verdict, Verdict::Unlikely);  // 0.017
     // Species 3: its family has no data; the order's share is its own.
     EXPECT_EQ(table.Assess(3, 1, End::Three, 2, End::Five).clade, 200u);
@@ -204,7 +182,7 @@ TEST(GeneNeighbours, AFewSpeciesLeanOnTheCladesAbove) {
     EXPECT_EQ(once.verdict, Verdict::Unlikely);
     ASSERT_NE(once.rule, nullptr);
     EXPECT_EQ(once.rule->gap_median, 40);
-    EXPECT_NEAR(once.share, smoothed(1, 30, order4), 1e-12);  // 0.032
+    EXPECT_NEAR(once.share, 16.0 / 495, 1e-12);  // (1 + 3 x 1/45) / (30 + 3) = 0.032
     EXPECT_EQ(table.Assess(5, 1, End::Three, 2, End::Five).verdict, Verdict::Expected);
     // A species of no clade with rules.
     EXPECT_EQ(table.Assess(4, 1, End::Three, 2, End::Five).verdict, Verdict::Unknown);
@@ -217,13 +195,13 @@ TEST(GeneNeighbours, AFewSpeciesLeanOnTheCladesAbove) {
     for (auto const& p : partners) ids.push_back(p.rule->partner);
     EXPECT_EQ(ids, (std::vector<uint32_t>{ 0, 2, 3, 4 }));
     EXPECT_EQ(partners[1].rule->informative, 6u);   // the family's rule
-    EXPECT_NEAR(partners[1].share, smoothed(3, 6, order2), 1e-12);
+    EXPECT_NEAR(partners[1].share, 0.6, 1e-12);
     EXPECT_EQ(partners[1].verdict, Verdict::Expected);
     EXPECT_EQ(partners[2].rule->informative, 45u);  // seen by the order only
     EXPECT_EQ(partners[2].verdict, Verdict::Unlikely);
     table.Partners(5, 1, End::Three, partners);
     ASSERT_EQ(partners.size(), 4u);
-    EXPECT_NEAR(partners[1].share, smoothed(1, 30, order4), 1e-12);  // gene 4, by the family's rule
+    EXPECT_NEAR(partners[1].share, 16.0 / 495, 1e-12);  // gene 4, by the family's rule
     table.Partners(1, 2, End::Five, partners);
     ASSERT_EQ(partners.size(), 1u);
     EXPECT_EQ(partners[0].verdict, Verdict::Expected);
@@ -244,19 +222,17 @@ TEST(GeneNeighbours, ASpeciesOwnLineMakesItsOwnPairingExpected) {
     std::istringstream is(kTable + "5\t1\t3\t4\t5\t1\t1\t44\t44\t44\n");
     ASSERT_EQ(table.Read(is), "");
     table.SetLineage(5, { 5, 103, 200, 300 });
-    auto smoothed = [](double species, double informative, double parent) {
-        return (species + gene_neighbours::kPriorSpecies * parent) / (informative + gene_neighbours::kPriorSpecies);
-    };
-    double const family4 = smoothed(1, 30, 1.0 / 45), family2 = smoothed(29, 30, 36.0 / 45);
+    // The family's shares (kPriorSpecies 3): gene 4 (1 + 3 x 1/45) / (30 + 3) = 16/495, gene 2 (29 + 3 x 36/45) /
+    // (30 + 3) = 157/165.
     auto const own = table.Assess(5, 1, End::Three, 4, End::Five);
     EXPECT_EQ(own.verdict, Verdict::Expected);
     EXPECT_EQ(own.clade, 5u);
-    EXPECT_NEAR(own.share, smoothed(1, 1, family4), 1e-12);  // 0.26
+    EXPECT_NEAR(own.share, 181.0 / 660, 1e-12);  // (1 + 3 x 16/495) / (1 + 3) = 0.274
     ASSERT_NE(own.rule, nullptr);
     EXPECT_EQ(own.rule->gap_median, 44);
     auto const family = table.Assess(5, 1, End::Three, 2, End::Five);
     EXPECT_EQ(family.verdict, Verdict::Expected);
-    EXPECT_NEAR(family.share, smoothed(0, 1, family2), 1e-12);  // 0.71
+    EXPECT_NEAR(family.share, 157.0 / 220, 1e-12);  // (0 + 3 x 157/165) / (1 + 3) = 0.714
     EXPECT_EQ(table.Assess(5, 1, End::Three, 3, End::Five).verdict, Verdict::Unlikely);
     // The species' own partner comes first among its partners.
     std::vector<gene_neighbours::Partner> partners;
@@ -354,24 +330,7 @@ TEST(AcrossGenes, MateGuidanceLooksPastTheGenesEnd) {
     }
 }
 
-TEST(SamReader, KeepsTheHardClipsItDropsFromTheCigar) {
-    // Where a long read's record lies on the read: the reader drops the hard clips from the CIGAR and keeps them apart.
-    std::string cigar = "120H5S45M30H";
-    uint32_t start = 7, end = 7;
-    ASSERT_TRUE(NormalizeCigar(cigar, 50, &start, &end));
-    EXPECT_EQ(cigar, "5S45M");
-    EXPECT_EQ(start, 120u);
-    EXPECT_EQ(end, 30u);
-    std::string plain = "50M";
-    ASSERT_TRUE(NormalizeCigar(plain, 50, &start, &end));
-    EXPECT_EQ(start, 0u);
-    EXPECT_EQ(end, 0u);
-    EXPECT_EQ(profiler::Clip("5S45M", false), 5u);
-    EXPECT_EQ(profiler::Clip("120H45M5S30H", true), 35u);
-    EXPECT_EQ(profiler::QueryBases("120H5S40M2I3M1D30H"), 45u);
-}
-
-TEST(MicrobialProfile, AdjacentGenesOfLinkedReads) {
+TEST(NeighbourFeatures, AdjacentGenesOfLinkedReads) {
     ThreeGenes ref;
     auto sam_on = [&](uint32_t gene, int pos, std::string cigar, size_t bases, int flag) {
         SamEntry sam;
@@ -422,11 +381,10 @@ TEST(MicrobialProfile, AdjacentGenesOfLinkedReads) {
     for (auto const& [name, value] : profiler::TaxonFeatures(taxon)) features[name] = value;
     EXPECT_DOUBLE_EQ(features.at("adjacent_expected_share"), 3.0 / 4);
     EXPECT_DOUBLE_EQ(features.at("adjacent_unlikely_share"), 1.0 / 4);
-    // The mean smoothed share of the four links' pairings (gene 2's 0.6 three times, gene 3's 0.03), with one link
-    // of 0.5 more; each share summed in units of 2^-32 (profiler::ShareUnits).
-    double const to2 = (3 + gene_neighbours::kPriorSpecies * 36.0 / 45) / (6 + gene_neighbours::kPriorSpecies);
-    double const to3 = (0 + gene_neighbours::kPriorSpecies * 4.0 / 45) / (6 + gene_neighbours::kPriorSpecies);
-    EXPECT_NEAR(taxon.AdjacentSupport(), (to2 + to3 + to2 + to2 + 0.5) / 5, 1e-9);
+    // The mean smoothed share of the four links' pairings (gene 2's 0.6 three times, gene 3's 4/135: the shares of
+    // GeneNeighbours.AFewSpeciesLeanOnTheCladesAbove), with one link of 0.5 more; each share summed in units of 2^-32
+    // (profiler::ShareUnits). A default feature: the number is pinned.
+    EXPECT_NEAR(taxon.AdjacentSupport(), 629.0 / 1350, 1e-9);  // (3 x 0.6 + 4/135 + 0.5) / 5 = 0.466
     EXPECT_EQ(profiler::ShareUnits(0), 0u);
     EXPECT_EQ(profiler::ShareUnits(1), uint64_t{1} << 32);
     EXPECT_EQ(profiler::ShareUnits(0.5), uint64_t{1} << 31);
@@ -448,7 +406,7 @@ TEST(MicrobialProfile, AdjacentGenesOfLinkedReads) {
     EXPECT_DOUBLE_EQ(without.GetTaxa().at(1).AdjacentSupport(), 0.5);
 }
 
-TEST(MicrobialProfile, AGeneWhoseNeighboursAreUnlikelyIsForeign) {
+TEST(NeighbourFeatures, AGeneWhoseNeighboursAreUnlikelyIsForeign) {
     // Four pairs with a mate on gene 1 and one on gene 3 (which never faces gene 1's 3' end in the family: unlikely),
     // four with one on gene 1 and one on gene 2 (expected). Gene 3's four links are all unlikely: foreign. Gene 1 has
     // half its eight unlikely, one end in context: not foreign. Left out of the depth, gene 3 counts as a gene the

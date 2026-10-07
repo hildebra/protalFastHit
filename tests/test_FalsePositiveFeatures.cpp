@@ -15,76 +15,15 @@
 #include <unistd.h>
 #include "Profiling/Profiler.h"
 #include "SequenceUtils/GeneIncongruence.h"
+#include "TestReference.h"
 
 using namespace protal;
 namespace gi = protal::gene_incongruence;
+using protal::test::Mutated;
+using protal::test::RandomSequence;
+using Reference = protal::test::LoadedReference;
 
 namespace {
-    std::string RandomSequence(size_t length, std::mt19937& rng) {
-        static constexpr char kBases[] = "ACGT";
-        std::string seq(length, 'A');
-        for (auto& c : seq) c = kBases[rng() % 4];
-        return seq;
-    }
-
-    std::string Mutated(std::string seq, double rate, std::mt19937& rng) {
-        static constexpr char kBases[] = "ACGT";
-        std::bernoulli_distribution change(rate);
-        for (auto& c : seq) {
-            if (!change(rng)) continue;
-            char other = c;
-            while (other == c) other = kBases[rng() % 4];
-            c = other;
-        }
-        return seq;
-    }
-
-    // A reference of taxa with genes 1..n each in a folder of its own, loaded.
-    struct Reference {
-        std::filesystem::path dir;
-        std::unique_ptr<GenomeLoader> loader;
-        std::map<uint32_t, std::vector<std::string>> genes;
-
-        explicit Reference(std::map<uint32_t, std::vector<std::string>> taxa) : genes(std::move(taxa)) {
-            dir = std::filesystem::temp_directory_path() / ("protal_fp_features_" + std::to_string(::getpid()) + "_" +
-                                                            std::to_string(reinterpret_cast<uintptr_t>(this)));
-            std::filesystem::create_directories(dir);
-            std::ofstream fna(dir / "reference.fna");
-            std::ofstream map(dir / "reference.map");
-            size_t offset = 0;
-            for (auto const& [taxid, seqs] : genes) {
-                for (size_t i = 0; i < seqs.size(); i++) {
-                    std::string const header = ">" + std::to_string(taxid) + "_" + std::to_string(i + 1) + "\n";
-                    fna << header << seqs[i] << '\n';
-                    map << taxid << '\t' << i + 1 << '\t' << offset + header.size() << '\t' << offset + header.size() + seqs[i].size() << '\n';
-                    offset += header.size() + seqs[i].size() + 1;
-                }
-            }
-            fna.close();
-            map.close();
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-            loader->LoadAllGenomes();
-        }
-
-        std::string Header() const {
-            std::string header = "@HD\tVN:1.6\n";
-            for (auto const& [taxid, seqs] : genes) {
-                for (size_t i = 0; i < seqs.size(); i++) {
-                    header += "@SQ\tSN:" + std::to_string(taxid) + "_" + std::to_string(i + 1) + "\tLN:" + std::to_string(seqs[i].size()) + "\n";
-                }
-            }
-            return header;
-        }
-
-        std::string Write(std::string const& name, std::string const& content) const {
-            auto const path = (dir / name).string();
-            std::ofstream(path) << content;
-            return path;
-        }
-
-        ~Reference() { std::filesystem::remove_all(dir); }
-    };
-
     constexpr int kPaired = 0x1, kBothAlign = 0x2, kMateUnmapped = 0x8, kReverse = 0x10, kMateReverse = 0x20, kRead1 = 0x40, kRead2 = 0x80;
 
     // A record of the gene's own bases from 0-based `start` (an exact match unless a CIGAR is given).
@@ -116,12 +55,13 @@ namespace {
         return features;
     }
 
-    // Profiles a SAM (its text) with the profiler, as a run does, on `threads` threads.
-    profiler::MicrobialProfile Profile(Reference const& ref, std::string const& sam, size_t threads = 1, size_t singleton = 0) {
+    // Profiles a SAM (its text) with the profiler, as a run does, on `threads` threads; on several, in chunks of about
+    // a read each.
+    profiler::MicrobialProfile Profile(Reference const& ref, std::string const& sam, size_t threads = 1) {
         profiler::Profiler profiler(*ref.loader);
         profiler.SetDepthIdentityMargin(0.08);
+        profiler.SetChunkBytes(200);
         profiler::MicrobialProfile profile(*ref.loader);
-        profile.SetSingletonCongener(singleton);
         auto const path = ref.Write("sample" + std::to_string(threads) + ".sam", sam);
         std::ostringstream rejected;
         std::string const error = profiler.ProfileSam(path, profile, std::optional<std::reference_wrapper<std::ostream>>{ rejected },
@@ -166,10 +106,23 @@ TEST(FalsePositiveFeatures, TheMeanErrorProbabilityComesFromTheQualities) {
     EXPECT_NEAR(*profiler::MeanErrorProbability(sam), (0.1 + 1 + 0.1 + 1) / 4, 1e-12);
     sam.m_qual = "*";
     EXPECT_FALSE(profiler::MeanErrorProbability(sam).has_value());
-    // ReadExcess is the divergence beyond it.
+    // ReadExcess is the divergence beyond it: the differences per aligned base less the mean error probability of the
+    // record's bases; none without qualities or aligned bases.
+    EXPECT_FALSE(profiler::ReadExcess(sam).has_value());
     sam.m_qual = "IIII";
     sam.m_cigar = "3M1X";
     EXPECT_NEAR(*profiler::ReadExcess(sam), 0.25 - 1e-4, 1e-6);
+    sam.m_cigar = "10M";
+    sam.m_qual = std::string(10, 'I');  // Q40: 0.0001 per base
+    EXPECT_NEAR(*profiler::ReadExcess(sam), -1e-4, 1e-7);
+    sam.m_cigar = "8M2X";
+    sam.m_qual = std::string(10, '+');  // Q10: 0.1
+    EXPECT_NEAR(*profiler::ReadExcess(sam), 0.1, 1e-6);
+    sam.m_cigar = "2S4M1D4M";  // a difference in 9 aligned bases; the clipped bases' qualities count too
+    sam.m_qual = std::string(10, '5');  // Q20: 0.01
+    EXPECT_NEAR(*profiler::ReadExcess(sam), 1.0 / 9 - 0.01, 1e-6);
+    sam.m_cigar = "10S";
+    EXPECT_FALSE(profiler::ReadExcess(sam).has_value());
 }
 
 TEST(FalsePositiveFeatures, AProfilesTaxaCarryTheSamplesDepthAndTheirReadsDivergenceByConservationAndCodonPosition) {
@@ -223,8 +176,9 @@ TEST(FalsePositiveFeatures, AProfilesTaxaCarryTheSamplesDepthAndTheirReadsDiverg
     // Taxon 1's excess: medians over 9 reads (5 conserved at 0.02, 4 fast at 0.06) -> 0.02 - 1e-4; scaled all 0.04 - e.
     EXPECT_NEAR(f1.at("excess_median"), 0.02 - 1e-4, 1e-6);
     EXPECT_NEAR(f1.at("excess_scaled_median"), (0.02 - 1e-4) / 0.5, 1e-6);
-    // Conserved genes diverge at 0.02 beyond errors, fast ones at 0.06: log2 of their ratio (each + 0.001).
-    EXPECT_NEAR(f1.at("excess_conserved_fast_ratio"), std::log2((0.02 - 1e-4 + 1e-3) / (0.06 - 1e-4 + 1e-3)), 1e-3);
+    // Conserved genes diverge at 0.02 beyond errors, fast ones at 0.06: log2 of their ratio, each + 0.001 (a default
+    // feature: the number is pinned), log2(0.0209 / 0.0609).
+    EXPECT_NEAR(f1.at("excess_conserved_fast_ratio"), -1.54294, 1e-4);
     // Mismatches: 5 reads x 2 at third positions, 4 reads x 6 at first positions.
     EXPECT_NEAR(f1.at("third_position_share"), 10.0 / 34, 1e-12);
     // Taxon 2 has no mismatch: the neutral third, and nothing beyond its errors.
@@ -244,8 +198,9 @@ TEST(FalsePositiveFeatures, LostMatesAreCountedWhereTheFragmentWouldHaveFitTheGe
     }
     Reference ref({ { 1, one }, { 2, two } });
     std::string sam = ref.Header();
-    // Taxon 1: 60 pairs on gene 1 with both mates (spans 300-360: the sample's fragment length), and 10 single mates:
-    // 5 at the start of the gene (room 1100 for the mate: lost), 5 at its end, forward (room 60: not judged).
+    // Taxon 1: 60 pairs on gene 1 with both mates (spans 300-360: the sample's fragment length), and 10 single mates,
+    // forward: 5 at the start of the gene (room about 1180 for the mate: lost), 5 at its end (room about 160: not
+    // judged).
     for (int p = 0; p < 60; p++) {
         int const start = 10 + p;
         sam += Record(ref, "pair" + std::to_string(p), kPaired | kBothAlign | kRead1 | kMateReverse, 1, 1, start, 100);
@@ -264,7 +219,7 @@ TEST(FalsePositiveFeatures, LostMatesAreCountedWhereTheFragmentWouldHaveFitTheGe
         auto const profile = Profile(ref, sam, threads);
         auto const f1 = Features(profile.GetTaxa().at(1));
         auto const f2 = Features(profile.GetTaxa().at(2));
-        // Taxon 1: 60 linked fragments, 5 lost (room 1100 >= the fragments' 95th percentile ~357), 5 unjudged, and the
+        // Taxon 1: 60 linked fragments, 5 lost (room about 1180 >= the fragments' 95th percentile ~357), 5 unjudged, and the
         // split pair's mate on gene 2 (room 1000, reverse: lost too): 6 of 66.
         EXPECT_NEAR(f1.at("mate_lost_share"), 6.0 / 66, 1e-12);
         // Taxon 2: the split pair's read 1 (room 1190, lost); the single-end read is not judged.

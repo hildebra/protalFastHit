@@ -1,12 +1,13 @@
-// Unit tests for loading index.prx: malformed files must stop with a clear message (exit 8)
-// instead of loading garbage sizes and reading out of bounds later.
+// Unit tests for the index (index.prx): malformed files must stop with a clear message (exit 8) instead of loading
+// garbage sizes and reading out of bounds later; the header's features and reference fingerprint; the flex neighbours
+// of the unique k-mer statistics; and the windows with ambiguous bases --build leaves out.
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <random>
 #include <sstream>
 #include <string>
 #include "Hash/Seedmap.h"
-#include "SequenceUtils/Minimizer.h"
+#include "Utilities/ReferenceFingerprint.h"
 
 using protal::Seedmap;
 
@@ -47,58 +48,42 @@ TEST(IndexLoad, RejectsAnotherKeySize) {
 
 TEST(IndexLoad, RejectsAnInconsistentLayout) {
     EXPECT_EXIT(LoadFrom(Header(kKeys, kTotal, 8, 8, 4, 0)), testing::ExitedWithCode(8), "control block layout");
+    EXPECT_EXIT(LoadFrom(Header(kKeys, kTotal, 16, 8, 3, 0)), testing::ExitedWithCode(8), "control blocks of 16 bytes, expected 8");
     EXPECT_EXIT(LoadFrom(Header(kKeys, kTotal + 1, 8, 8, 3, 0)), testing::ExitedWithCode(8), "the layout implies");
 }
 
 TEST(IndexLoad, RejectsMissingData) {
     // Header claims a full key map and 10 values, but no data follows.
     EXPECT_EXIT(LoadFrom(Header(kKeys, kTotal, 8, 8, 3, 10)), testing::ExitedWithCode(8), "truncated or corrupt");
+    // More values than the address space holds: a corrupt header, refused before anything is allocated.
+    EXPECT_EXIT(LoadFrom(Header(kKeys, kTotal, 8, 8, 3, size_t{1} << 60)), testing::ExitedWithCode(8), "1152921504606846976 values");
 }
 
-namespace {
-    // Closed-syncmer selection written out plainly, for one s-mer mask.
-    bool ReferenceSyncmer(uint64_t key, uint32_t mask, int k = 15, int s = 7, int t = 2) {
-        int n = k - s + 1;
-        uint64_t min = UINT64_MAX;
-        int min_index = 0;
-        for (int i = 0; i < n; i++) {
-            uint64_t smer = (key >> (n * 2 - (i + 1) * 2)) & mask;
-            if (smer < min) { min = smer; min_index = i; }
+// A header this protal writes reads back with its features, and with the reference fingerprint when it has one: an
+// index written before the fingerprint existed still loads, without one. A header of format 1 is legacy.
+TEST(IndexHeader, FeaturesAndTheReferenceFingerprintRoundTripAndFormat1IsLegacy) {
+    protal::ReferenceFingerprint const fingerprint{ 0x0123456789abcdefULL, 386271 };
+    for (bool const with_fingerprint : { true, false }) {
+        SCOPED_TRACE(with_fingerprint ? "with a reference fingerprint" : "without one");
+        std::stringstream header;
+        {
+            Seedmap built;
+            EXPECT_FALSE(built.HasReferenceFingerprint());
+            if (with_fingerprint) built.SetReferenceFingerprint(fingerprint);
+            built.SaveHeader(header);
         }
-        return min_index == t || min_index == n - 1 - t;
+        Seedmap loaded;
+        loaded.LoadHeader(header);
+        EXPECT_TRUE(loaded.UsesFullSyncmerMask());
+        EXPECT_TRUE(loaded.ChecksSingleEntryUniques());
+        ASSERT_EQ(loaded.HasReferenceFingerprint(), with_fingerprint);
+        if (with_fingerprint) {
+            EXPECT_EQ(loaded.GetReferenceFingerprint(), fingerprint);
+            EXPECT_NE(loaded.FeatureDescription().find(", reference fingerprint"), std::string::npos);
+        } else {
+            EXPECT_NE(loaded.FeatureDescription().find("no reference fingerprint"), std::string::npos);
+        }
     }
-}
-
-TEST(ClosedSyncmer, LegacyAndFullMasksMatchTheirDefinition) {
-    protal::ClosedSyncmer legacy{15, 7, 2, false};
-    protal::ClosedSyncmer full{15, 7, 2, true};
-    EXPECT_FALSE(legacy.UsesFullSmerMask());
-    EXPECT_TRUE(full.UsesFullSmerMask());
-
-    std::mt19937_64 rng(3);
-    int legacy_mismatches = 0, full_mismatches = 0, differ = 0;
-    for (int i = 0; i < 200000; i++) {
-        uint64_t key = rng() & ((uint64_t{1} << 30) - 1);
-        bool l = legacy(key), f = full(key);
-        legacy_mismatches += l != ReferenceSyncmer(key, 0xFF);   // format 1: last 4 bases of each 7-mer
-        full_mismatches += f != ReferenceSyncmer(key, 0x3FFF);   // format 2: whole 7-mers
-        differ += l != f;
-    }
-    EXPECT_EQ(legacy_mismatches, 0);
-    EXPECT_EQ(full_mismatches, 0);
-    EXPECT_GT(differ, 0);  // the two formats really sample differently
-}
-
-TEST(IndexHeader, FeaturesRoundTripAndFormat1IsLegacy) {
-    std::stringstream v2;
-    {
-        Seedmap built;
-        built.SaveHeader(v2);
-    }
-    Seedmap loaded;
-    loaded.LoadHeader(v2);
-    EXPECT_TRUE(loaded.UsesFullSyncmerMask());
-    EXPECT_TRUE(loaded.ChecksSingleEntryUniques());
 
     std::stringstream v1;
     Put<uint64_t>(v1, Seedmap::kFileMagic);
@@ -114,7 +99,7 @@ TEST(IndexHeader, FeaturesRoundTripAndFormat1IsLegacy) {
 
 // The unique k-mer statistics find, for large cores, the values with another within flex distance 1
 // by sorting with each position masked (FlexNeighbours); it must agree with comparing all pairs.
-TEST(UniqueKmers, FlexNeighboursMatchAllPairs) {
+TEST(FlexNeighbours, MatchAllPairs) {
     std::mt19937 rng(7);
     for (size_t n : { 2, 3, 17, 300, 1000 }) {
         std::vector<uint32_t> flex(n);

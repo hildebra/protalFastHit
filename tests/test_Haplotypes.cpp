@@ -1,7 +1,8 @@
 // Unit tests for the phasing of a long-read sample's strains (Profiling/Haplotypes.h): reads clustered by their alleles
 // across genes into haplotypes, blocks no read links joined by the strains' shares, errors not taken for strains,
-// reads cut between unlikely neighbours, the alleles a read shows (ReadAlleles from VariantHandler::AddAlignment), and
-// a strain row called from its own reads (HaplotypeItem).
+// reads cut between unlikely neighbours, the alleles a read shows (ReadAlleles from VariantHandler::AddAlignment), a
+// strain row called from its own reads (HaplotypeItem), and the limits of Settings (min_reads, min_share, min_consensus,
+// max_haplotypes).
 #include <gtest/gtest.h>
 #include <random>
 #include <sstream>
@@ -36,8 +37,6 @@ namespace {
         return r;
     }
 
-    // `reads` reads of a strain on genes 1 (sites 10, 20, 30) and 2 (sites 5, 15), one record each: the strain with
-    // `alt` has the second allele (G) at every site, the other the reference's.
     // These tests phase one or two genes; a run needs three (Settings::min_genes).
     haplotypes::Settings Few() {
         haplotypes::Settings settings;
@@ -45,6 +44,8 @@ namespace {
         return settings;
     }
 
+    // `reads` reads of a strain on genes 1 (sites 10, 20, 30) and 2 (sites 5, 15), one record each: the strain with
+    // `alt` has the second allele (G) at every site, the other the reference's.
     void Strain(std::vector<ReadRecord>& records, uint32_t& link, size_t reads, bool alt, bool genes_linked = true) {
         for (size_t i = 0; i < reads; i++) {
             records.push_back(Record(link, 1, 0, 40, alt ? std::vector<uint32_t>{ 10, 20, 30 } : std::vector<uint32_t>{}, 0));
@@ -222,6 +223,102 @@ TEST(Haplotypes, ThreeStrains) {
     EXPECT_EQ(row2, "AAGG");
 }
 
+namespace {
+    // Reads on gene 1 (sites 10, 20 and 30): `major` with the reference's allele at each site, `minor` with the second.
+    std::vector<ReadRecord> TwoStrains(size_t major, size_t minor) {
+        std::vector<ReadRecord> records;
+        uint32_t link = 0;
+        for (size_t i = 0; i < major; i++) records.push_back(Record(link++, 1, 0, 40, {}));
+        for (size_t i = 0; i < minor; i++) records.push_back(Record(link++, 1, 0, 40, { 10, 20, 30 }));
+        return records;
+    }
+
+    std::vector<Site> const kThreeSites = Sites({ { 1, 10 }, { 1, 20 }, { 1, 30 } });
+}
+
+TEST(Haplotypes, NoSitesOrNoReadsNothingIsPhased) {
+    auto const records = TwoStrains(14, 6);
+    for (auto const& p : { haplotypes::Phase(records, {}, 127, {}, Few()), haplotypes::Phase({}, kThreeSites, 127, {}, Few()) }) {
+        EXPECT_EQ(p.rows, 0u);
+        EXPECT_EQ(p.reads, 0u);
+        EXPECT_TRUE(p.blocks.empty());
+        EXPECT_TRUE(p.calls.empty());
+    }
+    EXPECT_EQ(haplotypes::Phase(records, kThreeSites, 127, {}, Few()).rows, 2u);  // with both, two strains
+}
+
+TEST(Haplotypes, AHaplotypeNeedsMinReads) {
+    // A strain of 2 reads beside one of 20: fewer than min_reads (3), so its reads join the other's haplotype.
+    auto const records = TwoStrains(20, 2);
+    auto settings = Few();
+    auto p = haplotypes::Phase(records, kThreeSites, 127, {}, settings);
+    EXPECT_EQ(p.rows, 0u);
+    ASSERT_EQ(p.blocks.size(), 1u);
+    EXPECT_EQ(p.blocks[0].haplotype_reads, (std::vector<size_t>{ 22 }));
+    settings.min_reads = 2;
+    p = haplotypes::Phase(records, kThreeSites, 127, {}, settings);
+    EXPECT_EQ(p.rows, 2u);
+    ASSERT_EQ(p.blocks.size(), 1u);
+    EXPECT_EQ(p.blocks[0].haplotype_reads, (std::vector<size_t>{ 20, 2 }));
+}
+
+TEST(Haplotypes, AHaplotypeNeedsMinShareOfItsBlock) {
+    // A strain of 4 reads of 99: enough reads, but 4% of the block's, below min_share (5%).
+    auto const records = TwoStrains(95, 4);
+    auto settings = Few();
+    EXPECT_EQ(haplotypes::Phase(records, kThreeSites, 127, {}, settings).rows, 0u);
+    settings.min_share = 0.03;
+    auto const p = haplotypes::Phase(records, kThreeSites, 127, {}, settings);
+    ASSERT_EQ(p.rows, 2u);
+    EXPECT_NEAR(p.shares[1], 4.0 / 99, 1e-12);
+}
+
+TEST(Haplotypes, AHaplotypesBaseNeedsMinConsensusOfItsReads) {
+    // Beside 20 reference reads, 10 reads with G at 10 and 20, of which 6 have G at 30 too: 60% of the haplotype's
+    // reads, below min_consensus (75%), so that its row has no base at 30.
+    std::vector<ReadRecord> records = TwoStrains(20, 6);
+    for (uint32_t link = 26; link < 30; link++) records.push_back(Record(link, 1, 0, 40, { 10, 20 }));
+    auto settings = Few();
+    auto p = haplotypes::Phase(records, kThreeSites, 127, {}, settings);
+    ASSERT_EQ(p.rows, 2u);
+    EXPECT_EQ(p.blocks[0].haplotype_reads, (std::vector<size_t>{ 20, 10 }));
+    EXPECT_EQ(p.Call(1, 20, 1), 'G');
+    EXPECT_EQ(p.Call(1, 30, 0), 'A');
+    EXPECT_EQ(p.Call(1, 30, 1), 0);
+    settings.min_consensus = 0.6;
+    p = haplotypes::Phase(records, kThreeSites, 127, {}, settings);
+    ASSERT_EQ(p.rows, 2u);
+    EXPECT_EQ(p.Call(1, 30, 1), 'G');
+}
+
+TEST(Haplotypes, NoMoreRowsThanMaxHaplotypes) {
+    // Five strains of one gene (sites 10 to 100) at 30:25:20:15:10, with G at sites of their own: none; 10-30; 40-60;
+    // 70-90; 50, 80 and 100. At most max_haplotypes (4) rows: the fifth strain's reads go with the haplotype they fit
+    // best, the first's. With max_haplotypes 5, each strain is a row; with 2, the first two strains are.
+    std::vector<std::pair<uint32_t, uint32_t>> at;
+    for (uint32_t pos = 10; pos <= 100; pos += 10) at.emplace_back(1, pos);
+    std::vector<std::pair<size_t, std::vector<uint32_t>>> const strains = {
+            { 30, {} }, { 25, { 10, 20, 30 } }, { 20, { 40, 50, 60 } }, { 15, { 70, 80, 90 } }, { 10, { 50, 80, 100 } } };
+    std::vector<ReadRecord> records;
+    uint32_t link = 0;
+    for (auto const& [reads, snps] : strains) {
+        for (size_t i = 0; i < reads; i++) records.push_back(Record(link++, 1, 0, 110, snps));
+    }
+    auto settings = Few();
+    auto p = haplotypes::Phase(records, Sites(at), 127, {}, settings);
+    ASSERT_EQ(p.rows, 4u);
+    ASSERT_EQ(p.blocks.size(), 1u);
+    EXPECT_EQ(p.blocks[0].haplotype_reads, (std::vector<size_t>{ 40, 25, 20, 15 }));
+    settings.max_haplotypes = 5;
+    p = haplotypes::Phase(records, Sites(at), 127, {}, settings);
+    EXPECT_EQ(p.rows, 5u);
+    EXPECT_EQ(p.blocks[0].haplotype_reads, (std::vector<size_t>{ 30, 25, 20, 15, 10 }));
+    settings.max_haplotypes = 2;
+    p = haplotypes::Phase(records, Sites(at), 127, {}, settings);
+    EXPECT_EQ(p.rows, 2u);
+    EXPECT_EQ(p.blocks[0].haplotype_reads, (std::vector<size_t>{ 75, 25 }));
+}
+
 TEST(Haplotypes, OwnReadsOnlyAndReadsCutBetweenUnlikelyNeighbours) {
     // A relative's reads (divergence above the MSA's) are left out: here they are all a "second strain".
     std::vector<ReadRecord> records;
@@ -231,8 +328,9 @@ TEST(Haplotypes, OwnReadsOnlyAndReadsCutBetweenUnlikelyNeighbours) {
     Strain(records, link, 10, true);
     for (size_t i = own; i < records.size(); i++) records[i].divergence = 20;
     auto const sites = Sites({ { 1, 10 }, { 1, 20 }, { 1, 30 }, { 2, 5 }, { 2, 15 } });
-    EXPECT_EQ(haplotypes::Phase(records, sites, 10, {}, Few()).rows, 0u);
-    EXPECT_EQ(haplotypes::Phase(records, sites, 10, {}, Few()).reads, 14u);
+    auto const own_reads = haplotypes::Phase(records, sites, 10, {}, Few());
+    EXPECT_EQ(own_reads.rows, 0u);
+    EXPECT_EQ(own_reads.reads, 14u);
     EXPECT_EQ(haplotypes::Phase(records, sites, 127, {}, Few()).rows, 2u);
 
     // Every read cut between its two genes: two blocks, as without the links.

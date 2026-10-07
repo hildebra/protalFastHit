@@ -1,0 +1,54 @@
+# Golden vectors of the three model rules that protal (C++) and the trainer (scripts/machine_learning_cmdline.py) both
+# implement. tests/test_GoldenModelRules.cpp checks protal's functions on every line, scripts/test_model_pmml.py
+# (GoldenModelRulesTest) the trainer's: a change to one side that the other lacks fails one of them.
+#
+# One case per line: the rule, the case's name, then name=value fields, the inputs first and then the expected
+# outputs. A list is comma-separated and VALUE*N stands for N copies of VALUE; a curve is x:y points, comma-separated.
+#
+# SampleAdjusted     context::SampleAdjusted; sample_adjusted(q, prior)
+#                    inputs q, prior; outputs rate (the sample's), adjusted (each q's probability); tolerance 1e-9
+# FalseCallKnob      context::FalseCallKnob; FalseCallSamples(...).calls(fdr), one sample of the scores
+#                    inputs scores, curve (the calibration), prior, fdr; outputs called (the taxa called, those tied at
+#                    the knob's score included), knob (the lowest score called, "none" when none is), rate (the sample's,
+#                    as SampleAdjusted gives it; tolerance 1e-9)
+# DepthKnobAt        profiler::DepthKnobAt(curve, fragments); knob_at(curve, sample_depths(...)), --knob's 0.5 without a curve
+#                    inputs curve (log10 of the sample's fragments : knob), fragments; output knob; tolerance 1e-12
+#
+# How the values were made: by hand where the rule allows it (mean_is_prior and all_at_prior keep q, as the sample's
+# rate is the prior's; the FalseCallKnob cases of four scores: the running means of 1 - p are 0.1, 0.3, 0.367, 0.5;
+# halfway_in_log10 and the curve's ends), the others by a third implementation (Perl, of the C++ code's arithmetic),
+# whose rates were checked against the fixed point of rate = (sum of the adjusted q + 20 * prior) / (n + 20) found by
+# bisection (within 1e-11), and by hand on a few: one_likely_candidate (0.99329 + 2) / 21 = 0.14254, deep_sample
+# (0.62519 + 0.44138 + 198 * 0.0045993 + 6) / 220 = 0.036260, three_points_falling 0.6 - 0.1 * 1.5 / 2 = 0.525 at
+# log10(31623) = 4.5000.
+SampleAdjusted	mean_is_prior	q=0.9,0.1,0.5,0.5	prior=0.5	rate=0.5	adjusted=0.90000000000000002,0.10000000000000001,0.5,0.5
+SampleAdjusted	all_at_prior	q=0.2*5	prior=0.2	rate=0.20000000000000001	adjusted=0.20000000000000001*5
+SampleAdjusted	deep_sample	q=0.95,0.9,0.05*198	prior=0.3	rate=0.036260107088253023	adjusted=0.62518934107459168,0.44137566863571059,0.0045992855970472058*198
+SampleAdjusted	one_likely_candidate	q=0.99	prior=0.1	rate=0.14253779381081041	adjusted=0.99329367002716806
+SampleAdjusted	many_likely	q=0.97,0.95,0.9,0.85,0.8,0.8,0.6,0.4	prior=0.25	rate=0.42918136258932871	adjusted=0.98647394420058876,0.97719840722986107,0.95305271837122274,0.92744047760873727,0.90022388787967278,0.90022388787967278,0.77186734924573575,0.6005974802410754
+SampleAdjusted	clamped	q=0,1,1	prior=0	rate=0.090909999997930035	adjusted=0.090909999997930035,0.99999999999000011,0.99999999999000011
+SampleAdjusted	no_candidates	q=	prior=0.3	rate=0.29999999999999999	adjusted=
+FalseCallKnob	ties_called_together	scores=0.5,0.9,0.1,0.5	curve=0:0,1:1	prior=0.5	fdr=0.32	called=3	knob=0.5	rate=0.5
+FalseCallKnob	first_only	scores=0.5,0.9,0.1,0.5	curve=0:0,1:1	prior=0.5	fdr=0.12	called=1	knob=0.90000000000000002	rate=0.5
+FalseCallKnob	none_below_the_first	scores=0.5,0.9,0.1,0.5	curve=0:0,1:1	prior=0.5	fdr=0.05	called=0	knob=none	rate=0.5
+FalseCallKnob	through_the_tie	scores=0.5,0.9,0.1,0.5	curve=0:0,1:1	prior=0.5	fdr=0.4	called=3	knob=0.5	rate=0.5
+FalseCallKnob	calibrated_low	scores=0.99,0.97,0.9,0.6,0.3,0.1,0.05	curve=0.2:0.1,0.8:0.7	prior=0.5	fdr=0.33	called=3	knob=0.90000000000000002	rate=0.47739154719480514
+FalseCallKnob	calibrated_high	scores=0.99,0.97,0.9,0.6,0.3,0.1,0.05	curve=0.2:0.1,0.8:0.7	prior=0.5	fdr=0.45	called=4	knob=0.59999999999999998	rate=0.47739154719480514
+FalseCallKnob	identity_target_0.01	scores=0.99,0.97,0.9,0.6,0.3,0.1,0.05	curve=0:0,1:1	prior=0.5	fdr=0.01	called=1	knob=0.98999999999999999	rate=0.51699322902052225
+FalseCallKnob	identity_target_0.2	scores=0.99,0.97,0.9,0.6,0.3,0.1,0.05	curve=0:0,1:1	prior=0.5	fdr=0.2	called=4	knob=0.59999999999999998	rate=0.51699322902052225
+FalseCallKnob	deep_sample	scores=0.95,0.9,0.05*198	curve=0:0,1:1	prior=0.3	fdr=0.6	called=2	knob=0.90000000000000002	rate=0.036260107088253023
+FalseCallKnob	deep_sample_strict	scores=0.95,0.9,0.05*198	curve=0:0,1:1	prior=0.3	fdr=0.2	called=0	knob=none	rate=0.036260107088253023
+FalseCallKnob	isotonic_curve	scores=0.98,0.96,0.93,0.7,0.65,0.4,0.2,0.2,0.1	curve=0:0.001,0.3:0.02,0.6:0.3,0.9:0.85,1:0.99	prior=0.2137	fdr=0.05	called=3	knob=0.93000000000000005	rate=0.29031839726558006
+FalseCallKnob	no_scores	scores=	curve=0:0,1:1	prior=0.5	fdr=0.1	called=0	knob=none	rate=0.5
+DepthKnobAt	no_fragments	curve=2:0.2,4:0.8	fragments=0	knob=0.20000000000000001
+DepthKnobAt	one_fragment	curve=2:0.2,4:0.8	fragments=1	knob=0.20000000000000001
+DepthKnobAt	at_the_first_point	curve=2:0.2,4:0.8	fragments=100	knob=0.20000000000000001
+DepthKnobAt	halfway_in_log10	curve=2:0.2,4:0.8	fragments=1000	knob=0.5
+DepthKnobAt	near_10^3.5	curve=2:0.2,4:0.8	fragments=3162	knob=0.64998855967885705
+DepthKnobAt	at_the_last_point	curve=2:0.2,4:0.8	fragments=10000	knob=0.80000000000000004
+DepthKnobAt	beyond_the_last	curve=2:0.2,4:0.8	fragments=5000000000	knob=0.80000000000000004
+DepthKnobAt	one_point_below	curve=1.5:0.4	fragments=7	knob=0.40000000000000002
+DepthKnobAt	one_point_above	curve=1.5:0.4	fragments=1000000	knob=0.40000000000000002
+DepthKnobAt	three_points_falling	curve=2:0.3,3:0.6,5:0.5	fragments=31623	knob=0.52499984659741528
+DepthKnobAt	three_points_rising	curve=2:0.3,3:0.6,5:0.5	fragments=500	knob=0.50969100130080558
+DepthKnobAt	no_curve	curve=	fragments=7	knob=0.5

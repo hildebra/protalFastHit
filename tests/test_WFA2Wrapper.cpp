@@ -56,28 +56,33 @@ namespace {
     }
 }
 
+// A read of a simulated sample (w900) in its gene window, as protal aligns it: the window's first 18 bases are free
+// (dovetail), the rest must align. Without X-drop it aligns over the whole read. WFA2-lib v2.3.6 with X-drop 50 reports
+// it completed, with operations for 151 read bases where the read has 150: the wrapper reports it failed, and so does a
+// copy of it (as alignment threads use), which shows that the copy has the X-drop too.
 TEST(WFA2Wrapper, AnAlignmentXDropCutsShortFails) {
-    // A read of a simulated sample (w900) in its gene window, as protal aligns it: the window's
-    // first 18 bases are free (dovetail), the rest must align. WFA2 with X-drop 50 reports this
-    // alignment completed, with operations for 151 read bases where the read has 150.
     std::string const read = "TCTCACCACGTTAGAGCTTGCAGCTGCTTCCCGAGGTCCAGAGCGCCGCAGTGATTTGCAGCGAAGTAAACGCCAATCTGCTACACACC"
                              "GCAATTGTATGTGGGTGGATATTAACACTTATTACGTCTACGCCCTGCGTGGACTGTCACC";
     std::string const ref = "CCTCCGGGCTGTCACCACGCTAGAGCTTGCAGCTGCTTCCCGAGGTCCGGAGCGCCGCAGTGATTTGCAGCGAAGTAAACGCCAATCTGC"
                             "TCACCGCAATTGTATGTGGGTGGATATTAACACTTATTACGTCTACGCCCTGCGTGGACTGTCACCTGT";
-    wfa::WFAlignerGapAffine raw(4, 6, 2, wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
-    raw.setHeuristicXDrop(50, 1);
-    raw.setMaxAlignmentSteps(61);
-    ASSERT_EQ(raw.alignEndsFree(ref, 18, 0, read, 0, 0), wfa::WFAligner::StatusAlgCompleted);
-    ASSERT_NE(ReadBases(raw.getAlignment()), read.size());
-
-    WFA2Wrapper2 cut(4, 6, 2, 50);
-    cut.Alignment(read, ref, 0, 0, 18, 0, 61);
-    EXPECT_FALSE(cut.Success());
-
-    WFA2Wrapper2 uncut(4, 6, 2, 0);  // without X-drop it aligns, over the whole read
+    WFA2Wrapper2 uncut(4, 6, 2, 0);
     uncut.Alignment(read, ref, 0, 0, 18, 0, 61);
     ASSERT_TRUE(uncut.Success());
     EXPECT_EQ(ReadBases(uncut.Cigar()), read.size());
+
+    wfa::WFAlignerGapAffine raw(4, 6, 2, wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
+    raw.setHeuristicXDrop(50, 1);
+    raw.setMaxAlignmentSteps(61);
+    if (raw.alignEndsFree(ref, 18, 0, read, 0, 0) != wfa::WFAligner::StatusAlgCompleted || ReadBases(raw.getAlignment()) == read.size()) {
+        GTEST_SKIP() << "this WFA2-lib no longer reports the alignment X-drop cut short as completed: the wrapper's check of "
+                        "such alignments (WFA2Wrapper2::CoversText) has nothing to catch here";
+    }
+    WFA2Wrapper2 cut(4, 6, 2, 50);
+    cut.Alignment(read, ref, 0, 0, 18, 0, 61);
+    EXPECT_FALSE(cut.Success());
+    WFA2Wrapper2 copy(cut);  // without the X-drop it would align as `uncut`; without the wrapper's check, succeed
+    copy.Alignment(read, ref, 0, 0, 18, 0, 61);
+    EXPECT_FALSE(copy.Success());
 }
 
 TEST(WFA2Wrapper, AlignmentsItReportsCoverTheRead) {
@@ -85,9 +90,7 @@ TEST(WFA2Wrapper, AlignmentsItReportsCoverTheRead) {
     auto const cases = Cases(3000, rng);
     for (size_t x_drop : { size_t{0}, size_t{1000}, size_t{50}, size_t{20} }) {
         WFA2Wrapper2 aligner(4, 6, 2, x_drop);
-        EXPECT_EQ(aligner.XDrop(), x_drop);
         WFA2Wrapper2 copy(aligner);  // each alignment thread works on a copy
-        EXPECT_EQ(copy.XDrop(), x_drop);
         size_t aligned = 0;
         for (auto const& c : cases) {
             copy.Reset();

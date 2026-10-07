@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include "Alignment/AlignmentScreen.h"
 #include "Core/AlignmentStrategy.h"
+#include "TestReference.h"
 
 using namespace protal;
 
@@ -48,11 +49,12 @@ TEST(AlignmentScreen, TheBoundForShortReads) {
     EXPECT_EQ(AlignmentScreen::MaxTouched(61, kMismatch, kGapOpen, kGapExtend, 8), 120);
     EXPECT_EQ(AlignmentScreen::Required(150, 61, kMismatch, kGapOpen, kGapExtend, 8), 23);
     // With the k the screen takes for a short window, 6: 90 touched, 55 of 145 intact.
+    EXPECT_EQ(AlignmentScreen::KFor(150), 6u);
     EXPECT_EQ(AlignmentScreen::Required(150, 61, kMismatch, kGapOpen, kGapExtend), 55);
     // A long read's window of 1500 bases: 600 of score, 1200 touched, 293 of 1493 intact.
     EXPECT_EQ(AlignmentScreen::Required(1500, 601, kMismatch, kGapOpen, kGapExtend, 8), 293);
     // Too short to screen, and nothing to refuse without a budget.
-    EXPECT_EQ(AlignmentScreen::Required(5, 61, kMismatch, kGapOpen, kGapExtend), 0);
+    EXPECT_EQ(AlignmentScreen::Required(AlignmentScreen::kDefaultK - 1, 61, kMismatch, kGapOpen, kGapExtend), 0);
     EXPECT_LT(AlignmentScreen::Required(150, 1000, kMismatch, kGapOpen, kGapExtend), 0);
     // A budget of 0: no alignment at all.
     EXPECT_EQ(AlignmentScreen::Required(150, 0, kMismatch, kGapOpen, kGapExtend), 150);
@@ -137,50 +139,6 @@ TEST(AlignmentScreen, RefusesOnlyWhatWFA2Fails) {
     EXPECT_GT(refused, failed / 10);
 }
 
-// The screen from a gene's packed bytes (MayAlignPacked) answers as the screen of its decoded window (MayAlign): genes
-// with Ns and ambiguity codes (packed as bases, as the decoded window has them), windows at any offset (inside a packed
-// byte or not), up to the gene's last base, shorter than k or empty, read in exactly the gene's bytes; reads of every
-// divergence with Ns, free ends, budgets and k; one screen for both, its stamps reused between them.
-TEST(AlignmentScreen, PackedWindowsGiveTheDecodedWindowsAnswer) {
-    std::mt19937 rng(23);
-    std::uniform_real_distribution<double> u(0, 1);
-    AlignmentScreen screen;
-    std::vector<size_t> const ks = { 0, 4, 5, 6, 7, 8, 9, 10 };
-    size_t cases = 0, refused = 0, passed = 0;
-    for (int n = 0; n < 6000; n++) {
-        size_t const gene_length = 1 + rng() % 2500;
-        std::string gene = RandomBases(rng, gene_length);
-        for (auto& c : gene) if (rng() % 50 == 0) c = "NRYKMSWnacgt"[rng() % 12];
-        std::vector<uint8_t> packed(packed::Bytes(gene_length), 0);  // exactly the gene's bytes
-        packed::Pack(gene.data(), gene_length, packed.data());
-        std::string decoded(gene_length, '\0');
-        packed::Unpack(packed.data(), gene_length, decoded.data());
-        size_t const begin = rng() % (gene_length + 1);
-        size_t const end = n % 5 == 0 ? gene_length : std::min(gene_length, begin + rng() % 1600);
-        size_t const read_length = 5 + rng() % (n % 3 == 0 ? 1500 : 200);
-        long const start = static_cast<long>(begin) + static_cast<long>(rng() % 40) - 20;
-        double const divergence = u(rng) < 0.5 ? u(rng) * 0.05 : u(rng) * 0.3;
-        std::string const read = Derive(rng, decoded, start, read_length, divergence, n % 4 == 0 ? 0.02 : 0);
-        size_t const begin_free = rng() % 3 == 0 ? rng() % (read_length / 2 + 1) : 0;
-        size_t const end_free = rng() % 3 == 0 ? rng() % (read_length / 2 + 1) : 0;
-        int const max_score = 1 + static_cast<int>(rng() % 400);
-        std::string_view const window = std::string_view(decoded).substr(begin, end - begin);
-        for (size_t k : ks) {
-            bool const from_text = screen.MayAlign(read, begin_free, end_free, window, max_score, kMismatch, kGapOpen, kGapExtend, k);
-            bool const from_packed = screen.MayAlignPacked(read, begin_free, end_free, packed.data(), packed.size(), begin, end,
-                                                           max_score, kMismatch, kGapOpen, kGapExtend, k);
-            ASSERT_EQ(from_packed, from_text) << "case " << n << ", k " << k << ": gene " << gene_length << ", window " << begin << "-"
-                                              << end << ", read " << read_length << ", free " << begin_free << "/" << end_free;
-            cases++;
-            refused += !from_text;
-            passed += from_text;
-        }
-    }
-    std::cout << cases << " screens: " << refused << " refused, " << passed << " passed, the same from the packed bytes" << std::endl;
-    EXPECT_GT(refused, cases / 10);
-    EXPECT_GT(passed, cases / 10);
-}
-
 namespace {
     // The screen's answer from its definition, without its early exits: the read k-mers fully inside the aligned part
     // that occur in the window (whose k-mers count when all their bases are A, C, G or T; a read k-mer with any other
@@ -199,34 +157,53 @@ namespace {
             }
             return true;
         };
-        std::vector<char> in_window(size_t{ 1 } << (2 * k), 0);
+        // Whether each k-mer occurs in the window, for every k up to kMaxK; the k-mers set are cleared again after use.
+        static std::vector<char> in_window(size_t{ 1 } << (2 * AlignmentScreen::kMaxK), 0);
+        static std::vector<uint32_t> set;
+        set.clear();
         uint32_t c = 0;
-        for (size_t p = 0; p + k <= window.size(); p++) if (code(window, p, c)) in_window[c] = 1;
+        for (size_t p = 0; p + k <= window.size(); p++) {
+            if (code(window, p, c) && !in_window[c]) {
+                in_window[c] = 1;
+                set.push_back(c);
+            }
+        }
         int64_t shared = 0;
         for (size_t p = begin_free; p + k <= read.size() - end_free; p++) shared += !code(read, p, c) || in_window[c];
+        for (uint32_t const s : set) in_window[s] = 0;
         return shared >= required;
     }
+
+    // Restores the packed sequences' AVX2 switch (packed::UseAvx2) as it was.
+    struct RestoreAvx2 {
+        bool const was = packed::Avx2Enabled().load();
+        ~RestoreAvx2() { packed::UseAvx2(was); }
+    };
 }
 
 // The read side from the read's strands packed once (ReadKmers, ReadStretch): for stretches of a read's forward strand and
 // of its reverse complement at any offset (four k-mers to a load or not), and long-read windows [s, e) as the stretch
 // from n - e of the reverse strand, with Ns, ambiguity codes and lower case in the read (or none: the fast path), every
-// k, free ends and budgets, the answer is the definition's, and that of the screen packing the candidate's read for it
-// alone (both window paths). The reverse strand is given, or made from the read. The reads come one after another into
-// the same buffers and ReadKmers, so a read must not see the strands of the one before.
+// k up to kMaxK, free ends and budgets, the answer is the definition's, and that of the screen packing the candidate's
+// read for it alone. The window side from the gene's packed bytes (MayAlignPacked) and from its decoded window (MayAlign)
+// alike: genes with Ns, ambiguity codes and lower case (packed as bases, as the decoded window has them), some shorter
+// than k, windows at any offset (inside a packed byte or not), up to the gene's last base, shorter than k or empty, read
+// in exactly the gene's bytes. The reverse strand is given, or made from the read. The reads come one after another into
+// the same buffers, ReadKmers and screen, so a read must not see the strands or stamps of the one before.
 TEST(AlignmentScreen, TheReadsSharedCodesGiveTheDefinitionsAnswer) {
+    RestoreAvx2 restore;
     std::mt19937 rng(37);
     std::uniform_real_distribution<double> u(0, 1);
     AlignmentScreen screen;
     AlignmentScreen::ReadKmers kmers;
     std::string read, rev;
-    std::vector<size_t> const ks = { 0, 4, 5, 6, 7, 8 };
+    std::vector<size_t> const ks = { 0, 4, 5, 6, 7, 8, 9, 10 };
     size_t cases = 0, refused = 0, passed = 0;
     for (int n = 0; n < 1500; n++) {
-        size_t const gene_length = 50 + rng() % 3000;
+        size_t const gene_length = n % 50 == 0 ? 1 + rng() % 12 : 50 + rng() % 3000;
         std::string gene = RandomBases(rng, gene_length);
-        for (auto& c : gene) if (rng() % 80 == 0) c = 'N';  // packed as a base
-        std::vector<uint8_t> packed(packed::Bytes(gene_length), 0);
+        for (auto& c : gene) if (rng() % 50 == 0) c = "NRYKMSWnacgt"[rng() % 12];  // packed as a base
+        std::vector<uint8_t> packed(packed::Bytes(gene_length), 0);  // exactly the gene's bytes
         packed::Pack(gene.data(), gene_length, packed.data());
         std::string decoded(gene_length, '\0');
         packed::Unpack(packed.data(), gene_length, decoded.data());
@@ -271,7 +248,6 @@ TEST(AlignmentScreen, TheReadsSharedCodesGiveTheDefinitionsAnswer) {
             }
         }
     }
-    packed::UseAvx2(true);
     std::cout << cases << " screens: " << refused << " refused, " << passed << " passed, the same from the read's packed strands" << std::endl;
     EXPECT_GT(refused, cases / 10);
     EXPECT_GT(passed, cases / 10);
@@ -280,32 +256,16 @@ TEST(AlignmentScreen, TheReadsSharedCodesGiveTheDefinitionsAnswer) {
 namespace {
     constexpr size_t kGenes = 12, kGeneLength = 1200;
 
-    // Random genes of taxid 1 in a temporary directory, loaded (as test_AnchoredAlignment.cpp).
-    struct RandomReference {
-        std::vector<std::string> genes;
-        std::filesystem::path dir;
-        std::unique_ptr<GenomeLoader> loader;
+    // Random genes of taxid 1, loaded (as test_AnchoredAlignment.cpp).
+    struct RandomReference : test::LoadedReference {
+        std::vector<std::string> const& genes = LoadedReference::genes.at(1);
 
-        RandomReference() {
+        RandomReference() : LoadedReference({ { 1, Genes() } }, "screen") {}
+
+        static std::vector<std::string> Genes() {
             std::mt19937 rng(29);
-            dir = std::filesystem::temp_directory_path() / ("protal_screen_test_" + std::to_string(::getpid()));
-            std::filesystem::create_directories(dir);
-            std::ofstream fna(dir / "reference.fna"), map(dir / "reference.map");
-            size_t offset = 0;
-            for (size_t id = 1; id <= kGenes; id++) {
-                std::string const seq = RandomBases(rng, kGeneLength);
-                std::string header = ">1_" + std::to_string(id) + "\n";
-                fna << header << seq << '\n';
-                map << "1\t" << id << '\t' << offset + header.size() << '\t' << offset + header.size() + seq.size() << '\n';
-                offset += header.size() + seq.size() + 1;
-                genes.push_back(seq);
-            }
-            fna.close();
-            map.close();
-            loader = std::make_unique<GenomeLoader>((dir / "reference.fna").string(), (dir / "reference.map").string());
-            loader->LoadAllGenomes();
+            return test::RandomGenes(std::vector<size_t>(kGenes, kGeneLength), rng);
         }
-        ~RandomReference() { std::filesystem::remove_all(dir); }
     };
 
     // The maximal exact runs of at least min_length on the diagonal.
@@ -324,8 +284,10 @@ namespace {
     }
 }
 
-// Through the handler, on random anchors of reads of every divergence: the screen on and off give the same
-// outcome, score and CIGAR for every candidate, from the anchor's exact matches and as whole windows.
+// Through the handler, on random anchors of reads of every divergence and of either strand: the screen on and off give
+// the same outcome, score and CIGAR for every candidate, from the anchor's exact matches and as whole windows; for one
+// anchor (AlignAnchor, the screen packing the candidate's read for it alone) and as protal runs it (operator(), the
+// screen taking the k-mers of the read's strands packed once for all its anchors).
 TEST(AlignmentScreen, TheHandlerAlignsTheSameWithAndWithoutIt) {
     RandomReference ref;
     WFA2Wrapper2 aligner{kMismatch, kGapOpen, kGapExtend, 1000};
@@ -333,7 +295,13 @@ TEST(AlignmentScreen, TheHandlerAlignsTheSameWithAndWithoutIt) {
     without.SetAlignmentScreen(false);
     std::mt19937 rng(17);
     std::uniform_real_distribution<double> u(0, 1);
-    size_t cases = 0, aligned = 0;
+    size_t cases = 0, aligned = 0, reverse_aligned = 0;
+    auto expect_same = [](AlignmentResult const& a, AlignmentResult const& b, int n) {
+        EXPECT_EQ(a.AlignmentScore(), b.AlignmentScore()) << "case " << n;
+        EXPECT_EQ(a.GetAlignmentInfo().cigar, b.GetAlignmentInfo().cigar) << "case " << n;
+        EXPECT_EQ(a.GetAlignmentInfo().gene_alignment_start, b.GetAlignmentInfo().gene_alignment_start) << "case " << n;
+        EXPECT_EQ(a.Forward(), b.Forward()) << "case " << n;
+    };
     for (bool anchored : { true, false }) {
         with.SetAnchoredAlignment(anchored);
         without.SetAnchoredAlignment(anchored);
@@ -342,33 +310,50 @@ TEST(AlignmentScreen, TheHandlerAlignsTheSameWithAndWithoutIt) {
             std::string const& gene = ref.genes[gene_id - 1];
             long const start = static_cast<long>(rng() % (kGeneLength + 60)) - 40;
             double const divergence = u(rng) < 0.4 ? u(rng) * 0.05 : u(rng) * 0.25;
-            std::string const read = Derive(rng, gene, start, 150, divergence, 0.002);
-            ChainList runs = ExactRuns(read, gene, start);
+            std::string const segment = Derive(rng, gene, start, 150, divergence, 0.002);  // the read on the gene's strand
+            ChainList runs = ExactRuns(segment, gene, start);
             if (runs.empty()) continue;
             ChainList chain = rng() % 2 ? ChainList{ runs[rng() % runs.size()] } : runs;
+            // A read of the other strand is the segment's reverse complement; its anchor's chain is on the segment.
+            bool const forward = rng() % 2;
+            std::string const read = forward ? segment : KmerUtils::ReverseComplement(segment);
             std::string const rev = KmerUtils::ReverseComplement(read);
             std::string id = "r";
-            ChainAlignmentAnchor a(1, gene_id, true), b(1, gene_id, true);
-            a.chain = chain;
-            b.chain = chain;
+            ChainAlignmentAnchor anchor(1, gene_id, forward);
+            anchor.chain = chain;
+            ChainAlignmentAnchor a = anchor, b = anchor;
             AlignmentResult ra, rb;
+            size_t const screened_before = with.m_screened_alignments;
             bool const oa = with.AlignAnchor(a, ra, read, rev, false, id);
             bool const ob = without.AlignAnchor(b, rb, read, rev, false, id);
             cases++;
             ASSERT_EQ(oa, ob) << "case " << n << " divergence " << divergence;
             if (oa) {
                 aligned++;
-                EXPECT_EQ(ra.AlignmentScore(), rb.AlignmentScore());
-                EXPECT_EQ(ra.GetAlignmentInfo().cigar, rb.GetAlignmentInfo().cigar);
-                EXPECT_EQ(ra.GetAlignmentInfo().gene_alignment_start, rb.GetAlignmentInfo().gene_alignment_start);
+                reverse_aligned += !forward;
+                expect_same(ra, rb, n);
+            }
+            size_t const screened_alone = with.m_screened_alignments - screened_before;
+            AlignmentAnchorList anchors_with{ anchor }, anchors_without{ anchor };
+            AlignmentResultList la, lb;
+            with(anchors_with, la, read, rev, 3, id);
+            without(anchors_without, lb, read, rev, 3, id);
+            ASSERT_EQ(with.m_screened_alignments - screened_before - screened_alone, screened_alone) << "case " << n;
+            ASSERT_EQ(la.size(), lb.size()) << "case " << n;
+            // operator() keeps the alignments of at least the -a identity, here AlignAnchor's.
+            ASSERT_EQ(la.size(), oa && ra.GetAlignmentInfo().GetProxyANI() >= 0.9 ? 1u : 0u) << "case " << n;
+            if (!la.empty()) {
+                expect_same(la[0], lb[0], n);
+                expect_same(la[0], ra, n);
             }
         }
     }
-    std::cout << cases << " candidates, " << aligned << " aligned; the screen refused " << with.m_screened_alignments
-              << " of " << with.m_attempted_alignments << " (WFA2 ran " << with.m_anchored_alignments + with.m_whole_window_alignments
-              << " times with it, " << without.m_anchored_alignments + without.m_whole_window_alignments << " without)" << std::endl;
+    std::cout << cases << " candidates, " << aligned << " aligned (" << reverse_aligned << " of reverse reads); the screen refused "
+              << with.m_screened_alignments << " of " << with.m_attempted_alignments << " (WFA2 ran " << with.m_anchored_alignments +
+              with.m_whole_window_alignments << " times with it, " << without.m_anchored_alignments + without.m_whole_window_alignments
+              << " without)" << std::endl;
     ASSERT_GT(cases, 4000u);
+    EXPECT_GT(reverse_aligned, aligned / 4);
     EXPECT_GT(with.m_screened_alignments, 0u);
     EXPECT_EQ(without.m_screened_alignments, 0u);
-    EXPECT_EQ(with.m_attempted_alignments, without.m_attempted_alignments);
 }

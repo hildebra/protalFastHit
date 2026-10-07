@@ -253,7 +253,7 @@ namespace protal {
 //        using KeyMap_t = uint8_t;
         using KeyMap_t = uint16_t; // CHANGE THIS IN LATEST VERSION
         KeyMap_t* m_keymap = nullptr;
-        uint64_t m_keymask = 0b0000000000000000000000000000000000111111111111111111111111111111;
+        uint64_t m_keymask = (uint64_t{1} << m_main_bits) - 1;
         size_t keymap_size = 1u << m_main_bits;
         size_t keymap_max = m_keymask;
 
@@ -432,6 +432,14 @@ namespace protal {
         };
 
         Seedmap() {
+            AllocateKeymap(keymap_size_total);
+        }
+
+        // For tests: a map of k-mer cores of exact_k bases (2-15) instead of 15, whose key map takes 3 * 4^exact_k bytes
+        // instead of 3 GB. Its keys are laid out as a 15-base map's: the core's 2 * exact_k bits from bit 16, the flex
+        // part's halves below and above them. Only a map of the same exact_k loads its files (LoadLayout).
+        explicit Seedmap(size_t exact_k) : m_exact_k(exact_k) {
+            assert(exact_k >= 2 && exact_k <= 15);
             AllocateKeymap(keymap_size_total);
         }
 

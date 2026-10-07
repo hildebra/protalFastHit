@@ -39,7 +39,6 @@ set(PROTAL_LIB_SOURCES
         Utilities/xxhash64.h
         Utilities/BinaryClassifierEvaluator.h
         Utilities/LineSplitter.h
-        Utilities/Compressor.h
         Utilities/RunStatus.h
         Utilities/BuildInfo.h
         Utilities/BuildInfo.cpp

@@ -2284,14 +2284,6 @@ namespace protal {
             return {};
         }
 
-        // ModelContractProblemInXml for the model file at `path`.
-        inline std::string ModelContractProblem(TaxonFilterForest const& model, std::string const& path) {
-            std::ifstream is(path);
-            if (!is) return "cannot read " + path;
-            std::string const xml((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
-            return ModelContractProblemInXml(model, xml);
-        }
-
         // The counts of the taxa's best records that MicrobialProfile::NoteRecord and NoteLinkedRecord collect before the
         // filters, kept apart from the taxa until ApplyRecordEvidence hands them over: one per profile, and one per chunk
         // of a SAM profiled on several threads (Profiler::ProfileSam), whose counts are then added up. They are sums of

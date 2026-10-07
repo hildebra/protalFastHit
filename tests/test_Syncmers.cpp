@@ -1,8 +1,9 @@
 // Unit tests for the syncmer extraction of reads and genes (SimpleKmerHandler<ClosedSyncmer>): the
 // whole-sequence scan must give exactly the k-mers of the window-by-window definition, which the
 // index was built with, for both s-mer masks (index formats 1 and 2), evaluating windows one by one
-// and, where the CPU has it, 8 at a time with AVX2.
+// and, where the CPU has it, 8 at a time with AVX2; and ClosedSyncmer's selection of one core.
 #include <gtest/gtest.h>
+#include <cstdint>
 #include <random>
 #include <string>
 #include <vector>
@@ -54,6 +55,39 @@ namespace {
         }
         return seqs;
     }
+
+    // Closed-syncmer selection written out plainly, for one s-mer mask.
+    bool ReferenceSyncmer(uint64_t key, uint32_t mask, int k = 15, int s = 7, int t = 2) {
+        int n = k - s + 1;
+        uint64_t min = UINT64_MAX;
+        int min_index = 0;
+        for (int i = 0; i < n; i++) {
+            uint64_t smer = (key >> (n * 2 - (i + 1) * 2)) & mask;
+            if (smer < min) { min = smer; min_index = i; }
+        }
+        return min_index == t || min_index == n - 1 - t;
+    }
+}
+
+// The selection of a core itself, for the s-mer mask of each index format.
+TEST(ClosedSyncmer, LegacyAndFullMasksMatchTheirDefinition) {
+    ClosedSyncmer legacy{15, 7, 2, false};
+    ClosedSyncmer full{15, 7, 2, true};
+    EXPECT_FALSE(legacy.UsesFullSmerMask());
+    EXPECT_TRUE(full.UsesFullSmerMask());
+
+    std::mt19937_64 rng(3);
+    int legacy_mismatches = 0, full_mismatches = 0, differ = 0;
+    for (int i = 0; i < 200000; i++) {
+        uint64_t key = rng() & ((uint64_t{1} << 30) - 1);
+        bool l = legacy(key), f = full(key);
+        legacy_mismatches += l != ReferenceSyncmer(key, 0xFF);   // format 1: last 4 bases of each 7-mer
+        full_mismatches += f != ReferenceSyncmer(key, 0x3FFF);   // format 2: whole 7-mers
+        differ += l != f;
+    }
+    EXPECT_EQ(legacy_mismatches, 0);
+    EXPECT_EQ(full_mismatches, 0);
+    EXPECT_GT(differ, 0);  // the two formats really sample differently
 }
 
 TEST(Syncmers, ScanGivesTheKmersOfTheDefinition) {
@@ -93,20 +127,6 @@ TEST(Syncmers, AVX2IsUsedWhereTheCpuHasIt) {
 #endif
     handler.UseAvx2(false);
     EXPECT_FALSE(handler.UsesAvx2());
-}
-
-TEST(Syncmers, ScanReusesItsBuffersAcrossLengths) {
-    ClosedSyncmer syncmer{kM, 7, 2, true};
-    SimpleKmerHandler<ClosedSyncmer> handler{kK, kM, syncmer};
-    auto const seqs = Sequences();
-    KmerList list;
-    for (int round = 0; round < 2; round++) {  // long, short, long: buffers shrink and grow
-        handler.UseAvx2(round == 1);
-        for (auto it = seqs.rbegin(); it != seqs.rend(); ++it) {
-            handler(std::string_view(*it), list);
-            EXPECT_EQ(list, BruteForce(*it, syncmer));
-        }
-    }
 }
 
 // The scan codes 32 characters at a time (AVX2) and the rest one by one: any byte, any length.

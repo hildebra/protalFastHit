@@ -323,8 +323,6 @@ namespace protal {
             size_t min_cov = 3;
             size_t min_len = 30;
             SequenceRangeHandler ranges_a, ranges_b;
-//            a.GetSequenceRangeHandler().CalculateCoverageVector();
-//            b.GetSequenceRangeHandler().CalculateCoverageVector();
 
 //            std::cout << "GetSharedAlignmentRegion: " << a.GetVariantHandler().GetVariants().size() << " " << b.GetVariantHandler().GetVariants().size() << std::endl;
             auto intersection = a.GetSequenceRangeHandler().Intersect(b.GetSequenceRangeHandler(), min_cov, 10);
@@ -421,15 +419,23 @@ namespace protal {
         for (auto j = ins_count; j > 0; j--) msa_row.emplace_back('-');
     }
 
-    // Returns IUPAC ambiguity code for a sorted, deduplicated set of allele bases.
-    static char IUPACCode(std::vector<char>& alleles) {
-        static const std::unordered_map<std::string, char> iupac = {
-            {"AG", 'R'}, {"CT", 'Y'}, {"AT", 'W'}, {"CG", 'S'}, {"AC", 'M'}, {"GT", 'K'},
-            {"CGT", 'B'}, {"ACT", 'H'}, {"AGT", 'D'}, {"ACG", 'V'}, {"ACGT", 'N'}
-        };
-        std::string key(alleles.begin(), alleles.end());
-        auto it = iupac.find(key);
-        return (it != iupac.end()) ? it->second : (alleles.empty() ? 'N' : alleles.front());
+    // The IUPAC ambiguity code of a set of allele bases, in any order and with repeats: a single base is itself. With a
+    // base other than A, C, G or T among them, which no code covers, the smallest base; none gives N.
+    static char IUPACCode(std::vector<char> const& alleles) {
+        if (alleles.empty()) return 'N';
+        // By the set of bases, A = 1, C = 2, G = 4, T = 8.
+        static constexpr char kCodes[16] = { 'N', 'A', 'C', 'M', 'G', 'R', 'S', 'V', 'T', 'W', 'Y', 'H', 'K', 'D', 'B', 'N' };
+        unsigned set = 0;
+        for (char const base : alleles) {
+            switch (base) {
+                case 'A': set |= 1; break;
+                case 'C': set |= 2; break;
+                case 'G': set |= 4; break;
+                case 'T': set |= 8; break;
+                default: return *std::min_element(alleles.begin(), alleles.end());
+            }
+        }
+        return kCodes[set];
     }
 
     using VariantVecRef = std::reference_wrapper<VariantVec>;

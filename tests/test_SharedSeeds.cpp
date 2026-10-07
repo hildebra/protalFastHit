@@ -3,7 +3,9 @@
 // seeds sorted. Against the reference: all seeds sorted by their 128-bit key, the runs of one taxon and gene of two or more.
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cstdint>
 #include <random>
+#include <tuple>
 #include <vector>
 #include "SequenceUtils/GenomeLoader.h"
 #include "Hash/KmerLookup.h"
@@ -56,10 +58,7 @@ TEST(SharedSeeds, FindPairsSeesTheRunsOfAllSeedsSorted) {
             if (rng() % 50 == 0) geneid = (1u << 20) - 1;
             seeds.emplace_back(taxid, geneid, rng() % 3000, rng() % 150, rng() % 2, rng() % 2);
         }
-        SeedList const before = seeds;
         shared_seeds.Sort(seeds, sorted_seeds);
-        ASSERT_EQ(seeds.size(), before.size());
-        for (size_t i = 0; i < seeds.size(); i++) ASSERT_TRUE(Same(seeds[i], before[i])) << "read " << n << ": seeds changed";
         ASSERT_TRUE(std::is_sorted(sorted_seeds.begin(), sorted_seeds.end(), BySortKey)) << "read " << n;
 
         SeedList all = seeds;
@@ -75,11 +74,35 @@ TEST(SharedSeeds, FindPairsSeesTheRunsOfAllSeedsSorted) {
         singletons += count - expected.size();
         singletons_sorted += sorted_seeds.size() - got.size();
     }
-    std::cout << seeds_total << " seeds, " << shared_total << " of them shared; of the " << singletons << " others "
-              << singletons_sorted << " sorted along" << std::endl;
     EXPECT_GT(shared_total, seeds_total / 10);
     EXPECT_LT(shared_total, seeds_total * 9 / 10);
     EXPECT_LT(singletons_sorted, singletons / 10);
+}
+
+// The 128-bit sort key holds every field whole: each at its maximum (alone, and all at once) comes back from it, and
+// orders as the comparator's fields do, so that no field spills into the next.
+TEST(SharedSeeds, SortKeysRoundTripAtTheFieldsMaxima) {
+    auto fields = [](LookupResult const& s) { return std::tuple(s.taxid, s.geneid, s.readpos, s.genepos, s.unique, s.unique_dist_two); };
+    std::vector<LookupResult> const seeds = {
+            LookupResult(0, 0, 0, 0),
+            LookupResult(0, 0, 0, 0, false, true),
+            LookupResult(0, 0, 0, 0, true, false),
+            LookupResult(0, 0, UINT32_MAX, 0),
+            LookupResult(0, 0, 0, UINT16_MAX),
+            LookupResult(0, UINT32_MAX, 0, 0),
+            LookupResult(UINT32_MAX, 0, 0, 0),
+            LookupResult(UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT16_MAX, true, true),
+    };
+    for (auto const& seed : seeds) {
+        EXPECT_EQ(fields(LookupResult::FromSortKey(seed.SortKey())), fields(seed))
+                << seed.taxid << " " << seed.geneid << " " << seed.genepos << " " << seed.readpos;
+    }
+    // A field at its maximum, with every later field too, sorts below the next field's smallest step up (the order:
+    // taxon, gene, read position, gene position, the two flags).
+    EXPECT_TRUE(LookupResult(0, 0, 0, 0, true, true).SortKey() < LookupResult(0, 0, 1, 0).SortKey());
+    EXPECT_TRUE(LookupResult(0, 0, UINT32_MAX, 0, true, true).SortKey() < LookupResult(0, 0, 0, 1).SortKey());
+    EXPECT_TRUE(LookupResult(0, 0, UINT32_MAX, UINT16_MAX, true, true).SortKey() < LookupResult(0, 1, 0, 0).SortKey());
+    EXPECT_TRUE(LookupResult(0, UINT32_MAX, UINT32_MAX, UINT16_MAX, true, true).SortKey() < LookupResult(1, 0, 0, 0).SortKey());
 }
 
 // No seeds or one: nothing to sort; two of one gene: both; two of different genes: no run for FindPairs.

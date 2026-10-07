@@ -647,11 +647,6 @@ namespace protal {
         return reads;
     }
 
-    // Whether a SAM stream holds paired reads, judged by its first usable record (see ReadsOfSam).
-    inline std::optional<bool> HoldsPairedReads(std::istream& is) {
-        return ReadsOfSam(is).paired;
-    }
-
 
     class SamHandler {
 

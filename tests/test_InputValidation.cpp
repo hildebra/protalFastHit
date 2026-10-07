@@ -1,9 +1,8 @@
 // Unit tests for the database and input files protal reads: malformed files must stop with a clear
 // message (exit 8) instead of being half-read, and the index must know which reference it was built for.
 #include <gtest/gtest.h>
-#include <chrono>
+#include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -14,6 +13,7 @@
 #include <string>
 #include <unistd.h>
 #include <zstd.h>
+#include "Options.h"
 #include "Hash/Seedmap.h"
 #include "Profiling/Profiler.h"
 #include "SequenceUtils/GenomeLoader.h"
@@ -22,25 +22,12 @@
 #include "Utilities/ReferenceFingerprint.h"
 #include "SequenceUtils/ReadTypeDetection.h"
 #include "gzstream/gzstream.h"
+#include "TestUtil.h"
 
 namespace fs = std::filesystem;
+using protal::test::ScratchDir;
 
 namespace {
-    struct ScratchDir {
-        fs::path path;
-        ScratchDir() {
-            path = fs::temp_directory_path() / ("protal input test " + std::to_string(::getpid()));
-            fs::create_directories(path);
-        }
-        ~ScratchDir() { fs::remove_all(path); }
-
-        std::string Write(std::string const& name, std::string const& content) const {
-            auto file = path / name;
-            std::ofstream(file, std::ios::binary) << content;
-            return file.string();
-        }
-    };
-
     // Two genera with two and one species, as the mini DB lays them out.
     constexpr char kTaxonomy[] =
             "id\tparent_id\texternal_id\tname\trank\tlevel\trep_genome\n"
@@ -239,34 +226,6 @@ TEST(ReferenceFingerprint, TracksMapContentAndReferenceSize) {
     EXPECT_NE(original, protal::ReferenceFingerprint::Of(map, fna));
 }
 
-TEST(IndexHeader, ReferenceFingerprintRoundTrips) {
-    protal::ReferenceFingerprint fingerprint{ 0x0123456789abcdefULL, 386271 };
-    std::stringstream with;
-    {
-        protal::Seedmap built;
-        EXPECT_FALSE(built.HasReferenceFingerprint());
-        built.SetReferenceFingerprint(fingerprint);
-        built.SaveHeader(with);
-    }
-    protal::Seedmap loaded;
-    loaded.LoadHeader(with);
-    ASSERT_TRUE(loaded.HasReferenceFingerprint());
-    EXPECT_EQ(loaded.GetReferenceFingerprint(), fingerprint);
-    EXPECT_TRUE(loaded.UsesFullSyncmerMask());
-    EXPECT_NE(loaded.FeatureDescription().find(", reference fingerprint"), std::string::npos);
-
-    // Indices written before the fingerprint existed still load, without one.
-    std::stringstream without;
-    {
-        protal::Seedmap built;
-        built.SaveHeader(without);
-    }
-    protal::Seedmap old;
-    old.LoadHeader(without);
-    EXPECT_FALSE(old.HasReferenceFingerprint());
-    EXPECT_NE(old.FeatureDescription().find("no reference fingerprint"), std::string::npos);
-}
-
 TEST(KmerUtils, LowercaseBasesEncodeLikeUppercase) {
     for (auto [upper, lower] : { std::pair{ 'A', 'a' }, { 'C', 'c' }, { 'G', 'g' }, { 'T', 't' } }) {
         EXPECT_EQ(KmerUtils::BaseToInt(lower), KmerUtils::BaseToInt(upper));
@@ -277,17 +236,11 @@ TEST(KmerUtils, LowercaseBasesEncodeLikeUppercase) {
     EXPECT_EQ(KmerUtils::BaseToInt('n'), 4u);
 }
 
-TEST(UniqueKmers, LoadsCountsAndRejectsMalformedLines) {
+TEST(UniqueKmers, RejectsMalformedLines) {
     ScratchDir dir;
     Reference ref;
     auto fna = dir.Write("reference.fna", ref.fna);
     auto map = dir.Write("reference.map", ref.map);
-    {
-        protal::GenomeLoader loader(fna, map);
-        loader.LoadUniqueKmers(dir.Write("u.tsv", "1\t1\t3\t0.3\t0\t0\t0\t0\t10\r\n\n1\t2\t0\t0\t0\t0\t0\t0\t8\n"));
-        EXPECT_TRUE(loader.GetGenome(1).IsGeneHittable(1));
-        EXPECT_FALSE(loader.GetGenome(1).IsGeneHittable(2));
-    }
     auto load = [&](std::string const& content) {
         protal::GenomeLoader loader(fna, map);
         loader.LoadUniqueKmers(dir.Write("bad.tsv", content));
@@ -406,116 +359,6 @@ TEST(GeneTables, GenomesSpreadOverTheFileAreAddedOnceEach) {
     EXPECT_EXIT(LoadBig(duplicate, 8), testing::ExitedWithCode(8), "line 30001: gene 1_1 is listed twice");
 }
 
-// A bench, not a test: PROTAL_GENE_TABLE_TAXA=N loads tables of N genomes x 168 genes (GTDB r226: 143,614) on 1 and
-// 6 threads and prints the times (docs/claude/2026-10-04-performance-gtdb-scale).
-TEST(GeneTables, BenchLoadOfLargeTables) {
-    char const* taxa_env = std::getenv("PROTAL_GENE_TABLE_TAXA");
-    if (!taxa_env) GTEST_SKIP() << "set PROTAL_GENE_TABLE_TAXA to run";
-    int const taxa = std::atoi(taxa_env);
-    ScratchDir dir;
-    BigTables tables(dir, {}, {}, false, taxa, 168);
-    std::cout << tables.genes << " genes in " << std::filesystem::file_size(tables.map) / (1 << 20) << " MB (map) + "
-              << std::filesystem::file_size(tables.unique) / (1 << 20) << " MB (unique k-mers)" << std::endl;
-    for (int threads : { 1, 6 }) {
-        auto const start = std::chrono::steady_clock::now();
-        protal::GenomeLoader loader(protal::db::DbFile::OnDisk(tables.fna), protal::db::DbFile::OnDisk(tables.map), threads);
-        auto const mapped = std::chrono::steady_clock::now();
-        loader.LoadUniqueKmers(tables.unique, threads);
-        auto const done = std::chrono::steady_clock::now();
-        auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
-        std::cout << threads << " thread(s): reference.map " << ms(start, mapped) << " ms, unique_kmers.tsv " << ms(mapped, done)
-                  << " ms, " << loader.GeneCount() << " genes" << std::endl;
-        std::cout << "  " << loader.GeneTableTimes() << std::endl;
-        EXPECT_EQ(loader.GeneCount(), tables.genes);
-    }
-    // The tables as members of a single-file database (64 MB frames, as protal builds it): the path a run takes.
-    std::string error;
-    auto const bundle_path = (dir.path / "tables.protal").string();
-    ASSERT_TRUE(protal::db::Write(bundle_path, { { "reference.map", tables.map }, { "unique_kmers.tsv", tables.unique } },
-                                  protal::zstd::Params{ 3, 0, 6, uint64_t{64} << 20 }, error)) << error;
-    auto const bundle = protal::db::Bundle::Open(bundle_path, error);
-    ASSERT_TRUE(bundle) << error;
-    for (int threads : { 1, 6 }) {
-        auto const start = std::chrono::steady_clock::now();
-        protal::GenomeLoader loader(protal::db::DbFile::OnDisk(tables.fna), protal::db::DbFile::InBundle(*bundle, "reference.map"), threads);
-        auto const mapped = std::chrono::steady_clock::now();
-        loader.LoadUniqueKmers(protal::db::DbFile::InBundle(*bundle, "unique_kmers.tsv"), threads);
-        auto const done = std::chrono::steady_clock::now();
-        auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
-        std::cout << threads << " thread(s), bundle members: reference.map " << ms(start, mapped) << " ms, unique_kmers.tsv "
-                  << ms(mapped, done) << " ms" << std::endl;
-        std::cout << "  " << loader.GeneTableTimes() << std::endl;
-        EXPECT_EQ(loader.GeneCount(), tables.genes);
-    }
-    // The binary gene table (GeneTableFile.h), as a single-file database holds it beside the text tables: what a run loads.
-    std::string const table = (dir.path / protal::gene_table_file::kFileName).string();
-    {
-        protal::GenomeLoader text(protal::db::DbFile::OnDisk(tables.fna), protal::db::DbFile::OnDisk(tables.map), 6);
-        text.LoadUniqueKmers(tables.unique, 6);
-        auto const start = std::chrono::steady_clock::now();
-        ASSERT_EQ(text.WriteGeneTable(table, std::filesystem::file_size(tables.map), std::filesystem::file_size(tables.unique), true), "");
-        std::cout << "gene_table.bin written in " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count()
-                  << " ms, " << std::filesystem::file_size(table) / (1 << 20) << " MB" << std::endl;
-    }
-    auto const with_table = (dir.path / "with_table.protal").string();
-    ASSERT_TRUE(protal::db::Write(with_table, { { "reference.fna", tables.fna }, { "reference.map", tables.map }, { "unique_kmers.tsv", tables.unique },
-                                                { protal::gene_table_file::kFileName, table } },
-                                  protal::zstd::Params{ 3, 0, 6, uint64_t{64} << 20 }, error)) << error;
-    auto const table_bundle = protal::db::Bundle::Open(with_table, error);
-    ASSERT_TRUE(table_bundle) << error;
-    for (int threads : { 1, 6 }) {
-        auto const start = std::chrono::steady_clock::now();
-        auto const unique = protal::db::DbFile::InBundle(*table_bundle, "unique_kmers.tsv");
-        protal::GenomeLoader loader(protal::db::DbFile::InBundle(*table_bundle, "reference.fna"), protal::db::DbFile::InBundle(*table_bundle, "reference.map"),
-                                    threads, protal::db::DbFile::InBundle(*table_bundle, protal::gene_table_file::kFileName), unique.Size());
-        auto const done = std::chrono::steady_clock::now();
-        std::cout << threads << " thread(s), bundle with gene_table.bin: "
-                  << std::chrono::duration_cast<std::chrono::milliseconds>(done - start).count() << " ms" << std::endl;
-        std::cout << "  " << loader.GeneTableTimes() << std::endl;
-        EXPECT_TRUE(loader.FromGeneTable());
-        EXPECT_EQ(loader.GeneCount(), tables.genes);
-    }
-}
-
-TEST(ModelFeatures, NormalizedFeaturesOfATaxon) {
-    // Genome 1 has two hittable genes of 10 and 8 bp. Three mates of two fragments land on gene 1_1,
-    // one with an insertion.
-    ScratchDir dir;
-    Reference ref;
-    protal::GenomeLoader loader(dir.Write("reference.fna", ref.fna), dir.Write("reference.map", ref.map));
-    loader.LoadAllGenomes();
-    protal::profiler::MicrobialProfile profile(loader);
-    auto sam = [](std::string seq, std::string cigar) {
-        protal::SamEntry s;
-        s.m_qname = "r";
-        s.m_rname = "1_1";
-        s.m_pos = 1;
-        s.m_mapq = 60;
-        s.m_qual = std::string(seq.size(), 'I');
-        s.m_seq = std::move(seq);
-        s.m_cigar = std::move(cigar);
-        return s;
-    };
-    auto exact = sam("ACGTACGTAA", "10M");
-    auto insertion = sam("ACGTAGCGTAA", "5M1I5M");  // identity 10/11
-    ASSERT_TRUE(profile.AddSam(1, 1, exact, 1.0, true, 0));
-    ASSERT_TRUE(profile.AddSam(1, 1, exact, 1.0, true, 0));  // its mate: the same fragment
-    ASSERT_TRUE(profile.AddSam(1, 1, insertion, 1.0, true, 1));
-    auto const& taxon = profile.GetTaxa().at(1);
-
-    EXPECT_EQ(taxon.TotalHits(), 3u);
-    EXPECT_EQ(taxon.Fragments(), 2u);
-    EXPECT_NEAR(taxon.BaseIdentity(), (10 + 10 + 10 * 10.0 / 11) / 30, 1e-9);
-    EXPECT_NEAR(taxon.TopIdentity(), 1.0, 1e-6);
-    EXPECT_NEAR(taxon.HitGeneFraction(), 0.5, 1e-12);
-    // Two fragments over genes of 10 and 8 bp: 1 - (8/18)^2 + 1 - (10/18)^2 genes expected, 1 hit.
-    double const expected_genes = 2 - std::pow(8.0 / 18, 2) - std::pow(10.0 / 18, 2);
-    EXPECT_NEAR(taxon.GenePresenceRatio(), 1 / expected_genes, 1e-9);
-    // Fragments per gene 2 and 0 against 2 * 10/18 and 2 * 8/18.
-    double const e1 = 2 * 10.0 / 18, e2 = 2 * 8.0 / 18;
-    EXPECT_NEAR(taxon.GeneDispersion(), (2 - e1) * (2 - e1) / e1 + e2, 1e-9);
-}
-
 TEST(UniqueKmers, AGenomeWithoutUniqueKmersHasNoHittableGene) {
     ScratchDir dir;
     Reference ref;
@@ -526,9 +369,10 @@ TEST(UniqueKmers, AGenomeWithoutUniqueKmersHasNoHittableGene) {
     EXPECT_TRUE(without.GetGenome(2).IsGeneHittable(1));
     EXPECT_EQ(without.GetGenome(2).GeneNum(), 1u);
 
-    // Genome 2's gene has no unique k-mers, and genome 1 has one with and one without.
+    // Genome 2's gene has no unique k-mers, and genome 1 has one with and one without. The first line ends in CRLF and a
+    // blank line follows it, as an editor may leave them.
     protal::GenomeLoader loader(fna, map);
-    loader.LoadUniqueKmers(dir.Write("u.tsv", "1\t1\t3\t0.3\t0\t0\t0\t0\t10\n1\t2\t0\t0\t0\t0\t0\t0\t8\n2\t1\t0\t0\t0\t0\t0\t0\t8\n"));
+    loader.LoadUniqueKmers(dir.Write("u.tsv", "1\t1\t3\t0.3\t0\t0\t0\t0\t10\r\n\n1\t2\t0\t0\t0\t0\t0\t0\t8\n2\t1\t0\t0\t0\t0\t0\t0\t8\n"));
     EXPECT_EQ(loader.GetGenome(1).GetHittableGenes(), std::vector<uint32_t>{ 1 });
     EXPECT_FALSE(loader.GetGenome(2).IsGeneHittable(1));
     EXPECT_TRUE(loader.GetGenome(2).GetHittableGenes().empty());
@@ -553,7 +397,7 @@ namespace {
     std::string Plain(size_t i) { return "read" + std::to_string(i); }
 
     std::optional<protal::ReadTypeGuess> Guess(std::string const& path) {
-        return protal::GuessReadType(protal::SampleReads(path), 1000);
+        return protal::GuessReadType(protal::SampleReads(path), protal::MAX_SHORT_READ_LENGTH);
     }
 }
 
@@ -644,12 +488,45 @@ TEST(ReadTypeDetection, NamesBeforeQualities) {
     EXPECT_EQ(other->type, protal::ReadType::ONT);
 }
 
+// At the boundaries: a median read quality of Q25 (kPacBioMinQuality) is PacBio's, a read of MAX_SHORT_READ_LENGTH bases
+// is a short read, and a quarter of the reads longer leaves the sample's reads short.
+TEST(ReadTypeDetection, TheBoundariesOfQualityAndLength) {
+    auto type = [](std::vector<size_t> const& lengths, double quality) {
+        protal::ReadSample sample;
+        sample.reads = lengths.size();
+        sample.lengths = lengths;
+        sample.longest = sample.median_length = *std::max_element(lengths.begin(), lengths.end());
+        sample.median_quality = quality;
+        return protal::GuessReadType(sample, protal::MAX_SHORT_READ_LENGTH)->type;
+    };
+    double const q25 = protal::kPacBioMinQuality;
+    EXPECT_EQ(type({ 4000, 4000 }, q25), protal::ReadType::PacBio);
+    EXPECT_EQ(type({ 4000, 4000 }, std::nextafter(q25, 0.0)), protal::ReadType::ONT);
+    size_t const longest_short = protal::MAX_SHORT_READ_LENGTH;
+    EXPECT_EQ(type({ longest_short, longest_short }, 18), protal::ReadType::Single);
+    EXPECT_EQ(type({ longest_short + 1, longest_short + 1 }, 18), protal::ReadType::ONT);
+    EXPECT_EQ(type({ 150, 150, 150, 4000 }, 18), protal::ReadType::Single);
+    EXPECT_EQ(type({ 150, 150, 4000 }, 18), protal::ReadType::ONT);
+}
+
+// The reads looked at: the first 200, or fewer where they reach 5 Mb, as set (the read that reaches the bases is the last).
+TEST(ReadTypeDetection, TheFirstReadsUpToTheCaps) {
+    ScratchDir dir;
+    auto const path = dir.Write("reads.fq", Reads(300, 150, 'I', Plain));
+    EXPECT_EQ(protal::SampleReads(path).reads, 200u);
+    EXPECT_EQ(protal::SampleReads(path, 10).reads, 10u);
+    auto const capped = protal::SampleReads(path, 200, 1000);
+    EXPECT_EQ(capped.reads, 7u);  // 1,050 bases
+    EXPECT_EQ(capped.lengths, std::vector<size_t>(7, 150));
+}
+
 // The preload's sort of its genes by start byte (gene_table::ParallelSort): what std::sort gives, on any number of threads,
-// for sizes below, at and above a part per thread, and for genes listed genome by genome from a reference written gene by gene.
+// for sizes below, at and above a part per thread (2^16 values), up to 5 parts (merged over three rounds, a run left over
+// in two), and for genes listed genome by genome from a reference written gene by gene.
 TEST(GeneTables, TheParallelSortIsStdSort) {
     std::mt19937_64 rng(11);
     auto by_first = [](auto const& a, auto const& b) { return a.first < b.first; };
-    for (size_t const n : { size_t{0}, size_t{1}, size_t{1000}, size_t{1} << 16, (size_t{1} << 18) + 7, size_t{1} << 20 }) {
+    for (size_t const n : { size_t{0}, size_t{1}, size_t{1000}, size_t{1} << 16, (size_t{1} << 18) + 7, (size_t{5} << 16) + 3 }) {
         std::vector<std::pair<uint64_t, uint32_t>> values(n);
         for (size_t i = 0; i < n; i++) values[i] = { rng(), static_cast<uint32_t>(i) };
         auto expected = values;

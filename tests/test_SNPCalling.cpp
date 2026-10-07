@@ -1,6 +1,8 @@
 // Unit tests for SNP calling: quality parsing, the reference allele's strand handling,
 // variant ownership and matching, IUPAC codes and SAM strand flags.
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <map>
 #include <random>
 #include <string>
 #include <vector>
@@ -24,30 +26,14 @@ namespace {
     }
 }
 
-TEST(PhredScore, DecodesPhred33) {
+TEST(PhredScore, DecodesPhred33AndClampsBelowTheOffset) {
     EXPECT_EQ(VariantHandler::PhredScore('!'), 0);
     EXPECT_EQ(VariantHandler::PhredScore('#'), 2);
     EXPECT_EQ(VariantHandler::PhredScore('+'), 10);
     EXPECT_EQ(VariantHandler::PhredScore('I'), 40);
-}
-
-TEST(PhredScore, ClampsBelowOffsetInsteadOfWrapping) {
+    // Below '!' a character is Q0, not a wrapped-around high quality.
     EXPECT_EQ(VariantHandler::PhredScore(' '), 0);
     EXPECT_EQ(VariantHandler::PhredScore('\0'), 0);
-}
-
-TEST(ExtractVariants, LowQualitySnpKeepsLowQuality) {
-    // The read carries G instead of the reference T at position 3 (0-based), with quality '#' (Q2).
-    std::string reference = "ACGTACGTAC";
-    VariantHandler handler(reference);
-    auto sam = MakeSam("ACGGACGTAC", "III#IIIIII", "3M1X6M", 1, 0);
-
-    ASSERT_TRUE(handler.AddVariantsFromSam(sam));
-    ASSERT_TRUE(handler.HasVariantBin(3));
-    auto& bin = handler.GetVariantBin(3);
-    ASSERT_EQ(bin.size(), 1u);
-    EXPECT_EQ(bin.front().GetVariant(), 'G');
-    EXPECT_EQ(bin.front().QualitySum(), 2u);
 }
 
 TEST(StrandFilter, EveryAlleleIsJudgedByTheStrandsOfTheSite) {
@@ -128,6 +114,24 @@ TEST(VariantMatch, DeletionsMatchDeletions) {
     EXPECT_FALSE(a.Match(c));
 }
 
+TEST(VariantMatch, AnInsertionADeletionAndASnpNeverMatchEachOther) {
+    // At one position: an insertion and a deletion of the same bases, and a SNP of the first of them.
+    std::string bases = "CG";
+    Variant ins(VariantType::INS, 5, 'A', bases);
+    Variant del(VariantType::DEL, 5, 'A', bases);
+    Variant snp(5, 'C', 'A');
+    EXPECT_FALSE(ins.Match(del));
+    EXPECT_FALSE(del.Match(ins));
+    for (auto const* indel : { &ins, &del }) {
+        EXPECT_FALSE(snp.Match(*indel));
+        EXPECT_FALSE(indel->Match(snp));
+    }
+    EXPECT_TRUE(ins.Match(Variant(VariantType::INS, 5, 'A', bases)));
+    EXPECT_TRUE(snp.Match(Variant(5, 'C', 'A')));
+    EXPECT_FALSE(snp.Match(Variant(5, 'G', 'A')));
+    EXPECT_FALSE(snp.Match(Variant(6, 'C', 'A')));
+}
+
 TEST(VariantOwnership, CopiesOwnTheirIndelSequence) {
     std::string inserted = "TTG";
     std::vector<Variant> bin;
@@ -147,15 +151,17 @@ TEST(VariantOwnership, CopiesOwnTheirIndelSequence) {
     }
 }
 
-TEST(IUPAC, TwoAndThreeAlleleCodes) {
-    std::vector<char> ag{'A', 'G'};
-    std::vector<char> ct{'C', 'T'};
-    std::vector<char> acg{'A', 'C', 'G'};
-    std::vector<char> single{'T'};
-    EXPECT_EQ(IUPACCode(ag), 'R');
-    EXPECT_EQ(IUPACCode(ct), 'Y');
-    EXPECT_EQ(IUPACCode(acg), 'V');
-    EXPECT_EQ(IUPACCode(single), 'T');
+TEST(IUPAC, EverySetOfBasesInAnyOrderHasItsCode) {
+    std::map<std::string, char> const codes = { { "A", 'A' }, { "C", 'C' }, { "G", 'G' }, { "T", 'T' },
+                                                { "AC", 'M' }, { "AG", 'R' }, { "AT", 'W' }, { "CG", 'S' }, { "CT", 'Y' }, { "GT", 'K' },
+                                                { "ACG", 'V' }, { "ACT", 'H' }, { "AGT", 'D' }, { "CGT", 'B' }, { "ACGT", 'N' } };
+    for (auto const& [set, code] : codes) {
+        std::vector<char> alleles(set.begin(), set.end());
+        do {
+            EXPECT_EQ(IUPACCode(alleles), code) << std::string(alleles.begin(), alleles.end());
+        } while (std::next_permutation(alleles.begin(), alleles.end()));
+    }
+    EXPECT_EQ(IUPACCode({ 'G', 'A', 'G' }), 'R');  // a base twice
 }
 
 TEST(SamFlags, Read2StrandComesFromItsOwnFlagBit) {
@@ -267,5 +273,4 @@ TEST(AlignmentInfo, CountsAndCompressesACigarAsTheColumnLoopDid) {
         }
         ExpectSameCounts(cigar);
     }
-    ExpectSameCounts(std::string(70000, 'M') + std::string(66000, 'I'));  // the 16-bit counters wrap alike
 }

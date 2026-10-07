@@ -1335,32 +1335,6 @@ namespace protal::zstd {
         virtual bool Ok() const { return true; }
     };
 
-    // The concatenation of memory regions (e.g. an index's header, key map and values).
-    class MemoryReader : public Reader {
-    public:
-        void Add(char const* data, size_t size) { m_parts.emplace_back(data, size); }
-
-        size_t Read(char* dst, size_t size) override {
-            size_t done = 0;
-            while (done < size && m_part < m_parts.size()) {
-                auto const& [data, length] = m_parts[m_part];
-                size_t const n = std::min(size - done, length - m_pos);
-                std::memcpy(dst + done, data + m_pos, n);
-                done += n;
-                m_pos += n;
-                if (m_pos == length) {
-                    m_part++;
-                    m_pos = 0;
-                }
-            }
-            return done;
-        }
-
-    private:
-        std::vector<std::pair<char const*, size_t>> m_parts;
-        size_t m_part = 0, m_pos = 0;
-    };
-
     class StreamReader : public Reader {
     public:
         explicit StreamReader(std::istream& is) : m_is(is) {}

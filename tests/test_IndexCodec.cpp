@@ -9,20 +9,13 @@
 #include <vector>
 #include <unistd.h>
 #include "Hash/IndexCodec.h"
+#include "TestUtil.h"
 
 namespace fs = std::filesystem;
 using namespace protal;
+using namespace protal::test;
 
 namespace {
-    struct TempDir {
-        fs::path dir;
-        TempDir() {
-            dir = fs::temp_directory_path() / ("protal_codectest_" + std::to_string(::getpid()));
-            fs::create_directories(dir);
-        }
-        ~TempDir() { fs::remove_all(dir); }
-        std::string operator/(std::string const& name) const { return (dir / name).string(); }
-    };
 
     // Keys with c entries take c cells, or c + ceil(c/2) with flex keys (c >= 2); block offsets and
     // per-key offsets are prefix sums, the last control block holds the number of values. The keys
@@ -63,16 +56,6 @@ namespace {
             layout.values = values.size();
         }
     };
-
-    std::string Slurp(std::string const& path) {
-        std::ifstream is(path, std::ios::binary);
-        return {std::istreambuf_iterator<char>(is), std::istreambuf_iterator<char>()};
-    }
-
-    void Spit(std::string const& path, std::string const& data) {
-        std::ofstream os(path, std::ios::binary);
-        os << data;
-    }
 
     // Decodes path into fresh arrays; returns the error message.
     std::string DecodeFile(std::string const& path, int threads, std::vector<uint16_t>& km, std::vector<uint64_t>& vals,
@@ -165,9 +148,9 @@ namespace {
         return out;
     }
 
-    // Writes index with chunks of about chunk_bytes, then checks that every chunk is stored split,
-    // that it reads back as it was written with any thread count, and that Verify accepts it.
-    // Returns the chunks' headers.
+    // Writes index with chunks of about chunk_bytes, then checks that every chunk is stored split, that the file is a
+    // split index whose container holds the index's header and layout, that it reads back as it was written with any
+    // thread count, and that Verify accepts it. Returns the chunks' headers.
     std::vector<ChunkInfo> RoundTrip(SmallIndex const& index, std::string const& path, uint64_t chunk_bytes) {
         size_t raw_chunks = 99;
         std::string error;
@@ -175,11 +158,16 @@ namespace {
                                           {3, 0, 4, chunk_bytes}, error, &raw_chunks);
         EXPECT_TRUE(written) << error;
         EXPECT_EQ(raw_chunks, 0u) << "chunks of " << chunk_bytes;
+        EXPECT_TRUE(index_codec::IsSplitIndex(path)) << "chunks of " << chunk_bytes;
         EXPECT_EQ(index_codec::Verify(path, index.header, index.layout, index.keymap.data(), index.values.data(), 3), "");
         for (int threads : {1, 4}) {
             std::vector<uint16_t> km;
             std::vector<uint64_t> vals;
-            EXPECT_EQ(DecodeFile(path, threads, km, vals), "") << "chunks of " << chunk_bytes << ", " << threads << " threads";
+            index_codec::Container container;
+            EXPECT_EQ(DecodeFile(path, threads, km, vals, &container), "") << "chunks of " << chunk_bytes << ", " << threads << " threads";
+            EXPECT_EQ(container.index_header, index.header);
+            EXPECT_EQ(container.layout.blocks, index.layout.blocks);
+            EXPECT_EQ(container.layout.values, index.layout.values);
             EXPECT_EQ(km, index.keymap) << "chunks of " << chunk_bytes << ", " << threads << " threads";
             EXPECT_EQ(vals, index.values) << "chunks of " << chunk_bytes << ", " << threads << " threads";
         }
@@ -188,35 +176,18 @@ namespace {
 }
 
 TEST(IndexCodec, RoundTripWithManyChunksAndAnyThreadCount) {
-    TempDir tmp;
+    ScratchDir tmp;
     SmallIndex index(3000, 1, 0.5);
     for (uint64_t chunk : {uint64_t{4096}, uint64_t{50000}, uint64_t{64} << 20}) {
-        size_t raw_chunks = 99;
-        std::string error;
-        auto written = index_codec::Write(tmp / "index.zst", index.header, index.layout, index.keymap.data(),
-                                          index.values.data(), {3, 0, 4, chunk}, error, &raw_chunks);
-        ASSERT_TRUE(written) << error;
-        EXPECT_EQ(raw_chunks, 0u);
-        EXPECT_TRUE(index_codec::IsSplitIndex(tmp / "index.zst"));
-        EXPECT_EQ(index_codec::Verify(tmp / "index.zst", index.header, index.layout, index.keymap.data(), index.values.data(), 3), "");
-        for (int threads : {1, 4}) {
-            std::vector<uint16_t> km;
-            std::vector<uint64_t> vals;
-            index_codec::Container container;
-            ASSERT_EQ(DecodeFile(tmp / "index.zst", threads, km, vals, &container), "") << chunk;
-            EXPECT_EQ(container.index_header, index.header);
-            EXPECT_EQ(container.layout.blocks, index.layout.blocks);
-            if (chunk == 4096) EXPECT_GT(container.chunks.size(), 10u);
-            EXPECT_EQ(km, index.keymap) << "chunks of " << chunk << ", " << threads << " threads";
-            EXPECT_EQ(vals, index.values) << "chunks of " << chunk << ", " << threads << " threads";
-        }
+        auto const infos = RoundTrip(index, tmp / "index.zst", chunk);
+        if (chunk == 4096) EXPECT_GT(infos.size(), 10u);
     }
 }
 
 // Runs of empty blocks shorter and longer than the 64 the decoder fills at once (from a chunk's every 64th block),
 // at many offsets to the chunks' starts, between filled blocks.
 TEST(IndexCodec, LongRunsOfEmptyBlocks) {
-    TempDir tmp;
+    ScratchDir tmp;
     for (uint64_t run : {63, 64, 65, 129, 300}) {
         SmallIndex index(5000, static_cast<unsigned>(run), 0.3, 0, run);
         for (uint64_t chunk : {uint64_t{3000}, uint64_t{40000}, uint64_t{4} << 20}) {
@@ -225,22 +196,23 @@ TEST(IndexCodec, LongRunsOfEmptyBlocks) {
     }
 }
 
+// What the column format is for: the index in columns takes fewer bytes than its raw cells compressed alike.
 TEST(IndexCodec, ColumnsCompressBetterThanRawCells) {
-    TempDir tmp;
-    SmallIndex index(20000, 2, 0.3);
+    ScratchDir tmp;
+    SmallIndex index(3000, 2, 0.3);
     std::string error;
     auto columns = index_codec::Write(tmp / "index.zst", index.header, index.layout, index.keymap.data(),
-                                      index.values.data(), {19, 0, 4, uint64_t{1} << 20}, error);
+                                      index.values.data(), {3, 0, 2, uint64_t{1} << 20}, error);
     ASSERT_TRUE(columns) << error;
     std::string raw(reinterpret_cast<char const*>(index.keymap.data()), index.keymap.size() * 2);
     raw.append(reinterpret_cast<char const*>(index.values.data()), index.values.size() * 8);
     std::vector<char> compressed(ZSTD_compressBound(raw.size()));
-    size_t const plain = ZSTD_compress(compressed.data(), compressed.size(), raw.data(), raw.size(), 19);
+    size_t const plain = ZSTD_compress(compressed.data(), compressed.size(), raw.data(), raw.size(), 3);
     EXPECT_LT(*columns, plain * 9 / 10) << "columns " << *columns << " bytes, raw cells " << plain;
 }
 
 TEST(IndexCodec, NonCanonicalBlocksAreKeptAsRawCells) {
-    TempDir tmp;
+    ScratchDir tmp;
     SmallIndex index(500, 3, 0.2);
     index.keymap[100 * index.layout.CellsPerBlock() + 4] = 1;  // key 0 of block 100 does not start at the block
     size_t raw_chunks = 0;
@@ -256,7 +228,7 @@ TEST(IndexCodec, NonCanonicalBlocksAreKeptAsRawCells) {
 }
 
 TEST(IndexCodec, EmptyIndex) {
-    TempDir tmp;
+    ScratchDir tmp;
     SmallIndex index(64, 4, 1.0);
     ASSERT_TRUE(index.values.empty());
     std::string error;
@@ -273,7 +245,7 @@ TEST(IndexCodec, EmptyIndex) {
 // Keys with 0 or 1 cells have no flex cells; a chunk of such keys has an empty flex column, and the
 // decoder must not copy from the (null) data pointer of an empty buffer.
 TEST(IndexCodec, ChunksWithoutFlexCells) {
-    TempDir tmp;
+    ScratchDir tmp;
     SmallIndex index(3000, 7, 0.3, 3000);
     ASSERT_FALSE(index.values.empty());
     for (uint64_t chunk : {uint64_t{4096}, uint64_t{50000}, uint64_t{64} << 20}) {
@@ -291,7 +263,7 @@ TEST(IndexCodec, ChunksWithoutFlexCells) {
 // A chunk that starts with keys of one cell and has flex keys only after its first batch of cells
 // (DecodeChunk composes the cells in batches of 65536): the flex cells still land at the right keys.
 TEST(IndexCodec, FlexCellsAfterAFirstBatchWithoutAny) {
-    TempDir tmp;
+    ScratchDir tmp;
     SmallIndex index(22000, 8, 0.2, 20000);
     auto const infos = RoundTrip(index, tmp / "index.zst", uint64_t{64} << 20);
     ASSERT_EQ(infos.size(), 1u);
@@ -303,7 +275,7 @@ TEST(IndexCodec, FlexCellsAfterAFirstBatchWithoutAny) {
 // The writer composes the planes straight from the index's cells (no copies of them): its chunks are, byte for
 // byte, the format's plain description of them, as the copying writer wrote them before.
 TEST(IndexCodec, ChunksAreTheFormatsBytes) {
-    TempDir tmp;
+    ScratchDir tmp;
     for (auto const& index : { SmallIndex(3000, 11, 0.5), SmallIndex(22000, 8, 0.2, 20000), SmallIndex(5000, 65, 0.3, 0, 65) }) {
         for (uint64_t chunk : { uint64_t{4096}, uint64_t{50000}, uint64_t{64} << 20 }) {
             std::string error;
@@ -327,7 +299,7 @@ TEST(IndexCodec, ChunksAreTheFormatsBytes) {
 
 // Verify compares the values as it decodes them: one changed flex cell, entry or raw cell is found.
 TEST(IndexCodec, VerifyFindsOneChangedValue) {
-    TempDir tmp;
+    ScratchDir tmp;
     SmallIndex index(2000, 9, 0.3);
     std::string error;
     ASSERT_TRUE(index_codec::Write(tmp / "index.zst", index.header, index.layout, index.keymap.data(), index.values.data(),
@@ -354,7 +326,7 @@ TEST(IndexCodec, VerifyFindsOneChangedValue) {
 }
 
 TEST(IndexCodec, CorruptAndTruncatedFilesFail) {
-    TempDir tmp;
+    ScratchDir tmp;
     SmallIndex index(2000, 5, 0.4);
     std::string error;
     ASSERT_TRUE(index_codec::Write(tmp / "index.zst", index.header, index.layout, index.keymap.data(), index.values.data(),

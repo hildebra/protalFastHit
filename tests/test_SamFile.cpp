@@ -1,40 +1,31 @@
 // Unit tests for SamFile.h: SAM files written by several threads, plain, as BGZF (.sam.gz) or as
 // seekable zstd (.sam.zst), with the header after the records or first; reading them back, and
-// telling a complete file from one cut at a block or frame boundary.
+// telling a complete file from one cut at a block or frame boundary; a full disk, a missing file
+// and a .sam.zst of another writer.
 #include <gtest/gtest.h>
 #include <zlib-ng.h>
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <random>
 #include <set>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 #include <unistd.h>
 #include "IO/SamFile.h"
+#include "TestUtil.h"
 
 using namespace protal;
 namespace fs = std::filesystem;
+using protal::test::ScratchDir;
+using protal::test::Slurp;
 
 namespace {
-    struct ScratchDir {
-        fs::path path;
-        ScratchDir() {
-            path = fs::temp_directory_path() / ("protal samfile test " + std::to_string(::getpid()));
-            fs::create_directories(path);
-        }
-        ~ScratchDir() { fs::remove_all(path); }
-        std::string File(std::string const& name) const { return (path / name).string(); }
-    };
-
-    std::string Slurp(std::string const& path) {
-        std::ifstream is(path, std::ios::binary);
-        return std::string(std::istreambuf_iterator<char>(is), {});
-    }
-
     // Everything a stream holds, read through std::istream (which turns a read error into badbit,
     // as for the SAM reader's getline).
     std::string ReadAll(std::istream& is) {
@@ -135,7 +126,7 @@ TEST(SamFile, HeaderAfterTheRecordsInEveryFormat) {
     for (auto const& name : { "out.sam", "out.sam.gz", "out.sam.zst" }) {
         SCOPED_TRACE(name);
         ScratchDir dir;
-        auto const path = dir.File(name);
+        auto const path = (dir / name);
         std::vector<std::string> blocks;
         std::set<uint64_t> named;
         {
@@ -159,7 +150,7 @@ TEST(SamFile, AHeaderGivenUpFrontIsWrittenFirst) {
     for (auto const& name : { "out.sam", "out.sam.gz", "out.sam.zst" }) {
         SCOPED_TRACE(name);
         ScratchDir dir;
-        auto const path = dir.File(name);
+        auto const path = (dir / name);
         SamOutput out(path, SamCompressionOf(path), kHeader);
         auto [blocks, named] = WriteFromThreads(out);
         EXPECT_FALSE(fs::exists(path + SamOutput::kRecordsSuffix));  // the records go straight into the SAM
@@ -172,7 +163,7 @@ TEST(SamFile, AHeaderGivenUpFrontIsWrittenFirst) {
 
 TEST(SamFile, GzipIsBgzfThatZlibNgReads) {
     ScratchDir dir;
-    auto const path = dir.File("out.sam.gz");
+    auto const path = (dir / "out.sam.gz");
     std::vector<std::string> blocks;
     {
         SamOutput out(path, SamCompression::Gzip);
@@ -204,7 +195,7 @@ TEST(SamFile, GzipIsBgzfThatZlibNgReads) {
 
 TEST(SamFile, BgzfStoresBlocksThatDoNotShrink) {
     ScratchDir dir;
-    auto const path = dir.File("random.sam.gz");
+    auto const path = (dir / "random.sam.gz");
     std::mt19937_64 rng(7);
     std::string data(300000, '\0');
     for (auto& c : data) c = static_cast<char>(rng());
@@ -221,7 +212,7 @@ TEST(SamFile, BgzfStoresBlocksThatDoNotShrink) {
 
 TEST(SamFile, ZstdIsSeekableWithAMarker) {
     ScratchDir dir;
-    auto const path = dir.File("out.sam.zst");
+    auto const path = (dir / "out.sam.zst");
     std::vector<std::string> blocks;
     {
         SamOutput out(path, SamCompression::Zstd);
@@ -242,7 +233,7 @@ TEST(SamFile, ZstdIsSeekableWithAMarker) {
 TEST(SamFile, AFileCutAtABlockOrFrameBoundaryIsIncomplete) {
     ScratchDir dir;
     // BGZF without its end-of-file block, which is where a cut at a block boundary leaves it.
-    auto const gz = dir.File("out.sam.gz");
+    auto const gz = (dir / "out.sam.gz");
     {
         SamOutput out(gz, SamCompression::Gzip);
         WriteFromThreads(out);
@@ -252,7 +243,7 @@ TEST(SamFile, AFileCutAtABlockOrFrameBoundaryIsIncomplete) {
     EXPECT_NE(SamInput(gz).Problem().find("end-of-file block"), std::string::npos);
 
     // zstd cut after its last frame: the seek table is gone.
-    auto const zst = dir.File("out.sam.zst");
+    auto const zst = (dir / "out.sam.zst");
     {
         SamOutput out(zst, SamCompression::Zstd);
         WriteFromThreads(out);
@@ -279,7 +270,7 @@ TEST(SamFile, AFileCutAtABlockOrFrameBoundaryIsIncomplete) {
     }
 
     // A gzip file from another tool (one member, no BGZF) is complete without the EOF block.
-    auto const plain_gz = dir.File("other.sam.gz");
+    auto const plain_gz = (dir / "other.sam.gz");
     {
         gzFile f = zng_gzopen(plain_gz.c_str(), "wb");
         zng_gzwrite(f, kHeader.data(), static_cast<uint32_t>(kHeader.size()));
@@ -291,7 +282,7 @@ TEST(SamFile, AFileCutAtABlockOrFrameBoundaryIsIncomplete) {
 
 TEST(SamFile, DiscardAndFailuresLeaveNoFiles) {
     ScratchDir dir;
-    auto const path = dir.File("out.sam.zst");
+    auto const path = (dir / "out.sam.zst");
     {
         SamOutput out(path, SamCompression::Zstd);
         std::vector<uint64_t> genes;
@@ -306,7 +297,7 @@ TEST(SamFile, DiscardAndFailuresLeaveNoFiles) {
     }
     EXPECT_FALSE(fs::exists(path));
 
-    SamOutput unwritable(dir.File("no such dir/out.sam"), SamCompression::Gzip);
+    SamOutput unwritable((dir / "no such dir/out.sam"), SamCompression::Gzip);
     EXPECT_FALSE(unwritable.Ok());
     EXPECT_NE(unwritable.Error().find("cannot write"), std::string::npos) << unwritable.Error();
     std::vector<uint64_t> genes = { 1 };
@@ -346,7 +337,7 @@ namespace {
 
 TEST(SamFile, ZstdRecordsGoStraightIntoTheSamBehindRoomForTheHeader) {
     ScratchDir dir;
-    auto const copied = dir.File("copied.sam.zst"), placed = dir.File("placed.sam.zst");
+    auto const copied = (dir / "copied.sam.zst"), placed = (dir / "placed.sam.zst");
     size_t const room = sam_zstd::HeaderRoom(5000);
     {
         SamOutput a(copied, SamCompression::Zstd), b(placed, SamCompression::Zstd, std::nullopt, room);
@@ -387,7 +378,7 @@ TEST(SamFile, AZstdHeaderTooLargeForItsRoomMovesTheRecordsBehindIt) {
     // room to past it: the padding frame fits, fits without content, or cannot fit (1-7 bytes).
     for (size_t size = room - marker - 64; size <= room - marker + 8; size++) {
         SCOPED_TRACE(size);
-        auto const path = dir.File("out" + std::to_string(size) + ".sam.zst");
+        auto const path = dir / ("out" + std::to_string(size) + ".sam.zst");
         std::string const header = Incompressible(size, size);
         std::vector<std::string> blocks;
         {
@@ -406,7 +397,7 @@ TEST(SamFile, AZstdHeaderTooLargeForItsRoomMovesTheRecordsBehindIt) {
 
 TEST(SamFile, AZstdSamWithRoomButNoRecords) {
     ScratchDir dir;
-    auto const path = dir.File("empty.sam.zst");
+    auto const path = (dir / "empty.sam.zst");
     {
         SamOutput out(path, SamCompression::Zstd, std::nullopt, sam_zstd::HeaderRoom(10));
         ASSERT_TRUE(out.Finish(kHeader)) << out.Error();
@@ -438,16 +429,53 @@ TEST(SamFile, HeaderRoomIsEightBytesAGeneWithinItsBounds) {
     EXPECT_EQ(sam_zstd::HeaderRoom(1000000000, 1600000, 1000000), size_t{196} << 10);  // 200,000 bytes, in whole 4 KB
     // The room is for zstd only: other formats collect the records in the temporary file.
     ScratchDir dir;
-    auto const path = dir.File("out.sam.gz");
+    auto const path = (dir / "out.sam.gz");
     SamOutput out(path, SamCompression::Gzip, std::nullopt, sam_zstd::HeaderRoom(0));
     EXPECT_TRUE(fs::exists(path + SamOutput::kRecordsSuffix));
     out.Discard();
 }
 
-TEST(SamFile, StreamSinkCollectsTheGenes) {
-    std::ostringstream os;
-    SamStreamSink sink(os);
-    auto [blocks, named] = WriteFromThreads(sink);
-    ExpectBlocks(os.str(), blocks);
-    EXPECT_EQ(sink.Genes(), std::vector<uint64_t>(named.begin(), named.end()));
+// A full disk (/dev/full behind the SAM's name, or behind the file its records collect in) is reported by Error() and
+// Finish, not taken for a written SAM.
+TEST(SamFile, AWriteFailureIsReported) {
+    if (!fs::exists("/dev/full")) GTEST_SKIP() << "no /dev/full here";
+    ScratchDir dir;
+    for (bool const header_first : { true, false }) {
+        SCOPED_TRACE(header_first ? "header first" : "records first");
+        auto const path = dir / (header_first ? "first.sam.zst" : "later.sam.zst");
+        fs::create_symlink("/dev/full", header_first ? path : path + SamOutput::kRecordsSuffix);
+        SamOutput out(path, SamCompression::Zstd, header_first ? std::optional<std::string>(kHeader) : std::nullopt);
+        std::vector<uint64_t> genes;
+        std::string const block = Block(0, 0, genes);
+        out.Write(block.data(), block.size(), genes);
+        EXPECT_FALSE(out.Ok());
+        EXPECT_NE(out.Error().find(std::strerror(ENOSPC)), std::string::npos) << out.Error();
+        EXPECT_FALSE(out.Finish(kHeader));
+    }
+}
+
+TEST(SamFile, AMissingFileDoesNotOpen) {
+    ScratchDir dir;
+    for (auto const& name : { "missing.sam", "missing.sam.gz", "missing.sam.zst" }) {
+        SamInput input((dir / name));
+        EXPECT_FALSE(input.IsOpen()) << name;
+        EXPECT_EQ(ReadAll(input.Stream()), "") << name;
+    }
+}
+
+// A .sam.zst of another writer (one zstd frame, no marker and no seek table) is read as it is, by both readers: only
+// protal's marker says that a seek table must end the file.
+TEST(SamFile, AZstdSamOfAnotherWriterIsRead) {
+    ScratchDir dir;
+    auto const path = (dir / "other.sam.zst");
+    std::vector<uint64_t> genes;
+    std::string const text = kHeader + Block(0, 0, genes) + Block(1, 1, genes);
+    {
+        zstd::OStream os(path, { 3, 0, 1 });
+        os << text;
+        ASSERT_TRUE(os.Close());
+    }
+    EXPECT_FALSE(sam_zstd::StartsWithMarker(path));
+    EXPECT_EQ(SamInput(path).Problem(), "");
+    EXPECT_EQ(ReadBothWays(path), text);
 }
