@@ -161,8 +161,8 @@ At GTDB r226 (143,614 species) the whole pipeline takes:
 |---|---|
 | download | 17.7 GB of GTDB files and about 185 GB of genomes to simulate from (estimated for the defaults since 2026-10-05; 75 GB with the earlier 8,000 species), on a node with internet |
 | time | about 2.5-3 hours on a 52-64-thread node (conversion 5 min; the r226 build of 2026-10-03 then took 2 h, and 0.7.6's design simulates half as many short-read samples again), and several hours more for the [scenarios](#scenarios-kinds-of-studies) (an estimate; `--scenarios none` leaves them out); training gradient-boosted models (the default since 2026-10-06) takes a few minutes per model with the build's defaults (an estimate; `--features auto` and `--evaluation full` take hours) |
-| memory | each index build ~35-37 GB with 64 threads (estimated; it was 64 GB before 2026-10-05; its log's `Memory after ...` lines say), up to ~75 GB while both run at once; `--one-build-at-a-time` needs about half |
-| node-local disk | for the simulated samples (`--scratch`): with `--profile-blocks` (the default) each design point's reads are removed once profiled, and the simulations wait rather than leave less than `--keep-free` GB, so ~150-200 GB is enough; all at once (`--profile-blocks 0`) ~180 GB for the design and ~500 GB more for the default scenarios (6 + 3 samples each since 2026-10-06; ~260 GB for the 3 + 2 measured on 2026-10-05) |
+| memory | each index build ~35-37 GB with 64 threads (estimated; it was 64 GB before 2026-10-05; its log's `Memory after ...` lines say), up to ~75 GB while the finished database's build runs beside the profiling; `--one-build-at-a-time` needs about half |
+| node-local disk | for the simulated samples (`--scratch`): the run estimates what it needs there and streams into protal only what would not fit ([local scratch](#local-scratch)); with streaming ~200-250 GB is enough, ~1 TB holds every read at once (~825 GB estimated with the default scenarios of 10 + 4 samples, ~670 GB real) |
 | result | `database.protal`, ~27 GB |
 
 ### Build and train in one command
@@ -255,8 +255,9 @@ numbered line when it starts and indented lines when it ends.
    species with one genome, so that these species are simulated from a strain too
    ([details](#training-data-like-real-samples)).
 4. **Training database** (`training_db_index.log`): the database without the species and clades held
-   out (30% of the species, plus whole clades of every rank). Simulating the samples and building the
-   finished database start in the background here.
+   out (30% of the species, plus whole clades of every rank), built alone. Once it is built, the
+   finished database's build starts in the background at idle priority, and the samples' simulations
+   (what to stream into protal chosen from the room on the samples' disk).
 5. **Training data** (`training_data.log`): 309 paired-end samples of 20-200 species each (3 read setups x 103), profiled
    as paired-end and as single-end reads, and 186 PacBio and 186 Nanopore samples of the same
    communities, and the hold-in samples of four scenarios of real studies (gut, soil, shallow soil,
@@ -268,7 +269,8 @@ numbered line when it starts and indented lines when it ends.
    rows, samples and species held out (`--features`, `--evaluation basic`, the build's defaults since
    2026-10-06); with `--features auto` each trainer chooses its set and the console says which won and why.
 8. **Parity check** (`parity*.log`): protal scores each model exactly as the trainer does.
-9. **Packaging** (`final_package.log`): the models go into the finished database.
+9. **Packaging** (`final_package.log`): the models go into the finished database. Then the reports
+   of what the models' errors rest on (`trace_relatives.log`, `error_reads_<read type>.log`).
 
 A rerun into the same `--outdir` resumes. Completed steps are skipped when their inputs are
 unchanged, and simulated samples are reused when their design is the same
@@ -325,7 +327,7 @@ of its log). The run ends with `Ready protal database: ...` and the path of the 
 | `genomes.tsv`, `genome_table.txt` | the genomes simulated from (accession, taxonomy, FASTA, length), and a summary |
 | `genomes_simulated.tsv`, `insilico_strains/` | the same with the in-silico strains, their FASTAs and `insilico_strains.tsv` (per strain: divergence drawn and reached, substitutions) |
 | `heldout_species.txt` | the species the training database leaves out, with the rank they were held out at and the clade |
-| `training/`, `test/`, `training_db/` | one table per read type (`training_data.tsv` for pe, `_se`, `_pb`, `_ont`); without `--scratch` also the samples, their profiles and the training database |
+| `training/`, `test/`, `training_db/` | one table per read type (`training_data.tsv` for pe, `_se`, `_pb`, `_ont`); with `--scratch` each protal run's log (`protal_runs/`); without `--scratch` also the samples, their profiles and the training database |
 | `.stages/`, `*.log` | what a rerun may skip; one log per step, and `console.log`, the console's lines |
 
 ### Several releases, full and reduced
@@ -430,12 +432,14 @@ The long-read samples (`--long-read-bases`, 300 kb to 6 Gb; `--long-read-samples
 the paired-end communities of the same depth. `simulate_metagenomes --long_samples` makes them in
 process, one run per design point: it draws the reads' templates and writes each read as it is made,
 compressed, with no template or pbsim3 files on the disk. Once the training database is built, the samples are
-profiled as they are simulated, in protal runs of at least `--profile-blocks` GB of reads (20; the
-training data's and the test set's runs take turns), and each design point's reads are removed once
-every read type that reads them is profiled (the SAMs, profiles and dumps stay); `--profile-blocks 0`
-profiles both collections in one protal run once all is simulated, and keeps the reads. A design
-point whose largest sample would take more than `--stream-above` GB of compressed reads (2) is not
-written to the disk at all: a protal run of its own reads its samples from named pipes while
+profiled as they are simulated, in protal runs of at least `--profile-blocks` GB of reads (20) and at
+most `--profile-block-max` (200; the training data's and the test set's runs take turns), and each
+design point's reads are removed once every read type that reads them is profiled (the SAMs, profiles
+and dumps stay); `--profile-blocks 0` profiles both collections in one protal run once all is
+simulated, and keeps the reads. A design point whose largest sample would take more than
+`--stream-above` GB of compressed reads (by default chosen from the room on the samples' disk,
+[local scratch](#local-scratch)) is not written to the disk at all: a protal run reads its samples,
+with those of the other points streamed whose communities are there, from named pipes while
 `simulate_metagenomes` makes them, one sample at a time, as plain FASTQ (`--compressed-pipes`:
 compressed as before), its single-end samples from a second run that writes only the first reads
 (read 2 draws from a random stream of its own and is not made then); protal aligns a sample whose
@@ -609,9 +613,13 @@ simulations are seeded, so the collector replays a sample's reads byte for byte 
 The unmapped records make the SAMs on the samples' disk larger (at r226 a deep paired-end sample had 45M
 of them; an estimate of 10-20 GB more for the whole build, mostly the deep scenario samples).
 
+The build runs these reports once the models are in the database, which does not wait for them:
+`error_reads.py` for each read type and `trace_relatives.py` side by side, each on its share of `-t`
+(`error_reads_<read type>.log`, `trace_relatives.log`), the genomes' contig names read once before them.
 `error_reads.py` extracts `--threads` samples at once, the largest SAMs first, while their estimated
 memory (300 MB and twice the SAM's size on disk) fits in `--memory` GB (default 60% of the least of the
-machine's memory, `SLURM_MEM_PER_NODE` and the process's cgroup limit), and keeps only what the tables
+machine's memory, `SLURM_MEM_PER_NODE` and the process's cgroup limit; the build gives each read type's
+run its share of that), and keeps only what the tables
 look up per fragment (its reasons, and of the taxa it aligned or failed to align to only the sample's
 error taxa). A worker killed from outside (out of memory) costs no other sample: those it ran beside run
 again one at a time, a sample killed again is named and left out. At r226 v15 the paired-end extraction
@@ -643,19 +651,43 @@ node's own disk, and copies the tables to `--outdir`. The samples are profiled a
 and their reads removed once profiled (`--profile-blocks`), and a simulation that would leave less
 than `--keep-free` GB (30) waits for that, so the disk holds the training database (~24 GB at r226),
 what is simulated but not yet profiled, the SAMs and profiles, and the genome store (`--genome-store`,
-~50 GB at r226, kept for the next build); give it 200-250 GB. With
-`--profile-blocks 0` every sample is on the disk at once: the r226 design took up to 120 GB without
-the scenarios (give it 175 GB), the default scenarios ~500 GB more (estimated for 6 + 3 samples each). The console says how much the run
-takes there. A rerun reuses the samples only from the same DIR, so on a disk that is cleared
-after the job, a rerun simulates again (the builds are kept in `--outdir`).
+~50 GB at r226, kept for the next build).
+
+Before its builds the run estimates what it needs there besides the reads: the genome store's growth
+(0.25 bytes a base of the genomes simulated from, less what the store holds), each database still to
+be built on that disk (1.5 times its `reference.fna`: r226's training database is 21.8 GB from 15.4
+GB), the host genome as plain sequence, the samples' SAMs and profiles (a tenth of the reads'
+estimate; r226 v15 kept ~62 GB for 591 GB of reads) and `--keep-free`; and what the reads of each
+design point take (the collector's estimate, ~1.25 times what r226 v15 wrote: ~825 GB for both
+collections at the defaults since 2026-10-07). It says both, and stops at once if even streaming every
+point would not fit. Once the training database is built it measures the free space again and, with
+`--stream-above auto` (the default), streams into protal only the largest points, until the reads of
+the others fit at once. At the defaults (116 points) with 1 TB free that streams none, with 700 GB the
+9 with a sample above ~10 GB, with 500 GB the 21 above ~6 GB
+([report](claude/2026-10-07-build-ordering/README.md)). Streaming saves the space but not time: a
+streamed point's samples are aligned as they are made, and the profiling stage at the end of a protal
+run is shared only by the points in that run. The streamed points whose communities are there share
+protal runs (up to `--profile-block-max` GB). The console line `--stream-above auto: ...` says what it
+chose, `build_metadata.tsv` (`samples_streamed`) keeps it, and the run's end gives the most it took on
+the disk beside the estimate. Each protal run's log is copied to `OUTDIR/<collection>/protal_runs/`.
+With `--profile-blocks 0` nothing is streamed and every sample is on the disk at once. A rerun reuses the
+samples only from the same DIR, so on a disk that is cleared after the job, a rerun simulates again
+(the builds are kept in `--outdir`).
 
 #### Time and memory
 
-The simulations need no database, so they start as soon as the held-out species are chosen. They run
-in the background at a lower priority than the index builds, long reads and paired-end points in one
-queue, the longest first. The finished database is built in the background too, beside the training
-database; it is only needed at the end, to take the models. That needs the memory of two builds at
-once. `--one-build-at-a-time` builds the finished database after the training instead.
+Since 2026-10-07 the profiling is the build's longest stage: the simulations take minutes
+(`simulate_metagenomes` makes every read type itself, the genomes from the store), protal hours
+([report](claude/2026-10-07-build-ordering/README.md)). So the training database, which the profiling
+waits for, is built first and alone, with every core and no simulation writing to its disk. The
+simulations start once it is built, in the background at a lower priority than the profiling, long
+reads and paired-end points in one queue, the longest first. The finished database is built in the
+background after the training database, at the idle scheduling class (`SCHED_IDLE`): on the cores the
+profiling leaves; it is only needed at the end, to take the models, and is paused while they are
+trained (boosting's threads wait on each other at every step, so nothing else runs beside them). That
+needs the memory of a build beside protal's. `--one-build-at-a-time` builds the finished database after
+the training instead. The models go into the finished database right after the parity check; the
+reports of what their errors rest on (`trace_relatives.py`, `error_reads.py`) follow, side by side.
 
 The marker genes of every genome (`full_reference.fna.zst`, 86 GB uncompressed at r226) are written
 compressed and removed once each build has used them. The finished database is compressed at
@@ -696,8 +728,9 @@ keeps the finished database.
 | `-t, --threads` | 8 | |
 | `--scratch` | | a node-local folder for the samples ([above](#local-scratch)) |
 | `--read-compression` | zstd | how the simulated reads are written: `zstd` (`.fq.zst`; `simulate_metagenomes --reads_compression zstd`, the long and Ultima reads (`--long_samples`), the host's reads) or `gzip` (`.fq.gz`); smaller (about 15% against the simulator's gzip, which ISA-L writes about twice as fast) and several times faster to write than Python's gzip ([report](claude/2026-10-05-zstd-reads/README.md)) |
-| `--profile-blocks`, `--keep-free` | 20, 30 | profile the samples as they are simulated, in protal runs of at least this many GB of reads, removing the reads profiled (0: one protal run once all is simulated, reads kept); the GB a simulation leaves free on the samples' disk, or it waits |
-| `--stream-above` | 2 | with `--profile-blocks`: a design point whose largest sample would take more than this many GB of compressed reads is streamed into protal through named pipes, never written (0: none) |
+| `--profile-blocks`, `--profile-block-max`, `--keep-free` | 20, 200, 30 | profile the samples as they are simulated, in protal runs of at least this many GB of reads and at most that many (0: no limit), removing the reads profiled (0: one protal run once all is simulated, reads kept); the GB a simulation leaves free on the samples' disk, or it waits |
+| `--stream-above` | auto | with `--profile-blocks`: a design point whose largest sample would take more than this many GB of compressed reads is streamed into protal through named pipes, never written (0: none); `auto` (2 before 2026-10-07) streams only what the room on the samples' disk requires ([above](#local-scratch)) |
+| `--profile-ahead` | off | protal `--profile_ahead` in the collections' runs: a sample profiled while the next is aligned, for runs of a few deep samples; to be measured on a cluster node before it becomes the default |
 | `--compressed-pipes` | off | with `--stream-above`: what goes through the pipes compressed as the files' names say, not as plain FASTQ |
 | `--genome-store` | auto | `simulate_metagenomes --genome_store` for both collections: each genome simulated read and parsed from its FASTA once, written at 2 bits a base and memory-mapped by every later sample and simulation (at r226 ~1.5M genome reads of ~54k genomes otherwise); `auto`: `SCRATCH/genome_store` (`OUTDIR/genome_store` without `--scratch`), kept for the next build; a folder; or `none`. ~0.25 bytes a base of the genomes simulated, ~50 GB at r226 besides the samples ([report](claude/2026-10-07-simulate-metagenomes-audit/README.md)) |
 | `--seed` | 1 | |
@@ -730,7 +763,7 @@ keeps the finished database.
 | `--evaluation`, `--previous-procedure` | `basic`, off | how much the trainer evaluates: `basic` (default since 2026-10-06, `full` before), the models with rows, samples and species held out, which the summary and the knob need; `full` adds the clades held out and the studies ([below](#training)), several times a boosted model's training |
 | `--n-genes`, `--genes`, `--gene-ranking`, `--genes-per-domain`, `--rank-genes` | | a reduced database ([below](#reduced-marker-sets)) |
 | `--no-gene-neighbours` | | skip the gene neighbours; protal then pairs no mates across neighbouring genes |
-| `--one-build-at-a-time` | | build the finished database after the training |
+| `--one-build-at-a-time` | | build the finished database after the training, not beside the profiling |
 | `--training-db-level`, `--final-db-level` | 3, 9 | zstd levels of the two databases |
 | `--no-placeholder-models` | | no placeholder models for read types not trained |
 | `--no-binary-check` | | run binaries of another source anyway |
@@ -1042,7 +1075,8 @@ features.
 | `--simulate_only`, `--prepare_profiling`, `--also_profile MAP` | | simulate and stop; write the map to profile and stop; profile another collection in the same run |
 | `--read_compression` | zstd | `zstd` (`.fq.zst`) or `gzip` (`.fq.gz`): how the simulated reads are written |
 | `--follow`, `--profile_block`, `--protal_lock`, `--min_free` | , 20, , 0 | profile as a `--simulate_only` run of the same `-o` simulates, in protal runs of at least this many GB of reads, removing each point's reads once profiled, then write the tables (points it cannot profile once the simulations have ended it simulates itself); a lock file for the protal runs of two followers to take turns; GB a simulation leaves free on the disk, or it waits (for a follower to remove reads) |
-| `--stream_above` | 0 | `--follow` (and its `--simulate_only` run, the same value): points whose largest sample would take more than this many GB are streamed into a protal run of their own through named pipes, not written |
+| `--stream_above` | 0 | `--follow` (and its `--simulate_only` run, the same value): points whose largest sample would take more than this many GB are streamed into protal through named pipes, not written; those whose communities are there share protal runs |
+| `--profile_block_max`, `--profile_ahead` | 0, off | `--follow`: the most GB of reads one protal run takes (a streamed point's estimated), at least one point's (0: no limit); protal `--profile_ahead` in the collection's runs |
 
 ### Training
 

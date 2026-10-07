@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 
@@ -52,6 +53,100 @@ class BuildOptionsTest(unittest.TestCase):
         self.assertEqual(changed, ["scripts_commit"])
         self.assertEqual(versions, {"protal_version": "protal v0.7.8 (commit aaa)",
                                     "scripts_commit": "aaa; at the end of the run: bbb"})
+
+    def test_stream_above_from_the_room(self):
+        # --stream-above auto: the fewest simulations streamed, the largest samples first, for the reads of the others to
+        # fit in the room at once; between two simulations' largest samples, so that equal ones go together.
+        sizes = [(10, 30), (8, 16), (5, 10), (5, 5), (1, 2)]  # (largest sample, all reads), 63 together
+        self.assertEqual(build.stream_threshold(sizes, 63), 0)  # all fit: none streamed
+        self.assertEqual(build.stream_threshold(sizes, 40), 9)  # the one of 10 streamed: 33 left
+        self.assertEqual(build.stream_threshold(sizes, 17), 6.5)  # those of 10 and 8: 17 left
+        self.assertEqual(build.stream_threshold(sizes, 16), 3)  # both of 5 too: 2 left
+        self.assertEqual(build.stream_threshold(sizes, 1), 0.5)  # every one
+        self.assertIsNone(build.stream_threshold(sizes, -1))  # not even then
+        self.assertEqual(build.stream_threshold([], 0), 0)
+        self.assertEqual((build.stream_spec("auto"), build.stream_spec("AUTO"), build.stream_spec("2.5")),
+                         ("auto", "auto", 2.5))
+        for bad in ("-1", "lots"):
+            with self.assertRaises(build.argparse.ArgumentTypeError):
+                build.stream_spec(bad)
+
+    def test_room_the_run_needs(self):
+        # What the run puts on the samples' disk besides the reads: the genome store's growth (0.25 bytes a base of the
+        # genomes simulated, each FASTA once, less what the store holds), a database to be built (1.5 times its
+        # reference.fna; one without its files left out), the host genome of a collection that has not prepared it
+        # (3.4 times a gzipped FASTA), the SAMs and profiles (a tenth of the reads) and --keep-free.
+        with tempfile.TemporaryDirectory() as root:
+            store = os.path.join(root, "genome_store")
+            os.makedirs(store)
+            with open(os.path.join(store, "a.g2b"), "wb") as fh:
+                fh.write(b"x" * 100)
+            table = os.path.join(root, "genomes_simulated.tsv")
+            with open(table, "w") as fh:
+                fh.write("a\td__B;s__x\t/g/a.fna\t1000\nb\td__B;s__y\t/g/b.fna\t3000\nb2\td__B;s__y\t/g/b.fna\t3000\n")
+            training_db = os.path.join(root, "training_db")
+            os.makedirs(training_db)
+            with open(os.path.join(training_db, "reference.fna"), "wb") as fh:
+                fh.write(b"A" * 200)
+            host = os.path.join(root, "host.fna.gz")
+            with open(host, "wb") as fh:
+                fh.write(b"x" * 50)
+            os.makedirs(os.path.join(root, "training", "host"))  # prepared by an earlier run
+            needs = build.disk_needs(root, store, table, [("training database", training_db),
+                                                          ("finished database", os.path.join(root, "nothing_yet"))],
+                                     [(host, os.path.join(root, "training", "host")),
+                                      (host, os.path.join(root, "test", "host"))], [(5, 1000), (2, 600)], 30)
+            expected = {"genome store": 900, "training database": 300, "host genome": 170, "SAMs and profiles": 160,
+                        "--keep-free": 30}
+            self.assertEqual(set(needs), set(expected))
+            for part, size in expected.items():
+                self.assertAlmostEqual(needs[part], size, msg=part)
+            self.assertTrue(build.on_disk(os.path.join(root, "not", "made"), root))
+            self.assertNotIn("--keep-free", build.disk_needs(root, None, table, [], [], [], 0))
+
+    @unittest.skipUnless(hasattr(os, "SCHED_IDLE") and os.path.isdir("/proc"), "Linux: SCHED_IDLE and /proc")
+    def test_a_job_at_idle_priority_paused(self):
+        # The finished database's build: a Job at the idle scheduling class, paused (SIGSTOP to its group) while the
+        # models are trained and continued after them; one killed while paused still ends.
+        with tempfile.TemporaryDirectory() as root:
+            log = os.path.join(root, "job.log")
+            job = build.Job([sys.executable, "-c", "import os, time; print(os.sched_getscheduler(0) == os.SCHED_IDLE, "
+                                                   "flush=True); time.sleep(60)"], log, idle=True)
+
+            def state():
+                with open(f"/proc/{job.process.pid}/stat") as fh:
+                    return fh.read().rsplit(")", 1)[1].split()[0]
+
+            def said():
+                with open(log) as fh:
+                    return fh.read().strip()
+            try:
+                deadline = time.time() + 30
+                while not said() and time.time() < deadline:
+                    time.sleep(0.05)
+                self.assertEqual(said(), "True")
+                self.assertTrue(job.pause())
+                deadline = time.time() + 10
+                while state() != "T" and time.time() < deadline:
+                    time.sleep(0.05)
+                self.assertEqual(state(), "T")
+                self.assertIn("(paused)", job.status())
+                job.resume()
+                deadline = time.time() + 10
+                while state() == "T" and time.time() < deadline:
+                    time.sleep(0.05)
+                self.assertNotEqual(state(), "T")
+                self.assertTrue(job.pause())
+                began = time.time()
+                job.kill()
+                self.assertLess(time.time() - began, 30)  # SIGCONT after the SIGTERM: not the 60 s SIGKILL wait
+                self.assertIsNotNone(job.process.poll())
+            finally:
+                if job.process.poll() is None:
+                    job.process.kill()
+                    job.process.wait()
+                if job in build.Job.running:
+                    build.Job.running.remove(job)
 
     def test_error_reads(self):
         # --error-reads: all (every read type's samples), none, READ_TYPE, READ_TYPE:design or READ_TYPE:SCENARIO.

@@ -161,13 +161,24 @@ def parse_args(argv=None):
                         "simulates itself")
     p.add_argument("--profile_block", type=float, default=20.0,
                    help="--follow: the GB of reads that start a protal run while the simulations go on (default 20)")
+    p.add_argument("--profile_block_max", type=float, default=0.0,
+                   help="--follow: the most GB of reads one protal run takes (the files' size; a streamed simulation's "
+                        "estimated), at least one design point's: the rest go into the next run, so that a run that fails "
+                        "costs at most that much profiling and its reads leave the disk sooner. Streamed simulations whose "
+                        "communities are there share a run up to it (default 0: no limit)")
+    p.add_argument("--profile_ahead", action="store_true",
+                   help="protal --profile_ahead in this collection's protal runs: each sample profiled while the next one "
+                        "is aligned, on a quarter of the threads, where the profiling stage would leave cores idle (a run "
+                        "of a few deep samples, as a streamed one is); off by default until measured on a cluster node "
+                        "(docs/claude/2026-10-07-build-ordering)")
     p.add_argument("--protal_lock", help="--follow: a file locked while protal runs, so that the protal runs of two "
                                          "collections that follow their simulations take turns")
     p.add_argument("--stream_above", type=float, default=0.0,
                    help="--follow and its --simulate_only run (give both the same): a design point whose largest sample's "
                         "reads would take more than this many GB (compressed, estimated) is not written to the disk: a "
-                        "protal run of its own reads them from named pipes as simulate_metagenomes makes them, a sample "
-                        "at a time; the others are written and profiled in blocks as before (default 0: none)")
+                        "protal run reads them from named pipes as simulate_metagenomes makes them, a sample at a time, "
+                        "with the other streamed points whose communities are there (up to --profile_block_max); the "
+                        "others are written and profiled in blocks as before (default 0: none)")
     p.add_argument("--min_free", type=float, default=0.0,
                    help="GB to keep free on the output's file system: a simulation that would leave less waits until a "
                         "--follow run has profiled and removed reads (default 0: no limit); the work in progress may "
@@ -1439,7 +1450,8 @@ def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
     print(f"profiling {len(rows)} samples ({', '.join(f'{n} {t}' for t, n in kinds.items())}) of {len(units)} design "
           "points" + (f" and {len(extra)} samples of another collection" if extra else "") + " in one protal run",
           flush=True)
-    run_protal([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains", "--no_qcmsa"],
+    run_protal([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains", "--no_qcmsa"] +
+               (["--profile_ahead"] if getattr(opts, "profile_ahead", False) else []),
                os.path.join(folder, "protal.log"), len(rows), companions)
 
 
@@ -1909,6 +1921,36 @@ def streamed_simulations(units, opts):
     return {simulation_of(u) for u in units if sample_bytes(u) > above * 1e9}
 
 
+def simulation_bytes(units):
+    """{simulation (simulation_of): (its largest sample's reads, all its reads)} in bytes, estimated as the room on the
+    disk is (PE_BYTES per base of a paired-end point's both reads, its host's included; DRAWN_BYTES per drawn base): the
+    first is what --stream_above compares (sample_bytes), the second what the simulation writes when not streamed.
+    build_gtdb_database.py chooses --stream-above from them and the free space."""
+    out = {}
+    for unit in units:
+        name = simulation_of(unit)
+        if drawn(unit):
+            reads = sum(bases_of(unit)) * DRAWN_BYTES
+        else:
+            point = unit["point"]
+            pairs = [c + h for c, h in zip(community_pairs_of(point), host_pairs_of(point))]
+            reads = sum(pairs) * 2 * int(point["read_length"]) * PE_BYTES
+        largest, total = out.get(name, (0, 0))
+        out[name] = (max(largest, sample_bytes(unit)), max(total, reads))
+    return out
+
+
+def first_batch(sizes, cap):
+    """The items one protal run takes, as indices of `sizes` (their bytes, in the order they wait in): the first, then
+    each later one that keeps the run within `cap` bytes (0: all of them)."""
+    taken, total = [], 0
+    for i, size in enumerate(sizes):
+        if not taken or cap <= 0 or total + size <= cap:
+            taken.append(i)
+            total += size
+    return taken
+
+
 def streamed_here(unit, opts):
     """Whether a unit's simulation went to protal through named pipes (its reads are on no disk)."""
     return os.path.isfile(os.path.join(point_dirs(unit["point"], opts)[0], STREAMED))
@@ -1944,76 +1986,85 @@ def stream_design(point, opts, command, key):
     write_key(os.path.join(base, "simulated.json"), key)
 
 
-def stream_run(name, units, opts, key_of, number, pe_command=None, long_plan=None):
-    """Profiles the units of the streamed simulation `name` in one protal run that reads their samples from named
-    pipes as simulate_metagenomes makes them (no read on the disk). A paired-end point (its design made, stream_design):
-    pe_command(threads) is its simulation command, run into OUT/points/<point>/stream_pe for the pe unit and with
-    --first_reads_only into .../stream_se for the se unit (protal reads all pe samples first, then the se ones, each
-    pipe once; the same read 1s, as the simulator's reads do not depend on whether read 2 is written). A long-read
-    unit: long_plan(threads), its simulate_metagenomes --long_samples run (long_unit_plan) into its sim/reads. Both
-    write a sample's pipes only once protal opens them, a sample at a time; either failing stops the other."""
+def stream_run(groups, opts, key_of, number, pe_command=None, long_plan=None):
+    """Profiles streamed simulations in one protal run that reads their samples from named pipes as simulate_metagenomes
+    makes them (no read on the disk): groups, the units of each simulation (simulation_of), in the map's order, so that
+    the run's profiling stage is shared rather than repeated per simulation. A paired-end point (its design made,
+    stream_design): pe_command(point, threads) is its simulation command, run into OUT/points/<point>/stream_pe for the
+    pe unit and with --first_reads_only into .../stream_se for the se unit (protal reads all pe samples first, then the
+    se ones, each pipe once; the same read 1s, as the simulator's reads do not depend on whether read 2 is written). A
+    long-read unit: long_plan(unit, threads), its simulate_metagenomes --long_samples run (long_unit_plan) into its
+    sim/reads. Every simulator starts with the run and writes a sample's pipes only once protal opens them, a sample at a
+    time (the later ones wait at their first pipe, holding little); one failing stops the run."""
     began = time.time()
-    point = units[0]["point"]
-    base, sim, _ = point_dirs(point, opts)
-    paths_of, companions, folders = {}, [], []
+    paths_of, companions, folders, drawn_runs = {}, [], [], []
     suffix = ".fq" + reads_suffix(opts)
-    if pe_command:
-        _, rows, _ = map_rows(os.path.join(sim, "protal.meta"))
-        for unit in units:
-            first_only = unit["type"] == "se"
-            out = os.path.join(base, "stream_se" if first_only else "stream_pe")
-            shutil.rmtree(out, ignore_errors=True)
-            folders.append(out)
-            for row in rows:
-                r1 = os.path.join(out, "reads", row["SAMPLEID"] + "_R1" + suffix)
-                r2 = os.path.join(out, "reads", row["SAMPLEID"] + "_R2" + suffix)
-                make_pipe(r1)
-                if not first_only:
-                    make_pipe(r2)
-                paths_of[row["SAMPLEID"] + ("_se" if first_only else "")] = (r1, "-" if first_only else r2)
-            command = pe_command(opts.threads)
-            command[command.index("-o") + 1] = out
-            command[command.index("--protal_metafile") + 1] = os.path.join(out, "protal")
-            command += genome_store_args(opts) + pipe_args(opts)
-            companions.append((f"{opts.simulator} ({unit['type']})", command + (["--first_reads_only"] if first_only else []),
-                               os.path.join(base, f"stream_{unit['type']}.log")))
-    else:
-        plan = long_plan(opts.threads)
-        for _, out, _, _ in plan["rows"]:
-            make_pipe(out)
-        write_samples_table(plan["sim"], plan["rows"])
-        folders.append(plan["tmp"])
-        companions.append((f"{opts.simulator} --long_samples", plan["command"] + pipe_args(opts),
-                           os.path.join(base, "stream.log")))
+    for units in groups:
+        point = units[0]["point"]
+        base, sim, _ = point_dirs(point, opts)
+        if not drawn(units[0]):
+            _, rows, _ = map_rows(os.path.join(sim, "protal.meta"))
+            for unit in units:
+                first_only = unit["type"] == "se"
+                out = os.path.join(base, "stream_se" if first_only else "stream_pe")
+                shutil.rmtree(out, ignore_errors=True)
+                folders.append(out)
+                for row in rows:
+                    r1 = os.path.join(out, "reads", row["SAMPLEID"] + "_R1" + suffix)
+                    r2 = os.path.join(out, "reads", row["SAMPLEID"] + "_R2" + suffix)
+                    make_pipe(r1)
+                    if not first_only:
+                        make_pipe(r2)
+                    paths_of[row["SAMPLEID"] + ("_se" if first_only else "")] = (r1, "-" if first_only else r2)
+                command = pe_command(point, opts.threads)
+                command[command.index("-o") + 1] = out
+                command[command.index("--protal_metafile") + 1] = os.path.join(out, "protal")
+                command += genome_store_args(opts) + pipe_args(opts)
+                companions.append((f"{opts.simulator} ({unit['name']})",
+                                   command + (["--first_reads_only"] if first_only else []),
+                                   os.path.join(base, f"stream_{unit['type']}.log")))
+        else:
+            plan = long_plan(units[0], opts.threads)
+            for _, out, _, _ in plan["rows"]:
+                make_pipe(out)
+            write_samples_table(plan["sim"], plan["rows"])
+            folders.append(plan["tmp"])
+            companions.append((f"{opts.simulator} --long_samples ({units[0]['name']})", plan["command"] + pipe_args(opts),
+                               os.path.join(base, "stream.log")))
+            drawn_runs.append((units[0], base, sim))
+    units = [u for group in groups for u in group]
+    names = [simulation_of(group[0]) for group in groups]
     start_profiling(units, opts, key_of)
     samples = sum(u["samples"] for u in units)
-    print(f"protal run {number}: {name} streamed ({len(units)} design points, {samples} samples, read from named pipes "
-          "as simulate_metagenomes makes them)", flush=True)
+    what = names[0] if len(names) == 1 else f"{len(names)} simulations"
+    print(f"protal run {number}: {what} streamed ({'' if len(names) == 1 else ', '.join(names) + '; '}{len(units)} "
+          f"design points, {samples} samples, read from named pipes as simulate_metagenomes makes them)", flush=True)
     with protal_turn(opts.protal_lock):
         profile(units, opts, folder=os.path.join(opts.out, "profile_all", f"run{number}"), paths_of=paths_of,
                 companions=companions)
     end_profiling(units, opts)
     for out in folders:
         shutil.rmtree(out, ignore_errors=True)
-    if long_plan:  # its pipes, and the key of a long-read unit made (none of its reads kept)
+    for unit, base, sim in drawn_runs:  # its pipes, and the key of a long-read unit made (none of its reads kept)
         for path in glob.glob(os.path.join(sim, "reads", "*")):
             os.remove(path)
-        write_key(os.path.join(base, STREAMED), key_of[units[0]["name"]]["simulated"])
-        write_key(os.path.join(base, "simulated.json"), key_of[units[0]["name"]]["simulated"])
-    print(f"protal run {number} done ({name}, streamed) in {clock(time.time() - began)}", flush=True)
+        write_key(os.path.join(base, STREAMED), key_of[unit["name"]]["simulated"])
+        write_key(os.path.join(base, "simulated.json"), key_of[unit["name"]]["simulated"])
+    print(f"protal run {number} done ({what}, streamed) in {clock(time.time() - began)}", flush=True)
 
 
 def follow(units, opts, keys, simulate_again, pe_command=None, long_plan=None):
     """--follow: profiles the units as this collection's --simulate_only run simulates them, in protal runs of at
-    least --profile_block GB of reads, or of all that are ready once the simulations have ended; after each run, the
-    reads of points profiled for every read type that reads them are removed. Units it cannot profile once the
-    simulations have ended (never simulated, or their reads removed) are simulated here: simulate_again(names).
-    The simulations to stream (--stream_above, streamed_simulations) are this run's: each in a protal run of its own
-    reading named pipes (stream_run, pe_command(point, threads) a paired-end point's simulation command, long_plan(unit,
-    threads) a long-read unit's), once their communities are there; their paired-end points' designs first, which long
-    reads of other points may need (stream_design)."""
+    least --profile_block GB of reads (at most --profile_block_max), or of all that are ready once the simulations have
+    ended; after each run, the reads of points profiled for every read type that reads them are removed. Units it cannot
+    profile once the simulations have ended (never simulated, or their reads removed) are simulated here:
+    simulate_again(names). The simulations to stream (--stream_above, streamed_simulations) are this run's: those whose
+    communities are there together in protal runs reading named pipes, up to --profile_block_max GB each (stream_run,
+    pe_command(point, threads) a paired-end point's simulation command, long_plan(unit, threads) a long-read unit's);
+    their paired-end points' designs first, which long reads of other points may need (stream_design)."""
     key_of = profile_keys(units, opts, keys)
     block, runs, again, began = opts.profile_block * 1e9, 0, set(), time.time()
+    cap = (getattr(opts, "profile_block_max", 0) or 0) * 1e9
     streams = streamed_simulations(units, opts) if pe_command else set()
     for unit in units:  # the streamed paired-end points' designs (seconds each)
         point = unit["point"]
@@ -2040,6 +2091,15 @@ def follow(units, opts, keys, simulate_again, pe_command=None, long_plan=None):
                 files.update(dict.fromkeys(reads))
         size = sum(os.path.getsize(f) for f in files)
         if ready and (size >= block or not running):
+            # At most --profile_block_max GB in one run: whole simulations (a point's pe and se units read one set of
+            # files), in the order they wait in; the rest go into the next run at once.
+            groups = list(dict.fromkeys(simulation_of(u) for u in ready))
+            group_files = {name: dict.fromkeys(f for u in ready if simulation_of(u) == name for f in unit_reads(u, opts))
+                           for name in groups}
+            group_size = [sum(os.path.getsize(f) for f in group_files[name]) for name in groups]
+            taken = {groups[i] for i in first_batch(group_size, cap)}
+            ready = [u for u in ready if simulation_of(u) in taken]
+            size = sum(s for name, s in zip(groups, group_size) if name in taken)
             runs += 1
             start_profiling(ready, opts, key_of)
             print(f"protal run {runs}: {len(ready)} design points, {size / 1e9:.1f} GB of reads; the simulations "
@@ -2058,14 +2118,12 @@ def follow(units, opts, keys, simulate_again, pe_command=None, long_plan=None):
                                for u in pending if drawn(u) for p in u["communities"]):
                 streamable.append(pending)
         if streamable:
+            # Every streamed simulation whose communities are there, in one run up to --profile_block_max GB (estimated):
+            # one profiling stage at the end of the run rather than one per simulation.
             runs += 1
-            pending = streamable[0]
-            if drawn(pending[0]):
-                stream_run(simulation_of(pending[0]), pending, opts, key_of, runs,
-                           long_plan=lambda threads, unit=pending[0]: long_plan(unit, threads))
-            else:
-                stream_run(simulation_of(pending[0]), pending, opts, key_of, runs,
-                           pe_command=lambda threads, point=pending[0]["point"]: pe_command(point, threads))
+            estimate = simulation_bytes(units)
+            batch = first_batch([estimate[simulation_of(group[0])][1] for group in streamable], cap)
+            stream_run([streamable[i] for i in batch], opts, key_of, runs, pe_command, long_plan)
             continue
         if not running:
             stuck = {simulation_of(u) for u in todo} - streams

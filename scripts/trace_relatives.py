@@ -27,7 +27,9 @@ gene). A sample past --max-records records is read only that far.
 import argparse
 import collections
 import concurrent.futures
+import contextlib
 import csv
+import fcntl
 import glob
 import gzip
 import io
@@ -133,7 +135,7 @@ def genome_contigs(paths, threads, cache=None):
         except OSError:
             stamps[path] = ""
     if cache and os.path.isfile(cache):
-        with gzip.open(cache, "rt") as fh:
+        with cache_lock(cache, fcntl.LOCK_SH), gzip.open(cache, "rt") as fh:
             for line in fh:
                 path, stamp, names = (line.rstrip("\n").split("\t") + ["", ""])[:3]
                 if stamps.get(path) == stamp and stamp:
@@ -143,10 +145,24 @@ def genome_contigs(paths, threads, cache=None):
         with concurrent.futures.ProcessPoolExecutor(max(1, min(threads, len(todo)))) as pool:
             known.update(zip(todo, pool.map(contig_names, todo, chunksize=16)))
         if cache:
+            # One gzip member written at once under the lock: runs side by side (build_gtdb_database.py's reports) add
+            # to the cache without mixing their writes, nor reading one half written.
             os.makedirs(os.path.dirname(os.path.abspath(cache)), exist_ok=True)
-            with gzip.open(cache, "at", compresslevel=1) as fh:
-                fh.writelines(f"{path}\t{stamps[path]}\t{' '.join(known[path])}\n" for path in todo if stamps[path])
+            text = "".join(f"{path}\t{stamps[path]}\t{' '.join(known[path])}\n" for path in todo if stamps[path])
+            with cache_lock(cache, fcntl.LOCK_EX), open(cache, "ab") as fh:
+                fh.write(gzip.compress(text.encode(), compresslevel=1))
     return {p: known[p] for p in paths}
+
+
+@contextlib.contextmanager
+def cache_lock(cache, how):
+    """The contig cache's lock (CACHE.lock, flock): shared to read the cache, exclusive to add to it."""
+    with open(cache + ".lock", "a") as fh:
+        fcntl.flock(fh, how)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
 
 
 def read_contig(name):

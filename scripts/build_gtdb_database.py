@@ -28,8 +28,9 @@ harder in two ways than simulating the database's own references:
   organisms GTDB lacks do in real samples, and the model learns to reject those
   relatives. The report gives false positive and false negative rates by rank.
   The finished database has all species and the model trained so. The training
-  database costs a second index build (while the first one runs) and its disk
-  space.
+  database costs a second index build and its disk space: it is built first,
+  alone on the node, as the profiling waits for it; the finished database after
+  it, at the idle scheduling class, on the cores the profiling leaves.
 
 One model per read type (--read-types, default pe,se,pb,ont), trained in
 parallel: paired-end reads, their first reads alone (single-end), and PacBio
@@ -37,13 +38,18 @@ and Nanopore reads of the same communities (all made by simulate_metagenomes). B
 data, an independent test set of another design (--test-*: other depths,
 community sizes, abundances and strain mixes) is profiled and scored by each
 model: cross-validation on the training data cannot show what its design lacks.
-The simulations need no database: both collections simulate in the background,
-at a lower priority than the builds, from the moment the species to leave out
-are chosen, and profile their samples once the training database is built: as
-the simulations go on, in protal runs of --profile-blocks GB of reads, each
-design point's reads removed once profiled, so that the samples need not all
-be on the disk at once (--profile-blocks 0: both collections in one protal run
-once all are simulated).
+Both collections simulate in the background once the training database is built
+(they take minutes since simulate_metagenomes makes every read type itself, far
+less than the profiling), at a lower priority than the profiling: as the
+simulations go on, in protal runs of --profile-blocks GB of reads or more (at
+most --profile-block-max), each design point's reads removed once profiled, so
+that the samples need not all be on the disk at once (--profile-blocks 0: both
+collections in one protal run once all are simulated). The largest design points
+can be streamed into protal through named pipes instead of written
+(--stream-above): by default only as many as the room on the samples' disk
+requires, which the run estimates before its builds (the genome store, the
+databases, the samples' SAMs and profiles, the reads) and says, beside the most it
+took, at its end.
 The design reaches the depths of real samples (2M and 10M read pairs, 1.5 and
 6 Gb of long reads, a few samples each: DEPTH:SAMPLES), and each model gets a
 knob curve over the sample's depth (--depth-knob-read-types): a deep sample
@@ -110,6 +116,7 @@ and the last line of its log.
 import argparse
 import collections
 import concurrent.futures
+import contextlib
 import csv
 import glob
 import gzip
@@ -151,12 +158,25 @@ import rank_genes  # noqa: E402
 import scenarios  # noqa: E402
 from model_pmml import MODEL_FILES, write_placeholder  # noqa: E402
 from model_features import DEFAULT_FEATURE_SET, FEATURE_SETS, feature_set_name  # noqa: E402
-from collect_training_data import INSILICO_PREFIX, TABLES, clock, congener_spec, last_line, simulation_state, units_of, parse_args as collector_args  # noqa: E402
+from collect_training_data import INSILICO_PREFIX, TABLES, clock, congener_spec, last_line, manifest_rows, simulation_bytes, simulation_state, units_of, parse_args as collector_args  # noqa: E402
 
 
 def congener_text(spec):
     """A --congeners value (congener_spec) as the collector's option."""
     return spec[1] if spec[0] == "groups" else str(spec[1])
+
+
+def stream_spec(text):
+    """--stream-above: auto, or GB (a number, 0 or more)."""
+    if text.strip().lower() == "auto":
+        return "auto"
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"auto or a number of GB, got {text!r}") from None
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"auto or a number of GB, 0 or more, got {text!r}")
+    return value
 
 STARTED = time.time()
 CONSOLE = {"file": None, "early": []}  # OUTDIR/console.log, and the lines said before it was opened
@@ -264,6 +284,92 @@ class Scratch:
                 f"{gigabytes(usage.free)} free")
 
 
+# ---- room on the samples' disk ---------------------------------------------------------------------------------------
+# What a run puts on the disk of the simulated samples (--scratch, or OUTDIR) besides the reads it writes, estimated
+# before the builds and again once the training database is built, when --stream-above auto chooses from the free space
+# what to stream into protal (docs/claude/2026-10-07-build-ordering).
+STORE_BYTES_PER_BASE = 0.25  # the genome store: 2 bits a base, N runs and contig names (~50 GB at r226)
+# The samples' SAMs, profiles and training dumps against their reads as the collector estimates them: r226 v15 kept
+# ~62 GB at the end for 591 GB of reads, which the collector's constants put at 734 GB.
+KEPT_SHARE = 0.1
+DB_PER_REFERENCE = 1.5  # database.protal against its reference.fna: r226 v14's training database 21.8 GB from 15.4 GB
+HOST_PER_GZ_BYTE = 3.4  # the host genome as plain sequence (scenarios.prepare_host) against its gzipped FASTA
+
+
+def on_disk(path, root):
+    """Whether `path` (or, before it is made, the nearest folder above it) is on the file system of `root`."""
+    while not os.path.exists(path):
+        parent = os.path.dirname(path)
+        if parent == path:
+            return False
+        path = parent
+    return os.stat(path).st_dev == os.stat(root).st_dev
+
+
+def genome_bases(table):
+    """The bases of a genome table's genomes (its fourth column, genome_length; each FASTA once)."""
+    bases = {}
+    with open(table) as fh:
+        for line in fh:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) >= 4 and fields[3].isdigit():
+                bases[fields[2]] = int(fields[3])
+    return sum(bases.values())
+
+
+def simulation_sizes(collections_):
+    """[(largest sample, reads)] in bytes of every simulation of the collections' commands, as the collector estimates
+    them (collect_training_data.simulation_bytes): what --stream-above compares, and what each writes unless streamed."""
+    sizes = []
+    for _, command, _ in collections_:
+        sizes += simulation_bytes(units_of(collector_args(command[2:]))[1]).values()
+    return sizes
+
+
+def stream_threshold(sizes, room):
+    """The --stream-above, in bytes, that streams the fewest simulations while the reads of the others fit in `room` bytes
+    at once: sizes [(largest sample, reads)], a simulation streamed when its largest sample is above the value. -> 0 when
+    everything fits; else a value halfway between two simulations' largest samples (below every one: all streamed); None
+    when nothing fits (room < 0)."""
+    if room < 0:
+        return None
+    if sum(reads for _, reads in sizes) <= room:
+        return 0
+    values = sorted({largest for largest, _ in sizes}, reverse=True)
+    for above, below in zip(values, values[1:]):  # those of `above` and larger streamed
+        if sum(reads for largest, reads in sizes if largest <= below) <= room:
+            return (above + below) / 2
+    return values[-1] / 2
+
+
+def disk_needs(samples_root, genome_store, sim_table, databases, hosts, sizes, keep_free):
+    """What the run puts on the disk of `samples_root` besides the reads it writes, in bytes by part, those on another
+    file system left out: the genome store's growth (STORE_BYTES_PER_BASE of sim_table's genomes, less what the store
+    holds); each database still to be built (databases: [(name, folder)], DB_PER_REFERENCE of its reference.fna); the
+    host genome of each collection that has not prepared it (hosts: [(FASTA, folder)]); the samples' SAMs and profiles
+    (KEPT_SHARE of all the reads, sizes as simulation_sizes); and keep_free bytes. -> {part: bytes}."""
+    needs = {}
+    if genome_store and on_disk(genome_store, samples_root):
+        held = tree_size(genome_store) if os.path.isdir(genome_store) else 0
+        needs["genome store"] = max(0.0, STORE_BYTES_PER_BASE * genome_bases(sim_table) - held)
+    for name, folder in databases:
+        reference = os.path.join(folder, "reference.fna")
+        if on_disk(folder, samples_root) and os.path.isfile(reference):
+            needs[name] = DB_PER_REFERENCE * os.path.getsize(reference)
+    for fasta, folder in hosts:
+        if fasta and os.path.isfile(fasta) and not os.path.isdir(folder) and on_disk(folder, samples_root):
+            needs["host genome"] = needs.get("host genome", 0) + \
+                os.path.getsize(fasta) * (HOST_PER_GZ_BYTE if fasta.endswith(".gz") else 1)
+    needs["SAMs and profiles"] = KEPT_SHARE * sum(reads for _, reads in sizes)
+    if keep_free > 0:
+        needs["--keep-free"] = keep_free
+    return needs
+
+
+def needs_text(needs):
+    return ", ".join(f"{part} ~{gigabytes(size)}" for part, size in needs.items() if size >= 1e6) or "nothing"
+
+
 class Job:
     """A command run with its output to log, in a process group of its own: when the script stops, however
     it stops (a failure, an exception, SIGTERM, SIGINT, SIGHUP), the command is stopped with what it started
@@ -275,16 +381,18 @@ class Job:
     progress_every = 0
     scratch = None  # a Scratch with --scratch
 
-    def __init__(self, command, log, on_success=None, label=None, nice=0):
-        """nice: the command's niceness, more than the script's (the simulations, beside the builds)."""
+    def __init__(self, command, log, on_success=None, label=None, nice=0, idle=False):
+        """nice: the command's niceness, more than the script's (the simulations, beside the profiling); idle: the idle
+        scheduling class instead (lower_priority: the finished database's build, on the cores the others leave)."""
         os.makedirs(os.path.dirname(log), exist_ok=True)
         self.command, self.log, self.on_success, self.started = command, log, on_success, time.time()
         self.label = label or os.path.basename(log).removesuffix(".log")
         self.seconds = None  # set when it has ended
         self.peak = None  # the most memory it, or a command it ran, took, in bytes; set when it has ended
+        self.paused = False
         self.fh = open(log, "w")
         self.process = subprocess.Popen(command, stdout=self.fh, stderr=subprocess.STDOUT, start_new_session=True,
-                                        preexec_fn=(lambda: os.nice(nice)) if nice else None)
+                                        preexec_fn=lower_priority(nice, idle))
         Job.running.append(self)
 
     def poll(self):
@@ -319,7 +427,7 @@ class Job:
                 break
             time.sleep(0.2)
             now = time.time()
-            if now - checked >= 5:
+            if now - checked >= 1:  # a wait4 per job and one statvfs
                 check_jobs()
                 if Job.scratch:
                     Job.scratch.look()
@@ -337,7 +445,7 @@ class Job:
         the last line of its log."""
         memory = group_memory(self.process.pid)
         line = last_line(self.log, 200)
-        return (f"{self.label}: {clock(time.time() - self.started)} so far" +
+        return (f"{self.label}: {clock(time.time() - self.started)} so far" + (" (paused)" if self.paused else "") +
                 (f", {gigabytes(memory)} in memory" if memory else "") +
                 (f"; {os.path.basename(self.log)}: {line}" if line else ""))
 
@@ -345,11 +453,31 @@ class Job:
         """How long it took, and its peak memory."""
         return clock(self.seconds) + (f", peak memory {gigabytes(self.peak)}" if self.peak else "")
 
+    def pause(self):
+        """Stops the command and what it started (SIGSTOP to its group) until resume(): its memory stays, its cores and
+        memory bandwidth go to what runs meanwhile. -> whether it was running."""
+        if self.seconds is not None or self.paused or self.poll() is not None:
+            return False
+        try:
+            os.killpg(self.process.pid, signal.SIGSTOP)
+        except (ProcessLookupError, PermissionError):
+            return False
+        self.paused = True
+        return True
+
+    def resume(self):
+        if self.paused:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(self.process.pid, signal.SIGCONT)
+            self.paused = False
+
     def kill(self):
-        """Stops the command and every process of its group."""
+        """Stops the command and every process of its group (a paused one continued, so that it takes the SIGTERM)."""
         for sig, wait in ((signal.SIGTERM, 60), (signal.SIGKILL, None)):
             try:
                 os.killpg(self.process.pid, sig)
+                if self.paused:
+                    os.killpg(self.process.pid, signal.SIGCONT)
             except (ProcessLookupError, PermissionError):
                 break
             try:
@@ -358,6 +486,25 @@ class Job:
             except subprocess.TimeoutExpired:
                 continue
         self.fh.close()
+
+
+def lower_priority(nice=0, idle=False):
+    """A preexec_fn for a command run at a lower priority than the script: niceness raised by `nice`; idle, the idle
+    scheduling class (SCHED_IDLE: its threads run only on cores no other thread wants, and give way at once), or the
+    highest niceness where that class is missing. None for neither."""
+    if not nice and not idle:
+        return None
+
+    def apply():
+        if idle:
+            try:
+                os.sched_setscheduler(0, os.SCHED_IDLE, os.sched_param(0))
+                return
+            except (AttributeError, OSError):
+                os.nice(19)
+                return
+        os.nice(nice)
+    return apply
 
 
 def check_jobs():
@@ -695,27 +842,6 @@ def suspect_copies_summary(build_log):
     return re.sub(r":? ?\S*(suspect_copies|gene_incongruence)\.tsv", "", text).strip()
 
 
-def trace_relatives(training, training_db, heldout, logs, outdir, threads=1, contig_cache=None):
-    """model_logs/relatives_by_gene_conservation.txt (trace_relatives.py): where the paired-end reads of the species the
-    training database lacks land, by the genes' conservation factors, on real genomes. A failure is reported, and does
-    not stop the build: the models do not depend on it."""
-    log = os.path.join(outdir, "trace_relatives.log")
-    out = os.path.join(logs, "relatives_by_gene_conservation")
-    began = time.time()
-    with open(log, "w") as fh:
-        rc = subprocess.run([sys.executable, TRACE, "--points", os.path.join(training, "points"), "--db", training_db,
-                             "--heldout", heldout, "--out", out, "--threads", str(threads)] +
-                            (["--contig-cache", contig_cache] if contig_cache else []),
-                            stdout=fh, stderr=subprocess.STDOUT).returncode
-    if rc:
-        say(f"    tracing the held-out species' reads failed ({rc}; see {log}); the build goes on")
-        return
-    with open(out + ".txt") as fh:
-        text = fh.read()
-    first = text.splitlines()[0] if text.startswith("Not traced") else "model_logs/relatives_by_gene_conservation.txt"
-    say(f"    the held-out species' reads by gene conservation, in {clock(time.time() - began)}: {first}")
-
-
 def error_read_units(text, defs):
     """[(read type, scope)] of --error-reads: all (every read type; scope None: all its samples), none, or READ_TYPE,
     READ_TYPE:design (the design's samples) or READ_TYPE:SCENARIO, comma-separated; ValueError for an entry that is
@@ -737,40 +863,101 @@ def error_read_units(text, defs):
     return list(dict.fromkeys(out))
 
 
-def error_reads(units, prefixes, training, test, training_db, logs, outdir, threads=1, contig_cache=None, sams=False,
-                heldout=None):
-    """model_logs/error_reads/<read type>/ (error_reads.py): a table of each model's false positives and false negatives
-    in the samples of --error-reads, and where their reads went, from the samples' SAMs, which protal wrote with an
-    unmapped record for every read that seeded on taxa but aligned nowhere (collect_training_data.py --unmapped_reads);
-    with sams (--share-logs) also the SAM records of those reads, the FP's and the FN's in files of their own. A failure
-    is reported, and does not stop the build: the models do not depend on it."""
-    log = os.path.join(outdir, "error_reads.log")
-    began, told = time.time(), []
+def reports(trace, units, prefixes, training, test, training_db, logs, outdir, threads=1, contig_cache=None, sams=False,
+            heldout=None):
+    """What the models' errors rest on, once the database is ready (neither feeds it), side by side, each on its share of
+    the threads:
+    - trace (heldout_species.txt, or None): model_logs/relatives_by_gene_conservation.txt (trace_relatives.py): where
+      the paired-end reads of the species the training database lacks land, by the genes' conservation factors;
+    - units (--error-reads): model_logs/error_reads/<read type>/ (error_reads.py, one run per read type, each on its share
+      of error_reads.py's memory budget): a table of each model's false positives and false negatives in those samples
+      and where their reads went, from the samples' SAMs, which protal wrote with an unmapped record for every read that
+      seeded on taxa but aligned nowhere (collect_training_data.py --unmapped_reads); with sams (--share-logs) also the
+      SAM records of those reads, the FP's and the FN's in files of their own.
+    The genomes' contig names, which both need for the paired-end samples, are read once before them into contig_cache.
+    A failure is reported, and does not stop the build."""
+    import error_reads as error_reads_script
+    import trace_relatives as trace_script
+    began = time.time()
     scopes = collections.defaultdict(list)
     for kind, scope in units:
         scopes[kind].append(scope)
-    with open(log, "w") as fh:
-        for kind, which in scopes.items():
-            calls, out = prefixes[kind] + ".calls.tsv.gz", os.path.join(logs, "error_reads", kind)
-            if not os.path.isfile(calls):
-                told.append(f"{kind}: the trainer wrote no calls")
-                continue
-            command = [sys.executable, ERROR_READS, "--calls", calls, "--training", training, "--db", training_db,
-                       "--samples", "all" if None in which else ",".join(which), "--read-type", kind, "--out", out,
-                       "--threads", str(threads), "--sams", "FP,FN" if sams else "none"]
-            command += ["--test", test] if test and os.path.isdir(test) else []
-            command += ["--contig-cache", contig_cache] if contig_cache else []
-            command += ["--heldout", heldout] if heldout and os.path.isfile(heldout) else []
+    tasks, told = [], {}  # tasks: (what, command, log, error-read output folder or None)
+    for kind, which in scopes.items():
+        calls, out = prefixes[kind] + ".calls.tsv.gz", os.path.join(logs, "error_reads", kind)
+        if not os.path.isfile(calls):
+            told[kind] = f"{kind}: the trainer wrote no calls"
+            continue
+        command = [sys.executable, ERROR_READS, "--calls", calls, "--training", training, "--db", training_db,
+                   "--samples", "all" if None in which else ",".join(which), "--read-type", kind, "--out", out,
+                   "--sams", "FP,FN" if sams else "none"]
+        command += ["--test", test] if test and os.path.isdir(test) else []
+        command += ["--contig-cache", contig_cache] if contig_cache else []
+        command += ["--heldout", heldout] if heldout and os.path.isfile(heldout) else []
+        tasks.append((kind, command, os.path.join(outdir, f"error_reads_{kind}.log"), out))
+    relatives = os.path.join(logs, "relatives_by_gene_conservation")
+    if trace:
+        tasks.insert(0, ("trace", [sys.executable, TRACE, "--points", os.path.join(training, "points"), "--db", training_db,
+                                   "--heldout", trace, "--out", relatives] +
+                         (["--contig-cache", contig_cache] if contig_cache else []),
+                         os.path.join(outdir, "trace_relatives.log"), None))
+    if not tasks:
+        if told:
+            say(f"    the reads of the models' errors: {'; '.join(told.values())}")
+        return
+    share = max(1, threads // len(tasks))
+    error_runs = sum(1 for task in tasks if task[3])
+    budget = error_reads_script.memory_budget()
+    memory = ["--memory", f"{budget / error_runs / 1e9:.3f}"] if error_runs and budget != float("inf") else []
+    say(f"Reports of what the models' errors rest on ({', '.join(os.path.basename(t[2]) for t in tasks)}), side by side, "
+        f"{share} thread{'s' if share > 1 else ''} each")
+    if contig_cache and (trace or any(kind in ("pe", "se") for kind in scopes)):
+        fastas = []
+        for collection in (training, test):
+            for manifest in glob.glob(os.path.join(collection or "", "points", "*", "sim", "manifest.tsv")):
+                fastas += [row.get("fasta_path") for row in manifest_rows(os.path.dirname(manifest))]
+        try:
+            contigs = trace_script.genome_contigs(fastas, threads, contig_cache)
+            say(f"    the contig names of {len(contigs)} genomes in {clock(time.time() - began)} ({contig_cache})")
+        except Exception as e:  # noqa: BLE001: each report reads what it misses itself
+            say(f"    reading the genomes' contig names failed ({e}); each report reads them itself")
+    running = []
+    try:
+        for what, command, log, out in tasks:
+            command = command + ["--threads", str(share)] + (memory if out else [])
+            fh = open(log, "w")
             fh.write(" ".join(command) + "\n")
             fh.flush()
-            rc = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
-            if rc:
-                say(f"    taking the reads of the {kind} model's errors failed ({rc}; see {log}); the build goes on")
+            running.append((what, subprocess.Popen(command, stdout=fh, stderr=subprocess.STDOUT), log, out, fh))
+        looked = time.time()
+        while any(p.poll() is None for _, p, _, _, _ in running):
+            time.sleep(0.5)
+            if Job.scratch and time.time() - looked >= 5:
+                Job.scratch.look()
+                looked = time.time()
+    finally:
+        for _, p, _, _, fh in running:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+            fh.close()
+    for what, p, log, out, _ in running:
+        if not out:  # trace_relatives.py
+            if p.returncode:
+                say(f"    tracing the held-out species' reads failed ({p.returncode}; see {log}); the build went on")
                 continue
-            told.append(f"{kind} {error_reads_summary(os.path.join(out, 'summary.tsv'))}")
+            with open(relatives + ".txt") as fh:
+                text = fh.read()
+            first = text.splitlines()[0] if text.startswith("Not traced") else "model_logs/relatives_by_gene_conservation.txt"
+            say(f"    the held-out species' reads by gene conservation: {first}")
+        elif p.returncode:
+            told[what] = f"{what}: failed ({p.returncode}; see {log})"
+        else:
+            told[what] = f"{what} {error_reads_summary(os.path.join(out, 'summary.tsv'))}"
     if told:
-        say(f"    the reads of the models' errors (model_logs/error_reads, in {clock(time.time() - began)}): "
-            + "; ".join(told))
+        say(f"    the reads of the models' errors (model_logs/error_reads, error_reads_<read type>.log): "
+            + "; ".join(told[kind] for kind in scopes if kind in told))
+    say(f"    reported in {clock(time.time() - began)}")
 
 
 def error_reads_summary(path):
@@ -922,6 +1109,7 @@ def provenance(args, versions, release, genome_table, heldout, n_heldout, read_t
             ("scripts_commit", versions["scripts_commit"]), ("command", " ".join(sys.argv)),
             ("seed", args.seed), ("genome_table", f"{genomes} genomes of {len(species)} species"),
             ("insilico_strains", insilico),
+            ("samples_streamed", getattr(args, "streaming", "")),
             ("marker_genes", genes),
             ("gene_conservation", gene_conservation_summary(os.path.join(args.outdir, "index_and_package.log"))),
             ("gene_neighbours", gene_neighbours_summary(os.path.join(args.outdir, "index_and_package.log"))),
@@ -1632,9 +1820,10 @@ def main():
                         "only the tables to OUTDIR; the training database is built there too (SCRATCH/training_db, "
                         "~22 GB at r226). A network file system (OUTDIR's, often) is slow at the many files the "
                         "simulators write and delete, and at writing a database; the converter spools the release's "
-                        "marker genes there too. With the defaults the r226 run took up to 120 GB there, without the training database "
-                        "(give it 175 GB, docs/databases.md), and the genome store (--genome-store) ~50 GB more; a rerun "
-                        "reuses the samples and the store in the same SCRATCH")
+                        "marker genes there too. The run estimates before its builds what it needs there (the genome store "
+                        "--genome-store, ~50 GB at r226; the training database, ~22 GB; the samples' SAMs and profiles; "
+                        "their reads) and streams into protal what would not fit (--stream-above auto); its end says the "
+                        "most it took against that estimate. A rerun reuses the samples and the store in the same SCRATCH")
     p.add_argument("--profile-blocks", type=float, default=20.0,
                    help="once the training database is built, profile the simulated samples as their simulations go "
                         "on, in protal runs of at least this many GB of reads (collect_training_data.py --follow; the "
@@ -1645,12 +1834,26 @@ def main():
     p.add_argument("--keep-free", type=float, default=30.0,
                    help="with --profile-blocks: GB a simulation leaves free on the disk of the samples (--scratch or "
                         "OUTDIR), or it waits until profiled reads are removed (default 30)")
-    p.add_argument("--stream-above", type=float, default=2.0,
+    p.add_argument("--stream-above", type=stream_spec, default="auto",
                    help="with --profile-blocks: a design point whose largest sample's reads would take more than this "
                         "many GB (compressed, estimated) is not written to the disk: protal reads its samples from named "
-                        "pipes as simulate_metagenomes makes them, in a protal run of its own, a sample at a time "
-                        "(collect_training_data.py --stream_above); smaller ones are written and profiled in blocks "
-                        "(default 2; 0: none)")
+                        "pipes as simulate_metagenomes makes them, a sample at a time, in protal runs with the other "
+                        "points streamed (collect_training_data.py --stream_above); smaller ones are written and profiled "
+                        "in blocks. auto (the default since 2026-10-07; 2 before): chosen once the training database is "
+                        "built, from the free space on the samples' disk less what the run needs there besides the reads "
+                        "(the genome store, a database still to be built there, the samples' SAMs and profiles, "
+                        "--keep-free): nothing streamed if every simulation's reads fit at once, else the largest "
+                        "simulations, until the others' fit; the run stops before its builds if even streaming all "
+                        "would not fit. A number: that many GB (0: none)")
+    p.add_argument("--profile-block-max", type=float, default=200.0,
+                   help="with --profile-blocks: the most GB of reads one protal run takes (the files' size, a streamed "
+                        "simulation's estimate), at least one design point's: the streamed simulations whose communities "
+                        "are there share runs up to it, and a failed run costs at most that much profiling (default "
+                        "200; 0: no limit)")
+    p.add_argument("--profile-ahead", action="store_true",
+                   help="protal --profile_ahead in the collections' protal runs: each sample profiled while the next is "
+                        "aligned, on a quarter of the threads, where the profiling stage leaves cores idle (runs of a few "
+                        "deep samples); off by default until measured on a cluster node")
     p.add_argument("--genome-store", default="auto",
                    help="simulate_metagenomes's genome store for both collections (collect_training_data.py "
                         "--genome_store): each genome simulated is read and parsed from its FASTA once, written there "
@@ -2178,6 +2381,8 @@ def main():
             command += ["--genome_store", genome_store]
         if args.compressed_pipes:
             command += ["--compressed_pipes"]
+        if args.profile_ahead:
+            command += ["--profile_ahead"]
         return command
 
     genome_store = None  # --genome-store
@@ -2202,34 +2407,40 @@ def main():
     if training_db == db:
         Steps.start(f"database ({os.path.basename(db)}, index_and_package.log): no species left out" +
                     ("; built by an earlier run, kept" if final_done else ""))
-    # The simulations need neither database, only the genome table and the species left out: both collections
-    # simulate from here on, in the background and at a lower priority than the builds (collect_training_data.py
-    # --simulate_only), and profile what they simulated once the training database is there (collect(), or with
-    # --profile-blocks follow(): as they simulate, the reads profiled removed, so the simulations keep --keep-free GB
-    # free and wait for that while the disk is full).
-    simulations = {}
-    for what, command, log in collections_:
-        keep_free = ["--min_free", f"{args.keep_free:g}"] if args.profile_blocks > 0 and args.keep_free > 0 else []
-        if args.profile_blocks > 0 and args.stream_above > 0:  # the follower streams them (the same value for both)
-            keep_free += ["--stream_above", f"{args.stream_above:g}"]
-        simulations[what] = Job(command + ["--simulate_only"] + keep_free, log.removesuffix(".log") + "_simulation.log",
-                                lambda what=what: Steps.done(f"simulated the {what} in the background in "
-                                                             f"{simulations[what].took()}"),
-                                label=f"simulating the {what}", nice=10)
-    Steps.done(f"simulating the {' and the '.join(simulations)} meanwhile, in the background "
-               f"({', '.join(os.path.basename(j.log) for j in simulations.values())})")
+    # What the run needs on the samples' disk besides the reads (disk_needs), and what the reads take, said before the
+    # builds; with --stream-above auto the run stops here if even streaming every simulation would not fit. What to
+    # stream is chosen once the training database is built, from the space free then.
+    sizes = simulation_sizes(collections_)
+    reads = sum(r for _, r in sizes)
+    hosts = [(o.host_genome, os.path.join(o.out, "host")) for o in (collector_args(c[2:]) for _, c, _ in collections_)]
+    keep_free = args.keep_free * 1e9 if args.profile_blocks > 0 else 0
+    to_build = ([] if final_done else [("database" if training_db == db else "finished database", db)]) + \
+        ([("training database", training_db)] if training_db != db and not training_done else [])
+    needs = disk_needs(samples_root, genome_store, sim_table, to_build, hosts, sizes, keep_free)
+    free = shutil.disk_usage(samples_root).free
+    say(f"    room on {samples_root}: {gigabytes(free)} free; besides the reads the run needs ~"
+        f"{gigabytes(sum(needs.values()))} there ({needs_text(needs)}), and the reads of its {len(sizes)} simulations take "
+        f"~{gigabytes(reads)} (the collector's estimate, ~1.25 times what r226 v15 wrote)" +
+        ("; what to stream into protal is chosen once the training database is built (--stream-above auto)"
+         if args.profile_blocks > 0 and args.stream_above == "auto" else ""))
+    if args.profile_blocks > 0 and args.stream_above == "auto" and free < sum(needs.values()):
+        stop(f"Not enough room on {samples_root}: {gigabytes(free)} free, and the run needs ~{gigabytes(sum(needs.values()))} "
+             f"there even with every simulation streamed into protal ({needs_text(needs)}): give it a larger disk "
+             "(--scratch), fewer samples or scenarios or a lower --keep-free, or --stream-above GB to run anyway")
+    if args.profile_blocks <= 0 and free < sum(needs.values()) + reads:
+        say(f"    WARNING: with --profile-blocks 0 every read is on the disk at once: ~{gigabytes(sum(needs.values()) + reads)} "
+            f"needed, {gigabytes(free)} free")
+
+    # The training database gates the profiling, which is the build's longest stage now that the simulations take minutes
+    # (docs/claude/2026-10-07-build-ordering): it is built alone, with every core and no simulation writing to its disk.
+    # The finished database is needed only for --add_model at the end: built after it, at the idle scheduling class,
+    # on the cores the profiling leaves (and paused while the models are trained).
     if final_done:
         pass
-    elif training_db != db and not args.one_build_at_a_time:
-        final_build = Job(build_command(args.protal, db, args.threads, *final_level), final_log, built_final_in_background,
-                          label=f"building {os.path.basename(db)} in the background")
-        Steps.done(f"building {os.path.basename(db)} meanwhile, in the background (index_and_package.log)")
     elif training_db == db:
         job = run(build_command(args.protal, db, args.threads, *final_level), final_log, built_final,
                   f"building {os.path.basename(db)}")
         Steps.done(built(db, job, remove_full_reference(db)))
-    else:
-        Steps.done(f"{os.path.basename(db)} is built after the models (--one-build-at-a-time)")
     if training_db != db and not training_done:
         # Read only for the training samples and the parity check: zstd level 3 packs it in a fraction of the
         # time of level 19 (which half of a build spent on), and loads as fast.
@@ -2238,6 +2449,66 @@ def main():
                   lambda: (stages.mark("training_db", training_key), training_stamp.mark("built_for", training_key)),
                   f"building {os.path.basename(training_db)}")
         Steps.done(built(training_db, job, remove_full_reference(training_db) + files_took))
+    if not final_done and training_db != db:
+        if args.one_build_at_a_time:
+            Steps.done(f"{os.path.basename(db)} is built after the models (--one-build-at-a-time)")
+        else:
+            final_build = Job(build_command(args.protal, db, args.threads, *final_level), final_log,
+                              built_final_in_background, label=f"building {os.path.basename(db)} in the background",
+                              idle=True)
+            Steps.done(f"building {os.path.basename(db)} meanwhile, in the background at the idle scheduling class: on "
+                       "the cores the profiling leaves (index_and_package.log)")
+
+    # What to stream into protal (--stream-above): with auto, the fewest simulations whose streaming leaves the others'
+    # reads room on the disk at once, besides what disk_needs counts now that the training database is built.
+    free = shutil.disk_usage(samples_root).free
+    needs = disk_needs(samples_root, genome_store, sim_table,
+                       [("finished database", db)] if not final_done and training_db != db else [], hosts, sizes,
+                       keep_free)
+    room = free - sum(needs.values())
+    auto = args.stream_above == "auto"
+    if args.profile_blocks <= 0:
+        stream_above = 0.0
+    elif auto:
+        threshold = stream_threshold(sizes, room)
+        if threshold is None:
+            stop(f"Not enough room on {samples_root}: {gigabytes(free)} free, and the run needs ~"
+                 f"{gigabytes(sum(needs.values()))} there even with every simulation streamed into protal "
+                 f"({needs_text(needs)}): give it a larger disk (--scratch), fewer samples or scenarios or a lower "
+                 "--keep-free, or --stream-above GB to run anyway")
+        stream_above = threshold / 1e9
+    else:
+        stream_above = args.stream_above
+    streamed = [r for largest, r in sizes if stream_above > 0 and largest > stream_above * 1e9]
+    written = reads - sum(streamed)
+    chosen = (f"{len(streamed)} of the {len(sizes)} simulations streamed into protal (a sample above "
+              f"{stream_above:.3g} GB; ~{gigabytes(sum(streamed))} of reads), ~{gigabytes(written)} written"
+              if streamed else f"none of the {len(sizes)} simulations streamed: their reads written (~{gigabytes(written)})")
+    how = "--profile-blocks 0" if args.profile_blocks <= 0 else ("--stream-above auto" if auto else
+                                                                 f"--stream-above {stream_above:g}")
+    say(f"    {how}: {chosen}; {gigabytes(free)} free on {samples_root}, ~{gigabytes(sum(needs.values()))} of it for the "
+        f"run besides the reads ({needs_text(needs)})")
+    if not auto and args.profile_blocks > 0 and written > room:
+        say(f"    WARNING: the reads written (~{gigabytes(written)}) do not fit at once in the room left "
+            f"(~{gigabytes(max(0, room))}): the simulations will wait for reads to be profiled and removed")
+    args.streaming = f"{how}: {chosen}; {gigabytes(free)} free on the samples' disk once the training database was built"
+    disk_estimate = sum(needs.values()) + written  # at most, all at once; said again beside the peak at the end
+
+    # The simulations: both collections from here on, in the background at a lower priority than the profiling
+    # (collect_training_data.py --simulate_only), profiled as they go (follow(): the reads profiled removed, so that the
+    # simulations keep --keep-free GB free and wait for that while the disk is full), or once all are simulated
+    # (--profile-blocks 0, collect()).
+    simulations = {}
+    for what, command, log in collections_:
+        options = ["--min_free", f"{args.keep_free:g}"] if args.profile_blocks > 0 and args.keep_free > 0 else []
+        if stream_above > 0:  # the follower streams them (the same value for both)
+            options += ["--stream_above", repr(stream_above)]
+        simulations[what] = Job(command + ["--simulate_only"] + options, log.removesuffix(".log") + "_simulation.log",
+                                lambda what=what: Steps.done(f"simulated the {what} in the background in "
+                                                             f"{simulations[what].took()}"),
+                                label=f"simulating the {what}", nice=10)
+    Steps.done(f"simulating the {' and the '.join(simulations)} in the background "
+               f"({', '.join(os.path.basename(j.log) for j in simulations.values())})")
     if args.rank_genes:
         # The genes ranked from the training database (every gene, the species held out left out), unpacked on
         # the scratch disk for rank_genes.py: a reduced database of this release takes the ranking
@@ -2298,6 +2569,13 @@ def main():
             for table in TABLES.values():
                 if os.path.isfile(os.path.join(opts.out, table)):
                     shutil.copy(os.path.join(opts.out, table), keep)
+            # Each protal run's log (its stage timers: how long the alignment and the profiling stage took), which a
+            # node's disk cleared after the job would lose: OUTDIR/<collection>/protal_runs/.
+            runs = os.path.join(keep, "protal_runs")
+            for path in glob.glob(os.path.join(opts.out, "profile_all", "**", "protal.log"), recursive=True):
+                name = os.path.relpath(os.path.dirname(path), os.path.join(opts.out, "profile_all")).replace(os.sep, "_")
+                os.makedirs(runs, exist_ok=True)
+                shutil.copy(path, os.path.join(runs, ("all" if name == "." else name) + ".log"))
 
     def collect(what, command, log):
         """Runs the collector once the collection's simulations are done (in the background), so that it profiles
@@ -2335,14 +2613,15 @@ def main():
             while simulations[what].seconds is None and not (simulation_state(out) or {}).get("prepared"):
                 check_jobs()
                 time.sleep(0.5)
-            stream = ["--stream_above", f"{args.stream_above:g}"] if args.stream_above > 0 else []
-            followers[what] = Job(command + ["--follow", "--profile_block", f"{args.profile_blocks:g}", "--protal_lock", lock]
-                                  + stream,
+            stream = ["--stream_above", repr(stream_above)] if stream_above > 0 else []
+            followers[what] = Job(command + ["--follow", "--profile_block", f"{args.profile_blocks:g}", "--protal_lock", lock,
+                                             "--profile_block_max", f"{args.profile_block_max:g}"] + stream,
                                   log, label=f"profiling the {what}")
         for what, command, log in collections_:
             opts = announce(what, command, log)
             Steps.done(f"profiled as its simulations go on, in protal runs of {args.profile_blocks:g} GB of reads or "
-                       "more (taking turns with the other collection's); each design point's reads removed once profiled")
+                       "more" + (f", at most {args.profile_block_max:g}" if args.profile_block_max > 0 else "") +
+                       " (taking turns with the other collection's); each design point's reads removed once profiled")
             report(opts, log, followers[what].finish())
 
     if args.profile_blocks > 0:
@@ -2355,8 +2634,14 @@ def main():
     prefixes = {t: os.path.join(args.outdir, "trained_model" + ("" if t == "pe" else "_" + t)) for t in read_types}
     trainer_threads = max(1, args.threads // len(read_types))
     models = f"the {', '.join(read_types)} model{'s' if len(read_types) > 1 else ''}"
+    # Boosting's OpenMP threads wait on each other at every step: nothing else runs beside the trainers. The finished
+    # database's build, if still running, is paused (its memory kept) and goes on after them.
+    check_jobs()
+    paused = final_build is not None and final_build.pause()
     Steps.start(f"training {models} (classifier_training*.log){' in parallel' if len(read_types) > 1 else ''}, "
                 f"{trainer_threads} thread{'s' if trainer_threads > 1 else ''} each")
+    if paused:
+        Steps.done(f"{os.path.basename(db)}'s build in the background paused meanwhile")
     trainers = {}
     for t in read_types:
         command = [sys.executable, TRAINER, "--truth-file", os.path.join(training, TABLES[t]),
@@ -2377,6 +2662,8 @@ def main():
         trainers[t] = Job(command, os.path.join(args.outdir, "classifier_training" + ("" if t == "pe" else "_" + t) + ".log"),
                           label=f"training the {t} model")
     seconds = max(job.finish().seconds for job in trainers.values())
+    if paused:
+        final_build.resume()
     each = f" ({', '.join(f'{t} {clock(job.seconds)}' for t, job in trainers.items())})" if len(trainers) > 1 else ""
     Steps.done(f"trained in {clock(seconds)}{each}; {model_scores(read_types, prefixes)}")
     for t, name, why in feature_choices(read_types, prefixes):
@@ -2406,13 +2693,7 @@ def main():
                                                          "test_data_simulation.log", "test_data.log", "genome_table.txt")] + [heldout]:
         if os.path.isfile(name):
             shutil.copy(name, logs)
-    # The genomes' contig names, read once for both (beside the samples).
-    contig_cache = os.path.join(samples_root, "genome_contigs.tsv.gz")
-    if "pe" in read_types and training_db != db and os.path.isfile(heldout):
-        trace_relatives(training, training_db, heldout, logs, args.outdir, args.threads, contig_cache)
-    if args.error_units:
-        error_reads(args.error_units, prefixes, training, test if has_test else None, training_db, logs, args.outdir,
-                    args.threads, contig_cache, args.share_logs, heldout if training_db != db else None)
+    # The models go into the database first; the reports of what their errors rest on follow (reports()).
     Steps.start(f"adding {models} to {os.path.basename(db)} (final_package.log)")
     if final_build is not None:
         if final_build.seconds is None:
@@ -2447,16 +2728,25 @@ def main():
         fh.write("\n".join(summary) + "\n")
     print("\n" + "\n".join(summary) + "\n", flush=True)
     console_log("\n" + "\n".join(summary) + "\n")
-    if Job.scratch:
-        Job.scratch.look()
-        say(f"The run took at most {gigabytes(Job.scratch.peak)} on {samples_root}; the simulated samples there "
-            f"({gigabytes(tree_size(training) + tree_size(test))}) are left for a rerun")
-    if genome_store and os.path.isdir(genome_store):
-        say(f"The genome store {genome_store} holds {gigabytes(tree_size(genome_store))}, kept for the next build "
-            "(remove it to free the space; --genome-store none builds without one)")
     say(f"Ready protal database: {db}{db_size(db)}" +
         (f" (marker genes: {genes_note.split(',')[0].split(' (')[0]}, gene_subset.txt)" if subset else "") +
         f"; model evaluation: {logs} (start with trained_model.report.txt, and trained_model_<read type>.report.txt)")
+    trace = heldout if "pe" in read_types and training_db != db and os.path.isfile(heldout) else None
+    reports(trace, args.error_units, prefixes, training, test if has_test else None, training_db, logs, args.outdir,
+            args.threads, os.path.join(samples_root, "genome_contigs.tsv.gz"), args.share_logs,
+            heldout if training_db != db else None)
+    if Job.scratch:
+        Job.scratch.look()
+        parts = [("the genome store", genome_store), ("the training database", training_db if training_db != db else None),
+                 ("the training samples", training), ("the test samples", test if has_test else None)]
+        held = ", ".join(f"{what} {gigabytes(tree_size(path))}" for what, path in parts
+                         if path and os.path.isdir(path) and on_disk(path, samples_root))
+        say(f"The run took at most {gigabytes(Job.scratch.peak)} on {samples_root} (estimated at most "
+            f"~{gigabytes(disk_estimate)} with what it streamed, every read written at once); there now: {held} "
+            "(the samples left for a rerun)")
+    if genome_store and os.path.isdir(genome_store):
+        say(f"The genome store {genome_store} holds {gigabytes(tree_size(genome_store))}, kept for the next build "
+            "(remove it to free the space; --genome-store none builds without one)")
     if args.share_logs:
         share_archive(args.outdir, [("training", training), ("test", test if has_test else None)], args.threads)
 

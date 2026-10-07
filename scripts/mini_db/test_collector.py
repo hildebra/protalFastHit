@@ -114,6 +114,26 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual(collect.streamed_simulations(units, argparse.Namespace(**{**vars(opts), "stream_above": 0})), set())
         self.assertEqual(collect.streamed_simulations(units, argparse.Namespace(**{**vars(opts), "stream_above": 3.0})),
                          {"ont_b3000000000"})
+        # simulation_bytes: per simulation (a pe point's se unit in it), the largest sample --stream_above compares and
+        # all the reads it writes unless streamed (build_gtdb_database.py's --stream-above auto chooses from them).
+        sizes = collect.simulation_bytes(units)
+        self.assertEqual(set(sizes), {"rl150_p1000", "rl150_p10000000", "ont_b1000000", "ont_b3000000000"})
+        self.assertAlmostEqual(sizes["rl150_p10000000"][0], 10e6 * 300 * collect.PE_BYTES)
+        self.assertAlmostEqual(sizes["rl150_p10000000"][1], 2 * 10e6 * 300 * collect.PE_BYTES)
+        self.assertAlmostEqual(sizes["ont_b3000000000"][1], 2 * 3e9 * collect.DRAWN_BYTES)
+        for above in (0.1, 2.0, 3.0, 10.0):  # the same simulations as streamed_simulations at any value
+            self.assertEqual({name for name, (largest, _) in sizes.items() if largest > above * 1e9},
+                             collect.streamed_simulations(units, argparse.Namespace(**{**vars(opts), "stream_above": above})))
+
+    def test_first_batch(self):
+        # What one protal run takes (--profile_block_max): the first waiting, then each later one that keeps the run
+        # within the cap (a smaller one after a larger one that did not fit); all with no cap.
+        self.assertEqual(collect.first_batch([5, 3, 4, 1], 8), [0, 1])
+        self.assertEqual(collect.first_batch([5, 4, 3, 1], 8), [0, 2])
+        self.assertEqual(collect.first_batch([5, 4, 2, 1], 8), [0, 2, 3])
+        self.assertEqual(collect.first_batch([20, 1], 8), [0])  # larger than the cap alone: still taken, alone
+        self.assertEqual(collect.first_batch([5, 4, 3], 0), [0, 1, 2])
+        self.assertEqual(collect.first_batch([], 8), [])
 
     def test_collector_designs(self):
         # Read setups (instruments; ART's file= profiles refused), abundance models, long-read setups and units.

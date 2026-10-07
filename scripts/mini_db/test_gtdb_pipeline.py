@@ -249,10 +249,18 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn("gradient-boosted trees: 40 rounds", self.text("out", "classifier_training_se.log"))
         self.assertRegex(self.text("out", "convert.log"), r"spooled the representatives' marker genes \(\d+ species\): [\d.]+ s")
         self.assertRegex(self.text("out", "convert.log"), r"joined them into full_reference\.fna(\.zst)?: [\d.]+ s")
-        # Both collections simulate in the background from the holdout on, during the builds, and profile after: the
-        # simulations start before the training database is built.
-        self.assertLess(first.stdout.index("simulating the training data and the independent test set meanwhile"),
-                        first.stdout.index("built training_db in"))
+        # The training database is built alone; then the finished database in the background at the idle scheduling
+        # class, and both collections' simulations, what to stream chosen from the room on the samples' disk (here all
+        # of it is room: nothing streamed). The models go into the database before the reports.
+        self.assertLess(first.stdout.index("built training_db in"),
+                        first.stdout.index("building protal_db meanwhile, in the background at the idle scheduling class"))
+        self.assertLess(first.stdout.index("built training_db in"),
+                        first.stdout.index("simulating the training data and the independent test set in the background"))
+        self.assertRegex(first.stdout, r"room on \S+scratch: [\d.]+ [MG]B free; besides the reads the run needs")
+        self.assertRegex(first.stdout, r"--profile-blocks 0: none of the \d+ simulations streamed")
+        self.assertLess(first.stdout.index("Ready protal database"), first.stdout.index("Reports of what the models' errors"))
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "out", "training", "protal_runs", "all.log")),
+                        "the protal run's log copied off the scratch disk")
         simulation = self.text("out", "training_data_simulation.log")
         self.assertRegex(simulation, r"2 of 2 paired-end design points, \d+:\d\d:\d\d in all")
         self.assertIn("profiling left to a run without --simulate_only", simulation)
@@ -408,15 +416,16 @@ class GtdbBuildTest(unittest.TestCase):
     def test_b_a_failed_background_build_stops_the_run(self):
         # A reduced database ranked by a given table (--n-genes 3 --gene-ranking, as build_gtdb_releases.py builds its
         # reduced variants), here of four genes without the domains' columns: the table copied, the subset its 3 best,
-        # no ranking database built. The finished database's build then fails in the background, 2 s in: the run stops
-        # then, not after the collection, the training and the parity checks.
+        # no ranking database built. The finished database's build, started in the background once the training database
+        # is built, then fails at once: the run stops within seconds, before any model is trained (at this scale the
+        # collection may have ended by then; at GTDB scale it takes hours).
         given = os.path.join(self.tmp.name, "given_ranking.tsv")
         with open(given, "w") as fh:
             fh.write("rank\tgene_id\tmarker\tscore\n" +
                      "".join(f"{rank}\t{gene}\tgiven{gene}\t{1 - rank / 10:.1f}\n" for rank, gene in enumerate((9, 4, 6, 2), 1)))
         failing = os.path.join(self.tmp.name, "failing_protal")
         with open(failing, "w") as fh:
-            fh.write(f'#!/bin/sh\ncase "$*" in *--build*protal_db*) sleep 2; exit 3;; esac\nexec {os.environ["PROTAL"]} "$@"\n')
+            fh.write(f'#!/bin/sh\ncase "$*" in *--build*protal_db*) exit 3;; esac\nexec {os.environ["PROTAL"]} "$@"\n')
         os.chmod(failing, 0o755)
         started = time.time()
         result = self.build("out_fail", "--insilico-strains", "0", "--no-gene-neighbours", "--n-genes", "3",
@@ -425,7 +434,8 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertIn("Command failed (3)", result.stdout)
         self.assertIn("index_and_package.log", result.stdout)
         out = os.path.join(self.tmp.name, "out_fail")
-        self.assertFalse(os.path.exists(os.path.join(out, "training", "training_data.tsv")))
+        self.assertNotRegex(result.stdout, r"\d+/\d+ training the ")
+        self.assertEqual(glob.glob(os.path.join(out, "trained_model*.xml")), [])
         self.assertLess(time.time() - started, 600)
         self.assertEqual(self.text("out_fail", "gene_ranking.tsv"), self.text("given_ranking.tsv"))
         self.assertEqual(self.gene_list(os.path.join(out, "gene_subset.txt")), [9, 4, 6])
@@ -764,8 +774,11 @@ class GtdbBuildTest(unittest.TestCase):
             self.assertTrue(glob.glob(os.path.join(points, "*", "protal*", "alignments", "*.sam*")))
         log = self.text("stream", "training_data.log")
         self.assertRegex(log, r"\d+ simulations streamed into protal \(a sample above 1e-09 GB\)")
-        self.assertRegex(log, r"protal run 1: \S+ streamed \(2 design points, \d+ samples, read from named pipes")
-        self.assertRegex(log, r"every design point is profiled, in \d+ protal runs?")
+        # The streamed points whose communities are there share a protal run (--profile-block-max, 200 GB): here both.
+        self.assertRegex(log, r"protal run 1: 2 simulations streamed \(rl100_p1000, rl100_p4000; 4 design points, \d+ "
+                              r"samples, read from named pipes")
+        self.assertRegex(log, r"every design point is profiled, in 1 protal run\b")
+        self.assertIn("--stream-above 1e-09: 3 of the 3 simulations streamed into protal", result.stdout)
 
 
 if __name__ == "__main__":
