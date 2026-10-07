@@ -918,6 +918,7 @@ namespace protal {
     // depends on its SAM and the database only, not on the thread or on the other samples.
     // A sample's profiling timers (wall clock, ProfileSample): written to its runtime table beside the alignment
     // stage's timers (misc/<sample>_runtime.tsv, made by the alignment stage of this run, else here with its header),
+    // in place of the profiling rows an earlier profiling of the sample left there (a rerun once added a second set),
     // and printed in one line, `total` first and the `parts` after it. Each row has the table's columns: a wall-clock
     // timer ran on one thread, so seconds and seconds per thread are the same.
     static void WriteProfilingTimes(Options const& options, size_t index, Benchmark const& total, std::vector<Benchmark const*> const& parts) {
@@ -936,7 +937,6 @@ namespace protal {
         for (auto const* bm : parts) os << bm->GetName() << '\t' << bm->Seconds() << '\t' << bm->Threads() << '\t' << bm->MeanSeconds() << '\n';
         std::ostringstream line;
         line << std::fixed << std::setprecision(1) << "Profiling sample " << options.GetSampleId(index) << " took " << total.Seconds() << "s:";
-    // in place of the profiling rows an earlier profiling of the sample left there (a rerun once added a second set),
         for (size_t p = 0; p < parts.size(); p++) {
             std::string name = parts[p]->GetName();
             if (name.rfind("Profiling: ", 0) == 0) name = name.substr(11);
@@ -946,18 +946,6 @@ namespace protal {
         std::cout << line.str() << std::endl;
     }
 
-    static void ProfileSample(ProfilingContext& ctx, size_t idx, ReadTypeModels& filters, size_t threads_per_sample) {
-        Options& options = ctx.options;
-        GenomeLoader& genomes = ctx.genomes;
-        auto& taxonomy = *ctx.taxonomy;
-        auto const& genera = ctx.genera;
-        auto const& families = ctx.families;
-        auto const& distances = ctx.distances;
-        auto& profile_slots = ctx.profile_slots;
-        auto& unreported_slots = ctx.unreported_slots;
-        auto const& range = ctx.range;
-        {
-            auto i = range[idx];
     // The parameters of the strain MSA's items of a sample with reads of `read_type` and a taxon whose own reads are
     // at least `min_identity` identical (StrainLevelContainer::MSAItem): the SNP filters of the options.
     static profiler::MSAItemParameters MSAItemFor(Options const& options, ReadType read_type, double min_identity) {
@@ -982,6 +970,18 @@ namespace protal {
         return p;
     }
 
+    static void ProfileSample(ProfilingContext& ctx, size_t idx, ReadTypeModels& filters, size_t threads_per_sample) {
+        Options& options = ctx.options;
+        GenomeLoader& genomes = ctx.genomes;
+        auto& taxonomy = *ctx.taxonomy;
+        auto const& genera = ctx.genera;
+        auto const& families = ctx.families;
+        auto const& distances = ctx.distances;
+        auto& profile_slots = ctx.profile_slots;
+        auto& unreported_slots = ctx.unreported_slots;
+        auto const& range = ctx.range;
+        {
+            auto i = range[idx];
 
             auto const read_type = options.GetReadType(i);
             auto& sample_filter = filters[static_cast<size_t>(read_type)];
