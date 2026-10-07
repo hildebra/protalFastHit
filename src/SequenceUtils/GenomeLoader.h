@@ -46,6 +46,8 @@
 #include "GeneNeighbours.h"
 #include "SpeciesPriors.h"
 #include "SpeciesNeighbours.h"
+#include "CongenerGapsTable.h"
+#include "ForeignRatesTable.h"
 
 namespace protal {
     // The database's gene tables (reference.map, unique_kmers.tsv), one line per gene (16.6M at GTDB
@@ -850,6 +852,8 @@ namespace protal {
         gene_incongruence::Table m_suspect_copies;     // empty: every gene copy is evidence of its species
         species_priors::Table m_species_priors;        // empty: every species' priors unknown
         species_neighbours::Table m_species_neighbours;  // empty: no species' congeners known (SpeciesNeighbours.h)
+        congener_gaps::Table m_congener_gaps;  // empty: no copy's gap to its congeners known (CongenerGapsTable.h)
+        foreign_rates::Table m_foreign_rates;  // empty: no copy's foreign reads known (ForeignRatesTable.h)
 
         int m_threads = 1;  // for reading reference.map
         gene_table::Times m_map_times, m_unique_times;  // the last loads of reference.map and unique_kmers.tsv (GeneTableTimes)
@@ -1121,6 +1125,8 @@ namespace protal {
                 m_suspect_copies(other.m_suspect_copies),
                 m_species_priors(other.m_species_priors),
                 m_species_neighbours(other.m_species_neighbours),
+                m_congener_gaps(other.m_congener_gaps),
+                m_foreign_rates(other.m_foreign_rates),
                 m_threads(other.m_threads) {
             Open();
             LoadPositionMap(m_map, m_threads);
@@ -1185,6 +1191,26 @@ namespace protal {
 
         void SetSpeciesNeighbours(species_neighbours::Table table) {
             m_species_neighbours = std::move(table);
+        }
+
+        // Each gene copy's gap to its congeners' copies (CongenerGapsTable.h), for the "gaps" features; empty unless set (a
+        // database without congener_gaps.tsv), and then those features are unknown (-1).
+        congener_gaps::Table const& GetCongenerGaps() const {
+            return m_congener_gaps;
+        }
+
+        void SetCongenerGaps(congener_gaps::Table table) {
+            m_congener_gaps = std::move(table);
+        }
+
+        // Each gene copy's reads of a tiled scan of genomes and their foreign share (ForeignRatesTable.h), for the
+        // "foreign" features; empty unless set (a database without foreign_rates.tsv): those features are unknown (-1).
+        foreign_rates::Table const& GetForeignRates() const {
+            return m_foreign_rates;
+        }
+
+        void SetForeignRates(foreign_rates::Table table) {
+            m_foreign_rates = std::move(table);
         }
 
         // Which genes lie next to which in the species' clades (GeneNeighbours.h); empty unless set (a

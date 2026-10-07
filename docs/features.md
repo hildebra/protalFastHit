@@ -30,10 +30,15 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `consistency` | 2026-10-06 | whether the taxon's reads are its own: long reads' consensus tags, the seeds' crowding, congeners that fit better than their distance allows, fragments split with a congener, genes complementing a congener's | yes, untested at r226 |
 | `shape` | 2026-10-06 | how the reads lie on the genes: divergence dispersion, breadth against depth, genes where reads fail, fixed and polymorphic sites | yes, untested at r226 |
 | `neighbourhood` | 2026-10-06 | the database's congeners near the reference (`species_neighbours.tsv`) | yes, untested at r226 |
+| `gaps` | 2026-10-07 | where the reads lie in the gaps to the congeners' copies of their genes (`congener_gaps.tsv`) | yes, untested at r226 |
+| `foreign` | 2026-10-07 | how far other species' reads reach the taxon's gene copies in a tiled scan of the genomes (`foreign_rates.tsv`) | yes, untested at r226 |
+| `untried` | 2026-10-07 | the reads whose seeds fit the taxon as well as the taxa they were aligned against, but never tried it (`ZC`) | yes, untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
-The default set is `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood`
-(70 features; without the last three groups 55, before 2026-10-07; without `ref` and `complexity` too 49, before
+The default set is `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+gaps+foreign+untried`
+(78 features; without `gaps`, `foreign` and `untried` 70, before the evening of 2026-10-07: train such a table with
+`--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood`;
+without `consistency`, `shape` and `neighbourhood` too 55, before 2026-10-07; without `ref` and `complexity` too 49, before
 2026-10-06). The three groups against false positives have not been trained at GTDB scale: the next build's models are
 the first. A training table of the r226 v15 build or older lacks their columns: train it with `--features
 normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity`, one of v14 or older with
@@ -339,6 +344,31 @@ species, so its species have fewer near congeners than in the finished database.
 distance is the median Mash distance of all the marker genes two references have; a run's
 `relative_distance` takes it over the genes with unique k-mers only (genes identical in two congeners
 have none), so for near-identical congeners the table's distance is the smaller one.
+
+## The gene copies' gaps and foreign reads, and the untried candidates (`gaps`, `foreign`, `untried`, 2026-10-07)
+
+The reads behind the errors of the r226 v15 build ([report](claude/2026-10-07-error-read-signatures/README.md))
+showed false positives fed by species the database lacks, landing on their nearest congener at ~0.97, and misses that
+are strains of wide species, their reads at the same identity; and a strain's own species often never aligned against,
+ranked below its congeners by the seeds. Three groups add what the reads alone cannot say:
+
+| feature | group | what | against |
+|---|---|---|---|
+| `gap_informative_share` | gaps | of the taxon's kept records, the share on gene copies whose nearest congener's copy is at least 0.005 away (`congener_gaps.tsv`); 0 without such records, -1 without the table | how much of the evidence can tell the species from its congeners at all |
+| `gap_within_min_share`, `gap_within_median_share` | gaps | of those records, the shares whose divergence is below the copy's distance to its nearest congener's copy, and below the median congener's; -1 without such records | **missing relative** (a congener the database lacks lies about as far from the reference as its congeners do) against a **strain** (within the species' gap) |
+| `gap_position` | gaps | their median divergence over the nearest congener's distance (0: identical to the reference, 1: as far as the nearest congener) | as above |
+| `foreign_scanned_share` | foreign | the share of the kept records on copies the tiled scan reached (`foreign_rates.tsv`); -1 without the table | |
+| `foreign_copy_share`, `foreign_genus_copy_share` | foreign | those copies' mean shares of the scan's reads from other species and from other genera, foreign / (reads + 1); -1 without such records | **contamination, transferred genes, conserved genes**: a copy other species' reads reach is weak evidence of its species |
+| `untried_candidate_rate` | untried | the reads whose seeds fit the taxon as well as the taxa they were aligned against (`ZN`'s crowd) but never were aligned against it (beyond `--align_top`, their `ZC` tag), over those plus its reads | **missed strain**: its reads went to a congener without trying it |
+
+`congener_gaps.tsv` is written by `--build`: every species' copy of each marker gene aligned (WFA2, protal's
+scores, the ends partly free) against the copies of its genus: all of them up to 24 others, else its 4 nearest by
+their k-mer sketches and 16 others drawn by a hash of the pair, whose median gives the median. A read covers a part of
+a gene whose divergence varies along it, so the test of one read against the whole gene's gap is noisy: the features
+count over a taxon's reads. `foreign_rates.tsv` is made by `scripts/foreign_rates.py` (reads of 150 bases every 500
+of every genome at hand, `simulate_metagenomes --tiles`, aligned once; a training database's held-out species left out)
+and stored with `protal --add_tables`; `build_gtdb_database.py` does both ([databases.md](databases.md)). Both tables
+describe the database in use, as `ref` does.
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 

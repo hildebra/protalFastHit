@@ -191,6 +191,10 @@ namespace protal {
         // "<taxid>:<gene>,<taxid>:<gene>" (FailedTag; "<taxid>" without the gene before 2026-10-06); a read of a relative
         // the database lacks seeds on its nearest species and fails there. Empty: none, or not written.
         std::string m_failed;
+        // ZC tag of a short read's first record: taxa its seeds fit as well as the taxa it was aligned against (ZN's crowd) but
+        // never aligned against (beyond --align_top), "<taxid>,<taxid>" the strongest anchor first, at most kUntriedListed
+        // (UntriedTag): a strain's own species ranked below its congeners. Empty: none, or not written (before 2026-10-07).
+        std::string m_untried;
         // ZR tag of a long read's segment record: 1 if its read's consensus taxon gave it its best hit or MAPQ, which the
         // gene alone could not tell; 2 if that taxon has no hit on the gene or a clearly worse one than another taxon's
         // (written with MAPQ 0). 0: neither, or not written (short reads).
@@ -216,6 +220,7 @@ namespace protal {
                     + "ZT:i:" + std::to_string(m_uniques_two)
                     + (m_alternatives.empty() ? std::string() : "\tZA:Z:" + m_alternatives)
                     + (m_failed.empty() ? std::string() : "\tZF:Z:" + m_failed)
+                    + (m_untried.empty() ? std::string() : "\tZC:Z:" + m_untried)
                     + (m_settled == 0 ? std::string() : "\tZR:i:" + std::to_string(m_settled))
                     + (m_crowding == 0 ? std::string() : "\tZN:i:" + std::to_string(m_crowding));
         }
@@ -399,6 +404,7 @@ namespace protal {
         sam.m_uniques_two = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZT").value_or(0), UINT16_MAX));
         sam.m_alternatives = sam_detail::StringTag(tokens, "ZA").value_or(std::string_view());
         sam.m_failed = sam_detail::StringTag(tokens, "ZF").value_or(std::string_view());
+        sam.m_untried = sam_detail::StringTag(tokens, "ZC").value_or(std::string_view());
         sam.m_settled = static_cast<uint8_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZR").value_or(0), 2));
         sam.m_crowding = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZN").value_or(0), UINT16_MAX));
     }

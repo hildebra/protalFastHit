@@ -176,6 +176,10 @@ namespace protal::classify {
                     failed = FailedCandidates(alignment_handler.Attempted(), std::move(aligned));
                     crowding = alignment_handler.Crowding();
                 }
+                // And the taxa its seeds fit as well but that it never was aligned against, for its ZC tag.
+                if constexpr (requires { alignment_handler.Untried(); }) {
+                    AddUntriedCandidates(failed, alignment_handler.Untried(), {}, {});
+                }
 
                 bm_output.Start();
                 output_handler(alignment_results, record, failed, crowding);
@@ -645,15 +649,20 @@ namespace protal::classify {
                 bm_alignment.Start();
                 std::vector<FailedCandidate> attempted;
                 std::array<uint16_t, 2> crowding{ 0, 0 };  // the taxa each mate's seeds could not tell apart (ZN)
+                std::vector<uint32_t> untried;  // the taxa each mate's seeds fit as well but never tried (ZC)
                 alignment_handler(anchors1, alignment_results1, record1.sequence, anchor_finder1.ReverseComplement(), options.GetAlignTop() + recover1, record1.id);
                 if constexpr (requires { alignment_handler.Attempted(); }) {
                     attempted = alignment_handler.Attempted();
                     crowding[0] = alignment_handler.Crowding();
+                    if constexpr (requires { alignment_handler.Untried(); }) untried = alignment_handler.Untried();
                 }
                 alignment_handler(anchors2, alignment_results2, record2.sequence, anchor_finder2.ReverseComplement(), options.GetAlignTop() + recover2, record2.id);
                 if constexpr (requires { alignment_handler.Attempted(); }) {
                     attempted.insert(attempted.end(), alignment_handler.Attempted().begin(), alignment_handler.Attempted().end());
                     crowding[1] = alignment_handler.Crowding();
+                    if constexpr (requires { alignment_handler.Untried(); }) {
+                        untried.insert(untried.end(), alignment_handler.Untried().begin(), alignment_handler.Untried().end());
+                    }
                 }
                 bm_alignment.Stop();
 
@@ -688,7 +697,8 @@ namespace protal::classify {
                     if (ar1.IsSet()) aligned.push_back(static_cast<uint32_t>(ar1.Taxid()));
                     if (ar2.IsSet()) aligned.push_back(static_cast<uint32_t>(ar2.Taxid()));
                 }
-                auto const failed = FailedCandidates(std::move(attempted), std::move(aligned));
+                auto failed = FailedCandidates(attempted, aligned);
+                AddUntriedCandidates(failed, untried, attempted, aligned);
 
                 // Output alignments
                 bm_output.Start();

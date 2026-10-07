@@ -316,6 +316,13 @@ Since 2026-10-06 a read's best record (each mate's, each long-read gene's) also 
 species its seeds could not tell apart, also those it was never aligned against; the profiler takes
 `seed_crowding`, the genes of `ZF` and the long reads' `ZR` as features against the false positives
 of complex communities ([features.md](features.md#against-false-positives-in-complex-communities-consistency-shape-neighbourhood-2026-10-06)).
+Since 2026-10-07 a short read's first record also carries `ZC:Z:<taxid>,...`: up to 8 taxa of that crowd it was never
+aligned against (beyond `--align_top`), the strongest anchor first; the profiler counts them per taxon
+(`untried_candidate_rate`). And a short read whose best alignment is divergent (identity below 0.99) tries up to
+`--adaptive_candidates` (7) more anchors of its crowd, of taxa of that alignment's genus: a strain whose genes lie
+between its own species' reference and a congener's ranks its own species below the congeners by its seeds, and
+`--align_top` alone never aligned it there ([report](claude/2026-10-07-error-read-signatures/README.md), section 5).
+`--adaptive_candidates 0` aligns as before; the log's `adaptive candidates:` line counts the extra alignments.
 
 ### Developer options
 

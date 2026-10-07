@@ -28,6 +28,8 @@
 #include "GeneIncongruence.h"
 #include "SpeciesPriors.h"
 #include "SpeciesNeighbours.h"
+#include "CongenerGapsTable.h"
+#include "ForeignRatesTable.h"
 #include "SamFile.h"
 #include "ReadType.h"
 #include "SequenceUtils/SeqReader.h"
@@ -48,6 +50,9 @@ namespace protal {
     static const int DEFAULT_COMPRESS_WINDOW_LOG = 27;
     static const int DEFAULT_COMPRESS_FRAME_MB = 64;  // independent frames: loading uses -t threads
     static const size_t DEFAULT_ALIGN_TOP = 3;
+    // Anchors a divergent read may try beyond --align_top on congeners of its best alignment that its seeds could not
+    // tell apart (SimpleAlignmentHandler::operator(), --adaptive_candidates).
+    static const size_t DEFAULT_ADAPTIVE_CANDIDATES = 7;
     static const double DEFAULT_MAX_SCORE_ANI = 0.9;
     static const size_t DEFAULT_MSA_MIN_HCOV = 1000;
     // Reads a position needs to be written in a strain MSA (a mixture needs --snp_min_cov per allele).
@@ -98,6 +103,7 @@ namespace protal {
         // Alignment / algorithm options
         options.add_options("Alignment")
                 ("c,align_top", "After seeding, anchor are sorted by quality passed to alignment. <take_top> specifies how many anchors should be aligned starting with the most promising anchor.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_ALIGN_TOP)))
+                ("adaptive_candidates", "A short read whose best alignment is divergent (identity below 0.99) and whose seeds fit more taxa equally well than --align_top took (ZN) tries up to this many more of those anchors, of taxa of the best alignment's genus: a strain's own species that its seeds ranked below its congeners'. 0: never. Needs the taxonomy (it is loaded for profiling).", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_ADAPTIVE_CANDIDATES)))
                 ("m,max_out", "Maximum alignments that should be outputted", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MAX_OUT)))
                 ("no_mate_guidance", "Paired-end reads: do not let a mate that is sure of its alignment guide the other one when they did not align together (to the guiding mate's taxon from the other's own anchor, or on its gene where the fragment can reach, partly if it runs past the gene's end).")
                 ("no_gene_neighbours", "Do not use the database's gene neighbours (gene_neighbours.tsv: how often each marker gene end faces which other in a clade's genomes): no looking for a mate past the end of its guiding mate's gene, no pairs of mates on two neighbouring genes, no looking on a long read for the genes next to its genes, adjacent_expected_share and adjacent_unlikely_share 0 and adjacent_support 0.5.")
@@ -164,15 +170,16 @@ namespace protal {
                 ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
-                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, foreign_rates.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
                 ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory. On a single-file database --db: adds the binary gene table (gene_table.bin) a run loads instead of reference.map and unique_kmers.tsv, if it has no current one.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
-                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, congener_gaps.tsv, foreign_rates.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
+                ("add_tables", "Store tables in the database --db by their file names, replacing those there: foreign_rates.tsv (scripts/foreign_rates.py: per gene copy, the reads of a tiled scan of genomes and how many came from other species) or congener_gaps.tsv (what --build writes). Several, comma-separated. Each table is read and checked first. database.protal is rewritten once, with its other parts copied as they are; a database of separate files gets the files copied beside them.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
                 ("suspect_copy_distance", "With --build: a species' copy of a gene within this k-mer distance (about the share of bases that differ) of a copy of a species of another genus (or family, order, class, phylum, domain), and 0.02 farther from its nearest congener's copy or without one, is suspect: contamination or a transferred gene. The suspect copies go into the database (suspect_copies.tsv) and a run leaves their records out (see --keep_suspect_copies); every near pair across genera is reported in gene_incongruence.tsv beside the database. 0: no such scan.", cxxopts::value<double>()->default_value("0.02"))
                 ("reference", "Set of reference sequences to build the internal alignment database from", cxxopts::value<std::string>()->default_value(""))
@@ -285,6 +292,7 @@ namespace protal {
         std::string model_ont;
         std::string read_type;  // --read_type as given (empty if not): the samples' (read_type_list) and --add_model's
         std::string add_model;
+        std::string add_tables;  // --add_tables
         double knob = 0.5;
         bool knob_given = false;  // --knob on the command line: the models' depth knobs are not used
         std::optional<double> fdr;  // --fdr; none: a model's calibrated calls are not used
@@ -296,6 +304,7 @@ namespace protal {
         // alignment
         size_t threads = DEFAULT_THREADS;
         size_t align_top = DEFAULT_ALIGN_TOP;
+        size_t adaptive_candidates = DEFAULT_ADAPTIVE_CANDIDATES;
         double max_score_ani = DEFAULT_MAX_SCORE_ANI;
         bool max_score_ani_given = false;  // -a given: it applies to all read types
         size_t x_drop = DEFAULT_X_DROP;
@@ -409,6 +418,7 @@ namespace protal {
         std::string m_model_ont;
         std::string m_read_type;  // --read_type as given; empty if not
         std::string m_add_model;  // --add_model
+        std::string m_add_tables;  // --add_tables
         double m_knob = 0.5;
         bool m_knob_given = false;  // --knob
         std::optional<double> m_fdr;  // --fdr
@@ -422,6 +432,7 @@ namespace protal {
         std::string m_benchmark_alignment_output;
 
         size_t m_align_top = DEFAULT_ALIGN_TOP;
+        size_t m_adaptive_candidates = DEFAULT_ADAPTIVE_CANDIDATES;
         double m_max_score_ani = DEFAULT_MAX_SCORE_ANI;
         bool m_max_score_ani_given = false;
         size_t m_x_drop = DEFAULT_X_DROP;
@@ -455,6 +466,8 @@ namespace protal {
         static inline const std::string PROTAL_SUSPECT_COPIES_FILE = gene_incongruence::kFileName;
         static inline const std::string PROTAL_SPECIES_PRIORS_FILE = species_priors::kFileName;
         static inline const std::string PROTAL_SPECIES_NEIGHBOURS_FILE = species_neighbours::kFileName;
+        static inline const std::string PROTAL_CONGENER_GAPS_FILE = congener_gaps::kFileName;
+        static inline const std::string PROTAL_FOREIGN_RATES_FILE = foreign_rates::kFileName;
         static inline const std::string PROTAL_GENE_NEIGHBOURS_FILE = gene_neighbours::kFileName;
         static inline const std::string PROTAL_GENE_POSITIONS_FILE = gene_neighbours::kPositionsFileName;
         static inline const std::string PROTAL_TAXONOMY_FILE = "internal_taxonomy.dmp";
@@ -560,6 +573,7 @@ namespace protal {
                 m_model_ont(std::move(d.model_ont)),
                 m_read_type(std::move(d.read_type)),
                 m_add_model(std::move(d.add_model)),
+                m_add_tables(std::move(d.add_tables)),
                 m_knob(d.knob),
                 m_knob_given(d.knob_given),
                 m_fdr(d.fdr),
@@ -569,6 +583,7 @@ namespace protal {
                 m_gene_conservation(std::move(d.gene_conservation)),
                 m_threads(d.threads),
                 m_align_top(d.align_top),
+                m_adaptive_candidates(d.adaptive_candidates),
                 m_max_score_ani(d.max_score_ani),
                 m_max_score_ani_given(d.max_score_ani_given),
                 m_x_drop(d.x_drop),
@@ -668,6 +683,7 @@ namespace protal {
             result_str << "preload genomes:     " << (m_preload_genomes ? "yes" : "no") << '\n';
             result_str << "----- Alignment -----" << std::string(30, '-') << '\n';
             result_str << "align top:           " << std::to_string(m_align_top) << '\n';
+            result_str << "adaptive candidates: " << std::to_string(m_adaptive_candidates) << '\n';
             result_str << "max key ubiquity:    " << std::to_string(m_max_key_ubiquity) << '\n';
             result_str << "max seed size:       " << std::to_string(m_max_seed_size) << '\n';
             result_str << "max score ani:       " << per_read_type(m_max_score_ani, [this](ReadType type) { return GetMaxScoreAni(type); }) << '\n';
@@ -765,6 +781,27 @@ namespace protal {
 
         double GetMSAIdentityMargin() const {
             return m_msa_identity_margin;
+        }
+
+        // The table files --add_tables stores (comma-separated as given); empty without it.
+        std::vector<std::string> AddTables() const {
+            std::vector<std::string> files;
+            std::string item;
+            std::istringstream is(m_add_tables);
+            while (std::getline(is, item, ',')) {
+                if (!item.empty()) files.push_back(item);
+            }
+            return files;
+        }
+
+        // The tables --add_tables may store, by file name.
+        static std::vector<std::string> AddableTables() {
+            return { PROTAL_CONGENER_GAPS_FILE, PROTAL_FOREIGN_RATES_FILE };
+        }
+
+        // --adaptive_candidates: anchors a divergent read may try beyond --align_top (0: none).
+        size_t GetAdaptiveCandidates() const {
+            return m_adaptive_candidates;
         }
 
         // --add_model as given: one PMML file, or several, comma-separated (AddModels).
@@ -942,6 +979,17 @@ namespace protal {
             return m_database_path + "/" + PROTAL_SPECIES_NEIGHBOURS_FILE;
         }
 
+        // Each gene copy's gap to its congeners' copies (CongenerGaps.h), written and packed by --build.
+        std::string GetCongenerGapsFile() const {
+            return m_database_path + "/" + PROTAL_CONGENER_GAPS_FILE;
+        }
+
+        // Each gene copy's reads of a tiled scan and their foreign share (ForeignRatesTable.h): packed by --build if the
+        // folder has it, or by --add_tables.
+        std::string GetForeignRatesFile() const {
+            return m_database_path + "/" + PROTAL_FOREIGN_RATES_FILE;
+        }
+
         // Where gene_neighbours.py placed each gene in each genome: packed by --build, never read by a run.
         std::string GetGenePositionsFile() const {
             return m_database_path + "/" + PROTAL_GENE_POSITIONS_FILE;
@@ -1019,6 +1067,16 @@ namespace protal {
         // The database's species_neighbours.tsv (--build's since 2026-10-06); Exists() is false if it has none.
         db::DbFile SpeciesNeighboursDbFile() const {
             return DbFileNamed(PROTAL_SPECIES_NEIGHBOURS_FILE, GetSpeciesNeighboursFile());
+        }
+
+        // The database's congener_gaps.tsv (--build's since 2026-10-07); Exists() is false if it has none.
+        db::DbFile CongenerGapsDbFile() const {
+            return DbFileNamed(PROTAL_CONGENER_GAPS_FILE, GetCongenerGapsFile());
+        }
+
+        // The database's foreign_rates.tsv (scripts/foreign_rates.py, --add_tables); Exists() is false if it has none.
+        db::DbFile ForeignRatesDbFile() const {
+            return DbFileNamed(PROTAL_FOREIGN_RATES_FILE, GetForeignRatesFile());
         }
 
         // The database's gene_neighbours.tsv (scripts/mini_db/gene_neighbours.py, packed by --build); Exists() is
@@ -2043,11 +2101,26 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
 
             ResolveDatabase(error_log);
             bool const add_model = !m_add_model.empty();
-            bool const db_mode = m_compress_db || m_decompress_db || m_unpack_db || add_model;
+            bool const add_tables = !m_add_tables.empty();
+            bool const db_mode = m_compress_db || m_decompress_db || m_unpack_db || add_model || add_tables;
             if (!m_build && !db_mode) ResolveReadTypes(warning_log, &note_log);
-            if (int(m_compress_db) + int(m_decompress_db) + int(m_unpack_db) + int(add_model) + int(m_build) > 1) {
-                error_log.emplace_back("--build, --compress_db, --decompress_db, --unpack_db and --add_model cannot be combined "
-                                       "(--build compresses unless --no_compress)");
+            if (int(m_compress_db) + int(m_decompress_db) + int(m_unpack_db) + int(add_model) + int(add_tables) + int(m_build) > 1) {
+                error_log.emplace_back("--build, --compress_db, --decompress_db, --unpack_db, --add_model and --add_tables cannot be "
+                                       "combined (--build compresses unless --no_compress)");
+            }
+            if (add_tables) {
+                auto const allowed = AddableTables();
+                std::set<std::string> names;
+                for (auto const& file : AddTables()) {
+                    std::string const name = std::filesystem::path(file).filename().string();
+                    if (std::find(allowed.begin(), allowed.end(), name) == allowed.end()) {
+                        error_log.emplace_back("--add_tables: " + file + " is none of the tables it stores (" + allowed[0] + ", " +
+                                               allowed[1] + ")");
+                    } else if (!names.insert(name).second) {
+                        error_log.emplace_back("--add_tables names " + name + " twice");
+                    }
+                    if (!std::filesystem::is_regular_file(file)) error_log.emplace_back("--add_tables: " + file + " is not a file");
+                }
             }
             if (add_model) {
                 // --add_model FILE[,FILE...] with --read_type TYPE[,TYPE...]: one read type per model, each once.
@@ -2854,7 +2927,8 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             bool const decompress_db = result.count("decompress_db") > 0;
             bool const unpack_db = result.count("unpack_db") > 0;
             bool const add_model = !result["add_model"].as<std::string>().empty();
-            if (!build && !profile_only && !compress_db && !decompress_db && !unpack_db && !add_model) {
+            bool const add_tables = !result["add_tables"].as<std::string>().empty();
+            if (!build && !profile_only && !compress_db && !decompress_db && !unpack_db && !add_model && !add_tables) {
                 if (first_list.empty()) {
                     std::cerr << "No input reads given. Provide reads via -1/--first (and -2/--second for paired-end "
                                  "reads), or a map file via --map (see --map_help)." << std::endl;
@@ -3031,6 +3105,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.output_dir               = output_dir;
             d.threads                  = threads;
             d.align_top                = align_top;
+            d.adaptive_candidates      = result["adaptive_candidates"].as<size_t>();
             d.max_out                  = max_out;
             d.max_score_ani            = max_score_ani;
             d.max_score_ani_given      = result.count("max_score_ani") > 0;
@@ -3090,6 +3165,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.model_ont                = result["model_ont"].as<std::string>();
             d.read_type                = result["read_type"].as<std::string>();
             d.add_model                = result["add_model"].as<std::string>();
+            d.add_tables               = result["add_tables"].as<std::string>();
 
             auto options = Options(std::move(d));
 

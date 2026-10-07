@@ -703,6 +703,12 @@ namespace protal {
             return static_cast<uint64_t>(std::llround(std::clamp(share, 0.0, 1.0) * kShareUnit));
         }
 
+        // A read's divergence over its copy's gap to the nearest congener (RecordEvidence::gap_position), counted in kGapBins bins
+        // of kGapBinWidth, the last also holding everything beyond: 0 for a read identical to the reference, 1 for one as
+        // far from it as the nearest congener's copy is.
+        inline constexpr size_t kGapBins = 30;
+        inline constexpr double kGapBinWidth = 0.1;
+
         // A taxon's best records on one of its genes (RecordEvidence::gene_records): their count, differences (X, I, D),
         // aligned bases (M, =, X, I, D) and expected sequencing errors (ppm of the aligned bases, an integer): the
         // divergence of the reads gene by gene (gene_divergence_dispersion) and the genes' records against the reads
@@ -784,6 +790,20 @@ namespace protal {
             // tags of records with genes; FoldFailedCandidates), both freed once the taxon's features are set.
             tsl::robin_map<uint32_t, GeneRecords> gene_records;
             tsl::robin_map<uint32_t, uint32_t> failed_genes;
+            // The gaps (congener_gaps.tsv): kept records on a copy whose nearest congener's copy is at least
+            // congener_gaps::kMinGap away, of them those whose divergence is below that distance and below the median
+            // congener's, and their divergence over the nearest one's in kGapBins bins; gaps_known: the database has the table.
+            size_t gap_records = 0, gap_within_min = 0, gap_within_median = 0;
+            std::array<uint32_t, kGapBins> gap_position{};
+            bool gaps_known = false;
+            // The foreign rates (foreign_rates.tsv): kept records on a copy the scan reached, and the sums of the copies'
+            // shares of reads from other species and other genera (ShareUnits); foreign_known: the database has the table.
+            size_t foreign_records = 0;
+            uint64_t foreign_share = 0, foreign_genus_share = 0;
+            bool foreign_known = false;
+            // Reads whose seeds fit the taxon as well as the taxa they were aligned against (ZN's crowd) but that never were
+            // aligned against it (beyond --align_top; their ZC tags, FoldFailedCandidates).
+            size_t untried_candidates = 0;
 
             RecordEvidence& operator+=(RecordEvidence const& other) {
                 records += other.records;
@@ -824,6 +844,16 @@ namespace protal {
                 split_links += other.split_links;
                 for (auto const& [gene, records] : other.gene_records) gene_records[gene] += records;
                 for (auto const& [gene, reads] : other.failed_genes) failed_genes[gene] += reads;
+                gap_records += other.gap_records;
+                gap_within_min += other.gap_within_min;
+                gap_within_median += other.gap_within_median;
+                for (size_t b = 0; b < kGapBins; b++) gap_position[b] += other.gap_position[b];
+                gaps_known = gaps_known || other.gaps_known;
+                foreign_records += other.foreign_records;
+                foreign_share += other.foreign_share;
+                foreign_genus_share += other.foreign_genus_share;
+                foreign_known = foreign_known || other.foreign_known;
+                untried_candidates += other.untried_candidates;
                 return *this;
             }
         };
@@ -1397,6 +1427,54 @@ namespace protal {
             double FailedCandidateRate() const {
                 size_t const all = m_records.failed_candidates + m_records.fragments_all;
                 return all == 0 ? 0 : static_cast<double>(m_records.failed_candidates) / static_cast<double>(all);
+            }
+            // The reads whose seeds fit the taxon as well as the taxa they were aligned against, but that never were aligned
+            // against it (RecordEvidence::untried_candidates, ZC), over those plus its reads with a record; 0 without.
+            double UntriedCandidateRate() const {
+                size_t const all = m_records.untried_candidates + m_records.fragments_all;
+                return all == 0 ? 0 : static_cast<double>(m_records.untried_candidates) / static_cast<double>(all);
+            }
+            // The gaps to the congeners' copies (congener_gaps.tsv, RecordEvidence::gap_records): the share of its kept
+            // records on copies with a congener's copy at least congener_gaps::kMinGap away, of those the shares whose
+            // divergence is below the nearest and below the median congener's distance, and their median divergence over the
+            // nearest's (0: identical to the reference, 1: as far as the nearest congener). -1 without the table or without such
+            // a record (the share: 0 with the table).
+            double GapInformativeShare() const {
+                if (!m_records.gaps_known) return congener_gaps::kUnknown;
+                return m_records.kept == 0 ? 0 : static_cast<double>(m_records.gap_records) / static_cast<double>(m_records.kept);
+            }
+            double GapWithinMinShare() const {
+                return m_records.gap_records == 0 ? congener_gaps::kUnknown
+                                                  : static_cast<double>(m_records.gap_within_min) / static_cast<double>(m_records.gap_records);
+            }
+            double GapWithinMedianShare() const {
+                return m_records.gap_records == 0 ? congener_gaps::kUnknown
+                                                  : static_cast<double>(m_records.gap_within_median) / static_cast<double>(m_records.gap_records);
+            }
+            double GapPosition() const {
+                if (m_records.gap_records == 0) return congener_gaps::kUnknown;
+                size_t const half = (m_records.gap_records + 1) / 2;  // the lower median's rank
+                size_t seen = 0;
+                for (size_t b = 0; b < kGapBins; b++) {
+                    seen += m_records.gap_position[b];
+                    if (seen >= half) return (static_cast<double>(b) + 0.5) * kGapBinWidth;
+                }
+                return (static_cast<double>(kGapBins) - 0.5) * kGapBinWidth;
+            }
+            // The tiled scan's foreign reads on its copies (foreign_rates.tsv, RecordEvidence::foreign_records): the share of
+            // its kept records on copies the scan reached, and their copies' mean shares of reads from other species and
+            // from other genera. -1 without the table or without such a record (the share: 0 with the table).
+            double ForeignScannedShare() const {
+                if (!m_records.foreign_known) return foreign_rates::kUnknown;
+                return m_records.kept == 0 ? 0 : static_cast<double>(m_records.foreign_records) / static_cast<double>(m_records.kept);
+            }
+            double ForeignCopyShare() const {
+                return m_records.foreign_records == 0 ? foreign_rates::kUnknown
+                    : static_cast<double>(m_records.foreign_share) / kShareUnit / static_cast<double>(m_records.foreign_records);
+            }
+            double ForeignGenusCopyShare() const {
+                return m_records.foreign_records == 0 ? foreign_rates::kUnknown
+                    : static_cast<double>(m_records.foreign_genus_share) / kShareUnit / static_cast<double>(m_records.foreign_records);
             }
             // Of the taxon's paired fragments whose mate was expected on the taxon (both mates with a record on it, or
             // one kept record with room for the fragment inside its gene), the share whose mate has no record on the
@@ -2406,6 +2484,16 @@ namespace protal {
             f.emplace_back("db_congeners_02", taxon.DatabaseCongeners(0.02));
             f.emplace_back("db_congeners_05", taxon.DatabaseCongeners(0.05));
             f.emplace_back("db_nearest_congener", taxon.DatabaseNearestCongener());
+            // Where its reads lie in the gaps to its congeners' copies (congener_gaps.tsv), how far other species' reads reach
+            // its copies (foreign_rates.tsv); -1 without the tables. And the reads whose seeds fit it but never tried it (ZC).
+            f.emplace_back("gap_informative_share", taxon.GapInformativeShare());
+            f.emplace_back("gap_within_min_share", taxon.GapWithinMinShare());
+            f.emplace_back("gap_within_median_share", taxon.GapWithinMedianShare());
+            f.emplace_back("gap_position", taxon.GapPosition());
+            f.emplace_back("foreign_scanned_share", taxon.ForeignScannedShare());
+            f.emplace_back("foreign_copy_share", taxon.ForeignCopyShare());
+            f.emplace_back("foreign_genus_copy_share", taxon.ForeignGenusCopyShare());
+            f.emplace_back("untried_candidate_rate", taxon.UntriedCandidateRate());
             return f;
         }
 
@@ -2860,6 +2948,7 @@ namespace protal {
                     e.crowded_records++;
                     e.crowding_log2 += static_cast<uint64_t>(std::llround(std::log2(static_cast<double>(sam.m_crowding)) * kLog2Unit));
                 }
+                if (kept) NoteCopy(e, taxid, geneid, differences, aligned);
                 NoteAmbiguity(taxid, sam.m_alternatives, kept);
                 if (!m_genera) return;
                 auto const genus = GenusOf(taxid);
@@ -2878,6 +2967,34 @@ namespace protal {
                 e.congener_fit += congener;
                 e.other_genus_fit += other;
                 e.unexpected_fit += unexpected;
+            }
+
+            // A kept record's copy (taxid, gene) in the database's per-copy tables: where its divergence lies in the copy's gap
+            // to the congeners' copies (congener_gaps.tsv), and the copy's share of foreign reads in the tiled scan
+            // (foreign_rates.tsv). Nothing without the tables.
+            void NoteCopy(RecordEvidence& e, uint32_t taxid, uint32_t geneid, uint64_t differences, uint64_t aligned) {
+                auto const& gaps = m_genome_loader->GetCongenerGaps();
+                if (!gaps.Empty()) {
+                    e.gaps_known = true;
+                    auto const* gap = gaps.Find(taxid, geneid);
+                    if (gap && gap->min >= congener_gaps::kMinGap && aligned > 0) {
+                        double const d = static_cast<double>(differences) / static_cast<double>(aligned);
+                        e.gap_records++;
+                        e.gap_within_min += d < gap->Min();
+                        e.gap_within_median += d < gap->Median();
+                        double const position = d / gap->Min() / kGapBinWidth;
+                        e.gap_position[std::min(kGapBins - 1, static_cast<size_t>(position))]++;
+                    }
+                }
+                auto const& rates = m_genome_loader->GetForeignRates();
+                if (!rates.Empty()) {
+                    e.foreign_known = true;
+                    if (auto const* rate = rates.Find(taxid, geneid)) {
+                        e.foreign_records++;
+                        e.foreign_share += ShareUnits(rate->ForeignShare());
+                        e.foreign_genus_share += ShareUnits(rate->ForeignGenusShare());
+                    }
+                }
             }
 
             // A record on a suspect gene copy (GenomeLoader::IsSuspectCopy), left out of the evidence
@@ -2907,6 +3024,13 @@ namespace protal {
                 });
             }
 
+            // A record's ZC tag (SamEntry::m_untried, on a read's first record): taxa its seeds fit as well as the taxa it was
+            // aligned against, never aligned against (beyond --align_top), each counted once for the read; folded into the
+            // taxa with FoldFailedCandidates.
+            void NoteUntriedCandidates(std::string const& tag) {
+                ForEachFailedCandidate(tag, [this](uint32_t taxid) { CountFailedCandidate(m_untried, taxid); });
+            }
+
             // The reads whose unmapped record names each taxon as a failed candidate (SamReader::FailedCandidates).
             void AddFailedCandidates(FailedCandidateCounts const& counts) {
                 AddCounts(m_failed, counts);
@@ -2926,6 +3050,13 @@ namespace protal {
                     if (m_failed[taxid]) m_counts[static_cast<uint32_t>(taxid)].failed_candidates += m_failed[taxid];
                 }
                 FailedCandidateCounts().swap(m_failed);
+                // Untried candidates of the taxa with counts only: a read names up to kUntriedListed taxa, most never seen again.
+                for (size_t taxid = 0; taxid < m_untried.size(); taxid++) {
+                    if (!m_untried[taxid]) continue;
+                    auto const found = m_counts.find(static_cast<uint32_t>(taxid));
+                    if (found != m_counts.end()) found->second.untried_candidates += m_untried[taxid];
+                }
+                FailedCandidateCounts().swap(m_untried);
                 // The failed reads by gene, of the taxa with a best record (RecordEvidence::failed_genes).
                 std::sort(m_failed_genes.begin(), m_failed_genes.end());
                 for (size_t i = 0, j; i < m_failed_genes.size(); i = j) {
@@ -3054,6 +3185,7 @@ namespace protal {
             void Add(RecordEvidenceCollector const& other) {
                 for (auto const& [taxid, counts] : other.m_counts) m_counts[taxid] += counts;
                 AddCounts(m_failed, other.m_failed);
+                AddCounts(m_untried, other.m_untried);
                 m_failed_genes.insert(m_failed_genes.end(), other.m_failed_genes.begin(), other.m_failed_genes.end());
                 for (auto const& [key, n] : other.m_ambiguity) m_ambiguity[key] += n;
                 m_spans.insert(m_spans.end(), other.m_spans.begin(), other.m_spans.end());
@@ -3118,6 +3250,7 @@ namespace protal {
             std::shared_ptr<std::vector<uint32_t> const> m_genera;  // taxid -> genus (0: none)
             std::unordered_map<uint32_t, RecordEvidence> m_counts;
             FailedCandidateCounts m_failed;  // failed candidates per taxon (indexed by taxid), until FoldFailedCandidates
+            FailedCandidateCounts m_untried;  // untried candidates (ZC) per taxon, until FoldFailedCandidates
             std::vector<uint64_t> m_failed_genes;  // failed candidates with their gene, taxid << 32 | gene, until FoldFailedCandidates
             context::AmbiguityClasses m_ambiguity;  // see NoteAmbiguity
             std::vector<uint16_t> m_spans;  // the spans of fragments with both mates on one gene (NoteSpan, MateSpan)
@@ -4679,6 +4812,7 @@ namespace protal {
                     evidence.NoteFragment(static_cast<uint32_t>(taxid), link);
                     evidence.NoteLinkedRecord(static_cast<uint32_t>(taxid), static_cast<uint32_t>(geneid), *sam, link);
                     if (!sam->m_failed.empty()) evidence.NoteFailedCandidates(sam->m_failed);
+                    if (!sam->m_untried.empty()) evidence.NoteUntriedCandidates(sam->m_untried);
                 }
                 if (!take_first && !take_second) return true;
                 // The mates (MateLostShare): a fragment with both mates on one taxon is linked there (and, on one gene,

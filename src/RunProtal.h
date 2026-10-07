@@ -349,6 +349,49 @@ namespace protal {
         genomes.SetSpeciesNeighbours(std::move(table));
     }
 
+    // A per-copy table of the database (congener_gaps.tsv, foreign_rates.tsv) read into a Table: nullopt (and a note)
+    // without the file; exits 8 if it cannot be read. `what` names it in the log, `missing` says what goes unknown.
+    template<typename Table>
+    static std::optional<Table> ReadCopyTable(db::DbFile const& file, std::string const& what, std::string const& missing,
+                                              std::ostream& out) {
+        if (!file.Exists()) {
+            out << what << ": the database has none (" << missing << ")" << std::endl;
+            return std::nullopt;
+        }
+        std::string error;
+        auto const content = file.ReadAll(error);
+        Table table;
+        if (content) {
+            std::istringstream is(*content);
+            error = table.Read(is);
+        }
+        if (!error.empty()) {
+            std::cerr << "Invalid " << what << " " << file.Name() << ": " << error << std::endl;
+            exit(8);
+        }
+        out << what << ": " << table.Copies() << " gene copies of " << table.Species() << " species (" << file.Name() << ")"
+            << std::endl;
+        return table;
+    }
+
+    // Each gene copy's gap to its congeners' copies (congener_gaps.tsv, CongenerGaps.h), for the "gaps" features.
+    static void LoadCongenerGaps(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
+        if (auto table = ReadCopyTable<congener_gaps::Table>(options.CongenerGapsDbFile(), "Congener gaps",
+                                                             "built by an earlier protal: the gaps features are unknown (-1)", out)) {
+            genomes.SetCongenerGaps(std::move(*table));
+        }
+    }
+
+    // Each gene copy's reads of a tiled scan and their foreign share (foreign_rates.tsv, ForeignRatesTable.h), for the
+    // "foreign" features.
+    static void LoadForeignRates(Options const& options, GenomeLoader& genomes, std::ostream& out = std::cout) {
+        if (auto table = ReadCopyTable<foreign_rates::Table>(options.ForeignRatesDbFile(), "Foreign rates",
+                                                             "scripts/foreign_rates.py and --add_tables make it: the foreign "
+                                                             "features are unknown (-1)", out)) {
+            genomes.SetForeignRates(std::move(*table));
+        }
+    }
+
     // The database's gene neighbours (gene_neighbours.tsv, GeneNeighbours.h: how often each marker gene end faces
     // which other in a clade's genomes), for mate guidance past a gene's end, pairs of mates on neighbouring genes,
     // the genes next to a long read's genes and the profiler's adjacency features; none without the file or with
@@ -425,6 +468,11 @@ namespace protal {
                   << stats.total_alignments << " alignments made, " << stats.output_alignments << " records written" << std::endl;
         // And what the seeding did (SeedingCounts): the k-mer lookups, the value blocks scanned and their sizes.
         std::cout << "Sample " << options.GetSampleId(index) << " seeding: " << seeding.Text() << std::endl;
+        if (handler.m_adaptive_alignments > 0) {
+            std::cout << "Sample " << options.GetSampleId(index) << " adaptive candidates: " << handler.m_adaptive_alignments
+                      << " of the candidate alignments tried beyond --align_top on congeners of divergent reads' best "
+                      << "alignment (--adaptive_candidates)" << std::endl;
+        }
     }
 
     // Loads the database's index, held packed in the widths the reference's fields need (maxima: what
@@ -551,6 +599,14 @@ namespace protal {
             // species' alignment of genes the read ends in, and leaves a relative's weaker one unique.
             WFA2Wrapper2 long_read_wfa(4, 6, 2, 0);
 
+            // Every taxon's genus, for the adaptive candidates of short reads (--adaptive_candidates); the taxonomy is loaded
+            // for profiling, and here if a run only aligns.
+            std::shared_ptr<std::vector<uint32_t> const> genera;
+            if (options.GetAdaptiveCandidates() > 0) {
+                if (!db.IsTaxonomyLoaded()) db.LoadTaxonomy(options.TaxonomyDbFile());
+                genera = profiler::GeneraOf(db.GetTaxonomy());
+            }
+
             if (options.PreloadGenomes() && !genomes.AllGenomesLoaded()) {
                 Benchmark bm_preload_genomes("Preload genomes");
                 bm_preload_genomes.Start();
@@ -625,6 +681,7 @@ namespace protal {
                 alignment_handler.SetAnchoredAlignment(!options.WholeReadAlignment());
                 alignment_handler.SetAnchoredIndels(IsLongReadType(read_type));
                 alignment_handler.SetAlignmentScreen(!options.NoAlignmentScreen());
+                if (!IsLongReadType(read_type)) alignment_handler.SetAdaptiveCandidates(options.GetAdaptiveCandidates(), genera);
 
 
 
@@ -2902,11 +2959,13 @@ namespace protal {
 
         std::cout << "Options:\n" << options.ToString() << std::endl;
 
-        if (options.CompressDbMode() || options.DecompressDbMode() || options.UnpackDbMode() || !options.GetAddModel().empty()) {
+        if (options.CompressDbMode() || options.DecompressDbMode() || options.UnpackDbMode() || !options.GetAddModel().empty() ||
+            !options.AddTables().empty()) {
             // Each exits 8 on failure.
             if (options.CompressDbMode()) protal::build::CompressDatabase(options);
             else if (options.DecompressDbMode()) protal::build::DecompressDatabase(options);
             else if (options.UnpackDbMode()) protal::build::UnpackDatabase(options);
+            else if (!options.AddTables().empty()) protal::build::AddTables(options);
             else {
                 std::vector<std::pair<std::string, std::string>> models;  // file, member
                 for (auto const& [file, read_type] : options.AddModels()) {
@@ -3021,7 +3080,7 @@ namespace protal {
 
         Benchmark bm_tables("Loading the taxonomy, models and tables");
         std::vector<profiler::TaxonFilterObj> loaded_models;
-        std::ostringstream conservation_log, suspect_log, priors_log, species_neighbours_log, neighbours_log;
+        std::ostringstream conservation_log, suspect_log, priors_log, species_neighbours_log, gaps_log, foreign_log, neighbours_log;
         std::optional<gene_neighbours::Table> neighbours;
         if (concurrent) {
             bm_tables.Start();
@@ -3035,6 +3094,8 @@ namespace protal {
                 tables.push_back(std::async(std::launch::async, [&]() { LoadSuspectCopies(options, db.GetGenomes(), suspect_log); }));
                 tables.push_back(std::async(std::launch::async, [&]() { LoadSpeciesPriors(options, db.GetGenomes(), priors_log); }));
                 tables.push_back(std::async(std::launch::async, [&]() { LoadSpeciesNeighbours(options, db.GetGenomes(), species_neighbours_log); }));
+                tables.push_back(std::async(std::launch::async, [&]() { LoadCongenerGaps(options, db.GetGenomes(), gaps_log); }));
+                tables.push_back(std::async(std::launch::async, [&]() { LoadForeignRates(options, db.GetGenomes(), foreign_log); }));
             }
             if (need_neighbours) neighbours_loading = std::async(std::launch::async, [&]() { return ReadGeneNeighbours(options, neighbours_log); });
             // The tables set their own parts of the genome loader, never its genes, which the preload fills meanwhile.
@@ -3097,12 +3158,15 @@ namespace protal {
                 }
             }
             if (concurrent) {
-                std::cout << conservation_log.str() << suspect_log.str() << priors_log.str() << species_neighbours_log.str();
+                std::cout << conservation_log.str() << suspect_log.str() << priors_log.str() << species_neighbours_log.str() << gaps_log.str()
+                          << foreign_log.str();
             } else {
                 LoadGeneConservation(options, db.GetGenomes());
                 LoadSuspectCopies(options, db.GetGenomes());
                 LoadSpeciesPriors(options, db.GetGenomes());
                 LoadSpeciesNeighbours(options, db.GetGenomes());
+                LoadCongenerGaps(options, db.GetGenomes());
+                LoadForeignRates(options, db.GetGenomes());
             }
         }
         if (need_neighbours) {

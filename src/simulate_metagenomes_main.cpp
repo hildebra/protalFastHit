@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
+#include <memory>
+#include <thread>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -17,6 +21,8 @@
 #include <cxxopts.hpp>
 #include "RandomForest/LongReadSimulator.h"
 #include "RandomForest/MetagenomeSimulator.h"
+#include "RandomForest/ReadPipeline.h"
+#include "IO/Bgzf.h"
 #include "Utilities/BuildInfo.h"
 
 namespace fs = std::filesystem;
@@ -163,6 +169,8 @@ struct CliOptions {
     fs::path long_samples, long_genomes, long_model, long_stats, long_templates, long_out;
     std::string long_setup;
     fs::path genome_store;    // --genome_store
+    std::string tiles;        // --tiles LENGTH:STRIDE (tile_genomes)
+    fs::path tile_out, tile_exclude;
     bool plain_pipes{false};  // --plain_pipes
 };
 
@@ -318,6 +326,16 @@ static cxxopts::Options build_cxxopts() {
         ("long_stats",      "With --long_samples: write sample, reads, template_bases, read_bases, errors, rounds here "
                             "(default: standard output)", cxxopts::value<std::string>());
 
+    options.add_options("Tiles")
+        ("tiles",           "Instead of samples: error-free reads of LENGTH bases every STRIDE bases of every contig of every "
+                            "genome of --genome_table (LENGTH:STRIDE, e.g. 150:500; forward strand, quality I), named "
+                            "<genome>:<contig number>:<start>, into --tile_out, in table order: a scan of the genomes against a "
+                            "database (scripts/foreign_rates.py)", cxxopts::value<std::string>())
+        ("tile_out",        "With --tiles: the reads (.fq.zst or .fq.gz; a named pipe with --plain_pipes gets plain FASTQ)",
+                            cxxopts::value<std::string>())
+        ("tile_exclude",    "With --tiles: species to leave out, one per line in the first column (s__Genus species, as "
+                            "heldout_species.txt)", cxxopts::value<std::string>());
+
     options.add_options("General")
         ("t,threads",       "Threads: the reads are made in work items of a few hundred kB on all of them, several samples at a time when one leaves threads idle; the same files for any number", cxxopts::value<int>()->default_value("1"))
         ("pigz_path",       "Unused: the reads are compressed in process (kept so that older commands still run)", cxxopts::value<std::string>()->default_value(""))
@@ -343,14 +361,14 @@ static CliOptions parse_cli(int argc, char** argv) {
     auto cxx = build_cxxopts();
 
     if (argc <= 1) {
-        std::cout << cxx.help({"I/O", "Sampling", "Illumina", "Long reads", "General"}) << std::endl;
+        std::cout << cxx.help({"I/O", "Sampling", "Illumina", "Long reads", "Tiles", "General"}) << std::endl;
         std::exit(0);
     }
 
     auto result = cxx.parse(argc, argv);
 
     if (result.count("help")) {
-        std::cout << cxx.help({"I/O", "Sampling", "Illumina", "Long reads", "General"}) << std::endl;
+        std::cout << cxx.help({"I/O", "Sampling", "Illumina", "Long reads", "Tiles", "General"}) << std::endl;
         std::exit(0);
     }
     if (result.count("version")) {
@@ -367,6 +385,18 @@ static CliOptions parse_cli(int argc, char** argv) {
         opts.illumina.sequencer = result["sequencer"].as<std::string>();
         if (result.count("mean_quality")) opts.illumina.mean_quality = result["mean_quality"].as<double>();
         if (result.count("seed")) opts.seed = result["seed"].as<std::uint64_t>();
+        return opts;
+    }
+    if (result.count("tiles")) {  // tiles of the genome table's genomes: no design
+        CliOptions opts;
+        opts.tiles = result["tiles"].as<std::string>();
+        if (!result.count("tile_out") || !result.count("genome_table")) throw std::runtime_error("--tiles needs --tile_out and --genome_table");
+        opts.tile_out = result["tile_out"].as<std::string>();
+        opts.genome_table = result["genome_table"].as<std::string>();
+        if (result.count("tile_exclude")) opts.tile_exclude = result["tile_exclude"].as<std::string>();
+        opts.threads = result["threads"].as<int>();
+        if (result.count("genome_store")) opts.genome_store = result["genome_store"].as<std::string>();
+        opts.plain_pipes = result.count("plain_pipes") > 0;
         return opts;
     }
     if (result.count("long_samples") || result.count("long_templates")) {  // long reads: no design, no genome table
@@ -397,7 +427,7 @@ static CliOptions parse_cli(int argc, char** argv) {
     const bool replay = result.count("from_manifest") > 0;
     if ((!result.count("genome_table") && !replay) || !result.count("output_dir")) {
         std::cerr << "Error: --output_dir is required, as is --genome_table unless --from_manifest is given.\n\n";
-        std::cout << cxx.help({"I/O", "Sampling", "Illumina", "Long reads", "General"}) << std::endl;
+        std::cout << cxx.help({"I/O", "Sampling", "Illumina", "Long reads", "Tiles", "General"}) << std::endl;
         std::exit(1);
     }
 
@@ -780,6 +810,117 @@ static int illumina_report(const CliOptions& cli) {
     return 0;
 }
 
+// --tiles LENGTH:STRIDE: error-free reads of LENGTH bases every STRIDE bases of every contig of every genome of the table
+// (forward strand, quality 'I'), named <genome>:<contig number>:<start> (0-based), into --tile_out, the genomes in table
+// order; those of the species --tile_exclude names (first column: s__Genus species, as heldout_species.txt) left out. A scan
+// of the genomes at hand against a database (scripts/foreign_rates.py): which gene copies other species' reads reach.
+// The genomes are read on --threads threads, a batch at a time, and written in order: the same file for any number.
+static int tile_genomes(const CliOptions& cli) {
+    auto const colon = cli.tiles.find(':');
+    std::uint64_t length = 0, stride = 0;
+    try {
+        if (colon == std::string::npos) throw std::invalid_argument("no colon");
+        length = std::stoull(cli.tiles.substr(0, colon));
+        stride = std::stoull(cli.tiles.substr(colon + 1));
+    } catch (std::exception const&) {
+        throw std::runtime_error("--tiles takes LENGTH:STRIDE (e.g. 150:500), not '" + cli.tiles + "'");
+    }
+    if (length == 0 || stride == 0) throw std::runtime_error("--tiles: LENGTH and STRIDE must be positive");
+    std::unordered_set<std::string> excluded;
+    if (!cli.tile_exclude.empty()) {
+        std::ifstream in(cli.tile_exclude);
+        if (!in) throw std::runtime_error("cannot read " + cli.tile_exclude.string());
+        std::string line;
+        while (std::getline(in, line)) {
+            if (line.empty() || line[0] == '#') continue;
+            std::string name = line.substr(0, line.find('\t'));
+            while (!name.empty() && (name.back() == '\r' || name.back() == ' ')) name.pop_back();
+            if (!name.empty()) excluded.insert(name);
+        }
+    }
+    auto species_of = [](std::string const& taxonomy) {
+        auto const at = taxonomy.rfind(';');
+        std::string s = at == std::string::npos ? taxonomy : taxonomy.substr(at + 1);
+        while (!s.empty() && s.front() == ' ') s.erase(s.begin());
+        return s;
+    };
+    auto const genomes = protal::sim::read_genome_table(cli.genome_table);
+    std::vector<std::size_t> chosen;
+    for (std::size_t i = 0; i < genomes.size(); i++) {
+        if (!excluded.contains(species_of(genomes[i].taxonomy))) chosen.push_back(i);
+    }
+    bool const pipe = fs::is_fifo(cli.tile_out);
+    auto const packing = pipe && cli.plain_pipes ? protal::sim::pipeline::Packing::Plain
+                                                 : protal::sim::pipeline::PackingOf(cli.tile_out);
+    fs::path const target = pipe ? cli.tile_out : fs::path(cli.tile_out.string() + ".partial");
+    std::unique_ptr<std::FILE, int (*)(std::FILE*)> file(std::fopen(target.c_str(), "wb"), &std::fclose);
+    if (!file) throw std::runtime_error("cannot write " + target.string());
+    std::string const quality(length, 'I');
+    std::size_t const threads = static_cast<std::size_t>(std::max(1, cli.threads));
+    std::size_t const batch = threads * 4;
+    std::uint64_t reads = 0, skipped = 0;
+    for (std::size_t from = 0; from < chosen.size(); from += batch) {
+        std::size_t const to = std::min(chosen.size(), from + batch);
+        std::vector<std::string> packed(to - from);
+        std::vector<std::uint64_t> made(to - from, 0);
+        std::vector<std::string> errors(to - from);
+        std::atomic<std::size_t> next{from};
+        auto work = [&] {
+            std::string fastq, seq;
+            for (std::size_t c; (c = next++) < to;) {
+                auto const& genome = genomes[chosen[c]];
+                std::shared_ptr<protal::sim::Contigs const> contigs;
+                try {
+                    contigs = protal::sim::LoadContigs(genome.name, genome.fasta_path, static_cast<std::uint32_t>(length), cli.genome_store);
+                } catch (std::exception const& ex) {
+                    errors[c - from] = ex.what();
+                    continue;
+                }
+                fastq.clear();
+                for (std::size_t k = 0; k < contigs->names.size(); k++) {
+                    for (std::uint64_t pos = 0; pos + length <= contigs->lengths[k]; pos += stride) {
+                        contigs->Extract(k, pos, length, seq);
+                        fastq += '@' + genome.name + ':' + std::to_string(k) + ':' + std::to_string(pos) + '\n' + seq + "\n+\n" +
+                                 quality + '\n';
+                        made[c - from]++;
+                        if (fastq.size() >= (4u << 20)) {
+                            packed[c - from] += protal::sim::pipeline::Pack(fastq, packing);
+                            fastq.clear();
+                        }
+                    }
+                }
+                if (!fastq.empty()) packed[c - from] += protal::sim::pipeline::Pack(fastq, packing);
+            }
+        };
+        std::vector<std::thread> pool;
+        for (std::size_t t = 1; t < threads; t++) pool.emplace_back(work);
+        work();
+        for (auto& t : pool) t.join();
+        for (std::size_t c = from; c < to; c++) {
+            if (!errors[c - from].empty()) {
+                std::cerr << "--tiles: " << genomes[chosen[c]].name << " left out: " << errors[c - from] << '\n';
+                skipped++;
+                continue;
+            }
+            auto const& bytes = packed[c - from];
+            if (std::fwrite(bytes.data(), 1, bytes.size(), file.get()) != bytes.size()) {
+                throw std::runtime_error("writing " + target.string() + " failed");
+            }
+            reads += made[c - from];
+        }
+    }
+    if (packing == protal::sim::pipeline::Packing::Bgzf &&
+        std::fwrite(protal::bgzf::kEof, 1, sizeof(protal::bgzf::kEof), file.get()) != sizeof(protal::bgzf::kEof)) {
+        throw std::runtime_error("writing " + target.string() + " failed");
+    }
+    if (std::fclose(file.release()) != 0) throw std::runtime_error("writing " + target.string() + " failed");
+    if (!pipe) fs::rename(target, cli.tile_out);
+    std::cout << "Tiles: " << reads << " reads of " << length << " bases every " << stride << " bases of "
+              << chosen.size() - skipped << " genomes (" << genomes.size() - chosen.size() << " of excluded species left out, "
+              << skipped << " unreadable) into " << cli.tile_out.string() << std::endl;
+    return 0;
+}
+
 // --long_samples: the samples' long or Ultima reads (LongReadSimulator), and a line of counts per sample.
 static int simulate_long_reads(const CliOptions& cli) {
     protal::sim::LongReadOptions options;
@@ -827,6 +968,14 @@ int main(int argc, char** argv) {
             return illumina_report(cli);
         } catch (const std::exception& ex) {
             std::cerr << "Report failed: " << ex.what() << '\n';
+            return 1;
+        }
+    }
+    if (!cli.tiles.empty()) {
+        try {
+            return tile_genomes(cli);
+        } catch (const std::exception& ex) {
+            std::cerr << "Tiling failed: " << ex.what() << '\n';
             return 1;
         }
     }

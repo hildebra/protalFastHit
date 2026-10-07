@@ -356,13 +356,48 @@ namespace protal {
 
 
 
-    // A taxon a read was aligned against, with the gene of its longest anchor there (0: not known).
+    // A taxon a read was aligned against, with the gene of its longest anchor there (0: not known). `untried`: a taxon the
+    // read's seeds fit as well as those it was aligned against (ZN's crowd) but that it never was aligned against (beyond
+    // --align_top), for its ZC tag rather than ZF (AddUntriedCandidates).
     struct FailedCandidate {
         uint32_t taxid = 0;
         uint32_t gene = 0;
-        FailedCandidate(uint32_t taxid = 0, uint32_t gene = 0) : taxid(taxid), gene(gene) {}
+        bool untried = false;
+        FailedCandidate(uint32_t taxid = 0, uint32_t gene = 0, bool untried = false) : taxid(taxid), gene(gene), untried(untried) {}
         bool operator==(FailedCandidate const&) const = default;
     };
+
+    // The untried candidates a read lists at most (ZC): the crowd of a GTDB-sized genus can be hundreds of taxa.
+    inline constexpr size_t kUntriedListed = 8;
+
+    // Appends the read's untried candidates to `failed`: the taxa of `untried` (the handlers' Untried(), the strongest anchor
+    // first; with repeats when a pair's two lists are joined) that it was neither aligned against (`attempted`) nor aligned to
+    // (`aligned`), each once, in that order, at most kUntriedListed, flagged untried.
+    inline void AddUntriedCandidates(std::vector<FailedCandidate>& failed, std::vector<uint32_t> const& untried,
+                                     std::vector<FailedCandidate> const& attempted, std::vector<uint32_t> const& aligned) {
+        std::vector<uint32_t> seen;
+        size_t listed = 0;
+        for (uint32_t const taxid : untried) {
+            if (listed >= kUntriedListed) break;
+            if (std::find(seen.begin(), seen.end(), taxid) != seen.end()) continue;
+            seen.push_back(taxid);
+            if (std::any_of(attempted.begin(), attempted.end(), [taxid](FailedCandidate const& c) { return c.taxid == taxid; })) continue;
+            if (std::find(aligned.begin(), aligned.end(), taxid) != aligned.end()) continue;
+            failed.emplace_back(taxid, 0, true);
+            listed++;
+        }
+    }
+
+    // The ZC tag of the untried candidates among `failed`: "<taxid>,<taxid>", empty for none.
+    inline std::string UntriedTag(std::vector<FailedCandidate> const& failed) {
+        std::string tag;
+        for (auto const& candidate : failed) {
+            if (!candidate.untried) continue;
+            if (!tag.empty()) tag += ',';
+            tag += std::to_string(candidate.taxid);
+        }
+        return tag;
+    }
 
     // The taxa a read seeded on strongly enough to be aligned against (the handler's Attempted(), its anchors in the
     // order they were tried, the longest first) but has no alignment to: sorted by taxon, each once, with the gene of
@@ -383,10 +418,11 @@ namespace protal {
     }
 
     // The ZF tag of failed candidates: "<taxid>:<gene>,<taxid>:<gene>" ("<taxid>" where the gene is not known, as protal
-    // wrote every entry before 2026-10-06), empty for none.
+    // wrote every entry before 2026-10-06), empty for none; the untried ones left out.
     inline std::string FailedTag(std::vector<FailedCandidate> const& failed) {
         std::string tag;
         for (auto const& candidate : failed) {
+            if (candidate.untried) continue;  // ZC's (UntriedTag)
             if (!tag.empty()) tag += ',';
             tag += std::to_string(candidate.taxid);
             if (candidate.gene != 0) {

@@ -328,12 +328,17 @@ class FeatureSetsTest(unittest.TestCase):
         columns = (["truth", "taxon", "meta_sample"] + mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES +
                    mf.RELATIVE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES +
                    mf.REF_FEATURES + mf.COMPLEXITY_FEATURES + mf.CONSISTENCY_FEATURES + mf.SHAPE_FEATURES +
-                   mf.NEIGHBOURHOOD_FEATURES + mf.PRIORS_FEATURES + ["genus_top_fragments", "other"])
+                   mf.NEIGHBOURHOOD_FEATURES + mf.GAP_FEATURES + mf.FOREIGN_FEATURES + mf.UNTRIED_FEATURES + mf.PRIORS_FEATURES +
+                   ["genus_top_fragments", "other"])
         # The priors are opt-in: their gain at r226 is the cluster-size rule the simulation cannot test. The reference's
         # k-mer uniqueness (ref) and the sample's complexity are in the default set since 2026-10-06, the groups against
-        # the false positives of complex communities (consistency, shape, neighbourhood) since 2026-10-07.
+        # the false positives of complex communities (consistency, shape, neighbourhood) since 2026-10-07, and the per-copy
+        # tables and the untried candidates (gaps, foreign, untried) since the evening of 2026-10-07.
         self.assertEqual(mf.DEFAULT_FEATURE_SET, "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+"
-                                                 "consistency+shape+neighbourhood")
+                                                 "consistency+shape+neighbourhood+gaps+foreign+untried")
+        copies = mf.GAP_FEATURES + mf.FOREIGN_FEATURES + mf.UNTRIED_FEATURES
+        self.assertEqual(len(copies), 8)
+        self.assertEqual(len(set(copies)), 8)
         self.assertEqual(mf.REF_FEATURES, ["su_rate_ref", "lu_rate_ref", "lsu_rate_ref"])
         self.assertEqual(mf.COMPLEXITY_FEATURES, ["sample_log_taxa", "sample_low_identity", "sample_identity"])
         new = mf.CONSISTENCY_FEATURES + mf.SHAPE_FEATURES + mf.NEIGHBOURHOOD_FEATURES
@@ -341,14 +346,22 @@ class FeatureSetsTest(unittest.TestCase):
         self.assertEqual(len(set(new)), 15)
         self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
-                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.COMPLEXITY_FEATURES + new)
+                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.COMPLEXITY_FEATURES + new + copies)
         self.assertEqual(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET + "+priors"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
                          mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.COMPLEXITY_FEATURES +
-                         new + mf.PRIORS_FEATURES)
+                         new + copies + mf.PRIORS_FEATURES)
+        # A table of a protal before the per-copy tables: a clear error with the default, the set without them works.
+        before = [c for c in columns if c not in copies]
+        with self.assertRaisesRegex(RuntimeError, "gap_informative_share"):
+            mf.feature_columns(before, mf.DEFAULT_FEATURE_SET)
+        self.assertEqual(mf.feature_columns(before, "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+"
+                                                    "consistency+shape+neighbourhood"),
+                         mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
+                         mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES + mf.COMPLEXITY_FEATURES + new)
         self.assertIn("normalized+adjacency+distance+depth+divergence+unfiltered", mf.AUTO_CANDIDATES)  # an old default
         # A table of the r226 v15 build (before the false-positive groups): a clear error with the default, its old set works.
-        v15 = [c for c in columns if c not in new]
+        v15 = [c for c in columns if c not in new and c not in copies]
         with self.assertRaisesRegex(RuntimeError, "read_consensus_share"):
             mf.feature_columns(v15, mf.DEFAULT_FEATURE_SET)
         self.assertIn("normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity", mf.AUTO_CANDIDATES)

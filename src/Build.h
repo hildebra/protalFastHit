@@ -23,6 +23,7 @@
 #include <filesystem>
 #include "SequenceUtils/GenomeLoader.h"
 #include "Profiling/SampleContext.h"
+#include "SequenceUtils/CongenerGaps.h"
 #ifdef __GLIBC__
 #include <malloc.h>
 #endif
@@ -272,7 +273,8 @@ namespace protal::build {
     // index (index.prx.zst in the column format, frames copied as they are), the reference (a
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
     // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv,
-    // gene_conservation.tsv, suspect_copies.tsv and species_neighbours.tsv if the build wrote them, species_priors.tsv, gene_neighbours.tsv and gene_positions.tsv if the folder has them
+    // gene_conservation.tsv, suspect_copies.tsv, species_neighbours.tsv and congener_gaps.tsv if the build wrote them, species_priors.tsv,
+    // foreign_rates.tsv (scripts/foreign_rates.py), gene_neighbours.tsv and gene_positions.tsv if the folder has them
     // (written by scripts/mini_db/gene_neighbours.py, checked by CheckGeneNeighbours and CheckGenePositions; a run
     // reads only the first), and every presence model there is (AllModelFiles in
     // ReadType.h: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml, and model.xml /
@@ -289,6 +291,8 @@ namespace protal::build {
         if (fs::exists(options.GetSuspectCopiesFile())) sources.push_back({Options::PROTAL_SUSPECT_COPIES_FILE, options.GetSuspectCopiesFile()});
         if (fs::exists(options.GetSpeciesPriorsFile())) sources.push_back({Options::PROTAL_SPECIES_PRIORS_FILE, options.GetSpeciesPriorsFile()});
         if (fs::exists(options.GetSpeciesNeighboursFile())) sources.push_back({Options::PROTAL_SPECIES_NEIGHBOURS_FILE, options.GetSpeciesNeighboursFile()});
+        if (fs::exists(options.GetCongenerGapsFile())) sources.push_back({Options::PROTAL_CONGENER_GAPS_FILE, options.GetCongenerGapsFile()});
+        if (fs::exists(options.GetForeignRatesFile())) sources.push_back({Options::PROTAL_FOREIGN_RATES_FILE, options.GetForeignRatesFile()});
         if (fs::exists(options.GetGeneNeighboursFile())) sources.push_back({Options::PROTAL_GENE_NEIGHBOURS_FILE, options.GetGeneNeighboursFile()});
         if (fs::exists(options.GetGenePositionsFile())) sources.push_back({Options::PROTAL_GENE_POSITIONS_FILE, options.GetGenePositionsFile()});
         for (auto const& model : AllModelFiles()) {
@@ -610,7 +614,8 @@ namespace protal::build {
     // database.protal.partial, its other members' frames copied as they are and the models put last (db::Write; ~20 min
     // for a GTDB database on a network file system). Either way the result is checked. In a folder of separate files
     // each model is copied next to them.
-    static void AddModel(protal::Options const& options, std::vector<std::pair<std::string, std::string>> const& models) {
+    static void AddModel(protal::Options const& options, std::vector<std::pair<std::string, std::string>> const& models,
+                         std::string const& what = "models") {
         namespace fs = std::filesystem;
         std::error_code ec;
         if (!options.IsBundle()) {
@@ -649,7 +654,7 @@ namespace protal::build {
         }
         ModelsLast(sources);
         auto const params = options.CompressionParams();
-        Benchmark bm("Store the models in " + db::kFileName);
+        Benchmark bm("Store the " + what + " in " + db::kFileName);
         bm.Start();
         std::string error;
         std::optional<uint64_t> written;
@@ -659,9 +664,9 @@ namespace protal::build {
                       << "bytes kept in " << bundle.Path() << db::kJournalExtension << " until then)" << std::endl;
             written = db::ReplaceTail(bundle, sources, *first, params, error);  // its error says whether the database is unchanged
         } else {
-            std::cout << "Rewrite " << bundle.Path() << " (its other members' frames copied as they are, the models compressed at zstd "
-                      << "level " << params.level << " and put last, where later --add_model runs replace them in place; verified)"
-                      << std::endl;
+            std::cout << "Rewrite " << bundle.Path() << " (its other members' frames copied as they are, the " << what << " compressed at "
+                      << "zstd level " << params.level << ", the models last, where later --add_model runs replace them in place; "
+                      << "verified)" << std::endl;
             written = db::Write(bundle.Path(), sources, params, error);
             if (!written) error += " (the database is unchanged)";
         }
@@ -679,6 +684,38 @@ namespace protal::build {
         std::cout << bundle.Path() << ": " << HumanBytes(*written) << ". Models for read types: " << ModelCoverage(names).first
                   << std::endl;
         bm.PrintResults();
+    }
+
+    // --add_tables: stores per-copy tables (congener_gaps.tsv, foreign_rates.tsv) in the database by their file names, as
+    // AddModel stores models (a single-file database rewritten once, or replaced at its tail in place; a folder gets the
+    // files copied beside the others). Each table is read and checked first; exits 8 if one is unusable.
+    static void AddTables(protal::Options const& options) {
+        namespace fs = std::filesystem;
+        std::vector<std::pair<std::string, std::string>> tables;  // file, member
+        for (auto const& file : options.AddTables()) {
+            std::string const name = fs::path(file).filename().string();
+            std::ifstream is(file);
+            std::string error = is ? "" : "cannot be opened";
+            size_t copies = 0, species = 0;
+            if (error.empty() && name == Options::PROTAL_CONGENER_GAPS_FILE) {
+                congener_gaps::Table table;
+                error = table.Read(is);
+                copies = table.Copies();
+                species = table.Species();
+            } else if (error.empty()) {
+                foreign_rates::Table table;
+                error = table.Read(is);
+                copies = table.Copies();
+                species = table.Species();
+            }
+            if (!error.empty()) {
+                std::cerr << "--add_tables: " << file << " is no valid " << name << ": " << error << std::endl;
+                exit(8);
+            }
+            std::cout << file << ": " << copies << " gene copies of " << species << " species" << std::endl;
+            tables.emplace_back(file, name);
+        }
+        AddModel(options, tables, "tables");
     }
 
     // --compress_db on a single-file database: gives it the binary gene table (GeneTableFile.h) if it has none, or one made from
@@ -1262,6 +1299,84 @@ namespace protal::build {
         bm.PrintResults();
     }
 
+    // congener_gaps.tsv in the database (CongenerGaps.h): gene by gene, every species' copy aligned against the copies of
+    // its congeners (all of them up to congener_gaps::Settings::all others, else its nearest by sketch and a hashed
+    // sample), its nearest congener's distance and the sample's median kept. Each gene's sequences are held while it is
+    // compared (a gene's copies at r226: ~140 MB), the alignments on all threads.
+    static void WriteCongenerGaps(protal::Options const& options, GenomeLoader& genomes) {
+        namespace fs = std::filesystem;
+        Benchmark bm("Congener gaps");
+        bm.Start();
+        std::string const target = options.GetCongenerGapsFile();
+        std::error_code ec;
+        fs::remove(target, ec);
+        auto const genera = Genera(options, genomes);
+        std::unordered_map<uint32_t, uint32_t> genus_of;
+        for (size_t g = 0; g < genera.size(); g++) {
+            for (uint32_t const taxid : genera[g]) genus_of[taxid] = static_cast<uint32_t>(g + 1);
+        }
+        std::vector<uint32_t> taxids;
+        size_t max_gene = 0;
+        for (auto const& [taxid, genome] : genomes.GetGenomeMap()) {
+            if (genus_of.contains(static_cast<uint32_t>(taxid))) taxids.push_back(static_cast<uint32_t>(taxid));
+            max_gene = std::max(max_gene, genome.GetGeneList().size());
+        }
+        std::sort(taxids.begin(), taxids.end());
+        int const threads = static_cast<int>(std::max<size_t>(options.GetThreads(), 1));
+        congener_gaps::Settings const settings;
+        congener_gaps::Stats stats;
+        std::vector<std::tuple<uint32_t, uint32_t, congener_gaps::Gap>> rows;
+        std::vector<std::pair<uint32_t, congener_gaps::Gap>> found;
+        std::vector<uint32_t> holders;
+        std::vector<std::string> seqs;
+        auto const genus = [&genus_of](uint32_t taxid) {
+            auto const it = genus_of.find(taxid);
+            return it == genus_of.end() ? 0u : it->second;
+        };
+        for (size_t g = 1; g <= max_gene; g++) {
+            if (!options.BuildGeneAllowed(g)) continue;  // the subset's genes only
+            holders.clear();
+            for (uint32_t const taxid : taxids) {
+                auto const& list = genomes.GetGenome(taxid).GetGeneList();
+                if (g <= list.size() && list[g - 1].IsSet()) holders.push_back(taxid);
+            }
+            if (holders.size() < 2) continue;
+            seqs.assign(holders.size(), std::string());
+            #pragma omp parallel for schedule(dynamic, 64) num_threads(threads)
+            for (int64_t i = 0; i < static_cast<int64_t>(holders.size()); i++) {
+                seqs[static_cast<size_t>(i)] = std::string(genomes.GetGenome(holders[static_cast<size_t>(i)]).GetGeneOMP(g).Sequence().View());
+            }
+            found.clear();
+            congener_gaps::ScanGene(static_cast<uint32_t>(g), holders, seqs, genus, settings, threads, found, stats);
+            for (auto const& [taxid, gap] : found) rows.emplace_back(taxid, static_cast<uint32_t>(g), gap);
+        }
+        seqs.clear();
+        seqs.shrink_to_fit();
+        std::vector<double> mins;
+        mins.reserve(rows.size());
+        for (auto const& row : rows) mins.push_back(std::get<2>(row).Min());
+        std::sort(mins.begin(), mins.end());
+        auto const table = congener_gaps::Table::FromRows(std::move(rows));
+        std::ofstream os(target);
+        table.Write(os);
+        os.close();
+        if (!os) {
+            std::cerr << "Writing " << target << " failed" << std::endl;
+            exit(8);
+        }
+        auto quantile = [&mins](double q) {
+            return mins.empty() ? 0.0 : mins[std::min(mins.size() - 1, static_cast<size_t>(q * static_cast<double>(mins.size())))];
+        };
+        std::cout << "Congener gaps: " << table.Copies() << " gene copies of " << table.Species() << " species in " << genera.size()
+                  << " genera, " << stats.genes << " genes; " << stats.alignments << " copies aligned (" << stats.far
+                  << " beyond " << congener_gaps::kMaxDistance << ", " << stats.unaligned << " without overlap), "
+                  << stats.sampled_genera << " genus-gene groups above " << settings.all << " others sampled; the nearest "
+                  << "congener's distance: quartiles " << quantile(0.25) << ", " << quantile(0.5) << ", " << quantile(0.75)
+                  << ": " << target << std::endl;
+        bm.Stop();
+        bm.PrintResults();
+    }
+
     // suspect_copies.tsv in the database and gene_incongruence.tsv beside it (gene_incongruence::Scan): every
     // species' copy of each gene sketched and compared with the other species' copies; a copy within
     // --suspect_copy_distance of another genus's copy, and farther from its congeners' or without one, is suspect
@@ -1769,6 +1884,7 @@ namespace protal::build {
         WriteGeneCongeners(options, genomes, conservation.table);
         WriteSuspectCopies(options, genomes);
         WriteSpeciesNeighbours(options, genomes);
+        WriteCongenerGaps(options, genomes);
         CheckGeneNeighbours(options, genomes);
         CheckGenePositions(options, genomes);
         ReleaseFreeMemory();

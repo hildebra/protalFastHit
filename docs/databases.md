@@ -26,6 +26,8 @@ databases are in [development.md](development.md).
 | `gene_conservation.tsv` | optional: per gene, how fast it diverges within species against the species' other genes ([below](#2-build-the-index)); for the conservation and divergence features, and `--gene_conservation db` |
 | `suspect_copies.tsv` | optional: gene copies near-identical to another genus's (contamination, transferred genes), whose reads a run leaves out of the evidence ([below](#2-build-the-index)) |
 | `species_neighbours.tsv` | optional (since 2026-10-06): each species' nearest congeners in the database by the distance of their marker genes, for the database-neighbourhood features and `unexpected_congener_fit_share` ([below](#2-build-the-index), [features.md](features.md#against-false-positives-in-complex-communities-consistency-shape-neighbourhood-2026-10-06)) |
+| `congener_gaps.tsv` | optional (since 2026-10-07): per species' copy of each marker gene, the alignment distance to its nearest congener's copy and to a typical one, for the `gaps` features ([below](#2-build-the-index), [features.md](features.md#the-gene-copies-gaps-and-foreign-reads-and-the-untried-candidates-gaps-foreign-untried-2026-10-07)) |
+| `foreign_rates.tsv` | optional (since 2026-10-07): per gene copy, the reads of a tiled scan of the genomes at hand that landed on it and how many came from other species and genera (`scripts/foreign_rates.py`, stored with `--add_tables`), for the `foreign` features |
 | `species_priors.tsv` | optional: what GTDB knows of each species before any read ([below](#species-priors)) |
 | `gene_neighbours.tsv`, `gene_positions.tsv` | optional: which genes lie next to which, per clade, and where each gene lies in each genome ([below](#gene-neighbours)); a run loads only the first |
 | `gene_table.bin` | only in `database.protal`: `reference.map` and `unique_kmers.tsv` in binary, loaded on all threads without parsing (r226-sized tables, six threads: 1.76 → 0.43 s) |
@@ -756,13 +758,15 @@ keeps the finished database.
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
 | `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` follows ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
 | `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
-| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, the sample's complexity, which needs a protal of 2026-10-06 or later for the training data, and since 2026-10-07 the three groups against the false positives of complex communities, untested at r226, which need a protal of 2026-10-07 or later: `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` trains without them); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
+| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+gaps+foreign+untried` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, the sample's complexity, which needs a protal of 2026-10-06 or later for the training data, and since 2026-10-07 the three groups against the false positives of complex communities and the per-copy tables and untried candidates (`gaps`, `foreign`, `untried`), untested at r226, which need a protal of 2026-10-07 or later: `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` trains without them); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--model` | `gbm` | the models: `gbm`, gradient-boosted trees (the default since 2026-10-06), or `forest`, a random forest ([below](#training)) |
 | `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items) |
 | `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
 | `--evaluation`, `--previous-procedure` | `basic`, off | how much the trainer evaluates: `basic` (default since 2026-10-06, `full` before), the models with rows, samples and species held out, which the summary and the knob need; `full` adds the clades held out and the studies ([below](#training)), several times a boosted model's training |
 | `--n-genes`, `--genes`, `--gene-ranking`, `--genes-per-domain`, `--rank-genes` | | a reduced database ([below](#reduced-marker-sets)) |
 | `--no-gene-neighbours` | | skip the gene neighbours; protal then pairs no mates across neighbouring genes |
+| `--no-foreign-rates` | | skip the tiled scan of the genomes against the training database (`scripts/foreign_rates.py`, after its build): no `foreign_rates.tsv` in either database, the `foreign` features unknown (-1) |
+| `--foreign-stride` | 500 | the scan's reads: 150 bases every this many bases of every genome at hand (the held-out species left out) |
 | `--one-build-at-a-time` | | build the finished database after the training, not beside the profiling |
 | `--training-db-level`, `--final-db-level` | 3, 9 | zstd levels of the two databases |
 | `--no-placeholder-models` | | no placeholder models for read types not trained |
@@ -946,6 +950,10 @@ alone (before the index takes its memory), then the index:
    `relative_distance` takes the median over the genes with unique k-mers only, which the build does
    not know yet here: for near-identical congeners the table's distance is the smaller one. Training
    and profiling read the same table.
+   Aligns every species' copy of each marker gene against the copies of its genus (WFA2, the ends partly free:
+   all of them up to 24 others, else the 4 nearest by k-mer sketch and 16 drawn by a hash of the pair) and writes each
+   copy's distance to its nearest congener's copy and the median distance to `congener_gaps.tsv` (since 2026-10-07):
+   where in that gap a taxon's reads lie tells a strain from a congener the database lacks (the `gaps` features).
 5. Indexes `reference.fna` (its records taken from the genes it loaded, not read again), checks every
    k-mer's uniqueness against the full reference, and writes `unique_kmers.tsv`.
 6. Packs everything into `database.protal`, with `gene_table.bin` for a fast load: the index straight
@@ -1144,7 +1152,7 @@ comparison. The summary has a line per scenario, and warns when a scenario's hol
 scenarios' rows out.
 
 **`--features auto`** (the default) scores each candidate set with species held out and keeps the one
-of highest F1 at the knob, but the default set (`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood`) unless
+of highest F1 at the knob, but the default set (`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+gaps+foreign+untried`) unless
 another beats it by 0.002 (`AUTO_MIN_GAIN`, the gain below which the depth knobs changed between fits
 at r226). The candidates are the named sets without the priors, and
 `normalized+adjacency+relatives+depth+divergence+unfiltered` (`auto+priors` adds the sets with the
@@ -1210,6 +1218,13 @@ protal --profile_only a.sam.zst,b.sam.zst --db DB --model training/model.xml -o 
 Then make it the database's model of its read type with `protal --add_model training/model.xml
 --read_type pe --db DB`. Choose `--knob` on held-out samples like the ones it will profile;
 `<prefix>.thresholds.tsv` is a start.
+
+The per-copy tables a run reads go in the same way, by their file names: `protal --add_tables foreign_rates.tsv --db DB`
+(also `congener_gaps.tsv`). `scripts/foreign_rates.py --db DB --genome-table genomes.tsv --out foreign_rates.tsv`
+makes the first: error-free reads every `--stride` bases of every genome of the table (`simulate_metagenomes --tiles`,
+`--exclude` leaves species out), aligned against the database once, each read's best record (MAPQ 4 or more) counted
+for its gene copy as a read of the copy's own species, of another species or of another genus. It needs the
+database's `internal_taxonomy.dmp` (`--taxonomy`: a built `database.protal` packs it).
 
 ### Knobs by sample depth
 

@@ -637,6 +637,7 @@ namespace protal {
         sam.m_uniques_two = ar.UniquesTwo();
         sam.m_alternatives.clear();  // set on a segment's best record only
         sam.m_failed.clear();        // set on the read's first record only
+        sam.m_untried.clear();
         sam.m_settled = 0;           // set on a segment's best record only (ZR)
         sam.m_crowding = 0;          // and so is ZN
         Flag::SetReadReverseComplement(sam.m_flag, !ar.Forward());
@@ -699,7 +700,9 @@ namespace protal {
         void WriteUnmapped(FastxRecord& record, std::vector<FailedCandidate> const& failed) {
             // Counted for the header instead, unless --write_unmapped_reads.
             if (!m_sink.WritesUnmappedRecords()) {
-                for (auto const& candidate : failed) CountFailedCandidate(m_failed, candidate.taxid);
+                for (auto const& candidate : failed) {
+                    if (!candidate.untried) CountFailedCandidate(m_failed, candidate.taxid);
+                }
                 return;
             }
             SamEntry sam;

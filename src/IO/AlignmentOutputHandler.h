@@ -144,6 +144,7 @@ namespace protal {
         sam.m_uniques_two = ar.UniquesTwo();
         sam.m_alternatives.clear();  // set on the read's best record only (AlternativesTag)
         sam.m_failed.clear();        // set on the read's first record only (FailedTag)
+        sam.m_untried.clear();       // set on the read's first record only (UntriedTag)
         sam.m_settled = 0;           // long reads only (ZR)
         sam.m_crowding = 0;          // set on the read's best record only (ZN)
         if (!ar.Forward()) reverse(sam.m_qual.begin(), sam.m_qual.end());
@@ -153,7 +154,7 @@ namespace protal {
     // aligned nowhere, so that the profiler can count the reads that fail on each taxon; nothing for a read without
     // failed candidates. The header lists no gene for it.
     inline bool UnmappedRecord(SamEntry& sam, std::string const& qname, std::vector<FailedCandidate> const& failed) {
-        if (failed.empty()) return false;
+        if (std::none_of(failed.begin(), failed.end(), [](FailedCandidate const& c) { return !c.untried; })) return false;
         sam.m_qname = qname;
         sam.m_flag = static_cast<FLAG_t>(0x4);  // unmapped
         sam.m_rname = "*";
@@ -170,6 +171,7 @@ namespace protal {
         sam.m_alternatives.clear();
         sam.m_failed = FailedTag(failed);
         sam.m_settled = 0;
+        sam.m_untried.clear();
         sam.m_crowding = 0;
         return true;
     }
@@ -457,7 +459,9 @@ namespace protal {
         void WriteUnmapped(FastxRecord& record, std::vector<FailedCandidate> const& failed) {
             // Counted for the header instead, unless --write_unmapped_reads.
             if (!m_sink.WritesUnmappedRecords()) {
-                for (auto const& candidate : failed) CountFailedCandidate(m_failed, candidate.taxid);
+                for (auto const& candidate : failed) {
+                    if (!candidate.untried) CountFailedCandidate(m_failed, candidate.taxid);
+                }
                 return;
             }
             if (!UnmappedRecord(m_sam, ReadQName(record.id), failed)) return;
@@ -508,6 +512,7 @@ namespace protal {
                 m_sam.m_tlen = 0;
                 if (first) m_sam.m_alternatives = AlternativesTag(ar.Taxid(), AlignmentEdits(ar.GetAlignmentInfo()), candidates);
                 if (first) m_sam.m_failed = FailedTag(failed);
+                if (first) m_sam.m_untried = UntriedTag(failed);
                 if (first) m_sam.m_crowding = crowding;
 
                 auto const reference = ReferenceOf(m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()), m_sam);
@@ -688,6 +693,7 @@ namespace protal {
             m_sam2.m_alternatives = AlternativesTag(ar2.Taxid(), AlignmentEdits(ar2.GetAlignmentInfo()),
                                                     CandidateEdits(results, [](auto const& r) { return &r.second; }));
             m_sam1.m_failed = FailedTag(failed);  // the fragment's failed candidates, on its first record
+            m_sam1.m_untried = UntriedTag(failed);
             m_sam1.m_crowding = crowding[0];
             m_sam2.m_crowding = crowding[1];
             SNPList snps;
@@ -722,7 +728,9 @@ namespace protal {
         void WriteUnmapped(FastxRecord& record1, FastxRecord& record2, std::vector<FailedCandidate> const& failed) {
             // Counted for the header instead, unless --write_unmapped_reads.
             if (!m_sink.WritesUnmappedRecords()) {
-                for (auto const& candidate : failed) CountFailedCandidate(m_failed, candidate.taxid);
+                for (auto const& candidate : failed) {
+                    if (!candidate.untried) CountFailedCandidate(m_failed, candidate.taxid);
+                }
                 return;
             }
             if (!UnmappedRecord(m_sam1, PairQName(record1.id, record2.id), failed)) return;
@@ -897,6 +905,7 @@ namespace protal {
 
                 // The fragment's failed candidates on its first record.
                 if (first) (ar1.IsSet() ? m_sam1 : m_sam2).m_failed = FailedTag(failed);
+                if (first) (ar1.IsSet() ? m_sam1 : m_sam2).m_untried = UntriedTag(failed);
                 first = false;
                 alignments++;
                 if (!read_records.empty()) read_records += '\n';

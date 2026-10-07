@@ -196,6 +196,12 @@ class GtdbBuildTest(unittest.TestCase):
                       self.text("out", "classifier_training_se.log"))
         self.assertEqual(metadata["classifier_scenarios"], "none")
         self.assertIn("gene copies", metadata["suspect_copies"])  # the build looked for suspect copies
+        # The gene copies' gaps to their congeners' copies (--build), and the scan of the genomes against the training
+        # database (foreign_rates.py, --add_tables), both in the databases the training samples were profiled with.
+        self.assertRegex(self.text("out", "index_and_package.log"), r"Congener gaps: \d+ gene copies of \d+ species")
+        self.assertRegex(self.text("out", "foreign_rates.log"), r"Foreign rates: \d+ reads with a record, \d+ counted")
+        self.assertTrue(os.path.isfile(os.path.join(out, ".stages", "foreign_rates.json")))
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp.name, "scratch", "training_db", "foreign_rates.tsv")))
         self.assertIn("; congeners 0.25:2-5", metadata["classifier_training_design"])
         commands = []
         for path in glob.glob(os.path.join(self.tmp.name, "scratch", "**", "run_params.tsv"), recursive=True):
@@ -235,6 +241,9 @@ class GtdbBuildTest(unittest.TestCase):
             samples, rows = self.samples("out", "training", table)
             self.assertEqual(len(samples[""]), 4, table)
             self.assertEqual({r["truth"] for r in rows}, {"0", "1"}, table)
+            # The per-copy tables were loaded for the profiling: the features are known (not -1) where reads landed.
+            for feature in ("gap_informative_share", "foreign_scanned_share", "untried_candidate_rate"):
+                self.assertTrue(any(float(r[feature]) >= 0 for r in rows), f"{table}: {feature}")
         # A stage running for a while (5 s here, --progress-every) says how it is doing.
         self.assertRegex(first.stdout, r": \d+:\d\d:\d\d so far")
         # The models go into the database in one rewrite, each with its knob curve over depth (the trainer's

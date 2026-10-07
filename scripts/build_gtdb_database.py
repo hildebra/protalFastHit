@@ -135,6 +135,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONVERTER = os.path.join(HERE, "mini_db", "gtdb_to_protal_db.py")
 GENE_NEIGHBOURS = os.path.join(HERE, "mini_db", "gene_neighbours.py")
+FOREIGN_RATES = os.path.join(HERE, "foreign_rates.py")
 TRAINER = os.path.join(HERE, "machine_learning_cmdline.py")
 COLLECTOR = os.path.join(HERE, "collect_training_data.py")
 PARITY = os.path.join(HERE, "check_model_parity.py")
@@ -1554,6 +1555,11 @@ def main():
                         "collection's protal runs, at once)")
     p.add_argument("--training-db-level", type=int, default=3,
                    help="zstd level of the training database (default 3)")
+    p.add_argument("--no-foreign-rates", action="store_true",
+                   help="leave out the tiled scan of the genomes against the training database (scripts/foreign_rates.py): "
+                        "no foreign_rates.tsv in either database, and the 'foreign' features are unknown (-1)")
+    p.add_argument("--foreign-stride", type=int, default=500,
+                   help="the scan's reads: 150 bases every this many bases of every genome at hand (default 500)")
     p.add_argument("--final-db-level", type=int, default=9,
                    help="zstd level of the finished database (default 9: at GTDB r226, protal's default 19 made the index "
                         "2.7%% smaller than level 3 for 21 more minutes of a 1:20 build; docs/claude/2026-10-02-r226-build-"
@@ -1990,7 +1996,7 @@ def main():
     # set (if any), models, parity, packing.
     subset = args.n_genes is not None or bool(args.genes)
     has_test = args.test_samples > 0 or bool(hold_out)  # a test collection: the design's test set, the scenarios' hold-out
-    Steps.total = 7 + has_test + subset + (args.insilico_strains > 0)
+    Steps.total = 7 + has_test + subset + (args.insilico_strains > 0) + (not args.no_foreign_rates)
     if args.genes:
         # The list is checked against the release's marker files before anything is converted (marker ids by
         # name, gene ids by their range; the ids themselves come from gene2geneid.tsv once it is there).
@@ -2435,6 +2441,36 @@ def main():
     # (docs/claude/2026-10-07-build-ordering): it is built alone, with every core and no simulation writing to its disk.
     # The finished database is needed only for --add_model at the end: built after it, at the idle scheduling class,
     # on the cores the profiling leaves (and paused while the models are trained).
+    # The scan of the genomes at hand for the gene copies other species' reads reach (scripts/foreign_rates.py), against
+    # the database the samples are profiled with, the held-out species left out of it; the table goes into that database
+    # (--add_tables) and, with the same taxids, into the finished one before its build packs it.
+    def foreign_rates(against, taxonomy, exclude):
+        table = os.path.join(against, "foreign_rates.tsv")
+        key = {"database": final_key if against == db else training_key, "stride": args.foreign_stride,
+               "genomes": content_hash(genome_table)}
+        Steps.start(f"the gene copies' foreign reads (foreign_rates.log): reads every {args.foreign_stride} bases of every "
+                    f"genome at hand{', the held-out species left out,' if exclude else ''} aligned against "
+                    f"{os.path.basename(against)}")
+        if stages.done("foreign_rates", key) and os.path.isfile(table):
+            Steps.done(f"{table} was made by an earlier run for the same database; kept")
+            return table
+        if not os.path.isfile(taxonomy):
+            Steps.done(f"left out: no taxonomy at {taxonomy}; the 'foreign' features are unknown (-1)")
+            return None
+        stages.forget("foreign_rates")
+        command = [sys.executable, FOREIGN_RATES, "--db", against, "--genome-table", genome_table, "--taxonomy", taxonomy,
+                   "--out", table, "--stride", str(args.foreign_stride), "-t", str(args.threads), "--protal", args.protal,
+                   "--simulate", args.simulator, "--workdir", os.path.join(samples_root, "foreign_rates_scan")]
+        if exclude:
+            command += ["--exclude", exclude]
+        log = os.path.join(args.outdir, "foreign_rates.log")
+        job = run(command, log, label="scanning the genomes")
+        run([args.protal, "--add_tables", table, "--db", against, "-t", str(args.threads)],
+            os.path.join(args.outdir, "foreign_rates_add.log"), lambda: stages.mark("foreign_rates", key),
+            f"storing the table in {os.path.basename(against)}")
+        Steps.done(f"{table} in {job.took()}; stored in {os.path.basename(against)}")
+        return table
+
     if final_done:
         pass
     elif training_db == db:
@@ -2449,6 +2485,14 @@ def main():
                   lambda: (stages.mark("training_db", training_key), training_stamp.mark("built_for", training_key)),
                   f"building {os.path.basename(training_db)}")
         Steps.done(built(training_db, job, remove_full_reference(training_db) + files_took))
+    if not args.no_foreign_rates:
+        if training_db != db:
+            table = foreign_rates(training_db, taxonomy, heldout)  # the same taxids as the finished database's
+            if table and not final_done:
+                shutil.copyfile(table, os.path.join(db, "foreign_rates.tsv"))  # packed by its build
+        elif not final_done or not stages.done("foreign_rates", {"database": final_key, "stride": args.foreign_stride,
+                                                                 "genomes": content_hash(genome_table)}):
+            foreign_rates(db, taxonomy, None)
     if not final_done and training_db != db:
         if args.one_build_at_a_time:
             Steps.done(f"{os.path.basename(db)} is built after the models (--one-build-at-a-time)")

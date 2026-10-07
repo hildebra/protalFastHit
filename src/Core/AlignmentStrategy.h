@@ -120,6 +120,10 @@ namespace protal {
         // Before either method, a candidate whose read and window share too few k-mers for an alignment within
         // the budget to exist is refused (AlignmentScreen; off with SetAlignmentScreen(false)).
         bool m_screen_on = true;
+        // Adaptive candidates (SetAdaptiveCandidates, TryCongeners): anchors beyond align_top a divergent read may try on
+        // congeners of its best alignment, and every taxon's genus.
+        size_t m_adaptive_candidates = 0;
+        std::shared_ptr<std::vector<uint32_t> const> m_genera;
         AlignmentScreen m_screen;
         AlignmentScreen::ReadKmers m_read_kmers;  // operator()'s read, packed for its candidates' screens
         std::string m_ops;     // the window's alignment operations, from either method
@@ -157,6 +161,16 @@ namespace protal {
         uint16_t m_crowding = 0;
         uint16_t Crowding() const { return m_crowding; }
         std::vector<uint32_t> m_crowded_scratch;  // CrowdedTaxa's
+        // The taxa of the last call's crowd (anchors at least kCrowdedLength as long as the longest) that it never aligned
+        // against, the strongest anchor first, at most kUntriedListed: the read's untried candidates (ZC,
+        // AddUntriedCandidates).
+        std::vector<uint32_t> m_untried;
+        std::vector<uint32_t> const& Untried() const { return m_untried; }
+        // Anchors aligned beyond align_top by the adaptive candidates (TryCongeners), over all calls.
+        size_t m_adaptive_alignments = 0;
+        // A read whose best alignment's identity (GetProxyANI) is below this is divergent: its crowd's congeners of that
+        // alignment's taxon are tried too (TryCongeners).
+        static constexpr double kAdaptiveIdentity = 0.99;
 
         // An anchor at least this share of the longest anchor's exact-match bases counts for the read's crowding.
         static constexpr double kCrowdedLength = 0.8;
@@ -199,6 +213,7 @@ namespace protal {
         // Adds a thread's copy's counts, and its screen's time, to this (the global) handler's.
         void JoinCounts(SimpleAlignmentHandler const& other) {
             m_attempted_alignments += other.m_attempted_alignments;
+            m_adaptive_alignments += other.m_adaptive_alignments;
             m_screened_alignments += other.m_screened_alignments;
             m_anchored_alignments += other.m_anchored_alignments;
             m_whole_window_alignments += other.m_whole_window_alignments;
@@ -232,9 +247,18 @@ namespace protal {
                 m_max_score_ani(other.m_max_score_ani),
                 m_fastalign(other.m_fastalign),
                 m_anchored(other.m_anchored),
-                m_screen_on(other.m_screen_on) {
+                m_screen_on(other.m_screen_on),
+                m_adaptive_candidates(other.m_adaptive_candidates),
+                m_genera(other.m_genera) {
             m_anchored_aligner.AllowIndels(other.m_anchored_aligner.IndelsAllowed());
         };
+
+        // Adaptive candidates (--adaptive_candidates): a divergent read tries up to `candidates` more anchors of its
+        // crowd, of taxa of its best alignment's genus (`genera`: taxid -> genus, 0 for none). 0 or no genera: off.
+        void SetAdaptiveCandidates(size_t candidates, std::shared_ptr<std::vector<uint32_t> const> genera) {
+            m_adaptive_candidates = candidates;
+            m_genera = std::move(genera);
+        }
 
         void SetAnchoredAlignment(bool anchored) {
             m_anchored = anchored;
@@ -738,15 +762,18 @@ namespace protal {
 
             Anchor* last_anchor = nullptr;
             m_attempted.clear();
+            m_untried.clear();
             // rev is fwd's reverse complement as KmerUtils::ReverseComplementInto writes it (here or the anchor finder's).
             m_read_kmers.Set(fwd, rev);
             AlignmentScreen::ReadStretch const stretch{ &m_read_kmers, 0, 0 };
             m_crowding = CrowdedTaxa(anchors, m_crowded_scratch);
+            size_t taken = 0;  // the anchors the loop took, from the front
 
             for (auto& anchor : anchors) {
                 if (--take_top < 0 && (last_anchor && last_anchor->total_length != anchor.total_length)) {
                     break;
                 }
+                taken++;
                 m_attempted.emplace_back(static_cast<uint32_t>(anchor.taxid), static_cast<uint32_t>(anchor.geneid));
 
                 auto& read = anchor.forward ? fwd : rev;
@@ -765,11 +792,68 @@ namespace protal {
                 last_anchor = &anchor;
             }
 
+            if (taken < anchors.size() && m_crowding > 0) {
+                size_t longest = 0;
+                for (auto const& anchor : anchors) longest = std::max<size_t>(longest, anchor.total_length);
+                if (m_adaptive_candidates > 0 && m_genera && !results.empty()) {
+                    TryCongeners(anchors, taken, longest, results, fwd, rev, header, stretch);
+                }
+                // The crowd's taxa never aligned against (ZC).
+                for (size_t i = taken; i < anchors.size() && m_untried.size() < kUntriedListed; i++) {
+                    auto const& anchor = anchors[i];
+                    if (static_cast<double>(anchor.total_length) < kCrowdedLength * static_cast<double>(longest)) continue;
+                    auto const taxid = static_cast<uint32_t>(anchor.taxid);
+                    if (std::any_of(m_attempted.begin(), m_attempted.end(), [taxid](FailedCandidate const& c) { return c.taxid == taxid; })) continue;
+                    if (std::find(m_untried.begin(), m_untried.end(), taxid) != m_untried.end()) continue;
+                    m_untried.push_back(taxid);
+                }
+            }
 
             // Sort alignment results
             std::sort(results.begin(), results.end(), [](AlignmentResult const& a, AlignmentResult const& b) {
                 return a.AlignmentScore() > b.AlignmentScore();
             });
         }
+
+    private:
+        uint32_t GenusOf(uint32_t taxid) const {
+            return m_genera && taxid < m_genera->size() ? (*m_genera)[taxid] : 0;
+        }
+
+        // The adaptive candidates: a read whose best alignment so far is divergent (identity below kAdaptiveIdentity)
+        // also tries the anchors of its crowd beyond the `taken` ones (at least kCrowdedLength of the `longest`) whose
+        // taxon is of the best alignment's genus and not tried yet, in their order, up to m_adaptive_candidates: a strain
+        // whose genes lie between its own species' reference and a congener's ranks its own species below the congeners'
+        // by seeds, and --align_top alone never aligns it there (docs/claude/2026-10-07-error-read-signatures, section 5).
+        // Per read, so the result does not depend on other reads or on the threads.
+        template<typename Anchors>
+        void TryCongeners(Anchors& anchors, size_t taken, size_t longest, AlignmentResultList& results, std::string const& fwd,
+                          std::string const& rev, std::string& header, AlignmentScreen::ReadStretch const& stretch) {
+            auto const best = std::max_element(results.begin(), results.end(), [](AlignmentResult const& a, AlignmentResult const& b) {
+                return a.AlignmentScore() < b.AlignmentScore();
+            });
+            if (best->GetAlignmentInfo().GetProxyANI() >= kAdaptiveIdentity) return;
+            uint32_t const genus = GenusOf(static_cast<uint32_t>(best->Taxid()));
+            if (genus == 0) return;
+            size_t tried = 0;
+            for (size_t i = taken; i < anchors.size() && tried < m_adaptive_candidates; i++) {
+                auto& anchor = anchors[i];
+                if (static_cast<double>(anchor.total_length) < kCrowdedLength * static_cast<double>(longest)) continue;
+                auto const taxid = static_cast<uint32_t>(anchor.taxid);
+                if (GenusOf(taxid) != genus) continue;
+                if (std::any_of(m_attempted.begin(), m_attempted.end(), [taxid](FailedCandidate const& c) { return c.taxid == taxid; })) continue;
+                m_attempted.emplace_back(taxid, static_cast<uint32_t>(anchor.geneid));
+                m_alignment_result.GetAlignmentInfo().Reset();
+                if (AlignAnchor(anchor, m_alignment_result, fwd, rev, false, header, INT32_MAX, stretch) &&
+                    m_alignment_result.GetAlignmentInfo().GetProxyANI() >= m_max_score_ani) {
+                    results.emplace_back(std::move(m_alignment_result));
+                    total_alignments++;
+                }
+                tried++;
+                m_adaptive_alignments++;
+            }
+        }
+
+    public:
     };
 }
