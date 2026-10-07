@@ -8,7 +8,7 @@ worked four-sample example, the map file, and every output file). The pages here
 |---|---|---|
 | [installation.md](installation.md) | users, packagers | bioconda, static binaries, building from source, one binary for every CPU, the tools to build a database |
 | [running.md](running.md) | users | where outputs go, read files and read types, reruns and `--profile_only`, exit codes, options the website does not list, memory |
-| [strains.md](strains.md) | users | strain MSAs: which samples, genes and reads enter them, strains in long-read samples, filtering with qcmsa, trees |
+| [strains.md](strains.md) | users | strain MSAs: which samples, genes and reads enter them, MSAs over several runs, strains in long-read samples, filtering with qcmsa, trees |
 | [databases.md](databases.md) | database builders | the files of a database and `database.protal`; building and training one from GTDB in one command, for several releases, reduced, or step by step; the presence model and how to train, check and install it |
 | [features.md](features.md) | users, developers | every feature of the presence model: since which version, what it measures, its importance per read type at GTDB r226, and when it matters |
 | [development.md](development.md) | developers | unit and end-to-end tests, mini databases, `simulate_metagenomes`, CI, the strain test harness |

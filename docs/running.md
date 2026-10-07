@@ -15,12 +15,16 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
 | coverage, SNP counts, timers | `DIR/misc/` | `#MISC_OUTPUT_DIR`, default `#OUTPUT_DIR/misc/` |
 
 - `-o` replaces a map's `#OUTPUT_DIR`, and `--profile_dir` moves the profiles of either mode.
+  Without `-o`, a `-1 -2` run writes into the current folder (runs without `-o` aborted up to 0.7.8).
 - Without `--prefix`, the prefix is the longest common prefix of the two read file names, which
   needs both files in the same folder; for single-end reads it is the file name without its
   FASTQ/FASTA and compression extensions (`S1.fq.gz` gives `S1`).
-- In a map, `#SAMPLEID` (the first column) is the sample name in MSA rows, logs and statistics.
-  Every row needs a value in every column the header declares, columns are separated by tabs,
-  and no two samples may share a SAM or profile file; protal checks all of this before it starts.
+- In a map, `#SAMPLEID` (the first column) is the sample name in MSA rows, logs, statistics and
+  file names (`misc/<sample>_runtime.tsv`), so it must be safe as a file name on Linux and macOS: no
+  `/` or `:`, no control characters, not starting with `-`, not `.` or `..`, UTF-8, at most 200
+  bytes (and no whitespace with strain MSAs). Every row needs a value in every column the header
+  declares, columns are separated by tabs, and no two samples may share a SAM or profile file;
+  protal checks all of this before it starts, and lists every unsafe sample ID with its line.
 - The SAM is an intermediate file, and is zstd-compressed by default: names protal picks end in
   `.sam.zst` (`--sam_format gz` gives `.sam.gz`, `--sam_format sam` plain `.sam`). In a map, the
   `SAM` column's name chooses the format: `.sam.zst` zstd, `.sam.gz` gzip, any other name plain SAM.
@@ -37,6 +41,9 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   `protal_map_utils generate` (and `merge --use-sampleid`) and `simulate_metagenomes
   --protal_metafile` write `.sam.zst` names; `protal_map_utils --gzip` writes `.sam.gz`, `--nogzip`
   `.sam`. A rerun also takes a plain `P.sam` from an earlier run as the SAM of `P.sam.zst`.
+  `protal_map_utils merge` keeps the SAMs the merged maps' runs wrote, by their absolute paths, so a
+  run of the merged map profiles them instead of aligning again
+  ([strains.md](strains.md#strain-msas-over-several-runs)).
 - The SAM header (`@SQ`) lists the genes that the alignments name, not every gene of the database
   (the full r226 database has millions); `--full_sam_header` lists every gene, as protal did before.
 - `<sam>.err` lists the reads whose alignment does not fit the database (a gene it lacks, a
@@ -167,10 +174,15 @@ when complete, so an interrupted run never leaves a truncated SAM that a rerun w
 `.sam.gz` or `.sam.zst`, or a SAM aligned against another database (its `@SQ` genes missing or of
 another length), stops with an error.
 
-`--profile_only a.sam,b.sam.gz,c.sam.zst` profiles existing SAM files without loading the index. The
-prefixes come from `--prefix` (one per file) or from the SAM names, and the outputs go to `-o`,
-or next to each SAM without it. This is the quick way to try another `--knob`, model or
-`--depth_identity_margin`.
+`--profile_only a.sam,b.sam.gz,c.sam.zst` profiles existing SAM files without loading the index, and
+builds strain MSAs over all of them, also when they come from several runs
+([strains.md](strains.md#strain-msas-over-several-runs)). An item with a wildcard, such as
+`'runs/*/alignments/*.sam.zst'`, stands for the SAM files it matches (quoted or not). The prefixes
+come from `--prefix` (one per file) or from the SAM names (from their folders where names repeat),
+and the outputs go to `-o`, or without it the profiles next to each SAM and `strains/` and `misc/`
+into the current folder. This is also the quick way to try another `--knob`, model or
+`--depth_identity_margin`. Arguments that follow no option stop protal, except SAM files after
+`--profile_only`: an unquoted `-1 *_1.fq` once aligned only its first file.
 
 Since 0.7.6 a profile does not depend on the order of the SAM's records, which multi-threaded
 alignment varies from run to run: repeated runs on the same reads and database give the same

@@ -1,0 +1,11 @@
+#INPUT_DIR	/home/falk/samcombine/work/reads
+#OUTPUT_DIR	/home/falk/samcombine/work/comb_merge
+#SAM_OUTPUT_DIR	alignments
+#PROFILE_OUTPUT_DIR	profiles
+#STRAIN_OUTPUT_DIR	strains
+#MISC_OUTPUT_DIR	misc
+#SAMPLEID	FIRST	SECOND	SAM	PROFILE	PREFIX
+sa	run1/sa_1.fq	run1/sa_2.fq	sa.sam.zst	sa.profile	sa
+sb	run1/sb_1.fq	run1/sb_2.fq	sb.sam.zst	sb.profile	sb
+sc	run2/sc_1.fq	run2/sc_2.fq	sc.sam.zst	sc.profile	sc
+sd	run2/sd_1.fq	run2/sd_2.fq	sd.sam.zst	sd.profile	sd

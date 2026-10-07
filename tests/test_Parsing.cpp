@@ -931,3 +931,59 @@ TEST(SamReader, KeepsTheHardClipsItDropsFromTheCigar) {
     EXPECT_EQ(profiler::Clip("120H45M5S30H", true), 35u);
     EXPECT_EQ(profiler::QueryBases("120H5S40M2I3M1D30H"), 45u);
 }
+
+// Sample IDs name files (misc/<sample>_runtime.tsv): what Linux and macOS cannot hold safely is refused.
+TEST(Options, SampleIdsThatCannotNameFiles) {
+    using Ids = std::vector<std::string>;
+    for (auto const& id : Ids{ "S1", "sample_1.2-x", "Probe_\xc3\x84", std::string(Options::kMaxSampleIdBytes, 'x') }) {
+        EXPECT_EQ(Options::SampleIdProblem(id), "") << id;
+    }
+    for (auto const& id : Ids{ "", ".", "..", "a/b", "a:b", "-a", "a\tb", "a\x01" "b", "a\xff" "b", "a\xc3",
+                               std::string(Options::kMaxSampleIdBytes + 1, 'x') }) {
+        EXPECT_NE(Options::SampleIdProblem(id), "") << id;
+    }
+}
+
+// --profile_only's items: files as they are, wildcards expanded to the SAM files they match (sorted), errors for a
+// pattern without SAMs and for a folder; a missing file is left for the existence check.
+TEST(Options, SamPatternsExpandToTheSamFilesTheyMatch) {
+    ScratchDir dir("sam patterns");
+    for (auto const* folder : { "r2/alignments", "r1/alignments" }) fs::create_directories(dir.path / folder);
+    auto const b = dir.Write("r1/alignments/b.sam.zst", "");
+    auto const a = dir.Write("r1/alignments/a.sam", "");
+    auto const c = dir.Write("r2/alignments/c.sam.gz", "");
+    dir.Write("r1/alignments/a.sam.err", "");
+    dir.Write("r1/alignments/b.sam.zst.partial", "");
+    dir.Write("r1/alignments/a.profile", "");
+    std::vector<std::string> errors, notes;
+    auto const sams = Options::ExpandSamFiles({ dir / "r*/alignments/*", dir / "x.sam.zst" }, errors, notes);
+    EXPECT_EQ(sams, (std::vector<std::string>{ a, b, c, dir / "x.sam.zst" }));
+    EXPECT_TRUE(errors.empty());
+    ASSERT_EQ(notes.size(), 1u);
+    EXPECT_NE(notes[0].find("matches 3 SAM file(s) (and 3 other file(s) or folder(s), passed over)"), std::string::npos) << notes[0];
+
+    // A file whose name holds a wildcard is that file.
+    auto const odd = dir.Write("r1/alignments/odd[1].sam", "");
+    EXPECT_EQ(Options::ExpandSamFiles({ odd }, errors, notes), (std::vector<std::string>{ odd }));
+
+    errors.clear();
+    EXPECT_TRUE(Options::ExpandSamFiles({ dir / "r*/alignments/*.err", dir / "r1", dir / "none/*.sam" }, errors, notes).empty());
+    ASSERT_EQ(errors.size(), 3u);
+    EXPECT_NE(errors[0].find("matches no SAM file"), std::string::npos) << errors[0];
+    EXPECT_NE(errors[1].find("is a folder"), std::string::npos) << errors[1];
+    EXPECT_NE(errors[2].find("matches no SAM file"), std::string::npos) << errors[2];
+}
+
+// The samples' names: the SAMs' file names, or, where they repeat, the folders in which the paths differ.
+TEST(Options, SamSampleNamesFromFilesOrFolders) {
+    using Names = std::vector<std::string>;
+    EXPECT_EQ(Options::SamSampleNames({ "/r1/a.sam.zst", "/r2/b.sam.gz", "c.sam" }), (Names{ "a", "b", "c" }));
+    EXPECT_EQ(Options::SamSampleNames({ "/d/S1/aln.sam.zst", "/d/S2/aln.sam.zst" }), (Names{ "S1", "S2" }));
+    EXPECT_EQ(Options::SamSampleNames({ "/p/study1/alignments/sa.sam.zst", "/p/study2/alignments/sa.sam.zst",
+                                        "/p/study2/alignments/sb.sam.zst" }),
+              (Names{ "study1_sa", "study2_sa", "study2_sb" }));
+    // Paths of different depths: every level from the shortest path's end differs.
+    EXPECT_EQ(Options::SamSampleNames({ "/d/a/x.sam", "/d/b/c/x.sam" }), (Names{ "a", "b_c" }));
+    // The same file twice keeps one name, for the duplicate check to report.
+    EXPECT_EQ(Options::SamSampleNames({ "/d/a/x.sam", "/d/a/x.sam" }), (Names{ "x", "x" }));
+}

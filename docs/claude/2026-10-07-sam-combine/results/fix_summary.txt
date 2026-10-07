@@ -1,0 +1,75 @@
+== 1. no -o: -1/-2, two samples, in an empty folder
+no_o_reads: exit 0
+    files: misc sa.profile sa.profile.gene.log sa.profile.genes.log sa.profile.log sa.sam.zst sa.sam.zst.err sb.profile sb.profile.gene.log sb.profile.genes.log sb.profile.log sb.sam.zst sb.sam.zst.err strains 
+    9 strain files of run1/strains against fix/no_o_reads/strains: 0 differ
+== 2. no -o: --profile_only of copies of four SAMs
+no_o_profile_only: exit 0
+    cwd: misc strains ; sams: 4 profiles next to the SAMs
+    9 strain files of joint/strains against fix/no_o_po/cwd/strains: 0 differ
+== 3. quoted pattern over run1 and run2 (distinct names)
+pattern_quoted: exit 0
+    s__Fakibacter_gamma: s__Fakibacter_gamma_reference sa sb sc sd 
+    s__Mockella_alpha: s__Mockella_alpha_reference sa sb sc sd 
+    s__Mockella_beta: s__Mockella_beta_reference sa sb sc sd 
+    9 strain files of joint/strains against fix/pattern/strains: 0 differ
+== 4. unquoted: the shell's expansion as arguments
+pattern_unquoted: exit 0
+    s__Fakibacter_gamma: s__Fakibacter_gamma_reference sa sb sc sd 
+    s__Mockella_alpha: s__Mockella_alpha_reference sa sb sc sd 
+    s__Mockella_beta: s__Mockella_beta_reference sa sb sc sd 
+    9 strain files of joint/strains against fix/unquoted/strains: 0 differ
+== 5. a pattern over three runs, sa in two of them: named by their folders
+pattern_collide: exit 0
+    s__Fakibacter_gamma: s__Fakibacter_gamma_reference run1_sa run1_sb run2_sc run2_sd run3_sa 
+    s__Mockella_alpha: s__Mockella_alpha_reference run1_sa run1_sb run2_sc run2_sd run3_sa 
+    s__Mockella_beta: s__Mockella_beta_reference run1_sa run1_sb run2_sc run2_sd run3_sa 
+    profiles: run1_sa.profile run1_sb.profile run2_sc.profile run2_sd.profile run3_sa.profile 
+== 6. a folder per sample, every SAM named aln.sam.zst
+pattern_per_sample: exit 0
+    s__Fakibacter_gamma: s__Fakibacter_gamma_reference sa sb sc sd 
+    s__Mockella_alpha: s__Mockella_alpha_reference sa sb sc sd 
+    s__Mockella_beta: s__Mockella_beta_reference sa sb sc sd 
+    9 strain files of joint/strains against fix/per_sample/strains: 0 differ
+== 7. errors: a pattern without SAMs, a folder, a missing file, all at once
+pattern_errors: exit 30
+no_sam_at_all: exit 30
+== 8. a stray argument in an alignment run
+stray_argument: exit 2
+== 9. protal_map_utils merge of run1.map and run2.map: the runs' SAMs are kept
+    merge: exit 0
+    | #INPUT_DIR	/home/falk/samcombine/work/reads
+    | #OUTPUT_DIR	/home/falk/samcombine/work/fix/merged
+    | #SAM_OUTPUT_DIR	alignments
+    | #PROFILE_OUTPUT_DIR	profiles
+    | #STRAIN_OUTPUT_DIR	strains
+    | #MISC_OUTPUT_DIR	misc
+    | #SAMPLEID	FIRST	SECOND	SAM	PROFILE	PREFIX
+    | sa	run1/sa_1.fq	run1/sa_2.fq	/home/falk/samcombine/work/run1/alignments/sa.sam.zst	sa.profile	sa
+    | sb	run1/sb_1.fq	run1/sb_2.fq	/home/falk/samcombine/work/run1/alignments/sb.sam.zst	sb.profile	sb
+    | sc	run2/sc_1.fq	run2/sc_2.fq	/home/falk/samcombine/work/run2/alignments/sc.sam.zst	sc.profile	sc
+    | sd	run2/sd_1.fq	run2/sd_2.fq	/home/falk/samcombine/work/run2/alignments/sd.sam.zst	sd.profile	sd
+    validate: exit 0
+    validate without the reads: exit 0
+merged_map: exit 0
+    9 strain files of joint/strains against fix/merged/strains: 0 differ
+    merge --new-sams: exit 0
+    | sa	sa.sam.zst
+    | sb	sb.sam.zst
+    | sc	sc.sam.zst
+    | sd	sd.sam.zst
+== 10. merge of single-end maps (SECOND '-'; and no SECOND column)
+    merge: exit 0
+    | #INPUT_DIR	/home/falk/samcombine/work/reads/run1
+    | #OUTPUT_DIR	/home/falk/samcombine/work/fix/se/m
+    | #SAM_OUTPUT_DIR	alignments
+    | #PROFILE_OUTPUT_DIR	profiles
+    | #STRAIN_OUTPUT_DIR	strains
+    | #MISC_OUTPUT_DIR	misc
+    | #SAMPLEID	FIRST	SECOND	PREFIX
+    | x	sa_1.fq	-	x
+    | y	sb_1.fq	-	y
+    merge without SECOND: exit 0
+== 11. sample IDs that cannot name a file (map)
+bad_sample_ids: exit 9
+bad_prefix: exit 30
+done

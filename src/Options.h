@@ -8,6 +8,7 @@
 #include <cerrno>
 #include <cstring>
 #include <unistd.h>
+#include <glob.h>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -86,11 +87,11 @@ namespace protal {
                 ("2,second", "Comma separated list of second-in-pair read files, one per file given via -1/--first. Leave it out for single-end reads.", cxxopts::value<std::string>()->default_value(""))
                 ("read_type", "The reads of -1/--first: pe (paired-end reads, with -2/--second), se (single-end reads), pb (PacBio long reads, e.g. HiFi), ont (Oxford Nanopore long reads). Without it, pe with -2/--second; with one read file, its first reads decide, and protal says what it found: se for short reads, for long reads pb or ont by their names (PacBio movie/ZMW, the UUIDs of MinKNOW and dorado), else by their median read quality (pb from Q25 on, ont below; pb without qualities). A map gives it per sample in a READ_TYPE column. With --profile_only, the SAM's header names its reads, and --read_type replaces that (e.g. to profile a SAM with another read type's model); with --add_model, it names the model's reads (pe if not given).", cxxopts::value<std::string>()->default_value(""))
                 ("prefix", "Comma separated list of output prefixes (optional). If not specified, output file prefixes are generated from the input file names: the longest common prefix of the two files of paired-end reads (which must then be in the same folder), the file name without its FASTQ/FASTA and compression extensions for single-end reads.", cxxopts::value<std::string>()->default_value(""))
-                ("o,outdir", "Overwrites #OUTPUT_DIR in map and needs to be defined if #OUTPUT_DIR is not defined in the map. If not otherwise specified in the map file, sam files, profiles, msas, and other miscellaneous files will be stored in the subfolders to this directory 'alignments', 'profiles', 'strains', and 'misc'.", cxxopts::value<std::string>())
+                ("o,outdir", "Overwrites #OUTPUT_DIR in map and needs to be defined if #OUTPUT_DIR is not defined in the map. If not otherwise specified in the map file, sam files, profiles, msas, and other miscellaneous files will be stored in the subfolders to this directory 'alignments', 'profiles', 'strains', and 'misc'. With -1/-2: the folder of the SAM files and profiles, with 'strains' and 'misc' in it (default: the current folder).", cxxopts::value<std::string>())
                 
                 ("map", "For larger datasets you can define parameters -1, -2, --prefix and -o in a tsv-file.", cxxopts::value<std::string>()->default_value(""))
                 ("map_range", "If you specified a map file with --map you can also pass a range to protal to run protal only on a subset. The first entry is 1, the end is inclusive. e.g.: 1-10. If the end open or larger than the number of entries in the map file, the last entry in the map file is selected as end.", cxxopts::value<std::string>()->default_value(""))
-                ("profile_only", "Comma separated list of existing sam files to profile without re-running the alignment. Read files given via -1/-2 are ignored. Output prefixes are either given via --prefix (one per sam file) or derived from the sam file names; the outputs then go to -o if it is given, else next to each sam file.", cxxopts::value<std::string>()->default_value(""))
+                ("profile_only", "Comma separated list of existing sam files to profile without re-running the alignment, e.g. to build strain MSAs over the samples of several runs. An item with a wildcard, such as 'runs/*/alignments/*.sam.zst' (quoted: protal expands it; unquoted, the shell does, which works as well), stands for the .sam, .sam.gz and .sam.zst files it matches, sorted. Read files given via -1/-2 are ignored. Output prefixes are either given via --prefix (one per sam file) or derived from the sam file names (where two files share a name, as aln.sam.zst in a folder per sample, from the folders in which their paths differ); the outputs then go to -o if it is given, else the profiles next to each sam file and 'strains' and 'misc' into the current folder.", cxxopts::value<std::string>()->default_value(""))
                 ("sam_format", "Format of the SAM files that protal names (with -1/-2, or a map without a SAM column): zst (zstd-compressed, <prefix>.sam.zst), gz (gzip, .sam.gz) or sam (plain). A map's SAM names keep their own ending.", cxxopts::value<std::string>()->default_value("zst"));
 
         // Alignment / algorithm options
@@ -191,6 +192,11 @@ namespace protal {
                 ("t,threads", "Specify number of threads to use: for alignment (which also compresses the SAM), database loading and profiling.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_THREADS)))
                 ("force", "Force redo alignment even if sam files exists.");
 
+        // Not shown: the arguments that follow no option. With --profile_only they are SAM files (an unquoted pattern,
+        // which the shell expands into several arguments: the option takes the first), with --build the reference.
+        options.add_options("_positional")
+                ("positional", "Arguments that follow no option", cxxopts::value<std::vector<std::string>>());
+
         return options;
     }
 
@@ -263,6 +269,10 @@ namespace protal {
         std::vector<std::string> read_type_list;  // per sample: a ReadType token, or empty: pe or se by the second file
         std::vector<std::string> unmapped_reads_list;  // per sample, a map's UNMAPPED_READS: write, count or '-'
         std::vector<size_t> range;
+        // What reading the arguments found (patterns without a SAM, how samples were named), reported with the
+        // other checks' errors and notes (PrepareAndCheckValidity).
+        std::vector<std::string> input_errors;
+        std::vector<std::string> input_notes;
 
         // profiling
         std::string profile_truth;
@@ -383,6 +393,8 @@ namespace protal {
         // Per sample, from a map's UNMAPPED_READS column: whether its unaligned reads get an unmapped record each
         // (empty without the column: --write_unmapped_reads for every sample).
         std::vector<char> m_unmapped_reads_list;
+        std::vector<std::string> m_input_errors;  // OptionsData::input_errors
+        std::vector<std::string> m_input_notes;
 
         std::vector<size_t> m_range;
 
@@ -573,6 +585,8 @@ namespace protal {
                 m_run_qcmsa(d.run_qcmsa),
                 m_qcmsa_script(std::move(d.qcmsa_script)),
                 m_qcmsa_args(std::move(d.qcmsa_args)) {
+            m_input_errors = std::move(d.input_errors);
+            m_input_notes = std::move(d.input_notes);
             if (d.samplename_list.empty()) {
                 // A sample is named after its prefix's file name, not its path.
                 for (auto const& prefix : m_prefix_list) {
@@ -1450,13 +1464,19 @@ An optional READ_TYPE column names each sample's reads: pe (paired-end), se (sin
 its model (model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml). Without the column,
 --read_type applies to all samples; without either, or with '-' as READ_TYPE, a sample is pe
 with a SECOND file and se without.
-The first column, #SAMPLEID, names the sample in the outputs (MSA rows, logs, statistics).
+The first column, #SAMPLEID, names the sample in the outputs (MSA rows, logs, statistics) and in
+file names, so it must be safe as a file name on Linux and macOS: no '/' or ':', no control
+characters, not starting with '-', not '.' or '..', UTF-8, at most 200 bytes; protal stops on
+reading the map otherwise. With strain MSAs it holds no whitespace either.
 An optional UNMAPPED_READS column says per sample what becomes of the reads that seeded on taxa
 but aligned nowhere: write (an unmapped record each, with the taxa in its ZF tag, as
 --write_unmapped_reads writes them for all samples) or count (counted per taxon in the SAM
 header, the default); '-' leaves it to --write_unmapped_reads.
-SAM and PROFILE are optional and default to <PREFIX>.sam and <PREFIX>.profile. Every sample
-needs its own SAM and PROFILE file; protal stops if two samples share one.)" << std::endl;
+SAM and PROFILE are optional and default to <PREFIX>.sam.zst (--sam_format) and <PREFIX>.profile,
+in OUTPUT_DIR. Every sample needs its own SAM and PROFILE file; protal stops if two samples share
+one. A sample whose SAM exists is not aligned again (unless --force), and a SAM given as an
+absolute path may lie anywhere, e.g. in another run's folder: a map of existing SAMs (protal_map_utils
+merge writes one from the runs' maps) builds strain MSAs over the samples of several runs.)" << std::endl;
         }
 
 
@@ -1530,6 +1550,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
 
             bool header = true;
             size_t line_num = 0;
+            std::vector<std::string> bad_sample_ids;
             for (std::string line; std::getline(is, line);) {
                 line_num++;
                 if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -1724,6 +1745,11 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                         }
                     }
                     auto sample_id = tokens[0];  // #SAMPLEID
+                    // It names files (misc/<sample>_runtime.tsv): every row is checked, then all problems reported.
+                    if (auto const problem = SampleIdProblem(sample_id); !problem.empty()) {
+                        bad_sample_ids.push_back("Line " + std::to_string(line_num) + ": sample ID '" + sample_id +
+                                                 "' cannot name a file safely on Linux and macOS: " + problem);
+                    }
                     auto prefix_path = path(global_output_dir).append(tokens[prefix_column]);
                     auto first_path = path(input_dir).append(tokens[first_column]);
                     // No second file ('-', or no SECOND column): single-end reads.
@@ -1766,6 +1792,14 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                 }
             }
 
+
+            if (!bad_sample_ids.empty()) {
+                for (auto const& problem : bad_sample_ids) std::cerr << problem << std::endl;
+                std::cerr << "Rename these samples in the #SAMPLEID column: sample IDs name files and the rows of the strain "
+                             "MSAs (no '/' or ':', control characters or a leading '-', UTF-8, at most "
+                          << kMaxSampleIdBytes << " bytes)." << std::endl;
+                return false;
+            }
 
             // Fill in gaps
             if (profile_list.empty()) {
@@ -1983,7 +2017,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
         bool PrepareAndCheckValidity(bool force_read_check=false) {
             std::vector<std::string> error_log;
             std::vector<std::string> warning_log;
-            std::vector<std::string> note_log;
+            std::vector<std::string> note_log = m_input_notes;
+            error_log = m_input_errors;  // from reading the arguments: --profile_only patterns without a SAM
 
             ResolveDatabase(error_log);
             bool const add_model = !m_add_model.empty();
@@ -2213,6 +2248,18 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             no_shared_files(m_sam_list, "SAM");
             no_shared_files(m_profile_list, "profile");
 
+            // Sample IDs name files (misc/<sample>_runtime.tsv): a map's are checked as it is read (LoadFromMap), these
+            // are --prefix's and --profile_only's.
+            if (!m_build && !db_mode) {
+                for (size_t i = 0; i < m_sampleid_list.size(); i++) {
+                    auto const problem = SampleIdProblem(m_sampleid_list[i]);
+                    if (problem.empty()) continue;
+                    error_log.emplace_back("sample ID '" + m_sampleid_list[i] + "' (sample " + std::to_string(i + 1) +
+                                           ") cannot name a file safely on Linux and macOS: " + problem +
+                                           "; rename it (--prefix, or #SAMPLEID in a map)");
+                }
+            }
+
             // Sample IDs name the rows of the strain MSAs: qcmsa matches rows to .meta.tsv by name,
             // and IQ-TREE cuts a name at its first space.
             if (!m_build && !m_no_profile && !m_no_strains) {
@@ -2322,6 +2369,141 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             return true;
         }
 
+        // The longest sample ID: it names files (misc/<sample>_runtime.tsv), and Linux and macOS file names hold 255 bytes.
+        static constexpr size_t kMaxSampleIdBytes = 200;
+
+        // Why a sample ID cannot name a file safely on Linux and macOS, or an empty string if it can. Sample IDs name
+        // files (misc/<sample>_runtime.tsv) and the rows of the strain MSAs; whitespace is checked with the MSAs.
+        static std::string SampleIdProblem(std::string const& id) {
+            if (id.empty()) return "it is empty";
+            if (id == "." || id == "..") return "'" + id + "' names a folder";
+            if (id.find('/') != std::string::npos) return "it contains '/', which separates folders";
+            if (id.find(':') != std::string::npos) return "it contains ':', which macOS shows as '/' and its older file systems refuse";
+            if (std::any_of(id.begin(), id.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; })) {
+                return "it contains a control character";
+            }
+            if (id.front() == '-') return "it starts with '-', which commands take for an option";
+            if (id.size() > kMaxSampleIdBytes) {
+                return "it is " + std::to_string(id.size()) + " bytes long; protal adds to it in file names, which hold 255 bytes "
+                       "(at most " + std::to_string(kMaxSampleIdBytes) + ")";
+            }
+            // macOS (APFS) file names must be UTF-8.
+            for (size_t i = 0; i < id.size();) {
+                auto const c = static_cast<unsigned char>(id[i]);
+                size_t const length = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xe ? 3 : (c >> 3) == 0x1e ? 4 : 0;
+                bool valid = length > 0 && i + length <= id.size();
+                for (size_t k = 1; valid && k < length; k++) valid = (static_cast<unsigned char>(id[i + k]) >> 6) == 0x2;
+                if (!valid) return "it is not UTF-8 text, which macOS file names must be";
+                i += length;
+            }
+            return {};
+        }
+
+        // Whether a file name is a SAM's: .sam, .sam.gz or .sam.zst.
+        static bool IsSamName(std::string const& name) {
+            return UncompressedSamName(name).ends_with(".sam");
+        }
+
+        // The SAM files of --profile_only (its comma-separated items, then the arguments an unquoted pattern became): an
+        // item that names a file is taken as it is; one with a wildcard (*, ? or [...]) stands for the SAM files it
+        // matches (glob(3); .sam, .sam.gz and .sam.zst files only, so a run's .err, profile and .partial files are
+        // passed over), sorted. A pattern that matches no SAM, and a folder, are errors; notes say what each pattern
+        // matched. A missing file is left in the list, for the existence check to report with the others.
+        static std::vector<std::string> ExpandSamFiles(std::vector<std::string> const& items, std::vector<std::string>& errors,
+                                                       std::vector<std::string>& notes) {
+            std::vector<std::string> sams;
+            for (auto const& item : items) {
+                if (item.empty()) continue;
+                std::error_code ec;
+                if (std::filesystem::is_directory(item, ec)) {
+                    errors.emplace_back("--profile_only " + item + " is a folder: give its SAM files, e.g. '" +
+                                        (std::filesystem::path(item) / "*.sam.zst").string() + "'");
+                    continue;
+                }
+                if (std::filesystem::exists(item, ec) || item.find_first_of("*?[") == std::string::npos) {
+                    sams.push_back(item);
+                    continue;
+                }
+                glob_t matches{};
+                int flags = 0;
+#ifdef GLOB_TILDE
+                flags |= GLOB_TILDE;  // ~/... in a quoted pattern
+#endif
+                int const status = glob(item.c_str(), flags, nullptr, &matches);
+                std::vector<std::string> found;
+                size_t others = 0;
+                if (status == 0) {
+                    for (size_t i = 0; i < matches.gl_pathc; i++) {
+                        std::string const path = matches.gl_pathv[i];
+                        if (IsSamName(path) && std::filesystem::is_regular_file(path, ec)) {
+                            found.push_back(path);
+                        } else {
+                            others++;
+                        }
+                    }
+                }
+                globfree(&matches);
+                std::sort(found.begin(), found.end());
+                std::string const passed_over = others ? " (and " + std::to_string(others) + " other file(s) or folder(s), passed over)" : "";
+                if (status != 0 && status != GLOB_NOMATCH) {
+                    errors.emplace_back("--profile_only " + item + ": its folders cannot be read");
+                } else if (found.empty()) {
+                    errors.emplace_back("--profile_only " + item + " matches no SAM file (.sam, .sam.gz or .sam.zst)" + passed_over);
+                } else {
+                    notes.emplace_back("--profile_only " + item + " matches " + std::to_string(found.size()) + " SAM file(s)" + passed_over);
+                }
+                sams.insert(sams.end(), found.begin(), found.end());
+            }
+            return sams;
+        }
+
+        // The names of --profile_only's SAM files as samples: each file's name without .sam, .sam.gz or .sam.zst, unless
+        // two files share one (aln.sam.zst in a folder per sample, or two studies' sa.sam.zst). Then each is named by the
+        // folders in which the files' paths differ, joined by '_', followed by its file name unless all files share one:
+        // /d/S1/aln.sam.zst and /d/S2/aln.sam.zst are S1 and S2; /p/study1/alignments/sa.sam.zst,
+        // /p/study2/alignments/sa.sam.zst and /p/study2/alignments/sb.sam.zst are study1_sa, study2_sa and study2_sb.
+        // The same file given twice keeps its name (the duplicate check reports it).
+        static std::vector<std::string> SamSampleNames(std::vector<std::string> const& sams) {
+            std::vector<std::string> stems;
+            for (auto const& sam : sams) {
+                std::string name = std::filesystem::path(UncompressedSamName(sam)).filename().string();
+                if (name.ends_with(".sam")) name.resize(name.size() - 4);
+                stems.push_back(name);
+            }
+            if (std::set<std::string>(stems.begin(), stems.end()).size() == stems.size()) return stems;
+
+            std::vector<std::vector<std::string>> folders;  // of each file's absolute path
+            size_t shortest = SIZE_MAX, longest = 0;
+            for (auto const& sam : sams) {
+                std::error_code ec;
+                auto const absolute = std::filesystem::absolute(sam, ec).lexically_normal();
+                std::vector<std::string> parts;
+                for (auto const& part : absolute.parent_path()) {
+                    if (!part.empty() && part != part.root_directory()) parts.push_back(part.string());
+                }
+                shortest = std::min(shortest, parts.size());
+                longest = std::max(longest, parts.size());
+                folders.push_back(std::move(parts));
+            }
+            std::vector<size_t> differ;  // the folder levels at which the paths differ
+            for (size_t level = 0; level < longest; level++) {
+                bool const differs = level >= shortest ||
+                                     std::any_of(folders.begin(), folders.end(), [&](auto const& f) { return f[level] != folders.front()[level]; });
+                if (differs) differ.push_back(level);
+            }
+            bool const one_stem = std::all_of(stems.begin(), stems.end(), [&](auto const& s) { return s == stems.front(); });
+            std::vector<std::string> names;
+            for (size_t i = 0; i < sams.size(); i++) {
+                std::string name;
+                for (auto level : differ) {
+                    if (level < folders[i].size()) name += (name.empty() ? "" : "_") + folders[i][level];
+                }
+                if (!one_stem || name.empty()) name += (name.empty() ? "" : "_") + stems[i];
+                names.push_back(name);
+            }
+            return names;
+        }
+
         static std::vector<size_t> ProcessRange(std::string const& s, size_t const& total) {
             std::regex pattern("^\\d+(-\\d+)?(,\\d+(-(\\d+)?)?)*$");
             if (!std::regex_match(s, pattern)) {
@@ -2373,7 +2555,7 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                 return { true, false, false , false };
             }
 
-            cxx_options.parse_positional({ "reference" });
+            cxx_options.parse_positional({ "positional" });
 
             // cxxopts throws on unknown options and on values it cannot convert.
             // Turn that into a readable message instead of an uncaught exception.
@@ -2448,6 +2630,28 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             auto full_reference = result["full_reference"].as<std::string>();
             auto build_gene_subset = result["build_gene_subset"].as<std::string>();
 
+            // Arguments that follow no option. With --profile_only (and no map) they are SAM files: an unquoted pattern
+            // (--profile_only runs/*/alignments/*.sam.zst) reaches protal as one argument per file, of which the option
+            // takes the first, and the others were once ignored without a word. With --build, the reference. Elsewhere
+            // nothing takes them, so they stop protal (e.g. an unquoted -1 *_R1.fq would align the first file only).
+            std::vector<std::string> positional = result.count("positional") ? result["positional"].as<std::vector<std::string>>()
+                                                                              : std::vector<std::string>{};
+            std::vector<std::string> extra_sams;
+            if (!positional.empty()) {
+                if (result.count("profile_only") && !result.count("map")) {
+                    extra_sams = positional;
+                } else if (build && !result.count("reference") && positional.size() == 1) {
+                    reference = positional.front();
+                } else {
+                    std::string listed;
+                    for (auto const& arg : positional) listed += (listed.empty() ? "" : " ") + arg;
+                    std::cerr << "Error: unexpected argument(s): " << listed << "\nAn option takes one value: give several files "
+                                 "comma-separated (-1 a_1.fq,b_1.fq). Only --profile_only takes several SAM files as arguments, or "
+                                 "a pattern such as 'runs/*/alignments/*.sam.zst'." << std::endl;
+                    exit(2);
+                }
+            }
+
             auto map_file = result.count("map") ? result["map"].as<std::string>() : "";
             auto first = result.count("first") ? result["first"].as<std::string>() : "";
             auto second = result.count("second") ? result["second"].as<std::string>() : "";
@@ -2474,6 +2678,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             std::vector<std::string> profile_truth_list;
             std::vector<std::string> read_type_list;
             std::vector<std::string> unmapped_reads_list;
+            std::vector<std::string> input_errors;  // reported by PrepareAndCheckValidity
+            std::vector<std::string> input_notes;
 
             std::string strain_output_dir = "";
             std::string misc_output_dir = "";
@@ -2538,6 +2744,11 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                 if (second.empty()) second_list.assign(first_list.size(), "");
                 LineSplitter::Split(universal_prefix, ",", prefix_list);
                 LineSplitter::Split(sam_in, ",", sam_list);
+                // --profile_only's items and the arguments an unquoted pattern became, with wildcards expanded.
+                if (result.count("profile_only")) {
+                    sam_list.insert(sam_list.end(), extra_sams.begin(), extra_sams.end());
+                    sam_list = ExpandSamFiles(sam_list, input_errors, input_notes);
+                }
 
                 if (strain_output_dir.empty()) {
                     strain_output_dir = std::filesystem::path(output_dir) / std::filesystem::path(MAP_VAR_DEFAULT_STRAIN_OUTPUT_DIR);
@@ -2619,22 +2830,37 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
                     exit(34);
                 }
 
+                if (sam_list.empty() && input_errors.empty() && map_file.empty()) {
+                    input_errors.emplace_back("--profile_only names no SAM file");
+                }
+
                 if (prefix_list.empty()) {
                     prefix_list.resize(sam_list.size());
                     for (auto i = 0; i < sam_list.size(); i++) {
-                        auto& sam_file = sam_list[i];
-
-                        std::string stem;
-                        std::string const uncompressed = UncompressedSamName(sam_file);  // without .gz or .zst
-                        if (uncompressed.ends_with(".sam")) {
-                            stem = uncompressed.substr(0, uncompressed.size() - 4);
-                        } else {
-                            std::cerr << sam_file << " does not end with .sam, .sam.gz or .sam.zst" << std::endl;
+                        if (!IsSamName(sam_list[i])) {
+                            std::cerr << sam_list[i] << " does not end with .sam, .sam.gz or .sam.zst" << std::endl;
                             exit(35);
                         }
-                        // The outputs go to -o if it is given (the name is joined with it below), else next to the SAM.
-                        prefix_list[i] = output_dir.empty() ? stem : std::filesystem::path(stem).filename().string();
                     }
+                    // The samples' names: the SAMs' file names, or their folders where file names repeat. A map's
+                    // samples keep its #SAMPLEID.
+                    auto const names = SamSampleNames(sam_list);
+                    std::string by_folder;  // the samples named by their folders, if any
+                    for (auto i = 0; i < sam_list.size(); i++) {
+                        std::string const uncompressed = UncompressedSamName(sam_list[i]);  // without .gz or .zst
+                        std::string const stem = uncompressed.substr(0, uncompressed.size() - 4);
+                        // The outputs go to -o if it is given (the name is joined with it below), else next to the SAM.
+                        prefix_list[i] = output_dir.empty() ? stem : names[i];
+                        if (names[i] != std::filesystem::path(stem).filename().string() && i < 3) {
+                            by_folder += (by_folder.empty() ? "" : ", ") + names[i] + " (" + sam_list[i] + ")";
+                        }
+                    }
+                    if (!by_folder.empty()) {
+                        input_notes.emplace_back("SAM file names repeat, so the samples are named by the folders in which their "
+                                                 "paths differ: " + by_folder + (sam_list.size() > 3 ? ", ..." : "") +
+                                                 "; --prefix (one per SAM) names them otherwise");
+                    }
+                    samplenames_list = names;
                 }
             } else {
                 if (prefix_list.empty()) {
@@ -2776,6 +3002,8 @@ needs its own SAM and PROFILE file; protal stops if two samples share one.)" << 
             d.profile_truth_list       = std::move(profile_truth_list);
             d.read_type_list           = std::move(read_type_list);
             d.unmapped_reads_list      = std::move(unmapped_reads_list);
+            d.input_errors             = std::move(input_errors);
+            d.input_notes              = std::move(input_notes);
             d.profile_truth            = profile_truth;
             d.force                    = force;
             d.verbose                  = verbose;

@@ -256,7 +256,7 @@ and build an HTML report. Set the database (`PROTAL_DB_PATH` or `strain_db=...`)
 | `scripts/measure_performance.sh OUT_DIR DB TYPE:R1[:R2] ...` | repeated protal runs: wall and CPU time, peak memory (and protal's peak after the preload, the index load, aligning and profiling), stage times, protal's read and alignment counts, the seeding's lookups and flex cells, the seeds sharing a gene, the lookups dropped as too ubiquitous and the anchors, the SAM header's genes and finishing time, and with `perf` instructions and cache misses; medians per sample. With two samples or more, then a cohort run of all of them from their SAMs (`cohort.tsv`): profiling, building the strain MSAs and qcMSA (`COHORT=0` leaves it out, `QCMSA=0` runs it without qcMSA). On a cluster, run it on a whole node |
 | `scripts/db_compression_benchmark.sh` | compression ratio and speed per zstd level on a database, and load times |
 | `scripts/protal_profile_utils merge` | profiles into one abundance table |
-| `scripts/protal_map_utils` | `generate`, `merge`, `flatten` and `validate` map files |
+| `scripts/protal_map_utils` | `generate`, `merge` (keeping the runs' SAMs), `flatten` and `validate` map files |
 | `scripts/recurrent_calls.py`, `scripts/prevalence_calls.py` | a run's thin recurring calls, and calls adjusted by prevalence across samples ([running.md](running.md#where-the-outputs-go)) |
 | `scripts/plot_abundances.R` | abundance plots for `simulate_metagenomes --plot_png` |
 

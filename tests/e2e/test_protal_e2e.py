@@ -742,7 +742,8 @@ class OutputFilesTest(DbTest):
 
 class MateAssignmentTest(DbTest):
     """Fragments whose best alignment is mate 2's alone, and fragments over two genes, reach the SAM (one run, two
-    samples)."""
+    samples). The run has no -o: its outputs go to the folder it runs in (such runs once aborted on making the folder
+    "")."""
 
     @classmethod
     def setUpClass(cls):
@@ -769,9 +770,18 @@ class MateAssignmentTest(DbTest):
                 for i, (s1, s2) in enumerate(pairs, 1):
                     r1.write(f"@{name}.{i}/1\n{s1}\n+\n{'I' * len(s1)}\n")
                     r2.write(f"@{name}.{i}/2\n{s2}\n+\n{'I' * len(s2)}\n")
-        cls.rc, cls.log = run(cls.work, "--db", DB, "-1", ",".join(os.path.join(cls.work, f"{n}_R1.fq") for n in cls.pairs),
+        os.makedirs(os.path.join(cls.work, "out"))
+        cls.rc, cls.log = run(os.path.join(cls.work, "out"), "--db", DB,
+                              "-1", ",".join(os.path.join(cls.work, f"{n}_R1.fq") for n in cls.pairs),
                               "-2", ",".join(os.path.join(cls.work, f"{n}_R2.fq") for n in cls.pairs),
-                              "--prefix", ",".join(cls.pairs), "-o", "out", "-t", "2", "--no_qcmsa", "--no_strains")
+                              "--prefix", ",".join(cls.pairs), "-t", "2", "--no_qcmsa", "--no_strains")
+
+    def test_outputs_in_the_current_folder(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        for name in self.pairs:
+            self.assertTrue(find_sams(self.path("out", f"{name}.sam")), name)
+            self.assertTrue(os.path.isfile(self.path("out", f"{name}.profile")), name)
+        self.assertTrue(os.path.isdir(self.path("out", "misc")))
 
     def primary(self, name):
         self.assertEqual(self.rc, 0, self.log[-3000:])
@@ -882,6 +892,88 @@ class MSAKnobTest(DbTest):
             self.assertLess(probability, 1)
             self.assertEqual(r["passes_msa_knob"], "yes")
         self.assertIn("are not reported, although their own reads are strong evidence", log)
+
+
+class CombiningRunsTest(DbTest):
+    """Strain MSAs over the SAMs of several runs (--profile_only, which loads no index): a pattern that protal expands,
+    the arguments an unquoted one becomes, and SAMs of the same name, named by their folders, all give the MSAs of the
+    same SAMs listed with --prefix; without -o the strain outputs go to the folder protal runs in. The baseline's sa and
+    sb are study1's samples, its thin is study2's sa."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        base = baseline()
+        cls.sams = {}
+        for study, sample, source in (("study1", "sa", "sa"), ("study1", "sb", "sb"), ("study2", "sa", "thin")):
+            folder = os.path.join(cls.work, study, "alignments")
+            os.makedirs(folder, exist_ok=True)
+            cls.sams[f"{study}_{sample}"] = shutil.copy(base.sam(source), os.path.join(folder, f"{sample}.sam.zst"))
+        cls.rc, cls.log = profile_only(cls.work, os.path.join(cls.work, "listed"), list(cls.sams.values()),
+                                       prefixes=list(cls.sams), strains=True)
+
+    def strain_files(self, folder):
+        """{file name: text} of the raw MSAs, partitions and meta tables in folder/strains."""
+        names = [os.path.basename(f) for pattern in ("*.raw.msa.fna", "*.raw.partition.txt", "*.meta.tsv")
+                 for f in glob.glob(self.path(folder, "strains", pattern))]
+        return {name: read_text(self.path(folder, "strains", name)) for name in names}
+
+    def test_the_listed_samples(self):
+        self.assertEqual(self.rc, 0, self.log[-3000:])
+        files = self.strain_files("listed")
+        self.assertTrue(any(name.endswith(".raw.msa.fna") for name in files))
+        for name, text in files.items():
+            if name.endswith(".raw.msa.fna"):
+                rows = [line[1:].strip() for line in text.splitlines() if line.startswith(">")]
+                self.assertIn("study1_sa", rows, name)
+                self.assertIn("study1_sb", rows, name)
+
+    def test_a_pattern_without_outdir(self):
+        # Two SAMs named sa: every sample is named by its study folder. Without -o the profiles go next to the SAMs and
+        # the strain outputs into the folder protal runs in.
+        os.makedirs(self.path("here"))
+        rc, log = run(self.path("here"), "--db", DB, "--profile_only", os.path.join(self.work, "study*", "alignments", "*.sam.zst"),
+                      "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("matches 3 SAM file(s)", log)
+        self.assertIn("named by the folders in which their paths differ: study1_sa", log)
+        self.assertEqual(self.strain_files("here"), self.strain_files("listed"))
+        self.assertTrue(os.path.isfile(self.path("study2", "alignments", "sa.profile")))
+
+    def test_an_unquoted_pattern(self):
+        # The shell expands it: the option takes the first SAM, the others are arguments (once ignored without a word).
+        rc, log = run(self.work, "--db", DB, "--profile_only", *self.sams.values(), "-o", "unquoted", "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertEqual(self.strain_files("unquoted"), self.strain_files("listed"))
+
+    def test_a_folder_per_sample(self):
+        for name in ("sa", "sb"):
+            os.makedirs(self.path("per_sample", name))
+            shutil.copy(self.sams[f"study1_{name}"], self.path("per_sample", name, "aln.sam.zst"))
+        rc, log = run(self.work, "--db", DB, "--profile_only", self.path("per_sample", "*", "aln.sam.zst"), "-o", "per_sample_out",
+                      "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 0, log[-3000:])
+        msas = glob.glob(self.path("per_sample_out", "strains", "*.raw.msa.fna"))
+        self.assertTrue(msas, log[-3000:])
+        for msa in msas:
+            rows = [line[1:].strip() for line in read_text(msa).splitlines() if line.startswith(">")]
+            self.assertEqual(rows[1:], ["sa", "sb"], msa)
+
+    def test_patterns_without_sams_stop_protal(self):
+        rc, log = run(self.work, "--db", DB, "--profile_only", "nothing/*.sam.zst,study1/alignments,study1/alignments/*.err",
+                      "-o", "nothing", "-t", "2", "--no_qcmsa")
+        self.assertNotIn(rc, (0, 1), log[-3000:])
+        self.assertIn("nothing/*.sam.zst matches no SAM file", log)
+        self.assertIn("study1/alignments is a folder", log)
+        self.assertIn("study1/alignments/*.err matches no SAM file", log)
+        self.assertFalse(os.path.exists(self.path("nothing", "strains", "species.tsv")))
+
+    def test_a_stray_argument_stops_an_alignment_run(self):
+        # -1 *_R1.fq unquoted would align the first file only.
+        rc, log = run(self.work, "--db", DB, "-1", os.path.join(READS, "sa_R1.fq"), os.path.join(READS, "sb_R1.fq"),
+                      "--prefix", "sa", "-o", "stray")
+        self.assertEqual(rc, 2, log[-3000:])
+        self.assertIn("unexpected argument(s): " + os.path.join(READS, "sb_R1.fq"), log)
 
 
 class LowCoverageAbundanceTest(DbTest):
@@ -1701,17 +1793,71 @@ class MapUtilsTest(DbTest):
         for row in rows:
             first = os.path.join(variables.get("#INPUT_DIR", self.work), row["FIRST"])
             self.assertEqual(os.path.realpath(first), os.path.realpath(self.path("reads", row["#SAMPLEID"] + "_R1.fq")))
-        self.assertEqual({row["SAM"] for row in rows}, {"sa.sam", "sb.sam"})  # as the maps name them
+        # The SAM sa's run wrote stays where it is, by its absolute path, so that a run of the merged map profiles it;
+        # sb has none yet, and keeps the name its map gives it, in the merged map's SAM folder.
+        sams = {row["#SAMPLEID"]: row["SAM"] for row in rows}
+        self.assertEqual(os.path.realpath(sams["sa"]), os.path.realpath(self.path("out", "aln", "sa.sam")))
+        self.assertEqual(sams["sb"], "sb.sam")
 
-        # With --use-sampleid merge names the SAMs itself; the ending chooses protal's output format.
-        for option, ending in ((None, ".sam.zst"), ("--zstd", ".sam.zst"), ("--gzip", ".sam.gz"), ("--nogzip", ".sam")):
-            rc, merged = run(self.work, "merge", "--map", maps["sa"], maps["sb"], "--use-sampleid",
-                             *([option] if option else []), binary=tool)
+        def merged_sams(*options):
+            rc, merged = run(self.work, "merge", "--map", maps["sa"], maps["sb"], *options, binary=tool)
             self.assertEqual(rc, 0, merged)
-            sams = [line.split("\t")[header.index("SAM")] for line in merged.splitlines() if line and not line.startswith("#")]
-            self.assertEqual(sorted(sams), ["sa" + ending, "sb" + ending], option)
+            return {line.split("\t")[0]: line.split("\t")[header.index("SAM")] for line in merged.splitlines()
+                    if line and not line.startswith("#")}
+
+        # With --use-sampleid merge names the new SAMs itself; the ending chooses protal's output format. --new-sams
+        # gives every sample a new one, as merge did up to 0.7.8.
+        for option, ending in ((None, ".sam.zst"), ("--zstd", ".sam.zst"), ("--gzip", ".sam.gz"), ("--nogzip", ".sam")):
+            formats = [option] if option else []
+            self.assertEqual(merged_sams("--use-sampleid", "--new-sams", *formats), {"sa": "sa" + ending, "sb": "sb" + ending}, option)
+            self.assertEqual(merged_sams("--use-sampleid", *formats)["sb"], "sb" + ending, option)
+        self.assertEqual(merged_sams("--new-sams"), {"sa": "sa.sam", "sb": "sb.sam"})
         rc, log = run(self.work, "merge", "--map", maps["sa"], maps["sb"], "--use-sampleid", "--nogzip", "--zstd", binary=tool)
         self.assertNotEqual(rc, 0, "one format only")
+
+        # Once sb has its SAM too, a run of the merged map aligns nothing: it profiles both runs' SAMs where they are.
+        with open(self.path("out", "aln", "sb.sam"), "w") as fh:
+            fh.write(sam_text(baseline().sam("sb")))
+        with open(self.path("merged.map"), "w") as fh:
+            fh.write(run(self.work, "merge", "--map", maps["sa"], maps["sb"], "--out", "merged", binary=tool)[1])
+        rc, log = run(self.work, "validate", "--map", self.path("merged.map"), binary=tool)
+        self.assertEqual(rc, 0, log)
+        rc, log = run(self.work, "--db", DB, "--map", self.path("merged.map"), "-t", "2", "--no_qcmsa", "--no_profile")
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertIn("All alignments are present", log)
+        self.assertFalse(os.path.exists(self.path("merged", "alignments", "sa.sam")))
+
+    def test_merging_single_end_maps(self):
+        # '-' as SECOND (single-end reads) stays '-', and a map without a SECOND column merges too.
+        tool = os.path.join(ROOT, "scripts", "protal_map_utils")
+        for name, header, row in (("a", "#SAMPLEID\tFIRST\tSECOND\tPREFIX", "x\treads/x.fq\t-\tx"),
+                                  ("b", "#SAMPLEID\tFIRST\tSECOND\tPREFIX", "y\treads/y.fq\t-\ty"),
+                                  ("c", "#SAMPLEID\tFIRST\tPREFIX", "x\treads/x.fq\tx"),
+                                  ("d", "#SAMPLEID\tFIRST\tPREFIX", "y\treads/y.fq\ty")):
+            with open(self.path(f"{name}.map"), "w") as fh:
+                fh.write(f"#OUTPUT_DIR\tout_{name}\n{header}\n{row}\n")
+        rc, merged = run(self.work, "merge", "--map", self.path("a.map"), self.path("b.map"), "--out", "m", binary=tool)
+        self.assertEqual(rc, 0, merged)
+        rows = [line.split("\t") for line in merged.splitlines() if line and not line.startswith("#")]
+        self.assertEqual([row[2] for row in rows], ["-", "-"], merged)
+        rc, merged = run(self.work, "merge", "--map", self.path("c.map"), self.path("d.map"), "--out", "m", binary=tool)
+        self.assertEqual(rc, 0, merged)
+
+    def test_sample_ids_that_cannot_name_files(self):
+        # #SAMPLEID names files (misc/<sample>_runtime.tsv) and MSA rows: every unsafe one is reported as the map is read.
+        sam = sam_path(baseline().path("sa.sam"))
+        ids = ["a/b", "c:d", "-e", "..", "f\x01g", "x" * 201, "fine"]
+        with open(self.path("bad.map"), "w", encoding="utf-8") as fh:
+            fh.write(f"#OUTPUT_DIR\tbad\n#SAMPLEID\tFIRST\tSECOND\tSAM\tPREFIX\n")
+            for i, sample_id in enumerate(ids, 1):
+                fh.write(f"{sample_id}\tgone_1.fq\tgone_2.fq\t{sam}\tp{i}\n")
+        rc, log = run(self.work, "--db", DB, "--map", self.path("bad.map"), "-t", "2", "--no_qcmsa")
+        self.assertEqual(rc, 9, log[-3000:])
+        for line, reason in ((3, "contains '/'"), (4, "contains ':'"), (5, "starts with '-'"), (6, "names a folder"),
+                             (7, "control character"), (8, "201 bytes long")):
+            self.assertIn(f"Line {line}: sample ID", log)
+            self.assertIn(reason, log)
+        self.assertNotIn("Line 9:", log)
 
 
 class RerunTest(DbTest):

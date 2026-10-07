@@ -1,0 +1,5 @@
+#OUTPUT_DIR	/home/falk/samcombine/work/comb_g
+#SAMPLEID	FIRST	SECOND	SAM	PREFIX
+sa	gone_R1.fq	gone_R2.fq	/home/falk/samcombine/work/run1/alignments/sa.sam.zst	sa
+sb	gone_R1.fq	gone_R2.fq	/home/falk/samcombine/work/run1/alignments/sb.sam.zst	sb
+sc	/home/falk/samcombine/work/reads/run2/sc_1.fq	/home/falk/samcombine/work/reads/run2/sc_2.fq	sc.sam.zst	sc

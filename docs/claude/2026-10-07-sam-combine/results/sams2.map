@@ -1,0 +1,5 @@
+#OUTPUT_DIR	/home/falk/samcombine/work/comb_map2
+#SAMPLEID	FIRST	SECOND	SAM	PREFIX
+study1_sa	-	-	/home/falk/samcombine/work/run1/alignments/sa.sam.zst	study1_sa
+study3_sa	-	-	/home/falk/samcombine/work/run3/alignments/sa.sam.zst	study3_sa
+study2_sc	-	-	/home/falk/samcombine/work/run2/alignments/sc.sam.zst	study2_sc

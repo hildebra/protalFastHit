@@ -1,0 +1,5 @@
+profile_only_one: what():  filesystem error: cannot create directories: Invalid argument []
+reads_one: what():  filesystem error: cannot create directories: Invalid argument []
+reads_two: what():  filesystem error: cannot create directories: Invalid argument []
+reads_two_no_strains: what():  filesystem error: cannot create directories: Invalid argument []
+reads_two_dot: no abort

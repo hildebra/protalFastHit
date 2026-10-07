@@ -16,6 +16,8 @@ MAP_PROFILE = "PROFILE"
 MAP_PROFILE_TRUTH = "PROFILE_TRUTH"
 MAP_HEADER_TO_SPECIES = "HEADER_TO_SPECIES"
 MAP_PREFIX = "PREFIX"
+MAP_NO_SECOND_READ = "-"  # SECOND of a single-end sample
+SAM_ENDINGS = (".sam.zst", ".sam.gz", ".sam")
 
 MAP_VAR_INPUT_DIR = "#INPUT_DIR"
 MAP_VAR_OUTPUT_DIR = "#OUTPUT_DIR"
@@ -125,6 +127,40 @@ def resolve_path(base: Optional[str], value: str, fallback_base: str) -> str:
     return os.path.abspath(os.path.join(use_base, value))
 
 
+def resolve_read(base: Optional[str], value: str, fallback_base: str) -> str:
+    """A read file's path as protal resolves it; '-' (no second file: single-end reads) stays as it is."""
+    return value if value == MAP_NO_SECOND_READ else resolve_path(base, value, fallback_base)
+
+
+def existing_sam(map_file: MapFile, row: List[str]) -> Optional[str]:
+    """The SAM file protal would profile for a row instead of aligning its reads (Options::LoadFromMap), if it exists:
+    the SAM column's file in #SAM_OUTPUT_DIR, or without the column <#OUTPUT_DIR>/<PREFIX> with any ending
+    --sam_format gives. A plain .sam that an earlier run left counts for its .sam.zst or .sam.gz, as in protal."""
+    sam_idx = find_col(map_file.header_cols, MAP_SAM)
+    if sam_idx is not None and sam_idx < len(row) and row[sam_idx]:
+        sam = resolve_path(sam_output_base(map_file), row[sam_idx], os.getcwd())
+        candidates = [sam]
+    else:
+        prefix_idx = find_col(map_file.header_cols, MAP_PREFIX)
+        if prefix_idx is None or prefix_idx >= len(row):
+            return None
+        prefix = resolve_path(output_base(map_file), row[prefix_idx], os.getcwd())
+        candidates = [prefix + ending for ending in SAM_ENDINGS]
+    for sam in candidates:
+        for name in (sam, uncompressed_sam_name(sam)):
+            if os.path.isfile(name):
+                return name
+    return None
+
+
+def uncompressed_sam_name(path: str) -> str:
+    """The name without its compression extension (.gz, .zst), as protal's UncompressedSamName."""
+    for ending in (".gz", ".zst"):
+        if path.endswith(ending):
+            return path[: -len(ending)]
+    return path
+
+
 def write_map(map_file: MapFile) -> None:
     for key, value in map_file.var_lines:
         sys.stdout.write(f"{key}\t{value}\n")
@@ -134,23 +170,26 @@ def write_map(map_file: MapFile) -> None:
 
 
 def validate_map(path: str) -> int:
+    """Whether the read files of every row exist; a row whose SAM exists needs none, as protal profiles the SAM."""
     map_file = parse_map(path)
     first_idx = find_col(map_file.header_cols, MAP_FIRST_READ)
-    second_idx = find_col(map_file.header_cols, MAP_SECOND_READ)
-    if first_idx is None or second_idx is None:
-        raise ValueError(
-            f"{path}: missing required columns {MAP_FIRST_READ} and {MAP_SECOND_READ}"
-        )
+    second_idx = find_col(map_file.header_cols, MAP_SECOND_READ)  # none: single-end samples only
+    if first_idx is None:
+        raise ValueError(f"{path}: missing required column {MAP_FIRST_READ}")
 
     base_dir = input_base(map_file)
     missing: List[str] = []
     for row_idx, row in enumerate(map_file.rows, start=1):
-        if first_idx >= len(row) or second_idx >= len(row):
-            missing.append(f"row {row_idx}: missing FIRST/SECOND value")
+        columns = [first_idx] + ([second_idx] if second_idx is not None else [])
+        if any(idx >= len(row) for idx in columns):
+            missing.append(f"row {row_idx}: missing {'/'.join(map_file.header_cols[i] for i in columns)} value")
             continue
-        for col_idx in (first_idx, second_idx):
-            value = row[col_idx]
-            resolved = resolve_path(base_dir, value, os.getcwd())
+        if existing_sam(map_file, row):
+            continue
+        for col_idx in columns:
+            if row[col_idx] == MAP_NO_SECOND_READ and col_idx == second_idx:
+                continue
+            resolved = resolve_path(base_dir, row[col_idx], os.getcwd())
             if not os.path.exists(resolved):
                 missing.append(f"row {row_idx}: {resolved}")
 
@@ -165,18 +204,16 @@ def validate_map(path: str) -> int:
 def flatten_map(path: str, output_dir_override: Optional[str]) -> None:
     map_file = parse_map(path)
     first_idx = find_col(map_file.header_cols, MAP_FIRST_READ)
-    second_idx = find_col(map_file.header_cols, MAP_SECOND_READ)
-    if first_idx is None or second_idx is None:
-        raise ValueError(
-            f"{path}: missing required columns {MAP_FIRST_READ} and {MAP_SECOND_READ}"
-        )
+    second_idx = find_col(map_file.header_cols, MAP_SECOND_READ)  # none: single-end samples only
+    if first_idx is None:
+        raise ValueError(f"{path}: missing required column {MAP_FIRST_READ}")
 
     base_dir = input_base(map_file)
     for row in map_file.rows:
         if first_idx < len(row):
-            row[first_idx] = resolve_path(base_dir, row[first_idx], os.getcwd())
-        if second_idx < len(row):
-            row[second_idx] = resolve_path(base_dir, row[second_idx], os.getcwd())
+            row[first_idx] = resolve_read(base_dir, row[first_idx], os.getcwd())
+        if second_idx is not None and second_idx < len(row):
+            row[second_idx] = resolve_read(base_dir, row[second_idx], os.getcwd())
 
     map_file.var_lines = [
         (k, v) for (k, v) in map_file.var_lines if k != MAP_VAR_INPUT_DIR
@@ -424,7 +461,11 @@ def merge_maps(
     output_dir_override: Optional[str],
     use_sampleid: bool,
     sam_suffix: str,
+    new_sams: bool = False,
 ) -> None:
+    """One map of the samples of several: a run of it writes its profiles, strain MSAs and misc files into one output
+    folder (--out, else the folder the maps' outputs share), and profiles the SAMs the runs wrote where they are
+    (absolute paths), so that it aligns only the samples without one; new_sams names a new SAM for every sample."""
     maps = [parse_map(p) for p in paths]
     header = maps[0].header_cols
     header_set = set(header)
@@ -433,16 +474,14 @@ def merge_maps(
             raise ValueError("All map files must use the same header columns (order may differ)")
 
     out_first_idx = find_col(header, MAP_FIRST_READ)
-    out_second_idx = find_col(header, MAP_SECOND_READ)
+    out_second_idx = find_col(header, MAP_SECOND_READ)  # none: single-end samples only
     out_prefix_idx = find_col(header, MAP_PREFIX)
     out_sam_idx = find_col(header, MAP_SAM)
     out_profile_idx = find_col(header, MAP_PROFILE)
     out_sampleid_idx = find_col(header, MAP_SAMPLEID)
 
-    if out_first_idx is None or out_second_idx is None or out_prefix_idx is None:
-        raise ValueError(
-            f"Missing required columns {MAP_FIRST_READ}, {MAP_SECOND_READ}, {MAP_PREFIX}"
-        )
+    if out_first_idx is None or out_prefix_idx is None:
+        raise ValueError(f"Missing required columns {MAP_FIRST_READ}, {MAP_PREFIX}")
     if use_sampleid and out_sampleid_idx is None:
         raise ValueError(f"Missing required column {MAP_SAMPLEID} for --use-sampleid")
 
@@ -450,6 +489,9 @@ def merge_maps(
     prefix_paths: List[str] = []
     sam_paths: List[str] = []
     profile_paths: List[str] = []
+    # Per merged row: the SAM its run wrote, which the merged map keeps (absolute) so that protal profiles it instead of
+    # aligning the reads again; None where there is none, or with new_sams.
+    kept_sams: List[Optional[str]] = []
 
     seen_sample_ids: Dict[str, str] = {}
     seen_files: Dict[str, str] = {}
@@ -471,9 +513,11 @@ def merge_maps(
                 if src_idx is not None and src_idx < len(row):
                     out_row[out_idx] = row[src_idx]
 
-            first_abs = resolve_path(base_dir, out_row[out_first_idx], fallback_base)
-            second_abs = resolve_path(base_dir, out_row[out_second_idx], fallback_base)
-            read_paths.extend([first_abs, second_abs])
+            kept_sams.append(None if new_sams else existing_sam(mp, row))
+
+            first_abs = resolve_read(base_dir, out_row[out_first_idx], fallback_base)
+            second_abs = resolve_read(base_dir, out_row[out_second_idx], fallback_base) if out_second_idx is not None else None
+            read_paths.extend(p for p in (first_abs, second_abs) if p and p != MAP_NO_SECOND_READ)
 
             prefix_abs = resolve_path(out_dir, out_row[out_prefix_idx], fallback_base)
             prefix_paths.append(prefix_abs)
@@ -486,7 +530,8 @@ def merge_maps(
                 profile_paths.append(profile_abs)
 
             out_row[out_first_idx] = first_abs
-            out_row[out_second_idx] = second_abs
+            if out_second_idx is not None:
+                out_row[out_second_idx] = second_abs
             out_row[out_prefix_idx] = prefix_abs
             if out_sam_idx is not None and out_sam_idx < len(out_row):
                 out_row[out_sam_idx] = sam_paths[-1] if sam_paths else out_row[out_sam_idx]
@@ -509,8 +554,9 @@ def merge_maps(
                 break
     if input_dir:
         for row in merged_rows:
-            row[out_first_idx] = strip_prefix(row[out_first_idx], input_dir)
-            row[out_second_idx] = strip_prefix(row[out_second_idx], input_dir)
+            for idx in (out_first_idx, out_second_idx):
+                if idx is not None and row[idx] != MAP_NO_SECOND_READ:
+                    row[idx] = strip_prefix(row[idx], input_dir)
     if output_dir:
         for row in merged_rows:
             row[out_prefix_idx] = normalize_prefix(row[out_prefix_idx], output_dir)
@@ -544,6 +590,20 @@ def merge_maps(
             if out_profile_idx is not None and out_profile_idx < len(row):
                 row[out_profile_idx] = f"{sample_id}.profile"
 
+    # The SAMs the runs wrote stay where they are, named by their absolute paths: protal profiles them and aligns only
+    # the samples without one. A map without a SAM column gets one if any SAM is kept; the other rows' SAMs are then
+    # named as protal names them, in the merged map's #SAM_OUTPUT_DIR.
+    if any(kept_sams):
+        if out_sam_idx is None:
+            header = header + [MAP_SAM]
+            out_sam_idx = len(header) - 1
+            for row in merged_rows:
+                name = row[out_sampleid_idx] if use_sampleid else os.path.basename(row[out_prefix_idx])
+                row.append(f"{name}{sam_suffix}")
+        for row, kept in zip(merged_rows, kept_sams):
+            if kept:
+                row[out_sam_idx] = os.path.abspath(kept)
+
     for idx, row in enumerate(merged_rows, start=1):
         sample_id = row[out_sampleid_idx] if out_sampleid_idx is not None else ""
         if sample_id:
@@ -562,7 +622,7 @@ def merge_maps(
             if col_idx is None or col_idx >= len(row):
                 continue
             value = row[col_idx]
-            if not value:
+            if not value or (col_name == MAP_SECOND_READ and value == MAP_NO_SECOND_READ):
                 continue
             if value in seen_files:
                 raise ValueError(
@@ -595,10 +655,19 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--out", default=None)
     generate.add_argument("--id-from-folder", action="store_true")
 
-    merge = sub.add_parser("merge")
-    merge.add_argument("--map", required=True, action="append", nargs="+")
-    merge.add_argument("--out")
-    merge.add_argument("--use-sampleid", action="store_true")
+    merge = sub.add_parser(
+        "merge",
+        help="one map of the samples of several maps, e.g. for strain MSAs over several runs",
+        description="Writes one map of the samples of several maps (to stdout). A run of it writes its profiles, strain "
+                    "MSAs and misc files into one output folder, and profiles the SAM files the maps' runs wrote where "
+                    "they are (named by absolute paths): only samples without a SAM are aligned.",
+    )
+    merge.add_argument("--map", required=True, action="append", nargs="+", help="the maps (two or more)")
+    merge.add_argument("--out", help="the merged map's #OUTPUT_DIR (default: the folder the maps' outputs share)")
+    merge.add_argument("--use-sampleid", action="store_true", help="name prefixes, profiles and new SAMs by #SAMPLEID")
+    merge.add_argument("--new-sams", action="store_true",
+                       help="give every sample a new SAM in the merged output folder, as merge did up to protal "
+                            "0.7.8: a run aligns them all again (e.g. against another database)")
 
     # SAM names: <sample>.sam.zst (zstd) by default, .sam.gz with --gzip, .sam with --nogzip.
     for command in (generate, merge):
@@ -632,7 +701,7 @@ def main() -> int:
             maps = [item for group in args.map for item in group]
             if len(maps) < 2:
                 raise ValueError("merge requires at least two --map arguments")
-            merge_maps(maps, args.out, args.use_sampleid, sam_suffix(args))
+            merge_maps(maps, args.out, args.use_sampleid, sam_suffix(args), args.new_sams)
             return 0
     except Exception as exc:
         sys.stderr.write(f"Error: {exc}\n")

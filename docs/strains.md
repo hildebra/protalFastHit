@@ -35,6 +35,44 @@ The first row, `<species>_reference`, is the database's genome of the species. `
 strain output folder lists the species of the run: taxid, samples admitted, and the raw and filtered
 MSA file names (`-` for none). Outputs of other species in the folder are an earlier run's.
 
+## Strain MSAs over several runs
+
+An MSA holds the samples of one protal run. To build MSAs over the samples of several runs (studies
+aligned apart, samples added later), profile their SAM files together: no read is aligned again and
+no index is loaded, and the MSAs are those of one run over all the reads (byte-identical in the
+[2026-10-07 check](claude/2026-10-07-sam-combine/README.md)). The SAMs must come from the same
+database; protal checks their `@SQ` genes against it.
+
+```bash
+protal --db DB -t 16 -o combined --profile_only 'studies/*/alignments/*.sam.zst'
+protal --db DB -t 16 -o combined --profile_only study1/alignments/a.sam.zst,study2/alignments/b.sam.zst
+```
+
+- **Patterns.** An item with `*`, `?` or `[...]` stands for the `.sam`, `.sam.gz` and `.sam.zst`
+  files it matches, sorted; a run's `.err`, profile and `.partial` files are passed over. Quoted,
+  protal expands it and says how many SAMs it matched; unquoted, the shell does, which works as
+  well. A pattern that matches no SAM, or a folder, stops protal before it starts.
+- **Sample names.** A sample is named after its SAM file (`a.sam.zst` is `a`). Where two files share a
+  name (a folder per sample, each with `aln.sam.zst`, or `sa.sam.zst` in two studies), every sample is
+  named by the folders in which the paths differ: `studies/S1/aln.sam.zst` and
+  `studies/S2/aln.sam.zst` are `S1` and `S2`, `p/study1/alignments/sa.sam.zst` and
+  `p/study2/alignments/sa.sam.zst` are `study1_sa` and `study2_sa`; protal notes it. `--prefix`
+  (one per SAM, in the order of the expanded list) names them otherwise.
+- **Outputs.** Each sample's profile is written again, into `-o`, with the MSAs in `-o/strains`.
+  Without `-o` the profiles go next to the SAMs and `strains/` and `misc/` into the current folder.
+  The `<sam>.err` file is always written next to its SAM.
+- **Maps.** `protal_map_utils merge --map run1.map run2.map --out combined > all.map` writes one
+  map of the runs' samples, in which every SAM a run wrote is named by its absolute path: `protal --map
+  all.map` profiles them where they are and aligns only the samples without one (`--new-sams` gives
+  every sample a new SAM, to align all of them again). A map written by hand works the same way: an
+  absolute path in its `SAM` column may point into any run's folder, and the read files of a sample
+  whose SAM exists need not exist (protal warns).
+
+Re-profiling costs a fraction of a run: at GTDB r226, profiling took 3.7 s of a 42 s paired-end run
+([report](claude/2026-10-06-performance-profiling/README.md)). Every sample's strain evidence (its
+reads on the species that enter MSAs) stays in memory until the MSAs are written, so the memory grows
+with the number of samples.
+
 ## Strains in long-read samples
 
 A PacBio or Nanopore sample whose reads show two or more strains of a species gets a row per strain,

@@ -140,6 +140,15 @@ namespace protal {
         }
     };
 
+    // Makes the folder `dir` and its parents; whether it is there. An empty path is the current folder: without -o the
+    // outputs go there (std::filesystem::create_directories throws on an empty path, which once aborted every such run).
+    static bool MakeFolder(std::filesystem::path const& dir) {
+        if (dir.empty()) return true;
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        return std::filesystem::is_directory(dir, ec);
+    }
+
     // Alignments are written under a temporary name ("<sam>.partial", compressed already as the name
     // asks; SamOutput) and only get their final name once complete, so an interrupted run never leaves
     // a truncated SAM that a rerun would skip and reuse. This moves a finished file into place.
@@ -526,12 +535,10 @@ namespace protal {
                 auto [sam, compressed] = options.SamFile(index);
                 auto [sam_plain, _] = options.SamFile(index, true);
 
-                auto dir = std::filesystem::path(sam).parent_path();
-
-                if (!std::filesystem::create_directories(dir.string()) && !std::filesystem::exists(dir)) {
+                if (!MakeFolder(std::filesystem::path(sam).parent_path())) {
                     std::cout << "Cannot create directories for this path " << sam << std::endl;
                     exit(32);
-                };
+                }
 
 
                 // std::cout << index << " Process sample " << options.GetSampleId(index) << (std::filesystem::exists(sam) ? " (sam exists)" : " (sam does not exist)") << std::endl;
@@ -1125,13 +1132,12 @@ namespace protal {
                 std::cout << "Write profile to: \n" << options.ProfileFile(i) << std::endl;
             }
             {
-                auto dir = std::filesystem::path(options.ProfileFile(i)).parent_path();
+                bool made;
 #pragma omp critical(create_dir)
-                if (!std::filesystem::exists(dir)) {
-                    if (!std::filesystem::create_directories(dir.string())) {
-                        std::cerr << "Cannot create directories for path " << options.ProfileFile(i) << std::endl;
-                        exit(2);
-                    }
+                made = MakeFolder(std::filesystem::path(options.ProfileFile(i)).parent_path());
+                if (!made) {
+                    std::cerr << "Cannot create directories for path " << options.ProfileFile(i) << std::endl;
+                    exit(2);
                 }
             }
 
@@ -2550,12 +2556,12 @@ namespace protal {
         Benchmark bm_msa{ "Building the strain MSAs" };
         Benchmark bm_qcmsa{ "qcMSA" };
         size_t species = 0, raw_msas = 0, filtered_msas = 0;
-        std::cout << "Output " << options.GetOutputDir() << std::endl;
-        auto dir = std::filesystem::path(options.GetOutputDir());
-        if (!std::filesystem::create_directories(dir.string()) && !std::filesystem::exists(dir)) {
-            std::cout << "Cannot create directories for this path " << dir << std::endl;
+        // The folder the MSAs go to (made at the start of the run as well; -o may be the current folder, "").
+        std::cout << "Strain outputs: " << options.GetStrainOutputDir() << std::endl;
+        if (!MakeFolder(options.GetStrainOutputDir())) {
+            std::cout << "Cannot create directories for this path " << options.GetStrainOutputDir() << std::endl;
             exit(2);
-        };
+        }
 
         auto taxids = msa_taxids.empty() ? ExtractTaxa(profiles, filter) : msa_taxids;
 

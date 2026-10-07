@@ -1,0 +1,122 @@
+== three studies, each run on its own; and sa..sd in one joint run
+run1: exit 0
+run2: exit 0
+run3: exit 0
+joint: exit 0
+    s__Fakibacter_gamma: s__Fakibacter_gamma_reference sa sb sc sd 
+    s__Mockella_alpha: s__Mockella_alpha_reference sa sb sc sd 
+    s__Mockella_beta: s__Mockella_beta_reference sa sb sc sd 
+    run1/alignments: sa.sam.zst sa.sam.zst.err sb.sam.zst sb.sam.zst.err 
+== A. --profile_only of run1's and run2's SAMs (a shell glob joined with commas), -o comb_po
+A_profile_only: exit 0
+    s__Fakibacter_gamma: s__Fakibacter_gamma_reference sa sb sc sd 
+    s__Mockella_alpha: s__Mockella_alpha_reference sa sb sc sd 
+    s__Mockella_beta: s__Mockella_beta_reference sa sb sc sd 
+    9 strain files of joint/strains against comb_po/strains: 0 differ
+    run1/alignments/sa.sam.zst.err rewritten by A: 2026-10-07 09:34:04
+    A2. the joint run's own SAMs, --profile_only:
+A2_profile_only_joint: exit 0
+    9 strain files of joint/strains against comb_po_joint/strains: 0 differ
+    A3. A again into the same -o: rows of comb_po/misc/sa_runtime.tsv before: 9
+A3_profile_only_again: exit 0
+    after: 17
+== B. --profile_only without -o (run in an empty folder B)
+B_no_outdir: exit 134
+          1   what():  filesystem error: cannot create directories: Invalid argument []
+          1 All alignments are present.
+          1 terminate called after throwing an instance of 'std::filesystem::__cxx11::filesystem_error'
+    B/: misc strains    B/strains: 0 files
+    new in run1/alignments: sa.profile sa.profile.gene.log sa.profile.genes.log sa.profile.log 
+    | Output 
+    | terminate called after throwing an instance of 'std::filesystem::__cxx11::filesystem_error'
+    |   what():  filesystem error: cannot create directories: Invalid argument []
+== C. two studies' samples of the same name (run1/alignments/sa and run3/alignments/sa), -o comb_c
+C_same_name: exit 30
+          1 Error: samples 1 and 2 share the sample ID 'sa', so their strain MSA rows would be confused; give each its own (#SAMPLEID in a map) or pass --no_strains
+          1 Error: samples 1 and 2 would both use the profile file comb_c/sa.profile; give each sample its own prefix (--prefix, or PREFIX in a map)
+C_same_name_prefix: exit 0
+    s__Fakibacter_gamma: s__Fakibacter_gamma_reference run1_sa run3_sa sc 
+    s__Mockella_alpha: s__Mockella_alpha_reference run1_sa run3_sa sc 
+    s__Mockella_beta: s__Mockella_beta_reference run1_sa run3_sa sc 
+== D. a folder, and a glob protal would have to expand itself
+D_folder: exit 35
+    | run1/alignments does not end with .sam, .sam.gz or .sam.zst
+D_glob: exit 30
+          1 Error: --profile_only sam file does not exist: run*/alignments/*.sam.zst
+== E. protal_map_utils merge of run1.map and run2.map
+    merge: exit 0
+    | #INPUT_DIR	/home/falk/samcombine/work/reads
+    | #OUTPUT_DIR	/home/falk/samcombine/work/comb_merge
+    | #SAM_OUTPUT_DIR	alignments
+    | #PROFILE_OUTPUT_DIR	profiles
+    | #STRAIN_OUTPUT_DIR	strains
+    | #MISC_OUTPUT_DIR	misc
+    | #SAMPLEID	FIRST	SECOND	SAM	PROFILE	PREFIX
+    | sa	run1/sa_1.fq	run1/sa_2.fq	sa.sam.zst	sa.profile	sa
+    | sb	run1/sb_1.fq	run1/sb_2.fq	sb.sam.zst	sb.profile	sb
+    | sc	run2/sc_1.fq	run2/sc_2.fq	sc.sam.zst	sc.profile	sc
+    | sd	run2/sd_1.fq	run2/sd_2.fq	sd.sam.zst	sd.profile	sd
+E_merge: exit 0
+    'All alignments are present': 0; index loaded: 1
+    comb_merge/alignments: sa.sam.zst sa.sam.zst.err sb.sam.zst sb.sam.zst.err sc.sam.zst sc.sam.zst.err sd.sam.zst sd.sam.zst.err 
+    9 strain files of joint/strains against comb_merge/strains: 0 differ
+    merge without --out: exit 0
+    | #INPUT_DIR	/home/falk/samcombine/work/reads
+    | #OUTPUT_DIR	/home/falk/samcombine/work
+    | #SAM_OUTPUT_DIR	alignments
+    | #PROFILE_OUTPUT_DIR	profiles
+    | #STRAIN_OUTPUT_DIR	strains
+    | #MISC_OUTPUT_DIR	misc
+    | #SAMPLEID	FIRST	SECOND	SAM	PROFILE	PREFIX
+    | sa	run1/sa_1.fq	run1/sa_2.fq	sa.sam.zst	sa.profile	run1/sa
+    | sb	run1/sb_1.fq	run1/sb_2.fq	sb.sam.zst	sb.profile	run1/sb
+    | sc	run2/sc_1.fq	run2/sc_2.fq	sc.sam.zst	sc.profile	run2/sc
+    | sd	run2/sd_1.fq	run2/sd_2.fq	sd.sam.zst	sd.profile	run2/sd
+E_merge_without_reads: exit 30
+          1 Error: -1 file does not exist: /home/falk/samcombine/work/reads/run1/sa_1.fq
+          1 Error: -1 file does not exist: /home/falk/samcombine/work/reads/run1/sb_1.fq
+          1 Error: -1 file does not exist: /home/falk/samcombine/work/reads/run2/sc_1.fq
+          1 Error: -1 file does not exist: /home/falk/samcombine/work/reads/run2/sd_1.fq
+          1 Error: -2 file does not exist: /home/falk/samcombine/work/reads/run1/sa_2.fq
+          1 Error: -2 file does not exist: /home/falk/samcombine/work/reads/run1/sb_2.fq
+== F. a map of the SAMs (absolute SAM paths, read files that are gone), #OUTPUT_DIR comb_map
+F_map_of_sams: exit 0
+          1 All alignments are present.
+          4 Warning: -1 file does not exist: gone_R1.fq ( But .sam file does )
+          4 Warning: -2 file does not exist: gone_R2.fq ( But .sam file does )
+    9 strain files of joint/strains against comb_map/strains: 0 differ
+    F2. with run3's sa as study3_sa (#SAMPLEID and PREFIX), the same file name as run1's sa
+F2_map_same_names: exit 0
+          1 All alignments are present.
+          3 Warning: -1 file does not exist: - ( But .sam file does )
+          1 Warning: /home/falk/samcombine/work/run1/alignments/sa.sam.zst holds paired-end reads (its header says), so they are profiled as such, not as single-end reads; --force aligns them again
+          1 Warning: /home/falk/samcombine/work/run2/alignments/sc.sam.zst holds paired-end reads (its header says), so they are profiled as such, not as single-end reads; --force aligns them again
+          1 Warning: /home/falk/samcombine/work/run3/alignments/sa.sam.zst holds paired-end reads (its header says), so they are profiled as such, not as single-end reads; --force aligns them again
+    s__Fakibacter_gamma: s__Fakibacter_gamma_reference study1_sa study3_sa study2_sc 
+    s__Mockella_alpha: s__Mockella_alpha_reference study1_sa study3_sa study2_sc 
+    s__Mockella_beta: s__Mockella_beta_reference study1_sa study3_sa study2_sc 
+== G. a map of two existing SAMs and one new sample's reads
+G_add_a_sample: exit 0
+          1 Skip /home/falk/samcombine/work/run1/alignments/sa.sam.zst continue
+          1 Skip /home/falk/samcombine/work/run1/alignments/sb.sam.zst continue
+          2 Warning: -1 file does not exist: gone_R1.fq ( But .sam file does )
+          2 Warning: -2 file does not exist: gone_R2.fq ( But .sam file does )
+    s__Fakibacter_gamma: s__Fakibacter_gamma_reference sa sb sc 
+    s__Mockella_alpha: s__Mockella_alpha_reference sa sb sc 
+    s__Mockella_beta: s__Mockella_beta_reference sa sb sc 
+== H. SAMs in a read-only folder (run2/alignments), --profile_only -o comb_h
+H_read_only: exit 0
+          1 All alignments are present.
+    .err files in run2/alignments: 0; comb_h: misc sc.profile sc.profile.gene.log sc.profile.genes.log sc.profile.log sd.profile sd.profile.gene.log sd.profile.genes.log sd.profile.log strains 
+== L. --map with --profile_only (run1.map)
+L_map_and_profile_only: exit 0
+          1 All alignments are present.
+          1 Warning: profile only selected but first list is not empty. List is cleared
+          1 Warning: profile only selected but second list is not empty. List is cleared
+== N. protal_map_utils generate: the sample IDs of common read file names (empty files)
+    x_R1.fq x_R2.fq -> x_R 
+    x_1.fq x_2.fq -> x 
+    x.R1.fastq.gz x.R2.fastq.gz -> x.R 
+    x_S1_L001_R1_001.fastq.gz x_S1_L001_R2_001.fastq.gz -> x_S1_L001_R1_001 
+    x_1.fq.zst x_2.fq.zst -> Error: No read files found in input directories 
+done

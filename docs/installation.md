@@ -118,7 +118,7 @@ This rebuilds first and installs the same layout as the conda package:
 | `protal` | the build |
 | `simulate_metagenomes` | the simulator |
 | `qcmsa` | `scripts/qcmsa.py`, the strain MSA post-filter |
-| `protal_map_utils` | `scripts/protal_map_utils`: `generate` a map from read folders, `merge` or `flatten` maps, `validate` one |
+| `protal_map_utils` | `scripts/protal_map_utils`: `generate` a map from read folders, `merge` maps (keeping the SAMs their runs wrote, for strain MSAs over several runs) or `flatten` them, `validate` one |
 | `protal_profile_utils` | `scripts/protal_profile_utils`: merge profiles into one abundance table (see the [website](https://protal.earlham.ac.uk/main.php?site=documentation#species-profiles)) |
 
 The conda package also installs the database build and training scripts under
