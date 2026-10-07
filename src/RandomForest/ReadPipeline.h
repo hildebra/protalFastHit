@@ -13,9 +13,9 @@
 // round that need it; a thread that would wait for another's load of a genome loads a later genome of the round instead
 // (the files are the same). Genomes are read whole and parsed in bulk, or taken from a genome store (GenomeStore.h).
 // Outputs that are named pipes (FIFOs) are streamed: one sample at a time, in the samples' order,
-// the outputs opened in their order (R1 before R2) and written in place, the pieces of R1 and R2 one after the other
-// (each a few hundred kB of FASTQ at most), so that a reader taking R1 and R2 in step (protal) never waits on one
-// while the other is full; with plain_pipes, as plain FASTQ (protal takes it as it is).
+// the outputs opened in their order (R1 before R2) and written in place (unbuffered), the pieces of R1 and R2 one
+// after the other (each a few hundred kB of FASTQ at most), so that a reader taking R1 and R2 in step (protal) never
+// waits on one while the other is full; with plain_pipes, as plain FASTQ (protal takes it as it is).
 
 #include <cstdint>
 #include <filesystem>
@@ -148,6 +148,9 @@ namespace pipeline {
 
     // The job's samples on options.threads threads; their totals in the samples' order. Throws on any failure (a genome
     // that cannot be read, a file that cannot be written); the samples written by then stay, the others leave no file.
+    // A named pipe open at the failure ends, after all that was written to it, with what no reader takes for the end of
+    // a sample (a cut zstd frame or gzip member, or a FASTQ record without its sequence); it waits for its reader to
+    // make room for that (a minute at most).
     std::vector<Totals> Run(Job& job, RunOptions const& options);
 
 }  // namespace pipeline

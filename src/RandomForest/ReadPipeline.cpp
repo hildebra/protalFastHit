@@ -23,6 +23,7 @@
 #include <utility>
 
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -409,12 +410,18 @@ public:
         m_cap = std::max<std::size_t>(4, 3 * static_cast<std::size_t>(m_threads));
     }
 
-    // A file still open here belongs to a failed run: a regular one is removed, a named pipe is cut off (Poison).
+    // A file still open here belongs to a failed run: a regular one is removed, the named pipes are cut off (Poison).
     ~Engine() {
+        std::vector<Output*> pipes;
+        for (auto& s : m_streams) {
+            for (auto& out : s.outputs) {
+                if (out.file && out.fifo) pipes.push_back(&out);
+            }
+        }
+        Poison(pipes);
         for (auto& s : m_streams) {
             for (auto& out : s.outputs) {
                 if (!out.file) continue;
-                if (out.fifo) Poison(out);
                 std::fclose(out.file);
                 if (!out.fifo) {
                     std::error_code ec;
@@ -424,23 +431,63 @@ public:
         }
     }
 
-    // Ends a failed run's named pipe with what no reader takes for the end of a sample, as the pieces before it are
+    // How long a failed run waits for its pipes to take their markers (Poison).
+    static constexpr std::chrono::seconds kPoisonWait{60};
+
+    // Ends a failed run's named pipes with what no reader takes for the end of a sample, as the pieces before it are
     // whole zstd frames, gzip members or FASTQ records: the start of a zstd frame or a gzip member, or a FASTQ record
-    // without its sequence (protal fails the sample on each: "truncated file?"). Written without blocking, so that a
-    // reader waiting on the pair's other pipe cannot hold the run up; it then finds that pipe's.
-    static void Poison(Output& out) {
+    // without its sequence (protal fails the sample on each: "truncated file?"). The pipes are unbuffered (Open), so
+    // every piece written is in them, and the marker comes after it: a full pipe takes it once its reader has read on.
+    // The pipes are written together, each as it has room, so that a reader waiting on one of a pair (R1 and R2 in
+    // step) is not held up by the other's. A pipe whose reader is gone, or that has no room within kPoisonWait, is
+    // closed without one.
+    static void Poison(std::vector<Output*> const& pipes) {
         static constexpr unsigned char kZstd[] = {0x28, 0xb5, 0x2f, 0xfd, 0x24};  // magic and a frame header cut short
         static constexpr unsigned char kGzip[] = {0x1f, 0x8b, 0x08, 0x00};        // a member header cut short
         static constexpr char kFastq[] = "@simulate_metagenomes_failed\n";
-        int const fd = ::fileno(out.file);
-        int const flags = ::fcntl(fd, F_GETFL);
-        if (flags >= 0) ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-        std::fflush(out.file);  // what stdio holds of the last piece, if the pipe takes it
-        void const* bytes = out.packing == Packing::Zstd ? static_cast<void const*>(kZstd)
-                            : out.packing == Packing::Bgzf ? static_cast<void const*>(kGzip) : static_cast<void const*>(kFastq);
-        std::size_t const size = out.packing == Packing::Zstd ? sizeof(kZstd)
-                                 : out.packing == Packing::Bgzf ? sizeof(kGzip) : sizeof(kFastq) - 1;
-        [[maybe_unused]] ssize_t const written = ::write(fd, bytes, size);
+        struct Marker {
+            int fd;
+            char const* bytes;
+            std::size_t size;
+        };
+        std::vector<Marker> left;
+        for (Output const* out : pipes) {
+            int const fd = ::fileno(out->file);
+            int const flags = ::fcntl(fd, F_GETFL);
+            if (flags < 0 || ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) continue;
+            if (out->packing == Packing::Zstd) {
+                left.push_back({fd, reinterpret_cast<char const*>(kZstd), sizeof(kZstd)});
+            } else if (out->packing == Packing::Bgzf) {
+                left.push_back({fd, reinterpret_cast<char const*>(kGzip), sizeof(kGzip)});
+            } else {
+                left.push_back({fd, kFastq, sizeof(kFastq) - 1});
+            }
+        }
+        auto const until = std::chrono::steady_clock::now() + kPoisonWait;
+        while (!left.empty()) {
+            auto const wait = std::chrono::duration_cast<std::chrono::milliseconds>(until - std::chrono::steady_clock::now());
+            if (wait.count() <= 0) break;
+            std::vector<pollfd> polled;
+            for (auto const& m : left) polled.push_back({m.fd, POLLOUT, 0});
+            int const ready = ::poll(polled.data(), polled.size(), static_cast<int>(wait.count()));
+            if (ready < 0 && errno == EINTR) continue;
+            if (ready <= 0) break;
+            std::vector<Marker> still;
+            for (std::size_t k = 0; k < left.size(); ++k) {
+                Marker m = left[k];
+                if (polled[k].revents & (POLLERR | POLLHUP | POLLNVAL)) continue;  // no reader any more
+                if (polled[k].revents & POLLOUT) {
+                    ssize_t const n = ::write(m.fd, m.bytes, m.size);
+                    if (n < 0 && errno != EAGAIN && errno != EINTR) continue;
+                    if (n > 0) {
+                        m.bytes += n;
+                        m.size -= static_cast<std::size_t>(n);
+                    }
+                }
+                if (m.size > 0) still.push_back(m);
+            }
+            left = std::move(still);
+        }
     }
 
     std::vector<Totals> Run() {
@@ -589,6 +636,9 @@ private:
                 if (!out.fifo && !out.path.parent_path().empty()) fs::create_directories(out.path.parent_path());
                 out.file = std::fopen(out.written.c_str(), "wb");
                 if (!out.file) throw std::runtime_error("cannot write " + out.written.string() + ": " + std::strerror(errno));
+                // a pipe unbuffered: a piece is in it once written, none of it held back in stdio (for the reader of
+                // the pair's other pipe, and for a failed run's marker, which comes after it: Poison)
+                if (out.fifo) std::setvbuf(out.file, nullptr, _IONBF, 0);
             } catch (...) {
                 error = std::current_exception();
                 break;

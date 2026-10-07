@@ -5,9 +5,13 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
+#include <condition_variable>
+#include <cstring>
 #include <future>
 #include <map>
+#include <mutex>
 #include <random>
 #include <set>
 #include <sstream>
@@ -15,7 +19,10 @@
 #include <thread>
 #include <vector>
 
+#include <fcntl.h>
+#include <poll.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "IO/ThreadedGzStream.h"
 #include "RandomForest/GenomeStore.h"
@@ -61,6 +68,96 @@ IlluminaSetup MakeSetup(std::string const& profile, int length, double fragment 
     setup.fragment_mean = fragment;
     setup.fragment_sd = 50;
     return setup;
+}
+
+// Named pipes, each read to its end on a thread of its own; Hold returns once none of them reads any more (a reader
+// comes back between reads, every 10 ms at least), Release lets them read on.
+class PipeReaders {
+public:
+    explicit PipeReaders(std::vector<std::filesystem::path> const& paths) : m_bytes(paths.size()) {
+        for (std::size_t k = 0; k < paths.size(); ++k) m_threads.emplace_back([this, k, path = paths[k]] { Read(k, path); });
+    }
+    ~PipeReaders() {
+        Release();
+        for (auto& thread : m_threads) {
+            if (thread.joinable()) thread.join();
+        }
+    }
+    void Hold() {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_hold = true;
+        m_cv.wait(lock, [&] { return m_held + m_done == m_threads.size(); });
+    }
+    void Release() {
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_hold = false;
+        }
+        m_cv.notify_all();
+    }
+    // Each pipe's bytes, once every writer has closed it.
+    std::vector<std::string> Join() {
+        for (auto& thread : m_threads) thread.join();
+        return m_bytes;
+    }
+
+private:
+    void Read(std::size_t k, std::filesystem::path const& path) {
+        int const fd = ::open(path.c_str(), O_RDONLY);  // once a writer opens it
+        std::vector<char> buffer(1 << 16);
+        for (bool more = fd >= 0; more;) {
+            {
+                std::unique_lock<std::mutex> lock(m_mutex);
+                if (m_hold) {
+                    ++m_held;
+                    m_cv.notify_all();
+                    m_cv.wait(lock, [&] { return !m_hold; });
+                    --m_held;
+                }
+            }
+            pollfd ready{fd, POLLIN, 0};
+            if (::poll(&ready, 1, 10) <= 0) continue;
+            ssize_t const n = ::read(fd, buffer.data(), buffer.size());
+            if (n > 0) m_bytes[k].append(buffer.data(), static_cast<std::size_t>(n));
+            more = n > 0 || (n < 0 && errno == EINTR);
+        }
+        if (fd >= 0) ::close(fd);
+        std::lock_guard<std::mutex> lock(m_mutex);
+        ++m_done;
+        m_cv.notify_all();
+    }
+
+    std::vector<std::string> m_bytes;
+    std::mutex m_mutex;
+    std::condition_variable m_cv;
+    bool m_hold = false;
+    std::size_t m_held = 0, m_done = 0;
+    std::vector<std::thread> m_threads;
+};
+
+// Fills a named pipe that a reader holds open to the last byte, as another writer (without blocking): whole pages while
+// it has free ones, then single bytes. -> the bytes written ('#'), none if it was full already.
+std::size_t FillPipe(std::filesystem::path const& path) {
+    int const fd = ::open(path.c_str(), O_WRONLY | O_NONBLOCK);
+    EXPECT_GE(fd, 0) << path << ": " << std::strerror(errno);
+    if (fd < 0) return 0;
+    std::string const page(4096, '#');
+    std::size_t filled = 0;
+    for (std::size_t const size : {page.size(), std::size_t{1}}) {
+        for (ssize_t n; (n = ::write(fd, page.data(), size)) > 0;) filled += static_cast<std::size_t>(n);
+    }
+    ::close(fd);
+    return filled;
+}
+
+// A named pipe opened for writing once a reader has opened it (a minute at most), or -1.
+int OpenOnceRead(std::filesystem::path const& path) {
+    auto const until = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    for (;;) {
+        int const fd = ::open(path.c_str(), O_WRONLY | O_NONBLOCK);
+        if (fd >= 0 || errno != ENXIO || std::chrono::steady_clock::now() > until) return fd;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 }
 
 }  // namespace
@@ -260,12 +357,17 @@ TEST(IlluminaSimulation, ReplayFromManifestsMakesTheSameReads) {
     }
 }
 
-// A run that fails while it streams into named pipes ends them with what no reader takes for the end of a sample: a
-// cut zstd frame (or gzip member), or a FASTQ record without its sequence (plain pipes).
+// A run that fails while it streams into named pipes ends them, after all it wrote, with what no reader takes for the
+// end of a sample: a cut zstd frame (or gzip member), or a FASTQ record without its sequence (plain pipes). Here with
+// the pipes full and their readers held when the run fails: the failing genome is a named pipe too, which the run opens
+// once GA's pairs are written; the test then holds the readers, fills the pipes up (as another writer) and closes the
+// genome's pipe empty. The markers have to wait for the readers to read on.
 TEST(IlluminaSimulation, AFailedStreamIsCutOff) {
     ScratchDir dir("failed stream");
     std::mt19937 gen(41);
     auto const ga = dir.Write("GA.fna", ">a\n" + protal::test::RandomSequence(20000, gen) + "\n");
+    auto const gone = dir.path / "gone.fna";
+    ASSERT_EQ(::mkfifo(gone.c_str(), 0600), 0);
     PairedOptions options;
     options.setup = MakeSetup("NovaSeq", 150);
     options.threads = 1;
@@ -273,25 +375,35 @@ TEST(IlluminaSimulation, AFailedStreamIsCutOff) {
         auto const out = dir.path / (plain ? "plain" : "zstd");
         std::filesystem::create_directories(out);
         std::vector<PairedSample> samples(1);
-        // GA's pairs are written, then the missing genome fails the run
-        samples[0] = {"s", out / "s_R1.fq.zst", out / "s_R2.fq.zst", {{"GA", ga, 4000, 1}, {"GONE", dir.path / "gone.fna", 100, 2}}};
+        // GA's pairs are written, then GONE, without a sequence, fails the run
+        samples[0] = {"s", out / "s_R1.fq.zst", out / "s_R2.fq.zst", {{"GA", ga, 4000, 1}, {"GONE", gone, 100, 2}}};
         ASSERT_EQ(::mkfifo(samples[0].r1.c_str(), 0600), 0);
         ASSERT_EQ(::mkfifo(samples[0].r2.c_str(), 0600), 0);
-        auto drain = [](std::filesystem::path path) {
-            return std::async(std::launch::async, [path] { return protal::test::Slurp(path); });
-        };
-        auto r1 = drain(samples[0].r1), r2 = drain(samples[0].r2);
+        PipeReaders readers({samples[0].r1, samples[0].r2});
+        auto filled = std::async(std::launch::async, [&] {
+            int const fd = OpenOnceRead(gone);  // the run reads GONE: GA's pairs are written
+            readers.Hold();
+            std::vector<std::size_t> padding{FillPipe(samples[0].r1), FillPipe(samples[0].r2)};
+            if (fd >= 0) ::close(fd);  // the run fails, its pipes full
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));  // time for a writer to give up on them
+            readers.Release();
+            return padding;
+        });
         options.plain_pipes = plain;
         EXPECT_THROW(SimulatePairs(samples, options), std::runtime_error);
-        ASSERT_EQ(r1.wait_for(std::chrono::seconds(60)), std::future_status::ready);
-        ASSERT_EQ(r2.wait_for(std::chrono::seconds(60)), std::future_status::ready);
-        for (std::string const bytes : {r1.get(), r2.get()}) {
-            ASSERT_GT(bytes.size(), 1000u) << "GA's pairs came through";
-            auto const kept = dir.Write(plain ? "kept.fq" : "kept.fq.zst", bytes);
-            if (plain) {
-                EXPECT_TRUE(bytes.ends_with("@simulate_metagenomes_failed\n"));
-            } else {
-                EXPECT_THROW(ReadWholeFile(kept), std::runtime_error) << "a cut zstd frame";
+        ASSERT_EQ(filled.wait_for(std::chrono::seconds(60)), std::future_status::ready);
+        auto const padding = filled.get();
+        auto const got = readers.Join();
+        std::string const marker = plain ? std::string("@simulate_metagenomes_failed\n")
+                                         : std::string{'\x28', '\xb5', '\x2f', '\xfd', '\x24'};
+        for (std::size_t r = 0; r < 2; ++r) {
+            std::string const tail = std::string(padding[r], '#') + marker;
+            ASSERT_TRUE(got[r].ends_with(tail)) << r << ": the marker, after all that was in the pipe";
+            std::string const pairs = got[r].substr(0, got[r].size() - tail.size());  // written before the failure
+            std::string const text = plain ? pairs : ReadWholeFile(dir.Write("pairs.fq.zst", pairs));
+            EXPECT_EQ(std::count(text.begin(), text.end(), '\n'), 4 * 4000) << r << ": all of GA's pairs";
+            if (!plain) {
+                EXPECT_THROW(ReadWholeFile(dir.Write("cut.fq.zst", pairs + marker)), std::runtime_error) << "a cut zstd frame";
             }
         }
     }
