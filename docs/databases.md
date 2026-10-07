@@ -114,7 +114,7 @@ database while `--add_model` replaces its models.
 - **Genes** are held at two bits per base. `N` is stored as `A`, an IUPAC code as the first base it
   stands for (A C G T order), so alignments, SNP and MSA reference rows show the stored base. `--build`
   leaves k-mers with an ambiguous base out of the index. A SAM of an older protal with an `M` against
-  such a base is set aside (`<sam>.err`).
+  such a base is set aside (`misc/<sample>.err`).
 - **The index** is held packed: each value takes the bits the database needs, its taxon and gene as
   one number (41 instead of 64 at r226: 26.6 GB instead of 35 GB), by a run and, since 2026-10-05, by
   `--build` too. The files are unchanged.

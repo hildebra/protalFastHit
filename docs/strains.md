@@ -62,7 +62,8 @@ protal --db DB -t 16 -o combined --profile_only 'studies/*/alignments/*.sam.zst'
 - **Outputs.** Each sample's profile is written again, into `-o`, with the MSAs in `-o/strains`.
   Without `-o` the profiles go next to the SAMs and `strains/` and `misc/` into the current folder.
   protal stops before it starts where that would overwrite an earlier run's profiles or strain list
-  (`species.tsv`); `--force` writes them again. The `<sam>.err` file is always written next to its SAM.
+  (`species.tsv`); `--force` writes them again. Nothing is written next to the SAMs with `-o` (records
+  that do not fit the database go to `misc/<sample>.err`).
 - **Maps.** `protal_map_utils merge --map run1.map run2.map --out combined > all.map` writes one
   map of the runs' samples, in which every SAM a run wrote is named by its absolute path: `protal --map
   all.map` profiles them where they are and aligns only the samples without one (`--new-sams` gives

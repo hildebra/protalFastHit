@@ -2643,9 +2643,30 @@ class SamInputTest(DbTest):
 
     def test_header_only_sam_gets_an_empty_profile(self):
         sam = self.write_sam("header_only", self.header)
+        # A sample without records that do not fit gets no misc/<sample>.err, and an earlier run's is removed.
+        os.makedirs(self.path("out_header_only.sam", "misc"))
+        with open(self.path("out_header_only.sam", "misc", "header_only.err"), "w") as fh:
+            fh.write("an earlier run's\n")
         rc, log = self.profile_only(sam)
         self.assertEqual(rc, 0, log[-3000:])
         self.assertEqual(read_text(self.path("out_header_only.sam", "header_only.profile")), "")
+        self.assertFalse(os.path.exists(self.path("out_header_only.sam", "misc", "header_only.err")))
+
+    def test_records_that_do_not_fit_go_to_misc(self):
+        # A record whose bases differ from its gene under an M (a SAM aligned against another database) is left out and
+        # listed in misc/<sample>.err of the run, not beside the SAM, which may be in another run's or a read-only folder.
+        i = next(k for k, r in enumerate(self.records)
+                 if not int(r.split("\t")[1]) & 0x4 and re.match(r"\d+M", r.split("\t")[5]) and r.split("\t")[9][0] in "ACGT")
+        fields = self.records[i].split("\t")
+        fields[9] = ("C" if fields[9][0] != "C" else "G") + fields[9][1:]
+        sam = self.write_sam("misfit", self.header + self.records[:i] + ["\t".join(fields)] + self.records[i + 1:])
+        rc, log = self.profile_only(sam)
+        self.assertEqual(rc, 0, log[-3000:])
+        err = self.path("out_misfit.sam", "misc", "misfit.err")
+        self.assertIn("reads have an alignment that does not fit the database", log)
+        self.assertIn("listed in " + err, log)
+        self.assertIn(fields[0], read_text(err))
+        self.assertFalse(os.path.exists(sam + ".err"))
 
     def test_unreadable_sam_fails_only_its_sample(self):
         good = self.write_sam("good", self.header + self.records)

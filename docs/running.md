@@ -48,9 +48,10 @@ what it leaves out. `protal --help` lists the common options, `protal --full_hel
   ([strains.md](strains.md#strain-msas-over-several-runs)).
 - The SAM header (`@SQ`) lists the genes that the alignments name, not every gene of the database
   (the full r226 database has millions); `--full_sam_header` lists every gene, as protal did before.
-- `<sam>.err` lists the reads whose alignment does not fit the database (a gene it lacks, a
-  position past a gene's end, bases that differ from the gene). They are left out of the
-  profile, and protal warns with their number.
+- `misc/<sample>.err` lists the reads whose alignment does not fit the database (a gene it lacks, a
+  position past a gene's end, bases that differ from the gene), as SAM records. They are left out of
+  the profile, and protal warns with their number; a sample without any gets no file. Up to 0.7.8 it
+  was `<sam>.err`, next to the SAM, which `--profile_only` may read from another run's folder.
 - `misc/` also receives `P_seedsizes_histogram.tsv`, `P_anchorsizes_histogram.tsv` and
   `P_runtime.tsv`, diagnostics of the seeding and alignment stages. `P_runtime.tsv` has one row
   per stage (reading, k-mers, seeding and its steps, alignment and its k-mer screen, output): the seconds spent in it

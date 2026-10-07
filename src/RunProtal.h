@@ -1044,7 +1044,8 @@ namespace protal {
                 }
             }
 
-            std::ofstream erro(sam + ".err", std::ios::out);
+            // The records whose alignment does not fit the database, for misc/<sample>.err (below).
+            std::ostringstream rejected_records;
             bm_profile.Start();
 
             // Samples are read in parallel: a SAM is streamed, not held in memory, so only the
@@ -1059,13 +1060,29 @@ namespace protal {
             profile.SetDropForeignGenes(options.DropForeignGenes());
             // A long-read sample's strains get strain MSA rows of their own (Haplotypes.h).
             profile.SetKeepPhaseRecords(!options.NoStrains() && options.Phasing() && IsLongReadType(read_type));
-            std::string sam_error = profiler.ProfileSam(sam, profile, std::optional<std::reference_wrapper<std::ostream>>{erro},
+            std::string sam_error = profiler.ProfileSam(sam, profile, std::optional<std::reference_wrapper<std::ostream>>{rejected_records},
                                                         options.GetSNPMinCov(), options.GetSNPMinCov(),
                                                         options.GetSNPMinAF(read_type), options.GetSNPMinMeanQual(),
                                                         options.GetSNPMinPhredSum(), options.GetSNPRequireStrand(),
                                                         threads_per_sample);
-            erro.close();
             bm_profile.Stop();
+            // misc/<sample>.err: the records whose alignment does not fit the database, in the run's own folder (it was
+            // <sam>.err, next to a SAM that may be another run's, or in a folder protal cannot write to); a sample without
+            // any gets none, and an earlier run's is removed.
+            auto const rejected_file = std::filesystem::path(options.GetMiscOutputDir()) / (sample_name + ".err");
+            {
+                std::string const records = rejected_records.str();
+                std::ostringstream().swap(rejected_records);
+                std::error_code ec;
+                if (records.empty()) {
+                    std::filesystem::remove(rejected_file, ec);
+                } else {
+                    std::ofstream os(rejected_file, std::ios::out | std::ios::trunc);
+                    os << records;
+                    os.close();
+                    if (os.fail()) RunStatus::Get().Fail("Writing the rejected records of sample " + sample_name + " failed: " + rejected_file.string());
+                }
+            }
 
             // A SAM without alignments still gets its (empty) profile files, so that every sample
             // has output; only an unreadable SAM is a failure.
@@ -1123,7 +1140,7 @@ namespace protal {
                 std::cerr << "Warning: sample " << sample_name << ": " << profiler.RejectedReads() << " of " << profiler.Reads()
                           << " reads have an alignment that does not fit the database (a gene it lacks, a position past "
                              "a gene's end, or bases that differ from the gene); they are left out and listed in "
-                          << sam << ".err" << std::endl;
+                          << rejected_file.string() << std::endl;
             }
             if (size_t const suspect = profile.SuspectRecords(); suspect > 0) {
                 #pragma omp critical(print)

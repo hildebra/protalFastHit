@@ -324,3 +324,17 @@ dropped evidence refused, an unwritable file keeps it in memory, the file remove
 `PhasingTest.test_spilled_evidence_gives_the_same_rows` (long-read samples with strain rows: MSAs,
 partitions, meta and haplotypes tables identical, through spilled phase records). Unit 406 passed (2
 skipped), e2e 138 passed.
+
+## Follow-up 4: the rejected records in misc/ (2026-10-07)
+
+On `d5ffc20`. Finding 3: the records whose alignment does not fit the database went to `<sam>.err`,
+next to the input SAM: combining runs rewrote other runs' files, and a read-only folder got none
+without a warning. They now go to `misc/<sample>.err` of the run (`ProfileSample` collects them and
+writes the file only if there are any; a sample without any gets none, and an earlier run's is removed).
+With `-o`, `--profile_only` writes nothing next to the SAMs any more.
+
+Tests: e2e `SamInputTest.test_records_that_do_not_fit_go_to_misc` (an `M` over a changed base: the
+warning names `misc/misfit.err`, which holds the record; no `.err` beside the SAM) and
+`test_header_only_sam_gets_an_empty_profile` (no file, an earlier run's removed). Checked at idle CPU
+priority on one core (`scripts/idle_check.sh`: `ninja protal`, the `SamInputTest` and
+`CombiningRunsTest` classes), as the machine's cores were needed elsewhere; the full suites were not run.
