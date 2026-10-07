@@ -4,82 +4,120 @@
 just test          # C++ unit tests (GoogleTest)
 just e2e           # builds the mini database, then the end-to-end tests against it
 just example       # mini database + reads from a known mock community: is the profile right?
-just mini-db-test  # Python tests: the mini database scripts, the GTDB build pipeline, in-silico strains, tracing
-just model-test    # the presence model's PMML export scores as scikit-learn does
+just mini-db-test  # Python tests: the mini database scripts, the GTDB build pipeline, in-silico strains, tracing, ...
+just model-test    # the trainer, and its model's PMML export scores as scikit-learn does
 ```
 
 The unit tests need GoogleTest (`libgtest-dev` on Ubuntu). The Python tests need numpy
-(`python3-numpy`), and `model-test` also pandas and scikit-learn, as training does. Build
-requirements are in [installation.md](installation.md#building-from-source).
+(`python3-numpy`), `model-test` and the GTDB build test also pandas, joblib and scikit-learn, as
+training does, and several tests `art_illumina` (`art-nextgen-simulation-tools`) and the `zstd` CLI.
+Build requirements are in [installation.md](installation.md#building-from-source).
 
 ## Unit tests
 
-`tests/test_*.cpp` cover SNP calling, the SAM round trip, index building and lookup, the index
-column codec, zstd and the single-file database, the binary gene table, input validation, parsing,
-strain output, the alignment screen, exact sums, and that a SAM's profile is the same on any number
-of threads and in any order of its reads (`test_ProfileThreads.cpp`). They build as one binary:
+`tests/test_*.cpp`, one file per unit (the file's first lines say what it covers), build as one
+binary, `protal_tests`: about 400 tests, 10 seconds on 4 cores. Most compare protal's code with an
+independent oracle: libzstd and zlib-ng's readers, WFA2 alignments, brute-force definitions (syncmers,
+flex neighbours, the alignment screen), the text tables against the binary gene table, serial against
+parallel profiling. Their seeds are fixed. The helpers they share are in `tests/TestUtil.h` (scratch
+directories, files, random and mutated sequences), `tests/TestReference.h` (taxa of genes written as
+`reference.fna` and `reference.map`, and loaded) and `tests/TestSamSink.h`.
+`tests/data/golden_model_rules.tsv` holds golden vectors of the rules protal and the trainer both
+implement (the prior adjusted to a sample, the calls at a share of false calls, the knob by the
+sample's depth): `test_GoldenModelRules.cpp` checks protal on them, `scripts/test_model_pmml.py` the
+trainer.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON
 cmake --build build --target protal_tests
-ctest --test-dir build --output-on-failure
+ctest --test-dir build --output-on-failure -j4
 ```
 
 Under AddressSanitizer and UndefinedBehaviorSanitizer, as CI runs them (a Debug build, so `assert()`
-is on):
+is on, about 3 minutes on 4 cores). `-DPROTAL_NO_CLONES` compiles the hot functions once, for plain
+x86-64 (`src/Utilities/TargetClones.h`), so that this run tests the copies a CPU without AVX2 runs;
+the Release build on a machine with AVX2 runs the others:
 
 ```bash
 FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
 cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPROTAL_BUILD_TESTS=ON \
-  -DCMAKE_CXX_FLAGS="$FLAGS" -DCMAKE_C_FLAGS="$FLAGS" -DCMAKE_EXE_LINKER_FLAGS="$FLAGS"
+  -DCMAKE_CXX_FLAGS="$FLAGS -DPROTAL_NO_CLONES" -DCMAKE_C_FLAGS="$FLAGS" -DCMAKE_EXE_LINKER_FLAGS="$FLAGS"
 cmake --build build-asan --target protal_tests
-ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ctest --test-dir build-asan --output-on-failure
+ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ctest --test-dir build-asan --output-on-failure -j4
 ```
+
+Benchmarks are not unit tests: the flex-cell scan's is
+[`docs/claude/2026-10-06-performance-profiling/scripts/flex_scan_bench.cpp`](claude/2026-10-06-performance-profiling/scripts/flex_scan_bench.cpp).
 
 WFA2-lib is built without UBSan (`lib/wfa2-lib.cmake`): its unaligned loads and shifts of negative
 offsets would stop every test that aligns. zlib-ng is built with both sanitizers.
 
 ## End-to-end tests
 
-`tests/e2e/test_protal_e2e.py` simulates reads from a database's reference genes and runs the real
-`protal` and `simulate_metagenomes`: exit codes, output files, SAM records, strain MSAs, reruns and
-failure reporting, for paired-end and single-end reads. Point it at any database (a
-`database.protal`, its folder, or separate files):
+`tests/e2e/test_protal_e2e.py` simulates reads from the mini database's reference genes and runs the
+real `protal` and `simulate_metagenomes`: exit codes, output files, SAM records, strain MSAs, reruns,
+failures reported and kept to their sample, a profile's truth counts and abundances, an empty profile
+for reads of nothing in the database, every default feature group the model may use, and a small
+gradient-boosted model (`tests/e2e/data/model_gbm_small.xml`) scored end to end against probabilities
+computed by hand. It covers paired-end, single-end, PacBio and ONT reads and phasing.
+
+The tests are written for the mini database (`just mini-db`): they name its species, taxids and
+genes, so another database fails them. They need Linux, numpy, the `zstd` CLI (or Python 3.14) and
+`art_illumina`, and take about 1.5 minutes on 4 cores, 3.5 GB of memory and 3-4 GB of `/tmp`:
 
 ```bash
 PROTAL_TEST_DB=data/mini_db/protal_db PROTAL=build/protal SIMULATE=build/simulate_metagenomes \
-    python3 -m unittest -v tests/e2e/test_protal_e2e.py
+    PROTAL_TESTS_REQUIRED=1 python3 -m unittest -v tests/e2e/test_protal_e2e.py
 ```
 
-The tests need the `zstd` CLI (or Python 3.14) to read `.sam.zst` outputs.
+A test whose prerequisite is missing (the database, a binary, the `zstd` CLI, `art_illumina`) is
+skipped; `PROTAL_TESTS_REQUIRED=1` makes it an error instead, as CI runs them. The tests that need no
+database (the version, the simulator, qcmsa's contract, small builds, gene neighbours) run without
+`PROTAL_TEST_DB`.
 
-**The GTDB build pipeline.** `scripts/mini_db/test_mini_db.py` also runs `build_gtdb_database.py` end
-to end (`GtdbBuildTest`, a few minutes) when `$PROTAL` and `$SIMULATE` name the binaries,
-`art_illumina` is on `$PATH`, and `$PROTAL_TRAIN_PYTHON` (default: the Python running the tests) has
-scikit-learn. On a synthetic release of 60 species, downloaded from a fake GTDB server and a fake
-NCBI, it covers:
-- a build trained for pe and se, and a rerun that skips the conversion and both builds;
-- another seed that rebuilds only the training database;
-- a background build that fails and stops the run;
-- `SIGTERM`, after which no command is left running;
-- a reduced database (`--n-genes`, then `--genes`) with a gene archaea have;
-- `build_gtdb_releases.py` with its summary;
-- the default scenarios, made small by a `--scenario-file` of their names (one with 90% host reads
-  from a random host genome at one depth, the others' samples at depths of their own, soil scaled
-  down to the genome table), with Illumina reads at a target
-  quality and Ultima reads, their hold-in and hold-out samples scored in every report and in
-  `summary.txt`, the feature sets the trainers chose and why, the reads behind each model's errors
-  in every sample (`model_logs/error_reads/`, from SAMs with the non-hits), and the host scenario
-  left out without a host genome. The other build tests pass `--scenarios none`: the presets have
-  real depths;
-- the same scenario build with its samples profiled as they are simulated (`--profile-blocks` of a
-  few kB, the reads removed once profiled): the same tables as the one protal run of the build before
-  (`--profile-blocks 0`), and a rerun with nothing to profile.
+## Script tests
+
+`scripts/mini_db/test_*.py` test the mini database scripts (`test_mini_db.py`), the GTDB downloads
+(`test_downloads.py`), the training data collector and its scenarios (`test_collector.py`), the gene
+neighbours (`test_gene_neighbours.py`), the build script's parts (`test_gtdb_build.py`) and the GTDB
+build end to end (`test_gtdb_pipeline.py`); `scripts/test_*.py` the trainer and the model's PMML
+export (`test_model_pmml.py`), the in-silico strains, `trace_relatives.py`, `error_reads.py`, the
+profile scripts and the strain test scripts. A test whose prerequisite is missing is skipped;
+`PROTAL_TESTS_REQUIRED=1` makes it fail instead (`scripts/prerequisites.py`). With everything present
+they run in about 4 minutes on 4 cores, the GTDB build 3 of them:
 
 ```bash
-PROTAL=build/protal SIMULATE=build/simulate_metagenomes PROTAL_TRAIN_PYTHON=~/protal-train/bin/python \
-    python3 -m unittest -v scripts.mini_db.test_mini_db.GtdbBuildTest
+PROTAL=$PWD/build/protal SIMULATE=$PWD/build/simulate_metagenomes PROTAL_TESTS_REQUIRED=1 \
+    python3 -m unittest scripts/mini_db/test_*.py
+python3 -m unittest scripts/test_insilico_strains.py scripts/test_trace_relatives.py scripts/test_error_reads.py \
+    scripts/test_profile_scripts.py scripts/test_strain_scripts.py scripts/test_model_pmml.py
 ```
+
+**The GTDB build end to end** (`test_gtdb_pipeline.py`, `GtdbBuildTest`) needs `$PROTAL`, `$SIMULATE`,
+`art_illumina`, and scikit-learn, joblib and pandas in `$PROTAL_TRAIN_PYTHON` (default: the Python
+running the tests). On a synthetic release of 60 species, downloaded from stand-ins of GTDB's mirror
+and NCBI, each build serves every check of what it does:
+- a build trained for pe and se with its genes ranked from the training database (`--rank-genes`),
+  and a rerun that builds nothing;
+- a reduced database of the 3 best genes (`--n-genes`) ranked from a full build of the training
+  database, the same ranking as `--rank-genes`'s, its models with the relatives features and calls at
+  a target share of false calls;
+- a reduced database ranked by a given table (`--gene-ranking`) whose background build fails, which
+  stops the run;
+- another seed, which rebuilds only the training database, and `SIGTERM`, after which no command is
+  left running;
+- the default scenarios, made small by a `--scenario-file` of their names (one with 90% host reads,
+  soil scaled down to the genome table), with Illumina reads at a target quality and Ultima reads,
+  their hold-in and hold-out samples scored in every report and in `summary.txt`, the feature sets the
+  trainers chose and why, the reads behind each model's errors (`model_logs/error_reads/`), and the
+  host scenario left out without a host genome. The other builds pass `--scenarios none` and
+  `--error-reads none`;
+- the full build's samples profiled as they are simulated (`--profile-blocks` of a few kB): the same
+  tables.
+
+`build_gtdb_releases.py` is tested with a stand-in of the build script (`test_gtdb_build.py`).
+The trainer's tests fit on one thread (`OMP_NUM_THREADS=1`): on every core of a busy machine,
+gradient boosting made `test_model_pmml.py` take 20 minutes (scikit-learn 1.9.1).
 
 ## Mini databases
 
@@ -188,10 +226,13 @@ manifest replays that sample. Manifests without seeds replay the composition wit
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request (Ubuntu 24.04, `python3` with
-`python3-numpy`): a Release build with the unit tests, the mini database tests and the in-silico
-strain and trace tests; and the unit tests of a Debug build under ASan and UBSan. The end-to-end
-tests, `GtdbBuildTest` and `just example` are not part of CI; run them before a merge.
+`.github/workflows/ci.yml` runs on every push and pull request (Ubuntu 24.04; `python3` with numpy,
+pandas, scikit-learn and joblib from the distribution; `art_illumina`; the `zstd` CLI), with
+`PROTAL_TESTS_REQUIRED=1`, so that a test whose prerequisite is missing fails instead of passing unseen
+as a skip:
+- a Release build with the unit tests, the mini database, the end-to-end tests, `just example`'s
+  accuracy check, the script tests including the GTDB build end to end, and the trainer's tests;
+- the unit tests of a Debug build under ASan and UBSan, with `-DPROTAL_NO_CLONES`.
 
 ## Strain test harness
 

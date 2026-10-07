@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+# A test whose prerequisite is missing (a binary, the database, scikit-learn, art_illumina, ...) fails here instead of
+# being skipped: a test that should run cannot pass unseen.
+env:
+  PROTAL_TESTS_REQUIRED: 1
+
 jobs:
   build-and-test:
     runs-on: ubuntu-24.04
@@ -13,7 +18,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev libzstd-dev libisal-dev zstd python3 python3-numpy
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev libzstd-dev libisal-dev zstd \
+            python3 python3-numpy python3-pandas python3-sklearn python3-joblib art-nextgen-simulation-tools
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON
@@ -22,13 +28,33 @@ jobs:
         run: cmake --build build --target protal simulate_metagenomes protal_tests
 
       - name: Unit tests
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -j4
 
-      - name: Mini database generator tests
-        run: python3 -m unittest -v scripts/mini_db/test_mini_db.py
+      - name: Mini database
+        run: PROTAL=build/protal bash scripts/mini_db/build_mini_db.sh data/mini_db
 
-      - name: In-silico strain and trace tests
-        run: python3 -m unittest -v scripts/test_insilico_strains.py scripts/test_trace_relatives.py scripts/test_error_reads.py
+      - name: End-to-end tests
+        env:
+          PROTAL_TEST_DB: ${{ github.workspace }}/data/mini_db/protal_db
+          PROTAL: ${{ github.workspace }}/build/protal
+          SIMULATE: ${{ github.workspace }}/build/simulate_metagenomes
+        run: python3 -m unittest -v tests/e2e/test_protal_e2e.py
+
+      - name: Accuracy on a mock community
+        run: PROTAL=build/protal THREADS=4 bash examples/mini_db/run.sh "$RUNNER_TEMP/mini_db_example"
+
+      # The mini database scripts, the GTDB downloads, collector and scenarios, the build script, and the GTDB build end
+      # to end (test_gtdb_pipeline.py, about 3 minutes; two protal builds of 3.5 GB each at most at once).
+      - name: Mini database and GTDB build tests
+        env:
+          PROTAL: ${{ github.workspace }}/build/protal
+          SIMULATE: ${{ github.workspace }}/build/simulate_metagenomes
+        run: python3 -m unittest -v scripts/mini_db/test_*.py
+
+      - name: Script, trainer and model export tests
+        run: |
+          python3 -m unittest -v scripts/test_insilico_strains.py scripts/test_trace_relatives.py scripts/test_error_reads.py \
+            scripts/test_profile_scripts.py scripts/test_strain_scripts.py scripts/test_model_pmml.py
 
   sanitizers:
     runs-on: ubuntu-24.04
@@ -40,12 +66,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev libzstd-dev libisal-dev
 
-      # Debug: asserts on. ASan + UBSan with leak checking.
+      # Debug: asserts on. ASan + UBSan with leak checking. PROTAL_NO_CLONES compiles the hot functions once, for plain
+      # x86-64 (src/Utilities/TargetClones.h): the copies a CPU without AVX2 runs, which the Release job on a runner with
+      # AVX2 never does.
       - name: Configure
         run: |
           FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPROTAL_BUILD_TESTS=ON \
-            -DCMAKE_CXX_FLAGS="$FLAGS" -DCMAKE_C_FLAGS="$FLAGS" -DCMAKE_EXE_LINKER_FLAGS="$FLAGS"
+            -DCMAKE_CXX_FLAGS="$FLAGS -DPROTAL_NO_CLONES" -DCMAKE_C_FLAGS="$FLAGS" -DCMAKE_EXE_LINKER_FLAGS="$FLAGS"
 
       - name: Build
         run: cmake --build build-asan --target protal_tests
@@ -54,4 +82,4 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ctest --test-dir build-asan --output-on-failure
+        run: ctest --test-dir build-asan --output-on-failure -j4

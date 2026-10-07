@@ -201,14 +201,21 @@ mini_db_dir := "data/mini_db"
 mini-db: baseline
     PROTAL={{protal}} bash scripts/mini_db/build_mini_db.sh {{mini_db_dir}}
 
-# Unit checks of the mini DB generator/converter (no protal binary needed; numpy for the long reads and the
-# build script), of the in-silico strains and of trace_relatives.py.
+# Checks of the scripts: the mini DB generator and converter, the GTDB downloads, the collector and scenarios, the
+# gene neighbours, the GTDB build script (scripts/mini_db/test_*.py), the in-silico strains, trace_relatives.py,
+# error_reads.py, the profile scripts and the strain test's reports. Needs numpy; art_illumina, git, cmake and the zstd
+# CLI for a few tests. The GTDB build end to end (test_gtdb_pipeline.py, a few minutes) and protal's builds of gene
+# subsets run with PROTAL and SIMULATE set (e.g. PROTAL=$PWD/build/protal SIMULATE=$PWD/build/simulate_metagenomes
+# just mini-db-test) and a Python with scikit-learn (PROTAL_TRAIN_PYTHON, default python3). A test whose prerequisite
+# is missing is skipped; PROTAL_TESTS_REQUIRED=1 makes it fail instead (scripts/prerequisites.py).
 mini-db-test:
-    python3 -m unittest scripts/mini_db/test_mini_db.py
-    python3 -m unittest scripts/test_insilico_strains.py scripts/test_trace_relatives.py
+    python3 -m unittest scripts/mini_db/test_*.py
+    python3 -m unittest scripts/test_insilico_strains.py scripts/test_trace_relatives.py scripts/test_error_reads.py \
+        scripts/test_profile_scripts.py scripts/test_strain_scripts.py
 
-# Checks that the presence model's PMML export scores as scikit-learn does (needs numpy, pandas,
-# scikit-learn; no Java).
+# Checks that the presence model's PMML export scores as scikit-learn does, of the trainer and of the rules it shares
+# with protal (tests/data/golden_model_rules.tsv); needs numpy, pandas, joblib and scikit-learn (skipped without them,
+# failed with PROTAL_TESTS_REQUIRED=1), no Java. A few minutes, on one thread.
 model-test:
     python3 -m unittest -v scripts/test_model_pmml.py
 
@@ -218,14 +225,16 @@ test:
     cmake --build {{build_dir}} --target protal_tests -- -j$(nproc)
     ctest --test-dir {{build_dir}} --output-on-failure
 
-# End-to-end tests of protal and simulate_metagenomes on a freshly built mini DB.
+# End-to-end tests of protal and simulate_metagenomes on a freshly built mini DB (tests/e2e/test_protal_e2e.py; about
+# 1.5 minutes on 4 cores). Needs Linux, numpy, the zstd CLI and art_illumina. A test whose prerequisite is missing is
+# skipped; PROTAL_TESTS_REQUIRED=1 makes it fail instead.
 e2e: mini-db simulate
     PROTAL_TEST_DB={{mini_db_dir}}/protal_db PROTAL={{protal}} SIMULATE={{build_dir}}/simulate_metagenomes \
         python3 -m unittest -v tests/e2e/test_protal_e2e.py
 
 # Profiling accuracy on the mini DB: build it (reused while unchanged), simulate reads
-# from a known mock community, profile them and check against the truth.
-# See examples/mini_db/README.md.
+# from a known mock community, profile them and check against the truth (exit 1 if a
+# check fails; about 20 s with the build). See examples/mini_db/README.md.
 example: baseline
     PROTAL={{protal}} bash examples/mini_db/run.sh
 
