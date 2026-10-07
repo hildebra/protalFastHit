@@ -1,0 +1,36 @@
+
+######## pe (knob 0.82)
+design: 309 samples, 304 FP of 270 taxa (1 sample 243, 2: 23, 3+: 4); FP in taxa that recur: 20.1%; FP rate of an absent row: 0.0049, if the taxon was FP in another sample: 0.1576, else 0.0040; absent rows near a novel species: 68.5%
+soil: 9 samples, 781 FP of 412 taxa (1 sample 255, 2: 67, 3+: 90); FP in taxa that recur: 67.3%; FP rate of an absent row: 0.0034, if the taxon was FP in another sample: 0.2101, else 0.0011; absent rows near a novel species: 94.9%
+soil_shallow: 9 samples, 1442 FP of 991 taxa (1 sample 734, 2: 151, 3+: 106); FP in taxa that recur: 49.1%; FP rate of an absent row: 0.0134, if the taxon was FP in another sample: 0.1876, else 0.0071; absent rows near a novel species: 96.0%
+gut: 9 samples, 4 FP of 4 taxa (1 sample 4, 2: 0, 3+: 0); FP in taxa that recur: 0.0%; FP rate of an absent row: 0.0001, if the taxon was FP in another sample: 0.0000, else 0.0001; absent rows near a novel species: 19.6%
+soil: called taxa seen absent in the design's samples: 32.3%; AUC of the design-sample propensity for FP among the called: FP rate 0.525, mean score 0.728; veto above 0.202 (chosen on hold-in): hold-out F1 0.9646 (FP 214, FN 597) -> 0.9654 (FP 170, FN 619)
+soil_shallow: called taxa seen absent in the design's samples: 32.7%; AUC of the design-sample propensity for FP among the called: FP rate 0.462, mean score 0.649; veto above 0.202 (chosen on hold-in): hold-out F1 0.9408 (FP 516, FN 785) -> 0.9424 (FP 457, FN 803)
+soil hold-in -> hold-out: called hold-out taxa FP in a hold-in sample: 1.4%; AUC of the hold-in FP rate for FP among the called 0.788; veto if FP in >= 1/3 of its hold-in absent rows: F1 0.9646 -> 0.9680 (FP 214 -> 106, FN 597 -> 621)
+soil_shallow hold-in -> hold-out: called hold-out taxa FP in a hold-in sample: 2.4%; AUC of the hold-in FP rate for FP among the called 0.677; veto if FP in >= 1/3 of its hold-in absent rows: F1 0.9408 -> 0.9438 (FP 516 -> 366, FN 785 -> 856)
+
+######## se (knob 0.73)
+design: 309 samples, 415 FP of 382 taxa (1 sample 355, 2: 22, 3+: 5); FP in taxa that recur: 14.5%; FP rate of an absent row: 0.0081, if the taxon was FP in another sample: 0.1230, else 0.0070; absent rows near a novel species: 69.0%
+soil: 9 samples, 910 FP of 473 taxa (1 sample 282, 2: 93, 3+: 98); FP in taxa that recur: 69.0%; FP rate of an absent row: 0.0056, if the taxon was FP in another sample: 0.2202, else 0.0018; absent rows near a novel species: 95.3%
+soil: called taxa seen absent in the design's samples: 29.4%; AUC of the design-sample propensity for FP among the called: FP rate 0.547, mean score 0.697; veto above 0.1694 (chosen on hold-in): hold-out F1 0.9645 (FP 270, FN 547) -> 0.9659 (FP 196, FN 583)
+soil hold-in -> hold-out: called hold-out taxa FP in a hold-in sample: 1.8%; AUC of the hold-in FP rate for FP among the called 0.810; veto if FP in >= 1/3 of its hold-in absent rows: F1 0.9645 -> 0.9685 (FP 270 -> 147, FN 547 -> 573)
+
+######## pb (knob 0.5)
+design: 185 samples, 181 FP of 177 taxa (1 sample 173, 2: 4, 3+: 0); FP in taxa that recur: 4.4%; FP rate of an absent row: 0.0376, if the taxon was FP in another sample: 0.2105, else 0.0362; absent rows near a novel species: 73.1%
+soil: 9 samples, 1249 FP of 845 taxa (1 sample 608, 2: 145, 3+: 92); FP in taxa that recur: 51.3%; FP rate of an absent row: 0.0245, if the taxon was FP in another sample: 0.2271, else 0.0126; absent rows near a novel species: 97.1%
+soil_shallow: 9 samples, 975 FP of 712 taxa (1 sample 534, 2: 117, 3+: 61); FP in taxa that recur: 45.2%; FP rate of an absent row: 0.0419, if the taxon was FP in another sample: 0.2526, else 0.0248; absent rows near a novel species: 97.8%
+gut: 9 samples, 28 FP of 28 taxa (1 sample 28, 2: 0, 3+: 0); FP in taxa that recur: 0.0%; FP rate of an absent row: 0.0076, if the taxon was FP in another sample: 0.0000, else 0.0076; absent rows near a novel species: 18.2%
+soil: called taxa seen absent in the design's samples: 4.3%; AUC of the design-sample propensity for FP among the called: FP rate 0.497, mean score 0.554; veto above 0.3584 (chosen on hold-in): hold-out F1 0.9577 (FP 326, FN 578) -> 0.9578 (FP 323, FN 578)
+soil_shallow: called taxa seen absent in the design's samples: 4.7%; AUC of the design-sample propensity for FP among the called: FP rate 0.477, mean score 0.541; veto above 0.3584 (chosen on hold-in): hold-out F1 0.9553 (FP 309, FN 402) -> 0.9555 (FP 305, FN 402)
+soil hold-in -> hold-out: called hold-out taxa FP in a hold-in sample: 2.1%; AUC of the hold-in FP rate for FP among the called 0.708; veto if FP in >= 1/3 of its hold-in absent rows: F1 0.9577 -> 0.9596 (FP 326 -> 215, FN 578 -> 642)
+soil_shallow hold-in -> hold-out: called hold-out taxa FP in a hold-in sample: 2.2%; AUC of the hold-in FP rate for FP among the called 0.691; veto if FP in >= 1/3 of its hold-in absent rows: F1 0.9553 -> 0.9590 (FP 309 -> 200, FN 402 -> 445)
+
+######## ont (knob 0.5)
+design: 186 samples, 197 FP of 188 taxa (1 sample 179, 2: 9, 3+: 0); FP in taxa that recur: 9.1%; FP rate of an absent row: 0.0289, if the taxon was FP in another sample: 0.3158, else 0.0264; absent rows near a novel species: 72.2%
+soil: 9 samples, 1584 FP of 1058 taxa (1 sample 769, 2: 181, 3+: 108); FP in taxa that recur: 51.5%; FP rate of an absent row: 0.0237, if the taxon was FP in another sample: 0.2227, else 0.0121; absent rows near a novel species: 96.9%
+soil_shallow: 9 samples, 1277 FP of 930 taxa (1 sample 711, 2: 148, 3+: 71); FP in taxa that recur: 44.3%; FP rate of an absent row: 0.0436, if the taxon was FP in another sample: 0.2496, else 0.0263; absent rows near a novel species: 97.5%
+gut: 9 samples, 48 FP of 48 taxa (1 sample 48, 2: 0, 3+: 0); FP in taxa that recur: 0.0%; FP rate of an absent row: 0.0080, if the taxon was FP in another sample: 0.0000, else 0.0080; absent rows near a novel species: 19.0%
+soil: called taxa seen absent in the design's samples: 5.6%; AUC of the design-sample propensity for FP among the called: FP rate 0.488, mean score 0.559; veto above 0.3526 (chosen on hold-in): hold-out F1 0.9439 (FP 450, FN 762) -> 0.9439 (FP 447, FN 765)
+soil_shallow: called taxa seen absent in the design's samples: 6.4%; AUC of the design-sample propensity for FP among the called: FP rate 0.469, mean score 0.563; veto above 0.3526 (chosen on hold-in): hold-out F1 0.9453 (FP 423, FN 486) -> 0.9454 (FP 421, FN 486)
+soil hold-in -> hold-out: called hold-out taxa FP in a hold-in sample: 2.7%; AUC of the hold-in FP rate for FP among the called 0.721; veto if FP in >= 1/3 of its hold-in absent rows: F1 0.9439 -> 0.9472 (FP 450 -> 292, FN 762 -> 837)
+soil_shallow hold-in -> hold-out: called hold-out taxa FP in a hold-in sample: 2.4%; AUC of the hold-in FP rate for FP among the called 0.674; veto if FP in >= 1/3 of its hold-in absent rows: F1 0.9453 -> 0.9503 (FP 423 -> 288, FN 486 -> 530)

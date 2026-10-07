@@ -1,0 +1,61 @@
+read type	variant	set	sample	log10 fragments	F1	FP	FN	F1 at 0.5	best F1	at
+se	v14	design, samples held out	all		0.96736	396	574	0.96573	0.96744	0.74
+se	v14	host hold-in, samples held out	all		0.98742	0	4	0.99379	0.9969	0.05
+se	v14	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_1	4.7186	1	0	0	1		
+se	v14	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_2	5.0887	0.96	0	1	1		
+se	v14	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_3	4.6436	0.97826	0	2	0.97872		
+se	v14	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_4	4.314	1	0	0	1		
+se	v14	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_5	4.7388	1	0	0	1		
+se	v14	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_6	4.441	0.98824	0	1	1		
+se	v14	soil hold-in, samples held out	all		0.96286	388	1397	0.96321	0.96386	0.57
+se	v14	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_1	5.5365	0.96317	44	252	0.96536		
+se	v14	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_2	5.7761	0.95827	44	283	0.95927		
+se	v14	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_3	5.7175	0.97031	140	114	0.96458		
+se	v14	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_4	6.0243	0.96128	24	261	0.96764		
+se	v14	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_5	5.8945	0.97546	76	129	0.97044		
+se	v14	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_6	5.6358	0.94724	60	358	0.95171		
+se	v14	design test	all		0.96117	88	253	0.96358	0.96358	0.5
+se	v14	host v14 hold-out	all		1	0	0	1	1	0.05
+se	v14	host v14 hold-out	sc_host_se_ultima_r10000000_s_1	5.1619	1	0	0	1		
+se	v14	host v14 hold-out	sc_host_se_ultima_r10000000_s_2	4.7381	1	0	0	1		
+se	v14	host v14 hold-out	sc_host_se_ultima_r10000000_s_3	4.5712	1	0	0	1		
+se	v14	soil v14 hold-out	all		0.96445	270	547	0.9606	0.96467	0.81
+se	v14	soil v14 hold-out	sc_soil_se_ultima_r20000000_s_1	5.8533	0.97265	84	115	0.96928		
+se	v14	soil v14 hold-out	sc_soil_se_ultima_r20000000_s_2	5.8119	0.95332	56	318	0.95621		
+se	v14	soil v14 hold-out	sc_soil_se_ultima_r20000000_s_3	5.631	0.9683	130	114	0.95702		
+se	v14	host v13 hold-out	all		0.96296	0	3	0.97561	1	0.05
+se	v14	host v13 hold-out	sc_host_se_ultima_r10000000_s_1	4.9379	1	0	0	1		
+se	v14	host v13 hold-out	sc_host_se_ultima_r10000000_s_2	4.4652	0.90909	0	3	0.94118		
+se	v14	soil v13 hold-out	all		0.96074	242	381	0.95676	0.96211	0.82
+se	v14	soil v13 hold-out	sc_soil_se_ultima_r20000000_s_1	5.7361	0.96749	127	111	0.96179		
+se	v14	soil v13 hold-out	sc_soil_se_ultima_r20000000_s_2	5.7249	0.95497	115	270	0.95246		
+se	+sample	design, samples held out	all		0.96712	400	577	0.96634	0.96712	0.73
+se	+sample	host hold-in, samples held out	all		0.9906	0	3	0.99379	0.9969	0.06
+se	+sample	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_1	4.7186	1	0	0	1		
+se	+sample	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_2	5.0887	0.96	0	1	1		
+se	+sample	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_3	4.6436	0.97826	0	2	0.97872		
+se	+sample	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_4	4.314	1	0	0	1		
+se	+sample	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_5	4.7388	1	0	0	1		
+se	+sample	host hold-in, samples held out	sc_host_se_ultima_r10000000_s_6	4.441	1	0	0	1		
+se	+sample	soil hold-in, samples held out	all		0.96482	447	1251	0.96385	0.96532	0.62
+se	+sample	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_1	5.5365	0.96479	67	218	0.96442		
+se	+sample	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_2	5.7761	0.95861	51	274	0.9619		
+se	+sample	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_3	5.7175	0.97161	101	140	0.96949		
+se	+sample	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_4	6.0243	0.96946	48	180	0.96892		
+se	+sample	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_5	5.8945	0.97343	104	119	0.96646		
+se	+sample	soil hold-in, samples held out	sc_soil_se_ultima_r20000000_s_6	5.6358	0.95035	76	320	0.95171		
+se	+sample	design test	all		0.95903	88	271	0.96299	0.96313	0.55
+se	+sample	host v14 hold-out	all		1	0	0	1	1	0.05
+se	+sample	host v14 hold-out	sc_host_se_ultima_r10000000_s_1	5.1619	1	0	0	1		
+se	+sample	host v14 hold-out	sc_host_se_ultima_r10000000_s_2	4.7381	1	0	0	1		
+se	+sample	host v14 hold-out	sc_host_se_ultima_r10000000_s_3	4.5712	1	0	0	1		
+se	+sample	soil v14 hold-out	all		0.96573	245	542	0.96358	0.96612	0.67
+se	+sample	soil v14 hold-out	sc_soil_se_ultima_r20000000_s_1	5.8533	0.97226	89	113	0.96761		
+se	+sample	soil v14 hold-out	sc_soil_se_ultima_r20000000_s_2	5.8119	0.95619	80	274	0.9571		
+se	+sample	soil v14 hold-out	sc_soil_se_ultima_r20000000_s_3	5.631	0.96961	76	155	0.96661		
+se	+sample	host v13 hold-out	all		0.96296	0	3	0.97561	1	0.05
+se	+sample	host v13 hold-out	sc_host_se_ultima_r10000000_s_1	4.9379	1	0	0	1		
+se	+sample	host v13 hold-out	sc_host_se_ultima_r10000000_s_2	4.4652	0.90909	0	3	0.94118		
+se	+sample	soil v13 hold-out	all		0.96279	204	385	0.95906	0.963	0.74
+se	+sample	soil v13 hold-out	sc_soil_se_ultima_r20000000_s_1	5.7361	0.97002	93	125	0.96463		
+se	+sample	soil v13 hold-out	sc_soil_se_ultima_r20000000_s_2	5.7249	0.95663	111	260	0.95433		

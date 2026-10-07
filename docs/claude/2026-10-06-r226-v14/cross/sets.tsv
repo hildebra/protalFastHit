@@ -1,0 +1,401 @@
+read type	trained on	model	knob	set	taxa	FP	FN	F1	F1 at 0.5	best F1	at
+pe	v13	forest	0.7	design test	22305	93	220	0.96521	0.96328	0.96559	0.68
+pe	v13	forest	0.7	gut hold-out v13	7241	1	7	0.99496	0.99561	0.99623	0.55
+pe	v13	forest	0.7	host hold-out v13	308	1	1	0.97619	0.98824	0.98824	0.31
+pe	v13	forest	0.7	soil hold-out v13	55874	304	433	0.95353	0.94399	0.95395	0.73
+pe	v13	forest	0.7	soil_shallow hold-out v13	29709	331	727	0.92532	0.92567	0.92754	0.59
+pe	v13	forest	0.7	gut hold-out v14	10162	6	9	0.99365	0.99367	0.99535	0.6
+pe	v13	forest	0.7	host hold-out v14	520	1	0	0.98947	0.97917	1	0.73
+pe	v13	forest	0.7	soil hold-out v14	88482	458	546	0.95668	0.94802	0.95815	0.77
+pe	v13	forest	0.7	soil_shallow hold-out v14	48069	561	961	0.9303	0.92905	0.9318	0.63
+pe	v13	forest	0.7	gut hold-in v13, species held out	9463	2	15	0.99204	0.99348	0.99349	0.47
+pe	v13	forest	0.7	host hold-in v13, species held out	661	0	1	0.99497	0.99502	1	0.55
+pe	v13	forest	0.7	soil hold-in v13, species held out	89092	456	584	0.95835	0.94741	0.95905	0.76
+pe	v13	forest	0.7	soil_shallow hold-in v13, species held out	47925	539	1056	0.93035	0.9288	0.9317	0.58
+pe	v13	forest	0.7	design hold-in v13, species held out	76870	415	580	0.96711	0.96403	0.96711	0.7
+pe	v13	gbm+ref	0.66	design test	22305	90	195	0.9684	0.97027	0.97056	0.51
+pe	v13	gbm+ref	0.66	gut hold-out v13	7241	3	6	0.99434	0.99434	0.99624	0.42
+pe	v13	gbm+ref	0.66	host hold-out v13	308	0	1	0.98795	1	1	0.14
+pe	v13	gbm+ref	0.66	soil hold-out v13	55874	199	457	0.9583	0.95671	0.95891	0.6
+pe	v13	gbm+ref	0.66	soil_shallow hold-out v13	29709	100	1409	0.88616	0.89624	0.91001	0.1
+pe	v13	gbm+ref	0.66	gut hold-out v14	10162	7	7	0.99408	0.99451	0.99494	0.18
+pe	v13	gbm+ref	0.66	host hold-out v14	520	1	0	0.98947	0.98947	1	0.88
+pe	v13	gbm+ref	0.66	soil hold-out v14	88482	294	538	0.96385	0.96246	0.96401	0.62
+pe	v13	gbm+ref	0.66	soil_shallow hold-out v14	48069	382	1341	0.91903	0.92102	0.92102	0.5
+pe	v13	gbm+ref	0.66	gut hold-in v13, species held out	9463	2	12	0.99345	0.9944	0.99488	0.16
+pe	v13	gbm+ref	0.66	host hold-in v13, species held out	661	0	1	0.99497	1	1	0.05
+pe	v13	gbm+ref	0.66	soil hold-in v13, species held out	89092	450	525	0.96104	0.95778	0.96187	0.82
+pe	v13	gbm+ref	0.66	soil_shallow hold-in v13, species held out	47925	718	729	0.93818	0.93148	0.93963	0.74
+pe	v13	gbm+ref	0.66	design hold-in v13, species held out	76870	444	437	0.97105	0.96898	0.97105	0.66
+pe	v13	gbm	0.75	design test	22305	81	228	0.96558	0.96993	0.97023	0.58
+pe	v13	gbm	0.75	gut hold-out v13	7241	3	8	0.99308	0.99435	0.99561	0.37
+pe	v13	gbm	0.75	host hold-out v13	308	0	2	0.97561	1	1	0.06
+pe	v13	gbm	0.75	soil hold-out v13	55874	166	524	0.95586	0.9545	0.95657	0.62
+pe	v13	gbm	0.75	soil_shallow hold-out v13	29709	77	1490	0.88085	0.89694	0.90827	0.15
+pe	v13	gbm	0.75	gut hold-out v14	10162	5	10	0.99365	0.99451	0.99494	0.25
+pe	v13	gbm	0.75	host hold-out v14	520	1	0	0.98947	0.98947	1	0.86
+pe	v13	gbm	0.75	soil hold-out v14	88482	242	629	0.96192	0.95897	0.96284	0.72
+pe	v13	gbm	0.75	soil_shallow hold-out v14	48069	302	1461	0.91636	0.91798	0.91959	0.56
+pe	v13	gbm	0.75	gut hold-in v13, species held out	9463	1	12	0.99392	0.9944	0.99487	0.35
+pe	v13	gbm	0.75	host hold-in v13, species held out	661	0	1	0.99497	1	1	0.05
+pe	v13	gbm	0.75	soil hold-in v13, species held out	89092	346	610	0.9615	0.95575	0.96157	0.84
+pe	v13	gbm	0.75	soil_shallow hold-in v13, species held out	47925	580	872	0.93721	0.92886	0.9378	0.78
+pe	v13	gbm	0.75	design hold-in v13, species held out	76870	378	515	0.97051	0.96863	0.97062	0.7
+pe	v13	gbm250	0.72	design test	22305	85	217	0.96641	0.97031	0.97065	0.49
+pe	v13	gbm250	0.72	gut hold-out v13	7241	3	8	0.99308	0.99434	0.99498	0.3
+pe	v13	gbm250	0.72	host hold-out v13	308	0	3	0.96296	1	1	0.11
+pe	v13	gbm250	0.72	soil hold-out v13	55874	160	497	0.95803	0.9581	0.96012	0.65
+pe	v13	gbm250	0.72	soil_shallow hold-out v13	29709	82	1424	0.8861	0.90063	0.91116	0.12
+pe	v13	gbm250	0.72	gut hold-out v14	10162	5	9	0.99407	0.99451	0.99494	0.19
+pe	v13	gbm250	0.72	host hold-out v14	520	1	0	0.98947	0.98947	1	0.83
+pe	v13	gbm250	0.72	soil hold-out v14	88482	241	578	0.96427	0.96175	0.96439	0.6
+pe	v13	gbm250	0.72	soil_shallow hold-out v14	48069	322	1374	0.91995	0.92177	0.92246	0.55
+pe	v13	gbm250	0.72	gut hold-in v13, species held out	9463	1	12	0.99392	0.99347	0.99394	0.35
+pe	v13	gbm250	0.72	host hold-in v13, species held out	661	0	1	0.99497	0.99497	1	0.05
+pe	v13	gbm250	0.72	soil hold-in v13, species held out	89092	385	581	0.96121	0.95686	0.96205	0.78
+pe	v13	gbm250	0.72	soil_shallow hold-in v13, species held out	47925	613	813	0.93858	0.9304	0.93873	0.77
+pe	v13	gbm250	0.72	design hold-in v13, species held out	76870	407	499	0.97013	0.96906	0.97017	0.67
+pe	v14	forest	0.71	design test	22305	111	200	0.96558	0.96009	0.9667	0.63
+pe	v14	forest	0.71	gut hold-out v13	7241	3	7	0.99371	0.99499	0.99561	0.52
+pe	v14	forest	0.71	host hold-out v13	308	1	0	0.98824	0.98824	0.98824	0.5
+pe	v14	forest	0.71	soil hold-out v13	55874	304	424	0.95413	0.94328	0.95421	0.72
+pe	v14	forest	0.71	soil_shallow hold-out v13	29709	392	634	0.92836	0.92287	0.9299	0.66
+pe	v14	forest	0.71	gut hold-out v14	10162	4	7	0.99534	0.99409	0.99535	0.53
+pe	v14	forest	0.71	host hold-out v14	520	1	0	0.98947	0.96907	1	0.91
+pe	v14	forest	0.71	soil hold-out v14	88482	463	541	0.95669	0.94837	0.95773	0.76
+pe	v14	forest	0.71	soil_shallow hold-out v14	48069	659	838	0.93214	0.92723	0.93303	0.63
+pe	v14	forest	0.71	gut hold-in v14, species held out	20537	5	30	0.99224	0.99273	0.99293	0.57
+pe	v14	forest	0.71	host hold-in v14, species held out	1318	2	1	0.99071	0.98765	0.99379	0.76
+pe	v14	forest	0.71	soil hold-in v14, species held out	178675	955	1128	0.95738	0.94698	0.95848	0.78
+pe	v14	forest	0.71	soil_shallow hold-in v14, species held out	92403	1105	1793	0.93298	0.92945	0.93358	0.64
+pe	v14	forest	0.71	design hold-in v14, species held out	76870	447	554	0.96698	0.96218	0.96698	0.71
+pe	v14	gbm+ref	0.82	design test	22305	63	251	0.96486	0.96777	0.96872	0.58
+pe	v14	gbm+ref	0.82	gut hold-out v13	7241	0	9	0.99432	0.99309	0.99562	0.39
+pe	v14	gbm+ref	0.82	host hold-out v13	308	1	2	0.96386	0.96552	0.97674	0.53
+pe	v14	gbm+ref	0.82	soil hold-out v13	55874	168	477	0.95887	0.95331	0.95955	0.77
+pe	v14	gbm+ref	0.82	soil_shallow hold-out v13	29709	304	625	0.93477	0.92418	0.93503	0.81
+pe	v14	gbm+ref	0.82	gut hold-out v14	10162	2	8	0.99576	0.9962	0.99662	0.55
+pe	v14	gbm+ref	0.82	host hold-out v14	520	1	0	0.98947	0.98947	0.98947	0.25
+pe	v14	gbm+ref	0.82	soil hold-out v14	88482	214	597	0.96455	0.95867	0.96487	0.79
+pe	v14	gbm+ref	0.82	soil_shallow hold-out v14	48069	516	785	0.94078	0.92757	0.94096	0.83
+pe	v14	gbm+ref	0.82	gut hold-in v14, species held out	20537	2	30	0.9929	0.99404	0.99448	0.39
+pe	v14	gbm+ref	0.82	host hold-in v14, species held out	1318	1	2	0.99065	0.99379	0.9969	0.32
+pe	v14	gbm+ref	0.82	soil hold-in v14, species held out	178675	567	1258	0.96226	0.95605	0.9626	0.77
+pe	v14	gbm+ref	0.82	soil_shallow hold-in v14, species held out	92403	926	1676	0.93974	0.9312	0.94039	0.78
+pe	v14	gbm+ref	0.82	design hold-in v14, species held out	76870	304	567	0.97112	0.96889	0.97117	0.74
+pe	v14	gbm	0.76	design test	22305	86	219	0.96608	0.96759	0.96849	0.58
+pe	v14	gbm	0.76	gut hold-out v13	7241	0	9	0.99432	0.99247	0.99496	0.61
+pe	v14	gbm	0.76	host hold-out v13	308	0	2	0.97561	0.96552	0.98824	0.56
+pe	v14	gbm	0.76	soil hold-out v13	55874	243	440	0.95675	0.94892	0.95697	0.77
+pe	v14	gbm	0.76	soil_shallow hold-out v13	29709	439	556	0.93113	0.91855	0.93237	0.78
+pe	v14	gbm	0.76	gut hold-out v14	10162	4	8	0.99492	0.9962	0.99662	0.56
+pe	v14	gbm	0.76	host hold-out v14	520	1	0	0.98947	0.98947	1	0.94
+pe	v14	gbm	0.76	soil hold-out v14	88482	337	542	0.96188	0.95438	0.96219	0.82
+pe	v14	gbm	0.76	soil_shallow hold-out v14	48069	711	698	0.93668	0.92178	0.93741	0.84
+pe	v14	gbm	0.76	gut hold-in v14, species held out	20537	4	28	0.9929	0.99294	0.99402	0.68
+pe	v14	gbm	0.76	host hold-in v14, species held out	1318	1	1	0.99379	0.99379	0.9969	0.23
+pe	v14	gbm	0.76	soil hold-in v14, species held out	178675	733	1123	0.96186	0.95502	0.96253	0.81
+pe	v14	gbm	0.76	soil_shallow hold-in v14, species held out	92403	1179	1457	0.93961	0.92895	0.93961	0.76
+pe	v14	gbm	0.76	design hold-in v14, species held out	76870	378	501	0.97099	0.9682	0.97099	0.76
+pe	v14	gbm250	0.79	design test	22305	73	236	0.96552	0.96766	0.9694	0.56
+pe	v14	gbm250	0.79	gut hold-out v13	7241	0	8	0.99496	0.99435	0.99561	0.4
+pe	v14	gbm250	0.79	host hold-out v13	308	1	2	0.96386	0.97674	0.98824	0.57
+pe	v14	gbm250	0.79	soil hold-out v13	55874	199	459	0.95817	0.95326	0.95905	0.73
+pe	v14	gbm250	0.79	soil_shallow hold-out v13	29709	362	581	0.93426	0.92458	0.93492	0.76
+pe	v14	gbm250	0.79	gut hold-out v14	10162	4	7	0.99534	0.99578	0.99578	0.48
+pe	v14	gbm250	0.79	host hold-out v14	520	1	0	0.98947	0.98947	0.98947	0.32
+pe	v14	gbm250	0.79	soil hold-out v14	88482	259	545	0.96501	0.95799	0.96504	0.75
+pe	v14	gbm250	0.79	soil_shallow hold-out v14	48069	573	736	0.9407	0.92799	0.94085	0.78
+pe	v14	gbm250	0.79	gut hold-in v14, species held out	20537	3	31	0.99245	0.99426	0.99448	0.52
+pe	v14	gbm250	0.79	host hold-in v14, species held out	1318	1	2	0.99065	0.99379	0.9969	0.32
+pe	v14	gbm250	0.79	soil hold-in v14, species held out	178675	661	1183	0.962	0.95598	0.96216	0.75
+pe	v14	gbm250	0.79	soil_shallow hold-in v14, species held out	92403	1022	1554	0.94064	0.93165	0.94084	0.8
+pe	v14	gbm250	0.79	design hold-in v14, species held out	76870	338	532	0.97122	0.96879	0.97135	0.82
+se	v13	forest	0.5	design test	19392	186	179	0.95923	0.95923	0.96067	0.56
+se	v13	forest	0.5	host hold-out v13	213	0	1	0.98795	0.98795	1	0.15
+se	v13	forest	0.5	soil hold-out v13	41620	434	353	0.95108	0.95108	0.95449	0.63
+se	v13	forest	0.5	host hold-out v14	347	0	0	1	1	1	0.08
+se	v13	forest	0.5	soil hold-out v14	65232	661	422	0.95391	0.95391	0.95832	0.68
+se	v13	forest	0.5	host hold-in v13, species held out	492	0	0	1	1	1	0.26
+se	v13	forest	0.5	soil hold-in v13, species held out	66321	643	451	0.95676	0.95676	0.96093	0.69
+se	v13	forest	0.5	design hold-in v13, species held out	66420	656	396	0.96511	0.96511	0.966	0.59
+se	v13	gbm+ref	0.5	design test	19392	136	193	0.96299	0.96299	0.96366	0.41
+se	v13	gbm+ref	0.5	host hold-out v13	213	0	2	0.97561	0.97561	1	0.05
+se	v13	gbm+ref	0.5	soil hold-out v13	41620	283	383	0.95813	0.95813	0.95914	0.63
+se	v13	gbm+ref	0.5	host hold-out v14	347	0	0	1	1	1	0.05
+se	v13	gbm+ref	0.5	soil hold-out v14	65232	275	559	0.9637	0.9637	0.96409	0.53
+se	v13	gbm+ref	0.5	host hold-in v13, species held out	492	0	0	1	1	1	0.05
+se	v13	gbm+ref	0.5	soil hold-in v13, species held out	66321	544	435	0.96118	0.96118	0.96522	0.75
+se	v13	gbm+ref	0.5	design hold-in v13, species held out	66420	590	409	0.96678	0.96678	0.96795	0.75
+se	v13	gbm	0.5	design test	19392	139	202	0.96161	0.96161	0.96183	0.56
+se	v13	gbm	0.5	host hold-out v13	213	0	2	0.97561	0.97561	1	0.05
+se	v13	gbm	0.5	soil hold-out v13	41620	292	407	0.95602	0.95602	0.95712	0.58
+se	v13	gbm	0.5	host hold-out v14	347	0	0	1	1	1	0.05
+se	v13	gbm	0.5	soil hold-out v14	65232	289	573	0.96248	0.96248	0.96259	0.54
+se	v13	gbm	0.5	host hold-in v13, species held out	492	0	0	1	1	1	0.05
+se	v13	gbm	0.5	soil hold-in v13, species held out	66321	537	439	0.96128	0.96128	0.96524	0.74
+se	v13	gbm	0.5	design hold-in v13, species held out	66420	615	400	0.96629	0.96629	0.96743	0.67
+se	v13	gbm250	0.5	design test	19392	132	189	0.96389	0.96389	0.96389	0.5
+se	v13	gbm250	0.5	host hold-out v13	213	0	2	0.97561	0.97561	0.98795	0.05
+se	v13	gbm250	0.5	soil hold-out v13	41620	294	378	0.9578	0.9578	0.9592	0.57
+se	v13	gbm250	0.5	host hold-out v14	347	0	0	1	1	1	0.05
+se	v13	gbm250	0.5	soil hold-out v14	65232	271	569	0.96342	0.96342	0.96374	0.44
+se	v13	gbm250	0.5	host hold-in v13, species held out	492	0	0	1	1	1	0.05
+se	v13	gbm250	0.5	soil hold-in v13, species held out	66321	532	430	0.96184	0.96184	0.96482	0.81
+se	v13	gbm250	0.5	design hold-in v13, species held out	66420	593	405	0.96682	0.96682	0.96774	0.64
+se	v14	forest	0.5	design test	19392	179	184	0.9594	0.9594	0.96026	0.55
+se	v14	forest	0.5	host hold-out v13	213	0	0	1	1	1	0.14
+se	v14	forest	0.5	soil hold-out v13	41620	442	323	0.95256	0.95256	0.95635	0.66
+se	v14	forest	0.5	host hold-out v14	347	0	0	1	1	1	0.13
+se	v14	forest	0.5	soil hold-out v14	65232	655	399	0.95518	0.95518	0.95939	0.73
+se	v14	forest	0.5	host hold-in v14, species held out	961	1	0	0.9969	0.9969	0.9969	0.27
+se	v14	forest	0.5	soil hold-in v14, species held out	132248	1272	856	0.957	0.957	0.96012	0.67
+se	v14	forest	0.5	design hold-in v14, species held out	66420	694	399	0.96379	0.96379	0.96537	0.64
+se	v14	gbm+ref	0.73	design test	19392	88	253	0.96117	0.96358	0.96358	0.5
+se	v14	gbm+ref	0.73	host hold-out v13	213	0	3	0.96296	0.97561	1	0.05
+se	v14	gbm+ref	0.73	soil hold-out v13	41620	242	381	0.96074	0.95676	0.96211	0.82
+se	v14	gbm+ref	0.73	host hold-out v14	347	0	0	1	1	1	0.05
+se	v14	gbm+ref	0.73	soil hold-out v14	65232	270	547	0.96445	0.9606	0.96467	0.81
+se	v14	gbm+ref	0.73	host hold-in v14, species held out	961	1	1	0.99379	0.99379	0.9969	0.08
+se	v14	gbm+ref	0.73	soil hold-in v14, species held out	132248	640	1071	0.96483	0.96052	0.96493	0.74
+se	v14	gbm+ref	0.73	design hold-in v14, species held out	66420	415	541	0.96788	0.96608	0.96788	0.73
+se	v14	gbm	0.5	design test	19392	152	197	0.96079	0.96079	0.96149	0.55
+se	v14	gbm	0.5	host hold-out v13	213	0	1	0.98795	0.98795	1	0.05
+se	v14	gbm	0.5	soil hold-out v13	41620	467	279	0.95394	0.95394	0.95913	0.77
+se	v14	gbm	0.5	host hold-out v14	347	0	0	1	1	1	0.05
+se	v14	gbm	0.5	soil hold-out v14	65232	562	411	0.95844	0.95844	0.96257	0.79
+se	v14	gbm	0.5	host hold-in v14, species held out	961	1	1	0.99379	0.99379	0.9969	0.05
+se	v14	gbm	0.5	soil hold-in v14, species held out	132248	1161	817	0.95998	0.95998	0.9642	0.75
+se	v14	gbm	0.5	design hold-in v14, species held out	66420	640	386	0.96597	0.96597	0.96719	0.6
+se	v14	gbm250	0.5	design test	19392	137	188	0.96346	0.96346	0.96413	0.57
+se	v14	gbm250	0.5	host hold-out v13	213	0	3	0.96296	0.96296	1	0.05
+se	v14	gbm250	0.5	soil hold-out v13	41620	437	267	0.95648	0.95648	0.96134	0.84
+se	v14	gbm250	0.5	host hold-out v14	347	0	0	1	1	1	0.05
+se	v14	gbm250	0.5	soil hold-out v14	65232	507	401	0.96114	0.96114	0.96534	0.74
+se	v14	gbm250	0.5	host hold-in v14, species held out	961	1	1	0.99379	0.99379	0.9969	0.08
+se	v14	gbm250	0.5	soil hold-in v14, species held out	132248	1131	787	0.96119	0.96119	0.96478	0.75
+se	v14	gbm250	0.5	design hold-in v14, species held out	66420	619	387	0.96661	0.96661	0.96779	0.67
+pb	v13	forest	0.5	design test	3758	55	43	0.97672	0.97672	0.97689	0.54
+pb	v13	forest	0.5	gut hold-out v13	1599	13	10	0.98558	0.98558	0.98736	0.62
+pb	v13	forest	0.5	host hold-out v13	66	1	0	0.98824	0.98824	0.98824	0.17
+pb	v13	forest	0.5	soil hold-out v13	17624	322	432	0.94692	0.94692	0.94736	0.51
+pb	v13	forest	0.5	soil_shallow hold-out v13	9733	178	337	0.94738	0.94738	0.94771	0.46
+pb	v13	forest	0.5	gut hold-out v14	2412	24	14	0.98401	0.98401	0.98465	0.72
+pb	v13	forest	0.5	host hold-out v14	84	1	0	0.98947	0.98947	1	0.82
+pb	v13	forest	0.5	soil hold-out v14	27881	475	570	0.95147	0.95147	0.95152	0.51
+pb	v13	forest	0.5	soil_shallow hold-out v14	15909	311	525	0.94701	0.94701	0.94782	0.42
+pb	v13	forest	0.5	gut hold-in v13, species held out	2145	20	15	0.98374	0.98374	0.98547	0.64
+pb	v13	forest	0.5	host hold-in v13, species held out	175	1	1	0.99	0.99	0.99502	0.34
+pb	v13	forest	0.5	soil hold-in v13, species held out	28434	556	645	0.94793	0.94793	0.94802	0.52
+pb	v13	forest	0.5	soil_shallow hold-in v13, species held out	16122	299	525	0.94935	0.94935	0.95037	0.45
+pb	v13	forest	0.5	design hold-in v13, species held out	11441	172	199	0.97194	0.97194	0.97286	0.46
+pb	v13	gbm+ref	0.5	design test	3758	47	37	0.98004	0.98004	0.98069	0.61
+pb	v13	gbm+ref	0.5	gut hold-out v13	1599	1	8	0.99432	0.99432	0.99561	0.11
+pb	v13	gbm+ref	0.5	host hold-out v13	66	2	0	0.97674	0.97674	0.98824	0.67
+pb	v13	gbm+ref	0.5	soil hold-out v13	17624	244	406	0.95408	0.95408	0.95475	0.47
+pb	v13	gbm+ref	0.5	soil_shallow hold-out v13	9733	180	276	0.95371	0.95371	0.95405	0.58
+pb	v13	gbm+ref	0.5	gut hold-out v14	2412	7	7	0.99408	0.99408	0.99408	0.49
+pb	v13	gbm+ref	0.5	host hold-out v14	84	1	0	0.98947	0.98947	0.98947	0.09
+pb	v13	gbm+ref	0.5	soil hold-out v14	27881	198	1017	0.94162	0.94162	0.94961	0.2
+pb	v13	gbm+ref	0.5	soil_shallow hold-out v14	15909	195	686	0.94316	0.94316	0.95061	0.28
+pb	v13	gbm+ref	0.5	gut hold-in v13, species held out	2145	4	10	0.99346	0.99346	0.99394	0.27
+pb	v13	gbm+ref	0.5	host hold-in v13, species held out	175	1	2	0.98492	0.98492	0.9901	0.14
+pb	v13	gbm+ref	0.5	soil hold-in v13, species held out	28434	479	600	0.95315	0.95315	0.95361	0.6
+pb	v13	gbm+ref	0.5	soil_shallow hold-in v13, species held out	16122	330	420	0.95428	0.95428	0.95466	0.51
+pb	v13	gbm+ref	0.5	design hold-in v13, species held out	11441	173	150	0.97566	0.97566	0.97637	0.35
+pb	v13	gbm	0.5	design test	3758	49	37	0.97957	0.97957	0.98007	0.44
+pb	v13	gbm	0.5	gut hold-out v13	1599	2	9	0.99306	0.99306	0.99624	0.14
+pb	v13	gbm	0.5	host hold-out v13	66	1	0	0.98824	0.98824	0.98824	0.28
+pb	v13	gbm	0.5	soil hold-out v13	17624	259	438	0.9507	0.9507	0.95149	0.4
+pb	v13	gbm	0.5	soil_shallow hold-out v13	9733	192	292	0.95084	0.95084	0.95113	0.51
+pb	v13	gbm	0.5	gut hold-out v14	2412	8	8	0.99324	0.99324	0.99409	0.29
+pb	v13	gbm	0.5	host hold-out v14	84	1	0	0.98947	0.98947	1	0.91
+pb	v13	gbm	0.5	soil hold-out v14	27881	225	1070	0.9377	0.9377	0.94673	0.24
+pb	v13	gbm	0.5	soil_shallow hold-out v14	15909	188	778	0.93728	0.93728	0.9467	0.23
+pb	v13	gbm	0.5	gut hold-in v13, species held out	2145	3	15	0.99157	0.99157	0.99394	0.26
+pb	v13	gbm	0.5	host hold-in v13, species held out	175	1	2	0.98492	0.98492	0.9899	0.75
+pb	v13	gbm	0.5	soil hold-in v13, species held out	28434	468	604	0.95342	0.95342	0.95347	0.51
+pb	v13	gbm	0.5	soil_shallow hold-in v13, species held out	16122	337	423	0.95368	0.95368	0.95386	0.45
+pb	v13	gbm	0.5	design hold-in v13, species held out	11441	175	151	0.97544	0.97544	0.97596	0.57
+pb	v13	gbm250	0.5	design test	3758	45	37	0.9805	0.9805	0.98097	0.53
+pb	v13	gbm250	0.5	gut hold-out v13	1599	1	8	0.99432	0.99432	0.99561	0.09
+pb	v13	gbm250	0.5	host hold-out v13	66	2	0	0.97674	0.97674	0.98824	0.58
+pb	v13	gbm250	0.5	soil hold-out v13	17624	245	419	0.95305	0.95305	0.95415	0.42
+pb	v13	gbm250	0.5	soil_shallow hold-out v13	9733	184	280	0.95289	0.95289	0.953	0.54
+pb	v13	gbm250	0.5	gut hold-out v14	2412	9	8	0.99282	0.99282	0.99367	0.23
+pb	v13	gbm250	0.5	host hold-out v14	84	1	0	0.98947	0.98947	0.98947	0.07
+pb	v13	gbm250	0.5	soil hold-out v14	27881	213	1026	0.94048	0.94048	0.94979	0.21
+pb	v13	gbm250	0.5	soil_shallow hold-out v14	15909	199	705	0.94162	0.94162	0.94996	0.24
+pb	v13	gbm250	0.5	gut hold-in v13, species held out	2145	3	11	0.99346	0.99346	0.9944	0.29
+pb	v13	gbm250	0.5	host hold-in v13, species held out	175	1	2	0.98492	0.98492	0.9901	0.12
+pb	v13	gbm250	0.5	soil hold-in v13, species held out	28434	484	594	0.95322	0.95322	0.9537	0.59
+pb	v13	gbm250	0.5	soil_shallow hold-in v13, species held out	16122	318	420	0.95498	0.95498	0.95558	0.48
+pb	v13	gbm250	0.5	design hold-in v13, species held out	11441	172	154	0.97543	0.97543	0.97621	0.37
+pb	v14	forest	0.5	design test	3758	57	44	0.97602	0.97602	0.97712	0.56
+pb	v14	forest	0.5	gut hold-out v13	1599	14	9	0.9856	0.9856	0.98613	0.6
+pb	v14	forest	0.5	host hold-out v13	66	1	0	0.98824	0.98824	0.98824	0.15
+pb	v14	forest	0.5	soil hold-out v13	17624	347	403	0.94741	0.94741	0.94758	0.52
+pb	v14	forest	0.5	soil_shallow hold-out v13	9733	188	325	0.9477	0.9477	0.94844	0.55
+pb	v14	forest	0.5	gut hold-out v14	2412	27	13	0.98319	0.98319	0.98492	0.44
+pb	v14	forest	0.5	host hold-out v14	84	1	0	0.98947	0.98947	1	0.81
+pb	v14	forest	0.5	soil hold-out v14	27881	518	545	0.95079	0.95079	0.9516	0.57
+pb	v14	forest	0.5	soil_shallow hold-out v14	15909	320	483	0.94927	0.94927	0.94927	0.5
+pb	v14	forest	0.5	gut hold-in v14, species held out	4720	49	30	0.98263	0.98263	0.98375	0.46
+pb	v14	forest	0.5	host hold-in v14, species held out	285	4	1	0.98462	0.98462	0.98462	0.35
+pb	v14	forest	0.5	soil hold-in v14, species held out	56459	1123	1161	0.94921	0.94921	0.94939	0.52
+pb	v14	forest	0.5	soil_shallow hold-in v14, species held out	30722	625	921	0.94916	0.94916	0.9492	0.46
+pb	v14	forest	0.5	design hold-in v14, species held out	11441	179	189	0.9722	0.9722	0.97231	0.49
+pb	v14	gbm+ref	0.5	design test	3758	54	34	0.97914	0.97914	0.98143	0.63
+pb	v14	gbm+ref	0.5	gut hold-out v13	1599	4	6	0.99371	0.99371	0.99561	0.37
+pb	v14	gbm+ref	0.5	host hold-out v13	66	2	0	0.97674	0.97674	0.98824	0.65
+pb	v14	gbm+ref	0.5	soil hold-out v13	17624	274	363	0.95523	0.95523	0.95575	0.55
+pb	v14	gbm+ref	0.5	soil_shallow hold-out v13	9733	138	306	0.95459	0.95459	0.95592	0.44
+pb	v14	gbm+ref	0.5	gut hold-out v14	2412	11	7	0.99241	0.99241	0.99366	0.67
+pb	v14	gbm+ref	0.5	host hold-out v14	84	1	0	0.98947	0.98947	0.98947	0.08
+pb	v14	gbm+ref	0.5	soil hold-out v14	27881	326	578	0.95771	0.95771	0.95807	0.48
+pb	v14	gbm+ref	0.5	soil_shallow hold-out v14	15909	309	402	0.95528	0.95528	0.95575	0.55
+pb	v14	gbm+ref	0.5	gut hold-in v14, species held out	4720	17	25	0.99071	0.99071	0.99183	0.46
+pb	v14	gbm+ref	0.5	host hold-in v14, species held out	285	4	1	0.98462	0.98462	0.98758	0.75
+pb	v14	gbm+ref	0.5	soil hold-in v14, species held out	56459	923	1068	0.95562	0.95562	0.95577	0.49
+pb	v14	gbm+ref	0.5	soil_shallow hold-in v14, species held out	30722	666	767	0.95318	0.95318	0.95349	0.45
+pb	v14	gbm+ref	0.5	design hold-in v14, species held out	11441	181	143	0.97561	0.97561	0.97584	0.58
+pb	v14	gbm	0.5	design test	3758	53	37	0.97864	0.97864	0.97933	0.55
+pb	v14	gbm	0.5	gut hold-out v13	1599	3	7	0.9937	0.9937	0.99497	0.42
+pb	v14	gbm	0.5	host hold-out v13	66	1	0	0.98824	0.98824	0.98824	0.4
+pb	v14	gbm	0.5	soil hold-out v13	17624	294	387	0.95212	0.95212	0.95281	0.44
+pb	v14	gbm	0.5	soil_shallow hold-out v13	9733	131	348	0.95077	0.95077	0.95264	0.37
+pb	v14	gbm	0.5	gut hold-out v14	2412	11	5	0.99325	0.99325	0.99451	0.57
+pb	v14	gbm	0.5	host hold-out v14	84	1	0	0.98947	0.98947	1	0.94
+pb	v14	gbm	0.5	soil hold-out v14	27881	332	633	0.95476	0.95476	0.95604	0.46
+pb	v14	gbm	0.5	soil_shallow hold-out v14	15909	337	406	0.95334	0.95334	0.9536	0.47
+pb	v14	gbm	0.5	gut hold-in v14, species held out	4720	16	22	0.9916	0.9916	0.99206	0.37
+pb	v14	gbm	0.5	host hold-in v14, species held out	285	4	1	0.98462	0.98462	0.98462	0.3
+pb	v14	gbm	0.5	soil hold-in v14, species held out	56459	933	1114	0.95434	0.95434	0.95434	0.5
+pb	v14	gbm	0.5	soil_shallow hold-in v14, species held out	30722	695	757	0.95262	0.95262	0.95294	0.53
+pb	v14	gbm	0.5	design hold-in v14, species held out	11441	178	148	0.97545	0.97545	0.97586	0.54
+pb	v14	gbm250	0.5	design test	3758	55	34	0.9789	0.9789	0.97953	0.6
+pb	v14	gbm250	0.5	gut hold-out v13	1599	4	5	0.99434	0.99434	0.99434	0.46
+pb	v14	gbm250	0.5	host hold-out v13	66	1	0	0.98824	0.98824	0.98824	0.49
+pb	v14	gbm250	0.5	soil hold-out v13	17624	266	367	0.95547	0.95547	0.95632	0.55
+pb	v14	gbm250	0.5	soil_shallow hold-out v13	9733	130	325	0.95334	0.95334	0.95548	0.32
+pb	v14	gbm250	0.5	gut hold-out v14	2412	11	7	0.99241	0.99241	0.99324	0.55
+pb	v14	gbm250	0.5	host hold-out v14	84	1	0	0.98947	0.98947	0.98947	0.05
+pb	v14	gbm250	0.5	soil hold-out v14	27881	338	578	0.95718	0.95718	0.9577	0.43
+pb	v14	gbm250	0.5	soil_shallow hold-out v14	15909	327	383	0.95545	0.95545	0.95604	0.52
+pb	v14	gbm250	0.5	gut hold-in v14, species held out	4720	20	23	0.9905	0.9905	0.99134	0.74
+pb	v14	gbm250	0.5	host hold-in v14, species held out	285	4	1	0.98462	0.98462	0.98773	0.1
+pb	v14	gbm250	0.5	soil hold-in v14, species held out	56459	925	1077	0.95537	0.95537	0.95551	0.54
+pb	v14	gbm250	0.5	soil_shallow hold-in v14, species held out	30722	654	760	0.95379	0.95379	0.95379	0.5
+pb	v14	gbm250	0.5	design hold-in v14, species held out	11441	180	147	0.97538	0.97538	0.97584	0.48
+ont	v13	forest	0.5	design test	4455	66	55	0.97201	0.97201	0.97282	0.56
+ont	v13	forest	0.5	gut hold-out v13	2195	23	11	0.9788	0.9788	0.98602	0.77
+ont	v13	forest	0.5	host hold-out v13	85	1	0	0.98824	0.98824	0.98824	0.47
+ont	v13	forest	0.5	soil hold-out v13	20884	433	426	0.94116	0.94116	0.94167	0.54
+ont	v13	forest	0.5	soil_shallow hold-out v13	11283	284	404	0.93388	0.93388	0.93582	0.4
+ont	v13	forest	0.5	gut hold-out v14	3145	35	9	0.98159	0.98159	0.98405	0.55
+ont	v13	forest	0.5	host hold-out v14	123	2	0	0.97917	0.97917	1	0.75
+ont	v13	forest	0.5	soil hold-out v14	33224	679	615	0.94114	0.94114	0.9417	0.54
+ont	v13	forest	0.5	soil_shallow hold-out v14	18438	447	624	0.93513	0.93513	0.93542	0.51
+ont	v13	forest	0.5	gut hold-in v13, species held out	2858	35	14	0.97741	0.97741	0.98362	0.7
+ont	v13	forest	0.5	host hold-in v13, species held out	196	2	0	0.9901	0.9901	0.99502	0.62
+ont	v13	forest	0.5	soil hold-in v13, species held out	33921	694	656	0.94247	0.94247	0.94257	0.51
+ont	v13	forest	0.5	soil_shallow hold-in v13, species held out	18225	419	593	0.93939	0.93939	0.94062	0.46
+ont	v13	forest	0.5	design hold-in v13, species held out	13580	219	202	0.96886	0.96886	0.96955	0.52
+ont	v13	gbm+ref	0.5	design test	4455	52	52	0.97588	0.97588	0.97743	0.64
+ont	v13	gbm+ref	0.5	gut hold-out v13	2195	1	9	0.99369	0.99369	0.99498	0.15
+ont	v13	gbm+ref	0.5	host hold-out v13	85	1	0	0.98824	0.98824	0.98824	0.32
+ont	v13	gbm+ref	0.5	soil hold-out v13	20884	313	440	0.94794	0.94794	0.94848	0.39
+ont	v13	gbm+ref	0.5	soil_shallow hold-out v13	11283	261	325	0.94399	0.94399	0.94413	0.49
+ont	v13	gbm+ref	0.5	gut hold-out v14	3145	18	5	0.99032	0.99032	0.99199	0.64
+ont	v13	gbm+ref	0.5	host hold-out v14	123	1	0	0.98947	0.98947	0.98947	0.31
+ont	v13	gbm+ref	0.5	soil hold-out v14	33224	288	1224	0.92795	0.92795	0.93336	0.23
+ont	v13	gbm+ref	0.5	soil_shallow hold-out v14	18438	247	981	0.92303	0.92303	0.93672	0.28
+ont	v13	gbm+ref	0.5	gut hold-in v13, species held out	2858	6	9	0.99301	0.99301	0.99395	0.24
+ont	v13	gbm+ref	0.5	host hold-in v13, species held out	196	2	0	0.9901	0.9901	0.9901	0.3
+ont	v13	gbm+ref	0.5	soil hold-in v13, species held out	33921	572	619	0.94906	0.94906	0.94908	0.54
+ont	v13	gbm+ref	0.5	soil_shallow hold-in v13, species held out	18225	413	490	0.94623	0.94623	0.94688	0.61
+ont	v13	gbm+ref	0.5	design hold-in v13, species held out	13580	191	169	0.97338	0.97338	0.97409	0.55
+ont	v13	gbm	0.5	design test	4455	56	52	0.97498	0.97498	0.97572	0.4
+ont	v13	gbm	0.5	gut hold-out v13	2195	1	12	0.99178	0.99178	0.99624	0.13
+ont	v13	gbm	0.5	host hold-out v13	85	1	0	0.98824	0.98824	0.98824	0.36
+ont	v13	gbm	0.5	soil hold-out v13	20884	319	468	0.94551	0.94551	0.94578	0.39
+ont	v13	gbm	0.5	soil_shallow hold-out v13	11283	283	327	0.9418	0.9418	0.94259	0.51
+ont	v13	gbm	0.5	gut hold-out v14	3145	18	5	0.99032	0.99032	0.99116	0.56
+ont	v13	gbm	0.5	host hold-out v14	123	1	0	0.98947	0.98947	1	0.89
+ont	v13	gbm	0.5	soil hold-out v14	33224	298	1292	0.92403	0.92403	0.93046	0.24
+ont	v13	gbm	0.5	soil_shallow hold-out v14	18438	257	917	0.92675	0.92675	0.93586	0.23
+ont	v13	gbm	0.5	gut hold-in v13, species held out	2858	6	8	0.99348	0.99348	0.99441	0.25
+ont	v13	gbm	0.5	host hold-in v13, species held out	196	2	0	0.9901	0.9901	0.9901	0.19
+ont	v13	gbm	0.5	soil hold-in v13, species held out	33921	583	641	0.94762	0.94762	0.94804	0.57
+ont	v13	gbm	0.5	soil_shallow hold-in v13, species held out	18225	416	507	0.94499	0.94499	0.94541	0.53
+ont	v13	gbm	0.5	design hold-in v13, species held out	13580	182	162	0.97456	0.97456	0.97463	0.52
+ont	v13	gbm250	0.5	design test	4455	51	49	0.97682	0.97682	0.97754	0.44
+ont	v13	gbm250	0.5	gut hold-out v13	2195	2	9	0.99306	0.99306	0.9956	0.14
+ont	v13	gbm250	0.5	host hold-out v13	85	1	1	0.97619	0.97619	0.98824	0.23
+ont	v13	gbm250	0.5	soil hold-out v13	20884	319	445	0.94719	0.94719	0.94857	0.4
+ont	v13	gbm250	0.5	soil_shallow hold-out v13	11283	272	319	0.9436	0.9436	0.9436	0.5
+ont	v13	gbm250	0.5	gut hold-out v14	3145	18	6	0.9899	0.9899	0.99115	0.56
+ont	v13	gbm250	0.5	host hold-out v14	123	2	0	0.97917	0.97917	0.98947	0.55
+ont	v13	gbm250	0.5	soil hold-out v14	33224	292	1242	0.92685	0.92685	0.93271	0.26
+ont	v13	gbm250	0.5	soil_shallow hold-out v14	18438	265	965	0.92307	0.92307	0.93738	0.22
+ont	v13	gbm250	0.5	gut hold-in v13, species held out	2858	6	8	0.99348	0.99348	0.99396	0.18
+ont	v13	gbm250	0.5	host hold-in v13, species held out	196	2	0	0.9901	0.9901	0.9901	0.24
+ont	v13	gbm250	0.5	soil hold-in v13, species held out	33921	597	622	0.94791	0.94791	0.94912	0.57
+ont	v13	gbm250	0.5	soil_shallow hold-in v13, species held out	18225	424	504	0.94473	0.94473	0.94582	0.62
+ont	v13	gbm250	0.5	design hold-in v13, species held out	13580	191	163	0.97384	0.97384	0.97413	0.59
+ont	v14	forest	0.5	design test	4455	71	51	0.97184	0.97184	0.97311	0.55
+ont	v14	forest	0.5	gut hold-out v13	2195	26	12	0.97634	0.97634	0.98292	0.78
+ont	v14	forest	0.5	host hold-out v13	85	2	0	0.97674	0.97674	0.98824	0.56
+ont	v14	forest	0.5	soil hold-out v13	20884	452	406	0.94139	0.94139	0.94139	0.53
+ont	v14	forest	0.5	soil_shallow hold-out v13	11283	283	389	0.93551	0.93551	0.9369	0.48
+ont	v14	forest	0.5	gut hold-out v14	3145	38	7	0.98121	0.98121	0.98315	0.62
+ont	v14	forest	0.5	host hold-out v14	123	2	0	0.97917	0.97917	1	0.81
+ont	v14	forest	0.5	soil hold-out v14	33224	731	578	0.9407	0.9407	0.9425	0.58
+ont	v14	forest	0.5	soil_shallow hold-out v14	18438	469	600	0.93544	0.93544	0.93584	0.47
+ont	v14	forest	0.5	gut hold-in v14, species held out	6327	67	22	0.98055	0.98055	0.98283	0.6
+ont	v14	forest	0.5	host hold-in v14, species held out	374	7	1	0.97561	0.97561	0.97872	0.43
+ont	v14	forest	0.5	soil hold-in v14, species held out	67462	1434	1178	0.94294	0.94294	0.94439	0.6
+ont	v14	forest	0.5	soil_shallow hold-in v14, species held out	35161	896	1052	0.93882	0.93882	0.93916	0.45
+ont	v14	forest	0.5	design hold-in v14, species held out	13580	221	200	0.96887	0.96887	0.96923	0.54
+ont	v14	gbm+ref	0.5	design test	4455	56	48	0.97593	0.97593	0.97621	0.44
+ont	v14	gbm+ref	0.5	gut hold-out v13	2195	10	9	0.98807	0.98807	0.9905	0.74
+ont	v14	gbm+ref	0.5	host hold-out v13	85	1	0	0.98824	0.98824	0.98824	0.19
+ont	v14	gbm+ref	0.5	soil hold-out v13	20884	309	424	0.94937	0.94937	0.95045	0.38
+ont	v14	gbm+ref	0.5	soil_shallow hold-out v13	11283	216	368	0.94371	0.94371	0.94509	0.38
+ont	v14	gbm+ref	0.5	gut hold-out v14	3145	23	6	0.98782	0.98782	0.99108	0.86
+ont	v14	gbm+ref	0.5	host hold-out v14	123	2	0	0.97917	0.97917	0.98947	0.61
+ont	v14	gbm+ref	0.5	soil hold-out v14	33224	450	762	0.94391	0.94391	0.94571	0.36
+ont	v14	gbm+ref	0.5	soil_shallow hold-out v14	18438	423	486	0.94532	0.94532	0.94536	0.49
+ont	v14	gbm+ref	0.5	gut hold-in v14, species held out	6327	25	25	0.98897	0.98897	0.99	0.83
+ont	v14	gbm+ref	0.5	host hold-in v14, species held out	374	6	0	0.98171	0.98171	0.98452	0.72
+ont	v14	gbm+ref	0.5	soil hold-in v14, species held out	67462	1134	1105	0.95085	0.95085	0.95159	0.62
+ont	v14	gbm+ref	0.5	soil_shallow hold-in v14, species held out	35161	854	892	0.94536	0.94536	0.94565	0.52
+ont	v14	gbm+ref	0.5	design hold-in v14, species held out	13580	197	156	0.97394	0.97394	0.9743	0.57
+ont	v14	gbm	0.5	design test	4455	58	55	0.97381	0.97381	0.97476	0.49
+ont	v14	gbm	0.5	gut hold-out v13	2195	10	10	0.98744	0.98744	0.99055	0.61
+ont	v14	gbm	0.5	host hold-out v13	85	1	0	0.98824	0.98824	0.98824	0.49
+ont	v14	gbm	0.5	soil hold-out v13	20884	324	429	0.94802	0.94802	0.94814	0.51
+ont	v14	gbm	0.5	soil_shallow hold-out v13	11283	233	394	0.93951	0.93951	0.94024	0.43
+ont	v14	gbm	0.5	gut hold-out v14	3145	21	7	0.98823	0.98823	0.99111	0.78
+ont	v14	gbm	0.5	host hold-out v14	123	2	0	0.97917	0.97917	0.98947	0.59
+ont	v14	gbm	0.5	soil hold-out v14	33224	459	783	0.94249	0.94249	0.94358	0.34
+ont	v14	gbm	0.5	soil_shallow hold-out v14	18438	459	501	0.94233	0.94233	0.94271	0.45
+ont	v14	gbm	0.5	gut hold-in v14, species held out	6327	26	25	0.98875	0.98875	0.9907	0.71
+ont	v14	gbm	0.5	host hold-in v14, species held out	374	5	1	0.9816	0.9816	0.98765	0.67
+ont	v14	gbm	0.5	soil hold-in v14, species held out	67462	1133	1134	0.9502	0.9502	0.95032	0.51
+ont	v14	gbm	0.5	soil_shallow hold-in v14, species held out	35161	899	901	0.94374	0.94374	0.94461	0.55
+ont	v14	gbm	0.5	design hold-in v14, species held out	13580	205	171	0.97223	0.97223	0.97303	0.58
+ont	v14	gbm250	0.5	design test	4455	62	49	0.97434	0.97434	0.97556	0.41
+ont	v14	gbm250	0.5	gut hold-out v13	2195	9	9	0.98869	0.98869	0.99179	0.71
+ont	v14	gbm250	0.5	host hold-out v13	85	1	0	0.98824	0.98824	0.98824	0.13
+ont	v14	gbm250	0.5	soil hold-out v13	20884	313	431	0.9486	0.9486	0.95073	0.39
+ont	v14	gbm250	0.5	soil_shallow hold-out v13	11283	223	370	0.94287	0.94287	0.94368	0.4
+ont	v14	gbm250	0.5	gut hold-out v14	3145	19	7	0.98906	0.98906	0.9911	0.75
+ont	v14	gbm250	0.5	host hold-out v14	123	2	0	0.97917	0.97917	0.98947	0.51
+ont	v14	gbm250	0.5	soil hold-out v14	33224	424	793	0.94353	0.94353	0.9454	0.32
+ont	v14	gbm250	0.5	soil_shallow hold-out v14	18438	443	482	0.94444	0.94444	0.94467	0.55
+ont	v14	gbm250	0.5	gut hold-in v14, species held out	6327	24	24	0.98941	0.98941	0.99048	0.68
+ont	v14	gbm250	0.5	host hold-in v14, species held out	374	5	0	0.98471	0.98471	0.98471	0.46
+ont	v14	gbm250	0.5	soil hold-in v14, species held out	67462	1143	1123	0.95025	0.95025	0.95127	0.56
+ont	v14	gbm250	0.5	soil_shallow hold-in v14, species held out	35161	877	898	0.94448	0.94448	0.94485	0.53
+ont	v14	gbm250	0.5	design hold-in v14, species held out	13580	213	165	0.97211	0.97211	0.97324	0.6

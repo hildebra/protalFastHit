@@ -1,0 +1,117 @@
+read type	variant	set	sample	log10 fragments	F1	FP	FN	F1 at 0.5	best F1	at
+ont	v14	design, samples held out	all		0.97282	202	166	0.97282	0.97368	0.59
+ont	v14	gut hold-in, samples held out	all		0.98743	29	28	0.98743	0.98868	0.77
+ont	v14	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_1	5.5108	0.98542	6	4	0.98542		
+ont	v14	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_2	5.2504	0.98599	6	4	0.98599		
+ont	v14	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_3	5.4325	0.98807	5	5	0.98807		
+ont	v14	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_4	5.2701	0.98338	8	4	0.98338		
+ont	v14	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_5	5.1032	0.99225	4	2	0.99225		
+ont	v14	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_6	5.6626	0.98874	0	9	0.98874		
+ont	v14	host hold-in, samples held out	all		0.98471	5	0	0.98471	0.98471	0.41
+ont	v14	host hold-in, samples held out	sc_host_ont_b3000000000_s_1	3.9843	1	0	0	1		
+ont	v14	host hold-in, samples held out	sc_host_ont_b3000000000_s_2	4.4128	0.96296	1	0	0.96296		
+ont	v14	host hold-in, samples held out	sc_host_ont_b3000000000_s_3	3.9472	0.97917	2	0	0.97917		
+ont	v14	host hold-in, samples held out	sc_host_ont_b3000000000_s_4	3.6118	1	0	0	1		
+ont	v14	host hold-in, samples held out	sc_host_ont_b3000000000_s_5	4.0447	1	0	0	1		
+ont	v14	host hold-in, samples held out	sc_host_ont_b3000000000_s_6	3.7755	0.97727	2	0	0.97727		
+ont	v14	soil hold-in, samples held out	all		0.94997	944	1315	0.94997	0.95016	0.47
+ont	v14	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_1	4.9543	0.95195	188	175	0.95195		
+ont	v14	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_2	5.2046	0.94857	128	236	0.94857		
+ont	v14	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_3	5.1484	0.95445	243	135	0.95445		
+ont	v14	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_4	5.454	0.93768	78	364	0.93768		
+ont	v14	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_5	5.3219	0.95852	154	187	0.95852		
+ont	v14	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_6	5.0662	0.9463	153	218	0.9463		
+ont	v14	soil_shallow hold-in, samples held out	all		0.94345	735	1056	0.94345	0.94433	0.41
+ont	v14	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_1	4.4118	0.95063	137	140	0.95063		
+ont	v14	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_2	4.7628	0.94109	74	233	0.94109		
+ont	v14	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_3	4.8288	0.94853	192	167	0.94853		
+ont	v14	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_4	4.6396	0.93207	81	221	0.93207		
+ont	v14	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_5	4.4668	0.94375	146	178	0.94375		
+ont	v14	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_6	4.245	0.93951	105	117	0.93951		
+ont	v14	design test	all		0.97593	56	48	0.97593	0.97621	0.44
+ont	v14	gut v14 hold-out	all		0.98782	23	6	0.98782	0.99108	0.86
+ont	v14	gut v14 hold-out	sc_gut_ont_b6000000000_s_1	5.2788	0.99351	5	0	0.99351		
+ont	v14	gut v14 hold-out	sc_gut_ont_b6000000000_s_2	5.1801	0.97662	14	4	0.97662		
+ont	v14	gut v14 hold-out	sc_gut_ont_b6000000000_s_3	5.6258	0.99286	4	2	0.99286		
+ont	v14	host v14 hold-out	all		0.97917	2	0	0.97917	0.98947	0.61
+ont	v14	host v14 hold-out	sc_host_ont_b3000000000_s_1	4.4967	0.97959	1	0	0.97959		
+ont	v14	host v14 hold-out	sc_host_ont_b3000000000_s_2	4.0762	0.97143	1	0	0.97143		
+ont	v14	host v14 hold-out	sc_host_ont_b3000000000_s_3	3.843	1	0	0	1		
+ont	v14	soil v14 hold-out	all		0.94391	450	762	0.94391	0.94571	0.36
+ont	v14	soil v14 hold-out	sc_soil_ont_b6000000000_s_1	5.2772	0.9562	130	182	0.9562		
+ont	v14	soil v14 hold-out	sc_soil_ont_b6000000000_s_2	5.2277	0.92638	115	410	0.92638		
+ont	v14	soil v14 hold-out	sc_soil_ont_b6000000000_s_3	5.0544	0.94901	205	170	0.94901		
+ont	v14	soil_shallow v14 hold-out	all		0.94532	423	486	0.94532	0.94536	0.49
+ont	v14	soil_shallow v14 hold-out	sc_soil_shallow_ont_b1500000000_s_1	4.7197	0.94763	155	163	0.94763		
+ont	v14	soil_shallow v14 hold-out	sc_soil_shallow_ont_b1500000000_s_2	4.6448	0.93704	140	188	0.93704		
+ont	v14	soil_shallow v14 hold-out	sc_soil_shallow_ont_b1500000000_s_3	4.4419	0.95078	128	135	0.95078		
+ont	v14	gut v13 hold-out	all		0.98807	10	9	0.98807	0.9905	0.74
+ont	v14	gut v13 hold-out	sc_gut_ont_b6000000000_s_1	5.3657	0.99481	4	0	0.99481		
+ont	v14	gut v13 hold-out	sc_gut_ont_b6000000000_s_2	5.2912	0.98177	6	9	0.98177		
+ont	v14	host v13 hold-out	all		0.98824	1	0	0.98824	0.98824	0.19
+ont	v14	host v13 hold-out	sc_host_ont_b3000000000_s_1	4.2652	0.97959	1	0	0.97959		
+ont	v14	host v13 hold-out	sc_host_ont_b3000000000_s_2	3.7912	1	0	0	1		
+ont	v14	soil v13 hold-out	all		0.94937	309	424	0.94937	0.95045	0.38
+ont	v14	soil v13 hold-out	sc_soil_ont_b6000000000_s_1	5.1603	0.95608	169	143	0.95608		
+ont	v14	soil v13 hold-out	sc_soil_ont_b6000000000_s_2	5.1471	0.9429	140	281	0.9429		
+ont	v14	soil_shallow v13 hold-out	all		0.94371	216	368	0.94371	0.94509	0.38
+ont	v14	soil_shallow v13 hold-out	sc_soil_shallow_ont_b1500000000_s_1	4.5609	0.94676	116	177	0.94676		
+ont	v14	soil_shallow v13 hold-out	sc_soil_shallow_ont_b1500000000_s_2	4.588	0.94026	100	191	0.94026		
+ont	+sample	design, samples held out	all		0.97426	181	167	0.97426	0.97478	0.56
+ont	+sample	gut hold-in, samples held out	all		0.9927	11	22	0.9927	0.99337	0.42
+ont	+sample	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_1	5.5108	0.99559	0	3	0.99559		
+ont	+sample	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_2	5.2504	0.99438	2	2	0.99438		
+ont	+sample	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_3	5.4325	0.98925	4	5	0.98925		
+ont	+sample	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_4	5.2701	0.98889	5	3	0.98889		
+ont	+sample	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_5	5.1032	0.9974	0	2	0.9974		
+ont	+sample	gut hold-in, samples held out	sc_gut_ont_b6000000000_s_6	5.6626	0.99126	0	7	0.99126		
+ont	+sample	host hold-in, samples held out	all		0.99383	2	0	0.99383	0.99383	0.24
+ont	+sample	host hold-in, samples held out	sc_host_ont_b3000000000_s_1	3.9843	1	0	0	1		
+ont	+sample	host hold-in, samples held out	sc_host_ont_b3000000000_s_2	4.4128	1	0	0	1		
+ont	+sample	host hold-in, samples held out	sc_host_ont_b3000000000_s_3	3.9472	0.98947	1	0	0.98947		
+ont	+sample	host hold-in, samples held out	sc_host_ont_b3000000000_s_4	3.6118	1	0	0	1		
+ont	+sample	host hold-in, samples held out	sc_host_ont_b3000000000_s_5	4.0447	1	0	0	1		
+ont	+sample	host hold-in, samples held out	sc_host_ont_b3000000000_s_6	3.7755	0.98851	1	0	0.98851		
+ont	+sample	soil hold-in, samples held out	all		0.95207	1060	1119	0.95207	0.95209	0.51
+ont	+sample	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_1	4.9543	0.95127	200	169	0.95127		
+ont	+sample	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_2	5.2046	0.94889	140	223	0.94889		
+ont	+sample	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_3	5.1484	0.95535	222	147	0.95535		
+ont	+sample	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_4	5.454	0.95262	146	201	0.95262		
+ont	+sample	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_5	5.3219	0.9558	184	181	0.9558		
+ont	+sample	soil hold-in, samples held out	sc_soil_ont_b6000000000_s_6	5.0662	0.94729	168	198	0.94729		
+ont	+sample	soil_shallow hold-in, samples held out	all		0.94746	810	868	0.94746	0.94754	0.51
+ont	+sample	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_1	4.4118	0.95165	131	140	0.95165		
+ont	+sample	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_2	4.7628	0.95065	122	142	0.95065		
+ont	+sample	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_3	4.8288	0.94973	181	169	0.94973		
+ont	+sample	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_4	4.6396	0.94316	124	136	0.94316		
+ont	+sample	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_5	4.4668	0.94558	146	168	0.94558		
+ont	+sample	soil_shallow hold-in, samples held out	sc_soil_shallow_ont_b1500000000_s_6	4.245	0.94041	106	113	0.94041		
+ont	+sample	design test	all		0.97423	53	58	0.97423	0.97532	0.34
+ont	+sample	gut v14 hold-out	all		0.9924	11	7	0.9924	0.99364	0.67
+ont	+sample	gut v14 hold-out	sc_gut_ont_b6000000000_s_1	5.2788	0.9987	1	0	0.9987		
+ont	+sample	gut v14 hold-out	sc_gut_ont_b6000000000_s_2	5.1801	0.98425	7	5	0.98425		
+ont	+sample	gut v14 hold-out	sc_gut_ont_b6000000000_s_3	5.6258	0.99404	3	2	0.99404		
+ont	+sample	host v14 hold-out	all		0.98947	1	0	0.98947	1	0.7
+ont	+sample	host v14 hold-out	sc_host_ont_b3000000000_s_1	4.4967	0.97959	1	0	0.97959		
+ont	+sample	host v14 hold-out	sc_host_ont_b3000000000_s_2	4.0762	1	0	0	1		
+ont	+sample	host v14 hold-out	sc_host_ont_b3000000000_s_3	3.843	1	0	0	1		
+ont	+sample	soil v14 hold-out	all		0.94962	517	584	0.94962	0.95	0.6
+ont	+sample	soil v14 hold-out	sc_soil_ont_b6000000000_s_1	5.2772	0.95839	154	145	0.95839		
+ont	+sample	soil v14 hold-out	sc_soil_ont_b6000000000_s_2	5.2277	0.94188	165	261	0.94188		
+ont	+sample	soil v14 hold-out	sc_soil_ont_b6000000000_s_3	5.0544	0.94877	198	178	0.94877		
+ont	+sample	soil_shallow v14 hold-out	all		0.94431	433	493	0.94431	0.94451	0.57
+ont	+sample	soil_shallow v14 hold-out	sc_soil_shallow_ont_b1500000000_s_1	4.7197	0.94761	174	146	0.94761		
+ont	+sample	soil_shallow v14 hold-out	sc_soil_shallow_ont_b1500000000_s_2	4.6448	0.93349	121	222	0.93349		
+ont	+sample	soil_shallow v14 hold-out	sc_soil_shallow_ont_b1500000000_s_3	4.4419	0.95096	138	125	0.95096		
+ont	+sample	gut v13 hold-out	all		0.99306	2	9	0.99306	0.99309	0.24
+ont	+sample	gut v13 hold-out	sc_gut_ont_b6000000000_s_1	5.3657	1	0	0	1		
+ont	+sample	gut v13 hold-out	sc_gut_ont_b6000000000_s_2	5.2912	0.98657	2	9	0.98657		
+ont	+sample	host v13 hold-out	all		0.98824	1	0	0.98824	1	0.54
+ont	+sample	host v13 hold-out	sc_host_ont_b3000000000_s_1	4.2652	0.97959	1	0	0.97959		
+ont	+sample	host v13 hold-out	sc_host_ont_b3000000000_s_2	3.7912	1	0	0	1		
+ont	+sample	soil v13 hold-out	all		0.95084	334	381	0.95084	0.95153	0.46
+ont	+sample	soil v13 hold-out	sc_soil_ont_b6000000000_s_1	5.1603	0.9553	177	141	0.9553		
+ont	+sample	soil v13 hold-out	sc_soil_ont_b6000000000_s_2	5.1471	0.94658	157	240	0.94658		
+ont	+sample	soil_shallow v13 hold-out	all		0.94195	278	330	0.94195	0.94244	0.53
+ont	+sample	soil_shallow v13 hold-out	sc_soil_shallow_ont_b1500000000_s_1	4.5609	0.94445	173	138	0.94445		
+ont	+sample	soil_shallow v13 hold-out	sc_soil_shallow_ont_b1500000000_s_2	4.588	0.93908	105	192	0.93908		

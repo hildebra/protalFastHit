@@ -1,0 +1,263 @@
+build read type                                    set   knob  samples   taxa    TP   FP   FN     F1  F1 at 0.5  best F1     at
+  v13        pe                            design test 0.7000       78  22305  4342   93  220 0.9652     0.9633   0.9656 0.6800
+  v13        pe                           gut hold-out 0.7000        2   7241   790    1    7 0.9950     0.9956   0.9962 0.5500
+  v13        pe                          host hold-out 0.7000        2    308    41    1    1 0.9762     0.9882   0.9882 0.3100
+  v13        pe                          soil hold-out 0.7000        2  55874  7562  304  433 0.9535     0.9440   0.9539 0.7300
+  v13        pe                  soil_shallow hold-out 0.7000        2  29709  6555  331  727 0.9253     0.9257   0.9275 0.5900
+  v13        pe          gut hold-in, species held out 0.7000        3   9463  1059    2   15 0.9920     0.9935   0.9935 0.4700
+  v13        pe         host hold-in, species held out 0.7000        3    661    99    0    1 0.9950     0.9950   1.0000 0.5500
+  v13        pe         soil hold-in, species held out 0.7000        3  89092 11965  456  584 0.9584     0.9474   0.9590 0.7600
+  v13        pe soil_shallow hold-in, species held out 0.7000        3  47925 10652  539 1056 0.9303     0.9288   0.9317 0.5800
+  v13        se                            design test 0.5000       78  19392  4294  186  179 0.9592     0.9592   0.9607 0.5600
+  v13        se                          host hold-out 0.5000        2    213    41    0    1 0.9880     0.9880   1.0000 0.1500
+  v13        se                          soil hold-out 0.5000        2  41620  7651  434  353 0.9511     0.9511   0.9545 0.6300
+  v13        se         host hold-in, species held out 0.5000        3    492   100    0    0 1.0000     1.0000   1.0000 0.2600
+  v13        se         soil hold-in, species held out 0.5000        3  66321 12103  643  451 0.9568     0.9568   0.9609 0.6900
+  v13        pb                            design test 0.5000       41   3758  2056   55   43 0.9767     0.9767   0.9769 0.5400
+  v13        pb                           gut hold-out 0.5000        2   1599   786   13   10 0.9856     0.9856   0.9874 0.6200
+  v13        pb                          host hold-out 0.5000        2     66    42    1    0 0.9882     0.9882   0.9882 0.1700
+  v13        pb                          soil hold-out 0.5000        2  17624  6726  322  432 0.9469     0.9469   0.9474 0.5100
+  v13        pb                  soil_shallow hold-out 0.5000        2   9733  4636  178  337 0.9474     0.9474   0.9477 0.4600
+  v13        pb          gut hold-in, species held out 0.5000        3   2145  1059   20   15 0.9837     0.9837   0.9855 0.6400
+  v13        pb         host hold-in, species held out 0.5000        3    175    99    1    1 0.9900     0.9900   0.9950 0.3400
+  v13        pb         soil hold-in, species held out 0.5000        3  28434 10931  556  645 0.9479     0.9479   0.9480 0.5200
+  v13        pb soil_shallow hold-in, species held out 0.5000        3  16122  7722  299  525 0.9493     0.9493   0.9504 0.4500
+  v13       ont                            design test 0.5000       42   4455  2101   66   55 0.9720     0.9720   0.9728 0.5600
+  v13       ont                           gut hold-out 0.5000        2   2195   785   23   11 0.9788     0.9788   0.9860 0.7700
+  v13       ont                          host hold-out 0.5000        2     85    42    1    0 0.9882     0.9882   0.9882 0.4700
+  v13       ont                          soil hold-out 0.5000        2  20884  6870  433  426 0.9412     0.9412   0.9417 0.5400
+  v13       ont                  soil_shallow hold-out 0.5000        2  11283  4859  284  404 0.9339     0.9339   0.9358 0.4000
+  v13       ont          gut hold-in, species held out 0.5000        3   2858  1060   35   14 0.9774     0.9774   0.9836 0.7000
+  v13       ont         host hold-in, species held out 0.5000        3    196   100    2    0 0.9901     0.9901   0.9950 0.6200
+  v13       ont         soil hold-in, species held out 0.5000        3  33921 11057  694  656 0.9425     0.9425   0.9426 0.5100
+  v13       ont soil_shallow hold-in, species held out 0.5000        3  18225  7842  419  593 0.9394     0.9394   0.9406 0.4600
+  v14        pe                            design test 0.8200       78  22305  4311   63  251 0.9649     0.9678   0.9687 0.5800
+  v14        pe                           gut hold-out 0.8200        3  10162  1175    2    8 0.9958     0.9962   0.9966 0.5500
+  v14        pe                          host hold-out 0.8200        3    520    47    1    0 0.9895     0.9895   0.9895 0.2500
+  v14        pe                          soil hold-out 0.8200        3  88482 11034  214  597 0.9646     0.9587   0.9649 0.7900
+  v14        pe                  soil_shallow hold-out 0.8200        3  48069 10334  516  785 0.9408     0.9276   0.9410 0.8300
+  v14        pe          gut hold-in, species held out 0.8200        6  20537  2237    2   30 0.9929     0.9940   0.9945 0.3900
+  v14        pe         host hold-in, species held out 0.8200        6   1318   159    1    2 0.9907     0.9938   0.9969 0.3200
+  v14        pe         soil hold-in, species held out 0.8200        6 178675 23267  567 1258 0.9623     0.9561   0.9626 0.7700
+  v14        pe soil_shallow hold-in, species held out 0.8200        6  92403 20288  926 1676 0.9397     0.9312   0.9404 0.7800
+  v14        se                            design test 0.7300       78  19392  4220   88  253 0.9612     0.9636   0.9636 0.5000
+  v14        se                          host hold-out 0.7300        3    347    47    0    0 1.0000     1.0000   1.0000 0.0500
+  v14        se                          soil hold-out 0.7300        3  65232 11083  270  547 0.9645     0.9606   0.9647 0.8100
+  v14        se         host hold-in, species held out 0.7300        6    961   160    1    1 0.9938     0.9938   0.9969 0.0800
+  v14        se         soil hold-in, species held out 0.7300        6 132248 23467  640 1071 0.9648     0.9605   0.9649 0.7400
+  v14        pb                            design test 0.5000       41   3758  2065   54   34 0.9791     0.9791   0.9814 0.6300
+  v14        pb                           gut hold-out 0.5000        3   2412  1176   11    7 0.9924     0.9924   0.9937 0.6700
+  v14        pb                          host hold-out 0.5000        3     84    47    1    0 0.9895     0.9895   0.9895 0.0800
+  v14        pb                          soil hold-out 0.5000        3  27881 10237  326  578 0.9577     0.9577   0.9581 0.4800
+  v14        pb                  soil_shallow hold-out 0.5000        3  15909  7594  309  402 0.9553     0.9553   0.9557 0.5500
+  v14        pb          gut hold-in, species held out 0.5000        6   4720  2240   17   25 0.9907     0.9907   0.9918 0.4600
+  v14        pb         host hold-in, species held out 0.5000        6    285   160    4    1 0.9846     0.9846   0.9876 0.7500
+  v14        pb         soil hold-in, species held out 0.5000        6  56459 21436  923 1068 0.9556     0.9556   0.9558 0.4900
+  v14        pb soil_shallow hold-in, species held out 0.5000        6  30722 14587  666  767 0.9532     0.9532   0.9535 0.4500
+  v14       ont                            design test 0.5000       42   4455  2108   56   48 0.9759     0.9759   0.9762 0.4400
+  v14       ont                           gut hold-out 0.5000        3   3145  1176   23    6 0.9878     0.9878   0.9911 0.8600
+  v14       ont                          host hold-out 0.5000        3    123    47    2    0 0.9792     0.9792   0.9895 0.6100
+  v14       ont                          soil hold-out 0.5000        3  33224 10199  450  762 0.9439     0.9439   0.9457 0.3600
+  v14       ont                  soil_shallow hold-out 0.5000        3  18438  7858  423  486 0.9453     0.9453   0.9454 0.4900
+  v14       ont          gut hold-in, species held out 0.5000        6   6327  2241   25   25 0.9890     0.9890   0.9900 0.8300
+  v14       ont         host hold-in, species held out 0.5000        6    374   161    6    0 0.9817     0.9817   0.9845 0.7200
+  v14       ont         soil hold-in, species held out 0.5000        6  67462 21657 1134 1105 0.9508     0.9508   0.9516 0.6200
+  v14       ont soil_shallow hold-in, species held out 0.5000        6  35161 15105  854  892 0.9454     0.9454   0.9456 0.5200
+
+build read type                                    set                              sample  log10 fragments  present  taxa   TP  FP  FN     F1  F1 at 0.5  FN with 1-2 fragments
+  v14       ont          gut hold-in, species held out          sc_gut_ont_b6000000000_s_5           5.1032      386   921  384   5   2 0.9910     0.9910                      0
+  v14       ont          gut hold-in, species held out          sc_gut_ont_b6000000000_s_2           5.2504      356   787  353   6   3 0.9874     0.9874                      0
+  v14       ont          gut hold-in, species held out          sc_gut_ont_b6000000000_s_4           5.2701      359   990  355   6   4 0.9861     0.9861                      1
+  v13       ont          gut hold-in, species held out          sc_gut_ont_b6000000000_s_1           5.3576      342   943  340  12   2 0.9798     0.9798                      0
+  v13       ont          gut hold-in, species held out          sc_gut_ont_b6000000000_s_2           5.3744      358   799  352  13   6 0.9737     0.9737                      1
+  v13       ont          gut hold-in, species held out          sc_gut_ont_b6000000000_s_3           5.3781      374  1116  368  10   6 0.9787     0.9787                      0
+  v14       ont          gut hold-in, species held out          sc_gut_ont_b6000000000_s_3           5.4325      419  1203  412   5   7 0.9856     0.9856                      1
+  v14       ont          gut hold-in, species held out          sc_gut_ont_b6000000000_s_1           5.5108      342  1028  339   2   3 0.9927     0.9927                      0
+  v14       ont          gut hold-in, species held out          sc_gut_ont_b6000000000_s_6           5.6626      404  1398  398   1   6 0.9913     0.9913                      0
+  v14       ont                           gut hold-out          sc_gut_ont_b6000000000_s_2           5.1801      380   804  376  14   4 0.9766     0.9766                      1
+  v14       ont                           gut hold-out          sc_gut_ont_b6000000000_s_1           5.2788      383   942  383   5   0 0.9935     0.9935                      0
+  v13       ont                           gut hold-out          sc_gut_ont_b6000000000_s_2           5.2912      413  1190  402  12  11 0.9722     0.9722                      0
+  v13       ont                           gut hold-out          sc_gut_ont_b6000000000_s_1           5.3657      383  1005  383  11   0 0.9858     0.9858                      0
+  v14       ont                           gut hold-out          sc_gut_ont_b6000000000_s_3           5.6258      419  1399  417   4   2 0.9929     0.9929                      0
+  v14       ont         host hold-in, species held out         sc_host_ont_b3000000000_s_4           3.6118       13    30   13   0   0 1.0000     1.0000                      0
+  v14       ont         host hold-in, species held out         sc_host_ont_b3000000000_s_6           3.7755       43    70   43   3   0 0.9663     0.9663                      0
+  v13       ont         host hold-in, species held out         sc_host_ont_b3000000000_s_1           3.8701       24    53   24   1   0 0.9796     0.9796                      0
+  v13       ont         host hold-in, species held out         sc_host_ont_b3000000000_s_2           3.9408       29    60   29   1   0 0.9831     0.9831                      0
+  v14       ont         host hold-in, species held out         sc_host_ont_b3000000000_s_3           3.9472       47    89   47   2   0 0.9792     0.9792                      0
+  v13       ont         host hold-in, species held out         sc_host_ont_b3000000000_s_3           3.9763       47    83   47   0   0 1.0000     1.0000                      0
+  v14       ont         host hold-in, species held out         sc_host_ont_b3000000000_s_1           3.9843       24    55   24   0   0 1.0000     1.0000                      0
+  v14       ont         host hold-in, species held out         sc_host_ont_b3000000000_s_5           4.0447       21    48   21   0   0 1.0000     1.0000                      0
+  v14       ont         host hold-in, species held out         sc_host_ont_b3000000000_s_2           4.4128       13    82   13   1   0 0.9630     0.9630                      0
+  v13       ont                          host hold-out         sc_host_ont_b3000000000_s_2           3.7912       18    47   18   0   0 1.0000     1.0000                      0
+  v14       ont                          host hold-out         sc_host_ont_b3000000000_s_3           3.8430        6    12    6   0   0 1.0000     1.0000                      0
+  v14       ont                          host hold-out         sc_host_ont_b3000000000_s_2           4.0762       17    53   17   1   0 0.9714     0.9714                      0
+  v13       ont                          host hold-out         sc_host_ont_b3000000000_s_1           4.2652       24    38   24   1   0 0.9796     0.9796                      0
+  v14       ont                          host hold-out         sc_host_ont_b3000000000_s_1           4.4967       24    58   24   1   0 0.9796     0.9796                      0
+  v14       ont         soil hold-in, species held out         sc_soil_ont_b6000000000_s_1           4.9543     3771  9947 3590 206 181 0.9489     0.9489                     96
+  v14       ont         soil hold-in, species held out         sc_soil_ont_b6000000000_s_6           5.0662     3487  9075 3284 186 203 0.9441     0.9441                    109
+  v14       ont         soil hold-in, species held out         sc_soil_ont_b6000000000_s_3           5.1484     4095 12003 3934 223 161 0.9535     0.9535                     67
+  v13       ont         soil hold-in, species held out         sc_soil_ont_b6000000000_s_1           5.1661     3995 11981 3788 231 207 0.9453     0.9453                     84
+  v13       ont         soil hold-in, species held out         sc_soil_ont_b6000000000_s_3           5.1681     4030 11837 3838 249 192 0.9457     0.9457                     66
+  v13       ont         soil hold-in, species held out         sc_soil_ont_b6000000000_s_2           5.1709     3688 10103 3431 214 257 0.9358     0.9358                    134
+  v14       ont         soil hold-in, species held out         sc_soil_ont_b6000000000_s_2           5.2046     3593 10049 3402 179 191 0.9484     0.9484                     87
+  v14       ont         soil hold-in, species held out         sc_soil_ont_b6000000000_s_5           5.3219     4127 13672 3953 173 174 0.9580     0.9580                     70
+  v14       ont         soil hold-in, species held out         sc_soil_ont_b6000000000_s_4           5.4540     3689 12716 3494 167 195 0.9507     0.9507                     82
+  v14       ont                          soil hold-out         sc_soil_ont_b6000000000_s_3           5.0544     3660 10493 3490 205 170 0.9490     0.9490                     67
+  v13       ont                          soil hold-out         sc_soil_ont_b6000000000_s_2           5.1471     3757  9929 3491 205 266 0.9368     0.9368                    142
+  v13       ont                          soil hold-out         sc_soil_ont_b6000000000_s_1           5.1603     3539 10955 3379 228 160 0.9457     0.9457                     64
+  v14       ont                          soil hold-out         sc_soil_ont_b6000000000_s_2           5.2277     3713 10641 3303 115 410 0.9264     0.9264                    287
+  v14       ont                          soil hold-out         sc_soil_ont_b6000000000_s_1           5.2772     3588 12090 3406 130 182 0.9562     0.9562                     84
+  v14       ont soil_shallow hold-in, species held out sc_soil_shallow_ont_b1500000000_s_6           4.2450     1841  3609 1722 106 119 0.9387     0.9387                     94
+  v14       ont soil_shallow hold-in, species held out sc_soil_shallow_ont_b1500000000_s_1           4.4118     2807  5702 2666 141 141 0.9498     0.9498                     96
+  v14       ont soil_shallow hold-in, species held out sc_soil_shallow_ont_b1500000000_s_5           4.4668     2896  5794 2714 155 182 0.9415     0.9415                    122
+  v13       ont soil_shallow hold-in, species held out sc_soil_shallow_ont_b1500000000_s_2           4.5306     2408  5185 2213 117 195 0.9341     0.9341                    133
+  v13       ont soil_shallow hold-in, species held out sc_soil_shallow_ont_b1500000000_s_1           4.5448     3098  6605 2896 149 202 0.9429     0.9429                    145
+  v13       ont soil_shallow hold-in, species held out sc_soil_shallow_ont_b1500000000_s_3           4.5525     2929  6435 2733 153 196 0.9400     0.9400                    128
+  v14       ont soil_shallow hold-in, species held out sc_soil_shallow_ont_b1500000000_s_4           4.6396     2293  5089 2165 133 128 0.9431     0.9431                     77
+  v14       ont soil_shallow hold-in, species held out sc_soil_shallow_ont_b1500000000_s_2           4.7628     2685  6321 2537 132 148 0.9477     0.9477                     96
+  v14       ont soil_shallow hold-in, species held out sc_soil_shallow_ont_b1500000000_s_3           4.8288     3475  8646 3301 187 174 0.9482     0.9482                     89
+  v14       ont                  soil_shallow hold-out sc_soil_shallow_ont_b1500000000_s_3           4.4419     2675  5524 2540 128 135 0.9508     0.9508                     98
+  v13       ont                  soil_shallow hold-out sc_soil_shallow_ont_b1500000000_s_1           4.5609     2782  6055 2578 154 204 0.9351     0.9351                    136
+  v13       ont                  soil_shallow hold-out sc_soil_shallow_ont_b1500000000_s_2           4.5880     2481  5228 2281 130 200 0.9325     0.9325                    142
+  v14       ont                  soil_shallow hold-out sc_soil_shallow_ont_b1500000000_s_2           4.6448     2629  5658 2441 140 188 0.9370     0.9370                    129
+  v14       ont                  soil_shallow hold-out sc_soil_shallow_ont_b1500000000_s_1           4.7197     3040  7256 2877 155 163 0.9476     0.9476                     93
+  v14        pb          gut hold-in, species held out           sc_gut_pb_b6000000000_s_5           5.1122      386   752  384   6   2 0.9897     0.9897                      1
+  v14        pb          gut hold-in, species held out           sc_gut_pb_b6000000000_s_2           5.2717      356   659  352   4   4 0.9888     0.9888                      0
+  v14        pb          gut hold-in, species held out           sc_gut_pb_b6000000000_s_4           5.2856      358   718  355   2   3 0.9930     0.9930                      0
+  v13        pb          gut hold-in, species held out           sc_gut_pb_b6000000000_s_1           5.3704      342   695  337   7   5 0.9825     0.9825                      0
+  v13        pb          gut hold-in, species held out           sc_gut_pb_b6000000000_s_2           5.3873      358   635  354   6   4 0.9861     0.9861                      1
+  v13        pb          gut hold-in, species held out           sc_gut_pb_b6000000000_s_3           5.3910      374   815  368   7   6 0.9826     0.9826                      0
+  v14        pb          gut hold-in, species held out           sc_gut_pb_b6000000000_s_3           5.4505      419   901  414   2   5 0.9916     0.9916                      0
+  v14        pb          gut hold-in, species held out           sc_gut_pb_b6000000000_s_1           5.5249      342   758  340   3   2 0.9927     0.9927                      0
+  v14        pb          gut hold-in, species held out           sc_gut_pb_b6000000000_s_6           5.6758      404   932  395   0   9 0.9887     0.9887                      0
+  v14        pb                           gut hold-out           sc_gut_pb_b6000000000_s_2           5.1984      381   659  377   7   4 0.9856     0.9856                      2
+  v13        pb                           gut hold-out           sc_gut_pb_b6000000000_s_2           5.2903      413   843  403   8  10 0.9782     0.9782                      1
+  v14        pb                           gut hold-out           sc_gut_pb_b6000000000_s_1           5.3001      383   725  382   2   1 0.9961     0.9961                      0
+  v13        pb                           gut hold-out           sc_gut_pb_b6000000000_s_1           5.3831      383   756  383   5   0 0.9935     0.9935                      0
+  v14        pb                           gut hold-out           sc_gut_pb_b6000000000_s_3           5.6390      419  1028  417   2   2 0.9952     0.9952                      0
+  v14        pb         host hold-in, species held out          sc_host_pb_b3000000000_s_4           3.5880       13    23   13   0   0 1.0000     1.0000                      0
+  v14        pb         host hold-in, species held out          sc_host_pb_b3000000000_s_6           3.7802       43    60   43   0   0 1.0000     1.0000                      0
+  v13        pb         host hold-in, species held out          sc_host_pb_b3000000000_s_1           3.8402       24    41   23   0   1 0.9787     0.9787                      0
+  v14        pb         host hold-in, species held out          sc_host_pb_b3000000000_s_3           3.9332       47    76   46   1   1 0.9787     0.9787                      0
+  v13        pb         host hold-in, species held out          sc_host_pb_b3000000000_s_2           3.9413       29    49   29   1   0 0.9831     0.9831                      0
+  v13        pb         host hold-in, species held out          sc_host_pb_b3000000000_s_3           3.9468       47    85   47   0   0 1.0000     1.0000                      0
+  v14        pb         host hold-in, species held out          sc_host_pb_b3000000000_s_1           3.9691       24    41   24   1   0 0.9796     0.9796                      0
+  v14        pb         host hold-in, species held out          sc_host_pb_b3000000000_s_5           4.0555       21    37   21   1   0 0.9767     0.9767                      0
+  v14        pb         host hold-in, species held out          sc_host_pb_b3000000000_s_2           4.4205       13    48   13   1   0 0.9630     0.9630                      0
+  v13        pb                          host hold-out          sc_host_pb_b3000000000_s_2           3.7527       18    32   18   0   0 1.0000     1.0000                      0
+  v14        pb                          host hold-out          sc_host_pb_b3000000000_s_3           3.8085        6     8    6   0   0 1.0000     1.0000                      0
+  v14        pb                          host hold-out          sc_host_pb_b3000000000_s_2           4.0684       17    35   17   0   0 1.0000     1.0000                      0
+  v13        pb                          host hold-out          sc_host_pb_b3000000000_s_1           4.2629       24    34   24   1   0 0.9796     0.9796                      0
+  v14        pb                          host hold-out          sc_host_pb_b3000000000_s_1           4.4873       24    41   24   1   0 0.9796     0.9796                      0
+  v14        pb         soil hold-in, species held out          sc_soil_pb_b6000000000_s_1           4.9605     3734  8557 3557 167 177 0.9539     0.9539                     79
+  v14        pb         soil hold-in, species held out          sc_soil_pb_b6000000000_s_6           5.0632     3418  7639 3240 149 178 0.9520     0.9520                    108
+  v14        pb         soil hold-in, species held out          sc_soil_pb_b6000000000_s_3           5.1449     4046 10174 3871 161 175 0.9584     0.9584                     72
+  v13        pb         soil hold-in, species held out          sc_soil_pb_b6000000000_s_3           5.1675     3991 10023 3785 207 206 0.9483     0.9483                     68
+  v13        pb         soil hold-in, species held out          sc_soil_pb_b6000000000_s_1           5.1684     3953  9972 3750 214 203 0.9473     0.9473                     77
+  v13        pb         soil hold-in, species held out          sc_soil_pb_b6000000000_s_2           5.1792     3632  8439 3396 135 236 0.9482     0.9482                    119
+  v14        pb         soil hold-in, species held out          sc_soil_pb_b6000000000_s_2           5.2102     3551  8480 3369 144 182 0.9539     0.9539                     95
+  v14        pb         soil hold-in, species held out          sc_soil_pb_b6000000000_s_5           5.3263     4098 11302 3919 169 179 0.9575     0.9575                     76
+  v14        pb         soil hold-in, species held out          sc_soil_pb_b6000000000_s_4           5.4504     3657 10307 3480 133 177 0.9574     0.9574                     87
+  v14        pb                          soil hold-out          sc_soil_pb_b6000000000_s_3           5.0567     3611  8967 3480 151 131 0.9611     0.9611                     54
+  v13        pb                          soil hold-out          sc_soil_pb_b6000000000_s_2           5.1516     3638  8401 3376 150 262 0.9425     0.9425                    127
+  v13        pb                          soil hold-out          sc_soil_pb_b6000000000_s_1           5.1643     3520  9223 3350 172 170 0.9514     0.9514                     50
+  v14        pb                          soil hold-out          sc_soil_pb_b6000000000_s_2           5.2242     3629  8848 3338  75 291 0.9480     0.9480                    174
+  v14        pb                          soil hold-out          sc_soil_pb_b6000000000_s_1           5.2786     3575 10066 3419 100 156 0.9639     0.9639                     69
+  v14        pb soil_shallow hold-in, species held out  sc_soil_shallow_pb_b1500000000_s_6           4.2634     1741  3223 1629  93 112 0.9408     0.9408                     81
+  v14        pb soil_shallow hold-in, species held out  sc_soil_shallow_pb_b1500000000_s_1           4.4078     2695  5024 2581 100 114 0.9602     0.9602                     81
+  v14        pb soil_shallow hold-in, species held out  sc_soil_shallow_pb_b1500000000_s_5           4.4622     2751  5122 2600 119 151 0.9506     0.9506                     87
+  v13        pb soil_shallow hold-in, species held out  sc_soil_shallow_pb_b1500000000_s_2           4.5314     2313  4537 2145  85 168 0.9443     0.9443                    105
+  v13        pb soil_shallow hold-in, species held out  sc_soil_shallow_pb_b1500000000_s_3           4.5627     2838  5669 2674  88 164 0.9550     0.9550                     95
+  v13        pb soil_shallow hold-in, species held out  sc_soil_shallow_pb_b1500000000_s_1           4.5648     3096  5916 2903 126 193 0.9479     0.9479                    117
+  v14        pb soil_shallow hold-in, species held out  sc_soil_shallow_pb_b1500000000_s_4           4.6483     2218  4483 2113 105 105 0.9527     0.9527                     59
+  v14        pb soil_shallow hold-in, species held out  sc_soil_shallow_pb_b1500000000_s_2           4.7664     2543  5430 2417 109 126 0.9536     0.9536                     71
+  v14        pb soil_shallow hold-in, species held out  sc_soil_shallow_pb_b1500000000_s_3           4.8304     3406  7440 3247 140 159 0.9560     0.9560                     82
+  v14        pb                  soil_shallow hold-out  sc_soil_shallow_pb_b1500000000_s_3           4.4439     2542  4859 2412  97 130 0.9551     0.9551                     79
+  v13        pb                  soil_shallow hold-out  sc_soil_shallow_pb_b1500000000_s_1           4.5604     2664  5278 2496 108 168 0.9476     0.9476                    106
+  v13        pb                  soil_shallow hold-out  sc_soil_shallow_pb_b1500000000_s_2           4.5874     2309  4455 2140  70 169 0.9471     0.9471                    116
+  v14        pb                  soil_shallow hold-out  sc_soil_shallow_pb_b1500000000_s_2           4.6492     2521  4932 2376 100 145 0.9510     0.9510                     91
+  v14        pb                  soil_shallow hold-out  sc_soil_shallow_pb_b1500000000_s_1           4.7152     2933  6118 2806 112 127 0.9592     0.9592                     64
+  v14        pe          gut hold-in, species held out             sc_gut_pe_p20000000_s_5           5.7186      386  2709  383   0   3 0.9961     0.9961                      0
+  v14        pe          gut hold-in, species held out             sc_gut_pe_p20000000_s_2           5.8666      356  2227  351   1   5 0.9915     0.9902                      0
+  v14        pe          gut hold-in, species held out             sc_gut_pe_p20000000_s_4           5.8871      360  3315  355   0   5 0.9930     0.9930                      1
+  v13        pe          gut hold-in, species held out             sc_gut_pe_p20000000_s_1           5.9825      342  3223  336   1   6 0.9897     0.9927                      0
+  v13        pe          gut hold-in, species held out             sc_gut_pe_p20000000_s_3           5.9988      374  4035  369   1   5 0.9919     0.9920                      0
+  v13        pe          gut hold-in, species held out             sc_gut_pe_p20000000_s_2           6.0052      358  2205  354   0   4 0.9944     0.9958                      0
+  v14        pe          gut hold-in, species held out             sc_gut_pe_p20000000_s_3           6.0459      419  3868  414   1   5 0.9928     0.9964                      0
+  v14        pe          gut hold-in, species held out             sc_gut_pe_p20000000_s_1           6.1354      342  3731  339   0   3 0.9956     0.9971                      0
+  v14        pe          gut hold-in, species held out             sc_gut_pe_p20000000_s_6           6.2668      404  4687  395   0   9 0.9887     0.9913                      0
+  v14        pe                           gut hold-out             sc_gut_pe_p20000000_s_2           5.8077      381  2412  377   1   4 0.9934     0.9908                      0
+  v14        pe                           gut hold-out             sc_gut_pe_p20000000_s_1           5.8886      383  2912  383   0   0 1.0000     1.0000                      0
+  v13        pe                           gut hold-out             sc_gut_pe_p20000000_s_2           5.9575      414  4025  407   1   7 0.9903     0.9915                      1
+  v13        pe                           gut hold-out             sc_gut_pe_p20000000_s_1           5.9761      383  3216  383   0   0 1.0000     1.0000                      0
+  v14        pe                           gut hold-out             sc_gut_pe_p20000000_s_3           6.2582      419  4838  415   1   4 0.9940     0.9976                      0
+  v14        pe         host hold-in, species held out            sc_host_pe_p10000000_s_4           4.3331       13   110   13   0   0 1.0000     1.0000                      0
+  v14        pe         host hold-in, species held out            sc_host_pe_p10000000_s_6           4.4702       43   236   43   0   0 1.0000     1.0000                      0
+  v13        pe         host hold-in, species held out            sc_host_pe_p10000000_s_2           4.5910       29   229   29   0   0 1.0000     1.0000                      0
+  v13        pe         host hold-in, species held out            sc_host_pe_p10000000_s_1           4.6251       24   148   23   0   1 0.9787     0.9796                      0
+  v14        pe         host hold-in, species held out            sc_host_pe_p10000000_s_3           4.6617       47   242   45   1   2 0.9677     0.9787                      0
+  v13        pe         host hold-in, species held out            sc_host_pe_p10000000_s_3           4.6752       47   284   47   0   0 1.0000     1.0000                      0
+  v14        pe         host hold-in, species held out            sc_host_pe_p10000000_s_1           4.7350       24   169   24   0   0 1.0000     1.0000                      0
+  v14        pe         host hold-in, species held out            sc_host_pe_p10000000_s_5           4.7555       21   168   21   0   0 1.0000     1.0000                      0
+  v14        pe         host hold-in, species held out            sc_host_pe_p10000000_s_2           5.1056       13   393   13   0   0 1.0000     1.0000                      0
+  v13        pe                          host hold-out            sc_host_pe_p10000000_s_2           4.4752       18   148   17   0   1 0.9714     1.0000                      0
+  v14        pe                          host hold-out            sc_host_pe_p10000000_s_3           4.5853        6    24    6   0   0 1.0000     1.0000                      0
+  v14        pe                          host hold-out            sc_host_pe_p10000000_s_2           4.7541       17   284   17   0   0 1.0000     1.0000                      0
+  v13        pe                          host hold-out            sc_host_pe_p10000000_s_1           4.9481       24   160   24   1   0 0.9796     0.9796                      0
+  v14        pe                          host hold-out            sc_host_pe_p10000000_s_1           5.1774       24   212   24   1   0 0.9796     0.9796                      0
+  v14        pe         soil hold-in, species held out            sc_soil_pe_p20000000_s_1           5.5822     4121 25464 3927 105 194 0.9633     0.9545                     31
+  v14        pe         soil hold-in, species held out            sc_soil_pe_p20000000_s_6           5.6822     4102 24562 3793 127 309 0.9456     0.9401                    105
+  v14        pe         soil hold-in, species held out            sc_soil_pe_p20000000_s_3           5.7675     4262 31065 4093  84 169 0.9700     0.9615                     12
+  v13        pe         soil hold-in, species held out            sc_soil_pe_p20000000_s_1           5.7909     4132 31177 3991 161 141 0.9635     0.9500                     19
+  v13        pe         soil hold-in, species held out            sc_soil_pe_p20000000_s_3           5.7936     4175 30860 4012 171 163 0.9600     0.9489                     13
+  v13        pe         soil hold-in, species held out            sc_soil_pe_p20000000_s_2           5.7964     4242 27055 3962 124 280 0.9515     0.9433                     85
+  v14        pe         soil hold-in, species held out            sc_soil_pe_p20000000_s_2           5.8316     4037 27062 3794  84 243 0.9587     0.9531                     69
+  v14        pe         soil hold-in, species held out            sc_soil_pe_p20000000_s_5           5.9418     4204 35691 4047  80 157 0.9716     0.9662                     19
+  v14        pe         soil hold-in, species held out            sc_soil_pe_p20000000_s_4           6.0755     3799 34831 3613  87 186 0.9636     0.9609                     11
+  v14        pe                          soil hold-out            sc_soil_pe_p20000000_s_3           5.6801     3841 27264 3690  97 151 0.9675     0.9537                     22
+  v13        pe                          soil hold-out            sc_soil_pe_p20000000_s_2           5.7726     4341 26771 4027 142 314 0.9464     0.9405                     99
+  v13        pe                          soil hold-out            sc_soil_pe_p20000000_s_1           5.7822     3654 29103 3535 162 119 0.9618     0.9480                     18
+  v14        pe                          soil hold-out            sc_soil_pe_p20000000_s_2           5.8618     4135 28845 3815  63 320 0.9522     0.9538                     89
+  v14        pe                          soil hold-out            sc_soil_pe_p20000000_s_1           5.9011     3655 32373 3529  54 126 0.9751     0.9694                     11
+  v14        pe soil_shallow hold-in, species held out     sc_soil_shallow_pe_p5000000_s_6           4.8606     3090  9882 2782 174 308 0.9203     0.9173                    212
+  v14        pe soil_shallow hold-in, species held out     sc_soil_shallow_pe_p5000000_s_1           5.0242     4044 14484 3749 172 295 0.9414     0.9331                    173
+  v14        pe soil_shallow hold-in, species held out     sc_soil_shallow_pe_p5000000_s_5           5.0810     4030 15051 3751 173 279 0.9432     0.9309                    142
+  v13        pe soil_shallow hold-in, species held out     sc_soil_shallow_pe_p5000000_s_2           5.1413     3740 14486 3243 168 497 0.9070     0.9167                    334
+  v13        pe soil_shallow hold-in, species held out     sc_soil_shallow_pe_p5000000_s_1           5.1704     4183 16926 3871 188 312 0.9393     0.9328                    177
+  v13        pe soil_shallow hold-in, species held out     sc_soil_shallow_pe_p5000000_s_3           5.1777     3785 16513 3538 183 247 0.9427     0.9361                    123
+  v14        pe soil_shallow hold-in, species held out     sc_soil_shallow_pe_p5000000_s_4           5.2654     3329 14120 3023 163 306 0.9280     0.9211                    167
+  v14        pe soil_shallow hold-in, species held out     sc_soil_shallow_pe_p5000000_s_2           5.3780     3544 16740 3257 149 287 0.9373     0.9261                    137
+  v14        pe soil_shallow hold-in, species held out     sc_soil_shallow_pe_p5000000_s_3           5.4521     3927 22126 3726  95 201 0.9618     0.9538                     60
+  v14        pe                  soil_shallow hold-out     sc_soil_shallow_pe_p5000000_s_3           5.0552     3687 14397 3437 161 250 0.9436     0.9326                    128
+  v13        pe                  soil_shallow hold-out     sc_soil_shallow_pe_p5000000_s_1           5.1796     3523 15665 3277 183 246 0.9386     0.9324                    117
+  v13        pe                  soil_shallow hold-out     sc_soil_shallow_pe_p5000000_s_2           5.1948     3759 14044 3278 148 481 0.9125     0.9192                    330
+  v14        pe                  soil_shallow hold-out     sc_soil_shallow_pe_p5000000_s_2           5.2686     3875 15259 3488 168 387 0.9263     0.9247                    224
+  v14        pe                  soil_shallow hold-out     sc_soil_shallow_pe_p5000000_s_1           5.3364     3557 18413 3409 187 148 0.9532     0.9255                     43
+  v14        se         host hold-in, species held out     sc_host_se_ultima_r10000000_s_4           4.3140       13    78   13   0   0 1.0000     1.0000                      0
+  v14        se         host hold-in, species held out     sc_host_se_ultima_r10000000_s_6           4.4410       43   173   43   0   0 1.0000     1.0000                      0
+  v13        se         host hold-in, species held out     sc_host_se_ultima_r10000000_s_2           4.5785       29   157   29   0   0 1.0000     1.0000                      0
+  v13        se         host hold-in, species held out     sc_host_se_ultima_r10000000_s_1           4.6080       24   114   24   0   0 1.0000     1.0000                      0
+  v14        se         host hold-in, species held out     sc_host_se_ultima_r10000000_s_3           4.6436       47   187   46   1   1 0.9787     0.9787                      0
+  v13        se         host hold-in, species held out     sc_host_se_ultima_r10000000_s_3           4.6535       47   221   47   0   0 1.0000     1.0000                      0
+  v14        se         host hold-in, species held out     sc_host_se_ultima_r10000000_s_1           4.7186       24   133   24   0   0 1.0000     1.0000                      0
+  v14        se         host hold-in, species held out     sc_host_se_ultima_r10000000_s_5           4.7388       21   127   21   0   0 1.0000     1.0000                      0
+  v14        se         host hold-in, species held out     sc_host_se_ultima_r10000000_s_2           5.0887       13   263   13   0   0 1.0000     1.0000                      0
+  v13        se                          host hold-out     sc_host_se_ultima_r10000000_s_2           4.4652       18   111   17   0   1 0.9714     0.9714                      0
+  v14        se                          host hold-out     sc_host_se_ultima_r10000000_s_3           4.5712        6    19    6   0   0 1.0000     1.0000                      0
+  v14        se                          host hold-out     sc_host_se_ultima_r10000000_s_2           4.7381       17   181   17   0   0 1.0000     1.0000                      0
+  v13        se                          host hold-out     sc_host_se_ultima_r10000000_s_1           4.9379       24   102   24   0   0 1.0000     1.0000                      0
+  v14        se                          host hold-out     sc_host_se_ultima_r10000000_s_1           5.1619       24   147   24   0   0 1.0000     1.0000                      0
+  v14        se         soil hold-in, species held out     sc_soil_se_ultima_r20000000_s_1           5.5365     4123 19010 3942 121 181 0.9631     0.9576                     37
+  v14        se         soil hold-in, species held out     sc_soil_se_ultima_r20000000_s_6           5.6358     4110 18312 3869 123 241 0.9551     0.9511                     86
+  v14        se         soil hold-in, species held out     sc_soil_se_ultima_r20000000_s_3           5.7175     4264 23241 4123 116 141 0.9698     0.9647                     15
+  v13        se         soil hold-in, species held out     sc_soil_se_ultima_r20000000_s_1           5.7433     4128 23141 4014 216 114 0.9605     0.9605                     21
+  v13        se         soil hold-in, species held out     sc_soil_se_ultima_r20000000_s_3           5.7463     4177 23070 4050 228 127 0.9580     0.9580                     19
+  v13        se         soil hold-in, species held out     sc_soil_se_ultima_r20000000_s_2           5.7534     4249 20110 4039 199 210 0.9518     0.9518                     71
+  v14        se         soil hold-in, species held out     sc_soil_se_ultima_r20000000_s_2           5.7761     4038 20257 3832  96 206 0.9621     0.9589                     52
+  v14        se         soil hold-in, species held out     sc_soil_se_ultima_r20000000_s_5           5.8945     4204 26270 4066 106 138 0.9709     0.9670                     13
+  v14        se         soil hold-in, species held out     sc_soil_se_ultima_r20000000_s_4           6.0243     3799 25158 3635  78 164 0.9678     0.9637                     16
+  v14        se                          soil hold-out     sc_soil_se_ultima_r20000000_s_3           5.6310     3840 20436 3726 130 114 0.9683     0.9570                     22
+  v13        se                          soil hold-out     sc_soil_se_ultima_r20000000_s_2           5.7249     4352 20158 4097 206 255 0.9467     0.9467                     75
+  v13        se                          soil hold-out     sc_soil_se_ultima_r20000000_s_1           5.7361     3652 21462 3554 228  98 0.9561     0.9561                     12
+  v14        se                          soil hold-out     sc_soil_se_ultima_r20000000_s_2           5.8119     4137 21173 3819  56 318 0.9533     0.9562                     78
+  v14        se                          soil hold-out     sc_soil_se_ultima_r20000000_s_1           5.8533     3653 23623 3538  84 115 0.9726     0.9693                      6

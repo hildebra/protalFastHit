@@ -1,0 +1,49 @@
+== pe: global knob 0.82
+bin (log10 taxa)  training samples (design/scenario)  rows  knob  F1 there at the global knob -> at its own
+  0.0-2.5  251/5  26599  0.82  0.9668 -> 0.9668
+  2.5-3.0  43/1  21740  0.82  0.9786 -> 0.9786
+  3.0-3.5  13/2  26311  0.82  0.9869 -> 0.9869
+  3.5-4.0  2/5  33957  0.82  0.9512 -> 0.9512
+  4.0-9.0  0/11  261196  0.82  0.9539 -> 0.9539
+set  samples  F1 at 0.5 / at the global knob / at the knob of its bin (FP, FN)
+  design test  78  0.9678 / 0.9649 / 0.9649 (63, 251)
+  gut hold-out  3  0.9962 / 0.9958 / 0.9958 (2, 8)
+  host hold-out  3  0.9895 / 0.9895 / 0.9895 (1, 0)
+  soil hold-out  3  0.9587 / 0.9646 / 0.9646 (214, 597)
+  soil_shallow hold-out  3  0.9276 / 0.9408 / 0.9408 (516, 785)
+== se: global knob 0.73
+bin (log10 taxa)  training samples (design/scenario)  rows  knob  F1 there at the global knob -> at its own
+  0.0-2.5  260/6  25936  0.73  0.9633 -> 0.9633
+  2.5-3.0  37/0  18275  0.73  0.9776 -> 0.9776
+  3.0-3.5  10/0  15702  0.52  0.9872 -> 0.9895
+  3.5-4.0  2/0  7468  0.73  0.9900 -> 0.9900
+  4.0-9.0  0/6  132248  0.73  0.9648 -> 0.9648
+set  samples  F1 at 0.5 / at the global knob / at the knob of its bin (FP, FN)
+  design test  78  0.9636 / 0.9612 / 0.9612 (89, 252)
+  host hold-out  3  1.0000 / 1.0000 / 1.0000 (0, 0)
+  soil hold-out  3  0.9606 / 0.9645 / 0.9645 (270, 547)
+== pb: global knob 0.5
+bin (log10 taxa)  training samples (design/scenario)  rows  knob  F1 there at the global knob -> at its own
+  0.0-2.5  182/6  10584  0.50  0.9755 -> 0.9755
+  2.5-3.0  3/6  5862  0.50  0.9862 -> 0.9862
+  3.5-4.0  0/9  55398  0.50  0.9532 -> 0.9532
+  4.0-9.0  0/3  31783  0.50  0.9578 -> 0.9578
+set  samples  F1 at 0.5 / at the global knob / at the knob of its bin (FP, FN)
+  design test  41  0.9791 / 0.9791 / 0.9791 (54, 34)
+  gut hold-out  3  0.9924 / 0.9924 / 0.9924 (11, 7)
+  host hold-out  3  0.9895 / 0.9895 / 0.9895 (1, 0)
+  soil hold-out  3  0.9577 / 0.9577 / 0.9577 (326, 578)
+  soil_shallow hold-out  3  0.9553 / 0.9553 / 0.9553 (309, 402)
+== ont: global knob 0.5
+bin (log10 taxa)  training samples (design/scenario)  rows  knob  F1 there at the global knob -> at its own
+  0.0-2.5  181/6  11452  0.50  0.9733 -> 0.9733
+  2.5-3.0  5/3  5200  0.90  0.9848 -> 0.9873
+  3.0-3.5  0/3  3629  0.50  0.9897 -> 0.9897
+  3.5-4.0  0/8  54183  0.50  0.9457 -> 0.9457
+  4.0-9.0  0/4  48440  0.50  0.9529 -> 0.9529
+set  samples  F1 at 0.5 / at the global knob / at the knob of its bin (FP, FN)
+  design test  42  0.9759 / 0.9759 / 0.9741 (41, 70)
+  gut hold-out  3  0.9878 / 0.9878 / 0.9898 (10, 14)
+  host hold-out  3  0.9792 / 0.9792 / 0.9792 (2, 0)
+  soil hold-out  3  0.9439 / 0.9439 / 0.9439 (450, 762)
+  soil_shallow hold-out  3  0.9453 / 0.9453 / 0.9453 (423, 486)

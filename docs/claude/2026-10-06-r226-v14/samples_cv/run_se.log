@@ -1,0 +1,2 @@
+se v14: 163 s; design, samples held out 0.9674, host hold-in, samples held out 0.9874, soil hold-in, samples held out 0.9629, design test 0.9612, host v14 hold-out 1.0000, soil v14 hold-out 0.9645, host v13 hold-out 0.9630, soil v13 hold-out 0.9607
+se +sample: 206 s; design, samples held out 0.9671, host hold-in, samples held out 0.9906, soil hold-in, samples held out 0.9648, design test 0.9590, host v14 hold-out 1.0000, soil v14 hold-out 0.9657, host v13 hold-out 0.9630, soil v13 hold-out 0.9628
