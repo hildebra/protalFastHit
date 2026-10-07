@@ -886,7 +886,9 @@ python3 scripts/collect_training_data.py --db DB --genome_table genomes.tsv -o t
   `simulate_metagenomes --long_samples`, one run per design point, each read written compressed as it
   is made. PacBio HiFi reads follow `scripts/hifi_reads.py`'s model (quality by length, Q50 up to 5 kb
   to Q20 at 50 kb, errors mostly as homopolymer indels, calibrated base qualities); Nanopore reads
-  pbsim3's quality-score model in its template mode (its `.model` file; pbsim3 is not run). pbsim3
+  pbsim3's quality-score model in its template mode (its `.model` file; pbsim3 is not run), drawing
+  only the accuracy levels the model has an HMM for: pbsim3 gave ~20% of its reads level 100, Q93
+  throughout and no error. pbsim3
   makes no HiFi reads: its one-pass reads have quality 0, which broke the excess features until
   2026-10-02 ([report](claude/2026-10-02-pacbio-hifi-reads/README.md)). The C++ models were checked
   against `hifi_reads.py` and pbsim3 on the same templates

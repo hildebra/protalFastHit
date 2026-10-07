@@ -368,12 +368,24 @@ QshmmModel::QshmmModel(fs::path const& file, double accuracy_mean, long sub_rati
     m_accuracy_min = static_cast<int>(accuracy_min);
     m_accuracy_max = static_cast<int>(accuracy_max);
 
+    // Unlike pbsim3, a read's level is one with an HMM in the model: a level without one takes a uniform quality, and
+    // at 100 (QSHMM-ONT-HQ has HMMs for 71-99) that is Q93 throughout and no error, which pbsim3 gave ~20% of its reads
+    // at --accuracy-mean 0.97. The levels left keep pbsim3's weights, exp(0.22 x level), in proportion. A model without
+    // an HMM in the range keeps the uniform qualities, below 100.
+    std::vector<long> levels;
+    for (long i = accuracy_min; i <= accuracy_max; ++i) {
+        if (m_exists[i]) levels.push_back(i);
+    }
+    if (levels.empty()) {
+        for (long i = accuracy_min; i <= std::min<long>(accuracy_max, kAccuracyMax - 1); ++i) levels.push_back(i);
+    }
+    if (levels.empty()) throw std::runtime_error("qshmm: no accuracy level below 100 for this accuracy mean");
     long start_wk = 1, end_wk = 0;  // pbsim3 carries end_wk from one table to the next, as here
     m_prob2accuracy.assign(100001, 0);
     double freq_total = 0.0;
-    for (long i = accuracy_min; i <= accuracy_max; ++i) freq_total += std::exp(0.22 * i);
+    for (long i : levels) freq_total += std::exp(0.22 * i);
     double total = 0.0;
-    for (long i = accuracy_min; i <= accuracy_max; ++i) {
+    for (long i : levels) {
         total += std::exp(0.22 * i) / freq_total;
         end_wk = std::min<long>(static_cast<long>(total * 100000 + 0.5), 100000);
         for (long j = start_wk; j <= end_wk; ++j) m_prob2accuracy[j] = static_cast<int>(i);

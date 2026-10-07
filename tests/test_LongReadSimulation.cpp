@@ -161,8 +161,8 @@ TEST(LongReadSimulation, HifiAndFlowModels) {
 }
 
 TEST(LongReadSimulation, QshmmModel) {
-    // A model of one state per accuracy level 71-99, every base at Q10 (p = 0.1); level 100 has none, so its reads
-    // take the uniform quality of accuracy 1 (Q93), as pbsim3's do.
+    // A model of one state per accuracy level 71-99, every base at Q10 (p = 0.1); level 100 has none, and pbsim3 gave
+    // its reads Q93 throughout and no error: here it is not drawn, the levels with an HMM keep their weights.
     ScratchDir dir("qshmm");
     std::ostringstream model;
     for (int level = 71; level <= 99; ++level) {
@@ -181,36 +181,36 @@ TEST(LongReadSimulation, QshmmModel) {
     std::map<int, int> levels;
     for (int i = 0; i < 100000; ++i) ++levels[qshmm.DrawAccuracy(rng)];
     EXPECT_EQ(levels.begin()->first, 72);
-    EXPECT_EQ(levels.rbegin()->first, 100);
-    // weights exp(0.22 x level): the top level takes (1 - e^-0.22) / (1 - e^(-0.22 x 29)) of the reads
-    double const top = (1 - std::exp(-0.22)) / (1 - std::exp(-0.22 * 29));
-    EXPECT_NEAR(levels[100] / 100000.0, top, 0.01);
-    EXPECT_NEAR(static_cast<double>(levels[99]) / levels[100], std::exp(-0.22), 0.03);
+    EXPECT_EQ(levels.rbegin()->first, 99);  // 100 has no HMM: not drawn
+    // weights exp(0.22 x level) over 72-99: the top level takes (1 - e^-0.22) / (1 - e^(-0.22 x 28)) of the reads
+    double const top = (1 - std::exp(-0.22)) / (1 - std::exp(-0.22 * 28));
+    EXPECT_NEAR(levels[99] / 100000.0, top, 0.01);
+    EXPECT_NEAR(static_cast<double>(levels[98]) / levels[99], std::exp(-0.22), 0.03);
 
     std::mt19937 gen(8);
     MadeRead read;
-    std::uint64_t errors = 0, perfect = 0, reads = 0, q10_bases = 0, q10_templ = 0;
+    std::uint64_t errors = 0, reads = 0, q10_bases = 0, q10_templ = 0;
     for (int i = 0; i < 3000; ++i) {
         std::string const templ = protal::test::RandomSequence(2000, gen);
-        std::uint64_t before = errors;
         qshmm.Mutate(templ, rng, read, &errors);
         ASSERT_EQ(read.seq.size(), read.qual.size());
+        ASSERT_EQ(read.qual.find_first_not_of('+'), std::string::npos);  // Q10 throughout: no read at Q93
         ++reads;
-        if (read.qual.find_first_not_of('~') == std::string::npos) {  // Q93 throughout: level 100
-            ++perfect;
-            EXPECT_EQ(read.seq, templ);
-            EXPECT_EQ(errors, before);
-        } else {
-            ASSERT_EQ(read.qual.find_first_not_of('+'), std::string::npos);  // Q10 throughout
-            q10_bases += read.seq.size();
-            q10_templ += templ.size();
-        }
+        q10_bases += read.seq.size();
+        q10_templ += templ.size();
     }
-    EXPECT_NEAR(static_cast<double>(perfect) / reads, top, 0.03);
+    EXPECT_EQ(reads, 3000u);
     // At Q10: substitutions and insertions 0.1 x (39 + 24) / 99 per emitted base, deletions about 0.1 x 36 / 99 after
     // each: the read's length against its template's about 1 + 0.1 x (24 - 36) / 99.
     EXPECT_NEAR(static_cast<double>(q10_bases) / q10_templ, 1 + 0.1 * (24 - 36) / 99.0, 0.004);
     EXPECT_NEAR(static_cast<double>(errors) / q10_bases, 0.1, 0.01);
+
+    // A model without an HMM in the range: uniform qualities, but never level 100 (Q93 throughout, no error).
+    auto const low = dir.Write("LOW.model", "50 IP 1 1.0\n50 EP 1 1.0\n50 TP 1 1.0\n");
+    QshmmModel uniform(low, 0.97, 39, 24, 36);
+    for (int i = 0; i < 5000; ++i) ASSERT_LT(uniform.DrawAccuracy(rng), 100);
+    uniform.Mutate(protal::test::RandomSequence(2000, gen), rng, read);
+    EXPECT_NE(read.qual.find_first_not_of('~'), std::string::npos);
 
     EXPECT_THROW(QshmmModel(dir / "missing.model", 0.97, 39, 24, 36), std::runtime_error);
     // States beyond 50 are written where pbsim3 writes them, but nothing beyond its tables; unknown records fail.

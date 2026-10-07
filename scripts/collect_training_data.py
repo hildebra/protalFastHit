@@ -1041,7 +1041,7 @@ def pbsim_model(opts, name):
 LONG_READS = "simulate_metagenomes --long_samples: templates drawn and reads made in process, one run per point"
 # The read models of simulate_metagenomes --long_samples (LongReadSimulator.cpp), part of a point's key.
 LONG_MODELS = {"hifi": "hifi_reads.py v2's HiFi model, in C++", "ultima": "hifi_reads.py flow v1's model, in C++",
-               "qshmm": "pbsim3 3.0.x qshmm, --strategy templ, in C++"}
+               "qshmm": "pbsim3 3.0.x qshmm, --strategy templ, in C++, only accuracy levels with an HMM (no Q93 reads)"}
 
 
 def last_line(path, limit=300):

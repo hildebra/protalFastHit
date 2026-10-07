@@ -85,9 +85,10 @@ namespace hifi {
 }
 
 // pbsim3's qshmm model in template mode: a read's accuracy level drawn in [0.75, 1.05] x the mean accuracy (weights
-// exp(0.22 x level), at most 100), its qualities by the level's hidden Markov model (or by a uniform quality where the
-// model has none), and each base's substitution, insertion or following deletions by its quality and the difference
-// ratio. Tables quantized as pbsim3 quantizes them (to 1/100 for the HMM, 1/1000 for the uniform ones).
+// exp(0.22 x level), at most 100), its qualities by the level's hidden Markov model, and each base's substitution,
+// insertion or following deletions by its quality and the difference ratio. Tables quantized as pbsim3 quantizes them
+// (to 1/100 for the HMM, 1/1000 for the uniform ones). One change: only levels with an HMM are drawn (pbsim3 gives
+// the others a uniform quality: level 100 is Q93 throughout and error-free, ~20% of its reads at a mean of 0.97).
 class QshmmModel {
 public:
     QshmmModel(std::filesystem::path const& file, double accuracy_mean, long sub_ratio, long ins_ratio,

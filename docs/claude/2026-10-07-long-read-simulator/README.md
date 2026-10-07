@@ -135,6 +135,21 @@ At r226 the training collection makes about 134 Gb of PacBio, 134 Gb of Nanopore
 - **Disk:** nothing besides the reads. Before, a chunk had its templates (0.35-1 byte per base) and pbsim3's files
   (1.4) on the disk with its reads.
 
+### Follow-up (same day): no error-free Q93 Nanopore reads
+
+The user asked that no error-free Q93 reads be made at all. `QshmmModel` now draws only the accuracy levels the model
+has an HMM for (71-99 in `QSHMM-ONT-HQ`), with pbsim3's weights, exp(0.22 x level), in proportion; a model without an
+HMM in the range keeps the uniform qualities below 100. The setup's key changed (`LONG_MODELS`), so the Nanopore
+points are simulated again. On the same 4,000 templates (`compare_models.py`):
+
+| Program | Length / template | Mean base Q | Per-read Q 5/25/50/75/95% | Q93 reads | Errors by Q | Errors made |
+|---|---|---|---|---|---|---|
+| simulate_metagenomes, now | 0.9934 (SD 0.0068) | 27.15 | 13.6/20.4/29.0/33.5/35.8 | 0 | 0.0546 | 0.0545 |
+| pbsim3 3.0.5 | 0.9947 (SD 0.0066) | 39.67 | 14.4/23.0/31.0/35.5/93.0 | 0.192 | 0.0440 | 0.0440 |
+
+The reads' error rate rises from 4.4% to 5.5%: the fifth of the reads that had none now has the others' mix of levels.
+pbsim3's mean base Q of 39.7 was mostly its Q93 reads.
+
 ## 2. Streaming the reads into protal
 
 Read-only investigation of protal's input path and the build (a subagent, with file and line references):
