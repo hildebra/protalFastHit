@@ -86,6 +86,44 @@ namespace protal::profiler::context {
         return result;
     }
 
+    // SketchedTaxonDistances' distance alone, the same to the bit (its genes' distances as floats), without keeping the
+    // genes' distances: `scratch` holds them while it runs.
+    inline double SketchedTaxonDistance(TaxonSketch const& a, TaxonSketch const& b, std::vector<double>& scratch) {
+        scratch.clear();
+        auto i = a.begin();
+        auto j = b.begin();
+        while (i != a.end() && j != b.end()) {
+            if (i->first < j->first) {
+                ++i;
+            } else if (j->first < i->first) {
+                ++j;
+            } else {
+                scratch.push_back(static_cast<float>(SketchDistance(i->second, j->second)));
+                ++i;
+                ++j;
+            }
+        }
+        if (scratch.size() < kMinSharedGenes) return kFarDistance;
+        return gene_conservation::Median(scratch);
+    }
+
+    // A reference's sketches (GeneSketch) of its hittable genes that `take(gene id)` accepts, by gene id ascending: what
+    // CongenerDistances compares in a run, and --build for species_neighbours.tsv (SpeciesNeighbours.h).
+    template<typename Take>
+    TaxonSketch ReferenceSketch(GenomeLoader& loader, uint32_t taxid, Take&& take) {
+        TaxonSketch sketch;
+        if (!loader.GetGenomeMap().contains(taxid)) return sketch;
+        auto& genome = loader.GetGenome(taxid);
+        for (uint32_t const id : genome.GetHittableGenes()) {
+            if (!genome.HasGene(id) || !take(id)) continue;
+            auto const sequence = genome.GetGeneOMP(id).Sequence();  // keeps the bases its view points to
+            auto hashes = GeneSketch(sequence.View());
+            if (!hashes.empty()) sketch.emplace_back(id, std::move(hashes));
+        }
+        std::sort(sketch.begin(), sketch.end(), [](auto const& x, auto const& y) { return x.first < y.first; });
+        return sketch;
+    }
+
     // Distances between the database's references (SketchedTaxonDistances of their hittable genes), computed when
     // first asked for and kept for the run; any thread may ask. A distance depends only on the two references, so the
     // features computed from them are the same on any number of threads.
@@ -135,17 +173,7 @@ namespace protal::profiler::context {
         }
 
         TaxonSketch MakeSketch(uint32_t taxid) {
-            TaxonSketch sketch;
-            if (!m_loader->GetGenomeMap().contains(taxid)) return sketch;
-            auto& genome = m_loader->GetGenome(taxid);
-            for (uint32_t const id : genome.GetHittableGenes()) {
-                if (!genome.HasGene(id)) continue;
-                auto const sequence = genome.GetGeneOMP(id).Sequence();  // keeps the bases its view points to
-                auto hashes = GeneSketch(sequence.View());
-                if (!hashes.empty()) sketch.emplace_back(id, std::move(hashes));
-            }
-            std::sort(sketch.begin(), sketch.end(), [](auto const& x, auto const& y) { return x.first < y.first; });
-            return sketch;
+            return ReferenceSketch(*m_loader, taxid, [](uint32_t) { return true; });
         }
 
         GenomeLoader* m_loader;

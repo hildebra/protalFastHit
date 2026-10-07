@@ -104,6 +104,9 @@ namespace protal {
         int mapq = 0;
         bool by_read = false;
         bool inconsistent = false;
+        // The taxa of the place's candidates with an anchor at least SimpleAlignmentHandler::kCrowdedLength as long as
+        // its longest (its ZN tag): those its seeds could not tell apart, also the ones beyond align_top.
+        uint16_t crowding = 0;
     };
 
     using LongReadSegments = std::vector<LongReadSegment>;
@@ -238,6 +241,7 @@ namespace protal {
 
         std::vector<bool> m_aligned;                        // per candidate of the read
         std::vector<std::vector<size_t>> m_segment_members; // per segment of the read, its candidates
+        std::vector<uint32_t> m_crowded;                    // a segment's crowded taxa (LongReadSegment::crowding)
 
         // Bases aligned beyond a gene's place on the read at each end, for indels between the seeds.
         static int64_t Margin(int64_t gene_length) {
@@ -473,10 +477,13 @@ namespace protal {
 
         // The taxa of the last read's candidates that were aligned against but have no hit in any of its segments
         // (FailedCandidates): the read seeded on them and failed there.
-        std::vector<uint32_t> FailedTaxa(LongReadSegments const& segments) const {
-            std::vector<uint32_t> attempted, aligned;
+        // Each with the gene of its longest anchor that was aligned against.
+        std::vector<FailedCandidate> FailedTaxa(LongReadSegments const& segments) const {
+            std::vector<FailedCandidate> attempted;
+            std::vector<uint32_t> aligned;
             for (size_t i = 0; i < m_candidates.size() && i < m_aligned.size(); i++) {
-                if (m_aligned[i]) attempted.push_back(static_cast<uint32_t>(m_candidates[i].anchor.taxid));
+                if (m_aligned[i]) attempted.emplace_back(static_cast<uint32_t>(m_candidates[i].anchor.taxid),
+                                                         static_cast<uint32_t>(m_candidates[i].anchor.geneid));
             }
             for (auto const& segment : segments) {
                 for (auto const& hit : segment.hits) aligned.push_back(static_cast<uint32_t>(hit.alignment.Taxid()));
@@ -530,6 +537,21 @@ namespace protal {
             m_segment_members.clear();
             for (auto& members : LongReadSegmentsOf(m_candidates, read_length)) {
                 LongReadSegment segment;
+                // The taxa of the place's candidates its seeds could not tell apart (ZN), as SimpleAlignmentHandler::CrowdedTaxa
+                // counts a short read's: members are sorted by anchor length, so the first is the longest.
+                if (!members.empty()) {
+                    double const longest = static_cast<double>(m_candidates[members.front()].anchor.total_length);
+                    m_crowded.clear();
+                    for (auto i : members) {
+                        auto const& anchor = m_candidates[i].anchor;
+                        if (static_cast<double>(anchor.total_length) >= SimpleAlignmentHandler::kCrowdedLength * longest) {
+                            m_crowded.push_back(static_cast<uint32_t>(anchor.taxid));
+                        }
+                    }
+                    std::sort(m_crowded.begin(), m_crowded.end());
+                    size_t const distinct = static_cast<size_t>(std::unique(m_crowded.begin(), m_crowded.end()) - m_crowded.begin());
+                    segment.crowding = static_cast<uint16_t>(std::min<size_t>(distinct, UINT16_MAX));
+                }
                 // With --long_read_budget E, once a candidate has aligned, the segment's others may cost at most E edits (as
                 // mismatches, 4 each) more than the best so far, else they fail there and count as failed candidates.
                 int cap = INT32_MAX;
@@ -615,6 +637,8 @@ namespace protal {
         sam.m_uniques_two = ar.UniquesTwo();
         sam.m_alternatives.clear();  // set on a segment's best record only
         sam.m_failed.clear();        // set on the read's first record only
+        sam.m_settled = 0;           // set on a segment's best record only (ZR)
+        sam.m_crowding = 0;          // and so is ZN
         Flag::SetReadReverseComplement(sam.m_flag, !ar.Forward());
     }
 
@@ -672,10 +696,10 @@ namespace protal {
         }
 
         // Writes a read's unmapped record if it has failed candidates (UnmappedRecord).
-        void WriteUnmapped(FastxRecord& record, std::vector<uint32_t> const& failed) {
+        void WriteUnmapped(FastxRecord& record, std::vector<FailedCandidate> const& failed) {
             // Counted for the header instead, unless --write_unmapped_reads.
             if (!m_sink.WritesUnmappedRecords()) {
-                for (uint32_t const taxid : failed) CountFailedCandidate(m_failed, taxid);
+                for (auto const& candidate : failed) CountFailedCandidate(m_failed, candidate.taxid);
                 return;
             }
             SamEntry sam;
@@ -685,7 +709,7 @@ namespace protal {
 
         // failed: the taxa the read seeded on but did not align to (LongReadAligner::FailedTaxa), its ZF tag; on the
         // read's first record, or on an unmapped record when the read has no record.
-        void operator () (LongReadSegments& segments, FastxRecord& record, std::vector<uint32_t> const& failed = {}) {
+        void operator () (LongReadSegments& segments, FastxRecord& record, std::vector<FailedCandidate> const& failed = {}) {
             if (segments.empty()) {
                 WriteUnmapped(record, failed);
                 return;
@@ -727,12 +751,13 @@ namespace protal {
                     sam.m_mapq = first ? segment.mapq : 0;
                     sam.m_cigar = LongReadCigar(hit);
                     if (read_records.empty()) sam.m_failed = FailedTag(failed);  // the read's first record
+                    // ZR:i:1: the best hit is the read's consensus taxon's, which the gene alone could not tell;
+                    // ZR:i:2: the read's consensus taxon has no hit on this gene, or a clearly worse one than another
+                    // taxon's (2 where both hold; before 2026-10-06 both tags were written then).
+                    if (first) sam.m_settled = segment.inconsistent ? 2 : segment.by_read ? 1 : 0;
+                    if (first) sam.m_crowding = segment.crowding;
                     if (!read_records.empty()) read_records += '\n';
                     read_records += sam.ToString();
-                    // ZR:i:1: the best hit is the read's consensus taxon's, which the gene alone could not tell;
-                    // ZR:i:2: the read's consensus taxon has no hit on this gene, or a clearly worse one than another taxon's.
-                    if (first && segment.by_read) read_records += "\tZR:i:1";
-                    if (first && segment.inconsistent) read_records += "\tZR:i:2";
                     m_genes.push_back(SamGeneKey(ar.Taxid(), ar.GeneId()));
                     primary_written = true;
                     first = false;

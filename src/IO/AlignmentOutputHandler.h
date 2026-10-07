@@ -6,6 +6,7 @@
 
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <string>
 #include <tuple>
@@ -143,13 +144,15 @@ namespace protal {
         sam.m_uniques_two = ar.UniquesTwo();
         sam.m_alternatives.clear();  // set on the read's best record only (AlternativesTag)
         sam.m_failed.clear();        // set on the read's first record only (FailedTag)
+        sam.m_settled = 0;           // long reads only (ZR)
+        sam.m_crowding = 0;          // set on the read's best record only (ZN)
         if (!ar.Forward()) reverse(sam.m_qual.begin(), sam.m_qual.end());
     }
 
     // A minimal unmapped record (flag 4, no sequence) for a read that seeded on taxa (`failed`, its ZF tag) but
     // aligned nowhere, so that the profiler can count the reads that fail on each taxon; nothing for a read without
     // failed candidates. The header lists no gene for it.
-    inline bool UnmappedRecord(SamEntry& sam, std::string const& qname, std::vector<uint32_t> const& failed) {
+    inline bool UnmappedRecord(SamEntry& sam, std::string const& qname, std::vector<FailedCandidate> const& failed) {
         if (failed.empty()) return false;
         sam.m_qname = qname;
         sam.m_flag = static_cast<FLAG_t>(0x4);  // unmapped
@@ -166,6 +169,8 @@ namespace protal {
         sam.m_uniques_two = 0;
         sam.m_alternatives.clear();
         sam.m_failed = FailedTag(failed);
+        sam.m_settled = 0;
+        sam.m_crowding = 0;
         return true;
     }
 
@@ -449,10 +454,10 @@ namespace protal {
         }
 
         // Writes a read's unmapped record if it has failed candidates (UnmappedRecord).
-        void WriteUnmapped(FastxRecord& record, std::vector<uint32_t> const& failed) {
+        void WriteUnmapped(FastxRecord& record, std::vector<FailedCandidate> const& failed) {
             // Counted for the header instead, unless --write_unmapped_reads.
             if (!m_sink.WritesUnmappedRecords()) {
-                for (uint32_t const taxid : failed) CountFailedCandidate(m_failed, taxid);
+                for (auto const& candidate : failed) CountFailedCandidate(m_failed, candidate.taxid);
                 return;
             }
             if (!UnmappedRecord(m_sam, ReadQName(record.id), failed)) return;
@@ -460,8 +465,10 @@ namespace protal {
         }
 
         // failed: the taxa the read seeded on but did not align to (FailedCandidates), its ZF tag; on the read's first
-        // record, or on an unmapped record when the read has no record.
-        void operator () (AlignmentResultList& alignment_results, FastxRecord& record, std::vector<uint32_t> const& failed = {}) {
+        // record, or on an unmapped record when the read has no record. crowding: the taxa the read's seeds could not
+        // tell apart (SimpleAlignmentHandler::Crowding), its ZN tag on its first record.
+        void operator () (AlignmentResultList& alignment_results, FastxRecord& record, std::vector<FailedCandidate> const& failed = {},
+                          uint16_t crowding = 0) {
             if (alignment_results.empty()) {
                 WriteUnmapped(record, failed);
                 return;
@@ -501,6 +508,7 @@ namespace protal {
                 m_sam.m_tlen = 0;
                 if (first) m_sam.m_alternatives = AlternativesTag(ar.Taxid(), AlignmentEdits(ar.GetAlignmentInfo()), candidates);
                 if (first) m_sam.m_failed = FailedTag(failed);
+                if (first) m_sam.m_crowding = crowding;
 
                 auto const reference = ReferenceOf(m_genomes.GetGenome(ar.Taxid()).GetGene(ar.GeneId()), m_sam);
                 if (!ExtractSNPs(m_sam, reference, snps, ar.Taxid(), ar.GeneId(), 0)) {
@@ -664,7 +672,7 @@ namespace protal {
         // false, writing nothing, when only one mate aligned or an alignment is unusable; the caller then
         // writes the candidates as usual. Only these two primary records are written, also with -m > 1.
         bool WriteSplitMates(PairedAlignmentResultList& results, FastxRecord& record1, FastxRecord& record2, std::string const& qname,
-                             std::vector<uint32_t> const& failed = {}) {
+                             std::vector<FailedCandidate> const& failed = {}, std::array<uint16_t, 2> crowding = {}) {
             auto best1 = BestOfMate(results, true);
             auto best2 = BestOfMate(results, false);
             if (best1.index == SIZE_MAX || best2.index == SIZE_MAX) return false;
@@ -680,6 +688,8 @@ namespace protal {
             m_sam2.m_alternatives = AlternativesTag(ar2.Taxid(), AlignmentEdits(ar2.GetAlignmentInfo()),
                                                     CandidateEdits(results, [](auto const& r) { return &r.second; }));
             m_sam1.m_failed = FailedTag(failed);  // the fragment's failed candidates, on its first record
+            m_sam1.m_crowding = crowding[0];
+            m_sam2.m_crowding = crowding[1];
             SNPList snps;
             if (!ExtractSNPs(m_sam1, ReferenceOf(m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()), m_sam1), snps, ar1.Taxid(), ar1.GeneId(), 0) ||
                 !ExtractSNPs(m_sam2, ReferenceOf(m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()), m_sam2), snps, ar2.Taxid(), ar2.GeneId(), 0)) {
@@ -709,10 +719,10 @@ namespace protal {
         }
 
         // Writes a fragment's unmapped record if it has failed candidates (UnmappedRecord).
-        void WriteUnmapped(FastxRecord& record1, FastxRecord& record2, std::vector<uint32_t> const& failed) {
+        void WriteUnmapped(FastxRecord& record1, FastxRecord& record2, std::vector<FailedCandidate> const& failed) {
             // Counted for the header instead, unless --write_unmapped_reads.
             if (!m_sink.WritesUnmappedRecords()) {
-                for (uint32_t const taxid : failed) CountFailedCandidate(m_failed, taxid);
+                for (auto const& candidate : failed) CountFailedCandidate(m_failed, candidate.taxid);
                 return;
             }
             if (!UnmappedRecord(m_sam1, PairQName(record1.id, record2.id), failed)) return;
@@ -720,9 +730,10 @@ namespace protal {
         }
 
         // failed: the taxa either mate seeded on but neither aligned to (FailedCandidates), the fragment's ZF tag; on
-        // its first record, or on an unmapped record when the fragment has no record.
+        // its first record, or on an unmapped record when the fragment has no record. crowding: the taxa each mate's
+        // seeds could not tell apart (SimpleAlignmentHandler::Crowding), each mate's ZN tag on its primary record.
         PROTAL_CLONE_V3 void operator () (PairedAlignmentResultList& alignment_results, FastxRecord& record1, FastxRecord& record2, size_t read_id=0, bool first_pair=true,
-                                          std::vector<uint32_t> const& failed = {}) {
+                                          std::vector<FailedCandidate> const& failed = {}, std::array<uint16_t, 2> crowding = {}) {
             if (alignment_results.empty()) {
                 WriteUnmapped(record1, record2, failed);
                 return;
@@ -740,7 +751,7 @@ namespace protal {
             }
 
             auto const qname = PairQName(record1.id, record2.id);
-            if (!(best.first.IsSet() && best.second.IsSet()) && WriteSplitMates(alignment_results, record1, record2, qname, failed)) {
+            if (!(best.first.IsSet() && best.second.IsSet()) && WriteSplitMates(alignment_results, record1, record2, qname, failed, crowding)) {
                 return;
             }
 
@@ -801,6 +812,7 @@ namespace protal {
                     alignment_score += info.Score();
                     m_sam1.m_mapq = first ? mapq : 0;
                     if (first) m_sam1.m_alternatives = AlternativesTag(ar1.Taxid(), AlignmentEdits(info), candidates1);
+                    if (first) m_sam1.m_crowding = crowding[0];
 
                     valid1 = ExtractSNPs(m_sam1, ReferenceOf(m_genomes.GetGenome(ar1.Taxid()).GetGene(ar1.GeneId()), m_sam1), snps, ar1.Taxid(), ar1.GeneId(), 0);
                 }
@@ -832,6 +844,7 @@ namespace protal {
                     alignment_score += info.alignment_score;
                     m_sam2.m_mapq = first ? mapq : 0;
                     if (first) m_sam2.m_alternatives = AlternativesTag(ar2.Taxid(), AlignmentEdits(info), candidates2);
+                    if (first) m_sam2.m_crowding = crowding[1];
 
                     valid2 = ExtractSNPs(m_sam2, ReferenceOf(m_genomes.GetGenome(ar2.Taxid()).GetGene(ar2.GeneId()), m_sam2), snps, ar2.Taxid(), ar2.GeneId(), 0);
                 }

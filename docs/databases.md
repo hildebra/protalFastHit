@@ -25,6 +25,7 @@ databases are in [development.md](development.md).
 | `unique_kmers.tsv` | per species and gene, the k-mers unique to it in the database |
 | `gene_conservation.tsv` | optional: per gene, how fast it diverges within species against the species' other genes ([below](#2-build-the-index)); for the conservation and divergence features, and `--gene_conservation db` |
 | `suspect_copies.tsv` | optional: gene copies near-identical to another genus's (contamination, transferred genes), whose reads a run leaves out of the evidence ([below](#2-build-the-index)) |
+| `species_neighbours.tsv` | optional (since 2026-10-06): each species' nearest congeners in the database by the distance of their marker genes, for the database-neighbourhood features and `unexpected_congener_fit_share` ([below](#2-build-the-index), [features.md](features.md#against-false-positives-in-complex-communities-consistency-shape-neighbourhood-2026-10-06)) |
 | `species_priors.tsv` | optional: what GTDB knows of each species before any read ([below](#species-priors)) |
 | `gene_neighbours.tsv`, `gene_positions.tsv` | optional: which genes lie next to which, per clade, and where each gene lies in each genome ([below](#gene-neighbours)); a run loads only the first |
 | `gene_table.bin` | only in `database.protal`: `reference.map` and `unique_kmers.tsv` in binary, loaded on all threads without parsing (r226-sized tables, six threads: 1.76 → 0.43 s) |
@@ -685,7 +686,7 @@ keeps the finished database.
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
 | `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` follows ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
 | `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
-| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, and the sample's complexity, which needs a protal of 2026-10-06 or later for the training data); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
+| `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, the sample's complexity, which needs a protal of 2026-10-06 or later for the training data, and since 2026-10-07 the three groups against the false positives of complex communities, untested at r226, which need a protal of 2026-10-07 or later: `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` trains without them); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--model` | `gbm` | the models: `gbm`, gradient-boosted trees (the default since 2026-10-06), or `forest`, a random forest ([below](#training)) |
 | `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items) |
 | `--call-mode` | `curve` | `fdr` also stores calibrated calls at a target share of false calls ([below](#calls-at-a-target-share-of-false-calls)) |
@@ -864,7 +865,12 @@ the `.zst` file when the plain one is missing. The build:
    database as `suspect_copies.tsv`, and runs leave reads on them out of the evidence
    (`--keep_suspect_copies` keeps them). Every near pair across genera is listed in
    `gene_incongruence.tsv` ([report](claude/2026-10-03-false-positive-anatomy/README.md)).
-5. Packs everything into `database.protal`, with `gene_table.bin` for a fast load, reads it back,
+5. Compares every two species of a genus by their marker genes (the median Mash distance of the
+   genes both have, k = 12, as a run's `relative_distance`) and writes each species' nearest
+   congeners, at most 16 within 0.15, to `species_neighbours.tsv`: how crowded the database is
+   around a reference, and how far apart two congeners a read fits are (since 2026-10-06; genera in
+   batches of about 10,000 species, so the sketches of the whole database are never held at once).
+6. Packs everything into `database.protal`, with `gene_table.bin` for a fast load, reads it back,
    compares, and removes the separate files. `full_reference.fna`, `gene2geneid.tsv` and
    `genome2tiid.tsv` stay beside it.
 
@@ -1053,7 +1059,7 @@ comparison. The summary has a line per scenario, and warns when a scenario's hol
 scenarios' rows out.
 
 **`--features auto`** (the default) scores each candidate set with species held out and keeps the one
-of highest F1 at the knob, but `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` unless
+of highest F1 at the knob, but the default set (`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood`) unless
 another beats it by 0.002 (`AUTO_MIN_GAIN`, the gain below which the depth knobs changed between fits
 at r226). The candidates are the named sets without the priors, and
 `normalized+adjacency+relatives+depth+divergence+unfiltered` (`auto+priors` adds the sets with the

@@ -27,11 +27,17 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `unfiltered` | 0.7.5 | the reads before the MAPQ filter and the reads that failed on the taxon | yes |
 | `ref` | 2026-10-06 (in the dump since 2024) | the reference's k-mer uniqueness in the database | yes, since 2026-10-06 |
 | `complexity` | 2026-10-06 | the sample's complexity: its taxa, its share of low-identity bases, its median identity | yes, since 2026-10-06 |
+| `consistency` | 2026-10-06 | whether the taxon's reads are its own: long reads' consensus tags, the seeds' crowding, congeners that fit better than their distance allows, fragments split with a congener, genes complementing a congener's | yes, untested at r226 |
+| `shape` | 2026-10-06 | how the reads lie on the genes: divergence dispersion, breadth against depth, genes where reads fail, fixed and polymorphic sites | yes, untested at r226 |
+| `neighbourhood` | 2026-10-06 | the database's congeners near the reference (`species_neighbours.tsv`) | yes, untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
-The default set is `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` (55 features; without
-`ref` and `complexity`, 49, before 2026-10-06). A training table of the r226 v14 build or older lacks the
-`complexity` columns: train it with `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref`. 0.7.6
+The default set is `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood`
+(70 features; without the last three groups 55, before 2026-10-07; without `ref` and `complexity` too 49, before
+2026-10-06). The three groups against false positives have not been trained at GTDB scale: the next build's models are
+the first. A training table of the r226 v15 build or older lacks their columns: train it with `--features
+normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity`, one of v14 or older with
+`--features normalized+adjacency+distance+depth+divergence+unfiltered+ref`. 0.7.6
 adds no feature; it changes how the models are trained (below: the priors opt-in, in-silico strains,
 more training depths). 0.6.0a
 shipped one model on absolute counts (genes, k-mers and mates); those columns are still in the dump
@@ -102,6 +108,15 @@ whole k-mer), and among those the ones with no k-mer of another species within o
 ("long super unique", `lsu`). A read of the species itself carries many of them; a relative's read,
 however well it aligns, carries few. `unique_kmers.tsv` holds the reference's counts per gene, so
 the rates below are relative to what the species could show.
+
+Since 2026-10-06 the counts include the k-mers whose 15-base core has a single value in the index
+("short unique", `su`). Such a core has no flex cells, so the lookup cannot compare the rest of the
+read's k-mer with the entry's; before, these seeds were never counted as unique, though the build
+had checked their whole k-mer against the other taxa. The anchor now compares the whole k-mer with
+the gene and counts the seed in `ZU` (and in `ZT`: no other value has its core) when it matches; the
+reference side (`lu_rate_ref`, `lsu_rate_ref`, the gene rates' denominators) counts them too. At
+GTDB r226 they are 5.1M of the index's 2.13 billion unique values (0.24%), so the r226 features
+barely move; a small database has many more, and its models must be retrained.
 
 | feature | since | what it measures | importance pe / se / pb / ont | matters for |
 |---|---|---|---|---|
@@ -291,6 +306,36 @@ Nanopore +0.001 to +0.005; on the design's test set -0.0006 (se, at 0.5) to +0.0
 -0.0017. A real soil sample at a depth the simulations did not draw is the case they are for. In the
 default set since 2026-10-06; the next GTDB build is the first to train with them. A training table
 of a protal before them lacks the three columns.
+
+## Against false positives in complex communities (`consistency`, `shape`, `neighbourhood`, 2026-10-06)
+
+In the r226 v13 soil scenarios 95-99% of the false positives were database species beside a congener
+the database lacks, 59-76% of them beside one near-identical on the marker genes, and the model told
+them apart no better on its own training rows: what was missing was information
+([soil report](claude/2026-10-06-r226-v13-soil/README.md)). These 15 features add what the alignment
+knew and threw away, and what the database knows of a reference's neighbourhood
+([report](claude/2026-10-06-false-positive-features.md)). They are in the default set but untested at
+GTDB scale; no importances yet. Three need SAM tags of protal since 2026-10-06 (`ZN`, the gene in
+`ZF`; `ZR` is older but was never read); a SAM of an older protal gives them 0.
+
+| feature | group | what it measures | matters for |
+|---|---|---|---|
+| `read_consensus_share` | consistency | of the taxon's best records, the share of long reads' gene records whose hit or MAPQ the read's consensus taxon gave them (`ZR:i:1`); 0 for short reads | **missing relative** with long reads: a novel species near-identical to the taxon on some genes and to a congener on others splits its reads; a present taxon wins its genes on their own |
+| `read_inconsistent_share` | consistency | the share of its records on a gene that is clearly another taxon's than the read's consensus (`ZR:i:2`) | as above, from the side of the taxon that holds the stray genes |
+| `seed_crowding` | consistency | the mean log2 of the taxa whose anchors were at least 0.8 as long as the read's longest (`ZN`), also those beyond ZA's four alternatives and align_top that were never aligned | **missing relative** in crowded genera: a read that ten species seed on alike is evidence of none |
+| `unexpected_congener_fit_share` | consistency | the share of its records whose read a congener (ZA) fits with so few edits more that a read of the taxon's reference would do so with probability below 0.01 (Poisson, the two references' distance in `species_neighbours.tsv` times the aligned bases); 0 without the table | **missing relative**: ambiguity that the congener's distance does not explain, where `congener_fit_share` also counts the ambiguity of crowded genera |
+| `split_fragment_share` | consistency | of its fragments (a pair, a long read), the share with a best record on another species of its genus too | **missing relative**: one novel species split over two references, mate by mate or gene by gene |
+| `congener_gene_overlap` | consistency | its hit genes shared with the congener its reads' alternatives name most often, over the overlap expected by their numbers of hit genes ((both + 0.5) / (expected + 0.5)); 1 without such a congener | **missing relative**: a novel species' genes nearer one reference here and the other there give two complementary taxa (below 1) |
+| `gene_divergence_dispersion` | shape | Pearson's chi-square over its genes of their records' differences against one genome divergence scaled by each gene's conservation factor plus the expected errors, per degree of freedom; 1 with fewer than 3 genes of 100 aligned bases | **missing relative** against **thin strain**: a strain diverges on every gene by its factor; a sister species near-identical on some markers and diverged on others does not |
+| `breadth_ratio` | shape | the bases its genes' kept reads cover over those expected at their depth, L (1 - e^-c) per gene (as inStrain's breadth over expected breadth) | **missing relative** with divergent sources: its reads align where the gene is conserved |
+| `failed_gene_share` | shape | of its genes with records or failed reads (the gene in `ZF`, from reads that aligned elsewhere), the share with more failed reads than records | **missing relative**: it fails on the genes where it differs most from the reference |
+| `fixed_difference_rate` | shape | sites where a non-reference allele has 80% of at least 4 reads, per covered site weighted by the genes' factors: the consensus' divergence in genome units, free of sequencing errors | **long reads**, whose errors the excess features must subtract; thin strain against relative |
+| `polymorphic_site_rate` | shape | sites where a second allele has 20% of the reads and 2 reads or more, per covered site | **minor congener** (the taxon's strain plus a relative's spill-over), strain mixtures |
+| `db_congeners_01`, `db_congeners_02`, `db_congeners_05` | neighbourhood | the database's congeners within 0.01, 0.02 and 0.05 of the reference (at most 16); -1 without `species_neighbours.tsv` | **missing relative**: the soil's false positives sit where the database has congeners near-identical on the markers; unlike `ref` it says how near |
+| `db_nearest_congener` | neighbourhood | the nearest congener's distance; 1 without one within 0.15, -1 without the table | as above |
+
+Like `ref`, the neighbourhood describes the database in use: a training database lacks its held-out
+species, so its species have fewer near congeners than in the finished database.
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 

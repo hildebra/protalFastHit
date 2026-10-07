@@ -27,6 +27,7 @@
 #include "SamHandler.h"
 #include "GeneIncongruence.h"
 #include "SpeciesPriors.h"
+#include "SpeciesNeighbours.h"
 #include "SamFile.h"
 #include "ReadType.h"
 #include "SequenceUtils/SeqReader.h"
@@ -163,13 +164,13 @@ namespace protal {
                 ("index_batch_kb", "With --build: KB of the reference per batch in the parallel index passes (smaller batches are for testing).", cxxopts::value<size_t>()->default_value("1024"))
                 ("build", "Build index from reference file with header format ()")
                 ("no_compress", "With --build: write the database as separate, uncompressed files (index.prx, reference.fna, ...). By default --build writes the single-file database database.protal (zstd-compressed; see --no_bundle). protal reads every form.")
-                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
+                ("no_bundle", "With --build or --compress_db: keep the database as separate compressed files (index.prx.zst, reference.fna.zst, reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, gene_neighbours.tsv, gene_positions.tsv, the models model_*.xml) instead of packing them into database.protal.")
                 ("compress_level", "With --build: zstd compression level (1-22). Higher levels compress more but more slowly (level 19: ~3 MB/s per thread, -t threads are used); decompression speed barely depends on it.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_LEVEL)))
                 ("compress_window_log", "With --build: zstd long-distance matching window, as log2 bytes (27 = 128 MB, capped at the frame size); finds repeats between distant related sequences. 0 turns it off.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_WINDOW_LOG)))
                 ("compress_frame_mb", "With --build or --compress_db: size of the independent zstd frames in MB (1-4095). protal loads a database with -t threads, one frame per thread at a time. 0 writes a single frame, which loads with one thread.", cxxopts::value<int>()->default_value(std::to_string(DEFAULT_COMPRESS_FRAME_MB)))
                 ("compress_db", "Compress the database folder --db in place, without rebuilding it: index.prx (raw or compressed in an older way) in protal's column format, reference.fna as seekable zstd (see --compress_level, --compress_frame_mb, -t), all packed into database.protal (--no_bundle: kept as index.prx.zst, reference.fna.zst, ...). Everything is read back and compared before the old files are removed. Needs the index in memory. On a single-file database --db: adds the binary gene table (gene_table.bin) a run loads instead of reference.map and unique_kmers.tsv, if it has no current one.")
                 ("decompress_db", "Write the database --db as separate raw files (index.prx, reference.fna, ...) and remove its compressed files (index.prx.zst, reference.fna.zst, or database.protal), e.g. for older protal versions. zstd -d does not give a raw index.prx from protal's column format.")
-                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
+                ("unpack_db", "Write the files of the single-file database --db into --unpack_dir (default: the folder it is in): index.prx.zst, an uncompressed reference.fna (as --preload_genomes_off needs), reference.map, internal_taxonomy.dmp, unique_kmers.tsv, gene_conservation.tsv, suspect_copies.tsv, species_priors.tsv, species_neighbours.tsv, gene_neighbours.tsv and gene_positions.tsv (if it has them) and the models it has (model_pe.xml or model.xml, model_se.xml, model_PB.xml, model_ONT.xml). database.protal is kept; protal uses the separate files when both are there.")
                 ("unpack_dir", "With --unpack_db: the folder to write the files into (default: the one database.protal is in).", cxxopts::value<std::string>()->default_value(""))
                 ("add_model", "Store the PMML model FILE in the database --db as the model of the reads --read_type names (pe, se, pb or ont: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml; pe if not given), replacing the one there. Several models, comma-separated, with as many read types (--add_model pe.xml,se.xml --read_type pe,se), are stored at once. Each model is checked first. database.protal is rewritten once, with its other parts copied as they are, not recompressed.", cxxopts::value<std::string>()->default_value(""))
                 ("full_reference", "With --build: the marker genes of all genomes (not only the representatives'), to check which k-mers are unique and to estimate how fast each gene diverges within species (gene_conservation.tsv, see --gene_conservation)", cxxopts::value<std::string>()->default_value(""))
@@ -453,6 +454,7 @@ namespace protal {
         static inline const std::string PROTAL_GENE_CONSERVATION_FILE = gene_conservation::kFileName;
         static inline const std::string PROTAL_SUSPECT_COPIES_FILE = gene_incongruence::kFileName;
         static inline const std::string PROTAL_SPECIES_PRIORS_FILE = species_priors::kFileName;
+        static inline const std::string PROTAL_SPECIES_NEIGHBOURS_FILE = species_neighbours::kFileName;
         static inline const std::string PROTAL_GENE_NEIGHBOURS_FILE = gene_neighbours::kFileName;
         static inline const std::string PROTAL_GENE_POSITIONS_FILE = gene_neighbours::kPositionsFileName;
         static inline const std::string PROTAL_TAXONOMY_FILE = "internal_taxonomy.dmp";
@@ -935,6 +937,11 @@ namespace protal {
             return m_database_path + "/" + PROTAL_SPECIES_PRIORS_FILE;
         }
 
+        // Each species' nearest congeners (SpeciesNeighbours.h), written and packed by --build.
+        std::string GetSpeciesNeighboursFile() const {
+            return m_database_path + "/" + PROTAL_SPECIES_NEIGHBOURS_FILE;
+        }
+
         // Where gene_neighbours.py placed each gene in each genome: packed by --build, never read by a run.
         std::string GetGenePositionsFile() const {
             return m_database_path + "/" + PROTAL_GENE_POSITIONS_FILE;
@@ -1007,6 +1014,11 @@ namespace protal {
         // The database's species_priors.tsv (the converter's); Exists() is false if it has none.
         db::DbFile SpeciesPriorsDbFile() const {
             return DbFileNamed(PROTAL_SPECIES_PRIORS_FILE, GetSpeciesPriorsFile());
+        }
+
+        // The database's species_neighbours.tsv (--build's since 2026-10-06); Exists() is false if it has none.
+        db::DbFile SpeciesNeighboursDbFile() const {
+            return DbFileNamed(PROTAL_SPECIES_NEIGHBOURS_FILE, GetSpeciesNeighboursFile());
         }
 
         // The database's gene_neighbours.tsv (scripts/mini_db/gene_neighbours.py, packed by --build); Exists() is

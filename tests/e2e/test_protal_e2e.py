@@ -176,11 +176,13 @@ def set_up_database():
     simulate_reads("sa", pairs_per_gene=12, seed=1)
     simulate_reads("sb", pairs_per_gene=12, seed=2)
     simulate_reads("sr", pairs_per_gene=12, seed=3, random_r2=True)
-    # Two species at 12 pairs per gene and three error-free pairs of Mockella alpha, too few to call it: the sample in
-    # which the knob decides a call.
+    # Two species at 12 pairs per gene and one error-free pair of Mockella alpha, too few to call it: the sample in
+    # which the knob decides a call. (Three pairs were, until the k-mers of 15-base cores with one value in the index
+    # counted as unique, 2026-10-06: in the mini database they are 85% of the unique k-mers, and the 0.6.0a forest it
+    # ships scores three perfect pairs 0.55, one pair 0.34.)
     alpha = species()["s__Mockella alpha"]
     simulate_reads("thin", pairs_per_gene=12, seed=6, taxa=set(species().values()) - {alpha},
-                   extra_pairs=few_pairs(alpha))
+                   extra_pairs=few_pairs(alpha, n=1))
     simulate_foreign_reads("foreign", seed=7)
 
 
@@ -431,7 +433,7 @@ def remove_indexes(db):
 class Baseline:
     """The module's paired-end run: protal with its defaults (-1/-2/-o, strain MSAs; --no_qcmsa, and a truth file per
     sample) over sa and sb (12 pairs on every gene of 320 bp or more), sr (sa's read1 mates with random read2 mates),
-    thin (Mockella beta and Fakibacter gamma, and three pairs of Mockella alpha) and foreign (reads of nothing in the
+    thin (Mockella beta and Fakibacter gamma, and one pair of Mockella alpha) and foreign (reads of nothing in the
     database). Tests that change only the profiling profile its SAMs again."""
 
     SAMPLES = ("sa", "sb", "sr", "thin", "foreign")
@@ -614,7 +616,7 @@ class AccuracyTest(DbTest):
         cls.base = baseline()
 
     def test_truth_counts(self):
-        # sa, sb and sr hold the three species, thin two of them and three pairs of the third (too few to call it),
+        # sa, sb and sr hold the three species, thin two of them and one pair of the third (too few to call it),
         # foreign none: its truth names a genus, a taxon the database has no genes of.
         expected = {"sa": "TP 3, FP 0, FN 0 (and 0", "sb": "TP 3, FP 0, FN 0 (and 0", "sr": "TP 3, FP 0, FN 0 (and 0",
                     "thin": "TP 2, FP 0, FN 1 (and 0", "foreign": "TP 0, FP 0, FN 0 (and 1"}
@@ -808,8 +810,8 @@ class MateAssignmentTest(DbTest):
 
 
 class MsaSampleSelectionTest(DbTest):
-    """A species' MSA takes only the samples in which the model accepts the species: thin's three pairs of Mockella alpha
-    do not call it, so thin is left out of its MSA (with --msa_min_hcov 0 coverage would not keep it out) and is in the
+    """A species' MSA takes only the samples in which the model accepts the species: thin's one pair of Mockella alpha
+    does not call it, so thin is left out of its MSA (with --msa_min_hcov 0 coverage would not keep it out) and is in the
     MSAs of the two species it reports."""
 
     def test_rejected_samples_are_left_out(self):
@@ -818,7 +820,7 @@ class MsaSampleSelectionTest(DbTest):
         rc, log = run(self.work, "--db", DB, *reads(*samples), "-o", "out", "-t", "2", "--no_qcmsa", "--msa_min_hcov", "0")
         self.assertEqual(rc, 0, log[-3000:])
         self.assertIn("All alignments are present", log)
-        self.assertNotIn("Mockella alpha", read_text(self.path("out", "thin.profile")), "three pairs do not call the species")
+        self.assertNotIn("Mockella alpha", read_text(self.path("out", "thin.profile")), "one pair does not call the species")
         for name in species():
             with open(self.path("out", "strains", name.replace(" ", "_") + ".raw.msa.fna")) as fh:
                 names = [line[1:].strip() for line in fh if line.startswith(">")]
@@ -1323,7 +1325,7 @@ def model_with_header(model_path, path, extensions):
 
 class KnobSample(DbTest):
     """Tests of how a sample's calls are made, on the baseline's sample thin: Mockella beta and Fakibacter gamma at 12
-    pairs per gene, which the model reports, and three pairs of Mockella alpha, which it rejects at the default knob
+    pairs per gene, which the model reports, and one pair of Mockella alpha, which it rejects at the default knob
     0.5 but reports at knob 0. So the profile tells which knob was applied."""
 
     def profile(self, name, *extra):
@@ -1343,7 +1345,7 @@ class KnobSample(DbTest):
             self.assertIn(problem, log)
 
     def assert_knob_zero(self, profile):
-        self.assertEqual(profile_species(profile), sorted(species()), "knob 0 reports Mockella alpha's three pairs")
+        self.assertEqual(profile_species(profile), sorted(species()), "knob 0 reports Mockella alpha's one pair")
 
     def assert_default(self, profile):
         self.assertEqual(profile, baseline().text("thin.profile"))
@@ -1474,12 +1476,12 @@ class GradientBoostedModelTest(DbTest):
     BASELINE = -0.5
     # Per round the nodes, as sklearn's predictors hold them; the first's leaves without the baseline.
     TREES = [
-        # Few fragments (thin's Mockella alpha: 3), or reads on fewer of the genes (Mockella beta: 108 of 115 genes,
+        # Few fragments (thin's Mockella alpha: 1), or reads on fewer of the genes (Mockella beta: 108 of 115 genes,
         # the others 109 of 116 and 110 of 117): absent.
         [gbm_node(feature=0, threshold=10.0, left=1, right=2), gbm_node(-2.0, leaf=True),
          gbm_node(feature=1, threshold=0.9394, left=3, right=4, missing_left=False), gbm_node(-0.5, leaf=True),
          gbm_node(1.5, leaf=True)],
-        # Reads with 0.5% substitutions against reads without errors (thin's three pairs of Mockella alpha).
+        # Reads with 0.5% substitutions against reads without errors (thin's one pair of Mockella alpha).
         [gbm_node(feature=2, threshold=0.999, left=1, right=2, missing_left=False), gbm_node(0.5, leaf=True),
          gbm_node(-1.0, leaf=True)],
         # The sample's depth: thin (10^3.42 fragments) against sa (10^3.59).

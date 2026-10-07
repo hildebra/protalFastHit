@@ -8,6 +8,7 @@
 #include "SequenceUtils/SeqReader.h"
 #include "SequenceUtils/KmerIterator.h"
 #include "Statistics.h"
+#include <array>
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -165,16 +166,19 @@ namespace protal::classify {
                 alignment_handler(anchors, alignment_results, record.sequence, anchor_finder.ReverseComplement(), options.GetAlignTop(), record.id);
                 bm_alignment.Stop();
                 thread_statistics.total_alignments += alignment_results.size();
-                // The taxa the read seeded on but did not align to, for its ZF tag.
-                std::vector<uint32_t> failed;
+                // The taxa the read seeded on but did not align to, for its ZF tag, and the taxa its seeds could not tell
+                // apart, for its ZN tag.
+                std::vector<FailedCandidate> failed;
+                uint16_t crowding = 0;
                 if constexpr (requires { alignment_handler.Attempted(); }) {
                     std::vector<uint32_t> aligned;
                     for (auto const& ar : alignment_results) aligned.push_back(static_cast<uint32_t>(ar.Taxid()));
                     failed = FailedCandidates(alignment_handler.Attempted(), std::move(aligned));
+                    crowding = alignment_handler.Crowding();
                 }
 
                 bm_output.Start();
-                output_handler(alignment_results, record, failed);
+                output_handler(alignment_results, record, failed, crowding);
                 bm_output.Stop();
 
                 if constexpr (benchmark_active) {
@@ -639,12 +643,17 @@ namespace protal::classify {
 
                 // Do Alignment
                 bm_alignment.Start();
-                std::vector<uint32_t> attempted;
+                std::vector<FailedCandidate> attempted;
+                std::array<uint16_t, 2> crowding{ 0, 0 };  // the taxa each mate's seeds could not tell apart (ZN)
                 alignment_handler(anchors1, alignment_results1, record1.sequence, anchor_finder1.ReverseComplement(), options.GetAlignTop() + recover1, record1.id);
-                if constexpr (requires { alignment_handler.Attempted(); }) attempted = alignment_handler.Attempted();
+                if constexpr (requires { alignment_handler.Attempted(); }) {
+                    attempted = alignment_handler.Attempted();
+                    crowding[0] = alignment_handler.Crowding();
+                }
                 alignment_handler(anchors2, alignment_results2, record2.sequence, anchor_finder2.ReverseComplement(), options.GetAlignTop() + recover2, record2.id);
                 if constexpr (requires { alignment_handler.Attempted(); }) {
                     attempted.insert(attempted.end(), alignment_handler.Attempted().begin(), alignment_handler.Attempted().end());
+                    crowding[1] = alignment_handler.Crowding();
                 }
                 bm_alignment.Stop();
 
@@ -683,7 +692,7 @@ namespace protal::classify {
 
                 // Output alignments
                 bm_output.Start();
-                output_handler(paired_alignment_results, record1, record2, record_id, true, failed);
+                output_handler(paired_alignment_results, record1, record2, record_id, true, failed, crowding);
                 bm_output.Stop();
 
                 if constexpr (benchmark_active) {

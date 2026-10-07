@@ -187,9 +187,18 @@ namespace protal {
         // not written (secondary records, SAM files of older protal versions).
         std::string m_alternatives;
         // ZF tag of a read's first record (or of its unmapped record, flag 4, when nothing aligned): the taxa the read
-        // seeded on strongly enough to be aligned against but did not align to, "<taxid>,<taxid>" (FailedTag); a read of
-        // a relative the database lacks seeds on its nearest species and fails there. Empty: none, or not written.
+        // seeded on strongly enough to be aligned against but did not align to, each with the gene of its longest anchor,
+        // "<taxid>:<gene>,<taxid>:<gene>" (FailedTag; "<taxid>" without the gene before 2026-10-06); a read of a relative
+        // the database lacks seeds on its nearest species and fails there. Empty: none, or not written.
         std::string m_failed;
+        // ZR tag of a long read's segment record: 1 if its read's consensus taxon gave it its best hit or MAPQ, which the
+        // gene alone could not tell; 2 if that taxon has no hit on the gene or a clearly worse one than another taxon's
+        // (written with MAPQ 0). 0: neither, or not written (short reads).
+        uint8_t m_settled = 0;
+        // ZN tag of a primary record or a long read's segment record: the taxa the read's (the mate's, the segment's)
+        // seeds could not tell apart, those with an anchor at least 0.8 as long as the longest
+        // (SimpleAlignmentHandler::CrowdedTaxa). 0: not written (SAMs of protal before 2026-10-06).
+        uint16_t m_crowding = 0;
 
         [[nodiscard]] std::string ToString() const {
             return  m_qname + '\t'
@@ -206,7 +215,9 @@ namespace protal {
                     + "ZU:i:" + std::to_string(m_uniques) + '\t'
                     + "ZT:i:" + std::to_string(m_uniques_two)
                     + (m_alternatives.empty() ? std::string() : "\tZA:Z:" + m_alternatives)
-                    + (m_failed.empty() ? std::string() : "\tZF:Z:" + m_failed);
+                    + (m_failed.empty() ? std::string() : "\tZF:Z:" + m_failed)
+                    + (m_settled == 0 ? std::string() : "\tZR:i:" + std::to_string(m_settled))
+                    + (m_crowding == 0 ? std::string() : "\tZN:i:" + std::to_string(m_crowding));
         }
 
         // Strand of THIS record (0x10), for read1 and read2 alike; 0x20 is the mate's strand.
@@ -388,6 +399,8 @@ namespace protal {
         sam.m_uniques_two = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZT").value_or(0), UINT16_MAX));
         sam.m_alternatives = sam_detail::StringTag(tokens, "ZA").value_or(std::string_view());
         sam.m_failed = sam_detail::StringTag(tokens, "ZF").value_or(std::string_view());
+        sam.m_settled = static_cast<uint8_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZR").value_or(0), 2));
+        sam.m_crowding = static_cast<uint16_t>(std::min<uint64_t>(sam_detail::IntTag(tokens, "ZN").value_or(0), UINT16_MAX));
     }
 
     // Failed candidates counted per taxon in a vector indexed by the taxon (grown as needed): on a GTDB-sized database a
@@ -399,20 +412,34 @@ namespace protal {
         counts[taxid]++;
     }
 
-    // Calls on_taxid(taxid) for each entry of a ZF tag ("12,40"; empty or "*": none).
+    // Calls on_candidate(taxid, gene) for each entry of a ZF tag ("12:3,40:7"; an entry without ":<gene>", as protal
+    // wrote them before 2026-10-06, has gene 0; empty or "*": none). Entries that are not numbers are skipped.
     template<typename F>
-    inline void ForEachFailedCandidate(std::string_view tag, F&& on_taxid) {
+    inline void ForEachFailedCandidateGene(std::string_view tag, F&& on_candidate) {
         if (tag.empty() || tag == "*") return;
         size_t start = 0;
         while (start <= tag.size()) {
             size_t end = tag.find(',', start);
             if (end == std::string_view::npos) end = tag.size();
-            uint64_t taxid = 0;
-            if (end > start && sam_detail::ParseUnsigned(tag.substr(start, end - start), taxid) && taxid <= UINT32_MAX) {
-                on_taxid(static_cast<uint32_t>(taxid));
+            std::string_view entry = tag.substr(start, end - start);
+            std::string_view gene_text;
+            if (size_t const colon = entry.find(':'); colon != std::string_view::npos) {
+                gene_text = entry.substr(colon + 1);
+                entry = entry.substr(0, colon);
+            }
+            uint64_t taxid = 0, gene = 0;
+            if (!entry.empty() && sam_detail::ParseUnsigned(entry, taxid) && taxid <= UINT32_MAX &&
+                (gene_text.empty() || (sam_detail::ParseUnsigned(gene_text, gene) && gene <= UINT32_MAX))) {
+                on_candidate(static_cast<uint32_t>(taxid), static_cast<uint32_t>(gene));
             }
             start = end + 1;
         }
+    }
+
+    // Calls on_taxid(taxid) for each entry of a ZF tag (ForEachFailedCandidateGene, the genes left out).
+    template<typename F>
+    inline void ForEachFailedCandidate(std::string_view tag, F&& on_taxid) {
+        ForEachFailedCandidateGene(tag, [&on_taxid](uint32_t taxid, uint32_t) { on_taxid(taxid); });
     }
 
     // The reads that seeded on taxa but aligned nowhere, counted per taxon in a SAM header line in place of an unmapped

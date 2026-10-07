@@ -380,6 +380,35 @@ namespace protal {
             return anchor;
         }
 
+        // Whether the whole k-mer of a seed (its core and the flex bases on either side) is the gene's at the seed's place,
+        // the seed in the orientation of its anchor (after ReverseSeedList for a reverse one): what the lookup of a core
+        // with one value could not compare (LookupResult::single).
+        bool WholeKmerMatches(Seed const& seed, bool forward) {
+            size_t const half = m_kmer_lookup.FlexHalf();
+            std::string const& read = forward ? *m_fwd : m_rev;
+            if (seed.readpos < half || seed.genepos < half) return false;
+            size_t const length = m_k + 2 * half;
+            size_t const read_start = seed.readpos - half, gene_start = seed.genepos - half;
+            if (read_start + length > read.size()) return false;
+            auto const& gene = m_genome_loader.GetGeneOMP(seed.taxid, seed.geneid);
+            if (gene_start + length > gene.GetLength()) return false;
+            auto const window = gene.Window(gene_start, gene_start + length);  // keeps the bases the view points to
+            return std::string_view(read).substr(read_start, length) == std::string_view(window.data() + gene_start, length);
+        }
+
+        // The anchor's seeds flagged unique, and unique at distance two (its ZU and ZT counts), seeds in the anchor's
+        // orientation; a seed of a core with one value counts only if its whole k-mer is the gene's (WholeKmerMatches).
+        std::pair<uint16_t, uint16_t> CountUniques(SeedList const& seeds, bool forward) {
+            uint16_t uniques = 0, uniques_two = 0;
+            for (auto const& seed : seeds) {
+                if (!seed.unique && !seed.unique_dist_two) continue;
+                if (seed.single && !WholeKmerMatches(seed, forward)) continue;
+                uniques += seed.unique;
+                uniques_two += seed.unique_dist_two;
+            }
+            return { uniques, uniques_two };
+        }
+
         Anchor ExtractAnchor(SeedList &seeds, size_t read_length) {
             if (seeds.size() == 1) {
                 std::cout << "Seeds==1 "<< std::endl;
@@ -397,9 +426,7 @@ namespace protal {
                 ReverseSeedList(seeds, read_length);
             }
 
-            auto uniques = std::accumulate(seeds.begin(), seeds.end(), 0, [](auto acc, Seed& seed){ return acc + seed.unique; });
-            auto uniques_two = std::accumulate(seeds.begin(), seeds.end(), 0, [](auto acc, Seed& seed){ return acc + seed.unique_dist_two; });
-
+            auto const [uniques, uniques_two] = CountUniques(seeds, forward);
 
             Anchor anchor(seeds.front().taxid, seeds.front().geneid, forward, uniques, uniques_two);
             bool stop = false;

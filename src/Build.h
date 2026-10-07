@@ -22,6 +22,7 @@
 #include "Zstd.h"
 #include <filesystem>
 #include "SequenceUtils/GenomeLoader.h"
+#include "Profiling/SampleContext.h"
 #ifdef __GLIBC__
 #include <malloc.h>
 #endif
@@ -271,7 +272,7 @@ namespace protal::build {
     // index (index.prx.zst in the column format, frames copied as they are), the reference (a
     // seekable reference.fna.zst is copied the same way, reference.fna compressed), and the other
     // files queries read, compressed: reference.map, internal_taxonomy.dmp, unique_kmers.tsv,
-    // gene_conservation.tsv and suspect_copies.tsv if the build wrote them, species_priors.tsv, gene_neighbours.tsv and gene_positions.tsv if the folder has them
+    // gene_conservation.tsv, suspect_copies.tsv and species_neighbours.tsv if the build wrote them, species_priors.tsv, gene_neighbours.tsv and gene_positions.tsv if the folder has them
     // (written by scripts/mini_db/gene_neighbours.py, checked by CheckGeneNeighbours and CheckGenePositions; a run
     // reads only the first), and every presence model there is (AllModelFiles in
     // ReadType.h: model_pe.xml, model_se.xml, model_PB.xml, model_ONT.xml, and model.xml /
@@ -287,6 +288,7 @@ namespace protal::build {
         if (fs::exists(options.GetGeneConservationFile())) sources.push_back({Options::PROTAL_GENE_CONSERVATION_FILE, options.GetGeneConservationFile()});
         if (fs::exists(options.GetSuspectCopiesFile())) sources.push_back({Options::PROTAL_SUSPECT_COPIES_FILE, options.GetSuspectCopiesFile()});
         if (fs::exists(options.GetSpeciesPriorsFile())) sources.push_back({Options::PROTAL_SPECIES_PRIORS_FILE, options.GetSpeciesPriorsFile()});
+        if (fs::exists(options.GetSpeciesNeighboursFile())) sources.push_back({Options::PROTAL_SPECIES_NEIGHBOURS_FILE, options.GetSpeciesNeighboursFile()});
         if (fs::exists(options.GetGeneNeighboursFile())) sources.push_back({Options::PROTAL_GENE_NEIGHBOURS_FILE, options.GetGeneNeighboursFile()});
         if (fs::exists(options.GetGenePositionsFile())) sources.push_back({Options::PROTAL_GENE_POSITIONS_FILE, options.GetGenePositionsFile()});
         for (auto const& model : AllModelFiles()) {
@@ -980,18 +982,9 @@ namespace protal::build {
         return estimate;
     }
 
-    // gene_congeners.tsv next to the database (gene_conservation::CompareCongeners): how each gene differs between the
-    // representatives of congeneric species, against how it differs within species (`within`, the factors just
-    // estimated). A report of the build, which queries do not read; build_gtdb_database.py keeps it in model_logs/.
-    // The genus of a species is its nearest ancestor of rank genus in internal_taxonomy.dmp.
-    static void WriteGeneCongeners(protal::Options const& options, GenomeLoader& genomes, gene_conservation::Table const& within) {
-        namespace fs = std::filesystem;
-        Benchmark bm("Gene congeners");
-        bm.Start();
-        std::string const target = (fs::path(options.GetGeneConservationFile()).parent_path() /
-                                    gene_conservation::kCongenersFileName).string();
-        std::error_code ec;
-        fs::remove(target, ec);
+    // The database's genera of two species or more, each its species by taxid, in the order of the genera's taxids. The
+    // genus of a species is its nearest ancestor of rank genus in internal_taxonomy.dmp.
+    static std::vector<std::vector<uint32_t>> Genera(protal::Options const& options, GenomeLoader& genomes) {
         std::unordered_map<uint32_t, uint32_t> parent;
         std::unordered_map<uint32_t, bool> is_genus;
         {
@@ -1028,6 +1021,21 @@ namespace protal::build {
             std::sort(members.begin(), members.end());  // by taxid, not in the genome map's order
             if (members.size() >= 2) genera.push_back(std::move(members));
         }
+        return genera;
+    }
+
+    // gene_congeners.tsv next to the database (gene_conservation::CompareCongeners): how each gene differs between the
+    // representatives of congeneric species, against how it differs within species (`within`, the factors just
+    // estimated). A report of the build, which queries do not read; build_gtdb_database.py keeps it in model_logs/.
+    static void WriteGeneCongeners(protal::Options const& options, GenomeLoader& genomes, gene_conservation::Table const& within) {
+        namespace fs = std::filesystem;
+        Benchmark bm("Gene congeners");
+        bm.Start();
+        std::string const target = (fs::path(options.GetGeneConservationFile()).parent_path() /
+                                    gene_conservation::kCongenersFileName).string();
+        std::error_code ec;
+        fs::remove(target, ec);
+        auto const genera = Genera(options, genomes);
         if (genera.empty()) {
             std::cout << "Gene congeners: no genus with two species or more in the database; no comparison" << std::endl;
             bm.Stop();
@@ -1072,6 +1080,83 @@ namespace protal::build {
                   << gene_conservation::kNearIdentical << " in " << pct(estimate.conserved_near) << "; the other genes: "
                   << num(estimate.fast_between) << ", " << pct(estimate.fast_identical) << ", " << pct(estimate.fast_near)
                   << ": " << target << std::endl;
+        bm.Stop();
+        bm.PrintResults();
+    }
+
+    // species_neighbours.tsv in the database (SpeciesNeighbours.h): every two species of a genus compared by their
+    // references' marker genes (profiler::context::SketchedTaxonDistance, the distance a run's relative_distance
+    // reads), and each species' nearest congeners kept (at most species_neighbours::kMaxNeighbours, within
+    // kMaxDistance); every species of the database gets a row, also one without a congener. The genera are taken in batches of about kNeighbourBatch
+    // species, sketched and compared on all threads, so that the whole database's sketches (~35 kB a species) are never
+    // held at once.
+    inline constexpr size_t kNeighbourBatch = 10000;
+
+    static void WriteSpeciesNeighbours(protal::Options const& options, GenomeLoader& genomes) {
+        Benchmark bm("Species neighbours");
+        bm.Start();
+        std::string const target = options.GetSpeciesNeighboursFile();
+        auto const genera = Genera(options, genomes);
+        species_neighbours::Table table;
+        for (auto const& [taxid, _] : genomes.GetGenomeMap()) table.Set(static_cast<uint32_t>(taxid), {});
+        int const threads = std::max(1, static_cast<int>(options.GetThreads()));
+        auto take = [&options](uint32_t gene) { return options.BuildGeneAllowed(gene); };
+        size_t compared = 0;
+        for (size_t g = 0; g < genera.size();) {
+            std::vector<uint32_t> members;
+            std::vector<std::pair<size_t, size_t>> ranges;  // each genus's members, [begin, end) of `members`
+            while (g < genera.size() && (members.empty() || members.size() + genera[g].size() <= kNeighbourBatch)) {
+                ranges.emplace_back(members.size(), members.size() + genera[g].size());
+                members.insert(members.end(), genera[g].begin(), genera[g].end());
+                g++;
+            }
+            std::vector<profiler::context::TaxonSketch> sketches(members.size());
+#pragma omp parallel for schedule(dynamic, 1) num_threads(threads)
+            for (int64_t i = 0; i < static_cast<int64_t>(members.size()); i++) {
+                sketches[static_cast<size_t>(i)] = profiler::context::ReferenceSketch(genomes, members[static_cast<size_t>(i)], take);
+            }
+            std::vector<std::pair<uint32_t, uint32_t>> pairs;
+            for (auto const [begin, end] : ranges) {
+                for (size_t i = begin; i < end; i++) {
+                    for (size_t j = i + 1; j < end; j++) pairs.emplace_back(static_cast<uint32_t>(i), static_cast<uint32_t>(j));
+                }
+            }
+            std::vector<float> distance(pairs.size());
+#pragma omp parallel num_threads(threads)
+            {
+                std::vector<double> scratch;
+#pragma omp for schedule(dynamic, 1024)
+                for (int64_t p = 0; p < static_cast<int64_t>(pairs.size()); p++) {
+                    auto const [i, j] = pairs[static_cast<size_t>(p)];
+                    double const d = profiler::context::SketchedTaxonDistance(sketches[i], sketches[j], scratch);
+                    distance[static_cast<size_t>(p)] = static_cast<float>(d);
+                }
+            }
+            compared += pairs.size();
+            std::vector<std::vector<species_neighbours::Neighbour>> near(members.size());
+            for (size_t p = 0; p < pairs.size(); p++) {
+                if (!(distance[p] <= species_neighbours::kMaxDistance)) continue;
+                auto const [i, j] = pairs[p];
+                near[i].push_back({ members[j], distance[p] });
+                near[j].push_back({ members[i], distance[p] });
+            }
+            for (size_t i = 0; i < members.size(); i++) table.Set(members[i], std::move(near[i]));
+        }
+        std::ofstream os(target);
+        table.Write(os);
+        os.close();
+        if (!os) {
+            std::cerr << "Writing " << target << " failed" << std::endl;
+            exit(8);
+        }
+        size_t within_01 = 0, within_02 = 0;
+        for (auto const& [taxid, _] : genomes.GetGenomeMap()) {
+            within_01 += table.Within(static_cast<uint32_t>(taxid), 0.01) > 0;
+            within_02 += table.Within(static_cast<uint32_t>(taxid), 0.02) > 0;
+        }
+        std::cout << "Species neighbours: " << compared << " pairs of congeners compared in " << genera.size() << " genera; "
+                  << table.Pairs() << " neighbours within " << species_neighbours::kMaxDistance << " listed for " << table.Species()
+                  << " species, " << within_01 << " with a congener within 0.01, " << within_02 << " within 0.02: " << target << std::endl;
         bm.Stop();
         bm.PrintResults();
     }
@@ -1253,6 +1338,7 @@ namespace protal::build {
                                                         options.GetGeneConservationFile());
         WriteGeneCongeners(options, genomes, conservation.table);
         WriteSuspectCopies(options, genomes);
+        WriteSpeciesNeighbours(options, genomes);
         CheckGeneNeighbours(options, genomes);
         CheckGenePositions(options, genomes);
         ReleaseFreeMemory();

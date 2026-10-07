@@ -32,6 +32,7 @@ add_executable(protal_tests
         test_ProfileThreads.cpp
         test_SampleContext.cpp
         test_FalsePositiveFeatures.cpp
+        test_ComplexCommunityFeatures.cpp
         test_ReadEvidence.cpp
         test_AlignmentScreen.cpp
         test_GeneTableFile.cpp
