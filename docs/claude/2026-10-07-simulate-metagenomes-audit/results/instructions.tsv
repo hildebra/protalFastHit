@@ -1,0 +1,12 @@
+case	instructions
+deep_before	23849535261
+deep_A	17170654840
+deep_B	13871890495
+se_before	22525166478
+se_B	8584486406
+shallow_before	10682609282
+shallow_A	4002826221
+shallow_A_store_read	1505451212
+deep_B_store_read	11468680332
+shallow_B	3637475592
+shallow_B_store_read	1140307678

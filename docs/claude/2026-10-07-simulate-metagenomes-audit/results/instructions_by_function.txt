@@ -1,0 +1,63 @@
+# callgrind_annotate, functions by their own instructions (profile_ir.sh, ir_more)
+== deep_before: functions by own instructions
+23,849,535,261 (100.0%)  PROGRAM TOTALS
+3,580,251,422 (15.01%)  ???:protal::sim::LoadContigs(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::filesystem::__cxx11::path const&, unsigned int) [/home/falk/simaudit/bin/sim_before]
+3,505,862,620 (14.70%)  ???:protal::sim::LongRng::Uniform() [/home/falk/simaudit/bin/sim_before]
+3,103,249,074 (13.01%)  ???:protal::sim::IlluminaModel::Read(std::basic_string_view<char, std::char_traits<char> >, int, double, protal::sim::LongRng&, protal::sim::MadeRead&, unsigned long*, protal::sim::IlluminaEvents*) const [/home/falk/simaudit/bin/sim_before]
+1,928,041,902 ( 8.08%)  ???:protal::sim::LongRng::Normal() [/home/falk/simaudit/bin/sim_before]
+1,617,675,455 ( 6.78%)  ./ctype/./ctype/ctype.c:toupper [/usr/lib/x86_64-linux-gnu/libc.so.6]
+1,553,226,231 ( 6.51%)  ???:0x00000000000391c0 [/usr/lib/x86_64-linux-gnu/libisal.so.2.0.31]
+1,174,121,691 ( 4.92%)  ???:0x0000000000027bb0 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+1,029,452,235 ( 4.32%)  ./ctype/./ctype/ctype.c:isspace [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  940,766,941 ( 3.94%)  ./math/../sysdeps/ieee754/dbl-64/s_llround.c:lround [/usr/lib/x86_64-linux-gnu/libm.so.6]
+  907,672,161 ( 3.81%)  ???:0x000000000001fdf0 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  819,684,489 ( 3.44%)  ./math/../sysdeps/ieee754/dbl-64/e_log.c:__ieee754_log_fma [/usr/lib/x86_64-linux-gnu/libm.so.6]
+  764,150,712 ( 3.20%)  ???:protal::sim::ReverseComplement(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [/home/falk/simaudit/bin/sim_before]
+  372,932,960 ( 1.56%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+== deep_B: functions by own instructions
+13,871,890,495 (100.0%)  PROGRAM TOTALS
+2,858,295,179 (20.60%)  ???:protal::sim::IlluminaModel::Read(std::basic_string_view<char, std::char_traits<char> >, int, double, protal::sim::LongRng&, protal::sim::MadeRead&, unsigned long*, protal::sim::IlluminaEvents*) const [/home/falk/simaudit/bin/sim_B]
+2,185,251,886 (15.75%)  ???:protal::sim::LongRng::Gaussian() [/home/falk/simaudit/bin/sim_B]
+1,552,514,208 (11.19%)  ???:0x00000000000391c0 [/usr/lib/x86_64-linux-gnu/libisal.so.2.0.31]
+1,174,235,967 ( 8.46%)  ???:0x0000000000027bb0 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+1,007,709,248 ( 7.26%)  ???:protal::sim::LongRng::Uniform() [/home/falk/simaudit/bin/sim_B]
+  940,766,369 ( 6.78%)  ./math/../sysdeps/ieee754/dbl-64/s_llround.c:lround [/usr/lib/x86_64-linux-gnu/libm.so.6]
+  907,790,266 ( 6.54%)  ???:0x000000000001fdf0 [/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5]
+  763,826,059 ( 5.51%)  ???:protal::sim::ReverseComplement(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) [/home/falk/simaudit/bin/sim_B]
+  346,081,608 ( 2.49%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  342,779,533 ( 2.47%)  ???:protal::sim::IlluminaModel::Read(std::basic_string_view<char, std::char_traits<char> >, int, double, protal::sim::LongRng&, protal::sim::MadeRead&, unsigned long*, protal::sim::IlluminaEvents*) const [clone .constprop.0] [/home/falk/simaudit/bin/sim_B]
+  311,343,281 ( 2.24%)  ???:protal::sim::ParseFasta(std::basic_string_view<char, std::char_traits<char> >) [/home/falk/simaudit/bin/sim_B]
+  301,376,150 ( 2.17%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  193,921,070 ( 1.40%)  ???:protal::sim::LongRng::Below(unsigned long) [/home/falk/simaudit/bin/sim_B]
+== shallow_before: functions by own instructions
+10,682,609,282 (100.0%)  PROGRAM TOTALS
+3,580,251,422 (33.51%)  ???:protal::sim::LoadContigs(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::filesystem::__cxx11::path const&, unsigned int) [/home/falk/simaudit/bin/sim_before]
+1,617,675,455 (15.14%)  ./ctype/./ctype/ctype.c:toupper [/usr/lib/x86_64-linux-gnu/libc.so.6]
+1,553,226,231 (14.54%)  ???:0x00000000000391c0 [/usr/lib/x86_64-linux-gnu/libisal.so.2.0.31]
+1,029,452,235 ( 9.64%)  ./ctype/./ctype/ctype.c:isspace [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  387,865,608 ( 3.63%)  ???:protal::sim::LongRng::Uniform() [/home/falk/simaudit/bin/sim_before]
+  372,146,003 ( 3.48%)  ???:protal::sim::IlluminaModel::Read(std::basic_string_view<char, std::char_traits<char> >, int, double, protal::sim::LongRng&, protal::sim::MadeRead&, unsigned long*, protal::sim::IlluminaEvents*) const [clone .constprop.0] [/home/falk/simaudit/bin/sim_before]
+  294,129,210 ( 2.75%)  ???:0x0000000000113d30 [???]
+  294,122,810 ( 2.75%)  ???:0x0000000000114840 [???]
+  256,879,870 ( 2.40%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  213,475,831 ( 2.00%)  ???:protal::sim::LongRng::Normal() [/home/falk/simaudit/bin/sim_before]
+  193,730,375 ( 1.81%)  ???:std::basic_istream<char, std::char_traits<char> >& std::getline<char, std::char_traits<char>, std::allocator<char> >(std::basic_istream<char, std::char_traits<char> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, char) [/usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33]
+  190,065,744 ( 1.78%)  ???:protal::sim::LongRng::Below(unsigned long) [/home/falk/simaudit/bin/sim_before]
+  104,158,533 ( 0.98%)  ./math/../sysdeps/ieee754/dbl-64/s_llround.c:lround [/usr/lib/x86_64-linux-gnu/libm.so.6]
+== shallow_A: functions by own instructions
+4,002,826,221 (100.0%)  PROGRAM TOTALS
+1,552,514,208 (38.79%)  ???:0x00000000000391c0 [/usr/lib/x86_64-linux-gnu/libisal.so.2.0.31]
+  387,865,608 ( 9.69%)  ???:protal::sim::LongRng::Uniform() [/home/falk/simaudit/bin/sim_A]
+  372,146,003 ( 9.30%)  ???:protal::sim::IlluminaModel::Read(std::basic_string_view<char, std::char_traits<char> >, int, double, protal::sim::LongRng&, protal::sim::MadeRead&, unsigned long*, protal::sim::IlluminaEvents*) const [clone .constprop.0] [/home/falk/simaudit/bin/sim_A]
+  311,343,281 ( 7.78%)  ???:protal::sim::ParseFasta(std::basic_string_view<char, std::char_traits<char> >) [/home/falk/simaudit/bin/sim_A]
+  270,045,894 ( 6.75%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  213,475,831 ( 5.33%)  ???:protal::sim::LongRng::Normal() [/home/falk/simaudit/bin/sim_A]
+  190,065,744 ( 4.75%)  ???:protal::sim::LongRng::Below(unsigned long) [/home/falk/simaudit/bin/sim_A]
+  185,219,750 ( 4.63%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+  104,158,533 ( 2.60%)  ./math/../sysdeps/ieee754/dbl-64/s_llround.c:lround [/usr/lib/x86_64-linux-gnu/libm.so.6]
+   90,743,056 ( 2.27%)  ./math/../sysdeps/ieee754/dbl-64/e_log.c:__ieee754_log_fma [/usr/lib/x86_64-linux-gnu/libm.so.6]
+   66,684,067 ( 1.67%)  ./string/../sysdeps/x86_64/multiarch/memchr-avx2.S:__memchr_avx2 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   56,618,984 ( 1.41%)  ???:protal::sim::IlluminaModel::Calibrate() [/home/falk/simaudit/bin/sim_A]
+   54,706,208 ( 1.37%)  ???:0x0000000000031f00 [/usr/lib/x86_64-linux-gnu/libisal.so.2.0.31]
+shallow_B	3637475592
+shallow_B_store_read	1140307678
