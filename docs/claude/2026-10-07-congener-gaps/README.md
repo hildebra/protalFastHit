@@ -120,7 +120,9 @@ The two alternatives to an order-dependent prior that the user chose:
   test is a named-pipe timing test this change does not touch; it passed 3 runs of 3 on its own.
 - After the nearest congener was added, with 0.7.9 merged in: 451 unit tests, 448 passed, 2 skipped, the same timing
   test failed under load and passed alone. That includes `AncestrySites.CacheTakesTheGenesNearestCongenerFromTheGaps`,
-  the five-field table with the old four-field form still read, and the nearest of each copy in the scan tests.
+  the five-field table with the old four-field form still read, and the nearest of each copy in the scan tests. The CI
+  suites on that build all passed again: end to end 142, mini database and GTDB build 76, scripts and trainer 78, the
+  mini database and the mock community.
 - `scripts/test_foreign_rates.py` (2 tests): the genome and taxonomy readers, the counting of a scan's SAM (best record,
   MAPQ, unmapped, unknown genome, supplementary first), and the table format.
 - `scripts/test_model_pmml.py`: the default feature set pinned with the three groups, and a table of a protal before them
