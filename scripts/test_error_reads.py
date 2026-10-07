@@ -16,6 +16,7 @@ import os
 import sys
 import tempfile
 import unittest
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -126,46 +127,71 @@ class ErrorReads(unittest.TestCase):
                          f"{p}\t0.6\t{call}\n")
         return ["--training", os.path.join(d, "training"), "--db", db, "--threads", "1"]
 
-    def run_pe(self, args):
+    def run_pe(self, args, out="out"):
         d = self.tmp.name
         self.assertEqual(error_reads.main(args + ["--calls", os.path.join(d, "trained_model.calls.tsv.gz"),
-                                                  "--samples", "design", "--out", os.path.join(d, "out")]), 0)
-        return os.path.join(d, "out")
+                                                  "--samples", "design", "--out", os.path.join(d, out)]), 0)
+        return os.path.join(d, out)
+
+    @staticmethod
+    def summary(out):
+        with open(os.path.join(out, "summary.tsv")) as fh:
+            return list(csv.DictReader(fh, delimiter="\t"))
+
+    @staticmethod
+    def sams(out, row):
+        """{kind: (header lines, records as fields)} of a summary row's SAMs."""
+        found = {}
+        for path in filter(None, row["sams"].split(",")):
+            lines = compressed.read_text(os.path.join(out, path)).splitlines()
+            found[path.rsplit(".", 3)[1]] = ([line for line in lines if line.startswith("@")],
+                                             [line.split("\t") for line in lines if not line.startswith("@")])
+        return found
+
+    @staticmethod
+    def tags(records):
+        """{read number: {xg, xs, xe}} of records."""
+        out = {}
+        for r in records:
+            out.setdefault(r[0].rsplit("-", 1)[1], {t[:2]: t[5:] for t in r[11:] if t[:2] in ("xg", "xs", "xe")})
+        return out
 
     def test_the_reads_of_the_errors(self):
         out = self.run_pe(self.world())
-        with open(os.path.join(out, "summary.tsv")) as fh:
-            summary = list(csv.DictReader(fh, delimiter="\t"))
+        summary = self.summary(out)
         self.assertEqual(len(summary), 1)
         row = summary[0]
         self.assertEqual((row["set"], row["point"], row["scenario"], row["sample"]), ("training", POINT, "design", SAMPLE))
         self.assertEqual((row["FP"], row["FN"], row["unseen"]), ("1", "1", "1"))
         # E's read on D (FP), B's three (FN: on itself, on A, seeded on B and A but aligned nowhere), C's (unseen,
-        # aligned nowhere) and A's read 8, which seeded on C; not A's reads 1 and 7.
+        # aligned nowhere) and A's read 8, which seeded on C; not A's reads 1 and 7. The SAMs (FP and FN by default)
+        # hold E's and B's.
         self.assertEqual((row["fragments"], row["records"], row["unknown_source"]), ("6", "11", "0"))
-        self.assertEqual(row["sam"], os.path.join("training", POINT, SAMPLE + ".sam.zst"))
-        lines = compressed.read_text(os.path.join(out, row["sam"])).splitlines()
-        header = [line for line in lines if line.startswith("@")]
-        records = [line.split("\t") for line in lines if not line.startswith("@")]
-        # The genes the records name, 9_9 too (a mate's RNEXT); none other.
-        self.assertEqual([h.split("\t")[1] for h in header if h.startswith("@SQ")], ["SN:1_1", "SN:2_1", "SN:4_1", "SN:9_9"])
-        self.assertIn("@CO\tprotal read type: pe", header)
-        self.assertTrue(any(h.startswith("@CO\terror_reads.py:") and "1 FP, 1 FN and 1 unseen taxa" in h for h in header))
-        self.assertEqual(len(records), 11)
-        tags = {}
-        for r in records:
-            tags.setdefault(r[0].rsplit("-", 1)[1], {t[:2]: t[5:] for t in r[11:] if t[:2] in ("xg", "xs", "xe")})
-        self.assertEqual(tags["2"], {"xg": "GCA_000000005.1", "xs": "s__G E (not in the database)", "xe": "FP:4"})
+        self.assertEqual((row["sam_fragments"], row["sam_records"]), ("4", "8"))
+        self.assertEqual(row["sams"], ",".join(os.path.join("training", POINT, f"{SAMPLE}.{k}.sam.zst") for k in ("FP", "FN")))
+        sams = self.sams(out, row)
+        self.assertEqual(int(row["sam_bytes"]), sum(os.path.getsize(os.path.join(out, p)) for p in row["sams"].split(",")))
+        # Each file's header: the genes its records name, 9_9 too (a mate's RNEXT); none other.
+        fp_header, fp = sams["FP"]
+        fn_header, fn = sams["FN"]
+        self.assertEqual([h.split("\t")[1] for h in fp_header if h.startswith("@SQ")], ["SN:1_1", "SN:4_1", "SN:9_9"])
+        self.assertEqual([h.split("\t")[1] for h in fn_header if h.startswith("@SQ")], ["SN:1_1", "SN:2_1"])
+        for header in (fp_header, fn_header):
+            self.assertIn("@CO\tprotal read type: pe", header)
+            self.assertTrue(any(h.startswith("@CO\terror_reads.py:") and "1 FP, 1 FN and 1 unseen taxa" in h
+                                and "at most 20 fragments per taxon and reason" in h for h in header))
+        self.assertEqual((len(fp), len(fn)), (3, 5))
+        self.assertTrue(all(r[10] == "*" for r in fp + fn))  # QUAL left out
+        tags = self.tags(fp)
+        self.assertEqual(tags, {"2": {"xg": "GCA_000000005.1", "xs": "s__G E (not in the database)", "xe": "FP:4"}})
+        tags = self.tags(fn)
+        self.assertEqual(sorted(tags), ["3", "4", "5"])
         self.assertEqual(tags["3"], {"xg": "GCA_000000002.1", "xs": "s__G B", "xe": "FN:2,source:2"})
         self.assertEqual(tags["4"]["xe"], "source:2")
         self.assertEqual(tags["5"]["xe"], "seeded:2,source:2")
-        self.assertEqual(tags["6"], {"xg": "GCA_000000003.1", "xs": "s__G C", "xe": "seeded:3,source:3"})
-        self.assertEqual(tags["8"], {"xg": "GCF_000000001.1", "xs": "s__G A", "xe": "seeded:3"})
-        self.assertNotIn("1", tags)
-        self.assertNotIn("7", tags)
-        # The unmapped records are kept whole: FLAG 4, ZF.
-        unmapped = {r[0].rsplit("-", 1)[1]: r for r in records if r[1] == "4"}
-        self.assertEqual(sorted(unmapped), ["5", "6"])
+        # The unmapped records are kept whole but QUAL: FLAG 4, ZF.
+        unmapped = {r[0].rsplit("-", 1)[1]: r for r in fn if r[1] == "4"}
+        self.assertEqual(sorted(unmapped), ["5"])
         self.assertIn("ZF:Z:2,1", unmapped["5"])
 
         with open(os.path.join(out, "training", POINT, SAMPLE + ".taxa.tsv")) as fh:
@@ -178,25 +204,78 @@ class ErrorReads(unittest.TestCase):
         self.assertEqual(fp["own_fragments"], "")
         self.assertEqual((fn["error"], fn["genomes"], fn["read_pairs"]), ("FN", "GCA_000000002.1", "100"))
         self.assertEqual((fn["own_fragments"], fn["own_best_on_taxon"], fn["own_best_on_taxon_mapq4"],
-                          fn["own_best_elsewhere"], fn["own_unaligned"]), ("3", "1", "1", "1", "1"))
+                          fn["own_best_elsewhere"], fn["own_unaligned"], fn["own_seeded_not_aligned"]),
+                         ("3", "1", "1", "1", "1", "1"))
         self.assertEqual(fn["own_best_elsewhere_on"], "s__G A:1")
         self.assertEqual((fn["fragments_on_taxon"], fn["seeded_not_aligned"]), ("1", "1"))
         self.assertEqual((unseen["error"], unseen["taxid"], unseen["p"]), ("unseen", "3", ""))
-        self.assertEqual((unseen["own_fragments"], unseen["own_unaligned"], unseen["fragments_on_taxon"]), ("1", "1", "0"))
+        self.assertEqual((unseen["own_fragments"], unseen["own_unaligned"], unseen["own_seeded_not_aligned"],
+                          unseen["fragments_on_taxon"]), ("1", "1", "1", "0"))
         self.assertEqual(unseen["seeded_not_aligned"], "2")  # C's own read and A's read 8
+        self.assertEqual(fp["own_seeded_not_aligned"], "")
+
+    def test_the_unseen_species_reads_qualities_and_no_sams(self):
+        # --sams with unseen: C's read and A's read 8, which seeded on C, in a file of their own; --qualities keeps QUAL.
+        args = self.world()
+        out = self.run_pe(args + ["--sams", "FP,FN,unseen", "--qualities"], "all")
+        row = self.summary(out)[0]
+        sams = self.sams(out, row)
+        self.assertEqual(sorted(sams), ["FN", "FP", "unseen"])
+        self.assertEqual((row["sam_fragments"], row["sam_records"]), ("6", "11"))
+        unseen = sams["unseen"][1]
+        self.assertEqual(self.tags(unseen), {"6": {"xg": "GCA_000000003.1", "xs": "s__G C", "xe": "seeded:3,source:3"},
+                                             "8": {"xg": "GCF_000000001.1", "xs": "s__G A", "xe": "seeded:3"}})
+        self.assertTrue(all(r[10] == "I" for r in sams["FN"][1] if r[1] != "4"))
+        self.assertFalse(any("QUAL left out" in h for h in sams["FP"][0]))
+        # --sams none: the taxa tables and the summary only, the same counts.
+        out = self.run_pe(args + ["--sams", "none"], "none")
+        row = self.summary(out)[0]
+        self.assertEqual((row["fragments"], row["records"], row["sam_fragments"], row["sams"], row["sam_bytes"]),
+                         ("6", "11", "0", "", "0"))
+        self.assertEqual([f for f in os.listdir(os.path.join(out, "training", POINT)) if ".sam" in f], [])
+        self.assertTrue(os.path.isfile(os.path.join(out, "training", POINT, SAMPLE + ".taxa.tsv")))
+        with self.assertRaises(SystemExit):
+            error_reads.parse_args(args + ["--calls", "c", "--out", "o", "--sams", "FP,TP"])
+
+    def test_held_out_species_are_not_unseen(self):
+        # --heldout (the build's heldout_species.txt): C, in genome2tiid.tsv but held out, is no unseen species; its
+        # read and A's read 8, which seeded on it, are not followed.
+        args = self.world()
+        heldout = os.path.join(self.tmp.name, "heldout_species.txt")
+        with open(heldout, "w") as fh:
+            fh.write("s__G C\tspecies\ts__G C\n")
+        out = self.run_pe(args + ["--heldout", heldout], "heldout")
+        row = self.summary(out)[0]
+        self.assertEqual((row["FP"], row["FN"], row["unseen"], row["fragments"]), ("1", "1", "0", "4"))
+        with open(os.path.join(out, "training", POINT, SAMPLE + ".taxa.tsv")) as fh:
+            self.assertEqual([r["error"] for r in csv.DictReader(fh, delimiter="\t")], ["FP", "FN"])
+
+    def test_at_most_n_fragments_per_taxon_and_reason(self):
+        # --max-fragments 1: of B's reads (source:2), the one of lowest CRC-32 of its name, and those of the reasons
+        # with a single fragment (FN:2: read 3; seeded:2: read 5); the taxa tables count them all.
+        args = self.world()
+        out = self.run_pe(args + ["--max-fragments", "1"], "capped")
+        row = self.summary(out)[0]
+        names = {n: f"{SPECIES['B'][2]}-{n}".encode() for n in ("3", "4", "5")}
+        lowest = min(names, key=lambda n: (zlib.crc32(names[n]), names[n]))
+        self.assertEqual(sorted(self.tags(self.sams(out, row)["FN"][1])), sorted({"3", "5", lowest}))
+        self.assertEqual(row["fragments"], "6")
+        with open(os.path.join(out, "training", POINT, SAMPLE + ".taxa.tsv")) as fh:
+            fn = next(r for r in csv.DictReader(fh, delimiter="\t") if r["error"] == "FN")
+        self.assertEqual(fn["own_fragments"], "3")
 
     def test_drawn_reads_by_their_genome_s_place(self):
         # A PacBio sample: its reads' sources by g<i>x_, i the genome's place among its community's in the manifest.
         d = self.tmp.name
         args = self.world() + ["--calls", os.path.join(d, "trained_model_pb.calls.tsv.gz"), "--read-type", "pb",
-                               "--out", os.path.join(d, "pb")]
+                               "--out", os.path.join(d, "pb"), "--sams", "FP,FN,unseen"]
         self.assertEqual(error_reads.main(args), 0)
         with open(os.path.join(d, "pb", "summary.tsv")) as fh:
             row = next(csv.DictReader(fh, delimiter="\t"))
         self.assertEqual((row["point"], row["sample"], row["FP"], row["FN"], row["unseen"]),
                          (LONG_POINT, LONG_SAMPLE, "1", "1", "1"))
-        lines = compressed.read_text(os.path.join(d, "pb", row["sam"])).splitlines()
-        tags = {line.split("\t")[0]: line.split("\txg:Z:")[1] for line in lines if not line.startswith("@")}
+        tags = {r[0]: "\t".join(r)[len("\t".join(r[:11])) + 1:].split("xg:Z:", 1)[1]
+                for _, records in self.sams(os.path.join(d, "pb"), row).values() for r in records}
         self.assertEqual(tags, {"g1x_1": "GCA_000000002.1\txs:Z:s__G B\txe:Z:FN:2,source:2",
                                 "g3x_2": "GCA_000000005.1\txs:Z:s__G E (not in the database)\txe:Z:FP:4",
                                 "g2x_4": "GCA_000000003.1\txs:Z:s__G C\txe:Z:seeded:3,source:3"})
@@ -213,9 +292,8 @@ class ErrorReads(unittest.TestCase):
         with gzip.open(fasta, "wt") as fh:
             fh.write(f">{SPECIES['B'][2]} E's copy\nACGT\n>{SPECIES['E'][2]}\nACGT\n")
         out = self.run_pe(args)
-        lines = compressed.read_text(os.path.join(out, "training", POINT, SAMPLE + ".sam.zst")).splitlines()
-        sources = {line.split("\t")[0].rsplit("-", 1)[1]: line.split("\txs:Z:")[1].split("\t")[0]
-                   for line in lines if not line.startswith("@")}
+        sources = {n: t["xs"] for _, records in self.sams(out, self.summary(out)[0]).values()
+                   for n, t in self.tags(records).items()}
         self.assertEqual(sources["3"], "?")  # B's read 3: on B (FN), its source unknown
         self.assertNotIn("4", sources)  # B's read on A: taken for its source only, which is unknown now
         self.assertEqual(sources["2"], "s__G E (not in the database)")

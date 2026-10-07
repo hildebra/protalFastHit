@@ -70,11 +70,13 @@ against within species), gene_incongruence.tsv (protal --build: every near pair 
 gene copies across genera, and which copy is suspect, contamination or a transfer; the
 suspect ones go into the database as suspect_copies.tsv and a run leaves their records
 out) and relatives_by_gene_conservation.txt (trace_relatives.py: where the reads of the
-held-out species land, by the genes' factors). model_logs/error_reads/ keeps the reads behind each model's errors in
-every sample of the training data and the test set (--error-reads, default all): per sample, the SAM records of the
-reads on its false positives and of its false negatives' reads wherever they went, the non-hits among them (reads that
-seeded on taxa but aligned nowhere, whose unmapped records protal writes for these samples), each with its source
-genome, and a table of the error taxa (error_reads.py).
+held-out species land, by the genes' factors). model_logs/error_reads/ tells what each model's errors rest on in
+every sample of the training data and the test set (--error-reads, default all): per sample, a table of the error taxa
+and where their reads went, the non-hits among them (reads that seeded on taxa but aligned nowhere, whose unmapped
+records protal writes for these samples; error_reads.py). With --share-logs it also keeps the SAM records of those
+reads, the false positives' and the false negatives' in files of their own (a sample of each taxon's), and the run
+ends by packing OUT_DIR/<name>_share.tar.gz: the logs (console.log: the console's lines), model_logs/ and the
+training and test tables, to copy off the cluster.
 
 A reduced database holds a subset of the marker genes (--n-genes N: the N most
 distinctive by prevalence x unique k-mer share, ranked by scripts/rank_genes.py
@@ -120,6 +122,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -156,11 +159,35 @@ def congener_text(spec):
     return spec[1] if spec[0] == "groups" else str(spec[1])
 
 STARTED = time.time()
+CONSOLE = {"file": None, "early": []}  # OUTDIR/console.log, and the lines said before it was opened
 
 
 def say(message):
-    """Prints a message, its first line headed by the time and how long the run has taken."""
-    print(f"[{time.strftime('%H:%M:%S')} +{clock(time.time() - STARTED)}] {message}", flush=True)
+    """Prints a message, its first line headed by the time and how long the run has taken (and adds it to
+    console.log)."""
+    line = f"[{time.strftime('%H:%M:%S')} +{clock(time.time() - STARTED)}] {message}"
+    print(line, flush=True)
+    console_log(line)
+
+
+def console_log(text):
+    """Adds the console's text to OUTDIR/console.log, or keeps it until the log is open."""
+    if CONSOLE["file"] is None:
+        CONSOLE["early"].append(text)
+        return
+    CONSOLE["file"].write(text + "\n")
+    CONSOLE["file"].flush()
+
+
+def open_console_log(path):
+    """OUTDIR/console.log: what the run says on the console, after a line of when and how it was started (a rerun
+    adds to it)."""
+    fh = open(path, "a")
+    fh.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')}: {' '.join(sys.argv)}\n")
+    CONSOLE["file"] = fh
+    for line in CONSOLE["early"]:
+        console_log(line)
+    CONSOLE["early"].clear()
 
 
 class Steps:
@@ -710,11 +737,13 @@ def error_read_units(text, defs):
     return list(dict.fromkeys(out))
 
 
-def error_reads(units, prefixes, training, test, training_db, logs, outdir, threads=1, contig_cache=None):
-    """model_logs/error_reads/<read type>/ (error_reads.py): the SAM records of the reads behind each model's false
-    positives and false negatives in the samples of --error-reads, which protal wrote with an unmapped record for every
-    read that seeded on taxa but aligned nowhere (collect_training_data.py --unmapped_reads), and a table of their error
-    taxa. A failure is reported, and does not stop the build: the models do not depend on it."""
+def error_reads(units, prefixes, training, test, training_db, logs, outdir, threads=1, contig_cache=None, sams=False,
+                heldout=None):
+    """model_logs/error_reads/<read type>/ (error_reads.py): a table of each model's false positives and false negatives
+    in the samples of --error-reads, and where their reads went, from the samples' SAMs, which protal wrote with an
+    unmapped record for every read that seeded on taxa but aligned nowhere (collect_training_data.py --unmapped_reads);
+    with sams (--share-logs) also the SAM records of those reads, the FP's and the FN's in files of their own. A failure
+    is reported, and does not stop the build: the models do not depend on it."""
     log = os.path.join(outdir, "error_reads.log")
     began, told = time.time(), []
     scopes = collections.defaultdict(list)
@@ -728,9 +757,10 @@ def error_reads(units, prefixes, training, test, training_db, logs, outdir, thre
                 continue
             command = [sys.executable, ERROR_READS, "--calls", calls, "--training", training, "--db", training_db,
                        "--samples", "all" if None in which else ",".join(which), "--read-type", kind, "--out", out,
-                       "--threads", str(threads)]
+                       "--threads", str(threads), "--sams", "FP,FN" if sams else "none"]
             command += ["--test", test] if test and os.path.isdir(test) else []
             command += ["--contig-cache", contig_cache] if contig_cache else []
+            command += ["--heldout", heldout] if heldout and os.path.isfile(heldout) else []
             fh.write(" ".join(command) + "\n")
             fh.flush()
             rc = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
@@ -751,11 +781,69 @@ def error_reads_summary(path):
     with open(path) as fh:
         for row in csv.DictReader(fh, delimiter="\t"):
             c.update({"samples": 1, row["set"]: 1, "FP": int(row["FP"]), "FN": int(row["FN"]),
-                      "unseen": int(row["unseen"]), "fragments": int(row["fragments"]), "bytes": int(row["sam_bytes"])})
+                      "unseen": int(row["unseen"]), "fragments": int(row["fragments"]),
+                      "kept": int(row.get("sam_fragments") or 0), "bytes": int(row["sam_bytes"])})
     if not c["samples"]:
         return "no samples"
     return (f"{c['samples']} samples ({c['training']} training, {c['test']} test): {c['FP']} FP, {c['FN']} FN and "
-            f"{c['unseen']} unseen taxa, {c['fragments']} fragments, {gigabytes(c['bytes'])}")
+            f"{c['unseen']} unseen taxa, {c['fragments']} fragments"
+            + (f" ({c['kept']} in the SAMs, {gigabytes(c['bytes'])})" if c["kept"] else ""))
+
+
+# A number of the tables with more than 9 significant digits (Python's repr of a double). 9 keep every float32 (what a
+# forest compares, model_pmml.py) and are far beyond the features' precision, at three quarters of the text.
+LONG_NUMBER = re.compile(rb"(?<![\w.+-])-?\d+\.\d{9,}(?:e[-+]?\d+)?(?![\w.])")
+
+
+def shorten_table(job):
+    """Copies a table with its numbers to 9 significant digits (LONG_NUMBER). -> its bytes before and after."""
+    source, target = job
+    def nine(m):
+        return format(float(m.group()), ".9g").encode()
+    with open(source, "rb") as fh, open(target, "wb") as out:
+        for line in fh:
+            out.write(LONG_NUMBER.sub(nine, line))
+    return os.path.getsize(source), os.path.getsize(target)
+
+
+def share_archive(outdir, folders, threads=1):
+    """--share-logs: OUTDIR/<name>_share.tar.gz, all under <name>/: console.log and the other logs of OUTDIR,
+    model_logs/ (the reports, predictions, calls and the error reads' tables and SAMs) and each collection's tables
+    (training/, test/; shortened by shorten_table). A failure is reported, and does not stop the build."""
+    name = os.path.basename(os.path.normpath(outdir))
+    target = os.path.join(outdir, name + "_share.tar.gz")
+    began = time.time()
+    work = os.path.join(outdir, ".share_tables")
+    try:
+        shutil.rmtree(work, ignore_errors=True)
+        jobs = []
+        for which, folder in folders:
+            for table in TABLES.values():
+                if folder and os.path.isfile(os.path.join(folder, table)):
+                    os.makedirs(os.path.join(work, which), exist_ok=True)
+                    jobs.append((os.path.join(folder, table), os.path.join(work, which, table)))
+        sizes = []
+        if jobs:
+            with concurrent.futures.ProcessPoolExecutor(max(1, min(threads, len(jobs)))) as pool:
+                sizes = list(pool.map(shorten_table, jobs))
+        with tarfile.open(target + ".partial", "w:gz", compresslevel=6) as tar:
+            for entry in sorted(os.listdir(outdir)):
+                if entry.endswith(".log") and os.path.isfile(os.path.join(outdir, entry)):
+                    tar.add(os.path.join(outdir, entry), f"{name}/{entry}")
+            logs = os.path.join(outdir, "model_logs")
+            if os.path.isdir(logs):
+                tar.add(logs, f"{name}/model_logs", filter=lambda t: None if t.name.endswith(".partial") else t)
+            for _, table in jobs:
+                tar.add(table, f"{name}/{os.path.relpath(table, work)}")
+        os.replace(target + ".partial", target)
+        before, after = sum(s[0] for s in sizes), sum(s[1] for s in sizes)
+        say(f"Logs to share: {target}, {gigabytes(os.path.getsize(target))} in {clock(time.time() - began)} (the logs, "
+            f"model_logs/ and {len(jobs)} tables, {gigabytes(before)} shortened to {gigabytes(after)}); unpack with "
+            f"tar xzf {os.path.basename(target)}")
+    except Exception as e:  # noqa: BLE001: the database is ready either way
+        say(f"Packing the logs to share failed ({e}); the database is ready either way")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def gene_neighbours_summary(build_log, what="Gene neighbours:"):
@@ -1434,7 +1522,14 @@ def main():
                         "records of the reads behind the model's false positives and false negatives, with their source "
                         "genomes (error_reads.py). all (default: every sample of the training data and the test set, "
                         "every read type), none, or READ_TYPE, READ_TYPE:design (the design's samples) or "
-                        "READ_TYPE:SCENARIO, comma-separated; read types and scenarios not collected are left out")
+                        "READ_TYPE:SCENARIO, comma-separated; read types and scenarios not collected are left out. "
+                        "Without --share-logs only the tables of the error taxa are kept")
+    p.add_argument("--share-logs", action="store_true",
+                   help="keep the SAM records of the reads behind the models' errors (model_logs/error_reads/: per "
+                        "sample <sample>.FP.sam.zst and <sample>.FN.sam.zst, at most 20 fragments per taxon and reason, "
+                        "no qualities), and at the end pack OUTDIR/<OUTDIR's name>_share.tar.gz: the logs, model_logs/ "
+                        "and the training and test tables (their numbers to 9 significant digits), to be copied off the "
+                        "cluster and read elsewhere")
     p.add_argument("--congeners", default="0.25:2-5", type=congener_spec,
                    help="relatives that share a sample, in the training data and the test set (collect_training_data.py "
                         "--congeners): SHARE:MIN-MAX, about SHARE of each sample's species in groups of MIN to MAX "
@@ -1638,6 +1733,7 @@ def main():
     except ValueError as e:
         p.error(f"--error-reads: {e}")
     os.makedirs(args.outdir, exist_ok=True)
+    open_console_log(os.path.join(args.outdir, "console.log"))
     db = os.path.join(args.outdir, "protal_db")
     os.makedirs(db, exist_ok=True)
     if args.release:
@@ -2261,7 +2357,7 @@ def main():
         trace_relatives(training, training_db, heldout, logs, args.outdir, args.threads, contig_cache)
     if args.error_units:
         error_reads(args.error_units, prefixes, training, test if has_test else None, training_db, logs, args.outdir,
-                    args.threads, contig_cache)
+                    args.threads, contig_cache, args.share_logs, heldout if training_db != db else None)
     Steps.start(f"adding {models} to {os.path.basename(db)} (final_package.log)")
     if final_build is not None:
         if final_build.seconds is None:
@@ -2295,6 +2391,7 @@ def main():
     with open(os.path.join(logs, "summary.txt"), "w") as fh:
         fh.write("\n".join(summary) + "\n")
     print("\n" + "\n".join(summary) + "\n", flush=True)
+    console_log("\n" + "\n".join(summary) + "\n")
     if Job.scratch:
         Job.scratch.look()
         say(f"The run took at most {gigabytes(Job.scratch.peak)} on {samples_root}; the simulated samples there "
@@ -2302,6 +2399,8 @@ def main():
     say(f"Ready protal database: {db}{db_size(db)}" +
         (f" (marker genes: {genes_note.split(',')[0].split(' (')[0]}, gene_subset.txt)" if subset else "") +
         f"; model evaluation: {logs} (start with trained_model.report.txt, and trained_model_<read type>.report.txt)")
+    if args.share_logs:
+        share_archive(args.outdir, [("training", training), ("test", test if has_test else None)], args.threads)
 
 
 if __name__ == "__main__":

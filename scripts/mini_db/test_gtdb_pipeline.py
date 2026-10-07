@@ -490,14 +490,15 @@ class GtdbBuildTest(unittest.TestCase):
         # one with 90% host reads: their hold-in samples in the training data, their hold-out samples in the test set,
         # each read type's report and the summary scoring both; soil, larger than the genome table holds at 60% held
         # out, scaled down; the feature sets chosen by the trainers (--features auto, not the default) and why; the
-        # reads behind the models' errors (--error-reads all, the build's default). Both collections profiled in one
-        # protal run, their reads kept (--profile-blocks 0).
+        # reads behind the models' errors (--error-reads all, the build's default), their SAMs and the archive to share
+        # (--share-logs). Both collections profiled in one protal run, their reads kept (--profile-blocks 0).
         import compressed
         definitions, host = self.scenario_inputs()
         scratch = os.path.join(self.tmp.name, "scenario_scratch")
         result = self.build("scenarios", "--scenario-file", definitions, "--scenario-samples", "2",
                             "--scenario-test-samples", "1", "--host-genome", host, "--scratch", scratch,
-                            "--profile-blocks", "0", "--features", "auto", scenarios=True, error_reads="all")
+                            "--profile-blocks", "0", "--features", "auto", "--share-logs", scenarios=True,
+                            error_reads="all")
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
         simulation = self.text("scenarios", "training_data_simulation.log")
         self.assertRegex(simulation, r"scenario gut \(2 samples\): \d+ species \(\d+ the database lacks, [\d.]+%; \d+ it "
@@ -596,11 +597,26 @@ class GtdbBuildTest(unittest.TestCase):
             for r in samples:
                 for kind in ("FP", "FN"):
                     self.assertEqual(int(r[kind]), expected[(r["set"], r["sample"], kind)], (t, r["sample"], kind))
-                lines = compressed.read_text(os.path.join(errors, r["sam"])).splitlines()
-                records = [line for line in lines if not line.startswith("@")]
-                self.assertEqual(len(records), int(r["records"]))
-                self.assertTrue(all("\txg:Z:" in line and "\txs:Z:" in line and "\txe:Z:" in line for line in records))
-                self.assertTrue(any(line.startswith("@CO\terror_reads.py: ") for line in lines))
+                # The records of the FP's and the FN's reads in files of their own (no unseen ones), QUAL left out,
+                # each taken for a reason of its file's kind.
+                written, kinds = 0, set()
+                for path in filter(None, r["sams"].split(",")):
+                    kind = path.rsplit(".", 3)[1]
+                    self.assertIn(kind, ("FP", "FN"), path)
+                    kinds.add(kind)
+                    lines = compressed.read_text(os.path.join(errors, path)).splitlines()
+                    records = [line.split("\t") for line in lines if not line.startswith("@")]
+                    written += len(records)
+                    self.assertTrue(all(f[10] == "*" for f in records), path)
+                    tags = [{t[:2]: t[5:] for t in f[11:] if t[:2] in ("xg", "xs", "xe")} for f in records]
+                    self.assertTrue(all(len(t) == 3 for t in tags), path)
+                    if kind == "FP":
+                        self.assertTrue(all("FP:" in t["xe"] for t in tags), path)
+                    self.assertTrue(any(line.startswith("@CO\terror_reads.py: ") for line in lines))
+                self.assertEqual(written, int(r["sam_records"]), (t, r["sample"]))
+                self.assertLessEqual(int(r["sam_fragments"]), int(r["fragments"]))
+                if int(r["FP"]):
+                    self.assertIn("FP", kinds, (t, r["sample"]))  # an FP taxon has a row: reads on it
                 # Every read's source genome known (a paired-end read is named after its contig, a drawn read after
                 # its genome's place), but the host's paired-end reads.
                 if r["scenario"] != "host" or t != "pe":
@@ -609,6 +625,30 @@ class GtdbBuildTest(unittest.TestCase):
                     taxa = collections.Counter(x["error"] for x in csv.DictReader(fh, delimiter="\t"))
                 self.assertEqual((taxa["FP"], taxa["FN"], taxa["unseen"]), (int(r["FP"]), int(r["FN"]), int(r["unseen"])))
             self.assertGreater(sum(int(r["records"]) for r in samples), 0, t)
+            if any(int(r["FP"]) + int(r["FN"]) for r in samples):
+                self.assertGreater(sum(int(r["sam_records"]) for r in samples), 0, t)
+        # The archive to share (--share-logs): the console's lines and the other logs, model_logs/ with the error reads'
+        # SAMs, and the tables, their numbers to 9 significant digits (the same rows and values to 1e-8).
+        import math
+        import tarfile
+        with tarfile.open(os.path.join(self.tmp.name, "scenarios", "scenarios_share.tar.gz")) as tar:
+            members = set(tar.getnames())
+            for name in ("console.log", "training_data.log", "model_logs/summary.txt", "model_logs/error_reads/pe/summary.tsv",
+                         "training/training_data.tsv", "training/training_data_se.tsv", "test/training_data.tsv"):
+                self.assertIn("scenarios/" + name, members)
+            self.assertTrue(any(m.endswith(".FP.sam.zst") or m.endswith(".FN.sam.zst") for m in members))
+            self.assertFalse(any(".partial" in m or "/.share_tables" in m for m in members))
+            self.assertIn("Ready protal database", tar.extractfile("scenarios/console.log").read().decode())
+            shared = tar.extractfile("scenarios/training/training_data.tsv").read().decode().splitlines()
+        with open(os.path.join(scratch, "training", "training_data.tsv")) as fh:
+            original = fh.read().splitlines()
+        self.assertEqual(len(shared), len(original))
+        for a, b in zip(original, shared):
+            for x, y in zip(a.split("\t"), b.split("\t"), strict=True):
+                if x != y:
+                    self.assertTrue(math.isclose(float(x), float(y), rel_tol=1e-8), (x, y))
+                    self.assertLessEqual(len(y), len(x))
+
         # Without the host genome, the default scenarios run without host and say so; asked for, host stops the build
         # before anything runs.
         default = self.build("scenarios_default_nohost", "--scenario-file", definitions, scenarios=True, wait=False)

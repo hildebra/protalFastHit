@@ -10,26 +10,35 @@ and set "test" (the independent test set and the scenarios' hold-out samples) by
   FP      absent taxa called
   FN      present taxa not called
   unseen  species of the sample that the training database has but that protal profiled no reads to (no row: the
-          model never scored them; protal's own count of false negatives includes them)
-and its SAM gives every record of the reads (of paired-end reads: of the fragments) that
-  - align to an FP or FN taxon (RNAME <taxid>_<gene>),
-  - seeded on an FN or unseen taxon but did not align to it (its ZF tag; an unmapped record if they aligned nowhere), or
-  - come from a genome of an FN or unseen species. simulate_metagenomes names an Illumina read after its contig
-    (<contig>-<n>; single-end reads are the paired-end reads' first), whose genome the FASTAs of the sample's
-    manifest.tsv tell (trace_relatives.py); a drawn read (PacBio, Nanopore, Ultima) g<i>x_<n>, i the genome's place
-    among its community's in the manifest (the host's after them).
-Each record gains its read's source and why it was taken: xg:Z:<genome>, xs:Z:<species> (" (not in the database)" for a
-species the training database lacks), xe:Z:FP:<taxid>,FN:<taxid>,seeded:<taxid>,source:<taxid> (lower-case tags: the
-SAM specification leaves them to users). A read that seeded on nothing has no record: most of a genome's reads are
-outside its marker genes. The simulations are seeded: the collector replays a sample's reads byte for byte.
+          model never scored them; protal's own count of false negatives includes them); with --heldout not the
+          species held out of the training database, which its genome2tiid.tsv keeps without their genes
+and its SAM gives the reads (of paired-end reads: the fragments) behind them, for each reason:
+  FP:<taxid>      they align to an FP taxon (RNAME <taxid>_<gene>)
+  FN:<taxid>      they align to an FN taxon
+  seeded:<taxid>  they seeded on an FN or unseen taxon but did not align to it (its ZF tag; an unmapped record if they
+                  aligned nowhere)
+  source:<taxid>  they come from a genome of an FN or unseen species. simulate_metagenomes names an Illumina read after
+                  its contig (<contig>-<n>; single-end reads are the paired-end reads' first), whose genome the FASTAs of
+                  the sample's manifest.tsv tell (trace_relatives.py); a drawn read (PacBio, Nanopore, Ultima)
+                  g<i>x_<n>, i the genome's place among its community's in the manifest (the host's after them).
+A read that seeded on nothing has no record: most of a genome's reads are outside its marker genes. The taxa tables
+count every such fragment. The SAMs (--sams: FP and FN by default, unseen if asked for, or none) keep the records of
+at most --max-fragments fragments per taxon and reason (20; the same ones at any cap: the lowest CRC-32 of the read
+name), in one file per kind of error: a fragment of several reasons is in each of their files. A record keeps its
+fields but QUAL (* unless --qualities) and gains its read's source and why it was taken: xg:Z:<genome>, xs:Z:<species>
+(" (not in the database)" for a species the training database lacks), xe:Z:<its reasons> (lower-case tags: the SAM
+specification leaves them to users). The simulations are seeded: the collector replays a sample's reads byte for byte.
 
 Written to OUT/<training|test>/<design point>/:
-  <sample>.sam.zst   those records, the header's @SQ lines cut to the genes they name
+  <sample>.FP.sam.zst, <sample>.FN.sam.zst, <sample>.unseen.sam.zst
+                     the records of the fragments taken for its FP taxa (FP:), its FN taxa (FN:, and seeded: and source:
+                     of an FN taxon) and its unseen species (seeded: and source: of one); the header's @SQ lines cut to
+                     the genes they name; a file only for a kind of --sams the sample has records of
   <sample>.taxa.tsv  each error taxon: its score and knob; for an FN or unseen species its genomes and the reads (pairs)
                      simulated from them (paired-end samples), its fragments with a record, those whose best record is
-                     on itself (at MAPQ 4 or more, as the profiler counts them), elsewhere (where, by taxon) or none; for
-                     any, the fragments with a record on it and their sources, and those that seeded on it but failed to
-                     align
+                     on itself (at MAPQ 4 or more, as the profiler counts them), elsewhere (where, by taxon) or none, and
+                     those that seeded on it but did not align to it; for any, the fragments with a record on it and
+                     their sources, and those that seeded on it but failed to align
 and OUT/summary.tsv (one line per sample).
 
     python3 scripts/error_reads.py --calls OUT/trained_model.calls.tsv.gz --training OUT/training --test OUT/test \\
@@ -41,12 +50,14 @@ import concurrent.futures
 import csv
 import glob
 import gzip
+import heapq
 import multiprocessing
 import os
 import re
 import sys
 import tempfile
 import time
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -60,13 +71,15 @@ SETS = ("training", "test")
 DESIGN = "design"  # --samples: the design's samples (no meta_scenario)
 NOT_IN_DB = " (not in the database)"
 TOP = 5  # taxa listed in a taxa.tsv cell
+KINDS = ("FP", "FN", "unseen")  # the kinds of error, one SAM each
+MAX_FRAGMENTS = 20  # --max-fragments: fragments per taxon and reason in the SAMs
 DRAWN_NAME = re.compile(rb"g(\d+)x_")  # simulate_metagenomes --long_samples (LongReadSimulator.cpp)
 TAXA_COLUMNS = ["sample", "set", "error", "taxid", "taxon_name", "p", "knob", "genomes", "read_pairs",
                 "own_fragments", "own_best_on_taxon", "own_best_on_taxon_mapq4", "own_best_elsewhere", "own_unaligned",
-                "own_best_elsewhere_on", "fragments_on_taxon", "best_on_taxon", "best_on_taxon_mapq4",
-                "fragments_on_taxon_from", "seeded_not_aligned"]
+                "own_seeded_not_aligned", "own_best_elsewhere_on", "fragments_on_taxon", "best_on_taxon",
+                "best_on_taxon_mapq4", "fragments_on_taxon_from", "seeded_not_aligned"]
 SUMMARY_COLUMNS = ["set", "point", "scenario", "sample", "FP", "FN", "unseen", "fragments", "records", "unknown_source",
-                   "sam", "sam_bytes", "source_sam_bytes", "seconds"]
+                   "sam_fragments", "sam_records", "sams", "sam_bytes", "source_sam_bytes", "seconds"]
 
 # Set before the worker processes fork (main): {FASTA path: [contig names]}, {species: taxid} and {taxid: species}
 # of the training database.
@@ -80,6 +93,10 @@ def parse_args(argv=None):
                                       "build_gtdb_database.py: OUT/training or SCRATCH/training)")
     p.add_argument("--test", help="the collection of the test samples (OUT/test)")
     p.add_argument("--db", required=True, help="the training database's folder (genome2tiid.tsv: its species)")
+    p.add_argument("--heldout", help="the species held out of the training database (build_gtdb_database.py's "
+                                     "heldout_species.txt: the species first on each line): genome2tiid.tsv keeps "
+                                     "them, but they have no genes there, so they are not unseen (their reads are "
+                                     "\"not in the database\")")
     p.add_argument("--read-type", default="pe", choices=list(collect.READ_TYPES), help="the samples' read type")
     p.add_argument("--samples", default="all",
                    help="whose samples: all (default), or design and scenario names, comma-separated")
@@ -87,10 +104,23 @@ def parse_args(argv=None):
     p.add_argument("--threads", type=int, default=4, help="samples at once, and genome FASTAs read at once (default 4)")
     p.add_argument("--contig-cache", help="a file of the genomes' contig names read before (trace_relatives.py "
                                           "--contig-cache), joined by those read here")
+    p.add_argument("--sams", default="FP,FN",
+                   help="the kinds of error whose records are written, a SAM each: FP, FN, unseen, comma-separated, or "
+                        "none (the taxa tables and the summary only; default FP,FN)")
+    p.add_argument("--max-fragments", type=int, default=MAX_FRAGMENTS,
+                   help=f"the records of at most this many fragments per taxon and reason in the SAMs (default "
+                        f"{MAX_FRAGMENTS}; 0: all); the taxa tables count all")
+    p.add_argument("--qualities", action="store_true", help="keep the records' QUAL (default: *)")
     opts = p.parse_args(argv)
     opts.samples = {s.strip() for s in opts.samples.split(",") if s.strip()}
     if not opts.training and not opts.test:
         p.error("give --training or --test (or both)")
+    kinds = [k.strip() for k in opts.sams.split(",") if k.strip() and k.strip() != "none"]
+    if any(k not in KINDS for k in kinds):
+        p.error(f"--sams: expected {', '.join(KINDS)} or none, not {opts.sams!r}")
+    opts.sams = tuple(k for k in KINDS if k in kinds)
+    if opts.max_fragments < 0:
+        p.error("--max-fragments: 0 or more")
     return opts
 
 
@@ -237,10 +267,36 @@ def source_finder(manifest, drawn):
     return source
 
 
+def kind_of(reason, fn_taxa):
+    """The kind of error (FP, FN or unseen) a reason (FP:<taxid>, FN:, seeded:, source:) is for."""
+    why, _, taxid = reason.partition(":")
+    return why if why in ("FP", "FN") else "FN" if taxid in fn_taxa else "unseen"
+
+
+def chosen(why, fn_taxa, kinds, cap):
+    """{qname: the kinds of error whose SAMs take the fragment}: of each reason of a kind in kinds, the cap fragments of
+    lowest CRC-32 of the name (all with cap 0), so that a smaller cap keeps a subset of a larger one's."""
+    by_reason = collections.defaultdict(list)
+    for qname, reasons in why.items():
+        for reason in reasons:
+            by_reason[reason].append(qname)
+    taken = collections.defaultdict(set)
+    for reason, qnames in by_reason.items():
+        kind = kind_of(reason, fn_taxa)
+        if kind not in kinds:
+            continue
+        if cap and len(qnames) > cap:
+            qnames = heapq.nsmallest(cap, qnames, key=lambda q: (zlib.crc32(q), q))
+        for qname in qnames:
+            taken[qname].add(kind)
+    return taken
+
+
 def extract(job):
-    """One sample: its errors, the records of their reads into its SAM, its taxa table. -> its summary row."""
+    """One sample: its errors, the records of their reads into a SAM per kind of error, its taxa table. -> its summary
+    row."""
     began = time.time()
-    which, point, scenario, sample, rows, sam, manifest, drawn, out_dir = job
+    which, point, scenario, sample, rows, sam, manifest, drawn, out_dir, kinds, cap, qualities = job
     errors, unseen = errors_of(rows, manifest)
     reason_of = {t.encode(): e for t, (e, _) in errors.items()}  # FP or FN: the records on the taxon
     seeded = {t.encode() for t, (e, _) in errors.items() if e == "FN"} | {t.encode() for t in unseen}
@@ -266,17 +322,22 @@ def extract(job):
         if genome in source_reason:
             why[qname].add(source_reason[genome])
 
-    # Pass 2: their records, tagged, into a file of their own; the genes they name; what each fragment did.
+    taken = chosen(why, {t for t, (e, _) in errors.items() if e == "FN"}, kinds, cap)
+
+    # Pass 2: what each fragment did (all of them); the records of those taken, tagged, into their kinds' files, and
+    # the genes they name.
     os.makedirs(out_dir, exist_ok=True)
-    target = os.path.join(out_dir, sample + ".sam.zst")
     with compressed.open_read(sam) as fh:
         header = []
         for line in fh:
             if not line.startswith(b"@"):
                 break
             header.append(line)
-    genes, fragments, n_records, unknown = set(), {}, 0, 0
-    with tempfile.TemporaryFile(dir=out_dir) as body:
+    genes = {kind: set() for kind in kinds}
+    written = collections.Counter()
+    fragments, n_records, unknown = {}, 0, 0
+    bodies = {kind: tempfile.TemporaryFile(dir=out_dir) for kind in kinds}
+    try:
         for line in records(sam):
             qname, flag, rname, mapq, failed = fields_of(line)
             reasons = why.get(qname)
@@ -288,40 +349,69 @@ def extract(job):
                 fragment = fragments[qname] = Fragment()
             fragment.records += 1
             fragment.failed.update(failed)
+            named = ()
             if rname != b"*":
-                genes.add(rname)
                 taxid = rname.split(b"_", 1)[0]
                 fragment.aligned.add(taxid)
                 if not flag & 0x904 and fragment.best is None:
                     fragment.best, fragment.best_mapq = taxid, mapq
                 rnext = line.split(b"\t", 7)[6]
-                if rnext not in (b"=", b"*"):
-                    genes.add(rnext)
+                named = (rname,) if rnext in (b"=", b"*") else (rname, rnext)
             genome, species = source(qname)
             unknown += genome is None
+            into = taken.get(qname)
+            if not into:
+                continue
+            text = line.rstrip(b"\r\n")
+            if not qualities:
+                f = text.split(b"\t", 11)
+                if len(f) > 10:
+                    f[10] = b"*"
+                    text = b"\t".join(f)
             tags = f"\txg:Z:{genome or '?'}\txs:Z:{source_name(species)}\txe:Z:{','.join(sorted(reasons))}"
-            body.write(line.rstrip(b"\r\n") + tags.encode() + b"\n")
-        body.seek(0)
-        kept = [h for h in header if not h.startswith(b"@SQ") or h.split(b"\t", 2)[1][3:].rstrip(b"\r\n") in genes]
+            text += tags.encode() + b"\n"
+            for kind in into:
+                bodies[kind].write(text)
+                genes[kind].update(named)
+                written[kind] += 1
         counts = collections.Counter(e for e, _ in errors.values())
-        note = (f"@CO\terror_reads.py: the records of the reads of the model's errors in {sample} ({which} set, "
-                f"{scenario or DESIGN}): {counts['FP']} FP, {counts['FN']} FN and {len(unseen)} unseen taxa; xg and xs: "
-                f"the read's source genome and species, xe: why it was taken\n").encode()
-        with compressed.open_write(target + ".partial") as out:
-            out.write(b"".join(kept) + note)
-            while True:
-                chunk = body.read(1 << 20)
-                if not chunk:
-                    break
-                out.write(chunk)
-    os.replace(target + ".partial", target)
+        counts["unseen"] = len(unseen)
+        sams = []
+        for kind in kinds:
+            if not written[kind]:
+                continue
+            target = os.path.join(out_dir, f"{sample}.{kind}.sam.zst")
+            kept = [h for h in header
+                    if not h.startswith(b"@SQ") or h.split(b"\t", 2)[1][3:].rstrip(b"\r\n") in genes[kind]]
+            note = (f"@CO\terror_reads.py: the records of the reads of the model's {counts[kind]} {kind} taxa in {sample} "
+                    f"({which} set, {scenario or DESIGN}; {counts['FP']} FP, {counts['FN']} FN and {counts['unseen']} "
+                    f"unseen taxa), "
+                    + (f"at most {cap} fragments per taxon and reason (the lowest CRC-32 of the name)" if cap else
+                       "every fragment")
+                    + ("" if qualities else ", QUAL left out")
+                    + "; xg and xs: the read's source genome and species, xe: why it was taken\n").encode()
+            body = bodies[kind]
+            body.seek(0)
+            with compressed.open_write(target + ".partial") as out:
+                out.write(b"".join(kept) + note)
+                while True:
+                    chunk = body.read(1 << 20)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            os.replace(target + ".partial", target)
+            sams.append(target)
+    finally:
+        for body in bodies.values():
+            body.close()
     write_taxa(os.path.join(out_dir, sample + ".taxa.tsv"), sample, which, errors, unseen, manifest, fragments, source,
                drawn)
+    root = os.path.dirname(os.path.dirname(out_dir))
     return {"set": which, "point": point, "scenario": scenario or DESIGN, "sample": sample, "FP": counts["FP"],
-            "FN": counts["FN"], "unseen": len(unseen), "fragments": len(fragments), "records": n_records,
-            "unknown_source": unknown, "sam": os.path.relpath(target, os.path.dirname(os.path.dirname(out_dir))),
-            "sam_bytes": os.path.getsize(target), "source_sam_bytes": os.path.getsize(sam),
-            "seconds": round(time.time() - began, 1)}
+            "FN": counts["FN"], "unseen": counts["unseen"], "fragments": len(fragments), "records": n_records,
+            "unknown_source": unknown, "sam_fragments": len(taken), "sam_records": sum(written.values()),
+            "sams": ",".join(os.path.relpath(p, root) for p in sams), "sam_bytes": sum(os.path.getsize(p) for p in sams),
+            "source_sam_bytes": os.path.getsize(sam), "seconds": round(time.time() - began, 1)}
 
 
 def source_name(species):
@@ -366,7 +456,7 @@ def write_taxa(path, sample, which, errors, unseen, manifest, fragments, source,
             best_on = [f for _, f in on_taxon if f.best == key]
             row = [sample, which, error, taxid, name, p, knob]
             if error == "FP":
-                row += [""] * 8
+                row += [""] * 9
             else:
                 genomes, mine = genomes_of.get(name, []), own.get(name, [])
                 best_here = [f for f in mine if f.best == key]
@@ -374,7 +464,8 @@ def write_taxa(path, sample, which, errors, unseen, manifest, fragments, source,
                 pairs = "" if drawn else sum(int(r.get("read_pairs") or 0) for r in genomes)
                 row += [",".join(r["genome"] for r in genomes), pairs, len(mine), len(best_here),
                         sum(f.best_mapq >= MIN_MAPQ for f in best_here), sum(elsewhere.values()),
-                        sum(f.best is None for f in mine), top(elsewhere, taxon_name)]
+                        sum(f.best is None for f in mine), sum(key in f.failed and key not in f.aligned for f in mine),
+                        top(elsewhere, taxon_name)]
             row += [len(on_taxon), len(best_on), sum(f.best_mapq >= MIN_MAPQ for f in best_on),
                     top(collections.Counter(source_name(s) for s, _ in on_taxon)), failed.get(key, 0)]
             writer.writerow(row)
@@ -385,6 +476,13 @@ def main(argv=None):
     opts = parse_args(argv)
     began = time.time()
     by_name, by_id = database_species(opts.db)
+    if opts.heldout:  # in genome2tiid.tsv, but without genes in the training database: never unseen
+        with open(opts.heldout) as fh:
+            held_out = {line.split("\t")[0].strip() for line in fh if line.strip()}
+        dropped = [name for name in by_name if name in held_out]
+        for name in dropped:
+            del by_name[name]
+        print(f"{len(dropped)} species of the database held out ({opts.heldout}): not unseen", flush=True)
     DB_TAXID.update(by_name)
     DB_NAME.update(by_id)
     calls = read_calls(opts.calls, opts.samples, opts.read_type)
@@ -398,7 +496,7 @@ def main(argv=None):
             continue
         sam, manifest, drawn = files
         jobs.append((which, point, rows[0].get("meta_scenario") or "", sample, rows, sam, manifest, drawn,
-                     os.path.join(opts.out, which, point)))
+                     os.path.join(opts.out, which, point), opts.sams, opts.max_fragments, opts.qualities))
     if missing:
         print(f"no SAM for {len(missing)} samples (not collected here, or removed): {', '.join(missing[:6])}"
               f"{' ...' if len(missing) > 6 else ''}", flush=True)
@@ -426,15 +524,18 @@ def main(argv=None):
     for row in done:
         by_group[(row["set"], row["scenario"])].update(samples=1, FP=row["FP"], FN=row["FN"], unseen=row["unseen"],
                                                         fragments=row["fragments"], bytes=row["sam_bytes"],
-                                                        unknown=row["unknown_source"], records=row["records"])
+                                                        unknown=row["unknown_source"], records=row["records"],
+                                                        kept=row["sam_fragments"])
     for (which, scenario), c in sorted(by_group.items()):
         print(f"{opts.read_type} {which} {scenario}: {c['samples']} samples, {c['FP']} FP, {c['FN']} FN, {c['unseen']} "
-              f"unseen; {c['fragments']} fragments, {c['records']} records ({c['unknown']} of unknown source), "
-              f"{c['bytes'] / 1e6:.1f} MB", flush=True)
+              f"unseen; {c['fragments']} fragments, {c['records']} records ({c['unknown']} of unknown source)"
+              + (f"; {c['kept']} fragments in the SAMs, {c['bytes'] / 1e6:.1f} MB" if opts.sams else ""), flush=True)
     print(f"error reads of {len(done)} {opts.read_type} samples: {sum(r['FP'] for r in done)} FP, "
           f"{sum(r['FN'] for r in done)} FN and {sum(r['unseen'] for r in done)} unseen taxa, "
-          f"{sum(r['fragments'] for r in done)} fragments, {sum(r['sam_bytes'] for r in done) / 1e6:.1f} MB in "
-          f"{opts.out}, {time.time() - began:.0f} s", flush=True)
+          f"{sum(r['fragments'] for r in done)} fragments"
+          + (f" ({sum(r['sam_fragments'] for r in done)} in the {','.join(opts.sams)} SAMs, "
+             f"{sum(r['sam_bytes'] for r in done) / 1e6:.1f} MB)" if opts.sams else "")
+          + f" in {opts.out}, {time.time() - began:.0f} s", flush=True)
     return 0
 
 

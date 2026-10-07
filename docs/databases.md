@@ -316,13 +316,14 @@ of its log). The run ends with `Ready protal database: ...` and the path of the 
 | Path in `--outdir` | |
 |---|---|
 | `protal_db/database.protal` | the finished database with its models; `protal_db/build_metadata.tsv` records the release, protal version and commit, command, design, held-out species and each model's scores. The versions and the scripts' commit are those the run started with (since 2026-10-06; read at its end before), followed by "at the end of the run: ..." if a pull or a rebuild changed them meanwhile, which the console then warns of |
-| `model_logs/` | everything to judge the models: `summary.txt`, each read type's report (`trained_model*.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances, parity checks, `genome_table.txt`, `holdout.txt`, `build_metadata.tsv`; what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv`, `relatives_by_gene_conservation.txt`; and `error_reads/`, the reads behind each model's errors in every sample ([above](#the-reads-behind-the-errors)) |
+| `model_logs/` | everything to judge the models: `summary.txt`, each read type's report (`trained_model*.report.txt`, `.metrics.json`), predictions (`.scenario_predictions.tsv.gz`: the scenarios' hold-out samples; `.calls.tsv.gz`: every row's call), thresholds, feature importances, parity checks, `genome_table.txt`, `holdout.txt`, `build_metadata.tsv`; what the conservation features rest on: `gene_congeners.tsv`, `gene_incongruence.tsv`, `relatives_by_gene_conservation.txt`; and `error_reads/`, where the reads behind each model's errors in every sample went (with `--share-logs` their SAM records too; [below](#the-reads-behind-the-errors)) |
+| `<name>_share.tar.gz` | with `--share-logs`: the logs, `model_logs/` and the tables, to copy off the cluster ([below](#logs-to-share)) |
 | `trained_model*` | the models and the trainer's outputs ([the presence model](#training)) |
 | `genomes.tsv`, `genome_table.txt` | the genomes simulated from (accession, taxonomy, FASTA, length), and a summary |
 | `genomes_simulated.tsv`, `insilico_strains/` | the same with the in-silico strains, their FASTAs and `insilico_strains.tsv` (per strain: divergence drawn and reached, substitutions) |
 | `heldout_species.txt` | the species the training database leaves out, with the rank they were held out at and the clade |
 | `training/`, `test/`, `training_db/` | one table per read type (`training_data.tsv` for pe, `_se`, `_pb`, `_ont`); without `--scratch` also the samples, their profiles and the training database |
-| `.stages/`, `*.log` | what a rerun may skip; one log per step |
+| `.stages/`, `*.log` | what a rerun may skip; one log per step, and `console.log`, the console's lines |
 
 ### Several releases, full and reduced
 
@@ -564,15 +565,22 @@ every read that seeded on taxa but aligned nowhere: the non-hits, which protal o
 the SAM header (the collector's `--unmapped_reads`, a map's `UNMAPPED_READS` column; the profiles are the
 same either way). Once the models are trained, `scripts/error_reads.py` takes each trainer's calls of
 every row (`trained_model*.calls.tsv.gz`: the training rows' with species held out, the test table's by
-the final model, at the model's knob) and writes per sample, to
+the final model, at the model's knob) and follows the reads (the fragments, of paired-end reads) that
+align to a false positive (`FP:<taxid>`) or a false negative (`FN:`), that seeded on a false negative
+or an unseen species but did not align to it (`seeded:`), or that come from a genome of a false negative
+or unseen species, wherever they went (`source:`). It writes per sample, to
 `model_logs/error_reads/<read type>/<training|test>/<design point>/`:
 
 | File | |
 |---|---|
-| `<sample>.sam.zst` | every record of the reads that align to a false positive or a false negative, that seeded on a false negative or an unseen species but did not align to it, or that come from a genome of a false negative or unseen species (wherever they went); each record with its source genome and species (`xg:Z:`, `xs:Z:`, "(not in the database)" for a species the training database lacks) and why it was taken (`xe:Z:FP:<taxid>`, `FN:`, `seeded:`, `source:`); the `@SQ` lines cut to the genes they name |
-| `<sample>.taxa.tsv` | each error taxon: FP, FN, or `unseen` (a species of the sample that the training database has but that protal profiled no reads to: never scored, so not in the models' counts, but in protal's); its score and knob; for FN and unseen species their genomes (and read pairs simulated, paired-end), their fragments with a record and where their best records went (on the taxon, at MAPQ 4 or more as the profiler counts them, elsewhere and on which taxa, or nowhere); for all, the fragments on the taxon and their sources, and those that seeded on it but failed to align |
+| `<sample>.taxa.tsv` | each error taxon: FP, FN, or `unseen` (a species of the sample that the training database has but that protal profiled no reads to: never scored, so not in the models' counts, but in protal's; not the species held out of it, which its `genome2tiid.tsv` keeps without genes: the build passes `heldout_species.txt`, `--heldout`); its score and knob; for FN and unseen species their genomes (and read pairs simulated, paired-end), their fragments with a record and where their best records went (on the taxon, at MAPQ 4 or more as the profiler counts them, elsewhere and on which taxa, or nowhere) and those that seeded on the species but did not align to it (`own_seeded_not_aligned`); for all, the fragments on the taxon and their sources, and those that seeded on it but failed to align. It counts every fragment |
+| `<sample>.FP.sam.zst`, `<sample>.FN.sam.zst` | with `--share-logs`: the records of the reads taken for the false positives, and for the false negatives (`FN:`, and `seeded:` and `source:` of a false negative), of at most 20 fragments per taxon and reason (the same ones at any cap: the lowest CRC-32 of the read name); each record with QUAL left out (`*`), its source genome and species (`xg:Z:`, `xs:Z:`, "(not in the database)" for a species the training database lacks) and why it was taken (`xe:Z:`, its reasons); the `@SQ` lines cut to the genes they name |
 
-and `summary.tsv` (one line per sample; the console sums it per read type). A read's source is its name:
+and `summary.tsv` (one line per sample; the console sums it per read type). Unseen species are counted
+in the tables but their reads not kept: a soil sample has hundreds (v15, which counted the held-out
+species too, thousands), and their records made up most of v15's 9 GB of error-read SAMs. `scripts/error_reads.py` itself keeps
+them with `--sams FP,FN,unseen` (`<sample>.unseen.sam.zst`), every fragment with `--max-fragments 0`, and
+QUAL with `--qualities`. A read's source is its name:
 `simulate_metagenomes` names a paired-end read after its contig (`<contig>-<n>`; single-end samples are the paired-end reads' first), which the genomes'
 FASTAs tell (read once per build, `genome_contigs.tsv.gz` beside the samples, shared with
 `trace_relatives.py`), and the collector names a drawn read (PacBio, Nanopore, Ultima) `g<i>x_<n>`, `i` the
@@ -581,6 +589,22 @@ that seeded on no taxon has no record: most of a genome's reads lie outside its 
 simulations are seeded, so the collector replays a sample's reads byte for byte when they are needed.
 The unmapped records make the SAMs on the samples' disk larger (at r226 a deep paired-end sample had 45M
 of them; an estimate of 10-20 GB more for the whole build, mostly the deep scenario samples).
+
+#### Logs to share
+
+`--share-logs` keeps the error reads' SAMs ([above](#the-reads-behind-the-errors)) and ends the build by
+packing `OUTDIR/<name>_share.tar.gz` (`<name>`: the last part of `--outdir`), to copy off the cluster and
+unpack elsewhere (`tar xzf`; everything is under `<name>/`):
+
+| Path | |
+|---|---|
+| `console.log` and the other `*.log` | the console's lines (every run of the build, after a line with its time and command) and each step's log |
+| `model_logs/` | as [above](#outputs), with the error reads' tables and SAMs |
+| `training/`, `test/` | the training and test tables of each read type, their numbers to 9 significant digits instead of Python's 17, at about 72% of the gzipped size (v15's pe table). That keeps every float32 value, so a forest (float32 comparisons) trains the same; boosting compares doubles, so its thresholds can move in the tenth digit, but values closer than that are rare and share a bin |
+
+It holds each file once: the trainer's outputs beside `model_logs/` (predictions, thresholds) are copies
+of what is in it, and `internal_taxonomy.dmp` and the models are left out. The console's last line gives
+its size.
 
 #### Local scratch
 
@@ -659,7 +683,8 @@ keeps the finished database.
 | `--scenario-samples`, `--scenario-test-samples` | 6, 3 | each scenario's hold-in samples (training data; 0: scored, not trained on) and hold-out samples (test set); 3 and 2 before 2026-10-06 |
 | `--scenario-weight` | 0.25 | the weight of the scenarios' hold-in rows in the models, the design's 1 |
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
-| `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` keeps ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
+| `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` follows ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |
+| `--share-logs` | off | keep the error reads' SAM records (`<sample>.FP.sam.zst`, `<sample>.FN.sam.zst`), and end by packing `<name>_share.tar.gz` ([above](#logs-to-share)) |
 | `--features` | `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity` | the models' features (default since 2026-10-06, `auto` before: the set every model of the r226 v12 and v13 builds chose, the reference's k-mer uniqueness, and the sample's complexity, which needs a protal of 2026-10-06 or later for the training data); `auto`: each trainer chooses its set ([below](#training)), which doubles a boosted model's training with `--evaluation basic`; or feature groups ([features.md](features.md)); `+priors` adds GTDB's species constants (opt-in since 0.7.6) |
 | `--model` | `gbm` | the models: `gbm`, gradient-boosted trees (the default since 2026-10-06), or `forest`, a random forest ([below](#training)) |
 | `--rounds`, `--ntree`, `--maxnodes` | 250, 64, `63` (`512,pb:128,ont:128` for forests) | boosting's rounds, a forest's trees, and leaves per tree by read type (`N` or `TYPE:N` items) |
