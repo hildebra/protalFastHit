@@ -210,6 +210,54 @@ namespace protal {
                 size_t covered = 0;  // positions with a read
             };
             std::shared_ptr<MSAEvidence const> m_msa_evidence;
+            // Its evidence went to the sample's spill file (--strain_spill, MicrobialProfile::SpillStrainEvidence): the
+            // strain stage reads it back (ReadEvidence) for the species it builds the MSA of, and drops it again.
+            bool m_evidence_spilled = false;
+
+            // The kept evidence (KeepForMSAs) to a spill file, and back.
+            void WriteEvidence(std::ostream& os) const {
+                auto const& e = *m_msa_evidence;
+                binary_io::Write(os, e.parameters);
+                e.item.Write(os);
+                binary_io::Write<uint64_t>(os, e.counts.size());
+                for (auto const& [key, counts] : e.counts) {
+                    binary_io::Write(os, key.first);
+                    binary_io::Write<uint64_t>(os, key.second);
+                    binary_io::Write(os, counts);
+                }
+                binary_io::Write<uint64_t>(os, e.covered);
+            }
+
+            bool ReadEvidence(std::istream& is) {
+                auto e = std::make_shared<MSAEvidence>();
+                uint64_t counts = 0, covered = 0;
+                if (!binary_io::Read(is, e->parameters) || !e->item.Read(is) || !binary_io::Read(is, counts) || counts > 64) return false;
+                for (uint64_t c = 0; c < counts; c++) {
+                    uint32_t min_cov = 0;
+                    uint64_t min_qual_sum = 0;
+                    AlleleCounts allele_counts;
+                    if (!binary_io::Read(is, min_cov) || !binary_io::Read(is, min_qual_sum) || !binary_io::Read(is, allele_counts)) return false;
+                    e->counts.push_back({ { min_cov, static_cast<size_t>(min_qual_sum) }, allele_counts });
+                }
+                if (!binary_io::Read(is, covered)) return false;
+                e->covered = covered;
+                m_msa_evidence = std::move(e);
+                return true;
+            }
+
+            // Frees the evidence of a gene whose evidence is in the spill file (read back with ReadEvidence).
+            void DropSpilledEvidence() {
+                m_msa_evidence.reset();
+                m_evidence_spilled = true;
+            }
+
+            // Whether the evidence is in the spill file and not read back: the strain stage asked for a species it did
+            // not read (a bug), which must not be answered from the records, which are gone.
+            void CheckNotSpilled(char const* what) const {
+                if (m_evidence_spilled && !m_msa_evidence) {
+                    throw std::logic_error(std::string("Gene::") + what + " of a gene whose evidence is spilled (--strain_spill) and not read back");
+                }
+            }
 
             size_t m_mapped_reads = 0;
             size_t m_mapped_length = 0;
@@ -253,6 +301,7 @@ namespace protal {
             };
 
             size_t Coverage(size_t above=0) {
+                CheckNotSpilled("Coverage");
                 if (m_msa_evidence) {
                     if (above != 0) throw std::logic_error("Gene::Coverage(" + std::to_string(above) + ") after KeepForMSAs");
                     return m_msa_evidence->covered;
@@ -265,6 +314,7 @@ namespace protal {
             // The gene as the strain MSA takes it (StrainLevelContainer::MSAItem), from the reads' records, or after
             // KeepForMSAs the one kept then for these parameters.
             std::pair<VariantVec, CoverageVec> MSAItem(MSAItemParameters const& p) const {
+                CheckNotSpilled("MSAItem");
                 if (m_msa_evidence) {
                     if (!(m_msa_evidence->parameters == p)) throw std::logic_error("Gene::MSAItem with other parameters than KeepForMSAs");
                     return m_msa_evidence->item.Unpack();
@@ -291,6 +341,7 @@ namespace protal {
             }
 
             AlleleCounts AlleleSNPCounts(uint32_t min_cov, size_t min_qual_sum) {
+                CheckNotSpilled("AlleleSNPCounts");
                 if (m_msa_evidence) {
                     for (auto const& [key, counts] : m_msa_evidence->counts) {
                         if (key.first == min_cov && key.second == min_qual_sum) return counts;
@@ -1034,6 +1085,72 @@ namespace protal {
 
             std::vector<haplotypes::ReadRecord> const& PhaseRecords() const {
                 return m_phase_records;
+            }
+
+            // What the strain stage reads of the taxon once its sample's outputs are written (its genes' kept evidence,
+            // Gene::KeepForMSAs, and its long reads' phase records) to the sample's spill file (--strain_spill) and back.
+            void WriteStrainEvidence(std::ostream& os) const {
+                uint64_t genes = 0;
+                for (auto const& [id, gene] : m_genes) genes += gene.m_msa_evidence != nullptr;
+                binary_io::Write(os, genes);
+                for (auto const& [id, gene] : m_genes) {
+                    if (!gene.m_msa_evidence) continue;
+                    binary_io::Write(os, id);
+                    gene.WriteEvidence(os);
+                }
+                binary_io::Write<uint64_t>(os, m_phase_records.size());
+                for (auto const& r : m_phase_records) {
+                    binary_io::Write(os, r.link);
+                    binary_io::Write(os, r.gene);
+                    binary_io::Write(os, r.read_start);
+                    binary_io::Write(os, r.read_end);
+                    binary_io::Write<uint8_t>(os, r.forward);
+                    binary_io::Write(os, r.divergence);
+                    binary_io::Write(os, r.alleles.start);
+                    binary_io::Write(os, r.alleles.end);
+                    std::vector<uint32_t> positions;
+                    std::vector<char> bases;
+                    for (auto const& [pos, base] : r.alleles.snps) {
+                        positions.push_back(pos);
+                        bases.push_back(base);
+                    }
+                    binary_io::WriteVector(os, positions);
+                    binary_io::WriteVector(os, bases);
+                    binary_io::WriteVector(os, r.alleles.snp_quals);
+                    binary_io::WriteVector(os, r.alleles.no_base);
+                }
+            }
+
+            // Reads back what WriteStrainEvidence wrote; false if the file does not hold it.
+            bool ReadStrainEvidence(std::istream& is) {
+                uint64_t genes = 0, records = 0;
+                if (!binary_io::Read(is, genes) || genes > m_genes.size()) return false;
+                for (uint64_t g = 0; g < genes; g++) {
+                    uint32_t id = 0;
+                    if (!binary_io::Read(is, id) || !m_genes.contains(id) || !m_genes.at(id).ReadEvidence(is)) return false;
+                }
+                if (!binary_io::Read(is, records)) return false;
+                std::vector<haplotypes::ReadRecord> phase_records(records);
+                for (auto& r : phase_records) {
+                    uint8_t forward = 0;
+                    std::vector<uint32_t> positions;
+                    std::vector<char> bases;
+                    if (!binary_io::Read(is, r.link) || !binary_io::Read(is, r.gene) || !binary_io::Read(is, r.read_start) ||
+                        !binary_io::Read(is, r.read_end) || !binary_io::Read(is, forward) || !binary_io::Read(is, r.divergence) ||
+                        !binary_io::Read(is, r.alleles.start) || !binary_io::Read(is, r.alleles.end) ||
+                        !binary_io::ReadVector(is, positions) || !binary_io::ReadVector(is, bases) || positions.size() != bases.size() ||
+                        !binary_io::ReadVector(is, r.alleles.snp_quals) || !binary_io::ReadVector(is, r.alleles.no_base)) return false;
+                    r.forward = forward != 0;
+                    for (size_t k = 0; k < positions.size(); k++) r.alleles.snps.emplace_back(positions[k], bases[k]);
+                }
+                m_phase_records = std::move(phase_records);
+                return true;
+            }
+
+            // Frees what WriteStrainEvidence wrote: its genes say so (Gene::DropSpilledEvidence) until it is read back.
+            void DropStrainEvidence() {
+                for (auto& [id, gene] : m_genes) gene.DropSpilledEvidence();
+                std::vector<haplotypes::ReadRecord>{}.swap(m_phase_records);
             }
 
             // Takes the counts of the taxon's best records (MicrobialProfile::ApplyRecordEvidence), and of their excesses
@@ -2957,6 +3074,58 @@ namespace protal {
                 }
             }
 
+            // --strain_spill: what the strain stage reads of the sample's taxa (Taxon::WriteStrainEvidence, after
+            // ReleaseReadData) goes to the file `path`, a block per taxon, and is freed; LoadStrainEvidence reads one
+            // taxon's block back while its MSA is built, and DropStrainEvidence frees it again. A cohort then holds the
+            // species being built only, not every sample's evidence. If the file cannot be written, the evidence stays
+            // in memory and this returns false.
+            bool SpillStrainEvidence(std::string const& path) {
+                std::vector<std::pair<uint32_t, uint64_t>> offsets;
+                {
+                    std::ofstream os(path, std::ios::binary | std::ios::trunc);
+                    for (auto const id : SortedTaxa()) {
+                        offsets.push_back({ id, static_cast<uint64_t>(os.tellp()) });
+                        m_taxa.at(id).WriteStrainEvidence(os);
+                    }
+                    os.close();
+                    if (os.fail()) {
+                        std::error_code ec;
+                        std::filesystem::remove(path, ec);
+                        return false;
+                    }
+                }
+                for (auto const& [id, _] : offsets) m_taxa.at(id).DropStrainEvidence();
+                m_spill_path = path;
+                m_spill_offsets = std::unordered_map<uint32_t, uint64_t>(offsets.begin(), offsets.end());
+                return true;
+            }
+
+            // Reads taxon `taxid`'s block back from the spill file (true without one); false if it cannot.
+            bool LoadStrainEvidence(uint32_t taxid) {
+                if (m_spill_path.empty()) return true;
+                auto const at = m_spill_offsets.find(taxid);
+                if (at == m_spill_offsets.end() || !m_taxa.contains(taxid)) return false;
+                std::ifstream is(m_spill_path, std::ios::binary);
+                is.seekg(static_cast<std::streamoff>(at->second));
+                return is.good() && m_taxa.at(taxid).ReadStrainEvidence(is);
+            }
+
+            void DropStrainEvidence(uint32_t taxid) {
+                if (m_spill_path.empty() || !m_taxa.contains(taxid)) return;
+                m_taxa.at(taxid).DropStrainEvidence();
+            }
+
+            // The spill file, if the evidence went to one; RemoveSpillFile deletes it at the end of the run.
+            std::string const& SpillPath() const {
+                return m_spill_path;
+            }
+
+            void RemoveSpillFile() {
+                if (m_spill_path.empty()) return;
+                std::error_code ec;
+                std::filesystem::remove(m_spill_path, ec);
+            }
+
             // Scores every taxon with `filter` on `threads` threads, each with a copy of it (scoring reuses a buffer;
             // copies share the loaded model). The taxa cache their scores and the depth and top identity the scores
             // are computed from, so the outputs find them as if they had scored each taxon themselves.
@@ -3425,6 +3594,8 @@ namespace protal {
             double m_knob = 0.5;      // see Knob
             double m_msa_knob = 0.5;  // see MSAKnob
             mutable TaxonMap m_taxa;
+            std::string m_spill_path;                             // SpillStrainEvidence's file, or none
+            std::unordered_map<uint32_t, uint64_t> m_spill_offsets;  // and where each taxon's block starts in it
             GenomeLoader &m_genome_loader;
             double m_depth_identity_margin = 1;
             bool m_drop_foreign_genes = false;

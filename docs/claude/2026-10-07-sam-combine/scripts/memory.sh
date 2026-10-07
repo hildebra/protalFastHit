@@ -26,6 +26,8 @@ for n in $NS; do
     o=$M/run_${TAG}_${n}_$strains
     rm -rf "$o"
     extra=(); [ "$strains" = no ] && extra=(--no_strains)
+    # EXTRA: more options for every run, e.g. EXTRA="--strain_spill $M/spill"
+    [ -n "${EXTRA:-}" ] && [ "$strains" = yes ] && read -r -a more <<< "$EXTRA" && extra+=("${more[@]}")
     /usr/bin/time -f "%M %e" -o "$o.time" $RUN "$PROTAL" --db "$DB" --profile_only "$M/cohort$n/*.sam.zst" -o "$o" -t 4 \
       --no_qcmsa "${extra[@]}" > "$o.log" 2>&1
     rc=$?

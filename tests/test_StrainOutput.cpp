@@ -10,6 +10,7 @@
 #include <memory>
 #include <random>
 #include <set>
+#include <sstream>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -733,7 +734,11 @@ TEST(PackedMSAItem, UnpacksWhatTheMSAReads) {
     std::pair<VariantVec, CoverageVec> item{ { { snp, reference }, { insertion } }, {} };
     for (CoverageVec coverage : { CoverageVec{ 0, 3, 255 }, CoverageVec{ 1, 256, 65535 }, CoverageVec{ 2, 65536, 4000000000u }, CoverageVec{} }) {
         item.second = coverage;
-        PackedMSAItem packed(item);
+        // Through a spill file (--strain_spill) as well: Read gives what Write was given.
+        std::stringstream file;
+        PackedMSAItem(item).Write(file);
+        PackedMSAItem packed;
+        ASSERT_TRUE(packed.Read(file));
         auto const back = packed.Unpack();
         EXPECT_EQ(back.second, coverage);
         ASSERT_EQ(back.first.size(), item.first.size());
@@ -782,6 +787,65 @@ namespace {
 )";
         return profiler::TaxonFilterObj(cpmml::Model::from_string(xml), knob);
     }
+}
+
+// --strain_spill: a sample's kept evidence goes to its spill file and is freed; read back, the strain stage gets the same
+// items and counts; dropped, asking for them fails until it is read back again. A file that cannot be written leaves the
+// evidence in memory.
+TEST(Abundance, SpilledEvidenceReadsBackTheSame) {
+    using protal::test::ScratchDir;
+    namespace fs = std::filesystem;
+    TinyReference ref;
+    std::string reference(ref.loader->GetGenome(1).GetGeneOMP(1).Sequence());
+    std::string snp = reference.substr(0, 40);
+    snp[5] = snp[5] == 'A' ? 'C' : 'A';
+    profiler::MSAReleaseParameters msa;
+    msa.identity_margin = 0.04;
+    msa.item = { 0, 1, 0.15, 15, 0, false };
+    msa.count_keys = { { 2, 60 }, { 0, 0 } };
+    profiler::MicrobialProfile profile(*ref.loader);
+    profile.SetDepthIdentityMargin(0.04);
+    auto first = MakeSam(reference.substr(0, 20), "20M", 1);
+    auto variant = MakeSam(snp, "5M1X34M", 1, 0x10);
+    int read_id = 0;
+    for (auto const* sam : { &first, &first, &variant, &variant }) ASSERT_TRUE(profile.AddSam(1, 1, *sam, 1.0, true, read_id++, false));
+    auto& taxon = profile.GetTaxa().at(1);
+    auto item = msa.item;
+    item.min_identity = taxon.IdentityThreshold(msa.identity_margin);
+    profile.ReleaseReadData(HalfModel(0), msa, false);
+    auto& gene = profile.GetTaxa().at(1).GetGenes().at(1);
+    auto const kept = gene.MSAItem(item);
+    auto const counts = gene.AlleleSNPCounts(2, 60);
+    ASSERT_FALSE(kept.first.empty());
+
+    ScratchDir dir("spill");
+    EXPECT_FALSE(profile.SpillStrainEvidence((dir.path / "no_folder" / "s.bin").string())) << "an unwritable file";
+    EXPECT_NO_THROW(gene.MSAItem(item)) << "kept in memory";
+    std::string const path = (dir.path / "s.bin").string();
+    ASSERT_TRUE(profile.SpillStrainEvidence(path));
+    EXPECT_EQ(profile.SpillPath(), path);
+    EXPECT_THROW(gene.MSAItem(item), std::logic_error);
+    EXPECT_THROW(gene.AlleleSNPCounts(2, 60), std::logic_error);
+    for (int round = 0; round < 2; round++) {
+        ASSERT_TRUE(profile.LoadStrainEvidence(1));
+        auto const back = gene.MSAItem(item);
+        EXPECT_EQ(back.second, kept.second);
+        ASSERT_EQ(back.first.size(), kept.first.size());
+        for (size_t b = 0; b < kept.first.size(); b++) {
+            ASSERT_EQ(back.first[b].size(), kept.first[b].size());
+            for (size_t a = 0; a < kept.first[b].size(); a++) {
+                EXPECT_EQ(back.first[b][a].Position(), kept.first[b][a].Position());
+                EXPECT_EQ(back.first[b][a].Observations(), kept.first[b][a].Observations());
+                EXPECT_EQ(back.first[b][a].QualitySum(), kept.first[b][a].QualitySum());
+            }
+        }
+        EXPECT_EQ(gene.AlleleSNPCounts(2, 60).mono, counts.mono);
+        profile.DropStrainEvidence(1);
+        EXPECT_THROW(gene.MSAItem(item), std::logic_error);
+    }
+    EXPECT_FALSE(profile.LoadStrainEvidence(2)) << "a taxon the file has no block of";
+    profile.RemoveSpillFile();
+    EXPECT_FALSE(fs::exists(path));
 }
 
 // A sample's taxa that do not enter the strain MSAs are dropped once its outputs are written, unless every taxon's

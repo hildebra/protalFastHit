@@ -959,6 +959,21 @@ class CombiningRunsTest(DbTest):
             rows = [line[1:].strip() for line in read_text(msa).splitlines() if line.startswith(">")]
             self.assertEqual(rows[1:], ["sa", "sb"], msa)
 
+    def test_spilled_evidence(self):
+        # --strain_spill: the samples' strain evidence goes to files, read back per species: the same strain outputs, and
+        # the files are gone at the end. A folder protal cannot write to stops it before it starts.
+        rc, log = run(self.work, "--db", DB, "--profile_only", ",".join(self.sams.values()), "--prefix", ",".join(self.sams),
+                      "-o", "spilled", "-t", "2", "--no_qcmsa", "--strain_spill", self.path("spill"))
+        self.assertEqual(rc, 0, log[-3000:])
+        self.assertEqual(self.strain_files("spilled"), self.strain_files("listed"))
+        self.assertEqual(os.listdir(self.path("spill")), [])
+        with open(self.path("a_file"), "w") as fh:
+            fh.write("not a folder\n")
+        rc, log = run(self.work, "--db", DB, "--profile_only", ",".join(self.sams.values()), "--prefix", ",".join(self.sams),
+                      "-o", "spill_refused", "-t", "2", "--no_qcmsa", "--strain_spill", self.path("a_file"))
+        self.assertNotIn(rc, (0, 1), log[-3000:])
+        self.assertIn("is not a folder protal can write to", log)
+
     def test_earlier_results_stop_protal_unless_forced(self):
         # Profiling into a folder with an earlier run's results stops before it starts; --force writes them again,
         # replacing the profiling rows of misc/<sample>_runtime.tsv (a rerun once added a second set).
@@ -3313,6 +3328,22 @@ class PhasingTest(DbTest):
             if os.path.exists(os.path.join(cls.work, "out", f"{prefix}.sam.zst")):
                 shutil.copy(os.path.join(cls.work, "out", f"{prefix}.sam.zst"), os.path.join(cls.work, "off"))
         cls.rc_off, cls.log_off = run(cls.work, *common, "-o", "off", "--no_phasing")
+        # The same SAMs once more, each sample's strain evidence (its long reads' phase records too) spilled to a file
+        # and read back per species (--strain_spill).
+        os.makedirs(os.path.join(cls.work, "spilled"))
+        for prefix in ("pa", "pm"):
+            if os.path.exists(os.path.join(cls.work, "out", f"{prefix}.sam.zst")):
+                shutil.copy(os.path.join(cls.work, "out", f"{prefix}.sam.zst"), os.path.join(cls.work, "spilled"))
+        cls.rc_spill, cls.log_spill = run(cls.work, *common, "-o", "spilled", "--strain_spill", os.path.join(cls.work, "spill"))
+
+    def test_spilled_evidence_gives_the_same_rows(self):
+        self.assertEqual(self.rc_spill, 0, self.log_spill[-3000:])
+        names = sorted(os.path.basename(p) for pattern in ("*.raw.msa.fna", "*.raw.partition.txt", "*.meta.tsv", "*.haplotypes.tsv")
+                       for p in glob.glob(self.path("out", "strains", pattern)))
+        self.assertTrue(any(name.endswith(".haplotypes.tsv") for name in names), names)
+        for name in names:
+            self.assertEqual(read_text(self.path("spilled", "strains", name)), read_text(self.path("out", "strains", name)), name)
+        self.assertEqual(os.listdir(self.path("spill")), [], "the spill files are removed")
 
     def msa(self, out):
         paths = []

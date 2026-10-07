@@ -287,3 +287,40 @@ records; other parameters throw), `Abundance.ReleasingReadDataDropsTheTaxaNoMsaT
 `CombiningRunsTest.test_earlier_results_stop_protal_unless_forced`,
 `MapUtilsTest.test_generate_names_samples_without_mate_numbers`. Unit 401 passed (2 skipped), e2e 136
 passed in 58 s.
+
+## Follow-up 3: the strain evidence spilled to disk (2026-10-07)
+
+On `c601cfc` (follow-up 2 as `899d82f`, whose `RunProtal.h` did not compile: a zero-context patch,
+applied beside another session's uncommitted hunks, misplaced two of them; `c601cfc` fixes it and was
+verified from `git archive`: unit tests pass, e2e 136 OK). Asked: implement the spill to disk.
+
+`--strain_spill DIR`: once a sample's evidence is packed (follow-up 2), what the strain stage reads of
+its taxa goes to `DIR/protal_strains_<pid>_<sample>.bin`, a block per taxon (`MicrobialProfile::
+SpillStrainEvidence`, `Taxon::WriteStrainEvidence`: each gene's packed item, SNP counts and covered
+bases, and the long reads' phase records), and is freed; its genes say so, and asking one for its
+evidence fails (`logic_error`) until it is read back. The strain stage's worker of a species reads
+that species' block from every sample in its MSA (`LoadStrainEvidence`, a seek in the sample's file),
+builds the MSA and drops them again. The files are removed after the strain stage. A sample whose file
+cannot be written keeps its evidence in memory, with a warning; a folder protal cannot write to stops it
+before it starts. The files are in the machine's byte order (`src/Utilities/BinaryIO.h`): they are
+read back by the run that wrote them only.
+
+| 16 samples, 4 threads (`db900n`, `w900`) | `12b059b` | packed (`c601cfc`) | `--strain_spill` | `--no_strains` |
+|---|---:|---:|---:|---:|
+| RSS after profiling | 2.82 GB | 1.11 GB | 0.75 GB | 0.72 GB |
+| peak RSS | 2.84 GB | 1.42 GB | 1.06 GB | 1.06 GB |
+
+With the spill, a run with strain MSAs takes the memory of one without: what grows from 4 to 16
+samples there (0.87 → 1.06 GB) grows without strain MSAs too, the allocator's and not evidence (follow-up
+2). The files took 27 MB per sample (110 MB for 4, the largest the folder reached; `scripts/spill_size.sh`)
+and none were left. The outputs of 4 and 16 samples are byte-identical to `12b059b`'s (537 files,
+`scripts/memory_spill.sh`). Wall times on this machine vary too much to compare (34.7 s with the spill
+against 24-30 s without, one run each).
+
+Tests: `Abundance.SpilledEvidenceReadsBackTheSame` (spill, read back the same items and counts twice,
+dropped evidence refused, an unwritable file keeps it in memory, the file removed),
+`PackedMSAItem.UnpacksWhatTheMSAReads` through a file; e2e `CombiningRunsTest.test_spilled_evidence`
+(the same strain files as in memory, the folder empty after, an unwritable folder refused) and
+`PhasingTest.test_spilled_evidence_gives_the_same_rows` (long-read samples with strain rows: MSAs,
+partitions, meta and haplotypes tables identical, through spilled phase records). Unit 406 passed (2
+skipped), e2e 138 passed.

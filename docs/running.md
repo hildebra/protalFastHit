@@ -372,4 +372,6 @@ With THP set to `never` protal uses normal pages. The profiling stage streams ea
 sample's outputs are written, keeps only what its strain MSA rows need, packed: the alleles and
 coverage of the genes of the species that enter MSAs (nothing with `--no_strains`; every taxon's
 numbers with `--taxon_statistics`), 37 MB for a dense sample of 1M pairs from 60 species, 159 MB up
-to 0.7.8 ([strains.md](strains.md#strain-msas-over-several-runs)).
+to 0.7.8; with `--strain_spill DIR` it goes to a file there and the strain stage reads it back per
+species, so the memory of a run over many samples does not grow with them
+([strains.md](strains.md#strain-msas-over-several-runs)).

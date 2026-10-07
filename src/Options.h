@@ -126,6 +126,7 @@ namespace protal {
         options.add_options("Strains")
                 ("no_strains", "Stay on species level: do not write strain MSAs or SNP tables. Variants are still called, as the model uses them, so profiles are the same with or without this flag.")
                 ("no_phasing", "Write one strain MSA row per long-read sample (PacBio, ONT), the consensus of its reads. By default a sample whose reads show two or more strains of a species (on 3 genes or more) gets a row per strain, <sample>_hap1, _hap2, ..., the most abundant first, each called from its strain's reads: the reads are clustered by their alleles across the genes each one covers, and the blocks of genes that no read links are joined by the strains' shares of the reads where those tell which strain is which. <species>.haplotypes.tsv says how each block was phased.")
+                ("strain_spill", "A folder (best on a local disk) for what each sample keeps for the strain MSAs: written there once its profile is written and read back one species at a time, so that the memory of many samples (e.g. --profile_only over several runs) does not grow with them. A file per sample, removed at the end; protal keeps a sample's in memory if its file cannot be written.", cxxopts::value<std::string>()->default_value(""))
                 ("snp_min_cov", "Minimum number of reads supporting a variant to call a SNP.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_COV)))
                 ("snp_min_phred_sum", "Minimum cumulative phred score (sum of base qualities) across all supporting reads. Combined with --snp_min_mean_qual via OR: a variant passes quality if phred_sum >= snp_min_phred_sum OR mean_qual >= snp_min_mean_qual.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_PHRED_SUM)))
                 ("snp_min_mean_qual", "Minimum mean base quality across supporting reads. Combined with --snp_min_phred_sum via OR: a variant passes quality if mean_qual >= snp_min_mean_qual OR phred_sum >= snp_min_phred_sum. Note: at low coverage, --snp_min_cov is the binding constraint regardless.", cxxopts::value<size_t>()->default_value(std::to_string(DEFAULT_MIN_SNP_MEAN_QUAL)))
@@ -217,6 +218,7 @@ namespace protal {
         bool keep_suspect_copies = false;
         double suspect_copy_distance = gene_incongruence::kDefaultSuspectDistance;
         bool no_phasing = false;
+        std::string strain_spill;  // --strain_spill: the folder of the strain stage's spill files, or none
         bool fastalign = false;
         bool profile_only = false;
         bool force = false;
@@ -337,6 +339,7 @@ namespace protal {
         bool m_keep_suspect_copies = false;  // --keep_suspect_copies
         double m_suspect_copy_distance = gene_incongruence::kDefaultSuspectDistance;  // --suspect_copy_distance (--build)
         bool m_no_phasing = false;
+        std::string m_strain_spill;  // --strain_spill
         bool m_fastalign = false;
         bool m_profile_only = false;
         bool m_force = false;
@@ -587,6 +590,7 @@ namespace protal {
                 m_qcmsa_args(std::move(d.qcmsa_args)) {
             m_input_errors = std::move(d.input_errors);
             m_input_notes = std::move(d.input_notes);
+            m_strain_spill = std::move(d.strain_spill);
             if (d.samplename_list.empty()) {
                 // A sample is named after its prefix's file name, not its path.
                 for (auto const& prefix : m_prefix_list) {
@@ -839,6 +843,11 @@ namespace protal {
         // Whether a long-read sample's strain MSA row is split into its strains' (Haplotypes.h).
         bool Phasing() const {
             return !m_no_phasing;
+        }
+
+        // --strain_spill: the folder of the strain stage's spill files, or empty (in memory).
+        std::string const& StrainSpill() const {
+            return m_strain_spill;
         }
 
         bool BenchmarkAlignment() const {
@@ -2230,6 +2239,19 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
                 }
             }
 
+            // --strain_spill: a folder protal can write its spill files into (made if missing).
+            if (!m_strain_spill.empty() && !m_build && !db_mode) {
+                if (m_no_strains) {
+                    warning_log.emplace_back("--strain_spill is not used with --no_strains");
+                } else {
+                    std::error_code ec;
+                    std::filesystem::create_directories(m_strain_spill, ec);
+                    if (!std::filesystem::is_directory(m_strain_spill, ec) || ::access(m_strain_spill.c_str(), W_OK) != 0) {
+                        error_log.emplace_back("--strain_spill " + m_strain_spill + " is not a folder protal can write to");
+                    }
+                }
+            }
+
             // --profile_only does not overwrite an earlier run's results (its rerun into the same folder also added a
             // second set of rows to misc/<sample>_runtime.tsv): the profiles it would write, and the list of species of
             // the strain output folder. --force writes them again.
@@ -2965,6 +2987,7 @@ merge writes one from the runs' maps) builds strain MSAs over the samples of sev
             d.no_gene_neighbours       = no_gene_neighbours;
             d.keep_foreign_genes       = keep_foreign_genes;
             d.no_phasing               = no_phasing;
+            d.strain_spill             = result["strain_spill"].as<std::string>();
             d.preload_genomes          = !preload_genomes_off;
             d.benchmark_alignment      = benchmark_alignment;
             d.benchmark_alignment_output = benchmark_alignment_output_file;

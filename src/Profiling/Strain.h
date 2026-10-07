@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include "VariantHandler.h"
 #include "SequenceRangeHandler.h"
+#include "BinaryIO.h"
 #include <string_view>
 
 namespace protal {
@@ -135,6 +136,31 @@ namespace protal {
                 item.second[i] = value;
             }
             return item;
+        }
+
+        // To a spill file (--strain_spill) and back: Read gives the item Write was given.
+        void Write(std::ostream& os) const {
+            binary_io::WriteVector(os, m_bin_ends);
+            binary_io::WriteVector(os, m_alleles);
+            binary_io::Write<uint64_t>(os, m_structurals.size());
+            for (auto const& s : m_structurals) binary_io::WriteString(os, s);
+            binary_io::WriteVector(os, m_coverage);
+            binary_io::Write(os, m_width);
+            binary_io::Write<uint64_t>(os, m_positions);
+        }
+
+        bool Read(std::istream& is) {
+            uint64_t structurals = 0, positions = 0;
+            if (!binary_io::ReadVector(is, m_bin_ends) || !binary_io::ReadVector(is, m_alleles) ||
+                !binary_io::Read(is, structurals) || structurals > m_alleles.size()) return false;
+            m_structurals.resize(structurals);
+            for (auto& s : m_structurals) {
+                if (!binary_io::ReadString(is, s)) return false;
+            }
+            if (!binary_io::ReadVector(is, m_coverage) || !binary_io::Read(is, m_width) || !binary_io::Read(is, positions)) return false;
+            m_positions = positions;
+            return (m_width == 1 || m_width == 2 || m_width == 4) && m_coverage.size() == m_positions * m_width &&
+                   (m_bin_ends.empty() || m_bin_ends.back() == m_alleles.size());
         }
 
         // The memory it holds, for reports.

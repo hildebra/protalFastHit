@@ -1222,6 +1222,16 @@ namespace protal {
             std::optional<profiler::MSAReleaseParameters> msa;
             if (!options.NoStrains()) msa = MSAReleaseFor(options, read_type);
             profile.ReleaseReadData(filter.WithKnob(msa_knob), msa, options.TaxonStatistics());
+            // --strain_spill: what it keeps goes to a file of its own until the strain stage reads it back per species.
+            if (msa && !options.StrainSpill().empty()) {
+                auto const path = std::filesystem::path(options.StrainSpill()) /
+                                  ("protal_strains_" + std::to_string(::getpid()) + "_" + std::to_string(i) + ".bin");
+                if (!profile.SpillStrainEvidence(path.string())) {
+                    #pragma omp critical(print)
+                    std::cerr << "Warning: sample " << sample_name << ": cannot write " << path.string()
+                              << " (--strain_spill); its strain evidence stays in memory" << std::endl;
+                }
+            }
 #ifdef __GLIBC__
             // The sample's reads' records are freed, but glibc keeps the pages of its arenas that the blocks which stay
             // (what the profile keeps, made after the records) leave partly used; returned, a cohort's memory grows by
@@ -2653,7 +2663,18 @@ namespace protal {
             msa.Start();
             std::ofstream os_meta(options.GetSpeciesMetaOutput(name));
             os_meta << "sample\tgene_id\tvertical_coverage\tcounts_vcov1\tcounts_vcov2\tmulti_allelic\tfiltered\tmulti_rate_vcov1\tfiltered_rate_vcov1\tmulti_rate_vcov2\tfiltered_rate_vcov2\tmedian_vcov\thcov\tgene_length\tmean_vcov_nonzero\tmedian_vcov_nonzero\n";
-            GetMSAForTaxon(taxid, name, loader, options, profiles, &os_meta, filter, out);
+            // With --strain_spill the samples' evidence of this species is read back from their spill files for its MSA
+            // only (the other species' workers read theirs: each species is its own taxa in the profiles).
+            auto const in_msa = GetProfilesWithTaxon(taxid, profiles, options, filter);
+            bool loaded = true;
+            for (auto s : in_msa) {
+                if (profiles[s].LoadStrainEvidence(taxid)) continue;
+                RunStatus::Get().Fail("Cannot read the strain evidence of " + name + " in sample " + profiles[s].GetName() +
+                                      " back from " + profiles[s].SpillPath() + " (--strain_spill)");
+                loaded = false;
+            }
+            if (loaded) GetMSAForTaxon(taxid, name, loader, options, profiles, &os_meta, filter, out);
+            for (auto s : in_msa) profiles[s].DropStrainEvidence(taxid);
             os_meta.close();
             if (os_meta.fail()) RunStatus::Get().Fail("Writing the MSA metadata of " + name + " failed: " + options.GetSpeciesMetaOutput(name));
             msa.Stop();
@@ -3117,6 +3138,7 @@ namespace protal {
                 // A sample enters a taxon's MSA with a score of its profile's MSA knob or more (--msa_knob, by
                 // default the sample's knob: the samples whose profile reports the taxon; EntersMSA).
                 StrainWrapper2(options, profiles, db.GetGenomes(), db.GetTaxonomy(), msa_taxids, filter);
+                for (auto& profile : profiles) profile.RemoveSpillFile();  // --strain_spill
             }
         }
 
