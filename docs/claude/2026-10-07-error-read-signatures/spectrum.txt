@@ -1,0 +1,336 @@
+
+# pe (knob 0.8; 539341 rows)
+
+medians by class, rows with >= 5 fragments ({'absent novel congener': 79514, 'present strain': 35146, 'present rep': 23953, 'present insilico': 18086, 'absent': 11135, 'absent near novel': 4241}):
+class                         absent  absent near novel  absent novel congener  present insilico  present rep  present strain
+third_position_share          0.7143             0.6961                 0.7627            0.4204       0.3424          0.4624
+excess_conserved_fast_ratio   0.0000             0.0000                -0.2912           -0.2606       0.0000         -0.2594
+conserved_fast_depth_ratio    0.0000             0.0000                 0.6613            0.4407       0.4499          0.4418
+conserved_hit_share           0.2857             0.4000                 0.3333            0.3500       0.3382          0.3333
+variant_sites_per_kb         27.6718            37.7778                 2.0658            0.0000       0.0000          0.0000
+multiallelic_sites_per_kb     0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+mate_lost_share               0.2000             0.8333                 0.3000            0.0000       0.0000          0.0000
+identity                      0.9408             0.9253                 0.9376            0.9889       0.9913          0.9880
+excess_scaled_median          0.0404             0.0611                 0.0482            0.0008      -0.0008          0.0009
+low_mapq_share                0.4444             0.3333                 0.4211            0.0115       0.0299          0.0625
+cluster_genomes_log10         0.0000             0.0000                 0.0000            0.0000       0.3010          0.6021
+em_own_share                  0.9179             0.9890                 0.9489            1.0000       1.0000          1.0000
+lu_per_kb                     0.8866             2.6972                 8.7718           83.7750      90.2031         74.2785
+AUC, rows with >= 5 fragments:
+                    feature  FN vs FP (FN high)  strain vs novel congener, all rows (strain high)  same, identity 0.95-0.985  n band
+       third_position_share               0.661                                             0.056                      0.196   34212
+excess_conserved_fast_ratio               0.495                                             0.523                      0.505   34212
+ conserved_fast_depth_ratio               0.505                                             0.422                      0.491   34212
+        conserved_hit_share               0.480                                             0.463                      0.549   34212
+       variant_sites_per_kb               0.571                                             0.322                      0.412   34212
+  multiallelic_sites_per_kb               0.513                                             0.503                      0.509   34212
+            mate_lost_share               0.623                                             0.125                      0.348   34212
+                   identity               0.221                                             0.984                      0.905   34212
+       excess_scaled_median               0.762                                             0.018                      0.107   34212
+             low_mapq_share               0.593                                             0.269                      0.263   34212
+      cluster_genomes_log10               0.630                                             0.789                      0.743   34212
+               em_own_share               0.397                                             0.812                      0.785   34212
+                  lu_per_kb               0.282                                             0.958                      0.866   34212
+
+medians by class, rows with >= 20 fragments ({'absent novel congener': 23724, 'present strain': 21658, 'present rep': 15096, 'present insilico': 11542, 'absent': 3212, 'absent near novel': 525}):
+class                         absent  absent near novel  absent novel congener  present insilico  present rep  present strain
+third_position_share          0.7217             0.6909                 0.7619            0.4127       0.3398          0.4515
+excess_conserved_fast_ratio  -0.3273             0.0000                -0.3632           -0.3417       0.0000         -0.3103
+conserved_fast_depth_ratio    0.0000             0.0000                 0.6859            0.3690       0.3824          0.3834
+conserved_hit_share           0.3158             0.3750                 0.3571            0.3623       0.3553          0.3478
+variant_sites_per_kb         48.2305            70.9010                 5.5038            0.2537       0.0000          0.2755
+multiallelic_sites_per_kb     0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+mate_lost_share               0.1690             0.7000                 0.2432            0.0000       0.0000          0.0000
+identity                      0.9447             0.9307                 0.9408            0.9891       0.9913          0.9882
+excess_scaled_median          0.0361             0.0553                 0.0447            0.0006      -0.0008          0.0007
+low_mapq_share                0.4237             0.2683                 0.3256            0.0156       0.0282          0.0476
+cluster_genomes_log10         0.0000             0.0000                 0.0000            0.0000       0.3010          0.6021
+em_own_share                  0.9076             0.9885                 0.9725            1.0000       1.0000          1.0000
+lu_per_kb                     1.4419             7.6190                13.0183           84.9710      92.1648         77.4424
+AUC, rows with >= 20 fragments:
+                    feature  FN vs FP (FN high)  strain vs novel congener, all rows (strain high)  same, identity 0.95-0.985  n band
+       third_position_share               0.687                                             0.041                      0.159   15144
+excess_conserved_fast_ratio               0.505                                             0.536                      0.507   15144
+ conserved_fast_depth_ratio               0.541                                             0.359                      0.453   15144
+        conserved_hit_share               0.508                                             0.464                      0.566   15144
+       variant_sites_per_kb               0.600                                             0.187                      0.329   15144
+  multiallelic_sites_per_kb               0.522                                             0.486                      0.507   15144
+            mate_lost_share               0.683                                             0.065                      0.236   15144
+                   identity               0.195                                             0.988                      0.934   15144
+       excess_scaled_median               0.798                                             0.014                      0.076   15144
+             low_mapq_share               0.596                                             0.286                      0.303   15144
+      cluster_genomes_log10               0.631                                             0.782                      0.744   15144
+               em_own_share               0.381                                             0.802                      0.749   15144
+                  lu_per_kb               0.254                                             0.960                      0.872   15144
+
+third_position_share of present real and in-silico strains by identity band (>= 10 fragments):
+                                 size  median
+band          class                          
+(0.0, 0.95]   present insilico     39   0.763
+              present strain      140   0.766
+(0.95, 0.97]  present insilico    682   0.615
+              present strain     1646   0.703
+(0.97, 0.98]  present insilico   2030   0.563
+              present strain     4484   0.631
+(0.98, 0.99]  present insilico   6194   0.467
+              present strain    12381   0.501
+(0.99, 1.001] present insilico   6286   0.345
+              present strain    10367   0.353
+
+## Per-taxon divergence rescaled by the gene factors (fragment tables)
+
+  taxa with >= 1 counted fragments (6046, FN 3680): AUC FN high: raw divergence 0.509, / within factor 0.494, / between factor 0.500
+  taxa with >= 3 counted fragments (3123, FN 1722): AUC FN high: raw divergence 0.496, / within factor 0.468, / between factor 0.480
+  taxa with >= 10 counted fragments (1347, FN 677): AUC FN high: raw divergence 0.541, / within factor 0.494, / between factor 0.517
+
+# se (knob 0.5; 219021 rows)
+
+medians by class, rows with >= 5 fragments ({'absent novel congener': 33667, 'present strain': 17610, 'present rep': 11588, 'present insilico': 8868, 'absent': 3672, 'absent near novel': 1982}):
+class                         absent  absent near novel  absent novel congener  present insilico  present rep  present strain
+third_position_share          0.7371             0.7143                 0.8142            0.5000       0.3448          0.5854
+excess_conserved_fast_ratio   0.0000             0.0000                -0.3246           -0.2442       0.0000         -0.2264
+conserved_fast_depth_ratio    0.0000             0.0000                 0.5809            0.5274       0.5177          0.5126
+conserved_hit_share           0.2500             0.3333                 0.3333            0.3333       0.3333          0.3200
+variant_sites_per_kb         15.8768            38.4615                 1.1173            0.1324       0.0000          0.1159
+multiallelic_sites_per_kb     0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+mate_lost_share               0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+identity                      0.9472             0.9283                 0.9419            0.9907       0.9932          0.9897
+excess_scaled_median          0.0327             0.0581                 0.0445            0.0005      -0.0009          0.0008
+low_mapq_share                0.5000             0.3333                 0.5183            0.0122       0.0410          0.0852
+cluster_genomes_log10         0.0000             0.0000                 0.0000            0.0000       0.3010          0.6021
+em_own_share                  0.9125             0.9978                 0.9663            1.0000       1.0000          1.0000
+lu_per_kb                     0.8452             3.0000                10.4167           94.4924     101.0939         83.8682
+AUC, rows with >= 5 fragments:
+                    feature  FN vs FP (FN high)  strain vs novel congener, all rows (strain high)  same, identity 0.95-0.985  n band
+       third_position_share               0.546                                             0.164                      0.285   16958
+excess_conserved_fast_ratio               0.513                                             0.536                      0.502   16958
+ conserved_fast_depth_ratio               0.493                                             0.472                      0.507   16958
+        conserved_hit_share               0.491                                             0.451                      0.555   16958
+       variant_sites_per_kb               0.555                                             0.341                      0.411   16958
+  multiallelic_sites_per_kb               0.517                                             0.494                      0.506   16958
+            mate_lost_share               0.500                                             0.500                      0.500   16958
+                   identity               0.281                                             0.979                      0.901   16958
+       excess_scaled_median               0.714                                             0.023                      0.108   16958
+             low_mapq_share               0.594                                             0.256                      0.236   16958
+      cluster_genomes_log10               0.650                                             0.784                      0.745   16958
+               em_own_share               0.404                                             0.804                      0.791   16958
+                  lu_per_kb               0.304                                             0.953                      0.874   16958
+
+medians by class, rows with >= 20 fragments ({'present strain': 11739, 'absent novel congener': 11002, 'present rep': 7979, 'present insilico': 6151, 'absent': 915, 'absent near novel': 221}):
+class                         absent  absent near novel  absent novel congener  present insilico  present rep  present strain
+third_position_share          0.7355             0.6892                 0.8128            0.5079       0.3459          0.5795
+excess_conserved_fast_ratio  -0.4342             0.0000                -0.3858           -0.3160       0.0000         -0.2886
+conserved_fast_depth_ratio    0.0000             0.0000                 0.6544            0.4791       0.4677          0.4749
+conserved_hit_share           0.2692             0.3333                 0.3529            0.3472       0.3393          0.3333
+variant_sites_per_kb         33.3333            54.0270                 3.4240            0.3994       0.3106          0.3936
+multiallelic_sites_per_kb     0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+mate_lost_share               0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+identity                      0.9505             0.9419                 0.9449            0.9908       0.9932          0.9900
+excess_scaled_median          0.0289             0.0448                 0.0418            0.0004      -0.0009          0.0006
+low_mapq_share                0.5178             0.2458                 0.4182            0.0177       0.0356          0.0600
+cluster_genomes_log10         0.0000             0.3010                 0.0000            0.0000       0.3010          0.6021
+em_own_share                  0.8955             0.9966                 0.9824            1.0000       1.0000          1.0000
+lu_per_kb                     1.5054            15.7186                15.4992           95.8174     104.4861         88.1755
+AUC, rows with >= 20 fragments:
+                    feature  FN vs FP (FN high)  strain vs novel congener, all rows (strain high)  same, identity 0.95-0.985  n band
+       third_position_share               0.554                                             0.140                      0.277    7880
+excess_conserved_fast_ratio               0.542                                             0.546                      0.511    7880
+ conserved_fast_depth_ratio               0.553                                             0.417                      0.473    7880
+        conserved_hit_share               0.510                                             0.447                      0.569    7880
+       variant_sites_per_kb               0.618                                             0.218                      0.345    7880
+  multiallelic_sites_per_kb               0.529                                             0.469                      0.492    7880
+            mate_lost_share               0.500                                             0.500                      0.500    7880
+                   identity               0.235                                             0.985                      0.928    7880
+       excess_scaled_median               0.761                                             0.016                      0.077    7880
+             low_mapq_share               0.582                                             0.269                      0.277    7880
+      cluster_genomes_log10               0.612                                             0.775                      0.739    7880
+               em_own_share               0.392                                             0.795                      0.753    7880
+                  lu_per_kb               0.298                                             0.957                      0.881    7880
+
+third_position_share of present real and in-silico strains by identity band (>= 10 fragments):
+                                size  median
+band          class                         
+(0.0, 0.95]   present insilico    14   0.817
+              present strain      49   0.800
+(0.95, 0.97]  present insilico   223   0.673
+              present strain     606   0.780
+(0.97, 0.98]  present insilico   791   0.663
+              present strain    1750   0.760
+(0.98, 0.99]  present insilico  2567   0.620
+              present strain    5339   0.691
+(0.99, 1.001] present insilico  4213   0.417
+              present strain    7447   0.455
+
+## Per-taxon divergence rescaled by the gene factors (fragment tables)
+
+  taxa with >= 1 counted fragments (4027, FN 1723): AUC FN high: raw divergence 0.461, / within factor 0.444, / between factor 0.449
+  taxa with >= 3 counted fragments (2848, FN 1031): AUC FN high: raw divergence 0.470, / within factor 0.447, / between factor 0.458
+  taxa with >= 10 counted fragments (1657, FN 506): AUC FN high: raw divergence 0.493, / within factor 0.459, / between factor 0.478
+
+# pb (knob 0.5; 107385 rows)
+
+medians by class, rows with >= 5 fragments ({'present strain': 14701, 'absent novel congener': 14362, 'present rep': 9529, 'present insilico': 6897, 'absent': 1099, 'absent near novel': 109}):
+class                         absent  absent near novel  absent novel congener  present insilico  present rep  present strain
+third_position_share          0.8225             0.7396                 0.8328            0.6750       0.3333          0.7744
+excess_conserved_fast_ratio   0.0000             0.0000                -0.3385           -0.1198       0.0000         -0.1704
+conserved_fast_depth_ratio    0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+conserved_hit_share           0.3333             0.6667                 0.5000            0.4194       0.4167          0.4000
+variant_sites_per_kb         29.0051            30.3030                 5.6272            0.0000       0.0000          0.0000
+multiallelic_sites_per_kb     0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+mate_lost_share               0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+identity                      0.9549             0.9442                 0.9445            0.9985       0.9999          0.9971
+excess_scaled_median          0.0411             0.0582                 0.0536           -0.0000      -0.0001          0.0002
+low_mapq_share                0.5000             0.0000                 0.2000            0.0000       0.0000          0.0000
+cluster_genomes_log10         0.3010             0.3010                 0.0000            0.0000       0.3010          0.6021
+em_own_share                  0.9999             1.0000                 1.0000            1.0000       1.0000          1.0000
+lu_per_kb                     0.0000            12.8205                15.5218          131.5789     141.4979        114.2447
+AUC, rows with >= 5 fragments:
+                    feature  FN vs FP (FN high)  strain vs novel congener, all rows (strain high)  same, identity 0.95-0.985  n band
+       third_position_share               0.529                                             0.336                      0.469    7730
+excess_conserved_fast_ratio               0.517                                             0.542                      0.476    7730
+ conserved_fast_depth_ratio               0.512                                             0.480                      0.496    7730
+        conserved_hit_share               0.502                                             0.397                      0.422    7730
+       variant_sites_per_kb               0.581                                             0.301                      0.452    7730
+  multiallelic_sites_per_kb               0.522                                             0.471                      0.514    7730
+            mate_lost_share               0.500                                             0.500                      0.500    7730
+                   identity               0.229                                             0.979                      0.846    7730
+       excess_scaled_median               0.793                                             0.021                      0.155    7730
+             low_mapq_share               0.551                                             0.301                      0.347    7730
+      cluster_genomes_log10               0.637                                             0.771                      0.742    7730
+               em_own_share               0.447                                             0.678                      0.636    7730
+                  lu_per_kb               0.301                                             0.942                      0.804    7730
+
+medians by class, rows with >= 20 fragments ({'present strain': 6475, 'present rep': 4168, 'absent novel congener': 3722, 'present insilico': 3011, 'absent': 288, 'absent near novel': 13}):
+class                         absent  absent near novel  absent novel congener  present insilico  present rep  present strain
+third_position_share          0.8281             0.6860                 0.8327            0.6900       0.3333          0.7778
+excess_conserved_fast_ratio  -0.2910             0.0000                -0.4566           -0.2794       0.0000         -0.2861
+conserved_fast_depth_ratio    0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+conserved_hit_share           0.3717             0.6667                 0.5000            0.4421       0.4397          0.4333
+variant_sites_per_kb         33.1517            30.6760                18.1032            0.3904       0.0491          0.5727
+multiallelic_sites_per_kb     0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+mate_lost_share               0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+identity                      0.9550             0.9521                 0.9473            0.9982       0.9999          0.9968
+excess_scaled_median          0.0386             0.0412                 0.0504           -0.0000      -0.0001         -0.0000
+low_mapq_share                0.5015             0.4615                 0.1481            0.0000       0.0000          0.0000
+cluster_genomes_log10         0.3010             0.3010                 0.0000            0.0000       0.3010          0.6021
+em_own_share                  0.9918             1.0000                 0.9999            1.0000       1.0000          1.0000
+lu_per_kb                     0.1112            23.3723                20.3172          131.8681     142.2189        116.9535
+AUC, rows with >= 20 fragments:
+                    feature  FN vs FP (FN high)  strain vs novel congener, all rows (strain high)  same, identity 0.95-0.985  n band
+       third_position_share               0.506                                             0.318                      0.473    2527
+excess_conserved_fast_ratio               0.569                                             0.562                      0.496    2527
+ conserved_fast_depth_ratio               0.538                                             0.468                      0.496    2527
+        conserved_hit_share               0.531                                             0.388                      0.424    2527
+       variant_sites_per_kb               0.638                                             0.103                      0.368    2527
+  multiallelic_sites_per_kb               0.519                                             0.413                      0.497    2527
+            mate_lost_share               0.500                                             0.500                      0.500    2527
+                   identity               0.217                                             0.985                      0.882    2527
+       excess_scaled_median               0.799                                             0.017                      0.137    2527
+             low_mapq_share               0.514                                             0.308                      0.375    2527
+      cluster_genomes_log10               0.622                                             0.773                      0.744    2527
+               em_own_share               0.480                                             0.692                      0.629    2527
+                  lu_per_kb               0.304                                             0.944                      0.794    2527
+
+third_position_share of present real and in-silico strains by identity band (>= 10 fragments):
+                                size  median
+band          class                         
+(0.0, 0.95]   present insilico    18   0.817
+              present strain      53   0.821
+(0.95, 0.97]  present insilico    29   0.793
+              present strain     225   0.826
+(0.97, 0.98]  present insilico   178   0.720
+              present strain     600   0.839
+(0.98, 0.99]  present insilico   532   0.717
+              present strain    1586   0.826
+(0.99, 1.001] present insilico  4002   0.660
+              present strain    7828   0.733
+
+## Per-taxon divergence rescaled by the gene factors (fragment tables)
+
+  taxa with >= 1 counted fragments (4832, FN 2426): AUC FN high: raw divergence 0.609, / within factor 0.607, / between factor 0.609
+  taxa with >= 3 counted fragments (1512, FN 718): AUC FN high: raw divergence 0.559, / within factor 0.544, / between factor 0.556
+  taxa with >= 10 counted fragments (434, FN 196): AUC FN high: raw divergence 0.596, / within factor 0.582, / between factor 0.595
+
+# ont (knob 0.5; 182289 rows)
+
+medians by class, rows with >= 5 fragments ({'absent novel congener': 23391, 'present strain': 20549, 'present rep': 13787, 'present insilico': 10020, 'absent': 1874, 'absent near novel': 215}):
+class                         absent  absent near novel  absent novel congener  present insilico  present rep  present strain
+third_position_share          0.6897             0.6625                 0.7370            0.3742       0.3358          0.4000
+excess_conserved_fast_ratio   0.0000             0.0000                -0.4290            0.0000       0.0000          0.0000
+conserved_fast_depth_ratio    0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+conserved_hit_share           0.3333             0.7500                 0.4918            0.4201       0.4118          0.4091
+variant_sites_per_kb         77.0967            79.1937                 3.4305            0.3959       0.2402          0.3267
+multiallelic_sites_per_kb     0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+mate_lost_share               0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+identity                      0.9233             0.8959                 0.9153            0.9677       0.9706          0.9666
+excess_scaled_median          0.0446             0.0957                 0.0601           -0.0000      -0.0009         -0.0000
+low_mapq_share                0.5263             0.0000                 0.2308            0.0000       0.0000          0.0101
+cluster_genomes_log10         0.0000             0.0000                 0.0000            0.0000       0.3010          0.6021
+em_own_share                  0.9956             1.0000                 1.0000            1.0000       1.0000          1.0000
+lu_per_kb                     0.3317             3.7896                 8.6406           84.3880      89.5388         73.6596
+AUC, rows with >= 5 fragments:
+                    feature  FN vs FP (FN high)  strain vs novel congener, all rows (strain high)  same, identity 0.95-0.985  n band
+       third_position_share               0.689                                             0.048                      0.074   18230
+excess_conserved_fast_ratio               0.518                                             0.615                      0.637   18230
+ conserved_fast_depth_ratio               0.510                                             0.466                      0.475   18230
+        conserved_hit_share               0.500                                             0.412                      0.436   18230
+       variant_sites_per_kb               0.558                                             0.408                      0.521   18230
+  multiallelic_sites_per_kb               0.528                                             0.473                      0.519   18230
+            mate_lost_share               0.500                                             0.500                      0.500   18230
+                   identity               0.314                                             0.944                      0.744   18230
+       excess_scaled_median               0.801                                             0.021                      0.056   18230
+             low_mapq_share               0.585                                             0.311                      0.259   18230
+      cluster_genomes_log10               0.628                                             0.779                      0.709   18230
+               em_own_share               0.429                                             0.683                      0.730   18230
+                  lu_per_kb               0.291                                             0.940                      0.871   18230
+
+medians by class, rows with >= 20 fragments ({'present strain': 8702, 'present rep': 5753, 'absent novel congener': 5602, 'present insilico': 4241, 'absent': 479, 'absent near novel': 28}):
+class                          absent  absent near novel  absent novel congener  present insilico  present rep  present strain
+third_position_share           0.6969             0.6081                 0.7311            0.3703       0.3353          0.3970
+excess_conserved_fast_ratio   -0.3712             0.0000                -0.5165            0.0000       0.0000          0.0000
+conserved_fast_depth_ratio     0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+conserved_hit_share            0.3636             0.5100                 0.4706            0.4390       0.4333          0.4324
+variant_sites_per_kb         122.3577           205.6011                18.0986            5.5201       3.9403          4.8055
+multiallelic_sites_per_kb      0.3182             0.2875                 0.0000            0.0000       0.0000          0.0000
+mate_lost_share                0.0000             0.0000                 0.0000            0.0000       0.0000          0.0000
+identity                       0.9299             0.9251                 0.9192            0.9676       0.9702          0.9663
+excess_scaled_median           0.0382             0.0458                 0.0550           -0.0000      -0.0009         -0.0000
+low_mapq_share                 0.5164             0.1686                 0.1619            0.0127       0.0182          0.0251
+cluster_genomes_log10          0.0000             0.1505                 0.0000            0.0000       0.3010          0.6021
+em_own_share                   0.9791             1.0000                 0.9997            1.0000       1.0000          1.0000
+lu_per_kb                      0.3326            10.4231                12.1066           87.2175      92.8756         77.5165
+AUC, rows with >= 20 fragments:
+                    feature  FN vs FP (FN high)  strain vs novel congener, all rows (strain high)  same, identity 0.95-0.985  n band
+       third_position_share               0.710                                             0.028                      0.058    8246
+excess_conserved_fast_ratio               0.578                                             0.637                      0.683    8246
+ conserved_fast_depth_ratio               0.541                                             0.443                      0.459    8246
+        conserved_hit_share               0.511                                             0.411                      0.461    8246
+       variant_sites_per_kb               0.565                                             0.319                      0.422    8246
+  multiallelic_sites_per_kb               0.548                                             0.403                      0.474    8246
+            mate_lost_share               0.500                                             0.500                      0.500    8246
+                   identity               0.235                                             0.975                      0.851    8246
+       excess_scaled_median               0.820                                             0.015                      0.050    8246
+             low_mapq_share               0.559                                             0.334                      0.245    8246
+      cluster_genomes_log10               0.615                                             0.778                      0.697    8246
+               em_own_share               0.462                                             0.691                      0.762    8246
+                  lu_per_kb               0.269                                             0.945                      0.868    8246
+
+third_position_share of present real and in-silico strains by identity band (>= 10 fragments):
+                                size  median
+band          class                         
+(0.0, 0.95]   present insilico   615   0.420
+              present strain    1612   0.532
+(0.95, 0.97]  present insilico  3568   0.389
+              present strain    7456   0.415
+(0.97, 0.98]  present insilico  1971   0.350
+              present strain    3631   0.359
+(0.98, 0.99]  present insilico   576   0.358
+              present strain    1158   0.367
+(0.99, 1.001] present insilico   112   0.353
+              present strain     176   0.362
+
+## Per-taxon divergence rescaled by the gene factors (fragment tables)
+
+  taxa with >= 1 counted fragments (5934, FN 2755): AUC FN high: raw divergence 0.547, / within factor 0.535, / between factor 0.542
+  taxa with >= 3 counted fragments (1899, FN 782): AUC FN high: raw divergence 0.500, / within factor 0.494, / between factor 0.504
+  taxa with >= 10 counted fragments (500, FN 186): AUC FN high: raw divergence 0.535, / within factor 0.521, / between factor 0.531

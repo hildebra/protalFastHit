@@ -148,6 +148,46 @@ class InsilicoStrains(unittest.TestCase):
             was_stop = ins.STOP[16 * before[:, 0] + 4 * before[:, 1] + before[:, 2]]
             self.assertFalse((ins.STOP[index] & ~was_stop).any(), seed)
 
+    def test_substitutions_without_alignment(self):
+        rng = np.random.default_rng(11)
+        rep = rng.integers(0, 4, 900).astype(np.uint8)
+        other = rep.copy()
+        changed = np.sort(rng.choice(900, 30, replace=False))
+        other[changed] = (other[changed] + 1 + rng.integers(0, 3, 30)) % 4
+        positions, compared = ins.substitutions(rep, other)
+        found, made = set(positions.tolist()), set(changed.tolist())
+        self.assertTrue(found <= made)
+        # Every substitution between the first and the last shared 12-mer; the ends past them are not compared.
+        self.assertTrue({p for p in made if 24 <= p < 876} <= found)
+        self.assertGreater(compared, 800)
+        # An insertion in the other copy: the stretch after it leaves the main diagonal and is not compared, the
+        # substitutions before it are still found.
+        with_indel = np.concatenate([other[:450], rng.integers(0, 4, 7).astype(np.uint8), other[450:]])
+        positions, compared = ins.substitutions(rep, with_indel)
+        before = {p for p in changed.tolist() if p < 440}
+        self.assertTrue(before <= set(positions.tolist()))
+        self.assertLess(compared, 900)
+
+    def test_spectrum_and_omega(self):
+        # The in-silico strain of setUpClass was made at OMEGA_DEFAULT (no real strains to calibrate on): measured
+        # against its representative on the placed genes, most of its substitutions are on third positions, and the
+        # calibration recovers an omega near the one used; a more synonymous spectrum needs a smaller omega.
+        name = ins.strain_name("GCF_000000001.1")
+        strain_path = os.path.join(self.out, name + ".fna.gz")
+        genes = [("contig1", gene, s, e, strand) for s, e, strand, gene in self.genes]
+        third, subs, compared, copies = ins.spectrum_pair((strain_path, self.single, [(name + "_contig1",) + g[1:]
+                                                                                       for g in genes], genes))
+        self.assertGreater(subs, 300)
+        self.assertGreater(compared, 30000)
+        share = third / subs
+        self.assertGreater(share, 0.55)
+        rng = np.random.default_rng(2)
+        omega = ins.calibrate_omega(share, copies, 3.0, rng)
+        self.assertTrue(0.06 <= omega <= 0.35, omega)
+        lower = ins.calibrate_omega(min(0.95, share + 0.1), copies, 3.0, rng)
+        self.assertLess(lower, omega)
+        self.assertEqual(ins.calibrate_omega(None, copies, 3.0, rng), ins.OMEGA_DEFAULT)
+
     def test_orfs_both_strands(self):
         codes = ins.CODE[np.frombuffer(self.genome.encode(), np.uint8)]
         found = ins.orfs(codes)

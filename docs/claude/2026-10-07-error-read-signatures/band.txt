@@ -1,0 +1,272 @@
+
+# pe (knob 0.8)
+
+rows in the band 0.95-0.985: 125097 of 539341; of the FP 1960 of 2789 (0.70), of the FN 3520 of 4937 (0.71); band rows by class: {'absent novel congener': 76172, 'absent': 16167, 'present strain': 15862, 'present insilico': 6901, 'absent near novel': 6554, 'present rep': 3441}
+
+## band rows with >= 3 fragments: 54873 ({'absent novel congener': 31452, 'present strain': 14234, 'present insilico': 6231, 'present rep': 2956})
+
+AUC (present high) within narrow identity bins, present strains (+ reps, + in-silico) against absent novel congeners; 'real strains': without the in-silico strains:
+                    feature  0.95-0.96 all  0.95-0.96 real strains  0.96-0.97 all  0.96-0.97 real strains  0.97-0.98 all  0.97-0.98 real strains  0.98-0.985 all  0.98-0.985 real strains
+       third_position_share          0.385                   0.409          0.361                   0.423          0.278                   0.317           0.294                    0.319
+excess_conserved_fast_ratio          0.523                   0.518          0.485                   0.494          0.508                   0.518           0.501                    0.507
+       variant_sites_per_kb          0.504                   0.495          0.508                   0.503          0.493                   0.488           0.453                    0.450
+            mate_lost_share          0.503                   0.512          0.480                   0.513          0.492                   0.515           0.509                    0.525
+                   identity          0.624                   0.619          0.663                   0.647          0.673                   0.678           0.532                    0.524
+                  lu_per_kb          0.761                   0.739          0.798                   0.783          0.868                   0.856           0.883                    0.873
+               em_own_share          0.705                   0.686          0.789                   0.760          0.867                   0.851           0.875                    0.864
+       excess_scaled_median          0.393                   0.399          0.377                   0.356          0.302                   0.271           0.343                    0.308
+             low_mapq_share          0.308                   0.330          0.228                   0.257          0.155                   0.176           0.150                    0.166
+      cluster_genomes_log10          0.651                   0.739          0.599                   0.715          0.569                   0.685           0.563                    0.676
+  medians of third_position_share by bin and class:
+                               size                                                            median                                            
+class         absent novel congener present insilico present rep present strain absent novel congener present insilico present rep present strain
+bin                                                                                                                                              
+(0.95, 0.96]                  15177              151          84            497                 0.742            0.672       0.736          0.719
+(0.96, 0.97]                  10140              779         197           1985                 0.712            0.613       0.709          0.696
+(0.97, 0.98]                   4729             2619        1082           6043                 0.670            0.560       0.365          0.629
+(0.98, 0.985]                  1200             2682        1592           5708                 0.615            0.517       0.354          0.571
+
+boosted classifier, samples grouped, 5 folds (present against absent novel congener), AUC / AP:
+  base (identity, depth, unique k-mers, excess, MAPQ, EM, cluster, spill): AUC 0.9758, AP 0.9724
+  base + third_position_share: AUC 0.9774, AP 0.9742
+  base + all spectrum features: AUC 0.9786, AP 0.9757
+  all model features: AUC 0.9887, AP 0.9872
+  all model features without third_position_share: AUC 0.9885, AP 0.9870
+  all without the spectrum features: AUC 0.9882, AP 0.9866
+  real strains only (48642 rows): base 0.9798, + third_position_share 0.9802, all 0.9907
+
+## band rows with >= 10 fragments: 30126 ({'absent novel congener': 12827, 'present strain': 10445, 'present insilico': 4762, 'present rep': 2092})
+
+AUC (present high) within narrow identity bins, present strains (+ reps, + in-silico) against absent novel congeners; 'real strains': without the in-silico strains:
+                    feature  0.95-0.96 all  0.95-0.96 real strains  0.96-0.97 all  0.96-0.97 real strains  0.97-0.98 all  0.97-0.98 real strains  0.98-0.985 all  0.98-0.985 real strains
+       third_position_share          0.396                   0.428          0.337                   0.412          0.249                   0.296           0.290                    0.328
+excess_conserved_fast_ratio          0.558                   0.564          0.497                   0.508          0.533                   0.545           0.484                    0.493
+       variant_sites_per_kb          0.522                   0.512          0.452                   0.450          0.374                   0.370           0.248                    0.247
+            mate_lost_share          0.544                   0.559          0.430                   0.481          0.421                   0.450           0.423                    0.443
+                   identity          0.629                   0.629          0.688                   0.669          0.720                   0.725           0.492                    0.478
+                  lu_per_kb          0.756                   0.731          0.769                   0.755          0.849                   0.836           0.840                    0.829
+               em_own_share          0.655                   0.632          0.764                   0.729          0.864                   0.844           0.873                    0.859
+       excess_scaled_median          0.432                   0.452          0.366                   0.342          0.282                   0.245           0.380                    0.330
+             low_mapq_share          0.341                   0.361          0.253                   0.284          0.166                   0.189           0.180                    0.201
+      cluster_genomes_log10          0.634                   0.727          0.579                   0.703          0.546                   0.664           0.528                    0.641
+  medians of third_position_share by bin and class:
+                               size                                                            median                                            
+class         absent novel congener present insilico present rep present strain absent novel congener present insilico present rep present strain
+bin                                                                                                                                              
+(0.95, 0.96]                   6755               99          59            281                 0.744            0.661       0.734          0.729
+(0.96, 0.97]                   4363              583         127           1365                 0.714            0.613       0.713          0.698
+(0.97, 0.98]                   1452             2030         760           4484                 0.672            0.563       0.354          0.631
+(0.98, 0.985]                   251             2050        1146           4315                 0.604            0.520       0.344          0.576
+
+boosted classifier, samples grouped, 5 folds (present against absent novel congener), AUC / AP:
+  base (identity, depth, unique k-mers, excess, MAPQ, EM, cluster, spill): AUC 0.9776, AP 0.9847
+  base + third_position_share: AUC 0.9797, AP 0.9862
+  base + all spectrum features: AUC 0.9807, AP 0.9868
+  all model features: AUC 0.9918, AP 0.9945
+  all model features without third_position_share: AUC 0.9912, AP 0.9941
+  all without the spectrum features: AUC 0.9910, AP 0.9939
+  real strains only (25364 rows): base 0.9809, + third_position_share 0.9812, all 0.9929
+
+# se (knob 0.5)
+
+rows in the band 0.95-0.985: 58235 of 219021; of the FP 1370 of 1863 (0.74), of the FN 949 of 1402 (0.68); band rows by class: {'absent novel congener': 35810, 'absent': 7374, 'present strain': 6618, 'absent near novel': 3873, 'present insilico': 2882, 'present rep': 1678}
+
+## band rows with >= 3 fragments: 26195 ({'absent novel congener': 16154, 'present strain': 5985, 'present insilico': 2600, 'present rep': 1456})
+
+AUC (present high) within narrow identity bins, present strains (+ reps, + in-silico) against absent novel congeners; 'real strains': without the in-silico strains:
+                    feature  0.95-0.96 all  0.95-0.96 real strains  0.96-0.97 all  0.96-0.97 real strains  0.97-0.98 all  0.97-0.98 real strains  0.98-0.985 all  0.98-0.985 real strains
+       third_position_share          0.347                   0.379          0.312                   0.368          0.284                   0.338           0.193                    0.215
+excess_conserved_fast_ratio          0.501                   0.494          0.496                   0.506          0.486                   0.489           0.528                    0.537
+       variant_sites_per_kb          0.517                   0.511          0.505                   0.497          0.454                   0.448           0.441                    0.438
+            mate_lost_share          0.500                   0.500          0.500                   0.500          0.500                   0.500           0.500                    0.500
+                   identity          0.682                   0.671          0.650                   0.644          0.652                   0.658           0.622                    0.631
+                  lu_per_kb          0.779                   0.763          0.810                   0.798          0.863                   0.850           0.903                    0.897
+               em_own_share          0.704                   0.685          0.781                   0.758          0.853                   0.832           0.879                    0.870
+       excess_scaled_median          0.378                   0.386          0.352                   0.345          0.312                   0.281           0.212                    0.189
+             low_mapq_share          0.279                   0.294          0.215                   0.239          0.152                   0.175           0.135                    0.146
+      cluster_genomes_log10          0.657                   0.740          0.621                   0.730          0.585                   0.709           0.544                    0.643
+  medians of third_position_share by bin and class:
+                               size                                                            median                                            
+class         absent novel congener present insilico present rep present strain absent novel congener present insilico present rep present strain
+bin                                                                                                                                              
+(0.95, 0.96]                   6958               47          29            160                 0.815            0.672       0.771          0.764
+(0.96, 0.97]                   5302              234          47            674                 0.811            0.659       0.774          0.770
+(0.97, 0.98]                   2994              964         202           2283                 0.800            0.651       0.675          0.742
+(0.98, 0.985]                   837             1355        1178           2867                 0.793            0.500       0.338          0.652
+
+boosted classifier, samples grouped, 5 folds (present against absent novel congener), AUC / AP:
+  base (identity, depth, unique k-mers, excess, MAPQ, EM, cluster, spill): AUC 0.9804, AP 0.9738
+  base + third_position_share: AUC 0.9823, AP 0.9765
+  base + all spectrum features: AUC 0.9829, AP 0.9774
+  all model features: AUC 0.9909, AP 0.9874
+  all model features without third_position_share: AUC 0.9902, AP 0.9865
+  all without the spectrum features: AUC 0.9904, AP 0.9868
+  real strains only (23595 rows): base 0.9832, + third_position_share 0.9831, all 0.9927
+
+## band rows with >= 10 fragments: 15121 ({'absent novel congener': 7138, 'present strain': 4712, 'present insilico': 2136, 'present rep': 1135})
+
+AUC (present high) within narrow identity bins, present strains (+ reps, + in-silico) against absent novel congeners; 'real strains': without the in-silico strains:
+                    feature  0.95-0.96 all  0.95-0.96 real strains  0.96-0.97 all  0.96-0.97 real strains  0.97-0.98 all  0.97-0.98 real strains  0.98-0.985 all  0.98-0.985 real strains
+       third_position_share          0.384                   0.418          0.317                   0.382          0.300                   0.373           0.186                    0.213
+excess_conserved_fast_ratio          0.550                   0.547          0.522                   0.538          0.485                   0.489           0.535                    0.546
+       variant_sites_per_kb          0.525                   0.508          0.457                   0.451          0.346                   0.344           0.274                    0.273
+            mate_lost_share          0.500                   0.500          0.500                   0.500          0.500                   0.500           0.500                    0.500
+                   identity          0.688                   0.668          0.668                   0.662          0.680                   0.686           0.657                    0.668
+                  lu_per_kb          0.766                   0.750          0.784                   0.775          0.838                   0.823           0.889                    0.882
+               em_own_share          0.636                   0.621          0.744                   0.716          0.851                   0.826           0.895                    0.886
+       excess_scaled_median          0.418                   0.423          0.354                   0.355          0.317                   0.278           0.221                    0.190
+             low_mapq_share          0.321                   0.329          0.247                   0.271          0.165                   0.190           0.131                    0.143
+      cluster_genomes_log10          0.651                   0.729          0.594                   0.708          0.552                   0.680           0.516                    0.616
+  medians of third_position_share by bin and class:
+                               size                                                            median                                            
+class         absent novel congener present insilico present rep present strain absent novel congener present insilico present rep present strain
+bin                                                                                                                                              
+(0.95, 0.96]                   3323               31          21            105                 0.815            0.696       0.769          0.791
+(0.96, 0.97]                   2515              192          38            501                 0.810            0.672       0.777          0.778
+(0.97, 0.98]                   1081              791         113           1750                 0.795            0.663       0.794          0.760
+(0.98, 0.985]                   214             1122         963           2356                 0.799            0.544       0.338          0.666
+
+boosted classifier, samples grouped, 5 folds (present against absent novel congener), AUC / AP:
+  base (identity, depth, unique k-mers, excess, MAPQ, EM, cluster, spill): AUC 0.9796, AP 0.9832
+  base + third_position_share: AUC 0.9821, AP 0.9856
+  base + all spectrum features: AUC 0.9829, AP 0.9862
+  all model features: AUC 0.9915, AP 0.9929
+  all model features without third_position_share: AUC 0.9899, AP 0.9916
+  all without the spectrum features: AUC 0.9902, AP 0.9918
+  real strains only (12985 rows): base 0.9819, + third_position_share 0.9826, all 0.9922
+
+# pb (knob 0.5)
+
+rows in the band 0.95-0.985: 23568 of 107385; of the FP 839 of 1816 (0.46), of the FN 1269 of 2054 (0.62); band rows by class: {'absent novel congener': 16837, 'present strain': 3317, 'absent': 1908, 'present insilico': 1010, 'absent near novel': 271, 'present rep': 225}
+
+## band rows with >= 3 fragments: 11740 ({'absent novel congener': 8252, 'present strain': 2550, 'present insilico': 743, 'present rep': 195})
+
+AUC (present high) within narrow identity bins, present strains (+ reps, + in-silico) against absent novel congeners; 'real strains': without the in-silico strains:
+                    feature  0.95-0.96 all  0.95-0.96 real strains  0.96-0.97 all  0.96-0.97 real strains  0.97-0.98 all  0.97-0.98 real strains  0.98-0.985 all  0.98-0.985 real strains
+       third_position_share          0.425                   0.426          0.453                   0.462          0.406                   0.486           0.370                    0.444
+excess_conserved_fast_ratio          0.494                   0.485          0.512                   0.507          0.496                   0.498           0.458                    0.457
+       variant_sites_per_kb          0.460                   0.463          0.473                   0.480          0.490                   0.488           0.480                    0.480
+            mate_lost_share          0.500                   0.500          0.500                   0.500          0.500                   0.500           0.500                    0.500
+                   identity          0.564                   0.568          0.593                   0.595          0.634                   0.621           0.575                    0.575
+                  lu_per_kb          0.741                   0.730          0.757                   0.751          0.785                   0.772           0.834                    0.819
+               em_own_share          0.600                   0.603          0.614                   0.614          0.674                   0.653           0.725                    0.706
+       excess_scaled_median          0.429                   0.413          0.346                   0.335          0.317                   0.304           0.306                    0.278
+             low_mapq_share          0.363                   0.359          0.352                   0.354          0.281                   0.309           0.220                    0.246
+      cluster_genomes_log10          0.687                   0.725          0.674                   0.722          0.591                   0.693           0.596                    0.705
+  medians of third_position_share by bin and class:
+                               size                                                            median                                            
+class         absent novel congener present insilico present rep present strain absent novel congener present insilico present rep present strain
+bin                                                                                                                                              
+(0.95, 0.96]                   3042               16          25            131                 0.837            0.793       0.843          0.815
+(0.96, 0.97]                   2767               48          44            347                 0.837            0.788       0.833          0.824
+(0.97, 0.98]                   1904              345          70           1069                 0.840            0.721       0.842          0.839
+(0.98, 0.985]                   533              334          56           1003                 0.838            0.719       0.833          0.824
+
+boosted classifier, samples grouped, 5 folds (present against absent novel congener), AUC / AP:
+  base (identity, depth, unique k-mers, excess, MAPQ, EM, cluster, spill): AUC 0.9324, AP 0.8656
+  base + third_position_share: AUC 0.9424, AP 0.8849
+  base + all spectrum features: AUC 0.9414, AP 0.8837
+  all model features: AUC 0.9737, AP 0.9522
+  all model features without third_position_share: AUC 0.9707, AP 0.9466
+  all without the spectrum features: AUC 0.9705, AP 0.9455
+  real strains only (10997 rows): base 0.9458, + third_position_share 0.9455, all 0.9783
+
+## band rows with >= 10 fragments: 5136 ({'absent novel congener': 3206, 'present strain': 1432, 'present insilico': 391, 'present rep': 107})
+
+AUC (present high) within narrow identity bins, present strains (+ reps, + in-silico) against absent novel congeners; 'real strains': without the in-silico strains:
+                    feature  0.95-0.96 all  0.95-0.96 real strains  0.96-0.97 all  0.96-0.97 real strains  0.97-0.98 all  0.97-0.98 real strains  0.98-0.985 all  0.98-0.985 real strains
+       third_position_share          0.450                   0.459          0.468                   0.480          0.405                   0.483           0.391                    0.471
+excess_conserved_fast_ratio          0.521                   0.512          0.525                   0.523          0.542                   0.541           0.501                    0.502
+       variant_sites_per_kb          0.469                   0.486          0.490                   0.499          0.488                   0.482           0.393                    0.384
+            mate_lost_share          0.500                   0.500          0.500                   0.500          0.500                   0.500           0.500                    0.500
+                   identity          0.524                   0.521          0.584                   0.595          0.661                   0.639           0.600                    0.597
+                  lu_per_kb          0.689                   0.668          0.735                   0.730          0.777                   0.764           0.826                    0.812
+               em_own_share          0.551                   0.551          0.613                   0.610          0.677                   0.655           0.781                    0.762
+       excess_scaled_median          0.521                   0.500          0.386                   0.375          0.331                   0.321           0.394                    0.348
+             low_mapq_share          0.437                   0.440          0.391                   0.393          0.297                   0.326           0.200                    0.228
+      cluster_genomes_log10          0.653                   0.700          0.668                   0.711          0.593                   0.688           0.636                    0.743
+  medians of third_position_share by bin and class:
+                               size                                                            median                                            
+class         absent novel congener present insilico present rep present strain absent novel congener present insilico present rep present strain
+bin                                                                                                                                              
+(0.95, 0.96]                   1272                9          13             57                 0.837            0.792       0.870          0.820
+(0.96, 0.97]                   1149               20          26            168                 0.835            0.801       0.837          0.826
+(0.97, 0.98]                    672              178          39            600                 0.840            0.720       0.839          0.839
+(0.98, 0.985]                   113              184          29            607                 0.824            0.719       0.813          0.821
+
+boosted classifier, samples grouped, 5 folds (present against absent novel congener), AUC / AP:
+  base (identity, depth, unique k-mers, excess, MAPQ, EM, cluster, spill): AUC 0.9416, AP 0.9121
+  base + third_position_share: AUC 0.9499, AP 0.9260
+  base + all spectrum features: AUC 0.9497, AP 0.9261
+  all model features: AUC 0.9769, AP 0.9671
+  all model features without third_position_share: AUC 0.9738, AP 0.9626
+  all without the spectrum features: AUC 0.9744, AP 0.9638
+  real strains only (4745 rows): base 0.9505, + third_position_share 0.9541, all 0.9789
+
+# ont (knob 0.5)
+
+rows in the band 0.95-0.985: 59184 of 182289; of the FP 1557 of 3245 (0.48), of the FN 1138 of 3334 (0.34); band rows by class: {'present strain': 21051, 'present rep': 13970, 'absent novel congener': 11523, 'present insilico': 10668, 'absent': 1607, 'absent near novel': 365}
+
+## band rows with >= 3 fragments: 43766 ({'present strain': 18200, 'present rep': 12325, 'present insilico': 9169, 'absent novel congener': 4072})
+
+AUC (present high) within narrow identity bins, present strains (+ reps, + in-silico) against absent novel congeners; 'real strains': without the in-silico strains:
+                    feature  0.95-0.96 all  0.95-0.96 real strains  0.96-0.97 all  0.96-0.97 real strains  0.97-0.98 all  0.97-0.98 real strains  0.98-0.985 all  0.98-0.985 real strains
+       third_position_share          0.065                   0.072          0.052                   0.055          0.069                   0.069           0.116                    0.113
+excess_conserved_fast_ratio          0.615                   0.622          0.638                   0.648          0.642                   0.648           0.621                    0.626
+       variant_sites_per_kb          0.503                   0.500          0.603                   0.601          0.582                   0.584           0.417                    0.417
+            mate_lost_share          0.500                   0.500          0.500                   0.500          0.500                   0.500           0.500                    0.500
+                   identity          0.609                   0.609          0.616                   0.619          0.513                   0.510           0.535                    0.537
+                  lu_per_kb          0.866                   0.855          0.901                   0.891          0.904                   0.897           0.880                    0.875
+               em_own_share          0.715                   0.705          0.738                   0.729          0.750                   0.744           0.794                    0.789
+       excess_scaled_median          0.063                   0.058          0.054                   0.050          0.067                   0.063           0.118                    0.111
+             low_mapq_share          0.243                   0.255          0.227                   0.236          0.247                   0.254           0.191                    0.197
+      cluster_genomes_log10          0.577                   0.668          0.544                   0.635          0.508                   0.589           0.521                    0.596
+  medians of third_position_share by bin and class:
+                               size                                                            median                                            
+class         absent novel congener present insilico present rep present strain absent novel congener present insilico present rep present strain
+bin                                                                                                                                              
+(0.95, 0.96]                   2159             1799        1779           4088                 0.696            0.406       0.337          0.448
+(0.96, 0.97]                   1244             3438        4160           6690                 0.697            0.379       0.336          0.400
+(0.97, 0.98]                    538             3023        4842           5637                 0.693            0.359       0.335          0.370
+(0.98, 0.985]                   130              909        1544           1785                 0.669            0.379       0.336          0.383
+
+boosted classifier, samples grouped, 5 folds (present against absent novel congener), AUC / AP:
+  base (identity, depth, unique k-mers, excess, MAPQ, EM, cluster, spill): AUC 0.9850, AP 0.9983
+  base + third_position_share: AUC 0.9873, AP 0.9986
+  base + all spectrum features: AUC 0.9883, AP 0.9987
+  all model features: AUC 0.9936, AP 0.9993
+  all model features without third_position_share: AUC 0.9930, AP 0.9993
+  all without the spectrum features: AUC 0.9930, AP 0.9993
+  real strains only (34597 rows): base 0.9885, + third_position_share 0.9889, all 0.9950
+
+## band rows with >= 10 fragments: 27034 ({'present strain': 11861, 'present rep': 8243, 'present insilico': 5930, 'absent novel congener': 1000})
+
+AUC (present high) within narrow identity bins, present strains (+ reps, + in-silico) against absent novel congeners; 'real strains': without the in-silico strains:
+                    feature  0.95-0.96 all  0.95-0.96 real strains  0.96-0.97 all  0.96-0.97 real strains  0.97-0.98 all  0.97-0.98 real strains  0.98-0.985 all  0.98-0.985 real strains
+       third_position_share          0.066                   0.076          0.043                   0.046          0.071                   0.070           0.144                    0.138
+excess_conserved_fast_ratio          0.646                   0.657          0.712                   0.722          0.721                   0.727           0.621                    0.627
+       variant_sites_per_kb          0.430                   0.424          0.556                   0.552          0.505                   0.504           0.347                    0.347
+            mate_lost_share          0.500                   0.500          0.500                   0.500          0.500                   0.500           0.500                    0.500
+                   identity          0.672                   0.672          0.670                   0.674          0.532                   0.531           0.477                    0.479
+                  lu_per_kb          0.837                   0.827          0.898                   0.887          0.896                   0.891           0.852                    0.848
+               em_own_share          0.737                   0.725          0.791                   0.781          0.837                   0.833           0.711                    0.703
+       excess_scaled_median          0.068                   0.061          0.050                   0.045          0.065                   0.061           0.095                    0.087
+             low_mapq_share          0.267                   0.281          0.223                   0.235          0.201                   0.207           0.252                    0.259
+      cluster_genomes_log10          0.583                   0.675          0.517                   0.605          0.537                   0.617           0.618                    0.695
+  medians of third_position_share by bin and class:
+                               size                                                            median                                            
+class         absent novel congener present insilico present rep present strain absent novel congener present insilico present rep present strain
+bin                                                                                                                                              
+(0.95, 0.96]                    673             1086         971           2619                 0.674            0.425       0.337          0.474
+(0.96, 0.97]                    244             2482        3028           4837                 0.663            0.375       0.336          0.395
+(0.97, 0.98]                     70             1971        3482           3631                 0.654            0.350       0.335          0.359
+(0.98, 0.985]                    13              391         762            774                 0.552            0.359       0.335          0.367
+
+boosted classifier, samples grouped, 5 folds (present against absent novel congener), AUC / AP:
+  base (identity, depth, unique k-mers, excess, MAPQ, EM, cluster, spill): AUC 0.9852, AP 0.9994
+  base + third_position_share: AUC 0.9880, AP 0.9995
+  base + all spectrum features: AUC 0.9882, AP 0.9995
+  all model features: AUC 0.9940, AP 0.9998
+  all model features without third_position_share: AUC 0.9939, AP 0.9998
+  all without the spectrum features: AUC 0.9939, AP 0.9998
+  real strains only (21104 rows): base 0.9861, + third_position_share 0.9888, all 0.9955

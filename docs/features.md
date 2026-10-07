@@ -30,14 +30,16 @@ training picks a set with `--features`. The groups, in the order a set's name jo
 | `consistency` | 2026-10-06 | whether the taxon's reads are its own: long reads' consensus tags, the seeds' crowding, congeners that fit better than their distance allows, fragments split with a congener, genes complementing a congener's | yes, untested at r226 |
 | `shape` | 2026-10-06 | how the reads lie on the genes: divergence dispersion, breadth against depth, genes where reads fail, fixed and polymorphic sites | yes, untested at r226 |
 | `neighbourhood` | 2026-10-06 | the database's congeners near the reference (`species_neighbours.tsv`) | yes, untested at r226 |
+| `ancestry` | 0.7.9 | which side the reads take where the reference differs from its nearest congener's | yes, untested at r226 |
 | `priors` | 0.7.5 | what GTDB knows of the species before any read | opt-in (`+priors`) since 0.7.6; in 0.7.5's default |
 
-The default set is `normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood`
-(70 features; without the last three groups 55, before 2026-10-07; without `ref` and `complexity` too 49, before
-2026-10-06). The three groups against false positives have not been trained at GTDB scale: the next build's models are
-the first. A training table of the r226 v15 build or older lacks their columns: train it with `--features
-normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity`, one of v14 or older with
-`--features normalized+adjacency+distance+depth+divergence+unfiltered+ref`. 0.7.6
+The default set is
+`normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry`
+(73 features in 0.7.9; without `ancestry` 70 and without the three groups against false positives 55, both before
+2026-10-07; without `ref` and `complexity` too 49, before 2026-10-06). The four newest groups have not been trained at
+GTDB scale: the next build's models are the first. A training table of the r226 v15 build or older lacks their
+columns: train it with `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity`, one of
+v14 or older with `--features normalized+adjacency+distance+depth+divergence+unfiltered+ref`. 0.7.6
 adds no feature; it changes how the models are trained (below: the priors opt-in, in-silico strains,
 more training depths). 0.6.0a
 shipped one model on absolute counts (genes, k-mers and mates); those columns are still in the dump
@@ -339,6 +341,30 @@ species, so its species have fewer near congeners than in the finished database.
 distance is the median Mash distance of all the marker genes two references have; a run's
 `relative_distance` takes it over the genes with unique k-mers only (genes identical in two congeners
 have none), so for near-identical congeners the table's distance is the smaller one.
+
+## Which side the reads take (`ancestry`, 0.7.9)
+
+The reads of a false positive are mostly a species the database lacks, landing on its nearest congener at
+the same identity as a missed strain's reads on its own species, and nothing in the alignments told them
+apart ([report](claude/2026-10-07-error-read-signatures/README.md)). What does differ is *where* the
+mismatches fall. Where a species' gene copy differs from its nearest congener's copy, the species has its
+derived states (and the congener its own): a strain of the species carries the species' base at those
+sites; a species that branched off the lineage below some of them carries the congener's base there. At
+run time protal compares each hit gene's copy with the nearest congener's copy in the database
+(`species_neighbours.tsv`, nearest first; the first of the three nearest with the gene whose copy pairs
+along their shared 12-mers), keeps the differing positions with the congener's base, and reads each best
+record's base at the sites it covers (`AncestrySites.h`; a few hundred bytes per copy, once per run).
+
+| feature | since | what it measures | importance pe / se / pb / ont | matters for |
+|---|---|---|---|---|
+| `ancestry_sites_per_record` | 0.7.9 | the sites the best records cover, per record | untested | how much the next two can say |
+| `ancestry_agreement` | 0.7.9 | of the covered sites, the share where the read has the reference's base; -1 without a site | untested | a strain near 1, a novel congener at the fraction of the branch it shares |
+| `ancestry_congener_share` | 0.7.9 | the share where the read has the congener's base; -1 without a site | untested | a novel congener's reads, or a congener's spilling over |
+
+A species without a congener in the database within 0.15 (or in a database without the table) has no
+sites: the shares are -1 and the model falls back on the other features. Species with a second genome
+could refine the sites further (a site where the species' own strains vary is no evidence either way); the
+build does not store that yet.
 
 ## The species' priors (`priors`, 0.7.5, opt-in)
 

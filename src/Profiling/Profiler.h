@@ -750,6 +750,12 @@ namespace protal {
             // Mismatches (X) by codon position on the reference, whose genes are coding sequences in frame: all, and
             // those at third positions, which are mostly synonymous (MismatchesByCodonPosition).
             uint64_t mismatches = 0, third_mismatches = 0;
+            // The sites where the taxon's gene copies differ from its nearest congener's (AncestrySites.h) that the
+            // records cover, those where the read has the taxon's base and those where it has the congener's, and the
+            // records covering any: a strain of the taxon carries the taxon's base, a congener that branched off below
+            // some of them the congener's (docs/claude/2026-10-07-error-read-signatures).
+            uint64_t ancestry_sites = 0, ancestry_agree = 0, ancestry_congener = 0;
+            size_t ancestry_records = 0;
             // Mates (MicrobialProfile::PrepareMAPQ): fragments whose two mates both have a record on the taxon, and for
             // each kept record whose mate has none there, the room from the record to the gene's end in the mate's
             // direction (bases, capped at 65535): a mate the fragment would have placed inside the gene is a lost mate
@@ -811,6 +817,10 @@ namespace protal {
                 fast_error_ppm += other.fast_error_ppm;
                 mismatches += other.mismatches;
                 third_mismatches += other.third_mismatches;
+                ancestry_sites += other.ancestry_sites;
+                ancestry_agree += other.ancestry_agree;
+                ancestry_congener += other.ancestry_congener;
+                ancestry_records += other.ancestry_records;
                 mates_linked += other.mates_linked;
                 mate_room.insert(mate_room.end(), other.mate_room.begin(), other.mate_room.end());
                 fragments_all += other.fragments_all;
@@ -1067,6 +1077,9 @@ namespace protal {
             double m_mate_lost_share = 0;  // see MateLostShare
             double m_gene_divergence_dispersion = 1;  // see GeneDivergenceDispersion
             double m_failed_gene_share = 0;  // see FailedGeneShare
+            double m_ancestry_sites_per_record = 0;  // see AncestrySitesPerRecord
+            double m_ancestry_agreement = ancestry::kUnknown;  // see AncestryAgreement
+            double m_ancestry_congener_share = ancestry::kUnknown;  // see AncestryCongenerShare
             // BreadthRatio, FixedDifferenceRate and PolymorphicSiteRate, computed together from the genes' coverage and
             // alleles (SiteRates)
             mutable std::optional<std::array<double, 3>> m_site_rates;
@@ -1354,6 +1367,12 @@ namespace protal {
                 }
                 m_gene_divergence_dispersion = DivergenceDispersion(divergence);
                 m_failed_gene_share = profiler::FailedGeneShare(records.gene_records, records.failed_genes);
+                m_ancestry_sites_per_record = records.records == 0
+                    ? 0 : static_cast<double>(records.ancestry_sites) / static_cast<double>(records.records);
+                m_ancestry_agreement = records.ancestry_sites == 0 ? ancestry::kUnknown
+                    : static_cast<double>(records.ancestry_agree) / static_cast<double>(records.ancestry_sites);
+                m_ancestry_congener_share = records.ancestry_sites == 0 ? ancestry::kUnknown
+                    : static_cast<double>(records.ancestry_congener) / static_cast<double>(records.ancestry_sites);
                 tsl::robin_map<uint32_t, GeneRecords>().swap(m_records.gene_records);
                 tsl::robin_map<uint32_t, uint32_t>().swap(m_records.failed_genes);
             }
@@ -1436,6 +1455,12 @@ namespace protal {
             // See DivergenceDispersion and FailedGeneShare.
             double GeneDivergenceDispersion() const { return m_gene_divergence_dispersion; }
             double FailedGeneShare() const { return m_failed_gene_share; }
+            // The sites where its gene copies differ from its nearest congener's (AncestrySites.h) that its best records
+            // cover, per record; of them the share where the read has the taxon's base, and where it has the congener's
+            // (RecordEvidence::ancestry_*); the shares are kUnknown (-1) without a site.
+            double AncestrySitesPerRecord() const { return m_ancestry_sites_per_record; }
+            double AncestryAgreement() const { return m_ancestry_agreement; }
+            double AncestryCongenerShare() const { return m_ancestry_congener_share; }
 
             // The reference bases its hit genes' kept reads cover over those they would cover if they lay at random
             // (Lander-Waterman, as inStrain's breadth over expected breadth): each gene of length L at depth c (its fragment
@@ -2406,6 +2431,13 @@ namespace protal {
             f.emplace_back("db_congeners_02", taxon.DatabaseCongeners(0.02));
             f.emplace_back("db_congeners_05", taxon.DatabaseCongeners(0.05));
             f.emplace_back("db_nearest_congener", taxon.DatabaseNearestCongener());
+            // Where its reference differs from its nearest congener's (AncestrySites.h): the sites its records cover, per
+            // record, and of them the share where the read has the reference's base and where it has the congener's. A
+            // strain carries the species' derived states; a congener that branched off below some of them carries the
+            // congener's base there (docs/claude/2026-10-07-error-read-signatures). The shares are -1 without a site.
+            f.emplace_back("ancestry_sites_per_record", taxon.AncestrySitesPerRecord());
+            f.emplace_back("ancestry_agreement", taxon.AncestryAgreement());
+            f.emplace_back("ancestry_congener_share", taxon.AncestryCongenerShare());
             return f;
         }
 
@@ -2854,6 +2886,17 @@ namespace protal {
                 auto const [all_mismatches, third] = MismatchesByCodonPosition(sam.m_cigar, static_cast<size_t>(sam.m_pos));
                 e.mismatches += all_mismatches;
                 e.third_mismatches += third;
+                // The sites of the taxon's copy of the gene, from the run's cache once per collector (a chunk's records
+                // hit the same taxa and genes over and over; the shared cache takes a lock per lookup).
+                auto& sites = m_ancestry_sites[(static_cast<uint64_t>(taxid) << 32) | geneid];
+                if (!sites) sites = m_genome_loader->AncestrySitesOf(taxid, geneid);
+                if (!sites->Empty()) {
+                    auto const c = ancestry::Count(*sites, sam.m_cigar, static_cast<size_t>(sam.m_pos), sam.m_seq);
+                    e.ancestry_sites += c.sites;
+                    e.ancestry_agree += c.agree;
+                    e.ancestry_congener += c.congener;
+                    e.ancestry_records += c.sites > 0;
+                }
                 e.settled_by_read += sam.m_settled == 1;
                 e.settled_inconsistent += sam.m_settled == 2;
                 if (sam.m_crowding > 0) {
@@ -3122,6 +3165,9 @@ namespace protal {
             context::AmbiguityClasses m_ambiguity;  // see NoteAmbiguity
             std::vector<uint16_t> m_spans;  // the spans of fragments with both mates on one gene (NoteSpan, MateSpan)
             size_t m_suspect_records = 0;  // records on suspect gene copies, left out (NoteSuspectRecord)
+            // The ancestry sites of the (taxon, gene) pairs this collector's records touched (NoteRecord), from the
+            // run's cache (GenomeLoader::AncestrySitesOf) once each.
+            std::unordered_map<uint64_t, std::shared_ptr<ancestry::Sites const>> m_ancestry_sites;
             std::vector<std::pair<uint32_t, uint32_t>> m_alternatives;  // NoteAmbiguity's scratch
             std::vector<LinkRecord> m_link_records;
             std::vector<uint32_t> m_link_taxa;  // FinishLink's scratch

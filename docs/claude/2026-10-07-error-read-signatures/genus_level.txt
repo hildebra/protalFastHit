@@ -1,0 +1,276 @@
+
+# pe: knob 0.8, 108 features
+
+training rows, species held out: 333 samples, 369803 rows, 64127 present; called 62754: TP 60800, FP 1954, FN 3327, F1 0.9584
+  FP by class: {'absent novel congener': 1701, 'absent near novel': 180, 'absent': 73}; FN by class: {'present strain': 2422, 'present insilico': 504, 'present rep': 401}
+  ceiling, the 1701 novel-congener FP reported at genus level: F1 0.9714 (FP dropped), 0.9722 (counted as right genus calls)
+  genus right if every FP were converted: 0.871
+test rows (design test set + scenario hold-out samples where kept): 90 samples, 169538 rows, 28542 present; called 27767: TP 26932, FP 835, FN 1610, F1 0.9566
+  FP by class: {'absent novel congener': 718, 'absent near novel': 90, 'absent': 27}; FN by class: {'present strain': 1127, 'present insilico': 270, 'present rep': 213}
+  ceiling, the 718 novel-congener FP reported at genus level: F1 0.9689 (FP dropped), 0.9697 (counted as right genus calls)
+  genus right if every FP were converted: 0.860
+
+## A classifier for 'absent novel congener' among the called taxa
+
+called training rows 62754, targets 1701: out-of-fold AUC 0.977, AP 0.605
+training rows out of fold (no conversion: F1 0.9584):
+ threshold  converted present  absent, genus right  absent, genus wrong  F1 (FP dropped)  F1 (genus right counted)
+      0.20                847                 1044                   25           0.9595                    0.9602
+      0.25                654                  948                   18           0.9603                    0.9609
+      0.30                519                  855                   14           0.9607                    0.9612
+      0.35                424                  787                   10           0.9609                    0.9614
+      0.40                346                  726                    8           0.9611                    0.9615
+      0.45                278                  655                    7           0.9611                    0.9615
+      0.50                220                  590                    6           0.9611                    0.9615
+      0.55                172                  525                    4           0.9610                    0.9613
+      0.60                141                  475                    4           0.9609                    0.9611
+      0.65                120                  423                    4           0.9606                    0.9609
+      0.70                 91                  381                    4           0.9605                    0.9608
+      0.75                 65                  328                    2           0.9603                    0.9605
+      0.80                 44                  270                    2           0.9601                    0.9602
+      0.85                 24                  219                    0           0.9598                    0.9600
+      0.90                 12                  177                    0           0.9596                    0.9597
+      0.95                  6                  107                    0           0.9591                    0.9592
+
+test rows: called 27767, targets 718, AUC 0.981, AP 0.637; no conversion F1 0.9566
+  threshold chosen on training rows, FP dropped (0.4): converted present 147, absent genus right 342, wrong 5; F1 0.9598 (FP dropped), 0.9603 (genus right counted)
+  threshold chosen on training rows, genus right counted (0.4): converted present 147, absent genus right 342, wrong 5; F1 0.9598 (FP dropped), 0.9603 (genus right counted)
+  the trade-off on the test rows (not a choice):
+ threshold  converted present  absent, genus right  absent, genus wrong  F1 (FP dropped)  F1 (genus right counted)
+      0.20                401                  471                   15           0.9574                    0.9581
+      0.25                296                  423                   13           0.9585                    0.9591
+      0.30                245                  404                    8           0.9591                    0.9597
+      0.35                190                  371                    6           0.9595                    0.9600
+      0.40                147                  342                    5           0.9598                    0.9603
+      0.45                119                  307                    5           0.9597                    0.9601
+      0.50                 95                  281                    4           0.9597                    0.9601
+      0.55                 79                  254                    4           0.9595                    0.9599
+      0.60                 62                  232                    3           0.9594                    0.9598
+      0.65                 47                  205                    2           0.9592                    0.9595
+      0.70                 41                  177                    0           0.9588                    0.9591
+      0.75                 28                  157                    0           0.9587                    0.9590
+      0.80                 18                  127                    0           0.9584                    0.9586
+      0.85                 10                  105                    0           0.9582                    0.9583
+      0.90                  6                   76                    0           0.9578                    0.9579
+      0.95                  2                   42                    0           0.9573                    0.9573
+
+  top features (permutation importance on training rows):
+expected_gene_presence_unique_weighted    0.0102
+third_position_share                      0.0065
+excess_high_share                         0.0022
+gene_presence_ratio                       0.0022
+cluster_mean_ani                          0.0018
+failed_candidate_rate                     0.0016
+cluster_ani_radius                        0.0016
+excess_median                             0.0015
+rep_completeness                          0.0015
+identity                                  0.0013
+mean_ani                                  0.0013
+rep_contamination                         0.0013
+
+# se: knob 0.5, 108 features
+
+training rows, species held out: 321 samples, 199629 rows, 39646 present; called 40175: TP 38446, FP 1729, FN 1200, F1 0.9633
+  FP by class: {'absent novel congener': 1541, 'absent near novel': 103, 'absent': 85}; FN by class: {'present strain': 929, 'present insilico': 158, 'present rep': 113}
+  ceiling, the 1541 novel-congener FP reported at genus level: F1 0.9823 (FP dropped), 0.9829 (counted as right genus calls)
+  genus right if every FP were converted: 0.891
+test rows (design test set + scenario hold-out samples where kept): 78 samples, 19392 rows, 4473 present; called 4405: TP 4271, FP 134, FN 202, F1 0.9622
+  FP by class: {'absent novel congener': 99, 'absent near novel': 20, 'absent': 15}; FN by class: {'present strain': 134, 'present insilico': 46, 'present rep': 22}
+  ceiling, the 99 novel-congener FP reported at genus level: F1 0.9730 (FP dropped), 0.9736 (counted as right genus calls)
+  genus right if every FP were converted: 0.739
+
+## A classifier for 'absent novel congener' among the called taxa
+
+called training rows 40175, targets 1541: out-of-fold AUC 0.982, AP 0.722
+training rows out of fold (no conversion: F1 0.9633):
+ threshold  converted present  absent, genus right  absent, genus wrong  F1 (FP dropped)  F1 (genus right counted)
+      0.20                763                 1155                   42           0.9680                    0.9689
+      0.25                611                 1087                   35           0.9690                    0.9699
+      0.30                489                 1029                   30           0.9699                    0.9706
+      0.35                399                  977                   28           0.9704                    0.9711
+      0.40                333                  916                   23           0.9704                    0.9711
+      0.45                278                  868                   20           0.9705                    0.9712
+      0.50                229                  811                   18           0.9704                    0.9710
+      0.55                194                  762                   17           0.9703                    0.9708
+      0.60                157                  705                   15           0.9700                    0.9706
+      0.65                136                  656                   13           0.9697                    0.9702
+      0.70                109                  587                   12           0.9692                    0.9696
+      0.75                 84                  529                    8           0.9687                    0.9691
+      0.80                 64                  434                    6           0.9678                    0.9682
+      0.85                 35                  350                    4           0.9671                    0.9674
+      0.90                 16                  270                    4           0.9664                    0.9666
+      0.95                  5                  110                    2           0.9646                    0.9647
+
+test rows: called 4405, targets 99, AUC 0.975, AP 0.556; no conversion F1 0.9622
+  threshold chosen on training rows, FP dropped (0.45): converted present 21, absent genus right 49, wrong 4; F1 0.9655 (FP dropped), 0.9659 (genus right counted)
+  threshold chosen on training rows, genus right counted (0.45): converted present 21, absent genus right 49, wrong 4; F1 0.9655 (FP dropped), 0.9659 (genus right counted)
+  the trade-off on the test rows (not a choice):
+ threshold  converted present  absent, genus right  absent, genus wrong  F1 (FP dropped)  F1 (genus right counted)
+      0.20                 66                   60                    6           0.9616                    0.9621
+      0.25                 57                   59                    6           0.9625                    0.9630
+      0.30                 45                   56                    5           0.9635                    0.9640
+      0.35                 39                   55                    5           0.9641                    0.9646
+      0.40                 32                   53                    4           0.9646                    0.9650
+      0.45                 21                   49                    4           0.9655                    0.9659
+      0.50                 18                   46                    4           0.9655                    0.9659
+      0.55                 16                   40                    3           0.9650                    0.9653
+      0.60                 14                   35                    3           0.9646                    0.9649
+      0.65                 12                   30                    2           0.9642                    0.9645
+      0.70                  9                   26                    2           0.9641                    0.9644
+      0.75                  6                   21                    2           0.9640                    0.9641
+      0.80                  5                   20                    1           0.9638                    0.9640
+      0.85                  4                   16                    1           0.9635                    0.9637
+      0.90                  2                   12                    1           0.9633                    0.9634
+      0.95                  0                    5                    1           0.9628                    0.9628
+
+  top features (permutation importance on training rows):
+third_position_share                      0.0033
+excess_scaled_median                      0.0019
+identity                                  0.0018
+cluster_min_ani                           0.0008
+cluster_mean_ani                          0.0007
+failed_candidate_rate                     0.0006
+rep_completeness                          0.0005
+lsu_genome                                0.0004
+lu_rate_ref                               0.0004
+RA2                                       0.0004
+su_genome                                 0.0004
+expected_gene_presence_unique_weighted    0.0003
+
+# pb: knob 0.5, 108 features
+
+training rows, species held out: 209 samples, 103627 rows, 46908 present; called 46682: TP 44905, FP 1777, FN 2003, F1 0.9596
+  FP by class: {'absent novel congener': 1530, 'absent near novel': 173, 'absent': 74}; FN by class: {'present strain': 1552, 'present insilico': 290, 'present rep': 161}
+  ceiling, the 1530 novel-congener FP reported at genus level: F1 0.9756 (FP dropped), 0.9763 (counted as right genus calls)
+  genus right if every FP were converted: 0.861
+test rows (design test set + scenario hold-out samples where kept): 41 samples, 3758 rows, 2099 present; called 2087: TP 2048, FP 39, FN 51, F1 0.9785
+  FP by class: {'absent novel congener': 33, 'absent near novel': 4, 'absent': 2}; FN by class: {'present strain': 39, 'present insilico': 9, 'present rep': 3}
+  ceiling, the 33 novel-congener FP reported at genus level: F1 0.9863 (FP dropped), 0.9865 (counted as right genus calls)
+  genus right if every FP were converted: 0.846
+
+## A classifier for 'absent novel congener' among the called taxa
+
+called training rows 46682, targets 1530: out-of-fold AUC 0.970, AP 0.611
+training rows out of fold (no conversion: F1 0.9596):
+ threshold  converted present  absent, genus right  absent, genus wrong  F1 (FP dropped)  F1 (genus right counted)
+      0.20                820                  953                   23           0.9605                    0.9613
+      0.25                639                  864                   15           0.9616                    0.9623
+      0.30                481                  777                   13           0.9624                    0.9630
+      0.35                387                  712                   13           0.9628                    0.9633
+      0.40                297                  657                   10           0.9632                    0.9637
+      0.45                230                  590                    7           0.9632                    0.9637
+      0.50                176                  528                    6           0.9632                    0.9636
+      0.55                136                  464                    5           0.9629                    0.9633
+      0.60                103                  413                    5           0.9628                    0.9631
+      0.65                 74                  372                    5           0.9627                    0.9630
+      0.70                 49                  324                    4           0.9624                    0.9627
+      0.75                 33                  277                    1           0.9621                    0.9623
+      0.80                 24                  226                    1           0.9617                    0.9619
+      0.85                 17                  180                    1           0.9613                    0.9614
+      0.90                  6                  128                    0           0.9609                    0.9610
+      0.95                  1                   65                    0           0.9603                    0.9603
+
+test rows: called 2087, targets 33, AUC 0.987, AP 0.654; no conversion F1 0.9785
+  threshold chosen on training rows, FP dropped (0.4): converted present 5, absent genus right 14, wrong 0; F1 0.9806 (FP dropped), 0.9807 (genus right counted)
+  threshold chosen on training rows, genus right counted (0.4): converted present 5, absent genus right 14, wrong 0; F1 0.9806 (FP dropped), 0.9807 (genus right counted)
+  the trade-off on the test rows (not a choice):
+ threshold  converted present  absent, genus right  absent, genus wrong  F1 (FP dropped)  F1 (genus right counted)
+      0.20                 12                   20                    0           0.9803                    0.9804
+      0.25                  9                   17                    0           0.9803                    0.9804
+      0.30                  8                   15                    0           0.9801                    0.9802
+      0.35                  5                   15                    0           0.9808                    0.9809
+      0.40                  5                   14                    0           0.9806                    0.9807
+      0.45                  4                   11                    0           0.9801                    0.9802
+      0.50                  4                   11                    0           0.9801                    0.9802
+      0.55                  2                    9                    0           0.9801                    0.9802
+      0.60                  1                    8                    0           0.9801                    0.9802
+      0.65                  0                    8                    0           0.9804                    0.9804
+      0.70                  0                    7                    0           0.9801                    0.9802
+      0.75                  0                    6                    0           0.9799                    0.9800
+      0.80                  0                    6                    0           0.9799                    0.9800
+      0.85                  0                    4                    0           0.9794                    0.9795
+      0.90                  0                    2                    0           0.9790                    0.9790
+      0.95                  0                    1                    0           0.9787                    0.9787
+
+  top features (permutation importance on training rows):
+excess_scaled_median     0.0041
+identity                 0.0032
+cluster_min_ani          0.0027
+failed_candidate_rate    0.0025
+mean_ani                 0.0022
+third_position_share     0.0017
+cluster_mean_ani         0.0013
+rep_contamination        0.0010
+lsu                      0.0010
+cluster_ani_radius       0.0010
+hittable                 0.0009
+rep_completeness         0.0009
+
+# ont: knob 0.5, 108 features
+
+training rows, species held out: 210 samples, 122904 rows, 47938 present; called 48002: TP 45780, FP 2222, FN 2158, F1 0.9543
+  FP by class: {'absent novel congener': 1930, 'absent near novel': 211, 'absent': 81}; FN by class: {'present strain': 1549, 'present insilico': 330, 'present rep': 279}
+  ceiling, the 1930 novel-congener FP reported at genus level: F1 0.9739 (FP dropped), 0.9750 (counted as right genus calls)
+  genus right if every FP were converted: 0.869
+test rows (design test set + scenario hold-out samples where kept): 54 samples, 59385 rows, 22690 present; called 22537: TP 21514, FP 1023, FN 1176, F1 0.9514
+  FP by class: {'absent novel congener': 894, 'absent near novel': 92, 'absent': 37}; FN by class: {'present strain': 822, 'present insilico': 193, 'present rep': 161}
+  ceiling, the 894 novel-congener FP reported at genus level: F1 0.9706 (FP dropped), 0.9717 (counted as right genus calls)
+  genus right if every FP were converted: 0.874
+
+## A classifier for 'absent novel congener' among the called taxa
+
+called training rows 48002, targets 1930: out-of-fold AUC 0.964, AP 0.595
+training rows out of fold (no conversion: F1 0.9543):
+ threshold  converted present  absent, genus right  absent, genus wrong  F1 (FP dropped)  F1 (genus right counted)
+      0.20               1114                 1211                   29           0.9545                    0.9557
+      0.25                836                 1102                   23           0.9565                    0.9575
+      0.30                673                  994                   20           0.9571                    0.9580
+      0.35                524                  909                   19           0.9579                    0.9587
+      0.40                411                  823                   16           0.9583                    0.9590
+      0.45                322                  733                   13           0.9583                    0.9589
+      0.50                247                  639                    9           0.9581                    0.9587
+      0.55                183                  561                    6           0.9580                    0.9585
+      0.60                133                  492                    6           0.9579                    0.9583
+      0.65                 97                  406                    5           0.9574                    0.9578
+      0.70                 64                  337                    4           0.9571                    0.9574
+      0.75                 43                  272                    2           0.9566                    0.9569
+      0.80                 24                  206                    2           0.9562                    0.9563
+      0.85                 13                  145                    2           0.9557                    0.9558
+      0.90                  4                   88                    1           0.9552                    0.9553
+      0.95                  1                   31                    0           0.9546                    0.9547
+
+test rows: called 22537, targets 894, AUC 0.967, AP 0.600; no conversion F1 0.9514
+  threshold chosen on training rows, FP dropped (0.4): converted present 207, absent genus right 392, wrong 5; F1 0.9550 (FP dropped), 0.9558 (genus right counted)
+  threshold chosen on training rows, genus right counted (0.4): converted present 207, absent genus right 392, wrong 5; F1 0.9550 (FP dropped), 0.9558 (genus right counted)
+  the trade-off on the test rows (not a choice):
+ threshold  converted present  absent, genus right  absent, genus wrong  F1 (FP dropped)  F1 (genus right counted)
+      0.20                541                  575                    6           0.9510                    0.9523
+      0.25                423                  518                    6           0.9526                    0.9537
+      0.30                343                  477                    5           0.9536                    0.9546
+      0.35                274                  433                    5           0.9543                    0.9552
+      0.40                207                  392                    5           0.9550                    0.9558
+      0.45                169                  353                    5           0.9550                    0.9557
+      0.50                128                  311                    4           0.9551                    0.9557
+      0.55                 91                  273                    3           0.9551                    0.9556
+      0.60                 68                  237                    1           0.9548                    0.9553
+      0.65                 53                  209                    0           0.9546                    0.9550
+      0.70                 36                  175                    0           0.9542                    0.9546
+      0.75                 29                  140                    0           0.9537                    0.9539
+      0.80                 25                  115                    0           0.9532                    0.9535
+      0.85                 12                   91                    0           0.9530                    0.9532
+      0.90                  4                   53                    0           0.9524                    0.9525
+      0.95                  1                   30                    0           0.9520                    0.9521
+
+  top features (permutation importance on training rows):
+third_position_share                      0.0112
+expected_gene_presence_unique_weighted    0.0027
+cluster_ani_radius                        0.0019
+failed_candidate_rate                     0.0017
+hittable                                  0.0014
+su_rate_ref                               0.0014
+total_genome                              0.0013
+genus_share                               0.0013
+cluster_mean_ani                          0.0012
+rep_contamination                         0.0011
+adjacent_support                          0.0010
+lu                                        0.0010

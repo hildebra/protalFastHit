@@ -42,7 +42,8 @@ add_executable(protal_tests
         test_SharedSeeds.cpp
         test_GoldenModelRules.cpp
         test_GeneConservation.cpp
-        test_ModelFeatures.cpp)
+        test_ModelFeatures.cpp
+        test_AncestrySites.cpp)
 target_compile_options(protal_tests PRIVATE ${PROTAL_COMMON_COMPILE_OPTIONS})
 # tests/data (golden_model_rules.tsv), wherever the tests run from; on that file alone, so the others' compile commands
 # (and their compiler cache entries) stay as they were.

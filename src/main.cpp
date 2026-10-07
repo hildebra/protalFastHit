@@ -1,4 +1,4 @@
-// protal 0.7.8. In 0.7 (since 0.6.0a):
+// protal 0.7.9. In 0.7 (since 0.6.0a):
 // - Reads: single-end (se), PacBio (pb) and ONT (ont) reads besides paired-end, each profiled with
 //   its own model (--read_type, or a map's READ_TYPE); long reads are aligned per gene, and reads
 //   over 65 kb in chunks. Pipes, gzip, BGZF and FASTA input; unusable inputs fail their sample.
@@ -65,6 +65,18 @@
 //   Training: gradient-boosted models by default (--model gbm, 250 rounds, folds fitted side by side), the
 //   reference's k-mer uniqueness as a feature, scenario samples at depths of their own, the default feature set
 //   and --evaluation basic as the build's defaults.
+// In 0.7.9: against the false positives of complex communities, where most are a species the database lacks
+//   landing on its nearest congener at a strain's identity: the reads' consistency, the shape of their genes and the
+//   database's neighbourhood as default features; the sample's complexity; and the ancestry sites (AncestrySites.h):
+//   where a species' gene copy differs from its nearest congener's, whether each read carries the species' base or
+//   the congener's (a strain the former, a congener that branched off below the latter), from the gene store and
+//   species_neighbours.tsv at run time. Strains: a cohort's MSA rows packed (159 -> 37 MB per dense sample), strain
+//   evidence spilled to disk (--strain_spill), MSAs over several runs (--profile_only patterns, merging runs). Builds:
+//   the reads behind every model error kept (--error-reads, --share-logs: their SAMs, the ancestry report and one
+//   archive), the in-silico strains' dN/dS calibrated on real strains, scenarios of varied richness and depth with the
+//   knob chosen by bootstrap; simulate_metagenomes makes Illumina, Ultima and long reads itself (no ART or pbsim3)
+//   and streams large samples into protal; resume, suspect copies and the index straight into database.protal in
+//   --build; every test suite in CI.
 #include <iostream>
 #include "RunProtal.h"
 

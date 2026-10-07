@@ -218,13 +218,18 @@ CONSISTENCY_FEATURES = ["read_consensus_share", "read_inconsistent_share", "seed
 SHAPE_FEATURES = ["gene_divergence_dispersion", "breadth_ratio", "failed_gene_share", "fixed_difference_rate",
                   "polymorphic_site_rate"]
 NEIGHBOURHOOD_FEATURES = ["db_congeners_01", "db_congeners_02", "db_congeners_05", "db_nearest_congener"]
+# Which side the reads take where the reference differs from its nearest congener's (AncestrySites.h, 0.7.9): a
+# strain of the species carries the species' base at those sites, a congener that branched off below some of them the
+# congener's; the one place in the reads where a missed strain and a novel congener at the same identity differ
+# (docs/claude/2026-10-07-error-read-signatures). -1 without a site (no species neighbours, or no congener with the gene).
+ANCESTRY_FEATURES = ["ancestry_sites_per_record", "ancestry_agreement", "ancestry_congener_share"]
 
 # The groups a set's name may join with "+", in the order they are listed.
 FEATURE_GROUPS = {"normalized": NORMALIZED_FEATURES, "adjacency": ADJACENCY_FEATURES, "relatives": RELATIVE_FEATURES,
                   "distance": DISTANCE_FEATURES, "depth": SAMPLE_FEATURES, "divergence": DIVERGENCE_FEATURES,
                   "unfiltered": UNFILTERED_FEATURES, "ref": REF_FEATURES, "complexity": COMPLEXITY_FEATURES,
                   "consistency": CONSISTENCY_FEATURES, "shape": SHAPE_FEATURES, "neighbourhood": NEIGHBOURHOOD_FEATURES,
-                  "priors": PRIORS_FEATURES}
+                  "ancestry": ANCESTRY_FEATURES, "priors": PRIORS_FEATURES}
 
 # The sets worth naming (--features takes any groups joined by "+", and "all").
 FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+relatives", "normalized+adjacency+distance",
@@ -235,6 +240,7 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood",
+                "normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+neighbourhood+ancestry",
                 "normalized+adjacency+distance+divergence+unfiltered+priors",
                 "normalized+adjacency+distance+depth+divergence+unfiltered+priors",
                 "normalized+adjacency+relatives+depth+divergence+unfiltered+priors", "all")
@@ -242,9 +248,10 @@ FEATURE_SETS = ("normalized", "normalized+adjacency", "normalized+adjacency+rela
 # alone, a rule that a divergent read cloud on a one-genome species is a relative the database lacks, which the
 # simulation cannot test (a one-genome species has no strain to simulate from) and which rejects the strains of
 # single-MAG species that dominate environments GTDB has sampled sparsely (docs/claude/2026-10-03-r226-v9-evaluation).
-# consistency, shape and neighbourhood are in it untested at r226: the next build's training says what they are worth.
+# consistency, shape, neighbourhood and ancestry are in it untested at r226: the next build's training says what they are
+# worth.
 DEFAULT_FEATURE_SET = ("normalized+adjacency+distance+depth+divergence+unfiltered+ref+complexity+consistency+shape+"
-                       "neighbourhood")
+                       "neighbourhood+ancestry")
 # --features auto: the trainer scores each of these sets with species held out and keeps the best, the default unless
 # another beats it by AUTO_MIN_GAIN of F1 at the knob (machine_learning_cmdline.choose_feature_set). Without the priors
 # (above) and "all"; auto+priors adds the sets with the priors.
