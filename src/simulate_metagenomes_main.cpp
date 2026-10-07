@@ -133,6 +133,7 @@ struct CliOptions {
     std::vector<std::uint64_t> total_read_pairs_per_sample;  // --total_read_pairs with several values: the samples' in turn
     std::size_t species_per_sample{10};
     std::size_t species_per_sample_min{0};
+    std::vector<std::size_t> species_per_sample_list;  // --species_per_sample with several values: the samples' in turn
     AbundanceDistribution distribution{AbundanceDistribution::PoissonLognormal};
     double alpha{2.0};
     int nb_r{5};
@@ -241,7 +242,7 @@ static cxxopts::Options build_cxxopts() {
         ("n,samples",           "Number of metagenome samples", cxxopts::value<std::size_t>()->default_value("1"))
         ("sample_prefix",       "Prefix for sample names", cxxopts::value<std::string>()->default_value("sample"))
         ("total_read_pairs",    "Read pairs per sample; several comma-separated values are given to the samples in turn (sample 1 the first, sample 2 the second, ...), so that one run's samples differ in depth", cxxopts::value<std::string>()->default_value("100000"))
-        ("species_per_sample",  "Number of species per sample, or an inclusive range e.g. 20-80", cxxopts::value<std::string>()->default_value("10"))
+        ("species_per_sample",  "Number of species per sample; an inclusive range e.g. 20-80 (each sample's drawn from it); or several comma-separated numbers, given to the samples in turn (as --total_read_pairs)", cxxopts::value<std::string>()->default_value("10"))
         ("distribution",        "Abundance model: power_law | negative_binomial | poisson_lognormal", cxxopts::value<std::string>()->default_value("poisson_lognormal"))
         ("alpha",               "Power law alpha", cxxopts::value<double>()->default_value("2.0"))
         ("nb_r",                "Negative binomial r", cxxopts::value<int>()->default_value("5"))
@@ -409,7 +410,21 @@ static CliOptions parse_cli(int argc, char** argv) {
     {
         const std::string sps_arg = result["species_per_sample"].as<std::string>();
         const auto dash = sps_arg.find('-');
-        if (dash != std::string::npos) {
+        if (sps_arg.find(',') != std::string::npos) {
+            std::stringstream ss(sps_arg);
+            std::string item;
+            while (std::getline(ss, item, ',')) {
+                std::size_t used = 0;
+                const unsigned long long count = item.empty() ? 0 : std::stoull(item, &used);
+                if (item.empty() || used != item.size() || count == 0) {
+                    throw std::runtime_error("--species_per_sample takes N, MIN-MAX or positive whole numbers, "
+                                             "comma-separated: " + sps_arg);
+                }
+                opts.species_per_sample_list.push_back(count);
+            }
+            opts.species_per_sample = *std::max_element(opts.species_per_sample_list.begin(),
+                                                        opts.species_per_sample_list.end());
+        } else if (dash != std::string::npos) {
             opts.species_per_sample_min = std::stoull(sps_arg.substr(0, dash));
             opts.species_per_sample     = std::stoull(sps_arg.substr(dash + 1));
             if (opts.species_per_sample_min > opts.species_per_sample) {
@@ -547,6 +562,7 @@ static std::vector<protal::sim::SampleOutput> design_and_simulate(
     ProfileDesignOptions profile{};
     profile.species_per_sample     = cli.species_per_sample;
     profile.species_per_sample_min = cli.species_per_sample_min;
+    profile.species_per_sample_list = cli.species_per_sample_list;
     profile.distribution = cli.distribution;
     profile.powerlaw_alpha = cli.alpha;
     profile.negative_binomial_r = cli.nb_r;

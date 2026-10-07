@@ -191,10 +191,12 @@ def parse_args(argv=None):
                                       "species was simulated from its representative genome (the database's "
                                       "reference, 1) or from another strain (0)")
     p.add_argument("--scenarios", default="",
-                   help="scenarios to collect besides the design, NAME[:SAMPLES] comma-separated (gut, soil, soil_shallow, "
-                        "host, those of --scenario_file; all: every one), each with --scenario_samples samples unless it "
-                        "gives its own (scenarios.py); a sample's depth is drawn around its scenario's (depth_spread)")
-    p.add_argument("--scenario_samples", type=int, default=6, help="samples per scenario (default 6)")
+                   help="scenarios to collect besides the design, NAME[:SAMPLES] comma-separated (gut, moderate, soil, "
+                        "soil_shallow, host, those of --scenario_file; all: every one), each with --scenario_samples "
+                        "samples unless it "
+                        "gives its own (scenarios.py); a sample's depth is drawn around its scenario's (depth_range), "
+                        "its species count from the scenario's range")
+    p.add_argument("--scenario_samples", type=int, default=10, help="samples per scenario (default 10; 6 before 2026-10-07)")
     p.add_argument("--scenario_file", help="JSON of scenarios by name, which add to or change the presets")
     p.add_argument("--host_genome", help="FASTA (gzipped or not) of the host genome of scenarios with a host share, "
                                          "e.g. the human genome download_gtdb.py fetches")
@@ -681,7 +683,7 @@ def scenario_units(opts):
         if not reads:
             continue
         pe, host = reads.get("pe"), d["host_share"]
-        factors = scenarios.depth_factors(opts.seed, name, samples, d["depth_spread"])
+        factors = scenarios.depth_factors(opts.seed, name, samples, d["depth_range"])
         varied = any(f != 1 for f in factors)
         common = {"samples": samples, "depth_index": None, "scenario": name, "definition": d}
         if pe:
@@ -866,15 +868,17 @@ def scenario_command(point, opts, threads):
     """The simulator's command for a scenario's community point (scenario_units): its own genome table, species,
     abundances, strains, congeners and seed; the community's part of each sample's read pairs (a list, one per
     sample, when they differ: scenario_units) and its host's after them (--host_pairs), at the scenario's mean base
-    quality (--mean_quality); no
+    quality (--mean_quality); each sample's species count (scenarios.species_counts, a list when they differ); no
     reads (--test) for a point only of communities."""
     d = point["definition"]
     _, sim, profiles = point_dirs(point, opts)
     table = point_table(point, opts)
     pairs = ",".join(map(str, point["community_pairs_of"])) if point.get("community_pairs_of") else point["community_pairs"]
+    counts = scenarios.species_counts(opts.seed, point["scenario"], point["samples"], d["species"])
     command = [opts.simulator, "--genome_table", table, "-o", sim, "-n", str(point["samples"]),
                "--sample_prefix", point["name"] + "_s", "--total_read_pairs", pairs,
-               "--species_per_sample", d["species"], "--read_length", point["read_length"],
+               "--species_per_sample", ",".join(map(str, counts)) if counts else d["species"],
+               "--read_length", point["read_length"],
                *illumina_args(point["sequencer"], point.get("quality")), "--fragment_mean", point["fragment_mean"],
                "--fragment_stdev", point["fragment_sd"], "--seed", str(scenarios.seed_of(opts.seed, point["scenario"])),
                "-t", str(threads), "--protal_metafile", profiles, *abundance_args(d["abundance"]),
@@ -1531,9 +1535,12 @@ def prepare_scenarios(points, units, opts, novel):
             note += f"; Illumina reads at Q{point['quality']:g} ({point['sequencer']}, --mean_quality)"
         if d["host_share"] > 0:
             note += f"; {d['host_share']:.0%} of the reads from the host"
-        factors = scenarios.depth_factors(opts.seed, name, point["samples"], d["depth_spread"])
+        factors = scenarios.depth_factors(opts.seed, name, point["samples"], d["depth_range"])
         if any(f != 1 for f in factors):
             note += "; its samples at " + ", ".join(f"{f:.2f}" for f in factors) + " times its depths"
+        counts = scenarios.species_counts(opts.seed, name, point["samples"], d["species"])
+        if counts:
+            note += "; of " + ", ".join(map(str, counts)) + " species"
         print(f"scenario {name} ({point['samples']} samples): {note}", flush=True)
     if any(p["definition"]["host_share"] > 0 for p in scenario_points):
         named = ", ".join(sorted({p["scenario"] for p in scenario_points if p["definition"]["host_share"] > 0}))

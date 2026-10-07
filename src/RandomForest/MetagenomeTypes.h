@@ -54,6 +54,9 @@ struct ProfileDesignOptions {
                                                              // differ in depth (ReadPairsForSample)
     std::size_t species_per_sample{10};
     std::size_t species_per_sample_min{0};  // if > 0, count is drawn uniformly from [min, species_per_sample] per sample
+    std::vector<std::size_t> species_per_sample_list;  // if not empty: the samples' species counts in turn (sample i
+                                                       // gets the i-th, cyclically), in place of the range: a caller
+                                                       // that spreads them itself (collect_training_data.py's scenarios)
     AbundanceDistribution distribution{AbundanceDistribution::PoissonLognormal};
     double powerlaw_alpha{2.0};
     int negative_binomial_r{5};

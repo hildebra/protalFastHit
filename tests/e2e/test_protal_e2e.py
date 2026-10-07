@@ -3489,6 +3489,29 @@ class SimulatorTest(WorkDir):
         # The four species drawn at random are d__A 4 times in 34, so about 2.5 d__A per sample, not 6.
         self.assertLess(sum(f.count("d__A") for f in domains.values()) / len(domains), 3.5)
 
+    def test_species_counts_in_turn(self):
+        # --species_per_sample 2,5,3: the samples' species counts in turn, cyclically (collect_training_data.py spreads
+        # a scenario's richness over its samples itself); a count of 0 is refused.
+        with open(self.path("count_genomes.tsv"), "w") as table:
+            for sp in range(8):
+                fasta = self.path(f"n{sp}.fa")
+                with open(fasta, "w") as fh:
+                    fh.write(">c1\n" + "".join("ACGT"[(i * 7 + sp) % 4] for i in range(3000)) + "\n")
+                table.write(f"n{sp}\td__B;p__P;c__C;o__O;f__F;g__G;s__G n{sp}\t{fasta}\n")
+        rc, log = run(self.work, "--genome_table", "count_genomes.tsv", "--test", "--seed", "1", "--samples", "4",
+                      "--total_read_pairs", "1000", "--species_per_sample", "2,5,3", "--output_dir", "sim_counts",
+                      binary=SIMULATE, timeout=60)
+        self.assertEqual(rc, 0, log)
+        species = {}
+        for row in read_dicts(self.path("sim_counts", "manifest.tsv")):
+            species.setdefault(row["sample"], set()).add(row["taxonomy"])
+        self.assertEqual([len(species[s]) for s in sorted(species, key=lambda s: int(s.rsplit("_", 1)[1]))], [2, 5, 3, 2])
+        rc, log = run(self.work, "--genome_table", "count_genomes.tsv", "--test", "--seed", "1", "--samples", "2",
+                      "--total_read_pairs", "1000", "--species_per_sample", "2,0", "--output_dir", "sim_zero",
+                      binary=SIMULATE, timeout=60)
+        self.assertNotEqual(rc, 0, log)
+        self.assertIn("--species_per_sample takes", log)
+
     def test_samples_on_threads_are_the_same(self):
         # -t: samples written side by side (their designs and the reads' seeds drawn first, in order), each sample's
         # reads made in process (IlluminaSimulator) and BGZF-compressed in the genomes' order: the same files byte for

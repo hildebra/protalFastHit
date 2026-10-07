@@ -476,21 +476,27 @@ mixed strains, another seed (`--test-*` options; `--test-samples 0` skips it).
 #### Scenarios: kinds of studies
 
 The design spans depths, community sizes and read setups so that one model learns them all; it does
-not say how a model does on one kind of study. So every build also simulates samples of four such
+not say how a model does on one kind of study. So every build also simulates samples of five such
 kinds (`scripts/scenarios.py`; `--scenarios` picks others, `none` leaves them out): each scenario's
-hold-in samples (`--scenario-samples`, 6) join the training data and inform the models as the
-design's samples do, at a quarter of their weight (`--scenario-weight` 0.25), its hold-out samples
-(`--scenario-test-samples`, 3, another seed) the test set, and each read type's report scores both
+hold-in samples (`--scenario-samples`, 10; 6 before 2026-10-07) join the training data and inform the
+models as the design's samples do, at a quarter of their weight (`--scenario-weight` 0.25), its
+hold-out samples (`--scenario-test-samples`, 4, another seed) the test set, and each read type's report scores both
 (section "Scenarios"; `summary.txt` has a row per scenario and set). A scenario is a community
 sequenced by several technologies at the same bases, each technology reading the same communities,
 each sample at a depth of its own around the scenario's (below):
 
 | Scenario | Community | Reads |
 |---|---|---|
-| `gut` | 350-450 species, 5% lacking from the database, lognormal abundances (sigma 1.5 and 2.0) | Illumina PE 150 bp at Q35, 20M pairs; PacBio HiFi and Nanopore at 6 Gb |
-| `soil` | 9,000-11,000 species, 60% lacking | Ultima Genomics SE 300 bp at Q25, 20M reads; Illumina PE 150 Q35 at 20M pairs; PacBio and Nanopore at 6 Gb |
-| `soil_shallow` | the soil communities | Illumina PE 150 Q35 at 5M pairs; PacBio and Nanopore at 1.5 Gb |
+| `gut` | 150-1,000 species, 5% lacking from the database | Illumina PE 150 bp at Q35, 20M pairs; PacBio HiFi and Nanopore at 6 Gb |
+| `moderate` | 1,000-5,000 species, 30% lacking (freshwater, marine, sludge) | Illumina PE 150 Q35 at 10M pairs; Ultima at 10M reads; PacBio and Nanopore at 3 Gb |
+| `soil` | 3,000-11,000 species, 60% lacking | Ultima Genomics SE 300 bp at Q25, 20M reads; Illumina PE 150 Q35 at 20M pairs; PacBio and Nanopore at 6 Gb |
+| `soil_shallow` | soil communities (3,000-11,000 species, 60% lacking) | Illumina PE 150 Q35 at 5M pairs; PacBio and Nanopore at 1.5 Gb |
 | `host` | 90% of the reads human, 2-50 species of power-law abundances (alpha 1: rank-abundance slope -1 on log-log axes), 5% lacking | Illumina PE 150 Q35 at 10M pairs; Ultima at 10M reads; PacBio and Nanopore at 3 Gb |
+
+All but `host` have lognormal abundances of sigma 1.0, 1.5, 2.0 and 2.5, the samples' in turn (sigma
+1.5 and 2.0 before 2026-10-07, when gut had 350-450 species, soil 9,000-11,000 and there was no
+`moderate`: no training sample lay between the design's samples, at most ~4,600 taxa with reads, and
+the soils', 9,800 and more; [report](claude/2026-10-07-r226-v15/README.md)).
 
 `--scenarios gut,host` picks some (`all`, the default: every one, `gut:5`: 5 hold-in samples of one);
 `--scenario-file` (JSON of scenarios by name) adds scenarios or changes a preset's fields, e.g.
@@ -500,21 +506,28 @@ read type with its `depth` (read pairs, reads, or bases for long reads): `pe` wi
 `profile`, `fragment_mean`, `fragment_sd` and `quality` (the mean base quality), `se` with an Ultima
 `setup` (`ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD`, default `ultima:300:40:25:2`), `pb` and `ont` with
 an optional `setup` (the build's `--pb-setup` and `--ont-setup` by default); and optionally
-`depth_spread` (2; below).
+`depth_range` (`LOW-HIGH`, default `0.125-2`) or `depth_spread` (S: 1/S to S), not both (below).
 
 How the parts are made:
-- **The depths.** Each sample's depth is the scenario's times a factor from 1/`depth_spread` to
-  `depth_spread` (by default from half to twice it), log-uniform and stratified so that a few samples
+- **The depths.** Each sample's depth is the scenario's times a factor from `depth_range`'s LOW to
+  HIGH (by default from 1/8 to twice it: soil 2.5M to 40M pairs, shallow soil 0.6M to 10M; from half to
+  twice it before 2026-10-07), log-uniform and stratified so that a few samples
   still spread over the range, drawn from the build's seed (the hold-out samples, of another seed,
   fall between the hold-in ones). Sample s of every technology has the same factor, so the
   technologies still read the same communities at the same bases; `meta_read_pairs` in the tables is
-  the scenario's depth, and the collection's log lists each sample's factor (`scenario soil (6
-  samples): ...; its samples at 1.62, 0.55, ... times its depths`). Before 2026-10-06 every sample of a
-  scenario had its depth, so the sample's depth feature told a scenario's few samples apart: a model
-  could learn each training sample's own offset, which cross-validation by species does not see, and
-  gradient boosting fell from 0.937 on the shallow-soil training samples to 0.881 on the hold-out ones
-  ([report](claude/2026-10-06-r226-v13-soil/README.md)). `depth_spread` 1 gives every sample the
-  scenario's depth.
+  the scenario's depth, and the collection's log lists each sample's factor and species (`scenario soil
+  (10 samples): ...; its samples at 1.62, 0.15, ... times its depths; of 4211, 9873, ... species`).
+  Before 2026-10-06 every sample of a scenario had its depth, so the sample's depth feature told a
+  scenario's few samples apart: a model could learn each training sample's own offset, which
+  cross-validation by species does not see, and gradient boosting fell from 0.937 on the shallow-soil
+  training samples to 0.881 on the hold-out ones ([report](claude/2026-10-06-r226-v13-soil/README.md)).
+  From half to twice the depth a scenario's samples were still a narrow cluster, and the one at its edge
+  was scored like the design's samples ([report](claude/2026-10-07-r226-v15/README.md)); below 1x the
+  samples are cheaper, so ten samples at 1/8-2x cost about what six at 0.5-2x did. `depth_spread` 1
+  gives every sample the scenario's depth.
+- **The species per sample.** Each sample's count is drawn the same way from the scenario's MIN to MAX
+  (log-uniform, stratified), from a random stream of its own, so that a community's size does not
+  follow its depth (`simulate_metagenomes --species_per_sample N1,N2,...`).
 - **The share the database lacks.** A scenario draws its species from a genome table of its own
   (`scenarios/<name>/genomes.tsv` beside the samples): every species of the build's table on the side
   of the split (held out or not) that is short of the share, and a random part of the other side, so
@@ -690,8 +703,8 @@ keeps the finished database.
 | `--pb-setup`, `--ont-setup`, `--pbsim`, `--pbsim-models` | | how long reads are made ([above](#one-model-per-read-type)) |
 | `--test-samples` | 4 | test-set samples per design point; 0 for none |
 | `--test-read-pairs`, `--test-species-per-sample`, `--test-abundance`, `--test-strains-per-species`, `--test-long-read-bases`, `--test-long-read-samples` | `500,...,5000000:2`, `10-300`, `lognormal:2.0`, `0.5,0.2`, 150 kb to 3 Gb, 8 | the test set's design |
-| `--scenarios`, `--scenario-file` | `all` | kinds of studies to train on and score ([above](#scenarios-kinds-of-studies)): `gut`, `soil`, `soil_shallow`, `host`, `all`, `NAME:N`, `none`; JSON of more or changed ones |
-| `--scenario-samples`, `--scenario-test-samples` | 6, 3 | each scenario's hold-in samples (training data; 0: scored, not trained on) and hold-out samples (test set); 3 and 2 before 2026-10-06 |
+| `--scenarios`, `--scenario-file` | `all` | kinds of studies to train on and score ([above](#scenarios-kinds-of-studies)): `gut`, `moderate`, `soil`, `soil_shallow`, `host`, `all`, `NAME:N`, `none`; JSON of more or changed ones |
+| `--scenario-samples`, `--scenario-test-samples` | 10, 4 | each scenario's hold-in samples (training data; 0: scored, not trained on) and hold-out samples (test set); 6 and 3 before 2026-10-07, 3 and 2 before 2026-10-06 |
 | `--scenario-weight` | 0.25 | the weight of the scenarios' hold-in rows in the models, the design's 1 |
 | `--host-genome` | the download's | the host genome of scenarios with host reads |
 | `--error-reads` | `all` | the samples whose SAMs keep the non-hits, and whose reads behind each model's false positives and false negatives `model_logs/error_reads/` follows ([above](#the-reads-behind-the-errors)): `all`, `none`, or `READ_TYPE`, `READ_TYPE:design`, `READ_TYPE:SCENARIO` |

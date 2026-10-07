@@ -199,7 +199,7 @@ protal --db DB --map sims/protal.meta -t 8      # prints true and false positive
 |---|---|---|
 | `-n, --samples`, `--sample_prefix` | 1, `sample` | samples, named `<prefix>_<n>` |
 | `--total_read_pairs` | 100000 | read pairs per sample |
-| `--species_per_sample` | 10 | a number or a range, e.g. `20-80` |
+| `--species_per_sample` | 10 | a number, a range, e.g. `20-80` (each sample's drawn from it), or numbers given to the samples in turn, e.g. `20,80,45` (as `--total_read_pairs`) |
 | `--distribution` | `poisson_lognormal` | `power_law` (`--alpha`), `negative_binomial` (`--nb_r`, `--nb_p`) or `poisson_lognormal` (`--pln_mu`, `--pln_sigma`; several sigmas go to the samples in turn) |
 | `--strains_per_species` | none | probabilities of a 2nd, 3rd, ... strain of a species, e.g. `0.4,0.2,0.1` |
 | `--include_species`, `--genus`, `--taxon` | | species in every sample; `g__A:10,g__B:2` species from those genera, `d__Archaea:10` from any taxon (`--pick_random_demand_if_fail` caps instead of failing) |

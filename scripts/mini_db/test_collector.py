@@ -575,12 +575,12 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual([p["name"] for p in points], ["rl150_p1000", "sc_host_pe_p10000000", "sc_gut_pe_p20000000"])
         host = points[1]
         self.assertEqual((host["community_pairs"], host["host_pairs"], host["samples"]), ("1000000", 9000000, 3))
-        # Each sample at its own depth, from half to twice the scenario's, the community's part and the host's of it.
-        factors = scenarios.depth_factors(1, "host", 3, 2.0)
+        # Each sample at its own depth, from 1/8 to twice the scenario's, the community's part and the host's of it.
+        factors = scenarios.depth_factors(1, "host", 3, scenarios.DEPTH_RANGE)
         pairs = scenarios.sample_depths(10_000_000, factors)
         self.assertEqual([c + h for c, h in zip(host["community_pairs_of"], host["host_pairs_of"])], pairs)
         self.assertEqual(host["community_pairs_of"], [round(p * 0.1) for p in pairs])
-        self.assertTrue(all(5_000_000 <= p <= 20_000_000 for p in pairs))
+        self.assertTrue(all(1_250_000 <= p <= 20_000_000 for p in pairs))
         self.assertEqual(collect.community_pairs_of(points[0]), [1000, 1000])  # the design's: one depth
         names = [u["name"] for u in units if u.get("scenario")]
         self.assertEqual(names, ["sc_host_pe_p10000000", "sc_host_se_ultima_r10000000", "sc_host_pb_b3000000000",
@@ -611,7 +611,10 @@ class CollectorTest(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(command[command.index("--genome_table") + 1], "/o/scenarios/host/genomes.tsv")
         self.assertEqual(command[command.index("--total_read_pairs") + 1], ",".join(map(str, host["community_pairs_of"])))
-        self.assertEqual(command[command.index("--species_per_sample") + 1], "2-50")
+        # each sample's species count, from the scenario's 2-50
+        counts = scenarios.species_counts(1, "host", 3, "2-50")
+        self.assertEqual(command[command.index("--species_per_sample") + 1], ",".join(map(str, counts)))
+        self.assertTrue(all(2 <= c <= 50 for c in counts))
         self.assertIn("power_law", command)
         self.assertNotIn("--test", command)
         # depth_spread 1: every sample at the scenario's depth, one value for the simulator
@@ -677,10 +680,10 @@ class ScenariosTest(unittest.TestCase):
         # The scenarios' presets, the selection of them, a file that changes or adds some, and a scenario's genome
         # table, which gives its share of species the database lacks.
         defs = scenarios.definitions()
-        # The presets the build names (--scenarios gut, soil, soil_shallow, host) are there and well-formed; each reads
-        # its communities with paired-end reads, and every other technology at the paired-end reads' bases (sample s of
-        # every technology at the same bases); one has host reads.
-        self.assertTrue({"gut", "soil", "soil_shallow", "host"} <= set(defs), list(defs))
+        # The presets the build names (--scenarios gut, moderate, soil, soil_shallow, host) are there and well-formed;
+        # each reads its communities with paired-end reads, and every other technology at the paired-end reads' bases
+        # (sample s of every technology at the same bases); one has host reads.
+        self.assertTrue({"gut", "moderate", "soil", "soil_shallow", "host"} <= set(defs), list(defs))
         for name, d in defs.items():
             scenarios.check_definition(name, d)
             reads = {r["type"]: r for r in d["reads"]}
@@ -702,6 +705,23 @@ class ScenariosTest(unittest.TestCase):
         self.assertEqual(parts, list(range(6)))
         self.assertEqual(scenarios.depth_factors(1, "soil", 3, 1.0), [1.0, 1.0, 1.0])
         self.assertEqual(scenarios.depth_factors(1, "soil", 0, 2.0), [])
+        # The presets' range since 2026-10-07: 1/8 to 2, ten samples one in each tenth of the log range.
+        self.assertEqual({d["depth_range"] for d in defs.values()}, {scenarios.DEPTH_RANGE})
+        factors = scenarios.depth_factors(1, "soil", 10, (0.125, 2.0))
+        self.assertEqual(sorted(int(math.log(f / 0.125) / math.log(16) * 10) for f in factors), list(range(10)))
+        self.assertEqual(scenarios.depth_factors(1, "soil", 2, (0.5, 0.5)), [0.5, 0.5])
+        # Each sample's species count: log-uniform and stratified from the scenario's MIN to MAX, its own stream (not
+        # the depths' order), the same for the same seed; none for one sample or one count (the simulator's range).
+        counts = scenarios.species_counts(1, "soil", 10, "3000-11000")
+        self.assertEqual(counts, scenarios.species_counts(1, "soil", 10, "3000-11000"))
+        self.assertNotEqual(counts, scenarios.species_counts(1001, "soil", 10, "3000-11000"))
+        self.assertTrue(all(3000 <= c <= 11000 for c in counts))
+        self.assertEqual(sorted(min(9, int(math.log(c / 3000) / math.log(11000 / 3000) * 10)) for c in counts),
+                         list(range(10)))
+        order = lambda values: sorted(range(len(values)), key=values.__getitem__)  # noqa: E731
+        self.assertNotEqual(order(counts), order(scenarios.depth_factors(1, "soil", 10, (0.125, 2.0))))
+        self.assertIsNone(scenarios.species_counts(1, "soil", 1, "3000-11000"))
+        self.assertIsNone(scenarios.species_counts(1, "soil", 5, "400"))
         self.assertEqual(scenarios.sample_depths(1000, [0.5, 1.999, 0.0001]), [500, 1999, 1])
         self.assertEqual(scenarios.selection("gut,soil:5", 3, defs), [("gut", 3), ("soil", 5)])
         self.assertEqual([n for n, _ in scenarios.selection("all", 2, defs)], list(defs))
@@ -737,9 +757,18 @@ class ScenariosTest(unittest.TestCase):
                       {**changed["tiny"], "host_share": 1}, {**changed["tiny"], "reads": [{"type": "se", "depth": 9,
                                                                                          "setup": "hifi:1:1:1"}]},
                       {**changed["tiny"], "reads": [{"type": "pe", "depth": 9}] * 2},
-                      {**changed["tiny"], "depth_spread": 0.5}, {**changed["tiny"], "depth_spread": "x"}):
+                      {**changed["tiny"], "depth_spread": 0.5}, {**changed["tiny"], "depth_spread": "x"},
+                      {**changed["tiny"], "depth_range": "2-1"}, {**changed["tiny"], "depth_range": "x"},
+                      {**changed["tiny"], "depth_range": "0-1"}, {**changed["tiny"], "depth_range": "0.01-2"}):
             with self.assertRaises(scenarios.ScenarioError):
                 scenarios.check_definition("x", wrong)
+        # depth_range LOW-HIGH, or depth_spread S (1/S to S), not both; neither: DEPTH_RANGE.
+        tiny = {k: v for k, v in changed["tiny"].items() if k != "depth_range"}
+        self.assertEqual(scenarios.check_definition("x", {**tiny, "depth_range": "0.25-4"})["depth_range"], (0.25, 4.0))
+        self.assertEqual(scenarios.check_definition("x", {**tiny, "depth_spread": 2})["depth_range"], (0.5, 2.0))
+        self.assertEqual(scenarios.check_definition("x", tiny)["depth_range"], scenarios.DEPTH_RANGE)
+        with self.assertRaises(scenarios.ScenarioError):
+            scenarios.check_definition("x", {**tiny, "depth_range": "0.25-4", "depth_spread": 2})
         # The table's species: all of the side short of the share, enough of the other.
         self.assertEqual(scenarios.table_plan(1000, 100, 0.05, 400), (1000, 53))
         self.assertEqual(scenarios.table_plan(1000, 100, 0.6, 150), (67, 100))

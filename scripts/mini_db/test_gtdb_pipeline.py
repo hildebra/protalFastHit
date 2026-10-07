@@ -477,6 +477,8 @@ class GtdbBuildTest(unittest.TestCase):
         with open(definitions, "w") as fh:
             json.dump({"gut": {**small, "species": "5-6", "novel_share": 0.3,
                                "reads": [{**illumina, "depth": 3000}, {**ultima, "depth": 1000}]},
+                       "moderate": {**small, "species": "10-15", "novel_share": 0.3,
+                                    "reads": [{**illumina, "depth": 1500}]},
                        "soil": {**small, "species": "30-40", "novel_share": 0.6, "reads": [{**illumina, "depth": 2000}]},
                        "soil_shallow": {**small, "species": "5", "novel_share": 0.3, "reads": [{**illumina, "depth": 1000}]},
                        # host at one depth, so that its host reads can be counted; the others drawn around theirs
@@ -486,7 +488,8 @@ class GtdbBuildTest(unittest.TestCase):
         return definitions, host
 
     def test_f_scenarios(self):
-        # The default scenarios (gut, soil, soil_shallow, host; here made small by a --scenario-file of their names),
+        # The default scenarios (gut, moderate, soil, soil_shallow, host; here made small by a --scenario-file of their
+        # names),
         # one with 90% host reads: their hold-in samples in the training data, their hold-out samples in the test set,
         # each read type's report and the summary scoring both; soil, larger than the genome table holds at 60% held
         # out, scaled down; the feature sets chosen by the trainers (--features auto, not the default) and why; the
@@ -531,14 +534,14 @@ class GtdbBuildTest(unittest.TestCase):
         # Its tables: the scenarios' rows beside the design's, in the training data (which the models are fitted on)
         # and in the test set; the training data's design samples as without scenarios (4 pe, 4 se).
         for collection, n in (("training", 2), ("test", 1)):
-            for table, names in (("training_data.tsv", ("gut", "soil", "soil_shallow", "host")),
+            for table, names in (("training_data.tsv", ("gut", "moderate", "soil", "soil_shallow", "host")),
                                  ("training_data_se.tsv", ("gut", "host"))):
                 samples, _ = self.samples("scenarios", collection, table)
                 self.assertEqual({k: len(v) for k, v in samples.items() if k}, {name: n for name in names})
                 self.assertEqual(len(samples[""]), 4 if collection == "training" else 1)
         # Each model's report scores the scenarios, hold-in and hold-out, and every candidate feature set on every test
         # set; and so does the summary.
-        for t, names in (("", ("gut", "soil", "soil_shallow", "host")), ("_se", ("gut", "host"))):
+        for t, names in (("", ("gut", "moderate", "soil", "soil_shallow", "host")), ("_se", ("gut", "host"))):
             report = self.text("scenarios", "model_logs", f"trained_model{t}.report.txt")
             self.assertIn("## Scenarios: hold-in and hold-out samples", report)
             self.assertIn("## Feature set chosen (--features auto, species held out)", report)
@@ -562,7 +565,7 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(summary, r"Feature sets chosen \(--features auto\):\n  pe: normalized\S*: F1 ")
         metadata = self.metadata("scenarios")
         self.assertTrue(metadata["classifier_scenarios"].startswith(
-            "gut 2 hold-in (training) and 1 hold-out (test) samples, soil 2 hold-in (training) and 1 hold-out"))
+            "gut 2 hold-in (training) and 1 hold-out (test) samples, moderate 2 hold-in (training) and 1 hold-out"))
         self.assertIn("; soil scaled from 30-40 to ", metadata["classifier_scenarios"])
         self.assertRegex(metadata["model_pe_features"], r"^normalized\S* \(--features auto: F1 ")
         self.assertRegex(metadata["model_se_scenarios"], r"gut hold-out F1 ([0-9.]+|-), FP rate ([0-9.]+%|-)")
@@ -593,7 +596,7 @@ class GtdbBuildTest(unittest.TestCase):
                 samples = list(csv.DictReader(fh, delimiter="\t"))
             self.assertEqual({(r["set"], r["sample"]) for r in samples}, samples_of_calls, t)
             self.assertEqual({r["scenario"] for r in samples},
-                             {"design", "gut", "host"} | ({"soil", "soil_shallow"} if t == "pe" else set()), t)
+                             {"design", "gut", "host"} | ({"moderate", "soil", "soil_shallow"} if t == "pe" else set()), t)
             for r in samples:
                 for kind in ("FP", "FN"):
                     self.assertEqual(int(r[kind]), expected[(r["set"], r["sample"], kind)], (t, r["sample"], kind))

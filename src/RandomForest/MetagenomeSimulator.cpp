@@ -627,8 +627,11 @@ std::vector<SampleOutput> MetagenomeSimulator::simulate_samples(
         ProfileDesignOptions per_sample_opts = profile_options;
         per_sample_opts.pln_sigma = SigmaForSample(profile_options, i);  // the samples' sigmas in turn
         per_sample_opts.total_read_pairs = ReadPairsForSample(profile_options, i);  // and depths
-        if (profile_options.species_per_sample_min > 0 &&
-            profile_options.species_per_sample_min < profile_options.species_per_sample) {
+        if (!profile_options.species_per_sample_list.empty()) {  // and species counts, if given
+            per_sample_opts.species_per_sample =
+                profile_options.species_per_sample_list[i % profile_options.species_per_sample_list.size()];
+        } else if (profile_options.species_per_sample_min > 0 &&
+                   profile_options.species_per_sample_min < profile_options.species_per_sample) {
             per_sample_opts.species_per_sample = std::uniform_int_distribution<std::size_t>(
                 profile_options.species_per_sample_min,
                 profile_options.species_per_sample)(rng_);

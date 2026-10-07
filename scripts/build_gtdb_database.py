@@ -1484,11 +1484,13 @@ def main():
                         "its paired-end points: with 4, the 22 samples of a long-read type could not tell its knob "
                         "curve from one knob)")
     p.add_argument("--scenarios", default=None,
-                   help="scenarios to train on and score the models on, besides the design (default: all four; none "
-                        "for none; scenarios.py): gut (~400 "
+                   help="scenarios to train on and score the models on, besides the design (default: all five; none "
+                        "for none; scenarios.py): gut (150-1,000 "
                         "species, 5%% lacking from the database, Illumina PE 150 Q35 at 20M pairs, PacBio and Nanopore "
-                        "at the same bases), soil (~10,000 species, 60%% lacking, Ultima SE 300 Q25 at 20M reads, "
-                        "Illumina, PacBio and Nanopore at the same bases), soil_shallow (the soil communities at 5M "
+                        "at the same bases), moderate (1,000-5,000 species, 30%% lacking, Illumina at 10M pairs, Ultima "
+                        "at 10M reads, PacBio and Nanopore at 3 Gb), soil (3,000-11,000 species, 60%% lacking, Ultima SE "
+                        "300 Q25 at 20M reads, "
+                        "Illumina, PacBio and Nanopore at the same bases), soil_shallow (soil communities at 5M "
                         "Illumina pairs, PacBio and Nanopore at 1.5 Gb), host (90%% human reads, 2-50 species of "
                         "power-law abundances, all four read types at 10M pairs or reads or 3 Gb), or those of "
                         "--scenario-file; comma-separated, NAME:N for N hold-in samples of one, all for every one. Each "
@@ -1499,13 +1501,18 @@ def main():
                         "scaled down, and the run says so: soil's full size needs about 25,000 species to simulate from, "
                         "the download's default since 2026-10-05 (8,000 before). host needs the host genome (--host-genome, "
                         "or the download's); by default, without one, it is left out with a warning. Each sample's "
-                        "depth is its scenario's times a factor from 1/2 to 2 (depth_spread)")
+                        "depth is its scenario's times a factor from 1/8 to 2 (depth_range; 1/2 to 2 before "
+                        "2026-10-07), its species count from the scenario's range, both log-uniform and stratified, "
+                        "and its evenness one of four lognormal sigmas")
     p.add_argument("--scenario-file", help="JSON of scenarios by name, which add to or change the presets (scenarios.py)")
-    p.add_argument("--scenario-samples", type=int, default=6,
-                   help="hold-in samples per scenario, in the training data (default 6; 3 before 2026-10-06; 0: the "
-                        "scenarios are scored, not trained on)")
-    p.add_argument("--scenario-test-samples", type=int, default=3,
-                   help="hold-out samples per scenario, in the test set (default 3; 2 before 2026-10-06)")
+    p.add_argument("--scenario-samples", type=int, default=10,
+                   help="hold-in samples per scenario, in the training data (default 10; 6 before 2026-10-07, 3 before "
+                        "2026-10-06; 0: the scenarios are scored, not trained on). Sample-level features (the depth, "
+                        "the sample's complexity) are learned from these few samples per scenario: with 6, the one at "
+                        "the edge of its scenario's was scored like the design's samples (r226 v15)")
+    p.add_argument("--scenario-test-samples", type=int, default=4,
+                   help="hold-out samples per scenario, in the test set (default 4; 3 before 2026-10-07, 2 before "
+                        "2026-10-06)")
     p.add_argument("--scenario-weight", type=float, default=0.25,
                    help="the sample weight of the scenarios' hold-in rows in the models, the design's 1 "
                         "(machine_learning_cmdline.py --scenario-weight; default 0.25: at r226 v12 their rows were 52-80%% "
@@ -1672,7 +1679,7 @@ def main():
     # The scenarios (scenarios.py): their names, and what they need beyond the design, checked before anything runs.
     if args.scenario_samples < 0 or args.scenario_test_samples < 0 or args.scenario_weight < 0:
         p.error("--scenario-samples, --scenario-test-samples and --scenario-weight cannot be negative")
-    scenarios_given = args.scenarios is not None  # by default all four, the host scenario only with a host genome
+    scenarios_given = args.scenarios is not None  # by default all five, the host scenario only with a host genome
     if not scenarios_given:
         args.scenarios = ",".join(scenarios.PRESETS)
     try:

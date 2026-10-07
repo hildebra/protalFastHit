@@ -13,26 +13,36 @@ F1, false positive and false negative rates per scenario and read type on both (
 
 The presets (PRESETS; --scenario_file adds or changes them):
 
-    gut           ~400 species, 5% of them lacking from the database; Illumina PE 150 bp at Q35, 20M read pairs;
+    gut           150-1,000 species, 5% of them lacking from the database; Illumina PE 150 bp at Q35, 20M read pairs;
                   PacBio HiFi and Nanopore reads of the same bases (6 Gb)
-    soil          ~10,000 species, 60% lacking; Ultima Genomics single-end 300 bp reads at Q25, 20M reads; Illumina
+    moderate      1,000-5,000 species, 30% lacking (freshwater, marine, sludge: between the gut and the soil); Illumina
+                  PE 150 bp (Q35) at 10M read pairs, Ultima at 10M reads, PacBio and Nanopore at the same bases (3 Gb)
+    soil          3,000-11,000 species, 60% lacking; Ultima Genomics single-end 300 bp reads at Q25, 20M reads; Illumina
                   PE 150 bp (Q35), PacBio and Nanopore reads of the same bases (6 Gb)
-    soil_shallow  the soil communities at 5M Illumina read pairs, and PacBio and Nanopore reads of the same bases
-                  (1.5 Gb)
+    soil_shallow  soil communities at 5M Illumina read pairs, and PacBio and Nanopore reads of the same bases (1.5 Gb)
     host          90% of the reads human, the rest 2-50 bacterial and archaeal species of power-law abundances
                   (alpha 1: a rank-abundance line of slope -1 on log-log axes), 5% of them lacking; Illumina PE 150
                   (Q35) at 10M read pairs, Ultima at 10M reads, PacBio and Nanopore at the same bases (3 Gb)
+The communities' evenness varies too: Poisson-lognormal abundances of sigma 1.0, 1.5, 2.0 and 2.5, the samples' in turn.
 
-These depths are each scenario's typical ones: a sample's own depth is drawn around them (depth_spread, below).
+These depths are each scenario's typical ones: a sample's own depth is drawn around them (depth_range, below).
 
 How the parts are made:
-- The depths: each sample's depth is the preset's times a factor between 1/depth_spread and depth_spread (default
-  DEPTH_SPREAD, 2: from half to twice the depth; 1: every sample at the preset's), log-uniform and stratified, so that
-  a scenario's few samples spread over the range (depth_factors). Sample s of every technology has the same factor:
-  the technologies still read the same communities at the same bases. With one depth per scenario, a sample's depth
-  (the trainer's sample_log_fragments) told its samples apart and a model could learn each sample's own offset, which
-  cross-validation by species does not see (r226 v13: gradient boosting fell from 0.937 on the shallow-soil hold-in
-  samples to 0.881 on the hold-out ones; docs/claude/2026-10-06-r226-v13-soil).
+- The depths: each sample's depth is the preset's times a factor from depth_range's LOW to HIGH (default DEPTH_RANGE,
+  1/8 to 2: soil from 2.5M to 40M read pairs, shallow soil from 0.6M to 10M; depth_spread S, as before 2026-10-07, is
+  1/S to S; 1 every sample at the preset's), log-uniform and stratified, so that a scenario's few samples spread over
+  the range (depth_factors). Sample s of every technology has the same factor: the technologies still read the same
+  communities at the same bases. With one depth per scenario, a sample's depth (the trainer's sample_log_fragments)
+  told its samples apart and a model could learn each sample's own offset, which cross-validation by species does not
+  see (r226 v13: gradient boosting fell from 0.937 on the shallow-soil hold-in samples to 0.881 on the hold-out ones;
+  docs/claude/2026-10-06-r226-v13-soil). From half to twice the depth (2026-10-06 to -07) the samples were still
+  narrow clusters per scenario, and a sample at the edge of its scenario's was scored like the design's samples of its
+  depth (r226 v15: the pe shallow-soil sample held out whole at 0.903 against 0.929 with species held out;
+  docs/claude/2026-10-07-r226-v15); below 1x the samples are cheaper, so the wider range costs about what 0.5-2x did.
+- The species per sample: each sample's own count, log-uniform and stratified from the scenario's MIN to MAX like the
+  depths but drawn apart from them (species_counts; simulate_metagenomes --species_per_sample N1,N2,...), so that a
+  community's size does not follow its depth and few samples still span the range. The design's samples have at most
+  ~4,600 taxa with reads and the soils' (9,000-11,000 species until 2026-10-07) 9,800 and more: nothing lay between.
 - The share of species the database lacks: a scenario draws its species from a genome table of its own
   (OUT/scenarios/<name>/genomes.tsv, scenario_table): every species of the collection's table on one side of the
   split, the database's and the held-out ones (--novel_species), and a random part of the other side, so that a
@@ -73,25 +83,36 @@ READ_TYPES = ("pe", "se", "pb", "ont")
 ILLUMINA = {"type": "pe", "length": 150, "profile": "HSXt", "fragment_mean": 350, "fragment_sd": 50, "quality": 35}
 ULTIMA = {"type": "se", "setup": "ultima:300:40:25:2"}
 
+# The communities' evenness: the samples' Poisson-lognormal sigmas in turn (simulate_metagenomes --pln_sigma).
+EVENNESS = "lognormal:1.0,1.5,2.0,2.5"
+
 PRESETS = {
     "gut": {
-        "description": "human gut: ~400 species, 5% of them lacking from the database; Illumina PE 150 bp Q35 at 20M "
-                       "read pairs, PacBio HiFi and Nanopore at the same bases (6 Gb)",
-        "species": "350-450", "novel_share": 0.05, "abundance": "lognormal:1.5,2.0", "strains": "0.3,0.1",
+        "description": "human gut: 150-1,000 species, 5% of them lacking from the database; Illumina PE 150 bp Q35 at "
+                       "20M read pairs, PacBio HiFi and Nanopore at the same bases (6 Gb)",
+        "species": "150-1000", "novel_share": 0.05, "abundance": EVENNESS, "strains": "0.3,0.1",
         "congeners": "0.25:2-5", "host_share": 0.0,
         "reads": [{**ILLUMINA, "depth": 20_000_000}, {"type": "pb", "depth": 6_000_000_000},
                   {"type": "ont", "depth": 6_000_000_000}]},
+    "moderate": {
+        "description": "a moderately complex community (freshwater, marine, sludge): 1,000-5,000 species, 30% of them "
+                       "lacking from the database; Illumina PE 150 bp Q35 at 10M read pairs, Ultima Genomics SE 300 bp "
+                       "Q25 at 10M reads, PacBio HiFi and Nanopore at the same bases (3 Gb)",
+        "species": "1000-5000", "novel_share": 0.3, "abundance": EVENNESS, "strains": "0.3,0.1",
+        "congeners": "0.25:2-5", "host_share": 0.0,
+        "reads": [{**ILLUMINA, "depth": 10_000_000}, {**ULTIMA, "depth": 10_000_000},
+                  {"type": "pb", "depth": 3_000_000_000}, {"type": "ont", "depth": 3_000_000_000}]},
     "soil": {
-        "description": "soil: ~10,000 species, 60% of them lacking from the database; Ultima Genomics SE 300 bp Q25 at "
-                       "20M reads, Illumina PE 150 bp Q35, PacBio HiFi and Nanopore at the same bases (6 Gb)",
-        "species": "9000-11000", "novel_share": 0.6, "abundance": "lognormal:1.5,2.0", "strains": "0.3,0.1",
+        "description": "soil: 3,000-11,000 species, 60% of them lacking from the database; Ultima Genomics SE 300 bp Q25 "
+                       "at 20M reads, Illumina PE 150 bp Q35, PacBio HiFi and Nanopore at the same bases (6 Gb)",
+        "species": "3000-11000", "novel_share": 0.6, "abundance": EVENNESS, "strains": "0.3,0.1",
         "congeners": "0.25:2-5", "host_share": 0.0,
         "reads": [{**ULTIMA, "depth": 20_000_000}, {**ILLUMINA, "depth": 20_000_000},
                   {"type": "pb", "depth": 6_000_000_000}, {"type": "ont", "depth": 6_000_000_000}]},
     "soil_shallow": {
-        "description": "shallow soil: the soil communities at 5M Illumina PE 150 bp Q35 read pairs, PacBio HiFi and "
+        "description": "shallow soil: soil communities at 5M Illumina PE 150 bp Q35 read pairs, PacBio HiFi and "
                        "Nanopore at the same bases (1.5 Gb)",
-        "species": "9000-11000", "novel_share": 0.6, "abundance": "lognormal:1.5,2.0", "strains": "0.3,0.1",
+        "species": "3000-11000", "novel_share": 0.6, "abundance": EVENNESS, "strains": "0.3,0.1",
         "congeners": "0.25:2-5", "host_share": 0.0,
         "reads": [{**ILLUMINA, "depth": 5_000_000}, {"type": "pb", "depth": 1_500_000_000},
                   {"type": "ont", "depth": 1_500_000_000}]},
@@ -105,10 +126,10 @@ PRESETS = {
                   {"type": "pb", "depth": 3_000_000_000}, {"type": "ont", "depth": 3_000_000_000}]},
 }
 FIELDS = ("description", "species", "novel_share", "abundance", "strains", "congeners", "host_share", "reads",
-          "depth_spread")
-OPTIONAL_FIELDS = ("description", "depth_spread")
-# A sample's depth is its scenario's times a factor from 1/depth_spread to depth_spread (depth_factors).
-DEPTH_SPREAD = 2.0
+          "depth_range", "depth_spread")
+OPTIONAL_FIELDS = ("description", "depth_range", "depth_spread")
+# A sample's depth is its scenario's times a factor from LOW to HIGH (depth_factors); depth_spread S is 1/S to S.
+DEPTH_RANGE = (0.125, 2.0)
 NAME = re.compile(r"[a-z][a-z0-9_]*")
 # A scenario's table should hold this many times the species of its largest sample, or its samples share most of
 # their species: it is said so (scenario_table), not refused.
@@ -129,6 +150,30 @@ def species_bounds(text):
     if not 1 <= lo <= hi:
         raise ScenarioError(f"species {text!r}: expected 1 <= MIN <= MAX")
     return lo, hi
+
+
+def depth_range_of(name, d):
+    """(LOW, HIGH) of a definition's sample depth factors: its depth_range ("LOW-HIGH" or [LOW, HIGH]), its depth_spread
+    S (1/S to S), or DEPTH_RANGE; a ScenarioError for both or a range that is not 0 < LOW <= HIGH, HIGH/LOW <= 100."""
+    if "depth_range" in d and "depth_spread" in d:
+        raise ScenarioError(f"scenario {name}: give depth_range or depth_spread, not both")
+    if "depth_spread" in d:
+        try:
+            spread = float(d["depth_spread"])
+        except (TypeError, ValueError):
+            raise ScenarioError(f"scenario {name}: depth_spread {d['depth_spread']!r} is not a number") from None
+        if not 1 <= spread <= 10:
+            raise ScenarioError(f"scenario {name}: depth_spread {spread} is not between 1 (every sample at the "
+                                "scenario's depth) and 10")
+        return 1 / spread, spread
+    given = d.get("depth_range", DEPTH_RANGE)
+    try:
+        low, high = (float(x) for x in (given.split("-") if isinstance(given, str) else given))
+    except (TypeError, ValueError):
+        raise ScenarioError(f"scenario {name}: depth_range {given!r}: expected LOW-HIGH, e.g. 0.125-2") from None
+    if not 0 < low <= high or high / low > 100:
+        raise ScenarioError(f"scenario {name}: depth_range {given!r}: expected 0 < LOW <= HIGH, HIGH at most 100 LOW")
+    return low, high
 
 
 def check_definition(name, d):
@@ -154,13 +199,7 @@ def check_definition(name, d):
         raise ScenarioError(f"scenario {name}: novel_share {out['novel_share']} is not between 0 and 1")
     if not 0 <= out["host_share"] < 1:
         raise ScenarioError(f"scenario {name}: host_share {out['host_share']} is not at least 0 and below 1")
-    try:
-        out["depth_spread"] = float(d.get("depth_spread", DEPTH_SPREAD))
-    except (TypeError, ValueError):
-        raise ScenarioError(f"scenario {name}: depth_spread {d.get('depth_spread')!r} is not a number") from None
-    if not 1 <= out["depth_spread"] <= 10:
-        raise ScenarioError(f"scenario {name}: depth_spread {out['depth_spread']} is not between 1 (every sample at "
-                            "the scenario's depth) and 10")
+    out["depth_range"] = depth_range_of(name, d)
     if not isinstance(d["reads"], list) or not d["reads"]:
         raise ScenarioError(f"scenario {name}: reads is a list of the read types' entries")
     reads, seen = [], set()
@@ -240,20 +279,37 @@ def seed_of(seed, name):
     return seed * 1_000_003 + int(hashlib.sha1(name.encode()).hexdigest()[:7], 16)
 
 
-def depth_factors(seed, name, samples, spread):
-    """The depth factor of each of a scenario's `samples` (its depth times the factor is the sample's): spread**u for u
-    in [-1, 1], log-uniform and stratified (one u in each of `samples` equal parts of [-1, 1], at a random place within
-    it, the parts in random order), so that few samples still spread from 1/spread to spread; drawn from the
-    collection's seed and the scenario's name, so that a rerun (and simulate_metagenomes --test) gets the same, and
-    another seed (the build's test set) others. All 1 when spread is 1."""
-    if samples <= 0:
-        return []
-    if spread <= 1:
-        return [1.0] * samples
-    rng = random.Random(seed_of(seed, f"{name}:depth"))
+def stratified(rng, samples, low, high):
+    """`samples` values from low to high, log-uniform and stratified: one in each of `samples` equal parts of the log
+    range, at a random place within it, the parts in random order."""
     parts = list(range(samples))
     rng.shuffle(parts)
-    return [float(spread) ** (-1 + 2 * (part + rng.random()) / samples) for part in parts]
+    return [low * (high / low) ** ((part + rng.random()) / samples) for part in parts]
+
+
+def depth_factors(seed, name, samples, depth_range):
+    """The depth factor of each of a scenario's `samples` (its depth times the factor is the sample's), from LOW to HIGH
+    of depth_range (a number S: 1/S to S), log-uniform and stratified (stratified), so that few samples still spread
+    over the range; drawn from the collection's seed and the scenario's name, so that a rerun (and simulate_metagenomes
+    --test) gets the same, and another seed (the build's test set) others. All LOW when LOW is HIGH."""
+    low, high = (1 / depth_range, depth_range) if isinstance(depth_range, (int, float)) else depth_range
+    if samples <= 0:
+        return []
+    if high <= low:
+        return [float(low)] * samples
+    return stratified(random.Random(seed_of(seed, f"{name}:depth")), samples, float(low), float(high))
+
+
+def species_counts(seed, name, samples, species):
+    """The species of each of a scenario's `samples` (simulate_metagenomes --species_per_sample N1,N2,...), from MIN to
+    MAX of its species (species_bounds), log-uniform and stratified like its depths, drawn apart from them (their own
+    random stream), so that a community's size does not follow its depth; None when MIN is MAX or for one sample (the
+    simulator draws it from the range)."""
+    low, high = species_bounds(species)
+    if samples <= 1 or low >= high:
+        return None
+    values = stratified(random.Random(seed_of(seed, f"{name}:species")), samples, low, high)
+    return [min(high, max(low, round(v))) for v in values]
 
 
 def sample_depths(depth, factors):
