@@ -1,0 +1,145 @@
+read type	variant	part	species	taxa	present	scored by	knob	F1 at knob	FP	FN	F1 at 0.5
+pe	v15	design test	all	22305	4562	final model	0.80000	0.96452	64	253	0.96980
+pe	v15	design test	all	22305	4562	species held out	0.80000	0.96418	65	255	0.96820
+pe	v15	design test	present in training	5937	3900	final model	0.80000	0.97176	14	201	0.98183
+pe	v15	design test	present in training	5937	3900	species held out	0.80000	0.97148	13	204	0.98011
+pe	v15	design test	only absent in training	14870	422	final model	0.80000	0.89825	49	38	0.86486
+pe	v15	design test	only absent in training	14870	422	species held out	0.80000	0.89744	51	37	0.86364
+pe	v15	design test	not in training	1498	240	final model	0.80000	0.96788	1	14	0.97890
+pe	v15	design test	not in training	1498	240	species held out	0.80000	0.96788	1	14	0.97881
+pe	v15	scenario hold-out	all	147233	23980	final model	0.80000	0.95508	771	1357	0.94689
+pe	v15	scenario hold-out	all	147233	23980	species held out	0.80000	0.95399	835	1348	0.94624
+pe	v15	scenario hold-out	present in training	32047	19771	final model	0.80000	0.96848	127	1089	0.97742
+pe	v15	scenario hold-out	present in training	32047	19771	species held out	0.80000	0.96830	131	1092	0.97660
+pe	v15	scenario hold-out	only absent in training	107528	2700	final model	0.80000	0.85187	629	230	0.75371
+pe	v15	scenario hold-out	only absent in training	107528	2700	species held out	0.80000	0.84508	692	218	0.75309
+pe	v15	scenario hold-out	not in training	7658	1509	final model	0.80000	0.98230	15	38	0.98511
+pe	v15	scenario hold-out	not in training	7658	1509	species held out	0.80000	0.98329	12	38	0.98613
+pe	no_ref	design test	all	22305	4562	final model	0.73000	0.96562	86	223	0.96739
+pe	no_ref	design test	all	22305	4562	species held out	0.73000	0.96561	85	224	0.96682
+pe	no_ref	design test	present in training	5937	3900	final model	0.73000	0.97446	15	180	0.98116
+pe	no_ref	design test	present in training	5937	3900	species held out	0.73000	0.97526	14	175	0.98024
+pe	no_ref	design test	only absent in training	14870	422	final model	0.73000	0.88814	70	29	0.85138
+pe	no_ref	design test	only absent in training	14870	422	species held out	0.73000	0.88055	70	35	0.85288
+pe	no_ref	design test	not in training	1498	240	final model	0.73000	0.96788	1	14	0.97447
+pe	no_ref	design test	not in training	1498	240	species held out	0.73000	0.96788	1	14	0.97458
+pe	no_ref	scenario hold-out	all	147233	23980	final model	0.73000	0.95253	1044	1224	0.94385
+pe	no_ref	scenario hold-out	all	147233	23980	species held out	0.73000	0.95208	1080	1212	0.94414
+pe	no_ref	scenario hold-out	present in training	32047	19771	final model	0.73000	0.97089	150	977	0.97590
+pe	no_ref	scenario hold-out	present in training	32047	19771	species held out	0.73000	0.97105	153	968	0.97579
+pe	no_ref	scenario hold-out	only absent in training	107528	2700	final model	0.73000	0.81941	876	218	0.74275
+pe	no_ref	scenario hold-out	only absent in training	107528	2700	species held out	0.73000	0.81602	907	214	0.74418
+pe	no_ref	scenario hold-out	not in training	7658	1509	final model	0.73000	0.98437	18	29	0.98511
+pe	no_ref	scenario hold-out	not in training	7658	1509	species held out	0.73000	0.98338	20	30	0.98580
+pe	no_complexity	design test	all	22305	4562	final model	0.75000	0.96755	83	209	0.96702
+pe	no_complexity	design test	all	22305	4562	species held out	0.75000	0.96542	90	221	0.96577
+pe	no_complexity	design test	present in training	5937	3900	final model	0.75000	0.97647	15	165	0.98238
+pe	no_complexity	design test	present in training	5937	3900	species held out	0.75000	0.97514	16	174	0.98093
+pe	no_complexity	design test	only absent in training	14870	422	final model	0.75000	0.88965	66	31	0.84287
+pe	no_complexity	design test	only absent in training	14870	422	species held out	0.75000	0.88109	72	33	0.84112
+pe	no_complexity	design test	not in training	1498	240	final model	0.75000	0.96802	2	13	0.96855
+pe	no_complexity	design test	not in training	1498	240	species held out	0.75000	0.96581	2	14	0.97263
+pe	no_complexity	scenario hold-out	all	147233	23980	final model	0.75000	0.95391	998	1203	0.94531
+pe	no_complexity	scenario hold-out	all	147233	23980	species held out	0.75000	0.95163	1073	1239	0.94399
+pe	no_complexity	scenario hold-out	present in training	32047	19771	final model	0.75000	0.97098	158	966	0.97669
+pe	no_complexity	scenario hold-out	present in training	32047	19771	species held out	0.75000	0.97003	161	999	0.97591
+pe	no_complexity	scenario hold-out	only absent in training	107528	2700	final model	0.75000	0.82990	822	202	0.74784
+pe	no_complexity	scenario hold-out	only absent in training	107528	2700	species held out	0.75000	0.81945	893	206	0.74408
+pe	no_complexity	scenario hold-out	not in training	7658	1509	final model	0.75000	0.98234	18	35	0.98447
+pe	no_complexity	scenario hold-out	not in training	7658	1509	species held out	0.75000	0.98235	19	34	0.98511
+ont	v15	design test	all	4455	2156	final model	0.50000	0.97231	52	67	0.97231
+ont	v15	design test	all	4455	2156	species held out	0.50000	0.97374	52	61	0.97374
+ont	v15	design test	present in training	1825	1596	final model	0.50000	0.98095	9	51	0.98095
+ont	v15	design test	present in training	1825	1596	species held out	0.50000	0.98287	7	47	0.98287
+ont	v15	design test	only absent in training	1618	138	final model	0.50000	0.86084	38	5	0.86084
+ont	v15	design test	only absent in training	1618	138	species held out	0.50000	0.85531	40	5	0.85531
+ont	v15	design test	not in training	1012	422	final model	0.50000	0.98091	5	11	0.98091
+ont	v15	design test	not in training	1012	422	species held out	0.50000	0.98333	5	9	0.98333
+ont	v15	scenario hold-out	all	54930	20534	final model	0.50000	0.94918	971	1109	0.94918
+ont	v15	scenario hold-out	all	54930	20534	species held out	0.50000	0.94775	1024	1117	0.94775
+ont	v15	scenario hold-out	present in training	17917	14730	final model	0.50000	0.96743	138	800	0.96743
+ont	v15	scenario hold-out	present in training	17917	14730	species held out	0.50000	0.96723	144	800	0.96723
+ont	v15	scenario hold-out	only absent in training	27588	1524	final model	0.50000	0.75614	728	155	0.75614
+ont	v15	scenario hold-out	only absent in training	27588	1524	species held out	0.50000	0.74306	785	159	0.74306
+ont	v15	scenario hold-out	not in training	9425	4280	final model	0.50000	0.96957	105	154	0.96957
+ont	v15	scenario hold-out	not in training	9425	4280	species held out	0.50000	0.97022	95	158	0.97022
+ont	no_ref	design test	all	4455	2156	final model	0.50000	0.97260	56	62	0.97260
+ont	no_ref	design test	all	4455	2156	species held out	0.50000	0.97426	56	55	0.97426
+ont	no_ref	design test	present in training	1825	1596	final model	0.50000	0.98257	9	46	0.98257
+ont	no_ref	design test	present in training	1825	1596	species held out	0.50000	0.98449	8	41	0.98449
+ont	no_ref	design test	only absent in training	1618	138	final model	0.50000	0.85256	41	5	0.85256
+ont	no_ref	design test	only absent in training	1618	138	species held out	0.50000	0.84713	43	5	0.84713
+ont	no_ref	design test	not in training	1012	422	final model	0.50000	0.97974	6	11	0.97974
+ont	no_ref	design test	not in training	1012	422	species held out	0.50000	0.98333	5	9	0.98333
+ont	no_ref	scenario hold-out	all	54930	20534	final model	0.50000	0.94837	1006	1109	0.94837
+ont	no_ref	scenario hold-out	all	54930	20534	species held out	0.50000	0.94698	1025	1146	0.94698
+ont	no_ref	scenario hold-out	present in training	17917	14730	final model	0.50000	0.96805	127	793	0.96805
+ont	no_ref	scenario hold-out	present in training	17917	14730	species held out	0.50000	0.96694	127	824	0.96694
+ont	no_ref	scenario hold-out	only absent in training	27588	1524	final model	0.50000	0.74400	777	161	0.74400
+ont	no_ref	scenario hold-out	only absent in training	27588	1524	species held out	0.50000	0.73907	798	163	0.73907
+ont	no_ref	scenario hold-out	not in training	9425	4280	final model	0.50000	0.96979	102	155	0.96979
+ont	no_ref	scenario hold-out	not in training	9425	4280	species held out	0.50000	0.96953	100	159	0.96953
+ont	no_complexity	design test	all	4455	2156	final model	0.50000	0.97475	57	52	0.97475
+ont	no_complexity	design test	all	4455	2156	species held out	0.50000	0.97475	57	52	0.97475
+ont	no_complexity	design test	present in training	1825	1596	final model	0.50000	0.98512	7	40	0.98512
+ont	no_complexity	design test	present in training	1825	1596	species held out	0.50000	0.98320	8	45	0.98320
+ont	no_complexity	design test	only absent in training	1618	138	final model	0.50000	0.86262	40	3	0.86262
+ont	no_complexity	design test	only absent in training	1618	138	species held out	0.50000	0.85714	42	3	0.85714
+ont	no_complexity	design test	not in training	1012	422	final model	0.50000	0.97751	10	9	0.97751
+ont	no_complexity	design test	not in training	1012	422	species held out	0.50000	0.98701	7	4	0.98701
+ont	no_complexity	scenario hold-out	all	54930	20534	final model	0.50000	0.94548	889	1326	0.94548
+ont	no_complexity	scenario hold-out	all	54930	20534	species held out	0.50000	0.94530	965	1265	0.94530
+ont	no_complexity	scenario hold-out	present in training	17917	14730	final model	0.50000	0.96205	135	952	0.96205
+ont	no_complexity	scenario hold-out	present in training	17917	14730	species held out	0.50000	0.96392	132	903	0.96392
+ont	no_complexity	scenario hold-out	only absent in training	27588	1524	final model	0.50000	0.76276	669	172	0.76276
+ont	no_complexity	scenario hold-out	only absent in training	27588	1524	species held out	0.50000	0.74579	748	173	0.74579
+ont	no_complexity	scenario hold-out	not in training	9425	4280	final model	0.50000	0.96601	85	202	0.96601
+ont	no_complexity	scenario hold-out	not in training	9425	4280	species held out	0.50000	0.96760	85	189	0.96760
+pb	v15	design test	all	3758	2099	final model	0.50000	0.97850	39	51	0.97850
+pb	v15	design test	all	3758	2099	species held out	0.50000	0.97783	45	48	0.97783
+pb	v15	design test	present in training	1731	1556	final model	0.50000	0.98603	5	38	0.98603
+pb	v15	design test	present in training	1731	1556	species held out	0.50000	0.98572	7	37	0.98572
+pb	v15	design test	only absent in training	1227	83	final model	0.50000	0.83673	31	1	0.83673
+pb	v15	design test	only absent in training	1227	83	species held out	0.50000	0.82000	35	1	0.82000
+pb	v15	design test	not in training	800	460	final model	0.50000	0.98353	3	12	0.98353
+pb	v15	design test	not in training	800	460	species held out	0.50000	0.98576	3	10	0.98576
+pb	v15	scenario hold-out	all	46286	20041	final model	0.50000	0.95939	666	950	0.95939
+pb	v15	scenario hold-out	all	46286	20041	species held out	0.50000	0.95729	786	920	0.95729
+pb	v15	scenario hold-out	present in training	16806	14358	final model	0.50000	0.97212	115	670	0.97212
+pb	v15	scenario hold-out	present in training	16806	14358	species held out	0.50000	0.97242	118	659	0.97242
+pb	v15	scenario hold-out	only absent in training	21568	1132	final model	0.50000	0.76594	484	129	0.76594
+pb	v15	scenario hold-out	only absent in training	21568	1132	species held out	0.50000	0.73815	598	120	0.73815
+pb	v15	scenario hold-out	not in training	7912	4551	final model	0.50000	0.97583	67	151	0.97583
+pb	v15	scenario hold-out	not in training	7912	4551	species held out	0.50000	0.97664	70	141	0.97664
+pb	no_ref	design test	all	3758	2099	final model	0.50000	0.97874	39	50	0.97874
+pb	no_ref	design test	all	3758	2099	species held out	0.50000	0.97833	46	45	0.97833
+pb	no_ref	design test	present in training	1731	1556	final model	0.50000	0.98636	5	37	0.98636
+pb	no_ref	design test	present in training	1731	1556	species held out	0.50000	0.98702	5	35	0.98702
+pb	no_ref	design test	only absent in training	1227	83	final model	0.50000	0.83673	31	1	0.83673
+pb	no_ref	design test	only absent in training	1227	83	species held out	0.50000	0.81373	38	0	0.81373
+pb	no_ref	design test	not in training	800	460	final model	0.50000	0.98353	3	12	0.98353
+pb	no_ref	design test	not in training	800	460	species held out	0.50000	0.98576	3	10	0.98576
+pb	no_ref	scenario hold-out	all	46286	20041	final model	0.50000	0.95721	720	984	0.95721
+pb	no_ref	scenario hold-out	all	46286	20041	species held out	0.50000	0.95674	770	956	0.95674
+pb	no_ref	scenario hold-out	present in training	16806	14358	final model	0.50000	0.97153	111	690	0.97153
+pb	no_ref	scenario hold-out	present in training	16806	14358	species held out	0.50000	0.97191	116	675	0.97191
+pb	no_ref	scenario hold-out	only absent in training	21568	1132	final model	0.50000	0.74879	544	129	0.74879
+pb	no_ref	scenario hold-out	only absent in training	21568	1132	species held out	0.50000	0.73897	583	127	0.73897
+pb	no_ref	scenario hold-out	not in training	7912	4551	final model	0.50000	0.97445	65	165	0.97445
+pb	no_ref	scenario hold-out	not in training	7912	4551	species held out	0.50000	0.97505	71	154	0.97505
+pb	no_complexity	design test	all	3758	2099	final model	0.50000	0.97984	52	33	0.97984
+pb	no_complexity	design test	all	3758	2099	species held out	0.50000	0.97864	53	37	0.97864
+pb	no_complexity	design test	present in training	1731	1556	final model	0.50000	0.98934	9	24	0.98934
+pb	no_complexity	design test	present in training	1731	1556	species held out	0.50000	0.98835	7	29	0.98835
+pb	no_complexity	design test	only absent in training	1227	83	final model	0.50000	0.82000	35	1	0.82000
+pb	no_complexity	design test	only absent in training	1227	83	species held out	0.50000	0.80392	39	1	0.80392
+pb	no_complexity	design test	not in training	800	460	final model	0.50000	0.98261	8	8	0.98261
+pb	no_complexity	design test	not in training	800	460	species held out	0.50000	0.98478	7	7	0.98478
+pb	no_complexity	scenario hold-out	all	46286	20041	final model	0.50000	0.95877	642	996	0.95877
+pb	no_complexity	scenario hold-out	all	46286	20041	species held out	0.50000	0.95673	753	972	0.95673
+pb	no_complexity	scenario hold-out	present in training	16806	14358	final model	0.50000	0.97109	110	703	0.97109
+pb	no_complexity	scenario hold-out	present in training	16806	14358	species held out	0.50000	0.97154	114	687	0.97154
+pb	no_complexity	scenario hold-out	only absent in training	21568	1132	final model	0.50000	0.77006	470	129	0.77006
+pb	no_complexity	scenario hold-out	only absent in training	21568	1132	species held out	0.50000	0.74216	573	126	0.74216
+pb	no_complexity	scenario hold-out	not in training	7912	4551	final model	0.50000	0.97489	62	164	0.97489
+pb	no_complexity	scenario hold-out	not in training	7912	4551	species held out	0.50000	0.97502	66	159	0.97502

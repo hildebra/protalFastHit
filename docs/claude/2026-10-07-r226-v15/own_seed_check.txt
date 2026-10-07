@@ -1,0 +1,61 @@
+{'sample': 'sc_soil_shallow_ont_b1500000000_s_1', 'unseen, own reads unaligned': 477, 'with an own record': 477, 'own read seeded on itself': 51, 'share': 0.1069182389937107, 'median own reads seeded on itself': 1.0}
+{'sample': 'sc_soil_shallow_ont_b1500000000_s_2', 'unseen, own reads unaligned': 1472, 'with an own record': 1472, 'own read seeded on itself': 92, 'share': 0.0625, 'median own reads seeded on itself': 1.0}
+{'sample': 'sc_soil_shallow_ont_b1500000000_s_3', 'unseen, own reads unaligned': 1053, 'with an own record': 1053, 'own read seeded on itself': 70, 'share': 0.06647673314339982, 'median own reads seeded on itself': 1.0}
+{'sample': 'sc_soil_ont_b6000000000_s_1', 'unseen, own reads unaligned': 56, 'with an own record': 56, 'own read seeded on itself': 16, 'share': 0.2857142857142857, 'median own reads seeded on itself': 1.0}
+{'sample': 'sc_soil_ont_b6000000000_s_2', 'unseen, own reads unaligned': 369, 'with an own record': 369, 'own read seeded on itself': 42, 'share': 0.11382113821138211, 'median own reads seeded on itself': 1.0}
+{'sample': 'sc_soil_ont_b6000000000_s_3', 'unseen, own reads unaligned': 146, 'with an own record': 146, 'own read seeded on itself': 28, 'share': 0.1917808219178082, 'median own reads seeded on itself': 1.0}
+{'sample': 'ont_b1000000_s_1', 'unseen, own reads unaligned': 33, 'with an own record': 33, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'ont_b1000000_s_2', 'unseen, own reads unaligned': 26, 'with an own record': 26, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'ont_b1000000_s_3', 'unseen, own reads unaligned': 26, 'with an own record': 26, 'own read seeded on itself': 2, 'share': 0.07692307692307693, 'median own reads seeded on itself': 1.5}
+{'sample': 'ont_b1000000_s_4', 'unseen, own reads unaligned': 31, 'with an own record': 31, 'own read seeded on itself': 1, 'share': 0.03225806451612903, 'median own reads seeded on itself': 1.0}
+{'sample': 'ont_b1000000_s_5', 'unseen, own reads unaligned': 32, 'with an own record': 32, 'own read seeded on itself': 2, 'share': 0.0625, 'median own reads seeded on itself': 1.0}
+{'sample': 'ont_b1000000_s_6', 'unseen, own reads unaligned': 15, 'with an own record': 15, 'own read seeded on itself': 1, 'share': 0.06666666666666667, 'median own reads seeded on itself': 1.0}
+{'sample': 'ont_b1000000_s_7', 'unseen, own reads unaligned': 21, 'with an own record': 21, 'own read seeded on itself': 1, 'share': 0.047619047619047616, 'median own reads seeded on itself': 1.0}
+{'sample': 'ont_b1000000_s_8', 'unseen, own reads unaligned': 32, 'with an own record': 32, 'own read seeded on itself': 1, 'share': 0.03125, 'median own reads seeded on itself': 1.0}
+{'sample': 'ont_b150000_s_1', 'unseen, own reads unaligned': 4, 'with an own record': 4, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'ont_b150000_s_2', 'unseen, own reads unaligned': 9, 'with an own record': 9, 'own read seeded on itself': 1, 'share': 0.1111111111111111, 'median own reads seeded on itself': 1.0}
+{'sample': 'ont_b150000_s_3', 'unseen, own reads unaligned': 7, 'with an own record': 7, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'ont_b150000_s_4', 'unseen, own reads unaligned': 4, 'with an own record': 4, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'pb_b1000000_s_1', 'unseen, own reads unaligned': 26, 'with an own record': 26, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'pb_b1000000_s_2', 'unseen, own reads unaligned': 23, 'with an own record': 23, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'pb_b1000000_s_3', 'unseen, own reads unaligned': 13, 'with an own record': 13, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'pb_b1000000_s_4', 'unseen, own reads unaligned': 11, 'with an own record': 11, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'pb_b1000000_s_5', 'unseen, own reads unaligned': 19, 'with an own record': 19, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'pb_b1000000_s_6', 'unseen, own reads unaligned': 17, 'with an own record': 17, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'pb_b1000000_s_7', 'unseen, own reads unaligned': 11, 'with an own record': 11, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'pb_b1000000_s_8', 'unseen, own reads unaligned': 16, 'with an own record': 16, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'pb_b25000000_s_1', 'unseen, own reads unaligned': 50, 'with an own record': 50, 'own read seeded on itself': 1, 'share': 0.02, 'median own reads seeded on itself': 1.0}
+{'sample': 'pb_b25000000_s_2', 'unseen, own reads unaligned': 3, 'with an own record': 3, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'pb_b25000000_s_3', 'unseen, own reads unaligned': 32, 'with an own record': 32, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+{'sample': 'pb_b25000000_s_4', 'unseen, own reads unaligned': 15, 'with an own record': 15, 'own read seeded on itself': 0, 'share': 0.0, 'median own reads seeded on itself': 0.0}
+                             sample  unseen, own reads unaligned  with an own record  own read seeded on itself  share  median own reads seeded on itself
+sc_soil_shallow_ont_b1500000000_s_1                          477                 477                         51  0.107                              1.000
+sc_soil_shallow_ont_b1500000000_s_2                         1472                1472                         92  0.062                              1.000
+sc_soil_shallow_ont_b1500000000_s_3                         1053                1053                         70  0.066                              1.000
+        sc_soil_ont_b6000000000_s_1                           56                  56                         16  0.286                              1.000
+        sc_soil_ont_b6000000000_s_2                          369                 369                         42  0.114                              1.000
+        sc_soil_ont_b6000000000_s_3                          146                 146                         28  0.192                              1.000
+                   ont_b1000000_s_1                           33                  33                          0  0.000                              0.000
+                   ont_b1000000_s_2                           26                  26                          0  0.000                              0.000
+                   ont_b1000000_s_3                           26                  26                          2  0.077                              1.500
+                   ont_b1000000_s_4                           31                  31                          1  0.032                              1.000
+                   ont_b1000000_s_5                           32                  32                          2  0.062                              1.000
+                   ont_b1000000_s_6                           15                  15                          1  0.067                              1.000
+                   ont_b1000000_s_7                           21                  21                          1  0.048                              1.000
+                   ont_b1000000_s_8                           32                  32                          1  0.031                              1.000
+                    ont_b150000_s_1                            4                   4                          0  0.000                              0.000
+                    ont_b150000_s_2                            9                   9                          1  0.111                              1.000
+                    ont_b150000_s_3                            7                   7                          0  0.000                              0.000
+                    ont_b150000_s_4                            4                   4                          0  0.000                              0.000
+                    pb_b1000000_s_1                           26                  26                          0  0.000                              0.000
+                    pb_b1000000_s_2                           23                  23                          0  0.000                              0.000
+                    pb_b1000000_s_3                           13                  13                          0  0.000                              0.000
+                    pb_b1000000_s_4                           11                  11                          0  0.000                              0.000
+                    pb_b1000000_s_5                           19                  19                          0  0.000                              0.000
+                    pb_b1000000_s_6                           17                  17                          0  0.000                              0.000
+                    pb_b1000000_s_7                           11                  11                          0  0.000                              0.000
+                    pb_b1000000_s_8                           16                  16                          0  0.000                              0.000
+                   pb_b25000000_s_1                           50                  50                          1  0.020                              1.000
+                   pb_b25000000_s_2                            3                   3                          0  0.000                              0.000
+                   pb_b25000000_s_3                           32                  32                          0  0.000                              0.000
+                   pb_b25000000_s_4                           15                  15                          0  0.000                              0.000

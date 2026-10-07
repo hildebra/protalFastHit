@@ -1,0 +1,17 @@
+read type                       test rows  taxa  present  F1 at 0.5 FP, FN at 0.5  F1 at knob   knob FP, FN at knob  best F1     at
+       pe                             all 22305     4562     0.9698      128, 147      0.9645 0.8000        64, 253   0.9698 0.4900
+       pe     species present in training  5937     3900     0.9818       23, 117      0.9718 0.8000        14, 201   0.9869 0.2000
+       pe species only absent in training 14870      422     0.8649       103, 22      0.8982 0.8000         49, 38   0.9113 0.9200
+       pe         species not in training  1498      240     0.9789          2, 8      0.9679 0.8000          1, 14   0.9876 0.0800
+       se                             all 19392     4473     0.9622      134, 202      0.9622 0.5000       134, 202   0.9625 0.5100
+       se     species present in training  4767     3326     0.9764       16, 138      0.9764 0.5000        16, 138   0.9845 0.0700
+       se species only absent in training 11706      601     0.8705       114, 50      0.8705 0.5000        114, 50   0.8948 0.8800
+       se         species not in training  2919      546     0.9834         4, 14      0.9834 0.5000          4, 14   0.9872 0.0500
+       pb                             all  3758     2099     0.9785        39, 51      0.9785 0.5000         39, 51   0.9803 0.3900
+       pb     species present in training  1731     1556     0.9860         5, 38      0.9860 0.5000          5, 38   0.9926 0.0800
+       pb species only absent in training  1227       83     0.8367         31, 1      0.8367 0.5000          31, 1   0.9704 0.9500
+       pb         species not in training   800      460     0.9835         3, 12      0.9835 0.5000          3, 12   0.9880 0.2300
+      ont                             all  4455     2156     0.9723        52, 67      0.9723 0.5000         52, 67   0.9744 0.3000
+      ont     species present in training  1825     1596     0.9810         9, 51      0.9810 0.5000          9, 51   0.9903 0.1500
+      ont species only absent in training  1618      138     0.8608         38, 5      0.8608 0.5000          38, 5   0.9213 0.9500
+      ont         species not in training  1012      422     0.9809         5, 11      0.9809 0.5000          5, 11   0.9858 0.2800

@@ -1,0 +1,61 @@
+read type                                     set             A        B  knob A  knob B  samples   F1 A   F1 B   B - A  95% low  95% high  FP A  FP B  FN A  FN B
+       pe                             design test no_complexity      v15  0.8000  0.8000       78 0.9656 0.9645 -0.0011  -0.0032    0.0010    73    64   235   253
+       pe                             design test           v15 no_depth  0.8000  0.8000       78 0.9645 0.9635 -0.0011  -0.0045    0.0020    64    61   253   265
+       pe                            gut hold-out no_complexity      v15  0.8000  0.8000        3 0.9945 0.9962  0.0017   0.0000    0.0026     4     3     9     6
+       pe                            gut hold-out           v15 no_depth  0.8000  0.8000        3 0.9962 0.9958 -0.0004  -0.0012    0.0000     3     3     6     7
+       pe                           host hold-out no_complexity      v15  0.8000  0.8000        3 0.9895 1.0000  0.0105   0.0000    0.0204     1     0     0     0
+       pe                           host hold-out           v15 no_depth  0.8000  0.8000        3 1.0000 1.0000  0.0000   0.0000    0.0000     0     0     0     0
+       pe                           soil hold-out no_complexity      v15  0.8000  0.8000        3 0.9642 0.9655  0.0013  -0.0008    0.0035   253   254   568   539
+       pe                           soil hold-out           v15 no_depth  0.8000  0.8000        3 0.9655 0.9669  0.0014   0.0007    0.0021   254   232   539   528
+       pe                   soil_shallow hold-out no_complexity      v15  0.8000  0.8000        3 0.9390 0.9396  0.0006  -0.0012    0.0022   579   514   766   812
+       pe                   soil_shallow hold-out           v15 no_depth  0.8000  0.8000        3 0.9396 0.9422  0.0026   0.0008    0.0038   514   522   812   750
+       pe       design training, species held out no_complexity      v15  0.8000  0.8000      309 0.9705 0.9712  0.0007  -0.0003    0.0016   351   329   541   541
+       pe       design training, species held out           v15 no_depth  0.8000  0.8000      309 0.9712 0.9706 -0.0006  -0.0016    0.0004   329   332   541   557
+       pe          gut training, species held out no_complexity      v15  0.8000  0.8000        6 0.9927 0.9951  0.0025   0.0011    0.0039     3     3    30    19
+       pe          gut training, species held out           v15 no_depth  0.8000  0.8000        6 0.9951 0.9942 -0.0009  -0.0018   -0.0002     3     3    19    23
+       pe         host training, species held out no_complexity      v15  0.8000  0.8000        6 0.9907 0.9938  0.0031   0.0000    0.0077     1     1     2     1
+       pe         host training, species held out           v15 no_depth  0.8000  0.8000        6 0.9938 0.9938  0.0000   0.0000    0.0000     1     1     1     1
+       pe         soil training, species held out no_complexity      v15  0.8000  0.8000        6 0.9622 0.9627  0.0005  -0.0001    0.0012   642   621  1190  1186
+       pe         soil training, species held out           v15 no_depth  0.8000  0.8000        6 0.9627 0.9625 -0.0003  -0.0008    0.0002   621   623  1186  1197
+       pe soil_shallow training, species held out no_complexity      v15  0.8000  0.8000        6 0.9399 0.9405  0.0006  -0.0003    0.0013  1011  1000  1593  1580
+       pe soil_shallow training, species held out           v15 no_depth  0.8000  0.8000        6 0.9405 0.9400 -0.0005  -0.0016    0.0006  1000  1018  1580  1584
+       pe       design training, samples held out no_complexity      v15  0.8000  0.8000      309 0.9703 0.9700 -0.0002  -0.0013    0.0008   321   317   576   587
+       pe       design training, samples held out           v15 no_depth  0.8000  0.8000      309 0.9700 0.9697 -0.0003  -0.0016    0.0011   317   303   587   609
+       pe          gut training, samples held out no_complexity      v15  0.8000  0.8000        6 0.9927 0.9940  0.0013   0.0007    0.0019     4     3    29    24
+       pe          gut training, samples held out           v15 no_depth  0.8000  0.8000        6 0.9940 0.9940  0.0000  -0.0009    0.0011     3     4    24    23
+       pe         host training, samples held out no_complexity      v15  0.8000  0.8000        6 0.9907 0.9907  0.0000   0.0000    0.0000     1     1     2     2
+       pe         host training, samples held out           v15 no_depth  0.8000  0.8000        6 0.9907 0.9938  0.0031   0.0000    0.0076     1     1     2     1
+       pe         soil training, samples held out no_complexity      v15  0.8000  0.8000        6 0.9613 0.9639  0.0027   0.0010    0.0051   460   486  1403  1255
+       pe         soil training, samples held out           v15 no_depth  0.8000  0.8000        6 0.9639 0.9643  0.0004  -0.0006    0.0015   486   505  1255  1219
+       pe soil_shallow training, samples held out no_complexity      v15  0.8000  0.8000        6 0.9098 0.9355  0.0257   0.0015    0.0677   577   842  3153  1921
+       pe soil_shallow training, samples held out           v15 no_depth  0.8000  0.8000        6 0.9355 0.9378  0.0022  -0.0002    0.0046   842   852  1921  1822
+      ont                             design test no_complexity      v15  0.8000  0.8000       42 0.9727 0.9661 -0.0066  -0.0124   -0.0013    28    25    88   118
+      ont                             design test           v15 no_depth  0.8000  0.8000       42 0.9661 0.9677  0.0015  -0.0013    0.0042    25    30   118   107
+      ont                            gut hold-out no_complexity      v15  0.8000  0.8000        3 0.9903 0.9923  0.0021   0.0000    0.0038     9     3    14    15
+      ont                            gut hold-out           v15 no_depth  0.8000  0.8000        3 0.9923 0.9919 -0.0004  -0.0026    0.0013     3     5    15    14
+      ont                           host hold-out no_complexity      v15  0.8000  0.8000        3 0.9895 1.0000  0.0105   0.0000    0.0204     1     0     0     0
+      ont                           host hold-out           v15 no_depth  0.8000  0.8000        3 1.0000 0.9895 -0.0105  -0.0204    0.0000     0     1     0     0
+      ont                           soil hold-out no_complexity      v15  0.8000  0.8000        3 0.9306 0.9439  0.0133  -0.0006    0.0369   178   202  1267   983
+      ont                           soil hold-out           v15 no_depth  0.8000  0.8000        3 0.9439 0.9443  0.0003  -0.0018    0.0034   202   211   983   968
+      ont                   soil_shallow hold-out no_complexity      v15  0.8000  0.8000        3 0.9347 0.9353  0.0006  -0.0028    0.0028   207   211   841   828
+      ont                   soil_shallow hold-out           v15 no_depth  0.8000  0.8000        3 0.9353 0.9341 -0.0013  -0.0061    0.0017   211   199   828   858
+      ont       design training, species held out no_complexity      v15  0.8000  0.8000      186 0.9723 0.9727  0.0004  -0.0011    0.0018   107    96   263   268
+      ont       design training, species held out           v15 no_depth  0.8000  0.8000      186 0.9727 0.9719 -0.0008  -0.0021    0.0006    96   102   268   273
+      ont          gut training, species held out no_complexity      v15  0.8000  0.8000        6 0.9905 0.9916  0.0011  -0.0007    0.0032     9     5    34    33
+      ont          gut training, species held out           v15 no_depth  0.8000  0.8000        6 0.9916 0.9909 -0.0007  -0.0020    0.0000     5     5    33    36
+      ont         host training, species held out no_complexity      v15  0.8000  0.8000        6 0.9752 0.9907  0.0156   0.0033    0.0325     4     2     4     1
+      ont         host training, species held out           v15 no_depth  0.8000  0.8000        6 0.9907 0.9876 -0.0031  -0.0131    0.0000     2     2     1     2
+      ont         soil training, species held out no_complexity      v15  0.8000  0.8000        6 0.9452 0.9452  0.0000  -0.0009    0.0009   529   534  1892  1886
+      ont         soil training, species held out           v15 no_depth  0.8000  0.8000        6 0.9452 0.9450 -0.0002  -0.0011    0.0009   534   533  1886  1895
+      ont soil_shallow training, species held out no_complexity      v15  0.8000  0.8000        6 0.9376 0.9392  0.0016   0.0009    0.0024   436   455  1494  1430
+      ont soil_shallow training, species held out           v15 no_depth  0.8000  0.8000        6 0.9392 0.9394  0.0001  -0.0007    0.0008   455   439  1430  1440
+      ont       design training, samples held out no_complexity      v15  0.8000  0.8000      186 0.9717 0.9715 -0.0002  -0.0018    0.0012   107   106   270   274
+      ont       design training, samples held out           v15 no_depth  0.8000  0.8000      186 0.9715 0.9717  0.0002  -0.0012    0.0016   106    98   274   279
+      ont          gut training, samples held out no_complexity      v15  0.8000  0.8000        6 0.9882 0.9911  0.0029   0.0007    0.0052    11     5    42    35
+      ont          gut training, samples held out           v15 no_depth  0.8000  0.8000        6 0.9911 0.9911 -0.0000  -0.0015    0.0019     5     3    35    37
+      ont         host training, samples held out no_complexity      v15  0.8000  0.8000        6 0.9844 0.9812 -0.0032  -0.0133    0.0127     2     2     3     4
+      ont         host training, samples held out           v15 no_depth  0.8000  0.8000        6 0.9812 0.9812  0.0000   0.0000    0.0000     2     2     4     4
+      ont         soil training, samples held out no_complexity      v15  0.8000  0.8000        6 0.9383 0.9441  0.0058   0.0013    0.0115   419   461  2274  1998
+      ont         soil training, samples held out           v15 no_depth  0.8000  0.8000        6 0.9441 0.9455  0.0014  -0.0006    0.0032   461   456  1998  1946
+      ont soil_shallow training, samples held out no_complexity      v15  0.8000  0.8000        6 0.9267 0.9371  0.0104  -0.0025    0.0266   326   397  1904  1543
+      ont soil_shallow training, samples held out           v15 no_depth  0.8000  0.8000        6 0.9371 0.9384  0.0013   0.0002    0.0026   397   395  1543  1507

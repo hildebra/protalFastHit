@@ -1,0 +1,97 @@
+read type       variant              part                 species   taxa  present   knob  F1 at knob   FP   FN  F1 at 0.5  best F1     at
+      ont no_complexity       design test                     all   4455     2156 0.5000      0.9748   57   52     0.9748   0.9756 0.5200
+      ont      no_depth       design test                     all   4455     2156 0.5000      0.9742   51   60     0.9742   0.9757 0.4000
+      ont        no_ref       design test                     all   4455     2156 0.5000      0.9726   56   62     0.9726   0.9742 0.2900
+      ont           v15       design test                     all   4455     2156 0.5000      0.9723   52   67     0.9723   0.9744 0.3000
+      ont no_complexity       design test         not in training   1012      422 0.5000      0.9775   10    9     0.9775   0.9813 0.2800
+      ont      no_depth       design test         not in training   1012      422 0.5000      0.9797    5   12     0.9797   0.9870 0.4100
+      ont        no_ref       design test         not in training   1012      422 0.5000      0.9797    6   11     0.9797   0.9870 0.1300
+      ont           v15       design test         not in training   1012      422 0.5000      0.9809    5   11     0.9809   0.9858 0.2800
+      ont no_complexity       design test only absent in training   1618      138 0.5000      0.8626   40    3     0.8626   0.9296 0.8400
+      ont      no_depth       design test only absent in training   1618      138 0.5000      0.8673   37    4     0.8673   0.9254 0.9500
+      ont        no_ref       design test only absent in training   1618      138 0.5000      0.8526   41    5     0.8526   0.9225 0.9400
+      ont           v15       design test only absent in training   1618      138 0.5000      0.8608   38    5     0.8608   0.9213 0.9500
+      ont no_complexity       design test     present in training   1825     1596 0.5000      0.9851    7   40     0.9851   0.9894 0.1400
+      ont      no_depth       design test     present in training   1825     1596 0.5000      0.9832    9   44     0.9832   0.9903 0.1100
+      ont        no_ref       design test     present in training   1825     1596 0.5000      0.9826    9   46     0.9826   0.9897 0.1000
+      ont           v15       design test     present in training   1825     1596 0.5000      0.9810    9   51     0.9810   0.9903 0.1500
+      ont no_complexity scenario hold-out                     all  54930    20534 0.5000      0.9455  889 1326     0.9455   0.9461 0.3800
+      ont      no_depth scenario hold-out                     all  54930    20534 0.5000      0.9505  963 1064     0.9505   0.9506 0.5700
+      ont        no_ref scenario hold-out                     all  54930    20534 0.5000      0.9484 1006 1109     0.9484   0.9484 0.5800
+      ont           v15 scenario hold-out                     all  54930    20534 0.5000      0.9492  971 1109     0.9492   0.9500 0.5400
+      ont no_complexity scenario hold-out         not in training   9425     4280 0.5000      0.9660   85  202     0.9660   0.9711 0.2500
+      ont      no_depth scenario hold-out         not in training   9425     4280 0.5000      0.9711   97  149     0.9711   0.9717 0.3900
+      ont        no_ref scenario hold-out         not in training   9425     4280 0.5000      0.9698  102  155     0.9698   0.9715 0.2300
+      ont           v15 scenario hold-out         not in training   9425     4280 0.5000      0.9696  105  154     0.9696   0.9724 0.2100
+      ont no_complexity scenario hold-out only absent in training  27588     1524 0.5000      0.7628  669  172     0.7628   0.8272 0.9100
+      ont      no_depth scenario hold-out only absent in training  27588     1524 0.5000      0.7562  726  156     0.7562   0.8357 0.9000
+      ont        no_ref scenario hold-out only absent in training  27588     1524 0.5000      0.7440  777  161     0.7440   0.8207 0.9300
+      ont           v15 scenario hold-out only absent in training  27588     1524 0.5000      0.7561  728  155     0.7561   0.8368 0.8900
+      ont no_complexity scenario hold-out     present in training  17917    14730 0.5000      0.9621  135  952     0.9621   0.9748 0.1100
+      ont      no_depth scenario hold-out     present in training  17917    14730 0.5000      0.9688  140  759     0.9688   0.9750 0.1400
+      ont        no_ref scenario hold-out     present in training  17917    14730 0.5000      0.9680  127  793     0.9680   0.9746 0.1500
+      ont           v15 scenario hold-out     present in training  17917    14730 0.5000      0.9674  138  800     0.9674   0.9748 0.1600
+       pb no_complexity       design test                     all   3758     2099 0.5000      0.9798   52   33     0.9798   0.9805 0.5200
+       pb        no_ref       design test                     all   3758     2099 0.5000      0.9787   39   50     0.9787   0.9793 0.4400
+       pb           v15       design test                     all   3758     2099 0.5000      0.9785   39   51     0.9785   0.9803 0.3900
+       pb no_complexity       design test         not in training    800      460 0.5000      0.9826    8    8     0.9826   0.9846 0.7400
+       pb        no_ref       design test         not in training    800      460 0.5000      0.9835    3   12     0.9835   0.9902 0.3000
+       pb           v15       design test         not in training    800      460 0.5000      0.9835    3   12     0.9835   0.9880 0.2300
+       pb no_complexity       design test only absent in training   1227       83 0.5000      0.8200   35    1     0.8200   0.9318 0.9500
+       pb        no_ref       design test only absent in training   1227       83 0.5000      0.8367   31    1     0.8367   0.9474 0.9500
+       pb           v15       design test only absent in training   1227       83 0.5000      0.8367   31    1     0.8367   0.9704 0.9500
+       pb no_complexity       design test     present in training   1731     1556 0.5000      0.9893    9   24     0.9893   0.9923 0.1100
+       pb        no_ref       design test     present in training   1731     1556 0.5000      0.9864    5   37     0.9864   0.9930 0.0500
+       pb           v15       design test     present in training   1731     1556 0.5000      0.9860    5   38     0.9860   0.9926 0.0800
+       pb no_complexity scenario hold-out                     all  46286    20041 0.5000      0.9588  642  996     0.9588   0.9589 0.4700
+       pb        no_ref scenario hold-out                     all  46286    20041 0.5000      0.9572  720  984     0.9572   0.9572 0.5000
+       pb           v15 scenario hold-out                     all  46286    20041 0.5000      0.9594  666  950     0.9594   0.9597 0.5100
+       pb no_complexity scenario hold-out         not in training   7912     4551 0.5000      0.9749   62  164     0.9749   0.9786 0.1500
+       pb        no_ref scenario hold-out         not in training   7912     4551 0.5000      0.9745   65  165     0.9745   0.9788 0.3100
+       pb           v15 scenario hold-out         not in training   7912     4551 0.5000      0.9758   67  151     0.9758   0.9791 0.2800
+       pb no_complexity scenario hold-out only absent in training  21568     1132 0.5000      0.7701  470  129     0.7701   0.8440 0.8700
+       pb        no_ref scenario hold-out only absent in training  21568     1132 0.5000      0.7488  544  129     0.7488   0.8317 0.9200
+       pb           v15 scenario hold-out only absent in training  21568     1132 0.5000      0.7659  484  129     0.7659   0.8432 0.9200
+       pb no_complexity scenario hold-out     present in training  16806    14358 0.5000      0.9711  110  703     0.9711   0.9792 0.1200
+       pb        no_ref scenario hold-out     present in training  16806    14358 0.5000      0.9715  111  690     0.9715   0.9786 0.1400
+       pb           v15 scenario hold-out     present in training  16806    14358 0.5000      0.9721  115  670     0.9721   0.9792 0.1400
+       pe no_complexity       design test                     all  22305     4562 0.7500      0.9675   83  209     0.9670   0.9685 0.7300
+       pe      no_depth       design test                     all  22305     4562 0.7900      0.9638   62  261     0.9668   0.9674 0.5400
+       pe        no_ref       design test                     all  22305     4562 0.7300      0.9656   86  223     0.9674   0.9680 0.5700
+       pe           v15       design test                     all  22305     4562 0.8000      0.9645   64  253     0.9698   0.9698 0.4900
+       pe no_complexity       design test         not in training   1498      240 0.7500      0.9680    2   13     0.9686   0.9754 0.1600
+       pe      no_depth       design test         not in training   1498      240 0.7900      0.9657    1   15     0.9724   0.9835 0.0900
+       pe        no_ref       design test         not in training   1498      240 0.7300      0.9679    1   14     0.9745   0.9854 0.1700
+       pe           v15       design test         not in training   1498      240 0.8000      0.9679    1   14     0.9789   0.9876 0.0800
+       pe no_complexity       design test only absent in training  14870      422 0.7500      0.8896   66   31     0.8429   0.9087 0.9200
+       pe      no_depth       design test only absent in training  14870      422 0.7900      0.8933   50   41     0.8553   0.9048 0.9400
+       pe        no_ref       design test only absent in training  14870      422 0.7300      0.8881   70   29     0.8514   0.9018 0.9200
+       pe           v15       design test only absent in training  14870      422 0.8000      0.8982   49   38     0.8649   0.9113 0.9200
+       pe no_complexity       design test     present in training   5937     3900 0.7500      0.9765   15  165     0.9824   0.9853 0.2300
+       pe      no_depth       design test     present in training   5937     3900 0.7900      0.9716   11  205     0.9800   0.9861 0.1100
+       pe        no_ref       design test     present in training   5937     3900 0.7300      0.9745   15  180     0.9812   0.9868 0.0700
+       pe           v15       design test     present in training   5937     3900 0.8000      0.9718   14  201     0.9818   0.9869 0.2000
+       pe no_complexity scenario hold-out                     all 147233    23980 0.7500      0.9539  998 1203     0.9453   0.9543 0.8500
+       pe      no_depth scenario hold-out                     all 147233    23980 0.7900      0.9568  792 1260     0.9465   0.9569 0.8000
+       pe        no_ref scenario hold-out                     all 147233    23980 0.7300      0.9525 1044 1224     0.9439   0.9527 0.7600
+       pe           v15 scenario hold-out                     all 147233    23980 0.8000      0.9551  771 1357     0.9469   0.9554 0.7700
+       pe no_complexity scenario hold-out         not in training   7658     1509 0.7500      0.9823   18   35     0.9845   0.9848 0.4600
+       pe      no_depth scenario hold-out         not in training   7658     1509 0.7900      0.9833   13   37     0.9861   0.9865 0.4900
+       pe        no_ref scenario hold-out         not in training   7658     1509 0.7300      0.9844   18   29     0.9851   0.9854 0.4900
+       pe           v15 scenario hold-out         not in training   7658     1509 0.8000      0.9823   15   38     0.9851   0.9861 0.4600
+       pe no_complexity scenario hold-out only absent in training 107528     2700 0.7500      0.8299  822  202     0.7478   0.8951 0.9500
+       pe      no_depth scenario hold-out only absent in training 107528     2700 0.7900      0.8527  653  208     0.7506   0.9036 0.9500
+       pe        no_ref scenario hold-out only absent in training 107528     2700 0.7300      0.8194  876  218     0.7427   0.8910 0.9400
+       pe           v15 scenario hold-out only absent in training 107528     2700 0.8000      0.8519  629  230     0.7537   0.8980 0.9400
+       pe no_complexity scenario hold-out     present in training  32047    19771 0.7500      0.9710  158  966     0.9767   0.9775 0.3700
+       pe      no_depth scenario hold-out     present in training  32047    19771 0.7900      0.9705  126 1015     0.9777   0.9786 0.3400
+       pe        no_ref scenario hold-out     present in training  32047    19771 0.7300      0.9709  150  977     0.9759   0.9775 0.3400
+       pe           v15 scenario hold-out     present in training  32047    19771 0.8000      0.9685  127 1089     0.9774   0.9786 0.3400
+       se           v15       design test                     all  19392     4473 0.5000      0.9622  134  202     0.9622   0.9625 0.5100
+       se           v15       design test         not in training   2919      546 0.5000      0.9834    4   14     0.9834   0.9872 0.0500
+       se           v15       design test only absent in training  11706      601 0.5000      0.8705  114   50     0.8705   0.8948 0.8800
+       se           v15       design test     present in training   4767     3326 0.5000      0.9764   16  138     0.9764   0.9845 0.0700
+       se           v15 scenario hold-out                     all  65579    11677 0.5000      0.9637  441  409     0.9637   0.9657 0.6200
+       se           v15 scenario hold-out         not in training   6779     1719 0.5000      0.9897    2   33     0.9897   0.9951 0.0900
+       se           v15 scenario hold-out only absent in training  45938     1812 0.5000      0.8745  380  109     0.8745   0.9171 0.9100
+       se           v15 scenario hold-out     present in training  12862     8146 0.5000      0.9797   59  267     0.9797   0.9825 0.1900

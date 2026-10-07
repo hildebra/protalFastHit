@@ -1,0 +1,24 @@
+## pe training: v14 369803 rows, v15 369803 rows; only v14: -; only v15: ['sample_log_taxa', 'sample_low_identity', 'sample_identity']
+   keys (meta_sample, taxon, truth) in the same order: True
+   shared columns that differ: excess_scaled_median: 255497 rows, max |diff| 9.83e-05
+## pe test: v14 169538 rows, v15 169538 rows; only v14: -; only v15: ['sample_log_taxa', 'sample_low_identity', 'sample_identity']
+   keys (meta_sample, taxon, truth) in the same order: True
+   shared columns that differ: excess_scaled_median: 117633 rows, max |diff| 0.000112
+## se training: v14 199629 rows, v15 199629 rows; only v14: -; only v15: ['sample_log_taxa', 'sample_low_identity', 'sample_identity']
+   keys (meta_sample, taxon, truth) in the same order: True
+   shared columns that differ: excess_scaled_median: 138957 rows, max |diff| 9.89e-05
+## se test: v14 84971 rows, v15 84971 rows; only v14: -; only v15: ['sample_log_taxa', 'sample_low_identity', 'sample_identity']
+   keys (meta_sample, taxon, truth) in the same order: True
+   shared columns that differ: excess_scaled_median: 59375 rows, max |diff| 9.59e-05
+## pb training: v14 103627 rows, v15 103627 rows; only v14: -; only v15: ['sample_log_taxa', 'sample_low_identity', 'sample_identity']
+   keys (meta_sample, taxon, truth) in the same order: True
+   shared columns that differ: excess_scaled_median: 70799 rows, max |diff| 9.66e-05
+## pb test: v14 50044 rows, v15 50044 rows; only v14: -; only v15: ['sample_log_taxa', 'sample_low_identity', 'sample_identity']
+   keys (meta_sample, taxon, truth) in the same order: True
+   shared columns that differ: excess_scaled_median: 34102 rows, max |diff| 9.65e-05
+## ont training: v14 122904 rows, v15 122904 rows; only v14: -; only v15: ['sample_log_taxa', 'sample_low_identity', 'sample_identity']
+   keys (meta_sample, taxon, truth) in the same order: True
+   shared columns that differ: excess_scaled_median: 84049 rows, max |diff| 0.000147
+## ont test: v14 59385 rows, v15 59385 rows; only v14: -; only v15: ['sample_log_taxa', 'sample_low_identity', 'sample_identity']
+   keys (meta_sample, taxon, truth) in the same order: True
+   shared columns that differ: excess_scaled_median: 40387 rows, max |diff| 0.000149

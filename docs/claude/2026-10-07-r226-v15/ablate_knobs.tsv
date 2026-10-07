@@ -1,0 +1,13 @@
+read type	variant	features	knob	seconds
+pe	v15	55	0.8	113
+pe	no_complexity	52	0.75	99
+pe	no_depth	54	0.79	128
+ont	v15	55	0.5	183
+ont	no_complexity	52	0.5	166
+ont	no_depth	54	0.5	303
+se	v15	55	0.5	1212
+pe	no_ref	52	0.73	152
+ont	no_ref	52	0.5	278
+pb	v15	55	0.5	269
+pb	no_complexity	52	0.5	183
+pb	no_ref	52	0.5	174

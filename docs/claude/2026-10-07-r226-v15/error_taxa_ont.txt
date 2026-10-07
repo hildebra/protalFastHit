@@ -1,0 +1,53 @@
+# /home/falk/v15/model_logs/error_reads/ont: 250 samples; missed species per sample by where their own reads went
+                                         samples  elsewhere   none  on it, MAPQ < 4  on it, MAPQ >= 4  unaligned elsewhere  unaligned, seeded on it     all
+set      scenario     error                                                                                                                                
+test     design       FN                      42        0.0    0.1              0.0               1.3                  0.0                      0.2     1.6
+                      unseen                  42        0.6   37.2              0.3               0.0                 16.5                      6.0    60.6
+                      unseen (held out)       42       16.1   19.8              0.0               0.0                 21.3                      0.0    57.3
+         gut          FN                       3        0.0    0.0              0.3               2.0                  0.0                      0.0     2.3
+                      unseen                   3        0.0    0.0              0.3               0.0                  0.0                      0.0     0.3
+                      unseen (held out)        3       19.7    0.0              0.0               0.0                  1.7                      0.0    21.3
+         soil         FN                       3        2.3    0.0              4.3             181.7                  0.0                     11.3   199.7
+                      unseen                   3       20.3    0.0             20.3               1.7                  0.0                    190.3   232.7
+                      unseen (held out)        3     3910.3    0.0              0.0               0.0               1899.3                      0.0  5809.7
+         soil_shallow FN                       3        1.3    0.3              5.0             120.7                  0.0                     40.3   167.7
+                      unseen                   3       54.0   32.7             36.0               8.0                  0.0                   1000.7  1131.3
+                      unseen (held out)        3     2558.7   53.3              0.0               0.0               3240.0                      0.0  5852.0
+training design       FN                     186        0.0    0.0              0.0               0.8                  0.0                      0.1     0.9
+                      unseen                 186        0.5   19.2              0.4               0.1                 12.8                      3.3    36.2
+                      unseen (held out)      186       11.8   10.2              0.0               0.0                 16.2                      0.0    38.2
+         gut          FN                       6        0.0    0.0              0.0               2.8                  0.0                      0.0     2.8
+                      unseen                   6        0.0    0.0              0.0               0.2                  0.0                      0.0     0.2
+                      unseen (held out)        6       17.0    0.0              0.0               0.0                  2.3                      0.0    19.3
+         host         unseen (held out)        4        2.2    0.0              0.0               0.0                  0.2                      0.0     2.5
+         soil         FN                       6        3.8    0.0              3.3             163.5                  0.0                     13.5   184.2
+                      unseen                   6       28.7    0.2             27.3               5.7                  0.0                    248.3   310.2
+                      unseen (held out)        6     4022.2    0.0              0.0               0.0               2139.5                      0.0  6161.7
+         soil_shallow FN                       6        2.7    1.0              3.8             107.7                  0.0                     29.3   144.5
+                      unseen                   6       45.3   81.7             38.7               6.2                  0.0                   1122.8  1294.7
+                      unseen (held out)        6     2434.5  123.0              0.0               0.0               3411.5                      0.0  5969.0
+
+# FP per sample (median fragments on an FP taxon)
+                         FP  fragments  samples  FP per sample
+set      scenario                                             
+test     design          52        2.0       42            1.2
+         gut              8        2.0        3            2.7
+         host             1        1.0        1            1.0
+         soil           530        3.0        3          176.7
+         soil_shallow   432        2.0        3          144.0
+training design         190        2.0      186            1.0
+         gut             10       17.0        6            1.7
+         host             3        3.0        4            0.8
+         soil          1124        3.0        6          187.3
+         soil_shallow   895        1.0        6          149.2
+
+# unseen species with fragments best on them at MAPQ >= 4: those fragments (quantiles 50/90/99%)
+                       0.50  0.90  0.99
+set      scenario                      
+test     design         2.0   2.8  2.98
+         soil           1.0   1.6  1.96
+         soil_shallow   1.0   2.0  3.54
+training design         1.0   2.0  2.90
+         gut            1.0   1.0  1.00
+         soil           1.0   2.0  2.00
+         soil_shallow   1.0   1.0  3.28

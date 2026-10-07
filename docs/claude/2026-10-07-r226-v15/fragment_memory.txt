@@ -1,0 +1,4 @@
+v15: 1000000 fragments, 2 ZF taxa a record, 50 error taxa: 1236 B per fragment (1.24 GB)
+v15: 1000000 fragments, 8 ZF taxa a record, 50 error taxa: 2341 B per fragment (2.34 GB)
+now: 1000000 fragments, 2 ZF taxa a record, 50 error taxa: 273 B per fragment (0.27 GB)
+now: 1000000 fragments, 8 ZF taxa a record, 50 error taxa: 300 B per fragment (0.30 GB)

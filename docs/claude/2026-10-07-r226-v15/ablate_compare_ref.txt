@@ -1,0 +1,31 @@
+read type                                     set      A   B  knob A  knob B  samples   F1 A   F1 B   B - A  95% low  95% high  FP A  FP B  FN A  FN B
+       pe                             design test no_ref v15  0.7300  0.8000       78 0.9656 0.9645 -0.0011  -0.0031    0.0011    86    64   223   253
+       pe                            gut hold-out no_ref v15  0.7300  0.8000        3 0.9962 0.9962  0.0000   0.0000    0.0000     3     3     6     6
+       pe                           host hold-out no_ref v15  0.7300  0.8000        3 1.0000 1.0000  0.0000   0.0000    0.0000     0     0     0     0
+       pe                           soil hold-out no_ref v15  0.7300  0.8000        3 0.9637 0.9655  0.0017   0.0008    0.0029   345   254   493   539
+       pe                   soil_shallow hold-out no_ref v15  0.7300  0.8000        3 0.9360 0.9396  0.0035  -0.0000    0.0068   696   514   725   812
+       pe       design training, species held out no_ref v15  0.7300  0.8000      309 0.9710 0.9712  0.0002  -0.0008    0.0012   402   329   478   541
+       pe          gut training, species held out no_ref v15  0.7300  0.8000        6 0.9954 0.9951 -0.0002  -0.0009    0.0005     3     3    18    19
+       pe         host training, species held out no_ref v15  0.7300  0.8000        6 0.9938 0.9938  0.0000   0.0000    0.0000     1     1     1     1
+       pe         soil training, species held out no_ref v15  0.7300  0.8000        6 0.9611 0.9627  0.0017   0.0011    0.0023   806   621  1092  1186
+       pe soil_shallow training, species held out no_ref v15  0.7300  0.8000        6 0.9393 0.9405  0.0012  -0.0001    0.0027  1314  1000  1352  1580
+       pe       design training, samples held out no_ref v15  0.7300  0.8000      309 0.9702 0.9700 -0.0002  -0.0012    0.0009   388   317   515   587
+       pe          gut training, samples held out no_ref v15  0.7300  0.8000        6 0.9949 0.9940 -0.0009  -0.0022    0.0005     4     3    19    24
+       pe         host training, samples held out no_ref v15  0.7300  0.8000        6 0.9938 0.9907 -0.0031  -0.0076    0.0000     1     1     1     2
+       pe         soil training, samples held out no_ref v15  0.7300  0.8000        6 0.9606 0.9639  0.0034   0.0018    0.0047   749   486  1168  1255
+       pe soil_shallow training, samples held out no_ref v15  0.7300  0.8000        6 0.9328 0.9355  0.0028  -0.0008    0.0074  1199   842  1720  1921
+      ont                             design test no_ref v15  0.5000  0.5000       42 0.9726 0.9723 -0.0003  -0.0030    0.0027    56    52    62    67
+      ont                            gut hold-out no_ref v15  0.5000  0.5000        3 0.9924 0.9937  0.0013  -0.0013    0.0025    11     8     7     7
+      ont                           host hold-out no_ref v15  0.5000  0.5000        3 1.0000 0.9895 -0.0105  -0.0204    0.0000     0     1     0     0
+      ont                           soil hold-out no_ref v15  0.5000  0.5000        3 0.9477 0.9483  0.0006   0.0000    0.0013   559   530   586   599
+      ont                   soil_shallow hold-out no_ref v15  0.5000  0.5000        3 0.9427 0.9437  0.0011  -0.0011    0.0027   436   432   516   503
+      ont       design training, species held out no_ref v15  0.5000  0.5000      186 0.9734 0.9735  0.0001  -0.0010    0.0013   189   190   171   169
+      ont          gut training, species held out no_ref v15  0.5000  0.5000        6 0.9938 0.9940  0.0002  -0.0009    0.0013    11    10    17    17
+      ont         host training, species held out no_ref v15  0.5000  0.5000        6 0.9907 0.9908  0.0001  -0.0082    0.0075     2     3     1     0
+      ont         soil training, species held out no_ref v15  0.5000  0.5000        6 0.9504 0.9511  0.0007  -0.0004    0.0014  1124  1124  1134  1105
+      ont soil_shallow training, species held out no_ref v15  0.5000  0.5000        6 0.9430 0.9450  0.0020   0.0008    0.0030   929   895   896   867
+      ont       design training, samples held out no_ref v15  0.5000  0.5000      186 0.9733 0.9741  0.0008  -0.0005    0.0021   187   180   174   170
+      ont          gut training, samples held out no_ref v15  0.5000  0.5000        6 0.9925 0.9931  0.0007  -0.0002    0.0016    10    10    24    21
+      ont         host training, samples held out no_ref v15  0.5000  0.5000        6 0.9877 0.9907  0.0031   0.0000    0.0078     3     2     1     1
+      ont         soil training, samples held out no_ref v15  0.5000  0.5000        6 0.9496 0.9517  0.0021   0.0014    0.0028  1142  1075  1151  1122
+      ont soil_shallow training, samples held out no_ref v15  0.5000  0.5000        6 0.9442 0.9471  0.0030   0.0020    0.0037   858   796   924   890

@@ -1,0 +1,36 @@
+== v13 (build's own final model)
+read type                       test rows  taxa  present  F1 at 0.5 FP, FN at 0.5  F1 at knob   knob FP, FN at knob  best F1     at
+       pe                             all 22305     4562     0.9633      210, 128      0.9652 0.7000        93, 220   0.9656 0.6800
+       pe     species present in training  5818     3830     0.9833        31, 96      0.9755 0.7000        16, 168   0.9863 0.3700
+       pe species only absent in training 14093      420     0.8065       169, 22      0.8808 0.7000         73, 32   0.8999 0.8500
+       pe         species not in training  2394      312     0.9679        10, 10      0.9605 0.7000          4, 20   0.9712 0.4700
+       se                             all 19392     4473     0.9592      186, 179      0.9592 0.5000       186, 179   0.9607 0.5600
+       se     species present in training  4739     3308     0.9785       19, 121      0.9785 0.5000        19, 121   0.9835 0.2100
+       se species only absent in training 10944      529     0.8314       164, 36      0.8314 0.5000        164, 36   0.8730 0.8800
+       se         species not in training  3709      636     0.9800         3, 22      0.9800 0.5000          3, 22   0.9859 0.2400
+       pb                             all  3758     2099     0.9767        55, 43      0.9767 0.5000         55, 43   0.9769 0.5400
+       pb     species present in training  1643     1476     0.9867         7, 32      0.9867 0.5000          7, 32   0.9912 0.2600
+       pb species only absent in training  1086       87     0.8529         30, 0      0.8529 0.5000          30, 0   0.9371 0.8700
+       pb         species not in training  1029      536     0.9731        18, 11      0.9731 0.5000         18, 11   0.9767 0.6800
+      ont                             all  4455     2156     0.9720        66, 55      0.9720 0.5000         66, 55   0.9728 0.5600
+      ont     species present in training  1723     1503     0.9842         8, 39      0.9842 0.5000          8, 39   0.9884 0.2000
+      ont species only absent in training  1394      117     0.8273         46, 2      0.8273 0.5000          46, 2   0.9205 0.8500
+      ont         species not in training  1338      536     0.9757        12, 14      0.9757 0.5000         12, 14   0.9774 0.5800
+== v14 (build's own final model)
+read type                       test rows  taxa  present  F1 at 0.5 FP, FN at 0.5  F1 at knob   knob FP, FN at knob  best F1     at
+       pe                             all 22305     4562     0.9678      162, 133      0.9649 0.8200        63, 251   0.9687 0.5800
+       pe     species present in training  5937     3900     0.9830       25, 106      0.9724 0.8200        12, 198   0.9855 0.2700
+       pe species only absent in training 14870      422     0.8443       131, 18      0.8970 0.8200         49, 39   0.9093 0.9400
+       pe         species not in training  1498      240     0.9686          6, 9      0.9658 0.8200          2, 14   0.9756 0.0800
+       se                             all 19392     4473     0.9636      137, 187      0.9612 0.7300        88, 253   0.9636 0.5000
+       se     species present in training  4767     3326     0.9786       14, 126      0.9723 0.7300         9, 171   0.9849 0.0700
+       se species only absent in training 11706      601     0.8686       118, 49      0.8849 0.7300         77, 63   0.8997 0.8900
+       se         species not in training  2919      546     0.9843         5, 12      0.9805 0.7300          2, 19   0.9899 0.2000
+       pb                             all  3758     2099     0.9791        54, 34      0.9791 0.5000         54, 34   0.9814 0.6300
+       pb     species present in training  1731     1556     0.9897         7, 25      0.9897 0.5000          7, 25   0.9920 0.2600
+       pb species only absent in training  1227       83     0.8000         40, 1      0.8000 0.5000          40, 1   0.9364 0.9500
+       pb         species not in training   800      460     0.9837          7, 8      0.9837 0.5000           7, 8   0.9848 0.4200
+      ont                             all  4455     2156     0.9759        56, 48      0.9759 0.5000         56, 48   0.9762 0.4400
+      ont     species present in training  1825     1596     0.9854         7, 39      0.9854 0.5000          7, 39   0.9887 0.1200
+      ont species only absent in training  1618      138     0.8599         41, 3      0.8599 0.5000          41, 3   0.9214 0.9100
+      ont         species not in training  1012      422     0.9835          8, 6      0.9835 0.5000           8, 6   0.9847 0.4200

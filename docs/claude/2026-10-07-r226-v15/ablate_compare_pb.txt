@@ -1,0 +1,31 @@
+read type                                     set             A   B  knob A  knob B  samples   F1 A   F1 B   B - A  95% low  95% high  FP A  FP B  FN A  FN B
+       pb                             design test no_complexity v15  0.5000  0.5000       41 0.9798 0.9785 -0.0013  -0.0080    0.0045    52    39    33    51
+       pb                             design test        no_ref v15  0.5000  0.5000       41 0.9787 0.9785 -0.0002  -0.0020    0.0014    39    39    50    51
+       pb                            gut hold-out no_complexity v15  0.5000  0.5000        3 0.9928 0.9949  0.0021   0.0012    0.0026    11     7     6     5
+       pb                            gut hold-out        no_ref v15  0.5000  0.5000        3 0.9966 0.9949 -0.0017  -0.0026    0.0000     3     7     5     5
+       pb                           host hold-out no_complexity v15  0.5000  0.5000        3 0.9895 0.9895  0.0000   0.0000    0.0000     1     1     0     0
+       pb                           host hold-out        no_ref v15  0.5000  0.5000        3 1.0000 0.9895 -0.0105  -0.0204    0.0000     0     1     0     0
+       pb                           soil hold-out no_complexity v15  0.5000  0.5000        3 0.9577 0.9578  0.0001  -0.0006    0.0014   311   351   592   553
+       pb                           soil hold-out        no_ref v15  0.5000  0.5000        3 0.9554 0.9578  0.0024   0.0004    0.0042   377   351   579   553
+       pb                   soil_shallow hold-out no_complexity v15  0.5000  0.5000        3 0.9549 0.9561  0.0011  -0.0007    0.0028   319   307   398   392
+       pb                   soil_shallow hold-out        no_ref v15  0.5000  0.5000        3 0.9536 0.9561  0.0025   0.0010    0.0049   340   307   400   392
+       pb       design training, species held out no_complexity v15  0.5000  0.5000      185 0.9750 0.9756  0.0006  -0.0007    0.0019   192   178   140   146
+       pb       design training, species held out        no_ref v15  0.5000  0.5000      185 0.9756 0.9756  0.0000  -0.0014    0.0014   172   178   152   146
+       pb          gut training, species held out no_complexity v15  0.5000  0.5000        6 0.9903 0.9942  0.0040   0.0013    0.0060    20     7    24    19
+       pb          gut training, species held out        no_ref v15  0.5000  0.5000        6 0.9949 0.9942 -0.0007  -0.0018    0.0008     4     7    19    19
+       pb         host training, species held out no_complexity v15  0.5000  0.5000        6 0.9846 0.9907  0.0060  -0.0001    0.0185     4     1     1     2
+       pb         host training, species held out        no_ref v15  0.5000  0.5000        6 0.9938 0.9907 -0.0031  -0.0105    0.0000     1     1     1     2
+       pb         soil training, species held out no_complexity v15  0.5000  0.5000        6 0.9553 0.9554  0.0001  -0.0007    0.0009   938   918  1068  1083
+       pb         soil training, species held out        no_ref v15  0.5000  0.5000        6 0.9542 0.9554  0.0012   0.0001    0.0021   961   918  1095  1083
+       pb soil_shallow training, species held out no_complexity v15  0.5000  0.5000        6 0.9526 0.9534  0.0008   0.0001    0.0015   669   673   780   753
+       pb soil_shallow training, species held out        no_ref v15  0.5000  0.5000        6 0.9524 0.9534  0.0010   0.0003    0.0017   694   673   763   753
+       pb       design training, samples held out no_complexity v15  0.5000  0.5000      185 0.9752 0.9756  0.0003  -0.0013    0.0019   183   168   146   156
+       pb       design training, samples held out        no_ref v15  0.5000  0.5000      185 0.9739 0.9756  0.0017   0.0003    0.0031   173   168   173   156
+       pb          gut training, samples held out no_complexity v15  0.5000  0.5000        6 0.9903 0.9940  0.0037   0.0017    0.0055    20     7    24    20
+       pb          gut training, samples held out        no_ref v15  0.5000  0.5000        6 0.9931 0.9940  0.0009   0.0002    0.0019     8     7    23    20
+       pb         host training, samples held out no_complexity v15  0.5000  0.5000        6 0.9846 0.9907  0.0060  -0.0001    0.0185     4     1     1     2
+       pb         host training, samples held out        no_ref v15  0.5000  0.5000        6 0.9907 0.9907  0.0000   0.0000    0.0000     1     1     2     2
+       pb         soil training, samples held out no_complexity v15  0.5000  0.5000        6 0.9555 0.9588  0.0032   0.0003    0.0078   743   804  1236  1041
+       pb         soil training, samples held out        no_ref v15  0.5000  0.5000        6 0.9555 0.9588  0.0033   0.0024    0.0044   872   804  1119  1041
+       pb soil_shallow training, samples held out no_complexity v15  0.5000  0.5000        6 0.9534 0.9539  0.0005  -0.0029    0.0031   522   612   891   795
+       pb soil_shallow training, samples held out        no_ref v15  0.5000  0.5000        6 0.9528 0.9539  0.0011  -0.0002    0.0021   625   612   814   795

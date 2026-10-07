@@ -1,0 +1,21 @@
+pe: best 0.80; bootstrap best 5/50/95% 0.76 / 0.80 / 0.80; the trainer's knob 0.80 gains over 0.5 in 100% of resamples; test design best 0.49, scenarios best 0.77, weighted best 0.73
+se: best 0.70; bootstrap best 5/50/95% 0.63 / 0.70 / 0.75; the trainer's knob 0.50 gains over 0.5 in 0% of resamples; test design best 0.51, scenarios best 0.62, weighted best 0.51
+pb: best 0.54; bootstrap best 5/50/95% 0.48 / 0.54 / 0.61; the trainer's knob 0.50 gains over 0.5 in 0% of resamples; test design best 0.39, scenarios best 0.51, weighted best 0.57
+ont: best 0.62; bootstrap best 5/50/95% 0.56 / 0.60 / 0.62; the trainer's knob 0.50 gains over 0.5 in 0% of resamples; test design best 0.30, scenarios best 0.54, weighted best 0.55
+read type                       rule   knob  train F1 (weighted)  test design F1  test scenarios F1  test weighted F1
+       pe                        0.5 0.5000               0.9589          0.9698             0.9469            0.9566
+       pe       trainer (0.002 rule) 0.8000               0.9637          0.9645             0.9551            0.9591
+       pe   median, 95% of resamples 0.8000               0.9637          0.9645             0.9551            0.9591
+       pe median, test set not worse 0.8000               0.9637          0.9645             0.9551            0.9591
+       se                        0.5 0.5000               0.9651          0.9622             0.9637            0.9627
+       se       trainer (0.002 rule) 0.5000               0.9651          0.9622             0.9637            0.9627
+       se   median, 95% of resamples 0.7000               0.9666          0.9599             0.9654            0.9621
+       se median, test set not worse 0.5000               0.9651          0.9622             0.9637            0.9627
+       pb                        0.5 0.5000               0.9644          0.9785             0.9594            0.9651
+       pb       trainer (0.002 rule) 0.5000               0.9644          0.9785             0.9594            0.9651
+       pb   median, 95% of resamples 0.5000               0.9644          0.9785             0.9594            0.9651
+       pb median, test set not worse 0.5000               0.9644          0.9785             0.9594            0.9651
+      ont                        0.5 0.5000               0.9600          0.9723             0.9492            0.9560
+      ont       trainer (0.002 rule) 0.5000               0.9600          0.9723             0.9492            0.9560
+      ont   median, 95% of resamples 0.6000               0.9607          0.9731             0.9495            0.9565
+      ont median, test set not worse 0.6000               0.9607          0.9731             0.9495            0.9565

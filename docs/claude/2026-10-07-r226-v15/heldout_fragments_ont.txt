@@ -1,0 +1,13 @@
+# /home/falk/v15/model_logs/error_reads/ont: per sample, means
+                       samples  fragments   heldout  source_mb  held-out share  fragments left
+set      scenario                                                                             
+test     design             42    12997.5   12833.1        9.2             1.0           164.0
+         gut                 3    65671.0   63080.7      377.0             1.0          2590.0
+         host                3        0.3       0.0       56.4             0.0             0.0
+         soil                3   665192.3  627065.3      283.0             0.9         38127.0
+         soil_shallow        3   183536.0  156976.0       74.0             0.9         26560.0
+training design            186     7190.4    7046.1        6.1             1.0           144.0
+         gut                 6    36478.2   32966.8      367.8             0.9          3511.0
+         host                6     1348.7    1348.2       49.7             1.0             0.0
+         soil                6   689976.0  650013.5      295.8             0.9         39962.0
+         soil_shallow        6   181972.8  156450.5       71.6             0.9         25522.0

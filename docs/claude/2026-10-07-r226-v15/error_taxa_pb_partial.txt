@@ -1,0 +1,19 @@
+# /home/falk/v15/model_logs/error_reads/pb: 37 samples; missed species per sample by where their own reads went
+                                 samples  elsewhere  none  on it, MAPQ < 4  on it, MAPQ >= 4  unaligned elsewhere  unaligned, seeded on it   all
+set  scenario error                                                                                                                             
+test design   FN                      34        0.0   0.0              0.1               1.4                  0.0                      0.0   1.5
+              unseen                  34        0.9  33.2              0.4               0.1                 13.8                      5.9  54.3
+              unseen (held out)       34       17.2  17.0              0.0               0.0                 23.6                      0.0  57.8
+     gut      FN                       3        0.0   0.0              0.0               1.7                  0.0                      0.0   1.7
+              unseen (held out)        3       16.0   0.0              0.0               0.0                  5.3                      0.0  21.3
+
+# FP per sample (median fragments on an FP taxon)
+               FP  fragments  samples  FP per sample
+set  scenario                                       
+test design    38        1.5       34            1.1
+     gut        7        2.0        3            2.3
+
+# unseen species with fragments best on them at MAPQ >= 4: those fragments (quantiles 50/90/99%)
+               0.50  0.90  0.99
+set  scenario                  
+test design     1.0   2.6  2.96
