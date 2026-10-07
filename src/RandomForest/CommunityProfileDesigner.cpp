@@ -296,14 +296,16 @@ std::vector<double> CommunityProfileDesigner::draw_weights(
     return weights;
 }
 
-std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
-    const ProfileDesignOptions& options, std::mt19937_64& rng) const {
-    auto grouped = group_by_species();
-    std::unordered_map<std::string, std::vector<std::string>> genus_to_species;
-    std::unordered_map<std::string, std::string> species_to_genus;
-    std::unordered_map<std::string, std::vector<std::string>> taxon_to_species;
-    std::unordered_map<std::string, std::unordered_set<std::string>> species_to_taxa;
-    for (const auto& [spec, genomes] : grouped) {
+CommunityProfileDesigner::Groups const& CommunityProfileDesigner::groups() const {
+    if (groups_) return *groups_;
+    auto made = std::make_unique<Groups>();
+    made->grouped = group_by_species();
+    auto& genus_to_species = made->genus_to_species;
+    auto& species_to_genus = made->species_to_genus;
+    auto& taxon_to_species = made->taxon_to_species;
+    auto& species_to_taxa = made->species_to_taxa;
+    for (const auto& [spec, genomes] : made->grouped) {
+        made->species.push_back(&spec);
         const std::string genus =
             genomes.empty() ? std::string{"unknown_genus"} : extract_genus(genomes.front().taxonomy);
         species_to_genus.emplace(spec, genus);
@@ -331,6 +333,18 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
             }
         }
     }
+    groups_ = std::move(made);
+    return *groups_;
+}
+
+std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
+    const ProfileDesignOptions& options, std::mt19937_64& rng) const {
+    Groups const& groups_of = groups();
+    auto const& grouped = groups_of.grouped;
+    auto const& genus_to_species = groups_of.genus_to_species;
+    auto const& species_to_genus = groups_of.species_to_genus;
+    auto const& taxon_to_species = groups_of.taxon_to_species;
+    auto const& species_to_taxa = groups_of.species_to_taxa;
 
     std::vector<std::pair<std::string, std::vector<GenomeRecord>>> selected_species;
     selected_species.reserve(options.species_per_sample);
@@ -537,13 +551,13 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
         }
     }
 
-    // Shuffle species order to pick initial strain per species.
-    std::vector<std::string> species_order;
-    species_order.reserve(grouped.size());
-    for (const auto& [spec, _] : grouped) species_order.push_back(spec);
+    // Shuffle species order to pick initial strain per species (the species' names by pointer: the same permutation
+    // as of the names themselves, std::shuffle's draws depending on the count alone).
+    std::vector<std::string const*> species_order(groups_of.species);
     std::shuffle(species_order.begin(), species_order.end(), rng);
 
-    for (const auto& species : species_order) {
+    for (const std::string* species_of : species_order) {
+        const std::string& species = *species_of;
         if (selected_species.size() >= options.species_per_sample) break;
         if (selected_set.count(species) > 0) continue;
         const auto& genomes = grouped.at(species);
@@ -651,7 +665,7 @@ std::vector<SampleStrainAssignment> CommunityProfileDesigner::assign_strains_acr
     std::vector<SampleStrainAssignment> assignments(sample_count);
     if (specs.empty() || sample_count == 0) return assignments;
 
-    auto grouped = group_by_species();
+    auto const& grouped = groups().grouped;
 
     for (const auto& spec : specs) {
         if (spec.n_strains == 0) continue;

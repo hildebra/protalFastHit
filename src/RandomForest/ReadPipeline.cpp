@@ -2,8 +2,10 @@
 #include "ReadPipeline.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cerrno>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
@@ -26,7 +28,7 @@
 
 #include "../IO/Bgzf.h"
 #include "../Utilities/Zstd.h"
-#include "ThreadedGzStream.h"
+#include "GenomeStore.h"
 
 namespace fs = std::filesystem;
 
@@ -91,6 +93,51 @@ double LongRng::Normal() {  // Marsaglia's polar method
     return u * f;
 }
 
+// Doornik's ZIGNOR (2005): 128 blocks of equal area under the normal density, the rectangles' x and their ratios. A
+// number is u x[i] for a uniform u in (-1, 1) and block i, both from one 64-bit draw (bits 0-6 the block, the top 53 u),
+// unless it falls outside the rectangle part of its block (~1.2% of draws): then the wedge or the tail beyond R decides.
+namespace {
+struct Ziggurat {
+    static constexpr int kBlocks = 128;
+    static constexpr double kR = 3.442619855899, kV = 9.91256303526217e-3;
+    double x[kBlocks + 1], ratio[kBlocks];
+    Ziggurat() {
+        double f = std::exp(-0.5 * kR * kR);
+        x[0] = kV / f;
+        x[1] = kR;
+        x[kBlocks] = 0;
+        for (int i = 2; i < kBlocks; ++i) {
+            x[i] = std::sqrt(-2 * std::log(kV / x[i - 1] + f));
+            f = std::exp(-0.5 * x[i] * x[i]);
+        }
+        for (int i = 0; i < kBlocks; ++i) ratio[i] = x[i + 1] / x[i];
+    }
+};
+Ziggurat const kZiggurat;
+}  // namespace
+
+double LongRng::Gaussian() {
+    Ziggurat const& z = kZiggurat;
+    for (;;) {
+        std::uint64_t const bits = (*this)();
+        int const i = static_cast<int>(bits & 0x7f);
+        double const u = 2.0 * (static_cast<double>(bits >> 11) * 0x1.0p-53) - 1.0;
+        if (std::fabs(u) < z.ratio[i]) return u * z.x[i];
+        if (i == 0) {  // the tail beyond R
+            double x, y;
+            do {
+                x = std::log(1.0 - Uniform()) / Ziggurat::kR;
+                y = std::log(1.0 - Uniform());
+            } while (-2 * y < x * x);
+            return u < 0 ? x - Ziggurat::kR : Ziggurat::kR - x;
+        }
+        double const x = u * z.x[i];  // the wedge between this block's rectangle and the density
+        double const f0 = std::exp(-0.5 * (z.x[i] * z.x[i] - x * x));
+        double const f1 = std::exp(-0.5 * (z.x[i + 1] * z.x[i + 1] - x * x));
+        if (f1 + Uniform() * (f0 - f1) < 1.0) return x;
+    }
+}
+
 std::uint64_t MixSeed(std::uint64_t a, std::uint64_t b) {
     std::uint64_t x = a ^ Rotl(b, 32) ^ 0x2545f4914f6cdd1dULL;
     SplitMix64(x);
@@ -112,44 +159,62 @@ void ReverseComplement(std::string& seq) {
 
 // ---- genomes -----------------------------------------------------------------------------------------------------
 
-std::shared_ptr<Contigs const> LoadContigs(std::string const& name, fs::path const& fasta, std::uint32_t min_length) {
-    protal::ThreadedGzIstream in(fasta.c_str());
-    if (!in.rdbuf()->is_open()) throw std::runtime_error(name + ": cannot read " + fasta.string());
+void Contigs::Extract(std::size_t k, std::uint64_t start, std::uint64_t length, std::string& out) const {
+    if (file) {
+        file->Extract(file_contigs[k], start, length, out);
+    } else {
+        out.assign(seqs[k], start, length);
+    }
+}
+
+std::shared_ptr<Contigs const> LoadContigs(std::string const& name, fs::path const& fasta, std::uint32_t min_length,
+                                           fs::path const& store) {
     auto contigs = std::make_shared<Contigs>();
     contigs->min_length = std::max<std::uint32_t>(1, min_length);
-    std::string line, seq, contig;
-    bool in_record = false;
-    auto close = [&] {
-        if (in_record && seq.size() >= contigs->min_length) {
-            contigs->starts.push_back((contigs->starts.empty() ? 0 : contigs->starts.back()) + seq.size() -
-                                      contigs->min_length + 1);
-            contigs->seqs.push_back(std::move(seq));
-            contigs->names.push_back(contig);
-        }
-        seq.clear();
+    auto add = [&](std::string name_of, std::uint64_t length) {
+        contigs->starts.push_back((contigs->starts.empty() ? 0 : contigs->starts.back()) + length - contigs->min_length + 1);
+        contigs->lengths.push_back(length);
+        contigs->names.push_back(std::move(name_of));
+        contigs->longest = std::max(contigs->longest, length);
     };
-    while (std::getline(in, line)) {
-        if (!line.empty() && line[0] == '>') {
-            close();
-            in_record = true;
-            auto const end = line.find_first_of(" \t\r", 1);
-            contig = line.substr(1, end == std::string::npos ? std::string::npos : end - 1);
-            continue;
+    auto none = [&] {
+        return std::runtime_error(name + ": no sequence of " + std::to_string(contigs->min_length) + " bases or more in " +
+                                  fasta.string());
+    };
+    if (!store.empty()) {
+        if (auto file = GenomeFile::Open(store, fasta)) {
+            for (std::size_t k = 0; k < file->Contigs(); ++k) {
+                if (file->Length(k) < contigs->min_length) continue;
+                add(std::string(file->Name(k)), file->Length(k));
+                contigs->file_contigs.push_back(k);
+            }
+            if (contigs->names.empty()) throw none();
+            contigs->file = std::move(file);
+            return contigs;
         }
-        if (!in_record) continue;
-        for (char c : line) {
-            if (!std::isspace(static_cast<unsigned char>(c))) seq += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    FastaRecords records;
+    try {
+        records = ParseFasta(ReadWholeFile(fasta));
+    } catch (std::exception const& e) {
+        throw std::runtime_error(name + ": " + e.what());
+    }
+    if (!store.empty()) {
+        std::string error;
+        if (!GenomeFile::Write(store, fasta, records, error)) {
+            static std::atomic<bool> warned{false};
+            if (!warned.exchange(true)) {
+                std::fprintf(stderr, "Warning: the genome store %s is not written (%s); genomes are read from their "
+                                     "FASTA files\n", store.c_str(), error.c_str());
+            }
         }
     }
-    if (in.rdbuf()->read_failed()) {
-        throw std::runtime_error(name + ": " + fasta.string() + " is truncated or corrupt (" +
-                                 in.rdbuf()->read_error_message() + ")");
+    for (std::size_t k = 0; k < records.seqs.size(); ++k) {
+        if (records.seqs[k].size() < contigs->min_length) continue;
+        add(std::move(records.names[k]), records.seqs[k].size());
+        contigs->seqs.push_back(std::move(records.seqs[k]));
     }
-    close();
-    if (contigs->seqs.empty()) {
-        throw std::runtime_error(name + ": no sequence of " + std::to_string(contigs->min_length) + " bases or more in " +
-                                 fasta.string());
-    }
+    if (contigs->seqs.empty()) throw none();
     return contigs;
 }
 
@@ -246,6 +311,7 @@ Packing PackingOf(fs::path const& out) {
 }
 
 std::string Pack(std::string const& data, Packing packing) {
+    if (packing == Packing::Plain) return data;
     std::string out;
     if (packing == Packing::Bgzf) {
         if (!protal::bgzf::Compress(data.data(), data.size(), out)) throw std::runtime_error("BGZF compression failed");
@@ -297,16 +363,20 @@ struct Stream {
     Totals totals;
 };
 
+bool Ready(std::shared_future<std::shared_ptr<Contigs const>> const& loaded) {
+    return loaded.valid() && loaded.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+}
+
 class Engine {
 public:
-    Engine(Job& job, int threads) : m_job(job), m_streams(job.Samples()) {
+    Engine(Job& job, RunOptions const& options) : m_job(job), m_options(options), m_streams(job.Samples()) {
         for (std::size_t s = 0; s < m_streams.size(); ++s) {
             for (auto const& path : job.Outputs(s)) {
                 PackingOf(path);  // fails before any work
                 m_streaming = m_streaming || IsFifo(path);
             }
         }
-        m_threads = std::max(1, threads);
+        m_threads = std::max(1, options.threads);
         m_cap = std::max<std::size_t>(4, 3 * static_cast<std::size_t>(m_threads));
     }
 
@@ -361,6 +431,9 @@ private:
                 m_cv.wait(lock);
                 continue;
             }
+            // The next item's genome is being loaded by another thread: rather than wait for it, load a later genome
+            // of the round (the files are the same either way).
+            if (WouldWait(*stream) && Preload(*stream, lock)) continue;
             std::size_t const k = stream->next_issue++;
             ++m_in_flight;
             Item const item = stream->items[k];
@@ -383,12 +456,17 @@ private:
                 if (load) {
                     try {
                         load->set_value(LoadContigs(m_job.GenomeName(stream->index, item.genome), fasta,
-                                                    m_job.MinContigLength()));
+                                                    m_job.MinContigLength(), m_options.genome_store));
                     } catch (...) {
                         load->set_exception(std::current_exception());
                     }
                 }
                 piece = m_job.Make(stream->index, item, fasta.empty() ? nullptr : loaded.get().get());
+                for (std::size_t o = 0; o < stream->outputs.size(); ++o) {  // set before any item was issued
+                    if (stream->outputs[o].packing != Packing::Plain) {
+                        piece->bytes[o] = Pack(piece->bytes[o], stream->outputs[o].packing);
+                    }
+                }
             } catch (...) {
                 lock.lock();
                 Fail(std::current_exception());
@@ -405,6 +483,41 @@ private:
         m_cv.notify_all();
     }
 
+    // Whether the stream's next item needs a genome that another thread is still loading.
+    bool WouldWait(Stream& s) const {
+        Item const& item = s.items[s.next_issue];
+        if (item.genome < 0) return false;
+        auto const slot = s.genomes.find({item.round, item.genome});
+        return slot != s.genomes.end() && !Ready(slot->second.loaded) && !m_job.Fasta(s.index, item.genome).empty();
+    }
+
+    // Loads the first genome of the round after the next item's that nothing loads yet (without the lock); false if
+    // there is none, or enough genomes are held already.
+    bool Preload(Stream& s, std::unique_lock<std::mutex>& lock) {
+        if (s.genomes.size() >= 2 * static_cast<std::size_t>(m_threads)) return false;
+        for (std::size_t j = s.next_issue + 1; j < s.round_end; ++j) {
+            Item const& item = s.items[j];
+            if (item.genome < 0 || s.genomes.count({item.round, item.genome})) continue;
+            fs::path const fasta = m_job.Fasta(s.index, item.genome);
+            if (fasta.empty()) continue;
+            auto load = std::make_shared<std::promise<std::shared_ptr<Contigs const>>>();
+            GenomeSlot& slot = s.genomes[{item.round, item.genome}];
+            slot.loaded = load->get_future().share();
+            slot.parts_left = item.parts;
+            std::string const name = m_job.GenomeName(s.index, item.genome);
+            lock.unlock();
+            try {
+                load->set_value(LoadContigs(name, fasta, m_job.MinContigLength(), m_options.genome_store));
+            } catch (...) {
+                load->set_exception(std::current_exception());  // the item that needs it fails
+            }
+            lock.lock();
+            m_cv.notify_all();
+            return true;
+        }
+        return false;
+    }
+
     // Opens sample i's outputs (without the lock: a pipe waits for its reader) and plans its first round.
     void Open(std::size_t i, std::unique_lock<std::mutex>& lock) {
         Stream& s = m_streams[i];
@@ -413,8 +526,8 @@ private:
         for (auto const& path : m_job.Outputs(i)) {
             Output out;
             out.path = path;
-            out.packing = PackingOf(path);
             out.fifo = IsFifo(path);
+            out.packing = out.fifo && m_options.plain_pipes ? Packing::Plain : PackingOf(path);
             out.written = out.fifo ? path : fs::path(path.string() + ".partial");
             outputs.push_back(out);
         }
@@ -521,7 +634,7 @@ private:
             bool ok = true;
             if (out.packing == Packing::Bgzf) {
                 ok = std::fwrite(protal::bgzf::kEof, 1, sizeof(protal::bgzf::kEof), out.file) == sizeof(protal::bgzf::kEof);
-            } else if (s.items.empty()) {  // no reads: an empty frame, so that the file is valid zstd
+            } else if (out.packing == Packing::Zstd && s.items.empty()) {  // no reads: an empty frame, valid zstd
                 std::string const empty = Pack(std::string(), out.packing);
                 ok = std::fwrite(empty.data(), 1, empty.size(), out.file) == empty.size();
             }
@@ -533,6 +646,7 @@ private:
     }
 
     Job& m_job;
+    RunOptions m_options;
     std::vector<Stream> m_streams;
     std::vector<Stream*> m_active;
     std::size_t m_next_sample = 0, m_closed = 0, m_in_flight = 0, m_cap = 4;
@@ -545,9 +659,9 @@ private:
 
 }  // namespace
 
-std::vector<Totals> Run(Job& job, int threads) {
+std::vector<Totals> Run(Job& job, RunOptions const& options) {
     if (job.Samples() == 0) return {};
-    Engine engine(job, threads);
+    Engine engine(job, options);
     return engine.Run();
 }
 

@@ -204,6 +204,13 @@ IlluminaModel::IlluminaModel(IlluminaSetup setup) : m_setup(std::move(setup)) {
         if (!(total > 0)) throw std::invalid_argument("profile " + p.name + ": a base without substitutions");
         for (auto& c : m_sub_cumulative[from]) c /= total;
     }
+    for (int r = 0; r < 2; ++r) {
+        m_entry_max[r] = *std::max_element(m_low_entry[r].begin(), m_low_entry[r].end());
+        m_entry_log[r] = std::log1p(-std::min(m_entry_max[r], 0.999999));
+    }
+    m_indel_max = (p.insertion + p.deletion) * std::max(1.0, p.homopolymer_indels);
+    m_indel_log = std::log1p(-std::min(m_indel_max, 0.999999));
+    m_n_log = std::log1p(-std::min(p.n_rate, 0.999999));
     Calibrate();
 }
 
@@ -221,7 +228,7 @@ void IlluminaModel::Calibrate() {
             int const reads = 2000;
             for (int i = 0; i < reads; ++i) {
                 for (auto& c : templ) c = "ACGT"[rng.Below(4)];
-                double const offset = m_setup.profile.cluster_sd * rng.Normal() + m_setup.profile.read_sd * rng.Normal();
+                double const offset = m_setup.profile.cluster_sd * rng.Gaussian() + m_setup.profile.read_sd * rng.Gaussian();
                 Read(templ, r, offset, rng, read, nullptr);
                 for (int c = 0; c < length; ++c) sum[c] += read.qual[c] - 33;
             }
@@ -237,11 +244,26 @@ std::uint32_t IlluminaModel::FragmentLength(LongRng& rng, std::uint64_t longest)
     auto const length = static_cast<std::uint64_t>(m_setup.read_length);
     std::uint64_t const most = std::max(length, longest);
     for (int attempt = 0; attempt < 100; ++attempt) {
-        double const x = std::round(m_setup.fragment_mean + m_setup.fragment_sd * rng.Normal());
+        double const x = std::round(m_setup.fragment_mean + m_setup.fragment_sd * rng.Gaussian());
         if (x >= static_cast<double>(length) && x <= static_cast<double>(most)) return static_cast<std::uint32_t>(x);
     }
     return static_cast<std::uint32_t>(std::clamp<std::uint64_t>(static_cast<std::uint64_t>(m_setup.fragment_mean), length, most));
 }
+
+namespace {
+
+constexpr int kNever = 1 << 30;
+
+// The failures before the first success of Bernoulli trials of probability p (log_q = log(1 - p)): the cycles to skip
+// to the next candidate of a rare event, one draw for all of them.
+inline int Gap(LongRng& rng, double p, double log_q) {
+    if (!(p > 0)) return kNever;
+    if (p >= 1) return 0;
+    double const g = std::log(1.0 - rng.Uniform()) / log_q;  // log of (0, 1]: >= 0
+    return g >= kNever ? kNever : static_cast<int>(g);
+}
+
+}  // namespace
 
 void IlluminaModel::Read(std::string_view templ, int read, double offset, LongRng& rng, MadeRead& out,
                          std::uint64_t* errors, IlluminaEvents* events_out) const {
@@ -260,36 +282,58 @@ void IlluminaModel::Read(std::string_view templ, int read, double offset, LongRn
     auto const& sd = m_sd[read];
     auto const& entry = m_low_entry[read];
     double const rho = p.noise_rho, innovation = std::sqrt(std::max(0.0, 1 - rho * rho));
-    double noise = rng.Normal();  // in SDs
+    double const entry_max = m_entry_max[read], entry_log = m_entry_log[read];
+    double noise = rng.Gaussian();  // in SDs
     bool low = false;
+    // The cycles of the next candidates of the rare events: the low state's entry (at the highest entry rate, kept at
+    // the cycle's), an indel (at the homopolymers' rate, kept at the place's), an N (after the first cycle's own).
+    int next_entry = Gap(rng, entry_max, entry_log);
+    int next_indel = Gap(rng, m_indel_max, m_indel_log);
+    bool const n_first = rng.Uniform() < p.n_first;
+    int next_n = 1 + Gap(rng, p.n_rate, m_n_log);
     std::size_t at = 0;  // in the template
     std::uint64_t made = 0;
-    double const indel_max = (p.insertion + p.deletion) * std::max(1.0, p.homopolymer_indels);
     for (int c = 0; c < length; ++c) {
-        if (c > 0) noise = rho * noise + innovation * rng.Normal();
-        low = low ? rng.Uniform() >= p.low_exit : rng.Uniform() < entry[c];
-        double const hq = low ? p.low_mean + p.low_sd * rng.Normal() : mu[c] + offset + sd[c] * noise;
+        if (c > 0) noise = rho * noise + innovation * rng.Gaussian();
+        if (low) {  // the low state ends with low_exit a cycle; the next entry can come from the next cycle on
+            if (rng.Uniform() < p.low_exit) {
+                low = false;
+                next_entry = c + 1 + Gap(rng, entry_max, entry_log);
+            }
+        } else if (c == next_entry) {
+            if (rng.Uniform() * entry_max < entry[c]) {
+                low = true;
+            } else {
+                next_entry = c + 1 + Gap(rng, entry_max, entry_log);
+            }
+        }
+        double const hq = low ? p.low_mean + p.low_sd * rng.Gaussian() : mu[c] + offset + sd[c] * noise;
         int q = std::clamp(static_cast<int>(std::lround(hq)), p.q_min, p.q_max);
         bool const tail = c >= collapse;
         if (tail) q = 2;
+        bool const n_call = c == 0 ? n_first : c == next_n;  // no call at this cycle (if it reads a template base)
+        if (c > 0 && c == next_n) next_n = c + 1 + Gap(rng, p.n_rate, m_n_log);
         // an insertion (a base not in the template) or a deletion (a template base skipped) before this cycle's base
-        double const u = rng.Uniform();
-        if (u < indel_max && at < templ.size()) {
-            std::size_t run = 1;  // the template's homopolymer here
-            while (at + run < templ.size() && templ[at + run] == templ[at]) ++run;
-            while (run < 5 && at >= run && templ[at - run] == templ[at]) ++run;
-            double const factor = run >= 5 ? p.homopolymer_indels : 1.0;
-            if (u < p.insertion * factor) {
-                out.seq[c] = "ACGT"[rng.Below(4)];
-                out.qual[c] = m_reported[q];
-                ++made;
-                ++events.insertions;
-                continue;
-            }
-            if (u < (p.insertion + p.deletion) * factor) {
-                ++at;
-                ++made;
-                ++events.deletions;
+        if (c == next_indel) {
+            next_indel = c + 1 + Gap(rng, m_indel_max, m_indel_log);
+            if (at < templ.size()) {
+                double const u = rng.Uniform() * m_indel_max;
+                std::size_t run = 1;  // the template's homopolymer here, as far as 5
+                while (run < 5 && at + run < templ.size() && templ[at + run] == templ[at]) ++run;
+                for (std::size_t back = 1; run < 5 && back <= at && templ[at - back] == templ[at]; ++back) ++run;
+                double const factor = run >= 5 ? p.homopolymer_indels : 1.0;
+                if (u < p.insertion * factor) {
+                    out.seq[c] = "ACGT"[rng.Below(4)];
+                    out.qual[c] = m_reported[q];
+                    ++made;
+                    ++events.insertions;
+                    continue;
+                }
+                if (u < (p.insertion + p.deletion) * factor) {
+                    ++at;
+                    ++made;
+                    ++events.deletions;
+                }
             }
         }
         if (at >= templ.size()) {  // past the fragment's end (a short fragment and deletions): adapter-like bases
@@ -301,7 +345,7 @@ void IlluminaModel::Read(std::string_view templ, int read, double offset, LongRn
         int const code = Code(base);
         bool const gg = at >= 2 && templ[at - 1] == 'G' && templ[at - 2] == 'G';
         ++at;
-        if (code > 3 || rng.Uniform() < (c == 0 ? p.n_first : p.n_rate)) {  // an N: of the genome, or no call
+        if (code > 3 || n_call) {  // an N: of the genome, or no call
             out.seq[c] = 'N';
             out.qual[c] = static_cast<char>(33 + 2);
             ++events.ns;
@@ -323,16 +367,17 @@ void IlluminaModel::Read(std::string_view templ, int read, double offset, LongRn
     if (errors) *errors += made;
 }
 
-void IlluminaModel::Pair(std::string_view fragment, double run, LongRng& rng, MadeRead& r1, MadeRead& r2,
+void IlluminaModel::Pair(std::string_view fragment, double run, LongRng& rng, LongRng& rng2, MadeRead& r1, MadeRead* r2,
                          std::uint64_t* errors) const {
     auto const& p = m_setup.profile;
-    double const cluster = run + p.cluster_sd * rng.Normal();
-    Read(fragment, 0, cluster + p.read_sd * rng.Normal(), rng, r1, errors);
+    double const cluster = run + p.cluster_sd * rng.Gaussian();
+    Read(fragment, 0, cluster + p.read_sd * rng.Gaussian(), rng, r1, errors);
+    if (!r2) return;
     thread_local std::string reverse;
     reverse.assign(fragment);
     ReverseComplement(reverse);
     double const insert = p.r2_insert_penalty * std::max(0.0, static_cast<double>(fragment.size()) - 500.0);
-    Read(reverse, 1, cluster + p.read_sd * rng.Normal() - insert, rng, r2, errors);
+    Read(reverse, 1, cluster + p.read_sd * rng2.Gaussian() - insert, rng2, *r2, errors);
 }
 
 IlluminaReport ReportProfile(IlluminaSetup const& setup, std::uint64_t pairs, std::uint64_t seed) {
@@ -353,16 +398,18 @@ IlluminaReport ReportProfile(IlluminaSetup const& setup, std::uint64_t pairs, st
     MadeRead read;
     std::string fragment;
     double const run = 0.0;
+    LongRng rng2(MixSeed(seed, 2));  // read 2's stream, as Pair draws read 2
     for (std::uint64_t i = 0; i < pairs; ++i) {
         std::uint32_t const want = model.FragmentLength(rng, genome.size());
         fragment.assign(genome, rng.Below(genome.size() - want + 1), want);
-        double const cluster = run + setup.profile.cluster_sd * rng.Normal();
+        double const cluster = run + setup.profile.cluster_sd * rng.Gaussian();
         for (int r = 0; r < 2; ++r) {
+            LongRng& stream = r == 0 ? rng : rng2;
             std::string templ = fragment;
             if (r == 1) ReverseComplement(templ);
-            double offset = cluster + setup.profile.read_sd * rng.Normal();
+            double offset = cluster + setup.profile.read_sd * stream.Gaussian();
             if (r == 1) offset -= setup.profile.r2_insert_penalty * std::max(0.0, static_cast<double>(want) - 500.0);
-            model.Read(templ, r, offset, rng, read, nullptr, &events[r]);
+            model.Read(templ, r, offset, stream, read, nullptr, &events[r]);
             for (int c = 0; c < length; ++c) {
                 int const q = read.qual[c] - 33;
                 sum[r][c] += q;
@@ -454,10 +501,8 @@ public:
         bool const host = contigs == nullptr;
         std::uint64_t const seed = host ? sample.host_seed : sample.genomes[item.genome].seed;
         LongRng rng(MixSeed(seed, item.part));
-        std::uint64_t longest = 0;
-        if (!host) {
-            for (auto const& seq : contigs->seqs) longest = std::max<std::uint64_t>(longest, seq.size());
-        }
+        LongRng rng2(MixSeed(MixSeed(seed, item.part), 0x5232));  // read 2's own stream ("R2")
+        std::uint64_t const longest = host ? 0 : contigs->longest;
         int const length = m_model.Setup().read_length;
         pipeline::Piece piece;
         std::string fq[2], fragment, name;
@@ -477,18 +522,17 @@ public:
                     std::uint64_t const at = rng.Below(contigs->starts.back());
                     k = std::upper_bound(contigs->starts.begin(), contigs->starts.end(), at) - contigs->starts.begin();
                     start = at - (k ? contigs->starts[k - 1] : 0);
-                    placed = start + want <= contigs->seqs[k].size();
+                    placed = start + want <= contigs->lengths[k];
                 }
                 if (!placed) {  // only very short contigs: the longest, from its start
-                    k = std::max_element(contigs->seqs.begin(), contigs->seqs.end(),
-                                         [](auto const& a, auto const& b) { return a.size() < b.size(); }) - contigs->seqs.begin();
+                    k = std::max_element(contigs->lengths.begin(), contigs->lengths.end()) - contigs->lengths.begin();
                     start = 0;
                 }
-                fragment.assign(contigs->seqs[k], start, want);
+                contigs->Extract(k, start, want, fragment);
                 name = contigs->names[k] + "-" + std::to_string(item.first_read + i + 1);
             }
             if (rng.Uniform() < 0.5) ReverseComplement(fragment);
-            m_model.Pair(fragment, m_run[s], rng, r1, r2, &piece.errors);  // read 2 made either way: the same read 1s
+            m_model.Pair(fragment, m_run[s], rng, rng2, r1, both ? &r2 : nullptr, &piece.errors);  // read 1s the same either way
             piece.template_bases += fragment.size();
             for (int r = 0; r < (both ? 2 : 1); ++r) {
                 MadeRead const& read = r == 0 ? r1 : r2;
@@ -504,9 +548,7 @@ public:
             }
         }
         piece.reads = item.reads;
-        for (int r = 0; r < (both ? 2 : 1); ++r) {
-            piece.bytes[r] = pipeline::Pack(fq[r], pipeline::PackingOf(r == 0 ? sample.r1 : sample.r2));
-        }
+        for (int r = 0; r < (both ? 2 : 1); ++r) piece.bytes[r] = std::move(fq[r]);  // packed by the pipeline
         return piece;
     }
 
@@ -523,7 +565,7 @@ private:
 std::vector<pipeline::Totals> SimulatePairs(std::vector<PairedSample> const& samples, PairedOptions const& options) {
     if (samples.empty()) return {};
     PairedJob job(samples, options);
-    return pipeline::Run(job, options.threads);
+    return pipeline::Run(job, {options.threads, options.genome_store, options.plain_pipes});
 }
 
 }  // namespace protal::sim

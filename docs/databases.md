@@ -434,9 +434,12 @@ every read type that reads them is profiled (the SAMs, profiles and dumps stay);
 profiles both collections in one protal run once all is simulated, and keeps the reads. A design
 point whose largest sample would take more than `--stream-above` GB of compressed reads (2) is not
 written to the disk at all: a protal run of its own reads its samples from named pipes while
-`simulate_metagenomes` makes them, one sample at a time (its single-end samples from a second run that
-writes only the first reads; protal aligns a sample whose reads come through a pipe whatever SAM it
-has). The models are trained in parallel. Without pbsim3's model file, leave `ont` out; a read type
+`simulate_metagenomes` makes them, one sample at a time, as plain FASTQ (`--compressed-pipes`:
+compressed as before), its single-end samples from a second run that writes only the first reads
+(read 2 draws from a random stream of its own and is not made then); protal aligns a sample whose
+reads come through a pipe whatever SAM it has. Every genome simulated is read from its FASTA once and
+memory-mapped by the later samples and simulations of both collections, from a genome store on the
+samples' disk (`--genome-store`). The models are trained in parallel. Without pbsim3's model file, leave `ont` out; a read type
 left out gets a placeholder model that reports nothing and makes protal warn. Replace it later with
 `protal --add_model MODEL --read_type se --db DB`.
 
@@ -637,7 +640,8 @@ The simulations write and delete many files, which a network file system is slow
 node's own disk, and copies the tables to `--outdir`. The samples are profiled as they are simulated
 and their reads removed once profiled (`--profile-blocks`), and a simulation that would leave less
 than `--keep-free` GB (30) waits for that, so the disk holds the training database (~24 GB at r226),
-what is simulated but not yet profiled, and the SAMs and profiles; give it 150-200 GB. With
+what is simulated but not yet profiled, the SAMs and profiles, and the genome store (`--genome-store`,
+~50 GB at r226, kept for the next build); give it 200-250 GB. With
 `--profile-blocks 0` every sample is on the disk at once: the r226 design took up to 120 GB without
 the scenarios (give it 175 GB), the default scenarios ~500 GB more (estimated for 6 + 3 samples each). The console says how much the run
 takes there. A rerun reuses the samples only from the same DIR, so on a disk that is cleared
@@ -686,6 +690,8 @@ keeps the finished database.
 | `--read-compression` | zstd | how the simulated reads are written: `zstd` (`.fq.zst`; `simulate_metagenomes --reads_compression zstd`, the long and Ultima reads (`--long_samples`), the host's reads) or `gzip` (`.fq.gz`); smaller (about 15% against the simulator's gzip, which ISA-L writes about twice as fast) and several times faster to write than Python's gzip ([report](claude/2026-10-05-zstd-reads/README.md)) |
 | `--profile-blocks`, `--keep-free` | 20, 30 | profile the samples as they are simulated, in protal runs of at least this many GB of reads, removing the reads profiled (0: one protal run once all is simulated, reads kept); the GB a simulation leaves free on the samples' disk, or it waits |
 | `--stream-above` | 2 | with `--profile-blocks`: a design point whose largest sample would take more than this many GB of compressed reads is streamed into protal through named pipes, never written (0: none) |
+| `--compressed-pipes` | off | with `--stream-above`: what goes through the pipes compressed as the files' names say, not as plain FASTQ |
+| `--genome-store` | auto | `simulate_metagenomes --genome_store` for both collections: each genome simulated read and parsed from its FASTA once, written at 2 bits a base and memory-mapped by every later sample and simulation (at r226 ~1.5M genome reads of ~54k genomes otherwise); `auto`: `SCRATCH/genome_store` (`OUTDIR/genome_store` without `--scratch`), kept for the next build; a folder; or `none`. ~0.25 bytes a base of the genomes simulated, ~50 GB at r226 besides the samples ([report](claude/2026-10-07-simulate-metagenomes-audit/README.md)) |
 | `--seed` | 1 | |
 | `--holdout`, `--holdout-clades`, `--holdout-max-share` | 0.3, `phylum:2,class:4,order:6,family:8,genus:12`, 0.02 | species and clades left out of the training database; `--holdout-clades none` for species only |
 | `--holdout-species` | | a file of the species to leave out instead |

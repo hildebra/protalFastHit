@@ -170,6 +170,17 @@ def parse_args(argv=None):
                    help="GB to keep free on the output's file system: a simulation that would leave less waits until a "
                         "--follow run has profiled and removed reads (default 0: no limit); the work in progress may "
                         "still finish below it")
+    p.add_argument("--genome_store",
+                   help="a folder for simulate_metagenomes's genome store (its --genome_store): a genome's FASTA is read "
+                        "and parsed by the first simulation that needs it and written there (2 bits a base, ~0.25 bytes "
+                        "a base of the genomes simulated), and every later sample, long-read round and simulation, of "
+                        "this collection or another given the same folder, maps that file instead of reading the FASTA "
+                        "again. The same reads as without it; best on a node's own disk (default: none)")
+    p.add_argument("--compressed_pipes", action="store_true",
+                   help="--stream_above: write the samples streamed into protal through named pipes compressed, as "
+                        "their names say (as before 2026-10-07); by default they go as plain FASTQ "
+                        "(simulate_metagenomes --plain_pipes), which saves compressing them only for protal to inflate "
+                        "them again")
     p.add_argument("--read_compression", choices=sorted(compressed.SUFFIXES), default="zstd",
                    help="how the simulated reads are written: zstd (.fq.zst, the default: as small as gzip or smaller, "
                         "several times faster to write and read; protal reads both) or gzip (.fq.gz: BGZF from "
@@ -607,6 +618,19 @@ def reads_suffix(opts):
     return compressed.SUFFIXES[read_compression(opts)]
 
 
+def genome_store_args(opts):
+    """simulate_metagenomes --genome_store (--genome_store): added to the commands run, never to a simulation's key,
+    as the reads are the same with or without it."""
+    store = getattr(opts, "genome_store", None)
+    return ["--genome_store", os.path.abspath(store)] if store else []
+
+
+def pipe_args(opts):
+    """simulate_metagenomes --plain_pipes for a streamed simulation (unless --compressed_pipes): what goes through a
+    named pipe is plain FASTQ."""
+    return [] if getattr(opts, "compressed_pipes", False) else ["--plain_pipes"]
+
+
 def reads_compression_args(opts):
     """simulate_metagenomes's option for the reads' compression."""
     return ["--reads_compression", "zstd" if read_compression(opts) == "zstd" else "bgzf"]
@@ -944,7 +968,7 @@ def simulate(point, index, opts, threads, clades, key):
     os.makedirs(sim, exist_ok=True)
     log = os.path.join(base, "simulate.log")
     with open(log, "w") as fh:
-        rc = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
+        rc = subprocess.run(command + genome_store_args(opts), stdout=fh, stderr=subprocess.STDOUT).returncode
     if rc != 0:
         shutil.rmtree(sim, ignore_errors=True)  # no protal.meta: simulated again on a rerun
         return f"{point['name']}: {opts.simulator} failed with exit code {rc}; see {log}"
@@ -1246,7 +1270,7 @@ def long_unit_plan(index, unit, opts, source=None, slots=1, threads=None):
     stats = os.path.join(tmp, "stats.tsv")
     command = [opts.simulator, "--long_samples", os.path.join(tmp, "samples.tsv"), "--long_genomes",
                os.path.join(tmp, "genomes.tsv"), "--long_setup", unit["setup"]["text"], "--long_stats", stats,
-               "-t", str(threads)] + (["--long_model", model] if model else [])
+               "-t", str(threads)] + (["--long_model", model] if model else []) + genome_store_args(opts)
     return {"rows": rows, "command": command, "base": base, "sim": sim, "tmp": tmp, "stats": stats, "threads": threads,
             "seconds": seconds, "written": written}
 
@@ -1946,6 +1970,7 @@ def stream_run(name, units, opts, key_of, number, pe_command=None, long_plan=Non
             command = pe_command(opts.threads)
             command[command.index("-o") + 1] = out
             command[command.index("--protal_metafile") + 1] = os.path.join(out, "protal")
+            command += genome_store_args(opts) + pipe_args(opts)
             companions.append((f"{opts.simulator} ({unit['type']})", command + (["--first_reads_only"] if first_only else []),
                                os.path.join(base, f"stream_{unit['type']}.log")))
     else:
@@ -1954,7 +1979,8 @@ def stream_run(name, units, opts, key_of, number, pe_command=None, long_plan=Non
             make_pipe(out)
         write_samples_table(plan["sim"], plan["rows"])
         folders.append(plan["tmp"])
-        companions.append((f"{opts.simulator} --long_samples", plan["command"], os.path.join(base, "stream.log")))
+        companions.append((f"{opts.simulator} --long_samples", plan["command"] + pipe_args(opts),
+                           os.path.join(base, "stream.log")))
     start_profiling(units, opts, key_of)
     samples = sum(u["samples"] for u in units)
     print(f"protal run {number}: {name} streamed ({len(units)} design points, {samples} samples, read from named pipes "

@@ -694,14 +694,16 @@ class GtdbBuildTest(unittest.TestCase):
 
     def test_h_streamed(self):
         # Every design point streamed (--stream-above, here a few bytes): protal reads each point's samples from named
-        # pipes as simulate_metagenomes makes them (pe, then se from a run that writes only read 1s), a protal run per
-        # point, no read on the disk: the same tables as full_build()'s one protal run.
+        # pipes as simulate_metagenomes makes them (pe, then se from a run that writes only read 1s), as plain FASTQ, a
+        # protal run per point, no read on the disk; the genomes from a genome store on the scratch disk
+        # (--genome-store auto): the same tables as full_build()'s one protal run.
         first = self.full_build()
         self.assertEqual(first.returncode, 0, first.stdout[-3000:])
         scratch = os.path.join(self.tmp.name, "stream_scratch")
         result = self.build("stream", "--scratch", scratch, "--profile-blocks", "20", "--stream-above", "0.000000001",
-                            "--evaluation", "none")
+                            "--evaluation", "none", "--genome-store", "auto")
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
+        self.assertTrue(glob.glob(os.path.join(scratch, "genome_store", "*.g2b")), "the genomes in the store")
         for collection in ("training", "test"):
             for table in ("training_data.tsv", "training_data_se.tsv"):
                 self.assertEqual(self.text("stream", collection, table), self.text("full_tables", collection, table),

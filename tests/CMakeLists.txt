@@ -23,6 +23,7 @@ add_executable(protal_tests
         test_CommunityDesign.cpp
         test_LongReadSimulation.cpp
         test_IlluminaSimulation.cpp
+        test_GenomeStore.cpp
         test_PackedSequence.cpp
         test_ReverseComplement.cpp
         test_GeneWindows.cpp

@@ -558,7 +558,7 @@ public:
                 std::uint64_t const at = rng.Below(starts.back());
                 std::size_t const k = std::upper_bound(starts.begin(), starts.end(), at) - starts.begin();
                 std::uint64_t const start = at - (k ? starts[k - 1] : 0);
-                templ.assign(contigs->seqs[k], start, length);
+                contigs->Extract(k, start, length, templ);
             }
             if (rng.Uniform() < 0.5) ReverseComplement(templ);
             if (m_qshmm) m_qshmm->Mutate(templ, rng, read, &piece.errors);
@@ -574,7 +574,7 @@ public:
             fastq += '\n';
         }
         piece.reads = item.lengths.size();
-        piece.bytes[0] = pipeline::Pack(fastq, pipeline::PackingOf(sample.out));
+        piece.bytes[0] = std::move(fastq);  // packed by the pipeline
         return piece;
     }
 
@@ -592,7 +592,7 @@ private:
 std::vector<LongSampleResult> SimulateLongReads(std::vector<LongSample> const& samples, LongReadOptions const& options) {
     if (samples.empty()) return {};
     LongJob job(samples, options);
-    auto const totals = pipeline::Run(job, options.threads);
+    auto const totals = pipeline::Run(job, {options.threads, options.genome_store, options.plain_pipes});
     std::vector<LongSampleResult> results;
     for (std::size_t s = 0; s < samples.size(); ++s) {
         results.push_back({samples[s].name, totals[s].reads, totals[s].template_bases, totals[s].read_bases,

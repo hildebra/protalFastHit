@@ -102,6 +102,8 @@ set(PROTAL_LIB_SOURCES
         RandomForest/IlluminaSimulator.cpp
         RandomForest/ReadPipeline.h
         RandomForest/ReadPipeline.cpp
+        RandomForest/GenomeStore.h
+        RandomForest/GenomeStore.cpp
         RandomForest/LongReadSimulator.h
         RandomForest/LongReadSimulator.cpp
 )

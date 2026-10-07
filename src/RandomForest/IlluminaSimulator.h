@@ -18,6 +18,10 @@
 //   homopolymers of 5 or more; a read is always its full length;
 // - the quality written is the hidden one, binned as the instrument bins it.
 //
+// The rare events of a cycle (the low state's entry, an indel, an N) are drawn as geometric gaps between them rather
+// than with a uniform number per cycle, the rates varying by cycle by thinning (a candidate at the highest rate kept at
+// the cycle's); normal numbers come from a ziggurat (LongRng::Gaussian). Read 2 draws from a stream of its own.
+//
 // Reads are named <contig>-<n>/1 and /2 (trace_relatives.py and error_reads.py take the contig from the name), a
 // host's h_<n>/1 and /2, n = 1, 2, ... over the sample.
 
@@ -82,10 +86,11 @@ public:
     // A fragment's length (normal; at least a read long, at most `longest` if it is that long).
     std::uint32_t FragmentLength(LongRng& rng, std::uint64_t longest) const;
     // The two reads of a fragment (its strand): read 1 from its start, read 2 from its reverse complement's; `run`: the
-    // sample's quality offset (RunOffset).
-    void Pair(std::string_view fragment, double run, LongRng& rng, MadeRead& r1, MadeRead& r2,
+    // sample's quality offset (RunOffset). Read 2 draws from a stream of its own (rng2), so that read 1s do not depend
+    // on whether read 2 is made: with r2 null it is not (first reads only).
+    void Pair(std::string_view fragment, double run, LongRng& rng, LongRng& rng2, MadeRead& r1, MadeRead* r2,
               std::uint64_t* errors = nullptr) const;
-    double RunOffset(LongRng& rng) const { return m_setup.profile.run_sd * rng.Normal(); }
+    double RunOffset(LongRng& rng) const { return m_setup.profile.run_sd * rng.Gaussian(); }
     // One read (0: read 1, 1: read 2) of a template, with a quality offset (the run's, the cluster's and the read's).
     void Read(std::string_view templ, int read, double offset, LongRng& rng, MadeRead& out,
               std::uint64_t* errors = nullptr, IlluminaEvents* events = nullptr) const;
@@ -99,6 +104,9 @@ private:
 
     IlluminaSetup m_setup;
     std::vector<double> m_mu[2], m_target[2], m_sd[2], m_low_entry[2];
+    // The rare events of a cycle, drawn as geometric gaps between candidates at a bound's rate (Read): the low state's
+    // entry (its highest rate by cycle), an indel (in homopolymers' rate), an N; and log(1 - rate) of each.
+    double m_entry_max[2] = {0, 0}, m_entry_log[2] = {0, 0}, m_indel_max = 0, m_indel_log = 0, m_n_log = 0;
     double m_error[94];
     char m_reported[94];
     double m_sub_cumulative[4][3];
@@ -123,6 +131,8 @@ struct PairedOptions {
     IlluminaSetup setup;
     std::filesystem::path host;  // a folder of scenarios.prepare_host, for samples with host pairs
     int threads = 1;
+    std::filesystem::path genome_store;  // genomes from a genome store (GenomeStore.h), or none
+    bool plain_pipes = false;            // outputs that are named pipes get plain FASTQ
 };
 
 // The samples' reads (pipeline::Run): each genome's pairs, then the host's, in work items of ~600 kB of FASTQ per

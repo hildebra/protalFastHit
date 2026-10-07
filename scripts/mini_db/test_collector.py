@@ -248,6 +248,18 @@ class CollectorTest(unittest.TestCase):
             self.assertTrue(row["FIRST"].endswith(".fq.gz"))
             with gzip.open(row["FIRST"], "rt") as fh:
                 self.assertEqual(fh.read().splitlines(), first[row["SAMPLEID"]])
+        # With a genome store (--genome_store): the same reads, when the run writes the store and when the next reads
+        # it; the option reaches the simulator's command but no key.
+        stored = argparse.Namespace(**vars(opts), genome_store=os.path.join(root, "store"))
+        self.assertEqual(collect.genome_store_args(opts), [])
+        self.assertEqual(collect.genome_store_args(stored), ["--genome_store", os.path.join(root, "store")])
+        self.assertEqual(collect.pipe_args(opts), ["--plain_pipes"])
+        self.assertEqual(collect.pipe_args(argparse.Namespace(compressed_pipes=True)), [])
+        for _ in range(2):
+            self.assertEqual(collect.simulate_long([(0, unit)], stored, 2), {})
+            for row in rows:
+                self.assertEqual(compressed.read_text(row["FIRST"]).splitlines(), first[row["SAMPLEID"]])
+        self.assertEqual(len(os.listdir(os.path.join(root, "store"))), 2)  # GA and GB, once each
         # A host share: the host genome (scenarios.prepare_host) last among the genomes, that share of the weight.
         host_fa = os.path.join(root, "host.fa")
         host_seq = "".join(rng.choice("ACGT") for _ in range(30000))

@@ -2,9 +2,11 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <random>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "MetagenomeTypes.h"
@@ -39,6 +41,20 @@ public:
 
 private:
     std::vector<GenomeRecord> genomes_;
+
+    // The genomes by species, and the species by genus and by taxon (each lineage token, with and without its rank
+    // prefix): the same for every sample of a run, so made once, at the first design (that throws on a lineage of
+    // mixed prefixes, as before).
+    struct Groups {
+        std::unordered_map<std::string, std::vector<GenomeRecord>> grouped;
+        std::vector<std::string const*> species;  // grouped's keys, in its iteration order
+        std::unordered_map<std::string, std::vector<std::string>> genus_to_species;
+        std::unordered_map<std::string, std::string> species_to_genus;
+        std::unordered_map<std::string, std::vector<std::string>> taxon_to_species;
+        std::unordered_map<std::string, std::unordered_set<std::string>> species_to_taxa;
+    };
+    mutable std::unique_ptr<Groups> groups_;
+    Groups const& groups() const;
 
     std::unordered_map<std::string, std::vector<GenomeRecord>> group_by_species() const;
     std::vector<double> draw_weights(std::size_t count, const ProfileDesignOptions& options, std::mt19937_64& rng) const;

@@ -175,9 +175,12 @@ and long reads of given communities (`--long_samples`). It makes the tests' and 
 (`cmake --build build --target simulate_metagenomes`, or `just simulate`).
 
 **Input**: a tab-separated genome table without header: name (accession), GTDB taxonomy, FASTA path
-(`.gz` works), and optionally the genome's length, which spares reading every genome at the start
-(~20 ms per genome of GTDB's size). `build_gtdb_database.py` writes one with lengths
-(`OUTDIR/genomes.tsv`), and synthetic releases have `simulation/genomes.tsv`.
+(gzip or zstd work), and optionally the genome's length, which spares reading every genome at the start
+(~5 ms per genome of GTDB's size). `build_gtdb_database.py` writes one with lengths
+(`OUTDIR/genomes.tsv`), and synthetic releases have `simulation/genomes.tsv`. A first row is taken
+for a header only if its fields name the columns (name, taxonomy, path, length) and none holds a
+lineage (`;`), a path (`/`) or a number. A genome's FASTA is read whole and parsed in bulk each
+time a sample needs it, unless a genome store (`--genome_store`) holds it.
 
 ```bash
 ./build/simulate_metagenomes --genome_table genomes.tsv --output_dir sims/ --samples 3 \
@@ -211,6 +214,8 @@ protal --db DB --map sims/protal.meta -t 8      # prints true and false positive
 | `-t, --threads` | 1 | the reads are made in work items on all threads, several samples at once when one leaves threads idle; the same files for any number |
 | `--test` | off | the design, manifests and truth, no reads |
 | `--reads_compression` | bgzf | `bgzf` (`.fq.gz`, ISA-L at level 1) or `zstd` (`.fq.zst`: about 15% smaller, about half as fast to write; protal reads both) |
+| `--plain_pipes` | off | outputs that are named pipes get plain FASTQ, whatever their names say (protal takes it as it is); regular files stay compressed |
+| `--genome_store DIR` | none | genomes decoded once into `DIR` (2 bits a base, ~0.25 bytes a base, memory-mapped): the first run that needs a genome reads its FASTA and writes its file there, later samples, long-read rounds and runs map it; a FASTA newer than its file is read again; the same reads as without it |
 | `--long_samples`, `--long_genomes`, `--long_setup`, `--long_model` | | long or Ultima reads of given communities ([databases.md](databases.md#one-model-per-read-type)); `--long_templates FASTA --long_out FILE`: one read of each sequence |
 | `-v` | | the version and commit |
 

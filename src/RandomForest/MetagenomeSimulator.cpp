@@ -18,10 +18,10 @@
 #include <unordered_map>
 #include <vector>
 
+#include <cstring>
+
 #include "../Utilities/Benchmark.h"
-#include "../Utilities/Zstd.h"
-#include "../IO/Bgzf.h"
-#include "ThreadedGzStream.h"
+#include "GenomeStore.h"
 
 namespace fs = std::filesystem;
 
@@ -159,7 +159,14 @@ std::vector<GenomeRecord> read_genome_table(const fs::path& tsv_path) {
                     header_len = i;
                 }
             }
-            const bool looks_like_header = header_name != -1 && header_tax != -1 && header_path != -1;
+            // A data row's fields can hold the words too (a FASTA path ".../genomic_files_all/gtdb_genomes_all/..."
+            // and "tax" anywhere in the path or the lineage): a header has no lineage (';'), no path ('/') and no
+            // number for a field.
+            const bool data_like = std::any_of(fields.begin(), fields.end(), [](const std::string& f) {
+                return f.find_first_of(";/") != std::string::npos ||
+                       (!f.empty() && f.find_first_not_of("0123456789") == std::string::npos);
+            });
+            const bool looks_like_header = header_name != -1 && header_tax != -1 && header_path != -1 && !data_like;
             if (looks_like_header) {
                 name_idx = header_name;
                 tax_idx = header_tax;
@@ -426,62 +433,38 @@ MetagenomeSimulator::MetagenomeSimulator(
       designer_(genomes_),
       rng_(seed) {}
 
+// The letters (A-Z, a-z) of the lines that do not start with '>', of the file read whole (gzip and zstd inflated).
 static std::uint64_t read_genome_length(const fs::path& fasta_path) {
-    auto accumulate_length = [](auto&& getter, auto&& handle) -> std::uint64_t {
-        std::string line;
-        std::uint64_t total = 0;
-        while (getter(handle, line)) {
-            if (!line.empty() && line[0] == '>') {
-                continue;
+    std::string const text = ReadWholeFile(fasta_path);
+    std::uint64_t total = 0;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        auto const* newline = static_cast<char const*>(std::memchr(text.data() + pos, '\n', text.size() - pos));
+        std::size_t const end = newline ? static_cast<std::size_t>(newline - text.data()) : text.size();
+        if (text[pos] != '>') {
+            for (std::size_t i = pos; i < end; ++i) {
+                auto const c = static_cast<unsigned char>(text[i]);
+                total += static_cast<unsigned char>((c | 0x20) - 'a') < 26;
             }
-            for (char c : line) {
-                if (std::isalpha(static_cast<unsigned char>(c))) {
-                    ++total;
-                }
-            }
         }
-        return total;
-    };
-
-    if (fasta_path.extension() == ".gz") {
-        // BGZF or other gzip, inflated with ISA-L (ThreadedGzStream.h).
-        protal::ThreadedGzIstream input(fasta_path.string().c_str());
-        if (!input.rdbuf()->is_open()) {
-            throw std::runtime_error("Unable to open compressed fasta: " + fasta_path.string());
-        }
-        auto getter = [](protal::ThreadedGzIstream& file, std::string& out) -> bool {
-            if (!std::getline(file, out)) return false;
-            if (!out.empty() && out.back() == '\r') out.pop_back();
-            return true;
-        };
-        std::uint64_t len = accumulate_length(getter, input);
-        if (input.rdbuf()->read_failed()) {
-            throw std::runtime_error("The compressed fasta " + fasta_path.string() + " is truncated or corrupt (" +
-                                     input.rdbuf()->read_error_message() + ")");
-        }
-        return len;
+        pos = end + 1;
     }
-
-    std::ifstream in(fasta_path);
-    if (!in) {
-        throw std::runtime_error("Unable to open fasta: " + fasta_path.string());
-    }
-    auto getter = [](std::ifstream& file, std::string& out) -> bool {
-        return static_cast<bool>(std::getline(file, out));
-    };
-    return accumulate_length(getter, in);
+    return total;
 }
 
 static std::unordered_map<std::string, std::uint64_t> build_length_cache(const std::vector<GenomeRecord>& genomes) {
     std::unordered_map<std::string, std::uint64_t> lengths;
     lengths.reserve(genomes.size());
-    size_t read_genomes = 0;
+    size_t read_genomes = 0;  // read for their length (the table has none for them)
     for (const auto& genome : genomes) {
-        if ((read_genomes % 100) == 0) {
-            std::cout << "genomes processed: " << read_genomes << std::endl;
+        if (genome.genome_length) {
+            lengths.emplace(genome.name, *genome.genome_length);
+            continue;
         }
-        const auto len = genome.genome_length ? *genome.genome_length : read_genome_length(genome.fasta_path);
-        lengths.emplace(genome.name, len);
+        if ((read_genomes % 100) == 0) {
+            std::cout << "genomes read for their length: " << read_genomes << std::endl;
+        }
+        lengths.emplace(genome.name, read_genome_length(genome.fasta_path));
         ++read_genomes;
     }
     return lengths;
@@ -589,6 +572,8 @@ void MetagenomeSimulator::write_all_reads(
     options.setup.mean_quality = illumina_.mean_quality;
     options.host = illumina_.host_folder;
     options.threads = std::max(1, illumina_.threads);
+    options.genome_store = illumina_.genome_store;
+    options.plain_pipes = illumina_.plain_pipes;
     protal::Benchmark timer("write the reads of " + std::to_string(samples.size()) + " samples");
     timer.Start();
     SimulatePairs(paired, options);

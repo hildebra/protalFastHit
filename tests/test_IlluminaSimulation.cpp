@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 
 #include "IO/ThreadedGzStream.h"
+#include "RandomForest/GenomeStore.h"
 #include "RandomForest/IlluminaSimulator.h"
 #include "TestUtil.h"
 
@@ -120,14 +121,14 @@ TEST(IlluminaSimulation, PairsOfTheirFragments) {
     std::mt19937 gen(5);
     std::string const genome = protal::test::RandomSequence(20000, gen);
     IlluminaModel const model(MakeSetup("NovaSeq", 150));
-    LongRng rng(3);
+    LongRng rng(3), rng2(4);
     MadeRead r1, r2;
     int close = 0, both_strands = 0;
     for (int i = 0; i < 400; ++i) {
         std::uint32_t const length = model.FragmentLength(rng, genome.size());
         ASSERT_GE(length, 150u);
         std::string const fragment = genome.substr(rng.Below(genome.size() - length + 1), length);
-        model.Pair(fragment, 0.0, rng, r1, r2);
+        model.Pair(fragment, 0.0, rng, rng2, r1, &r2);
         ASSERT_EQ(r1.seq.size(), 150u);
         ASSERT_EQ(r2.seq.size(), 150u);
         ASSERT_EQ(r1.qual.size(), 150u);
@@ -144,6 +145,51 @@ TEST(IlluminaSimulation, PairsOfTheirFragments) {
     for (int i = 0; i < 4000; ++i) sum += model.FragmentLength(rng, 100000);
     EXPECT_NEAR(sum / 4000, 350, 5);
     EXPECT_EQ(model.FragmentLength(rng, 100), 150u);  // contigs shorter than a read: a read long
+}
+
+TEST(IlluminaSimulation, GaussianNumbersAndRareEvents) {
+    // The ziggurat's numbers: the moments, the shares beyond 1 and 2.5 SD and beyond its tail's start (3.4426).
+    LongRng rng(17);
+    int const n = 4'000'000;
+    double sum = 0, squares = 0, fourth = 0;
+    int above1 = 0, above25 = 0, tail = 0;
+    for (int i = 0; i < n; ++i) {
+        double const z = rng.Gaussian();
+        sum += z;
+        squares += z * z;
+        fourth += z * z * z * z;
+        above1 += z > 1;
+        above25 += z > 2.5;
+        tail += std::fabs(z) > 3.442619855899;
+    }
+    EXPECT_NEAR(sum / n, 0.0, 0.002);
+    EXPECT_NEAR(squares / n, 1.0, 0.003);
+    EXPECT_NEAR(fourth / n, 3.0, 0.03);
+    EXPECT_NEAR(above1 / static_cast<double>(n), 0.158655, 0.0006);
+    EXPECT_NEAR(above25 / static_cast<double>(n), 0.0062097, 0.0002);
+    EXPECT_NEAR(tail / static_cast<double>(n), 5.7607e-4, 0.00005);
+
+    // Rare events at exaggerated rates, drawn as geometric gaps: insertions, deletions and no calls per base at their
+    // rates; the low state's share at its stationary value (entry 0.05 a cycle, exit 0.25: 1/6, from a high start).
+    auto setup = MakeSetup("HS20", 150);
+    setup.profile.insertion = setup.profile.deletion = 0.01;
+    setup.profile.homopolymer_indels = 1.0;
+    setup.profile.n_rate = setup.profile.n_first = 0.01;
+    setup.profile.collapse = 0;
+    setup.profile.low_rate = setup.profile.low_rate_r2 = 0.05;
+    setup.profile.low_growth = 0;
+    setup.mean_quality = 40;
+    auto const report = ReportProfile(setup, 4000);
+    for (int r = 0; r < 2; ++r) {
+        EXPECT_NEAR(report.insertions[r], 0.01, 0.001) << r;
+        EXPECT_NEAR(report.deletions[r], 0.01, 0.001) << r;
+        EXPECT_NEAR(report.ns[r], 0.0099, 0.001) << r;
+        double low = 0;  // the low state's bases (N(15, 5): 98% at Q25 or less) and the no calls (Q2)
+        for (int q = 0; q <= 25; ++q) low += report.quality_share[r][q];
+        double const stationary = 0.05 / 0.30;  // cycle c low with stationary x (1 - 0.7^(c + 1))
+        double const mean_low = stationary * (1 - 0.7 * (1 - std::pow(0.70, 150)) / (0.30 * 150));
+        EXPECT_NEAR(low, mean_low * 0.982 + report.ns[r], 0.01) << r;
+    }
 }
 
 TEST(IlluminaSimulation, SamplesNamesHostThreadsAndPipes) {
@@ -189,6 +235,18 @@ TEST(IlluminaSimulation, SamplesNamesHostThreadsAndPipes) {
         ASSERT_EQ(zst.size(), bgzf.size());
         for (std::size_t i = 0; i < zst.size(); ++i) EXPECT_EQ(zst[i].seq, bgzf[i].seq);
     }
+    // From a genome store: the same files, when the run writes it and when the next reads it.
+    options.genome_store = dir.path / "store";
+    for (auto const* run : {"store1", "store2"}) {
+        auto const stored = samples_in(dir.path / run, ".fq.zst");
+        SimulatePairs(stored, options);
+        for (std::size_t s = 0; s < 3; ++s) {
+            EXPECT_EQ(protal::test::Slurp(stored[s].r1), protal::test::Slurp(one[s].r1)) << run;
+            if (!one[s].r2.empty()) EXPECT_EQ(protal::test::Slurp(stored[s].r2), protal::test::Slurp(one[s].r2)) << run;
+        }
+    }
+    options.genome_store.clear();
+
     // first reads alone: the same as the R1 of a run with both
     EXPECT_FALSE(std::filesystem::exists(dir.path / "one" / "s3_R2.fq.zst"));
     auto const s1r1 = ReadFastq(one[0].r1.string()), s3r1 = ReadFastq(one[2].r1.string());
@@ -277,4 +335,25 @@ TEST(IlluminaSimulation, SamplesNamesHostThreadsAndPipes) {
         for (auto const& r : f2) expected.insert(r.seq);
         EXPECT_TRUE(expected == seen) << s;
     }
+
+    // With plain_pipes: plain FASTQ through the pipes, the text the files hold; a regular file stays compressed.
+    std::filesystem::create_directories(dir.path / "plain");
+    auto plain = samples_in(dir.path / "plain", ".fq.zst");
+    plain.resize(1);
+    ASSERT_EQ(::mkfifo(plain[0].r1.c_str(), 0600), 0);
+    ASSERT_EQ(::mkfifo(plain[0].r2.c_str(), 0600), 0);
+    auto drain = [](std::filesystem::path path) {  // each pipe on a thread of its own: no lockstep needed
+        return std::async(std::launch::async, [path] { return protal::test::Slurp(path); });
+    };
+    auto text1 = drain(plain[0].r1), text2 = drain(plain[0].r2);
+    options.plain_pipes = true;
+    SimulatePairs(plain, options);
+    ASSERT_EQ(text1.wait_for(std::chrono::seconds(60)), std::future_status::ready);
+    ASSERT_EQ(text2.wait_for(std::chrono::seconds(60)), std::future_status::ready);
+    EXPECT_EQ(text1.get(), ReadWholeFile(one[0].r1));
+    EXPECT_EQ(text2.get(), ReadWholeFile(one[0].r2));
+    auto regular = samples_in(dir.path / "regular", ".fq.zst");
+    regular.resize(1);
+    SimulatePairs(regular, options);
+    EXPECT_EQ(protal::test::Slurp(regular[0].r1), protal::test::Slurp(one[0].r1));
 }

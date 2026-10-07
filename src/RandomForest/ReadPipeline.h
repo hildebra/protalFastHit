@@ -10,10 +10,12 @@
 // stream of its own, and their pieces (compressed FASTQ: one zstd frame or BGZF blocks per output file) are appended
 // to the sample's files in the items' order: the files do not depend on the threads. Several samples are made at once
 // when a sample leaves threads idle; the earlier samples come first. A genome is read once for all the items of one
-// round that need it. Outputs that are named pipes (FIFOs) are streamed: one sample at a time, in the samples' order,
+// round that need it; a thread that would wait for another's load of a genome loads a later genome of the round instead
+// (the files are the same). Genomes are read whole and parsed in bulk, or taken from a genome store (GenomeStore.h).
+// Outputs that are named pipes (FIFOs) are streamed: one sample at a time, in the samples' order,
 // the outputs opened in their order (R1 before R2) and written in place, the pieces of R1 and R2 one after the other
 // (each a few hundred kB of FASTQ at most), so that a reader taking R1 and R2 in step (protal) never waits on one
-// while the other is full.
+// while the other is full; with plain_pipes, as plain FASTQ (protal takes it as it is).
 
 #include <cstdint>
 #include <filesystem>
@@ -33,7 +35,8 @@ public:
     result_type operator()();
     double Uniform();                      // [0, 1)
     std::uint64_t Below(std::uint64_t n);  // [0, n), n > 0
-    double Normal();                       // N(0, 1)
+    double Normal();                       // N(0, 1), Marsaglia's polar method (the long reads')
+    double Gaussian();                     // N(0, 1), a ziggurat (Doornik's ZIGNOR): ~one draw a number (the Illumina reads')
 
 private:
     std::uint64_t m_s[4];
@@ -47,17 +50,29 @@ std::uint64_t MixSeed(std::uint64_t a, std::uint64_t b);
 // Reverse complement as the collector's COMPLEMENT: ACGTN complemented, other letters kept.
 void ReverseComplement(std::string& seq);
 
-// A genome's contigs of at least `min_length` bases, upper case, their names (the first word of the header) and their
-// cumulative start ranges (length - min_length + 1 each).
+class GenomeFile;
+
+// A genome's contigs of at least `min_length` bases: their names (the first word of the header), lengths and
+// cumulative start ranges (length - min_length + 1 each); their bases, upper case, by Extract: from the FASTA read
+// whole (seqs) or from the genome store's file of it (file, file_contigs).
 struct Contigs {
-    std::vector<std::string> names, seqs;
-    std::vector<std::uint64_t> starts;
+    std::vector<std::string> names;
+    std::vector<std::uint64_t> lengths, starts;
     std::uint32_t min_length = 1;
+    std::uint64_t longest = 0;
+
+    // As out.assign(sequence, start, length) of contig k's sequence.
+    void Extract(std::size_t k, std::uint64_t start, std::uint64_t length, std::string& out) const;
+
+    std::vector<std::string> seqs;
+    std::shared_ptr<GenomeFile const> file;
+    std::vector<std::size_t> file_contigs;
 };
 
-// Throws (naming `name`) if the file cannot be read or holds no contig of min_length bases.
+// Throws (naming `name`) if the file cannot be read or holds no contig of min_length bases. With a genome store, the
+// genome comes from its file there, which is written (once) if it is missing or older than the FASTA.
 std::shared_ptr<Contigs const> LoadContigs(std::string const& name, std::filesystem::path const& fasta,
-                                           std::uint32_t min_length);
+                                           std::uint32_t min_length, std::filesystem::path const& store = {});
 
 // A host genome prepared by scenarios.prepare_host: host.seq (every contig one after the other) by memory map, and
 // host.json's contigs ([name, offset, length], ...).
@@ -83,11 +98,11 @@ private:
 
 namespace pipeline {
 
-    // How an output is written, by its name: .zst (zstd) or .gz (BGZF).
-    enum class Packing { Zstd, Bgzf };
+    // How an output is written, by its name: .zst (zstd) or .gz (BGZF); a named pipe with plain_pipes: plain.
+    enum class Packing { Zstd, Bgzf, Plain };
     Packing PackingOf(std::filesystem::path const& out);
     // A piece of an output: one zstd frame (level 3, with a checksum) or BGZF blocks (the end-of-file block comes when
-    // the file is closed); concatenated, they are the file.
+    // the file is closed), or the data as it is; concatenated, they are the file.
     std::string Pack(std::string const& data, Packing packing);
 
     struct Item {
@@ -98,7 +113,7 @@ namespace pipeline {
     };
 
     struct Piece {
-        std::string bytes[2];  // packed, per output file
+        std::string bytes[2];  // per output file: Make's FASTQ, packed by the pipeline (Pack) before it is written
         std::uint64_t reads = 0, template_bases = 0, read_bases = 0, errors = 0;
     };
 
@@ -121,13 +136,19 @@ namespace pipeline {
         virtual std::filesystem::path Fasta(std::size_t sample, int genome) const = 0;
         virtual std::string GenomeName(std::size_t sample, int genome) const = 0;
         virtual std::uint32_t MinContigLength() const = 0;
-        // An item's reads, packed (Pack) per output; contigs: its genome's, or null. Called without the lock.
+        // An item's reads as FASTQ per output; contigs: its genome's, or null. Called without the lock.
         virtual Piece Make(std::size_t sample, Item const& item, Contigs const* contigs) const = 0;
     };
 
-    // The job's samples on `threads` threads; their totals in the samples' order. Throws on any failure (a genome that
-    // cannot be read, a file that cannot be written); the samples written by then stay, the others leave no file.
-    std::vector<Totals> Run(Job& job, int threads);
+    struct RunOptions {
+        int threads = 1;
+        std::filesystem::path genome_store;  // a genome store (GenomeStore.h), or none
+        bool plain_pipes = false;            // outputs that are named pipes get plain FASTQ
+    };
+
+    // The job's samples on options.threads threads; their totals in the samples' order. Throws on any failure (a genome
+    // that cannot be read, a file that cannot be written); the samples written by then stay, the others leave no file.
+    std::vector<Totals> Run(Job& job, RunOptions const& options);
 
 }  // namespace pipeline
 }  // namespace protal::sim

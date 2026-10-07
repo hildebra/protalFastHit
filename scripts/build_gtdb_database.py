@@ -1631,7 +1631,8 @@ def main():
                         "~22 GB at r226). A network file system (OUTDIR's, often) is slow at the many files the "
                         "simulators write and delete, and at writing a database; the converter spools the release's "
                         "marker genes there too. With the defaults the r226 run took up to 120 GB there, without the training database "
-                        "(give it 175 GB, docs/databases.md); a rerun reuses the samples in the same SCRATCH")
+                        "(give it 175 GB, docs/databases.md), and the genome store (--genome-store) ~50 GB more; a rerun "
+                        "reuses the samples and the store in the same SCRATCH")
     p.add_argument("--profile-blocks", type=float, default=20.0,
                    help="once the training database is built, profile the simulated samples as their simulations go "
                         "on, in protal runs of at least this many GB of reads (collect_training_data.py --follow; the "
@@ -1648,6 +1649,19 @@ def main():
                         "pipes as simulate_metagenomes makes them, in a protal run of its own, a sample at a time "
                         "(collect_training_data.py --stream_above); smaller ones are written and profiled in blocks "
                         "(default 2; 0: none)")
+    p.add_argument("--genome-store", default="auto",
+                   help="simulate_metagenomes's genome store for both collections (collect_training_data.py "
+                        "--genome_store): each genome simulated is read and parsed from its FASTA once, written there "
+                        "at 2 bits a base, and memory-mapped by every later sample, long-read round and simulation "
+                        "instead of being inflated and parsed again (with the defaults at r226 ~1.5M genome reads of "
+                        "~54k genomes, ~28 each); the same reads. auto (the default): SCRATCH/genome_store with "
+                        "--scratch, OUTDIR/genome_store otherwise; or a folder; none: no store. It takes ~0.25 bytes a "
+                        "base of the genomes simulated, ~50 GB at r226 besides the samples' space, and is kept for the "
+                        "next build (a FASTA that changed is read again)")
+    p.add_argument("--compressed-pipes", action="store_true",
+                   help="with --stream-above: the streamed samples go through their named pipes compressed, as their "
+                        "names say (collect_training_data.py --compressed_pipes); by default as plain FASTQ, which saves "
+                        "compressing them only for protal to inflate them again")
     p.add_argument("--read-compression", choices=["zstd", "gzip"], default="zstd",
                    help="how the simulated samples' reads are written (collect_training_data.py --read_compression): "
                         "zstd (.fq.zst, the default: as small as BGZF or smaller, several times faster to write) or "
@@ -2140,8 +2154,17 @@ def main():
             command += ["--host_genome", args.host_genome] if args.host_genome else []
         if args.error_units:
             command += ["--unmapped_reads", ",".join(kind + (f":{scope}" if scope else "") for kind, scope in args.error_units)]
+        if genome_store:  # both collections share it
+            command += ["--genome_store", genome_store]
+        if args.compressed_pipes:
+            command += ["--compressed_pipes"]
         return command
 
+    genome_store = None  # --genome-store
+    if args.genome_store == "auto":
+        genome_store = os.path.join(samples_root, "genome_store")
+    elif args.genome_store != "none":
+        genome_store = os.path.abspath(args.genome_store)
     training = os.path.join(samples_root, "training")
     test = os.path.join(samples_root, "test")
     collections_ = [("training data", collect_command(training, args.samples, args.read_pairs, args.species_per_sample,
@@ -2407,6 +2430,9 @@ def main():
         Job.scratch.look()
         say(f"The run took at most {gigabytes(Job.scratch.peak)} on {samples_root}; the simulated samples there "
             f"({gigabytes(tree_size(training) + tree_size(test))}) are left for a rerun")
+    if genome_store and os.path.isdir(genome_store):
+        say(f"The genome store {genome_store} holds {gigabytes(tree_size(genome_store))}, kept for the next build "
+            "(remove it to free the space; --genome-store none builds without one)")
     say(f"Ready protal database: {db}{db_size(db)}" +
         (f" (marker genes: {genes_note.split(',')[0].split(' (')[0]}, gene_subset.txt)" if subset else "") +
         f"; model evaluation: {logs} (start with trained_model.report.txt, and trained_model_<read type>.report.txt)")

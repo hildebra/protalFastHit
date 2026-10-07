@@ -257,6 +257,16 @@ TEST(LongReadSimulation, SamplesTemplatesAndThreads) {
         EXPECT_FALSE(std::filesystem::exists(one[i].out.string() + ".partial"));
         EXPECT_EQ(results[i].reads, results4[i].reads);
     }
+    // From a genome store: the same files, when the run writes it and when the next reads it.
+    options.genome_store = dir.path / "store";
+    for (auto const* run : {"store1", "store2"}) {
+        auto const stored = samples_in(dir.path / run);
+        SimulateLongReads(stored, options);
+        for (std::size_t i = 0; i < one.size(); ++i) {
+            EXPECT_EQ(protal::test::Slurp(stored[i].out), protal::test::Slurp(one[i].out)) << run << " " << one[i].name;
+        }
+    }
+    options.genome_store.clear();
 
     auto contained = [](std::string const& read, std::vector<std::string const*> const& genome) {
         for (auto const* seq : genome) {

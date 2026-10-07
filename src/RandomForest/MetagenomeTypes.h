@@ -118,6 +118,8 @@ struct IlluminaOptions {
     std::filesystem::path host_folder;   // a host genome (scenarios.prepare_host), for host_pairs
     std::vector<std::uint64_t> host_pairs;  // each sample's host read pairs, in turn (after its community's)
     bool first_reads_only{false};        // only the _R1 files (the same reads as with both)
+    std::filesystem::path genome_store;  // genomes from a genome store (GenomeStore.h), or none
+    bool plain_pipes{false};             // outputs that are named pipes get plain FASTQ
 };
 
 struct SampleOutput {

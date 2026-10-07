@@ -127,6 +127,8 @@ struct LongReadOptions {
     LongReadSetup setup;
     std::filesystem::path model;  // qshmm: the model file
     int threads = 1;
+    std::filesystem::path genome_store;  // genomes from a genome store (GenomeStore.h), or none
+    bool plain_pipes = false;            // outputs that are named pipes get plain FASTQ
 };
 
 // The samples' reads, on `threads` threads; the results in the samples' order. Throws on any failure (a genome that

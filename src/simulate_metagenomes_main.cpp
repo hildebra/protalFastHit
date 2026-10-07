@@ -161,6 +161,8 @@ struct CliOptions {
     // --long_samples: long or Ultima reads of given communities instead (LongReadSimulator.h)
     fs::path long_samples, long_genomes, long_model, long_stats, long_templates, long_out;
     std::string long_setup;
+    fs::path genome_store;    // --genome_store
+    bool plain_pipes{false};  // --plain_pipes
 };
 
 static std::vector<protal::sim::StrainSharingSpec> parse_strain_sharing_file(const fs::path& path) {
@@ -310,6 +312,13 @@ static cxxopts::Options build_cxxopts() {
         ("t,threads",       "Threads: the reads are made in work items of a few hundred kB on all of them, several samples at a time when one leaves threads idle; the same files for any number", cxxopts::value<int>()->default_value("1"))
         ("pigz_path",       "Unused: the reads are compressed in process (kept so that older commands still run)", cxxopts::value<std::string>()->default_value(""))
         ("reads_compression", "How the read files are written: bgzf (_R1.fq.gz, ISA-L level 1) or zstd (_R1.fq.zst, level 3: smaller files; protal reads both)", cxxopts::value<std::string>()->default_value("bgzf"))
+        ("plain_pipes",     "Outputs that are named pipes get plain FASTQ, whatever their names say: nothing is compressed only "
+                            "for the reader to inflate it again (protal takes plain FASTQ as it is); regular files stay "
+                            "compressed")
+        ("genome_store",    "A folder of genomes decoded once (2 bits a base, memory-mapped): a genome's FASTA is read and "
+                            "parsed the first time any run needs it, its file written here, and every later sample, round "
+                            "and run maps that file instead; a FASTA newer than its file is read again. The same reads as "
+                            "without it", cxxopts::value<std::string>())
         ("protal_metafile", "Write a Protal meta file (output_dir/protal.meta) but set OUTPUT_DIR to <path>", cxxopts::value<std::string>())
         ("test",            "Generate profiles/manifests but skip read simulation (fast dry run)")
         ("keep_tmp",        "Unused: no temporary files are written (kept so that older commands still run)")
@@ -370,6 +379,8 @@ static CliOptions parse_cli(int argc, char** argv) {
         if (result.count("long_model")) opts.long_model = result["long_model"].as<std::string>();
         if (result.count("long_stats")) opts.long_stats = result["long_stats"].as<std::string>();
         opts.threads = result["threads"].as<int>();
+        if (result.count("genome_store")) opts.genome_store = result["genome_store"].as<std::string>();
+        opts.plain_pipes = result.count("plain_pipes") > 0;
         return opts;
     }
 
@@ -524,6 +535,8 @@ static CliOptions parse_cli(int argc, char** argv) {
         if (any && opts.illumina.host_folder.empty()) throw std::runtime_error("--host_pairs needs --host_folder");
     }
     opts.illumina.first_reads_only = result.count("first_reads_only") > 0;
+    if (result.count("genome_store")) opts.illumina.genome_store = result["genome_store"].as<std::string>();
+    opts.illumina.plain_pipes = result.count("plain_pipes") > 0;
 
     return opts;
 }
@@ -734,6 +747,8 @@ static int simulate_long_reads(const CliOptions& cli) {
     options.setup = protal::sim::LongReadSetup::Parse(cli.long_setup);
     options.model = cli.long_model;
     options.threads = std::max(1, cli.threads);
+    options.genome_store = cli.genome_store;
+    options.plain_pipes = cli.plain_pipes;
     if (options.setup.method == protal::sim::LongReadSetup::Method::Qshmm && options.model.empty()) {
         throw std::runtime_error("a qshmm setup needs pbsim3's model file: --long_model");
     }
