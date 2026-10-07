@@ -664,7 +664,7 @@ the one tested below.
 | L5 | A new distribution, `lognormal`, is the simulator's default and the collector's `--abundance lognormal:...` (the build's and the scenarios'). Species weights come from the lognormal itself, so the tail is continuous instead of 40-45% of the species tied at weight 1. No weight goes below `--abundance_floor` (0.001) times the median: at σ 2.5 that is the lowest ~0.3% of the species, below σ 2 hardly any. Every species still gets a read pair or more. The old model stays as `poisson_lognormal` (`--abundance poisson_lognormal:...`) | `CommunityProfileDesigner::draw_weights`, `MetagenomeTypes.h`, `collect_training_data.py`, `build_gtdb_database.py`, `scenarios.py`, docs | new designs |
 | L8 | With `--first_reads_only` no `_R2` path is set: none is written (not even a `--test` placeholder), the manifests' `fastq_r2` is empty and the protal map's `SECOND` is `-` | `MetagenomeSimulator.cpp`, `simulate_metagenomes_main.cpp` | manifests and map |
 | L9 | The designs no longer depend on the standard library. `PortableRandom.h` has the draws on `std::mt19937_64`'s numbers (whose sequence the standard fixes): uniform, bounded integers (Lemire), Fisher-Yates shuffles, normals (Box-Muller), gamma (Marsaglia-Tsang), Poisson (multiplication below 10, PTRS above, as numpy), negative binomial. Every list that a hash table ordered is sorted by name first: the species, each genus's and taxon's species, the genus and taxon requests and the capping of their quotas, forced strains, and the abundance matrix's rows. Only libm's `exp`, `log` and `lgamma` remain platform-dependent in their last bits | `PortableRandom.h`, `CommunityProfileDesigner.cpp`, `MetagenomeSimulator.cpp` | new designs |
-| L11 | A failed run's open named pipes end, written without blocking, with the start of a zstd frame or gzip member, or a FASTQ header without its record (`--plain_pipes`). protal's reader reports each ("truncated file?"), so a cut sample can no longer pass for a whole one | `Engine::~Engine`, `Poison` (`ReadPipeline.cpp`) | failures only |
+| L11 | A failed run's open named pipes end, written without blocking (which lost the marker on a full pipe: fixed in [section 9](#9-follow-up-3-l11s-marker-lost-under-load)), with the start of a zstd frame or gzip member, or a FASTQ header without its record (`--plain_pipes`). protal's reader reports each ("truncated file?"), so a cut sample can no longer pass for a whole one | `Engine::~Engine`, `Poison` (`ReadPipeline.cpp`) | failures only |
 | L12 | `vertical_coverage` stays read bases over the genome's length, the genome-wide mean depth, which a `--test` design and its real run must agree on, and neither reads the genomes. A run now notes each genome with 1% or more of its bases in contigs shorter than any read (at most 20 a run), and `docs/development.md` says what the column is | `LoadContigs` (`NoteShortContigs`), docs | a note |
 
 **Tests.**
@@ -707,3 +707,29 @@ length:
 The cut templates gave the most fragmented third of the genomes 15% less than their weight and the least fragmented
 16% more, a 38% spread that is now gone. The sample needed 6 rounds (the collector's estimate assumes 1.3), each
 reading again the genomes it drew; now 2. At r226, where most genomes are MAGs, the spread was likely larger.
+
+## 9. Follow-up 3: L11's marker lost under load
+
+`IlluminaSimulation.AFailedStreamIsCutOff` failed now and then when the suite ran on a loaded machine (seen on
+`0aea3fb` and on `congener-gaps`). The failing check was the plain pipe's `ends_with("@simulate_metagenomes_failed\n")`.
+The cause was in `Poison`, not in the test: a failed run's pipe was switched to non-blocking, flushed, and given its
+marker in one `write`. When the reader had not yet drained the pipe (64 kB), that `write` failed with `EAGAIN` and the
+marker was dropped. The flush failed the same way, and glibc then discards what stdio still held (up to 4 kB, the
+last piece's tail, cut mid-record). A plain sample could thus end on a whole record and pass for complete, which is
+what L11 was to prevent. The zstd case passed only because the lost tail cut its last frame anyway.
+
+| Change | Where |
+|---|---|
+| A named-pipe output is unbuffered (`setvbuf _IONBF` after `fopen`): once a piece is written, it is in the pipe, so nothing is left in stdio for a failure to lose (and the pair's other pipe never waits on a tail held back) | `Engine::Open` |
+| `Poison` takes all of the failed run's open pipes at once: each gets its marker as soon as `poll` says it has room, so a reader of R1 and R2 in step is never held up by the other pipe. It gives up on a pipe whose reader is gone (`POLLERR`, `EPIPE`), and after 60 s (`kPoisonWait`) in all | `Engine::~Engine`, `Poison` (`ReadPipeline.cpp`) |
+| The test makes the pipe full at the failure on every run, with no timing involved. The failing genome is a named pipe, which the run opens only after GA's pairs are written. The test then holds its readers, fills both pipes to the last byte (as a second writer) and closes the genome's pipe empty, which fails the run. After 200 ms it lets the readers go on. It checks that each pipe holds all 4,000 of GA's records, then the filler, then the marker. For zstd it also checks that GA's frames read whole and that adding the marker makes them unreadable | `tests/test_IlluminaSimulation.cpp` |
+
+**What ran** (WSL, `~/pipefix`, built from `0fe84e3` plus this change). Every run used `taskset -c 0-3 nice -n 5`,
+while protal was built from scratch without ccache on the same cores (`ninja -j4`, load average 4-7):
+
+| Binary | Runs | Failed |
+|---|---|---:|
+| `0fe84e3`, old test alone | 50 | 5, all at the plain pipe's `ends_with` |
+| `0fe84e3`, whole unit suite | 10 | 1, the same check |
+| new test on `0fe84e3`'s pipeline | 10 | 10, "the marker, after all that was in the pipe" |
+| new test with the fix | 50 | 0 (~1.2 s a run under load) |
