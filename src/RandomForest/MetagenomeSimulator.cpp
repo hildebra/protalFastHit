@@ -22,6 +22,7 @@
 
 #include "../Utilities/Benchmark.h"
 #include "GenomeStore.h"
+#include "PortableRandom.h"
 
 namespace fs = std::filesystem;
 
@@ -376,12 +377,14 @@ void parse_congener_groups(const std::string& text, ProfileDesignOptions& option
     options.congener_max = hi;
 }
 
-// fasta_path and art_seed are appended after the historical columns, never inserted
-// between them: downstream consumers read manifests by column name, so growing the
-// header on the right keeps every existing reader working.
+// fasta_path, art_seed, run_seed and host_seed are appended after the historical columns, never
+// inserted between them: downstream consumers read manifests by column name, so growing the
+// header on the right keeps every existing reader working. art_seed: a genome's reads (fragments,
+// errors); run_seed: its sample's quality offset; host_seed: the sample's host reads (the same on
+// every row of a sample). With all three a replay (--from_manifest) makes the same reads.
 static constexpr const char* kManifestHeader =
     "sample\tgenome\tspecies\ttaxonomy\tgenome_length\tread_pairs\tvertical_coverage\trelative_abundance"
-    "\tfastq_r1\tfastq_r2\tfasta_path\tart_seed\n";
+    "\tfastq_r1\tfastq_r2\tfasta_path\tart_seed\trun_seed\thost_seed\n";
 
 static void write_manifest_row(std::ofstream& out, const SampleOutput& sample, const GenomeAssignment& assignment) {
     out << sample.sample_name << '\t' << assignment.genome.name << '\t' << assignment.species << '\t'
@@ -389,9 +392,11 @@ static void write_manifest_row(std::ofstream& out, const SampleOutput& sample, c
         << assignment.vertical_coverage << '\t' << assignment.relative_abundance << '\t'
         << sample.read1_path.string() << '\t' << sample.read2_path.string() << '\t'
         << assignment.genome.fasta_path.string() << '\t';
-    if (assignment.art_seed) {
-        out << *assignment.art_seed;
-    }
+    if (assignment.art_seed) out << *assignment.art_seed;
+    out << '\t';
+    if (sample.run_seed) out << *sample.run_seed;
+    out << '\t';
+    if (sample.host_seed) out << *sample.host_seed;
     out << '\n';
 }
 
@@ -543,24 +548,25 @@ void MetagenomeSimulator::write_all_reads(
         auto& sample = samples[i];
         const fs::path prefix = reads_dir / sample.sample_name;
         sample.read1_path = prefix.string() + "_R1" + ReadsSuffix(reads_compression_);
-        sample.read2_path = prefix.string() + "_R2" + ReadsSuffix(reads_compression_);
+        // first reads only: no _R2 file, and none named in the manifests or the protal map
+        sample.read2_path = illumina_.first_reads_only ? fs::path() : fs::path(prefix.string() + "_R2" + ReadsSuffix(reads_compression_));
         if (skip_reads) {
             for (const auto& path : {sample.read1_path, sample.read2_path}) {
-                if (!is_named_pipe(path)) std::ofstream placeholder(path, std::ios::binary);  // for manifests to name
+                if (!path.empty() && !is_named_pipe(path)) std::ofstream placeholder(path, std::ios::binary);  // for manifests to name
             }
             continue;
         }
         PairedSample reads;
         reads.name = sample.sample_name;
         reads.r1 = sample.read1_path;
-        if (!illumina_.first_reads_only) reads.r2 = sample.read2_path;
+        reads.r2 = sample.read2_path;
         for (const auto& assignment : sample.assignments) {
             reads.genomes.push_back({assignment.genome.name, assignment.genome.fasta_path, assignment.read_pairs,
                                      assignment.art_seed.value_or(0)});
         }
         if (!illumina_.host_pairs.empty()) reads.host_pairs = illumina_.host_pairs[i % illumina_.host_pairs.size()];
-        reads.host_seed = MixSeed(seed_, 0x686f7374ULL + i);   // "host"
-        reads.run_seed = MixSeed(seed_, 0x72756e00ULL + i);    // "run"
+        reads.host_seed = sample.host_seed.value_or(MixSeed(seed_, 0x686f7374ULL + i));  // set by simulate_samples or the manifest
+        reads.run_seed = sample.run_seed.value_or(MixSeed(seed_, 0x72756e00ULL + i));
         paired.push_back(std::move(reads));
     }
     if (skip_reads) return;
@@ -617,15 +623,18 @@ std::vector<SampleOutput> MetagenomeSimulator::simulate_samples(
                 profile_options.species_per_sample_list[i % profile_options.species_per_sample_list.size()];
         } else if (profile_options.species_per_sample_min > 0 &&
                    profile_options.species_per_sample_min < profile_options.species_per_sample) {
-            per_sample_opts.species_per_sample = std::uniform_int_distribution<std::size_t>(
-                profile_options.species_per_sample_min,
-                profile_options.species_per_sample)(rng_);
+            per_sample_opts.species_per_sample = portable::Between(rng_, profile_options.species_per_sample_min,
+                                                                   profile_options.species_per_sample);
         }
         per_sample_opts.forced_strains      = strain_assignments[i].forced_strains;
         per_sample_opts.species_min_abundance = strain_assignments[i].species_min_abundance;
 
         auto sample = simulate_single(per_sample_opts, name.str(), genome_lengths, paired_read_length);
         normalize_relative_abundance(sample);
+        // the sample's quality offset and host reads (IlluminaModel::RunOffset, Host), recorded in the manifests so that
+        // a replay (--from_manifest) makes the same reads
+        sample.run_seed = MixSeed(seed_, 0x72756e00ULL + i);   // "run"
+        sample.host_seed = MixSeed(seed_, 0x686f7374ULL + i);  // "host"
         outputs.push_back(std::move(sample));
     }
     write_all_reads(outputs, output_dir, skip_reads);
@@ -639,9 +648,13 @@ std::vector<SampleOutput> MetagenomeSimulator::replay_samples(
     bool keep_tmp)
 {
     const auto paired_read_length = static_cast<std::uint64_t>(illumina_.read_length) * 2ULL;
-    for (auto& sample : design) {  // rng_ in the order of the samples, then their reads on threads
+    for (std::size_t i = 0; i < design.size(); ++i) {  // rng_ in the order of the samples, then their reads on threads
+        auto& sample = design[i];
         prepare_sample(sample, paired_read_length);
         normalize_relative_abundance(sample);
+        // a manifest of before 2026-10-07 has no run or host seeds: this run's, by the sample's place in the replay
+        if (!sample.run_seed) sample.run_seed = MixSeed(seed_, 0x72756e00ULL + i);
+        if (!sample.host_seed) sample.host_seed = MixSeed(seed_, 0x686f7374ULL + i);
     }
     write_all_reads(design, output_dir, skip_reads);
     return design;
@@ -720,7 +733,20 @@ std::vector<SampleOutput> read_manifest(const fs::path& manifest_path) {
         if (!seed_field.empty()) {
             assignment.art_seed = std::stoull(seed_field);
         }
-        samples[it->second].assignments.push_back(std::move(assignment));
+        // the sample's run and host seeds, the same on each of its rows
+        SampleOutput& sample = samples[it->second];
+        for (auto [name, seed] : {std::pair<const char*, std::optional<std::uint64_t>*>{"run_seed", &sample.run_seed},
+                                  {"host_seed", &sample.host_seed}}) {
+            const std::string field = column(fields, name, false);
+            if (field.empty()) continue;
+            const std::uint64_t value = std::stoull(field);
+            if (*seed && **seed != value) {
+                throw std::runtime_error("Manifest line " + std::to_string(line_no) + ": sample " + sample_name +
+                                         " has two " + name + "s");
+            }
+            *seed = value;
+        }
+        sample.assignments.push_back(std::move(assignment));
     }
 
     if (samples.empty()) {
@@ -796,7 +822,12 @@ void write_abundance_matrix(const std::vector<SampleOutput>& samples, const fs::
         out << '\t' << sample.sample_name;
     }
     out << '\n';
-    for (const auto& [species, values] : species_to_samples) {
+    std::vector<std::string> species_names;  // by name, not in the hash table's order
+    species_names.reserve(species_to_samples.size());
+    for (const auto& entry : species_to_samples) species_names.push_back(entry.first);
+    std::sort(species_names.begin(), species_names.end());
+    for (const auto& species : species_names) {
+        const auto& values = species_to_samples.at(species);
         out << species;
         for (double val : values) {
             out << '\t' << val;

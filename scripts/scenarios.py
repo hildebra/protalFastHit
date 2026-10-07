@@ -23,7 +23,7 @@ The presets (PRESETS; --scenario_file adds or changes them):
     host          90% of the reads human, the rest 2-50 bacterial and archaeal species of power-law abundances
                   (alpha 1: a rank-abundance line of slope -1 on log-log axes), 5% of them lacking; Illumina PE 150
                   (Q35) at 10M read pairs, Ultima at 10M reads, PacBio and Nanopore at the same bases (3 Gb)
-The communities' evenness varies too: Poisson-lognormal abundances of sigma 1.0, 1.5, 2.0 and 2.5, the samples' in turn.
+The communities' evenness varies too: lognormal abundances of sigma 1.0, 1.5, 2.0 and 2.5, the samples' in turn.
 
 These depths are each scenario's typical ones: a sample's own depth is drawn around them (depth_range, below).
 
@@ -83,7 +83,8 @@ READ_TYPES = ("pe", "se", "pb", "ont")
 ILLUMINA = {"type": "pe", "length": 150, "profile": "HSXt", "fragment_mean": 350, "fragment_sd": 50, "quality": 35}
 ULTIMA = {"type": "se", "setup": "ultima:300:40:25:2"}
 
-# The communities' evenness: the samples' Poisson-lognormal sigmas in turn (simulate_metagenomes --pln_sigma).
+# The communities' evenness: the samples' lognormal sigmas in turn (simulate_metagenomes --distribution lognormal
+# --pln_sigma).
 EVENNESS = "lognormal:1.0,1.5,2.0,2.5"
 
 PRESETS = {

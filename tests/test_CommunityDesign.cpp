@@ -2,6 +2,8 @@
 // species with several strains each and few read pairs, as training samples at shallow depths are; congener
 // groups; and the sigmas and depths a run's samples take in turn (MetagenomeTypes.h).
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <cmath>
 #include <map>
 #include <numeric>
 #include <random>
@@ -12,6 +14,7 @@
 #include "RandomForest/CommunityProfileDesigner.h"
 #include "RandomForest/MetagenomeSimulator.h"
 #include "RandomForest/MetagenomeTypes.h"
+#include "RandomForest/PortableRandom.h"
 
 using namespace protal::sim;
 
@@ -159,6 +162,105 @@ TEST(CommunityDesign, CongenerGroupsParse) {
     for (std::string bad : { "0.25", "0.25:5-2", "1.5:2-5", "0.25:1-3", "x:2-5", "0.25:2-", "0.25:2-5x", "-0.1:2-3" }) {
         EXPECT_THROW(parse_congener_groups(bad, options), std::runtime_error) << bad;
     }
+}
+
+namespace {
+    // The read pairs of each species of a sample.
+    std::vector<std::uint64_t> PairsBySpecies(std::vector<GenomeAssignment> const& assignments) {
+        std::map<std::string, std::uint64_t> pairs;
+        for (auto const& a : assignments) pairs[a.species] += a.read_pairs;
+        std::vector<std::uint64_t> out;
+        for (auto const& [_, n] : pairs) out.push_back(n);
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+}
+
+// The lognormal's tail is continuous: few species share the lowest read count (the Poisson-lognormal put ~40-45% of
+// them at its lowest weight, 1), and none falls below abundance_floor of the median (here 1/1000; deep samples, so
+// that the read counts show the weights).
+TEST(CommunityDesign, LognormalTailIsContinuousAndFloored) {
+    CommunityProfileDesigner designer(GeneraOfSpecies(100, 5));
+    ProfileDesignOptions options;
+    options.total_read_pairs = 20'000'000;
+    options.species_per_sample = 300;
+    options.pln_sigma = 2.5;
+    // the share of species at the lowest count, give or take the nudges that make the counts add up
+    auto at_lowest = [](std::vector<std::uint64_t> const& pairs) {
+        return static_cast<double>(std::count_if(pairs.begin(), pairs.end(), [&](std::uint64_t n) {
+                   return n <= pairs.front() + 2; })) / static_cast<double>(pairs.size());
+    };
+    double tied_lognormal = 0, tied_poisson = 0;
+    for (std::uint64_t seed = 1; seed <= 5; seed++) {
+        options.distribution = AbundanceDistribution::Lognormal;
+        std::mt19937_64 rng(seed);
+        auto pairs = PairsBySpecies(designer.design_profile(options, rng));
+        ASSERT_EQ(pairs.size(), 300u);
+        tied_lognormal += at_lowest(pairs);
+        double const median = static_cast<double>(pairs[150]);
+        EXPECT_GE(static_cast<double>(pairs.front()) / median, 0.0005) << "seed " << seed;  // the floor, give or take the sample's median
+        options.distribution = AbundanceDistribution::PoissonLognormal;
+        std::mt19937_64 rng2(seed);
+        pairs = PairsBySpecies(designer.design_profile(options, rng2));
+        tied_poisson += at_lowest(pairs);
+    }
+    EXPECT_LT(tied_lognormal / 5, 0.03);
+    EXPECT_GT(tied_poisson / 5, 0.30);
+    // the floor itself: at a floor of 0.1 a sixth or so of the species (z < ln 0.1 / 2.5 = -0.92) share the lowest weight
+    options.distribution = AbundanceDistribution::Lognormal;
+    options.abundance_floor = 0.1;
+    std::mt19937_64 rng(9);
+    auto const pairs = PairsBySpecies(designer.design_profile(options, rng));
+    double const floored = static_cast<double>(std::count_if(pairs.begin(), pairs.end(), [&](std::uint64_t n) {
+        return n <= pairs.front() + 3; })) / 300.0;  // the floor's count, give or take the rounding's nudges
+    EXPECT_NEAR(floored, 0.18, 0.06);
+}
+
+// The draws the designs take (PortableRandom.h), the same with every standard library: their distributions.
+TEST(PortableRandom, Distributions) {
+    std::mt19937_64 rng(11);
+    int const n = 200000;
+    auto moments = [&](auto draw) {
+        double sum = 0, squares = 0;
+        for (int i = 0; i < n; ++i) {
+            double const x = static_cast<double>(draw());
+            sum += x;
+            squares += x * x;
+        }
+        double const mean = sum / n;
+        return std::pair<double, double>{mean, squares / n - mean * mean};
+    };
+    for (double lambda : {0.3, 3.0, 30.0, 1000.0}) {  // multiplication below 10, PTRS above
+        auto const [mean, variance] = moments([&] { return portable::Poisson(rng, lambda); });
+        EXPECT_NEAR(mean, lambda, 4 * std::sqrt(lambda / n)) << lambda;
+        EXPECT_NEAR(variance / lambda, 1.0, 0.03) << lambda;
+    }
+    for (double shape : {0.5, 2.0, 10.0}) {
+        auto const [mean, variance] = moments([&] { return portable::Gamma(rng, shape, 2.0); });
+        EXPECT_NEAR(mean / (2 * shape), 1.0, 0.02) << shape;
+        EXPECT_NEAR(variance / (4 * shape), 1.0, 0.04) << shape;
+    }
+    auto const [nb_mean, nb_variance] = moments([&] { return portable::NegativeBinomial(rng, 5, 0.5); });
+    EXPECT_NEAR(nb_mean, 5.0, 0.05);
+    EXPECT_NEAR(nb_variance, 10.0, 0.3);
+    auto const [z_mean, z_variance] = moments([&] { return portable::Normal(rng); });
+    EXPECT_NEAR(z_mean, 0.0, 0.01);
+    EXPECT_NEAR(z_variance, 1.0, 0.015);
+    std::map<std::vector<int>, int> permutations;  // all 6 orders of 3, alike
+    for (int i = 0; i < 60000; ++i) {
+        std::vector<int> v{1, 2, 3};
+        portable::Shuffle(v, rng);
+        ++permutations[v];
+    }
+    ASSERT_EQ(permutations.size(), 6u);
+    for (auto const& [order, count] : permutations) EXPECT_NEAR(count, 10000, 400);
+    for (int i = 0; i < 1000; ++i) {
+        auto const x = portable::Between(rng, 3, 7);
+        EXPECT_TRUE(x >= 3 && x <= 7);
+    }
+    // the same numbers from the same seed
+    std::mt19937_64 a(5), b(5);
+    for (int i = 0; i < 100; ++i) EXPECT_EQ(portable::Poisson(a, 50.0), portable::Poisson(b, 50.0));
 }
 
 // The samples of a run take the abundance sigmas they are given in turn, so that a model does not learn one sigma's

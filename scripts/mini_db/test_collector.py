@@ -141,7 +141,9 @@ class CollectorTest(unittest.TestCase):
             collect.illumina_args("file=/nonexistent_r1.txt")
         self.assertEqual(collect.illumina_args("HSXt"), ["--sequencer", "HSXt"])
         self.assertEqual(collect.illumina_args("NovaSeq", 35), ["--sequencer", "NovaSeq", "--mean_quality", "35"])
-        self.assertEqual(collect.abundance_args("lognormal:2.0"), ["--distribution", "poisson_lognormal", "--pln_sigma", "2.0"])
+        self.assertEqual(collect.abundance_args("lognormal:2.0"), ["--distribution", "lognormal", "--pln_sigma", "2.0"])
+        self.assertEqual(collect.abundance_args("poisson_lognormal:2.0"),
+                         ["--distribution", "poisson_lognormal", "--pln_sigma", "2.0"])
         self.assertEqual(collect.abundance_args("powerlaw:1.5"), ["--distribution", "power_law", "--alpha", "1.5"])
         self.assertEqual(collect.abundance_args(""), [])
         with self.assertRaises(SystemExit):

@@ -191,8 +191,8 @@ protal --db DB --map sims/protal.meta -t 8      # prints true and false positive
 
 | Output | |
 |---|---|
-| `reads/<sample>_R1.fq.gz`, `_R2.fq.gz` | the reads (BGZF, compressed as they are made, the genomes' in order; with `--reads_compression zstd` `.fq.zst`, zstd frames at level 3, as the database build writes them); files that are named pipes are written in place, a sample at a time |
-| `manifest.tsv`, `manifests/<sample>.tsv` | per (sample, genome): read pairs, relative abundance, vertical coverage, the FASTA and the seed of its reads (`art_seed`) |
+| `reads/<sample>_R1.fq.gz`, `_R2.fq.gz` | the reads (BGZF, compressed as they are made, the genomes' in order; with `--reads_compression zstd` `.fq.zst`, zstd frames at level 3, as the database build writes them; with `--first_reads_only` no `_R2`, named nowhere: `-` in the protal map); files that are named pipes are written in place, a sample at a time, and a failed run ends them with a cut frame or record so that the reader fails too |
+| `manifest.tsv`, `manifests/<sample>.tsv` | per (sample, genome): read pairs, relative abundance, vertical coverage (read bases over the genome's length; contigs shorter than a read get no reads, and the run notes a genome with 1% or more of its bases in them), the FASTA, the seed of its reads (`art_seed`) and its sample's seeds of the quality offset and the host reads (`run_seed`, `host_seed`) |
 | `abundance_matrix.tsv` | relative abundance of each species in each sample |
 | `run_params.tsv` | the command line, the seed (also when not given) and the read settings |
 | `protal.meta`, `protal_goldstd/<sample>.profile_truth` | with `--protal_metafile DIR`: a protal map with a `PROFILE_TRUTH` column; protal then writes `<profile>.truth_annotated` |
@@ -203,7 +203,7 @@ protal --db DB --map sims/protal.meta -t 8      # prints true and false positive
 | `-n, --samples`, `--sample_prefix` | 1, `sample` | samples, named `<prefix>_<n>` |
 | `--total_read_pairs` | 100000 | read pairs per sample |
 | `--species_per_sample` | 10 | a number, a range, e.g. `20-80` (each sample's drawn from it), or numbers given to the samples in turn, e.g. `20,80,45` (as `--total_read_pairs`) |
-| `--distribution` | `poisson_lognormal` | `power_law` (`--alpha`), `negative_binomial` (`--nb_r`, `--nb_p`) or `poisson_lognormal` (`--pln_mu`, `--pln_sigma`; several sigmas go to the samples in turn) |
+| `--distribution` | `lognormal` | `lognormal` (`--pln_mu`, `--pln_sigma`, several sigmas going to the samples in turn: a continuous long tail, no species below `--abundance_floor`, 0.001, of the median), `power_law` (`--alpha`), `negative_binomial` (`--nb_r`, `--nb_p`) or `poisson_lognormal` (Poisson counts + 1 of a lognormal mean, the default before 2026-10-07: at `--pln_mu` 0 about 40-45% of the species share the lowest weight). Every species gets a read pair or more |
 | `--strains_per_species` | none | probabilities of a 2nd, 3rd, ... strain of a species, e.g. `0.4,0.2,0.1` |
 | `--include_species`, `--genus`, `--taxon` | | species in every sample; `g__A:10,g__B:2` species from those genera, `d__Archaea:10` from any taxon (`--pick_random_demand_if_fail` caps instead of failing) |
 | `--congener_groups` | none | `SHARE:MIN-MAX`, e.g. `0.25:2-5`: about SHARE of each sample's species in groups of MIN to MAX congeners |
@@ -224,13 +224,15 @@ per row: `SPECIES`, `SAMPLE_FRACTION` (share of samples with it), `N_STRAINS` (d
 across samples), `MIN_OCCURRENCE` (samples each strain is in at least), and optionally `MIN_VCOV`
 (minimum coverage per strain and sample) and `CONSPECIFIC_STRAINS` (as `--strains_per_species`).
 
-**Replaying a dataset.** A manifest holds the genomes, read pairs and the seeds of their reads, so
-`--from_manifest sims/manifest.tsv --output_dir replay/` reproduces the reads byte for byte with the
-same simulator and read settings (a manifest of the ART days replays the composition with new reads).
-The settings come from the command line; the replay warns about
-each that differs from the original `run_params.tsv`. Sampling options are ignored, and a per-sample
-manifest replays that sample. Manifests without seeds replay the composition with fresh reads (pass
-`--genome_table`).
+**Replaying a dataset.** A manifest holds the genomes, read pairs and the seeds of their reads (`art_seed`)
+and of each sample's quality offset and host reads (`run_seed`, `host_seed`), so `--from_manifest
+sims/manifest.tsv --output_dir replay/` reproduces the reads byte for byte with the same simulator and
+read settings, whatever `--seed`, and a per-sample manifest (`manifests/<sample>.tsv`) reproduces that
+sample's. The read settings come from the command line (`--read_length`, `--sequencer`, ...,
+`--host_folder`, `--host_pairs`); the replay warns about each that differs from the original
+`run_params.tsv`. Sampling options are ignored. A manifest without `run_seed` and `host_seed` (before
+2026-10-07) replays its genomes' fragments with this run's qualities, so other errors and reads; one
+without `art_seed` (the ART days) replays the composition with fresh reads (pass `--genome_table`).
 
 ## Continuous integration
 

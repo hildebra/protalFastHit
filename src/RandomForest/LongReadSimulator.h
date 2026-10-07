@@ -6,10 +6,13 @@
 // made into one read by a read model, written compressed as they are made. No template files, no pbsim3 run, no
 // Python.
 //
-// - Templates (as collect_training_data.draw_templates): a read's genome by its weight (relative abundance times
-//   length), its length from a gamma distribution of the setup's mean and SD between 100 bases and 1 Mb, its start
-//   uniform over the genome's contigs of 100 bases or more (a read ends where its contig does), either strand; drawn
-//   in rounds until the sample's bases are reached (the cuts at contigs' ends leave a few bases for another round).
+// - Templates: a read's genome by its weight (relative abundance times length), its length from a gamma distribution
+//   of the setup's mean and SD between 100 bases and 1 Mb, its start uniform over the places in the genome's contigs
+//   where it fits, either strand. Only a template longer than every contig of its genome (or that fits nowhere in
+//   1,000 draws) starts anywhere on contigs of 100 bases or more and ends where its contig does. Drawn in rounds until
+//   the sample's bases are reached: the bases those cuts leave out go to another round, by weight over all genomes,
+//   so that a genome of short contigs gets its weight's share as one of long ones does (until 2026-10-07 every
+//   template was cut at its contig's end, such a genome got ~10-25% less, and the rounds read every genome again).
 //   A host genome (a folder prepared by scenarios.prepare_host) gives its templates by memory map at random places.
 // - Read models: hifi_reads.py's HiFi model and its flow model (Ultima), and pbsim3's qshmm model in its template
 //   mode (simulate_by_qshmm_templ of pbsim3 3.0.x, GPL-2.0, Yukiteru Ono), which reads pbsim3's QSHMM-*.model files.

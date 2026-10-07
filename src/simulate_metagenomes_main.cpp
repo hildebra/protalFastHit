@@ -116,7 +116,7 @@ static void write_protal_metafile(
     for (std::size_t i = 0; i < samples.size(); ++i) {
         const auto& sample = samples[i];
         auto first = sample.read1_path.filename().string();
-        auto second = sample.read2_path.filename().string();
+        auto second = sample.read2_path.empty() ? std::string("-") : sample.read2_path.filename().string();  // first reads only
         auto prefix = derive_prefix_from_r1(sample.read1_path);
         fs::path truth_abs = to_abs(profile_truth_paths[i]);
         out << sample.sample_name << '\t' << first << '\t' << second << '\t' << prefix << ".sam.zst"
@@ -134,12 +134,13 @@ struct CliOptions {
     std::size_t species_per_sample{10};
     std::size_t species_per_sample_min{0};
     std::vector<std::size_t> species_per_sample_list;  // --species_per_sample with several values: the samples' in turn
-    AbundanceDistribution distribution{AbundanceDistribution::PoissonLognormal};
+    AbundanceDistribution distribution{AbundanceDistribution::Lognormal};
     double alpha{2.0};
     int nb_r{5};
     double nb_p{0.5};
     double pln_mu{0.0};
     double pln_sigma{1.3};
+    double abundance_floor{0.001};
     std::vector<double> pln_sigmas;  // --pln_sigma with several values: the samples' in turn
     std::string strain_probabilities;
     std::string include_species;
@@ -235,8 +236,10 @@ static cxxopts::Options build_cxxopts() {
         ("o,output_dir",  "Output directory for FASTQs and manifest", cxxopts::value<std::string>())
         ("from_manifest", "Replay a previous run from its manifest.tsv (combined or per-sample) instead of "
                           "designing a new community. All --distribution/--species_per_sample/--seed style "
-                          "sampling options are ignored. Manifests carrying an art_seed column reproduce the "
-                          "reads exactly; older ones reproduce the composition with fresh reads. "
+                          "sampling options are ignored. Manifests with art_seed, run_seed and host_seed columns "
+                          "(since 2026-10-07) reproduce the reads exactly, given the original read settings "
+                          "(--read_length, --sequencer, ..., --host_folder, --host_pairs; checked against its "
+                          "run_params.tsv); older ones reproduce the composition with fresh reads. "
                           "--genome_table is only needed if the manifest has no fasta_path column.",
                           cxxopts::value<std::string>());
 
@@ -245,12 +248,18 @@ static cxxopts::Options build_cxxopts() {
         ("sample_prefix",       "Prefix for sample names", cxxopts::value<std::string>()->default_value("sample"))
         ("total_read_pairs",    "Read pairs per sample; several comma-separated values are given to the samples in turn (sample 1 the first, sample 2 the second, ...), so that one run's samples differ in depth", cxxopts::value<std::string>()->default_value("100000"))
         ("species_per_sample",  "Number of species per sample; an inclusive range e.g. 20-80 (each sample's drawn from it); or several comma-separated numbers, given to the samples in turn (as --total_read_pairs)", cxxopts::value<std::string>()->default_value("10"))
-        ("distribution",        "Abundance model: power_law | negative_binomial | poisson_lognormal", cxxopts::value<std::string>()->default_value("poisson_lognormal"))
+        ("distribution",        "Abundance model: lognormal (a continuous long tail, never below --abundance_floor of its median), "
+                                "power_law, negative_binomial or poisson_lognormal (Poisson counts + 1 of a lognormal mean: "
+                                "at --pln_mu 0 about 40-45% of the species at the lowest weight)",
+                                cxxopts::value<std::string>()->default_value("lognormal"))
         ("alpha",               "Power law alpha", cxxopts::value<double>()->default_value("2.0"))
         ("nb_r",                "Negative binomial r", cxxopts::value<int>()->default_value("5"))
         ("nb_p",                "Negative binomial p", cxxopts::value<double>()->default_value("0.5"))
-        ("pln_mu",              "Poisson-lognormal mean (log-scale)", cxxopts::value<double>()->default_value("0.0"))
-        ("pln_sigma",           "Poisson-lognormal sigma (log-scale); several comma-separated values are given to the samples in turn (sample 1 the first, sample 2 the second, ...), so that one run mixes abundance distributions", cxxopts::value<std::string>()->default_value("1.3"))
+        ("pln_mu",              "Lognormal (and Poisson-lognormal) mean (log-scale)", cxxopts::value<double>()->default_value("0.0"))
+        ("pln_sigma",           "Lognormal (and Poisson-lognormal) sigma (log-scale); several comma-separated values are given to the samples in turn (sample 1 the first, sample 2 the second, ...), so that one run mixes abundance distributions", cxxopts::value<std::string>()->default_value("1.3"))
+        ("abundance_floor",     "lognormal: the lowest weight of a species, as a share of the distribution's median (e^pln_mu), "
+                                "so that the tail's species keep some abundance (every species gets a read pair or more in "
+                                "any case); 0: none", cxxopts::value<double>()->default_value("0.001"))
         ("strains_per_species", "Probabilities for adding 2nd, 3rd, ... strains per species, e.g. \"0.4,0.2,0.1\"", cxxopts::value<std::string>()->default_value(""))
         ("include_species",     "Comma-separated species to force-include in each sample", cxxopts::value<std::string>()->default_value(""))
         ("genus",               "Comma-separated genus:count pairs, e.g. \"g__A:10,g__B:2\"", cxxopts::value<std::string>()->default_value(""))
@@ -289,8 +298,9 @@ static cxxopts::Options build_cxxopts() {
     options.add_options("Long reads")
         ("long_samples",    "Long (PacBio HiFi, Nanopore) or Ultima reads of given communities instead of a design: a TSV of "
                             "sample, out (its reads: .fq.zst or .fq.gz), bases, seed. Templates are drawn from the genomes "
-                            "by weight (a gamma length of the setup, a uniform start on contigs of 100 bases or more, either "
-                            "strand) until each sample's bases, and each made into one read named g<i>x_<n> (i: the genome's "
+                            "by weight (a gamma length of the setup, a uniform place where it fits on the genome's contigs, "
+                            "cut at a contig's end only if longer than every contig; either strand) until each sample's "
+                            "bases, and each made into one read named g<i>x_<n> (i: the genome's "
                             "place in the sample's list), written compressed as they are made; the same reads for any "
                             "number of threads", cxxopts::value<std::string>())
         ("long_genomes",    "With --long_samples: a TSV of sample, genome, fasta, weight (relative abundance x length), "
@@ -504,8 +514,14 @@ static CliOptions parse_cli(int argc, char** argv) {
         opts.distribution = AbundanceDistribution::NegativeBinomial;
     } else if (dist_str == "poisson_lognormal") {
         opts.distribution = AbundanceDistribution::PoissonLognormal;
+    } else if (dist_str == "lognormal") {
+        opts.distribution = AbundanceDistribution::Lognormal;
     } else {
         throw std::runtime_error("Unknown distribution: " + dist_str);
+    }
+    opts.abundance_floor = result["abundance_floor"].as<double>();
+    if (!(opts.abundance_floor >= 0 && opts.abundance_floor < 1)) {
+        throw std::runtime_error("--abundance_floor is a share of the median, from 0 to below 1");
     }
 
     if (result.count("art_path") || result.count("extra_art_args")) {
@@ -541,6 +557,13 @@ static CliOptions parse_cli(int argc, char** argv) {
     return opts;
 }
 
+// --host_pairs as given: comma-separated.
+static std::string HostPairsText(const std::vector<std::uint64_t>& pairs) {
+    std::string text;
+    for (std::size_t i = 0; i < pairs.size(); ++i) text += (i ? "," : "") + std::to_string(pairs[i]);
+    return text;
+}
+
 // A manifest pins the community; this pins how it was produced. Written on every run
 // so that neither the seed nor the read settings live only in shell history.
 static void write_run_params(
@@ -567,6 +590,8 @@ static void write_run_params(
     out << "fragment_stdev\t" << cli.illumina.fragment_stdev << '\n';
     out << "sequencer\t" << cli.illumina.sequencer << '\n';
     out << "mean_quality\t" << (cli.illumina.mean_quality ? std::to_string(*cli.illumina.mean_quality) : "") << '\n';
+    out << "host_folder\t" << cli.illumina.host_folder.string() << '\n';
+    out << "host_pairs\t" << HostPairsText(cli.illumina.host_pairs) << '\n';
     out << "reads\t" << "simulate_metagenomes IlluminaSimulator (no ART)" << '\n';
 }
 
@@ -583,6 +608,7 @@ static std::vector<protal::sim::SampleOutput> design_and_simulate(
     profile.pln_mu = cli.pln_mu;
     profile.pln_sigma = cli.pln_sigma;
     profile.pln_sigmas = cli.pln_sigmas;
+    profile.abundance_floor = cli.abundance_floor;
     profile.strain_probabilities = protal::sim::parse_strain_probabilities(cli.strain_probabilities);
     profile.include_species = protal::sim::parse_species_list(cli.include_species);
     profile.genus_species_counts = protal::sim::parse_genus_selection(cli.genus_counts);
@@ -633,6 +659,8 @@ static void check_replay_read_settings(const CliOptions& cli) {
         {"fragment_stdev", std::to_string(cli.illumina.fragment_stdev)},
         {"sequencer", cli.illumina.sequencer},
         {"mean_quality", cli.illumina.mean_quality ? std::to_string(*cli.illumina.mean_quality) : ""},
+        {"host_folder", cli.illumina.host_folder.string()},
+        {"host_pairs", HostPairsText(cli.illumina.host_pairs)},
     };
     for (const auto& [key, value] : current) {
         auto it = recorded.find(key);
@@ -651,7 +679,9 @@ static std::vector<protal::sim::SampleOutput> replay_from_manifest(
 
     std::size_t rows = 0;
     std::size_t seeded = 0;
+    std::size_t samples_seeded = 0;
     for (const auto& sample : design) {
+        samples_seeded += sample.run_seed && sample.host_seed;
         for (const auto& assignment : sample.assignments) {
             ++rows;
             seeded += assignment.art_seed.has_value();
@@ -659,12 +689,20 @@ static std::vector<protal::sim::SampleOutput> replay_from_manifest(
     }
     std::cerr << "Replaying " << design.size() << " sample(s), " << rows << " genome assignment(s) from "
               << cli.from_manifest->string() << '\n';
-    if (seeded == rows) {
-        std::cerr << "All rows carry an art_seed: reads are reproduced exactly.\n";
+    if (seeded == rows && samples_seeded == design.size()) {
+        std::cerr << "Every row carries an art_seed and every sample its run_seed and host_seed: the reads are "
+                     "reproduced exactly (with the original read settings).\n";
     } else {
-        std::cerr << "Warning: " << (rows - seeded) << " of " << rows
-                  << " rows have no art_seed. Composition and depth are reproduced exactly, but those "
-                     "reads are fresh realizations.\n";
+        if (seeded < rows) {
+            std::cerr << "Warning: " << (rows - seeded) << " of " << rows
+                      << " rows have no art_seed. Composition and depth are reproduced exactly, but those "
+                         "reads are fresh realizations.\n";
+        }
+        if (samples_seeded < design.size()) {
+            std::cerr << "Warning: " << (design.size() - samples_seeded) << " of " << design.size()
+                      << " samples have no run_seed or host_seed (a manifest of before 2026-10-07): their qualities, "
+                         "and so their errors, and their host reads are this run's (--seed), not the original's.\n";
+        }
     }
 
     // The manifest does not store the read length, but it is recoverable from any row:
@@ -699,7 +737,8 @@ static std::vector<protal::sim::SampleOutput> replay_from_manifest(
         }
     }
 
-    // The seed is only consumed for rows without a recorded art_seed.
+    // The seed makes only what the manifest does not record: art_seed of rows without one, run_seed and host_seed of
+    // samples without them.
     cli.illumina.threads = std::max(1, cli.threads);
     MetagenomeSimulator simulator(std::move(replay_genomes), cli.illumina, *cli.seed);
     simulator.set_reads_compression(cli.reads_compression);

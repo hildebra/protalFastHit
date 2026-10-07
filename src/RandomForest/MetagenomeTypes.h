@@ -32,7 +32,8 @@ struct GenomeAssignment {
 enum class AbundanceDistribution {
     PowerLaw,
     NegativeBinomial,
-    PoissonLognormal
+    PoissonLognormal,  // Poisson(lambda) + 1 of a lognormal lambda: at mu 0 ~40-45% of the species at the lowest weight
+    Lognormal          // the lognormal itself, a continuous long tail, floored at abundance_floor x its median
 };
 
 // Cross-sample strain sharing config for a single species.
@@ -57,12 +58,13 @@ struct ProfileDesignOptions {
     std::vector<std::size_t> species_per_sample_list;  // if not empty: the samples' species counts in turn (sample i
                                                        // gets the i-th, cyclically), in place of the range: a caller
                                                        // that spreads them itself (collect_training_data.py's scenarios)
-    AbundanceDistribution distribution{AbundanceDistribution::PoissonLognormal};
+    AbundanceDistribution distribution{AbundanceDistribution::Lognormal};
     double powerlaw_alpha{2.0};
     int negative_binomial_r{5};
     double negative_binomial_p{0.5};
     double pln_mu{0.0};
     double pln_sigma{1.3};
+    double abundance_floor{0.001};  // Lognormal: no species' weight below this share of the distribution's median
     std::vector<double> pln_sigmas;            // if not empty: the samples' sigmas in turn (sample i gets the i-th,
                                                // cyclically), so that one design mixes abundance distributions and a
                                                // model does not learn one sigma's prior (SigmaForSample)
@@ -125,8 +127,11 @@ struct IlluminaOptions {
 struct SampleOutput {
     std::string sample_name;
     std::filesystem::path read1_path;
-    std::filesystem::path read2_path;
+    std::filesystem::path read2_path;  // empty with first reads only
     std::vector<GenomeAssignment> assignments;
+    // The seeds of the sample's quality offset and of its host reads (manifest columns run_seed and host_seed): with
+    // the genomes' art_seed they make a replay's reads the same.
+    std::optional<std::uint64_t> run_seed, host_seed;
 };
 
 }  // namespace protal::sim

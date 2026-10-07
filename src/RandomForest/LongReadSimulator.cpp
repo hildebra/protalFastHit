@@ -458,6 +458,7 @@ std::uint32_t DrawReadLength(LongRng& rng, double mean, double sd) {
 namespace {
 
 constexpr std::uint64_t kPartBases = 2'000'000;  // template bases of a work item at most (one read more if longer)
+constexpr int kPlacements = 1000;                // draws of a template's place before it is cut at its contig's end
 
 // The long-read samples as a pipeline job: rounds planned with each sample's own stream
 // (collect_training_data.draw_templates's rounds), items of some reads of one genome.
@@ -554,10 +555,22 @@ public:
             if (host) {
                 templ = host->Draw(rng, length);
             } else {
+                // Uniform over the places where the template fits (a place that runs off its contig is drawn again),
+                // so that a genome of short contigs gets the bases of its weight as one of long ones does. Only a
+                // template longer than every contig, or one that fits nowhere in kPlacements draws, is cut at its
+                // contig's end.
                 auto const& starts = contigs->starts;
-                std::uint64_t const at = rng.Below(starts.back());
-                std::size_t const k = std::upper_bound(starts.begin(), starts.end(), at) - starts.begin();
-                std::uint64_t const start = at - (k ? starts[k - 1] : 0);
+                std::size_t k = 0;
+                std::uint64_t start = 0;
+                auto place = [&] {
+                    std::uint64_t const at = rng.Below(starts.back());
+                    k = std::upper_bound(starts.begin(), starts.end(), at) - starts.begin();
+                    start = at - (k ? starts[k - 1] : 0);
+                };
+                place();
+                if (length <= contigs->longest) {
+                    for (int attempt = 1; attempt < kPlacements && start + length > contigs->lengths[k]; ++attempt) place();
+                }
                 contigs->Extract(k, start, length, templ);
             }
             if (rng.Uniform() < 0.5) ReverseComplement(templ);

@@ -703,7 +703,7 @@ keeps the finished database.
 | `--species-per-sample`, `--archaea` | `20-200`, 2 | species per sample; archaeal species per sample |
 | `--strains-per-species` | `0.5,0.2` | probabilities of a second, third, ... strain (the test set's; `0.3,0.1` before 2026-10-07) |
 | `--congeners` | `0.25:2-5` | about this share of a sample's species in groups of 2-5 congeners; `0` for none |
-| `--abundance` | `lognormal:1.3,2.0` | `lognormal:SIGMA[,SIGMA...]` (the samples take the sigmas in turn), `powerlaw:ALPHA` or `negbin:R:P` |
+| `--abundance` | `lognormal:1.3,2.0` | `lognormal:SIGMA[,SIGMA...]` (the samples take the sigmas in turn; a continuous long tail, no species below 1/1000 of the median, every species a read pair or more), `poisson_lognormal:SIGMA` (Poisson counts + 1, the lognormal before 2026-10-07: ~40-45% of the species at the lowest weight), `powerlaw:ALPHA` or `negbin:R:P` |
 | `--read-types` | `pe,se,pb,ont` | the read types to train |
 | `--long-read-bases`, `--long-read-samples` | 300 kb to 6 Gb, 36 | long-read depths and samples per point |
 | `--pb-setup`, `--ont-setup`, `--pbsim`, `--pbsim-models` | | how long reads are made ([above](#one-model-per-read-type)) |
@@ -971,7 +971,8 @@ python3 scripts/collect_training_data.py --db DB --genome_table genomes.tsv -o t
 
 - **Read types** (`--read_types`): `se` profiles the paired-end samples' first reads alone; `pb` and
   `ont` replay each paired-end point's communities as long reads, drawn read by read (genome by
-  abundance × length, length from a gamma distribution, start uniform, cut at the contig's end), by
+  abundance × length, length from a gamma distribution, start uniform over the places where it fits;
+  cut at a contig's end only if longer than every contig, so a genome of short contigs gets its share), by
   `simulate_metagenomes --long_samples`, one run per design point, each read written compressed as it
   is made. PacBio HiFi reads follow `scripts/hifi_reads.py`'s model (quality by length, Q50 up to 5 kb
   to Q20 at 50 kb, errors mostly as homopolymer indels, calibrated base qualities); Nanopore reads

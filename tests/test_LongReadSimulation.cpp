@@ -220,6 +220,28 @@ TEST(LongReadSimulation, QshmmModel) {
     }
 }
 
+// A genome of short contigs gets its weight's share of the bases, as one of a single long contig does: a template is
+// placed where it fits (until 2026-10-07 every one was cut at its contig's end, and here the short contigs' genome got
+// about a quarter less of each round), and one round is enough.
+TEST(LongReadSimulation, ShortContigsGetTheirShare) {
+    ScratchDir dir("long share");
+    std::mt19937 gen(5);
+    std::string fragmented;
+    for (int c = 0; c < 30; ++c) fragmented += ">f" + std::to_string(c) + "\n" + protal::test::RandomSequence(2000, gen) + "\n";
+    auto const frag = dir.Write("FRAG.fna", fragmented);
+    auto const whole = dir.Write("WHOLE.fna", ">w\n" + protal::test::RandomSequence(60000, gen) + "\n");
+    LongReadOptions options;
+    options.setup = LongReadSetup::Parse("hifi:1000:300:3");
+    options.threads = 2;
+    std::vector<LongSample> samples(1);
+    samples[0] = {"s", dir.path / "s.fq.zst", 2'000'000, 3, {{"FRAG", frag, 60000.0, false}, {"WHOLE", whole, 60000.0, false}}};
+    auto const results = SimulateLongReads(samples, options);
+    std::uint64_t bases[2] = {0, 0};
+    for (auto const& read : ReadFastq(samples[0].out.string())) bases[read.name.rfind("@g1x_", 0) == 0 ? 1 : 0] += read.seq.size();
+    EXPECT_NEAR(static_cast<double>(bases[0]) / static_cast<double>(bases[0] + bases[1]), 0.5, 0.03);
+    EXPECT_LE(results[0].rounds, 2u);
+}
+
 TEST(LongReadSimulation, SamplesTemplatesAndThreads) {
     ScratchDir dir("long reads");
     std::mt19937 gen(21);

@@ -10,6 +10,7 @@
 #include <map>
 #include <random>
 #include <set>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -19,6 +20,7 @@
 #include "IO/ThreadedGzStream.h"
 #include "RandomForest/GenomeStore.h"
 #include "RandomForest/IlluminaSimulator.h"
+#include "RandomForest/MetagenomeSimulator.h"
 #include "TestUtil.h"
 
 using namespace protal::sim;
@@ -189,6 +191,109 @@ TEST(IlluminaSimulation, GaussianNumbersAndRareEvents) {
         double const stationary = 0.05 / 0.30;  // cycle c low with stationary x (1 - 0.7^(c + 1))
         double const mean_low = stationary * (1 - 0.7 * (1 - std::pow(0.70, 150)) / (0.30 * 150));
         EXPECT_NEAR(low, mean_low * 0.982 + report.ns[r], 0.01) << r;
+    }
+}
+
+// A replay (simulate_metagenomes --from_manifest) of a run's manifest makes the same reads whatever its seed: the
+// genomes' art_seed and each sample's run_seed and host_seed are in the manifest; a per-sample manifest replays its
+// sample's reads. With first reads only no _R2 is written or named.
+TEST(IlluminaSimulation, ReplayFromManifestsMakesTheSameReads) {
+    ScratchDir dir("replay");
+    std::mt19937 gen(31);
+    std::vector<GenomeRecord> genomes;
+    for (int g = 0; g < 4; ++g) {
+        std::string const fasta = dir.Write("G" + std::to_string(g) + ".fna",
+                                            ">c" + std::to_string(g) + "\n" + protal::test::RandomSequence(8000, gen) + "\n");
+        genomes.push_back({"G" + std::to_string(g), "d__B;p__P;c__C;o__O;f__F;g__G" + std::to_string(g) + ";s__G" +
+                           std::to_string(g) + " sp", fasta, 8000});
+    }
+    std::filesystem::create_directories(dir.path / "host");
+    dir.Write("host/host.seq", protal::test::RandomSequence(20000, gen));
+    dir.Write("host/host.json", "{\"source\": [\"/x\", 1, 2], \"contigs\": [[\"chr1\", 0, 20000]], \"bases\": 20000}");
+    IlluminaOptions illumina;
+    illumina.sequencer = "HSXt";
+    illumina.host_folder = dir.path / "host";
+    illumina.host_pairs = {40};
+    ProfileDesignOptions profile;
+    profile.total_read_pairs = 600;
+    profile.species_per_sample = 3;
+    MetagenomeSimulator original(genomes, illumina, 5);
+    auto const samples = original.simulate_samples(profile, 3, "s", dir.path / "original");
+    write_combined_manifest(samples, dir.path / "manifest.tsv");
+    write_sample_manifest(samples[1], dir.path / "s_2.tsv");
+
+    auto design = read_manifest(dir.path / "manifest.tsv");
+    ASSERT_EQ(design.size(), 3u);
+    EXPECT_EQ(design[1].run_seed, samples[1].run_seed);
+    EXPECT_EQ(design[1].host_seed, samples[1].host_seed);
+    MetagenomeSimulator replay(genomes, illumina, 999);  // another seed
+    auto const again = replay.replay_samples(design, dir.path / "replay");
+    for (std::size_t s = 0; s < 3; ++s) {
+        EXPECT_EQ(protal::test::Slurp(again[s].read1_path), protal::test::Slurp(samples[s].read1_path)) << s;
+        EXPECT_EQ(protal::test::Slurp(again[s].read2_path), protal::test::Slurp(samples[s].read2_path)) << s;
+    }
+    MetagenomeSimulator single(genomes, illumina, 1234);  // sample 2 alone: the first of its replay
+    auto const one = single.replay_samples(read_manifest(dir.path / "s_2.tsv"), dir.path / "single");
+    ASSERT_EQ(one.size(), 1u);
+    EXPECT_EQ(protal::test::Slurp(one[0].read1_path), protal::test::Slurp(samples[1].read1_path));
+    EXPECT_EQ(protal::test::Slurp(one[0].read2_path), protal::test::Slurp(samples[1].read2_path));
+
+    // first reads only: the same _R1, no _R2 file or name
+    illumina.first_reads_only = true;
+    MetagenomeSimulator first(genomes, illumina, 5);
+    auto const firsts = first.simulate_samples(profile, 3, "s", dir.path / "first");
+    for (std::size_t s = 0; s < 3; ++s) {
+        EXPECT_TRUE(firsts[s].read2_path.empty());
+        EXPECT_EQ(protal::test::Slurp(firsts[s].read1_path), protal::test::Slurp(samples[s].read1_path)) << s;
+    }
+    EXPECT_FALSE(std::filesystem::exists(dir.path / "first" / "reads" / "s_1_R2.fq.gz"));
+    write_combined_manifest(firsts, dir.path / "first.tsv");
+    std::istringstream rows(protal::test::Slurp(dir.path / "first.tsv"));
+    std::string line;
+    std::getline(rows, line);
+    while (std::getline(rows, line)) {
+        std::vector<std::string> fields;
+        std::stringstream split(line);
+        for (std::string field; std::getline(split, field, '\t');) fields.push_back(field);
+        ASSERT_GE(fields.size(), 10u);
+        EXPECT_EQ(fields[9], "") << "fastq_r2 of " << fields[0];
+    }
+}
+
+// A run that fails while it streams into named pipes ends them with what no reader takes for the end of a sample: a
+// cut zstd frame (or gzip member), or a FASTQ record without its sequence (plain pipes).
+TEST(IlluminaSimulation, AFailedStreamIsCutOff) {
+    ScratchDir dir("failed stream");
+    std::mt19937 gen(41);
+    auto const ga = dir.Write("GA.fna", ">a\n" + protal::test::RandomSequence(20000, gen) + "\n");
+    PairedOptions options;
+    options.setup = MakeSetup("NovaSeq", 150);
+    options.threads = 1;
+    for (bool plain : {false, true}) {
+        auto const out = dir.path / (plain ? "plain" : "zstd");
+        std::filesystem::create_directories(out);
+        std::vector<PairedSample> samples(1);
+        // GA's pairs are written, then the missing genome fails the run
+        samples[0] = {"s", out / "s_R1.fq.zst", out / "s_R2.fq.zst", {{"GA", ga, 4000, 1}, {"GONE", dir.path / "gone.fna", 100, 2}}};
+        ASSERT_EQ(::mkfifo(samples[0].r1.c_str(), 0600), 0);
+        ASSERT_EQ(::mkfifo(samples[0].r2.c_str(), 0600), 0);
+        auto drain = [](std::filesystem::path path) {
+            return std::async(std::launch::async, [path] { return protal::test::Slurp(path); });
+        };
+        auto r1 = drain(samples[0].r1), r2 = drain(samples[0].r2);
+        options.plain_pipes = plain;
+        EXPECT_THROW(SimulatePairs(samples, options), std::runtime_error);
+        ASSERT_EQ(r1.wait_for(std::chrono::seconds(60)), std::future_status::ready);
+        ASSERT_EQ(r2.wait_for(std::chrono::seconds(60)), std::future_status::ready);
+        for (std::string const bytes : {r1.get(), r2.get()}) {
+            ASSERT_GT(bytes.size(), 1000u) << "GA's pairs came through";
+            auto const kept = dir.Write(plain ? "kept.fq" : "kept.fq.zst", bytes);
+            if (plain) {
+                EXPECT_TRUE(bytes.ends_with("@simulate_metagenomes_failed\n"));
+            } else {
+                EXPECT_THROW(ReadWholeFile(kept), std::runtime_error) << "a cut zstd frame";
+            }
+        }
     }
 }
 

@@ -106,8 +106,10 @@ def parse_args(argv=None):
                    help="probabilities of a second, third, ... strain of a species in a sample, e.g. 0.3,0.1 "
                         "(simulate_metagenomes --strains_per_species; default: one strain each)")
     p.add_argument("--abundance", default="",
-                   help="abundance model: lognormal:SIGMA, powerlaw:ALPHA or negbin:R:P (default: the simulator's, "
-                        "Poisson-lognormal with sigma 1.3); lognormal:S1,S2,... gives a design point's samples the "
+                   help="abundance model: lognormal:SIGMA (a continuous long tail, no species below 1/1000 of the "
+                        "median), poisson_lognormal:SIGMA (Poisson counts + 1, as before 2026-10-07: ~40-45%% of the "
+                        "species at the lowest weight), powerlaw:ALPHA or negbin:R:P (default: the simulator's, "
+                        "lognormal with sigma 1.3); lognormal:S1,S2,... gives a design point's samples the "
                         "sigmas in turn, so that a model does not learn one sigma's prior")
     p.add_argument("--archaea", type=int, default=0, help="archaeal species per sample (default: 0)")
     p.add_argument("--congeners", default="0", type=congener_spec,
@@ -816,13 +818,15 @@ def abundance_args(text):
     if not text:
         return []
     parts = text.split(":")
-    if parts[0] == "lognormal" and len(parts) == 2:
+    if parts[0] == "lognormal" and len(parts) == 2:  # continuous, floored at 1/1000 of its median (since 2026-10-07)
+        return ["--distribution", "lognormal", "--pln_sigma", parts[1]]
+    if parts[0] == "poisson_lognormal" and len(parts) == 2:  # Poisson counts + 1, lognormal before 2026-10-07
         return ["--distribution", "poisson_lognormal", "--pln_sigma", parts[1]]
     if parts[0] == "powerlaw" and len(parts) == 2:
         return ["--distribution", "power_law", "--alpha", parts[1]]
     if parts[0] == "negbin" and len(parts) == 3:
         return ["--distribution", "negative_binomial", "--nb_r", parts[1], "--nb_p", parts[2]]
-    sys.exit(f"--abundance {text!r}: expected lognormal:SIGMA, powerlaw:ALPHA or negbin:R:P")
+    sys.exit(f"--abundance {text!r}: expected lognormal:SIGMA, poisson_lognormal:SIGMA, powerlaw:ALPHA or negbin:R:P")
 
 
 # ---- what a point was made from ---------------------------------------------------------------------------

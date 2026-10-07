@@ -13,7 +13,19 @@
 #include <unordered_set>
 #include <cstdint>
 
+#include "PortableRandom.h"
+
 namespace protal::sim {
+
+// The keys of a map, sorted: an order of its own, not the hash table's (which differs between standard libraries).
+template <typename Map>
+static std::vector<typename Map::key_type> sorted_keys(const Map& map) {
+    std::vector<typename Map::key_type> keys;
+    keys.reserve(map.size());
+    for (const auto& entry : map) keys.push_back(entry.first);
+    std::sort(keys.begin(), keys.end());
+    return keys;
+}
 
 // Nudges read counts (each already >= 1) up or down one at a time, at random entries, until they
 // sum to `target`. Every entry keeps at least one read pair, so a target smaller than the number of
@@ -29,9 +41,8 @@ static void adjust_counts_to_total(std::vector<std::uint64_t>& counts, std::uint
     std::int64_t diff = static_cast<std::int64_t>(target) -
                         static_cast<std::int64_t>(std::accumulate(counts.begin(), counts.end(), std::uint64_t{0}));
     if (diff == 0) return;
-    std::uniform_int_distribution<std::size_t> pick(0, counts.size() - 1);
     while (diff != 0) {
-        std::size_t idx = pick(rng);
+        std::size_t idx = portable::Below(rng, counts.size());
         if (diff > 0) {
             ++counts[idx];
             --diff;
@@ -267,30 +278,36 @@ std::vector<double> CommunityProfileDesigner::draw_weights(
     std::vector<double> weights;
     weights.reserve(count);
     if (options.distribution == AbundanceDistribution::PowerLaw) {
-        std::uniform_real_distribution<double> uniform(0.0, 1.0);
         const double alpha = options.powerlaw_alpha > 0.0 ? options.powerlaw_alpha : 1.0;
         for (std::size_t i = 0; i < count; ++i) {
-            double u = std::clamp(uniform(rng), 1e-12, 0.999999999999);
+            double u = std::clamp(portable::Uniform(rng), 1e-12, 0.999999999999);
             weights.push_back(std::pow(1.0 - u, -1.0 / alpha));
         }
     } else if (options.distribution == AbundanceDistribution::NegativeBinomial) {
         const int r = std::max(1, options.negative_binomial_r);
         const double p = std::clamp(options.negative_binomial_p, 1e-6, 0.999999);
-        std::negative_binomial_distribution<int> nb(r, p);
         for (std::size_t i = 0; i < count; ++i) {
-            weights.push_back(static_cast<double>(nb(rng) + 1));
+            weights.push_back(static_cast<double>(portable::NegativeBinomial(rng, r, p) + 1));
         }
     } else if (options.distribution == AbundanceDistribution::PoissonLognormal) {
+        // Counts: Poisson(lambda) + 1, lambda lognormal. At mu 0 about 40-45% of the species get the lowest weight, 1.
         const double mu = options.pln_mu;
         const double sigma = std::max(1e-6, options.pln_sigma);
-        std::lognormal_distribution<double> logn(mu, sigma);
         for (std::size_t i = 0; i < count; ++i) {
-            double lambda = logn(rng);
+            double lambda = std::exp(mu + sigma * portable::Normal(rng));
             if (lambda <= 0.0) {
                 lambda = 1e-6;
             }
-            std::poisson_distribution<int> pois(lambda);
-            weights.push_back(static_cast<double>(pois(rng) + 1));
+            weights.push_back(static_cast<double>(portable::Poisson(rng, lambda) + 1));
+        }
+    } else if (options.distribution == AbundanceDistribution::Lognormal) {
+        // Weights of a lognormal, a long tail of their own (not tied at a lowest count), but none below abundance_floor
+        // times the distribution's median, e^mu: at sigma 2.5 the lowest 0.3% of the species, below 2.0 hardly any.
+        const double mu = options.pln_mu;
+        const double sigma = std::max(1e-6, options.pln_sigma);
+        const double floor = std::exp(mu) * std::max(0.0, options.abundance_floor);
+        for (std::size_t i = 0; i < count; ++i) {
+            weights.push_back(std::max(std::exp(mu + sigma * portable::Normal(rng)), floor));
         }
     }
     return weights;
@@ -333,6 +350,10 @@ CommunityProfileDesigner::Groups const& CommunityProfileDesigner::groups() const
             }
         }
     }
+    // Every list by name, not in the hash tables' order (which differs between standard libraries).
+    std::sort(made->species.begin(), made->species.end(), [](const std::string* a, const std::string* b) { return *a < *b; });
+    for (auto& [_, members] : genus_to_species) std::sort(members.begin(), members.end());
+    for (auto& [_, members] : taxon_to_species) std::sort(members.begin(), members.end());
     groups_ = std::move(made);
     return *groups_;
 }
@@ -353,7 +374,7 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
     auto pick_strains = [&](const std::vector<GenomeRecord>& genomes) {
         std::vector<std::size_t> idx(genomes.size());
         std::iota(idx.begin(), idx.end(), 0);
-        std::shuffle(idx.begin(), idx.end(), rng);
+        portable::Shuffle(idx, rng);
         std::vector<GenomeRecord> strains;
         if (!idx.empty()) {
             strains.push_back(genomes[idx[0]]);
@@ -361,7 +382,7 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
         std::size_t next_idx = 1;
         for (double p : options.strain_probabilities) {
             if (next_idx >= idx.size()) break;
-            if (std::uniform_real_distribution<double>(0.0, 1.0)(rng) <= p) {
+            if (portable::Uniform(rng) <= p) {
                 strains.push_back(genomes[idx[next_idx]]);
                 ++next_idx;
             } else {
@@ -394,7 +415,8 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
     // Forced strains from strain-sharing pre-assignment — added before include_species so they are
     // already in selected_set when include_species is processed (preventing double-inclusion).
     // They count toward species_per_sample: fewer random species are selected to compensate.
-    for (const auto& [fkey, fstrains] : options.forced_strains) {
+    for (const auto& fkey : sorted_keys(options.forced_strains)) {
+        const auto& fstrains = options.forced_strains.at(fkey);
         if (fstrains.empty() || selected_set.count(fkey) > 0) continue;
         selected_species.emplace_back(fkey, fstrains);
         selected_set.insert(fkey);
@@ -441,12 +463,14 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
         std::size_t budget = options.species_per_sample > include_species_set.size()
                                  ? options.species_per_sample - include_species_set.size()
                                  : 0;
-        for (auto& [_, remaining] : genus_remaining) {
+        for (const auto& genus : sorted_keys(genus_remaining)) {  // by name, the budget's order
+            std::size_t& remaining = genus_remaining.at(genus);
             std::size_t take = std::min(remaining, budget);
             budget -= take;
             remaining = take;
         }
-        for (auto& [_, remaining] : taxon_remaining) {
+        for (const auto& taxon : sorted_keys(taxon_remaining)) {
+            std::size_t& remaining = taxon_remaining.at(taxon);
             std::size_t take = std::min(remaining, budget);
             budget -= take;
             remaining = take;
@@ -457,11 +481,9 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
     // taxon_remaining, which reduce_requested_quotas counts down for every species picked (a species
     // can fill a genus and a taxon quota at once). A copy of a quota would never reach 0 and fill the
     // sample with that taxon.
-    std::vector<std::pair<std::string, std::size_t>> genus_requests(
-        genus_remaining.begin(), genus_remaining.end());
-    std::shuffle(genus_requests.begin(), genus_requests.end(), rng);
-    for (auto const& request : genus_requests) {
-        auto const& genus = request.first;
+    std::vector<std::string> genus_requests = sorted_keys(genus_remaining);
+    portable::Shuffle(genus_requests, rng);
+    for (auto const& genus : genus_requests) {
         auto const& remaining = genus_remaining.at(genus);
         if (remaining == 0 || selected_species.size() >= options.species_per_sample) {
             continue;
@@ -471,7 +493,7 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
             continue;
         }
         auto candidates = it->second;
-        std::shuffle(candidates.begin(), candidates.end(), rng);
+        portable::Shuffle(candidates, rng);
         for (const auto& species : candidates) {
             if (remaining == 0 || selected_species.size() >= options.species_per_sample) break;
             if (selected_set.count(species) > 0) continue;
@@ -485,11 +507,9 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
         }
     }
 
-    std::vector<std::pair<std::string, std::size_t>> taxon_requests(
-        taxon_remaining.begin(), taxon_remaining.end());
-    std::shuffle(taxon_requests.begin(), taxon_requests.end(), rng);
-    for (auto const& request : taxon_requests) {
-        auto const& taxon = request.first;
+    std::vector<std::string> taxon_requests = sorted_keys(taxon_remaining);
+    portable::Shuffle(taxon_requests, rng);
+    for (auto const& taxon : taxon_requests) {
         auto const& remaining = taxon_remaining.at(taxon);
         if (remaining == 0 || selected_species.size() >= options.species_per_sample) {
             continue;
@@ -499,7 +519,7 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
             continue;
         }
         auto candidates = it->second;
-        std::shuffle(candidates.begin(), candidates.end(), rng);
+        portable::Shuffle(candidates, rng);
         for (const auto& species : candidates) {
             if (remaining == 0 || selected_species.size() >= options.species_per_sample) break;
             if (selected_set.count(species) > 0) continue;
@@ -525,7 +545,7 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
             if (genus != "unknown_genus" && members.size() >= options.congener_min) genera.push_back(genus);
         }
         std::sort(genera.begin(), genera.end());  // the draw depends on the seed only
-        std::shuffle(genera.begin(), genera.end(), rng);
+        portable::Shuffle(genera, rng);
         std::size_t grouped_species = 0;
         for (const auto& genus : genera) {
             if (grouped_species >= target || selected_species.size() >= options.species_per_sample) break;
@@ -535,9 +555,9 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
             }
             if (candidates.size() < options.congener_min) continue;
             std::sort(candidates.begin(), candidates.end());
-            std::shuffle(candidates.begin(), candidates.end(), rng);
+            portable::Shuffle(candidates, rng);
             std::size_t const most = std::min(options.congener_max, candidates.size());
-            std::size_t want = std::uniform_int_distribution<std::size_t>(options.congener_min, most)(rng);
+            std::size_t want = portable::Between(rng, options.congener_min, most);
             want = std::min({ want, target - grouped_species, options.species_per_sample - selected_species.size() });
             if (want < options.congener_min) break;  // a group needs congener_min species
             for (std::size_t i = 0; i < want; i++) {
@@ -551,10 +571,9 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
         }
     }
 
-    // Shuffle species order to pick initial strain per species (the species' names by pointer: the same permutation
-    // as of the names themselves, std::shuffle's draws depending on the count alone).
+    // The other species in random order (from their names' order), each with its strains.
     std::vector<std::string const*> species_order(groups_of.species);
-    std::shuffle(species_order.begin(), species_order.end(), rng);
+    portable::Shuffle(species_order, rng);
 
     for (const std::string* species_of : species_order) {
         const std::string& species = *species_of;
@@ -634,8 +653,7 @@ std::vector<GenomeAssignment> CommunityProfileDesigner::design_profile(
         // samples have such species).
         const std::size_t n_strains = std::min<std::size_t>(strains.size(), std::max<std::uint64_t>(species_counts[i], 1));
         std::vector<double> w(n_strains);
-        std::uniform_real_distribution<double> uni(0.0, 1.0);
-        for (double& v : w) v = uni(rng);
+        for (double& v : w) v = portable::Uniform(rng);
         double sumw = std::accumulate(w.begin(), w.end(), 0.0);
         if (sumw == 0.0) sumw = static_cast<double>(n_strains);
         std::vector<std::uint64_t> strain_counts;
@@ -686,7 +704,7 @@ std::vector<SampleStrainAssignment> CommunityProfileDesigner::assign_strains_acr
         // Select n_strains randomly without replacement.
         std::vector<std::size_t> idx(available.size());
         std::iota(idx.begin(), idx.end(), 0);
-        std::shuffle(idx.begin(), idx.end(), rng);
+        portable::Shuffle(idx, rng);
         std::vector<GenomeRecord> chosen;
         chosen.reserve(spec.n_strains);
         for (std::size_t k = 0; k < spec.n_strains; ++k) chosen.push_back(available[idx[k]]);
@@ -712,7 +730,7 @@ std::vector<SampleStrainAssignment> CommunityProfileDesigner::assign_strains_acr
         // Shuffle all sample indices to pick the n_present that include this species.
         std::vector<std::size_t> all_indices(sample_count);
         std::iota(all_indices.begin(), all_indices.end(), 0);
-        std::shuffle(all_indices.begin(), all_indices.end(), rng);
+        portable::Shuffle(all_indices, rng);
         all_indices.resize(n_present);
 
         // per_present[s] = strains assigned to the s-th present sample.
@@ -726,21 +744,19 @@ std::vector<SampleStrainAssignment> CommunityProfileDesigner::assign_strains_acr
         for (std::size_t k = 0; k < spec.n_strains; ++k) {
             for (std::size_t m = 0; m < min_occ; ++m) flat.push_back(k);
         }
-        std::shuffle(flat.begin(), flat.end(), rng);
+        portable::Shuffle(flat, rng);
         for (std::size_t s = 0; s < flat.size(); ++s) {
             per_present[s].push_back(chosen[flat[s]]);
         }
 
         // Samples beyond the flat prefix (when n_present > n_strains * min_occ) get a random strain.
         for (std::size_t s = flat.size(); s < n_present; ++s) {
-            std::uniform_int_distribution<std::size_t> pick(0, spec.n_strains - 1);
-            per_present[s].push_back(chosen[pick(rng)]);
+            per_present[s].push_back(chosen[portable::Below(rng, spec.n_strains)]);
         }
 
         // Probabilistically add more strains from the forced pool (same chain logic as
         // --strains_per_species, but drawing only from the n_strains already chosen).
         if (!spec.conspecific_strain_probabilities.empty()) {
-            std::uniform_real_distribution<double> uni(0.0, 1.0);
             for (std::size_t s = 0; s < n_present; ++s) {
                 // Collect indices of chosen strains not yet in this sample.
                 std::unordered_set<std::string> already;
@@ -750,11 +766,11 @@ std::vector<SampleStrainAssignment> CommunityProfileDesigner::assign_strains_acr
                 for (std::size_t k = 0; k < spec.n_strains; ++k) {
                     if (!already.count(chosen[k].name)) pool.push_back(k);
                 }
-                std::shuffle(pool.begin(), pool.end(), rng);
+                portable::Shuffle(pool, rng);
                 std::size_t next = 0;
                 for (double p : spec.conspecific_strain_probabilities) {
                     if (next >= pool.size()) break;
-                    if (uni(rng) <= p) {
+                    if (portable::Uniform(rng) <= p) {
                         per_present[s].push_back(chosen[pool[next++]]);
                     } else {
                         break;

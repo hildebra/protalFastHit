@@ -17,6 +17,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -159,6 +160,23 @@ void ReverseComplement(std::string& seq) {
 
 // ---- genomes -----------------------------------------------------------------------------------------------------
 
+// Says once per genome and run (at most 20 genomes) that a share of its bases is in contigs shorter than any read: none
+// of its reads come from there, though its depth in the manifests (vertical_coverage) is over all its bases.
+static void NoteShortContigs(std::string const& name, std::uint64_t dropped, std::uint64_t total, std::uint32_t min_length) {
+    if (total == 0 || dropped * 100 < total) return;  // less than 1%
+    static std::mutex mutex;
+    static std::set<std::string> noted;
+    std::lock_guard<std::mutex> lock(mutex);
+    if (noted.size() > 20 || !noted.insert(name).second) return;
+    if (noted.size() > 20) {
+        std::fprintf(stderr, "Note: more genomes have contigs too short for a read; not listed\n");
+        return;
+    }
+    std::fprintf(stderr, "Note: %s has %.1f%% of its bases in contigs shorter than %u bases, which no read comes from "
+                         "(its vertical_coverage is over all its bases)\n",
+                 name.c_str(), 100.0 * static_cast<double>(dropped) / static_cast<double>(total), min_length);
+}
+
 void Contigs::Extract(std::size_t k, std::uint64_t start, std::uint64_t length, std::string& out) const {
     if (file) {
         file->Extract(file_contigs[k], start, length, out);
@@ -181,14 +199,20 @@ std::shared_ptr<Contigs const> LoadContigs(std::string const& name, fs::path con
         return std::runtime_error(name + ": no sequence of " + std::to_string(contigs->min_length) + " bases or more in " +
                                   fasta.string());
     };
+    std::uint64_t total = 0, dropped = 0;  // bases, and those in contigs shorter than min_length
     if (!store.empty()) {
         if (auto file = GenomeFile::Open(store, fasta)) {
             for (std::size_t k = 0; k < file->Contigs(); ++k) {
-                if (file->Length(k) < contigs->min_length) continue;
+                total += file->Length(k);
+                if (file->Length(k) < contigs->min_length) {
+                    dropped += file->Length(k);
+                    continue;
+                }
                 add(std::string(file->Name(k)), file->Length(k));
                 contigs->file_contigs.push_back(k);
             }
             if (contigs->names.empty()) throw none();
+            NoteShortContigs(name, dropped, total, contigs->min_length);
             contigs->file = std::move(file);
             return contigs;
         }
@@ -210,11 +234,16 @@ std::shared_ptr<Contigs const> LoadContigs(std::string const& name, fs::path con
         }
     }
     for (std::size_t k = 0; k < records.seqs.size(); ++k) {
-        if (records.seqs[k].size() < contigs->min_length) continue;
+        total += records.seqs[k].size();
+        if (records.seqs[k].size() < contigs->min_length) {
+            dropped += records.seqs[k].size();
+            continue;
+        }
         add(std::move(records.names[k]), records.seqs[k].size());
         contigs->seqs.push_back(std::move(records.seqs[k]));
     }
     if (contigs->seqs.empty()) throw none();
+    NoteShortContigs(name, dropped, total, contigs->min_length);
     return contigs;
 }
 
@@ -380,10 +409,12 @@ public:
         m_cap = std::max<std::size_t>(4, 3 * static_cast<std::size_t>(m_threads));
     }
 
+    // A file still open here belongs to a failed run: a regular one is removed, a named pipe is cut off (Poison).
     ~Engine() {
         for (auto& s : m_streams) {
             for (auto& out : s.outputs) {
                 if (!out.file) continue;
+                if (out.fifo) Poison(out);
                 std::fclose(out.file);
                 if (!out.fifo) {
                     std::error_code ec;
@@ -391,6 +422,25 @@ public:
                 }
             }
         }
+    }
+
+    // Ends a failed run's named pipe with what no reader takes for the end of a sample, as the pieces before it are
+    // whole zstd frames, gzip members or FASTQ records: the start of a zstd frame or a gzip member, or a FASTQ record
+    // without its sequence (protal fails the sample on each: "truncated file?"). Written without blocking, so that a
+    // reader waiting on the pair's other pipe cannot hold the run up; it then finds that pipe's.
+    static void Poison(Output& out) {
+        static constexpr unsigned char kZstd[] = {0x28, 0xb5, 0x2f, 0xfd, 0x24};  // magic and a frame header cut short
+        static constexpr unsigned char kGzip[] = {0x1f, 0x8b, 0x08, 0x00};        // a member header cut short
+        static constexpr char kFastq[] = "@simulate_metagenomes_failed\n";
+        int const fd = ::fileno(out.file);
+        int const flags = ::fcntl(fd, F_GETFL);
+        if (flags >= 0) ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+        std::fflush(out.file);  // what stdio holds of the last piece, if the pipe takes it
+        void const* bytes = out.packing == Packing::Zstd ? static_cast<void const*>(kZstd)
+                            : out.packing == Packing::Bgzf ? static_cast<void const*>(kGzip) : static_cast<void const*>(kFastq);
+        std::size_t const size = out.packing == Packing::Zstd ? sizeof(kZstd)
+                                 : out.packing == Packing::Bgzf ? sizeof(kGzip) : sizeof(kFastq) - 1;
+        [[maybe_unused]] ssize_t const written = ::write(fd, bytes, size);
     }
 
     std::vector<Totals> Run() {

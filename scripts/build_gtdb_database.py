@@ -1434,8 +1434,10 @@ def main():
                         "twice the present taxa per sample it lost the training design's, 90%% of them strains "
                         "(docs/claude/2026-10-07-r226-v15)")
     p.add_argument("--abundance", default="lognormal:1.3,2.0",
-                   help="abundance model of the training samples: lognormal:SIGMA, powerlaw:ALPHA or negbin:R:P; "
-                        "lognormal:S1,S2,... gives a design point's samples the sigmas in turn (default "
+                   help="abundance model of the training samples: lognormal:SIGMA (continuous, no species below 1/1000 "
+                        "of the median; until 2026-10-07 Poisson counts + 1, now poisson_lognormal:SIGMA), "
+                        "powerlaw:ALPHA or negbin:R:P; lognormal:S1,S2,... gives a design point's samples the sigmas in "
+                        "turn (default "
                         "lognormal:1.3,2.0: half the samples with the former sigma 1.3, half with the test set's 2.0, "
                         "so that the model's depth prior does not rest on one abundance distribution, "
                         "docs/claude/2026-10-03-false-positive-fixes)")
