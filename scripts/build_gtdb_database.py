@@ -2077,6 +2077,10 @@ def main():
             job = run([args.protal, "--unpack_db", "--db", os.path.join(training_db, "database.protal"), "--unpack_dir",
                        unpacked, "-t", str(args.threads)], os.path.join(args.outdir, "gene_ranking.log"),
                       label="unpacking the training database to rank its genes")
+            # gene_congeners.tsv is a report of the build beside database.protal, not a member of it.
+            congeners = os.path.join(training_db, "gene_congeners.tsv")
+            if os.path.isfile(congeners):
+                shutil.copy(congeners, unpacked)
             rows = rank_genes.rank(unpacked, gene_table, taxonomy)
             rank_genes.write_table(ranking_file, rows)
             shutil.copy(ranking_file, logs)

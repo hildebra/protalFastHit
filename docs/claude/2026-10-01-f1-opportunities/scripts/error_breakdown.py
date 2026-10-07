@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""test_errors.py [READ_TYPES...] - the errors of 0.7.1's model (refitted as the trainer fits it, seed 1) on its pipeline's
+"""error_breakdown.py [READ_TYPES...] (test_errors.py until 2026-10-06; not a test) - the errors of 0.7.1's model
+(refitted as the trainer fits it, seed 1) on its pipeline's
 independent test set ($V071/test): false negatives by the taxon's fragments, by whether it was simulated from its
 representative (meta_rep_genome), by domain and by whether a congener the database lacks is in the sample;
 false positives by how the taxon relates to what was simulated (meta_relative_rank, meta_novel_congener); and

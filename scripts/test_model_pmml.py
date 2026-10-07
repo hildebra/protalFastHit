@@ -4,32 +4,80 @@ scores it, bit for bit.
 
 The PMML file is scored with model_pmml.PmmlForest, which compares doubles and averages the trees in
 file order as protal's cPMML does, or PmmlBoosted, which chains the trees into a logit sum as cPMML
-does; check_model_parity.py compares them with protal itself. Also the knobs by sample depth that
-machine_learning_cmdline.py --depth-knobs chooses and writes.
+does; check_model_parity.py compares them with protal itself. Also the trainer (machine_learning_cmdline.py): the knobs
+by sample depth that --depth-knobs chooses and writes, the calls at a target share of false calls, the scenarios and
+--features auto; and the rules the trainer shares with protal on the golden vectors of tests/data/golden_model_rules.tsv,
+which tests/test_GoldenModelRules.cpp checks protal on.
+
+Needs numpy; all but Float32SplitTest need scikit-learn, pandas and joblib (skipped without them, failed with
+PROTAL_TESTS_REQUIRED=1). The fits run on one thread (OMP_NUM_THREADS, threadpoolctl), the trainers with --threads 1.
 
   python3 -m unittest scripts/test_model_pmml.py
 """
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import types
 import unittest
 
-import numpy as np
+# One OpenMP and BLAS thread for the fits here and in the trainers these tests run (they inherit the environment):
+# gradient boosting takes every core by default, which on a machine of many cores, or a busy one, made this suite take
+# 20 minutes instead of a few (BoostedExportTest 189 s against 1 s).
+for _variable in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_variable, "1")
+
+import numpy as np  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import prerequisites  # noqa: E402
 from model_pmml import (PmmlBoosted, PmmlForest, float32_split, format_depth_knob_curve, format_depth_knobs,  # noqa: E402
                         load_model, read_depth_knob_curve, read_depth_knobs, read_false_calls, write_forest, write_model)
 
 try:
+    import joblib  # noqa: F401  (the trainer's)
     import pandas as pd
     from sklearn.ensemble import RandomForestClassifier
+    from threadpoolctl import threadpool_limits
+    threadpool_limits(1)  # also when numpy or scikit-learn were loaded before the variables above were set
+    HAVE_SKLEARN = True
 except ImportError:  # the checks need scikit-learn, as training does
     RandomForestClassifier = None
+    HAVE_SKLEARN = False
+NEEDS_SKLEARN = "needs scikit-learn, pandas and joblib"
+
+GOLDEN = os.path.join(HERE, "..", "tests", "data", "golden_model_rules.tsv")
+
+
+def golden_cases(rule):
+    """The cases of a rule in tests/data/golden_model_rules.tsv: [(name, {field: text})]."""
+    cases = []
+    with open(GOLDEN) as fh:
+        for line in fh:
+            if not line.strip() or line.startswith("#"):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if fields[0] == rule:
+                cases.append((fields[1], dict(f.split("=", 1) for f in fields[2:])))
+    return cases
+
+
+def golden_numbers(text):
+    """"0.1,0.2*3" -> [0.1, 0.2, 0.2, 0.2]"""
+    values = []
+    for item in filter(None, text.split(",")):
+        value, _, copies = item.partition("*")
+        values += [float(value)] * (int(copies) if copies else 1)
+    return values
+
+
+def golden_curve(text):
+    """"2:0.2,4:0.8" -> [(2.0, 0.2), (4.0, 0.8)]"""
+    return [tuple(float(v) for v in point.split(":")) for point in filter(None, text.split(","))]
 
 
 class Float32SplitTest(unittest.TestCase):
@@ -51,7 +99,7 @@ class Float32SplitTest(unittest.TestCase):
         self.assertEqual(float32_split(odd), np.nextafter(odd + 2.0 ** -24, -np.inf))
 
 
-@unittest.skipIf(RandomForestClassifier is None, "needs numpy, pandas and scikit-learn")
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
 class ForestExportTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -158,7 +206,7 @@ class ForestExportTest(unittest.TestCase):
             write_forest(rf, self.features, os.path.join(self.tmp.name, "bad.xml"))
 
 
-@unittest.skipIf(RandomForestClassifier is None, "needs numpy, pandas and scikit-learn")
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
 class BoostedExportTest(unittest.TestCase):
     """A HistGradientBoostingClassifier written as a chain of trees into a logit RegressionModel (write_boosted) scores
     as scikit-learn scores it, bit for bit (PmmlBoosted scores it as cPMML does)."""
@@ -268,12 +316,11 @@ class BoostedExportTest(unittest.TestCase):
         self.assertIsInstance(load_model(path), PmmlForest)
 
 
-@unittest.skipIf(RandomForestClassifier is None, "needs scikit-learn")
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
 class FeatureSetsTest(unittest.TestCase):
-    """The trainer's default features are the normalised ones, the gene neighbours', the four relatives features by the
-    references' distance, the sample's depth and the divergence features; a set's name joins its groups with "+";
-    normalized+adjacency leaves the rest out, normalized the gene neighbours' too, and
-    normalized+adjacency+relatives adds all the relatives'."""
+    """The feature sets' names: a set joins its groups with "+" and takes their features in the groups' order, the
+    default set too; normalized+adjacency leaves the rest out, normalized the gene neighbours' too, and
+    normalized+adjacency+relatives adds all the relatives'; a table without a set's features says which it lacks."""
 
     def test_default_set_has_the_gene_neighbour_features(self):
         import model_features as mf
@@ -302,13 +349,14 @@ class FeatureSetsTest(unittest.TestCase):
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES +
                          mf.DIVERGENCE_FEATURES + mf.UNFILTERED_FEATURES + mf.REF_FEATURES)
         self.assertIn(mf.DEFAULT_FEATURE_SET, mf.FEATURE_SETS)
+        self.assertIn(mf.DEFAULT_FEATURE_SET, mf.AUTO_CANDIDATES)
         self.assertEqual(mf.feature_columns(columns, "normalized+adjacency+distance+depth+divergence"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES + mf.SAMPLE_FEATURES + mf.DIVERGENCE_FEATURES)
         self.assertEqual(mf.feature_columns(columns, "normalized+adjacency+distance"),
                          mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.DISTANCE_FEATURES)
         # Groups in any order, each once, normalized among them; the sample's depth is recognised.
         self.assertEqual(mf.feature_columns(columns, "depth+normalized"), mf.NORMALIZED_FEATURES + mf.SAMPLE_FEATURES)
-        self.assertTrue(mf.has_sample_depth(mf.feature_columns(columns, mf.DEFAULT_FEATURE_SET)))
+        self.assertTrue(mf.has_sample_depth(mf.feature_columns(columns, "normalized+depth")))
         self.assertFalse(mf.has_sample_depth(mf.feature_columns(columns, "normalized+adjacency+distance")))
         for bad in ("normalized+adjacency+depth+depth", "adjacency", "normalized+ani", ""):
             with self.assertRaises(ValueError):
@@ -318,7 +366,7 @@ class FeatureSetsTest(unittest.TestCase):
         # A table of an older protal lacks the new columns: a clear error, and the older set still works.
         older = ["truth", "taxon"] + mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.RELATIVE_FEATURES
         with self.assertRaises(RuntimeError):
-            mf.feature_columns(older, mf.DEFAULT_FEATURE_SET)
+            mf.feature_columns(older, "normalized+adjacency+depth")
         self.assertEqual(mf.feature_columns(older, "normalized+adjacency"), mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES)
         relatives = mf.feature_columns(columns, "normalized+adjacency+relatives")
         self.assertEqual(relatives, mf.NORMALIZED_FEATURES + mf.ADJACENCY_FEATURES + mf.RELATIVE_FEATURES)
@@ -326,9 +374,9 @@ class FeatureSetsTest(unittest.TestCase):
         self.assertTrue(set(mf.DISTANCE_FEATURES) <= set(mf.RELATIVE_FEATURES))
         self.assertNotIn("genus_top_fragments", relatives)  # it counts reads
         with self.assertRaisesRegex(RuntimeError, "adjacent_support"):  # a table of an older protal
-            mf.feature_columns([c for c in columns if c != "adjacent_support"], mf.DEFAULT_FEATURE_SET)
+            mf.feature_columns([c for c in columns if c != "adjacent_support"], "normalized+adjacency")
         with self.assertRaisesRegex(RuntimeError, "relative_spill"):  # a table of protal before the relatives features
-            mf.feature_columns([c for c in columns if c != "relative_spill"], mf.DEFAULT_FEATURE_SET)
+            mf.feature_columns([c for c in columns if c != "relative_spill"], "normalized+distance")
         with self.assertRaisesRegex(RuntimeError, "em_own_share"):  # a table of protal before the relatives features
             mf.feature_columns([c for c in columns if c != "em_own_share"], "normalized+adjacency+relatives")
         # The trainer chooses its set by default, the default set among the candidates.
@@ -337,7 +385,7 @@ class FeatureSetsTest(unittest.TestCase):
         self.assertIn(mf.DEFAULT_FEATURE_SET, mf.auto_candidates("auto"))
 
 
-@unittest.skipIf(RandomForestClassifier is None, "needs pandas")
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
 class ParityFeaturesTest(unittest.TestCase):
     """check_model_parity.py: a feature that differs in its last digits only (a sum added up in another order) is
     rounding, which the check notes; one that differs more, protal computes differently."""
@@ -378,7 +426,7 @@ class ParityFeaturesTest(unittest.TestCase):
         self.assertIn("differs from the model file's by up to 0.25", problems[0])
 
 
-@unittest.skipIf(RandomForestClassifier is None, "needs numpy and scikit-learn")
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
 class FoldJobsTest(unittest.TestCase):
     """The trainer's cross-validation folds fitted side by side in worker processes (FOLD_JOBS, --fold-jobs) score as
     when fitted one after another: neither model depends on its threads."""
@@ -416,10 +464,11 @@ def metrics_knobs(test, name):
         return json.load(fh)["depth_knobs"]["points"]
 
 
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
 class TrainerDepthKnobsTest(unittest.TestCase):
     """machine_learning_cmdline.py --depth-knobs on a table of shallow samples (hundreds of fragments, log10 ~2.7) and
     deep ones (tens of thousands, ~4.7), where a present taxon's evidence grows with depth; half the present taxa
-    simulated from another genome than the representative."""
+    simulated from another genome than the representative. Each training runs once for the class (train)."""
 
     @classmethod
     def setUpClass(cls):
@@ -427,6 +476,7 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         import machine_learning_cmdline
         cls.trainer = machine_learning_cmdline
         cls.tmp = tempfile.TemporaryDirectory()
+        cls.trained = {}
         rng = np.random.default_rng(5)
         rows = []
         for sample in range(40):
@@ -453,37 +503,41 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         cls.tmp.cleanup()
 
     def train(self, name, *extra):
-        prefix = os.path.join(self.tmp.name, name)
-        result = subprocess.run([sys.executable, os.path.join(HERE, "machine_learning_cmdline.py"), "--truth-file", self.table,
-                                 "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--rounds", "30", "--evaluation", "basic",
-                                 "--threads", "1", *extra], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
-        with open(prefix + ".metrics.json") as fh:
-            return prefix + ".xml", json.load(fh)
+        """The trainer on the table with the options `extra`, once per name -> (model file, metrics)."""
+        if name not in self.trained:
+            prefix = os.path.join(self.tmp.name, name)
+            result = subprocess.run([sys.executable, os.path.join(HERE, "machine_learning_cmdline.py"), "--truth-file",
+                                     self.table, "--output-prefix", prefix, "--features", "all", "--ntree", "16", "--rounds",
+                                     "30", "--evaluation", "basic", "--threads", "1", *extra], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
+            with open(prefix + ".metrics.json") as fh:
+                self.trained[name] = (prefix + ".xml", json.load(fh))
+        return self.trained[name]
 
     def test_depths_and_curve_as_protal(self):
-        # profiler::DepthKnobAt: log10 of the sample's fragments over all its taxa (at least 1), linear between the
-        # curve's points, the ends' beyond them.
+        # profiler::DepthKnobAt: log10 of the sample's fragments over all its taxa (at least 1); the knobs along the
+        # curve are checked on the golden vectors (GoldenModelRulesTest).
         frame = pd.DataFrame({"meta_sample": ["a", "a", "b", "c", "e"], "fragments": [60.0, 40.0, 1000.0, 3e7, 0.0]})
         np.testing.assert_allclose(self.trainer.sample_depths(frame), [2, 2, 3, np.log10(3e7), 0])
         curve = [(2.0, 0.2), (4.0, 0.8)]
-        np.testing.assert_allclose(self.trainer.knob_at(curve, np.array([0.0, 2.0, 3.0, 3.5, 4.0, 7.5])),
-                                   [0.2, 0.2, 0.5, 0.65, 0.8, 0.8])
         calls = self.trainer.depth_knob_calls(np.array([0.3, 0.3]), np.array([2.0, 4.0]), curve, 0.5)
         self.assertEqual(list(calls), [True, False])
         self.assertEqual(list(self.trainer.depth_knob_calls(np.array([0.3, 0.6]), np.array([2.0, 4.0]), [], 0.5)),
                          [False, True])
 
     def test_sparse_depths_join_their_neighbours(self):
-        # A point needs DEPTH_KNOB_MIN_SAMPLES samples in its window: a bin with fewer joins the next deeper one, and
-        # bins left at the deep end the point before, so that a few deep samples set no knob of their own.
+        # A point needs DEPTH_KNOB_MIN_SAMPLES samples in its window (6 here, whatever the trainer's): a bin with fewer
+        # joins the next deeper one, and bins left at the deep end the point before, so that a few deep samples set no
+        # knob of their own.
+        self.addCleanup(setattr, self.trainer, "DEPTH_KNOB_MIN_SAMPLES", self.trainer.DEPTH_KNOB_MIN_SAMPLES)
+        self.trainer.DEPTH_KNOB_MIN_SAMPLES = 6
+
         def points(sample_depths):
             samples = np.array([f"s{i}" for i, _ in enumerate(sample_depths) for _ in range(3)])
             depths = np.repeat(np.array(sample_depths, dtype=float), 3)
             windows = self.trainer.depth_knob_windows(depths, samples, np.ones(len(depths), dtype=bool))
             return [(x, len(set(samples[in_group])), len(set(samples[window]))) for x, in_group, window in windows]
 
-        self.assertEqual(self.trainer.DEPTH_KNOB_MIN_SAMPLES, 6)
         self.assertEqual(points([2.2] * 12 + [3.2] * 12), [(2.2, 12, 12), (3.2, 12, 12)])
         # 3 samples at 1.2 join the 12 at 2.2; 3 at 5.2 and 2 at 5.8 (5 together) join the point at 3.2.
         self.assertEqual(points([1.2] * 3 + [2.2] * 12 + [3.2] * 12 + [5.2] * 3 + [5.8] * 2),
@@ -503,19 +557,22 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         self.assertEqual([tuple(p) for p in metrics["depth_knobs"]["curve"]], curve)
         # The knobs are chosen on the species held out: their F1 there is at least that at the one knob.
         self.assertGreaterEqual(metrics["depth_knobs"]["F1_at_depth_knobs"], metrics["depth_knobs"]["F1_at_knob"])
+        # Without --depth-knobs no curve, and without --fdr-calls no calibrated calls.
         plain, metrics = self.train("plain")
         self.assertEqual(read_depth_knob_curve(plain), [])
         self.assertNotIn("depth_knobs", metrics)
+        self.assertNotIn("false_calls", metrics)
+        self.assertIsNone(read_false_calls(plain))
         # A point keeps the knob unless its best knob gains DEPTH_KNOB_MIN_GAIN on its window.
-        self.assertEqual(self.trainer.DEPTH_KNOB_MIN_GAIN, 0.002)
+        gain = self.trainer.DEPTH_KNOB_MIN_GAIN
         for point in metrics_knobs(self, "knobs"):
             if point["knob"] is not None:
-                self.assertEqual(point["knob"], point["best knob"] if point["gain"] >= 0.002 else 0.5, point)
+                self.assertEqual(point["knob"], point["best knob"] if point["gain"] >= gain else 0.5, point)
 
     def test_no_depth_knob_curve_with_the_samples_depth_as_a_feature(self):
         # With sample_log_fragments among the features the forest sees the depth itself: no curve is fitted even with
-        # --depth-knobs, and the report says why; one knob for every sample instead, if it gains 0.002 with species held
-        # out, in the model as a curve of one point.
+        # --depth-knobs, and the report says why; one knob for every sample instead, if it gains DEPTH_KNOB_MIN_GAIN with
+        # species held out, in the model as a curve of one point.
         table = pd.read_csv(self.table, sep="\t")
         totals = table.groupby("meta_sample")["fragments"].transform("sum")
         table["sample_log_fragments"] = np.log10(np.maximum(totals, 1.0))
@@ -532,7 +589,7 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         self.assertIn("No knob curve: the sample's depth is a feature", result.stdout)
         chosen = metrics["global_knob"]
         curve = read_depth_knob_curve(prefix + ".xml")
-        if chosen["gain"] >= 0.002:
+        if chosen["gain"] >= self.trainer.DEPTH_KNOB_MIN_GAIN:
             self.assertEqual([k for _, k in curve], [chosen["best"]])
             self.assertEqual(metrics["depth_knobs"]["global_knob"], chosen["best"])
         else:
@@ -541,8 +598,8 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         self.assertEqual([[x, k] for x, k in curve], metrics["depth_knobs"]["curve"])
 
     def test_one_knob_for_every_sample(self):
-        # choose_global_knob: the threshold of the highest F1 with species held out, kept if it gains 0.002 over 0.5, the
-        # rows weighted as the forests weigh them (the scenarios' by --scenario-weight).
+        # choose_global_knob: the threshold of the highest F1 with species held out, kept if it gains DEPTH_KNOB_MIN_GAIN
+        # over 0.5, the rows weighted as the forests weigh them (the scenarios' by --scenario-weight).
         rng = np.random.default_rng(2)
         n = 4000
         y = (rng.random(n) < 0.3).astype(int)
@@ -553,7 +610,7 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         knob = self.trainer.choose_global_knob(report, frame, y, {"species": scores}, opts)
         self.assertIsNotNone(knob)
         self.assertGreater(knob, 0.55)  # absent taxa score up to ~0.7: a knob above 0.5 calls fewer of them
-        self.assertGreaterEqual(report.data["global_knob"]["gain"], 0.002)
+        self.assertGreaterEqual(report.data["global_knob"]["gain"], self.trainer.DEPTH_KNOB_MIN_GAIN)
         # Scores whose best threshold is 0.5: no knob, protal calls at --knob.
         even = np.where(y == 1, 0.9, 0.1)
         self.assertIsNone(self.trainer.choose_global_knob(self.trainer.Report(), frame, y, {"species": even}, opts))
@@ -564,14 +621,14 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         self.assertTrue(self.trainer.knob_label([(2.0, 0.3), (4.0, 0.7)]).startswith("knob curve (2.000:0.3,"))
 
     def test_strains(self):
-        _, metrics = self.train("strains")
+        _, metrics = self.train("plain")
         rows = {(r["simulated from"], r["fragments"]): r for r in metrics["strains"]["by_fragments"]}
         self.assertEqual(rows[("another genome", "all")]["present"], 40 * 4)
         self.assertEqual(rows[("the representative", "all")]["present"], 40 * 4)
         self.assertIn("strains missed", [r["taxa"] for r in metrics["strains"]["features"]])
 
     def test_conservation_features_by_class(self):
-        _, metrics = self.train("classes")
+        _, metrics = self.train("plain")
         classes = metrics["feature_classes"]
         self.assertEqual(set(classes), set(self.trainer.TAXON_CLASSES))
         self.assertEqual(classes["absent, congener of a held-out species"]["rows"], 40 * 4)
@@ -584,10 +641,11 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         # Off by default. Asked for, its grid takes every second value of max_features (and the last), then the two
         # next to the best, 3 folds and up to PREVIOUS_GRID_ROWS rows; this procedure's side is the evaluation's own
         # forests with species held out.
-        _, metrics = self.train("no_previous")
+        _, metrics = self.train("plain")
         self.assertNotIn("previous_procedure", metrics)
-        _, metrics = self.train("no_previous_said", "--no-previous-procedure")
-        self.assertNotIn("previous_procedure", metrics)
+        args = ["--truth-file", "t.tsv", "--output-prefix", "p"]
+        self.assertFalse(self.trainer.parse_args(args).previous_procedure)
+        self.assertFalse(self.trainer.parse_args(args + ["--no-previous-procedure"]).previous_procedure)
         _, metrics = self.train("previous", "--previous-procedure")
         previous = metrics["previous_procedure"]
         self.assertEqual(previous["grid_folds"], 3)
@@ -614,10 +672,11 @@ class TrainerDepthKnobsTest(unittest.TestCase):
         self.assertEqual(sorted(frame["meta_sample"].iloc[rows].value_counts().tolist()), [30, 30, 30])  # a 4th: 120
 
 
-@unittest.skipIf(RandomForestClassifier is None, "needs numpy, pandas and scikit-learn")
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
 class TrainerFalseCallsTest(unittest.TestCase):
     """machine_learning_cmdline.py --fdr-calls and the singleton rule: the calibration, the prior adjusted to each sample
-    and the calls at a target share of false calls, as protal makes them (context::FalseCallKnob)."""
+    and the calls at a target share of false calls, as protal makes them (context::FalseCallKnob; the rule itself on
+    the golden vectors, GoldenModelRulesTest)."""
 
     @classmethod
     def setUpClass(cls):
@@ -655,23 +714,11 @@ class TrainerFalseCallsTest(unittest.TestCase):
         with open(prefix + ".metrics.json") as fh:
             return prefix + ".xml", json.load(fh), result.stdout
 
-    def test_prior_adjustment_as_protal(self):
-        # Probabilities whose mean is the prior stay; many unlikely candidates lower the sample's rate and every
-        # probability (context::SampleAdjusted).
-        q = np.array([0.9, 0.1, 0.5, 0.5])
-        adjusted, rate = self.trainer.sample_adjusted(q, 0.5)
-        self.assertAlmostEqual(rate, 0.5)
-        np.testing.assert_allclose(adjusted, q, atol=1e-9)
-        deep = np.concatenate([[0.95, 0.9], np.full(198, 0.05)])
-        adjusted, rate = self.trainer.sample_adjusted(deep, 0.3)
-        self.assertLess(rate, 0.1)
-        self.assertLess(adjusted[0], 0.95)
-
     def test_calls_at_a_target_as_protal(self):
         self.trainer.SINGLETON_CONGENER = 100  # the rule, off by default, vetoes a row here
         self.addCleanup(setattr, self.trainer, "SINGLETON_CONGENER", 0)
-        # context::FalseCallKnob: the highest-scoring taxa while the mean of their 1 - probability is at most the target;
-        # every taxon at the last one's score; the singleton rule's taxa never. Checked against that rule sample by sample.
+        # The calls over a table of two samples: each sample's as when it is alone (the rule, context::FalseCallKnob, on
+        # the golden vectors); the singleton rule's taxon never; the counts those of the calls; tied scores together.
         frame = pd.DataFrame({"meta_sample": ["a"] * 6 + ["b"] * 3,
                               "fragments": [5, 5, 5, 5, 1, 5, 5, 5, 5], "genus_top_fragments": [0, 0, 0, 0, 500, 0, 0, 0, 0],
                               "em_own_share": [1, 1, 1, 1, 0.2, 1, 1, 1, 1], "identity": [0.99] * 9})
@@ -679,19 +726,18 @@ class TrainerFalseCallsTest(unittest.TestCase):
         y = np.array([1, 1, 0, 0, 0, 0, 1, 0, 0])
         curve = [(0.0, 0.0), (1.0, 1.0)]
         prepared = self.trainer.FalseCallSamples(frame, y, p, curve, 0.5)
+        called = set()
         for fdr in (0.001, 0.03, 0.1, 0.3, 0.6):
             calls = prepared.calls(fdr)
             self.assertFalse(calls[4], "the singleton rule's taxon")
             for sample in ("a", "b"):
-                rows = np.flatnonzero((frame["meta_sample"] == sample).to_numpy() & (frame["fragments"] > 1).to_numpy())
-                scores = np.sort(p[rows])[::-1]
-                adjusted, _ = self.trainer.sample_adjusted(np.interp(scores, *zip(*curve)), 0.5)
-                means = np.cumsum(1 - adjusted) / np.arange(1, len(scores) + 1)
-                n = int((means <= fdr).sum())
-                knob = scores[n - 1] if n else np.inf
-                np.testing.assert_array_equal(calls[rows], p[rows] >= knob, f"fdr {fdr}, sample {sample}")
+                rows = (frame["meta_sample"] == sample).to_numpy()
+                alone = self.trainer.FalseCallSamples(frame[rows], y[rows], p[rows], curve, 0.5).calls(fdr)
+                np.testing.assert_array_equal(calls[rows], alone, f"fdr {fdr}, sample {sample}")
             tp, fp = prepared.counts(fdr)
             self.assertEqual((tp, fp), (int((calls & (y == 1)).sum()), int((calls & (y == 0)).sum())))
+            called.add(int(calls.sum()))
+        self.assertGreater(len(called), 2, "the targets call different numbers of taxa")
         self.assertEqual(prepared.calls(0.3)[1], prepared.calls(0.3)[2], "tied scores are called together")
 
     def test_calibration(self):
@@ -728,6 +774,7 @@ class TrainerFalseCallsTest(unittest.TestCase):
             self.trainer.SINGLETON_CONGENER = 0
 
     def test_fdr_calls_in_the_model(self):
+        # (Without --fdr-calls, none: TrainerDepthKnobsTest's plain model.)
         model, metrics, stdout = self.train("fdr", "--fdr-calls", "--depth-knobs", "--singleton-congener", "100")
         calls = read_false_calls(model)
         self.assertIsNotNone(calls)
@@ -737,22 +784,20 @@ class TrainerFalseCallsTest(unittest.TestCase):
         self.assertIn("test_false_calls", metrics)
         self.assertIn("singleton rule (one fragment beside a congener of 100 or more", stdout)
         self.assertIn("FP fdr", metrics["test_by_depth"][0])
-        _, plain, _ = self.train("no_fdr")
-        self.assertNotIn("false_calls", plain)
-        self.assertIsNone(read_false_calls(os.path.join(self.tmp.name, "no_fdr.xml")))
 
 
-@unittest.skipIf(RandomForestClassifier is None, "needs numpy, pandas and scikit-learn")
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
 class TrainerScenariosTest(unittest.TestCase):
     """machine_learning_cmdline.py on tables with scenarios (meta_scenario): the hold-in rows of the training table and
     the hold-out rows of the test table reported per scenario, apart from the independent test set; and --features
-    auto, which chooses among the named sets with species held out."""
+    auto, which chooses among the named sets with species held out. Each training runs once for the class (train)."""
 
     @classmethod
     def setUpClass(cls):
         import model_features
         cls.features = model_features
         cls.tmp = tempfile.TemporaryDirectory()
+        cls.trained = {}
         columns = [c for name in model_features.AUTO_CANDIDATES for c in model_features.feature_set_columns(name)]
         columns = list(dict.fromkeys(columns))
 
@@ -784,18 +829,21 @@ class TrainerScenariosTest(unittest.TestCase):
         cls.tmp.cleanup()
 
     def train(self, name, features, test=None, *extra):
-        """The trainer on the training table, with --features `features` (None: its default)."""
-        prefix = os.path.join(self.tmp.name, name)
-        result = subprocess.run([sys.executable, os.path.join(HERE, "machine_learning_cmdline.py"), "--truth-file",
-                                 self.training, "--output-prefix", prefix, *(["--features", features] if features else []),
-                                 "--ntree", "16", "--rounds", "30", "--evaluation", "basic", "--threads", "1", "--test-file", test or self.test,
-                                 *extra], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
-        with open(prefix + ".metrics.json") as fh:
-            return prefix, json.load(fh), result.stdout
+        """The trainer on the training table, with --features `features` (None: its default), once per name ->
+        (prefix, metrics, console)."""
+        if name not in self.trained:
+            prefix = os.path.join(self.tmp.name, name)
+            result = subprocess.run([sys.executable, os.path.join(HERE, "machine_learning_cmdline.py"), "--truth-file",
+                                     self.training, "--output-prefix", prefix, *(["--features", features] if features else []),
+                                     "--ntree", "16", "--rounds", "30", "--evaluation", "basic", "--threads", "1",
+                                     "--test-file", test or self.test, *extra], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
+            with open(prefix + ".metrics.json") as fh:
+                self.trained[name] = (prefix, json.load(fh), result.stdout)
+        return self.trained[name]
 
     def test_scenarios_hold_in_and_hold_out(self):
-        prefix, metrics, stdout = self.train("scenarios", "normalized")
+        prefix, metrics, stdout = self.train("normalized", "normalized")
         rows = {(r["scenario"], r["set"]): r for r in metrics["scenarios"]}
         self.assertEqual(set(rows), {("(design)", "training, species held out"), ("gut", "hold-in, in sample"),
                                      ("gut", "hold-in, samples held out"), ("gut", "hold-in, species held out"),
@@ -849,7 +897,7 @@ class TrainerScenariosTest(unittest.TestCase):
     def test_boosting_by_default_and_the_forest_on_request(self):
         # The default model is gradient-boosted trees (--model gbm), written as a chain; --model forest the forest,
         # averaged; each scores in PMML as scikit-learn does (the trainer's own check), with its importances.
-        prefix, metrics, stdout = self.train("boosted", "normalized")
+        prefix, metrics, stdout = self.train("normalized", "normalized")
         self.assertEqual(metrics["model"]["kind"], "gbm")
         self.assertEqual(metrics["model"]["trees"], 30)
         self.assertEqual((metrics["model"]["pmml_vs_sklearn_max_diff"], metrics["model"]["pmml_vs_sklearn_call_differences"]),
@@ -875,6 +923,7 @@ class TrainerScenariosTest(unittest.TestCase):
         self.assertIn("out of bag", metrics["evaluation"])
 
     def test_features_auto(self):
+        # (auto is the trainer's default: FeatureSetsTest.)
         prefix, metrics, stdout = self.train("auto", "auto")
         auto = metrics["features_auto"]
         scored = [r["features"] for r in auto["candidates"]]
@@ -893,16 +942,64 @@ class TrainerScenariosTest(unittest.TestCase):
         # Why, in a line: its F1 against the other sets', the rule, the test sets.
         self.assertRegex(auto["why"], rf"^F1 [0-9.]+ with species held out, the other {len(others)} sets [0-9.]+ on average "
                                       r"\(the best of them \S+ [0-9.]+\); (the highest|the default set, as no other is "
-                                      r"0.002 better)[^;]*; on samples never trained on \(not used to choose\): test set "
-                                      r"[0-9.]+ \(the others [0-9.]+\), gut hold-out [0-9.]+ \(the others [0-9.]+\), host hold-out")
-        # The model takes the chosen set's features, and the evaluation scored that set; auto is the default.
+                                      rf"{re.escape(str(self.features.AUTO_MIN_GAIN))} better)[^;]*; on samples never trained "
+                                      r"on \(not used to choose\): test set [0-9.]+ \(the others [0-9.]+\), gut hold-out "
+                                      r"[0-9.]+ \(the others [0-9.]+\), host hold-out")
+        # The model takes the chosen set's features, and the evaluation scored that set.
         self.assertEqual(load_model(prefix + ".xml").features, self.features.feature_set_columns(auto["chosen"]))
         self.assertIn("## Feature set chosen (--features auto, species held out)", stdout)
         self.assertIn(f"feature set (--features auto): {auto['chosen']}: {auto['why']}", stdout)
         self.assertAlmostEqual(metrics["evaluation"]["species"]["F1"], f1[auto["chosen"]])
-        _, by_default, _ = self.train("default", None)
-        self.assertEqual(by_default["features_auto"]["chosen"], auto["chosen"])
 
+
+@prerequisites.requires(HAVE_SKLEARN, NEEDS_SKLEARN)
+class GoldenModelRulesTest(unittest.TestCase):
+    """The trainer's side of the rules it shares with protal, on the golden vectors of tests/data/golden_model_rules.tsv
+    (its header says how they were made); tests/test_GoldenModelRules.cpp checks protal's side on the same lines: the
+    prior adjusted to a sample (sample_adjusted, context::SampleAdjusted), the calls at a target share of false calls
+    (FalseCallSamples, context::FalseCallKnob) and the knob curve over the sample's depth (knob_at at sample_depths,
+    profiler::DepthKnobAt)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import machine_learning_cmdline
+        cls.trainer = machine_learning_cmdline
+
+    def test_the_file_holds_every_rule(self):
+        for rule, least in (("SampleAdjusted", 5), ("FalseCallKnob", 8), ("DepthKnobAt", 8)):
+            self.assertGreaterEqual(len(golden_cases(rule)), least, rule)
+
+    def test_sample_adjusted(self):
+        for name, f in golden_cases("SampleAdjusted"):
+            adjusted, rate = self.trainer.sample_adjusted(golden_numbers(f["q"]), float(f["prior"]))
+            self.assertAlmostEqual(rate, float(f["rate"]), delta=1e-9, msg=name)
+            np.testing.assert_allclose(adjusted, golden_numbers(f["adjusted"]), rtol=0, atol=1e-9, err_msg=name)
+
+    def test_false_call_knob(self):
+        for name, f in golden_cases("FalseCallKnob"):
+            scores = np.array(golden_numbers(f["scores"]))
+            prepared = self.trainer.FalseCallSamples(pd.DataFrame({"meta_sample": ["s"] * len(scores)}),
+                                                     np.zeros(len(scores), dtype=int), scores, golden_curve(f["curve"]),
+                                                     float(f["prior"]))
+            calls = prepared.calls(float(f["fdr"]))
+            self.assertEqual(int(calls.sum()), int(f["called"]), name)
+            if f["knob"] == "none":
+                self.assertFalse(calls.any(), name)
+            else:  # the lowest score called, every taxon at or above it called
+                self.assertEqual(float(scores[calls].min()), float(f["knob"]), name)
+                np.testing.assert_array_equal(calls, scores >= float(f["knob"]), name)
+            if len(scores):
+                self.assertAlmostEqual(prepared.samples[0]["prior"], float(f["rate"]), delta=1e-9, msg=name)
+
+    def test_depth_knob_at(self):
+        for name, f in golden_cases("DepthKnobAt"):
+            curve, knob = golden_curve(f["curve"]), float(f["knob"])
+            depth = self.trainer.sample_depths(pd.DataFrame({"meta_sample": ["s"], "fragments": [float(f["fragments"])]}))
+            if curve:
+                self.assertAlmostEqual(float(self.trainer.knob_at(curve, depth)[0]), knob, delta=1e-12, msg=name)
+            else:  # without a curve, protal calls at --knob's 0.5, as the trainer does
+                calls = self.trainer.depth_knob_calls(np.array([knob, np.nextafter(knob, 0)]), np.repeat(depth, 2), curve, 0.5)
+                self.assertEqual(list(calls), [True, False], name)
 
 
 if __name__ == "__main__":

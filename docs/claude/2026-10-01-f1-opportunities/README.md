@@ -14,9 +14,9 @@
 - **Scores**: F1 at the knob 0.5. Refits are scored by cross-validation with species held out (5 folds, the
   trainer's scheme) and on the test set by a forest fitted on all training rows, seeds 1-3; a test difference
   carries a 95% interval from a paired bootstrap over test samples.
-- **Run**: `scripts/error_budget.py ~/bench071`, `test_errors.py`, `thick_misses.py`, `features_exp.py`,
-  `own_cluster.py`, `qual_calib.py`, `combo.py`, `more_data_exp.py` (all with the `protal-db-build` Python); the
-  tables are in `results/`.
+- **Run**: `scripts/error_budget.py ~/bench071`, `error_breakdown.py` (named `test_errors.py` until 2026-10-06;
+  it writes `results/test_errors.md`), `thick_misses.py`, `features_exp.py`, `own_cluster.py`, `qual_calib.py`,
+  `combo.py`, `more_data_exp.py` (all with the `protal-db-build` Python); the tables are in `results/`.
 
 ## Summary
 

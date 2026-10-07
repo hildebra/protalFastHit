@@ -4,7 +4,8 @@
 A synthetic paired-end sample of species A (called: true positive), B (present, not called: FN), C (present, in the
 training database, no row: unseen) and E (one the database lacks), and the absent taxon D, called on E's reads (FP);
 and a PacBio sample of the same community, its reads named after their genome's place in the manifest. Standard library
-only (and the zstd command, as compressed.py needs without Python 3.14).
+only (and the zstd command, as compressed.py needs without Python 3.14: skipped without it, failed with
+PROTAL_TESTS_REQUIRED=1).
 
 Run: python3 -m unittest scripts/test_error_reads.py
 """
@@ -20,6 +21,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import compressed  # noqa: E402
 import error_reads  # noqa: E402
+import prerequisites  # noqa: E402
+
+HAVE_ZSTD = compressed._stdlib_zstd() is not None or prerequisites.on_path("zstd")
 
 LINEAGE = "d__Bacteria;p__P;c__C;o__O;f__F;g__G;s__G {}"
 POINT, SAMPLE = "rl150_p1000", "rl150_p1000_s_1"
@@ -61,6 +65,7 @@ g2x_4\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*\tZU:i:0\tZT:i:0\tZF:Z:3
 COLUMNS = "meta_design\tmeta_sample\tmeta_read_type\tmeta_scenario\ttaxon\ttaxon_name\tdomain\ttruth\tset\tp\tknob\tcall\n"
 
 
+@prerequisites.requires(HAVE_ZSTD, "needs the zstd command (or Python 3.14) for the samples' .sam.zst")
 class ErrorReads(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
