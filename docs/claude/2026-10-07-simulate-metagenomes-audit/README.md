@@ -38,6 +38,15 @@ before/after:
 
 The exact part writes the same bytes as `c9b46f9`.
 
+**Follow-up 2 ([section 8](#8-follow-up-2-the-logic-findings-fixed)).** L1, L3, L5, L8, L9, L11 and L12 fixed:
+- replays reproduce reads (seeds in the manifests);
+- long-read templates placed where they fit;
+- a continuous lognormal tail with a floor;
+- no `_R2` named for first reads only;
+- designs independent of the standard library;
+- a failed stream cut off detectably;
+- a note on genomes with contigs too short for a read.
+
 ## Summary
 
 - **Logic errors.** Twelve findings in all. Five reach the build's training data:
@@ -630,8 +639,71 @@ None of these is measured.
   lines give its size. `collect_training_data.py` on its own uses one only when given `--genome_store`.
 - **Retraining.** The per-pair changes give new Illumina reads, with the same statistics. Models trained before
   (all of them on ART reads up to r226 v15) are retrained by the next build anyway.
-- **Not fixed:** L1 (replay seeds), L2, L3 (long-read placement and rounds, which also cost genome reads: half of the
-  HiFi time above), L5 (decision), L7-L12.
+- **Not fixed in this commit:** L1 (replay seeds), L2, L3 (long-read placement and rounds, which also cost genome
+  reads: half of the HiFi time above), L5 (decision), L7-L12. L1, L3, L5, L8, L9, L11 and L12 followed: see
+  [section 8](#8-follow-up-2-the-logic-findings-fixed).
 - **Not run:** the rest of the end-to-end suite (protal on the mini database, which the simulator does not reach) and
   the other mini GTDB pipeline tests (`test_a`-`test_g`); see 7.2 for what ran.
 - **The website:** none of this is on it. The simulator and the build are documented in `docs/` only.
+
+## 8. Follow-up 2: the logic findings fixed
+
+The user then asked to fix:
+- L1 (replay), L3 (long-read placement) and L5 (the Poisson-lognormal tail): a long tail is normal in ecological
+  species distributions, but its species should keep some abundance;
+- L8, or its documentation;
+- L9, L11 and L12.
+
+L2, L4 (fixed in section 7), L6 (fixed in 7), L7 and L10 are not part of it. Committed as `436821c`, whose tree is
+the one tested below.
+
+| # | Fix | Where | Outputs |
+|---|---|---|---|
+| L1 | Each sample's `run_seed` and `host_seed` are drawn when it is designed (the values runs used before) and written to both manifests (new columns on the right). A replay takes them from there, so neither `--seed` nor the sample's place in the replay matters, and a per-sample manifest replays its sample's reads. A manifest without the columns falls back to the run's seed and says so. `run_params.tsv` records `--host_folder` and `--host_pairs` too, and a replay warns when they differ. The help text, the replay's messages and `docs/development.md` say what is reproduced | `MetagenomeTypes.h` (`SampleOutput::run_seed`, `host_seed`), `MetagenomeSimulator.cpp`, `simulate_metagenomes_main.cpp` | reads unchanged; manifests gain two columns |
+| L3 | A long read's template is placed uniformly where it fits, a place that runs off its contig being drawn again (up to 1,000 times), as the Illumina fragments are. Only a template longer than every contig of its genome is still cut at its contig's end. A genome of short contigs now gets its weight's share, and a sample nearly always needs one round, so no genome is read again | `LongJob::Make` (`LongReadSimulator.cpp`) | new long and Ultima reads |
+| L5 | A new distribution, `lognormal`, is the simulator's default and the collector's `--abundance lognormal:...` (the build's and the scenarios'). Species weights come from the lognormal itself, so the tail is continuous instead of 40-45% of the species tied at weight 1. No weight goes below `--abundance_floor` (0.001) times the median: at σ 2.5 that is the lowest ~0.3% of the species, below σ 2 hardly any. Every species still gets a read pair or more. The old model stays as `poisson_lognormal` (`--abundance poisson_lognormal:...`) | `CommunityProfileDesigner::draw_weights`, `MetagenomeTypes.h`, `collect_training_data.py`, `build_gtdb_database.py`, `scenarios.py`, docs | new designs |
+| L8 | With `--first_reads_only` no `_R2` path is set: none is written (not even a `--test` placeholder), the manifests' `fastq_r2` is empty and the protal map's `SECOND` is `-` | `MetagenomeSimulator.cpp`, `simulate_metagenomes_main.cpp` | manifests and map |
+| L9 | The designs no longer depend on the standard library. `PortableRandom.h` has the draws on `std::mt19937_64`'s numbers (whose sequence the standard fixes): uniform, bounded integers (Lemire), Fisher-Yates shuffles, normals (Box-Muller), gamma (Marsaglia-Tsang), Poisson (multiplication below 10, PTRS above, as numpy), negative binomial. Every list that a hash table ordered is sorted by name first: the species, each genus's and taxon's species, the genus and taxon requests and the capping of their quotas, forced strains, and the abundance matrix's rows. Only libm's `exp`, `log` and `lgamma` remain platform-dependent in their last bits | `PortableRandom.h`, `CommunityProfileDesigner.cpp`, `MetagenomeSimulator.cpp` | new designs |
+| L11 | A failed run's open named pipes end, written without blocking, with the start of a zstd frame or gzip member, or a FASTQ header without its record (`--plain_pipes`). protal's reader reports each ("truncated file?"), so a cut sample can no longer pass for a whole one | `Engine::~Engine`, `Poison` (`ReadPipeline.cpp`) | failures only |
+| L12 | `vertical_coverage` stays read bases over the genome's length, the genome-wide mean depth, which a `--test` design and its real run must agree on, and neither reads the genomes. A run now notes each genome with 1% or more of its bases in contigs shorter than any read (at most 20 a run), and `docs/development.md` says what the column is | `LoadContigs` (`NoteShortContigs`), docs | a note |
+
+**Tests.**
+- `CommunityDesign.LognormalTailIsContinuousAndFloored`: σ 2.5, 300 species, 20M pairs, 5 seeds. Under 3% of the
+  species sit at the lowest count against over 30% with `poisson_lognormal`, and none falls below the floor; a floor
+  of 0.1 floors the expected ~18%.
+- `PortableRandom.Distributions`: the moments of Poisson (λ 0.3 to 1,000), gamma, negative binomial and normal
+  numbers; the 6 orders of 3 equally often; the same numbers from the same seed.
+- `IlluminaSimulation.ReplayFromManifestsMakesTheSameReads`: a run of 3 samples with host reads, replayed from its
+  combined manifest with another seed and from one sample's manifest, gives the same bytes. First reads only gives
+  the same `_R1`, no `_R2` and an empty `fastq_r2`.
+- `IlluminaSimulation.AFailedStreamIsCutOff`: a genome missing after one that streamed, into zstd and into plain pipes.
+  The zstd stream is refused as cut, and the plain one ends with the incomplete record.
+- `LongReadSimulation.ShortContigsGetTheirShare`: a genome of 30 contigs of 2 kb and one of a single 60 kb contig,
+  equal weights, 1 kb HiFi reads. Each gets half the bases (±3%), in at most 2 rounds.
+
+**What ran.** The working tree held another session's unfinished changes to protal's core, which did not compile
+then. So the tests ran on `55c5f35` plus this change alone (its patch on the commit's `git archive`, in
+`~/simaudit/mine`):
+- all 433 unit tests (431 pass, the same 2 skipped);
+- `test_collector.py`, `test_gtdb_build.py`, the end-to-end `SimulatorTest`;
+- `test_gtdb_pipeline.py`'s `test_a` (full build, rerun, reduced database) and `test_h_streamed`.
+
+**L3 at benchmark scale** ([`long_shares.py`](scripts/long_shares.py), `results/long_shares.txt`). One HiFi sample of
+250 Mb (15 kb reads) from the 400 synthetic genomes (median 3.4 Mb, ~78 contigs each), one thread. Templates cut at
+contigs' ends (`746ea66`) against placed where they fit (this change). Ratios are each genome's share of the bases
+over its weight's share, for the 135 genomes expected to get 300 kb or more, by thirds of their base-weighted contig
+length:
+
+| | cut | placed |
+|---|---:|---:|
+| rounds | 6 | 2 |
+| reads | 20,577 | 16,656 (none cut short) |
+| CPU (user) | 15.7 s | 13.6 s |
+| genomes of the shortest contigs (~47 kb) | 0.845 | 0.991 |
+| middle (~98 kb) | 1.044 | 0.978 |
+| longest contigs (~221 kb) | 1.163 | 0.985 |
+| ratio's SD over the 135 genomes | 0.228 | 0.161 (sampling noise of ~20+ reads each) |
+
+The cut templates gave the most fragmented third of the genomes 15% less than their weight and the least fragmented
+16% more, a 38% spread that is now gone. The sample needed 6 rounds (the collector's estimate assumes 1.3), each
+reading again the genomes it drew; now 2. At r226, where most genomes are MAGs, the spread was likely larger.

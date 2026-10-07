@@ -1,0 +1,14 @@
+# l3_measure: HiFi 250 Mb (hifi:15000:3000:3) of the 400 synthetic genomes, one thread, 4 pinned cores;
+# cut = 746ea66 (templates cut at contigs' ends), placed = this change; the --long_stats line, then long_shares.py
+== cut: 33.21 s wall, 15.65 s user; long1	20577	250006645	250006483	40702	6
+genomes with >= 300 kb expected: 135
+shortest contigs: base-weighted contig length 47 kb, bases share / weight share 0.845
+middle: base-weighted contig length 98 kb, bases share / weight share 1.044
+longest contigs: base-weighted contig length 221 kb, bases share / weight share 1.163
+ratio over all: median 1.026, SD 0.228
+== placed: 19.17 s wall, 13.57 s user; long1	16656	250008812	250008828	47192	2
+genomes with >= 300 kb expected: 135
+shortest contigs: base-weighted contig length 47 kb, bases share / weight share 0.991
+middle: base-weighted contig length 98 kb, bases share / weight share 0.978
+longest contigs: base-weighted contig length 221 kb, bases share / weight share 0.985
+ratio over all: median 0.985, SD 0.161
