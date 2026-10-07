@@ -26,29 +26,9 @@
 #include <vector>
 
 #include "MetagenomeTypes.h"
+#include "ReadPipeline.h"
 
 namespace protal::sim {
-
-// xoshiro256** seeded through splitmix64: small, fast, and the same everywhere.
-class LongRng {
-public:
-    using result_type = std::uint64_t;
-    explicit LongRng(std::uint64_t seed);
-    static constexpr result_type min() { return 0; }
-    static constexpr result_type max() { return ~result_type{0}; }
-    result_type operator()();
-    double Uniform();                      // [0, 1)
-    std::uint64_t Below(std::uint64_t n);  // [0, n), n > 0
-    double Normal();                       // N(0, 1)
-
-private:
-    std::uint64_t m_s[4];
-    bool m_has_spare = false;
-    double m_spare = 0.0;
-};
-
-// A seed made of two numbers (splitmix64 of their mix), for the random streams of work items.
-std::uint64_t MixSeed(std::uint64_t a, std::uint64_t b);
 
 // A read setup as collect_training_data.parse_long_setup reads it: hifi:LENGTH_MEAN:LENGTH_SD:Q_SD,
 // ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD, or qshmm:MODEL:LENGTH_MEAN:LENGTH_SD:ACCURACY_MEAN[:SUB/INS/DEL].
@@ -121,9 +101,6 @@ private:
 // A long read's length: gamma of the setup's mean and SD, redrawn until within [100, 1,000,000]; the mean (clamped)
 // if the SD is 0 (collect_training_data.read_length).
 std::uint32_t DrawReadLength(LongRng& rng, double mean, double sd);
-
-// Reverse complement as the collector's COMPLEMENT: ACGTN complemented, other letters kept.
-void ReverseComplement(std::string& seq);
 
 struct LongGenome {
     std::string name;

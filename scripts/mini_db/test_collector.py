@@ -2,9 +2,8 @@
 """test_collector.py - checks for collect_training_data.py (the training data's designs, the long reads' replay of the
 paired-end communities, the simulations' scheduler, --follow, the worker processes), scenarios.py and hifi_reads.py.
 
-A stand-in replaces protal; the long reads are made by simulate_metagenomes ($SIMULATE: those tests are skipped without
-it, or fail under PROTAL_TESTS_REQUIRED=1), art_illumina is needed only for the host genome's paired-end reads (that
-part is skipped without it). Needs numpy.
+A stand-in replaces protal; the long reads and the host's paired-end reads are made by simulate_metagenomes ($SIMULATE:
+those tests are skipped without it, or fail under PROTAL_TESTS_REQUIRED=1). Needs numpy.
 
   python3 -m unittest scripts/mini_db/test_collector.py
 """
@@ -100,15 +99,31 @@ class CollectorTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
 
+    def test_streamed_simulations(self):
+        # --stream_above: the simulations of a sample larger than this many GB of compressed reads (estimated: PE_BYTES
+        # per base read, DRAWN_BYTES per long-read base) are streamed into protal; a pe point's se unit with it.
+        opts = argparse.Namespace(read_setups="150:HSXt:350:50", read_pairs="1000,10000000:2", read_types=["pe", "se", "ont"],
+                                  samples=2, long_read_samples=0, ont_setup="qshmm:QSHMM-ONT-HQ:8000:6000:0.97",
+                                  long_read_bases="1000000,3000000000:2", stream_above=2.0)
+        _, units = collect.units_of(opts)
+        by_name = {u["name"]: u for u in units}
+        self.assertAlmostEqual(collect.sample_bytes(by_name["rl150_p10000000"]), 10e6 * 300 * collect.PE_BYTES)
+        self.assertAlmostEqual(collect.sample_bytes(by_name["ont_b3000000000"]), 3e9 * collect.DRAWN_BYTES)
+        self.assertEqual(collect.streamed_simulations(units, opts), {"rl150_p10000000", "ont_b3000000000"})
+        self.assertEqual(collect.simulation_of(by_name["rl150_p10000000_se"]), "rl150_p10000000")
+        self.assertEqual(collect.streamed_simulations(units, argparse.Namespace(**{**vars(opts), "stream_above": 0})), set())
+        self.assertEqual(collect.streamed_simulations(units, argparse.Namespace(**{**vars(opts), "stream_above": 3.0})),
+                         {"ont_b3000000000"})
+
     def test_collector_designs(self):
-        # Read setups (built-in and custom ART profiles), abundance models, long-read setups and units.
-        opts = argparse.Namespace(read_setups="150:HSXt:350:50,150:file=/p1+/p2:350:50,250:MSv3:550:50",
+        # Read setups (instruments; ART's file= profiles refused), abundance models, long-read setups and units.
+        opts = argparse.Namespace(read_setups="150:HSXt:350:50,150:NovaSeq:350:50,250:MSv3:550:50",
                                   read_pairs="1000,5000:2", read_types=["pe", "se", "ont"], samples=4, long_read_samples=0,
                                   pb_setup="errhmm:ERRHMM-SEQUEL:15000:3000:0.999",
                                   ont_setup="qshmm:QSHMM-ONT-HQ:8000:6000:0.97", long_read_bases="1e6,2e6,3e6:5")
         points = collect.design_points(opts)
-        self.assertEqual([p["name"] for p in points], ["rl150_HSXt_p1000", "rl150_HSXt_p5000", "rl150_custom1_p1000",
-                                                       "rl150_custom1_p5000", "rl250_p1000", "rl250_p5000"])
+        self.assertEqual([p["name"] for p in points], ["rl150_HSXt_p1000", "rl150_HSXt_p5000", "rl150_NovaSeq_p1000",
+                                                       "rl150_NovaSeq_p5000", "rl250_p1000", "rl250_p5000"])
         # DEPTH:SAMPLES gives a depth's points other samples than --samples.
         self.assertEqual([p["samples"] for p in points], [4, 2, 4, 2, 4, 2])
         # Setups of one length and profile are told apart by their fragments; a setup or depth given twice
@@ -116,14 +131,16 @@ class CollectorTest(unittest.TestCase):
         same = argparse.Namespace(read_setups="150:HS25:350:50,150:HS25:500:80", read_pairs="1000", samples=1)
         self.assertEqual([p["name"] for p in collect.design_points(same)], ["rl150_HS25_f350-50_p1000", "rl150_HS25_f500-80_p1000"])
         for setups, pairs in (("150:HS25:350:50,150:HS25:350:50", "1000"), ("150:HS25:350:50", "1000,1000"),
-                              ("150:HS25:350:50", "1000,5000:0"), ("150:HS25:350:50", "1000:x")):
+                              ("150:HS25:350:50", "1000,5000:0"), ("150:HS25:350:50", "1000:x"),
+                              ("150:file=/p1+/p2:350:50", "1000"), ("150:HS30:350:50", "1000")):
             with self.assertRaises(SystemExit):
                 collect.design_points(argparse.Namespace(read_setups=setups, read_pairs=pairs, samples=1))
         with self.assertRaises(SystemExit):
             collect.units_of(argparse.Namespace(**{**vars(opts), "long_read_bases": "1e6,1e6"}))
         with self.assertRaises(SystemExit):
-            collect.art_profile_args("file=/nonexistent_r1.txt")
-        self.assertEqual(collect.art_profile_args("HSXt"), ["--sequencer", "HSXt"])
+            collect.illumina_args("file=/nonexistent_r1.txt")
+        self.assertEqual(collect.illumina_args("HSXt"), ["--sequencer", "HSXt"])
+        self.assertEqual(collect.illumina_args("NovaSeq", 35), ["--sequencer", "NovaSeq", "--mean_quality", "35"])
         self.assertEqual(collect.abundance_args("lognormal:2.0"), ["--distribution", "poisson_lognormal", "--pln_sigma", "2.0"])
         self.assertEqual(collect.abundance_args("powerlaw:1.5"), ["--distribution", "power_law", "--alpha", "1.5"])
         self.assertEqual(collect.abundance_args(""), [])
@@ -140,9 +157,9 @@ class CollectorTest(unittest.TestCase):
         # depths), of every read setup: more samples than one point has (3:5 against 4 per point).
         ont = [u for u in units if u["type"] == "ont"]
         self.assertEqual([[p["name"] for p in u["communities"]] for u in ont],
-                         [["rl150_HSXt_p1000", "rl150_custom1_p1000", "rl250_p1000"],
-                          ["rl150_HSXt_p5000", "rl150_custom1_p5000", "rl250_p5000"],
-                          ["rl150_HSXt_p1000", "rl150_custom1_p1000", "rl250_p1000"]])
+                         [["rl150_HSXt_p1000", "rl150_NovaSeq_p1000", "rl250_p1000"],
+                          ["rl150_HSXt_p5000", "rl150_NovaSeq_p5000", "rl250_p5000"],
+                          ["rl150_HSXt_p1000", "rl150_NovaSeq_p1000", "rl250_p1000"]])
         self.assertEqual([u["samples"] for u in ont], [4, 4, 5])
         self.assertEqual([u["samples"] for u in units if u["type"] == "se"], [4, 2, 4, 2, 4, 2])
         self.assertEqual(units[6]["name"], "rl150_HSXt_p1000_se")
@@ -306,15 +323,6 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual(result.get("failures"), {})
         self.assertEqual(sorted(gate.started()), sorted([f"d{i}" for i in range(5)] + [f"o{i}" for i in range(5)]))
         self.assertEqual(gate.most["draw"], 2)
-
-    def test_workers(self):
-        # The collector's Python work (the host's paired-end fragments) runs in worker processes once they are
-        # started, else on the calling thread: the same results.
-        self.assertEqual(collect.Workers.call(len, "abc"), 3)
-        with collect.Workers.started(2):
-            self.assertIsNotNone(collect.Workers.pool)
-            self.assertEqual(collect.Workers.call(len, "abcd"), 4)
-        self.assertIsNone(collect.Workers.pool)
 
     def test_room_on_the_disk(self):
         # With space (folder, bytes to keep free), a job starts only while the disk has room for it and the jobs
@@ -765,8 +773,9 @@ class ScenariosTest(unittest.TestCase):
             scenarios.scenario_table(table, novel, "t", {**d, "species": "60"}, 1, out)
 
     def test_host_genome(self):
-        # A host genome as plain sequence, read by memory map: templates from its contigs of 1 kb or more; and its
-        # paired-end reads by ART in amplicon mode, from fragments of it.
+        # A host genome as plain sequence (prepare_host: its contigs of 1 kb or more one after the other, and their
+        # index), written once per FASTA; simulate_metagenomes reads it by memory map and makes the host's paired-end
+        # reads after a sample's community's (--host_pairs).
         rng = random.Random(7)
         chromosomes = {"chr1": "".join(rng.choice("ACGT") for _ in range(30000)),
                        "short": "ACGT" * 100, "chr2": "".join(rng.choice("acgt") for _ in range(20000))}
@@ -776,41 +785,38 @@ class ScenariosTest(unittest.TestCase):
                 fh.write(f">{name} a chromosome\n" + "\n".join(seq[i:i + 80] for i in range(0, len(seq), 80)) + "\n")
         folder = scenarios.prepare_host(fasta, os.path.join(self.tmp.name, "host"))
         self.assertEqual(scenarios.host_identity(folder)["bases"], 50000)  # "short" left out
-        host = scenarios.Host.of(folder)
-        self.assertIs(host, scenarios.Host.of(folder))
-        draws = random.Random(1)
         upper = {k: v.upper() for k, v in chromosomes.items()}
-        for _ in range(200):
-            seq = host.draw(draws, 500).decode()
-            self.assertTrue(seq in upper["chr1"] or seq in upper["chr2"])
-            self.assertTrue(100 <= len(seq) <= 500)  # never a few bases at a contig's end
-        self.assertTrue(all(len(host.draw(draws, 15000)) >= 100 for _ in range(500)))
+        with open(os.path.join(folder, "host.seq")) as fh:
+            self.assertEqual(fh.read(), upper["chr1"] + upper["chr2"])
+        with open(os.path.join(folder, "host.json")) as fh:
+            self.assertEqual(json.load(fh)["contigs"], [["chr1", 0, 30000], ["chr2", 30000, 20000]])
         before = os.stat(os.path.join(folder, "host.seq")).st_mtime_ns
         scenarios.prepare_host(fasta, folder)  # the same FASTA: kept
         self.assertEqual(os.stat(os.path.join(folder, "host.seq")).st_mtime_ns, before)
-        if not prerequisites.on_path("art_illumina"):
-            prerequisites.missing("no art_illumina for the host's paired-end reads")
-        tmp = os.path.join(self.tmp.name, "host_chunk")
-        task = {"sample": "s", "host": folder, "chunk": 1, "art": "art_illumina", "art_args": ["-ss", "HS20"],
-                "pairs": 500, "length": 100, "fragment_mean": 300.0, "fragment_sd": 40.0, "seed": 3,
-                "tmp": os.path.join(tmp, "c1"), "r1": os.path.join(tmp, "r1.fq.gz"), "r2": os.path.join(tmp, "r2.fq.gz")}
-        self.assertIsNone(scenarios.host_pe_chunk(task))
-        with gzip.open(task["r1"], "rt") as a, gzip.open(task["r2"], "rt") as b:
-            first, second = a.read().splitlines(), b.read().splitlines()
+        simulator = need_simulator()
+        genome = os.path.join(self.tmp.name, "G.fna")
+        with open(genome, "w") as fh:
+            fh.write(">G_contig\n" + "".join(rng.choice("ACGT") for _ in range(20000)) + "\n")
+        table = os.path.join(self.tmp.name, "genomes.tsv")
+        with open(table, "w") as fh:
+            fh.write(f"G\td__Bacteria;p__P;c__C;o__O;f__F;g__G;s__G one\t{genome}\t20000\n")
+        out = os.path.join(self.tmp.name, "sim")
+        subprocess.run([simulator, "--genome_table", table, "-o", out, "-n", "1", "--species_per_sample", "1",
+                        "--total_read_pairs", "200", "--read_length", "100", "--sequencer", "HS20", "--fragment_mean", "300",
+                        "--fragment_stdev", "40", "--seed", "3", "--host_folder", folder, "--host_pairs", "300",
+                        "--reads_compression", "zstd"], check=True, capture_output=True)
+        first = compressed.read_text(os.path.join(out, "reads", "sample_1_R1.fq.zst")).splitlines()
+        second = compressed.read_text(os.path.join(out, "reads", "sample_1_R2.fq.zst")).splitlines()
         self.assertEqual((len(first) // 4, len(second) // 4), (500, 500))
         self.assertEqual([n.split("/")[0] for n in first[0::4]], [n.split("/")[0] for n in second[0::4]])
         self.assertTrue(all(len(r) == 100 for r in first[1::4]))
-        self.assertFalse(os.path.exists(task["tmp"]))
-        both = "".join(upper[c] for c in ("chr1", "chr2"))
+        host_reads = [r for n, r in zip(first[0::4], first[1::4]) if n.startswith("@h_")]
+        self.assertEqual(len(host_reads), 300)
+        self.assertTrue(all(n.startswith("@G_contig-") for n in first[0:200 * 4:4]), "the community's reads first")
+        both = upper["chr1"] + "N" + upper["chr2"]
         back = str.maketrans("ACGT", "TGCA")
-        near = sum(r[:30] in both or r[:30].translate(back)[::-1] in both for r in first[1::4])
-        self.assertGreater(near, 400)  # reads of the host, but for their errors
-        zstd_task = {**task, "r1": os.path.join(tmp, "r1.fq.zst"), "r2": os.path.join(tmp, "r2.fq.zst")}
-        self.assertIsNone(scenarios.host_pe_chunk(zstd_task))
-        with open(zstd_task["r1"], "rb") as fh:
-            self.assertEqual(fh.read(4), compressed.ZSTD_MAGIC)
-        self.assertEqual(compressed.read_text(zstd_task["r1"]).splitlines(), first)
-        self.assertEqual(compressed.read_text(zstd_task["r2"]).splitlines(), second)
+        near = sum(r[:30] in both or r[:30].translate(back)[::-1] in both for r in host_reads)
+        self.assertGreater(near, 270)  # reads of the host, but for their errors
 
 
 class HifiReadsTest(unittest.TestCase):

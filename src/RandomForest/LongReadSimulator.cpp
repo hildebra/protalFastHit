@@ -28,77 +28,13 @@
 #include <unistd.h>
 
 #include "../IO/Bgzf.h"
+#include "ReadPipeline.h"
 #include "../Utilities/Zstd.h"
 #include "ThreadedGzStream.h"
 
 namespace fs = std::filesystem;
 
 namespace protal::sim {
-
-// ---- random numbers ---------------------------------------------------------------------------------------------
-
-static std::uint64_t SplitMix64(std::uint64_t& x) {
-    std::uint64_t z = (x += 0x9e3779b97f4a7c15ULL);
-    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
-    z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
-    return z ^ (z >> 31);
-}
-
-static std::uint64_t Rotl(std::uint64_t x, int k) { return (x << k) | (x >> (64 - k)); }
-
-LongRng::LongRng(std::uint64_t seed) {
-    for (auto& s : m_s) s = SplitMix64(seed);
-}
-
-LongRng::result_type LongRng::operator()() {
-    std::uint64_t const result = Rotl(m_s[1] * 5, 7) * 9;
-    std::uint64_t const t = m_s[1] << 17;
-    m_s[2] ^= m_s[0];
-    m_s[3] ^= m_s[1];
-    m_s[1] ^= m_s[2];
-    m_s[0] ^= m_s[3];
-    m_s[2] ^= t;
-    m_s[3] = Rotl(m_s[3], 45);
-    return result;
-}
-
-double LongRng::Uniform() { return static_cast<double>((*this)() >> 11) * 0x1.0p-53; }
-
-std::uint64_t LongRng::Below(std::uint64_t n) {  // Lemire's multiply-and-reject: unbiased
-    __uint128_t m = static_cast<__uint128_t>((*this)()) * n;
-    auto low = static_cast<std::uint64_t>(m);
-    if (low < n) {
-        std::uint64_t const threshold = -n % n;
-        while (low < threshold) {
-            m = static_cast<__uint128_t>((*this)()) * n;
-            low = static_cast<std::uint64_t>(m);
-        }
-    }
-    return static_cast<std::uint64_t>(m >> 64);
-}
-
-double LongRng::Normal() {  // Marsaglia's polar method
-    if (m_has_spare) {
-        m_has_spare = false;
-        return m_spare;
-    }
-    double u, v, s;
-    do {
-        u = 2.0 * Uniform() - 1.0;
-        v = 2.0 * Uniform() - 1.0;
-        s = u * u + v * v;
-    } while (s >= 1.0 || s == 0.0);
-    double const f = std::sqrt(-2.0 * std::log(s) / s);
-    m_spare = v * f;
-    m_has_spare = true;
-    return u * f;
-}
-
-std::uint64_t MixSeed(std::uint64_t a, std::uint64_t b) {
-    std::uint64_t x = a ^ Rotl(b, 32) ^ 0x2545f4914f6cdd1dULL;
-    SplitMix64(x);
-    return SplitMix64(x);
-}
 
 // Gamma(shape, scale) by Marsaglia and Tsang, on LongRng alone (no library distribution: the same draws everywhere).
 static double Gamma(LongRng& rng, double shape, double scale) {
@@ -519,423 +455,97 @@ std::uint32_t DrawReadLength(LongRng& rng, double mean, double sd) {
     }
 }
 
-void ReverseComplement(std::string& seq) {
-    std::reverse(seq.begin(), seq.end());
-    for (char& c : seq) {
-        switch (c) {
-            case 'A': c = 'T'; break;
-            case 'C': c = 'G'; break;
-            case 'G': c = 'C'; break;
-            case 'T': c = 'A'; break;
-            default: break;  // N and others as they are
-        }
-    }
-}
-
 namespace {
-
-// A genome's contigs of kMinLength bases or more, upper case, and their cumulative start ranges.
-struct Contigs {
-    std::vector<std::string> seqs;
-    std::vector<std::uint64_t> starts;  // cumulative (length - kMinLength + 1)
-};
-
-std::shared_ptr<Contigs const> LoadContigs(LongGenome const& genome) {
-    protal::ThreadedGzIstream in(genome.fasta.c_str());
-    if (!in.rdbuf()->is_open()) throw std::runtime_error(genome.name + ": cannot read " + genome.fasta.string());
-    auto contigs = std::make_shared<Contigs>();
-    std::string line, seq;
-    bool in_record = false;
-    auto close = [&] {
-        if (in_record && seq.size() >= kMinLength) {
-            contigs->starts.push_back((contigs->starts.empty() ? 0 : contigs->starts.back()) + seq.size() - kMinLength + 1);
-            contigs->seqs.push_back(std::move(seq));
-        }
-        seq.clear();
-    };
-    while (std::getline(in, line)) {
-        if (!line.empty() && line[0] == '>') {
-            close();
-            in_record = true;
-            continue;
-        }
-        if (!in_record) continue;
-        for (char c : line) {
-            if (!std::isspace(static_cast<unsigned char>(c))) seq += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        }
-    }
-    if (in.rdbuf()->read_failed()) {
-        throw std::runtime_error(genome.name + ": " + genome.fasta.string() + " is truncated or corrupt (" +
-                                 in.rdbuf()->read_error_message() + ")");
-    }
-    close();
-    if (contigs->seqs.empty()) {
-        throw std::runtime_error(genome.name + ": no sequence of " + std::to_string(kMinLength) + " bases or more in " +
-                                 genome.fasta.string());
-    }
-    return contigs;
-}
-
-// A host genome prepared by scenarios.prepare_host: host.seq (every contig one after the other) by memory map, and
-// host.json's contigs ([name, offset, length], ...).
-class Host {
-public:
-    explicit Host(fs::path const& folder) {
-        std::ifstream in(folder / "host.json");
-        if (!in) throw std::runtime_error("cannot read the host index " + (folder / "host.json").string());
-        std::string const json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        ParseContigs(json, folder);
-        fs::path const seq = folder / "host.seq";
-        m_fd = ::open(seq.c_str(), O_RDONLY);
-        if (m_fd < 0) throw std::runtime_error("cannot read " + seq.string() + ": " + std::strerror(errno));
-        struct stat st {};
-        if (::fstat(m_fd, &st) != 0) throw std::runtime_error("cannot read " + seq.string() + ": " + std::strerror(errno));
-        m_size = static_cast<std::size_t>(st.st_size);
-        for (std::size_t k = 0; k < m_offsets.size(); ++k) {
-            if (m_offsets[k] + m_lengths[k] > m_size) throw std::runtime_error(seq.string() + " is shorter than its index says");
-        }
-        void* map = ::mmap(nullptr, m_size, PROT_READ, MAP_SHARED, m_fd, 0);
-        if (map == MAP_FAILED) throw std::runtime_error("cannot map " + seq.string() + ": " + std::strerror(errno));
-        m_data = static_cast<char const*>(map);
-    }
-    ~Host() {
-        if (m_data) ::munmap(const_cast<char*>(m_data), m_size);
-        if (m_fd >= 0) ::close(m_fd);
-    }
-    Host(Host const&) = delete;
-    Host& operator=(Host const&) = delete;
-
-    // As scenarios.Host.draw: `length` bases from a random place (shorter at a contig's end, but at least
-    // min(length, 100)), on the forward strand; one too short or with more than 10% N drawn again, up to 50 times.
-    std::string Draw(LongRng& rng, std::uint32_t length) const {
-        std::uint64_t const least = std::min<std::uint64_t>(length, kMinLength);
-        std::string seq;
-        for (int attempt = 0; attempt < 50; ++attempt) {
-            std::uint64_t const at = rng.Below(m_bases);
-            std::size_t const k = std::upper_bound(m_ends.begin(), m_ends.end(), at) - m_ends.begin();
-            std::uint64_t const start = at - (m_ends[k] - m_lengths[k]);
-            std::uint64_t const end = std::min<std::uint64_t>(m_lengths[k], start + length);
-            seq.assign(m_data + m_offsets[k] + start, end - start);
-            if (seq.size() >= least && std::count(seq.begin(), seq.end(), 'N') <= 0.1 * static_cast<double>(seq.size())) break;
-        }
-        return seq;
-    }
-
-private:
-    void ParseContigs(std::string const& json, fs::path const& folder) {
-        auto fail = [&](std::string const& why) {
-            return std::runtime_error("host index " + (folder / "host.json").string() + ": " + why);
-        };
-        std::size_t at = json.find("\"contigs\"");
-        if (at == std::string::npos) throw fail("no contigs");
-        at = json.find('[', at);
-        if (at == std::string::npos) throw fail("no contigs");
-        ++at;
-        auto skip = [&] {
-            while (at < json.size() && std::isspace(static_cast<unsigned char>(json[at]))) ++at;
-        };
-        auto number = [&]() -> std::uint64_t {
-            skip();
-            std::size_t used = 0;
-            std::uint64_t const v = std::stoull(json.substr(at, 24), &used);
-            at += used;
-            return v;
-        };
-        auto expect = [&](char c) {
-            skip();
-            if (at >= json.size() || json[at] != c) throw fail(std::string("expected '") + c + "'");
-            ++at;
-        };
-        for (;;) {
-            skip();
-            if (at < json.size() && json[at] == ']') break;
-            expect('[');
-            expect('"');
-            while (at < json.size() && json[at] != '"') at += json[at] == '\\' ? 2 : 1;  // the name, not needed
-            expect('"');
-            expect(',');
-            std::uint64_t const offset = number();
-            expect(',');
-            std::uint64_t const length = number();
-            expect(']');
-            m_offsets.push_back(offset);
-            m_lengths.push_back(length);
-            m_bases += length;
-            m_ends.push_back(m_bases);
-            skip();
-            if (at < json.size() && json[at] == ',') ++at;
-        }
-        if (m_ends.empty()) throw fail("no contigs");
-    }
-
-    std::vector<std::uint64_t> m_offsets, m_lengths, m_ends;
-    std::uint64_t m_bases = 0;
-    int m_fd = -1;
-    std::size_t m_size = 0;
-    char const* m_data = nullptr;
-};
-
-// ---- compressed output -------------------------------------------------------------------------------------------
-
-enum class Packing { Zstd, Bgzf };
-
-Packing PackingOf(fs::path const& out) {
-    std::string const name = out.filename().string();
-    auto ends = [&](std::string const& suffix) {
-        return name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0;
-    };
-    if (ends(".zst")) return Packing::Zstd;
-    if (ends(".gz")) return Packing::Bgzf;
-    throw std::runtime_error(out.string() + ": a sample's reads go to .fq.zst (zstd) or .fq.gz (BGZF)");
-}
-
-// A piece of a sample's file: one zstd frame (level 3, with a checksum, as the paired-end reads are written), or
-// BGZF blocks (the end-of-file block comes when the file is closed). Concatenated, they are the file.
-std::string Pack(std::string const& data, Packing packing) {
-    std::string out;
-    if (packing == Packing::Bgzf) {
-        if (!protal::bgzf::Compress(data.data(), data.size(), out)) throw std::runtime_error("BGZF compression failed");
-        return out;
-    }
-    struct Free {
-        void operator()(ZSTD_CCtx* c) const { ZSTD_freeCCtx(c); }
-    };
-    thread_local std::unique_ptr<ZSTD_CCtx, Free> cctx;
-    if (!cctx) {
-        std::string error;
-        cctx.reset(protal::zstd::MakeCCtx(protal::zstd::Params{3, 0, 1, 0}, error));
-        if (!cctx) throw std::runtime_error(error);
-    }
-    out.resize(ZSTD_compressBound(data.size()));
-    std::size_t const size = ZSTD_compress2(cctx.get(), out.data(), out.size(), data.data(), data.size());
-    if (ZSTD_isError(size)) throw std::runtime_error(std::string("zstd compression failed: ") + ZSTD_getErrorName(size));
-    out.resize(size);
-    return out;
-}
-
-// ---- the samples' reads on threads ---------------------------------------------------------------------------------
 
 constexpr std::uint64_t kPartBases = 2'000'000;  // template bases of a work item at most (one read more if longer)
 
-struct Item {
-    int genome = 0;
-    std::uint32_t round = 0, part = 0, parts = 1;
-    std::uint64_t first_read = 0;  // reads of the sample before this item's
-    std::vector<std::uint32_t> lengths;
-};
-
-struct Piece {
-    std::string bytes;
-    std::uint64_t reads = 0, template_bases = 0, read_bases = 0, errors = 0;
-};
-
-struct GenomeSlot {
-    std::shared_future<std::shared_ptr<Contigs const>> loaded;
-    std::uint32_t parts_left = 0;
-};
-
-struct Stream {
-    LongSample const* sample = nullptr;
-    std::size_t index = 0;
-    Packing packing = Packing::Zstd;
-    LongRng plan{0};
-    std::vector<double> cumulative;
-    std::vector<Item> items;
-    std::vector<std::optional<Piece>> pieces;
-    std::size_t next_issue = 0, next_write = 0, processed = 0, round_end = 0;
-    bool planned_all = false, writing = false, closed = false;
-    std::uint64_t reads_planned = 0;
-    std::map<std::pair<std::uint32_t, int>, GenomeSlot> genomes;
-    std::FILE* out = nullptr;
-    fs::path partial;
-    LongSampleResult result;
-};
-
-class Engine {
+// The long-read samples as a pipeline job: rounds planned with each sample's own stream
+// (collect_training_data.draw_templates's rounds), items of some reads of one genome.
+class LongJob : public pipeline::Job {
 public:
-    Engine(std::vector<LongSample> const& samples, LongReadOptions const& options)
-        : m_samples(samples), m_options(options), m_streams(samples.size()) {
+    LongJob(std::vector<LongSample> const& samples, LongReadOptions const& options)
+        : m_samples(samples), m_options(options) {
         if (options.setup.method == LongReadSetup::Method::Qshmm) {
             if (options.model.empty()) throw std::runtime_error("a qshmm setup needs its model file (--long_model)");
             m_qshmm = std::make_unique<QshmmModel>(options.model, options.setup.accuracy, options.setup.sub_ratio,
                                                    options.setup.ins_ratio, options.setup.del_ratio);
         }
         for (auto const& sample : samples) {
-            PackingOf(sample.out);  // fails before any work
+            m_plan.emplace_back(sample.seed);
+            auto& cumulative = m_cumulative.emplace_back();
+            double total = 0.0;
             for (auto const& genome : sample.genomes) {
+                total += std::max(0.0, genome.weight);
+                cumulative.push_back(total);
                 if (genome.host && !m_hosts.count(genome.fasta.string())) {
                     m_hosts.emplace(genome.fasta.string(), std::make_unique<Host>(genome.fasta));
                 }
             }
         }
-        m_cap = std::max<std::size_t>(4, 3 * static_cast<std::size_t>(std::max(1, options.threads)));
     }
 
-    ~Engine() {
-        for (auto& s : m_streams) {
-            if (s.out) {
-                std::fclose(s.out);
-                std::error_code ec;
-                fs::remove(s.partial, ec);
-            }
-        }
+    std::size_t Samples() const override { return m_samples.size(); }
+    std::vector<fs::path> Outputs(std::size_t s) const override { return {m_samples[s].out}; }
+    fs::path Fasta(std::size_t s, int g) const override {
+        auto const& genome = m_samples[s].genomes[g];
+        return genome.host ? fs::path() : genome.fasta;
     }
+    std::string GenomeName(std::size_t s, int g) const override { return m_samples[s].genomes[g].name; }
+    std::uint32_t MinContigLength() const override { return kMinLength; }
 
-    std::vector<LongSampleResult> Run() {
-        int const threads = std::max(1, m_options.threads);
-        std::vector<std::thread> pool;
-        for (int t = 1; t < threads; ++t) pool.emplace_back([this] { Work(); });
-        Work();
-        for (auto& thread : pool) thread.join();
-        if (m_error) std::rethrow_exception(m_error);
-        std::vector<LongSampleResult> results;
-        for (auto const& s : m_streams) results.push_back(s.result);
-        return results;
-    }
-
-private:
-    void Work() {
-        std::unique_lock<std::mutex> lock(m_mutex);
-        for (;;) {
-            if (m_error || m_closed == m_samples.size()) break;
-            Stream* stream = nullptr;
-            if (m_in_flight < m_cap) {
-                for (Stream* s : m_active) {
-                    if (s->next_issue < s->round_end) {
-                        stream = s;
-                        break;
-                    }
-                }
-                if (!stream && m_next_sample < m_samples.size()) {  // all open samples wait: open the next
-                    try {
-                        Open(m_next_sample++, lock);
-                    } catch (...) {
-                        Fail(std::current_exception());
-                    }
-                    continue;
-                }
-            }
-            if (!stream) {
-                m_cv.wait(lock);
-                continue;
-            }
-            std::size_t const k = stream->next_issue++;
-            ++m_in_flight;
-            Item const item = stream->items[k];
-            LongGenome const& genome = stream->sample->genomes[item.genome];
-            std::shared_ptr<std::promise<std::shared_ptr<Contigs const>>> load;
-            std::shared_future<std::shared_ptr<Contigs const>> loaded;
-            if (!genome.host) {
-                auto [slot, fresh] = stream->genomes.try_emplace({item.round, item.genome});
-                if (fresh) {
-                    load = std::make_shared<std::promise<std::shared_ptr<Contigs const>>>();
-                    slot->second.loaded = load->get_future().share();
-                    slot->second.parts_left = item.parts;
-                }
-                loaded = slot->second.loaded;
-            }
-            lock.unlock();
-            std::optional<Piece> piece;
-            try {
-                if (load) {
-                    try {
-                        load->set_value(LoadContigs(genome));
-                    } catch (...) {
-                        load->set_exception(std::current_exception());
-                    }
-                }
-                piece = Make(*stream, item, genome.host ? nullptr : loaded.get().get());
-            } catch (...) {
-                lock.lock();
-                Fail(std::current_exception());
-                continue;
-            }
-            lock.lock();
-            Complete(*stream, k, item, std::move(*piece), lock);
-        }
-        m_cv.notify_all();
-    }
-
-    void Fail(std::exception_ptr error) {
-        if (!m_error) m_error = error;
-        m_cv.notify_all();
-    }
-
-    // Opens sample i's file and plans its first round (under the lock).
-    void Open(std::size_t i, std::unique_lock<std::mutex>& lock) {
-        Stream& s = m_streams[i];
-        LongSample const& sample = m_samples[i];
-        s.sample = &sample;
-        s.index = i;
-        s.packing = PackingOf(sample.out);
-        s.plan = LongRng(sample.seed);
-        s.result.name = sample.name;
-        double total = 0.0;
-        for (auto const& genome : sample.genomes) {
-            total += std::max(0.0, genome.weight);
-            s.cumulative.push_back(total);
-        }
-        if (sample.bases > 0 && !(total > 0)) {
+    // The reads of the bases the sample still lacks, genome by genome.
+    std::vector<pipeline::Item> Plan(std::size_t s, pipeline::Totals const& so_far) override {
+        LongSample const& sample = m_samples[s];
+        if (so_far.template_bases >= sample.bases) return {};
+        auto const& cumulative = m_cumulative[s];
+        if (cumulative.empty() || !(cumulative.back() > 0)) {
             throw std::runtime_error(sample.name + ": no genome with reads to simulate (relative abundances and lengths are 0)");
         }
-        if (!sample.out.parent_path().empty()) fs::create_directories(sample.out.parent_path());
-        s.partial = sample.out.string() + ".partial";
-        s.out = std::fopen(s.partial.c_str(), "wb");
-        if (!s.out) throw std::runtime_error("cannot write " + s.partial.string() + ": " + std::strerror(errno));
-        m_active.push_back(&s);
-        PlanRound(s);
-        Drain(s, lock);  // a sample of no bases is done here
-        m_cv.notify_all();
-    }
-
-    // The reads of the bases the sample still lacks, genome by genome (collect_training_data.draw_templates's round).
-    void PlanRound(Stream& s) {
-        LongSample const& sample = *s.sample;
-        if (s.result.template_bases >= sample.bases) {
-            s.planned_all = true;
-            return;
-        }
-        auto need = static_cast<long long>(sample.bases - s.result.template_bases);
+        auto need = static_cast<long long>(sample.bases - so_far.template_bases);
         std::map<int, std::vector<std::uint32_t>> planned;
-        double const total = s.cumulative.back();
+        LongRng& rng = m_plan[s];
+        double const total = cumulative.back();
         while (need > 0) {
-            auto g = static_cast<int>(std::upper_bound(s.cumulative.begin(), s.cumulative.end(), s.plan.Uniform() * total) -
-                                      s.cumulative.begin());
-            g = std::min(g, static_cast<int>(s.cumulative.size()) - 1);
-            std::uint32_t const length = DrawReadLength(s.plan, m_options.setup.length_mean, m_options.setup.length_sd);
+            auto g = static_cast<int>(std::upper_bound(cumulative.begin(), cumulative.end(), rng.Uniform() * total) -
+                                      cumulative.begin());
+            g = std::min(g, static_cast<int>(cumulative.size()) - 1);
+            std::uint32_t const length = DrawReadLength(rng, m_options.setup.length_mean, m_options.setup.length_sd);
             planned[g].push_back(length);
             need -= length;
         }
-        std::uint32_t const round = s.result.rounds++;
+        std::vector<pipeline::Item> items;
+        std::uint64_t first = so_far.reads;  // every read planned before is made
         for (auto& [g, lengths] : planned) {
-            std::vector<Item> parts;
+            std::size_t const start = items.size();
             std::uint64_t bases = kPartBases;
             for (std::uint32_t length : lengths) {
                 if (bases >= kPartBases) {
-                    parts.push_back(Item{g, round, static_cast<std::uint32_t>(parts.size()), 1, 0, {}});
+                    pipeline::Item item;
+                    item.genome = g;
+                    item.round = so_far.rounds;
+                    item.part = static_cast<std::uint32_t>(items.size() - start);
+                    items.push_back(std::move(item));
                     bases = 0;
                 }
-                parts.back().lengths.push_back(length);
+                items.back().lengths.push_back(length);
                 bases += length;
             }
-            for (auto& item : parts) {
-                item.parts = static_cast<std::uint32_t>(parts.size());
-                item.first_read = s.reads_planned;
-                s.reads_planned += item.lengths.size();
-                s.items.push_back(std::move(item));
+            for (std::size_t i = start; i < items.size(); ++i) {
+                items[i].parts = static_cast<std::uint32_t>(items.size() - start);
+                items[i].first_read = first;
+                items[i].reads = items[i].lengths.size();
+                first += items[i].reads;
             }
         }
-        s.round_end = s.items.size();
-        s.pieces.resize(s.items.size());
+        return items;
     }
 
-    // An item's reads, as FASTQ compressed (no lock held).
-    Piece Make(Stream const& s, Item const& item, Contigs const* contigs) const {
-        LongSample const& sample = *s.sample;
+    pipeline::Piece Make(std::size_t s, pipeline::Item const& item, Contigs const* contigs) const override {
+        LongSample const& sample = m_samples[s];
         LongGenome const& genome = sample.genomes[item.genome];
         Host const* host = genome.host ? m_hosts.at(genome.fasta.string()).get() : nullptr;
         LongRng rng(MixSeed(MixSeed(sample.seed, item.round), MixSeed(static_cast<std::uint64_t>(item.genome), item.part)));
-        Piece piece;
+        pipeline::Piece piece;
         std::string fastq, templ;
         MadeRead read;
         std::string const prefix = "@g" + std::to_string(item.genome) + "x_";
@@ -964,99 +574,36 @@ private:
             fastq += '\n';
         }
         piece.reads = item.lengths.size();
-        piece.bytes = Pack(fastq, s.packing);
+        piece.bytes[0] = pipeline::Pack(fastq, pipeline::PackingOf(sample.out));
         return piece;
     }
 
-    void Complete(Stream& s, std::size_t k, Item const& item, Piece piece, std::unique_lock<std::mutex>& lock) {
-        s.result.reads += piece.reads;
-        s.result.template_bases += piece.template_bases;
-        s.result.read_bases += piece.read_bases;
-        s.result.errors += piece.errors;
-        s.pieces[k] = std::move(piece);
-        ++s.processed;
-        if (!s.sample->genomes[item.genome].host) {
-            auto slot = s.genomes.find({item.round, item.genome});
-            if (slot != s.genomes.end() && --slot->second.parts_left == 0) s.genomes.erase(slot);
-        }
-        if (s.processed == s.round_end && !s.planned_all) PlanRound(s);
-        Drain(s, lock);
-        m_cv.notify_all();
-    }
-
-    // Writes the sample's pieces that are next in order; one thread at a time per sample, the lock released while it
-    // writes. Closes the file once the last is in.
-    void Drain(Stream& s, std::unique_lock<std::mutex>& lock) {
-        if (s.writing || s.closed) return;
-        s.writing = true;
-        while (!m_error && s.next_write < s.pieces.size() && s.pieces[s.next_write]) {
-            std::string bytes = std::move(s.pieces[s.next_write]->bytes);
-            s.pieces[s.next_write].reset();
-            ++s.next_write;
-            --m_in_flight;
-            lock.unlock();
-            bool const ok = std::fwrite(bytes.data(), 1, bytes.size(), s.out) == bytes.size();
-            lock.lock();
-            if (!ok) Fail(std::make_exception_ptr(std::runtime_error("writing " + s.partial.string() + " failed: " +
-                                                                     std::strerror(errno))));
-        }
-        if (!m_error && s.planned_all && s.next_write == s.items.size()) {
-            lock.unlock();
-            std::exception_ptr error;
-            try {
-                Close(s);
-            } catch (...) {
-                error = std::current_exception();
-            }
-            lock.lock();
-            if (error) {
-                Fail(error);
-            } else {
-                s.closed = true;
-                ++m_closed;
-                m_active.erase(std::find(m_active.begin(), m_active.end(), &s));
-            }
-        }
-        s.writing = false;
-    }
-
-    void Close(Stream& s) {
-        bool ok = true;
-        if (s.packing == Packing::Bgzf) {
-            ok = std::fwrite(protal::bgzf::kEof, 1, sizeof(protal::bgzf::kEof), s.out) == sizeof(protal::bgzf::kEof);
-        } else if (s.items.empty()) {  // no reads: an empty frame, so that the file is valid zstd
-            std::string const empty = Pack(std::string(), s.packing);
-            ok = std::fwrite(empty.data(), 1, empty.size(), s.out) == empty.size();
-        }
-        ok = (std::fclose(s.out) == 0) && ok;
-        s.out = nullptr;
-        if (!ok) throw std::runtime_error("writing " + s.partial.string() + " failed: " + std::strerror(errno));
-        fs::rename(s.partial, s.sample->out);
-    }
-
+private:
     std::vector<LongSample> const& m_samples;
     LongReadOptions const& m_options;
     std::unique_ptr<QshmmModel> m_qshmm;
     std::unordered_map<std::string, std::unique_ptr<Host>> m_hosts;
-    std::vector<Stream> m_streams;
-    std::vector<Stream*> m_active;
-    std::size_t m_next_sample = 0, m_closed = 0, m_in_flight = 0, m_cap = 4;
-    std::exception_ptr m_error;
-    std::mutex m_mutex;
-    std::condition_variable m_cv;
+    std::vector<LongRng> m_plan;
+    std::vector<std::vector<double>> m_cumulative;
 };
 
 }  // namespace
 
 std::vector<LongSampleResult> SimulateLongReads(std::vector<LongSample> const& samples, LongReadOptions const& options) {
     if (samples.empty()) return {};
-    Engine engine(samples, options);
-    return engine.Run();
+    LongJob job(samples, options);
+    auto const totals = pipeline::Run(job, options.threads);
+    std::vector<LongSampleResult> results;
+    for (std::size_t s = 0; s < samples.size(); ++s) {
+        results.push_back({samples[s].name, totals[s].reads, totals[s].template_bases, totals[s].read_bases,
+                           totals[s].errors, totals[s].rounds});
+    }
+    return results;
 }
 
 LongSampleResult MutateTemplates(fs::path const& templates, fs::path const& out, LongReadOptions const& options,
                                  std::uint64_t seed) {
-    Packing const packing = PackingOf(out);
+    pipeline::Packing const packing = pipeline::PackingOf(out);
     std::unique_ptr<QshmmModel> qshmm;
     if (options.setup.method == LongReadSetup::Method::Qshmm) {
         if (options.model.empty()) throw std::runtime_error("a qshmm setup needs its model file (--long_model)");
@@ -1073,8 +620,8 @@ LongSampleResult MutateTemplates(fs::path const& templates, fs::path const& out,
     std::string fastq, name, seq, line;
     MadeRead read;
     auto flush = [&](bool last) {
-        if (fastq.empty() && !(last && packing == Packing::Zstd && result.reads == 0)) return;
-        std::string const bytes = Pack(fastq, packing);
+        if (fastq.empty() && !(last && packing == pipeline::Packing::Zstd && result.reads == 0)) return;
+        std::string const bytes = pipeline::Pack(fastq, packing);
         if (std::fwrite(bytes.data(), 1, bytes.size(), file.get()) != bytes.size()) {
             throw std::runtime_error("writing " + partial.string() + " failed");
         }
@@ -1108,7 +655,7 @@ LongSampleResult MutateTemplates(fs::path const& templates, fs::path const& out,
     if (in.rdbuf()->read_failed()) throw std::runtime_error(templates.string() + " is truncated or corrupt");
     make();
     flush(true);
-    if (packing == Packing::Bgzf &&
+    if (packing == pipeline::Packing::Bgzf &&
         std::fwrite(protal::bgzf::kEof, 1, sizeof(protal::bgzf::kEof), file.get()) != sizeof(protal::bgzf::kEof)) {
         throw std::runtime_error("writing " + partial.string() + " failed");
     }

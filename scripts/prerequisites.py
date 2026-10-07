@@ -1,13 +1,13 @@
 """prerequisites.py - skips of the Python test suites for what a machine lacks, failures under PROTAL_TESTS_REQUIRED=1.
 
-A test whose prerequisite is missing (scikit-learn for the trainer, $PROTAL, art_illumina, git, ...) is skipped, so
+A test whose prerequisite is missing (scikit-learn for the trainer, $PROTAL, $SIMULATE, git, ...) is skipped, so
 that each suite runs anywhere. With PROTAL_TESTS_REQUIRED=1 in the environment (CI sets it, as for tests/e2e) a missing
 prerequisite is a failure instead: a test that should run cannot pass unseen as a skip.
 
   import prerequisites
   @prerequisites.requires(HAVE_SKLEARN, "needs scikit-learn")      # a class or a test method
   class T(unittest.TestCase): ...
-  prerequisites.missing("no art_illumina")                         # in a test or setUpClass: skip, or fail
+  prerequisites.missing("no zstd command")                         # in a test or setUpClass: skip, or fail
 """
 
 import functools

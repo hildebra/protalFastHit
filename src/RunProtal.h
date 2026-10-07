@@ -415,9 +415,20 @@ namespace protal {
         return map;
     }
 
+    // Whether a sample's reads come through a named pipe (a simulation streaming its reads into protal, as the
+    // database build does for large samples): they come once, so the sample is aligned whatever SAM it has, or the
+    // writer would wait for a reader forever.
+    static bool ReadsArePiped(Options const& options, int index) {
+        std::error_code ec;
+        for (auto const& file : {options.GetFirstFile(index), options.GetSecondFile(index)}) {
+            if (!file.empty() && std::filesystem::is_fifo(file, ec)) return true;
+        }
+        return false;
+    }
+
     // Aligns the samples. `sample_done` (if any) is called with a sample's index once its SAM file is complete, or
-    // when the sample is skipped because its SAM exists: Run profiles such samples while the next ones are aligned
-    // (ProfilingAhead).
+    // when the sample is skipped because its SAM exists (never one whose reads are piped: ReadsArePiped): Run
+    // profiles such samples while the next ones are aligned (ProfilingAhead).
     template<typename AlignmentBenchmark=NoBenchmark>
     static void RunWrapper(Options& options, ProtalDB& db, AlignmentBenchmark benchmark=NoBenchmark{},
                            std::function<void(size_t)> const& sample_done = {}) {
@@ -546,8 +557,9 @@ namespace protal {
 
                 // std::cout << index << " Process sample " << options.GetSampleId(index) << (std::filesystem::exists(sam) ? " (sam exists)" : " (sam does not exist)") << std::endl;
 
-                // Avoid aligning files that already exist.
-                if (!options.Force() && (std::filesystem::exists(sam) || std::filesystem::exists(sam_plain))) {
+                // Avoid aligning files that already exist (but reads that come through a pipe come once).
+                if (!options.Force() && !ReadsArePiped(options, index) &&
+                    (std::filesystem::exists(sam) || std::filesystem::exists(sam_plain))) {
                     std::cout << "Skip " << sam << " continue" << std::endl;
                     // Profile the file that is there: an earlier run may have left it uncompressed.
                     if (compressed && !std::filesystem::exists(sam)) options.UseUncompressedSamFile(index);
@@ -2881,7 +2893,11 @@ namespace protal {
         auto sam_files = options.SamFiles();
         bool all_alignments_exist = std::all_of(sam_files.begin(), sam_files.end(), [](std::string const& file){ return Utils::exists(file); });
 
-        bool skip_alignment = !options.BuildMode() && all_alignments_exist && !options.Force();
+        auto const range = options.GetRange();
+        bool const piped = !options.BuildMode() && !options.ProfileOnly() &&
+                           std::any_of(range.begin(), range.end(),
+                                       [&options](auto index) { return ReadsArePiped(options, static_cast<int>(index)); });
+        bool skip_alignment = !options.BuildMode() && all_alignments_exist && !options.Force() && !piped;
 
         bool run_alignment = true;
         if (!options.BuildMode() && (options.ProfileOnly() || skip_alignment) && !sam_files.empty() &&

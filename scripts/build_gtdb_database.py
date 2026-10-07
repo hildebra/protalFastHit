@@ -32,8 +32,8 @@ harder in two ways than simulating the database's own references:
   space.
 
 One model per read type (--read-types, default pe,se,pb,ont), trained in
-parallel: paired-end reads (ART), their first reads alone (single-end), and
-PacBio and Nanopore reads of the same communities (simulate_metagenomes). Besides the training
+parallel: paired-end reads, their first reads alone (single-end), and PacBio
+and Nanopore reads of the same communities (all made by simulate_metagenomes). Besides the training
 data, an independent test set of another design (--test-*: other depths,
 community sizes, abundances and strain mixes) is profiled and scored by each
 model: cross-validation on the training data cannot show what its design lacks.
@@ -240,7 +240,7 @@ class Scratch:
 class Job:
     """A command run with its output to log, in a process group of its own: when the script stops, however
     it stops (a failure, an exception, SIGTERM, SIGINT, SIGHUP), the command is stopped with what it started
-    (the collector's simulator, ART and protal runs), so that a rerun does not race a build left running.
+    (the collector's simulator and protal runs), so that a rerun does not race a build left running.
     While the script waits for one job, it looks at the others every few seconds: one that failed (the
     finished database's build in the background) stops the script then, not hours later. Every
     progress_every seconds (if not 0) it says how each job is doing."""
@@ -1216,8 +1216,6 @@ def check_tools(args, read_types):
     if executable(args.simulator, "the simulator", "it is built with protal (target simulate_metagenomes), or pass "
                                                    "--simulator"):
         built_here(args.simulator, "the simulator")
-    executable("art_illumina", "ART", "the simulator simulates the Illumina reads with it: install ART (conda: art, "
-                                      "envs/protal-db-build.yaml)")
     # The simulator makes the long reads itself; a qshmm setup's reads follow pbsim3's model file (pbsim3 installs it).
     for kind, setup in (("pb", args.pb_setup), ("ont", args.ont_setup)):
         if kind in read_types and setup.startswith("qshmm:") and len(setup.split(":")) > 1 and \
@@ -1333,9 +1331,9 @@ def main():
                         "read pairs and called 15%% of the absent taxa at 2000, depths between the points the model "
                         "was trained at, docs/claude/2026-10-04-r226-v10-evaluation)")
     p.add_argument("--read-setups", default="100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50",
-                   help="LENGTH:ART_PROFILE:FRAGMENT_MEAN:FRAGMENT_SD, one design point each (HSXt: HiSeq X, the "
-                        "closest of ART's profiles to NovaSeq; file=R1.txt+R2.txt: profiles art_profiler_illumina "
-                        "made from real reads)")
+                   help="LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD, one design point each; INSTRUMENT: HS20, "
+                        "HS25, HSXt (HiSeq X Ten), NovaSeq or MSv3 (MiSeq v3), simulate_metagenomes's models of them "
+                        "(docs/databases.md#illumina-reads)")
     p.add_argument("--archaea", type=int, default=2)
     p.add_argument("--species-per-sample", default="20-200",
                    help="species per sample, drawn per sample (default 20-200: real gut samples hold 100-300 GTDB "
@@ -1538,6 +1536,12 @@ def main():
     p.add_argument("--keep-free", type=float, default=30.0,
                    help="with --profile-blocks: GB a simulation leaves free on the disk of the samples (--scratch or "
                         "OUTDIR), or it waits until profiled reads are removed (default 30)")
+    p.add_argument("--stream-above", type=float, default=2.0,
+                   help="with --profile-blocks: a design point whose largest sample's reads would take more than this "
+                        "many GB (compressed, estimated) is not written to the disk: protal reads its samples from named "
+                        "pipes as simulate_metagenomes makes them, in a protal run of its own, a sample at a time "
+                        "(collect_training_data.py --stream_above); smaller ones are written and profiled in blocks "
+                        "(default 2; 0: none)")
     p.add_argument("--read-compression", choices=["zstd", "gzip"], default="zstd",
                    help="how the simulated samples' reads are written (collect_training_data.py --read_compression): "
                         "zstd (.fq.zst, the default: as small as BGZF or smaller, several times faster to write) or "
@@ -2056,6 +2060,8 @@ def main():
     simulations = {}
     for what, command, log in collections_:
         keep_free = ["--min_free", f"{args.keep_free:g}"] if args.profile_blocks > 0 and args.keep_free > 0 else []
+        if args.profile_blocks > 0 and args.stream_above > 0:  # the follower streams them (the same value for both)
+            keep_free += ["--stream_above", f"{args.stream_above:g}"]
         simulations[what] = Job(command + ["--simulate_only"] + keep_free, log.removesuffix(".log") + "_simulation.log",
                                 lambda what=what: Steps.done(f"simulated the {what} in the background in "
                                                              f"{simulations[what].took()}"),
@@ -2178,7 +2184,9 @@ def main():
             while simulations[what].seconds is None and not (simulation_state(out) or {}).get("prepared"):
                 check_jobs()
                 time.sleep(0.5)
-            followers[what] = Job(command + ["--follow", "--profile_block", f"{args.profile_blocks:g}", "--protal_lock", lock],
+            stream = ["--stream_above", f"{args.stream_above:g}"] if args.stream_above > 0 else []
+            followers[what] = Job(command + ["--follow", "--profile_block", f"{args.profile_blocks:g}", "--protal_lock", lock]
+                                  + stream,
                                   log, label=f"profiling the {what}")
         for what, command, log in collections_:
             opts = announce(what, command, log)

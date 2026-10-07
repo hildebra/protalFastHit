@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""simulate_reads.py - paired-end reads from a mock community, without ART.
+"""simulate_reads.py - paired-end reads from a mock community, without simulate_metagenomes.
 
 A small, dependency-free read simulator for testing protal on the mini DB:
 fragments are drawn uniformly from the chosen genomes, both mates are written

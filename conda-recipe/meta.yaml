@@ -25,7 +25,6 @@ requirements:
     - libgomp                 # OpenMP
   run:
     - python >=3.8            # qcmsa (standard library only), protal_map_utils, protal_profile_utils
-    - art                     # art_illumina, which simulate_metagenomes runs
     - libgomp
     - matplotlib-base         # only for qcmsa --plot
     # zstd and isa-l come with their run_exports; zlib-ng is vendored and linked in (lib/zlib-ng).

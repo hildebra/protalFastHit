@@ -13,7 +13,7 @@ accuracy on reads of whole genomes.
 
 The tests are written for the mini database of scripts/mini_db/build_mini_db.sh: they name its three species
 (Mockella alpha and beta, two congeners, and Fakibacter gamma), their taxids and genes. They need Linux, the zstd CLI
-(or Python 3.14), and for a test or two numpy and art_illumina.
+(or Python 3.14), and for a test or two numpy.
 
 PROTAL_TEST_DB         protal database (only read): the single file database.protal (or its folder), or separate raw
                        or zstd-compressed files (index.prx.zst, reference.fna.zst). Tests that read the database's
@@ -22,7 +22,7 @@ PROTAL_TEST_DB         protal database (only read): the single file database.pro
                        GeneNeighboursTest need none.
 PROTAL                 protal binary (default: build/protal)
 SIMULATE               simulate_metagenomes binary (default: build/simulate_metagenomes)
-PROTAL_TESTS_REQUIRED  1: a missing prerequisite (the database, a binary, the zstd CLI, numpy, art_illumina) fails
+PROTAL_TESTS_REQUIRED  1: a missing prerequisite (the database, a binary, the zstd CLI, numpy) fails
                        the tests that need it instead of skipping them, as CI wants
 PROTAL_TEST_KEEP       set: keep the temporary folders
 
@@ -3467,11 +3467,9 @@ class SimulatorTest(WorkDir):
         self.assertLess(sum(f.count("d__A") for f in domains.values()) / len(domains), 3.5)
 
     def test_samples_on_threads_are_the_same(self):
-        # -t: samples written side by side (their designs and ART seeds drawn first, in order), each sample's reads
-        # BGZF-compressed as each genome's are appended: the same files byte for byte on 1 and 3 threads, and no
-        # temporary files left.
-        if shutil.which("art_illumina") is None:
-            raise unavailable("art_illumina not found")
+        # -t: samples written side by side (their designs and the reads' seeds drawn first, in order), each sample's
+        # reads made in process (IlluminaSimulator) and BGZF-compressed in the genomes' order: the same files byte for
+        # byte on 1 and 3 threads, and no temporary files left.
         with open(self.path("art_genomes.tsv"), "w") as table:
             for sp in range(6):
                 fasta = self.path(f"t{sp}.fa.gz")

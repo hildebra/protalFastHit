@@ -98,8 +98,10 @@ set(PROTAL_LIB_SOURCES
         RandomForest/MetagenomeTypes.h
         RandomForest/CommunityProfileDesigner.h
         RandomForest/CommunityProfileDesigner.cpp
-        RandomForest/ArtIlluminaWrapper.h
-        RandomForest/ArtIlluminaWrapper.cpp
+        RandomForest/IlluminaSimulator.h
+        RandomForest/IlluminaSimulator.cpp
+        RandomForest/ReadPipeline.h
+        RandomForest/ReadPipeline.cpp
         RandomForest/LongReadSimulator.h
         RandomForest/LongReadSimulator.cpp
 )

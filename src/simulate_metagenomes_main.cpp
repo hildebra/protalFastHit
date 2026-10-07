@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -20,7 +21,7 @@
 
 namespace fs = std::filesystem;
 using protal::sim::AbundanceDistribution;
-using protal::sim::ArtIlluminaOptions;
+using protal::sim::IlluminaOptions;
 using protal::sim::MetagenomeSimulator;
 using protal::sim::ProfileDesignOptions;
 
@@ -144,7 +145,8 @@ struct CliOptions {
     std::string genus_counts;
     std::string taxon_counts;
     std::string congener_groups;
-    ArtIlluminaOptions art;
+    IlluminaOptions illumina;
+    std::uint64_t illumina_report{0};  // --illumina_report PAIRS: a profile's statistics instead of samples
     std::optional<std::uint64_t> seed;
     bool plot_png{false};
     bool test_mode{false};
@@ -262,13 +264,24 @@ static cxxopts::Options build_cxxopts() {
                                 cxxopts::value<std::string>()->default_value(""))
         ("seed",                "RNG seed (default: random)", cxxopts::value<std::uint64_t>());
 
-    options.add_options("ART")
-        ("art_path",        "art_illumina executable", cxxopts::value<std::string>()->default_value("art_illumina"))
+    options.add_options("Illumina")
         ("read_length",     "Read length", cxxopts::value<int>()->default_value("150"))
         ("fragment_mean",   "Fragment mean", cxxopts::value<int>()->default_value("350"))
         ("fragment_stdev",  "Fragment stdev", cxxopts::value<int>()->default_value("50"))
-        ("sequencer",       "ART sequencer profile", cxxopts::value<std::string>()->default_value("HS25"))
-        ("extra_art_args",  "Extra ART arguments, e.g. \"--qprof1 q1 --qprof2 q2\"", cxxopts::value<std::string>()->default_value(""));
+        ("sequencer",       "The instrument the reads model (IlluminaSimulator.h): HS20 (HiSeq 2000), HS25 (HiSeq 2500), "
+                            "HSXt (HiSeq X Ten / 4000), NovaSeq (NovaSeq 6000), MSv3 (MiSeq v3)",
+                            cxxopts::value<std::string>()->default_value("HS25"))
+        ("mean_quality",    "Shift each read's qualities so that they average this (Phred), e.g. 35; default: the "
+                            "instrument's", cxxopts::value<double>())
+        ("host_folder",     "A host genome (scenarios.prepare_host's folder) for --host_pairs", cxxopts::value<std::string>())
+        ("host_pairs",      "Read pairs of the host per sample, after its community's; several comma-separated values are "
+                            "given to the samples in turn", cxxopts::value<std::string>()->default_value(""))
+        ("first_reads_only", "Write only the _R1 files (the same reads as a run with both)")
+        ("illumina_report", "Instead of samples: statistics of the --sequencer's reads at --read_length, --fragment_mean "
+                            "and --mean_quality (per cycle mean quality, Q30 share, error rates), from this many pairs "
+                            "of a random genome", cxxopts::value<std::uint64_t>())
+        ("art_path",        "Unused: ART is no longer run (kept so that older commands fail clearly)", cxxopts::value<std::string>())
+        ("extra_art_args",  "Unused: ART is no longer run", cxxopts::value<std::string>());
 
     options.add_options("Long reads")
         ("long_samples",    "Long (PacBio HiFi, Nanopore) or Ultima reads of given communities instead of a design: a TSV of "
@@ -293,12 +306,12 @@ static cxxopts::Options build_cxxopts() {
                             "(default: standard output)", cxxopts::value<std::string>());
 
     options.add_options("General")
-        ("t,threads",       "Threads: samples simulated at a time, and threads beyond the samples run the ART calls of a sample's genomes side by side; the samples are the same for any number", cxxopts::value<int>()->default_value("1"))
+        ("t,threads",       "Threads: the reads are made in work items of a few hundred kB on all of them, several samples at a time when one leaves threads idle; the same files for any number", cxxopts::value<int>()->default_value("1"))
         ("pigz_path",       "Unused: the reads are compressed in process (kept so that older commands still run)", cxxopts::value<std::string>()->default_value(""))
         ("reads_compression", "How the read files are written: bgzf (_R1.fq.gz, ISA-L level 1) or zstd (_R1.fq.zst, level 3: smaller files; protal reads both)", cxxopts::value<std::string>()->default_value("bgzf"))
         ("protal_metafile", "Write a Protal meta file (output_dir/protal.meta) but set OUTPUT_DIR to <path>", cxxopts::value<std::string>())
         ("test",            "Generate profiles/manifests but skip read simulation (fast dry run)")
-        ("keep_tmp",        "Keep the individual per-genome reads")
+        ("keep_tmp",        "Unused: no temporary files are written (kept so that older commands still run)")
         ("plot_png",        "Generate barplot PNG of species abundances")
         ("v,version",       "Print the version (and the commit it was built from).")
         ("h,help",          "Print help.");
@@ -310,14 +323,14 @@ static CliOptions parse_cli(int argc, char** argv) {
     auto cxx = build_cxxopts();
 
     if (argc <= 1) {
-        std::cout << cxx.help({"I/O", "Sampling", "ART", "Long reads", "General"}) << std::endl;
+        std::cout << cxx.help({"I/O", "Sampling", "Illumina", "Long reads", "General"}) << std::endl;
         std::exit(0);
     }
 
     auto result = cxx.parse(argc, argv);
 
     if (result.count("help")) {
-        std::cout << cxx.help({"I/O", "Sampling", "ART", "Long reads", "General"}) << std::endl;
+        std::cout << cxx.help({"I/O", "Sampling", "Illumina", "Long reads", "General"}) << std::endl;
         std::exit(0);
     }
     if (result.count("version")) {
@@ -325,6 +338,17 @@ static CliOptions parse_cli(int argc, char** argv) {
         std::exit(0);
     }
 
+    if (result.count("illumina_report")) {  // a profile's statistics: no design, no genome table
+        CliOptions opts;
+        opts.illumina_report = result["illumina_report"].as<std::uint64_t>();
+        opts.illumina.read_length = result["read_length"].as<int>();
+        opts.illumina.fragment_mean = result["fragment_mean"].as<int>();
+        opts.illumina.fragment_stdev = result["fragment_stdev"].as<int>();
+        opts.illumina.sequencer = result["sequencer"].as<std::string>();
+        if (result.count("mean_quality")) opts.illumina.mean_quality = result["mean_quality"].as<double>();
+        if (result.count("seed")) opts.seed = result["seed"].as<std::uint64_t>();
+        return opts;
+    }
     if (result.count("long_samples") || result.count("long_templates")) {  // long reads: no design, no genome table
         CliOptions opts;
         if (result.count("long_templates")) {
@@ -351,7 +375,7 @@ static CliOptions parse_cli(int argc, char** argv) {
     const bool replay = result.count("from_manifest") > 0;
     if ((!result.count("genome_table") && !replay) || !result.count("output_dir")) {
         std::cerr << "Error: --output_dir is required, as is --genome_table unless --from_manifest is given.\n\n";
-        std::cout << cxx.help({"I/O", "Sampling", "ART", "Long reads", "General"}) << std::endl;
+        std::cout << cxx.help({"I/O", "Sampling", "Illumina", "Long reads", "General"}) << std::endl;
         std::exit(1);
     }
 
@@ -458,24 +482,39 @@ static CliOptions parse_cli(int argc, char** argv) {
         throw std::runtime_error("Unknown distribution: " + dist_str);
     }
 
-    opts.art.art_path      = result["art_path"].as<std::string>();
-    opts.art.read_length   = result["read_length"].as<int>();
-    opts.art.fragment_mean = result["fragment_mean"].as<int>();
-    opts.art.fragment_stdev = result["fragment_stdev"].as<int>();
-    opts.art.sequencer     = result["sequencer"].as<std::string>();
-
-    const std::string extra = result["extra_art_args"].as<std::string>();
-    if (!extra.empty()) {
-        std::istringstream iss(extra);
-        std::string token;
-        while (iss >> token) opts.art.extra_args.push_back(token);
+    if (result.count("art_path") || result.count("extra_art_args")) {
+        throw std::runtime_error("--art_path and --extra_art_args: ART is no longer run; the reads are made in process "
+                                 "(--sequencer, --mean_quality)");
     }
+    opts.illumina.read_length   = result["read_length"].as<int>();
+    opts.illumina.fragment_mean = result["fragment_mean"].as<int>();
+    opts.illumina.fragment_stdev = result["fragment_stdev"].as<int>();
+    opts.illumina.sequencer     = result["sequencer"].as<std::string>();
+    protal::sim::IlluminaProfile::Named(opts.illumina.sequencer);  // fails before any genome is read
+    if (result.count("mean_quality")) opts.illumina.mean_quality = result["mean_quality"].as<double>();
+    if (result.count("host_folder")) opts.illumina.host_folder = result["host_folder"].as<std::string>();
+    {
+        const std::string pairs_arg = result["host_pairs"].as<std::string>();
+        std::stringstream ss(pairs_arg);
+        std::string item;
+        while (std::getline(ss, item, ',')) {
+            if (item.empty()) continue;
+            std::size_t used = 0;
+            const unsigned long long pairs = std::stoull(item, &used);
+            if (used != item.size()) throw std::runtime_error("--host_pairs takes whole numbers, comma-separated: " + pairs_arg);
+            opts.illumina.host_pairs.push_back(pairs);
+        }
+        bool const any = std::any_of(opts.illumina.host_pairs.begin(), opts.illumina.host_pairs.end(),
+                                     [](auto p) { return p > 0; });
+        if (any && opts.illumina.host_folder.empty()) throw std::runtime_error("--host_pairs needs --host_folder");
+    }
+    opts.illumina.first_reads_only = result.count("first_reads_only") > 0;
 
     return opts;
 }
 
 // A manifest pins the community; this pins how it was produced. Written on every run
-// so that neither the seed nor the ART settings live only in shell history.
+// so that neither the seed nor the read settings live only in shell history.
 static void write_run_params(
     const CliOptions& cli, std::uint64_t seed, int argc, char** argv, const fs::path& path) {
     std::ofstream out(path);
@@ -495,16 +534,12 @@ static void write_run_params(
     }
     out << "seed\t" << seed << '\n';
     out << "genome_table\t" << cli.genome_table.string() << '\n';
-    out << "read_length\t" << cli.art.read_length << '\n';
-    out << "fragment_mean\t" << cli.art.fragment_mean << '\n';
-    out << "fragment_stdev\t" << cli.art.fragment_stdev << '\n';
-    out << "sequencer\t" << cli.art.sequencer << '\n';
-    std::string extra;
-    for (const auto& arg : cli.art.extra_args) {
-        extra += (extra.empty() ? "" : " ");
-        extra += arg;
-    }
-    out << "extra_art_args\t" << extra << '\n';
+    out << "read_length\t" << cli.illumina.read_length << '\n';
+    out << "fragment_mean\t" << cli.illumina.fragment_mean << '\n';
+    out << "fragment_stdev\t" << cli.illumina.fragment_stdev << '\n';
+    out << "sequencer\t" << cli.illumina.sequencer << '\n';
+    out << "mean_quality\t" << (cli.illumina.mean_quality ? std::to_string(*cli.illumina.mean_quality) : "") << '\n';
+    out << "reads\t" << "simulate_metagenomes IlluminaSimulator (no ART)" << '\n';
 }
 
 static std::vector<protal::sim::SampleOutput> design_and_simulate(
@@ -533,24 +568,24 @@ static std::vector<protal::sim::SampleOutput> design_and_simulate(
                   << " strain sharing spec(s) from " << cli.strain_sharing_file << '\n';
     }
 
-    cli.art.threads = std::max(1, cli.threads);
-    MetagenomeSimulator simulator(std::move(genomes), cli.art, *cli.seed);
+    cli.illumina.threads = std::max(1, cli.threads);
+    MetagenomeSimulator simulator(std::move(genomes), cli.illumina, *cli.seed);
     simulator.set_reads_compression(cli.reads_compression);
 
     return simulator.simulate_samples(
         profile, cli.samples, cli.sample_prefix, cli.output_dir, cli.test_mode, cli.keep_tmp);
 }
 
-// The manifest records the community and the ART seeds but not the ART settings, which come from
+// The manifest records the community and the reads' seeds but not the read settings, which come from
 // this command line. Compare them with the run_params.tsv of the original run (next to manifest.tsv,
 // or one level up for manifests/<sample>.tsv) and warn about every difference: with other settings
 // the replayed reads differ.
-static void check_replay_art_settings(const CliOptions& cli) {
+static void check_replay_read_settings(const CliOptions& cli) {
     const fs::path dir = cli.from_manifest->parent_path();
     fs::path params = dir / "run_params.tsv";
     if (!fs::exists(params)) params = dir.parent_path() / "run_params.tsv";
     if (!fs::exists(params)) {
-        std::cerr << "Note: no run_params.tsv next to the manifest, so the ART settings cannot be checked "
+        std::cerr << "Note: no run_params.tsv next to the manifest, so the read settings cannot be checked "
                      "against the original run.\n";
         return;
     }
@@ -563,17 +598,12 @@ static void check_replay_art_settings(const CliOptions& cli) {
         if (tab != std::string::npos) recorded[line.substr(0, tab)] = line.substr(tab + 1);
     }
 
-    std::string extra;
-    for (const auto& arg : cli.art.extra_args) {
-        extra += (extra.empty() ? "" : " ");
-        extra += arg;
-    }
     const std::vector<std::pair<std::string, std::string>> current = {
-        {"read_length", std::to_string(cli.art.read_length)},
-        {"fragment_mean", std::to_string(cli.art.fragment_mean)},
-        {"fragment_stdev", std::to_string(cli.art.fragment_stdev)},
-        {"sequencer", cli.art.sequencer},
-        {"extra_art_args", extra},
+        {"read_length", std::to_string(cli.illumina.read_length)},
+        {"fragment_mean", std::to_string(cli.illumina.fragment_mean)},
+        {"fragment_stdev", std::to_string(cli.illumina.fragment_stdev)},
+        {"sequencer", cli.illumina.sequencer},
+        {"mean_quality", cli.illumina.mean_quality ? std::to_string(*cli.illumina.mean_quality) : ""},
     };
     for (const auto& [key, value] : current) {
         auto it = recorded.find(key);
@@ -586,7 +616,7 @@ static void check_replay_art_settings(const CliOptions& cli) {
 
 static std::vector<protal::sim::SampleOutput> replay_from_manifest(
     CliOptions& cli, const std::vector<protal::sim::GenomeRecord>& genomes) {
-    check_replay_art_settings(cli);
+    check_replay_read_settings(cli);
     auto design = protal::sim::read_manifest(*cli.from_manifest);
     protal::sim::resolve_manifest_fasta_paths(design, genomes);
 
@@ -618,9 +648,9 @@ static std::vector<protal::sim::SampleOutput> replay_from_manifest(
             }
             const double implied = assignment.vertical_coverage * static_cast<double>(assignment.genome_length) /
                                    (2.0 * static_cast<double>(assignment.read_pairs));
-            if (std::abs(implied - static_cast<double>(cli.art.read_length)) > 1.0) {
+            if (std::abs(implied - static_cast<double>(cli.illumina.read_length)) > 1.0) {
                 std::cerr << "Warning: manifest implies read_length ~" << static_cast<int>(implied + 0.5)
-                          << " but --read_length is " << cli.art.read_length
+                          << " but --read_length is " << cli.illumina.read_length
                           << "; depths will not match the original run.\n";
             }
             break;
@@ -641,11 +671,45 @@ static std::vector<protal::sim::SampleOutput> replay_from_manifest(
     }
 
     // The seed is only consumed for rows without a recorded art_seed.
-    cli.art.threads = std::max(1, cli.threads);
-    MetagenomeSimulator simulator(std::move(replay_genomes), cli.art, *cli.seed);
+    cli.illumina.threads = std::max(1, cli.threads);
+    MetagenomeSimulator simulator(std::move(replay_genomes), cli.illumina, *cli.seed);
     simulator.set_reads_compression(cli.reads_compression);
 
     return simulator.replay_samples(std::move(design), cli.output_dir, cli.test_mode, cli.keep_tmp);
+}
+
+// --illumina_report PAIRS: per read, the mean written quality, the share at Q30 or more, the errors per base and the
+// written qualities' shares; then the mean written quality by cycle against the profile's (published) curve.
+static int illumina_report(const CliOptions& cli) {
+    protal::sim::IlluminaSetup setup;
+    setup.profile = protal::sim::IlluminaProfile::Named(cli.illumina.sequencer);
+    setup.read_length = cli.illumina.read_length;
+    setup.fragment_mean = cli.illumina.fragment_mean;
+    setup.fragment_sd = cli.illumina.fragment_stdev;
+    setup.mean_quality = cli.illumina.mean_quality;
+    protal::sim::IlluminaModel const model(setup);
+    auto const report = protal::sim::ReportProfile(setup, cli.illumina_report, cli.seed.value_or(1));
+    std::cout << "# " << setup.profile.name << " (" << setup.profile.description << "), " << setup.read_length
+              << " bp, fragments " << setup.fragment_mean << " (SD " << setup.fragment_sd << "), "
+              << cli.illumina_report << " pairs\n";
+    std::cout << "read\tmean_Q\tQ30\tsubstitutions\tinsertions\tdeletions\tNs\twritten qualities (share)\n";
+    for (int r = 0; r < 2; ++r) {
+        double mean = 0;
+        for (double q : report.mean_by_cycle[r]) mean += q;
+        mean /= static_cast<double>(report.mean_by_cycle[r].size());
+        std::cout << "R" << r + 1 << '\t' << mean << '\t' << report.q30[r] << '\t' << report.substitutions[r] << '\t'
+                  << report.insertions[r] << '\t' << report.deletions[r] << '\t' << report.ns[r] << '\t';
+        for (int q = 0; q < 94; ++q) {
+            if (report.quality_share[r][q] >= 0.0005) std::cout << 'Q' << q << ':' << report.quality_share[r][q] << ' ';
+        }
+        std::cout << '\n';
+    }
+    std::cout << "cycle\tR1\tR2\tR1_published\tR2_published\n";
+    for (int c = 0; c < setup.read_length; ++c) {
+        std::cout << c + 1 << '\t' << report.mean_by_cycle[0][c] << '\t' << report.mean_by_cycle[1][c] << '\t'
+                  << model.TargetMean(0)[c] << '\t' << model.TargetMean(1)[c] << '\n';
+    }
+    return 0;
 }
 
 // --long_samples: the samples' long or Ultima reads (LongReadSimulator), and a line of counts per sample.
@@ -688,6 +752,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (cli.illumina_report > 0) {
+        try {
+            return illumina_report(cli);
+        } catch (const std::exception& ex) {
+            std::cerr << "Report failed: " << ex.what() << '\n';
+            return 1;
+        }
+    }
     if (!cli.long_samples.empty() || !cli.long_templates.empty()) {
         try {
             return simulate_long_reads(cli);

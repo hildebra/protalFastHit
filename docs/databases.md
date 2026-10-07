@@ -144,7 +144,7 @@ The mini databases used for testing are made the same way from a synthetic relea
 
 - `protal` and `simulate_metagenomes` built from this checkout. The build script checks that they
   match the scripts' version and commit ([installation.md](installation.md#building-from-source)).
-- `art_illumina`, and pbsim3's model files for Nanopore reads (`QSHMM-ONT-HQ.model`: install pbsim3 or pass
+- pbsim3's model files for Nanopore reads (`QSHMM-ONT-HQ.model`: install pbsim3 or pass
   `--pbsim-models`; pbsim3 itself is not run).
 - Python 3 with numpy, pandas, joblib and scikit-learn for the training.
 - NCBI's `datasets` CLI for the download.
@@ -404,9 +404,9 @@ The samples are as complex as real ones:
 - about a quarter of the species in groups of 2-5 congeners (`--congeners`), which the relatives
   features need;
 - abundances lognormal with sigma 1.3 and 2.0;
-- 100 bp (HiSeq 2000), 150 bp (HiSeq X, the closest of ART's profiles to NovaSeq) and 250 bp
-  (MiSeq) reads. `150:file=R1.txt+R2.txt:350:50` uses quality profiles made by
-  `art_profiler_illumina` from your own reads instead.
+- 100 bp (HiSeq 2000), 150 bp (HiSeq X Ten) and 250 bp (MiSeq) reads, made by
+  `simulate_metagenomes`'s own model of each instrument (no ART; `NovaSeq` and `HS25` are there too,
+  [below](#illumina-reads)).
 - depths from 1,000 to 30M read pairs (`--read-pairs`). A model with the sample's depth as a feature
   cannot extrapolate beyond its deepest training sample, and real samples are 5-50M pairs.
 
@@ -417,7 +417,7 @@ communities:
 
 | read type | how the reads are made |
 |---|---|
-| `pe` | ART paired-end reads |
+| `pe` | Illumina paired-end reads by `simulate_metagenomes`'s instrument models ([below](#illumina-reads)) |
 | `se` | the same reads' first mates, profiled as single-end |
 | `pb` | PacBio HiFi reads by `hifi_reads.py`'s model (`--pb-setup`: 15 kb, quality by length, Q50 at 5 kb to Q20 at 50 kb) |
 | `ont` | Nanopore reads by [pbsim3](https://github.com/yukiteruono/pbsim3)'s quality-score model (`--ont-setup`: the high-quality model at 97%, 8 kb) |
@@ -429,10 +429,39 @@ compressed, with no template or pbsim3 files on the disk. Once the training data
 profiled as they are simulated, in protal runs of at least `--profile-blocks` GB of reads (20; the
 training data's and the test set's runs take turns), and each design point's reads are removed once
 every read type that reads them is profiled (the SAMs, profiles and dumps stay); `--profile-blocks 0`
-profiles both collections in one protal run once all is simulated, and keeps the reads. The models
-are trained in parallel. Without pbsim3's model file, leave `ont` out; a read type left out gets a
-placeholder model that reports nothing and makes protal warn. Replace it later with
+profiles both collections in one protal run once all is simulated, and keeps the reads. A design
+point whose largest sample would take more than `--stream-above` GB of compressed reads (2) is not
+written to the disk at all: a protal run of its own reads its samples from named pipes while
+`simulate_metagenomes` makes them, one sample at a time (its single-end samples from a second run that
+writes only the first reads; protal aligns a sample whose reads come through a pipe whatever SAM it
+has). The models are trained in parallel. Without pbsim3's model file, leave `ont` out; a read type
+left out gets a placeholder model that reports nothing and makes protal warn. Replace it later with
 `protal --add_model MODEL --read_type se --db DB`.
+
+#### Illumina reads
+
+`simulate_metagenomes` makes the paired-end reads itself (ART is no longer used): a fragment of normal
+length (`--fragment_mean`, `--fragment_stdev`) from a genome's contigs, either strand; read 1 from its
+start, read 2 from its reverse complement's. A base's quality follows the instrument's published mean
+by cycle (a curve per read, read 2 below read 1), with a run's, a cluster's and a read's offset and
+noise along the read; now and then a read falls into a low-quality state for a few cycles, more
+often towards its end, and a few reads end in Q2. A base is miscalled with its quality's probability
+(more after GG), as the instrument's substitutions do; rare insertions and deletions (more in
+homopolymers) and Ns. Binned instruments write their bins. The instruments (`--sequencer`, the
+second field of a read setup) and what their reads give:
+
+| instrument | written qualities | substitutions R1 / R2 | from |
+|---|---|---|---|
+| `HS20` HiSeq 2000 | 2-41 | ~0.34% / 0.46% | HiSeq 2x126 curve, Schirmer 2016 |
+| `HS25` HiSeq 2500 | 8 bins | ~0.30% / 0.44% | the same, Illumina's 8-level bins |
+| `HSXt` HiSeq X Ten / 4000 | 7 bins | ~0.26% / 0.47% | NovaSeq 2x151 curve |
+| `NovaSeq` NovaSeq 6000 | 2, 12, 23, 37 | ~0.20% / 0.43% | NovaSeq curve, Illumina's RTA3 note |
+| `MSv3` MiSeq v3 (250/300 bp) | 2-41 | ~0.34% / 0.72% (250 bp) | MiSeq 2x301 curve, Schirmer 2015 |
+
+The curves are InSilicoSeq's (Gourlé et al. 2019); the sources and the fit are in the
+[report](claude/2026-10-07-illumina-model/README.md). `simulate_metagenomes --illumina_report PAIRS
+--sequencer X --read_length L` prints an instrument's qualities by cycle and error rates;
+`--mean_quality Q` shifts each read's qualities (and errors) to average Q, as the scenarios do.
 
 #### An independent test set
 
@@ -495,10 +524,9 @@ How the parts are made:
   9000-11000 to ...`, also in `build_metadata.tsv`): its largest sample takes two thirds of the table,
   its smallest in proportion. With a download of 8,000 species (the defaults before 2026-10-05, about
   2,600 of them held out) soil and shallow soil hold about 2,400-2,900 species per sample.
-- **Illumina reads at a quality.** ART's profiles have their own mean quality (HiSeq X TruSeq, 150 bp:
-  Q40.2 for first reads, Q37.9 for second reads). ART shifts every quality, and draws the errors from
-  the shifted ones (`-qs`, `-qs2`); the shifts that give the target come from a short ART run, kept in
-  `scenarios/art_quality.json`.
+- **Illumina reads at a quality.** The instruments' qualities have their own mean (HiSeq X Ten, 150 bp:
+  about Q36.5 for first reads, Q35 for second reads); `--mean_quality` shifts each read's qualities to
+  the scenario's, and the errors follow them ([Illumina reads](#illumina-reads)).
 - **Ultima reads**: single-end, length from a gamma distribution, errors mostly homopolymer length
   errors (homopolymers from two bases), base qualities averaging the read's quality, made by
   `hifi_reads.py`'s flow model (in `simulate_metagenomes`) from templates drawn like long reads'. They are profiled as
@@ -507,8 +535,8 @@ How the parts are made:
   sequence beside the samples (3.1 GB for the human one) and read by memory map. Without one the
   default scenarios run without `host` and the run warns (rerunning `download_gtdb.py` on an older
   inputs folder fetches only the host genome); `--scenarios host` without one stops the build. It gives `host_share`
-  of a sample's read pairs (Illumina: the community is simulated at the rest; the host's pairs are made
-  by ART in amplicon mode from fragments drawn from it) or of its bases (Ultima, PacBio, Nanopore:
+  of a sample's read pairs (Illumina: the community is simulated at the rest; the host's pairs follow,
+  made in the same run from fragments drawn from it, named `h_<n>`) or of its bases (Ultima, PacBio, Nanopore:
   templates drawn among the community's by their share). Host reads are in no truth file; they reach
   the profile only through spurious alignments, and the sample's depth feature counts only what lands
   on taxa.
@@ -545,7 +573,7 @@ the final model, at the model's knob) and writes per sample, to
 | `<sample>.taxa.tsv` | each error taxon: FP, FN, or `unseen` (a species of the sample that the training database has but that protal profiled no reads to: never scored, so not in the models' counts, but in protal's); its score and knob; for FN and unseen species their genomes (and read pairs simulated, paired-end), their fragments with a record and where their best records went (on the taxon, at MAPQ 4 or more as the profiler counts them, elsewhere and on which taxa, or nowhere); for all, the fragments on the taxon and their sources, and those that seeded on it but failed to align |
 
 and `summary.tsv` (one line per sample; the console sums it per read type). A read's source is its name:
-ART names a read after its contig (single-end samples are the paired-end reads' first), which the genomes'
+`simulate_metagenomes` names a paired-end read after its contig (`<contig>-<n>`; single-end samples are the paired-end reads' first), which the genomes'
 FASTAs tell (read once per build, `genome_contigs.tsv.gz` beside the samples, shared with
 `trace_relatives.py`), and the collector names a drawn read (PacBio, Nanopore, Ultima) `g<i>x_<n>`, `i` the
 genome's place in its community's manifest; only the host's paired-end reads have no known source. A read
@@ -609,6 +637,7 @@ keeps the finished database.
 | `--scratch` | | a node-local folder for the samples ([above](#local-scratch)) |
 | `--read-compression` | zstd | how the simulated reads are written: `zstd` (`.fq.zst`; `simulate_metagenomes --reads_compression zstd`, the long and Ultima reads (`--long_samples`), the host's reads) or `gzip` (`.fq.gz`); smaller (about 15% against the simulator's gzip, which ISA-L writes about twice as fast) and several times faster to write than Python's gzip ([report](claude/2026-10-05-zstd-reads/README.md)) |
 | `--profile-blocks`, `--keep-free` | 20, 30 | profile the samples as they are simulated, in protal runs of at least this many GB of reads, removing the reads profiled (0: one protal run once all is simulated, reads kept); the GB a simulation leaves free on the samples' disk, or it waits |
+| `--stream-above` | 2 | with `--profile-blocks`: a design point whose largest sample would take more than this many GB of compressed reads is streamed into protal through named pipes, never written (0: none) |
 | `--seed` | 1 | |
 | `--holdout`, `--holdout-clades`, `--holdout-max-share` | 0.3, `phylum:2,class:4,order:6,family:8,genus:12`, 0.02 | species and clades left out of the training database; `--holdout-clades none` for species only |
 | `--holdout-species` | | a file of the species to leave out instead |
@@ -616,7 +645,7 @@ keeps the finished database.
 | `--insilico-strains`, `--insilico-ani` | 1, | share of one-genome species given an in-silico strain; or their ANI drawn from `MIN-MAX` |
 | `--samples` | 12 | samples per design point |
 | `--read-pairs` | `1000,2000,5000,20000,50000,100000,200000,500000,2000000:4,10000000:2,30000000:1` | depths, one design point each; `DEPTH:SAMPLES` for another number of samples |
-| `--read-setups` | `100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | read length : ART profile (or `file=R1.txt+R2.txt`) : fragment mean : SD |
+| `--read-setups` | `100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50` | read length : instrument ([Illumina reads](#illumina-reads)) : fragment mean : SD |
 | `--species-per-sample`, `--archaea` | `20-200`, 2 | species per sample; archaeal species per sample |
 | `--strains-per-species` | `0.3,0.1` | probabilities of a second, third, ... strain |
 | `--congeners` | `0.25:2-5` | about this share of a sample's species in groups of 2-5 congeners; `0` for none |
@@ -922,7 +951,7 @@ features.
 |---|---|---|
 | `--db`, `--genome_table`, `-o` | required | the database, the simulator's genome table, the output folder |
 | `--protal`, `--simulator` | on `$PATH` | the binaries |
-| `--samples`, `--read_pairs`, `--read_setups` | 4, `1000,5000,20000,100000,500000`, three setups | samples per point, depths, read length : ART profile : fragment mean : SD |
+| `--samples`, `--read_pairs`, `--read_setups` | 4, `1000,5000,20000,100000,500000`, three setups | samples per point, depths, read length : instrument : fragment mean : SD |
 | `--species_per_sample`, `--archaea`, `--strains_per_species`, `--abundance`, `--congeners` | `5-30`, 0, one, sigma 1.3, 0 | the communities |
 | `--read_types`, `--long_read_bases`, `--pb_setup`, `--ont_setup`, `--pbsim`, `--pbsim_models` | `pe` | other read types and how they are made |
 | `--novel_species`, `--novel_clades`, `--taxonomy` | | the species the database lacks (`heldout_species.txt`), held-out clades per sample, and the taxonomy for the `meta_*` ranks |
@@ -931,6 +960,7 @@ features.
 | `--simulate_only`, `--prepare_profiling`, `--also_profile MAP` | | simulate and stop; write the map to profile and stop; profile another collection in the same run |
 | `--read_compression` | zstd | `zstd` (`.fq.zst`) or `gzip` (`.fq.gz`): how the simulated reads are written |
 | `--follow`, `--profile_block`, `--protal_lock`, `--min_free` | , 20, , 0 | profile as a `--simulate_only` run of the same `-o` simulates, in protal runs of at least this many GB of reads, removing each point's reads once profiled, then write the tables (points it cannot profile once the simulations have ended it simulates itself); a lock file for the protal runs of two followers to take turns; GB a simulation leaves free on the disk, or it waits (for a follower to remove reads) |
+| `--stream_above` | 0 | `--follow` (and its `--simulate_only` run, the same value): points whose largest sample would take more than this many GB are streamed into a protal run of their own through named pipes, not written |
 
 ### Training
 

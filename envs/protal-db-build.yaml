@@ -25,9 +25,8 @@ dependencies:
   - make
   - zstd                  # the library, and the zstd CLI the end-to-end tests use
   - isa-l                 # gzip as protal reads and writes it (ISA-L); zlib-ng is vendored
-  # Run them: simulate_metagenomes runs ART
-  - art                   # art_illumina (and art_profiler_illumina, for profiles of real reads)
-  - pbsim3                # PacBio and Nanopore training reads (collect_training_data.py --read_types pb,ont)
+  # pbsim3 for its .model files (simulate_metagenomes reads QSHMM-ONT-HQ.model; pbsim3 itself is not run)
+  - pbsim3                # its QSHMM-ONT-HQ.model for the Nanopore training reads (--read_types ont)
   - pigz                  # optional: download_gtdb.py unpacks GTDB's archives faster with it
   # Convert the release, collect training data, train the model, check it against protal
   - python >=3.10

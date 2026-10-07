@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "../Utilities/Benchmark.h"
-#include "ArtIlluminaWrapper.h"
+#include "IlluminaSimulator.h"
 #include "CommunityProfileDesigner.h"
 #include "MetagenomeTypes.h"
 
@@ -28,7 +28,7 @@ void write_sample_manifest(const SampleOutput& sample, const std::filesystem::pa
 void write_abundance_matrix(const std::vector<SampleOutput>& samples, const std::filesystem::path& matrix_path);
 
 // Reads a manifest written by write_combined_manifest or write_sample_manifest back
-// into a design: which genome at which read depth in which sample, plus the ART seed
+// into a design: which genome at which read depth in which sample, plus the reads' seed (art_seed)
 // and fasta path when the manifest carries them. Sample and row order are preserved.
 std::vector<SampleOutput> read_manifest(const std::filesystem::path& manifest_path);
 
@@ -40,7 +40,7 @@ class MetagenomeSimulator {
 public:
     MetagenomeSimulator(
         std::vector<GenomeRecord> genomes,
-        ArtIlluminaOptions art_options = {},
+        IlluminaOptions illumina_options = {},
         std::uint64_t seed = std::random_device{}());
 
     std::vector<SampleOutput> simulate_samples(
@@ -65,7 +65,8 @@ public:
 
 private:
     std::vector<GenomeRecord> genomes_;
-    ArtIlluminaWrapper art_;
+    IlluminaOptions illumina_;
+    std::uint64_t seed_;
     CommunityProfileDesigner designer_;
     std::mt19937_64 rng_;
     ReadsCompression reads_compression_ = ReadsCompression::Bgzf;
@@ -77,21 +78,17 @@ private:
         const std::unordered_map<std::string, std::uint64_t>& genome_lengths,
         std::uint64_t paired_read_length);
 
-    // Draws each assignment's ART seed from rng_, as many as a run draws in the same order whether or not it writes
-    // reads, and its coverage: everything of a sample that depends on rng_, so that write_reads can run on threads.
+    // Draws each assignment's seed of its reads (art_seed in the manifest, a name from the ART days) from rng_, as many
+    // as a run draws in the same order whether or not it writes reads, and its coverage: everything of a sample that
+    // depends on rng_, so that the reads can be made on threads.
     void prepare_sample(SampleOutput& sample, std::uint64_t paired_read_length);
 
-    // Runs ART for each assignment of a prepared sample, on up to `threads` threads, and appends its reads in the
-    // assignments' order to the sample's _R1 and _R2 files, compressed as they arrive (BGZF, .fq.gz, or zstd, .fq.zst:
-    // reads_compression_; the same bytes as compressing the whole files, for any number of threads); each genome's
-    // temporary files go once appended, unless keep_tmp. With skip_reads, empty placeholder files.
-    void write_reads(SampleOutput& sample, const std::filesystem::path& output_dir, bool skip_reads, bool keep_tmp,
-                     std::size_t threads = 1) const;
-
-    // write_reads for all samples, art_.options().threads of them at a time; threads beyond the samples run the
-    // ART calls of a sample's genomes side by side (a deep sample is mostly ART and its reads' compression).
-    void write_all_reads(std::vector<SampleOutput>& samples, const std::filesystem::path& output_dir, bool skip_reads,
-                         bool keep_tmp) const;
+    // The samples' _R1 and _R2 files (only _R1 with first_reads_only): each assignment's pairs from its seed, then the
+    // sample's host pairs (IlluminaSimulator: SimulatePairs), compressed as they are made (BGZF, .fq.gz, or zstd,
+    // .fq.zst: reads_compression_), the same bytes for any number of threads. Files that are named pipes are written
+    // in place, a sample at a time (a reader such as protal takes them as they are made). With skip_reads, empty
+    // placeholder files (a named pipe is left alone).
+    void write_all_reads(std::vector<SampleOutput>& samples, const std::filesystem::path& output_dir, bool skip_reads) const;
 };
 
 }  // namespace protal::sim

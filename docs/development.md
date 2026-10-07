@@ -10,7 +10,7 @@ just model-test    # the trainer, and its model's PMML export scores as scikit-l
 
 The unit tests need GoogleTest (`libgtest-dev` on Ubuntu). The Python tests need numpy
 (`python3-numpy`), `model-test` and the GTDB build test also pandas, joblib and scikit-learn, as
-training does, and several tests `art_illumina` (`art-nextgen-simulation-tools`) and the `zstd` CLI.
+training does, and several tests the `zstd` CLI.
 Build requirements are in [installation.md](installation.md#building-from-source).
 
 ## Unit tests
@@ -62,15 +62,15 @@ gradient-boosted model (`tests/e2e/data/model_gbm_small.xml`) scored end to end 
 computed by hand. It covers paired-end, single-end, PacBio and ONT reads and phasing.
 
 The tests are written for the mini database (`just mini-db`): they name its species, taxids and
-genes, so another database fails them. They need Linux, numpy, the `zstd` CLI (or Python 3.14) and
-`art_illumina`, and take about 1.5 minutes on 4 cores, 3.5 GB of memory and 3-4 GB of `/tmp`:
+genes, so another database fails them. They need Linux, numpy and the `zstd` CLI (or Python 3.14),
+and take about 1.5 minutes on 4 cores, 3.5 GB of memory and 3-4 GB of `/tmp`:
 
 ```bash
 PROTAL_TEST_DB=data/mini_db/protal_db PROTAL=build/protal SIMULATE=build/simulate_metagenomes \
     PROTAL_TESTS_REQUIRED=1 python3 -m unittest -v tests/e2e/test_protal_e2e.py
 ```
 
-A test whose prerequisite is missing (the database, a binary, the `zstd` CLI, `art_illumina`) is
+A test whose prerequisite is missing (the database, a binary, the `zstd` CLI) is
 skipped; `PROTAL_TESTS_REQUIRED=1` makes it an error instead, as CI runs them. The tests that need no
 database (the version, the simulator, qcmsa's contract, small builds, gene neighbours) run without
 `PROTAL_TEST_DB`.
@@ -94,7 +94,7 @@ python3 -m unittest scripts/test_insilico_strains.py scripts/test_trace_relative
 ```
 
 **The GTDB build end to end** (`test_gtdb_pipeline.py`, `GtdbBuildTest`) needs `$PROTAL`, `$SIMULATE`,
-`art_illumina`, and scikit-learn, joblib and pandas in `$PROTAL_TRAIN_PYTHON` (default: the Python
+and scikit-learn, joblib and pandas in `$PROTAL_TRAIN_PYTHON` (default: the Python
 running the tests). On a synthetic release of 60 species, downloaded from stand-ins of GTDB's mirror
 and NCBI, each build serves every check of what it does:
 - a build trained for pe and se with its genes ranked from the training database (`--rank-genes`),
@@ -141,7 +141,7 @@ the release, the converter, the gene neighbours, `protal --build`. The scripts:
 | `gtdb_to_protal_db.py` | the converter, for synthetic and real releases ([databases.md](databases.md#1-convert-the-release)) |
 | `gene_neighbours.py` | the gene neighbours and positions ([databases.md](databases.md#gene-neighbours)) |
 | `make_gene_rates.py` | the table of `--gene_rates r226` from a GTDB build's `gene_congeners.tsv`; rerun it on a newer release |
-| `simulate_reads.py` | read pairs drawn straight from a mock community's genomes (substitutions only, no ART), with the truth |
+| `simulate_reads.py` | read pairs drawn straight from a mock community's genomes (substitutions only), with the truth |
 
 `simulate_gtdb_release.py` evolves each marker from one random coding sequence down the lineage.
 Its options:
@@ -169,8 +169,8 @@ that every species is found with the right abundance (within 0.05).
 ## Simulating metagenomes
 
 `simulate_metagenomes` draws mock communities from a table of genomes and simulates paired-end
-Illumina reads for them with [ART](https://www.niehs.nih.gov/research/resources/software/biostatistics/art)
-(`art_illumina`). It makes the tests' and benchmarks' samples and the model's training data
+Illumina reads for them with its own models of the instruments (no ART: [databases.md](databases.md#illumina-reads)),
+and long reads of given communities (`--long_samples`). It makes the tests' and benchmarks' samples and the model's training data
 ([databases.md](databases.md#training-data)). Build it with the other binaries
 (`cmake --build build --target simulate_metagenomes`, or `just simulate`).
 
@@ -188,10 +188,10 @@ protal --db DB --map sims/protal.meta -t 8      # prints true and false positive
 
 | Output | |
 |---|---|
-| `reads/<sample>_R1.fq.gz`, `_R2.fq.gz` | the reads (BGZF, compressed as each genome's reads are appended; with `--reads_compression zstd` `.fq.zst`, one zstd frame at level 3, as the database build writes them) |
-| `manifest.tsv`, `manifests/<sample>.tsv` | per (sample, genome): read pairs, relative abundance, vertical coverage, the FASTA and ART's seed |
+| `reads/<sample>_R1.fq.gz`, `_R2.fq.gz` | the reads (BGZF, compressed as they are made, the genomes' in order; with `--reads_compression zstd` `.fq.zst`, zstd frames at level 3, as the database build writes them); files that are named pipes are written in place, a sample at a time |
+| `manifest.tsv`, `manifests/<sample>.tsv` | per (sample, genome): read pairs, relative abundance, vertical coverage, the FASTA and the seed of its reads (`art_seed`) |
 | `abundance_matrix.tsv` | relative abundance of each species in each sample |
-| `run_params.tsv` | the command line, the seed (also when not given) and the ART settings |
+| `run_params.tsv` | the command line, the seed (also when not given) and the read settings |
 | `protal.meta`, `protal_goldstd/<sample>.profile_truth` | with `--protal_metafile DIR`: a protal map with a `PROFILE_TRUTH` column; protal then writes `<profile>.truth_annotated` |
 | `plots/<sample>.png` | with `--plot_png` (needs `Rscript`) |
 
@@ -206,20 +206,23 @@ protal --db DB --map sims/protal.meta -t 8      # prints true and false positive
 | `--congener_groups` | none | `SHARE:MIN-MAX`, e.g. `0.25:2-5`: about SHARE of each sample's species in groups of MIN to MAX congeners |
 | `--strain_sharing_file` | | strains shared across samples (below) |
 | `--seed` | random | |
-| `--read_length`, `--fragment_mean`, `--fragment_stdev`, `--sequencer` | 150, 350, 50, `HS25` | ART's read, fragment and error profile; `--extra_art_args` passes more |
-| `-t, --threads` | 1 | samples at a time; more threads run ART on a sample's genomes side by side. The samples are the same for any number |
+| `--read_length`, `--fragment_mean`, `--fragment_stdev`, `--sequencer` | 150, 350, 50, `HS25` | the reads, fragments and instrument (`HS20`, `HS25`, `HSXt`, `NovaSeq`, `MSv3`; `--illumina_report PAIRS` prints its qualities and errors) |
+| `--mean_quality`, `--host_folder`, `--host_pairs`, `--first_reads_only` | | each read's qualities shifted to average this; a host genome (`scenarios.prepare_host`) and its read pairs per sample, after the community's; only the `_R1` files |
+| `-t, --threads` | 1 | the reads are made in work items on all threads, several samples at once when one leaves threads idle; the same files for any number |
 | `--test` | off | the design, manifests and truth, no reads |
 | `--reads_compression` | bgzf | `bgzf` (`.fq.gz`, ISA-L at level 1) or `zstd` (`.fq.zst`: about 15% smaller, about half as fast to write; protal reads both) |
-| `--keep_tmp`, `--art_path`, `-v` | | keep each genome's reads; ART's path; the version and commit |
+| `--long_samples`, `--long_genomes`, `--long_setup`, `--long_model` | | long or Ultima reads of given communities ([databases.md](databases.md#one-model-per-read-type)); `--long_templates FASTA --long_out FILE`: one read of each sequence |
+| `-v` | | the version and commit |
 
 **Strains shared across samples.** `--strain_sharing_file` takes a tab-separated file, one species
 per row: `SPECIES`, `SAMPLE_FRACTION` (share of samples with it), `N_STRAINS` (distinct strains
 across samples), `MIN_OCCURRENCE` (samples each strain is in at least), and optionally `MIN_VCOV`
 (minimum coverage per strain and sample) and `CONSPECIFIC_STRAINS` (as `--strains_per_species`).
 
-**Replaying a dataset.** A manifest holds the genomes, read pairs and ART seeds, so
+**Replaying a dataset.** A manifest holds the genomes, read pairs and the seeds of their reads, so
 `--from_manifest sims/manifest.tsv --output_dir replay/` reproduces the reads byte for byte with the
-same `art_illumina` and ART settings. The settings come from the command line; the replay warns about
+same simulator and read settings (a manifest of the ART days replays the composition with new reads).
+The settings come from the command line; the replay warns about
 each that differs from the original `run_params.tsv`. Sampling options are ignored, and a per-sample
 manifest replays that sample. Manifests without seeds replay the composition with fresh reads (pass
 `--genome_table`).
@@ -227,7 +230,7 @@ manifest replays that sample. Manifests without seeds replay the composition wit
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push and pull request (Ubuntu 24.04; `python3` with numpy,
-pandas, scikit-learn and joblib from the distribution; `art_illumina`; the `zstd` CLI), with
+pandas, scikit-learn and joblib from the distribution; the `zstd` CLI), with
 `PROTAL_TESTS_REQUIRED=1`, so that a test whose prerequisite is missing fails instead of passing unseen
 as a skip:
 - a Release build with the unit tests, the mini database, the end-to-end tests, `just example`'s

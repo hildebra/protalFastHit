@@ -14,10 +14,10 @@ and set "test" (the independent test set and the scenarios' hold-out samples) by
 and its SAM gives every record of the reads (of paired-end reads: of the fragments) that
   - align to an FP or FN taxon (RNAME <taxid>_<gene>),
   - seeded on an FN or unseen taxon but did not align to it (its ZF tag; an unmapped record if they aligned nowhere), or
-  - come from a genome of an FN or unseen species. ART names a read after its contig (<contig>-<n>; single-end reads
-    are the paired-end reads' first), whose genome the FASTAs of the sample's manifest.tsv tell (trace_relatives.py);
-    simulate_metagenomes names a drawn read (PacBio, Nanopore, Ultima) g<i>x_<n>, i the genome's place among its
-    community's in the manifest (the host's after them).
+  - come from a genome of an FN or unseen species. simulate_metagenomes names an Illumina read after its contig
+    (<contig>-<n>; single-end reads are the paired-end reads' first), whose genome the FASTAs of the sample's
+    manifest.tsv tell (trace_relatives.py); a drawn read (PacBio, Nanopore, Ultima) g<i>x_<n>, i the genome's place
+    among its community's in the manifest (the host's after them).
 Each record gains its read's source and why it was taken: xg:Z:<genome>, xs:Z:<species> (" (not in the database)" for a
 species the training database lacks), xe:Z:FP:<taxid>,FN:<taxid>,seeded:<taxid>,source:<taxid> (lower-case tags: the
 SAM specification leaves them to users). A read that seeded on nothing has no record: most of a genome's reads are
@@ -208,8 +208,8 @@ def records(path):
 
 
 def source_finder(manifest, drawn):
-    """qname -> (genome, species) of the read's source, or (None, None): by the contig ART named the read after, or by
-    a drawn read's genome index."""
+    """qname -> (genome, species) of the read's source, or (None, None): by the contig an Illumina read is named
+    after, or by a drawn read's genome index."""
     species_of_genome = {r["genome"]: species_of(r.get("taxonomy", "")) for r in manifest}
     if drawn:
         genomes = [r["genome"] for r in manifest] + ["host"]

@@ -12,7 +12,7 @@ The scripts' other tests, beside this file (mini_db_fixtures.py holds what they 
   test_collector.py        collect_training_data.py, scenarios.py, hifi_reads.py
   test_gene_neighbours.py  gene_neighbours.py
   test_gtdb_build.py       build_gtdb_database.py, build_gtdb_releases.py, rank_genes.py, the reduced database; its
-                           end-to-end build needs $PROTAL, $SIMULATE, art_illumina and scikit-learn
+                           end-to-end build needs $PROTAL, $SIMULATE and scikit-learn
 
   python3 -m unittest scripts/mini_db/test_mini_db.py
 """

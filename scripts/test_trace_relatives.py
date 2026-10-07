@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of trace_relatives.py: reads traced to their genomes by contig, as ART names them, and the script end to end
+"""Tests of trace_relatives.py: reads traced to their genomes by the contigs in their names, and the script end to end
 (where a held-out species' reads land, by the genes' conservation factors).
 
 At GTDB r226 (v10) the trace found no gene: it took a read's genome from the part of its name before "_contig", as the

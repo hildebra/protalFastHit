@@ -3,7 +3,7 @@
 by stand-ins of GTDB's mirror and NCBI: the protal databases built, the models trained and packed, a rerun, a reduced
 database, another seed, the samples profiled as they are simulated, scenarios, failures and SIGTERM.
 
-Needs $PROTAL, $SIMULATE (simulate_metagenomes), art_illumina and a Python with scikit-learn, joblib, numpy and pandas
+Needs $PROTAL, $SIMULATE (simulate_metagenomes) and a Python with scikit-learn, joblib, numpy and pandas
 ($PROTAL_TRAIN_PYTHON, default this one); without them skipped, or failed with PROTAL_TESTS_REQUIRED=1
 (scripts/prerequisites.py). A few minutes. The build script's parts on their own: test_gtdb_build.py.
 
@@ -48,7 +48,7 @@ class GtdbBuildTest(unittest.TestCase):
               again, the samples simulated again; stopped by SIGTERM, the run leaves no command running
       test_f  scenarios with host reads, the feature sets chosen by the trainers, the reads behind the models' errors
       test_g  the full build's samples profiled as they are simulated: the same tables
-    Needs $PROTAL, $SIMULATE, art_illumina and a Python with scikit-learn ($PROTAL_TRAIN_PYTHON, default this one)."""
+    Needs $PROTAL, $SIMULATE and a Python with scikit-learn ($PROTAL_TRAIN_PYTHON, default this one)."""
 
     full = None  # full_build()'s run, once made
 
@@ -60,8 +60,6 @@ class GtdbBuildTest(unittest.TestCase):
             missing.append("$PROTAL (a protal binary)")
         if not prerequisites.executable(os.environ.get("SIMULATE", "")):
             missing.append("$SIMULATE (simulate_metagenomes)")
-        if not prerequisites.on_path("art_illumina"):
-            missing.append("art_illumina")
         try:
             trainer_ok = subprocess.run([cls.python, "-c", "import joblib, numpy, pandas, sklearn"],
                                         capture_output=True).returncode == 0
@@ -503,16 +501,15 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout[-3000:])
         simulation = self.text("scenarios", "training_data_simulation.log")
         self.assertRegex(simulation, r"scenario gut \(2 samples\): \d+ species \(\d+ the database lacks, [\d.]+%; \d+ it "
-                                     r"has\) for samples of 5-6; Illumina reads at Q30 \(ART HS20: Q[\d.]+ and Q[\d.]+, "
-                                     r"shifted by [-+]\d+ and [-+]\d+\)")
-        self.assertIn("sc_host_pe_p20000: 18000 host read pairs added to each of its 2 samples", simulation)
+                                     r"has\) for samples of 5-6; Illumina reads at Q30 \(HS20, --mean_quality\)")
+        self.assertIn("sc_host_pe_p20000 simulated (2 samples)", simulation)
         # A host sample: the community's 2,000 read pairs and the host's 18,000; its Ultima reads, 90% of them host's.
         points = os.path.join(scratch, "training", "points")
         host_reads = glob.glob(os.path.join(points, "sc_host_pe_p20000", "sim", "reads", "*_R1.fq.zst"))
         self.assertEqual(len(host_reads), 2)  # zstd by default (--read-compression)
         # Every read file the build simulated is zstd (the build's default --read-compression: the design's paired-end
-        # points by simulate_metagenomes --reads_compression zstd, the scenarios', their host reads appended as more
-        # frames, Ultima and long reads by the collector), and protal profiled them all (the tables below).
+        # points by simulate_metagenomes --reads_compression zstd, the scenarios' with their host reads in the same run,
+        # Ultima and long reads by simulate_metagenomes --long_samples), and protal profiled them all (the tables below).
         for collection in ("training", "test"):
             simulated = glob.glob(os.path.join(scratch, collection, "points", "*", "sim", "reads", "*.fq*"))
             self.assertTrue(any("/rl100_p" in p.replace(os.sep, "/") for p in simulated), collection)  # the design's
@@ -522,8 +519,8 @@ class GtdbBuildTest(unittest.TestCase):
                     self.assertEqual(fh.read(4), compressed.ZSTD_MAGIC, path)
         for reads in host_reads:
             names = compressed.read_text(reads).splitlines()[0::4]
-            self.assertEqual(sum(n.startswith("@h") for n in names), 18000)  # exactly the host's
-            self.assertAlmostEqual(len(names), 20000, delta=20)  # ART makes about the community's 2,000
+            self.assertEqual(sum(n.startswith("@h_") for n in names), 18000)  # exactly the host's
+            self.assertEqual(len(names), 20000)  # and exactly the community's 2,000
         lines = compressed.read_text(glob.glob(os.path.join(points, "sc_host_se_ultima_r5000", "sim", "reads",
                                                             "*.fq.zst"))[0]).splitlines()
         lengths = [len(r) for r in lines[1::4]]
@@ -604,7 +601,7 @@ class GtdbBuildTest(unittest.TestCase):
                 self.assertEqual(len(records), int(r["records"]))
                 self.assertTrue(all("\txg:Z:" in line and "\txs:Z:" in line and "\txe:Z:" in line for line in records))
                 self.assertTrue(any(line.startswith("@CO\terror_reads.py: ") for line in lines))
-                # Every read's source genome known (ART names a read after its contig, the collector a drawn read after
+                # Every read's source genome known (a paired-end read is named after its contig, a drawn read after
                 # its genome's place), but the host's paired-end reads.
                 if r["scenario"] != "host" or t != "pe":
                     self.assertEqual(r["unknown_source"], "0", (t, r["sample"]))
@@ -651,6 +648,31 @@ class GtdbBuildTest(unittest.TestCase):
         self.assertRegex(log, r"protal run 1: \d+ design points, [\d.]+ GB of reads; the simulations (go on|have ended)")
         self.assertRegex(log, r"every design point is profiled, in \d+ protal runs?")
         self.assertIn("keeping 1 GB free on", self.text("follow", "training_data_simulation.log"))
+
+    def test_h_streamed(self):
+        # Every design point streamed (--stream-above, here a few bytes): protal reads each point's samples from named
+        # pipes as simulate_metagenomes makes them (pe, then se from a run that writes only read 1s), a protal run per
+        # point, no read on the disk: the same tables as full_build()'s one protal run.
+        first = self.full_build()
+        self.assertEqual(first.returncode, 0, first.stdout[-3000:])
+        scratch = os.path.join(self.tmp.name, "stream_scratch")
+        result = self.build("stream", "--scratch", scratch, "--profile-blocks", "20", "--stream-above", "0.000000001",
+                            "--evaluation", "none")
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:])
+        for collection in ("training", "test"):
+            for table in ("training_data.tsv", "training_data_se.tsv"):
+                self.assertEqual(self.text("stream", collection, table), self.text("full_tables", collection, table),
+                                 f"{collection}/{table}")
+            points = os.path.join(scratch, collection, "points")
+            self.assertEqual(glob.glob(os.path.join(points, "*", "sim", "reads", "*")), [], "no reads, no pipes left")
+            self.assertEqual(glob.glob(os.path.join(points, "*", "stream_*", "")), [], "the streams' folders removed")
+            self.assertTrue(glob.glob(os.path.join(points, "*", "stream_pe.log")), "the simulators' logs kept")
+            self.assertTrue(glob.glob(os.path.join(points, "*", "streamed.json")))
+            self.assertTrue(glob.glob(os.path.join(points, "*", "protal*", "alignments", "*.sam*")))
+        log = self.text("stream", "training_data.log")
+        self.assertRegex(log, r"\d+ simulations streamed into protal \(a sample above 1e-09 GB\)")
+        self.assertRegex(log, r"protal run 1: \S+ streamed \(2 design points, \d+ samples, read from named pipes")
+        self.assertRegex(log, r"every design point is profiled, in \d+ protal runs?")
 
 
 if __name__ == "__main__":

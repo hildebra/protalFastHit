@@ -3,8 +3,8 @@
 
 build_gtdb_database.py simulates its training samples from genomes of every species, and aligns them to a training
 database that leaves some species out. The reads of a species left out (whose genus stays) can only land on its
-congeners. This script follows them read by read: a simulated read is named after the contig it came from (ART:
-<contig>-<n>), whose genome the genomes' FASTAs in the samples' manifest.tsv tell (their headers, read once per
+congeners. This script follows them read by read: a simulated read is named after the contig it came from
+(<contig>-<n>), whose genome the genomes' FASTAs in the samples' manifest.tsv tell (their headers, read once per
 genome; GTDB's contigs are named by NCBI, not by their genome), and its primary record names the taxon and gene it
 aligned to (RNAME <taxid>_<geneid>). With the genomes being real (GTDB's), it tells how a relative's reads spread over the genes of
 real congeners, by the genes' conservation factors (gene_conservation.tsv, here from the training database's
@@ -107,7 +107,7 @@ def paired_samples(points):
 
 
 def contig_names(path):
-    """The first words of a genome FASTA's headers (its contigs, as ART names the reads), .gz or plain; an empty
+    """The first words of a genome FASTA's headers (its contigs, which name the reads), .gz or plain; an empty
     list for a file that cannot be read."""
     try:
         opener = gzip.open if path.endswith(".gz") else open
@@ -150,7 +150,7 @@ def genome_contigs(paths, threads, cache=None):
 
 
 def read_contig(name):
-    """The contig a simulated read came from, by its name (ART: <contig>-<n>; the aligner cut a mate's /1 or /2)."""
+    """The contig a simulated read came from, by its name (<contig>-<n>; the aligner cut a mate's /1 or /2)."""
     return name.rsplit("-", 1)[0]
 
 

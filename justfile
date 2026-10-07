@@ -203,8 +203,8 @@ mini-db: baseline
 
 # Checks of the scripts: the mini DB generator and converter, the GTDB downloads, the collector and scenarios, the
 # gene neighbours, the GTDB build script (scripts/mini_db/test_*.py), the in-silico strains, trace_relatives.py,
-# error_reads.py, the profile scripts and the strain test's reports. Needs numpy; art_illumina, git, cmake and the zstd
-# CLI for a few tests. The GTDB build end to end (test_gtdb_pipeline.py, a few minutes) and protal's builds of gene
+# error_reads.py, the profile scripts and the strain test's reports. Needs numpy; git, cmake and the zstd CLI for a
+# few tests. The GTDB build end to end (test_gtdb_pipeline.py, a few minutes) and protal's builds of gene
 # subsets run with PROTAL and SIMULATE set (e.g. PROTAL=$PWD/build/protal SIMULATE=$PWD/build/simulate_metagenomes
 # just mini-db-test) and a Python with scikit-learn (PROTAL_TRAIN_PYTHON, default python3). A test whose prerequisite
 # is missing is skipped; PROTAL_TESTS_REQUIRED=1 makes it fail instead (scripts/prerequisites.py).
@@ -226,8 +226,8 @@ test:
     ctest --test-dir {{build_dir}} --output-on-failure
 
 # End-to-end tests of protal and simulate_metagenomes on a freshly built mini DB (tests/e2e/test_protal_e2e.py; about
-# 1.5 minutes on 4 cores). Needs Linux, numpy, the zstd CLI and art_illumina. A test whose prerequisite is missing is
-# skipped; PROTAL_TESTS_REQUIRED=1 makes it fail instead.
+# 1.5 minutes on 4 cores). Needs Linux, numpy and the zstd CLI. A test whose prerequisite is missing is skipped;
+# PROTAL_TESTS_REQUIRED=1 makes it fail instead.
 e2e: mini-db simulate
     PROTAL_TEST_DB={{mini_db_dir}}/protal_db PROTAL={{protal}} SIMULATE={{build_dir}}/simulate_metagenomes \
         python3 -m unittest -v tests/e2e/test_protal_e2e.py

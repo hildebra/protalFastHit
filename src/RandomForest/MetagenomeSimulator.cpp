@@ -419,9 +419,10 @@ void write_combined_manifest(const std::vector<SampleOutput>& samples, const fs:
 }
 
 MetagenomeSimulator::MetagenomeSimulator(
-    std::vector<GenomeRecord> genomes, ArtIlluminaOptions art_options, std::uint64_t seed)
+    std::vector<GenomeRecord> genomes, IlluminaOptions illumina_options, std::uint64_t seed)
     : genomes_(std::move(genomes)),
-      art_(std::move(art_options)),
+      illumina_(std::move(illumina_options)),
+      seed_(seed),
       designer_(genomes_),
       rng_(seed) {}
 
@@ -486,89 +487,9 @@ static std::unordered_map<std::string, std::uint64_t> build_length_cache(const s
     return lengths;
 }
 
-//static void append_fastq(const fs::path& src, std::ofstream& dst) {
-//    std::ifstream in(src, std::ios::binary);
-//    if (!in) {
-//        throw std::runtime_error("Unable to open FASTQ chunk: " + src.string());
-//    }
-//    dst << in.rdbuf();
-//}
-
-//static void append_fastq(const fs::path& src, std::ofstream& dst) {
-//    std::ifstream in(src, std::ios::binary);
-//    if (!in) {
-//        throw std::runtime_error("Unable to open FASTQ chunk: " + src.string());
-//    }
-//
-//    dst << in.rdbuf();
-//
-//    if (!dst) {
-//        throw std::runtime_error("Write failed while appending " + src.string());
-//    }
-//
-//    dst.clear();  // ← THIS IS THE CRITICAL FIX
-//}
-
-// A sample's read file as its reads arrive: BGZF (ISA-L) or one zstd frame at level 3 with a checksum, without a
-// long window (FASTQ gains nothing from one). Error() says why writing failed; Close() finishes the file.
-class ReadsWriter {
-public:
-    ReadsWriter(std::string const& path, ReadsCompression compression) {
-        if (compression == ReadsCompression::Zstd) {
-            m_zstd = std::make_unique<protal::zstd::OStream>(path, protal::zstd::Params{3, 0, 1, 0});
-        } else {
-            m_bgzf = std::make_unique<protal::bgzf::Writer>(path);
-        }
-    }
-
-    void Write(char const* data, std::size_t size) {
-        if (m_zstd) m_zstd->write(data, static_cast<std::streamsize>(size));
-        else m_bgzf->Write(data, size);
-    }
-
-    std::string Error() const {
-        if (!m_zstd) return m_bgzf->Error();
-        if (!m_zstd->Buffer().Error().empty()) return m_zstd->Buffer().Error();
-        return m_zstd->fail() ? "writing the zstd stream failed" : "";
-    }
-
-    bool Close() { return m_zstd ? m_zstd->Close() : m_bgzf->Close(); }
-
-private:
-    std::unique_ptr<protal::bgzf::Writer> m_bgzf;
-    std::unique_ptr<protal::zstd::OStream> m_zstd;
-};
-
-// The file name suffix of a sample's reads: .fq.gz (BGZF) or .fq.zst.
 static std::string ReadsSuffix(ReadsCompression compression) {
     return compression == ReadsCompression::Zstd ? ".fq.zst" : ".fq.gz";
 }
-
-static void append_fastq(const fs::path& src, ReadsWriter& dst)
-{
-    std::ifstream in(src, std::ios::binary);
-    if (!in) {
-        throw std::runtime_error("Unable to open FASTQ chunk: " + src.string());
-    }
-
-    constexpr std::size_t bufsize = 1 << 20; // 1 MB
-    std::vector<char> buffer(bufsize);
-
-    while (in) {
-        in.read(buffer.data(), buffer.size());
-        std::streamsize n = in.gcount();
-        if (n > 0) {
-            dst.Write(buffer.data(), static_cast<std::size_t>(n));
-        }
-    }
-    if (in.bad()) {
-        throw std::runtime_error("Read failed while appending " + src.string());
-    }
-    if (!dst.Error().empty()) {
-        throw std::runtime_error("Write failed while appending " + src.string() + ": " + dst.Error());
-    }
-}
-
 
 static void normalize_relative_abundance(SampleOutput& sample) {
     double coverage_sum = 0.0;
@@ -600,9 +521,7 @@ SampleOutput MetagenomeSimulator::simulate_single(
     return sample;
 }
 
-// Runs ART over assignments whose genome, read_pairs and genome_length are already
-// fixed — by the profile designer on a fresh run, or by a manifest on a replay.
-// Assignments whose genome, read_pairs and genome_length are already fixed — by the profile
+// Prepares assignments whose genome, read_pairs and genome_length are already fixed — by the profile
 // designer on a fresh run, or by a manifest on a replay.
 void MetagenomeSimulator::prepare_sample(SampleOutput& sample, std::uint64_t paired_read_length)
 {
@@ -611,20 +530,10 @@ void MetagenomeSimulator::prepare_sample(SampleOutput& sample, std::uint64_t pai
             if (genome_len == 0) {
                 throw std::runtime_error("Missing genome length for " + assignment.genome.name);
             }
-            // Drawn even when reads are skipped, so that a --test design and the
-            // corresponding real run consume the RNG identically. ART reads -rs as a signed
-            // 32-bit number, so larger seeds would alias; the draw keeps 31 bits.
+            // Drawn even when reads are skipped, so that a --test design and the corresponding real run consume the
+            // RNG identically (31 bits, as when ART read it as a signed 32-bit number); a replayed seed is kept.
             const auto drawn_seed = static_cast<unsigned int>(rng_() & 0x7fffffffu);
-            if (auto forced_seed = art_.seed_override()) {
-                // An -rs in extra_art_args beats both the drawn seed and a replayed one.
-                static bool warned = false;
-                if (*forced_seed > 0x7fffffffu && !warned) {
-                    std::cerr << "Warning: -rs " << *forced_seed << " is above 2^31-1, which ART reads "
-                                 "as a different (signed 32-bit) seed" << std::endl;
-                    warned = true;
-                }
-                assignment.art_seed = *forced_seed;
-            } else if (!assignment.art_seed) {
+            if (!assignment.art_seed) {
                 assignment.art_seed = drawn_seed;
             }
             const double bases = static_cast<double>(assignment.read_pairs * paired_read_length);
@@ -634,170 +543,57 @@ void MetagenomeSimulator::prepare_sample(SampleOutput& sample, std::uint64_t pai
     }
 }
 
-void MetagenomeSimulator::write_reads(
-        SampleOutput& sample,
-        const fs::path& output_dir,
-        bool skip_reads,
-        bool keep_tmp,
-        std::size_t threads) const
-{
-    const std::string& sample_name = sample.sample_name;
-    fs::path reads_dir = output_dir / "reads";
-    fs::create_directories(reads_dir);
-    const fs::path sample_prefix = reads_dir / sample_name;
-    const fs::path r1_gz = sample_prefix.string() + "_R1" + ReadsSuffix(reads_compression_);
-    const fs::path r2_gz = sample_prefix.string() + "_R2" + ReadsSuffix(reads_compression_);
-    sample.read1_path = r1_gz;
-    sample.read2_path = r2_gz;
-    if (skip_reads) {
-        // Create empty placeholder files for manifests to point to.
-        std::ofstream placeholder1(r1_gz, std::ios::binary);
-        std::ofstream placeholder2(r2_gz, std::ios::binary);
-        (void)placeholder1;
-        (void)placeholder2;
-        return;
-    }
-
-    const fs::path temp_dir = output_dir / (sample_name + "_tmp");
-    fs::create_directories(temp_dir);
-    // Truncated: a leftover file of an interrupted run must not be extended. Compressed as the reads arrive, so that
-    // a deep sample's uncompressed reads are never on disk; replays give byte-identical files.
-    ReadsWriter r1_out(r1_gz.string(), reads_compression_);
-    ReadsWriter r2_out(r2_gz.string(), reads_compression_);
-    if (!r1_out.Error().empty() || !r2_out.Error().empty()) {
-        throw std::runtime_error("Unable to create output FASTQ files for " + sample_name + ": " + r1_out.Error() + r2_out.Error());
-    }
-    // ART runs for the genomes in the sample's order, each in a folder of its own (its place in the sample), on up
-    // to `threads` threads (this one included) and at most 2 x threads genomes ahead of the next to append; this
-    // thread appends them in that order, so the files are the same for any number of threads.
-    auto const& assignments = sample.assignments;
-    std::size_t const n = assignments.size();
-    std::size_t const helpers = std::min(std::max<std::size_t>(1, threads), std::max<std::size_t>(1, n)) - 1;
-    std::size_t const window = 2 * (helpers + 1);
-    std::vector<std::pair<fs::path, fs::path>> made(n);
-    std::vector<char> ready(n, 0);
-    std::vector<std::exception_ptr> failed(n);
-    std::size_t next = 0, appended = 0;
-    bool stop = false;
-    std::mutex mutex;
-    std::condition_variable changed;
-    auto genome_dir = [&](std::size_t i) { return temp_dir / std::to_string(i); };
-    auto simulate = [&](std::size_t i) {  // without the lock
-        std::pair<fs::path, fs::path> files;
-        std::exception_ptr error;
-        try {
-            auto const& assignment = assignments[i];
-            fs::create_directories(genome_dir(i));
-            files = art_.simulate_read_pairs(
-                assignment.genome, assignment.read_pairs, assignment.genome_length,
-                genome_dir(i) / assignment.genome.name, static_cast<unsigned int>(*assignment.art_seed), genome_dir(i));
-        } catch (...) {
-            error = std::current_exception();
-        }
-        std::lock_guard<std::mutex> lock(mutex);
-        made[i] = std::move(files);
-        failed[i] = error;
-        ready[i] = 1;
-        changed.notify_all();
-    };
-    auto may_start = [&] { return !stop && next < n && next < appended + window; };
-    auto helper = [&] {
-        for (;;) {
-            std::size_t i;
-            {
-                std::unique_lock<std::mutex> lock(mutex);
-                changed.wait(lock, [&] { return stop || next >= n || may_start(); });
-                if (!may_start()) return;
-                i = next++;
-            }
-            simulate(i);
-        }
-    };
-    std::vector<std::thread> pool;
-    for (std::size_t t = 0; t < helpers; t++) pool.emplace_back(helper);
-    auto finish_pool = [&] {
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            stop = true;
-            changed.notify_all();
-        }
-        for (auto& thread : pool) thread.join();
-        pool.clear();
-    };
-    try {
-        for (std::size_t j = 0; j < n; j++) {
-            for (;;) {  // until genome j is simulated; this thread simulates the next genome itself meanwhile
-                std::unique_lock<std::mutex> lock(mutex);
-                if (ready[j]) break;
-                if (may_start()) {
-                    std::size_t const i = next++;
-                    lock.unlock();
-                    simulate(i);
-                    continue;
-                }
-                changed.wait(lock, [&] { return ready[j] || may_start(); });
-            }
-            if (failed[j]) std::rethrow_exception(failed[j]);
-            append_fastq(made[j].first, r1_out);
-            append_fastq(made[j].second, r2_out);
-            if (!keep_tmp) {
-                // This genome's reads, and its decompressed copy (ArtIlluminaWrapper::ensure_fasta), are not needed again.
-                std::error_code ec;
-                fs::remove_all(genome_dir(j), ec);
-            }
-            std::lock_guard<std::mutex> lock(mutex);
-            appended = j + 1;
-            changed.notify_all();
-        }
-    } catch (...) {
-        finish_pool();
-        throw;
-    }
-    finish_pool();
-    if (!r1_out.Close() || !r2_out.Close()) {
-        throw std::runtime_error("Unable to finish writing FASTQ files for " + sample_name + ": " + r1_out.Error() + r2_out.Error());
-    }
-    if (!keep_tmp) {
-        fs::remove_all(temp_dir);
-    }
+static bool is_named_pipe(const fs::path& path) {
+    std::error_code ec;
+    return fs::is_fifo(path, ec);
 }
 
 void MetagenomeSimulator::write_all_reads(
         std::vector<SampleOutput>& samples,
         const fs::path& output_dir,
-        bool skip_reads,
-        bool keep_tmp) const
+        bool skip_reads) const
 {
-    // A sample per thread; threads beyond the samples go to their genomes (write_reads), the first samples taking
-    // the remainder.
-    std::size_t const threads = static_cast<std::size_t>(std::max(1, art_.options().threads));
-    std::size_t const workers = std::min<std::size_t>(samples.size(), threads);
-    std::atomic<std::size_t> next{0};
-    std::vector<std::exception_ptr> errors(samples.size());
-    std::mutex print;
-    auto work = [&](std::size_t worker) {
-        std::size_t const genome_threads = workers ? threads / workers + (worker < threads % workers ? 1 : 0) : 1;
-        for (std::size_t i = next++; i < samples.size(); i = next++) {
-            protal::Benchmark timer("write the reads of " + samples[i].sample_name);
-            timer.Start();
-            try {
-                write_reads(samples[i], output_dir, skip_reads, keep_tmp, genome_threads);
-            } catch (...) {
-                errors[i] = std::current_exception();
-                next = samples.size();  // no new samples: the run fails
+    fs::path reads_dir = output_dir / "reads";
+    fs::create_directories(reads_dir);
+    std::vector<PairedSample> paired;
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        auto& sample = samples[i];
+        const fs::path prefix = reads_dir / sample.sample_name;
+        sample.read1_path = prefix.string() + "_R1" + ReadsSuffix(reads_compression_);
+        sample.read2_path = prefix.string() + "_R2" + ReadsSuffix(reads_compression_);
+        if (skip_reads) {
+            for (const auto& path : {sample.read1_path, sample.read2_path}) {
+                if (!is_named_pipe(path)) std::ofstream placeholder(path, std::ios::binary);  // for manifests to name
             }
-            timer.Stop();
-            std::lock_guard<std::mutex> lock(print);
-            timer.PrintResults();
+            continue;
         }
-    };
-    std::vector<std::thread> pool;
-    for (std::size_t w = 1; w < workers; w++) pool.emplace_back(work, w);
-    work(0);
-    for (auto& thread : pool) thread.join();
-    for (auto const& error : errors) {
-        if (error) std::rethrow_exception(error);
+        PairedSample reads;
+        reads.name = sample.sample_name;
+        reads.r1 = sample.read1_path;
+        if (!illumina_.first_reads_only) reads.r2 = sample.read2_path;
+        for (const auto& assignment : sample.assignments) {
+            reads.genomes.push_back({assignment.genome.name, assignment.genome.fasta_path, assignment.read_pairs,
+                                     assignment.art_seed.value_or(0)});
+        }
+        if (!illumina_.host_pairs.empty()) reads.host_pairs = illumina_.host_pairs[i % illumina_.host_pairs.size()];
+        reads.host_seed = MixSeed(seed_, 0x686f7374ULL + i);   // "host"
+        reads.run_seed = MixSeed(seed_, 0x72756e00ULL + i);    // "run"
+        paired.push_back(std::move(reads));
     }
+    if (skip_reads) return;
+    PairedOptions options;
+    options.setup.profile = IlluminaProfile::Named(illumina_.sequencer);
+    options.setup.read_length = illumina_.read_length;
+    options.setup.fragment_mean = illumina_.fragment_mean;
+    options.setup.fragment_sd = illumina_.fragment_stdev;
+    options.setup.mean_quality = illumina_.mean_quality;
+    options.host = illumina_.host_folder;
+    options.threads = std::max(1, illumina_.threads);
+    protal::Benchmark timer("write the reads of " + std::to_string(samples.size()) + " samples");
+    timer.Start();
+    SimulatePairs(paired, options);
+    timer.Stop();
+    timer.PrintResults();
 }
 
 std::vector<SampleOutput> MetagenomeSimulator::simulate_samples(
@@ -812,7 +608,7 @@ std::vector<SampleOutput> MetagenomeSimulator::simulate_samples(
         return {};
     }
     const auto genome_lengths = build_length_cache(genomes_);
-    const auto paired_read_length = static_cast<std::uint64_t>(art_.options().read_length) * 2ULL;
+    const auto paired_read_length = static_cast<std::uint64_t>(illumina_.read_length) * 2ULL;
 
     // Pre-assign strains across samples for all strain_sharing specs.
     auto strain_assignments = designer_.assign_strains_across_samples(
@@ -844,7 +640,7 @@ std::vector<SampleOutput> MetagenomeSimulator::simulate_samples(
         normalize_relative_abundance(sample);
         outputs.push_back(std::move(sample));
     }
-    write_all_reads(outputs, output_dir, skip_reads, keep_tmp);
+    write_all_reads(outputs, output_dir, skip_reads);
     return outputs;
 }
 
@@ -854,12 +650,12 @@ std::vector<SampleOutput> MetagenomeSimulator::replay_samples(
     bool skip_reads,
     bool keep_tmp)
 {
-    const auto paired_read_length = static_cast<std::uint64_t>(art_.options().read_length) * 2ULL;
+    const auto paired_read_length = static_cast<std::uint64_t>(illumina_.read_length) * 2ULL;
     for (auto& sample : design) {  // rng_ in the order of the samples, then their reads on threads
         prepare_sample(sample, paired_read_length);
         normalize_relative_abundance(sample);
     }
-    write_all_reads(design, output_dir, skip_reads, keep_tmp);
+    write_all_reads(design, output_dir, skip_reads);
     return design;
 }
 

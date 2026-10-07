@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Simulate metagenomes and profile them with protal, to train its presence models.
 
-For every design point, a read setup (length, ART profile, fragment size) and a sequencing depth,
+For every design point, a read setup (length, instrument, fragment size) and a sequencing depth,
 simulate_metagenomes draws random communities from a genome table and protal profiles them
 against a database, knowing the true species. The training dumps of all samples
 (<profile>.truth_annotated: every taxon protal saw, its features and whether it was present) are
@@ -65,7 +65,6 @@ import glob
 import hashlib
 import json
 import math
-import multiprocessing
 import os
 import random
 import shutil
@@ -99,9 +98,9 @@ def parse_args(argv=None):
                    help="comma-separated read pairs per sample, one design point each; DEPTH:SAMPLES gives a point other "
                         "samples than --samples (e.g. 10000000:2 for deep samples)")
     p.add_argument("--read_setups", default="100:HS20:300:40,150:HSXt:350:50,250:MSv3:550:50",
-                   help="comma-separated LENGTH:ART_PROFILE:FRAGMENT_MEAN:FRAGMENT_SD, one design point each "
-                        "(HSXt: HiSeq X, the closest of ART's profiles to NovaSeq; file=R1.txt+R2.txt: quality "
-                        "profiles art_profiler_illumina made from real reads, e.g. NovaSeq)")
+                   help="comma-separated LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD, one design point each; "
+                        "INSTRUMENT: HS20 (HiSeq 2000), HS25 (HiSeq 2500), HSXt (HiSeq X Ten), NovaSeq or MSv3 "
+                        "(MiSeq v3), simulate_metagenomes's models of them (docs/databases.md#illumina-reads)")
     p.add_argument("--species_per_sample", default="5-30", help="species per sample, N or MIN-MAX")
     p.add_argument("--strains_per_species", default="",
                    help="probabilities of a second, third, ... strain of a species in a sample, e.g. 0.3,0.1 "
@@ -162,6 +161,11 @@ def parse_args(argv=None):
                    help="--follow: the GB of reads that start a protal run while the simulations go on (default 20)")
     p.add_argument("--protal_lock", help="--follow: a file locked while protal runs, so that the protal runs of two "
                                          "collections that follow their simulations take turns")
+    p.add_argument("--stream_above", type=float, default=0.0,
+                   help="--follow and its --simulate_only run (give both the same): a design point whose largest sample's "
+                        "reads would take more than this many GB (compressed, estimated) is not written to the disk: a "
+                        "protal run of its own reads them from named pipes as simulate_metagenomes makes them, a sample "
+                        "at a time; the others are written and profiled in blocks as before (default 0: none)")
     p.add_argument("--min_free", type=float, default=0.0,
                    help="GB to keep free on the output's file system: a simulation that would leave less waits until a "
                         "--follow run has profiled and removed reads (default 0: no limit); the work in progress may "
@@ -460,20 +464,44 @@ def clock(seconds):
     return f"{seconds // 3600}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
 
 
-def run_protal(command, log, samples):
+def run_protal(command, log, samples, companions=()):
     """Runs protal on `samples` samples, saying from its log every minute how far it is (when that changed):
-    the sample it aligns, then how many it has profiled. Only what the log gained is read."""
+    the sample it aligns, then how many it has profiled. Only what the log gained is read. companions: (what, command,
+    log) of processes that run beside it (simulators writing the named pipes protal reads, stream_run): started first,
+    watched while protal runs (one failing stops protal), and waited for once it has ended."""
     started = time.time()
+    procs = []
+    for what, cmd, clog in companions:
+        out = open(clog, "w")
+        out.write(" ".join(map(str, cmd)) + "\n")
+        out.flush()
+        procs.append((what, subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT), clog, out))
     with open(log, "w") as fh:
         process = subprocess.Popen(command, stdout=fh, stderr=subprocess.STDOUT)
-    offset, rest, aligning, profiled, told = 0, b"", 0, 0, (0, 0)
+
+    def stop():
+        for p in [process] + [c[1] for c in procs]:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+        for c in procs:
+            c[3].close()
+
+    offset, rest, aligning, profiled, told, looked = 0, b"", 0, 0, (0, 0), time.time()
     try:
         while True:
             try:
-                rc = process.wait(timeout=60)
+                rc = process.wait(timeout=5 if procs else 60)
                 break
             except subprocess.TimeoutExpired:
                 pass
+            for what, p, clog, _ in procs:
+                if p.poll() not in (None, 0):
+                    stop()
+                    sys.exit(f"{what} failed with exit code {p.returncode}: {last_line(clog)}; see {clog} (protal stopped)")
+            if time.time() - looked < 55:
+                continue
+            looked = time.time()
             with open(log, "rb") as fh:
                 fh.seek(offset)
                 chunk = fh.read()
@@ -486,12 +514,21 @@ def run_protal(command, log, samples):
                 told = (aligning, profiled)
                 state = f"{profiled} of {samples} samples profiled" if profiled else f"aligning sample {aligning} of {samples}"
                 print(f"protal, {clock(time.time() - started)} in: {state}", flush=True)
-    except BaseException:  # stopped (Ctrl-C, an error): not without protal
-        process.kill()
-        process.wait()
+    except BaseException:  # stopped (Ctrl-C, an error): not without protal and its companions
+        stop()
         raise
     if rc != 0:
+        stop()
         sys.exit(f"{command[0]} failed with exit code {rc}; see {log}")
+    for what, p, clog, out in procs:  # protal has read every pipe: the simulators end now
+        try:
+            crc = p.wait(timeout=600)
+        except subprocess.TimeoutExpired:
+            stop()
+            sys.exit(f"{what} did not end although protal has read all its samples; see {clog}")
+        out.close()
+        if crc != 0:
+            sys.exit(f"{what} failed with exit code {crc}: {last_line(clog)}; see {clog}")
     print(f"protal profiled {samples} samples in {clock(time.time() - started)}", flush=True)
 
 
@@ -515,27 +552,33 @@ def depths_and_samples(text, what):
     return out
 
 
+# The instruments simulate_metagenomes models (--sequencer; IlluminaSimulator.h).
+INSTRUMENTS = ("HS20", "HS25", "HSXt", "NovaSeq", "MSv3")
+
+
 def design_points(opts):
     """Paired-end design points: read setups x depths, each depth with its samples (--read_pairs DEPTH[:SAMPLES],
-    --samples by default). A setup's ART profile is a built-in one (-ss) or file=R1.txt+R2.txt (or file=P.txt for
-    both reads): quality profiles art_profiler_illumina made from real reads, which ART uses instead of the
-    built-in one."""
+    --samples by default). A setup's instrument is one of INSTRUMENTS, simulate_metagenomes's models (--sequencer)."""
     setups = [s.split(":") for s in opts.read_setups.split(",")]
     if any(len(s) != 4 for s in setups):
-        sys.exit(f"--read_setups {opts.read_setups!r}: expected LENGTH:ART_PROFILE:FRAGMENT_MEAN:FRAGMENT_SD, comma-separated")
+        sys.exit(f"--read_setups {opts.read_setups!r}: expected LENGTH:INSTRUMENT:FRAGMENT_MEAN:FRAGMENT_SD, comma-separated")
     depth_samples = [(d, n or opts.samples) for d, n in depths_and_samples(opts.read_pairs, "--read_pairs")]
     depths = [d for d, _ in depth_samples]
     for what, values in (("--read_setups", [":".join(s) for s in setups]), ("--read_pairs", depths)):
         twice = sorted(v for v, n in collections.Counter(values).items() if n > 1)
         if twice:  # their points would share a folder
             sys.exit(f"{what} lists {', '.join(twice)} more than once")
-    # A point's name tells its setup from the others of its read length (profile, then fragment size).
+    unknown = sorted({s[1] for s in setups} - set(INSTRUMENTS))
+    if unknown:  # ART's file= profiles among them: gone with ART
+        sys.exit(f"--read_setups: unknown instrument {', '.join(unknown)}; simulate_metagenomes models "
+                 f"{', '.join(INSTRUMENTS)} (IlluminaSimulator.h)")
+    # A point's name tells its setup from the others of its read length (instrument, then fragment size).
     lengths = collections.Counter(s[0] for s in setups)
     profiles = collections.Counter((s[0], s[1]) for s in setups)
     points = []
-    for i, (length, profile, fragment_mean, fragment_sd) in enumerate(setups):
-        tag = "" if lengths[length] == 1 else "_" + (f"custom{i}" if profile.startswith("file=") else profile)
-        if profiles[(length, profile)] > 1 and not profile.startswith("file="):
+    for length, profile, fragment_mean, fragment_sd in setups:
+        tag = "" if lengths[length] == 1 else "_" + profile
+        if profiles[(length, profile)] > 1:
             tag += f"_f{fragment_mean}-{fragment_sd}"
         for depth_index, (pairs, samples) in enumerate(depth_samples):
             points.append({"name": f"rl{length}{tag}_p{pairs}", "read_length": length, "sequencer": profile,
@@ -544,16 +587,12 @@ def design_points(opts):
     return points
 
 
-def art_profile_args(profile, extra=""):
-    """simulate_metagenomes options for a read setup's ART profile (see design_points), and `extra` ART options
-    (a scenario's quality shifts)."""
-    if not profile.startswith("file="):
-        return ["--sequencer", profile] + (["--extra_art_args", extra] if extra else [])
-    files = profile[len("file="):].split("+")
-    for f in files:
-        if not os.path.isfile(f):
-            sys.exit(f"ART quality profile {f} not found (read setup {profile})")
-    return ["--sequencer", "HS25", "--extra_art_args", f"-1 {files[0]} -2 {files[-1]}" + (f" {extra}" if extra else "")]
+def illumina_args(profile, quality=None):
+    """simulate_metagenomes options for a read setup's instrument (see design_points) and a mean base quality (a
+    scenario's)."""
+    if profile not in INSTRUMENTS:
+        sys.exit(f"instrument {profile}: simulate_metagenomes models {', '.join(INSTRUMENTS)} (IlluminaSimulator.h)")
+    return ["--sequencer", profile] + (["--mean_quality", f"{float(quality):g}"] if quality is not None else [])
 
 
 def read_compression(opts):
@@ -569,14 +608,6 @@ def reads_suffix(opts):
 def reads_compression_args(opts):
     """simulate_metagenomes's option for the reads' compression."""
     return ["--reads_compression", "zstd" if read_compression(opts) == "zstd" else "bgzf"]
-
-
-def art_options(profile):
-    """art_illumina's own options for a read setup's ART profile: -ss PROFILE, or -1 R1 -2 R2 of a file= profile."""
-    if not profile.startswith("file="):
-        return ["-ss", profile]
-    files = profile[len("file="):].split("+")
-    return ["-1", files[0], "-2", files[-1]]
 
 
 PBSIM_METHODS = ("qshmm",)  # setups whose reads follow a pbsim3 model (its .model file is part of the key)
@@ -626,7 +657,7 @@ def parse_long_setup(text):
 
 def drawn(unit):
     """Whether a unit's reads are drawn from templates of its communities' genomes (long reads, a scenario's Ultima
-    reads: the unit has a setup and a point of its own), not simulated by ART for a paired-end point (pe, and se of its
+    reads: the unit has a setup and a point of its own), not simulated by simulate_metagenomes for a paired-end point (pe, and se of its
     first reads)."""
     return "setup" in unit
 
@@ -814,9 +845,8 @@ def simulation_key(point, index, opts, clades):
     at = command.index("-t")
     key = {"command": command[:at] + command[at + 2:], "genome_table": content_hash(point_table(point, opts)),
            "simulator": identity(opts.simulator)}
-    if point.get("host_pairs"):  # the host's reads, added to the community's (host_pe_jobs)
-        key["host"] = {"genome": point["host_key"], "pairs": point["host_pairs"], "chunk": scenarios.HOST_PAIRS_CHUNK,
-                       "art": identity("art_illumina")}
+    if point.get("host_pairs"):  # the host's reads, after the community's (--host_pairs)
+        key["host"] = {"genome": point["host_key"], "pairs": point["host_pairs"]}
         if point.get("host_pairs_of"):
             key["host"]["pairs_of"] = list(point["host_pairs_of"])
     return key
@@ -835,7 +865,8 @@ def point_table(point, opts):
 def scenario_command(point, opts, threads):
     """The simulator's command for a scenario's community point (scenario_units): its own genome table, species,
     abundances, strains, congeners and seed; the community's part of each sample's read pairs (a list, one per
-    sample, when they differ: scenario_units), at the quality shifts prepare_scenarios found (point["art_shift"]); no
+    sample, when they differ: scenario_units) and its host's after them (--host_pairs), at the scenario's mean base
+    quality (--mean_quality); no
     reads (--test) for a point only of communities."""
     d = point["definition"]
     _, sim, profiles = point_dirs(point, opts)
@@ -844,12 +875,14 @@ def scenario_command(point, opts, threads):
     command = [opts.simulator, "--genome_table", table, "-o", sim, "-n", str(point["samples"]),
                "--sample_prefix", point["name"] + "_s", "--total_read_pairs", pairs,
                "--species_per_sample", d["species"], "--read_length", point["read_length"],
-               *art_profile_args(point["sequencer"], point.get("art_shift", "")), "--fragment_mean", point["fragment_mean"],
+               *illumina_args(point["sequencer"], point.get("quality")), "--fragment_mean", point["fragment_mean"],
                "--fragment_stdev", point["fragment_sd"], "--seed", str(scenarios.seed_of(opts.seed, point["scenario"])),
                "-t", str(threads), "--protal_metafile", profiles, *abundance_args(d["abundance"]),
                *reads_compression_args(opts)]
     if d["strains"]:
         command += ["--strains_per_species", d["strains"]]
+    if point.get("host_pairs") and getattr(opts, "host_folder", None):
+        command += ["--host_folder", opts.host_folder, "--host_pairs", ",".join(map(str, host_pairs_of(point)))]
     kind, congeners = congener_spec(d["congeners"])
     if kind == "groups":
         command += ["--congener_groups", congeners]
@@ -872,7 +905,7 @@ def simulation_command(point, index, opts, threads, clades):
     command = [opts.simulator, "--genome_table", opts.genome_table, "-o", sim, "-n", str(point["samples"]),
                "--sample_prefix", point["name"] + "_s", "--total_read_pairs", point["read_pairs"],
                "--species_per_sample", opts.species_per_sample, "--read_length", point["read_length"],
-               *art_profile_args(point["sequencer"]), "--fragment_mean", point["fragment_mean"],
+               *illumina_args(point["sequencer"]), "--fragment_mean", point["fragment_mean"],
                "--fragment_stdev", point["fragment_sd"], "--seed", str(opts.seed + index),
                "-t", str(threads), "--protal_metafile", profiles, *abundance_args(opts.abundance),
                *reads_compression_args(opts)]
@@ -899,8 +932,7 @@ def simulation_command(point, index, opts, threads, clades):
 
 def simulate(point, index, opts, threads, clades, key):
     """Simulates the samples of a design point; None, or why it failed. clades: {rank: [held-out clade, ...]},
-    of which one per rank goes into every sample (--novel_clades). The key of a point with host reads is written once
-    they are added (host_pe_jobs)."""
+    of which one per rank goes into every sample (--novel_clades); a scenario's host reads come after the community's."""
     base, sim, _ = point_dirs(point, opts)
     command, error = simulation_command(point, index, opts, threads, clades)
     if error:
@@ -912,61 +944,8 @@ def simulate(point, index, opts, threads, clades, key):
     if rc != 0:
         shutil.rmtree(sim, ignore_errors=True)  # no protal.meta: simulated again on a rerun
         return f"{point['name']}: {opts.simulator} failed with exit code {rc}; see {log}"
-    if not point.get("host_pairs"):
-        write_key(os.path.join(base, "simulated.json"), key)
+    write_key(os.path.join(base, "simulated.json"), key)
     return None
-
-
-def host_pe_jobs(point, opts, key, started):
-    """The jobs that add a scenario point's host read pairs to its samples' reads, once the community's are simulated:
-    each sample's host pairs (host_pairs_of) in chunks of scenarios.HOST_PAIRS_CHUNK side by side
-    (scenarios.host_pe_chunk: ART in amplicon mode on fragments of the host, the point's profile and quality shifts),
-    then each sample's chunks appended to its read files (zstd frames or gzip members one after the other), and the
-    point's key written (simulated.json), so that a point stopped before is simulated again."""
-    base, sim, _ = point_dirs(point, opts)
-    _, rows, _ = map_rows(os.path.join(sim, "protal.meta"))
-    art = shutil.which("art_illumina") or "art_illumina"
-    art_args = art_options(point["sequencer"]) + point.get("art_shift", "").split()
-    host_of = host_pairs_of(point)
-    jobs, joins = [], []
-    for s, row in enumerate(rows):
-        tmp = os.path.join(sim, "tmp_host", row["SAMPLEID"])
-        # the simulator names sample i (from 0) <prefix>_<i + 1>
-        number = row["SAMPLEID"].rsplit("_", 1)[-1]
-        host = host_of[int(number) - 1 if number.isdigit() and 0 < int(number) <= len(host_of) else s]
-        k = -(-host // scenarios.HOST_PAIRS_CHUNK)
-        tasks = [{"sample": row["SAMPLEID"], "host": opts.host_folder, "chunk": c + 1, "art": art, "art_args": art_args,
-                  "pairs": host // k + (1 if c < host % k else 0),
-                  "length": int(point["read_length"]), "fragment_mean": float(point["fragment_mean"]),
-                  "fragment_sd": float(point["fragment_sd"]), "seed": scenarios.seed_of(opts.seed, point["name"]) + s * 1009 + c,
-                  "tmp": os.path.join(tmp, f"c{c + 1}"), "r1": os.path.join(tmp, f"c{c + 1}_R1.fq{reads_suffix(opts)}"),
-                  "r2": os.path.join(tmp, f"c{c + 1}_R2.fq{reads_suffix(opts)}")} for c in range(k)]
-        names = [f"host:{row['SAMPLEID']}:{t['chunk']}" for t in tasks]
-        jobs += [{"name": n, "run": lambda t=t: (Workers.call(scenarios.host_pe_chunk, t), []), "priority": 1.5e9,
-                  # its fragments, ART's plain reads and the compressed ones
-                  "disk": int(t["pairs"] * (t["fragment_mean"] + 2 * t["length"] * (1 + PE_BYTES))), "opens": False}
-                 for n, t in zip(names, tasks)]
-
-        def join(row=row, tasks=tasks, tmp=tmp):
-            for column, read in (("FIRST", "r1"), ("SECOND", "r2")):
-                with open(row[column], "ab") as out:
-                    for t in tasks:
-                        with open(t[read], "rb") as fh:
-                            shutil.copyfileobj(fh, out, 16 << 20)
-            shutil.rmtree(tmp, ignore_errors=True)
-            return None, []
-        joins.append(f"hostjoin:{row['SAMPLEID']}")
-        jobs.append({"name": joins[-1], "run": join, "after": names, "priority": 2e9})
-
-    def finish():
-        shutil.rmtree(os.path.join(sim, "tmp_host"), ignore_errors=True)
-        write_key(os.path.join(base, "simulated.json"), key)
-        counts = f"{min(host_of)}-{max(host_of)}" if min(host_of) != max(host_of) else str(host_of[0])
-        print(f"{point['name']}: {counts} host read pairs added to each of its {len(rows)} samples, "
-              f"{clock(time.time() - started)} in all", flush=True)
-        return None, []
-    jobs.append({"name": f"host:{point['name']}", "run": finish, "after": joins, "priority": 2e9})
-    return jobs
 
 
 def design(point, index, opts, clades):
@@ -1086,7 +1065,7 @@ def community_pairs_of(point):
 
 
 def host_pairs_of(point):
-    """Each sample's host read pairs of a scenario's paired-end point (host_pe_jobs), 0 for others."""
+    """Each sample's host read pairs of a scenario's paired-end point (--host_pairs), 0 for others."""
     if point.get("host_pairs_of"):
         return list(point["host_pairs_of"])
     return [int(point.get("host_pairs") or 0)] * point["samples"]
@@ -1098,10 +1077,10 @@ def bases_of(unit):
     return list(unit["bases_of"]) if unit.get("bases_of") else [unit["bases"]] * unit["samples"]
 
 
-# A paired-end point's work on one core of the node (r226 v14, docs/claude/2026-10-07-build-idle-tail): ~0.17 s per
-# genome of a sample (inflating it, ART's start and its reading of the reference) and ~53 us per 150 bp read pair.
-# The genomes count: a shallow soil sample of ~14,000 genomes is ~40 min of them, whatever its depth.
-PE_GENOME_SECONDS, PE_PAIR_SECONDS = 0.17, 53e-6
+# A paired-end point's work on one core (simulate_metagenomes's own Illumina reads, measured 2026-10-07 on a laptop
+# core, docs/claude/2026-10-07-illumina-model): ~0.018 s per genome of a sample (inflating and reading it) and ~18 us
+# per 150 bp read pair. The genomes count: a soil sample of ~14,000 genomes is ~4 min of them, whatever its depth.
+PE_GENOME_SECONDS, PE_PAIR_SECONDS = 0.018, 18e-6
 
 
 def genomes_per_sample(point, opts=None):
@@ -1123,35 +1102,6 @@ def pe_point_seconds(point, threads, opts=None):
         pairs = [float(point["read_pairs"])] * point["samples"]
     genomes = genomes_per_sample(point, opts) * PE_GENOME_SECONDS
     return sum(genomes + p * int(point["read_length"]) / 150 * PE_PAIR_SECONDS for p in pairs) / max(1, threads)
-
-
-class Workers:
-    """Where the collector's Python work runs (drawing templates, making long reads of them, a host's fragments): in
-    worker processes once started (main: Workers.started), so that it does not share one interpreter lock with the
-    Scheduler's threads, which only wait for it (on threads, 64 slots made ~3 cores of it, 2026-10-05); without them
-    (simulate_long, tests) on the calling thread."""
-    pool = None
-
-    @classmethod
-    def call(cls, function, *args):
-        """function(*args) in a worker process, or here if none are started. -> its result."""
-        if cls.pool is None:
-            return function(*args)
-        return cls.pool.submit(function, *args).result()
-
-    @classmethod
-    @contextlib.contextmanager
-    def started(cls, n):
-        """n worker processes (started as they are needed) for the calls within. forkserver: the Scheduler's threads
-        are running when they start, and a forked copy of a process with threads may hang on a lock one held."""
-        methods = multiprocessing.get_all_start_methods()
-        context = multiprocessing.get_context("forkserver" if "forkserver" in methods else "spawn")
-        with concurrent.futures.ProcessPoolExecutor(max(1, n), mp_context=context) as pool:
-            cls.pool = pool
-            try:
-                yield pool
-            finally:
-                cls.pool = None
 
 
 # Bytes on the disk per base a simulation writes, for the room it needs (Scheduler space; measured 2026-10-05,
@@ -1239,16 +1189,16 @@ class Scheduler:
         return failures
 
 
-def long_unit_jobs(index, unit, opts, keys, started, counter, source=None, slots=1):
-    """The job of a long-read unit, made once its community points' manifests are there: one simulate_metagenomes
-    --long_samples run for all its samples (LongReadSimulator.cpp: templates drawn and reads made in process, written
-    compressed as they are made), on threads by its work (long_threads, of `slots`). Each sample replays the community
-    of a sample of the unit's paired-end points (unit_communities), each genome weighted by relative abundance times
-    length. Once the run is done, its sim/samples.tsv (sample, reads, truth, community sample) is written, and
-    keys[name] to its simulated.json, so that an interrupted point is simulated again. source(point): the folder whose
-    manifest.tsv and protal.meta describe the point's communities (default: its sim folder; a design run's before its
-    reads are there). The truth files named are the sim folder's either way. A scenario's unit with a host share draws
-    that share of its bases from the host genome (opts.host_folder), its weight that share of all."""
+def long_unit_plan(index, unit, opts, source=None, slots=1, threads=None):
+    """A long-read unit's simulate_metagenomes --long_samples run for all its samples (LongReadSimulator.cpp: templates
+    drawn and reads made in process, written compressed as they are made): its samples and genomes TSVs written in
+    sim/tmp, made once its community points' manifests are there. Each sample replays the community of a sample of the
+    unit's paired-end points (unit_communities), each genome weighted by relative abundance times length. source(point):
+    the folder whose manifest.tsv and protal.meta describe the point's communities (default: its sim folder; a design
+    run's before its reads are there). The truth files named are the sim folder's either way. A scenario's unit with a
+    host share draws that share of its bases from the host genome (opts.host_folder), its weight that share of all.
+    -> {rows: [(sample, reads, truth, community)], command, base, sim, tmp, stats, threads (long_threads of `slots`,
+    or `threads`), seconds, written}."""
     source = source or (lambda point: point_dirs(point, opts)[1])
     index = unit.get("seed_index", index)
     host = unit.get("host_share", 0)
@@ -1288,11 +1238,28 @@ def long_unit_jobs(index, unit, opts, keys, started, counter, source=None, slots
     for name, lines in (("samples.tsv", samples), ("genomes.tsv", genomes)):
         with open(os.path.join(tmp, name), "w") as fh:
             fh.write("".join(lines))
-    threads = long_threads(seconds, slots)
+    threads = threads or long_threads(seconds, slots)
     stats = os.path.join(tmp, "stats.tsv")
     command = [opts.simulator, "--long_samples", os.path.join(tmp, "samples.tsv"), "--long_genomes",
                os.path.join(tmp, "genomes.tsv"), "--long_setup", unit["setup"]["text"], "--long_stats", stats,
                "-t", str(threads)] + (["--long_model", model] if model else [])
+    return {"rows": rows, "command": command, "base": base, "sim": sim, "tmp": tmp, "stats": stats, "threads": threads,
+            "seconds": seconds, "written": written}
+
+
+def write_samples_table(sim, rows):
+    """A long-read unit's sim/samples.tsv: sample, reads, truth, community sample."""
+    with open(os.path.join(sim, "samples.tsv.partial"), "w") as fh:
+        fh.write("sample\treads\ttruth\tcommunity\n" + "".join("\t".join(r) + "\n" for r in rows))
+    os.replace(os.path.join(sim, "samples.tsv.partial"), os.path.join(sim, "samples.tsv"))
+
+
+def long_unit_jobs(index, unit, opts, keys, started, counter, source=None, slots=1):
+    """The job of a long-read unit (long_unit_plan's run on its threads), made once its community points' manifests are
+    there. Once the run is done, its sim/samples.tsv is written, and keys[name] to its simulated.json, so that an
+    interrupted point is simulated again."""
+    plan = long_unit_plan(index, unit, opts, source, slots)
+    rows, command, base, threads = plan["rows"], plan["command"], plan["base"], plan["threads"]
 
     def run():
         began = time.time()
@@ -1303,15 +1270,13 @@ def long_unit_jobs(index, unit, opts, keys, started, counter, source=None, slots
             rc = subprocess.run(command, stdout=fh, stderr=subprocess.STDOUT).returncode
         if rc != 0:
             return f"{unit['name']}: {opts.simulator} --long_samples failed ({rc}): {last_line(log)}; see {log}", []
-        with open(stats) as fh:
+        with open(plan["stats"]) as fh:
             made = {r["sample"]: int(r["reads"]) for r in csv.DictReader(fh, delimiter="\t")}
         missing = [r[0] for r in rows if r[0] not in made or not os.path.isfile(r[1])]
         if missing:
             return f"{unit['name']}: {opts.simulator} made no reads file of {', '.join(missing[:5])}; see {log}", []
-        shutil.rmtree(tmp, ignore_errors=True)
-        with open(os.path.join(sim, "samples.tsv.partial"), "w") as fh:
-            fh.write("sample\treads\ttruth\tcommunity\n" + "".join("\t".join(r) + "\n" for r in rows))
-        os.replace(os.path.join(sim, "samples.tsv.partial"), os.path.join(sim, "samples.tsv"))
+        shutil.rmtree(plan["tmp"], ignore_errors=True)
+        write_samples_table(plan["sim"], rows)
         if keys is not None:
             write_key(os.path.join(base, "simulated.json"), keys[unit["name"]])
         counter["long"] += 1
@@ -1320,8 +1285,8 @@ def long_unit_jobs(index, unit, opts, keys, started, counter, source=None, slots
               f"{clock(time.time() - started)} in all", flush=True)
         return None, []
 
-    return [{"name": f"long:{unit['name']}", "run": run, "need": threads, "priority": seconds,
-             "disk": int(written * DRAWN_BYTES)}]
+    return [{"name": f"long:{unit['name']}", "run": run, "need": threads, "priority": plan["seconds"],
+             "disk": int(plan["written"] * DRAWN_BYTES)}]
 
 
 def simulate_long(points, opts, jobs, keys=None):
@@ -1412,26 +1377,29 @@ def read_map(path):
                 if line.strip() and not line.startswith("#")]
 
 
-def profile_map(units, opts, path):
-    """The rows of all units' samples, written as the map `path` (their output folders made). -> the rows."""
+def profile_map(units, opts, path, paths_of=None):
+    """The rows of all units' samples, written as the map `path` (their output folders made); paths_of: {sample: (FIRST,
+    SECOND)} in place of the units' read files (named pipes, stream_run). -> the rows."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     rows = []
     for unit in units:
         unit_rows, dirs = unit_map_rows(unit, opts)
         for d in dirs:
             os.makedirs(d, exist_ok=True)
-        rows += unit_rows
+        rows += [{**row, **dict(zip(("FIRST", "SECOND"), paths_of[row["SAMPLEID"]]))}
+                 if paths_of and row["SAMPLEID"] in paths_of else row for row in unit_rows]
     write_map(path, rows)
     return rows
 
 
-def profile(units, opts, extra=(), folder=None):
+def profile(units, opts, extra=(), folder=None, paths_of=None, companions=()):
     """Profiles the samples of all units, and the `extra` map rows (another collection's, --also_profile), in one
     protal run: the database is loaded once, and every sample is profiled as its READ_TYPE says. Its map and log go
-    to `folder` (default OUT/profile_all)."""
+    to `folder` (default OUT/profile_all). paths_of, companions: the read files in place of the units' and the processes
+    that write them (stream_run: profile_map, run_protal)."""
     folder = folder or os.path.join(opts.out, "profile_all")
     combined = os.path.join(folder, "samples.map")
-    rows = profile_map(units, opts, combined)
+    rows = profile_map(units, opts, combined, paths_of)
     if extra:
         rows += list(extra)
         write_map(combined, rows)
@@ -1440,7 +1408,7 @@ def profile(units, opts, extra=(), folder=None):
           "points" + (f" and {len(extra)} samples of another collection" if extra else "") + " in one protal run",
           flush=True)
     run_protal([opts.protal, "--db", opts.db, "--map", combined, "-t", str(opts.threads), "--no_strains", "--no_qcmsa"],
-               os.path.join(folder, "protal.log"), len(rows))
+               os.path.join(folder, "protal.log"), len(rows), companions)
 
 
 # ---- the tables -------------------------------------------------------------------------------------------
@@ -1536,9 +1504,8 @@ def write_table(read_type, units, opts, context):
 
 def prepare_scenarios(points, units, opts, novel):
     """What the scenarios' simulations need before their keys can be made: each scenario's genome table
-    (scenarios.scenario_table, OUT/scenarios/<name>/genomes.tsv), the ART quality shifts of its paired-end reads
-    (scenarios.art_shifts, point["art_shift"]) and, for a host share, the host genome as plain sequence
-    (opts.host_folder, OUT/host; point["host_key"]). Stops with why a scenario cannot be simulated."""
+    (scenarios.scenario_table, OUT/scenarios/<name>/genomes.tsv) and, for a host share, the host genome as plain
+    sequence (opts.host_folder, OUT/host; point["host_key"]). Stops with why a scenario cannot be simulated."""
     opts.host_folder = None
     scenario_points = [p for p in points if p.get("scenario")]
     if not scenario_points:
@@ -1561,17 +1528,7 @@ def prepare_scenarios(points, units, opts, novel):
         if scaled:
             print(f"scenario {name}: {scaled}", flush=True)
         if point["reads"] and point.get("quality") is not None:
-            if not shutil.which("art_illumina"):
-                sys.exit(f"scenario {name}: its Illumina reads' quality is set with art_illumina, which is not on PATH")
-            try:
-                qs1, qs2, means = scenarios.art_shifts("art_illumina", art_options(point["sequencer"]), point["read_length"],
-                                                       point["fragment_mean"], point["fragment_sd"], point["quality"],
-                                                       os.path.join(opts.out, "scenarios", "art_quality.json"))
-            except scenarios.ScenarioError as e:
-                sys.exit(f"scenario {name}: {e}")
-            point["art_shift"] = f"-qs {qs1} -qs2 {qs2}"
-            note += (f"; Illumina reads at Q{point['quality']:g} (ART {point['sequencer']}: Q{means[0]:.1f} and "
-                     f"Q{means[1]:.1f}, shifted by {qs1:+d} and {qs2:+d})")
+            note += f"; Illumina reads at Q{point['quality']:g} ({point['sequencer']}, --mean_quality)"
         if d["host_share"] > 0:
             note += f"; {d['host_share']:.0%} of the reads from the host"
         factors = scenarios.depth_factors(opts.seed, name, point["samples"], d["depth_spread"])
@@ -1627,26 +1584,42 @@ def pe_bytes(point):
 def simulate_all(pe_points, units, opts, keys, clades, slots, needed, force=frozenset()):
     """Simulates the points not yet simulated from their inputs (and those in `force`, whose reads were removed but
     are to be profiled again), in one queue on `slots` cores (Scheduler): the paired-end points with all the threads
-    between them, and the long-read samples (or chunks of them) as cores come free, the longest first. A long-read
-    point needs only the communities of its paired-end points: a design run (simulate_metagenomes --test, the same
-    communities without reads) gives them in seconds, so long reads need not wait for the paired-end reads."""
-    pending = []
+    between them, and the long-read points as cores come free, the longest first. A long-read point needs only the
+    communities of its paired-end points: a design run (simulate_metagenomes --test, the same communities without
+    reads) gives them in seconds, so long reads need not wait for the paired-end reads. In a --simulate_only or
+    --follow run, the simulations to stream (streamed_simulations) are left to the follower (stream_run), their
+    paired-end points only designed here for the long reads that replay them; a point streamed by an earlier run but
+    not now is simulated to the disk again."""
+    skip = streamed_simulations(units, opts) if (opts.simulate_only or opts.follow) else set()
+    pending, design_only = [], []
     for i, p in enumerate(pe_points):
         base, sim, _ = point_dirs(p, opts)
         if p["name"] not in needed:
             continue
+        if p["name"] not in skip and os.path.isfile(os.path.join(base, STREAMED)):
+            print(f"{p['name']}: its reads were streamed into protal, none kept: simulating it to the disk", flush=True)
+            shutil.rmtree(base, ignore_errors=True)
         if p["name"] in force:
             print(f"{p['name']}: its reads were removed and are to be profiled again: simulating it again", flush=True)
             shutil.rmtree(base, ignore_errors=True)
         elif os.path.isfile(os.path.join(sim, "protal.meta")):
             if same_key(os.path.join(base, "simulated.json"), keys[p["name"]]):
                 continue
-            print(f"{p['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
-            shutil.rmtree(base)
+            if p["name"] not in skip:
+                print(f"{p['name']} was simulated from other inputs (or by an older collector): simulating it again", flush=True)
+                shutil.rmtree(base)
+        if p["name"] in skip:  # the follower's to stream (stream_design makes its sim folder)
+            design_only.append((i, p))
+            continue
         pending.append((i, p))
     long_pending = []
     for i, unit in enumerate(u for u in units if drawn(u)):
         base = point_dirs(unit["point"], opts)[0]
+        if unit["name"] in skip:
+            continue
+        if os.path.isfile(os.path.join(base, STREAMED)):
+            print(f"{unit['name']}: its reads were streamed into protal, none kept: simulating it to the disk", flush=True)
+            shutil.rmtree(base, ignore_errors=True)
         if unit["name"] in force:
             print(f"{unit['name']}: its reads were removed and are to be profiled again: simulating it again", flush=True)
             shutil.rmtree(base, ignore_errors=True)
@@ -1687,14 +1660,12 @@ def simulate_all(pe_points, units, opts, keys, clades, slots, needed, force=froz
             print(f"{p['name']} {'failed' if failure else 'simulated'} ({p['samples']} samples) in "
                   f"{clock(time.time() - began)}: {counter['pe']} of {len(pending)} paired-end design points, "
                   f"{clock(time.time() - started)} in all", flush=True)
-            if failure or not p.get("host_pairs"):
-                return failure, []
-            return None, host_pe_jobs(p, opts, keys[p["name"]], started)  # then its host's reads
+            return failure, []
         # Before any long-read sample (all start at once): the deepest could otherwise wait for long reads.
         scheduler.add(f"pe:{p['name']}", simulate_point, need=threads_of[p["name"]],
                       priority=1e9 + pe_point_seconds(p, threads_of[p["name"]], opts), disk=pe_bytes(p))
-    pending_names = {p["name"] for _, p in pending}
-    for i, p in pending:
+    pending_names = {p["name"] for _, p in pending + design_only}
+    for i, p in pending + design_only:
         if any(p in u["communities"] for _, u in long_pending):
             def design_point(i=i, p=p):
                 folder, error = design(p, i, opts, clades)
@@ -1706,8 +1677,7 @@ def simulate_all(pe_points, units, opts, keys, clades, slots, needed, force=froz
         source = lambda point: designed.get(point["name"]) or point_dirs(point, opts)[1]
         scheduler.add(f"units:{unit['name']}", lambda i=i, unit=unit, source=source: (
             None, long_unit_jobs(i, unit, opts, keys, started, counter, source, slots)), after=after, priority=3e9)
-    with Workers.started(slots):  # the host's paired-end fragments (Python) in processes
-        failures = scheduler.run()
+    failures = scheduler.run()
     if failures:
         sys.exit("\n".join(f"{name}: {why}" for name, why in list(failures.items())[:10]))
     for folder in designed.values():
@@ -1736,6 +1706,8 @@ def unit_reads(unit, opts):
     """The read files a unit's samples are profiled from, those of its paired-end point for pe and se (both reads of
     each pair: they are removed together); [] before its simulation has written them."""
     sim = point_dirs(unit["point"], opts)[1]
+    if streamed_here(unit, opts):  # its reads went to protal through named pipes
+        return []
     if drawn(unit):
         path = os.path.join(sim, "samples.tsv")
         if not os.path.isfile(path):
@@ -1876,13 +1848,145 @@ def simulations_running(opts):
     return True
 
 
-def follow(units, opts, keys, simulate_again):
+# ---- large samples streamed into protal (--stream_above) ------------------------------------------------------
+# A simulation whose largest sample would take more than --stream_above GB is not written to the disk: in a --follow
+# run, a protal run reads its samples from named pipes while simulate_metagenomes makes them, one sample at a time in
+# the map's order (stream_run); the --simulate_only run leaves it to the follower.
+
+STREAMED = "streamed.json"  # in a point's folder: its reads went to protal through named pipes, none to the disk
+
+
+def sample_bytes(unit):
+    """About what a unit's largest sample's reads take compressed (both files of a pair): PE_BYTES or DRAWN_BYTES
+    per base."""
+    if drawn(unit):
+        return max(bases_of(unit)) * DRAWN_BYTES
+    point = unit["point"]
+    pairs = [c + h for c, h in zip(community_pairs_of(point), host_pairs_of(point))]
+    return max(pairs) * 2 * int(point["read_length"]) * PE_BYTES
+
+
+def streamed_simulations(units, opts):
+    """The simulations (simulation_of) to stream: those of a sample larger than --stream_above GB."""
+    above = getattr(opts, "stream_above", 0) or 0
+    if above <= 0:
+        return set()
+    return {simulation_of(u) for u in units if sample_bytes(u) > above * 1e9}
+
+
+def streamed_here(unit, opts):
+    """Whether a unit's simulation went to protal through named pipes (its reads are on no disk)."""
+    return os.path.isfile(os.path.join(point_dirs(unit["point"], opts)[0], STREAMED))
+
+
+def make_pipe(path):
+    """A named pipe at `path`, whatever was there removed."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(path)
+    os.mkfifo(path)
+
+
+def stream_design(point, opts, command, key):
+    """A streamed paired-end point's design (simulate_metagenomes --test into its sim folder, `command` its simulation
+    command): its manifest, map (protal.meta) and truth files, which its long-read units and the protal run need before
+    its reads are made; the placeholders of its reads removed; then its key (simulated.json) and STREAMED."""
+    base, sim, _ = point_dirs(point, opts)
+    for marker in (STREAMED, "simulated.json"):  # (base/design may be a --simulate_only run's for long reads: kept)
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(os.path.join(base, marker))
+    shutil.rmtree(sim, ignore_errors=True)
+    os.makedirs(sim)
+    log = os.path.join(base, "design.log")
+    with open(log, "w") as fh:
+        rc = subprocess.run(command + ([] if "--test" in command else ["--test"]), stdout=fh,
+                            stderr=subprocess.STDOUT).returncode
+    if rc != 0:
+        sys.exit(f"{point['name']}: {opts.simulator} --test failed with exit code {rc}: {last_line(log)}; see {log}")
+    for f in glob.glob(os.path.join(sim, "reads", "*")):
+        os.remove(f)
+    write_key(os.path.join(base, STREAMED), key)
+    write_key(os.path.join(base, "simulated.json"), key)
+
+
+def stream_run(name, units, opts, key_of, number, pe_command=None, long_plan=None):
+    """Profiles the units of the streamed simulation `name` in one protal run that reads their samples from named
+    pipes as simulate_metagenomes makes them (no read on the disk). A paired-end point (its design made, stream_design):
+    pe_command(threads) is its simulation command, run into OUT/points/<point>/stream_pe for the pe unit and with
+    --first_reads_only into .../stream_se for the se unit (protal reads all pe samples first, then the se ones, each
+    pipe once; the same read 1s, as the simulator's reads do not depend on whether read 2 is written). A long-read
+    unit: long_plan(threads), its simulate_metagenomes --long_samples run (long_unit_plan) into its sim/reads. Both
+    write a sample's pipes only once protal opens them, a sample at a time; either failing stops the other."""
+    began = time.time()
+    point = units[0]["point"]
+    base, sim, _ = point_dirs(point, opts)
+    paths_of, companions, folders = {}, [], []
+    suffix = ".fq" + reads_suffix(opts)
+    if pe_command:
+        _, rows, _ = map_rows(os.path.join(sim, "protal.meta"))
+        for unit in units:
+            first_only = unit["type"] == "se"
+            out = os.path.join(base, "stream_se" if first_only else "stream_pe")
+            shutil.rmtree(out, ignore_errors=True)
+            folders.append(out)
+            for row in rows:
+                r1 = os.path.join(out, "reads", row["SAMPLEID"] + "_R1" + suffix)
+                r2 = os.path.join(out, "reads", row["SAMPLEID"] + "_R2" + suffix)
+                make_pipe(r1)
+                if not first_only:
+                    make_pipe(r2)
+                paths_of[row["SAMPLEID"] + ("_se" if first_only else "")] = (r1, "-" if first_only else r2)
+            command = pe_command(opts.threads)
+            command[command.index("-o") + 1] = out
+            command[command.index("--protal_metafile") + 1] = os.path.join(out, "protal")
+            companions.append((f"{opts.simulator} ({unit['type']})", command + (["--first_reads_only"] if first_only else []),
+                               os.path.join(base, f"stream_{unit['type']}.log")))
+    else:
+        plan = long_plan(opts.threads)
+        for _, out, _, _ in plan["rows"]:
+            make_pipe(out)
+        write_samples_table(plan["sim"], plan["rows"])
+        folders.append(plan["tmp"])
+        companions.append((f"{opts.simulator} --long_samples", plan["command"], os.path.join(base, "stream.log")))
+    start_profiling(units, opts, key_of)
+    samples = sum(u["samples"] for u in units)
+    print(f"protal run {number}: {name} streamed ({len(units)} design points, {samples} samples, read from named pipes "
+          "as simulate_metagenomes makes them)", flush=True)
+    with protal_turn(opts.protal_lock):
+        profile(units, opts, folder=os.path.join(opts.out, "profile_all", f"run{number}"), paths_of=paths_of,
+                companions=companions)
+    end_profiling(units, opts)
+    for out in folders:
+        shutil.rmtree(out, ignore_errors=True)
+    if long_plan:  # its pipes, and the key of a long-read unit made (none of its reads kept)
+        for path in glob.glob(os.path.join(sim, "reads", "*")):
+            os.remove(path)
+        write_key(os.path.join(base, STREAMED), key_of[units[0]["name"]]["simulated"])
+        write_key(os.path.join(base, "simulated.json"), key_of[units[0]["name"]]["simulated"])
+    print(f"protal run {number} done ({name}, streamed) in {clock(time.time() - began)}", flush=True)
+
+
+def follow(units, opts, keys, simulate_again, pe_command=None, long_plan=None):
     """--follow: profiles the units as this collection's --simulate_only run simulates them, in protal runs of at
     least --profile_block GB of reads, or of all that are ready once the simulations have ended; after each run, the
     reads of points profiled for every read type that reads them are removed. Units it cannot profile once the
-    simulations have ended (never simulated, or their reads removed) are simulated here: simulate_again(names)."""
+    simulations have ended (never simulated, or their reads removed) are simulated here: simulate_again(names).
+    The simulations to stream (--stream_above, streamed_simulations) are this run's: each in a protal run of its own
+    reading named pipes (stream_run, pe_command(point, threads) a paired-end point's simulation command, long_plan(unit,
+    threads) a long-read unit's), once their communities are there; their paired-end points' designs first, which long
+    reads of other points may need (stream_design)."""
     key_of = profile_keys(units, opts, keys)
     block, runs, again, began = opts.profile_block * 1e9, 0, set(), time.time()
+    streams = streamed_simulations(units, opts) if pe_command else set()
+    for unit in units:  # the streamed paired-end points' designs (seconds each)
+        point = unit["point"]
+        if not drawn(unit) and point["name"] in streams and not (
+                streamed_here(unit, opts) and same_key(os.path.join(point_dirs(point, opts)[0], "simulated.json"),
+                                                       keys[point["name"]])):
+            stream_design(point, opts, pe_command(point, 1), keys[point["name"]])
+    if streams:
+        print(f"{len(streams)} simulations streamed into protal (a sample above {opts.stream_above:g} GB): "
+              + ", ".join(sorted(streams)), flush=True)
     told = time.time()
     while True:
         todo = [u for u in units if not profiled(u, opts, key_of[u["name"]])]
@@ -1891,6 +1995,8 @@ def follow(units, opts, keys, simulate_again):
         running = simulations_running(opts)
         ready, files = [], {}
         for unit in todo:
+            if simulation_of(unit) in streams:
+                continue
             reads = unit_reads(unit, opts)
             if simulation_done(unit, opts, keys) and reads and all(os.path.isfile(f) for f in reads):
                 ready.append(unit)
@@ -1908,8 +2014,27 @@ def follow(units, opts, keys, simulate_again):
             print(f"protal run {runs} done, {clock(time.time() - began)} in all: {freed / 1e9:.1f} GB of reads removed, "
                   f"{shutil.disk_usage(opts.out).free / 1e9:.1f} GB free on {opts.out}", flush=True)
             continue
+        streamable = []  # a streamed simulation whose units wait and whose communities are there
+        for name in sorted(streams):
+            pending = [u for u in todo if simulation_of(u) == name]
+            if pending and all(same_key(os.path.join(point_dirs(p, opts)[0], "simulated.json"), keys[p["name"]])
+                               for u in pending if drawn(u) for p in u["communities"]):
+                streamable.append(pending)
+        if streamable:
+            runs += 1
+            pending = streamable[0]
+            if drawn(pending[0]):
+                stream_run(simulation_of(pending[0]), pending, opts, key_of, runs,
+                           long_plan=lambda threads, unit=pending[0]: long_plan(unit, threads))
+            else:
+                stream_run(simulation_of(pending[0]), pending, opts, key_of, runs,
+                           pe_command=lambda threads, point=pending[0]["point"]: pe_command(point, threads))
+            continue
         if not running:
-            stuck = {simulation_of(u) for u in todo}
+            stuck = {simulation_of(u) for u in todo} - streams
+            if not stuck:
+                sys.exit(f"{', '.join(sorted({simulation_of(u) for u in todo}))}: streamed, but their communities were "
+                         "never simulated")
             if stuck <= again:
                 sys.exit(f"{', '.join(sorted(stuck))}: not simulated, although simulated again here")
             print(f"the simulations have ended, but {len(stuck)} design points have no reads to profile (never simulated, "
@@ -1965,8 +2090,20 @@ def collect(opts):
     def simulate_again(force=frozenset()):
         simulate_all(pe_points, units, opts, keys, clades, slots, needed, force)
 
+    point_index = {p["name"]: i for i, p in enumerate(pe_points)}
+    drawn_index = {u["name"]: i for i, u in enumerate(u for u in units if drawn(u))}
+
+    def pe_command(point, threads):  # a streamed paired-end point's simulation (stream_design, stream_run)
+        command, error = simulation_command(point, point_index[point["name"]], opts, threads, clades)
+        if error:
+            sys.exit(error)
+        return command
+
+    def long_plan(unit, threads):  # a streamed long-read unit's run (stream_run)
+        return long_unit_plan(drawn_index[unit["name"]], unit, opts, threads=threads)
+
     if opts.follow:
-        follow(units, opts, keys, simulate_again)
+        follow(units, opts, keys, simulate_again, pe_command, long_plan)
     else:
         key_of = None if opts.simulate_only else profile_keys(units, opts, keys)
         simulate_again(reads_removed(units, opts, keys, key_of) if key_of else frozenset())

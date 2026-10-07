@@ -87,7 +87,7 @@ class InsilicoStrains(unittest.TestCase):
         self.assertEqual(int(rows[-1][3]), len(self.genome))
 
     def test_contig_names(self):
-        # Named after the strain, so that its reads (ART names them by their contig) are told from the
+        # Named after the strain, so that its reads (named by their contig) are told from the
         # representative's (trace_relatives.py).
         name = ins.strain_name("GCF_000000001.1")
         header = ins.read_fasta(os.path.join(self.out, name + ".fna.gz"))[0][0]

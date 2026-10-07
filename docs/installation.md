@@ -146,7 +146,7 @@ conda create -n protal_local -c "file://$PWD/conda-build" -c conda-forge -c bioc
 ## Tools to build a database
 
 Building and training a database ([databases.md](databases.md#building-a-database)) needs more than
-profiling: compilers for protal from the checkout, ART for the simulations, Python with
+profiling: compilers for protal from the checkout, pbsim3's model files for Nanopore reads, Python with
 numpy, pandas, scikit-learn and joblib for the training, and NCBI's `datasets` for strain genomes.
 `envs/protal-db-build.yaml` is a conda environment with all of them:
 

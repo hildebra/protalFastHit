@@ -29,7 +29,7 @@ Substitutions only: the strain has the representative's length and its genes' po
 
 Writes OUT_DIR/<name>.fna.gz per strain (name: insilico_ and the representative's accession with '_' for '.', so
 that no accession pattern takes it for the representative; its contigs <name>_<the representative's contig>, so
-that its reads, which ART names by their contig, are told from the representative's), the genome table --output
+that its reads, named by their contig, are told from the representative's), the genome table --output
 (the input's rows and one per strain: name, taxonomy, FASTA, length) and OUT_DIR/insilico_strains.tsv (per strain:
 representative, species, genome and marker divergence drawn, substitutions made, the coding share of the genome,
 the marker divergence reached on the placed genes).

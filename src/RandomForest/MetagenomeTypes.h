@@ -104,14 +104,17 @@ inline std::uint64_t ReadPairsForSample(ProfileDesignOptions const& options, std
 // smaller, and read by protal alike).
 enum class ReadsCompression { Bgzf, Zstd };
 
-struct ArtIlluminaOptions {
-    std::string art_path{"art_illumina"};
+// How the Illumina paired-end reads are made (IlluminaSimulator.h).
+struct IlluminaOptions {
     int read_length{150};
     int fragment_mean{350};
     int fragment_stdev{50};
-    std::string sequencer{"HS25"};
-    std::vector<std::string> extra_args;
+    std::string sequencer{"HS25"};       // an IlluminaProfile: HS20, HS25, HSXt, NovaSeq, MSv3
+    std::optional<double> mean_quality;  // each read's mean base quality (Phred), else the profile's
     int threads{1};
+    std::filesystem::path host_folder;   // a host genome (scenarios.prepare_host), for host_pairs
+    std::vector<std::uint64_t> host_pairs;  // each sample's host read pairs, in turn (after its community's)
+    bool first_reads_only{false};        // only the _R1 files (the same reads as with both)
 };
 
 struct SampleOutput {

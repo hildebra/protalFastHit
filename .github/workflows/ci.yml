@@ -4,7 +4,7 @@ on:
   push:
   pull_request:
 
-# A test whose prerequisite is missing (a binary, the database, scikit-learn, art_illumina, ...) fails here instead of
+# A test whose prerequisite is missing (a binary, the database, scikit-learn, ...) fails here instead of
 # being skipped: a test that should run cannot pass unseen.
 env:
   PROTAL_TESTS_REQUIRED: 1
@@ -19,7 +19,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libgtest-dev libzstd-dev libisal-dev zstd \
-            python3 python3-numpy python3-pandas python3-sklearn python3-joblib art-nextgen-simulation-tools
+            python3 python3-numpy python3-pandas python3-sklearn python3-joblib
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPROTAL_BUILD_TESTS=ON

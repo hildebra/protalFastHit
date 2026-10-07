@@ -42,39 +42,32 @@ How the parts are made:
   species give (since 2026-10-05; 8,000 before). A scenario that does not fit is scaled down to what the table holds
   (fit_species: the largest sample a TABLE_MARGIN-th of the table), and the collector and the build say so; download
   more species for the full size (download_gtdb.py --species, --rep_only_species).
-- Illumina reads at a quality: ART's built-in profiles have their own mean base quality (HiSeq X TruSeq: Q40.2 for
-  the first reads, Q37.9 for the second). ART shifts every quality, and the errors with it, by -qs and -qs2; the
-  shifts that give the target mean (art_shifts) come from a short ART run on a random sequence, kept in
-  OUT/scenarios/art_quality.json.
+- Illumina reads at a quality: simulate_metagenomes's instrument profiles (IlluminaSimulator.h) have their own mean
+  base quality by cycle; --mean_quality shifts each read's curve so that its qualities average the scenario's, and
+  the errors follow the qualities.
 - Ultima Genomics reads: single-end, their length from a gamma distribution (mean 300, SD 40), their errors mostly
   homopolymer length errors, made by hifi_reads.py's flow model (mean base quality per read, homopolymers from two
   bases) from templates the collector draws like those of long reads.
 - A host: its genome (download_gtdb.py fetches the human one, T2T-CHM13v2.0, gzipped as NCBI serves it) is written
-  once as plain sequence (OUT/host/host.seq, read by memory map; Host) and gives host_share of a sample's reads (pe,
-  se: read pairs and reads) or bases (pb, ont): the community is simulated at the rest of the depth, and the host's
-  paired-end reads are made by ART in amplicon mode from fragments drawn from the genome (host_pe_chunk), its long
-  and Ultima reads from templates drawn among the community's by their share of the bases. A host's reads are in no
-  truth file: they reach the profile only through spurious alignments.
+  once as plain sequence (OUT/host/host.seq, read by memory map in simulate_metagenomes) and gives host_share of a
+  sample's reads (pe, se: read pairs and reads) or bases (pb, ont): the community is simulated at the rest of the
+  depth, and simulate_metagenomes makes the host's paired-end reads (--host_pairs, after the community's, from
+  fragments drawn from the genome), its long and Ultima reads from templates drawn among the community's by their
+  share of the bases. A host's reads are in no truth file: they reach the profile only through spurious alignments.
 """
 
 import gzip
 import hashlib
 import json
 import math
-import mmap
 import os
 import random
 import re
-import shutil
-import subprocess
-import tempfile
-import threading
-import bisect
 
-import compressed
 
 READ_TYPES = ("pe", "se", "pb", "ont")
-# The defaults of a scenario's reads, by type: Illumina paired-end reads (ART), Ultima Genomics single-end reads
+# The defaults of a scenario's reads, by type: Illumina paired-end reads (an instrument profile of simulate_metagenomes
+# at a mean base quality), Ultima Genomics single-end reads
 # (hifi_reads.py's flow model, ultima:LENGTH_MEAN:LENGTH_SD:Q_MEAN:Q_SD); long reads take the collection's setups
 # (--pb_setup, --ont_setup) unless a scenario gives its own.
 ILLUMINA = {"type": "pe", "length": 150, "profile": "HSXt", "fragment_mean": 350, "fragment_sd": 50, "quality": 35}
@@ -120,8 +113,6 @@ NAME = re.compile(r"[a-z][a-z0-9_]*")
 # A scenario's table should hold this many times the species of its largest sample, or its samples share most of
 # their species: it is said so (scenario_table), not refused.
 TABLE_MARGIN = 1.5
-# Host paired-end reads are made in chunks of this many pairs side by side (host_pe_chunk).
-HOST_PAIRS_CHUNK = 1_000_000
 
 
 class ScenarioError(ValueError):
@@ -370,58 +361,6 @@ def scenario_table(genome_table, novel, name, definition, seed, out):
     return note
 
 
-# ---- Illumina reads at a mean quality ---------------------------------------------------------------------
-
-def mean_qualities(fastqs):
-    """The mean base quality (Phred, +33) of each FASTQ."""
-    out = []
-    for path in fastqs:
-        total = count = 0
-        with open(path, "rb") as fh:
-            for i, line in enumerate(fh):
-                if i % 4 == 3:
-                    line = line.rstrip(b"\r\n")
-                    total += sum(line) - 33 * len(line)
-                    count += len(line)
-        out.append(total / max(1, count))
-    return out
-
-
-def art_shifts(art, profile_args, length, fragment_mean, fragment_sd, target, cache):
-    """ART's -qs and -qs2 (whole Phred steps) that bring its reads of this setup to a mean base quality of `target`:
-    the profile's means measured once on a random sequence (300 kb, 5x, seed 1) and kept in the JSON file `cache`,
-    with ART's identity. ART shifts every quality and draws the errors from the shifted ones, so the mean moves by
-    the shift (but where it clips at Q0 or Q93). profile_args: ART's options of the profile (-ss HSXt, or -1 R1 -2 R2).
-    -> (qs, qs2, (mean of the first reads, of the second) at no shift)."""
-    exe = shutil.which(art) or art
-    st = os.stat(exe)
-    key = f"{os.path.realpath(exe)}|{st.st_size}|{st.st_mtime_ns}|{' '.join(profile_args)}|{length}|{fragment_mean}|{fragment_sd}"
-    try:
-        with open(cache) as fh:
-            known = json.load(fh)
-    except (OSError, ValueError):
-        known = {}
-    if key not in known:
-        with tempfile.TemporaryDirectory() as tmp:
-            rng = random.Random(1)
-            with open(os.path.join(tmp, "g.fa"), "w") as fh:
-                fh.write(">random\n" + "".join(rng.choice("ACGT") for _ in range(300_000)) + "\n")
-            command = [exe, "-q", *profile_args, "-i", os.path.join(tmp, "g.fa"), "-p", "-l", str(length), "-f", "5",
-                       "-m", str(fragment_mean), "-s", str(fragment_sd), "-na", "-rs", "1", "-o", os.path.join(tmp, "o")]
-            result = subprocess.run(command, capture_output=True, text=True)
-            if result.returncode:
-                raise ScenarioError(f"{' '.join(command)} failed ({result.returncode}): {result.stderr.strip()[-300:]}")
-            known[key] = mean_qualities([os.path.join(tmp, "o1.fq"), os.path.join(tmp, "o2.fq")])
-        os.makedirs(os.path.dirname(os.path.abspath(cache)), exist_ok=True)
-        with open(cache + ".partial", "w") as fh:
-            json.dump(known, fh, indent=1)
-        os.replace(cache + ".partial", cache)
-    first, second = known[key]
-    return round(target - first), round(target - second), (first, second)
-
-
-# ---- a host genome ----------------------------------------------------------------------------------------
-
 def prepare_host(fasta, folder):
     """The host genome as one plain sequence file (folder/host.seq: every contig of 1 kb or more, upper case, one
     after the other) and its index (folder/host.json: contigs, offsets, lengths, and the FASTA it came from), written
@@ -473,85 +412,3 @@ def host_identity(folder):
     with open(os.path.join(folder, "host.json")) as fh:
         index = json.load(fh)
     return {"source": index["source"], "bases": index["bases"]}
-
-
-class Host:
-    """A prepared host genome (prepare_host), read by memory map: templates drawn at random positions, a contig by
-    its length, a start uniform within it. One per folder and process (Host.of), shared by threads."""
-    _open, _lock = {}, threading.Lock()
-
-    def __init__(self, folder):
-        with open(os.path.join(folder, "host.json")) as fh:
-            index = json.load(fh)
-        self.contigs = index["contigs"]
-        self.ends = []
-        total = 0
-        for _, _, length in self.contigs:
-            total += length
-            self.ends.append(total)
-        self.bases = total
-        with open(os.path.join(folder, "host.seq"), "rb") as fh:  # the map keeps a descriptor of its own
-            self.seq = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
-
-    @classmethod
-    def of(cls, folder):
-        with cls._lock:
-            if folder not in cls._open:
-                cls._open[folder] = cls(folder)
-            return cls._open[folder]
-
-    def draw(self, rng, length, min_length=100, max_n=0.1):
-        """A template of `length` bases (shorter at a contig's end, but at least min_length or `length`: pbsim3 takes
-        no shorter one, as the collector's templates of genomes have 100 bases at least) from a random place, on the
-        forward strand; one too short or with more than max_n of N is drawn again (up to 50 times)."""
-        least = min(length, min_length)
-        for _ in range(50):
-            at = rng.randrange(self.bases)
-            k = bisect.bisect_right(self.ends, at)
-            _, offset, contig_length = self.contigs[k]
-            start = at - (self.ends[k] - contig_length)
-            seq = self.seq[offset + start:offset + min(contig_length, start + length)]
-            if len(seq) >= least and seq.count(b"N") <= max_n * len(seq):
-                return seq
-        return seq
-
-
-COMPLEMENT = bytes.maketrans(b"ACGTN", b"TGCAN")
-
-
-def host_pe_chunk(task):
-    """`task["pairs"]` host read pairs into task["r1"] and task["r2"] (zstd or gzip by their names, as the sample's
-    reads they are appended to; compressed.open_write): fragments drawn from the host
-    (fragment length normal, of the setup's mean and SD, at least the read length + 1; either strand), each read by
-    ART in amplicon mode (-amp -p -c 1: one pair from the two ends of each fragment) with the setup's profile and
-    quality shifts (task["art_args"]), named h<chunk>_<n>. -> None, or why it failed."""
-    host = Host.of(task["host"])
-    rng = random.Random(task["seed"])
-    tmp = task["tmp"]
-    os.makedirs(tmp, exist_ok=True)
-    fragments = os.path.join(tmp, "fragments.fa")
-    length = task["length"]
-    with open(fragments, "wb") as fh:
-        for i in range(task["pairs"]):
-            size = max(length + 1, int(round(rng.gauss(task["fragment_mean"], task["fragment_sd"]))))
-            seq = host.draw(rng, size, min_length=length + 1)  # longer than a read: ART reads both its ends
-            if rng.random() < 0.5:
-                seq = seq.translate(COMPLEMENT)[::-1]
-            fh.write(b">h%d_%d\n%s\n" % (task["chunk"], i + 1, seq))
-    prefix = os.path.join(tmp, "r")
-    command = [task["art"], "-q", "-amp", "-p", *task["art_args"], "-i", fragments, "-l", str(length), "-c", "1",
-               "-na", "-rs", str(task["seed"] % 2_000_000_000), "-o", prefix]
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode:
-        return f"{task['sample']}: host reads: {' '.join(command)} failed ({result.returncode}): {result.stderr.strip()[-300:]}"
-    made = []
-    for source, dest in ((prefix + "1.fq", task["r1"]), (prefix + "2.fq", task["r2"])):
-        with open(source, "rb") as fin, compressed.open_write(dest + ".partial") as fout:
-            shutil.copyfileobj(fin, fout, 16 << 20)
-        with open(source, "rb") as fh:
-            made.append(sum(1 for _ in fh) // 4)
-        os.replace(dest + ".partial", dest)
-    shutil.rmtree(tmp, ignore_errors=True)
-    if made != [task["pairs"]] * 2:
-        return f"{task['sample']}: host reads: ART made {made[0]} and {made[1]} reads of {task['pairs']} fragments"
-    return None
